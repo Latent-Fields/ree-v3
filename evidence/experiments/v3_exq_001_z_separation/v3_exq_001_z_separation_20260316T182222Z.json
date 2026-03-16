@@ -1,0 +1,31 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "self_world_correlation": 0.666088879108429,
+    "world_selectivity_margin": -0.12516692280769348,
+    "body_selectivity_margin": 0.05316627025604248,
+    "z_world_world_delta_corr": 0.3396630883216858,
+    "z_self_world_delta_corr": 0.4648300111293793,
+    "z_self_body_delta_corr": 0.49042436480522156,
+    "z_world_body_delta_corr": 0.4372580945491791,
+    "mean_survival_steps": 50.0,
+    "harm_events": 0.0,
+    "agent_caused_harm": 0.0,
+    "total_residue": 0.0,
+    "num_harm_events_residue": 0.0,
+    "record_count": 250.0,
+    "crit1_pass": 1.0,
+    "crit2_pass": 0.0
+  },
+  "summary_markdown": "# V3-EXQ-001 \u2014 SD-005 z_self/z_world Channel Separation\n\n**Status:** FAIL\n**Episodes:** 5 \u00d7 50 steps\n**Seed:** 0\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: z_self/z_world corr < 0.8 | PASS | 0.6661 |\n| C2: world_selectivity_margin > -0.05 | FAIL | -0.1252 |\n| C3: No fatal errors | PASS | 0 |\n\n## Selectivity Metrics\n\n- z_world \u2194 world_delta correlation: 0.3397\n- z_self \u2194 world_delta correlation:  0.4648\n- z_self \u2194 body_delta correlation:   0.4904\n- z_world \u2194 body_delta correlation:  0.4373\n\n## Environment Metrics\n\n- Mean survival: 50.0 steps\n- Harm events: 0 (agent-caused: 0)\n- Total residue accumulated: 0.0000\n- Records collected: 250\n\n## Architecture\n\n- self_dim: 32, world_dim: 32\n- Split encoder: body_obs \u2192 z_self, world_obs \u2192 z_world (SD-005)\n- ResidueField domain: z_world (SD-005)\n\n## Failure Notes\n\n- C2 FAIL: world_selectivity_margin -0.125 < -0.05 (z_world not more selective than z_self for world_delta)\n",
+  "claim_ids": [
+    "SD-005"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_001_z_separation",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260316T182222Z",
+  "claim": "SD-005",
+  "verdict": "FAIL"
+}

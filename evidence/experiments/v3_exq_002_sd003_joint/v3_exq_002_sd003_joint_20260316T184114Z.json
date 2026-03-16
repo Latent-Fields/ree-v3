@@ -1,0 +1,31 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "trained_calibration_gap": 0.0,
+    "random_calibration_gap": -0.026946842670440674,
+    "trained_mean_causal_sig_agent": 0.0,
+    "trained_mean_causal_sig_env": 0.0,
+    "random_mean_causal_sig_agent": 0.0,
+    "random_mean_causal_sig_env": 0.026946842670440674,
+    "trained_agent_caused_harm": 0.0,
+    "random_agent_caused_harm": 0.0,
+    "trained_n_agent_sigs": 0.0,
+    "trained_n_env_sigs": 1.0,
+    "warmup_episodes": 5.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 0.0,
+    "criteria_met": 2.0
+  },
+  "summary_markdown": "# V3-EXQ-002 \u2014 SD-003 Self-Attribution: E2+E3 Joint Pipeline\n\n**Status:** FAIL\n**Warmup episodes:** 5\n**Eval episodes:** 3 \u00d7 30 steps\n**Seed:** 0\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: TRAINED calibration_gap > 0.05 | FAIL | 0.0000 |\n| C2: RANDOM abs(calibration_gap) < 0.10 | PASS | 0.0269 |\n| C3: Agent caused harm (env non-trivial) | FAIL | 0 events |\n| C4: No fatal errors | PASS | 0 |\n\n## Calibration Results\n\n| Condition | mean_causal_sig(agent) | mean_causal_sig(env) | calibration_gap |\n|---|---|---|---|\n| TRAINED | 0.0000 | 0.0000 | 0.0000 |\n| RANDOM  | 0.0000 | 0.0269 | -0.0269 |\n\n## Attribution Pipeline\n\n```\nz_world_actual = E2.world_forward(z_world, a_actual)\nz_world_cf     = E2.world_forward(z_world, a_cf)\nharm_actual    = E3.harm_eval(z_world_actual)\nharm_cf        = E3.harm_eval(z_world_cf)\ncausal_sig     = harm_actual - harm_cf\n```\n\nCriteria met: 2/4 \u2192 SD-003 / V3-EXQ-002 verdict: **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: TRAINED calibration_gap 0.0000 <= 0.05\n- C3 FAIL: agent_caused_harm_count == 0 (agent never caused harm \u2014 env non-trivial?)\n",
+  "claim_ids": [
+    "SD-003"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_002_sd003_joint",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260316T184114Z",
+  "claim": "SD-003",
+  "verdict": "FAIL"
+}
