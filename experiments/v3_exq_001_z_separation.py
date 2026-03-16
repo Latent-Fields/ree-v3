@@ -1,27 +1,19 @@
 """
 V3-EXQ-001 — SD-005 z_self/z_world Channel Separation Validation
 
-Claim: SD-005 (z_self/z_world split) produces functionally distinct latent channels.
+Claim: SD-005 (z_self/z_world split) produces functionally distinct latent channels
+after minimal training. Validates the substrate wiring before any claim experiments.
 
-Validation criteria:
-1. z_self and z_world are not trivially correlated (mutual information < threshold).
-   If r > 0.9, the encoder is collapsing one channel into the other.
-
-2. z_self varies primarily with body-state transitions (health/energy changes, position);
-   z_world varies primarily with world-state transitions (contamination, hazards).
-   Measured as: Pearson correlation with body_delta vs world_delta.
-
-3. ResidueField accumulates on z_world, NOT on z_self delta.
-   After agent-caused harm: d(φ)/d(z_world) should be larger than d(φ)/d(z_self).
-
-4. The agent produces non-trivial behaviour (survives > min_survival_steps on average).
+Two-phase design:
+  TRAIN: gradient updates on E1 prediction loss + E2 motor-sensory loss for
+         num_train_episodes episodes. Encoder learns to separate body/world dynamics.
+  EVAL:  run num_episodes without gradients and measure channel selectivity.
 
 PASS criteria (ALL must hold):
-  - z_self/z_world mean absolute correlation < 0.8
-  - z_world/world_delta correlation > z_self/world_delta correlation (by margin > 0.05)
-  - Fatal error count == 0
-
-This is a substrate validation experiment — it must PASS before any claim experiments.
+  C1: z_self/z_world mean absolute correlation < 0.8  (channels not collapsed)
+  C2: world_selectivity_margin > 0.0  (z_world tracks world_delta better than z_self,
+      after training — positive margin is achievable once encoder has gradient signal)
+  C3: fatal_error_count == 0
 """
 
 import sys
@@ -33,6 +25,7 @@ from typing import Dict, List
 
 import torch
 import torch.nn.functional as F
+import torch.optim as optim
 
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorld
@@ -52,12 +45,72 @@ def _pearson_correlation(a: torch.Tensor, b: torch.Tensor) -> float:
     return float((a_z * b_z).mean().item())
 
 
+def _train_episode(
+    agent: REEAgent,
+    env: CausalGridWorld,
+    optimizer: optim.Optimizer,
+    steps_per_episode: int,
+) -> None:
+    """Run one training episode: E1 + E2 motor-sensory gradient updates."""
+    agent.train()
+    flat_obs, obs_dict = env.reset()
+    agent.reset()
+    z_self_prev = None
+
+    for step in range(steps_per_episode):
+        obs_body  = obs_dict["body_state"]
+        obs_world = obs_dict["world_state"]
+
+        latent = agent.sense(obs_body, obs_world)
+        ticks  = agent.clock.advance()
+
+        if ticks["e1_tick"]:
+            agent._e1_tick(latent)
+
+        # Record transition for E2
+        if z_self_prev is not None:
+            last_a = agent._last_action if agent._last_action is not None else torch.zeros(1, env.action_dim)
+            agent.record_transition(z_self_prev, last_a, latent.z_self.detach())
+        z_self_prev = latent.z_self.detach()
+
+        # Select action (no gradient needed here)
+        with torch.no_grad():
+            e1_prior = torch.zeros(1, agent.config.latent.world_dim, device=agent.device)
+            candidates = agent.hippocampal.propose_trajectories(
+                z_world=latent.z_world.detach(),
+                z_self=latent.z_self.detach(),
+                num_candidates=4,
+                e1_prior=e1_prior,
+            )
+            result = agent.e3.select(candidates, temperature=1.5)
+            action = result.selected_action
+            agent._last_action = action
+
+        flat_obs, harm_signal, done, info, obs_dict = env.step(action)
+
+        # Training loss
+        e1_loss = agent.compute_prediction_loss()
+        e2_loss = agent.compute_e2_loss()
+        loss = e1_loss + e2_loss
+
+        if loss.requires_grad:
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(agent.parameters(), 1.0)
+            optimizer.step()
+
+        if done:
+            break
+
+
 def run(
     seed: int = 0,
+    num_train_episodes: int = 10,
     num_episodes: int = 20,
     steps_per_episode: int = 200,
     self_dim: int = 32,
     world_dim: int = 32,
+    lr: float = 1e-3,
     **kwargs,
 ) -> dict:
     """
@@ -69,7 +122,6 @@ def run(
 
     env = CausalGridWorld(seed=seed)
 
-    # Config: SD-005 split dims match env observation channels
     config = REEConfig.from_dims(
         body_obs_dim=env.body_obs_dim,
         world_obs_dim=env.world_obs_dim,
@@ -78,13 +130,27 @@ def run(
         world_dim=world_dim,
     )
     agent = REEAgent(config)
+
+    # ------------------------------------------------------------------ #
+    # Phase 1: Training                                                    #
+    # ------------------------------------------------------------------ #
+    optimizer = optim.Adam(agent.parameters(), lr=lr)
+
+    print(f"[V3-EXQ-001] Training phase: {num_train_episodes} episodes ...", flush=True)
+    for ep in range(num_train_episodes):
+        _train_episode(agent, env, optimizer, steps_per_episode)
+        if (ep + 1) % 5 == 0:
+            print(f"  Train ep {ep + 1}/{num_train_episodes}", flush=True)
+
+    # ------------------------------------------------------------------ #
+    # Phase 2: Evaluation                                                  #
+    # ------------------------------------------------------------------ #
     agent.eval()
 
-    # Tracking
     z_self_records:  List[torch.Tensor] = []
     z_world_records: List[torch.Tensor] = []
-    body_delta_records:  List[float] = []   # change in body-state metric per step
-    world_delta_records: List[float] = []   # change in world-state metric per step
+    body_delta_records:  List[float] = []
+    world_delta_records: List[float] = []
     harm_events = 0
     agent_caused_harm = 0
     survival_steps_all: List[int] = []
@@ -104,34 +170,31 @@ def run(
                 obs_body  = obs_dict["body_state"]
                 obs_world = obs_dict["world_state"]
 
-                # Update latent state
-                latent = agent.sense(obs_body, obs_world)
-                ticks  = agent.clock.advance()
+                with torch.no_grad():
+                    latent = agent.sense(obs_body, obs_world)
+                    ticks  = agent.clock.advance()
 
-                # Record z_self and z_world
-                z_self  = latent.z_self.detach().squeeze(0)
-                z_world = latent.z_world.detach().squeeze(0)
-                z_self_records.append(z_self)
-                z_world_records.append(z_world)
+                    z_self  = latent.z_self.detach().squeeze(0)
+                    z_world = latent.z_world.detach().squeeze(0)
+                    z_self_records.append(z_self)
+                    z_world_records.append(z_world)
 
-                # Body and world delta relative to previous step
-                body_delta  = float((obs_body  - prev_body_state).abs().mean().item())
-                world_delta = float((obs_world - prev_world_state).abs().mean().item())
-                body_delta_records.append(body_delta)
-                world_delta_records.append(world_delta)
-                prev_body_state  = obs_body.clone()
-                prev_world_state = obs_world.clone()
+                    body_delta  = float((obs_body  - prev_body_state).abs().mean().item())
+                    world_delta = float((obs_world - prev_world_state).abs().mean().item())
+                    body_delta_records.append(body_delta)
+                    world_delta_records.append(world_delta)
+                    prev_body_state  = obs_body.clone()
+                    prev_world_state = obs_world.clone()
 
-                # Generate and select action
-                e1_prior = torch.zeros(1, world_dim)
-                candidates = agent.hippocampal.propose_trajectories(
-                    z_world=z_world.unsqueeze(0),
-                    z_self=z_self.unsqueeze(0),
-                    num_candidates=4,
-                    e1_prior=e1_prior,
-                )
-                result = agent.e3.select(candidates, temperature=1.5)
-                action = result.selected_action
+                    e1_prior = torch.zeros(1, world_dim)
+                    candidates = agent.hippocampal.propose_trajectories(
+                        z_world=z_world.unsqueeze(0),
+                        z_self=z_self.unsqueeze(0),
+                        num_candidates=4,
+                        e1_prior=e1_prior,
+                    )
+                    result = agent.e3.select(candidates, temperature=1.5)
+                    action = result.selected_action
 
                 flat_obs, harm_signal, done, info, obs_dict = env.step(action)
 
@@ -177,17 +240,13 @@ def run(
             "experiment_type": EXPERIMENT_TYPE,
         }
 
-    z_self_mat  = torch.stack(z_self_records)   # [N, self_dim]
-    z_world_mat = torch.stack(z_world_records)  # [N, world_dim]
+    z_self_mat  = torch.stack(z_self_records)
+    z_world_mat = torch.stack(z_world_records)
 
-    # Criterion 1: z_self and z_world should not be highly correlated.
-    # Use mean of first PC correlations (simplification).
-    # Compute element-wise correlation of reduced vectors (mean over dims).
-    z_self_mean_per_step  = z_self_mat.mean(dim=-1)   # [N]
-    z_world_mean_per_step = z_world_mat.mean(dim=-1)  # [N]
+    z_self_mean_per_step  = z_self_mat.mean(dim=-1)
+    z_world_mean_per_step = z_world_mat.mean(dim=-1)
     self_world_corr = abs(_pearson_correlation(z_self_mean_per_step, z_world_mean_per_step))
 
-    # Criterion 2: z_world should correlate more with world_delta than z_self does.
     body_delta_t  = torch.tensor(body_delta_records,  dtype=torch.float32)
     world_delta_t = torch.tensor(world_delta_records, dtype=torch.float32)
 
@@ -205,28 +264,25 @@ def run(
     # ------------------------------------------------------------------ #
     # PASS / FAIL decision                                                 #
     # ------------------------------------------------------------------ #
-    # Criterion 1: channels not collapsed
+    # C1: channels not collapsed
     crit1_pass = self_world_corr < 0.8
-    # Criterion 2: world channel more selective for world_delta
-    # (margin > -0.05 to allow early experiments with random agents)
-    crit2_pass = world_selectivity_margin > -0.05
-    # Criterion 3: no fatal errors
+    # C2: after training, z_world must be positively more selective for world_delta
+    crit2_pass = world_selectivity_margin > 0.0
+    # C3: no fatal errors
     crit3_pass = fatal_errors == 0
 
     all_pass = crit1_pass and crit2_pass and crit3_pass
-
     status = "PASS" if all_pass else "FAIL"
 
     failure_notes = []
     if not crit1_pass:
         failure_notes.append(
-            f"C1 FAIL: z_self/z_world correlation {self_world_corr:.3f} >= 0.8"
-            " (channels may be collapsing)"
+            f"C1 FAIL: z_self/z_world corr {self_world_corr:.3f} >= 0.8 (channels collapsing)"
         )
     if not crit2_pass:
         failure_notes.append(
-            f"C2 FAIL: world_selectivity_margin {world_selectivity_margin:.3f} < -0.05"
-            " (z_world not more selective than z_self for world_delta)"
+            f"C2 FAIL: world_selectivity_margin {world_selectivity_margin:.3f} <= 0.0 "
+            f"after {num_train_episodes} training episodes (z_world not selective for world_delta)"
         )
     if not crit3_pass:
         failure_notes.append(f"C3 FAIL: fatal_errors={fatal_errors}")
@@ -246,6 +302,7 @@ def run(
         "total_residue": float(residue_stats["total_residue"].item()),
         "num_harm_events_residue": float(residue_stats["num_harm_events"].item()),
         "record_count": float(len(z_self_records)),
+        "num_train_episodes": float(num_train_episodes),
         "crit1_pass": 1.0 if crit1_pass else 0.0,
         "crit2_pass": 1.0 if crit2_pass else 0.0,
     }
@@ -256,10 +313,16 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
+    print(f"\nV3-EXQ-001 verdict: {status}", flush=True)
+    print(f"  C1 self/world corr: {self_world_corr:.4f} ({'PASS' if crit1_pass else 'FAIL'})", flush=True)
+    print(f"  C2 world_selectivity_margin: {world_selectivity_margin:.4f} ({'PASS' if crit2_pass else 'FAIL'})", flush=True)
+    print(f"  Train eps: {num_train_episodes}  Eval eps: {num_episodes}", flush=True)
+
     summary_markdown = f"""# V3-EXQ-001 — SD-005 z_self/z_world Channel Separation
 
 **Status:** {status}
-**Episodes:** {num_episodes} × {steps_per_episode} steps
+**Training episodes:** {num_train_episodes}
+**Eval episodes:** {num_episodes} × {steps_per_episode} steps
 **Seed:** {seed}
 
 ## PASS Criteria
@@ -267,28 +330,22 @@ def run(
 | Criterion | Result | Value |
 |---|---|---|
 | C1: z_self/z_world corr < 0.8 | {"PASS" if crit1_pass else "FAIL"} | {self_world_corr:.4f} |
-| C2: world_selectivity_margin > -0.05 | {"PASS" if crit2_pass else "FAIL"} | {world_selectivity_margin:.4f} |
+| C2: world_selectivity_margin > 0.0 (trained) | {"PASS" if crit2_pass else "FAIL"} | {world_selectivity_margin:.4f} |
 | C3: No fatal errors | {"PASS" if crit3_pass else "FAIL"} | {fatal_errors} |
 
 ## Selectivity Metrics
 
 - z_world ↔ world_delta correlation: {z_world_world_delta_corr:.4f}
-- z_self ↔ world_delta correlation:  {z_self_world_delta_corr:.4f}
-- z_self ↔ body_delta correlation:   {z_self_body_delta_corr:.4f}
+- z_self  ↔ world_delta correlation: {z_self_world_delta_corr:.4f}
+- z_self  ↔ body_delta correlation:  {z_self_body_delta_corr:.4f}
 - z_world ↔ body_delta correlation:  {z_world_body_delta_corr:.4f}
 
 ## Environment Metrics
 
 - Mean survival: {mean_survival:.1f} steps
 - Harm events: {harm_events} (agent-caused: {agent_caused_harm})
-- Total residue accumulated: {residue_stats["total_residue"].item():.4f}
-- Records collected: {len(z_self_records)}
-
-## Architecture
-
-- self_dim: {self_dim}, world_dim: {world_dim}
-- Split encoder: body_obs → z_self, world_obs → z_world (SD-005)
-- ResidueField domain: z_world (SD-005)
+- Total residue: {residue_stats["total_residue"].item():.4f}
+- Records: {len(z_self_records)}
 {failure_section}
 """
 
@@ -304,20 +361,23 @@ def run(
 
 
 if __name__ == "__main__":
-    # Explorer-launch pattern: write flat JSON to evidence/experiments/.
-    # sync_v3_results.py converts these into governance run packs in REE_assembly.
     import argparse
     import json
     from datetime import datetime, timezone
-    from pathlib import Path
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--train-episodes", type=int, default=10)
     parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--steps", type=int, default=200)
     args = parser.parse_args()
 
-    result = run(seed=args.seed, num_episodes=args.episodes, steps_per_episode=args.steps)
+    result = run(
+        seed=args.seed,
+        num_train_episodes=args.train_episodes,
+        num_episodes=args.episodes,
+        steps_per_episode=args.steps,
+    )
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     result["run_timestamp"] = ts
@@ -329,7 +389,7 @@ if __name__ == "__main__":
     out_path = out_dir / f"{EXPERIMENT_TYPE}_{ts}.json"
     out_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
-    print(f"Result written to: {out_path}")
-    print(f"Status: {result['status']}")
+    print(f"Result written to: {out_path}", flush=True)
+    print(f"Status: {result['status']}", flush=True)
     for k, v in result["metrics"].items():
-        print(f"  {k}: {v}")
+        print(f"  {k}: {v}", flush=True)

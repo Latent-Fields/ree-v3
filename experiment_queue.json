@@ -1,0 +1,39 @@
+{
+  "schema_version": "v1",
+  "calibration": {
+    "ms_per_episode_condition": 8000,
+    "hardware": "Apple M2 Air 8 GB",
+    "calibrated_at": "2026-03-16",
+    "calibration_note": "Initial V3 estimate. V3 substrate (split latent, multi-rate clock, HippocampalModule) is heavier than V2. Will be updated from actual run times."
+  },
+  "items": [
+    {
+      "queue_id": "V3-EXQ-001",
+      "backlog_id": "",
+      "claim_id": "SD-005",
+      "title": "SD-005 z_self/z_world Channel Separation Validation",
+      "description": "Substrate validation. After 10 training episodes (E1 + E2 gradient updates), the split encoder must show z_world more selective for world_delta than z_self (world_selectivity_margin > 0.0). C1: channels not collapsed (corr < 0.8). C2: positive world selectivity margin post-training. Must PASS before any V3 claim experiments.",
+      "script": "experiments/v3_exq_001_z_separation.py",
+      "args": ["--seed", "0", "--train-episodes", "10", "--episodes", "20", "--steps", "200"],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 30,
+      "status": "pending",
+      "status_reason": "Threshold fixed (C2: 0.0 positive margin post-training). Ready."
+    },
+    {
+      "queue_id": "V3-EXQ-002",
+      "backlog_id": "",
+      "claim_id": "SD-003",
+      "title": "Full SD-003 Self-Attribution — E2+E3 Joint Pipeline",
+      "description": "V3 redesign of EXQ-027/028 (both FAIL in V2). Tests whether the joint E2.world_forward + E3.harm_eval pipeline correctly attributes agent-caused harm. TRAINED condition: 100 warmup episodes training E2 world_forward + E3 harm_eval jointly, then counterfactual calibration eval. RANDOM condition: untrained control. PASS: TRAINED calibration_gap > 0.05 AND RANDOM |calibration_gap| < 0.10.",
+      "script": "experiments/v3_exq_002_sd003_joint.py",
+      "args": ["--seed", "0", "--warmup", "100", "--eval-episodes", "30", "--steps", "200"],
+      "seeds": 1,
+      "conditions": 2,
+      "episodes_per_run": 130,
+      "status": "pending",
+      "status_reason": "Depends on V3-EXQ-001 PASS. New experiment targeting SD-003 root cause of EXQ-027 FAIL."
+    }
+  ]
+}
