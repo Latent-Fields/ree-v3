@@ -1,0 +1,289 @@
+"""
+HippocampalModule — V3 Implementation
+
+V3 changes (SD-004, Q-020 ARC-007 strict):
+
+SD-004 — Action-object space navigation:
+  HippocampalModule now navigates ACTION-OBJECT space O, not raw z_world.
+  E2.action_object(z_world, a) produces o_t — a compressed representation
+  of the world-effect of action a from z_world. The CEM search operates
+  over action-object proposals, not raw action sequences.
+
+  This extends the effective planning horizon because:
+  a) action-object space is lower-dimensional than z_world
+  b) action objects are semantically grounded (encode world-effects)
+  c) the hippocampal map is indexed over world-effects, not states
+
+Q-020 — ARC-007 STRICT (decided 2026-03-16):
+  HippocampalModule generates VALUE-FLAT proposals.
+  Terrain sensitivity is a CONSEQUENCE of navigating a residue-shaped
+  z_world, not an independent hippocampal value computation.
+  No separate value head. Residue field curvature in z_world IS the terrain.
+  E3 introduces all weighting via Φ_R(ζ) in J(ζ).
+
+SD-002 (preserved from V2): E1 world-domain prior wired into terrain search.
+  terrain_prior: (z_world, e1_prior, residue_val) → action_object_mean
+
+MECH-092 (replay):
+  replay() is called during quiescent E3 heartbeat cycles. Carries
+  hypothesis_tag=True — replay cannot produce residue (MECH-094).
+"""
+
+from typing import List, Optional
+
+import torch
+import torch.nn as nn
+
+from ree_core.utils.config import HippocampalConfig
+from ree_core.predictors.e2_fast import E2FastPredictor, Trajectory
+from ree_core.residue.field import ResidueField
+
+
+class HippocampalModule(nn.Module):
+    """
+    HippocampalModule — action-object space trajectory proposal.
+
+    V3 role:
+    - Uses E2.action_object() to build proposals in action-object space O
+    - CEM refinement over action-object means (not raw z_world or z_self)
+    - Residue field scores terrain; proposals naturally avoid high-residue regions
+    - No independent value computation (ARC-007 strict, Q-020 resolved)
+
+    SD-002 preserved: E1 world-domain prior conditions initial terrain proposal.
+
+    replay() method for MECH-092 SWR-equivalent consolidation.
+    """
+
+    def __init__(
+        self,
+        config: HippocampalConfig,
+        e2: E2FastPredictor,
+        residue_field: ResidueField,
+    ):
+        super().__init__()
+        self.config = config
+        self.e2 = e2
+        self.residue_field = residue_field
+
+        # SD-004 + SD-002: terrain prior now maps (z_world, e1_prior, residue_val)
+        # → action_object_mean (in action-object space O).
+        # Output: action_object_dim * horizon (flattened)
+        # Input: 2*world_dim + 1 (z_world + e1_prior + residue scalar)
+        self.terrain_prior = nn.Sequential(
+            nn.Linear(config.world_dim * 2 + 1, config.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(config.hidden_dim, config.action_object_dim * config.horizon),
+        )
+
+        # Action-object → action decoder: used to generate actual action sequences
+        # from action-object proposals (needed for E2 rollout).
+        # Maps o_t back to an action a_t.
+        self.action_object_decoder = nn.Sequential(
+            nn.Linear(config.action_object_dim, config.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(config.hidden_dim, config.action_dim),
+        )
+
+    def _get_terrain_action_object_mean(
+        self,
+        z_world: torch.Tensor,
+        e1_prior: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Compute terrain-informed action-object distribution mean (SD-004).
+
+        Queries residue field at z_world and combines with E1 prior (SD-002)
+        to bias the initial action-object proposal toward low-residue regions.
+
+        Args:
+            z_world:  [batch, world_dim]
+            e1_prior: world-domain E1 prior [batch, world_dim]. If None, zeros.
+
+        Returns:
+            action_object_mean [batch, horizon, action_object_dim]
+        """
+        with torch.no_grad():
+            residue_val = self.residue_field.evaluate(z_world).unsqueeze(-1)  # [batch, 1]
+
+        if e1_prior is None:
+            e1_prior = torch.zeros_like(z_world)
+
+        combined = torch.cat([z_world, e1_prior, residue_val], dim=-1)
+        mean_flat = self.terrain_prior(combined)  # [batch, action_object_dim * horizon]
+        return mean_flat.view(
+            z_world.shape[0], self.config.horizon, self.config.action_object_dim
+        )
+
+    def _decode_action_objects(
+        self,
+        action_objects: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Decode action-object sequence to action sequence.
+
+        Args:
+            action_objects: [batch, horizon, action_object_dim]
+
+        Returns:
+            actions [batch, horizon, action_dim]
+        """
+        batch, horizon, ao_dim = action_objects.shape
+        flat = action_objects.reshape(batch * horizon, ao_dim)
+        actions_flat = self.action_object_decoder(flat)
+        return actions_flat.reshape(batch, horizon, self.config.action_dim)
+
+    def _score_trajectory(self, trajectory: Trajectory) -> torch.Tensor:
+        """
+        Score a trajectory for CEM elite selection.
+
+        ARC-007 STRICT: scoring is terrain-only (residue field over z_world).
+        No independent harm prediction here — E3 introduces all value weighting.
+
+        Returns a scalar score (lower = better terrain, less residue).
+        """
+        if trajectory.world_states is not None:
+            world_seq = trajectory.get_world_state_sequence()
+            if world_seq is not None:
+                return self.residue_field.evaluate_trajectory(world_seq).sum()
+
+        # Fallback: residue over z_self states (pre-SD-005 wiring)
+        states = trajectory.get_state_sequence()
+        return self.residue_field.evaluate_trajectory(states).sum()
+
+    def propose_trajectories(
+        self,
+        z_world: torch.Tensor,
+        z_self: Optional[torch.Tensor] = None,
+        num_candidates: Optional[int] = None,
+        e1_prior: Optional[torch.Tensor] = None,
+    ) -> List[Trajectory]:
+        """
+        Propose candidate trajectories via terrain-guided CEM in action-object space.
+
+        V3 algorithm:
+        1. Initialise action-object distribution mean from terrain prior
+           (SD-004: in action-object space O, conditioned on E1 prior — SD-002)
+        2. For each CEM iteration:
+           a. Sample action-object sequences from current distribution
+           b. Decode to action sequences via action_object_decoder
+           c. Roll out through E2 (self + world tracks)
+           d. Score via residue field terrain (ARC-007 strict — no value head)
+           e. Refit distribution to elite (lowest-residue) samples
+        3. Return final candidates for E3 to evaluate
+
+        Args:
+            z_world:        Current z_world [batch, world_dim]
+            z_self:         Current z_self [batch, self_dim] (for E2 rollouts)
+            num_candidates: Number of candidates per CEM iteration
+            e1_prior:       E1 world-domain prior [batch, world_dim] (SD-002)
+
+        Returns:
+            List of Trajectory objects
+        """
+        n = num_candidates or self.config.num_candidates
+        num_elite = max(1, int(n * self.config.elite_fraction))
+        batch_size = z_world.shape[0]
+        device = z_world.device
+
+        # Fallback z_self (zeros) when not provided
+        if z_self is None:
+            z_self = torch.zeros(batch_size, self.config.world_dim, device=device)
+
+        # Initialise in action-object space (SD-004)
+        ao_mean = self._get_terrain_action_object_mean(z_world, e1_prior=e1_prior)
+        ao_std  = torch.ones_like(ao_mean)
+
+        all_trajectories: List[Trajectory] = []
+
+        for _iteration in range(self.config.num_cem_iterations):
+            trajectories: List[Trajectory] = []
+            scores: List[torch.Tensor] = []
+
+            for _ in range(n):
+                noise = torch.randn_like(ao_mean)
+                action_objects_sample = ao_mean + ao_std * noise  # [batch, H, ao_dim]
+
+                # Decode action objects → actions for E2 rollout
+                actions = self._decode_action_objects(action_objects_sample)
+
+                # Roll out: track both z_self and z_world for scoring
+                traj = self.e2.rollout_with_world(
+                    z_self, z_world, actions, compute_action_objects=True
+                )
+                trajectories.append(traj)
+                scores.append(self._score_trajectory(traj))
+
+            scores_tensor = torch.stack(scores)
+            elite_indices = torch.argsort(scores_tensor)[:num_elite]
+
+            # Refit distribution to elite action-object sequences
+            # Extract action objects from trajectories
+            elite_ao = []
+            for i in elite_indices:
+                ao_seq = trajectories[i].get_action_object_sequence()
+                if ao_seq is not None:
+                    elite_ao.append(ao_seq)
+
+            if elite_ao:
+                elite_ao_tensor = torch.stack(elite_ao)  # [elite, batch, H, ao_dim]
+                ao_mean = elite_ao_tensor.mean(dim=0)
+                ao_std  = elite_ao_tensor.std(dim=0) + 1e-6
+            # else: keep previous distribution
+
+            all_trajectories = trajectories
+
+        return all_trajectories
+
+    def replay(
+        self,
+        theta_buffer_recent: torch.Tensor,
+        num_replay_steps: int = 5,
+    ) -> List[Trajectory]:
+        """
+        SWR-equivalent replay for viability map consolidation (MECH-092).
+
+        Called during quiescent E3 heartbeat cycles (no salient event pending).
+        All content carries hypothesis_tag=True — replay cannot produce residue
+        (MECH-094 invariant).
+
+        Args:
+            theta_buffer_recent: Recent theta-cycle buffer content
+                [T, batch, world_dim]
+            num_replay_steps: Number of replay trajectories to generate
+
+        Returns:
+            List of Trajectory objects (all hypothesis_tag=True on caller side)
+        """
+        if theta_buffer_recent is None or theta_buffer_recent.shape[0] == 0:
+            return []
+
+        # Use the most recent z_world from the buffer as replay start
+        z_world_replay = theta_buffer_recent[-1]   # [batch, world_dim]
+        batch_size = z_world_replay.shape[0]
+        device = z_world_replay.device
+        z_self_zeros = torch.zeros(batch_size, self.config.world_dim, device=device)
+
+        # Generate random action sequences for replay rollouts
+        replay_trajectories = []
+        for _ in range(num_replay_steps):
+            actions = self.e2.generate_random_actions(
+                batch_size, self.config.horizon, device
+            )
+            traj = self.e2.rollout_with_world(
+                z_self_zeros, z_world_replay, actions, compute_action_objects=False
+            )
+            replay_trajectories.append(traj)
+
+        return replay_trajectories
+
+    def forward(
+        self,
+        z_world: torch.Tensor,
+        z_self: Optional[torch.Tensor] = None,
+        num_candidates: Optional[int] = None,
+        e1_prior: Optional[torch.Tensor] = None,
+    ) -> List[Trajectory]:
+        """Forward pass: propose trajectories from z_world."""
+        return self.propose_trajectories(
+            z_world, z_self=z_self, num_candidates=num_candidates, e1_prior=e1_prior
+        )

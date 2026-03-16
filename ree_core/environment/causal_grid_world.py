@@ -1,0 +1,495 @@
+"""
+CausalGridWorld V3 — Split Observation Channels (SD-005)
+
+V3 change: observation is split into explicit body_state and world_state channels,
+matching the SD-005 z_self/z_world split in the latent stack.
+
+Observation structure (V3):
+  body_state:        position_local (2), health, energy, footprint_density (1),
+                     heading (4 one-hot), momentum (2) — proprioceptive/interoceptive
+                     → fed to z_self encoder
+  world_state:       local_view (5×5×6 = 150), contamination_view (5×5 = 25) flattened
+                     → fed to z_world encoder
+  contamination_view included in world_state (it is a world-state channel)
+
+body_obs_dim  = 2 + 1 + 1 + 1 + 4 + 2 = 11 → padded/truncated to config.body_obs_dim
+world_obs_dim = 5*5*6 + 5*5 = 150 + 25 = 175 → we compress to config.world_obs_dim
+                or expand body to fill out the full obs vector.
+
+Practical approach: The full observation dict is returned from step() and reset(),
+with keys "body_state", "world_state", "contamination_view". The flat observation
+(for backward compat) concatenates [body_state, world_state].
+
+Ground truth transition_type (for V3-EXQ-002, SD-003) is preserved unchanged.
+
+Sub-goal mode preserved unchanged from V2.
+"""
+
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import torch
+
+
+class CausalGridWorld:
+    """
+    2D grid world with persistent agent causal footprint — V3.
+
+    V3 key change: _get_observation() returns a dict AND a flat tensor.
+    The dict has:
+      "body_state":   [body_obs_dim]  — proprioceptive channels → z_self
+      "world_state":  [world_obs_dim] — exteroceptive channels  → z_world
+      "contamination_view": [25]      — subset of world_state (for convenience)
+
+    Actions (unchanged from V2):
+        0: up, 1: down, 2: left, 3: right, 4: stay
+
+    Transition types (ground truth for SD-003 attribution):
+        "agent_caused_hazard", "env_caused_hazard", "resource", "none"
+        "waypoint", "sequence_complete" (subgoal_mode only)
+    """
+
+    ACTIONS: Dict[int, Tuple[int, int]] = {
+        0: (-1, 0), 1: (1, 0), 2: (0, -1), 3: (0, 1), 4: (0, 0),
+    }
+
+    ENTITY_TYPES: Dict[str, int] = {
+        "empty": 0, "wall": 1, "resource": 2, "hazard": 3,
+        "contaminated": 4, "agent": 5, "waypoint": 6,
+    }
+    NUM_ENTITY_TYPES = 7
+
+    def __init__(
+        self,
+        size: int = 10,
+        num_hazards: int = 3,
+        num_resources: int = 5,
+        contamination_spread: float = 0.5,
+        contamination_threshold: float = 2.0,
+        env_drift_interval: int = 5,
+        env_drift_prob: float = 0.3,
+        hazard_harm: float = 0.5,
+        contaminated_harm: float = 0.4,
+        resource_benefit: float = 0.3,
+        energy_decay: float = 0.01,
+        seed: Optional[int] = None,
+        # Sub-goal mode (preserved from V2 for MECH-057a)
+        subgoal_mode: bool = False,
+        num_waypoints: int = 3,
+        waypoint_visit_reward: float = 0.2,
+        waypoint_completion_reward: float = 0.8,
+        sequence_commitment_timeout: int = 20,
+    ):
+        self.size = size
+        self.num_hazards = num_hazards
+        self.num_resources = num_resources
+        self.contamination_spread = contamination_spread
+        self.contamination_threshold = contamination_threshold
+        self.env_drift_interval = env_drift_interval
+        self.env_drift_prob = env_drift_prob
+        self.hazard_harm = hazard_harm
+        self.contaminated_harm = contaminated_harm
+        self.resource_benefit = resource_benefit
+        self.energy_decay = energy_decay
+
+        self.subgoal_mode = subgoal_mode
+        self.num_waypoints = num_waypoints
+        self.waypoint_visit_reward = waypoint_visit_reward
+        self.waypoint_completion_reward = waypoint_completion_reward
+        self.sequence_commitment_timeout = sequence_commitment_timeout
+
+        self._rng = np.random.default_rng(seed)
+        self.reset()
+
+    # ------------------------------------------------------------------ #
+    # Dimension properties                                                 #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def body_obs_dim(self) -> int:
+        """SD-005 body (proprioceptive/interoceptive) observation dimension."""
+        # position_local (2) + health (1) + energy (1) + footprint_density (1)
+        # + heading (4 one-hot for last action) + padding = 10
+        return 10
+
+    @property
+    def world_obs_dim(self) -> int:
+        """SD-005 world (exteroceptive) observation dimension."""
+        local_view_dim = 5 * 5 * self.NUM_ENTITY_TYPES  # 175
+        contamination_view_dim = 5 * 5                   # 25
+        return local_view_dim + contamination_view_dim   # 200
+
+    @property
+    def observation_dim(self) -> int:
+        """Total flat observation dimension (body + world)."""
+        return self.body_obs_dim + self.world_obs_dim
+
+    @property
+    def action_dim(self) -> int:
+        return len(self.ACTIONS)
+
+    # ------------------------------------------------------------------ #
+    # Reset                                                                #
+    # ------------------------------------------------------------------ #
+
+    def reset(self) -> Tuple[torch.Tensor, Dict]:
+        """Reset environment. Returns (flat_obs, obs_dict)."""
+        self.grid = np.zeros((self.size, self.size), dtype=np.int32)
+        self.grid[0, :] = self.ENTITY_TYPES["wall"]
+        self.grid[-1, :] = self.ENTITY_TYPES["wall"]
+        self.grid[:, 0] = self.ENTITY_TYPES["wall"]
+        self.grid[:, -1] = self.ENTITY_TYPES["wall"]
+
+        self.contamination_grid = np.zeros((self.size, self.size), dtype=np.float32)
+        self.footprint_grid = np.zeros((self.size, self.size), dtype=np.int32)
+
+        available = [
+            (i, j)
+            for i in range(1, self.size - 1)
+            for j in range(1, self.size - 1)
+        ]
+        self._rng.shuffle(available)
+
+        ax, ay = available.pop()
+        self.agent_x = ax
+        self.agent_y = ay
+        self.agent_health = 1.0
+        self.agent_energy = 1.0
+        self.grid[ax, ay] = self.ENTITY_TYPES["agent"]
+        self._last_action = 4  # stay
+
+        self.hazards: List[List[int]] = []
+        for _ in range(min(self.num_hazards, len(available))):
+            hx, hy = available.pop()
+            self.grid[hx, hy] = self.ENTITY_TYPES["hazard"]
+            self.hazards.append([hx, hy])
+
+        self.resources: List[List[int]] = []
+        for _ in range(min(self.num_resources, len(available))):
+            rx, ry = available.pop()
+            self.grid[rx, ry] = self.ENTITY_TYPES["resource"]
+            self.resources.append([rx, ry])
+
+        self.waypoints: List[List[int]] = []
+        self._next_waypoint_idx: int = 0
+        self._sequence_in_progress: bool = False
+        self._sequence_step: int = 0
+        self._steps_since_waypoint: int = 0
+        self._sequences_completed: int = 0
+
+        if self.subgoal_mode:
+            for _ in range(min(self.num_waypoints, len(available))):
+                wx, wy = available.pop()
+                self.grid[wx, wy] = self.ENTITY_TYPES["waypoint"]
+                self.waypoints.append([wx, wy])
+
+        self.steps = 0
+        self.total_harm = 0.0
+        self.total_benefit = 0.0
+
+        obs_dict = self._get_observation_dict()
+        flat_obs = self._dict_to_flat(obs_dict)
+        return flat_obs, obs_dict
+
+    # ------------------------------------------------------------------ #
+    # Step                                                                 #
+    # ------------------------------------------------------------------ #
+
+    def step(
+        self,
+        action: torch.Tensor,
+    ) -> Tuple[torch.Tensor, float, bool, Dict, Dict]:
+        """
+        Execute one step.
+
+        Returns:
+            flat_obs:        flat observation tensor [observation_dim]
+            harm_signal:     float — negative = harm, positive = benefit
+            done:            bool
+            info:            dict with transition_type, contamination_delta, etc.
+            obs_dict:        SD-005 split observation dict
+        """
+        if isinstance(action, torch.Tensor):
+            action = action.argmax().item() if action.dim() > 0 else action.item()
+        action = int(action) % len(self.ACTIONS)
+        self._last_action = action
+
+        dx, dy = self.ACTIONS[action]
+        new_x = self.agent_x + dx
+        new_y = self.agent_y + dy
+
+        harm_signal = 0.0
+        transition_type = "none"
+        contamination_delta = 0.0
+        env_drift_occurred = False
+
+        # Move agent if not wall
+        if self.grid[new_x, new_y] != self.ENTITY_TYPES["wall"]:
+            old_x, old_y = self.agent_x, self.agent_y
+
+            if self.contamination_grid[old_x, old_y] >= self.contamination_threshold:
+                self.grid[old_x, old_y] = self.ENTITY_TYPES["contaminated"]
+            else:
+                self.grid[old_x, old_y] = self.ENTITY_TYPES["empty"]
+
+            target_type = self.grid[new_x, new_y]
+
+            if target_type == self.ENTITY_TYPES["hazard"]:
+                harm_signal = -self.hazard_harm
+                self.agent_health = max(0.0, self.agent_health - self.hazard_harm)
+                transition_type = "env_caused_hazard"
+                self.total_harm += self.hazard_harm
+
+            elif target_type == self.ENTITY_TYPES["contaminated"]:
+                harm_signal = -self.contaminated_harm
+                self.agent_health = max(0.0, self.agent_health - self.contaminated_harm)
+                transition_type = "agent_caused_hazard"
+                self.total_harm += self.contaminated_harm
+
+            elif target_type == self.ENTITY_TYPES["resource"]:
+                harm_signal = self.resource_benefit
+                self.agent_health = min(1.0, self.agent_health + self.resource_benefit * 0.5)
+                self.agent_energy = min(1.0, self.agent_energy + self.resource_benefit * 0.5)
+                transition_type = "resource"
+                self.total_benefit += self.resource_benefit
+                self.resources = [
+                    r for r in self.resources if not (r[0] == new_x and r[1] == new_y)
+                ]
+
+            elif target_type == self.ENTITY_TYPES["waypoint"] and self.subgoal_mode:
+                wp_idx = next(
+                    (i for i, w in enumerate(self.waypoints)
+                     if w[0] == new_x and w[1] == new_y),
+                    None,
+                )
+                if wp_idx == self._next_waypoint_idx:
+                    self._next_waypoint_idx += 1
+                    self._sequence_step = wp_idx
+                    self._steps_since_waypoint = 0
+                    if not self._sequence_in_progress:
+                        self._sequence_in_progress = True
+
+                    if self._next_waypoint_idx >= len(self.waypoints):
+                        # Sequence complete
+                        harm_signal += self.waypoint_completion_reward
+                        self.total_benefit += self.waypoint_completion_reward
+                        transition_type = "sequence_complete"
+                        self._sequences_completed += 1
+                        self._sequence_in_progress = False
+                        self._next_waypoint_idx = 0
+                        self._respawn_waypoints()
+                    else:
+                        harm_signal += self.waypoint_visit_reward
+                        self.total_benefit += self.waypoint_visit_reward
+                        transition_type = "waypoint"
+
+            # Move agent
+            self.agent_x = new_x
+            self.agent_y = new_y
+            self.grid[new_x, new_y] = self.ENTITY_TYPES["agent"]
+
+            # Update causal footprint
+            self.footprint_grid[new_x, new_y] += 1
+            old_cont = self.contamination_grid[new_x, new_y]
+            self.contamination_grid[new_x, new_y] += self.contamination_spread
+            contamination_delta = self.contamination_grid[new_x, new_y] - old_cont
+
+        # Energy decay
+        self.agent_energy = max(0.0, self.agent_energy - self.energy_decay)
+
+        # Env-caused drift
+        if self.steps % self.env_drift_interval == 0 and self.steps > 0:
+            self._drift_hazards()
+            env_drift_occurred = True
+
+        # Subgoal timeout
+        if self.subgoal_mode and self._sequence_in_progress:
+            self._steps_since_waypoint += 1
+            if self._steps_since_waypoint > self.sequence_commitment_timeout:
+                self._sequence_in_progress = False
+                self._next_waypoint_idx = 0
+                self._steps_since_waypoint = 0
+                self._respawn_waypoints()
+
+        self.steps += 1
+        done = self.agent_health <= 0.0 or self.steps >= 500
+
+        obs_dict = self._get_observation_dict()
+        flat_obs = self._dict_to_flat(obs_dict)
+
+        info = {
+            "transition_type": transition_type,
+            "contamination_delta": contamination_delta,
+            "env_drift_occurred": env_drift_occurred,
+            "footprint_at_cell": int(self.footprint_grid[self.agent_x, self.agent_y]),
+            "health": self.agent_health,
+            "energy": self.agent_energy,
+            "steps": self.steps,
+            "total_harm": self.total_harm,
+            "total_benefit": self.total_benefit,
+            "sequence_in_progress": self._sequence_in_progress,
+            "sequence_step": self._sequence_step,
+        }
+        return flat_obs, harm_signal, done, info, obs_dict
+
+    # ------------------------------------------------------------------ #
+    # SD-005 Observation construction                                      #
+    # ------------------------------------------------------------------ #
+
+    def _get_observation_dict(self) -> Dict[str, torch.Tensor]:
+        """
+        Build the SD-005 split observation dict.
+
+        Returns dict with keys:
+          "body_state":   [body_obs_dim]  — proprioceptive/interoceptive
+          "world_state":  [world_obs_dim] — exteroceptive
+          "contamination_view": [25]      — convenience subset
+
+        body_state channels:
+          [0]: agent_x / size  (normalised)
+          [1]: agent_y / size  (normalised)
+          [2]: agent_health
+          [3]: agent_energy
+          [4]: footprint_density at current cell
+          [5–8]: last action one-hot (4 actions: up/down/left/right)
+          [9]: steps / 500 (normalised episode progress)
+
+        world_state channels:
+          [0:175]: local_view (5×5×7 entity types, one-hot flattened)
+          [175:200]: contamination_view (5×5 float, normalised)
+        """
+        ax, ay = self.agent_x, self.agent_y
+
+        # --- body_state ---
+        body = torch.zeros(self.body_obs_dim)
+        body[0] = ax / self.size
+        body[1] = ay / self.size
+        body[2] = self.agent_health
+        body[3] = self.agent_energy
+        max_vis = max(1, self.footprint_grid.max())
+        body[4] = float(self.footprint_grid[ax, ay]) / max_vis
+        action_enc = self._last_action if self._last_action < 4 else 0
+        body[5 + action_enc] = 1.0  # one-hot last action (indices 5,6,7,8)
+        body[9] = min(1.0, self.steps / 500.0)
+
+        # --- local_view (5×5×7) → world_state part 1 ---
+        local_view = torch.zeros(5, 5, self.NUM_ENTITY_TYPES)
+        for di in range(-2, 3):
+            for dj in range(-2, 3):
+                ni, nj = ax + di, ay + dj
+                if 0 <= ni < self.size and 0 <= nj < self.size:
+                    etype = self.grid[ni, nj]
+                else:
+                    etype = self.ENTITY_TYPES["wall"]
+                local_view[di + 2, dj + 2, etype] = 1.0
+        local_view_flat = local_view.reshape(-1)  # [175]
+
+        # --- contamination_view (5×5) → world_state part 2 ---
+        cont_view = torch.zeros(5, 5)
+        for di in range(-2, 3):
+            for dj in range(-2, 3):
+                ni, nj = ax + di, ay + dj
+                if 0 <= ni < self.size and 0 <= nj < self.size:
+                    cont_view[di + 2, dj + 2] = float(self.contamination_grid[ni, nj])
+        cont_view_flat = (cont_view / (self.contamination_threshold + 1e-6)).reshape(-1)  # [25]
+
+        world_state = torch.cat([local_view_flat, cont_view_flat])  # [200]
+
+        return {
+            "body_state": body.float(),
+            "world_state": world_state.float(),
+            "contamination_view": cont_view_flat.float(),
+        }
+
+    def _dict_to_flat(self, obs_dict: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """Concatenate body_state + world_state into flat observation vector."""
+        return torch.cat([obs_dict["body_state"], obs_dict["world_state"]]).float()
+
+    # V2 backward-compat method
+    def _get_observation(self) -> torch.Tensor:
+        return self._dict_to_flat(self._get_observation_dict())
+
+    # ------------------------------------------------------------------ #
+    # Internal helpers (unchanged from V2)                                 #
+    # ------------------------------------------------------------------ #
+
+    def _drift_hazards(self) -> None:
+        """Drift environment-caused hazards randomly."""
+        available_dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        for hazard in self.hazards:
+            if self._rng.random() < self.env_drift_prob:
+                self._rng.shuffle(available_dirs)
+                for dx, dy in available_dirs:
+                    nx, ny = hazard[0] + dx, hazard[1] + dy
+                    if (0 < nx < self.size - 1 and 0 < ny < self.size - 1 and
+                            self.grid[nx, ny] == self.ENTITY_TYPES["empty"]):
+                        self.grid[hazard[0], hazard[1]] = self.ENTITY_TYPES["empty"]
+                        hazard[0], hazard[1] = nx, ny
+                        self.grid[nx, ny] = self.ENTITY_TYPES["hazard"]
+                        break
+
+    def _respawn_waypoints(self) -> None:
+        """Respawn waypoints after sequence completion or timeout."""
+        for wp in self.waypoints:
+            if self.grid[wp[0], wp[1]] == self.ENTITY_TYPES["waypoint"]:
+                self.grid[wp[0], wp[1]] = self.ENTITY_TYPES["empty"]
+
+        available = [
+            (i, j)
+            for i in range(1, self.size - 1)
+            for j in range(1, self.size - 1)
+            if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+        ]
+        self._rng.shuffle(available)
+        self.waypoints = []
+        for _ in range(min(self.num_waypoints, len(available))):
+            wx, wy = available.pop()
+            self.grid[wx, wy] = self.ENTITY_TYPES["waypoint"]
+            self.waypoints.append([wx, wy])
+
+    # ------------------------------------------------------------------ #
+    # Utilities                                                            #
+    # ------------------------------------------------------------------ #
+
+    def get_subgoal_state(self) -> dict:
+        return {
+            "sequence_in_progress": self._sequence_in_progress,
+            "sequence_step": self._sequence_step,
+            "next_waypoint_idx": self._next_waypoint_idx,
+            "sequences_completed": self._sequences_completed,
+        }
+
+    def get_contamination_map(self) -> np.ndarray:
+        return self.contamination_grid.copy()
+
+    def get_footprint_map(self) -> np.ndarray:
+        return self.footprint_grid.copy()
+
+    def get_agent_position(self) -> Tuple[int, int]:
+        return (self.agent_x, self.agent_y)
+
+    def render(self, mode: str = "text") -> Optional[str]:
+        if mode != "text":
+            return None
+        symbols = {
+            self.ENTITY_TYPES["empty"]: ".",
+            self.ENTITY_TYPES["wall"]: "#",
+            self.ENTITY_TYPES["resource"]: "R",
+            self.ENTITY_TYPES["hazard"]: "X",
+            self.ENTITY_TYPES["contaminated"]: "c",
+            self.ENTITY_TYPES["agent"]: "A",
+            self.ENTITY_TYPES["waypoint"]: "W",
+        }
+        lines = []
+        for i in range(self.size):
+            row = "".join(symbols.get(self.grid[i, j], "?") for j in range(self.size))
+            lines.append(row)
+        lines.append(
+            f"\nHealth: {self.agent_health:.2f} | Energy: {self.agent_energy:.2f} | "
+            f"Steps: {self.steps}"
+        )
+        lines.append(
+            f"Harm: {self.total_harm:.2f} | Benefit: {self.total_benefit:.2f} | "
+            f"Max contamination: {self.contamination_grid.max():.2f}"
+        )
+        return "\n".join(lines)
