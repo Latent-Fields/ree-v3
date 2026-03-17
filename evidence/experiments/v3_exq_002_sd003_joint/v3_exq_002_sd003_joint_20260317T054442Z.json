@@ -1,0 +1,34 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "warmup_harm_events": 6.0,
+    "mean_recon_loss": 0.08966252065606807,
+    "trained_calibration_gap": -0.0002170882973016477,
+    "random_calibration_gap": -1.790489662777294e-05,
+    "trained_mean_near_hazard": -8.101089327943092e-05,
+    "trained_mean_safe": 0.0001360774040222168,
+    "random_mean_near_hazard": -3.862868655811657e-05,
+    "random_mean_safe": -2.0723789930343628e-05,
+    "n_near_hazard_probes": 51.0,
+    "n_safe_probes": 1.0,
+    "trained_harm_eval_degenerate": 0.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 0.0,
+    "crit4_pass": 1.0,
+    "crit5_pass": 1.0,
+    "crit6_pass": 0.0,
+    "criteria_met": 3.0
+  },
+  "summary_markdown": "# V3-EXQ-002r5 \u2014 SD-003 Self-Attribution (Reconstruction Loss Fix)\n\n**Status:** FAIL\n**Warmup:** 5 episodes, RANDOM policy + reconstruction loss (weight=1.0)\n**Probe eval:** 2 grid resets x (near-hazard + safe positions)\n**Seed:** 0\n\n## r5 Design Change\n\nEXQ-006 diagnostic found z_world does NOT encode hazard proximity (linear probe\naccuracy = 0.693 = majority-class baseline). The world encoder discards hazard\nfeatures because E1 prediction loss alone does not require them.\n\nr5 fix: reconstruction loss MSE(decoder(z_world), obs_world) forces z_world to\npreserve full 175-dim observation content including hazard cell locations.\nMean reconstruction loss at end of training: 0.08966\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: TRAINED calibration_gap > 0.05 | FAIL | -0.0002 |\n| C2: RANDOM abs(calibration_gap) < 0.10 | PASS | 0.0000 |\n| C3: Warmup harm events > 100 | FAIL | 6 |\n| C4: No fatal errors | PASS | 0 |\n| C5: harm_eval non-degenerate | PASS | OK |\n| C6: Probe coverage >= 10 each | FAIL | near=51 safe=1 |\n\n## Calibration Results (Probe-Based)\n\n| Condition | mean_causal_sig(near_hazard) | mean_causal_sig(safe) | calibration_gap |\n|---|---|---|---|\n| TRAINED | -0.0001 | 0.0001 | -0.0002 |\n| RANDOM  | -0.0000 | -0.0000 | -0.0000 |\n\n## Attribution Pipeline\n\n```\nz_world = encoder(obs_world)              # now trained with reconstruction loss\nrecon_loss = MSE(decoder(z_world), obs_world)   # forces hazard info preservation\nz_world_actual = E2.world_forward(z_world, a_actual)\nz_world_cf     = E2.world_forward(z_world, a_cf)\nharm_actual    = E3.harm_eval(z_world_actual)\nharm_cf        = E3.harm_eval(z_world_cf)\ncausal_sig     = harm_actual - harm_cf\n```\n\nCriteria met: 3/6 -> **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: TRAINED calibration_gap -0.0002 <= 0.05\n- C3 FAIL: warmup harm events 6 <= 100\n- C6 FAIL: insufficient probes (near=51 safe=1)\n",
+  "claim_ids": [
+    "SD-003"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_002_sd003_joint",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260317T054442Z",
+  "claim": "SD-003",
+  "verdict": "FAIL"
+}

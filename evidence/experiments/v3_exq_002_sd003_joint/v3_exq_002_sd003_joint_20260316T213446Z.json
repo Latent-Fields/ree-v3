@@ -1,0 +1,33 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "trained_calibration_gap": 0.0,
+    "random_calibration_gap": 0.0017300274098377318,
+    "trained_mean_causal_sig_harm": 0.0,
+    "trained_mean_causal_sig_no_harm": 0.0,
+    "random_mean_causal_sig_harm": 0.026604238483640883,
+    "random_mean_causal_sig_no_harm": 0.02487421107380315,
+    "trained_harm_events": 20.0,
+    "random_harm_events": 18.0,
+    "trained_n_harm_sigs": 20.0,
+    "trained_n_no_harm_sigs": 922.0,
+    "warmup_episodes": 300.0,
+    "trained_harm_eval_degenerate": 1.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit5_pass": 0.0,
+    "criteria_met": 3.0
+  },
+  "summary_markdown": "# V3-EXQ-002 \u2014 SD-003 Self-Attribution: E2+E3 Joint Pipeline\n\n**Status:** FAIL\n**Warmup episodes:** 300\n**Eval episodes:** 30 \u00d7 200 steps\n**Seed:** 0\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: TRAINED calibration_gap > 0.05 | FAIL | 0.0000 |\n| C2: RANDOM abs(calibration_gap) < 0.10 | PASS | 0.0017 |\n| C3: Harm events > 0 (env non-trivial) | PASS | 20 events |\n| C4: No fatal errors | PASS | 0 |\n| C5: harm_eval non-degenerate | FAIL | COLLAPSED |\n\n## Calibration Results\n\n| Condition | mean_causal_sig(harm) | mean_causal_sig(no_harm) | calibration_gap |\n|---|---|---|---|\n| TRAINED | 0.0000 | 0.0000 | 0.0000 |\n| RANDOM  | 0.0266 | 0.0249 | 0.0017 |\n\n## Attribution Pipeline\n\n```\nz_world_actual = E2.world_forward(z_world, a_actual)\nz_world_cf     = E2.world_forward(z_world, a_cf)\nharm_actual    = E3.harm_eval(z_world_actual)\nharm_cf        = E3.harm_eval(z_world_cf)\ncausal_sig     = harm_actual - harm_cf\n```\n\nCriteria met: 3/5 \u2192 SD-003 / V3-EXQ-002 verdict: **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: TRAINED calibration_gap 0.0000 <= 0.05\n- C5 FAIL: harm_eval collapsed \u2014 causal_sig=0 everywhere (NaN\u21920.5 in both arms)\n",
+  "claim_ids": [
+    "SD-003"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_002_sd003_joint",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260316T213446Z",
+  "claim": "SD-003",
+  "verdict": "FAIL"
+}

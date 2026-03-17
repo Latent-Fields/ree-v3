@@ -1,48 +1,30 @@
 """
-V3-EXQ-002 — Full SD-003 Self-Attribution: E2+E3 Joint Pipeline (r6)
+V3-EXQ-008 — SD-003 Self-Attribution: Larger World + Smaller Observation
 
-Claim: SD-003 (self-attribution via counterfactual E2) correctly identifies
-agent-caused harm when implemented as the full V3 joint pipeline:
+Claim: SD-003
 
-    z_world_actual = E2.world_forward(z_world, a_actual)
-    z_world_cf     = E2.world_forward(z_world, a_cf)
-    harm_actual    = E3.harm_eval(z_world_actual)
-    harm_cf        = E3.harm_eval(z_world_cf)
-    causal_sig     = harm_actual - harm_cf
+Tests whether the E2 identity shortcut (delta≈0) is caused by insufficient
+per-step observation change in the 5×5 local view. With a 5×5 view, moving
+one cell changes ~20% of the observation. With a 3×3 view on a larger grid
+with more hazards, each step changes ~44% of the view.
 
-Architecture changes in r6 (motivated by EXQ-005 diagnostic):
+Environment changes (experiment-local, does not modify CausalGridWorld):
+  - Grid size: 12 (vs default 10)
+  - Hazards: 8 (denser — 0.083/cell vs 0.03/cell in default)
+  - Observation: 3×3 local view (vs 5×5) — each step changes more
+  - world_obs_dim: 3×3×7 + 3×3 = 72 (vs 5×5×7 + 5×5 = 200)
 
-  EXQ-005 confirmed E2.world_forward identity shortcut: E2w mean_loss = 0.00002.
-  In 5x5 CausalGridWorld the local view has high autocorrelation step-to-step,
-  so delta≈0 trivially minimizes 1-step MSE. E2 never learns action-conditional
-  world dynamics; both actual and counterfactual produce identical z_world_next.
+The encoder and E2 architectures are scaled to the smaller observation.
+All other training logic (multi-step E2, recon loss, probe eval, separate
+E3 optimizer) identical to r6.
 
-  r6 fix: MULTI-STEP E2 TRAINING (N=5 step rollouts)
-    Instead of training E2 on 1-step (z_t, a_t) → z_{t+1}, we store trajectory
-    segments of length N and train E2 by rolling forward through its own
-    world_forward N times:
-      z = z_world_t
-      for a in [a_t, a_{t+1}, ..., a_{t+N-1}]:
-          z = E2.world_forward(z, a)
-      loss = MSE(z, z_world_{t+N})
-    Over N=5 steps the agent moves 2-4 cells on average. The observation changes
-    substantially → delta≈0 gives high accumulated error → E2 MUST learn
-    action-conditional dynamics.
+If PASS: SD-003 attribution works when the world has sufficient per-step
+variation — positive signal for real-world scalability where observations
+change substantially each timestep.
 
-  All r5 fixes retained:
-    - Reconstruction loss on world encoder (EXQ-006 motivated)
-    - RANDOM exploration policy during warmup
-    - Probe-based eval (curated near-hazard / safe positions)
-    - Separate E3 optimizer (harm_eval_head excluded from E12 optimizer)
-    - Balanced 1:1 harm/no-harm sampling for E3
+If FAIL: the problem is deeper than observation autocorrelation.
 
-PASS criteria (ALL must hold):
-  C1: TRAINED calibration_gap > 0.05
-  C2: RANDOM  |calibration_gap| < 0.10
-  C3: warmup harm events > 100
-  C4: fatal_error_count == 0
-  C5: harm_eval non-degenerate
-  C6: n_near_hazard_probes >= 10 AND n_safe_probes >= 10
+Same PASS criteria as r6.
 """
 
 import sys
@@ -50,27 +32,105 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 import random
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import numpy as np
 
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorld
 from ree_core.utils.config import REEConfig
 
 
-EXPERIMENT_TYPE = "v3_exq_002_sd003_joint"
+EXPERIMENT_TYPE = "v3_exq_008_larger_world"
 CLAIM_IDS = ["SD-003"]
 
 CONDITION_TRAINED = "TRAINED"
 CONDITION_RANDOM  = "RANDOM"
 
-RECON_WEIGHT = 1.0  # weight of reconstruction loss relative to E1/E2 losses
-E2_ROLLOUT_STEPS = 5  # multi-step E2 training horizon (r6)
+RECON_WEIGHT = 1.0
+E2_ROLLOUT_STEPS = 5
+
+# Environment overrides
+GRID_SIZE = 12
+NUM_HAZARDS = 8
+OBS_RADIUS = 1  # 3×3 view (radius 1 → -1..+1)
+OBS_VIEW_SIZE = 2 * OBS_RADIUS + 1  # 3
+
+
+class SmallViewEnv(CausalGridWorld):
+    """CausalGridWorld with a 3×3 local observation instead of 5×5.
+
+    Overrides _get_observation_dict to use obs_radius=1 (3×3 view).
+    This is experiment-local — does not modify the base class.
+    """
+
+    def __init__(self, **kwargs):
+        # Set dims BEFORE super().__init__ because it calls reset() → _get_observation_dict()
+        view = OBS_VIEW_SIZE
+        self._body_obs_dim = 10  # same as base
+        self._world_obs_dim = view * view * 7 + view * view  # 3×3×7 + 3×3 = 72
+        super().__init__(**kwargs)
+        # Re-set with actual NUM_ENTITY_TYPES (in case it differs from 7)
+        self._world_obs_dim = view * view * self.NUM_ENTITY_TYPES + view * view
+
+    @property
+    def world_obs_dim(self) -> int:
+        return self._world_obs_dim
+
+    @property
+    def body_obs_dim(self) -> int:
+        return self._body_obs_dim
+
+    def _get_observation_dict(self) -> Dict[str, torch.Tensor]:
+        ax, ay = self.agent_x, self.agent_y
+        r = OBS_RADIUS
+        view = OBS_VIEW_SIZE
+
+        # --- body_state (same as base) ---
+        body = torch.zeros(self._body_obs_dim)
+        body[0] = ax / self.size
+        body[1] = ay / self.size
+        body[2] = self.agent_health
+        body[3] = self.agent_energy
+        max_vis = max(1, self.footprint_grid.max())
+        body[4] = float(self.footprint_grid[ax, ay]) / max_vis
+        action_enc = self._last_action if self._last_action < 4 else 0
+        body[5 + action_enc] = 1.0
+        body[9] = min(1.0, self.steps / 500.0)
+
+        # --- local_view (3×3×7) ---
+        local_view = torch.zeros(view, view, self.NUM_ENTITY_TYPES)
+        for di in range(-r, r + 1):
+            for dj in range(-r, r + 1):
+                ni, nj = ax + di, ay + dj
+                if 0 <= ni < self.size and 0 <= nj < self.size:
+                    etype = self.grid[ni, nj]
+                else:
+                    etype = self.ENTITY_TYPES["wall"]
+                local_view[di + r, dj + r, etype] = 1.0
+        local_view_flat = local_view.reshape(-1)
+
+        # --- contamination_view (3×3) ---
+        cont_view = torch.zeros(view, view)
+        for di in range(-r, r + 1):
+            for dj in range(-r, r + 1):
+                ni, nj = ax + di, ay + dj
+                if 0 <= ni < self.size and 0 <= nj < self.size:
+                    cont_view[di + r, dj + r] = float(self.contamination_grid[ni, nj])
+        cont_view_flat = (cont_view / (self.contamination_threshold + 1e-6)).reshape(-1)
+
+        world_state = torch.cat([local_view_flat, cont_view_flat])
+
+        return {
+            "body_state": body.float(),
+            "world_state": world_state.float(),
+            "contamination_view": cont_view_flat.float(),
+        }
 
 
 def _action_to_onehot(action_idx: int, num_actions: int, device) -> torch.Tensor:
@@ -85,7 +145,6 @@ def _random_cf_action(actual_idx: int, num_actions: int) -> int:
 
 
 def _make_world_decoder(world_dim: int, world_obs_dim: int, hidden_dim: int = 64) -> nn.Module:
-    """Lightweight decoder to force z_world to preserve full observation content."""
     return nn.Sequential(
         nn.Linear(world_dim, hidden_dim),
         nn.ReLU(),
@@ -93,27 +152,22 @@ def _make_world_decoder(world_dim: int, world_obs_dim: int, hidden_dim: int = 64
     )
 
 
-# ---------------------------------------------------------------------------
-# Training warmup — RANDOM policy + reconstruction loss + multi-step E2
-# ---------------------------------------------------------------------------
-
 def _compute_multistep_e2_loss(
     agent: REEAgent,
     traj_buffer: List[List[Tuple[torch.Tensor, torch.Tensor]]],
     rollout_steps: int,
     batch_size: int = 8,
 ) -> torch.Tensor:
-    """Train E2 on N-step rollouts through its own world_forward.
+    """Multi-step E2 loss with target stopgrad.
 
-    Each trajectory segment is a list of (z_world_t, action_t) pairs of length N+1.
-    We use the first z_world as the seed, roll forward N times through E2.world_forward,
-    and compare with the actual z_world at step t+N.
-
-    This breaks the identity shortcut: over N=5 steps the agent moves 2-4 cells,
-    so z_world changes substantially and delta≈0 accumulates large error.
+    Stores raw observations in traj_buffer. Re-encodes at loss time:
+      z_start  = world_encoder(obs_start)           # gradients flow
+      z_target = world_encoder(obs_target).detach()  # frozen target
     """
     if len(traj_buffer) < 2:
         return agent.e1.parameters().__next__().new_zeros(())
+
+    encoder = agent.latent_stack.split_encoder.world_encoder
 
     n = min(batch_size, len(traj_buffer))
     idxs = torch.randperm(len(traj_buffer))[:n].tolist()
@@ -124,13 +178,17 @@ def _compute_multistep_e2_loss(
         segment = traj_buffer[idx]
         if len(segment) < rollout_steps + 1:
             continue
-        z_start = segment[0][0]  # z_world at t
-        z_target = segment[rollout_steps][0]  # z_world at t+N
 
-        # Roll forward through E2.world_forward N times
+        obs_start = segment[0][0]
+        obs_target = segment[rollout_steps][0]
+
+        z_start = encoder(obs_start.unsqueeze(0) if obs_start.dim() == 1 else obs_start)
+        with torch.no_grad():
+            z_target = encoder(obs_target.unsqueeze(0) if obs_target.dim() == 1 else obs_target)
+
         z = z_start
         for k in range(rollout_steps):
-            a_k = segment[k][1]  # action at step t+k
+            a_k = segment[k][1]
             z = agent.e2.world_forward(z, a_k)
 
         total_loss = total_loss + F.mse_loss(z, z_target)
@@ -143,7 +201,7 @@ def _compute_multistep_e2_loss(
 
 def _train_episodes(
     agent: REEAgent,
-    env: CausalGridWorld,
+    env: SmallViewEnv,
     optimizer: optim.Optimizer,
     e3_optimizer: optim.Optimizer,
     world_decoder: nn.Module,
@@ -153,10 +211,9 @@ def _train_episodes(
     agent.train()
     world_decoder.train()
 
-    # r6: trajectory segment buffer for multi-step E2 training
-    # Each entry is a list of (z_world, action) tuples for one episode
+    # Store raw observations (not latents) so we can re-encode with stopgrad
     traj_buffer: List[List[Tuple[torch.Tensor, torch.Tensor]]] = []
-    MAX_TRAJ_BUFFER = 200  # keep last N episode segments
+    MAX_TRAJ_BUFFER = 200
 
     harm_buffer:    List[torch.Tensor] = []
     no_harm_buffer: List[torch.Tensor] = []
@@ -170,8 +227,6 @@ def _train_episodes(
     for ep in range(num_episodes):
         flat_obs, obs_dict = env.reset()
         agent.reset()
-
-        # Collect trajectory for this episode
         episode_traj: List[Tuple[torch.Tensor, torch.Tensor]] = []
 
         for step in range(steps_per_episode):
@@ -181,14 +236,13 @@ def _train_episodes(
             latent = agent.sense(obs_body, obs_world)
             agent.clock.advance()
 
-            # RANDOM action
             action_idx = random.randint(0, env.action_dim - 1)
             action = _action_to_onehot(action_idx, env.action_dim, agent.device)
             agent._last_action = action
 
-            # Record (z_world, action) for trajectory buffer
+            # Store raw obs_world (not latent) for re-encoding with stopgrad
             episode_traj.append((
-                latent.z_world.detach(),
+                obs_world.detach().clone(),
                 action.detach(),
             ))
 
@@ -205,11 +259,9 @@ def _train_episodes(
                     if len(no_harm_buffer) > 500:
                         no_harm_buffer = no_harm_buffer[-500:]
 
-            # ---- E1 + E2 + RECON backward pass ----
             e1_loss      = agent.compute_prediction_loss()
             e2_self_loss = agent.compute_e2_loss()
 
-            # r6: Multi-step E2 world loss (replaces 1-step buffer training)
             e2_world_loss = _compute_multistep_e2_loss(
                 agent, traj_buffer, E2_ROLLOUT_STEPS, batch_size=8
             )
@@ -217,10 +269,6 @@ def _train_episodes(
                 total_e2w_loss += e2_world_loss.item()
                 e2w_count += 1
 
-            # r5: Reconstruction loss — force z_world to preserve obs_world content
-            # Use a SEPARATE forward pass through the world encoder only (not
-            # agent.sense()) to avoid entangling the recon graph with the LSTM
-            # graph, which causes "backward through graph a second time" errors.
             obs_w = obs_world.unsqueeze(0) if obs_world.dim() == 1 else obs_world
             z_world_for_recon = agent.latent_stack.split_encoder.world_encoder(obs_w)
             recon = world_decoder(z_world_for_recon)
@@ -236,7 +284,6 @@ def _train_episodes(
                 torch.nn.utils.clip_grad_norm_(world_decoder.parameters(), 1.0)
                 optimizer.step()
 
-            # ---- E3 harm_eval backward pass (separate, balanced) ----
             n_h  = len(harm_buffer)
             n_nh = len(no_harm_buffer)
             if n_h >= 4 and n_nh >= 4:
@@ -263,8 +310,6 @@ def _train_episodes(
             if done:
                 break
 
-        # r6: Store episode trajectory as sliding-window segments of length N+1
-        # This gives E2 diverse N-step sequences to train on
         for start in range(0, len(episode_traj) - E2_ROLLOUT_STEPS):
             traj_buffer.append(episode_traj[start:start + E2_ROLLOUT_STEPS + 1])
         if len(traj_buffer) > MAX_TRAJ_BUFFER:
@@ -288,13 +333,9 @@ def _train_episodes(
     }
 
 
-# ---------------------------------------------------------------------------
-# Probe-based evaluation
-# ---------------------------------------------------------------------------
-
 def _eval_probes(
     agent: REEAgent,
-    env: CausalGridWorld,
+    env: SmallViewEnv,
     num_resets: int,
     condition_label: str,
 ) -> Dict:
@@ -325,7 +366,6 @@ def _eval_probes(
     try:
         for _ in range(num_resets):
             env.reset()
-
             for hx, hy in env.hazards:
                 for action_idx, (dx, dy) in env.ACTIONS.items():
                     if action_idx == 4:
@@ -373,16 +413,11 @@ def _eval_probes(
     }
 
 
-# ---------------------------------------------------------------------------
-# Main run()
-# ---------------------------------------------------------------------------
-
 def run(
     seed: int = 0,
-    warmup_episodes: int = 300,
+    warmup_episodes: int = 400,
     eval_probe_resets: int = 10,
     steps_per_episode: int = 200,
-    self_dim: int = 32,
     world_dim: int = 32,
     lr: float = 1e-3,
     **kwargs,
@@ -390,34 +425,37 @@ def run(
     torch.manual_seed(seed)
     random.seed(seed)
 
-    env = CausalGridWorld(seed=seed, num_hazards=8)
+    env = SmallViewEnv(
+        size=GRID_SIZE,
+        num_hazards=NUM_HAZARDS,
+        seed=seed,
+    )
+
     config = REEConfig.from_dims(
         body_obs_dim=env.body_obs_dim,
-        world_obs_dim=env.world_obs_dim,
+        world_obs_dim=env.world_obs_dim,  # 72 (3×3×7 + 3×3)
         action_dim=env.action_dim,
-        self_dim=self_dim,
+        self_dim=32,
         world_dim=world_dim,
     )
 
     fatal_errors = 0
     results_by_condition = {}
 
-    # ------------------------------------------------------------------ #
-    # CONDITION: TRAINED (with reconstruction loss)                        #
-    # ------------------------------------------------------------------ #
-    print(f"\n[V3-EXQ-002r6] Seed {seed} Condition TRAINED", flush=True)
-    agent_trained = REEAgent(config)
+    print(f"\n[V3-EXQ-008] Seed {seed} — Grid {GRID_SIZE}×{GRID_SIZE}, "
+          f"{NUM_HAZARDS} hazards, {OBS_VIEW_SIZE}×{OBS_VIEW_SIZE} obs "
+          f"(world_obs_dim={env.world_obs_dim})", flush=True)
 
-    # r5: world decoder for reconstruction loss
+    print(f"\n[V3-EXQ-008] Condition TRAINED", flush=True)
+    agent_trained = REEAgent(config)
     world_decoder = _make_world_decoder(world_dim, env.world_obs_dim)
 
-    # Exclude harm_eval_head from E12 optimizer; include decoder params
     e12_params = [p for n, p in agent_trained.named_parameters() if "harm_eval" not in n]
     e12_params += list(world_decoder.parameters())
     opt    = optim.Adam(e12_params, lr=lr)
     e3_opt = optim.Adam(agent_trained.e3.harm_eval_head.parameters(), lr=1e-4)
 
-    print(f"  Warmup: {warmup_episodes} episodes (RANDOM policy + recon loss) ...", flush=True)
+    print(f"  Warmup: {warmup_episodes} episodes ...", flush=True)
     train_metrics = _train_episodes(
         agent_trained, env, opt, e3_opt, world_decoder, warmup_episodes, steps_per_episode
     )
@@ -431,21 +469,15 @@ def run(
     results_by_condition[CONDITION_TRAINED] = r_trained
     fatal_errors += r_trained["fatal_errors"]
 
-    # ------------------------------------------------------------------ #
-    # CONDITION: RANDOM                                                    #
-    # ------------------------------------------------------------------ #
-    print(f"\n[V3-EXQ-002r6] Seed {seed} Condition RANDOM", flush=True)
+    print(f"\n[V3-EXQ-008] Condition RANDOM", flush=True)
     torch.manual_seed(seed + 5000)
     random.seed(seed + 5000)
-    agent_random = REEAgent(config)  # untrained
+    agent_random = REEAgent(config)
     print(f"  Probe eval ({eval_probe_resets} grid resets, no training) ...", flush=True)
     r_random = _eval_probes(agent_random, env, eval_probe_resets, CONDITION_RANDOM)
     results_by_condition[CONDITION_RANDOM] = r_random
     fatal_errors += r_random["fatal_errors"]
 
-    # ------------------------------------------------------------------ #
-    # PASS / FAIL decision                                                 #
-    # ------------------------------------------------------------------ #
     trained_gap = results_by_condition[CONDITION_TRAINED]["calibration_gap"]
     random_gap  = results_by_condition[CONDITION_RANDOM]["calibration_gap"]
     n_near      = results_by_condition[CONDITION_TRAINED]["n_near_hazard_probes"]
@@ -471,7 +503,7 @@ def run(
     if not crit5_pass: failure_notes.append("C5 FAIL: harm_eval collapsed to constant")
     if not crit6_pass: failure_notes.append(f"C6 FAIL: insufficient probes (near={n_near} safe={n_safe})")
 
-    print(f"\nSD-003 / V3-EXQ-002r6 verdict: {status}  ({criteria_met}/6)", flush=True)
+    print(f"\nSD-003 / V3-EXQ-008 verdict: {status}  ({criteria_met}/6)", flush=True)
     for note in failure_notes:
         print(f"  {note}", flush=True)
 
@@ -484,6 +516,11 @@ def run(
         "mean_recon_loss": float(mean_recon),
         "mean_e2_world_loss": float(mean_e2w),
         "e2_rollout_steps": float(E2_ROLLOUT_STEPS),
+        "grid_size": float(GRID_SIZE),
+        "num_hazards": float(NUM_HAZARDS),
+        "obs_view_size": float(OBS_VIEW_SIZE),
+        "world_obs_dim": float(env.world_obs_dim),
+        "target_stopgrad": 1.0,
         "trained_calibration_gap": float(trained_gap),
         "random_calibration_gap": float(random_gap),
         "trained_mean_near_hazard": float(t["mean_causal_sig_near_hazard"]),
@@ -506,24 +543,27 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-002r6 — SD-003 Self-Attribution (Multi-Step E2 Training)
+    summary_markdown = f"""# V3-EXQ-008 — SD-003 Larger World + 3×3 Observation
 
 **Status:** {status}
-**Warmup:** {warmup_episodes} episodes, RANDOM policy + recon loss + {E2_ROLLOUT_STEPS}-step E2 rollouts
+**Environment:** {GRID_SIZE}×{GRID_SIZE} grid, {NUM_HAZARDS} hazards, {OBS_VIEW_SIZE}×{OBS_VIEW_SIZE} local view
+**world_obs_dim:** {env.world_obs_dim} (vs 200 in standard 5×5 view)
+**Warmup:** {warmup_episodes} episodes, RANDOM policy + recon loss + {E2_ROLLOUT_STEPS}-step E2 rollouts + target stopgrad
 **Probe eval:** {eval_probe_resets} grid resets x (near-hazard + safe positions)
 **Seed:** {seed}
 
-## r6 Design Change — Multi-Step E2 Training
+## Hypothesis
 
-EXQ-005 confirmed E2 identity shortcut: E2w mean_loss = 0.00002. In 5x5
-CausalGridWorld, z_world changes very little step-to-step, so delta≈0 trivially
-minimizes 1-step MSE. E2 never learned action-conditional world dynamics.
+The E2 identity shortcut may be caused by insufficient per-step observation
+change. In a 5×5 view, moving one cell changes ~20% of pixels. In a 3×3 view,
+each step changes ~44%. Combined with a larger grid and more hazards, z_world
+should encode genuinely different states each step.
 
-r6 fix: train E2 on {E2_ROLLOUT_STEPS}-step rollouts through its own world_forward.
-Over N=5 steps the agent moves 2-4 cells; delta≈0 accumulates large error.
-Mean E2 world loss: {mean_e2w:.6f} | Mean reconstruction loss: {mean_recon:.5f}
+A PASS here is a positive scalability signal: real-world observations change
+substantially each timestep, matching this condition more than the 5×5 view.
 
-(r5 reconstruction loss retained to ensure z_world encodes hazard features.)
+Mean E2 world loss: {mean_e2w:.6f} (compare r6: 0.000311 on 5×5 view)
+Mean reconstruction loss: {mean_recon:.5f}
 
 ## PASS Criteria
 
@@ -542,18 +582,6 @@ Mean E2 world loss: {mean_e2w:.6f} | Mean reconstruction loss: {mean_recon:.5f}
 |---|---|---|---|
 | TRAINED | {t["mean_causal_sig_near_hazard"]:.4f} | {t["mean_causal_sig_safe"]:.4f} | {trained_gap:.4f} |
 | RANDOM  | {r["mean_causal_sig_near_hazard"]:.4f} | {r["mean_causal_sig_safe"]:.4f} | {random_gap:.4f} |
-
-## Attribution Pipeline
-
-```
-z_world = encoder(obs_world)              # now trained with reconstruction loss
-recon_loss = MSE(decoder(z_world), obs_world)   # forces hazard info preservation
-z_world_actual = E2.world_forward(z_world, a_actual)
-z_world_cf     = E2.world_forward(z_world, a_cf)
-harm_actual    = E3.harm_eval(z_world_actual)
-harm_cf        = E3.harm_eval(z_world_cf)
-causal_sig     = harm_actual - harm_cf
-```
 
 Criteria met: {criteria_met}/6 -> **{status}**
 {failure_section}
@@ -577,7 +605,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed",         type=int, default=0)
-    parser.add_argument("--warmup",       type=int, default=300)
+    parser.add_argument("--warmup",       type=int, default=400)
     parser.add_argument("--probe-resets", type=int, default=10)
     parser.add_argument("--steps",        type=int, default=200)
     args = parser.parse_args()

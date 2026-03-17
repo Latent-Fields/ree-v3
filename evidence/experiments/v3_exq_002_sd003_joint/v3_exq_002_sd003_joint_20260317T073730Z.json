@@ -1,0 +1,36 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "warmup_harm_events": 1616.0,
+    "mean_recon_loss": 0.029595674027101497,
+    "mean_e2_world_loss": 0.00031104584287808187,
+    "e2_rollout_steps": 5.0,
+    "trained_calibration_gap": -0.002267019116360208,
+    "random_calibration_gap": 7.256218629289967e-05,
+    "trained_mean_near_hazard": -0.004592183351516723,
+    "trained_mean_safe": -0.0023251642351565156,
+    "random_mean_near_hazard": -1.751533312390941e-05,
+    "random_mean_safe": -9.007751941680908e-05,
+    "n_near_hazard_probes": 250.0,
+    "n_safe_probes": 46.0,
+    "trained_harm_eval_degenerate": 0.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "crit5_pass": 1.0,
+    "crit6_pass": 1.0,
+    "criteria_met": 5.0
+  },
+  "summary_markdown": "# V3-EXQ-002r6 \u2014 SD-003 Self-Attribution (Multi-Step E2 Training)\n\n**Status:** FAIL\n**Warmup:** 600 episodes, RANDOM policy + recon loss + 5-step E2 rollouts\n**Probe eval:** 10 grid resets x (near-hazard + safe positions)\n**Seed:** 0\n\n## r6 Design Change \u2014 Multi-Step E2 Training\n\nEXQ-005 confirmed E2 identity shortcut: E2w mean_loss = 0.00002. In 5x5\nCausalGridWorld, z_world changes very little step-to-step, so delta\u22480 trivially\nminimizes 1-step MSE. E2 never learned action-conditional world dynamics.\n\nr6 fix: train E2 on 5-step rollouts through its own world_forward.\nOver N=5 steps the agent moves 2-4 cells; delta\u22480 accumulates large error.\nMean E2 world loss: 0.000311 | Mean reconstruction loss: 0.02960\n\n(r5 reconstruction loss retained to ensure z_world encodes hazard features.)\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: TRAINED calibration_gap > 0.05 | FAIL | -0.0023 |\n| C2: RANDOM abs(calibration_gap) < 0.10 | PASS | 0.0001 |\n| C3: Warmup harm events > 100 | PASS | 1616 |\n| C4: No fatal errors | PASS | 0 |\n| C5: harm_eval non-degenerate | PASS | OK |\n| C6: Probe coverage >= 10 each | PASS | near=250 safe=46 |\n\n## Calibration Results (Probe-Based)\n\n| Condition | mean_causal_sig(near_hazard) | mean_causal_sig(safe) | calibration_gap |\n|---|---|---|---|\n| TRAINED | -0.0046 | -0.0023 | -0.0023 |\n| RANDOM  | -0.0000 | -0.0001 | 0.0001 |\n\n## Attribution Pipeline\n\n```\nz_world = encoder(obs_world)              # now trained with reconstruction loss\nrecon_loss = MSE(decoder(z_world), obs_world)   # forces hazard info preservation\nz_world_actual = E2.world_forward(z_world, a_actual)\nz_world_cf     = E2.world_forward(z_world, a_cf)\nharm_actual    = E3.harm_eval(z_world_actual)\nharm_cf        = E3.harm_eval(z_world_cf)\ncausal_sig     = harm_actual - harm_cf\n```\n\nCriteria met: 5/6 -> **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: TRAINED calibration_gap -0.0023 <= 0.05\n",
+  "claim_ids": [
+    "SD-003"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_002_sd003_joint",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260317T073730Z",
+  "claim": "SD-003",
+  "verdict": "FAIL"
+}

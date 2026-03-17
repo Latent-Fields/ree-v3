@@ -1,0 +1,35 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 2.0,
+    "warmup_harm_separate": 819.0,
+    "warmup_harm_collapsed": 819.0,
+    "separate_calibration_gap": 0.0,
+    "collapsed_calibration_gap": 0.0,
+    "separate_mean_near": 0.0,
+    "separate_mean_safe": 0.0,
+    "collapsed_mean_near": 0.0,
+    "collapsed_mean_safe": 0.0,
+    "n_near_hazard_probes": 0.0,
+    "n_safe_probes": 0.0,
+    "collapsed_harm_eval_degenerate": 1.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 0.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "crit5_pass": 0.0,
+    "crit6_pass": 0.0,
+    "criteria_met": 2.0
+  },
+  "summary_markdown": "# V3-EXQ-004 -- ARC-021 Three-Loop Incommensurability\n\n**Status:** FAIL\n**Warmup:** 300 episodes, RANDOM policy\n**Probe eval:** 10 grid resets x (near-hazard + safe positions)\n**Seed:** 0\n\n## ARC-021 Prediction\n\nCollapsing E1/E2/E3 gradients into a single optimizer forces E3.harm_eval to\ncompete with much larger E1/E2 prediction gradients. On steps with no harm events\n(~88% of steps), E3 parameters receive only E1/E2 gradient signal, corrupting\nthe harm_eval function. Separate optimizers isolate the E3 learning channel.\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: SEPARATE calibration_gap > 0.05 | FAIL | 0.0000 |\n| C2: SEPARATE gap > COLLAPSED gap | FAIL | 0.0000 vs 0.0000 |\n| C3: COLLAPSED gap < SEPARATE * 0.7 or degenerate | PASS | 0.0000 [DEGENERATE] |\n| C4: Warmup harm events > 100 | PASS | 819 |\n| C5: No fatal errors | FAIL | 2 |\n| C6: Probe coverage >= 10 each | FAIL | near=0 safe=0 |\n\n## Calibration Results\n\n| Condition | Optimizer | mean_near | mean_safe | calibration_gap |\n|---|---|---|---|---|\n| SEPARATE  | E12 (lr=1e-3) + E3 (lr=1e-4) | 0.0000 | 0.0000 | 0.0000 |\n| COLLAPSED | All params (lr=1e-3, lambda_e3=0.1) | 0.0000 | 0.0000 | 0.0000 |\n\nCriteria met: 2/6 -> **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: SEPARATE gap 0.0000 <= 0.05\n- C2 FAIL: SEPARATE gap 0.0000 <= COLLAPSED gap 0.0000\n- C5 FAIL: fatal_errors=2\n- C6 FAIL: insufficient probes (near=0 safe=0)\n",
+  "claim_ids": [
+    "ARC-021",
+    "MECH-069"
+  ],
+  "evidence_direction": "weakens",
+  "experiment_type": "v3_exq_004_arc021_incommensurability",
+  "fatal_error_count": 2,
+  "run_timestamp": "20260316T231319Z",
+  "claim": "ARC-021",
+  "verdict": "FAIL"
+}

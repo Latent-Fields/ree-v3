@@ -1,0 +1,37 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "warmup_harm_events": 819.0,
+    "mean_recon_loss": 0.0396022432822874,
+    "mean_e2_world_loss": 0.009722161949198055,
+    "e2_rollout_steps": 5.0,
+    "target_stopgrad": 1.0,
+    "trained_calibration_gap": -0.015103017709729993,
+    "random_calibration_gap": 0.00015770609511634755,
+    "trained_mean_near_hazard": -0.04084899657087409,
+    "trained_mean_safe": -0.025745978861144096,
+    "random_mean_near_hazard": 5.42669880146883e-06,
+    "random_mean_safe": -0.0001522793963148787,
+    "n_near_hazard_probes": 231.0,
+    "n_safe_probes": 66.0,
+    "trained_harm_eval_degenerate": 0.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "crit5_pass": 1.0,
+    "crit6_pass": 1.0,
+    "criteria_met": 5.0
+  },
+  "summary_markdown": "# V3-EXQ-007 \u2014 SD-003 Target Stopgrad Diagnostic\n\n**Status:** FAIL\n**Warmup:** 300 episodes, RANDOM policy + recon loss + 5-step E2 rollouts\n**Design change:** z_target detached in multi-step E2 loss (prevents encoder co-adaptation)\n**Probe eval:** 10 grid resets x (near-hazard + safe positions)\n**Seed:** 0\n\n## Hypothesis\n\nr6 E2 identity shortcut may be caused by encoder co-adaptation: both\nz_start and z_target come from the same encoder trained in the same\nbackward pass. The encoder could learn representations where consecutive\nobservations map to nearly identical latents, making delta\u22480 correct.\n\nDetaching z_target prevents this \u2014 E2 must predict where the *frozen*\ntarget lands. If this fixes the gap, encoder collapse is the bottleneck.\nIf not, the grid environment itself lacks sufficient per-step variation.\n\nMean E2 world loss: 0.009722 | Mean reconstruction loss: 0.03960\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: TRAINED calibration_gap > 0.05 | FAIL | -0.0151 |\n| C2: RANDOM abs(calibration_gap) < 0.10 | PASS | 0.0002 |\n| C3: Warmup harm events > 100 | PASS | 819 |\n| C4: No fatal errors | PASS | 0 |\n| C5: harm_eval non-degenerate | PASS | OK |\n| C6: Probe coverage >= 10 each | PASS | near=231 safe=66 |\n\n## Calibration Results (Probe-Based)\n\n| Condition | mean_causal_sig(near_hazard) | mean_causal_sig(safe) | calibration_gap |\n|---|---|---|---|\n| TRAINED | -0.0408 | -0.0257 | -0.0151 |\n| RANDOM  | 0.0000 | -0.0002 | 0.0002 |\n\nCriteria met: 5/6 -> **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: TRAINED calibration_gap -0.0151 <= 0.05\n",
+  "claim_ids": [
+    "SD-003"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_007_target_stopgrad",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260317T180900Z",
+  "claim": "SD-003",
+  "verdict": "FAIL"
+}

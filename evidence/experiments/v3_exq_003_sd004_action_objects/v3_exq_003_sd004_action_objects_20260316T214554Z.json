@@ -1,0 +1,32 @@
+{
+  "status": "PASS",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "terrain_harm_rate": 0.0010332357499569485,
+    "random_harm_rate": 0.08961303462321792,
+    "terrain_mean_trajectory_residue": 0.0,
+    "random_mean_trajectory_residue": 0.0,
+    "terrain_harm_events": 6.0,
+    "random_harm_events": 88.0,
+    "terrain_resource_events": 7.0,
+    "random_resource_events": 27.0,
+    "terrain_mean_survival": 193.56666666666666,
+    "random_mean_survival": 32.733333333333334,
+    "warmup_harm_events": 7.0,
+    "warmup_episodes": 50.0,
+    "crit1_pass": 1.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "criteria_met": 4.0
+  },
+  "summary_markdown": "# V3-EXQ-003 \u2014 SD-004 Action-Object Planning Horizon Validation\n\n**Status:** PASS\n**Warmup episodes:** 50 \u00d7 200 steps\n**Eval episodes:** 30 \u00d7 200 steps (per condition)\n**Seed:** 0\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: TERRAIN harm_rate < RANDOM harm_rate | PASS | 0.0010 vs 0.0896 |\n| C2: TERRAIN mean_survival > RANDOM mean_survival | PASS | 193.6 vs 32.7 steps |\n| C3: Warmup harm events > 0 (residue field shaped) | PASS | 7 events |\n| C4: No fatal errors | PASS | 0 |\n\n## Planning Condition Comparison\n\n| Condition | harm_rate | mean_traj_residue | resources | mean_survival |\n|---|---|---|---|---|\n| TERRAIN (SD-004 CEM) | 0.0010 | 0.0000 | 7 | 193.6 |\n| RANDOM (shooting)    | 0.0896 | 0.0000 | 27 | 32.7 |\n\n## Planning Architecture\n\n- TERRAIN: hippocampal.propose_trajectories() \u2014 CEM in action-object space O (16-dim)\n  biased by terrain_prior(z_world, e1_prior, residue_val) \u2192 action_object_mean\n- RANDOM: e2.generate_candidates_random() \u2014 random action shooting, horizon=30\n- Both conditions use the same trained agent and e3.select() for final action choice\n- E1.prediction_horizon=20 \u2014 planning horizon=30 extends beyond E1 range\n\nCriteria met: 4/4 \u2192 **PASS**\n\n",
+  "claim_ids": [
+    "SD-004"
+  ],
+  "evidence_direction": "supports",
+  "experiment_type": "v3_exq_003_sd004_action_objects",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260316T214554Z",
+  "claim": "SD-004",
+  "verdict": "PASS"
+}

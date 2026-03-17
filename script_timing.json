@@ -1,0 +1,10 @@
+{
+  "experiments/v3_exq_001_z_separation.py": 5730.0,
+  "experiments/v3_exq_002_sd003_joint.py": 45.8,
+  "experiments/v3_exq_003_sd004_action_objects.py": 3036.8,
+  "experiments/v3_exq_004_arc021_incommensurability.py": 17.0,
+  "experiments/v3_exq_005_mech069_error_scale.py": 39.0,
+  "experiments/v3_exq_006_zworld_probe.py": 48.7,
+  "experiments/v3_exq_007_target_stopgrad.py": 52.8,
+  "experiments/v3_exq_008_larger_world.py": 56.5
+}

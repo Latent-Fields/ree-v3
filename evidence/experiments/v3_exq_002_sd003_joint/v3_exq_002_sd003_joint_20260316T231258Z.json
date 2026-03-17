@@ -1,0 +1,33 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 2.0,
+    "warmup_harm_events": 819.0,
+    "trained_calibration_gap": 0.0,
+    "random_calibration_gap": 0.0,
+    "trained_mean_near_hazard": 0.0,
+    "trained_mean_safe": 0.0,
+    "random_mean_near_hazard": 0.0,
+    "random_mean_safe": 0.0,
+    "n_near_hazard_probes": 0.0,
+    "n_safe_probes": 0.0,
+    "trained_harm_eval_degenerate": 1.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 0.0,
+    "crit5_pass": 0.0,
+    "crit6_pass": 0.0,
+    "criteria_met": 2.0
+  },
+  "summary_markdown": "# V3-EXQ-002r3 \u2014 SD-003 Self-Attribution: E2+E3 Joint Pipeline (Probe-Based Eval)\n\n**Status:** FAIL\n**Warmup:** 300 episodes, RANDOM policy\n**Probe eval:** 10 grid resets x (all near-hazard + all safe positions)\n**Seed:** 0\n\n## Design Change (r3)\n\nPrevious versions (r1, r2) relied on the trained policy naturally encountering hazards\nduring eval. A well-trained agent avoids hazards, leaving ~20 harm events in 6000 steps.\nE3 has no positive training signal and harm_eval collapses.\n\nr3 fixes:\n- **Warmup**: random action policy -> ~12% hazard hit rate -> 819 harm events\n- **Eval**: curated probe states (agent placed 1 step from hazard / far from all hazards)\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: TRAINED calibration_gap > 0.05 | FAIL | 0.0000 |\n| C2: RANDOM abs(calibration_gap) < 0.10 | PASS | 0.0000 |\n| C3: Warmup harm events > 100 | PASS | 819 |\n| C4: No fatal errors | FAIL | 2 |\n| C5: harm_eval non-degenerate | FAIL | COLLAPSED |\n| C6: Probe coverage >= 10 each | FAIL | near=0 safe=0 |\n\n## Calibration Results (Probe-Based)\n\n| Condition | mean_causal_sig(near_hazard) | mean_causal_sig(safe) | calibration_gap |\n|---|---|---|---|\n| TRAINED | 0.0000 | 0.0000 | 0.0000 |\n| RANDOM  | 0.0000 | 0.0000 | 0.0000 |\n\n## Attribution Pipeline\n\n```\nz_world_actual = E2.world_forward(z_world, a_actual)   # toward hazard / random\nz_world_cf     = E2.world_forward(z_world, a_cf)       # random different action\nharm_actual    = E3.harm_eval(z_world_actual)\nharm_cf        = E3.harm_eval(z_world_cf)\ncausal_sig     = harm_actual - harm_cf\n```\n\nCriteria met: 2/6 -> **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: TRAINED calibration_gap 0.0000 <= 0.05\n- C4 FAIL: fatal_errors=2\n- C5 FAIL: harm_eval collapsed to constant\n- C6 FAIL: insufficient probes (near=0 safe=0)\n",
+  "claim_ids": [
+    "SD-003"
+  ],
+  "evidence_direction": "weakens",
+  "experiment_type": "v3_exq_002_sd003_joint",
+  "fatal_error_count": 2,
+  "run_timestamp": "20260316T231258Z",
+  "claim": "SD-003",
+  "verdict": "FAIL"
+}

@@ -1,0 +1,35 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "warmup_harm_separate": 819.0,
+    "warmup_harm_collapsed": 806.0,
+    "separate_calibration_gap": 0.00010876673640626859,
+    "collapsed_calibration_gap": -0.0003805035126220309,
+    "separate_mean_near": -0.001076412923408277,
+    "separate_mean_safe": -0.0011851796598145456,
+    "collapsed_mean_near": -0.0019566952344404168,
+    "collapsed_mean_safe": -0.0015761917218183859,
+    "n_near_hazard_probes": 231.0,
+    "n_safe_probes": 66.0,
+    "collapsed_harm_eval_degenerate": 0.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "crit5_pass": 1.0,
+    "crit6_pass": 1.0,
+    "criteria_met": 5.0
+  },
+  "summary_markdown": "# V3-EXQ-004 -- ARC-021 Three-Loop Incommensurability\n\n**Status:** FAIL\n**Warmup:** 300 episodes, RANDOM policy\n**Probe eval:** 10 grid resets x (near-hazard + safe positions)\n**Seed:** 0\n\n## ARC-021 Prediction\n\nCollapsing E1/E2/E3 gradients into a single optimizer forces E3.harm_eval to\ncompete with much larger E1/E2 prediction gradients. On steps with no harm events\n(~88% of steps), E3 parameters receive only E1/E2 gradient signal, corrupting\nthe harm_eval function. Separate optimizers isolate the E3 learning channel.\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: SEPARATE calibration_gap > 0.05 | FAIL | 0.0001 |\n| C2: SEPARATE gap > COLLAPSED gap | PASS | 0.0001 vs -0.0004 |\n| C3: COLLAPSED gap < SEPARATE * 0.7 or degenerate | PASS | -0.0004  |\n| C4: Warmup harm events > 100 | PASS | 819 |\n| C5: No fatal errors | PASS | 0 |\n| C6: Probe coverage >= 10 each | PASS | near=231 safe=66 |\n\n## Calibration Results\n\n| Condition | Optimizer | mean_near | mean_safe | calibration_gap |\n|---|---|---|---|---|\n| SEPARATE  | E12 (lr=1e-3) + E3 (lr=1e-4) | -0.0011 | -0.0012 | 0.0001 |\n| COLLAPSED | All params (lr=1e-3, lambda_e3=0.1) | -0.0020 | -0.0016 | -0.0004 |\n\nCriteria met: 5/6 -> **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: SEPARATE gap 0.0001 <= 0.05\n",
+  "claim_ids": [
+    "ARC-021",
+    "MECH-069"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_004_arc021_incommensurability",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260316T232412Z",
+  "claim": "ARC-021",
+  "verdict": "FAIL"
+}

@@ -1,0 +1,36 @@
+{
+  "status": "PASS",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "total_harm_events": 538.0,
+    "mean_e1_loss": 0.0,
+    "mean_e2s_loss": 0.0,
+    "mean_e2w_loss": 1.5723540771203202e-05,
+    "mean_e3_loss": 0.6677159464891645,
+    "cv_e1": 0.0,
+    "cv_e2w": 8.906814131275123,
+    "cv_e3": 0.04381217870762958,
+    "scale_ratio": 42466.004076642166,
+    "corr_e1_e3": 0.0,
+    "corr_e2w_e3": 0.14009220165006275,
+    "n_e3_measurements": 4792.0,
+    "crit1_pass": 1.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "crit5_pass": 1.0,
+    "crit6_pass": 1.0,
+    "criteria_met": 6.0
+  },
+  "summary_markdown": "# V3-EXQ-005 -- MECH-069 Error Signal Scale Separation\n\n**Status:** PASS\n**Episodes:** 200 x 200 steps, RANDOM policy\n**Hazards:** 8 (num_hazards)\n**Seed:** 0\n\n## MECH-069 Prediction\n\nE1 (sensory prediction), E2 (motor-sensory), and E3 (harm/goal) error signals\nare incommensurable in scale and temporal structure. They cannot be combined by\na fixed scalar lambda without corrupting the independent signal content of each.\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: scale_ratio > 5.0 (max/min mean loss) | PASS | 42466.00 |\n| C2: abs(corr(E1, E3)) < 0.3 | PASS | 0.000 |\n| C3: abs(corr(E2w, E3)) < 0.3 | PASS | 0.140 |\n| C4: Harm events > 100 | PASS | 538 |\n| C5: No fatal errors | PASS | 0 |\n| C6: n_E3_measurements >= 50 | PASS | 4792 |\n\n## Loss Channel Statistics\n\n| Channel | Mean | Std | CV (std/mean) |\n|---|---|---|---|\n| E1 (sensory prediction) | 0.00000 | 0.00000 | 0.00 |\n| E2w (world_forward) | 0.00002 | 0.00014 | 8.91 |\n| E3 (harm BCE) | 0.66772 | 0.02925 | 0.04 |\n\n**Scale ratio (max/min mean):** 42466.00\n\n## Pairwise Correlations (at steps where E3 fired)\n\n| Pair | Pearson r | Incommensurable? |\n|---|---|---|\n| corr(E1, E3) | 0.000 | YES |\n| corr(E2w, E3) | 0.140 | YES |\n\nTotal harm events: 538 | E3 measurements: 4792\n\nCriteria met: 6/6 -> **PASS**\n\n",
+  "claim_ids": [
+    "MECH-069",
+    "ARC-021"
+  ],
+  "evidence_direction": "supports",
+  "experiment_type": "v3_exq_005_mech069_error_scale",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260316T231327Z",
+  "claim": "MECH-069",
+  "verdict": "PASS"
+}

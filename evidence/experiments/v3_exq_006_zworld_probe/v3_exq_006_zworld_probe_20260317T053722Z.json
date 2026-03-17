@@ -1,0 +1,35 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "n_samples": 1680.0,
+    "hazard_adj_base_rate": 0.3660714328289032,
+    "hazard_adj_train_acc": 0.7321428656578064,
+    "hazard_adj_test_acc": 0.6934523582458496,
+    "hazard_adj_untrained_test_acc": 0.7202380895614624,
+    "position_x_train_r2": 0.8039387351896092,
+    "position_x_test_r2": 0.8002941190346636,
+    "position_x_untrained_test_r2": 0.819485087122772,
+    "position_y_train_r2": 0.6139969267879202,
+    "position_y_test_r2": 0.5565431466392434,
+    "position_y_untrained_test_r2": 0.5764788879937277,
+    "warmup_harm_events": 819.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "crit5_pass": 1.0,
+    "criteria_met": 4.0
+  },
+  "summary_markdown": "# V3-EXQ-006 \u2014 Diagnostic: What Does z_world Encode?\n\n**Status:** FAIL\n**Agent training:** 300 episodes, RANDOM policy\n**Probe data:** 30 grid resets, 1680 total samples\n**Seed:** 0\n\n## Motivation\n\nEXQ-002r4 and EXQ-004r2 produce calibration_gap \u2248 0 despite correct probe design.\nEXQ-005 shows E2.world_forward loss = 0.00002 (delta \u2248 0 is trivially good) and\nE3 harm loss \u2248 log(2) (random chance). This diagnostic checks whether z_world\nencodes the information needed for SD-003 attribution.\n\n## Linear Probe Results\n\n| Probe | Target | TRAINED test | UNTRAINED test | Criterion |\n|---|---|---|---|---|\n| Hazard adjacency | binary (dist <= 1) | 0.693 | 0.720 | > 0.70 |\n| Position X | regression (0-1) | R2=0.800 | R2=0.819 | R2 > 0.50 |\n| Position Y | regression (0-1) | R2=0.557 | R2=0.576 | R2 > 0.50 |\n\nHazard-adjacent positive rate: 0.366 (baseline accuracy for majority-class classifier)\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: hazard_adj test_acc > 0.70 | FAIL | 0.693 |\n| C2: position_x test_R2 > 0.50 | PASS | 0.800 |\n| C3: position_y test_R2 > 0.50 | PASS | 0.557 |\n| C4: No fatal errors | PASS | 0 |\n| C5: n_samples >= 1000 | PASS | 1680 |\n\n## Interpretation\n\nC1 FAIL: z_world does NOT encode hazard proximity. The world encoder (trained by E1 prediction loss alone) discards hazard-relevant features. Fix: add reconstruction loss to world encoder so z_world preserves full observation content.\n\nC2+C3: z_world encodes spatial position \u2014 the encoder is learning meaningful representations.\n\nCriteria met: 4/5 -> **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: hazard_adj test_acc 0.693 <= 0.70 \u2014 z_world does NOT encode hazard proximity\n",
+  "claim_ids": [
+    "SD-003",
+    "SD-005"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_006_zworld_probe",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260317T053722Z",
+  "claim": "SD-003",
+  "verdict": "FAIL"
+}
