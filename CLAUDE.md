@@ -59,6 +59,19 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   losses are invariant to harm-relevance; only supervised event discrimination forces
   z_world to represent hazard-vs-empty distinctions. See EXQ-020.
 
+## SD Design Decisions Validated (V3) — 2026-03-18
+- SD-003: self_attribution.counterfactual_e2_pipeline — VALIDATED EXQ-030b PASS.
+  Full pipeline: z_world_actual = E2.world_forward(z_world, a_actual),
+  z_world_cf = E2.world_forward(z_world, a_cf), causal_sig = E3(z_world_actual) - E3(z_world_cf).
+  Results: world_forward_r2=0.947, attribution_gap=0.035, correct sign structure:
+    none=-0.074, env_caused=-0.029, hazard_approach=+0.005, agent_caused=+0.017.
+  Agent-caused events have positive causal signature; env-caused have negative.
+  Key fix: E3 must be trained on E2-predicted z_world states (not just observed)
+  to avoid distribution mismatch at eval. See experiments/v3_exq_030b_*.py.
+  Prerequisites confirmed: ARC-024 (gradient world, EXQ-028 PASS), MECH-071 (E3
+  harm_eval calibration, EXQ-026 + EXQ-029 PASS), SD-007 (reafference, EXQ-021 PASS),
+  SD-008 (alpha_world=0.9, EXQ-023 PASS).
+
 ## Experiment IDs
 V3 experiments: V3-EXQ-001 onward
 First priority: V3-EXQ-001 → V3-EXQ-002 → V3-EXQ-003 + V3-EXQ-004 (parallel)
