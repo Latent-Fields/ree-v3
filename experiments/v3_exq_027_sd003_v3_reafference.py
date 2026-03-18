@@ -89,11 +89,11 @@ def _compute_reafference_r2(agent: REEAgent, reaf_data: List) -> float:
     n_train = int(n * 0.8)
 
     with torch.no_grad():
-        z_self_all = torch.cat([d[0] for d in reaf_data], dim=0)
-        a_all      = torch.cat([d[1] for d in reaf_data], dim=0)
-        dz_all     = torch.cat([d[2] for d in reaf_data], dim=0)
+        z_world_raw_all = torch.cat([d[0] for d in reaf_data], dim=0)
+        a_all           = torch.cat([d[1] for d in reaf_data], dim=0)
+        dz_all          = torch.cat([d[2] for d in reaf_data], dim=0)
 
-        pred_all = agent.latent_stack.reafference_predictor(z_self_all, a_all)
+        pred_all = agent.latent_stack.reafference_predictor(z_world_raw_all, a_all)
         pred_test = pred_all[n_train:]
         dz_test   = dz_all[n_train:]
 
@@ -199,8 +199,10 @@ def _train_with_reafference(
                 and a_prev is not None
             ):
                 dz_raw = z_raw_curr - z_raw_prev
+                # MECH-101: use z_raw_prev (z_world_raw from prev step) as feature,
+                # not z_self_prev. Cell content entering view dominates Δz_world_raw.
                 reaf_data.append((
-                    z_self_prev.cpu(),
+                    z_raw_prev.cpu(),
                     a_prev.cpu(),
                     dz_raw.cpu(),
                 ))
@@ -222,10 +224,10 @@ def _train_with_reafference(
             if len(reaf_data) >= 16 and agent.latent_stack.reafference_predictor is not None:
                 k = min(32, len(reaf_data))
                 idxs = torch.randperm(len(reaf_data))[:k].tolist()
-                zs_b = torch.cat([reaf_data[i][0] for i in idxs]).to(agent.device)
-                a_b  = torch.cat([reaf_data[i][1] for i in idxs]).to(agent.device)
-                dz_b = torch.cat([reaf_data[i][2] for i in idxs]).to(agent.device)
-                pred_dz = agent.latent_stack.reafference_predictor(zs_b, a_b)
+                zwr_b = torch.cat([reaf_data[i][0] for i in idxs]).to(agent.device)
+                a_b   = torch.cat([reaf_data[i][1] for i in idxs]).to(agent.device)
+                dz_b  = torch.cat([reaf_data[i][2] for i in idxs]).to(agent.device)
+                pred_dz = agent.latent_stack.reafference_predictor(zwr_b, a_b)
                 reaf_loss = F.mse_loss(pred_dz, dz_b)
                 if reaf_loss.requires_grad:
                     reaf_optimizer.zero_grad()
@@ -406,8 +408,8 @@ def run(
         "SD-007 ReafferencePredictor not initialized — check reafference_action_dim"
     )
     print(
-        f"[V3-EXQ-027] SD-007 enabled: "
-        f"ReafferencePredictor({self_dim}+{env.action_dim}→{world_dim})",
+        f"[V3-EXQ-027] SD-007 enabled (MECH-101 fix): "
+        f"ReafferencePredictor(z_world_raw_prev[{world_dim}]+a[{env.action_dim}]→{world_dim})",
         flush=True,
     )
 
@@ -514,7 +516,7 @@ def run(
 
 **Status:** {status}
 **Claims:** SD-003, SD-007, MECH-071, MECH-098
-**SD-007 enabled:** ReafferencePredictor({self_dim} + {env.action_dim} → {world_dim})
+**SD-007 enabled (MECH-101 fix):** ReafferencePredictor(z_world_raw_prev[{world_dim}] + a[{env.action_dim}] → {world_dim})
 **alpha_world:** {alpha_world}  (SD-008)
 **alpha_self:** {alpha_self}
 **Warmup:** {warmup_episodes} eps (random policy, 12×12, 15 hazards, drift)

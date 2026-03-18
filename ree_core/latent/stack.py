@@ -39,16 +39,24 @@ from ree_core.utils.config import LatentStackConfig
 
 class ReafferencePredictor(nn.Module):
     """
-    SD-007 / MECH-098: Perspective-shift correction for z_world.
+    SD-007 / MECH-098 / MECH-101: Perspective-shift correction for z_world.
 
     Predicts the z_world change caused purely by self-motion (locomotion):
-        Δz_world_loco = ReafferencePredictor(z_self_prev, a_prev)
+        Δz_world_loco = ReafferencePredictor(z_world_raw_prev, a_prev)
 
     Applied in LatentStack.encode():
         z_world_corrected = z_world_raw - Δz_world_loco
 
     Trained on empty-space steps (transition_type == "none") where the only
     source of z_world change is the perspective shift from locomotion.
+
+    MECH-101: Input must be z_world_raw_prev (NOT z_self_prev). In local-view
+    environments, Δz_world_raw from locomotion includes cell content entering
+    view — inaccessible from body state alone but available in z_world_raw_prev.
+    Biological basis: MSTd receives full visual optic flow (content-dependent)
+    + vestibular + efference copy. The optic flow is scene-content-dependent;
+    body state encodes position only. EXQ-027 confirmed R²=0.027 with z_self
+    inputs (near-zero because cell content dominates the delta).
 
     Biological basis: MSTd congruent/incongruent neuron populations (Gu et al.
     2008) decompose optic flow into self-motion (reafference) vs genuine world
@@ -57,38 +65,37 @@ class ReafferencePredictor(nn.Module):
     See docs/architecture/sd_004_sd_005_encoder_codesign.md §3.
     """
 
-    def __init__(self, self_dim: int, action_dim: int, world_dim: int, hidden_dim: int = 64):
+    def __init__(self, world_dim: int, action_dim: int, hidden_dim: int = 64):
         super().__init__()
-        self.self_dim = self_dim
-        self.action_dim = action_dim
         self.world_dim = world_dim
+        self.action_dim = action_dim
         self.net = nn.Sequential(
-            nn.Linear(self_dim + action_dim, hidden_dim),
+            nn.Linear(world_dim + action_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, world_dim),
         )
 
     def forward(
         self,
-        z_self_prev: torch.Tensor,
+        z_world_prev: torch.Tensor,
         a_prev: torch.Tensor,
     ) -> torch.Tensor:
         """
         Predict z_world delta caused by self-motion (perspective shift).
 
         Args:
-            z_self_prev: [batch, self_dim]
-            a_prev:      [batch, action_dim]
+            z_world_prev: [batch, world_dim] — z_world_raw from previous step
+            a_prev:       [batch, action_dim]
 
         Returns:
             Δz_world_loco: [batch, world_dim]
         """
-        return self.net(torch.cat([z_self_prev, a_prev], dim=-1))
+        return self.net(torch.cat([z_world_prev, a_prev], dim=-1))
 
     def correct_z_world(
         self,
         z_world_raw: torch.Tensor,
-        z_self_prev: torch.Tensor,
+        z_world_prev: torch.Tensor,
         a_prev: torch.Tensor,
     ) -> torch.Tensor:
         """
@@ -97,14 +104,14 @@ class ReafferencePredictor(nn.Module):
         z_world_corrected = z_world_raw - Δz_world_loco
 
         Args:
-            z_world_raw:  [batch, world_dim]
-            z_self_prev:  [batch, self_dim]
-            a_prev:       [batch, action_dim]
+            z_world_raw:   [batch, world_dim] — current raw z_world from encoder
+            z_world_prev:  [batch, world_dim] — z_world_raw from previous step
+            a_prev:        [batch, action_dim]
 
         Returns:
             z_world_corrected: [batch, world_dim]
         """
-        return z_world_raw - self.forward(z_self_prev, a_prev)
+        return z_world_raw - self.forward(z_world_prev, a_prev)
 
 
 @dataclass
@@ -379,9 +386,8 @@ class LatentStack(nn.Module):
         _reaf_action_dim = getattr(self.config, "reafference_action_dim", 0)
         if _reaf_action_dim > 0:
             self.reafference_predictor: Optional[ReafferencePredictor] = ReafferencePredictor(
-                self_dim=self.config.self_dim,
-                action_dim=_reaf_action_dim,
                 world_dim=self.config.world_dim,
+                action_dim=_reaf_action_dim,
                 hidden_dim=hidden,
             )
         else:
@@ -528,8 +534,16 @@ class LatentStack(nn.Module):
             a = prev_action
             if a.dim() == 1:
                 a = a.unsqueeze(0).expand(batch_size, -1)
+            # MECH-101: use z_world_raw_prev (not z_self_prev) as predictor input.
+            # z_world_raw_prev encodes what was visible at t-1, which is needed to
+            # predict cell content entering view during locomotion.
+            z_world_raw_prev = (
+                prev_state.z_world_raw
+                if prev_state.z_world_raw is not None
+                else prev_state.z_world
+            )
             z_world = self.reafference_predictor.correct_z_world(
-                z_world_raw, prev_state.z_self, a
+                z_world_raw, z_world_raw_prev, a
             )
 
         # Temporal smoothing (EMA).

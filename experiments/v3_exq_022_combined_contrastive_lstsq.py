@@ -172,11 +172,12 @@ def _train_and_collect(
             elif harm_signal > 0:
                 total_benefit += 1
 
-            # Collect reafference data on empty-space steps
-            if (z_world_prev is not None and z_self_prev is not None and
-                    a_prev is not None and ttype == "none"):
+            # Collect reafference data on empty-space steps.
+            # MECH-101: use z_world_prev as feature (not z_self_prev). Cell content
+            # entering view dominates Δz_world — available in z_world_prev, not z_self.
+            if (z_world_prev is not None and a_prev is not None and ttype == "none"):
                 dz_world = z_world_curr.detach() - z_world_prev
-                reaf_data.append((z_self_prev.cpu(), a_prev.cpu(), dz_world.cpu()))
+                reaf_data.append((z_world_prev.cpu(), a_prev.cpu(), dz_world.cpu()))
                 n_empty_steps += 1
                 if len(reaf_data) > MAX_REAF_DATA:
                     reaf_data = reaf_data[-MAX_REAF_DATA:]
@@ -271,8 +272,12 @@ def _train_and_collect(
     }
 
 
-def _fit_lstsq_predictor(reaf_data, self_dim, action_dim, world_dim):
-    """Fit lstsq predictor on empty-space steps. Returns (W, r2_train, r2_test)."""
+def _fit_lstsq_predictor(reaf_data, world_dim, action_dim):
+    """Fit lstsq predictor on empty-space steps. Returns (W, r2_train, r2_test).
+
+    MECH-101: features are [z_world_prev, a, 1], NOT [z_self, a, 1].
+    z_world_prev and dz_world are on the same scale → no scale mismatch.
+    """
     if len(reaf_data) < 20:
         print(f"  WARNING: only {len(reaf_data)} empty-step records — lstsq skipped",
               flush=True)
@@ -280,11 +285,11 @@ def _fit_lstsq_predictor(reaf_data, self_dim, action_dim, world_dim):
 
     n = len(reaf_data)
     n_train = int(n * 0.8)
-    z_self_all = torch.cat([d[0] for d in reaf_data], dim=0)
-    a_all      = torch.cat([d[1] for d in reaf_data], dim=0)
-    dz_all     = torch.cat([d[2] for d in reaf_data], dim=0)
-    ones_all   = torch.ones(n, 1)
-    X_all = torch.cat([z_self_all, a_all, ones_all], dim=-1)
+    z_world_raw_all = torch.cat([d[0] for d in reaf_data], dim=0)
+    a_all           = torch.cat([d[1] for d in reaf_data], dim=0)
+    dz_all          = torch.cat([d[2] for d in reaf_data], dim=0)
+    ones_all        = torch.ones(n, 1)
+    X_all = torch.cat([z_world_raw_all, a_all, ones_all], dim=-1)
 
     with torch.no_grad():
         result = torch.linalg.lstsq(X_all[:n_train], dz_all[:n_train], driver="gelsd")
@@ -304,11 +309,14 @@ def _fit_lstsq_predictor(reaf_data, self_dim, action_dim, world_dim):
     return W, r2_train, r2_test
 
 
-def _apply_lstsq_correction(z_world_raw, z_self, a, W, device):
-    """Apply lstsq correction: z_corrected = z_raw - W.T @ [z_self, a, 1]."""
-    batch = z_self.shape[0]
+def _apply_lstsq_correction(z_world_raw, z_world_prev, a, W, device):
+    """Apply lstsq correction: z_corrected = z_raw - W @ [z_world_prev, a, 1].
+
+    MECH-101: feature is z_world_prev (not z_self). Same scale as dz_world target.
+    """
+    batch = z_world_prev.shape[0]
     ones  = torch.ones(batch, 1, device=device)
-    feat  = torch.cat([z_self, a, ones], dim=-1)
+    feat  = torch.cat([z_world_prev, a, ones], dim=-1)
     pred  = feat @ W.to(device)
     return z_world_raw - pred
 
@@ -357,10 +365,10 @@ def _measure_dz_correction(agent, W, env, num_episodes, steps_per_episode):
                 with torch.no_grad():
                     dz_vec = z_world_curr - z_world_prev
                     dz_raw = float(torch.norm(dz_vec).item())
-                    # Correct the delta (fixed C3): subtract pred once from dz_vec
-                    batch = z_self_prev.shape[0]
+                    # MECH-101: use z_world_prev as lstsq feature (same scale as delta)
+                    batch = z_world_prev.shape[0]
                     ones  = torch.ones(batch, 1, device=device)
-                    feat  = torch.cat([z_self_prev, a_prev, ones], dim=-1)
+                    feat  = torch.cat([z_world_prev, a_prev, ones], dim=-1)
                     pred  = feat @ W.to(device)
                     dz_cor = float(torch.norm(dz_vec - pred).item())
                     if ttype == "none":
@@ -405,10 +413,12 @@ def _eval_corrected_probes(agent, net_eval_head, W, env, num_resets):
             a_act   = _action_to_onehot(actual_idx, env.action_dim, device)
             cf_idx  = _random_cf_action(actual_idx, env.action_dim)
             a_cf    = _action_to_onehot(cf_idx, env.action_dim, device)
+            # MECH-101: use z_world as both raw and previous-step feature when probing
+            # a static position (z_world encodes current view = best proxy for prev)
             zw_act  = agent.e2.world_forward(
-                _apply_lstsq_correction(z_world, z_self, a_act, W, device), a_act)
+                _apply_lstsq_correction(z_world, z_world, a_act, W, device), a_act)
             zw_cf   = agent.e2.world_forward(
-                _apply_lstsq_correction(z_world, z_self, a_cf, W, device), a_cf)
+                _apply_lstsq_correction(z_world, z_world, a_cf, W, device), a_cf)
             v_act = net_eval_head(zw_act)
             v_cf  = net_eval_head(zw_cf)
             all_pred_vals.extend([float(v_act.item()), float(v_cf.item())])
@@ -519,10 +529,10 @@ def run(
     print(f"[V3-EXQ-022] Fitting lstsq predictor on {len(train_out['reaf_data'])} steps...",
           flush=True)
     W, r2_train, r2_test = _fit_lstsq_predictor(
-        train_out["reaf_data"], self_dim, env.action_dim, world_dim
+        train_out["reaf_data"], world_dim, env.action_dim
     )
     if W is None:
-        feat_dim = self_dim + env.action_dim + 1
+        feat_dim = world_dim + env.action_dim + 1
         W = torch.zeros(feat_dim, world_dim)
         r2_test = 0.0
     reafference_r2 = max(0.0, r2_test)
