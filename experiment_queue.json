@@ -136,6 +136,19 @@
       "conditions": 1,
       "episodes_per_run": 550,
       "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-030b",
+      "backlog_id": "",
+      "claim_id": "SD-003",
+      "title": "SD-003 Full Attribution Pipeline v2 — Fix C1 + E3-on-E2-predictions",
+      "description": "Second version of EXQ-030 (3/5 FAIL). Fix 1: Drop C1 (raw delta uniform across all ttypes — dominated by 175-ch local_view, uninformative). Fix 2: E3 trained on both observed z_world AND E2-predicted z_world states (distributional alignment fix — EXQ-030 C3 failure was E3 evaluating out-of-distribution E2 outputs). Revised criteria: C1=attribution_gap>0, C2=causal_sig_approach>causal_sig_none, C3=causal_sig_approach>0.005 (lowered from 0.02), C4=wf_r2>0.05, C5=n_approach>=50.",
+      "script": "experiments/v3_exq_030b_sd003_full_attribution_v2.py",
+      "args": ["--seed", "0", "--warmup", "500", "--eval-eps", "50", "--steps", "200", "--alpha-world", "0.9", "--harm-scale", "0.02", "--proximity-scale", "0.05"],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 550,
+      "status": "pending"
     }
   ]
 }
