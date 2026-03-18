@@ -144,8 +144,10 @@ def _train_with_harm_eval(
                 hs_b = torch.tensor(
                     [harm_buffer[i][1] for i in idxs], device=agent.device
                 ).unsqueeze(1)
-                # Normalise: harm in [-1, 0, +1] → target in [-1, 0, +1]
-                target = hs_b.clamp(-1.0, 1.0)
+                # harm_eval_head uses Sigmoid → output in [0,1].
+                # Map: harm (signal<0) → 1.0, everything else → 0.0.
+                # (Prior: clamp(-1,1) → harm target=-1 unreachable by Sigmoid → collapsed)
+                target = (hs_b < 0).float()
                 pred = agent.e3.harm_eval(zw_b)  # [batch, 1]
                 harm_loss = F.mse_loss(pred, target)
                 if harm_loss.requires_grad:
