@@ -123,6 +123,19 @@
       "conditions": 1,
       "episodes_per_run": 550,
       "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-030",
+      "backlog_id": "",
+      "claim_id": "SD-003",
+      "title": "SD-003 Full Attribution Pipeline on CausalGridWorldV2",
+      "description": "The complete SD-003 test. Trains E2.world_forward on CausalGridWorldV2 transitions (separate optimizer, MECH-069). Eval: at each step compute counterfactual divergence = mean_cf ||E2(z_world, a_actual) - E2(z_world, a_cf)||, and causal_sig = mean_cf [E3(E2(z,a_actual)) - E3(E2(z,a_cf))]. Tests whether E2 predicts action-conditional futures near hazards (C1: delta_approach > delta_none), and whether attribution distinguishes agent-caused from env-caused events (C2: attribution_gap > 0, C3: causal_sig_approach > 0.02). Depends on EXQ-029 PASS. Same world config as EXQ-029.",
+      "script": "experiments/v3_exq_030_sd003_full_attribution.py",
+      "args": ["--seed", "0", "--warmup", "500", "--eval-eps", "50", "--steps", "200", "--alpha-world", "0.9", "--harm-scale", "0.02", "--proximity-scale", "0.05"],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 550,
+      "status": "pending"
     }
   ]
 }
