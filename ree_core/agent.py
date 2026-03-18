@@ -206,7 +206,11 @@ class REEAgent(nn.Module):
         new_latent = self.latent_stack.encode(
             enc_combined, self._current_latent, prev_action=self._last_action
         )
-        self._current_latent = new_latent
+        # Detach before storing: prevents EMA from linking computational graphs
+        # across time steps. Without detach, optimizer.step() modifies weights
+        # in-place, invalidating the old graph's version — causing RuntimeError
+        # "modified by an inplace operation" on the next backward() call.
+        self._current_latent = new_latent.detach()
         return new_latent
 
     def sense_flat(self, observation: torch.Tensor) -> LatentState:

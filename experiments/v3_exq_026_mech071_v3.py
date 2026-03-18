@@ -87,8 +87,14 @@ def _train_with_harm_eval(
     """
     agent.train()
 
-    harm_buffer: List[Tuple[torch.Tensor, float]] = []  # (z_world, harm_signal)
-    MAX_HARM_BUF = 2000
+    # Balanced harm_eval training buffers.
+    # Class imbalance fix: store harm and no-harm z_worlds separately.
+    # With ~1.25% harm rate, an unbalanced buffer (all steps) collapses the
+    # head to predict base-rate (~0.014) for everything.
+    # Balanced sampling: 16 pos + 16 neg per batch → equal gradient signal.
+    harm_buf_pos: List[torch.Tensor] = []  # z_world at harm steps (signal<0)
+    harm_buf_neg: List[torch.Tensor] = []  # z_world at no-harm steps
+    MAX_BUF_EACH = 1000
 
     total_harm = 0
     total_benefit = 0
@@ -121,10 +127,16 @@ def _train_with_harm_eval(
             elif harm_signal > 0:
                 total_benefit += 1
 
-            # Collect for harm_eval training (always, not just harm steps)
-            harm_buffer.append((latent.z_world.detach(), float(harm_signal)))
-            if len(harm_buffer) > MAX_HARM_BUF:
-                harm_buffer = harm_buffer[-MAX_HARM_BUF:]
+            # Collect for harm_eval training (balanced pos/neg buffers)
+            zw = latent.z_world.detach()
+            if harm_signal < 0:
+                harm_buf_pos.append(zw)
+                if len(harm_buf_pos) > MAX_BUF_EACH:
+                    harm_buf_pos = harm_buf_pos[-MAX_BUF_EACH:]
+            else:
+                harm_buf_neg.append(zw)
+                if len(harm_buf_neg) > MAX_BUF_EACH:
+                    harm_buf_neg = harm_buf_neg[-MAX_BUF_EACH:]
 
             # Standard losses: E1 + E2_self
             e1_loss      = agent.compute_prediction_loss()
@@ -136,18 +148,21 @@ def _train_with_harm_eval(
                 torch.nn.utils.clip_grad_norm_(agent.parameters(), 1.0)
                 optimizer.step()
 
-            # E3 harm_eval training: regression on (z_world, harm_signal)
-            if len(harm_buffer) >= 16:
-                k = min(32, len(harm_buffer))
-                idxs = torch.randperm(len(harm_buffer))[:k].tolist()
-                zw_b = torch.cat([harm_buffer[i][0] for i in idxs], dim=0)
-                hs_b = torch.tensor(
-                    [harm_buffer[i][1] for i in idxs], device=agent.device
-                ).unsqueeze(1)
-                # harm_eval_head uses Sigmoid → output in [0,1].
-                # Map: harm (signal<0) → 1.0, everything else → 0.0.
-                # (Prior: clamp(-1,1) → harm target=-1 unreachable by Sigmoid → collapsed)
-                target = (hs_b < 0).float()
+            # E3 harm_eval training: balanced 16 pos + 16 neg per batch.
+            # harm_eval_head uses Sigmoid → output in [0,1].
+            # target: harm step → 1.0, no-harm step → 0.0.
+            if len(harm_buf_pos) >= 4 and len(harm_buf_neg) >= 4:
+                k_pos = min(16, len(harm_buf_pos))
+                k_neg = min(16, len(harm_buf_neg))
+                pos_idx = torch.randperm(len(harm_buf_pos))[:k_pos].tolist()
+                neg_idx = torch.randperm(len(harm_buf_neg))[:k_neg].tolist()
+                zw_pos = torch.cat([harm_buf_pos[i] for i in pos_idx], dim=0)
+                zw_neg = torch.cat([harm_buf_neg[i] for i in neg_idx], dim=0)
+                zw_b   = torch.cat([zw_pos, zw_neg], dim=0)
+                target = torch.cat([
+                    torch.ones(k_pos, 1, device=agent.device),
+                    torch.zeros(k_neg, 1, device=agent.device),
+                ], dim=0)
                 pred = agent.e3.harm_eval(zw_b)  # [batch, 1]
                 harm_loss = F.mse_loss(pred, target)
                 if harm_loss.requires_grad:
