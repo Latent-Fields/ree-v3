@@ -12,7 +12,7 @@
       "backlog_id": "",
       "claim_id": "ARC-016",
       "title": "ARC-016 Dynamic Precision Commitment Test (hazard_harm=0.02, alpha_world=0.9)",
-      "description": "FIXED 2026-03-18 (run 2): (1) alpha_world=0.9 (SD-008 — fixes z_world EMA suppression). (2) Commit formula fixed: committed = running_variance < 0.02 in variance-space (prior formula compared precision ~95 against threshold ~0.703 → always True). (3) Env redesigned for 10× contrast: stable=3 hazards/drift_prob=0/interval=100 vs perturbed=20 hazards/drift_prob=1.0/interval=1. Prior envs (10 vs 10 hazards, prob 0.1 vs 0.9) gave only var_diff=0.0006. PASS: var_diff>0.02 AND prec_diff>0 AND commit_diff>0.",
+      "description": "FIXED 2026-03-18 (run 3): E2.world_forward was untrained → prediction errors dominated by random noise (~constant in both envs), killing the ARC-016 variance signal. Fix: add e2w_loss=MSE(world_forward(zw_t,a_t),zw_{t+1}) to training loop. Also reset _running_variance=0.5 before each eval phase for clean measurement. (Prior fixes: alpha_world=0.9, variance-space formula, extreme env contrast.) PASS: var_diff>0.02 AND prec_diff>0 AND commit_diff>0.",
       "script": "experiments/v3_exq_018_arc016_dynamic_precision.py",
       "args": ["--seed", "0", "--train-episodes", "1000", "--eval-stable", "50", "--eval-perturbed", "50", "--eval-recovery", "30", "--steps", "200", "--harm-scale", "0.02", "--alpha-world", "0.9"],
       "seeds": 1,

@@ -135,6 +135,14 @@ def _run_phase(
     traj_buffer: List = []
     MAX_TRAJ_BUFFER = 200
 
+    # E2.world_forward transition buffer for training.
+    # E2.world_forward is NOT trained by compute_e2_loss() (which trains z_self only).
+    # Without training, world_forward produces random-noise predictions with
+    # constant ~0.01 MSE in both stable and perturbed envs → no variance signal.
+    # Fix: explicitly train (z_world_t, a_t) → z_world_{t+1} with separate optimizer.
+    e2w_buf: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+    MAX_E2W_BUF = 500
+
     for ep in range(num_episodes):
         flat_obs, obs_dict = env.reset()
         agent.reset()
@@ -193,13 +201,33 @@ def _run_phase(
                 if len(traj_buffer) > MAX_TRAJ_BUFFER:
                     traj_buffer = traj_buffer[-MAX_TRAJ_BUFFER:]
 
+                # Collect E2.world_forward training transitions
+                if z_world_prev is not None and a_prev is not None:
+                    e2w_buf.append((z_world_prev, a_prev, z_world_curr))
+                    if len(e2w_buf) > MAX_E2W_BUF:
+                        e2w_buf = e2w_buf[-MAX_E2W_BUF:]
+
                 e1_loss = agent.compute_prediction_loss()
                 e2_self_loss = agent.compute_e2_loss()
                 obs_w = obs_world.unsqueeze(0) if obs_world.dim() == 1 else obs_world
                 z_w = agent.latent_stack.split_encoder.world_encoder(obs_w)
                 recon = world_decoder(z_w)
                 recon_loss = F.mse_loss(recon, obs_w)
-                total_loss = e1_loss + e2_self_loss + recon_loss
+
+                # E2.world_forward training loss (key fix: without this, prediction
+                # errors are dominated by random network noise — ~constant regardless
+                # of env stability, killing the ARC-016 variance signal)
+                e2w_loss = torch.zeros(1, device=agent.device)
+                if len(e2w_buf) >= 16:
+                    k = min(32, len(e2w_buf))
+                    idxs = torch.randperm(len(e2w_buf))[:k].tolist()
+                    zw_t  = torch.cat([e2w_buf[i][0] for i in idxs], dim=0)
+                    a_t   = torch.cat([e2w_buf[i][1] for i in idxs], dim=0)
+                    zw_t1 = torch.cat([e2w_buf[i][2] for i in idxs], dim=0)
+                    zw_pred = agent.e2.world_forward(zw_t, a_t)
+                    e2w_loss = F.mse_loss(zw_pred, zw_t1)
+
+                total_loss = e1_loss + e2_self_loss + recon_loss + e2w_loss
                 if total_loss.requires_grad:
                     optimizer.zero_grad()
                     total_loss.backward()
@@ -303,6 +331,9 @@ def run(
     )
 
     # ── Phase 2: Eval stable ───────────────────────────────────────────────
+    # Reset running_variance before each eval phase so measurement starts from
+    # a known warm-start (precision_init=0.5 → converges quickly to env level).
+    agent.e3._running_variance = config.e3.precision_init
     print(f"[V3-EXQ-018] Eval stable: {eval_stable_episodes} eps", flush=True)
     stable_out = _run_phase(
         agent, env_stable, optimizer, world_decoder,
@@ -310,6 +341,7 @@ def run(
     )
 
     # ── Phase 3: Eval perturbed ────────────────────────────────────────────
+    agent.e3._running_variance = config.e3.precision_init
     print(f"[V3-EXQ-018] Eval perturbed: {eval_perturbed_episodes} eps "
           f"(num_hazards=20, drift_interval=1, drift_prob=1.0)", flush=True)
     perturbed_out = _run_phase(
@@ -318,6 +350,7 @@ def run(
     )
 
     # ── Phase 4: Recovery ─────────────────────────────────────────────────
+    agent.e3._running_variance = config.e3.precision_init
     print(f"[V3-EXQ-018] Recovery: {eval_recovery_episodes} eps (stable again)", flush=True)
     recovery_out = _run_phase(
         agent, env_stable, optimizer, world_decoder,
