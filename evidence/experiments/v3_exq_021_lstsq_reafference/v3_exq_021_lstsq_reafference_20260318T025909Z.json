@@ -1,0 +1,41 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "warmup_harm_events": 771.0,
+    "warmup_benefit_events": 111.0,
+    "n_empty_steps_collected": 4977.0,
+    "reafference_reconstruction_r2": 0.3095027208328247,
+    "reafference_r2_train": 0.5823205709457397,
+    "calibration_gap": 0.0001521934931856127,
+    "mean_causal_sig_near_hazard": -0.001311920352477943,
+    "mean_causal_sig_safe": -0.0014641138456635556,
+    "n_near_hazard_probes": 452.0,
+    "n_safe_probes": 59.0,
+    "net_eval_pred_std": 0.013941255398094654,
+    "mean_dz_world_raw_empty": 0.04792145216346952,
+    "mean_dz_world_corrected_empty": 0.036570688552479934,
+    "dz_correction_reduction_empty": 0.011350763610989585,
+    "mean_dz_world_raw_env_hazard": 0.04443204572752995,
+    "mean_dz_world_corrected_env_hazard": 0.03968176234732656,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "criteria_met": 4.0
+  },
+  "summary_markdown": "# V3-EXQ-021 \u2014 lstsq Linear Reafference Correction\n\n**Status:** FAIL\n**Warmup:** 300 eps (RANDOM policy, 12\u00d712, 15 hazards, drift_interval=3, drift_prob=0.5)\n**Probe eval:** 10 grid resets\n**Seed:** 1\n\n## Motivation (SD-007 / MECH-098, EXQ-016 bug fixes)\n\nEXQ-016 failed on C2 (R\u00b2_test=0.118 vs threshold 0.2) and C3 (metric was broken).\nThis experiment fixes both issues:\n  1. **lstsq**: torch.linalg.lstsq on [z_self|a|1] \u2192 \u0394z_world (expected R\u00b2\u22480.333)\n  2. **Fixed C3**: dz_corrected = dz_raw - pred (subtract ONCE, not from each endpoint)\n\n## lstsq Predictor\n\n| Metric | Value |\n|---|---|\n| Feature dim | 38 = self_dim(32) + actions(5) + 1 |\n| n_empty_steps | 4977 |\n| R\u00b2_train | 0.582 |\n| R\u00b2_test | 0.310 |\n\n## \u0394z_world Before/After Correction (Fixed Metric)\n\n| Event Type | Raw \u0394z_world | Corrected \u0394z_world | Reduction |\n|---|---|---|---|\n| empty_move (locomotion) | 0.0479 | 0.0366 | 0.0114 |\n| env_caused_hazard | 0.0444 | 0.0397 | 0.0048 |\n\n## SD-003 Attribution (lstsq-Corrected z_world)\n\n| Position | mean(causal_sig) |\n|---|---|\n| Near-hazard | -0.0013 |\n| Safe | -0.0015 |\n| **calibration_gap** | **0.0002** |\n\nWarmup: harm=771  benefit=111\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: calibration_gap > 0.05 (lstsq-corrected) | FAIL | 0.0002 |\n| C2: R\u00b2_test > 0.25 | PASS | 0.310 |\n| C3: \u0394z_corrected(empty) < \u0394z_raw(empty) | PASS | 0.0366 vs 0.0479 |\n| C4: Warmup harm events > 100 | PASS | 771 |\n| C5: No fatal errors | PASS | 0 |\n\nCriteria met: 4/5 \u2192 **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: calibration_gap=0.0002 <= 0.05\n",
+  "claim_ids": [
+    "SD-007",
+    "MECH-098",
+    "SD-003"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_021_lstsq_reafference",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260318T025909Z",
+  "claim": "SD-007",
+  "verdict": "FAIL",
+  "run_id": "v3_exq_021_lstsq_reafference_20260318T025909Z_v3",
+  "architecture_epoch": "ree_hybrid_guardrails_v1"
+}

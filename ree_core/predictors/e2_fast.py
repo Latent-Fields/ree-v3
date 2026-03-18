@@ -76,6 +76,7 @@ class Trajectory:
         return torch.stack(self.action_objects, dim=1)
 
 
+
 class E2FastPredictor(nn.Module):
     """
     E2 Fast Predictor — V3.

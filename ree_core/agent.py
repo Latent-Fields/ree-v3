@@ -201,7 +201,11 @@ class REEAgent(nn.Module):
 
         # Concatenate for LatentStack (which splits internally)
         enc_combined = torch.cat([enc_body, enc_world], dim=-1)
-        new_latent = self.latent_stack.encode(enc_combined, self._current_latent)
+        # SD-007: pass last action as prev_action for reafference correction.
+        # _last_action is None on the first step (no correction applied).
+        new_latent = self.latent_stack.encode(
+            enc_combined, self._current_latent, prev_action=self._last_action
+        )
         self._current_latent = new_latent
         return new_latent
 

@@ -1,0 +1,39 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "warmup_harm_events": 819.0,
+    "warmup_benefit_events": 244.0,
+    "mean_recon_loss": 0.03480740850825174,
+    "mean_e2_world_loss": 0.0003177384463975976,
+    "e2_rollout_steps": 5.0,
+    "trained_calibration_gap": 0.0006843730807304382,
+    "random_calibration_gap": 0.00037336481074503095,
+    "trained_mean_near_hazard": 0.0018740269270810213,
+    "trained_mean_safe": 0.001189653846350583,
+    "random_mean_near_hazard": -0.0002222333939708009,
+    "random_mean_safe": -0.0005955982047158319,
+    "n_near_hazard_probes": 231.0,
+    "n_safe_probes": 66.0,
+    "trained_net_eval_std": 0.01576577126979828,
+    "trained_net_eval_degenerate": 0.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "crit5_pass": 1.0,
+    "crit6_pass": 1.0,
+    "crit7_pass": 1.0,
+    "criteria_met": 6.0
+  },
+  "summary_markdown": "# V3-EXQ-012 \u2014 SD-003 Signed Net Eval (Benefit + Harm Signal)\n\n**Status:** FAIL\n**Warmup:** 300 eps, RANDOM policy + recon loss + 5-step E2 + net_eval regression\n**Probe eval:** 10 grid resets \u00d7 (near-hazard + safe positions)\n**Seed:** 0\n\n## Key Change vs EXQ-002 through EXQ-010\n\nBinary BCE `harm_eval` (harm=1, no-harm=0) replaced with signed REGRESSION\n`net_eval` trained on actual `harm_signal` values (normalised to [-1, 1]).\n\n- `agent_caused_hazard` \u2192 target \u2248 -0.8  (`-0.4 / 0.5`)\n- `env_caused_hazard`   \u2192 target \u2248 -1.0  (`-0.5 / 0.5`)\n- `resource`            \u2192 target \u2248 +0.6  (`+0.3 / 0.5`)\n- `none`                \u2192 target \u2248  0.0\n\nE3 now has full \u00b10.3\u20130.5 value boundaries. Benefit/harm contrast amplifies\nthe SD-003 causal signature.\n\nMean E2 world loss: 0.000318  |  Mean reconstruction loss: 0.03481\nWarmup harm events: 819   |  Warmup benefit events: 244\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: TRAINED calibration_gap > 0.05 | FAIL | 0.0007 |\n| C2: RANDOM abs(calibration_gap) < 0.10 | PASS | 0.0004 |\n| C3: Warmup harm events > 100 | PASS | 819 |\n| C4: No fatal errors | PASS | 0 |\n| C5: net_eval non-degenerate | PASS | std=0.0158 |\n| C6: Probe coverage >= 10 each | PASS | near=231 safe=66 |\n| C7: Warmup benefit events > 20 | PASS | 244 |\n\n## Calibration Results\n\n| Condition | mean_causal_sig(near_hazard) | mean_causal_sig(safe) | calibration_gap |\n|---|---|---|---|\n| TRAINED | 0.0019 | 0.0012 | 0.0007 |\n| RANDOM  | -0.0002 | -0.0006 | 0.0004 |\n\n## Attribution Pipeline\n\n```\nz_world = encoder(obs_world)                    [reconstruction-loss trained]\nz_world_actual = E2.world_forward(z_world, a_actual)\nz_world_cf     = E2.world_forward(z_world, a_cf)\nv_actual = net_eval(z_world_actual)             [SIGNED regression, not binary]\nv_cf     = net_eval(z_world_cf)\ncausal_sig = v_actual - v_cf\n```\n\nCriteria met: 6/7 \u2192 **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: TRAINED gap 0.0007 <= 0.05\n",
+  "claim_ids": [
+    "SD-003"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_012_sd003_net_eval",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260317T211107Z",
+  "claim": "SD-003",
+  "verdict": "FAIL"
+}

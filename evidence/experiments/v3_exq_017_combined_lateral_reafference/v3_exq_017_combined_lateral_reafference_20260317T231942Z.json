@@ -1,0 +1,41 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "warmup_harm_events": 753.0,
+    "warmup_benefit_events": 131.0,
+    "n_empty_steps_collected": 4916.0,
+    "harm_dim": 16.0,
+    "reafference_reconstruction_r2": 0.06995737552642822,
+    "reafference_r2_train": 0.1288732886314392,
+    "calibration_gap": -7.632078194825096e-05,
+    "mean_causal_sig_near_hazard": 2.703801153021624e-06,
+    "mean_causal_sig_safe": 7.902458310127258e-05,
+    "z_harm_selectivity_margin": -0.007474314524997694,
+    "mean_z_harm_norm_near": 0.4355545235947259,
+    "mean_z_harm_norm_safe": 0.4430288381197236,
+    "n_near_hazard_probes": 461.0,
+    "n_safe_probes": 44.0,
+    "net_eval_pred_std": 0.001318812370300293,
+    "crit1_pass": 0.0,
+    "crit2_pass": 0.0,
+    "crit3_pass": 0.0,
+    "crit4_pass": 1.0,
+    "criteria_met": 2.0
+  },
+  "summary_markdown": "# V3-EXQ-017 \u2014 Combined Lateral + Reafference (MECH-099 + MECH-098)\n\n**Status:** FAIL\n**Warmup:** 300 eps (RANDOM policy, 12\u00d712, 15 hazards, drift_interval=3, drift_prob=0.5)\n**Probe eval:** 10 grid resets\n**harm_dim:** 16  **world_dim:** 32  **Seed:** 0\n\n## Motivation (MECH-099 + MECH-098 / SD-007 / SD-003)\n\nEXQ-015 (lateral head alone) and EXQ-016 (reafference alone) tested individual fixes\nfor the E2 identity shortcut (EXQ-012 calibration_gap \u2248 0.0007). This experiment\ncombines both: reafference correction removes perspective shift from z_world, while\nthe lateral head provides harm-salient z_harm context. The combined attribution:\n  combined_act = combined_head([z_harm; E2.world_forward(z_w_corr_act, a_act)])\n  combined_cf  = combined_head([z_harm; E2.world_forward(z_w_corr_cf, a_cf)])\n  causal_sig   = combined_act - combined_cf\n\n## ReafferencePredictor\n\n- R\u00b2 train: 0.129 | R\u00b2 test: 0.070\n- Empty-step data: 4916\n\n## Probe Results\n\n| Metric | Near-Hazard | Safe | Margin |\n|---|---|---|---|\n| Combined causal_sig | 0.0000 | 0.0001 | -0.0001 |\n| \\|\\|z_harm\\|\\| norm | 0.4356 | 0.4430 | -0.0075 |\n\npred_std: 0.0013\nWarmup: harm=753  benefit=131\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: calibration_gap > 0.05 | FAIL | -0.0001 |\n| C2: z_harm selectivity > 0.01 | FAIL | -0.0075 |\n| C3: reafference R\u00b2_test > 0.2 | FAIL | 0.070 |\n| C4: Warmup harm events > 100 | PASS | 753 |\n| C5: No fatal errors | PASS | 0 |\n\nCriteria met: 2/5 \u2192 **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: calibration_gap=-0.0001 <= 0.05\n- C2 FAIL: z_harm selectivity=-0.0075 <= 0.01\n- C3 FAIL: reafference R\u00b2_test=0.070 <= 0.2\n",
+  "claim_ids": [
+    "MECH-099",
+    "MECH-098",
+    "SD-007",
+    "SD-003"
+  ],
+  "evidence_direction": "weakens",
+  "experiment_type": "v3_exq_017_combined_lateral_reafference",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260317T231942Z",
+  "claim": "MECH-099",
+  "verdict": "FAIL",
+  "run_id": "v3_exq_017_combined_lateral_reafference_20260317T231942Z_v3",
+  "architecture_epoch": "ree_hybrid_guardrails_v1"
+}

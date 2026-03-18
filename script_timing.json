@@ -6,5 +6,20 @@
   "experiments/v3_exq_005_mech069_error_scale.py": 39.0,
   "experiments/v3_exq_006_zworld_probe.py": 48.7,
   "experiments/v3_exq_007_target_stopgrad.py": 52.8,
-  "experiments/v3_exq_008_larger_world.py": 56.5
+  "experiments/v3_exq_008_larger_world.py": 62.4,
+  "experiments/v3_exq_009_wider_e2.py": 74.4,
+  "experiments/v3_exq_010_dense_hazards.py": 41.1,
+  "experiments/v3_exq_011_mech095_tpj_proxy.py": 19.9,
+  "experiments/v3_exq_012_sd003_net_eval.py": 35.9,
+  "experiments/v3_exq_013_sd005_strict.py": 61.4,
+  "experiments/v3_exq_014_perspective_shift_calibration.py": 57.8,
+  "experiments/v3_exq_015_three_stream_lateral.py": 57.5,
+  "experiments/v3_exq_016_sd007_reafference.py": 64.0,
+  "experiments/v3_exq_017_combined_lateral_reafference.py": 47.4,
+  "experiments/v3_exq_018_arc016_dynamic_precision.py": 42.4,
+  "experiments/v3_exq_019_timescale_v3.py": 22.8,
+  "experiments/v3_exq_023_sd008_alpha_world.py": 62.5,
+  "experiments/v3_exq_021_lstsq_reafference.py": 61.5,
+  "experiments/v3_exq_025_e2w_action_divergence.py": 24.8,
+  "experiments/v3_exq_024_e2w_1step_loss.py": 62.0
 }

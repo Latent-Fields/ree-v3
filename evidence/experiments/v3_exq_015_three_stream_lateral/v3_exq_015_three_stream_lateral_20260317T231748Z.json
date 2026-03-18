@@ -1,0 +1,38 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "warmup_harm_events": 755.0,
+    "warmup_benefit_events": 113.0,
+    "harm_dim": 16.0,
+    "calibration_gap": -0.012116863718559967,
+    "mean_net_eval_near_hazard": -0.22991484981725818,
+    "mean_net_eval_safe": -0.21779798609869822,
+    "z_harm_selectivity_margin": 0.010541206833238004,
+    "mean_z_harm_norm_near": 0.5155728342498487,
+    "mean_z_harm_norm_safe": 0.5050316274166107,
+    "mean_z_world_norm_near": 0.5299441257329403,
+    "mean_z_world_norm_safe": 0.5316562686647688,
+    "n_near_hazard_probes": 482.0,
+    "n_safe_probes": 35.0,
+    "net_eval_pred_std": 0.015251822769641876,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "criteria_met": 4.0
+  },
+  "summary_markdown": "# V3-EXQ-015 \u2014 Three-Stream Lateral Head (MECH-099)\n\n**Status:** FAIL\n**Warmup:** 300 eps (RANDOM policy, 12\u00d712, 15 hazards)\n**Probe eval:** 10 grid resets\n**harm_dim:** 16\n**Seed:** 2\n\n## Motivation (MECH-099 / SD-007 / SD-003)\n\nEXQ-012 showed calibration_gap \u2248 0.0007 with z_world \u2014 E2 identity shortcut.\nThis experiment tests whether a dedicated lateral encoder head processing ONLY\nhazard + contamination channels (lateral stream in MECH-099 biological grounding)\ngives E3 a harm-salient z_harm embedding that bypasses the identity shortcut.\n\nAttribution pipeline (lateral variant):\n```\nz_harm = SplitEncoder.lateral_head(hazard_channels + contamination_view)  # [16-dim]\nnet_eval: z_harm \u2192 scalar \u2208 [-1, 1]  (trained on harm_signal values)\ncausal_signal = net_eval(z_harm_near_hazard) - net_eval(z_harm_safe)\ncalibration_gap = mean(causal_signal near-hazard) - mean(causal_signal safe)\n```\n\n## Probe Results\n\n| Metric | Near-Hazard | Safe | Margin |\n|---|---|---|---|\n| net_eval (z_harm) | -0.2299 | -0.2178 | -0.0121 |\n| \\|\\|z_harm\\|\\| norm | 0.5156 | 0.5050 | 0.0105 |\n| \\|\\|z_world\\|\\| norm | 0.5299 | 0.5317 | \u2014 |\n\nnet_eval pred_std: 0.0153\nWarmup: harm=755  benefit=113\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: calibration_gap > 0.05 | FAIL | -0.0121 |\n| C2: z_harm selectivity margin > 0.01 | PASS | 0.0105 |\n| C3: Warmup benefit events > 20 | PASS | 113 |\n| C4: Probe coverage >= 10 each | PASS | near=482 safe=35 |\n| C5: No fatal errors | PASS | 0 |\n\nCriteria met: 4/5 \u2192 **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: calibration_gap=-0.0121 <= 0.05\n",
+  "claim_ids": [
+    "MECH-099",
+    "SD-003"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_015_three_stream_lateral",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260317T231748Z",
+  "claim": "MECH-099",
+  "verdict": "FAIL",
+  "run_id": "v3_exq_015_three_stream_lateral_20260317T231748Z_v3",
+  "architecture_epoch": "ree_hybrid_guardrails_v1"
+}

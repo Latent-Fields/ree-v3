@@ -45,6 +45,33 @@ class LatentStackConfig:
     theta_dim: int = 32        # z_theta: sequence context (shared)
     delta_dim: int = 32        # z_delta: regime/motivation (shared)
 
+    # MECH-099: lateral head for harm-salient features (hazard + contamination)
+    # harm_dim=0 disables the lateral head (default: disabled for backward compat)
+    harm_dim: int = 0
+
+    # SD-008: per-channel EMA alpha for temporal smoothing in encode().
+    # alpha_world should be >= 0.9 (or 1.0 = no blending) — MECH-089 theta buffer
+    # already handles temporal integration; encoder EMA double-smoothing suppresses
+    # event responses (root cause of EXQ-013/014/018/019 FAIL cluster).
+    # alpha_self can remain low (body state is highly autocorrelated).
+    alpha_world: float = 0.3   # SD-008: set to 0.9+ to fix event suppression
+    alpha_self: float = 0.3
+
+    # SD-007: ReafferencePredictor — perspective-shift correction for z_world.
+    # Set reafference_action_dim = action_dim (e.g. 4) to enable.
+    # 0 = disabled (default; backward compatible with EXQ-001–025).
+    # When enabled, LatentStack.encode() accepts prev_action and applies:
+    #   z_world_corrected = z_world_raw - ReafferencePredictor(z_self_prev, a_prev)
+    # Trained on empty-space steps (transition_type=="none") only.
+    # See docs/architecture/sd_004_sd_005_encoder_codesign.md §3.
+    reafference_action_dim: int = 0
+
+    # SD-009: event contrastive classifier head on z_world encoder (MECH-100).
+    # When True, SplitEncoder.forward() returns event logits [batch, 3] and
+    # training loop can apply CE loss with event_type labels from the environment.
+    # Labels: 0=none, 1=env_caused_hazard, 2=agent_caused_hazard.
+    use_event_classifier: bool = False
+
     # Top-down conditioning
     topdown_dim: int = 16
 
@@ -237,6 +264,11 @@ class REEConfig:
         self_dim: int = 32,
         world_dim: int = 32,
         action_object_dim: int = 16,
+        harm_dim: int = 0,
+        alpha_world: float = 0.3,
+        alpha_self: float = 0.3,
+        reafference_action_dim: int = 0,
+        use_event_classifier: bool = False,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
         config = cls()
@@ -249,6 +281,17 @@ class REEConfig:
         # SD-005 split dims
         config.latent.self_dim = self_dim
         config.latent.world_dim = world_dim
+        config.latent.harm_dim = harm_dim  # MECH-099: 0 = lateral head disabled
+
+        # SD-008: temporal EMA alphas
+        config.latent.alpha_world = alpha_world
+        config.latent.alpha_self = alpha_self
+
+        # SD-007: reafference correction
+        config.latent.reafference_action_dim = reafference_action_dim
+
+        # SD-009: event contrastive classifier
+        config.latent.use_event_classifier = use_event_classifier
 
         # E1
         config.e1.self_dim = self_dim

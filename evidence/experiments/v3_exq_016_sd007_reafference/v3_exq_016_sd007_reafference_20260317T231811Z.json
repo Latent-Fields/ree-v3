@@ -1,0 +1,41 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "warmup_harm_events": 771.0,
+    "warmup_benefit_events": 111.0,
+    "n_empty_steps_collected": 4977.0,
+    "reafference_reconstruction_r2": 0.18023687601089478,
+    "reafference_r2_train": 0.2590286135673523,
+    "calibration_gap": 0.00011047666541225132,
+    "mean_causal_sig_near_hazard": -0.001093648538916512,
+    "mean_causal_sig_safe": -0.0012041252043287632,
+    "n_near_hazard_probes": 452.0,
+    "n_safe_probes": 59.0,
+    "net_eval_pred_std": 0.01347642857581377,
+    "mean_dz_world_raw_empty": 0.04792145216346952,
+    "mean_dz_world_corrected_empty": 0.04792145230719214,
+    "dz_correction_reduction_empty": -1.437226240796896e-10,
+    "mean_dz_world_raw_env_hazard": 0.04443204572752995,
+    "mean_dz_world_corrected_env_hazard": 0.04443204572752995,
+    "crit1_pass": 0.0,
+    "crit2_pass": 0.0,
+    "crit3_pass": 0.0,
+    "crit4_pass": 1.0,
+    "criteria_met": 2.0
+  },
+  "summary_markdown": "# V3-EXQ-016 \u2014 SD-007 Reafference Correction\n\n**Status:** FAIL\n**Warmup:** 300 eps (RANDOM policy, 12\u00d712, 15 hazards, drift_interval=3, drift_prob=0.5)\n**Probe eval:** 10 grid resets\n**Seed:** 1\n\n## Motivation (SD-007 / MECH-098)\n\nEXQ-012 revealed calibration_gap \u2248 0.0007 \u2014 E2 identity shortcut from perspective shift.\nEXQ-014 (expected) confirmed locomotion explains > 30% of z_world variance.\nThis experiment applies reafference correction (SD-007) at z-space level:\n  `z_world_corrected = z_world_raw - ReafferencePredictor(z_self_prev, a_prev)`\nThen re-runs the SD-003 attribution probe using corrected z_world.\n\n## ReafferencePredictor\n\n- Architecture: Linear(37, 64) \u2192 ReLU \u2192 Linear(64, 32)\n- Trained on empty-space steps (transition_type == \"none\")\n- R\u00b2 train: 0.259 | R\u00b2 test: 0.180\n- Empty-step data collected: 4977\n\n## \u0394z_world Before/After Correction\n\n| Event Type | Raw \u0394z_world | Corrected \u0394z_world | Reduction |\n|---|---|---|---|\n| empty_move (locomotion) | 0.0479 | 0.0479 | -0.0000 |\n| env_caused_hazard | 0.0444 | 0.0444 | 0.0000 |\n\n## SD-003 Attribution (Corrected z_world)\n\n| Position | mean(causal_sig) |\n|---|---|\n| Near-hazard | -0.0011 |\n| Safe | -0.0012 |\n| **calibration_gap** | **0.0001** |\n\nnet_eval pred_std: 0.0135\nn_near=452  n_safe=59\nWarmup: harm=771  benefit=111\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: calibration_gap > 0.05 (corrected) | FAIL | 0.0001 |\n| C2: reafference R\u00b2_test > 0.2 | FAIL | 0.180 |\n| C3: \u0394z_corrected(empty) < \u0394z_raw(empty) | FAIL | 0.0479 vs 0.0479 |\n| C4: Warmup harm events > 100 | PASS | 771 |\n| C5: No fatal errors | PASS | 0 |\n\nCriteria met: 2/5 \u2192 **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: corrected calibration_gap=0.0001 <= 0.05\n- C2 FAIL: reafference R\u00b2_test=0.180 <= 0.2\n- C3 FAIL: \u0394z_corrected(empty)=0.0479 >= \u0394z_raw(empty)=0.0479\n",
+  "claim_ids": [
+    "SD-007",
+    "MECH-098",
+    "SD-003"
+  ],
+  "evidence_direction": "weakens",
+  "experiment_type": "v3_exq_016_sd007_reafference",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260317T231811Z",
+  "claim": "SD-007",
+  "verdict": "FAIL",
+  "run_id": "v3_exq_016_sd007_reafference_20260317T231811Z_v3",
+  "architecture_epoch": "ree_hybrid_guardrails_v1"
+}

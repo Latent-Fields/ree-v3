@@ -1,0 +1,41 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "warmup_harm_events": 1038.0,
+    "mean_recon_loss": 0.0182653549954391,
+    "mean_e2_world_loss": 0.027755759881817603,
+    "e2_rollout_steps": 5.0,
+    "grid_size": 12.0,
+    "num_hazards": 15.0,
+    "obs_view_size": 3.0,
+    "world_obs_dim": 72.0,
+    "target_stopgrad": 1.0,
+    "trained_calibration_gap": 0.026650192011044502,
+    "random_calibration_gap": -7.693326842278521e-05,
+    "trained_mean_near_hazard": -0.03930879715219529,
+    "trained_mean_safe": -0.06595898916323979,
+    "random_mean_near_hazard": -0.00010243412227918983,
+    "random_mean_safe": -2.550085385640462e-05,
+    "n_near_hazard_probes": 421.0,
+    "n_safe_probes": 60.0,
+    "trained_harm_eval_degenerate": 0.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "crit5_pass": 1.0,
+    "crit6_pass": 1.0,
+    "criteria_met": 5.0
+  },
+  "summary_markdown": "# V3-EXQ-010 \u2014 SD-003 Larger World + 3\u00d73 Observation\n\n**Status:** FAIL\n**Environment:** 12\u00d712 grid, 15 hazards, 3\u00d73 local view\n**world_obs_dim:** 72 (vs 200 in standard 5\u00d75 view)\n**Warmup:** 400 episodes, RANDOM policy + recon loss + 5-step E2 rollouts + target stopgrad\n**Probe eval:** 10 grid resets x (near-hazard + safe positions)\n**Seed:** 0\n\n## Hypothesis\n\nThe E2 identity shortcut may be caused by insufficient per-step observation\nchange. In a 5\u00d75 view, moving one cell changes ~20% of pixels. In a 3\u00d73 view,\neach step changes ~44%. Combined with a larger grid and more hazards, z_world\nshould encode genuinely different states each step.\n\nA PASS here is a positive scalability signal: real-world observations change\nsubstantially each timestep, matching this condition more than the 5\u00d75 view.\n\nMean E2 world loss: 0.027756 (compare r6: 0.000311 on 5\u00d75 view)\nMean reconstruction loss: 0.01827\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: TRAINED calibration_gap > 0.05 | FAIL | 0.0267 |\n| C2: RANDOM abs(calibration_gap) < 0.10 | PASS | 0.0001 |\n| C3: Warmup harm events > 100 | PASS | 1038 |\n| C4: No fatal errors | PASS | 0 |\n| C5: harm_eval non-degenerate | PASS | OK |\n| C6: Probe coverage >= 10 each | PASS | near=421 safe=60 |\n\n## Calibration Results (Probe-Based)\n\n| Condition | mean_causal_sig(near_hazard) | mean_causal_sig(safe) | calibration_gap |\n|---|---|---|---|\n| TRAINED | -0.0393 | -0.0660 | 0.0267 |\n| RANDOM  | -0.0001 | -0.0000 | -0.0001 |\n\nCriteria met: 5/6 -> **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: TRAINED calibration_gap 0.0267 <= 0.05\n",
+  "claim_ids": [
+    "SD-003"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_010_dense_hazards",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260317T191058Z",
+  "claim": "SD-003",
+  "verdict": "FAIL"
+}

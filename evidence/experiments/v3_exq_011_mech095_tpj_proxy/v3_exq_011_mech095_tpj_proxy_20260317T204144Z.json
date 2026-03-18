@@ -1,0 +1,33 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "mismatch_safe": 0.008976188880149482,
+    "mismatch_harm": 0.01367549776544117,
+    "mismatch_agent_caused": 0.013847517575520803,
+    "mismatch_env_caused": 0.013492726717231562,
+    "harm_safe_gap": 0.004699308885291688,
+    "agent_env_gap": 0.0003547908582892407,
+    "n_safe": 2148.0,
+    "n_harm": 264.0,
+    "n_agent_caused": 136.0,
+    "n_env_caused": 128.0,
+    "fatal_error_count": 0.0,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "crit5_pass": 1.0,
+    "criteria_met": 4.0
+  },
+  "summary_markdown": "# V3-EXQ-011 \u2014 MECH-095 TPJ Agency-Detection Proxy\n\n**Status:** FAIL\n**Seed:** 0\n**Training:** 300 episodes (RANDOM policy)\n**Eval:** 100 episodes (RANDOM policy)\n\n## Claim Under Test\n\nMECH-095: TPJ comparator detects world-contributed z_self changes via efference-copy\nmismatch (||E2.predict_next_self(z_self_t, a_t) - z_self_observed_t+1||).\n\n## Two-Condition Test\n\n**C1 \u2014 Mismatch detects unexpected events (harm_safe_gap > 0.005):**\nE2 motor-sensory mismatch should be elevated at harm steps vs safe steps.\nThe body experienced something the motor model could not predict from the action alone.\nThis is what the TPJ comparator would detect and flag as `residue_flag=True`.\n\n**C2 \u2014 z_self blind to cause type (agent_env_gap < 0.05):**\nThe mismatch should NOT discriminate agent_caused from env_caused harm.\nBoth types cause unexpected body-state changes. Only z_world carries the causal\norigin information. If C2 fails, SD-005 z_self/z_world separation has leaked.\n\n## Results\n\n| Metric | Value |\n|---|---|\n| mismatch_safe | 0.00898  (n=2148) |\n| mismatch_harm | 0.01368  (n=264) |\n| mismatch_agent_caused | 0.01385  (n=136) |\n| mismatch_env_caused | 0.01349  (n=128) |\n| harm_safe_gap | 0.00470  [threshold > 0.005] |\n| agent_env_gap | 0.00035  [threshold < 0.05] |\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: harm_safe_gap > 0.005 | FAIL | 0.00470 |\n| C2: agent_env_gap < 0.05 | PASS | 0.00035 |\n| C3: n_harm >= 30 | PASS | 264 |\n| C4: n_safe >= 200 | PASS | 2148 |\n| C5: no fatal errors | PASS | 0 |\n\nCriteria met: 4/5 \u2192 **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: harm_safe_gap 0.00470 <= 0.005 (TPJ does not fire at harm events)\n",
+  "claim_ids": [
+    "MECH-095",
+    "SD-005"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_011_mech095_tpj_proxy",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260317T204144Z",
+  "claim": "MECH-095",
+  "verdict": "FAIL"
+}

@@ -181,6 +181,27 @@ class E3TrajectorySelector(nn.Module):
         """
         return self.harm_eval_head(z_world)
 
+    def harm_eval_lateral(
+        self,
+        z_harm: torch.Tensor,
+        lateral_head: nn.Module,
+    ) -> torch.Tensor:
+        """
+        Evaluate harm using the lateral encoder head's z_harm embedding (MECH-099).
+
+        The lateral head produces a harm-salient embedding directly from
+        hazard + contamination channels, bypassing E2_world's identity shortcut.
+        This method applies a small projection from z_harm to a scalar harm estimate.
+
+        Args:
+            z_harm: [batch, harm_dim] — output of SplitEncoder.lateral_head
+            lateral_head: nn.Module that maps z_harm [harm_dim] → harm scalar [1]
+
+        Returns:
+            harm estimate [batch, 1]
+        """
+        return lateral_head(z_harm)
+
     # ------------------------------------------------------------------ #
     # Trajectory scoring                                                   #
     # ------------------------------------------------------------------ #
