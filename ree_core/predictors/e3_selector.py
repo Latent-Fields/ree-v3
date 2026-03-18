@@ -12,7 +12,7 @@ V3 extensions:
    Precision is derived from E3's own prediction error variance (EMA of MSE),
    NOT hardcoded. This is required to test ARC-016 (dynamic precision
    behavioural distinction).
-   commit_threshold = precision_to_threshold(running_variance)
+   committed = running_variance < commit_threshold  (variance-space, fixed 2026-03-18)
 
 3. Operates over z_world (SD-005):
    E3's input domain is z_world (exteroceptive world model), not z_gamma.
@@ -56,14 +56,16 @@ class SelectionResult:
     log_prob: Optional[torch.Tensor] = None
 
 
-def precision_to_threshold(running_variance: float, base: float = 0.7) -> float:
+def variance_commit_threshold(config_threshold: float) -> float:
     """
-    Derive commit threshold from E3 running prediction error variance (ARC-016).
+    Return the variance-space commit threshold (ARC-016).
 
-    Low variance (confident predictions) → threshold moves toward base.
-    High variance (uncertain predictions) → threshold rises (more cautious).
+    Commitment fires when running_variance < threshold (low variance = confident).
+    Threshold lives in variance space [~0.01–0.05], NOT precision space (~100).
+    (Prior precision_to_threshold() was on the wrong scale: returning ~0.703
+    vs current_precision ~95 → always committed. Fixed 2026-03-18.)
     """
-    return base + 0.3 * min(1.0, running_variance)
+    return config_threshold
 
 
 class E3TrajectorySelector(nn.Module):
@@ -148,8 +150,8 @@ class E3TrajectorySelector(nn.Module):
 
     @property
     def commit_threshold(self) -> float:
-        """Dynamic commit threshold derived from prediction error variance (ARC-016)."""
-        return precision_to_threshold(self._running_variance)
+        """Variance-space commit threshold (ARC-016). Committed when variance < threshold."""
+        return variance_commit_threshold(self.config.commitment_threshold)
 
     def update_running_variance(self, prediction_error: torch.Tensor) -> None:
         """Update EMA of prediction error variance (ARC-016 dynamic precision)."""
@@ -300,8 +302,9 @@ class E3TrajectorySelector(nn.Module):
 
         probs = F.softmax(-scores / temperature, dim=0)
 
-        # Dynamic commit threshold (ARC-016)
-        committed = self.current_precision > self.commit_threshold
+        # Dynamic commit threshold (ARC-016): commit when variance is LOW
+        # (confident predictions → greedy selection)
+        committed = self._running_variance < self.commit_threshold
         if committed:
             selected_idx = int(scores.argmin().item())
         else:
@@ -373,6 +376,7 @@ class E3TrajectorySelector(nn.Module):
             "precision": self.current_precision,
             "running_variance": self._running_variance,
             "commit_threshold": self.commit_threshold,
+            "committed_now": self._running_variance < self.commit_threshold,
             "is_committed": self._committed_trajectory is not None,
         }
 

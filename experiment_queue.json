@@ -12,7 +12,7 @@
       "backlog_id": "",
       "claim_id": "ARC-016",
       "title": "ARC-016 Dynamic Precision Commitment Test (hazard_harm=0.02, alpha_world=0.9)",
-      "description": "FIXED 2026-03-18: added alpha_world=0.9 (SD-008). Prior run used alpha=0.3 (config default), making z_world a 3-step EMA — prediction error was near-constant and var_diff≈0 regardless of env stability. alpha_world=0.9 makes z_world track observations sharply, so perturbed env generates genuinely higher prediction error variance. PASS: var_diff>0.02 AND prec_diff>0 AND commit_diff>0.",
+      "description": "FIXED 2026-03-18 (run 2): (1) alpha_world=0.9 (SD-008 — fixes z_world EMA suppression). (2) Commit formula fixed: committed = running_variance < 0.02 in variance-space (prior formula compared precision ~95 against threshold ~0.703 → always True). (3) Env redesigned for 10× contrast: stable=3 hazards/drift_prob=0/interval=100 vs perturbed=20 hazards/drift_prob=1.0/interval=1. Prior envs (10 vs 10 hazards, prob 0.1 vs 0.9) gave only var_diff=0.0006. PASS: var_diff>0.02 AND prec_diff>0 AND commit_diff>0.",
       "script": "experiments/v3_exq_018_arc016_dynamic_precision.py",
       "args": ["--seed", "0", "--train-episodes", "1000", "--eval-stable", "50", "--eval-perturbed", "50", "--eval-recovery", "30", "--steps", "200", "--harm-scale", "0.02", "--alpha-world", "0.9"],
       "seeds": 1,

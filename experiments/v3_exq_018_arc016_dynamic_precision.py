@@ -11,11 +11,12 @@ Motivation (2026-03-17):
 
   The behavioral prediction:
     Stable env  → small z_world prediction errors → running_variance low
-                → precision = 1/(var+ε) high → threshold = 0.7+0.3*var low
-                → precision > threshold → committed (greedy) selection
+                → running_variance < commit_threshold (0.02) → committed (greedy) selection
     Perturbed env → large z_world prediction errors → running_variance high
-                → precision drops → threshold rises
-                → precision < threshold → non-committed (stochastic) selection
+                → running_variance >= commit_threshold → non-committed (stochastic) selection
+
+  commit formula (fixed 2026-03-18): committed = running_variance < commit_threshold
+  (Prior formula compared precision ~95 against threshold ~0.703 → always True.)
 
   This experiment directly tests whether that dynamic actually occurs by:
     1. Training an agent (200 eps, stable env) and explicitly updating E3
@@ -262,14 +263,19 @@ def run(
     random.seed(seed)
 
     # ── Environment configs ────────────────────────────────────────────────
+    # Stable: few hazards, effectively static (drift only every 100 steps with prob=0)
+    # Perturbed: many hazards, maximally dynamic (drift every step with prob=1.0)
+    # This 10× contrast is needed to generate a measurable variance gap.
+    # Prior design (10 vs 10 hazards, interval 10 vs 2, prob 0.1 vs 0.9) produced
+    # only 6% variance difference — not enough for C1 (need var_diff > 0.02).
     env_stable = CausalGridWorld(
-        seed=seed, size=12, num_hazards=10, num_resources=5,
-        env_drift_interval=10, env_drift_prob=0.1,  # low drift = stable
+        seed=seed, size=12, num_hazards=3, num_resources=5,
+        env_drift_interval=100, env_drift_prob=0.0,  # essentially static
         hazard_harm=harm_scale, contaminated_harm=harm_scale,
     )
     env_perturbed = CausalGridWorld(
-        seed=seed + 100, size=12, num_hazards=10, num_resources=5,
-        env_drift_interval=2, env_drift_prob=0.9,   # high drift = perturbed
+        seed=seed + 100, size=12, num_hazards=20, num_resources=5,
+        env_drift_interval=1, env_drift_prob=1.0,   # maximally dynamic (every step)
         hazard_harm=harm_scale, contaminated_harm=harm_scale,
     )
 
@@ -290,7 +296,7 @@ def run(
 
     # ── Phase 1: Training (stable env) ────────────────────────────────────
     print(f"[V3-EXQ-018] Training: {train_episodes} eps (stable env, "
-          f"drift_interval=10, drift_prob=0.1)", flush=True)
+          f"num_hazards=3, drift_interval=100, drift_prob=0.0)", flush=True)
     train_out = _run_phase(
         agent, env_stable, optimizer, world_decoder,
         train_episodes, steps_per_episode, train=True, phase_name="train"
@@ -305,7 +311,7 @@ def run(
 
     # ── Phase 3: Eval perturbed ────────────────────────────────────────────
     print(f"[V3-EXQ-018] Eval perturbed: {eval_perturbed_episodes} eps "
-          f"(drift_interval=2, drift_prob=0.9)", flush=True)
+          f"(num_hazards=20, drift_interval=1, drift_prob=1.0)", flush=True)
     perturbed_out = _run_phase(
         agent, env_perturbed, optimizer, world_decoder,
         eval_perturbed_episodes, steps_per_episode, train=False, phase_name="perturbed"
@@ -398,8 +404,8 @@ def run(
     summary_markdown = f"""# V3-EXQ-018 — ARC-016 Dynamic Precision Commitment Test
 
 **Status:** {status}
-**Training:** {train_episodes} eps (stable env, drift_interval=10, drift_prob=0.1)
-**Eval stable:** {eval_stable_episodes} eps | **Eval perturbed:** {eval_perturbed_episodes} eps
+**Training:** {train_episodes} eps (stable: num_hazards=3, drift_interval=100, drift_prob=0.0)
+**Eval stable:** {eval_stable_episodes} eps | **Eval perturbed:** {eval_perturbed_episodes} eps (num_hazards=20, drift_interval=1, drift_prob=1.0)
 **Recovery:** {eval_recovery_episodes} eps
 **Seed:** {seed}
 
@@ -411,9 +417,9 @@ from E3's own prediction error EMA (running_variance). At each step:
   prediction_error  = z_world_{{t+1}} - z_world_predicted
   agent.e3.update_running_variance(prediction_error)
 
-  precision     = 1 / (running_variance + ε)
-  commit_threshold = 0.7 + 0.3 * min(1, running_variance)
-  committed = precision > commit_threshold
+  precision        = 1 / (running_variance + ε)
+  commit_threshold = 0.02  (variance-space — E3Config.commitment_threshold)
+  committed        = running_variance < commit_threshold
 
 ## Phase Results
 

@@ -145,10 +145,13 @@ class E3Config:
     rho_residue: float = 0.5
 
     # Dynamic precision (ARC-016): precision derived from prediction error variance
-    # commit_threshold is now a function of running precision estimate
-    commitment_threshold: float = 0.7     # baseline; overridden dynamically
+    # commit_threshold is in VARIANCE SPACE: committed when running_variance < threshold.
+    # 0.02 = commit when env is stable (low prediction error); don't commit in
+    # perturbed env (high prediction error). See e3_selector.py::variance_commit_threshold.
+    # (Prior value was 0.7 which was on precision scale ~100 — always True. Fixed 2026-03-18.)
+    commitment_threshold: float = 0.02    # variance-space threshold
     precision_ema_alpha: float = 0.05     # EMA decay for running variance estimate
-    precision_init: float = 0.5          # initial running variance seed
+    precision_init: float = 0.5          # initial running variance (starts uncommitted)
 
 
 @dataclass
