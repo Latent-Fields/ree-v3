@@ -188,6 +188,32 @@
       "conditions": 1,
       "episodes_per_run": 550,
       "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-031",
+      "backlog_id": "",
+      "claim_id": "ARC-016",
+      "title": "ARC-016 Dynamic Precision on CausalGridWorldV2 (Gradient World)",
+      "description": "EXQ-018 re-test on CausalGridWorldV2 (body_obs_dim=12, world_obs_dim=250, use_proxy_fields=True). Gradient fields (hazard_field_view 25ch + resource_field_view 25ch + harm_exposure/benefit_exposure EMA) should amplify the ARC-016 variance signal vs. sparse-occupancy CausalGridWorld. Separate world_forward optimizer (MECH-069, lr=1e-3) for E2.world_transition + E2.world_action_encoder. SD-007 (reafference_action_dim=env.action_dim) and SD-008 (alpha_world=0.9) active. Same PASS criteria as EXQ-018: C1 var_diff>0.001, C2 prec_diff>0, C3 commit_diff>0, C4 n_stable_decisions>=20, C5 no fatal errors.",
+      "script": "experiments/v3_exq_031_arc016_gradient_world.py",
+      "args": ["--seed", "0", "--train-episodes", "1000", "--eval-stable", "50", "--eval-perturbed", "50", "--eval-recovery", "30", "--steps", "200", "--harm-scale", "0.02", "--alpha-world", "0.9", "--proximity-scale", "0.05"],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 1130,
+      "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-032",
+      "backlog_id": "",
+      "claim_id": "MECH-102",
+      "title": "MECH-102 Energy Escalation Under Viability Threat (E3-guided policy)",
+      "description": "Tests MECH-102: violence = terminal error correction when low-energy pathways fail. E3-guided harm-minimizing policy (argmin E3(E2(z_world,a))). CausalGridWorldV2 with 6 hazards, 3 resources (high viability pressure). Splits steps by harm_exposure EMA: low_exposure (<0.10) vs high_exposure (>=0.20). MECH-102 prediction: even an ethical harm-minimizing policy produces higher causal_sig at high-exposure steps because the constrained option space forces high-attribution choices. C1: escalation_gap>0, C2: causal_sig_high>0.001, C3: n_high>=20, C4: wf_r2>0.05, C5: mean_harm_exposure_high>0.15.",
+      "script": "experiments/v3_exq_032_mech102_energy_escalation.py",
+      "args": ["--seed", "0", "--warmup", "500", "--eval-eps", "50", "--steps", "200", "--alpha-world", "0.9", "--harm-scale", "0.02", "--proximity-scale", "0.05"],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 550,
+      "status": "pending"
     }
   ]
 }
