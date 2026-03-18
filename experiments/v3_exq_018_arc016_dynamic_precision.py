@@ -254,6 +254,8 @@ def run(
     world_dim: int = 32,
     lr: float = 1e-3,
     harm_scale: float = 0.02,
+    alpha_world: float = 0.9,   # SD-008: must be >= 0.9 for ARC-016 to work
+    alpha_self: float = 0.3,
     **kwargs,
 ) -> dict:
     torch.manual_seed(seed)
@@ -277,6 +279,8 @@ def run(
         action_dim=env_stable.action_dim,
         self_dim=self_dim,
         world_dim=world_dim,
+        alpha_world=alpha_world,
+        alpha_self=alpha_self,
     )
     agent = REEAgent(config)
     world_decoder = _make_world_decoder(world_dim, env_stable.world_obs_dim)
@@ -378,6 +382,7 @@ def run(
         "running_variance_diff_perturbed_minus_stable": float(var_diff),
         "precision_diff_stable_minus_perturbed": float(prec_diff),
         "commit_rate_diff_stable_minus_perturbed": float(commit_diff),
+        "alpha_world": float(alpha_world),
         # Criteria
         "crit1_pass": 1.0 if c1_pass else 0.0,
         "crit2_pass": 1.0 if c2_pass else 0.0,
@@ -462,6 +467,8 @@ if __name__ == "__main__":
     parser.add_argument("--eval-recovery",   type=int,   default=30)
     parser.add_argument("--steps",           type=int,   default=200)
     parser.add_argument("--harm-scale",      type=float, default=0.02)
+    parser.add_argument("--alpha-world",     type=float, default=0.9)
+    parser.add_argument("--alpha-self",      type=float, default=0.3)
     args = parser.parse_args()
 
     result = run(
@@ -472,6 +479,8 @@ if __name__ == "__main__":
         eval_recovery_episodes=args.eval_recovery,
         steps_per_episode=args.steps,
         harm_scale=args.harm_scale,
+        alpha_world=args.alpha_world,
+        alpha_self=args.alpha_self,
     )
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
