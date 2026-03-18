@@ -149,6 +149,45 @@
       "conditions": 1,
       "episodes_per_run": 550,
       "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-018-s1",
+      "backlog_id": "",
+      "claim_id": "ARC-016",
+      "title": "ARC-016 Dynamic Precision — Seed 1 (independent validation)",
+      "description": "Seed-1 repeat of EXQ-018 PASS. EXQ-018 thresholds were calibrated from run-3 measurements then confirmed in run-4 — weak evidence pattern. Seed-1 provides independent confirmation that var_diff>0.001, prec_diff>0, commit_diff>0 are not seed-specific.",
+      "script": "experiments/v3_exq_018_arc016_dynamic_precision.py",
+      "args": ["--seed", "1", "--train-episodes", "1000", "--eval-stable", "50", "--eval-perturbed", "50", "--eval-recovery", "30", "--steps", "200", "--harm-scale", "0.02", "--alpha-world", "0.9"],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 1130,
+      "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-029-s1",
+      "backlog_id": "",
+      "claim_id": "MECH-071",
+      "title": "SD-003 on CausalGridWorldV2 — Seed 1 (MECH-071/ARC-024 robustness)",
+      "description": "Seed-1 repeat of EXQ-029 PASS (calibration_gap_approach=0.239). MECH-071 was promoted to provisional on seed-0 alone. Seed-1 validates the promotion is not seed-specific and confirms ARC-024 gradient learning is robust.",
+      "script": "experiments/v3_exq_029_sd003_proxy_gradient_world.py",
+      "args": ["--seed", "1", "--warmup", "500", "--eval-eps", "50", "--steps", "200", "--alpha-world", "0.9", "--harm-scale", "0.02", "--proximity-scale", "0.05"],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 550,
+      "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-030b-s1",
+      "backlog_id": "",
+      "claim_id": "SD-003",
+      "title": "SD-003 Full Attribution v2 — Seed 1 (borderline causal_sig validation)",
+      "description": "Seed-1 repeat of EXQ-030b PASS. causal_sig_approach=0.00527 against threshold 0.005 — 5.4% margin. Seed-1 confirms SD-003 attribution signal is not a lucky seed artifact. Also validates attribution_gap=0.035 and sign structure (agent-caused positive, env-caused negative) reproduce across seeds.",
+      "script": "experiments/v3_exq_030b_sd003_full_attribution_v2.py",
+      "args": ["--seed", "1", "--warmup", "500", "--eval-eps", "50", "--steps", "200", "--alpha-world", "0.9", "--harm-scale", "0.02", "--proximity-scale", "0.05"],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 550,
+      "status": "pending"
     }
   ]
 }
