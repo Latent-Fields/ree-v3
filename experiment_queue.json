@@ -214,6 +214,45 @@
       "conditions": 1,
       "episodes_per_run": 550,
       "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-033",
+      "backlog_id": "",
+      "claim_id": "ARC-024",
+      "title": "Training Depth vs. Gradient Detection Depth ('Love Expands' Computational Test)",
+      "description": "Trains for 1000 eps total, checkpointing eval at [100, 250, 500, 1000]. Measures calibration_gap_approach and calibration_gap_contact at each checkpoint. Tests the philosophical derivation: with increasing intelligence, harm detection extends further back along the causal chain. Core criterion C4: approach_slope > contact_slope (approach detection improves faster than contact detection per episode — gradient extends backward). C1: gap_approach[1000] > gap_approach[100]+0.05. C2: gap_approach[500] > gap_approach[100]. C3: gap_approach[1000] > 0.10. C5: n_approach_min >= 20.",
+      "script": "experiments/v3_exq_033_training_depth_calibration.py",
+      "args": ["--seed", "0", "--max-episodes", "1000", "--eval-eps", "30", "--steps", "200", "--alpha-world", "0.9", "--harm-scale", "0.02", "--proximity-scale", "0.05"],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 1120,
+      "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-034",
+      "backlog_id": "",
+      "claim_id": "ARC-025",
+      "title": "ARC-025 Three-Engine Irreducibility Ablation (full vs E3-ablated vs E2-ablated)",
+      "description": "Three conditions: full (normal), e3_ablated (harm_eval returns constant 0.5), e2_ablated (world_forward is identity). Same warmup (500 eps) and eval (50 eps) for each. C1: cal_gap_approach_full > cal_gap_approach_e3_ablated+0.05. C2: attribution_gap_full > attribution_gap_e2_ablated+0.01. C3: cal_gap_approach_full > 0.10. C4: attribution_gap_full > 0. C5: n_approach >= 50.",
+      "script": "experiments/v3_exq_034_arc025_engine_ablation.py",
+      "args": ["--seed", "0", "--warmup", "500", "--eval-eps", "50", "--steps", "200", "--alpha-world", "0.9", "--harm-scale", "0.02", "--proximity-scale", "0.05"],
+      "seeds": 1,
+      "conditions": 3,
+      "episodes_per_run": 1650,
+      "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-035",
+      "backlog_id": "",
+      "claim_id": "MECH-069",
+      "title": "MECH-069 Optimizer Separation vs. Merge Ablation",
+      "description": "Two conditions: separated (three optimizers — standard, world_forward lr=1e-3, harm_eval lr=1e-4) vs. merged (single Adam, combined loss e1+e2+wf+harm_eval). MECH-069 claims incommensurable error signals degrade under gradient interference. C1: cal_gap_approach_separated > cal_gap_approach_merged. C2: attribution_gap_separated > attribution_gap_merged. C3: cal_gap_approach_separated > 0.05. C4: wf_r2_separated > wf_r2_merged OR wf_r2_separated > 0.10. C5: n_approach >= 50.",
+      "script": "experiments/v3_exq_035_mech069_optimizer_merge.py",
+      "args": ["--seed", "0", "--warmup", "500", "--eval-eps", "50", "--steps", "200", "--alpha-world", "0.9", "--harm-scale", "0.02", "--proximity-scale", "0.05"],
+      "seeds": 1,
+      "conditions": 2,
+      "episodes_per_run": 1100,
+      "status": "pending"
     }
   ]
 }
