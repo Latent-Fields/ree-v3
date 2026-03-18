@@ -97,6 +97,32 @@
       "conditions": 1,
       "episodes_per_run": 550,
       "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-028",
+      "backlog_id": "",
+      "claim_id": "ARC-024",
+      "title": "CausalGridWorldV2 Proxy-Gradient Field Validation",
+      "description": "Prerequisite for EXQ-029. Tests ARC-024: does CausalGridWorldV2 generate observable harm/benefit gradient signals before contact events? Inverts EXQ-006 failure condition: mean_dz_world_hazard_approach > mean_dz_world_none. Random policy, no agent training. PASS: C1 gradient_dominance (approach > none), C2 gradient_magnitude > 0.02, C4 ema_accumulation (harm_exposure higher at approach than none).",
+      "script": "experiments/v3_exq_028_proxy_gradient_world_validation.py",
+      "args": ["--seed", "0", "--episodes", "200", "--steps", "200", "--size", "12", "--num-hazards", "4", "--harm-scale", "0.02", "--proximity-scale", "0.05", "--field-decay", "0.5"],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 200,
+      "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-029",
+      "backlog_id": "",
+      "claim_id": "SD-003",
+      "title": "SD-003 on CausalGridWorldV2: Proxy-Gradient World + Full Pipeline (ARC-024)",
+      "description": "EXQ-027 on CausalGridWorldV2 (use_proxy_fields=True). Tests ARC-024: does a world with observable harm gradient fields enable E3.harm_eval to detect hazard approach (not just contact)? harm_buf_pos includes hazard_approach + contact events. Key metric: calibration_gap_approach = E3(hazard_approach) - E3(none) > 0.08. Also: calibration_gap_contact > 0.05, reafference_r2 > 0.10. SD-007 enabled (MECH-101 fix). alpha_world=0.9 (SD-008). Depends on EXQ-028 PASS.",
+      "script": "experiments/v3_exq_029_sd003_proxy_gradient_world.py",
+      "args": ["--seed", "0", "--warmup", "500", "--eval-eps", "50", "--steps", "200", "--alpha-world", "0.9", "--harm-scale", "0.02", "--proximity-scale", "0.05"],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 550,
+      "status": "pending"
     }
   ]
 }
