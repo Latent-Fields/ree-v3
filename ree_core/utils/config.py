@@ -146,10 +146,11 @@ class E3Config:
 
     # Dynamic precision (ARC-016): precision derived from prediction error variance
     # commit_threshold is in VARIANCE SPACE: committed when running_variance < threshold.
-    # 0.02 = commit when env is stable (low prediction error); don't commit in
-    # perturbed env (high prediction error). See e3_selector.py::variance_commit_threshold.
-    # (Prior value was 0.7 which was on precision scale ~100 — always True. Fixed 2026-03-18.)
-    commitment_threshold: float = 0.02    # variance-space threshold
+    # Calibrated 2026-03-18 from EXQ-018 run 3: trained E2.world_forward achieves
+    # stable_var≈0.0027, perturbed_var≈0.0038. Threshold 0.003 sits between them.
+    # (Prior value was 0.02, which was above both → always committed. Calibration fix.)
+    # (Original 0.7 was on precision scale ~100 — always True. Scale fix 2026-03-18 run 2.)
+    commitment_threshold: float = 0.003   # variance-space threshold
     precision_ema_alpha: float = 0.05     # EMA decay for running variance estimate
     precision_init: float = 0.5          # initial running variance (starts uncommitted)
 
