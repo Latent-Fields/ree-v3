@@ -50,6 +50,26 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   See MECH-098, MECH-101.
 
 ## SD Design Decisions Pending (V3)
+- SD-010: harm_stream.nociceptive_separation — The HARM stream (ARC-027) must be
+  implemented as a separate sensory pathway independent of z_world. Currently
+  hazard_field and resource_field proximity signals are fused into z_world via the
+  alpha_world EMA encoder. Required changes:
+  (1) CausalGridWorldV2 must emit a separate `harm_obs` vector (hazard proximity,
+      resource proximity) distinct from `world_obs` (positions, layout, content).
+  (2) A dedicated harm encoder: HarmEncoder(harm_obs → z_harm), small MLP, not
+      subject to reafference correction (by design — nociception is not reafference-
+      cancellable).
+  (3) E3.harm_eval takes z_harm as primary input (not z_world). z_harm has its own
+      training signal: direct supervision from hazard proximity labels.
+  (4) SD-007 reafference correction applies to z_world only (exteroceptive stream);
+      z_harm is untouched. This resolves the EXQ-027b over-correction paradox.
+  (5) SD-003 attribution: causal_sig = E3_harm(z_harm_actual) - E3_harm(z_harm_cf),
+      where z_harm_cf = HarmEncoder(E2.world_forward(z_world, a_cf)). Attribution
+      operates on the harm stream output, not the full world latent. This resolves
+      the EXQ-043/044 calibration collapse chain.
+  Evidence: EXQ-027b (reafference over-correction), EXQ-044 (SD-003 collapse),
+  EXQ-045 (MECH-102 advantage reversal), EXQ-047 (SD-005 calibration shortfall)
+  all converge on fused z_world as root cause. See ARC-027, ARC-017.
 - SD-008: encoder.z_world_alpha_correction — LatentStack.encode() EMA alpha for z_world
   must be >= 0.9 (not 0.3). MECH-089 theta buffer already handles temporal integration;
   the 0.3 encoder EMA double-smoothes z_world into a ~3-step average, suppressing event
