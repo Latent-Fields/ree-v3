@@ -554,6 +554,15 @@ class LatentStack(nn.Module):
         alpha_shared = 0.3  # z_beta/theta/delta use a shared alpha (body + world integrated)
         z_self  = alpha_self  * z_self  + (1 - alpha_self)  * prev_state.z_self
         z_world = alpha_world * z_world + (1 - alpha_world) * prev_state.z_world
+
+        # Unified latent ablation (EXQ-044): fuse z_self and z_world into a single
+        # shared representation, eliminating channel specialization. Both channels
+        # receive the average, so E2 and E3 gradients flow through the same dimensions.
+        if getattr(self.config, "unified_latent_mode", False):
+            z_unified = (z_self + z_world) * 0.5
+            z_self = z_unified
+            z_world = z_unified
+
         z_beta  = alpha_shared * z_beta  + (1 - alpha_shared) * prev_state.z_beta
         z_theta = alpha_shared * z_theta + (1 - alpha_shared) * prev_state.z_theta
         z_delta = alpha_shared * z_delta + (1 - alpha_shared) * prev_state.z_delta

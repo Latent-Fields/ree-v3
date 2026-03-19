@@ -179,10 +179,12 @@ def sync_v3_results(
     v3_evidence_dir: Path,
     assembly_evidence_dir: Path,
     dry_run: bool = False,
+    dir_filter=None,
 ) -> int:
     """
     Sync all V3 experiment results to REE_assembly.
 
+    dir_filter: optional callable(Path) -> bool to restrict which subdirs are scanned.
     Returns number of run packs written.
     """
     if not v3_evidence_dir.exists():
@@ -193,6 +195,8 @@ def sync_v3_results(
     skipped = 0
 
     for exp_dir in sorted(v3_evidence_dir.iterdir()):
+        if dir_filter is not None and not dir_filter(exp_dir):
+            continue
         if not exp_dir.is_dir():
             continue
 
@@ -249,11 +253,30 @@ def main() -> None:
     if args.dry_run:
         print("DRY RUN — nothing will be written\n")
 
+    # Primary pass: ree-v3/evidence/experiments/ → REE_assembly runs/
     n = sync_v3_results(
         v3_evidence_dir=args.v3_evidence_dir,
         assembly_evidence_dir=args.assembly_evidence_dir,
         dry_run=args.dry_run,
     )
+
+    # Secondary pass: flat JSON dirs already in REE_assembly (v3_exq_* dirs
+    # written directly by the runner, not routed via ree-v3/evidence/).
+    # Only scan directories starting with "v3_exq_" that contain flat JSONs.
+    if args.assembly_evidence_dir.exists():
+        flat_dirs = sorted(
+            d for d in args.assembly_evidence_dir.iterdir()
+            if d.is_dir() and d.name.startswith("v3_exq_")
+        )
+        if flat_dirs:
+            print(f"\nSecondary pass: {len(flat_dirs)} v3_exq_* dirs in assembly")
+            n += sync_v3_results(
+                v3_evidence_dir=args.assembly_evidence_dir,
+                assembly_evidence_dir=args.assembly_evidence_dir,
+                dry_run=args.dry_run,
+                dir_filter=lambda d: d.name.startswith("v3_exq_"),
+            )
+
     sys.exit(0 if n >= 0 else 1)
 
 

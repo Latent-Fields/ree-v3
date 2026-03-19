@@ -65,6 +65,66 @@ RE_STATUS_LINE = re.compile(r'^Status:\s+(PASS|FAIL)')
 RE_SAVED_TO = re.compile(r'Result written to:\s+(.+)')
 
 
+def find_ree_assembly_path() -> Path | None:
+    """Locate the REE_assembly repo (for git auto-sync pushes)."""
+    candidates = [
+        REPO_ROOT.parent / "REE_assembly",
+        Path.home() / "Documents" / "GitHub" / "REE_Working" / "REE_assembly",
+    ]
+    for c in candidates:
+        if c.is_dir() and (c / "evidence" / "experiments").is_dir():
+            return c
+    return None
+
+
+def git_pull(repo_path: Path, label: str) -> None:
+    """Pull latest changes. Warns on failure but never raises."""
+    try:
+        r = subprocess.run(
+            ["git", "pull", "--ff-only"],
+            cwd=str(repo_path), capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            msg = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "ok"
+            print(f"[runner] git pull {label}: {msg}", flush=True)
+        else:
+            print(f"[runner] git pull {label} warn: {r.stderr.strip()}", flush=True)
+    except Exception as e:
+        print(f"[runner] git pull {label} error: {e}", flush=True)
+
+
+def git_push_results(ree_assembly_path: Path) -> None:
+    """Stage, commit, and push experiment results in REE_assembly. Warns on failure."""
+    try:
+        subprocess.run(
+            ["git", "add", "evidence/experiments/"],
+            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
+        )
+        # Nothing staged → skip
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=str(ree_assembly_path), timeout=5,
+        )
+        if diff.returncode == 0:
+            print("[runner] auto-sync: nothing new to push", flush=True)
+            return
+        msg = f"auto-sync: v3 results {now_utc()[:10]}"
+        subprocess.run(
+            ["git", "commit", "-m", msg],
+            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
+        )
+        r = subprocess.run(
+            ["git", "push", "origin", "HEAD:master"],
+            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            print("[runner] auto-sync: pushed results → REE_assembly", flush=True)
+        else:
+            print(f"[runner] auto-sync push warn: {r.stderr.strip()}", flush=True)
+    except Exception as e:
+        print(f"[runner] auto-sync push error: {e}", flush=True)
+
+
 def find_default_status_path() -> Path:
     for candidate in _REE_ASSEMBLY_CANDIDATES:
         if candidate.parent.exists():
@@ -336,11 +396,25 @@ def main():
         help="Poll experiment_queue.json every --loop-interval seconds after queue exhaustion.",
     )
     parser.add_argument("--loop-interval", type=int, default=60, metavar="SECONDS")
+    parser.add_argument(
+        "--auto-sync",
+        action="store_true",
+        help="Git-pull queue repo before each batch; git-push results to REE_assembly after. "
+             "Useful for remote PC setups.",
+    )
     args = parser.parse_args()
 
     status_path = args.status_file or find_default_status_path()
+    ree_assembly_path = find_ree_assembly_path()
     print(f"[runner] Status file: {status_path}", flush=True)
     print(f"[runner] Queue file:  {QUEUE_FILE}", flush=True)
+    if args.auto_sync:
+        if ree_assembly_path:
+            print(f"[runner] Auto-sync: ON (REE_assembly: {ree_assembly_path})", flush=True)
+            git_pull(REPO_ROOT, "ree-v3")
+            git_pull(ree_assembly_path, "REE_assembly")
+        else:
+            print("[runner] Auto-sync: ON but REE_assembly not found — sync disabled", flush=True)
 
     PID_FILE.write_text(str(os.getpid()))
 

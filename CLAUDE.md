@@ -1,5 +1,10 @@
 # ree-v3
 
+## Multi-Session Coordination
+
+See `REE_Working/CLAUDE.md` for session startup protocol.
+Check `REE_Working/WORKSPACE_STATE.md` before editing `experiment_queue.json`.
+
 ## Python
 Use /opt/local/bin/python3 for all execution (has torch 2.10.0).
 Use sys.executable for subprocesses within experiment runners.

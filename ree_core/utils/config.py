@@ -72,6 +72,12 @@ class LatentStackConfig:
     # Labels: 0=none, 1=env_caused_hazard, 2=agent_caused_hazard.
     use_event_classifier: bool = False
 
+    # Ablation flag: fuse z_self and z_world into a single shared representation
+    # after encoding. When True, both channels receive the average of z_self and
+    # z_world, eliminating channel specialization. Used by EXQ-044 to test whether
+    # the z_self/z_world split itself (vs. unified latent) provides efficiency gains.
+    unified_latent_mode: bool = False
+
     # Top-down conditioning
     topdown_dim: int = 16
 
