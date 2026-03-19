@@ -57,6 +57,15 @@ class LatentStackConfig:
     alpha_world: float = 0.3   # SD-008: set to 0.9+ to fix event suppression
     alpha_self: float = 0.3
 
+    # SD-010: dedicated harm stream (nociceptive separation, ARC-027).
+    # use_harm_stream=False by default — backward compatible with all existing experiments.
+    # When True, experiments should construct a HarmEncoder and pass harm_obs separately;
+    # harm_obs layout: hazard_field_view[25] + resource_field_view[25] + harm_exposure[1].
+    # z_harm bypasses reafference correction by construction (not a perspective-dependent signal).
+    use_harm_stream: bool = False
+    harm_obs_dim: int = 51    # hazard_field(25) + resource_field(25) + harm_exposure(1)
+    z_harm_dim: int = 32
+
     # SD-007: ReafferencePredictor — perspective-shift correction for z_world.
     # Set reafference_action_dim = action_dim (e.g. 4) to enable.
     # 0 = disabled (default; backward compatible with EXQ-001–025).
@@ -279,6 +288,9 @@ class REEConfig:
         alpha_self: float = 0.3,
         reafference_action_dim: int = 0,
         use_event_classifier: bool = False,
+        use_harm_stream: bool = False,
+        harm_obs_dim: int = 51,
+        z_harm_dim: int = 32,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
         config = cls()
@@ -302,6 +314,11 @@ class REEConfig:
 
         # SD-009: event contrastive classifier
         config.latent.use_event_classifier = use_event_classifier
+
+        # SD-010: dedicated harm stream
+        config.latent.use_harm_stream = use_harm_stream
+        config.latent.harm_obs_dim = harm_obs_dim
+        config.latent.z_harm_dim = z_harm_dim
 
         # E1
         config.e1.self_dim = self_dim

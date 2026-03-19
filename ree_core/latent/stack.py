@@ -114,6 +114,56 @@ class ReafferencePredictor(nn.Module):
         return z_world_raw - self.forward(z_world_prev, a_prev)
 
 
+class HarmEncoder(nn.Module):
+    """
+    SD-010: Dedicated harm-stream encoder (nociceptive separation, ARC-027).
+
+    Encodes the harm_obs vector into z_harm. This encoder is NEVER subject to
+    reafference correction — nociception is not cancellable by self-motion
+    prediction (contrast with z_world, which carries perspective-dependent
+    exteroceptive content and requires SD-007 correction).
+
+    Biological basis: the spinothalamic nociceptive pathway projects to anterior
+    insula / ACC independently of the dorsal exteroceptive stream (V1→MT/MST→PPC)
+    that carries the reafference signal. Hazard proximity is an interoceptive-
+    adjacent signal, not a perspective-dependent world-state.
+
+    harm_obs layout (CausalGridWorldV2 with use_proxy_fields=True):
+      [0:25]   hazard_field_view   — normalised hazard proximity gradient (5×5 grid)
+      [25:50]  resource_field_view — normalised resource proximity gradient (5×5 grid)
+      [50]     harm_exposure       — nociceptive EMA from body_obs (env step accumulator)
+      Total: harm_obs_dim = 51
+
+    This class is instantiated directly in experiment scripts (not inside LatentStack)
+    so that it can trivially bypass the reafference pipeline. Experiments import it as:
+        from ree_core.latent.stack import HarmEncoder
+
+    See CLAUDE.md: SD-010.
+    """
+
+    def __init__(self, harm_obs_dim: int = 51, z_harm_dim: int = 32):
+        super().__init__()
+        self.harm_obs_dim = harm_obs_dim
+        self.z_harm_dim = z_harm_dim
+        self.encoder = nn.Sequential(
+            nn.Linear(harm_obs_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, z_harm_dim),
+        )
+
+    def forward(self, harm_obs: torch.Tensor) -> torch.Tensor:
+        """
+        Encode harm observations into z_harm latent.
+
+        Args:
+            harm_obs: [batch, harm_obs_dim] — hazard field + resource field + exposure
+
+        Returns:
+            z_harm: [batch, z_harm_dim]
+        """
+        return self.encoder(harm_obs)
+
+
 @dataclass
 class LatentState:
     """Complete latent state for V3 REE.

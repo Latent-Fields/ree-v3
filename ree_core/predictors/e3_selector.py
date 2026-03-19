@@ -130,6 +130,20 @@ class E3TrajectorySelector(nn.Module):
             nn.Sigmoid(),  # harm in [0, 1]
         )
 
+        # SD-010: harm_eval head operating on z_harm (dedicated nociceptive stream).
+        # z_harm comes from HarmEncoder(harm_obs), NOT from z_world.
+        # This head is always instantiated (adds ~4K params); it only receives
+        # gradients in SD-010 experiments that explicitly call harm_eval_z_harm().
+        # Fallback z_harm_dim = world_dim if config does not carry z_harm_dim
+        # (all existing E3Config instances, which lack the field).
+        _z_harm_dim = getattr(self.config, "z_harm_dim", world_dim)
+        self.harm_eval_z_harm_head = nn.Sequential(
+            nn.Linear(_z_harm_dim, self.config.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.config.hidden_dim, 1),
+            nn.Sigmoid(),
+        )
+
         # Dynamic precision state (ARC-016)
         # Maintained as EMA of prediction error MSE across committed trajectories.
         self._running_variance: float = self.config.precision_init
@@ -203,6 +217,29 @@ class E3TrajectorySelector(nn.Module):
             harm estimate [batch, 1]
         """
         return lateral_head(z_harm)
+
+    def harm_eval_z_harm(self, z_harm: torch.Tensor) -> torch.Tensor:
+        """
+        SD-010: Evaluate harm using the dedicated nociceptive stream latent.
+
+        z_harm is the output of HarmEncoder(harm_obs), NOT of the z_world encoder.
+        Because HarmEncoder is instantiated outside LatentStack.encode(), z_harm
+        is never subject to reafference correction — which resolves the EXQ-027b
+        over-correction paradox (ReafferencePredictor was subtracting hazard signal
+        when it was fused into z_world).
+
+        Used in SD-003 attribution with SD-010:
+            z_harm_actual = harm_enc(harm_obs_actual)
+            z_harm_cf     = harm_enc(harm_bridge(E2.world_forward(z_world, a_cf)))
+            causal_sig    = harm_eval_z_harm(z_harm_actual) - harm_eval_z_harm(z_harm_cf)
+
+        Args:
+            z_harm: [batch, z_harm_dim] — output of HarmEncoder
+
+        Returns:
+            harm estimate [batch, 1] in [0, 1]
+        """
+        return self.harm_eval_z_harm_head(z_harm)
 
     # ------------------------------------------------------------------ #
     # Trajectory scoring                                                   #

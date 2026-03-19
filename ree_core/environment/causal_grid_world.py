@@ -535,6 +535,15 @@ class CausalGridWorld:
         if self.use_proxy_fields:
             result["hazard_field_view"] = hazard_field_flat.float()
             result["resource_field_view"] = resource_field_flat.float()
+            # SD-010: dedicated harm_obs for HarmEncoder (nociceptive separation).
+            # Combines the three harm-proximal signals into a single vector that
+            # bypasses the z_world encoder and reafference correction pipeline.
+            # Layout: hazard_field_view[25] + resource_field_view[25] + harm_exposure[1]
+            result["harm_obs"] = torch.cat([
+                hazard_field_flat.float(),
+                resource_field_flat.float(),
+                torch.tensor([float(np.clip(self.harm_exposure, 0.0, 1.0))]),
+            ], dim=0)  # [51]
         return result
 
     def _dict_to_flat(self, obs_dict: Dict[str, torch.Tensor]) -> torch.Tensor:
