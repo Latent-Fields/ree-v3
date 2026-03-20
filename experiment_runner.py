@@ -770,16 +770,16 @@ def main():
 
             write_status(status, status_path)
 
-            # Mark item as completed in the queue file (authoritative source for explorer)
+            # Remove completed item from queue file — runner_status.json is the
+            # authoritative record of what has run; queue file should only contain
+            # pending work to avoid silent accumulation of stale entries.
             try:
                 qdata = json.loads(QUEUE_FILE.read_text())
-                for qi in qdata.get("items", []):
-                    if qi.get("queue_id") == queue_id:
-                        qi["status"] = "completed"
-                        break
+                qdata["items"] = [qi for qi in qdata.get("items", [])
+                                   if qi.get("queue_id") != queue_id]
                 QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
             except Exception as _qe:
-                print(f"[runner] warn: could not update queue file status for {queue_id}: {_qe}", flush=True)
+                print(f"[runner] warn: could not update queue file for {queue_id}: {_qe}", flush=True)
 
             print(f"[runner] Done: {queue_id} — {result['result']}", flush=True)
 
