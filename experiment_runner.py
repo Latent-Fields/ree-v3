@@ -754,6 +754,17 @@ def main():
                 )
                 script_timing = load_script_timing()
 
+            if result["result"] == "ERROR":
+                # Script crashed — do NOT mark as completed. Leave in queue so it
+                # will be retried on the next runner start (after the bug is fixed).
+                for qi in status["queue"]:
+                    if qi["queue_id"] == queue_id:
+                        qi["status"] = "error"
+                status["current"] = None
+                write_status(status, status_path)
+                print(f"[runner] ERROR: {queue_id} — leaving in queue for retry", flush=True)
+                continue
+
             completed_entry = {
                 "queue_id": queue_id,
                 "backlog_id": item.get("backlog_id", ""),
