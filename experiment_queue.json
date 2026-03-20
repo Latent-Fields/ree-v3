@@ -292,7 +292,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 550,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-059b",
