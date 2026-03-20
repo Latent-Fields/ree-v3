@@ -313,7 +313,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 450,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-027",
@@ -337,7 +337,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 550,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-028",
@@ -395,7 +395,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 550,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-030",
@@ -423,7 +423,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 550,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-030b",
@@ -451,7 +451,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 550,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-018-s1",
@@ -509,7 +509,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 550,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-030b-s1",
@@ -537,7 +537,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 550,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-031",
@@ -569,7 +569,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 1130,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-032",
@@ -597,7 +597,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 550,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-033",
@@ -625,7 +625,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 1120,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-034",
@@ -653,7 +653,7 @@
       "seeds": 1,
       "conditions": 3,
       "episodes_per_run": 1650,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-035",
@@ -681,7 +681,7 @@
       "seeds": 1,
       "conditions": 2,
       "episodes_per_run": 1100,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-030c",
@@ -709,7 +709,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 2260,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-032b",
@@ -737,7 +737,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 630,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-032c",
@@ -765,7 +765,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 560,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-036",
@@ -795,7 +795,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 550,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-037",
@@ -823,7 +823,7 @@
       "seeds": 1,
       "conditions": 2,
       "episodes_per_run": 900,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-038",
@@ -845,7 +845,7 @@
       "seeds": 1,
       "conditions": 5,
       "episodes_per_run": 1700,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-038b",
@@ -867,7 +867,7 @@
       "seeds": 1,
       "conditions": 5,
       "episodes_per_run": 1700,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-039",
@@ -897,7 +897,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 1120,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-040",
@@ -923,7 +923,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 550,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-041",
@@ -949,7 +949,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 450,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-042",
@@ -975,7 +975,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 650,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-043",
@@ -1001,7 +1001,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 700,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-044",
@@ -1029,7 +1029,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 700,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-045",
@@ -1057,7 +1057,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 630,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-027b",
@@ -1083,7 +1083,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 850,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-047",
@@ -1111,7 +1111,7 @@
       "seeds": 1,
       "conditions": 2,
       "episodes_per_run": 1100,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-048",
@@ -1137,7 +1137,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 450,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-050",
@@ -1161,7 +1161,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 550,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-051",
@@ -1183,7 +1183,7 @@
       "seeds": 1,
       "conditions": 2,
       "episodes_per_run": 800,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-052",
@@ -1205,7 +1205,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 400,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-049",
@@ -1229,7 +1229,7 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 450,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-053",
@@ -1257,7 +1257,7 @@
       "seeds": 1,
       "conditions": 2,
       "episodes_per_run": 700,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-054",
@@ -1287,7 +1287,7 @@
       "seeds": 1,
       "conditions": 3,
       "episodes_per_run": 700,
-      "status": "pending"
+      "status": "running"
     },
     {
       "queue_id": "V3-EXQ-055",
