@@ -94,6 +94,7 @@ def run(
         proximity_benefit_scale=proximity_scale * 0.6,
         proximity_approach_threshold=0.15,
         hazard_field_decay=0.5,
+        use_proxy_fields=True,  # SD-010: required for harm_obs in obs_dict
     )
 
     config = REEConfig.from_dims(
@@ -193,8 +194,10 @@ def run(
             if len(bridge_data) > MAX_BR:
                 bridge_data = bridge_data[-MAX_BR:]
 
-            # Train HarmEncoder: MSE on hazard proximity label
-            hazard_label = torch.tensor([[float(info.get("hazard_field_at_agent", 0.0))]])
+            # Train HarmEncoder: MSE on normalized hazard proximity label.
+            # harm_obs_new[12] = center of hazard_field_view = hazard_field[agent] / hazard_max ∈ [0,1].
+            # Raw hazard_field_at_agent is unbounded (>1) — saturates Sigmoid head.
+            hazard_label = harm_obs_new[12].unsqueeze(0).unsqueeze(0).detach().float()
             harm_obs_t   = harm_obs_new.unsqueeze(0).float()
             z_harm_new   = harm_enc(harm_obs_t)
             pred_zh      = agent.e3.harm_eval_z_harm(z_harm_new)

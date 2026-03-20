@@ -90,6 +90,7 @@ def run(
         proximity_benefit_scale=proximity_scale * 0.6,
         proximity_approach_threshold=0.15,
         hazard_field_decay=0.5,
+        use_proxy_fields=True,  # SD-010: required for harm_obs in obs_dict
     )
 
     # SD-007: reafference enabled (reafference_action_dim = action_dim)
@@ -171,7 +172,9 @@ def run(
             # Train HarmEncoder on hazard proximity label (new state)
             harm_obs_new = obs_dict.get("harm_obs", torch.zeros(HARM_OBS_DIM))
             harm_obs_t   = harm_obs_new.unsqueeze(0).float()
-            hazard_label = torch.tensor([[float(info.get("hazard_field_at_agent", 0.0))]])
+            # Normalized label: harm_obs[12] = hazard_field[agent] / hazard_max ∈ [0,1].
+            # Raw hazard_field_at_agent is unbounded (>1) — saturates Sigmoid head.
+            hazard_label = harm_obs_new[12].unsqueeze(0).unsqueeze(0).detach().float()
 
             z_harm_new   = harm_enc(harm_obs_t)
             pred_zh      = agent.e3.harm_eval_z_harm(z_harm_new)

@@ -102,6 +102,7 @@ def run(
         proximity_benefit_scale=proximity_scale * 0.6,
         proximity_approach_threshold=0.15,
         hazard_field_decay=0.5,
+        use_proxy_fields=True,  # SD-010: required for harm_obs in obs_dict
     )
 
     config = REEConfig.from_dims(
@@ -168,14 +169,15 @@ def run(
             ttype = info.get("transition_type", "none")
             train_counts[ttype] = train_counts.get(ttype, 0) + 1
 
-            # Hazard proximity label: current agent position after step
-            hazard_label = torch.tensor(
-                [[float(info.get("hazard_field_at_agent", 0.0))]],
-                dtype=torch.float32,
-            )
-
             # Harm_obs for the NEW state (aligned with hazard_label)
             harm_obs_new = obs_dict.get("harm_obs", torch.zeros(HARM_OBS_DIM))
+
+            # Hazard proximity label: normalized center of hazard_field_view (harm_obs[12]).
+            # harm_obs[12] = hazard_field[agent_x, agent_y] / hazard_max ∈ [0,1].
+            # Raw hazard_field_at_agent is an unbounded sum (>1 with 6 hazards), which
+            # saturates the Sigmoid head to 1.0 for all inputs — this is the root cause
+            # of the SD-010 collapse in the first run (EXQ-056 original).
+            hazard_label = harm_obs_new[12].unsqueeze(0).unsqueeze(0).detach().float()
             harm_obs_t = harm_obs_new.unsqueeze(0).float()
             z_harm_new = harm_enc(harm_obs_t)
 
