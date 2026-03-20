@@ -128,7 +128,7 @@ def run(
         and "reafference_predictor" not in n
     ]
     optimizer         = optim.Adam(standard_params, lr=lr)
-    reafference_opt   = optim.Adam(agent.latent.reafference_predictor.parameters(), lr=1e-3)
+    reafference_opt   = optim.Adam(agent.latent_stack.reafference_predictor.parameters(), lr=1e-3)
     harm_enc_opt      = optim.Adam(harm_enc.parameters(), lr=1e-3)
     harm_z_harm_opt   = optim.Adam(agent.e3.harm_eval_z_harm_head.parameters(), lr=1e-4)
 
@@ -200,7 +200,7 @@ def run(
                 zr_b  = torch.cat([reaf_buf[i][0] for i in idxs]).to(agent.device)
                 a_b   = torch.cat([reaf_buf[i][1] for i in idxs]).to(agent.device)
                 dz_b  = torch.cat([reaf_buf[i][2] for i in idxs]).to(agent.device)
-                reaf_pred = agent.latent.reafference_predictor(zr_b, a_b)
+                reaf_pred = agent.latent_stack.reafference_predictor(zr_b, a_b)
                 reaf_loss = F.mse_loss(reaf_pred, dz_b)
                 reafference_opt.zero_grad()
                 reaf_loss.backward()
@@ -243,7 +243,7 @@ def run(
             zr_all = torch.cat([d[0] for d in reaf_buf]).to(agent.device)
             a_all  = torch.cat([d[1] for d in reaf_buf]).to(agent.device)
             dz_all = torch.cat([d[2] for d in reaf_buf]).to(agent.device)
-            pred_all  = agent.latent.reafference_predictor(zr_all, a_all)
+            pred_all  = agent.latent_stack.reafference_predictor(zr_all, a_all)
             pred_test = pred_all[n_train:]
             tgt_test  = dz_all[n_train:]
             if pred_test.shape[0] > 0:

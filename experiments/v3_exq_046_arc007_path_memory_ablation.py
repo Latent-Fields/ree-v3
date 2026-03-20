@@ -326,10 +326,10 @@ def _eval_hippo_quality(
                         agent._last_action = action
 
                         # Generate random candidates for comparison
-                        random_trajs = [
-                            agent.hippocampal.propose_random(latent, CANDIDATE_HORIZON)
-                            for _ in range(N_RANDOM_COMPARE)
-                        ]
+                        random_trajs = agent.e2.generate_candidates_random(
+                            latent.z_self, latent.z_world,
+                            num_candidates=N_RANDOM_COMPARE, horizon=CANDIDATE_HORIZON,
+                        )
                         hippo_trajs = candidates[:N_RANDOM_COMPARE]
 
                         def _mean_residue(trajs) -> float:
