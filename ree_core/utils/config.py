@@ -81,6 +81,16 @@ class LatentStackConfig:
     # Labels: 0=none, 1=env_caused_hazard, 2=agent_caused_hazard.
     use_event_classifier: bool = False
 
+    # Q-007 / EXQ-051b: volatility (NE/LC) signal injection into beta_encoder.
+    # When > 0, beta_encoder input becomes cat(z_self_init, z_world_init, volatility_signal)
+    # where volatility_signal [batch, volatility_signal_dim] is a running estimate of E3's
+    # harm prediction error variance. Disabled (0) by default — backward compatible.
+    # Biological basis: LC-NE encodes unexpected uncertainty (Yu & Dayan 2005 PMID 15944135):
+    # z_beta's arousal dimension should reflect how unpredictable harm has been, not just
+    # current sensory content. running_variance is the REE analog of HGF log-volatility (μ₃).
+    # See claims: Q-007, MECH-093.
+    volatility_signal_dim: int = 0
+
     # Ablation flag: fuse z_self and z_world into a single shared representation
     # after encoding. When True, both channels receive the average of z_self and
     # z_world, eliminating channel specialization. Used by EXQ-044 to test whether

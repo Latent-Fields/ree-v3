@@ -444,10 +444,14 @@ class LatentStack(nn.Module):
             self.reafference_predictor = None
 
         combined_dim = self.config.self_dim + self.config.world_dim
+        # Q-007: volatility signal (NE/LC analog) appended to beta_encoder input when enabled.
+        # 0 = disabled (default, backward compat). See LatentStackConfig.volatility_signal_dim.
+        _vol_dim = getattr(self.config, "volatility_signal_dim", 0)
+        self._volatility_signal_dim = _vol_dim
 
         # Shared depth stack
         self.beta_encoder = SharedDepthEncoder(
-            input_dim=combined_dim,
+            input_dim=combined_dim + _vol_dim,
             output_dim=self.config.beta_dim,
             topdown_dim=self.config.topdown_dim,
             hidden_dim=hidden,
@@ -533,6 +537,7 @@ class LatentStack(nn.Module):
         prev_state: Optional[LatentState] = None,
         prev_action: Optional[torch.Tensor] = None,
         harm_obs: Optional[torch.Tensor] = None,
+        volatility_signal: Optional[torch.Tensor] = None,
     ) -> LatentState:
         """
         Encode observation into latent state.
@@ -555,6 +560,12 @@ class LatentStack(nn.Module):
             harm_obs:     SD-010 nociceptive observation [batch, harm_obs_dim].
                           When provided and harm_encoder is active, overrides z_harm
                           from the MECH-099 lateral head with the dedicated stream.
+            volatility_signal: Q-007/EXQ-051b — NE/LC analog [batch, volatility_signal_dim]
+                          or scalar float/tensor auto-expanded. When provided and
+                          LatentStackConfig.volatility_signal_dim > 0, appended to
+                          combined_init before beta_encoder. Represents running_variance
+                          from E3's harm prediction error (unexpected uncertainty signal).
+                          None = disabled (default, backward compat).
 
         Returns:
             New LatentState (z_world is perspective-corrected if SD-007 enabled;
@@ -571,6 +582,23 @@ class LatentStack(nn.Module):
         # First pass: no top-down (to get initial estimates for top-down computation)
         z_self_init, z_world_init, _, _, _, _ = self.split_encoder(body_obs, world_obs)
         combined_init = torch.cat([z_self_init, z_world_init], dim=-1)
+
+        # Q-007: append volatility signal (NE/LC unexpected-uncertainty analog) to beta input.
+        # Yu & Dayan 2005 (PMID 15944135): NE = unexpected uncertainty = running_variance spike.
+        # Only active when volatility_signal_dim > 0 AND volatility_signal is provided.
+        if volatility_signal is not None and self._volatility_signal_dim > 0:
+            vs = volatility_signal
+            if not isinstance(vs, torch.Tensor):
+                vs = torch.tensor([[vs]], dtype=torch.float32, device=device)
+            vs = vs.to(device).float()
+            if vs.dim() == 0:
+                vs = vs.unsqueeze(0).unsqueeze(0).expand(batch_size, self._volatility_signal_dim)
+            elif vs.dim() == 1 and vs.shape[0] == self._volatility_signal_dim:
+                vs = vs.unsqueeze(0).expand(batch_size, -1)
+            elif vs.shape == (batch_size,):
+                vs = vs.unsqueeze(-1).expand(-1, self._volatility_signal_dim)
+            combined_init = torch.cat([combined_init, vs], dim=-1)
+
         z_beta_init, _ = self.beta_encoder(combined_init)
         z_theta_init, _ = self.theta_encoder(z_beta_init)
         z_delta, prec_delta = self.delta_encoder(z_theta_init)
