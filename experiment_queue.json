@@ -16,18 +16,8 @@
       "status": "pending",
       "script": "experiments/v3_exq_056c_sd010_harm_stream_fixed.py",
       "estimated_minutes": 60.0,
-      "machine_affinity": "any"
-    },
-    {
-      "queue_id": "V3-EXQ-058c",
-      "backlog_id": "",
-      "claim_id": "SD-003",
-      "title": "SD-010/SD-003 Attribution Fixed \u2014 normalized labels, no sigmoid, stratified calibration",
-      "description": "Rewrite of EXQ-058a. Three-phase: terrain 400 \u2192 E3 calibration 200 (stratified) \u2192 eval 100. PASS: C1 causal_sig_approach>0.001, C2 calibration_gap>0.05, C3 mean_harm_eval_none<0.2, C4 causal_sig_contact>causal_sig_approach, C5 n_approach_eval>=30.",
-      "status": "pending",
-      "script": "experiments/v3_exq_058c_sd010_sd003_attribution_fixed.py",
-      "estimated_minutes": 90.0,
-      "machine_affinity": "any"
+      "machine_affinity": "any",
+      "episodes_per_run": 600
     },
     {
       "queue_id": "V3-EXQ-059c",
@@ -38,7 +28,8 @@
       "status": "pending",
       "script": "experiments/v3_exq_059c_sd010_mech102_advantage_fixed.py",
       "estimated_minutes": 100.0,
-      "machine_affinity": "any"
+      "machine_affinity": "any",
+      "episodes_per_run": 800
     },
     {
       "queue_id": "V3-EXQ-048b",
@@ -49,7 +40,8 @@
       "status": "pending",
       "script": "experiments/v3_exq_048b_mech057b_completion_gate_fixed.py",
       "estimated_minutes": 30.0,
-      "machine_affinity": "any"
+      "machine_affinity": "any",
+      "episodes_per_run": 450
     },
     {
       "queue_id": "V3-EXQ-049b",
@@ -60,7 +52,8 @@
       "status": "pending",
       "script": "experiments/v3_exq_049b_mech090_beta_gate_fixed.py",
       "estimated_minutes": 30.0,
-      "machine_affinity": "any"
+      "machine_affinity": "any",
+      "episodes_per_run": 450
     },
     {
       "queue_id": "V3-EXQ-052b",
@@ -71,7 +64,8 @@
       "status": "pending",
       "script": "experiments/v3_exq_052b_sd006_multirate_fixed.py",
       "estimated_minutes": 30.0,
-      "machine_affinity": "any"
+      "machine_affinity": "any",
+      "episodes_per_run": 400
     },
     {
       "queue_id": "V3-EXQ-050b",
@@ -82,7 +76,8 @@
       "status": "pending",
       "script": "experiments/v3_exq_050b_mech025_doing_mode_relative_threshold.py",
       "estimated_minutes": 40.0,
-      "machine_affinity": "any"
+      "machine_affinity": "any",
+      "episodes_per_run": 550
     },
     {
       "queue_id": "V3-EXQ-046",
