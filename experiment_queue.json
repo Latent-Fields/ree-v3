@@ -41,17 +41,6 @@
       "machine_affinity": "any"
     },
     {
-      "queue_id": "V3-EXQ-018b",
-      "backlog_id": "",
-      "claim_id": "ARC-016",
-      "title": "ARC-016 Relative Threshold \u2014 calibrated from training baseline variance",
-      "description": "Rewrite of EXQ-018. Threshold = 2.0 \u00d7 training_baseline_variance from final 100 training eps (sleep recalibration). Extreme env contrast: stable=2 hazards/drift=0, perturbed=25 hazards/drift=1.0. C1: var_diff > 0.5 \u00d7 training_baseline_variance (relative).",
-      "status": "pending",
-      "script": "experiments/v3_exq_018b_arc016_relative_threshold.py",
-      "estimated_minutes": 50.0,
-      "machine_affinity": "any"
-    },
-    {
       "queue_id": "V3-EXQ-048b",
       "backlog_id": "",
       "claim_id": "MECH-057b",
@@ -239,25 +228,12 @@
       "queue_id": "V3-EXQ-051b",
       "backlog_id": "",
       "claim_id": "Q-007",
-      "title": "Q-007 z_beta Volatility Injection — NE/LC analog via running_variance input",
-      "description": "Fix for Q-007 architectural gap (EXQ-051 FAIL). Injects E3._running_variance as scalar into beta_encoder via LatentStackConfig.volatility_signal_dim=1. Two conditions: stable (fixed hazard positions) vs volatile (randomised each episode), same mean hazard count. Yu & Dayan 2005 (PMID 15944135): NE encodes unexpected uncertainty = running_variance spike. With injection: volatile agent should have higher z_beta norm (C1), Pearson r(rv,z_beta)>0.3 (C2), and z_beta rises within 20 eps after stable→volatile transfer (C3).",
+      "title": "Q-007 z_beta Volatility Injection \u2014 NE/LC analog via running_variance input",
+      "description": "Fix for Q-007 architectural gap (EXQ-051 FAIL). Injects E3._running_variance as scalar into beta_encoder via LatentStackConfig.volatility_signal_dim=1. Two conditions: stable (fixed hazard positions) vs volatile (randomised each episode), same mean hazard count. Yu & Dayan 2005 (PMID 15944135): NE encodes unexpected uncertainty = running_variance spike. With injection: volatile agent should have higher z_beta norm (C1), Pearson r(rv,z_beta)>0.3 (C2), and z_beta rises within 20 eps after stable\u2192volatile transfer (C3).",
       "status": "pending",
       "script": "experiments/v3_exq_051b_q007_zbeta_volatility_injection.py",
       "estimated_minutes": 45.0,
       "machine_affinity": "any"
-    },
-    {
-      "queue_id": "V3-EXQ-059b",
-      "backlog_id": "",
-      "claim_id": "ARC-016",
-      "title": "ARC-016 / MECH-057b / MECH-090: Beta Gate with Fixed Commit Threshold (0.40)",
-      "description": "Replication of EXQ-048 with corrected commit_threshold=0.40 (was 0.003 \u2014 25000x below actual running_variance ~0.33). Tests: C1 committed_step_count>=10 (ARC-016 fires), C2 committed_and_elevated>0 (MECH-090), C3 hold_rate>0.3 (MECH-057b), C4 gate_release_events>0, C5 cal_gap_approach>0.",
-      "script": "experiments/v3_exq_059_arc016_beta_gate_fixed_threshold.py",
-      "args": [],
-      "seeds": 1,
-      "conditions": 1,
-      "episodes_per_run": 450,
-      "status": "pending"
     }
   ]
 }

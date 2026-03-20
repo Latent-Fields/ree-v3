@@ -63,7 +63,8 @@ RE_RUN_DONE_PATTERNS = [
     re.compile(r'SD-\d+\s+/\s+V3-EXQ-\d+\s+verdict:\s+(PASS|FAIL)'),
 ]
 RE_STATUS_LINE = re.compile(r'^Status:\s+(PASS|FAIL)')
-RE_SAVED_TO = re.compile(r'Result written to:\s+(.+)')
+RE_EXQ_VERDICT = re.compile(r'\[EXQ-[\w-]+\]\s+(PASS|FAIL)')
+RE_SAVED_TO = re.compile(r'Result written to:?\s+(.+)')
 
 
 def find_ree_assembly_path() -> Path | None:
@@ -533,9 +534,12 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                 result_info["output_file"] = m.group(1).strip()
 
             # Capture verdict
-            if "verdict: PASS" in line or (RE_STATUS_LINE.match(line) and "PASS" in line):
+            _exq_m = RE_EXQ_VERDICT.search(line)
+            if "verdict: PASS" in line or (RE_STATUS_LINE.match(line) and "PASS" in line) \
+                    or (_exq_m and _exq_m.group(1) == "PASS"):
                 result_info["result"] = "PASS"
-            elif "verdict: FAIL" in line or (RE_STATUS_LINE.match(line) and "FAIL" in line):
+            elif "verdict: FAIL" in line or (RE_STATUS_LINE.match(line) and "FAIL" in line) \
+                    or (_exq_m and _exq_m.group(1) == "FAIL"):
                 result_info["result"] = "FAIL"
 
             stripped = line.strip()
