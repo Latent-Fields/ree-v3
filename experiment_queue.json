@@ -8,6 +8,34 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-046",
+      "backlog_id": "",
+      "claim_id": "ARC-007",
+      "title": "ARC-007 Path Memory Ablation (Proper) \u2014 residue field zeroing degrades hippocampal proposals",
+      "description": "Prerequisite: EXQ-042 PASS. Tests ARC-007 STRICT (Q-020): hippocampal proposals are value-flat, relying entirely on residue field geometry. Protocol: P1 train (600 eps), P2 eval intact, P3 ablate (zero residue field via monkeypatch), P4 eval ablated, P5 restore, P6 eval restored. PASS: C1 hippo_quality_gap_intact>0, C2 ablated<=intact*0.5, C3 restored>=ablated, C4 cal_gap_approach>0.03, C5 no errors.",
+      "script": "experiments/v3_exq_046_arc007_path_memory_ablation.py",
+      "args": [
+        "--seed",
+        "0",
+        "--warmup",
+        "600",
+        "--eval-eps",
+        "50",
+        "--eval-restore",
+        "30",
+        "--steps",
+        "200",
+        "--alpha-world",
+        "0.9",
+        "--harm-scale",
+        "0.02"
+      ],
+      "seeds": 1,
+      "conditions": 1,
+      "episodes_per_run": 730,
+      "status": "pending"
+    },
+    {
       "queue_id": "V3-EXQ-056",
       "backlog_id": "",
       "claim_id": "SD-010",
@@ -1055,34 +1083,6 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 850,
-      "status": "pending"
-    },
-    {
-      "queue_id": "V3-EXQ-046",
-      "backlog_id": "",
-      "claim_id": "ARC-007",
-      "title": "ARC-007 Path Memory Ablation (Proper) \u2014 residue field zeroing degrades hippocampal proposals",
-      "description": "Prerequisite: EXQ-042 PASS. Tests ARC-007 STRICT (Q-020): hippocampal proposals are value-flat, relying entirely on residue field geometry. Protocol: P1 train (600 eps), P2 eval intact, P3 ablate (zero residue field via monkeypatch), P4 eval ablated, P5 restore, P6 eval restored. PASS: C1 hippo_quality_gap_intact>0, C2 ablated<=intact*0.5, C3 restored>=ablated, C4 cal_gap_approach>0.03, C5 no errors.",
-      "script": "experiments/v3_exq_046_arc007_path_memory_ablation.py",
-      "args": [
-        "--seed",
-        "0",
-        "--warmup",
-        "600",
-        "--eval-eps",
-        "50",
-        "--eval-restore",
-        "30",
-        "--steps",
-        "200",
-        "--alpha-world",
-        "0.9",
-        "--harm-scale",
-        "0.02"
-      ],
-      "seeds": 1,
-      "conditions": 1,
-      "episodes_per_run": 730,
       "status": "pending"
     },
     {
