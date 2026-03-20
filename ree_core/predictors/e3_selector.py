@@ -141,7 +141,11 @@ class E3TrajectorySelector(nn.Module):
             nn.Linear(_z_harm_dim, self.config.hidden_dim),
             nn.ReLU(),
             nn.Linear(self.config.hidden_dim, 1),
-            nn.Sigmoid(),
+            # Sigmoid removed (2026-03-20): this is a linear regression head for hazard
+            # proximity, trained with normalized labels in [0,1] (harm_obs[12]).
+            # MSE loss with [0,1] labels constrains outputs naturally without Sigmoid.
+            # Sigmoid was causing saturation when raw hazard_field_at_agent labels (>1)
+            # were used — root cause of SD-010 collapse in EXQ-056 original.
         )
 
         # Dynamic precision state (ARC-016)
