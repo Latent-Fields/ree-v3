@@ -45,5 +45,20 @@
   "experiments/v3_exq_040_z_separation_alpha09.py": 2927.5,
   "experiments/v3_exq_041_full_pipeline_smoke_test.py": 6746.9,
   "experiments/v3_exq_042_hippocampal_terrain_training.py": 6475.2,
-  "experiments/v3_exq_043_sd003_trajectory_attribution.py": 8397.0
+  "experiments/v3_exq_043_sd003_trajectory_attribution.py": 8397.0,
+  "experiments/v3_exq_044_sd003_attribution_fixed.py": 7524.1,
+  "experiments/v3_exq_045_mech102_ethical_ttype.py": 47.1,
+  "experiments/v3_exq_027b_sd007_reafference_diagnostic.py": 30.2,
+  "experiments/v3_exq_047_unified_vs_split_latent.py": 14.7,
+  "experiments/v3_exq_048_mech057b_completion_gate.py": 7096.9,
+  "experiments/v3_exq_050_mech025_doing_mode_probe.py": 7559.3,
+  "experiments/v3_exq_051_q007_valence_precision.py": 3830.8,
+  "experiments/v3_exq_052_sd006_multirate_validation.py": 7421.2,
+  "experiments/v3_exq_049_mech090_beta_gate.py": 7045.3,
+  "experiments/v3_exq_056_sd010_harm_stream_baseline.py": 21.8,
+  "experiments/v3_exq_058_sd010_sd003_attribution.py": 19.6,
+  "experiments/v3_exq_059_sd010_mech102_advantage.py": 67.3,
+  "experiments/v3_exq_053_arc018_rollout_viability.py": 3199.6,
+  "experiments/v3_exq_054_mech072_world_delta_gating.py": 1468.2,
+  "experiments/v3_exq_055_mech033_kernel_chaining.py": 2086.5
 }

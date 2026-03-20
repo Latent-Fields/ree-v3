@@ -30,6 +30,7 @@ import json
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -124,6 +125,195 @@ def git_push_results(ree_assembly_path: Path) -> None:
     except Exception as e:
         print(f"[runner] auto-sync push error: {e}", flush=True)
 
+
+# ── Multi-machine coordination ────────────────────────────────────────────────
+
+CLAIM_TTL_HOURS = 6  # claims older than this are treated as stale/abandoned
+
+
+def _get_machine_name(override: str | None = None) -> str:
+    return override or socket.gethostname()
+
+
+def _affinity_matches(item: dict, machine: str) -> bool:
+    """Return True if this machine is allowed to run the experiment."""
+    affinity = item.get("machine_affinity", "any")
+    return affinity in ("any", None, "") or affinity == machine
+
+
+def _is_stale_claim(claimed_by: dict) -> bool:
+    """Return True if a claim is older than CLAIM_TTL_HOURS."""
+    try:
+        claimed_at = datetime.fromisoformat(claimed_by["claimed_at"])
+        age = datetime.now(timezone.utc) - claimed_at
+        return age.total_seconds() > CLAIM_TTL_HOURS * 3600
+    except Exception:
+        return True  # malformed → treat as stale
+
+
+def _git_undo_last_commit(repo: Path) -> None:
+    """Undo the most recent local commit (pre-push rollback)."""
+    subprocess.run(["git", "reset", "--soft", "HEAD~1"],
+                   cwd=str(repo), capture_output=True)
+    subprocess.run(["git", "reset", "HEAD", "experiment_queue.json"],
+                   cwd=str(repo), capture_output=True)
+    subprocess.run(["git", "checkout", "--", "experiment_queue.json"],
+                   cwd=str(repo), capture_output=True)
+
+
+def attempt_claim(queue_file: Path, queue_id: str, machine: str
+                  ) -> str:  # "ok" | "already_claimed" | "error"
+    """
+    Atomically claim an experiment using git push as a mutex.
+
+    Flow:
+      1. git pull (get latest state)
+      2. Check item is unclaimed + affinity matches
+      3. Write claim, commit, push
+      4. If push rejected (non-fast-forward) → undo commit, return "already_claimed"
+      5. On unrelated error → return "error" (runner proceeds anyway)
+    """
+    repo = queue_file.parent
+    try:
+        # 1. Pull latest
+        r = subprocess.run(["git", "pull", "--ff-only"],
+                           cwd=str(repo), capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            print(f"[runner] claim pull warn ({queue_id}): {r.stderr.strip()}", flush=True)
+
+        # 2. Load fresh queue
+        data = json.loads(queue_file.read_text())
+        item = next((i for i in data.get("items", []) if i["queue_id"] == queue_id), None)
+        if item is None:
+            return "error"
+
+        existing = item.get("claimed_by")
+        if existing and existing.get("machine") != machine and not _is_stale_claim(existing):
+            return "already_claimed"
+
+        if not _affinity_matches(item, machine):
+            return "already_claimed"
+
+        # 3. Write claim
+        item["claimed_by"] = {"machine": machine, "claimed_at": now_utc()}
+        item["status"] = "claimed"
+        queue_file.write_text(json.dumps(data, indent=2))
+
+        # 4. Commit + push
+        subprocess.run(["git", "add", queue_file.name],
+                       cwd=str(repo), capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", f"claim: {queue_id} → {machine}"],
+                       cwd=str(repo), capture_output=True, check=True)
+
+        push = subprocess.run(["git", "push", "origin", "HEAD:main"],
+                               cwd=str(repo), capture_output=True, text=True, timeout=30)
+
+        if push.returncode == 0:
+            return "ok"
+
+        # Push rejected — another machine got there first
+        _git_undo_last_commit(repo)
+        stderr = push.stderr.lower()
+        if "non-fast-forward" in stderr or "rejected" in stderr:
+            return "already_claimed"
+        # Network or auth error — don't block the experiment
+        print(f"[runner] claim push error ({queue_id}): {push.stderr.strip()}", flush=True)
+        return "error"
+
+    except Exception as e:
+        print(f"[runner] claim exception ({queue_id}): {e}", flush=True)
+        try:
+            _git_undo_last_commit(repo)
+        except Exception:
+            pass
+        return "error"
+
+
+def release_claim(queue_file: Path, queue_id: str, machine: str) -> None:
+    """
+    Release a claim on shutdown so another machine can pick up the experiment.
+    Best-effort — warns on failure but never raises.
+    """
+    repo = queue_file.parent
+    try:
+        subprocess.run(["git", "pull", "--ff-only"],
+                       cwd=str(repo), capture_output=True, timeout=30)
+        data = json.loads(queue_file.read_text())
+        changed = False
+        for item in data.get("items", []):
+            if item["queue_id"] == queue_id:
+                cb = item.get("claimed_by")
+                if cb and cb.get("machine") == machine:
+                    item["claimed_by"] = None
+                    item["status"] = "pending"
+                    changed = True
+                break
+        if not changed:
+            return
+        queue_file.write_text(json.dumps(data, indent=2))
+        subprocess.run(["git", "add", queue_file.name],
+                       cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "commit", "-m",
+                        f"release claim: {queue_id} ← {machine} (shutdown)"],
+                       cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "push", "origin", "HEAD:main"],
+                       cwd=str(repo), capture_output=True, timeout=30)
+        print(f"[runner] Released claim on {queue_id}", flush=True)
+    except Exception as e:
+        print(f"[runner] Release claim error ({queue_id}): {e}", flush=True)
+
+
+# STUB: smart_assign ──────────────────────────────────────────────────────────
+def smart_assign(items: list[dict], available_machines: list[str]) -> None:
+    """
+    TODO: Assign machine_affinity to queue items based on capabilities.
+
+    Ideas for implementation:
+    - Read a machines.json config mapping hostnames to GPU memory, estimated
+      throughput (ms/episode), etc.
+    - Assign GPU-heavy experiments to the machine with most VRAM.
+    - Assign short-run experiments to whichever machine is currently idle.
+    - Respect existing manual machine_affinity assignments.
+
+    This would be called by a separate dispatch script, not the runner itself.
+    For now, machine_affinity defaults to "any" and both machines run whatever
+    they can claim first.
+    """
+    pass
+
+
+# STUB: recover_stale_claims ──────────────────────────────────────────────────
+def recover_stale_claims(queue_file: Path, machine: str) -> int:
+    """
+    TODO: Scan queue for stale claims from offline machines and reset them.
+
+    Current behaviour: just logs any stale claims it finds.
+    Full implementation would:
+    - Check claimed_by.claimed_at against CLAIM_TTL_HOURS
+    - Verify the claiming machine is unreachable (e.g. ping or last-seen file)
+    - Reset item to pending + commit + push
+    - Needs care to avoid two machines both recovering the same claim simultaneously
+      (use attempt_claim pattern: try to push, back off if rejected).
+    """
+    try:
+        data = json.loads(queue_file.read_text())
+        stale = []
+        for item in data.get("items", []):
+            cb = item.get("claimed_by")
+            if cb and cb.get("machine") != machine and _is_stale_claim(cb):
+                stale.append((item["queue_id"], cb["machine"], cb["claimed_at"]))
+        if stale:
+            print(f"[runner] Stale claims detected (not yet auto-recovering): "
+                  f"{[q for q, _, _ in stale]}", flush=True)
+            print(f"[runner] To recover manually: set claimed_by=null in experiment_queue.json "
+                  f"and push.", flush=True)
+        return len(stale)
+    except Exception as e:
+        print(f"[runner] recover_stale_claims error: {e}", flush=True)
+        return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 def find_default_status_path() -> Path:
     for candidate in _REE_ASSEMBLY_CANDIDATES:
@@ -400,14 +590,24 @@ def main():
         "--auto-sync",
         action="store_true",
         help="Git-pull queue repo before each batch; git-push results to REE_assembly after. "
+             "Also enables git-based experiment claiming (multi-machine coordination). "
              "Useful for remote PC setups.",
+    )
+    parser.add_argument(
+        "--machine",
+        type=str,
+        default=None,
+        help="Machine identity for experiment claiming (default: hostname). "
+             "Use 'any' to disable affinity filtering.",
     )
     args = parser.parse_args()
 
+    machine = _get_machine_name(args.machine)
     status_path = args.status_file or find_default_status_path()
     ree_assembly_path = find_ree_assembly_path()
     print(f"[runner] Status file: {status_path}", flush=True)
     print(f"[runner] Queue file:  {QUEUE_FILE}", flush=True)
+    print(f"[runner] Machine identity: {machine}", flush=True)
     if args.auto_sync:
         if ree_assembly_path:
             print(f"[runner] Auto-sync: ON (REE_assembly: {ree_assembly_path})", flush=True)
@@ -415,11 +615,17 @@ def main():
             git_pull(ree_assembly_path, "REE_assembly")
         else:
             print("[runner] Auto-sync: ON but REE_assembly not found — sync disabled", flush=True)
+        recover_stale_claims(QUEUE_FILE, machine)
 
     PID_FILE.write_text(str(os.getpid()))
 
+    # Track active claim so signal handler can release it
+    _current_claim: list[str] = []  # 0 or 1 elements (mutable container for closure)
+
     def handle_signal(sig, frame):
         print(f"\n[runner] Caught signal {sig}, shutting down.", flush=True)
+        if args.auto_sync and _current_claim:
+            release_claim(QUEUE_FILE, _current_claim[0], machine)
         if status_path.exists():
             try:
                 status = json.loads(status_path.read_text())
@@ -458,13 +664,17 @@ def main():
     write_status(status, status_path)
 
     if args.dry_run:
-        print("[runner] Dry run — V3 queue:")
+        print(f"[runner] Dry run — V3 queue (machine: {machine}):")
         for item in items:
             script = REPO_ROOT / item["script"]
             runnable = script.exists()
             mins = estimate_minutes(item, calibration, script_timing)
-            print(f"  {item['queue_id']} {item['claim_id']:12s} ~{mins:.0f}min  "
-                  f"{'READY' if runnable else 'NEEDS_SCRIPT'}: {item['title']}")
+            affinity = item.get("machine_affinity", "any")
+            claim = item.get("claimed_by")
+            claim_str = f" [claimed:{claim['machine']}]" if claim else ""
+            mine = "✓" if _affinity_matches(item, machine) else f"✗({affinity})"
+            print(f"  {mine} {item['queue_id']} {item['claim_id']:12s} ~{mins:.0f}min  "
+                  f"{'READY' if runnable else 'NEEDS_SCRIPT'}: {item['title']}{claim_str}")
         if PID_FILE.exists():
             PID_FILE.unlink()
         return
@@ -488,6 +698,21 @@ def main():
             if queue_id in completed_ids:
                 continue
 
+            # Skip experiments assigned to a different machine
+            if not _affinity_matches(item, machine):
+                print(f"[runner] Skipping {queue_id} — affinity={item.get('machine_affinity')} "
+                      f"(this machine: {machine})", flush=True)
+                continue
+
+            # Skip experiments already claimed by another active machine
+            existing_claim = item.get("claimed_by")
+            if (existing_claim
+                    and existing_claim.get("machine") != machine
+                    and not _is_stale_claim(existing_claim)):
+                print(f"[runner] Skipping {queue_id} — claimed by "
+                      f"{existing_claim['machine']}", flush=True)
+                continue
+
             script = REPO_ROOT / item["script"]
             if not script.exists():
                 print(f"[runner] Skipping {queue_id} — script not found: {item['script']}", flush=True)
@@ -497,8 +722,23 @@ def main():
                 write_status(status, status_path)
                 continue
 
+            # In auto-sync mode, use git claim as mutex before running
+            if args.auto_sync:
+                claim_result = attempt_claim(QUEUE_FILE, queue_id, machine)
+                if claim_result == "already_claimed":
+                    print(f"[runner] {queue_id} — claim lost to another machine, skipping",
+                          flush=True)
+                    continue
+                if claim_result == "error":
+                    print(f"[runner] {queue_id} — claim push failed (network?), "
+                          f"running anyway", flush=True)
+                # "ok" or "error" → proceed; track for signal handler
+                _current_claim.clear()
+                _current_claim.append(queue_id)
+
             result = run_experiment(item, status, status_path, calibration, script_timing)
             ran_any = True
+            _current_claim.clear()  # no longer running this experiment
 
             if result["result"] not in ("ERROR", "UNKNOWN") and result.get("actual_secs"):
                 save_script_timing(
@@ -534,6 +774,9 @@ def main():
         if not args.loop:
             break
 
+        if args.auto_sync and ran_any and ree_assembly_path:
+            git_push_results(ree_assembly_path)
+
         status["idle"] = True
         status["current"] = None
         write_status(status, status_path)
@@ -543,6 +786,9 @@ def main():
             print(f"[runner] No new items. Waiting {args.loop_interval}s …", flush=True)
 
         time.sleep(args.loop_interval)
+
+        if args.auto_sync and ree_assembly_path:
+            git_pull(REPO_ROOT, "ree-v3")
 
         queue_data = load_queue()
         calibration = queue_data.get("calibration", {})
@@ -574,6 +820,9 @@ def main():
     status["runner_pid"] = None
     write_status(status, status_path)
     print("[runner] Queue exhausted. Runner idle.", flush=True)
+
+    if args.auto_sync and ree_assembly_path:
+        git_push_results(ree_assembly_path)
 
     if PID_FILE.exists():
         PID_FILE.unlink()

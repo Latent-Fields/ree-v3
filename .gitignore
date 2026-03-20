@@ -17,3 +17,5 @@ runs/
 .DS_Store
 *.swp
 *.swo
+runner.pid
+runner *.pid
