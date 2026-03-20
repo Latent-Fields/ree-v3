@@ -1287,7 +1287,7 @@
       "seeds": 1,
       "conditions": 3,
       "episodes_per_run": 700,
-      "status": "running"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-055",
@@ -1315,7 +1315,7 @@
       "seeds": 1,
       "conditions": 3,
       "episodes_per_run": 750,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "queue_id": "V3-EXQ-058",
