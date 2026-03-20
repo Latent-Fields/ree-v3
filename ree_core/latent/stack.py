@@ -465,6 +465,17 @@ class LatentStack(nn.Module):
             hidden_dim=hidden,
         )
 
+        # SD-010: dedicated HarmEncoder (nociceptive separation, ARC-027).
+        # Instantiated only when use_harm_stream=True. Kept outside the reafference
+        # pipeline by construction — z_harm is never perspective-corrected.
+        if getattr(self.config, "use_harm_stream", False):
+            self.harm_encoder: Optional[HarmEncoder] = HarmEncoder(
+                harm_obs_dim=getattr(self.config, "harm_obs_dim", 51),
+                z_harm_dim=getattr(self.config, "z_harm_dim", 32),
+            )
+        else:
+            self.harm_encoder = None
+
         # Top-down projections
         self.delta_to_theta = nn.Linear(self.config.delta_dim, self.config.topdown_dim)
         self.theta_to_beta = nn.Linear(self.config.theta_dim, self.config.topdown_dim)
@@ -521,6 +532,7 @@ class LatentStack(nn.Module):
         observation: torch.Tensor,
         prev_state: Optional[LatentState] = None,
         prev_action: Optional[torch.Tensor] = None,
+        harm_obs: Optional[torch.Tensor] = None,
     ) -> LatentState:
         """
         Encode observation into latent state.
@@ -531,6 +543,8 @@ class LatentStack(nn.Module):
         3. SD-007: Apply reafference correction to z_world_raw if enabled
         4. Encode shared stack (beta, theta, delta)
         5. Temporal smoothing with previous state
+        6. SD-010: If harm_obs provided and harm_encoder present, produce z_harm
+           independently (NOT subject to reafference correction).
 
         Args:
             observation:  Raw observation [batch, body_obs_dim + world_obs_dim]
@@ -538,6 +552,9 @@ class LatentStack(nn.Module):
             prev_action:  Action taken at t-1; used by SD-007 reafference correction.
                           Shape [batch, action_dim] or [action_dim] (auto-unsqueezed).
                           None = no correction (first step or SD-007 disabled).
+            harm_obs:     SD-010 nociceptive observation [batch, harm_obs_dim].
+                          When provided and harm_encoder is active, overrides z_harm
+                          from the MECH-099 lateral head with the dedicated stream.
 
         Returns:
             New LatentState (z_world is perspective-corrected if SD-007 enabled;
@@ -617,6 +634,14 @@ class LatentStack(nn.Module):
         z_theta = alpha_shared * z_theta + (1 - alpha_shared) * prev_state.z_theta
         z_delta = alpha_shared * z_delta + (1 - alpha_shared) * prev_state.z_delta
 
+        # SD-010: dedicated nociceptive stream — overrides MECH-099 lateral head z_harm.
+        # HarmEncoder output is NOT perspective-corrected (spinothalamic analogue).
+        if harm_obs is not None and self.harm_encoder is not None:
+            ho = harm_obs.to(device).float()
+            if ho.dim() == 1:
+                ho = ho.unsqueeze(0).expand(batch_size, -1)
+            z_harm = self.harm_encoder(ho)
+
         return LatentState(
             z_self=z_self,
             z_world=z_world,
@@ -628,7 +653,7 @@ class LatentStack(nn.Module):
                 "beta": prec_beta, "theta": prec_theta, "delta": prec_delta,
             },
             timestamp=(prev_state.timestamp or 0) + 1,
-            z_harm=z_harm,         # MECH-099: None if lateral head not enabled
+            z_harm=z_harm,         # SD-010 or MECH-099: None if neither enabled
             z_world_raw=z_world_raw,  # SD-007 diagnostic (uncorrected z_world)
             event_logits=event_logits,  # SD-009: None if event classifier not enabled
         )

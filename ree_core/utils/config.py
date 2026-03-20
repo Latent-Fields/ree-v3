@@ -161,11 +161,15 @@ class E3Config:
 
     # Dynamic precision (ARC-016): precision derived from prediction error variance
     # commit_threshold is in VARIANCE SPACE: committed when running_variance < threshold.
-    # Calibrated 2026-03-18 from EXQ-018 run 3: trained E2.world_forward achieves
-    # stable_var≈0.0027, perturbed_var≈0.0038. Threshold 0.003 sits between them.
-    # (Prior value was 0.02, which was above both → always committed. Calibration fix.)
-    # (Original 0.7 was on precision scale ~100 — always True. Scale fix 2026-03-18 run 2.)
-    commitment_threshold: float = 0.003   # variance-space threshold
+    # Recalibrated 2026-03-20: EXQ-038 shows running_variance converges to ~0.33 in
+    # trained environments (not ~0.003 as assumed from EXQ-018 which used a different
+    # z_world scale). threshold=0.40 lets trained agents commit (variance ~0.33 < 0.40)
+    # while untrained agents don't (variance ~0.50 = precision_init). This is a pragmatic
+    # fix; ARC-016 semantics will improve once ARC-027 separates z_harm from z_world,
+    # reducing z_world's inherent variance and sharpening the stable/perturbed gap.
+    # (Prior value 0.003 was 25,000× below actual running_variance → never committed.
+    # EXQ-048/049 confirmed: beta gate never elevated, MECH-057b/090 could not be tested.)
+    commitment_threshold: float = 0.40    # variance-space threshold
     precision_ema_alpha: float = 0.05     # EMA decay for running variance estimate
     precision_init: float = 0.5          # initial running variance (starts uncommitted)
 

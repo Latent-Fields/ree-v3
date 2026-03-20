@@ -179,6 +179,7 @@ class REEAgent(nn.Module):
         self,
         obs_body: torch.Tensor,
         obs_world: torch.Tensor,
+        obs_harm: Optional[torch.Tensor] = None,
     ) -> LatentState:
         """
         SENSE + UPDATE step: encode split observation → update latent state.
@@ -186,6 +187,9 @@ class REEAgent(nn.Module):
         Args:
             obs_body:   [batch, body_obs_dim] proprioceptive channels
             obs_world:  [batch, world_obs_dim] exteroceptive channels
+            obs_harm:   SD-010 nociceptive channels [batch, harm_obs_dim] or None.
+                        When provided and use_harm_stream=True in config, routes
+                        through HarmEncoder to z_harm (bypasses reafference correction).
 
         Returns:
             Updated LatentState
@@ -204,7 +208,9 @@ class REEAgent(nn.Module):
         # SD-007: pass last action as prev_action for reafference correction.
         # _last_action is None on the first step (no correction applied).
         new_latent = self.latent_stack.encode(
-            enc_combined, self._current_latent, prev_action=self._last_action
+            enc_combined, self._current_latent,
+            prev_action=self._last_action,
+            harm_obs=obs_harm,   # SD-010: nociceptive stream (None = disabled)
         )
         # Detach before storing: prevents EMA from linking computational graphs
         # across time steps. Without detach, optimizer.step() modifies weights
