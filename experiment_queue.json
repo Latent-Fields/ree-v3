@@ -92,7 +92,7 @@
       "status": "pending"
     },
     {
-      "queue_id": "V3-EXQ-058",
+      "queue_id": "V3-EXQ-058a",
       "backlog_id": "",
       "claim_id": "SD-003",
       "title": "SD-010: SD-003 Attribution Recovery (EXQ-043/044 retest) \u2014 causal_sig via z_harm",
@@ -122,7 +122,7 @@
       "status": "pending"
     },
     {
-      "queue_id": "V3-EXQ-059",
+      "queue_id": "V3-EXQ-059a",
       "backlog_id": "",
       "claim_id": "MECH-102",
       "title": "SD-010: MECH-102 Advantage Signal (EXQ-045 retest) \u2014 ethical policy via z_harm",
@@ -1318,7 +1318,7 @@
       "status": "completed"
     },
     {
-      "queue_id": "V3-EXQ-058",
+      "queue_id": "V3-EXQ-058b",
       "backlog_id": "",
       "claim_id": "ARC-027",
       "title": "ARC-027 / SD-010: Harm Stream Calibration \u2014 z_harm vs z_world calibration gap",
@@ -1331,7 +1331,7 @@
       "status": "pending"
     },
     {
-      "queue_id": "V3-EXQ-059",
+      "queue_id": "V3-EXQ-059b",
       "backlog_id": "",
       "claim_id": "ARC-016",
       "title": "ARC-016 / MECH-057b / MECH-090: Beta Gate with Fixed Commit Threshold (0.40)",
