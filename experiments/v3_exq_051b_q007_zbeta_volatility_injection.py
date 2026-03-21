@@ -65,7 +65,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from ree_core.agent import REEAgent
-from ree_core.envs.causal_grid_world import CausalGridWorldV2
+from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig, LatentStackConfig
 
 # ─── Constants ──────────────────────────────────────────────────────────────

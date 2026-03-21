@@ -110,7 +110,7 @@ def _train(
 
             # FIX: update E3 running variance using actual z_world from this step
             if step > 0:
-                agent.e3.update_after_execution(
+                agent.e3.post_action_update(
                     latent.z_world.detach(), harm_prev < 0
                 )
 
@@ -259,7 +259,7 @@ def _eval_beta_concordance(
 
             # FIX: update running variance from actual z_world
             if step > 0:
-                agent.e3.update_after_execution(
+                agent.e3.post_action_update(
                     latent.z_world.detach(), harm_prev < 0
                 )
 

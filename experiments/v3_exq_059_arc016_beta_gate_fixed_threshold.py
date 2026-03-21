@@ -24,7 +24,26 @@ Context (2026-03-20):
 
   MECH-057b: The gate opens specifically at completion, not initiation.
 
-This experiment is a direct replication of EXQ-048 with commitment_threshold=0.40.
+Bug fixes applied (2026-03-20, second run):
+  Bug 1: agent.e3.get_diagnostics() does not exist → replaced with
+         agent.e3.get_commitment_state() which returns running_variance, precision,
+         commit_threshold, committed_now.  This caused 84 fatal errors in the first
+         run, aborting the entire try block (including all accounting) on every e3_tick.
+
+  Bug 2: _running_variance never updated during training (chicken-and-egg).
+         _running_variance starts at precision_init=0.5 > commit_threshold=0.40, so
+         result.committed is always False → _committed_trajectory always None →
+         post_action_update() never updates _running_variance.  Fix: explicitly call
+         agent.e3.update_running_variance(prediction_error) in the training loop
+         after computing the world_forward loss.
+
+  Bug 3: beta_gate.release() never called in eval.  MECH-057b says the gate releases
+         at trajectory completion (E3 tick boundary).  Fix: call release() at the
+         start of each e3_tick, before the new commitment decision.
+
+  Bug 4: is_committed used agent._committed_candidates is not None, which is True
+         after the very first generate_trajectories() call and never False again.
+         Fix: is_committed = agent.e3._running_variance < agent.e3.commit_threshold.
 
 Design:
   Training: 400 episodes, full pipeline (same as EXQ-048)
@@ -54,7 +73,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 
-EXPERIMENT_TYPE = "v3_exq_059_arc016_beta_gate_fixed_threshold"
+EXPERIMENT_TYPE = "v3_exq_060_arc016_beta_gate_fixed_threshold"
 CLAIM_IDS = ["ARC-016", "MECH-057b", "MECH-090"]
 
 WARMUP_EPISODES = 400
@@ -181,7 +200,8 @@ def _train(agent: REEAgent, env: CausalGridWorldV2, n_episodes: int):
                 zw_b  = torch.cat([wf_buf[i][0] for i in idxs]).to(agent.device)
                 a_b   = torch.cat([wf_buf[i][1] for i in idxs]).to(agent.device)
                 zt_b  = torch.cat([wf_buf[i][2] for i in idxs]).to(agent.device)
-                wf_loss = F.mse_loss(agent.e2.world_forward(zw_b, a_b), zt_b)
+                wf_pred = agent.e2.world_forward(zw_b, a_b)
+                wf_loss = F.mse_loss(wf_pred, zt_b)
                 if wf_loss.requires_grad:
                     opt_wf.zero_grad(); wf_loss.backward()
                     torch.nn.utils.clip_grad_norm_(
@@ -189,6 +209,15 @@ def _train(agent: REEAgent, env: CausalGridWorldV2, n_episodes: int):
                         list(agent.e2.world_action_encoder.parameters()), 1.0,
                     )
                     opt_wf.step()
+                # Bug 2 fix: update E3 running_variance from world_forward error.
+                # _running_variance starts at precision_init=0.5 and is only updated
+                # via post_action_update() → but that requires _committed_trajectory,
+                # which requires result.committed=True, which requires
+                # running_variance < commit_threshold — a chicken-and-egg deadlock.
+                # Directly updating from the wf error breaks the cycle.
+                with torch.no_grad():
+                    wf_err = (wf_pred.detach() - zt_b).detach()
+                    agent.e3.update_running_variance(wf_err)
 
             # E3 harm_eval loss (balanced batch)
             if len(harm_buf_pos) >= 4 and len(harm_buf_neg) >= 4:
@@ -255,13 +284,18 @@ def _eval(agent: REEAgent, env: CausalGridWorldV2) -> Dict:
             try:
                 if ticks.get("e3_tick", False) and candidates:
                     with torch.no_grad():
+                        # Bug 3 fix: release gate at E3 tick boundary before new
+                        # commitment decision (MECH-057b: gate releases at completion).
+                        agent.beta_gate.release()
+
                         result = agent.e3.select(candidates, temperature=1.0)
                         action = result.selected_action.detach()
                         agent._last_action = action
                         if result.committed:
                             agent.beta_gate.elevate()
-                        # Track running_variance for ARC-016 diagnostics
-                        diag = agent.e3.get_diagnostics()
+                        # Bug 1 fix: get_diagnostics() does not exist; use
+                        # get_commitment_state() which has the running_variance key.
+                        diag = agent.e3.get_commitment_state()
                         running_var_vals.append(float(diag["running_variance"]))
                 else:
                     action = agent._last_action
@@ -272,7 +306,10 @@ def _eval(agent: REEAgent, env: CausalGridWorldV2) -> Dict:
                         )
                         agent._last_action = action
 
-                is_committed = agent._committed_candidates is not None
+                # Bug 4 fix: _committed_candidates is non-None after the very first
+                # generate_trajectories() call and never cleared — useless as a proxy.
+                # Use E3's own commitment criterion directly.
+                is_committed = agent.e3._running_variance < agent.e3.commit_threshold
                 is_elevated  = agent.beta_gate.is_elevated
 
                 if is_committed:

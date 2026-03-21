@@ -1,51 +1,46 @@
 """
-V3-EXQ-048c — MECH-057b: Trajectory Completion Gate (running_variance fix)
+V3-EXQ-049d — MECH-090: Beta-Gated Policy Propagation (chicken-and-egg fix)
 
-Claims: MECH-057b, MECH-090
+Claims: MECH-090
 
-Root cause of EXQ-048b FAIL:
-  EXQ-048b fixed the select_action() bypass (gate wiring correct) but still
-  never called agent.e3.update_after_execution(). Without this call, E3's
-  _running_variance stays at precision_init=0.5 forever. Since
-  commit_threshold=0.40, the condition `_running_variance < commit_threshold`
-  (0.5 < 0.40) is never satisfied → agent never commits → beta_gate.elevate()
-  never fires → C1/C2/C3 all FAIL regardless of gate wiring.
+Root cause of EXQ-049c FAIL (predicted before results):
+  EXQ-049c calls post_action_update() to evolve _running_variance, but
+  post_action_update() has its own guard:
+      if self._committed_trajectory is not None: ...update_running_variance()
+  _committed_trajectory is set only when result.committed=True, which requires
+  _running_variance < commit_threshold. Starting at precision_init=0.5 > 0.40,
+  variance never updates → committed never fires. Identical chicken-and-egg to
+  EXQ-048c, which failed for the same reason.
 
-Fix:
-  At the start of each step, after encoding the new observation with
-  agent.sense(), call:
-    agent.e3.update_after_execution(latent.z_world.detach(), harm_prev < 0)
-  This feeds the actual z_world (observed outcome of the previous action) back
-  into E3, updating _running_variance via EMA. Once training lowers variance
-  below 0.40, the agent commits, elevates the gate, and MECH-057b can be tested.
+  Additionally, is_committed used agent.e3._committed_trajectory is not None,
+  which post_action_update() resets to None at the start of every step. Even if
+  commitment did fire at an e3_tick, the probe reads False on the next step.
 
-  Sequence:
-    step t:   encode obs_t → z_world_t
-              call update_after_execution(z_world_t, harm_{t-1} < 0)   ← fix
-              select action_t via select_action()
-              env.step(action_t) → harm_t, obs_{t+1}
+Fixes:
+  Fix 1 (training): After the world_forward loss, directly call
+      agent.e3.update_running_variance(wf_err)
+  where wf_err = wf_pred.detach() - zw1_b. This bypasses the _committed_trajectory
+  guard and gets variance moving from the very first training batch.
 
-  z_world_t is the "actual outcome" of action_{t-1}, compared against
-  _committed_trajectory.world_states[1] (E3's one-step prediction).
+  Fix 2 (eval): Replace
+      is_committed = agent.e3._committed_trajectory is not None
+  with
+      is_committed = agent.e3._running_variance < agent.e3.commit_threshold
+  This correctly reflects commitment state throughout the episode, not just on
+  the single step when _committed_trajectory is transiently set.
 
-Prerequisite: EXQ-042 PASS (HippocampalModule terrain prior functional).
-Prior: EXQ-048 FAIL (bypassed select_action), EXQ-048b FAIL (update_after_execution missing).
-
-Motivation:
-  MECH-057b: BetaGate fires at trajectory COMPLETION, not initiation.
-  During committed sequence:
-    - BetaGate elevated (is_elevated = True)
-    - Policy output blocked (propagate() returns None)
-    - E3 updates internally
-  At completion (E3 tick boundary → new trajectory selected):
-    - BetaGate released (is_elevated = False)
-    - Policy propagates
+Root cause chain:
+  EXQ-049:  select() bypassed → gate never wired
+  EXQ-049b: gate wired, post_action_update missing → variance frozen
+  EXQ-049c: post_action_update called, but its own _committed_trajectory guard
+            keeps variance frozen — chicken-and-egg still intact
+  EXQ-049d: direct update_running_variance() from wf error — deadlock broken
 
 PASS criteria (ALL must hold):
-  C1: committed_step_count >= 10        (agent enters committed mode at all)
-  C2: hold_rate_during_committed > 0.5  (gate mostly holds during committed steps)
-  C3: propagation_count > 0             (gate does release at some completions)
-  C4: calibration_gap_approach > 0.0    (E3 still making meaningful selections)
+  C1: committed_hold_concordance > 0.6   (gate elevated when committed >= 60%)
+  C2: uncommitted_release_concordance > 0.5  (gate not elevated when uncommitted >= 50%)
+  C3: hold_count > 0                     (gate does hold at some point)
+  C4: propagation_count > 0              (gate does propagate at some point)
   C5: No fatal errors
 """
 
@@ -65,10 +60,8 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 
 
-EXPERIMENT_TYPE = "v3_exq_048c_mech057b_completion_gate_v2"
-CLAIM_IDS = ["MECH-057b", "MECH-090"]
-
-APPROACH_TTYPES = {"hazard_approach"}
+EXPERIMENT_TYPE = "v3_exq_049d_mech090_beta_gate_v3"
+CLAIM_IDS = ["MECH-090"]
 
 
 def _action_to_onehot(action_idx: int, n: int, device) -> torch.Tensor:
@@ -95,8 +88,6 @@ def _train(
     harm_buf_pos: List[torch.Tensor] = []
     harm_buf_neg: List[torch.Tensor] = []
     wf_buf: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
-    total_harm = 0
-    e3_tick_total = 0
     committed_fraction_log: List[float] = []
 
     for ep in range(num_episodes):
@@ -105,20 +96,12 @@ def _train(
         z_world_prev: Optional[torch.Tensor] = None
         action_prev:  Optional[torch.Tensor] = None
         z_self_prev:  Optional[torch.Tensor] = None
-        harm_prev: float = 0.0  # FIX: track harm from previous step
+        harm_prev: float = 0.0
 
         for step in range(steps_per_episode):
             obs_body  = obs_dict["body_state"]
             obs_world = obs_dict["world_state"]
             latent = agent.sense(obs_body, obs_world)
-
-            # FIX: update E3 running variance using z_world from this step
-            # (= actual outcome of the previous action) so _running_variance
-            # evolves and the agent can eventually commit.
-            if step > 0:
-                agent.e3.post_action_update(
-                    latent.z_world.detach(), harm_prev < 0
-                )
 
             if z_self_prev is not None and action_prev is not None:
                 agent.record_transition(z_self_prev, action_prev, latent.z_self.detach())
@@ -132,9 +115,6 @@ def _train(
             theta_z = agent.theta_buffer.summary()
             z_world_curr = latent.z_world.detach()
 
-            if ticks.get("e3_tick", False):
-                e3_tick_total += 1
-
             action = agent.select_action(candidates, ticks, temperature=1.0)
             if action is None:
                 action = _action_to_onehot(
@@ -144,9 +124,9 @@ def _train(
 
             flat_obs, harm_signal, done, info, obs_dict = env.step(action)
 
-            # Track commitment fraction
+            # Fix 2 probe (training fraction): use variance-based criterion
             committed_fraction_log.append(
-                1.0 if agent.e3._committed_trajectory is not None else 0.0
+                1.0 if agent.e3._running_variance < agent.e3.commit_threshold else 0.0
             )
 
             if z_world_prev is not None and action_prev is not None:
@@ -155,7 +135,6 @@ def _train(
                     wf_buf = wf_buf[-2000:]
 
             if harm_signal < 0:
-                total_harm += 1
                 harm_buf_pos.append(theta_z.detach())
                 if len(harm_buf_pos) > 1000:
                     harm_buf_pos = harm_buf_pos[-1000:]
@@ -164,7 +143,6 @@ def _train(
                 if len(harm_buf_neg) > 1000:
                     harm_buf_neg = harm_buf_neg[-1000:]
 
-            # E1 loss
             e1_loss = agent.compute_prediction_loss()
             if e1_loss.requires_grad:
                 optimizer.zero_grad()
@@ -172,14 +150,14 @@ def _train(
                 torch.nn.utils.clip_grad_norm_(agent.e1.parameters(), 1.0)
                 optimizer.step()
 
-            # World-forward loss
             if len(wf_buf) >= 16:
                 k = min(32, len(wf_buf))
                 idxs = torch.randperm(len(wf_buf))[:k].tolist()
                 zw_b  = torch.cat([wf_buf[i][0] for i in idxs]).to(agent.device)
                 a_b   = torch.cat([wf_buf[i][1] for i in idxs]).to(agent.device)
                 zw1_b = torch.cat([wf_buf[i][2] for i in idxs]).to(agent.device)
-                wf_loss = F.mse_loss(agent.e2.world_forward(zw_b, a_b), zw1_b)
+                wf_pred = agent.e2.world_forward(zw_b, a_b)
+                wf_loss = F.mse_loss(wf_pred, zw1_b)
                 if wf_loss.requires_grad:
                     wf_optimizer.zero_grad()
                     wf_loss.backward()
@@ -189,8 +167,12 @@ def _train(
                         1.0,
                     )
                     wf_optimizer.step()
+                # Fix 1: direct variance update — breaks the _committed_trajectory
+                # chicken-and-egg in post_action_update().
+                with torch.no_grad():
+                    wf_err = (wf_pred.detach() - zw1_b).detach()
+                    agent.e3.update_running_variance(wf_err)
 
-            # Harm eval (balanced)
             if len(harm_buf_pos) >= 4 and len(harm_buf_neg) >= 4:
                 k_p = min(16, len(harm_buf_pos))
                 k_n = min(16, len(harm_buf_neg))
@@ -225,48 +207,44 @@ def _train(
             ct = agent.e3.commit_threshold
             cf = _mean_safe(committed_fraction_log[-1000:])
             print(
-                f"  [train] ep {ep+1}/{num_episodes}  harm={total_harm}"
-                f"  e3_ticks={e3_tick_total}"
+                f"  [train] ep {ep+1}/{num_episodes}"
                 f"  running_var={rv:.4f}  commit_thresh={ct:.3f}"
                 f"  committed_frac={cf:.3f}",
                 flush=True,
             )
 
     return {
-        "total_harm": total_harm,
-        "e3_tick_total": e3_tick_total,
         "final_running_variance": agent.e3._running_variance,
         "mean_committed_fraction": _mean_safe(committed_fraction_log),
     }
 
 
-def _eval_beta_gate(
+def _eval_beta_concordance(
     agent: REEAgent,
     env: CausalGridWorldV2,
     num_episodes: int,
     steps_per_episode: int,
     world_dim: int,
 ) -> Dict:
-    """Track beta gate state relative to commitment status step-by-step."""
+    """
+    Measure concordance between commitment state and beta gate state.
+    committed + elevated = correct hold (MECH-090 prediction)
+    uncommitted + not elevated = correct release
+    """
     agent.eval()
-
-    committed_steps = 0
-    uncommitted_steps = 0
-    committed_and_elevated = 0
-    committed_and_propagated = 0
-    gate_release_events = 0
-    approach_scores: List[float] = []
-    none_scores: List[float] = []
-    fatal = 0
-    prev_elevated = False
-    running_variances: List[float] = []
-
     agent.beta_gate.reset()
+
+    committed_elevated_count = 0
+    committed_not_elevated   = 0
+    uncommitted_elevated     = 0
+    uncommitted_not_elevated = 0
+    total_steps = 0
+    fatal = 0
+    running_variances: List[float] = []
 
     for _ in range(num_episodes):
         flat_obs, obs_dict = env.reset()
         agent.reset()
-        prev_elevated = False
         harm_prev: float = 0.0
 
         for step in range(steps_per_episode):
@@ -275,22 +253,15 @@ def _eval_beta_gate(
             with torch.no_grad():
                 latent = agent.sense(obs_body, obs_world)
 
-            # FIX: update running variance from actual z_world
-            if step > 0:
-                agent.e3.post_action_update(
-                    latent.z_world.detach(), harm_prev < 0
-                )
-
             running_variances.append(agent.e3._running_variance)
 
             with torch.no_grad():
-                ticks  = agent.clock.advance()
+                ticks    = agent.clock.advance()
                 e1_prior = (
                     agent._e1_tick(latent) if ticks.get("e1_tick", False)
                     else torch.zeros(1, world_dim, device=agent.device)
                 )
                 candidates = agent.generate_trajectories(latent, e1_prior, ticks)
-                theta_z = agent.theta_buffer.summary()
 
             try:
                 with torch.no_grad():
@@ -301,21 +272,20 @@ def _eval_beta_gate(
                         )
                         agent._last_action = action
 
-                is_committed = agent.e3._committed_trajectory is not None
+                # Fix 2: use variance-based commitment criterion, not
+                # _committed_trajectory (which post_action_update resets every step).
+                is_committed = agent.e3._running_variance < agent.e3.commit_threshold
                 is_elevated  = agent.beta_gate.is_elevated
+                total_steps += 1
 
-                if is_committed:
-                    committed_steps += 1
-                    if is_elevated:
-                        committed_and_elevated += 1
-                    else:
-                        committed_and_propagated += 1
+                if is_committed and is_elevated:
+                    committed_elevated_count += 1
+                elif is_committed and not is_elevated:
+                    committed_not_elevated += 1
+                elif not is_committed and is_elevated:
+                    uncommitted_elevated += 1
                 else:
-                    uncommitted_steps += 1
-
-                if prev_elevated and not is_elevated:
-                    gate_release_events += 1
-                prev_elevated = is_elevated
+                    uncommitted_not_elevated += 1
 
             except Exception:
                 fatal += 1
@@ -325,54 +295,48 @@ def _eval_beta_gate(
                 agent._last_action = action
 
             flat_obs, harm_signal, done, info, obs_dict = env.step(action)
-            ttype = info.get("transition_type", "none")
-
-            try:
-                with torch.no_grad():
-                    score = float(agent.e3.harm_eval(theta_z).item())
-                if ttype in APPROACH_TTYPES:
-                    approach_scores.append(score)
-                elif ttype == "none":
-                    none_scores.append(score)
-            except Exception:
-                pass
-
             harm_prev = float(harm_signal)
             if done:
                 break
 
-    beta_state = agent.beta_gate.get_state()
-    hold_count  = beta_state["hold_count"]
-    prop_count  = beta_state["propagation_count"]
+    gate_state = agent.beta_gate.get_state()
+    hold_count = gate_state["hold_count"]
+    prop_count = gate_state["propagation_count"]
 
-    hold_rate_during_committed = (
-        committed_and_elevated / max(1, committed_steps)
+    n_committed   = committed_elevated_count + committed_not_elevated
+    n_uncommitted = uncommitted_elevated + uncommitted_not_elevated
+
+    committed_hold_concordance = (
+        committed_elevated_count / max(1, n_committed)
     )
-    cal_gap = _mean_safe(approach_scores) - _mean_safe(none_scores)
+    uncommitted_release_concordance = (
+        uncommitted_not_elevated / max(1, n_uncommitted)
+    )
     mean_rv = _mean_safe(running_variances)
 
     print(
-        f"  committed_steps={committed_steps}  uncommitted={uncommitted_steps}\n"
-        f"  hold_rate_during_committed={hold_rate_during_committed:.3f}"
-        f"  gate_releases={gate_release_events}\n"
-        f"  hold_count={hold_count}  propagation_count={prop_count}\n"
-        f"  cal_gap_approach={cal_gap:.4f}"
+        f"  committed_steps={n_committed}  uncommitted_steps={n_uncommitted}\n"
+        f"  committed_hold_concordance={committed_hold_concordance:.3f}"
+        f"  uncommitted_release_concordance={uncommitted_release_concordance:.3f}\n"
+        f"  hold_count={hold_count}  propagation_count={prop_count}"
         f"  mean_running_variance={mean_rv:.4f}",
         flush=True,
     )
 
     return {
-        "committed_step_count":          committed_steps,
-        "uncommitted_step_count":        uncommitted_steps,
-        "committed_and_elevated":        committed_and_elevated,
-        "committed_and_propagated":      committed_and_propagated,
-        "hold_rate_during_committed":    hold_rate_during_committed,
-        "gate_release_events":           gate_release_events,
-        "hold_count_total":              hold_count,
-        "propagation_count_total":       prop_count,
-        "calibration_gap_approach":      cal_gap,
-        "mean_running_variance":         mean_rv,
-        "fatal_errors":                  fatal,
+        "committed_elevated_count":          committed_elevated_count,
+        "committed_not_elevated":            committed_not_elevated,
+        "uncommitted_elevated":              uncommitted_elevated,
+        "uncommitted_not_elevated":          uncommitted_not_elevated,
+        "committed_hold_concordance":        committed_hold_concordance,
+        "uncommitted_release_concordance":   uncommitted_release_concordance,
+        "hold_count":                        hold_count,
+        "propagation_count":                 prop_count,
+        "n_committed_steps":                 n_committed,
+        "n_uncommitted_steps":               n_uncommitted,
+        "total_steps":                       total_steps,
+        "mean_running_variance":             mean_rv,
+        "fatal_errors":                      fatal,
     }
 
 
@@ -382,7 +346,6 @@ def run(
     eval_episodes: int = 50,
     steps_per_episode: int = 200,
     alpha_world: float = 0.9,
-    alpha_self: float = 0.3,
     harm_scale: float = 0.02,
     proximity_scale: float = 0.05,
     lr: float = 1e-3,
@@ -409,7 +372,7 @@ def run(
         self_dim=self_dim,
         world_dim=world_dim,
         alpha_world=alpha_world,
-        alpha_self=alpha_self,
+        alpha_self=0.3,
         reafference_action_dim=env.action_dim,
     )
     agent = REEAgent(config)
@@ -425,7 +388,7 @@ def run(
     )
 
     print(
-        f"[V3-EXQ-048c] MECH-057b: Trajectory Completion Gate (running_variance fix)\n"
+        f"[V3-EXQ-049d] MECH-090: Beta-Gated Policy Propagation (chicken-and-egg fix)\n"
         f"  warmup={warmup_episodes}  eval={eval_episodes}  alpha_world={alpha_world}\n"
         f"  precision_init={agent.e3._running_variance:.3f}"
         f"  commit_threshold={agent.e3.commit_threshold:.3f}",
@@ -438,19 +401,19 @@ def run(
     )
 
     print(
-        f"\n[V3-EXQ-048c] Post-train:"
+        f"\n[V3-EXQ-049d] Post-train:"
         f"  running_var={train_out['final_running_variance']:.4f}"
         f"  committed_frac={train_out['mean_committed_fraction']:.3f}",
         flush=True,
     )
-    print(f"\n[V3-EXQ-048c] Eval -- tracking beta gate state...", flush=True)
-    eval_out = _eval_beta_gate(agent, env, eval_episodes, steps_per_episode, world_dim)
+    print(f"\n[V3-EXQ-049d] Eval -- beta gate concordance...", flush=True)
+    eval_out = _eval_beta_concordance(agent, env, eval_episodes, steps_per_episode, world_dim)
 
     # PASS / FAIL
-    c1_pass = eval_out["committed_step_count"] >= 10
-    c2_pass = eval_out["hold_rate_during_committed"] > 0.5
-    c3_pass = eval_out["propagation_count_total"] > 0
-    c4_pass = eval_out["calibration_gap_approach"] > 0.0
+    c1_pass = eval_out["committed_hold_concordance"] > 0.6
+    c2_pass = eval_out["uncommitted_release_concordance"] > 0.5
+    c3_pass = eval_out["hold_count"] > 0
+    c4_pass = eval_out["propagation_count"] > 0
     c5_pass = eval_out["fatal_errors"] == 0
 
     all_pass    = c1_pass and c2_pass and c3_pass and c4_pass and c5_pass
@@ -460,41 +423,38 @@ def run(
     failure_notes = []
     if not c1_pass:
         failure_notes.append(
-            f"C1 FAIL: committed_step_count={eval_out['committed_step_count']} < 10"
+            f"C1 FAIL: committed_hold_concordance={eval_out['committed_hold_concordance']:.3f} <= 0.6"
         )
     if not c2_pass:
         failure_notes.append(
-            f"C2 FAIL: hold_rate_during_committed={eval_out['hold_rate_during_committed']:.3f} <= 0.5"
+            f"C2 FAIL: uncommitted_release_concordance={eval_out['uncommitted_release_concordance']:.3f} <= 0.5"
         )
     if not c3_pass:
-        failure_notes.append(
-            f"C3 FAIL: propagation_count_total={eval_out['propagation_count_total']} == 0"
-        )
+        failure_notes.append(f"C3 FAIL: hold_count={eval_out['hold_count']} == 0")
     if not c4_pass:
-        failure_notes.append(
-            f"C4 FAIL: calibration_gap_approach={eval_out['calibration_gap_approach']:.4f} <= 0"
-        )
+        failure_notes.append(f"C4 FAIL: propagation_count={eval_out['propagation_count']} == 0")
     if not c5_pass:
         failure_notes.append(f"C5 FAIL: fatal_errors={eval_out['fatal_errors']}")
 
-    print(f"\nV3-EXQ-048c verdict: {status}  ({criteria_met}/5)", flush=True)
+    print(f"\nV3-EXQ-049d verdict: {status}  ({criteria_met}/5)", flush=True)
     for note in failure_notes:
         print(f"  {note}", flush=True)
 
     metrics = {
-        "committed_step_count":         float(eval_out["committed_step_count"]),
-        "uncommitted_step_count":       float(eval_out["uncommitted_step_count"]),
-        "committed_and_elevated":       float(eval_out["committed_and_elevated"]),
-        "committed_and_propagated":     float(eval_out["committed_and_propagated"]),
-        "hold_rate_during_committed":   float(eval_out["hold_rate_during_committed"]),
-        "gate_release_events":          float(eval_out["gate_release_events"]),
-        "hold_count_total":             float(eval_out["hold_count_total"]),
-        "propagation_count_total":      float(eval_out["propagation_count_total"]),
-        "calibration_gap_approach":     float(eval_out["calibration_gap_approach"]),
-        "mean_running_variance":        float(eval_out["mean_running_variance"]),
-        "final_running_variance":       float(train_out["final_running_variance"]),
-        "mean_committed_fraction_train": float(train_out["mean_committed_fraction"]),
-        "fatal_error_count":            float(eval_out["fatal_errors"]),
+        "committed_elevated_count":        float(eval_out["committed_elevated_count"]),
+        "committed_not_elevated":          float(eval_out["committed_not_elevated"]),
+        "uncommitted_elevated":            float(eval_out["uncommitted_elevated"]),
+        "uncommitted_not_elevated":        float(eval_out["uncommitted_not_elevated"]),
+        "committed_hold_concordance":      float(eval_out["committed_hold_concordance"]),
+        "uncommitted_release_concordance": float(eval_out["uncommitted_release_concordance"]),
+        "hold_count":                      float(eval_out["hold_count"]),
+        "propagation_count":               float(eval_out["propagation_count"]),
+        "n_committed_steps":               float(eval_out["n_committed_steps"]),
+        "n_uncommitted_steps":             float(eval_out["n_uncommitted_steps"]),
+        "mean_running_variance":           float(eval_out["mean_running_variance"]),
+        "final_running_variance":          float(train_out["final_running_variance"]),
+        "mean_committed_fraction_train":   float(train_out["mean_committed_fraction"]),
+        "fatal_error_count":               float(eval_out["fatal_errors"]),
         "crit1_pass": 1.0 if c1_pass else 0.0,
         "crit2_pass": 1.0 if c2_pass else 0.0,
         "crit3_pass": 1.0 if c3_pass else 0.0,
@@ -507,25 +467,24 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-048c -- MECH-057b: Trajectory Completion Gate (running_variance fix)
+    summary_markdown = f"""# V3-EXQ-049d -- MECH-090: Beta-Gated Policy Propagation (chicken-and-egg fix)
 
 **Status:** {status}
-**Claims:** MECH-057b, MECH-090
-**Fix:** Adds agent.e3.update_after_execution() call each step so _running_variance evolves
-**Prior attempts:** EXQ-048 (bypassed select_action), EXQ-048b (missing update_after_execution)
+**Claim:** MECH-090 -- beta gate holds E3 policy output during committed action
+**Fix 1:** Direct update_running_variance(wf_err) after world_forward loss — breaks _committed_trajectory deadlock
+**Fix 2:** is_committed = _running_variance < commit_threshold (not _committed_trajectory probe)
+**Prior attempts:** EXQ-049/049b (gate not wired), EXQ-049c (post_action_update still stuck in deadlock)
 **alpha_world:** {alpha_world}
 **Warmup:** {warmup_episodes} eps  |  Eval: {eval_episodes} eps
 **Seed:** {seed}
 
 ## Root Cause Chain
 
-1. **EXQ-048**: `agent.e3.select()` called directly → beta_gate never wired
-2. **EXQ-048b**: `agent.select_action()` used correctly → gate wired, BUT
-   `update_after_execution()` never called → `_running_variance` frozen at
-   `precision_init=0.5` → `0.5 < commit_threshold=0.40` always False →
-   agent never commits → `beta_gate.elevate()` never fires
-3. **EXQ-048c**: Adds `agent.e3.update_after_execution(z_world_t, harm_{t-1})` at
-   each step start → running_variance evolves → commitment eventually fires
+1. **EXQ-049**: `agent.e3.select()` bypassed → gate never wired
+2. **EXQ-049b**: gate wired, `post_action_update` missing → variance frozen
+3. **EXQ-049c**: `post_action_update` called, but its own `_committed_trajectory` guard
+   re-creates the deadlock — variance still never moves
+4. **EXQ-049d**: `update_running_variance(wf_err)` called directly → deadlock broken
 
 ## Training Diagnostics
 
@@ -535,27 +494,27 @@ def run(
 | mean_committed_fraction (train) | {train_out['mean_committed_fraction']:.3f} |
 | commit_threshold | {agent.e3.commit_threshold:.3f} |
 
-## Beta Gate State During Eval
+## Beta Gate Concordance
 
-| Metric | Value |
-|--------|-------|
-| committed_step_count | {eval_out['committed_step_count']} |
-| uncommitted_step_count | {eval_out['uncommitted_step_count']} |
-| hold_rate_during_committed | {eval_out['hold_rate_during_committed']:.3f} |
-| gate_release_events | {eval_out['gate_release_events']} |
-| hold_count_total (all steps) | {eval_out['hold_count_total']} |
-| propagation_count_total | {eval_out['propagation_count_total']} |
-| calibration_gap_approach | {eval_out['calibration_gap_approach']:.4f} |
-| mean_running_variance (eval) | {eval_out['mean_running_variance']:.4f} |
+| State | Count | Rate |
+|-------|-------|------|
+| committed + gate elevated (correct hold) | {eval_out['committed_elevated_count']} | {eval_out['committed_hold_concordance']:.3f} |
+| committed + gate NOT elevated (unexpected) | {eval_out['committed_not_elevated']} | {1.0 - eval_out['committed_hold_concordance']:.3f} |
+| uncommitted + NOT elevated (correct release) | {eval_out['uncommitted_not_elevated']} | {eval_out['uncommitted_release_concordance']:.3f} |
+| uncommitted + gate elevated (unexpected) | {eval_out['uncommitted_elevated']} | {1.0 - eval_out['uncommitted_release_concordance']:.3f} |
+
+- hold_count (total gate holds): {eval_out['hold_count']}
+- propagation_count (total gate releases): {eval_out['propagation_count']}
+- mean_running_variance (eval): {eval_out['mean_running_variance']:.4f}
 
 ## PASS Criteria
 
 | Criterion | Result | Value |
 |---|---|---|
-| C1: committed_step_count >= 10 (agent commits) | {"PASS" if c1_pass else "FAIL"} | {eval_out['committed_step_count']} |
-| C2: hold_rate_during_committed > 0.5 (gate holds) | {"PASS" if c2_pass else "FAIL"} | {eval_out['hold_rate_during_committed']:.3f} |
-| C3: propagation_count > 0 (gate releases) | {"PASS" if c3_pass else "FAIL"} | {eval_out['propagation_count_total']} |
-| C4: calibration_gap_approach > 0 (E3 functional) | {"PASS" if c4_pass else "FAIL"} | {eval_out['calibration_gap_approach']:.4f} |
+| C1: committed_hold_concordance > 0.6 | {"PASS" if c1_pass else "FAIL"} | {eval_out['committed_hold_concordance']:.3f} |
+| C2: uncommitted_release_concordance > 0.5 | {"PASS" if c2_pass else "FAIL"} | {eval_out['uncommitted_release_concordance']:.3f} |
+| C3: hold_count > 0 (gate holds) | {"PASS" if c3_pass else "FAIL"} | {eval_out['hold_count']} |
+| C4: propagation_count > 0 (gate releases) | {"PASS" if c4_pass else "FAIL"} | {eval_out['propagation_count']} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {eval_out['fatal_errors']} |
 
 Criteria met: {criteria_met}/5 -> **{status}**

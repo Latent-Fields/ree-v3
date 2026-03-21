@@ -1,0 +1,39 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "stable_mean_running_variance": 0.0025755368205878375,
+    "stable_mean_precision": 718.6330555061242,
+    "stable_commit_rate": 0.9989440337909187,
+    "stable_n_commit_decisions": 947.0,
+    "stable_mean_prediction_error": 0.001520746235564961,
+    "perturbed_mean_running_variance": 0.003552411842097377,
+    "perturbed_mean_precision": 426.064073718843,
+    "perturbed_commit_rate": 0.9988290398126464,
+    "perturbed_n_commit_decisions": 854.0,
+    "perturbed_mean_prediction_error": 0.0023844936238218745,
+    "recovery_mean_running_variance": 0.003258442200357544,
+    "recovery_commit_rate": 0.9982517482517482,
+    "running_variance_diff_perturbed_minus_stable": 0.0009768750215095397,
+    "precision_diff_stable_minus_perturbed": 292.56898178728113,
+    "commit_rate_diff_stable_minus_perturbed": 0.00011499397827230418,
+    "alpha_world": 0.9,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "criteria_met": 4.0
+  },
+  "summary_markdown": "# V3-EXQ-018 \u2014 ARC-016 Dynamic Precision Commitment Test\n\n**Status:** FAIL\n**Training:** 1000 eps (stable: num_hazards=3, drift_interval=100, drift_prob=0.0)\n**Eval stable:** 50 eps | **Eval perturbed:** 50 eps (num_hazards=20, drift_interval=1, drift_prob=1.0)\n**Recovery:** 30 eps\n**Seed:** 1\n\n## Motivation (ARC-016)\n\nV2 EXQ-025 FAILED because precision was externally imposed. V3 derives precision\nfrom E3's own prediction error EMA (running_variance). At each step:\n  z_world_predicted = E2.world_forward(z_world_t, a_t)\n  prediction_error  = z_world_{t+1} - z_world_predicted\n  agent.e3.update_running_variance(prediction_error)\n\n  precision        = 1 / (running_variance + \u03b5)\n  commit_threshold = 0.003 (variance-space \u2014 E3Config.commitment_threshold, calibrated 2026-03-18)\n  committed        = running_variance < commit_threshold\n\n## Phase Results\n\n| Phase | mean_var | mean_precision | commit_rate | n_decisions |\n|---|---|---|---|---|\n| Training (stable) | 0.0012 | 1080.898 | 1.000 | 18889 |\n| Eval stable | 0.0026 | 718.633 | 0.999 | 947 |\n| Eval perturbed | 0.0036 | 426.064 | 0.999 | 854 |\n| Recovery | 0.0033 | 723.746 | 0.998 | 572 |\n\n**Key differences:**\n- running_variance: perturbed - stable = 0.0010\n- precision: stable - perturbed = 292.5690\n- commit_rate: stable - perturbed = 0.0001\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: var_diff > 0.001 (variance diverges; calibrated from stable\u22480.0027, perturbed\u22480.0038) | FAIL | 0.0010 |\n| C2: precision_stable > precision_perturbed | PASS | 292.5690 |\n| C3: commit_rate_stable > commit_rate_perturbed | PASS | 0.0001 |\n| C4: n_stable_decisions >= 20 | PASS | 947 |\n| C5: No fatal errors | PASS | 0 |\n\nCriteria met: 4/5 \u2192 **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: running_variance perturbed-stable diff=0.0010 <= 0.001 [perturbed=0.0036 stable=0.0026]\n",
+  "claim_ids": [
+    "ARC-016"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_018_arc016_dynamic_precision",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260320T172009Z",
+  "claim": "ARC-016",
+  "verdict": "FAIL",
+  "run_id": "v3_exq_018_arc016_dynamic_precision_20260320T172009Z_v3",
+  "architecture_epoch": "ree_hybrid_guardrails_v1"
+}

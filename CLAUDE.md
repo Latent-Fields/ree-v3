@@ -97,6 +97,24 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   harm_eval calibration, EXQ-026 + EXQ-029 PASS), SD-007 (reafference, EXQ-021 PASS),
   SD-008 (alpha_world=0.9, EXQ-023 PASS).
 
+## V3 / V4 Scope Boundary (2026-03-21)
+
+**V3 scope (waking mechanisms):**
+- Volatility interrupt / LC-NE analog (MECH-104): surprise-spike on running_variance
+- BG hysteresis and outcome-valence modulation (MECH-106)
+- Hippocampal→BG completion coupling (MECH-105, ARC-028)
+- Beta gate committed→uncommitted dynamics (MECH-090)
+- Trajectory completion signal from HippocampalModule (ARC-028)
+
+**V4 scope (sleep mechanisms — not V3):**
+- Sharp-wave ripple (SWR) consolidation of place-reward associations
+- Slow-wave sleep prediction error baseline reset
+- Sleep-dependent recalibration of commit thresholds
+- Theta-gamma coupling during offline replay for memory formation
+- Lansink et al. (2009) hippocampus-leads-striatum replay is V4 evidence
+- Biological rationale: sleep mechanisms are evolutionary successors to waking
+  decision architecture. V3 must deliver working waking circuit before V4 sleep.
+
 ## Experiment IDs
 V3 experiments: V3-EXQ-001 onward
 First priority: V3-EXQ-001 → V3-EXQ-002 → V3-EXQ-003 + V3-EXQ-004 (parallel)

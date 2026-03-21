@@ -223,7 +223,7 @@ def run(
 
             # Add to stratified buffer
             bucket = _ttype_to_bucket(ttype)
-            strat_bufs[bucket].append((z_harm_new.detach(), float(hazard_label.item())))
+            strat_bufs[bucket].append((harm_obs_t.detach(), float(hazard_label.item())))
 
             # Stratified training: sample equally from each non-empty bucket
             buckets_ready = [b for b in strat_bufs if len(strat_bufs[b]) >= MIN_PER_BUCKET]

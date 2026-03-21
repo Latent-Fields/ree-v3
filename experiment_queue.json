@@ -8,40 +8,18 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-056c",
-      "backlog_id": "",
-      "claim_id": "SD-010",
-      "title": "SD-010 Harm Stream Fixed \u2014 normalized labels, no sigmoid, stratified calibration",
-      "description": "Rewrite of EXQ-056a. Fixes: (1) Sigmoid removed from harm_eval_z_harm_head; (2) normalized label harm_obs[12] for both training and eval; (3) event-stratified replay buffer. PASS: C1 r_z_harm>0.30, C2 r_z_harm>r_z_world+0.10, C3 z_harm_variance_across_event_types>0.01, C4 n_contact>=30.",
-      "status": "pending",
-      "script": "experiments/v3_exq_056c_sd010_harm_stream_fixed.py",
-      "estimated_minutes": 60.0,
-      "machine_affinity": "any",
-      "episodes_per_run": 600
-    },
-    {
-      "queue_id": "V3-EXQ-059c",
-      "backlog_id": "",
-      "claim_id": "MECH-102",
-      "title": "SD-010/MECH-102 Advantage Fixed \u2014 normalized labels, no sigmoid, stratified calibration",
-      "description": "Rewrite of EXQ-059a. 700 warmup eps, stratified training, C4 relaxed to n_contact>=30. Ethical policy: argmin harm_eval_z_harm(harm_enc(harm_bridge(E2(z,a)))). PASS: C1 advantage_sig_contact>advantage_sig_none, C2 advantage_sig_contact>0.001, C3 world_forward_r2>0.05, C4 n_contact>=30.",
-      "status": "pending",
-      "script": "experiments/v3_exq_059c_sd010_mech102_advantage_fixed.py",
-      "estimated_minutes": 100.0,
-      "machine_affinity": "any",
-      "episodes_per_run": 800
-    },
-    {
       "queue_id": "V3-EXQ-048c",
       "backlog_id": "",
       "claim_id": "MECH-057b",
       "title": "MECH-057b Completion Gate v2 \u2014 adds update_after_execution so running_variance evolves",
       "description": "Rewrite of EXQ-048b. Root cause: update_after_execution() never called so _running_variance frozen at 0.5 > commit_threshold=0.40 forever. Fix: call agent.e3.update_after_execution(z_world_t, harm_prev<0) at each step start. PASS: C1 committed_step_count>=10, C2 hold_rate_during_committed>0.5, C3 propagation_count>0, C4 cal_gap_approach>0.",
-      "status": "pending",
+      "status": "failed",
       "script": "experiments/v3_exq_048c_mech057b_completion_gate_v2.py",
       "estimated_minutes": 35.0,
       "machine_affinity": "any",
-      "episodes_per_run": 450
+      "episodes_per_run": 450,
+      "failure_reason": "C2 FAIL: hold_rate_during_committed=0.000 <= 0.5 | harm_scale=args.harm_scale, | 3. **EXQ-048c**: Adds `agent.e3.update_after_execution(z_world_t, harm_{t-1})` at",
+      "failed_at": "2026-03-21T09:52:17.776991+00:00"
     },
     {
       "queue_id": "V3-EXQ-049c",
@@ -49,35 +27,27 @@
       "claim_id": "MECH-090",
       "title": "MECH-090 BetaGate v2 \u2014 adds update_after_execution so running_variance evolves",
       "description": "Rewrite of EXQ-049b. Same root cause: _running_variance frozen at 0.5 > commit_threshold=0.40, gate never exercises. Fix: agent.e3.update_after_execution(z_world_t, harm_prev<0) each step. PASS: C1 committed_hold_concordance>0.6, C2 uncommitted_release_concordance>0.5, C3 hold_count>0, C4 propagation_count>0.",
-      "status": "pending",
+      "status": "failed",
       "script": "experiments/v3_exq_049c_mech090_beta_gate_v2.py",
       "estimated_minutes": 30.0,
       "machine_affinity": "any",
-      "episodes_per_run": 450
+      "episodes_per_run": 450,
+      "failure_reason": "C3 FAIL: hold_count=0 == 0 | harm_scale=args.harm_scale, | 3. **EXQ-049c**: `update_after_execution(z_world_t, harm_{t-1})` called each step",
+      "failed_at": "2026-03-21T11:02:40.358684+00:00"
     },
     {
-      "queue_id": "V3-EXQ-052b",
+      "queue_id": "V3-EXQ-049d",
       "backlog_id": "",
-      "claim_id": "SD-006",
-      "title": "SD-006 Multirate Fixed \u2014 correct ThetaBuffer counter",
-      "description": "Rewrite of EXQ-052. Fix: len(agent.theta_buffer) instead of len(agent.theta_buffer._buffer). Bug: _buffer attribute does not exist; AttributeError silently caught, max_theta_buffer_size=0. All other metrics (cal_gap=0.846, e3_tick_ratio=0.109) already pass.",
-      "status": "pending",
-      "script": "experiments/v3_exq_052b_sd006_multirate_fixed.py",
+      "claim_id": "MECH-090",
+      "title": "MECH-090 BetaGate v3 \u2014 chicken-and-egg fix (direct update_running_variance)",
+      "description": "Fixes the deadlock that killed 049b and 049c: post_action_update() guards variance update behind _committed_trajectory, which is never set because variance never drops \u2014 circular. Fix 1: call agent.e3.update_running_variance(wf_err) directly after world_forward loss (no guard). Fix 2: is_committed = _running_variance < commit_threshold (not _committed_trajectory probe, which is reset by post_action_update every step). PASS: C1 committed_hold_concordance>0.6, C2 uncommitted_release_concordance>0.5, C3 hold_count>0, C4 propagation_count>0, C5 no fatal errors.",
+      "status": "failed",
+      "script": "experiments/v3_exq_049d_mech090_beta_gate_v3.py",
       "estimated_minutes": 30.0,
       "machine_affinity": "any",
-      "episodes_per_run": 400
-    },
-    {
-      "queue_id": "V3-EXQ-050b",
-      "backlog_id": "",
-      "claim_id": "MECH-025",
-      "title": "MECH-025 Doing Mode \u2014 relative threshold calibration",
-      "description": "Rewrite of EXQ-050. Calibrates commit_threshold = 2.0 x training_baseline_variance so agent enters both committed and uncommitted modes. Prerequisite: EXQ-018b establishes relative threshold works. PASS: doing_mode_delta>0.002, uncommitted_step_count>=10.",
-      "status": "pending",
-      "script": "experiments/v3_exq_050b_mech025_doing_mode_relative_threshold.py",
-      "estimated_minutes": 40.0,
-      "machine_affinity": "any",
-      "episodes_per_run": 550
+      "episodes_per_run": 450,
+      "failure_reason": "",
+      "failed_at": "2026-03-21T12:27:00.141155+00:00"
     },
     {
       "queue_id": "V3-EXQ-046",
@@ -218,6 +188,30 @@
       "conditions": 1,
       "episodes_per_run": 1100,
       "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-049e",
+      "backlog_id": "",
+      "claim_id": "MECH-090",
+      "title": "MECH-090 BetaGate v4 — two-condition design (trained vs fresh agent)",
+      "description": "Fixes single-agent limitation of EXQ-049d: trained agent always committed (variance~0), fresh agent always uncommitted (variance=precision_init=0.5>threshold). C1/C3 from trained agent (gate elevates), C2/C4 from fresh agent (gate releases). No artificial variance manipulation needed — both conditions at stable extremes.",
+      "status": "pending",
+      "script": "experiments/v3_exq_049e_mech090_two_condition.py",
+      "estimated_minutes": 30.0,
+      "machine_affinity": "any",
+      "episodes_per_run": 450
+    },
+    {
+      "queue_id": "V3-EXQ-061",
+      "backlog_id": "",
+      "claim_id": "MECH-104",
+      "title": "MECH-104 Volatility Interrupt — jitter approximation enables de-commitment on surprise harm",
+      "description": "Tests MECH-104 (LC-NE volatility interrupt) V3 approximation. Two conditions: baseline (no spike, confirms variance collapse) vs surprise-spike (adds spike_magnitude=0.05 to running_variance on harm contact). PASS: C1 baseline n_uncommitted=0, C2 spike n_uncommitted>100, C3 variance rises after harm contact, C4 calibration_gap preserved, C5 no fatal errors.",
+      "status": "pending",
+      "script": "experiments/v3_exq_061_mech104_volatility_jitter.py",
+      "estimated_minutes": 45.0,
+      "machine_affinity": "any",
+      "episodes_per_run": 900
     },
     {
       "queue_id": "V3-EXQ-051b",
