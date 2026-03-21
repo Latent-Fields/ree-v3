@@ -55,7 +55,8 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 730,
-      "status": "pending"
+      "status": "pending",
+      "estimated_minutes": 90.0
     },
     {
       "queue_id": "V3-EXQ-057",
@@ -83,7 +84,8 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 600,
-      "status": "pending"
+      "status": "pending",
+      "estimated_minutes": 60.0
     },
     {
       "queue_id": "V3-EXQ-020",
@@ -111,7 +113,8 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 1100,
-      "status": "pending"
+      "status": "pending",
+      "estimated_minutes": 90.0
     },
     {
       "queue_id": "V3-EXQ-020-s1",
@@ -139,7 +142,8 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 1100,
-      "status": "pending"
+      "status": "pending",
+      "estimated_minutes": 90.0
     },
     {
       "queue_id": "V3-EXQ-020b",
@@ -167,7 +171,8 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 1100,
-      "status": "pending"
+      "status": "pending",
+      "estimated_minutes": 90.0
     },
     {
       "queue_id": "V3-EXQ-061",

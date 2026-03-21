@@ -115,6 +115,15 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
 - Biological rationale: sleep mechanisms are evolutionary successors to waking
   decision architecture. V3 must deliver working waking circuit before V4 sleep.
 
+## Experiment Queue Rules
+- Every queue entry **must** have `estimated_minutes` set (never omit it).
+- Estimate from: total episodes × steps_per_episode, calibrated against known runtimes:
+  - ~0.10 min/ep at 200 steps/ep (CPU, CausalGridWorldV2, typical REE agent)
+  - ~0.15 min/ep at 300 steps/ep
+  - Add ~20% overhead for scripts with stratified replay buffers or event classification
+- Always queue experiments immediately after writing the script.
+- Always include `estimated_minutes` — the runner's auto-calibration refines it over time.
+
 ## Experiment IDs
 V3 experiments: V3-EXQ-001 onward
 First priority: V3-EXQ-001 → V3-EXQ-002 → V3-EXQ-003 + V3-EXQ-004 (parallel)
