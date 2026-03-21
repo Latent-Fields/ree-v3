@@ -760,14 +760,17 @@ def main():
                 script_timing = load_script_timing()
 
             if result["result"] == "ERROR":
-                # Script crashed — do NOT mark as completed. Leave in queue so it
-                # will be retried on the next runner start (after the bug is fixed).
+                # Script crashed — leave in queue file so it can be retried on
+                # the next runner start (after the bug is fixed). But add to
+                # completed_ids so it is not retried again in this session.
                 for qi in status["queue"]:
                     if qi["queue_id"] == queue_id:
                         qi["status"] = "error"
                 status["current"] = None
                 write_status(status, status_path)
-                print(f"[runner] ERROR: {queue_id} — leaving in queue for retry", flush=True)
+                completed_ids.add(queue_id)
+                print(f"[runner] ERROR: {queue_id} — skipping for rest of session, "
+                      f"retryable on next runner start", flush=True)
                 continue
 
             if result["result"] == "FAIL":
