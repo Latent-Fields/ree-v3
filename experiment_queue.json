@@ -8,19 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-047b",
-      "backlog_id": "",
-      "claim_id": "SD-005",
-      "title": "SD-005 + SD-010 Joint \u2014 split vs unified latent with clean harm stream",
-      "description": "Re-test of SD-005 latent split (z_self vs z_world) now that SD-010 is confirmed. Both conditions have HarmEncoder (harm_obs \u2192 z_harm) active, removing nociceptive content from z_world gradient path. EXQ-047 C1 failure was diagnosed as nociceptive contamination \u2014 this experiment tests if calibration gap now exceeds 5pp. Claims: SD-005, MECH-069. C1: wf_r2_split > wf_r2_unified + 0.05. C2: attr_gap_split > attr_gap_unified + 0.01. C3: harm_pearson > 0.50. C4: wf_r2_split > 0.30. C5: n_approach >= 50.",
-      "status": "failed",
-      "script": "experiments/v3_exq_047b_sd005_sd010_joint.py",
-      "estimated_minutes": 120.0,
-      "machine_affinity": "any",
-      "failure_reason": "causal_sig_none_unified: 0.0006 | harm_eval_pearson_r_split: 0.9999 | harm_eval_pearson_r_unified: 0.9999",
-      "failed_at": "2026-03-21T19:15:58.449424+00:00"
-    },
-    {
       "queue_id": "V3-EXQ-046",
       "backlog_id": "",
       "claim_id": "ARC-007",
