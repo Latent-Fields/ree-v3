@@ -39,6 +39,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+# Ensure UTF-8 output on Windows (default cp1252 breaks → and other Unicode in experiment scripts)
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 REPO_ROOT = Path(__file__).resolve().parent
 QUEUE_FILE = REPO_ROOT / "experiment_queue.json"
 PID_FILE = REPO_ROOT / "runner.pid"
