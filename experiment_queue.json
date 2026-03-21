@@ -151,21 +151,6 @@
       "episodes_per_run": 1100,
       "status": "pending",
       "estimated_minutes": 90.0
-    },
-    {
-      "queue_id": "V3-EXQ-051b",
-      "backlog_id": "",
-      "claim_id": "Q-007",
-      "title": "Q-007 z_beta Volatility Injection \u2014 NE/LC analog via running_variance input",
-      "description": "Fix for Q-007 architectural gap (EXQ-051 FAIL). Injects E3._running_variance as scalar into beta_encoder via LatentStackConfig.volatility_signal_dim=1. Two conditions: stable (fixed hazard positions) vs volatile (randomised each episode), same mean hazard count. Yu & Dayan 2005 (PMID 15944135): NE encodes unexpected uncertainty = running_variance spike. With injection: volatile agent should have higher z_beta norm (C1), Pearson r(rv,z_beta)>0.3 (C2), and z_beta rises within 20 eps after stable\u2192volatile transfer (C3).",
-      "status": "claimed",
-      "script": "experiments/v3_exq_051b_q007_zbeta_volatility_injection.py",
-      "estimated_minutes": 45.0,
-      "machine_affinity": "any",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-21T23:23:45.395940+00:00"
-      }
     }
   ]
 }
