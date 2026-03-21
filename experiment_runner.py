@@ -475,7 +475,22 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     print(f"[runner] Command: {' '.join(str(a) for a in args)}", flush=True)
 
     last_write = time.monotonic()
+    last_bar_print = 0.0
     update_status_current()
+
+    def print_progress_bar():
+        pct = overall_pct()
+        remaining = seconds_remaining()
+        width = 30
+        filled = int(width * pct / 100)
+        bar = '█' * filled + '░' * (width - filled)
+        if remaining > 90:
+            time_str = f"~{int(remaining / 60)} min remaining"
+        elif remaining > 0:
+            time_str = f"~{int(remaining)} sec remaining"
+        else:
+            time_str = "finishing…"
+        print(f"[runner] {bar} {pct:.0f}% | {time_str}", flush=True)
 
     result_info = {
         "result": "UNKNOWN",
@@ -521,12 +536,21 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             if m:
                 episodes_in_run = int(m.group(1))
 
+            # Progress bar — throttled to once per 60 s
+            if episodes_in_run > 0:
+                now = time.monotonic()
+                if now - last_bar_print >= 60:
+                    print_progress_bar()
+                    last_bar_print = now
+
             # Run completion: V3 verdict patterns
             for pat in RE_RUN_DONE_PATTERNS:
                 if pat.search(line):
                     run_end_times.append(time.monotonic() - started_at)
                     runs_done += 1
                     episodes_in_run = episodes_per_run
+                    print_progress_bar()
+                    last_bar_print = time.monotonic()
                     break
 
             m = RE_STATUS_LINE.match(line)
