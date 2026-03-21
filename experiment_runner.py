@@ -646,8 +646,9 @@ def main():
             PID_FILE.unlink()
         sys.exit(0)
 
-    signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
+    if sys.platform != "win32":  # SIGTERM not available on Windows
+        signal.signal(signal.SIGTERM, handle_signal)
 
     queue_data = load_queue()
     calibration = queue_data.get("calibration", {})
