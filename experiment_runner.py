@@ -746,7 +746,18 @@ def main():
                 _current_claim.clear()
                 _current_claim.append(queue_id)
 
-            result = run_experiment(item, status, status_path, calibration, script_timing)
+            try:
+              result = run_experiment(item, status, status_path, calibration, script_timing)
+            except Exception as _run_exc:
+                # Unexpected exception escaping run_experiment — treat as ERROR and continue
+                print(f"[runner] UNEXPECTED ERROR in {queue_id}: {_run_exc}", flush=True)
+                completed_ids.add(queue_id)
+                status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] != queue_id]
+                status["current"] = None
+                write_status(status, status_path)
+                ran_any = True
+                _current_claim.clear()
+                continue
             ran_any = True
             _current_claim.clear()  # no longer running this experiment
 
@@ -761,17 +772,35 @@ def main():
                 script_timing = load_script_timing()
 
             if result["result"] == "ERROR":
-                # Script crashed — leave in queue file so it can be retried on
-                # the next runner start (after the bug is fixed). But add to
-                # completed_ids so it is not retried again in this session.
-                for qi in status["queue"]:
-                    if qi["queue_id"] == queue_id:
-                        qi["status"] = "error"
+                # Script crashed — move to completed (so it appears in the explorer
+                # completed list) and remove from queue, just like a finished experiment.
+                # The ERROR result label distinguishes it from PASS/FAIL.
+                completed_entry = {
+                    "queue_id": queue_id,
+                    "backlog_id": item.get("backlog_id", ""),
+                    "claim_id": item.get("claim_id", ""),
+                    "title": item.get("title", ""),
+                    "description": item.get("description", ""),
+                    "result": "ERROR",
+                    "result_summary": result.get("result_summary", ""),
+                    "started_at": result.get("started_at", ""),
+                    "completed_at": result["completed_at"],
+                    "output_file": result.get("output_file", ""),
+                }
+                status["completed"].append(completed_entry)
+                completed_ids.add(queue_id)
+                status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] != queue_id]
                 status["current"] = None
                 write_status(status, status_path)
-                completed_ids.add(queue_id)
-                print(f"[runner] ERROR: {queue_id} — skipping for rest of session, "
-                      f"retryable on next runner start", flush=True)
+                try:
+                    qdata = json.loads(QUEUE_FILE.read_text())
+                    qdata["items"] = [qi for qi in qdata.get("items", [])
+                                      if qi.get("queue_id") != queue_id]
+                    QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                except Exception as _qe:
+                    print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
+                          flush=True)
+                print(f"[runner] ERROR: {queue_id} — moved to completed, continuing", flush=True)
                 continue
 
             if result["result"] == "FAIL":
