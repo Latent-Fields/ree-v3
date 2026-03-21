@@ -98,6 +98,35 @@ def git_pull(repo_path: Path, label: str) -> None:
         print(f"[runner] git pull {label} error: {e}", flush=True)
 
 
+def git_push_queue() -> None:
+    """Stage, commit, and push experiment_queue.json to ree-v3. Warns on failure."""
+    try:
+        subprocess.run(
+            ["git", "add", "experiment_queue.json"],
+            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=10,
+        )
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=str(REPO_ROOT), timeout=5,
+        )
+        if diff.returncode == 0:
+            return  # nothing changed
+        subprocess.run(
+            ["git", "commit", "-m", f"queue: remove completed/failed items {now_utc()[:10]}"],
+            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=15,
+        )
+        r = subprocess.run(
+            ["git", "push", "origin", "HEAD:main"],
+            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            print("[runner] auto-sync: pushed queue update → ree-v3", flush=True)
+        else:
+            print(f"[runner] auto-sync queue push warn: {r.stderr.strip()}", flush=True)
+    except Exception as e:
+        print(f"[runner] auto-sync queue push error: {e}", flush=True)
+
+
 def git_push_results(ree_assembly_path: Path) -> None:
     """Stage, commit, and push experiment results in REE_assembly. Warns on failure."""
     try:
@@ -762,6 +791,8 @@ def main():
                         qdata["items"] = [qi for qi in qdata.get("items", [])
                                           if qi.get("queue_id") != queue_id]
                         QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                        if args.auto_sync:
+                            git_push_queue()
                     except Exception as _qe:
                         print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
                               flush=True)
@@ -858,6 +889,8 @@ def main():
                     qdata["items"] = [qi for qi in qdata.get("items", [])
                                       if qi.get("queue_id") != queue_id]
                     QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                    if args.auto_sync:
+                        git_push_queue()
                 except Exception as _qe:
                     print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
                           flush=True)
@@ -892,6 +925,8 @@ def main():
                     qdata["items"] = [qi for qi in qdata.get("items", [])
                                       if qi.get("queue_id") != queue_id]
                     QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                    if args.auto_sync:
+                        git_push_queue()
                 except Exception as _qe:
                     print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
                           flush=True)
@@ -928,6 +963,8 @@ def main():
                 qdata["items"] = [qi for qi in qdata.get("items", [])
                                    if qi.get("queue_id") != queue_id]
                 QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                if args.auto_sync:
+                    git_push_queue()
             except Exception as _qe:
                 print(f"[runner] warn: could not update queue file for {queue_id}: {_qe}", flush=True)
 
