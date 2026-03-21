@@ -469,7 +469,9 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                 qi["status"] = "running"
         write_status(status, status_path)
 
-    print(f"[runner] Starting: {item['title']} ({item['queue_id']})", flush=True)
+    est = item.get('estimated_minutes')
+    est_str = f" — est. {est} min" if est else ""
+    print(f"[runner] Starting: {item['title']} ({item['queue_id']}){est_str}", flush=True)
     print(f"[runner] Command: {' '.join(str(a) for a in args)}", flush=True)
 
     last_write = time.monotonic()
