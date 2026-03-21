@@ -752,6 +752,7 @@ def main():
                         "started_at": "",
                         "completed_at": item.get("failed_at", ""),
                         "output_file": "",
+                        "completed_by": machine,
                     }
                     status["completed"].append(completed_entry)
                     status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] != queue_id]
@@ -845,6 +846,7 @@ def main():
                     "started_at": result.get("started_at", ""),
                     "completed_at": result["completed_at"],
                     "output_file": result.get("output_file", ""),
+                    "completed_by": machine,
                 }
                 status["completed"].append(completed_entry)
                 completed_ids.add(queue_id)
@@ -878,6 +880,7 @@ def main():
                     "started_at": result.get("started_at", ""),
                     "completed_at": result["completed_at"],
                     "output_file": result.get("output_file", ""),
+                    "completed_by": machine,
                 }
                 status["completed"].append(completed_entry)
                 completed_ids.add(queue_id)
@@ -907,6 +910,7 @@ def main():
                 "started_at": result.get("started_at", ""),
                 "completed_at": result["completed_at"],
                 "output_file": result.get("output_file", ""),
+                "completed_by": machine,
             }
             status["completed"].append(completed_entry)
             completed_ids.add(queue_id)
