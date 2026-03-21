@@ -72,5 +72,8 @@
   "experiments/v3_exq_048c_mech057b_completion_gate_v2.py": 8817.6,
   "experiments/v3_exq_049c_mech090_beta_gate_v2.py": 9383.6,
   "experiments/v3_exq_049d_mech090_beta_gate_v3.py": 11097.1,
-  "experiments/v3_exq_059_arc016_beta_gate_fixed_threshold.py": 6881.8
+  "experiments/v3_exq_059_arc016_beta_gate_fixed_threshold.py": 6881.8,
+  "experiments/v3_exq_049e_mech090_two_condition.py": 8915.1,
+  "experiments/v3_exq_061_mech104_volatility_jitter.py": 4602.4,
+  "experiments/v3_exq_047b_sd005_sd010_joint.py": 282.3
 }
