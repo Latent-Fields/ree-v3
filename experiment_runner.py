@@ -703,9 +703,39 @@ def main():
             if queue_id in completed_ids:
                 continue
 
-            # Skip experiments that previously failed (scientific FAIL — not retried automatically)
+            # Skip experiments that previously failed (scientific FAIL — not retried automatically).
+            # On first encounter: log clearly, move to completed list, and remove from queue file
+            # so the explorer queue shows only actionable (pending) items.
             if item.get("status") == "failed":
-                completed_ids.add(queue_id)  # Ensure skipped for the rest of this session
+                if queue_id not in completed_ids:
+                    failure_reason = item.get("failure_reason", "")
+                    reason_short = (failure_reason[:80] + "…") if len(failure_reason) > 80 else failure_reason
+                    print(f"[runner] Skipping {queue_id} — previously failed"
+                          f"{': ' + reason_short if reason_short else ''}", flush=True)
+                    completed_entry = {
+                        "queue_id": queue_id,
+                        "backlog_id": item.get("backlog_id", ""),
+                        "claim_id": item.get("claim_id", ""),
+                        "title": item.get("title", ""),
+                        "description": item.get("description", ""),
+                        "result": "FAIL",
+                        "result_summary": failure_reason,
+                        "started_at": "",
+                        "completed_at": item.get("failed_at", ""),
+                        "output_file": "",
+                    }
+                    status["completed"].append(completed_entry)
+                    status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] != queue_id]
+                    write_status(status, status_path)
+                    try:
+                        qdata = json.loads(QUEUE_FILE.read_text())
+                        qdata["items"] = [qi for qi in qdata.get("items", [])
+                                          if qi.get("queue_id") != queue_id]
+                        QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                    except Exception as _qe:
+                        print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
+                              flush=True)
+                completed_ids.add(queue_id)
                 continue
 
             # Skip experiments assigned to a different machine
@@ -804,31 +834,37 @@ def main():
                 continue
 
             if result["result"] == "FAIL":
-                # Scientific FAIL — flag in queue as "failed". Do NOT move to completed.
-                # The experiment is kept in the queue so it remains visible, but it will
-                # not be retried unless manually reset to "pending".
+                # Scientific FAIL — move to completed (with FAIL label) and remove from queue,
+                # same treatment as ERROR. Failed experiments should not accumulate as dead weight
+                # in the queue; they appear in the explorer completed list for review/redesign.
                 failure_reason = result.get("result_summary", "")
-                for qi in status["queue"]:
-                    if qi["queue_id"] == queue_id:
-                        qi["status"] = "failed"
-                        qi["failure_reason"] = failure_reason
-                        qi["failed_at"] = result["completed_at"]
+                completed_entry = {
+                    "queue_id": queue_id,
+                    "backlog_id": item.get("backlog_id", ""),
+                    "claim_id": item.get("claim_id", ""),
+                    "title": item.get("title", ""),
+                    "description": item.get("description", ""),
+                    "result": "FAIL",
+                    "result_summary": failure_reason,
+                    "started_at": result.get("started_at", ""),
+                    "completed_at": result["completed_at"],
+                    "output_file": result.get("output_file", ""),
+                }
+                status["completed"].append(completed_entry)
+                completed_ids.add(queue_id)
+                status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] != queue_id]
                 status["current"] = None
                 write_status(status, status_path)
-                # Update queue file: mark as failed but keep the entry (don't remove it)
                 try:
                     qdata = json.loads(QUEUE_FILE.read_text())
-                    for qi in qdata.get("items", []):
-                        if qi.get("queue_id") == queue_id:
-                            qi["status"] = "failed"
-                            qi["failure_reason"] = failure_reason
-                            qi["failed_at"] = result["completed_at"]
-                            break
+                    qdata["items"] = [qi for qi in qdata.get("items", [])
+                                      if qi.get("queue_id") != queue_id]
                     QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
                 except Exception as _qe:
-                    print(f"[runner] warn: could not update queue file for {queue_id}: {_qe}", flush=True)
-                completed_ids.add(queue_id)  # Prevent retry in this session
-                print(f"[runner] FAIL: {queue_id} — flagged in queue, continuing to next", flush=True)
+                    print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
+                          flush=True)
+                print(f"[runner] FAIL: {queue_id} — moved to completed, continuing to next",
+                      flush=True)
                 continue
 
             completed_entry = {
@@ -900,7 +936,7 @@ def main():
                     "title": i.get("title", ""),
                     "description": i.get("description", ""),
                     "estimated_minutes": round(estimate_minutes(i, calibration, script_timing), 1),
-                    "status": "pending",
+                    "status": i.get("status", "pending"),
                     "status_reason": i.get("status_reason", ""),
                     "ree_version": "v3",
                 })
