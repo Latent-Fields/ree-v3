@@ -475,7 +475,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     print(f"[runner] Command: {' '.join(str(a) for a in args)}", flush=True)
 
     last_write = time.monotonic()
-    last_bar_print = 0.0
+    last_bar_pct = 0
     update_status_current()
 
     def print_progress_bar():
@@ -536,12 +536,12 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             if m:
                 episodes_in_run = int(m.group(1))
 
-            # Progress bar — throttled to once per 60 s
+            # Progress bar — print every 20% of progress
             if episodes_in_run > 0:
-                now = time.monotonic()
-                if now - last_bar_print >= 60:
+                pct_milestone = (int(overall_pct()) // 20) * 20
+                if pct_milestone > last_bar_pct:
                     print_progress_bar()
-                    last_bar_print = now
+                    last_bar_pct = pct_milestone
 
             # Run completion: V3 verdict patterns
             for pat in RE_RUN_DONE_PATTERNS:
@@ -550,7 +550,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                     runs_done += 1
                     episodes_in_run = episodes_per_run
                     print_progress_bar()
-                    last_bar_print = time.monotonic()
+                    last_bar_pct = 100
                     break
 
             m = RE_STATUS_LINE.match(line)
