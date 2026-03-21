@@ -702,6 +702,11 @@ def main():
             if queue_id in completed_ids:
                 continue
 
+            # Skip experiments that previously failed (scientific FAIL — not retried automatically)
+            if item.get("status") == "failed":
+                completed_ids.add(queue_id)  # Ensure skipped for the rest of this session
+                continue
+
             # Skip experiments assigned to a different machine
             if not _affinity_matches(item, machine):
                 print(f"[runner] Skipping {queue_id} — affinity={item.get('machine_affinity')} "
@@ -763,6 +768,34 @@ def main():
                 status["current"] = None
                 write_status(status, status_path)
                 print(f"[runner] ERROR: {queue_id} — leaving in queue for retry", flush=True)
+                continue
+
+            if result["result"] == "FAIL":
+                # Scientific FAIL — flag in queue as "failed". Do NOT move to completed.
+                # The experiment is kept in the queue so it remains visible, but it will
+                # not be retried unless manually reset to "pending".
+                failure_reason = result.get("result_summary", "")
+                for qi in status["queue"]:
+                    if qi["queue_id"] == queue_id:
+                        qi["status"] = "failed"
+                        qi["failure_reason"] = failure_reason
+                        qi["failed_at"] = result["completed_at"]
+                status["current"] = None
+                write_status(status, status_path)
+                # Update queue file: mark as failed but keep the entry (don't remove it)
+                try:
+                    qdata = json.loads(QUEUE_FILE.read_text())
+                    for qi in qdata.get("items", []):
+                        if qi.get("queue_id") == queue_id:
+                            qi["status"] = "failed"
+                            qi["failure_reason"] = failure_reason
+                            qi["failed_at"] = result["completed_at"]
+                            break
+                    QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                except Exception as _qe:
+                    print(f"[runner] warn: could not update queue file for {queue_id}: {_qe}", flush=True)
+                completed_ids.add(queue_id)  # Prevent retry in this session
+                print(f"[runner] FAIL: {queue_id} — flagged in queue, continuing to next", flush=True)
                 continue
 
             completed_entry = {
