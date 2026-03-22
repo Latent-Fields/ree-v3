@@ -141,6 +141,25 @@
       }
     },
     {
+      "queue_id": "V3-EXQ-047e",
+      "backlog_id": "",
+      "claim_id": "SD-005",
+      "title": "SD-005 Latent Information Separation -- adversarial GRL fine-tuning probe",
+      "script": "experiments/v3_exq_047e_sd005_adversarial_separation.py",
+      "description": "EXQ-047d FAIL (x2, identical): design failure -- no separation training objective. Both z_self and z_world carried equal action info (dissociation=0.008). Fix: Phase 2 adversarial fine-tuning -- gradient-reversal probe on z_world forces action info out of z_world while z_self retains it via motor-sensory loss. Unified condition cannot separate (z_self=z_world). Same probe criteria as 047d: C1 action_self > action_world + 0.10, C2 contact_world > contact_self + 0.10, C3/C4 split > unified + 0.05.",
+      "estimated_minutes": 120,
+      "seeds": 1,
+      "conditions": 2,
+      "episodes_per_run": 530,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "args": "--seed 0 --warmup 300 --adv-eps 80 --eval-eps 150 --steps 200 --alpha-world 0.9 --adv-lambda 0.1 --adv-weight 0.5",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-22T17:04:40.017324+00:00"
+      }
+    },
+    {
       "queue_id": "V3-EXQ-046c",
       "backlog_id": "",
       "claim_id": "ARC-007",
