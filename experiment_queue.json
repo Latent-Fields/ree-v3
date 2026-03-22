@@ -19,12 +19,9 @@
       "conditions": 4,
       "episodes_per_run": 900,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
+      "status": "pending",
       "args": "--seeds 0 1 --warmup 400 --eval-eps 50 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-22T17:16:05.478386+00:00"
-      }
+      "claimed_by": null
     }
   ]
 }
