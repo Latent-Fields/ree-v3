@@ -127,3 +127,19 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
 ## Experiment IDs
 V3 experiments: V3-EXQ-001 onward
 First priority: V3-EXQ-001 → V3-EXQ-002 → V3-EXQ-003 + V3-EXQ-004 (parallel)
+
+## Troubleshooting Runner
+
+**Runner log location**: `REE_assembly/runner.log` (NOT `ree-v3/runner.log`).
+serve.py redirects runner stdout/stderr there. `ree-v3/runner.log` is only written when
+the runner is started manually from the command line with `nohup ... > runner.log`.
+
+**Runner says "No new items" despite pending items in queue**:
+The runner skips any queue item whose `queue_id` already appears in `runner_status.json`
+completed list. If an experiment was previously run (PASS/FAIL/ERROR) and then re-queued
+with the same ID, the runner will silently skip it. Fix: rename the queue ID (e.g., append
+`b`, `c`, etc.) before re-queueing.
+
+**git pull fails with `fatal: bad object refs/remotes/origin/main 2`**:
+Run `git remote prune origin` in ree-v3. This cleans up a spurious remote tracking ref.
+Verify with `git fetch` (should return silently).

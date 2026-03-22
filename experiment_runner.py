@@ -39,6 +39,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+# Ensure UTF-8 output on Windows (default cp1252 breaks → and other Unicode in experiment scripts)
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 REPO_ROOT = Path(__file__).resolve().parent
 QUEUE_FILE = REPO_ROOT / "experiment_queue.json"
 PID_FILE = REPO_ROOT / "runner.pid"
@@ -93,6 +96,35 @@ def git_pull(repo_path: Path, label: str) -> None:
             print(f"[runner] git pull {label} warn: {r.stderr.strip()}", flush=True)
     except Exception as e:
         print(f"[runner] git pull {label} error: {e}", flush=True)
+
+
+def git_push_queue() -> None:
+    """Stage, commit, and push experiment_queue.json to ree-v3. Warns on failure."""
+    try:
+        subprocess.run(
+            ["git", "add", "experiment_queue.json"],
+            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=10,
+        )
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=str(REPO_ROOT), timeout=5,
+        )
+        if diff.returncode == 0:
+            return  # nothing changed
+        subprocess.run(
+            ["git", "commit", "-m", f"queue: remove completed/failed items {now_utc()[:10]}"],
+            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=15,
+        )
+        r = subprocess.run(
+            ["git", "push", "origin", "HEAD:main"],
+            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            print("[runner] auto-sync: pushed queue update → ree-v3", flush=True)
+        else:
+            print(f"[runner] auto-sync queue push warn: {r.stderr.strip()}", flush=True)
+    except Exception as e:
+        print(f"[runner] auto-sync queue push error: {e}", flush=True)
 
 
 def git_push_results(ree_assembly_path: Path) -> None:
@@ -466,11 +498,28 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                 qi["status"] = "running"
         write_status(status, status_path)
 
-    print(f"[runner] Starting: {item['title']} ({item['queue_id']})", flush=True)
+    est = item.get('estimated_minutes')
+    est_str = f" — est. {est} min" if est else ""
+    print(f"[runner] Starting: {item['title']} ({item['queue_id']}){est_str}", flush=True)
     print(f"[runner] Command: {' '.join(str(a) for a in args)}", flush=True)
 
     last_write = time.monotonic()
+    last_bar_pct = 0
     update_status_current()
+
+    def print_progress_bar():
+        pct = overall_pct()
+        remaining = seconds_remaining()
+        width = 30
+        filled = int(width * pct / 100)
+        bar = '█' * filled + '░' * (width - filled)
+        if remaining > 90:
+            time_str = f"~{int(remaining / 60)} min remaining"
+        elif remaining > 0:
+            time_str = f"~{int(remaining)} sec remaining"
+        else:
+            time_str = "finishing…"
+        print(f"[runner] {bar} {pct:.0f}% | {time_str}", flush=True)
 
     result_info = {
         "result": "UNKNOWN",
@@ -516,12 +565,21 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             if m:
                 episodes_in_run = int(m.group(1))
 
+            # Progress bar — print every 20% of progress
+            if episodes_in_run > 0:
+                pct_milestone = (int(overall_pct()) // 20) * 20
+                if pct_milestone > last_bar_pct:
+                    print_progress_bar()
+                    last_bar_pct = pct_milestone
+
             # Run completion: V3 verdict patterns
             for pat in RE_RUN_DONE_PATTERNS:
                 if pat.search(line):
                     run_end_times.append(time.monotonic() - started_at)
                     runs_done += 1
                     episodes_in_run = episodes_per_run
+                    print_progress_bar()
+                    last_bar_pct = 100
                     break
 
             m = RE_STATUS_LINE.match(line)
@@ -723,6 +781,7 @@ def main():
                         "started_at": "",
                         "completed_at": item.get("failed_at", ""),
                         "output_file": "",
+                        "completed_by": machine,
                     }
                     status["completed"].append(completed_entry)
                     status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] != queue_id]
@@ -732,6 +791,8 @@ def main():
                         qdata["items"] = [qi for qi in qdata.get("items", [])
                                           if qi.get("queue_id") != queue_id]
                         QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                        if args.auto_sync:
+                            git_push_queue()
                     except Exception as _qe:
                         print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
                               flush=True)
@@ -816,6 +877,8 @@ def main():
                     "started_at": result.get("started_at", ""),
                     "completed_at": result["completed_at"],
                     "output_file": result.get("output_file", ""),
+                    "completed_by": machine,
+                    "actual_secs": result.get("actual_secs", 0),
                 }
                 status["completed"].append(completed_entry)
                 completed_ids.add(queue_id)
@@ -827,6 +890,8 @@ def main():
                     qdata["items"] = [qi for qi in qdata.get("items", [])
                                       if qi.get("queue_id") != queue_id]
                     QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                    if args.auto_sync:
+                        git_push_queue()
                 except Exception as _qe:
                     print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
                           flush=True)
@@ -849,6 +914,8 @@ def main():
                     "started_at": result.get("started_at", ""),
                     "completed_at": result["completed_at"],
                     "output_file": result.get("output_file", ""),
+                    "completed_by": machine,
+                    "actual_secs": result.get("actual_secs", 0),
                 }
                 status["completed"].append(completed_entry)
                 completed_ids.add(queue_id)
@@ -860,6 +927,8 @@ def main():
                     qdata["items"] = [qi for qi in qdata.get("items", [])
                                       if qi.get("queue_id") != queue_id]
                     QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                    if args.auto_sync:
+                        git_push_queue()
                 except Exception as _qe:
                     print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
                           flush=True)
@@ -878,6 +947,8 @@ def main():
                 "started_at": result.get("started_at", ""),
                 "completed_at": result["completed_at"],
                 "output_file": result.get("output_file", ""),
+                "completed_by": machine,
+                "actual_secs": result.get("actual_secs", 0),
             }
             status["completed"].append(completed_entry)
             completed_ids.add(queue_id)
@@ -895,6 +966,8 @@ def main():
                 qdata["items"] = [qi for qi in qdata.get("items", [])
                                    if qi.get("queue_id") != queue_id]
                 QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                if args.auto_sync:
+                    git_push_queue()
             except Exception as _qe:
                 print(f"[runner] warn: could not update queue file for {queue_id}: {_qe}", flush=True)
 
