@@ -19,3 +19,4 @@ runs/
 *.swo
 runner.pid
 runner *.pid
+script_timing.json
