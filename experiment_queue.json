@@ -75,25 +75,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-071",
-      "backlog_id": "",
-      "claim_id": "SD-003",
-      "title": "SD-003 Rollout-Batched Attribution -- batched world_forward preserves selectivity (3 distractor levels)",
-      "script": "experiments/v3_exq_071_rollout_batched_attribution.py",
-      "description": "Validates that batch-vectorized counterfactual rollouts (world_forward([n_cf,d]) in one call) give equivalent attribution to EXQ-030b sequential rollouts. Trains 150 eps (Fix 2: E3 on observed + E2-predicted states). Eval: paired sequential vs batched attribution at each step, rank_corr computed. Sweeps 3 distractor levels (n_hazards=2,4,6). PASS: C1 batch attribution_gap>0, C2 rank_corr>0.90 all levels, C3 batch sig_approach>0.005, C4 wf_r2>0.05, C5 n_approach>=20/level. Depends on EXQ-070 (GPU crossover confirmed before routing).",
-      "estimated_minutes": 145,
-      "seeds": 1,
-      "conditions": 3,
-      "episodes_per_run": 240,
-      "machine_affinity": "Daniel-PC",
-      "status": "claimed",
-      "args": "--seed 0 --warmup 150 --eval-eps 30 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-03-22T23:45:33.075064+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-069",
       "backlog_id": "EXP-0001",
       "claim_id": "MECH-098",
