@@ -8,39 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-020d",
-      "backlog_id": "",
-      "claim_id": "MECH-100",
-      "title": "Event-Auxiliary Contrastive Loss \u2014 Strong \u03bb=2.0 (hazard_harm=0.02, alpha=0.9)",
-      "description": "FIXED: hazard_harm=0.02, alpha_world=0.9, warmup=1000. EXQ-020 variant with \u03bb_event=2.0 (4\u00d7 stronger contrastive signal). If EXQ-020 achieves classification accuracy but not calibration_gap, tests whether stronger CE loss helps. Risk: forgetting of E1/E2 reconstruction.",
-      "script": "experiments/v3_exq_020_event_contrastive.py",
-      "args": [
-        "--seed",
-        "0",
-        "--warmup",
-        "1000",
-        "--probe-resets",
-        "10",
-        "--steps",
-        "200",
-        "--lambda-event",
-        "2.0",
-        "--harm-scale",
-        "0.02",
-        "--alpha-world",
-        "0.9"
-      ],
-      "seeds": 1,
-      "conditions": 1,
-      "episodes_per_run": 1100,
-      "status": "claimed",
-      "estimated_minutes": 90.0,
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-22T02:14:42.961345+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-062",
       "backlog_id": "",
       "claim_id": "MECH-104",
