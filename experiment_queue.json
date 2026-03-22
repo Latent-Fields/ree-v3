@@ -86,8 +86,12 @@
       "conditions": 9,
       "episodes_per_run": 60,
       "machine_affinity": "Daniel-PC",
-      "status": "pending",
-      "args": "--seed 42"
+      "status": "claimed",
+      "args": "--seed 42",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-03-22T23:45:06.763571+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-071",
