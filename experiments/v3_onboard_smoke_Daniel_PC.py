@@ -113,8 +113,8 @@ def _run_training_block(
                 else torch.zeros(1, world_dim, device=agent.device)
             )
             candidates = agent.generate_trajectories(latent, e1_prior, ticks)
-            action_idx, action_vec = agent.select_action(candidates, latent)
-            _, obs_dict, _, done, _ = env.step(action_idx)
+            action_idx, action_vec = agent.select_action(candidates, ticks)
+            _, _, done, _, obs_dict = env.step(action_idx)
 
             z_self_prev = latent.z_self.detach()
             action_prev = action_vec.detach()
@@ -158,7 +158,7 @@ def run(seed: int = 42) -> dict:
         _, obs_dict = env.reset()
         for _ in range(STEPS_PER_EP):
             action_idx = random.randint(0, action_dim - 1)
-            _, obs_dict, _, done, _ = env.step(action_idx)
+            _, _, done, _, obs_dict = env.step(action_idx)
             total_env_steps += 1
             if done:
                 break
