@@ -29,6 +29,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import signal
 import socket
 import subprocess
@@ -475,7 +476,10 @@ def build_initial_status(queue_data: dict, script_timing: dict | None = None) ->
 
 def run_experiment(item: dict, status: dict, status_path: Path, calibration: dict, script_timing: dict | None = None) -> dict:
     script = REPO_ROOT / item["script"]
-    args = [sys.executable, "-u", str(script)] + item.get("args", [])
+    raw_args = item.get("args", [])
+    if isinstance(raw_args, str):
+        raw_args = shlex.split(raw_args)
+    args = [sys.executable, "-u", str(script)] + raw_args
 
     seeds = item.get("seeds", 1)
     conditions = item.get("conditions", 1)
