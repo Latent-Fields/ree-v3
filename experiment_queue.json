@@ -14,12 +14,16 @@
       "args": [],
       "estimated_minutes": 10,
       "machine_affinity": "Daniel-PC",
-      "status": "pending",
+      "status": "claimed",
       "tags": [
         "onboarding",
         "smoke-test"
       ],
-      "notes": "Three-block pipeline benchmark: env-only (pure CPU/Python), CPU training loop, GPU training loop. Reports env_steps_per_second, steps_per_second_cpu, steps_per_second_gpu for smart_assign() routing. Not a scientific experiment."
+      "notes": "Three-block pipeline benchmark: env-only (pure CPU/Python), CPU training loop, GPU training loop. Reports env_steps_per_second, steps_per_second_cpu, steps_per_second_gpu for smart_assign() routing. Not a scientific experiment.",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-03-22T09:04:08.191991+00:00"
+      }
     }
   ]
 }
