@@ -98,6 +98,34 @@ def git_pull(repo_path: Path, label: str) -> None:
         print(f"[runner] git pull {label} error: {e}", flush=True)
 
 
+def _git_push_with_retry(cwd: str, branch: str, label: str, max_retries: int = 3) -> bool:
+    """Push to origin, retrying with pull --rebase on rejection. Returns True on success."""
+    for attempt in range(max_retries):
+        r = subprocess.run(
+            ["git", "push", "origin", f"HEAD:{branch}"],
+            cwd=cwd, capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            print(f"[runner] auto-sync: pushed {label}", flush=True)
+            return True
+        if "fetch first" in r.stderr or "non-fast-forward" in r.stderr:
+            # Remote has new commits -- pull rebase and retry
+            pull = subprocess.run(
+                ["git", "pull", "--rebase", "origin", branch],
+                cwd=cwd, capture_output=True, text=True, timeout=30,
+            )
+            if pull.returncode != 0:
+                print(f"[runner] auto-sync pull-rebase failed ({label}): {pull.stderr.strip()}", flush=True)
+                return False
+            print(f"[runner] auto-sync: pull-rebase {label} (retry {attempt+1})", flush=True)
+            continue
+        # Some other push error
+        print(f"[runner] auto-sync push warn ({label}): {r.stderr.strip()}", flush=True)
+        return False
+    print(f"[runner] auto-sync: push failed after {max_retries} retries ({label})", flush=True)
+    return False
+
+
 def git_push_queue() -> None:
     """Stage, commit, and push experiment_queue.json to ree-v3. Warns on failure."""
     try:
@@ -115,14 +143,7 @@ def git_push_queue() -> None:
             ["git", "commit", "-m", f"queue: remove completed/failed items {now_utc()[:10]}"],
             cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=15,
         )
-        r = subprocess.run(
-            ["git", "push", "origin", "HEAD:main"],
-            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=30,
-        )
-        if r.returncode == 0:
-            print("[runner] auto-sync: pushed queue update -> ree-v3", flush=True)
-        else:
-            print(f"[runner] auto-sync queue push warn: {r.stderr.strip()}", flush=True)
+        _git_push_with_retry(str(REPO_ROOT), "main", "queue update -> ree-v3")
     except Exception as e:
         print(f"[runner] auto-sync queue push error: {e}", flush=True)
 
@@ -147,14 +168,7 @@ def git_push_results(ree_assembly_path: Path) -> None:
             ["git", "commit", "-m", msg],
             cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
         )
-        r = subprocess.run(
-            ["git", "push", "origin", "HEAD:master"],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=30,
-        )
-        if r.returncode == 0:
-            print("[runner] auto-sync: pushed results -> REE_assembly", flush=True)
-        else:
-            print(f"[runner] auto-sync push warn: {r.stderr.strip()}", flush=True)
+        _git_push_with_retry(str(ree_assembly_path), "master", "results -> REE_assembly")
     except Exception as e:
         print(f"[runner] auto-sync push error: {e}", flush=True)
 
