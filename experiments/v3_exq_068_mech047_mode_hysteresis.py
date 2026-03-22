@@ -1,6 +1,6 @@
 #!/opt/local/bin/python3
 """
-V3-EXQ-064 -- MECH-047: Mode Manager Hysteresis
+V3-EXQ-068 -- MECH-047: Mode Manager Hysteresis
 
 Claims: MECH-047
 
@@ -161,6 +161,7 @@ def _run_episodes(
         for _ in range(steps_per_episode):
             obs_body = obs_dict["body_state"]
             obs_world = obs_dict["world_state"]
+            z_world_curr: Optional[torch.Tensor] = None
 
             try:
                 if training:
@@ -273,7 +274,7 @@ def _run_episodes(
                         torch.nn.utils.clip_grad_norm_(agent.e3.harm_eval_head.parameters(), 0.5)
                         opt_harm.step()
 
-            z_world_prev = z_world_curr if 'z_world_curr' in dir() else None
+            z_world_prev = z_world_curr
             try:
                 z_self_prev = latent.z_self.detach()
                 action_prev = action.detach()
@@ -335,7 +336,7 @@ def run(
     world_dim = 32
 
     print(
-        f"[V3-EXQ-064] MECH-047: Mode Manager Hysteresis\n"
+        f"[V3-EXQ-068] MECH-047: Mode Manager Hysteresis\n"
         f"  Phase A: {phase_a_episodes} high-hazard eps (force commitment)\n"
         f"  Phase B: {phase_b_episodes} low-hazard eps (measure decay)\n"
         f"  Control: {control_episodes} low-hazard eps (no prior commitment)\n"
@@ -345,7 +346,7 @@ def run(
 
     # -- Agent H: Phase A (high hazard, establish commitment) -----------------
     print(f"\n{'='*60}", flush=True)
-    print(f"[V3-EXQ-064] Agent H -- Phase A: high-hazard training ({phase_a_episodes} eps)", flush=True)
+    print(f"[V3-EXQ-068] Agent H -- Phase A: high-hazard training ({phase_a_episodes} eps)", flush=True)
     print('='*60, flush=True)
 
     env_high = CausalGridWorldV2(seed=seed, **ENV_HIGH_HAZARD)
@@ -365,7 +366,7 @@ def run(
 
     # -- Agent H: Phase B (low hazard, measure hysteresis) --------------------
     print(f"\n{'='*60}", flush=True)
-    print(f"[V3-EXQ-064] Agent H -- Phase B: low-hazard transition ({phase_b_episodes} eps)", flush=True)
+    print(f"[V3-EXQ-068] Agent H -- Phase B: low-hazard transition ({phase_b_episodes} eps)", flush=True)
     print('='*60, flush=True)
 
     env_low_h = CausalGridWorldV2(seed=seed + 500, **ENV_LOW_HAZARD)
@@ -396,7 +397,7 @@ def run(
 
     # -- Agent C: control (low hazard only, no commitment history) ------------
     print(f"\n{'='*60}", flush=True)
-    print(f"[V3-EXQ-064] Agent C -- control: low-hazard only ({control_episodes} eps)", flush=True)
+    print(f"[V3-EXQ-068] Agent C -- control: low-hazard only ({control_episodes} eps)", flush=True)
     print('='*60, flush=True)
 
     env_low_c = CausalGridWorldV2(seed=seed + 2000, **ENV_LOW_HAZARD)
@@ -463,7 +464,7 @@ def run(
         total_fatal = eval_h_out["fatal_errors"] + eval_c_out["fatal_errors"]
         failure_notes.append(f"C4 FAIL: fatal_errors={total_fatal}")
 
-    print(f"\nV3-EXQ-064 verdict: {status}  ({criteria_met}/4)", flush=True)
+    print(f"\nV3-EXQ-068 verdict: {status}  ({criteria_met}/4)", flush=True)
     for note in failure_notes:
         print(f"  {note}", flush=True)
 
@@ -489,7 +490,7 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-064 -- MECH-047: Mode Manager Hysteresis
+    summary_markdown = f"""# V3-EXQ-068 -- MECH-047: Mode Manager Hysteresis
 
 **Status:** {status}
 **Claim:** MECH-047 -- commitment mode persists after incentive removal (mode hysteresis)

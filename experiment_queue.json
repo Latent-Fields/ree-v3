@@ -65,7 +65,7 @@
       "episodes_per_run": 600,
       "machine_affinity": "macbook",
       "status": "pending",
-      "args": "--seeds 0 1 --warmup 500 --eval-eps 100 --steps 200 --alpha-world 0.9"
+      "args": "--seed 0 --train-eps 500 --eval-eps 100 --steps 200 --alpha-world 0.9"
     },
     {
       "queue_id": "V3-EXQ-068",
@@ -95,7 +95,7 @@
       "episodes_per_run": 600,
       "machine_affinity": "macbook",
       "status": "pending",
-      "args": "--seed 0 --warmup 500 --eval-eps 100 --steps 200 --alpha-world 0.9"
+      "args": "--seed 0 --train-eps 500 --eval-eps 100 --steps 200 --alpha-world 0.9"
     },
     {
       "queue_id": "V3-EXQ-066",
@@ -104,13 +104,13 @@
       "title": "MECH-089 Theta Batching -- E3 noise reduced when sampling batched E1 updates",
       "script": "experiments/v3_exq_066_mech089_theta_batching.py",
       "description": "Two conditions matched seeds: Condition A theta_buffer_size=4 (batched, E3 samples every 4 E1 steps) vs Condition B theta_buffer_size=1 (raw, every step). Measures e3_prediction_error variance. PASS: C1 e3_error_batched < e3_error_raw*0.90, C2 e1_per_e3_batched>=3, C3 harm_pred_std_batched>0.01, C4 harm_pred_std_raw>0.01, C5 no fatal errors.",
-      "estimated_minutes": 100,
-      "seeds": 2,
+      "estimated_minutes": 65,
+      "seeds": 1,
       "conditions": 2,
-      "episodes_per_run": 500,
+      "episodes_per_run": 300,
       "machine_affinity": "macbook",
       "status": "pending",
-      "args": "--seeds 0 1 --warmup 400 --eval-eps 50 --steps 200 --alpha-world 0.9"
+      "args": "--seed 0 --episodes 300 --steps 200 --alpha-world 0.9"
     },
     {
       "queue_id": "V3-EXQ-046c",

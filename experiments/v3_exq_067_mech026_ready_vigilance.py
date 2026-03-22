@@ -1,6 +1,6 @@
 #!/opt/local/bin/python3
 """
-V3-EXQ-063 -- MECH-026: Ready Vigilance Mode
+V3-EXQ-067 -- MECH-026: Ready Vigilance Mode
 
 Claims: MECH-026
 
@@ -355,7 +355,7 @@ def run(
     world_dim = 32
 
     print(
-        f"[V3-EXQ-063] MECH-026: Ready Vigilance Mode\n"
+        f"[V3-EXQ-067] MECH-026: Ready Vigilance Mode\n"
         f"  train={train_episodes}  eval={eval_episodes}"
         f"  alpha_world={alpha_world}  seed={seed}\n"
         f"  Condition A: {num_hazards_threat} hazards (threat present)\n"
@@ -365,7 +365,7 @@ def run(
 
     # -- Condition A: threat present (hazards) --------------------------------
     print(f"\n{'='*60}", flush=True)
-    print(f"[V3-EXQ-063] Condition A -- threat present ({num_hazards_threat} hazards)", flush=True)
+    print(f"[V3-EXQ-067] Condition A -- threat present ({num_hazards_threat} hazards)", flush=True)
     print('='*60, flush=True)
 
     env_threat = _make_env(seed, num_hazards=num_hazards_threat)
@@ -377,7 +377,7 @@ def run(
 
     # -- Condition B: neutral (no hazards) ------------------------------------
     print(f"\n{'='*60}", flush=True)
-    print(f"[V3-EXQ-063] Condition B -- neutral baseline (0 hazards)", flush=True)
+    print(f"[V3-EXQ-067] Condition B -- neutral baseline (0 hazards)", flush=True)
     print('='*60, flush=True)
 
     env_neutral = _make_env(seed + 1000, num_hazards=0)
@@ -433,7 +433,7 @@ def run(
     if not c5_pass:
         failure_notes.append(f"C5 FAIL: fatal_errors={total_fatal}")
 
-    print(f"\nV3-EXQ-063 verdict: {status}  ({criteria_met}/5)", flush=True)
+    print(f"\nV3-EXQ-067 verdict: {status}  ({criteria_met}/5)", flush=True)
     for note in failure_notes:
         print(f"  {note}", flush=True)
 
@@ -463,7 +463,7 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-063 -- MECH-026: Ready Vigilance Mode
+    summary_markdown = f"""# V3-EXQ-067 -- MECH-026: Ready Vigilance Mode
 
 **Status:** {status}
 **Claim:** MECH-026 -- ready vigilance is a distinct mode from both neutral baseline and doing mode

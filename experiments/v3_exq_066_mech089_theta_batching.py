@@ -1,3 +1,4 @@
+#!/opt/local/bin/python3
 """
 V3-EXQ-066 -- MECH-089: Theta-Batching Reduces E3 Prediction Error
 
@@ -142,7 +143,7 @@ def _run_condition(
     """
     torch.manual_seed(seed)
     random.seed(seed)
-    env.seed(seed)  # type: ignore[attr-defined]
+    # env is created fresh for each condition with the same seed -- no .seed() method on CausalGridWorldV2
 
     config = _build_config(env, theta_buffer_size, e3_steps_per_tick, alpha_world, self_dim, world_dim)
     agent = REEAgent(config)
@@ -215,9 +216,12 @@ def _run_condition(
                 current_window_z.clear()
 
                 try:
-                    result = agent.e3.select(candidates, temperature=1.0)
-                    action = result.selected_action.detach()
-                    agent._last_action = action
+                    action = agent.select_action(candidates, ticks, temperature=1.0)
+                    if action is None:
+                        action = _action_to_onehot(
+                            random.randint(0, env.action_dim - 1), env.action_dim, agent.device
+                        )
+                        agent._last_action = action
                 except Exception:
                     fatal += 1
                     action = _action_to_onehot(
@@ -362,7 +366,9 @@ def run(
         flush=True,
     )
 
-    env = CausalGridWorldV2(
+    # Create env params dict; instantiate separately for each condition so both
+    # conditions start with an identical RNG state (matched design).
+    _env_kwargs = dict(
         seed=seed, size=12, num_hazards=4, num_resources=5,
         hazard_harm=harm_scale,
         env_drift_interval=5, env_drift_prob=0.1,
@@ -374,7 +380,7 @@ def run(
 
     print(f"[V3-EXQ-066] Running condition A (batched: theta_buffer_size={THETA_K}, e3_steps={THETA_K})...", flush=True)
     batched_out = _run_condition(
-        env=env,
+        env=CausalGridWorldV2(**_env_kwargs),
         seed=seed,
         theta_buffer_size=THETA_K,
         e3_steps_per_tick=THETA_K,
@@ -389,7 +395,7 @@ def run(
 
     print(f"[V3-EXQ-066] Running condition B (raw: theta_buffer_size=1, e3_steps=1)...", flush=True)
     raw_out = _run_condition(
-        env=env,
+        env=CausalGridWorldV2(**_env_kwargs),
         seed=seed,
         theta_buffer_size=1,
         e3_steps_per_tick=1,
