@@ -1,3 +1,4 @@
+#!/opt/local/bin/python3
 """
 V3-EXQ-063 -- ARC-029: Committed vs Ablated Operating Mode Harm Outcomes
 
@@ -40,7 +41,7 @@ Design -- 2x2 gate x environment:
   Outcome metric: mean_harm_signal_per_step (more positive = better; harm is negative)
 
 PASS criteria (ALL must hold):
-  C1: harm_gap_stable < 0
+  C1: harm_gap_stable > 0
       (committed outperforms ablated in stable: committed_harm_stable > ablated_harm_stable)
   C2: harm_gap_volatile > harm_gap_stable
       (advantage narrows or reverses in volatile env)
@@ -328,7 +329,8 @@ def _eval_condition(
 
             except Exception:
                 fatal += 1
-                flat_obs, _, done, info, obs_dict = env.reset()
+                flat_obs, obs_dict = env.reset()
+                done = True
 
             if done:
                 break

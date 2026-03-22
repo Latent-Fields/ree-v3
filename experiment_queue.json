@@ -126,6 +126,21 @@
       "machine_affinity": "macbook",
       "status": "pending",
       "args": "--seed 0 --warmup 600 --eval-eps 50 --eval-restore 30 --steps 200 --alpha-world 0.9 --harm-scale 0.02"
+    },
+    {
+      "queue_id": "V3-EXQ-069",
+      "backlog_id": "EXP-0001",
+      "claim_id": "MECH-098",
+      "title": "MECH-098 Reafference Event Selectivity Pair -- ON vs OFF discriminative pair",
+      "script": "experiments/v3_exq_069_reafference_selectivity_pair.py",
+      "description": "Discriminative pair: REAFFERENCE_ON (SD-007 enabled) vs REAFFERENCE_OFF (disabled), both alpha_world=0.9, seeds 42 and 7. Primary discriminator (pre-registered): event_selectivity_delta = margin(ON) - margin(OFF) where margin = mean(||delta_z_world|| on event steps) - mean(||delta_z_world|| on loco steps). PASS: C1 delta>=0.01 (MECH-098 core claim), C2 reafference_r2>0.20, C3 margin_OFF>0, C4 min event steps>=10. Decision: retain_ree/hybridize/retire_ree_claim. Addresses EXP-0001/EVB-0001 active_conflict deadline 2026-03-25.",
+      "estimated_minutes": 145,
+      "seeds": 2,
+      "conditions": 2,
+      "episodes_per_run": 430,
+      "machine_affinity": "macbook",
+      "status": "pending",
+      "args": "--seeds 42 7 --warmup 400 --eval-eps 30 --steps 200 --alpha-world 0.9"
     }
   ]
 }

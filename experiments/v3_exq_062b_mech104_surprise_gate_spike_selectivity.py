@@ -1,3 +1,4 @@
+#!/opt/local/bin/python3
 """
 V3-EXQ-062b -- MECH-104: Surprise-Gated Volatility Interrupt (Spike Selectivity C4 Fix)
 
@@ -352,7 +353,8 @@ def _eval_interrupt_policy(
 
             except Exception:
                 fatal += 1
-                flat_obs, actual_harm, done, info, obs_dict = env.reset()
+                flat_obs, obs_dict = env.reset()
+                done = True
 
             if done:
                 break

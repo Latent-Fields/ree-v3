@@ -1,5 +1,6 @@
+#!/opt/local/bin/python3
 """
-V3-EXQ-046 — ARC-007 Path Memory Ablation (Proper)
+V3-EXQ-046 -- ARC-007 Path Memory Ablation (Proper)
 
 Claims: ARC-007, SD-004
 
@@ -493,7 +494,7 @@ def run(
     world_forward_r2     = _compute_world_forward_r2(agent, train_out["wf_buf"])
 
     print(
-        f"  terrain_loss: {terrain_loss_initial:.4f} → {terrain_loss_final:.4f}"
+        f"  terrain_loss: {terrain_loss_initial:.4f} -> {terrain_loss_final:.4f}"
         f"  world_forward_r2={world_forward_r2:.4f}",
         flush=True,
     )

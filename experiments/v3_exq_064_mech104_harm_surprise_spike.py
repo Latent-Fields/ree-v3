@@ -1,3 +1,4 @@
+#!/opt/local/bin/python3
 """
 V3-EXQ-064 -- MECH-104: Harm-Surprise Spike (Route-2 Validation)
 
@@ -338,7 +339,8 @@ def _eval_surprise_gate(
 
             except Exception:
                 fatal += 1
-                flat_obs, _, done, info, obs_dict = env.reset()
+                flat_obs, obs_dict = env.reset()
+                done = True
 
             if done:
                 break
