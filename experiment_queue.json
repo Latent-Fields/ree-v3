@@ -37,24 +37,6 @@
         "claimed_at": "2026-03-22T11:13:36.614491+00:00"
       },
       "status": "claimed"
-    },
-    {
-      "queue_id": "V3-ONBOARD-smoke-Daniel-PC-i",
-      "title": "Contributor Onboarding -- Pipeline Smoke Test (Daniel-PC)",
-      "script": "experiments/v3_onboard_smoke_Daniel_PC.py",
-      "args": [],
-      "estimated_minutes": 10,
-      "machine_affinity": "Daniel-PC",
-      "status": "claimed",
-      "tags": [
-        "onboarding",
-        "smoke-test"
-      ],
-      "notes": "Fixed: agent.device must be updated after .to(gpu) since config defaults to cpu.",
-      "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-03-22T11:43:55.758679+00:00"
-      }
     }
   ]
 }
