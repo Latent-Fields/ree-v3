@@ -8,7 +8,7 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-046",
+      "queue_id": "V3-EXQ-046b",
       "backlog_id": "",
       "claim_id": "ARC-007",
       "title": "ARC-007 Path Memory Ablation (Proper) \u2014 residue field zeroing degrades hippocampal proposals",
@@ -33,11 +33,15 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 730,
-      "status": "pending",
-      "estimated_minutes": 90.0
+      "status": "claimed",
+      "estimated_minutes": 90.0,
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-22T00:39:36.539255+00:00"
+      }
     },
     {
-      "queue_id": "V3-EXQ-057",
+      "queue_id": "V3-EXQ-057b",
       "backlog_id": "",
       "claim_id": "SD-010",
       "title": "SD-010 Reafference Isolation \u2014 z_harm survives reafference correction (EXQ-027b retest)",
@@ -66,7 +70,7 @@
       "estimated_minutes": 60.0
     },
     {
-      "queue_id": "V3-EXQ-020",
+      "queue_id": "V3-EXQ-020c",
       "backlog_id": "",
       "claim_id": "MECH-100",
       "title": "MECH-100 Event-Auxiliary Contrastive Encoder Loss (hazard_harm=0.02, alpha=0.9)",
@@ -95,7 +99,7 @@
       "estimated_minutes": 90.0
     },
     {
-      "queue_id": "V3-EXQ-020-s1",
+      "queue_id": "V3-EXQ-020c-s1",
       "backlog_id": "",
       "claim_id": "MECH-100",
       "title": "Event-Auxiliary Contrastive Encoder Loss \u2014 Seed 1",
