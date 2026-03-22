@@ -113,7 +113,8 @@ def _run_training_block(
                 else torch.zeros(1, world_dim, device=agent.device)
             )
             candidates = agent.generate_trajectories(latent, e1_prior, ticks)
-            action_idx, action_vec = agent.select_action(candidates, ticks)
+            action_vec = agent.select_action(candidates, ticks)
+            action_idx = action_vec.argmax().item() if action_vec.dim() > 0 else action_vec.item()
             _, _, done, _, obs_dict = env.step(action_idx)
 
             z_self_prev = latent.z_self.detach()

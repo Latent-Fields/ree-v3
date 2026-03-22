@@ -6,5 +6,20 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-ONBOARD-smoke-Daniel-PC-e",
+      "title": "Contributor Onboarding -- Pipeline Smoke Test (Daniel-PC)",
+      "script": "experiments/v3_onboard_smoke_Daniel_PC.py",
+      "args": [],
+      "estimated_minutes": 10,
+      "machine_affinity": "Daniel-PC",
+      "status": "pending",
+      "tags": [
+        "onboarding",
+        "smoke-test"
+      ],
+      "notes": "Fixed: select_action returns single tensor not tuple."
+    }
+  ]
 }
