@@ -76,8 +76,12 @@
       "conditions": 2,
       "episodes_per_run": 600,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
-      "args": "--seed 0 --train-eps 500 --eval-eps 100 --steps 200 --alpha-world 0.9"
+      "status": "claimed",
+      "args": "--seed 0 --train-eps 500 --eval-eps 100 --steps 200 --alpha-world 0.9",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-22T17:03:29.815312+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-068",
