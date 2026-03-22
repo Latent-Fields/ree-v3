@@ -128,7 +128,7 @@
       "estimated_minutes": 90.0
     },
     {
-      "queue_id": "V3-EXQ-020b",
+      "queue_id": "V3-EXQ-020d",
       "backlog_id": "",
       "claim_id": "MECH-100",
       "title": "Event-Auxiliary Contrastive Loss \u2014 Strong \u03bb=2.0 (hazard_harm=0.02, alpha=0.9)",
