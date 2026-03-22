@@ -79,6 +79,7 @@ def _make_agent(env: CausalGridWorldV2, device: torch.device) -> REEAgent:
     )
     agent = REEAgent(config)
     agent.to(device)
+    agent.device = device  # config.device defaults to "cpu"; must update after .to()
     return agent
 
 
