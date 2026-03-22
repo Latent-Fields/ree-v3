@@ -38,25 +38,6 @@
       "episodes_per_run": 200,
       "machine_affinity": "any",
       "status": "pending"
-    },
-    {
-      "queue_id": "V3-ONBOARD-smoke-Daniel-PC-j",
-      "title": "Contributor Onboarding -- Pipeline Smoke Test (Daniel-PC)",
-      "script": "experiments/v3_onboard_smoke_Daniel_PC.py",
-      "args": [],
-      "estimated_minutes": 10,
-      "machine_affinity": "Daniel-PC",
-      "status": "claimed",
-      "tags": [
-        "onboarding",
-        "smoke-test",
-        "post-bios-fix"
-      ],
-      "notes": "Re-run after BIOS RAM speed correction. Compare with -i baseline.",
-      "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-03-22T12:25:15.125571+00:00"
-      }
     }
   ]
 }
