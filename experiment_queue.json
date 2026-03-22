@@ -8,39 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-020c-s1",
-      "backlog_id": "",
-      "claim_id": "MECH-100",
-      "title": "Event-Auxiliary Contrastive Encoder Loss \u2014 Seed 1",
-      "description": "Repeat of EXQ-020 with seed=1 for robustness.",
-      "script": "experiments/v3_exq_020_event_contrastive.py",
-      "args": [
-        "--seed",
-        "1",
-        "--warmup",
-        "1000",
-        "--probe-resets",
-        "10",
-        "--steps",
-        "200",
-        "--lambda-event",
-        "0.5",
-        "--harm-scale",
-        "0.02",
-        "--alpha-world",
-        "0.9"
-      ],
-      "seeds": 1,
-      "conditions": 1,
-      "episodes_per_run": 1100,
-      "status": "claimed",
-      "estimated_minutes": 90.0,
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-22T01:58:35.511915+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-020d",
       "backlog_id": "",
       "claim_id": "MECH-100",
