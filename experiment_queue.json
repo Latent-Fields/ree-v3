@@ -33,9 +33,12 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 730,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90.0,
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-22T01:28:30.426699+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-057b",
