@@ -49,10 +49,10 @@ PID_FILE = REPO_ROOT / "runner.pid"
 EVIDENCE_DIR = REPO_ROOT / "evidence" / "experiments"
 SCRIPT_TIMING_FILE = REPO_ROOT / "script_timing.json"
 
-# Auto-detect REE_assembly runner_status.json (shared with V2 explorer)
-_REE_ASSEMBLY_CANDIDATES = [
-    REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments" / "runner_status.json",
-    Path.home() / "Documents" / "GitHub" / "REE_Working" / "REE_assembly" / "evidence" / "experiments" / "runner_status.json",
+# Auto-detect REE_assembly runner_status directory (per-machine files)
+_REE_ASSEMBLY_STATUS_DIRS = [
+    REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments" / "runner_status",
+    Path.home() / "Documents" / "GitHub" / "REE_Working" / "REE_assembly" / "evidence" / "experiments" / "runner_status",
 ]
 
 STATUS_WRITE_INTERVAL = 5
@@ -388,11 +388,16 @@ def recover_stale_claims(queue_file: Path, machine: str) -> int:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-def find_default_status_path() -> Path:
-    for candidate in _REE_ASSEMBLY_CANDIDATES:
-        if candidate.parent.exists():
-            return candidate
-    return REPO_ROOT / "runner_status.json"
+def find_default_status_path(machine: str = "unknown") -> Path:
+    """Return per-machine status file path: runner_status/<machine>.json"""
+    for candidate_dir in _REE_ASSEMBLY_STATUS_DIRS:
+        if candidate_dir.parent.exists():
+            candidate_dir.mkdir(parents=True, exist_ok=True)
+            return candidate_dir / f"{machine}.json"
+    # Fallback: local file in repo
+    status_dir = REPO_ROOT / "runner_status"
+    status_dir.mkdir(parents=True, exist_ok=True)
+    return status_dir / f"{machine}.json"
 
 
 def now_utc() -> str:
@@ -708,7 +713,7 @@ def main():
     args = parser.parse_args()
 
     machine = _get_machine_name(args.machine)
-    status_path = args.status_file or find_default_status_path()
+    status_path = args.status_file or find_default_status_path(machine)
     ree_assembly_path = find_ree_assembly_path()
     print(f"[runner] Status file: {status_path}", flush=True)
     print(f"[runner] Queue file:  {QUEUE_FILE}", flush=True)
@@ -756,7 +761,7 @@ def main():
     items = queue_data.get("items", [])
     script_timing = load_script_timing()
 
-    # Preserve existing completed runs (V2 + previous V3 runs)
+    # Preserve existing completed runs from per-machine file
     existing_completed = []
     if status_path.exists():
         try:
@@ -764,6 +769,25 @@ def main():
             existing_completed = existing.get("completed", [])
         except Exception:
             pass
+
+    # Migration: seed from old monolithic runner_status.json if per-machine file is empty
+    if not existing_completed:
+        old_monolithic = status_path.parent.parent / "runner_status.json"
+        if old_monolithic.exists():
+            try:
+                old_data = json.loads(old_monolithic.read_text())
+                old_completed = old_data.get("completed", [])
+                # Take entries completed by this machine (or unattributed ones)
+                existing_completed = [
+                    c for c in old_completed
+                    if c.get("completed_by", machine) == machine
+                       or not c.get("completed_by")
+                ]
+                if existing_completed:
+                    print(f"[runner] Migrated {len(existing_completed)} completed entries "
+                          f"from old runner_status.json", flush=True)
+            except Exception:
+                pass
 
     status = build_initial_status(queue_data, script_timing)
     status["completed"] = existing_completed
