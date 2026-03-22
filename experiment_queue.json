@@ -16,7 +16,12 @@
       ],
       "description": "MECH-104: Surprise-Gated Volatility Interrupt (committed-only fix). Restricts both interrupt policies to committed steps only, breaking EXQ-062 positive feedback loop.",
       "estimated_minutes": 13,
-      "machine_affinity": "any"
+      "machine_affinity": "any",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-22T11:02:14.195906+00:00"
+      },
+      "status": "claimed"
     },
     {
       "queue_id": "V3-EXQ-047d",
