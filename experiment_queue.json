@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-063",
-      "backlog_id": "EXP-0085",
-      "claim_id": "ARC-029",
-      "title": "ARC-029 Committed vs Ablated Gate -- Harm Outcomes (2x2)",
-      "script": "experiments/v3_exq_063_arc029_committed_mode_harm_outcomes.py",
-      "description": "2x2: [gate_active / gate_ablated] x [stable (drift=0.0) / volatile (drift=0.4, interval=3)]. Train 2 agents (seeds 0,1) on standard env. Gate ablation: force running_variance > commit_threshold before each SELECT step. PASS: harm_gap_stable > 0 (committed better in stable), harm_gap_volatile < harm_gap_stable (advantage narrows in volatile), ablation complete (no committed steps when ablated).",
-      "estimated_minutes": 85,
-      "seeds": 2,
-      "conditions": 4,
-      "episodes_per_run": 900,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "args": "--seeds 0 1 --warmup 400 --eval-eps 50 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-22T17:42:44.594783+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-064",
       "backlog_id": "EXP-0086",
       "claim_id": "MECH-104",
