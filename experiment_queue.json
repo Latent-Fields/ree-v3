@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-067",
-      "backlog_id": "",
-      "claim_id": "MECH-026",
-      "title": "MECH-026 Ready Vigilance -- beta_gate elevation during uncommitted threat steps",
-      "script": "experiments/v3_exq_067_mech026_ready_vigilance.py",
-      "description": "Two-condition: threat-present (hazard_density=0.3) vs neutral (hazard_density=0.0), matched seeds. Measures readiness_gap = beta_gate elevation during uncommitted threat steps vs neutral uncommitted steps. PASS: C1 readiness_gap>0.005, C2 threat_commitment_rate < neutral*1.5, C3 uncommitted_threat_steps>=20, C4 harm_pred_std>0.01, C5 no fatal errors.",
-      "estimated_minutes": 120,
-      "seeds": 2,
-      "conditions": 2,
-      "episodes_per_run": 600,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "args": "--seed 0 --train-eps 500 --eval-eps 100 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-22T22:03:10.598980+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-068",
       "backlog_id": "",
       "claim_id": "MECH-047",
