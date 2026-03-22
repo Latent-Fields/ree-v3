@@ -75,25 +75,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-070",
-      "backlog_id": "",
-      "claim_id": "",
-      "title": "Daniel-PC Batch GPU Speedup Calibration -- crossover batch size for world_forward kernel",
-      "script": "experiments/v3_exq_070_batch_gpu_calibration.py",
-      "description": "Infrastructure diagnostic. Sweeps batch_size [1,4,8,16,32,64,128,256,512], measures world_forward + backprop throughput (samples/sec) on CPU and GPU. Identifies crossover batch size at which Daniel-PC RTX 2060 Super beats CPU. Onboarding smoke showed GPU 3x slower at batch=1. Result feeds smart_assign() routing and informs EXQ-071+ replay-heavy experiments. Writes preferred_batch_mode to Daniel-PC.json. PASS: all cells complete without exception, n_transitions >= 4000.",
-      "estimated_minutes": 35,
-      "seeds": 1,
-      "conditions": 9,
-      "episodes_per_run": 60,
-      "machine_affinity": "Daniel-PC",
-      "status": "claimed",
-      "args": "--seed 42",
-      "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-03-22T23:45:06.763571+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-071",
       "backlog_id": "",
       "claim_id": "SD-003",
