@@ -6,24 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-ONBOARD-smoke-Daniel-PC-b",
-      "title": "Contributor Onboarding -- Pipeline Smoke Test (Daniel-PC)",
-      "script": "experiments/v3_onboard_smoke_Daniel_PC.py",
-      "args": [],
-      "estimated_minutes": 10,
-      "machine_affinity": "Daniel-PC",
-      "status": "claimed",
-      "tags": [
-        "onboarding",
-        "smoke-test"
-      ],
-      "notes": "Three-block benchmark: env-only, CPU training, GPU training. Fixed: world_dim param, random actions, ASCII-only output.",
-      "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-03-22T09:21:18.524245+00:00"
-      }
-    }
-  ]
+  "items": []
 }
