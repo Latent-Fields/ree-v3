@@ -14,12 +14,16 @@
       "args": [],
       "estimated_minutes": 10,
       "machine_affinity": "Daniel-PC",
-      "status": "pending",
+      "status": "claimed",
       "tags": [
         "onboarding",
         "smoke-test"
       ],
-      "notes": "Three-block benchmark with all ASCII fixes applied."
+      "notes": "Three-block benchmark with all ASCII fixes applied.",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-03-22T10:25:34.109722+00:00"
+      }
     }
   ]
 }
