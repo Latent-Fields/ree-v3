@@ -99,7 +99,12 @@ def git_pull(repo_path: Path, label: str) -> None:
 
 
 def _git_push_with_retry(cwd: str, branch: str, label: str, max_retries: int = 3) -> bool:
-    """Push to origin, retrying with pull --rebase on rejection. Returns True on success."""
+    """Push to origin, retrying with pull --rebase on rejection. Returns True on success.
+
+    If pull --rebase fails (e.g. conflict on runner_status.json), aborts the rebase,
+    accepts the remote version of conflicting files, re-commits, and retries.
+    This prevents the repo from being left in a broken rebase state.
+    """
     for attempt in range(max_retries):
         r = subprocess.run(
             ["git", "push", "origin", f"HEAD:{branch}"],
@@ -108,20 +113,40 @@ def _git_push_with_retry(cwd: str, branch: str, label: str, max_retries: int = 3
         if r.returncode == 0:
             print(f"[runner] auto-sync: pushed {label}", flush=True)
             return True
-        if "fetch first" in r.stderr or "non-fast-forward" in r.stderr:
-            # Remote has new commits -- pull rebase and retry
-            pull = subprocess.run(
-                ["git", "pull", "--rebase", "origin", branch],
-                cwd=cwd, capture_output=True, text=True, timeout=30,
-            )
-            if pull.returncode != 0:
-                print(f"[runner] auto-sync pull-rebase failed ({label}): {pull.stderr.strip()}", flush=True)
-                return False
+        if "fetch first" not in r.stderr and "non-fast-forward" not in r.stderr:
+            # Some other push error
+            print(f"[runner] auto-sync push warn ({label}): {r.stderr.strip()}", flush=True)
+            return False
+
+        # Remote has new commits -- pull rebase and retry
+        pull = subprocess.run(
+            ["git", "pull", "--rebase", "origin", branch],
+            cwd=cwd, capture_output=True, text=True, timeout=30,
+        )
+        if pull.returncode == 0:
             print(f"[runner] auto-sync: pull-rebase {label} (retry {attempt+1})", flush=True)
             continue
-        # Some other push error
-        print(f"[runner] auto-sync push warn ({label}): {r.stderr.strip()}", flush=True)
-        return False
+
+        # Rebase failed (conflict) -- abort, accept remote, re-add our changes
+        print(f"[runner] auto-sync: rebase conflict ({label}), resolving...", flush=True)
+        subprocess.run(["git", "rebase", "--abort"], cwd=cwd, capture_output=True, timeout=10)
+        # Reset to remote state
+        subprocess.run(["git", "fetch", "origin"], cwd=cwd, capture_output=True, timeout=30)
+        subprocess.run(["git", "reset", "--hard", f"origin/{branch}"], cwd=cwd, capture_output=True, timeout=10)
+        # Re-stage all local evidence (our results are still on disk)
+        subprocess.run(["git", "add", "evidence/experiments/"], cwd=cwd, capture_output=True, timeout=10)
+        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cwd, timeout=5)
+        if diff.returncode != 0:
+            subprocess.run(
+                ["git", "commit", "-m", f"auto-sync: re-apply results after conflict {now_utc()[:10]}"],
+                cwd=cwd, capture_output=True, text=True, timeout=15,
+            )
+            print(f"[runner] auto-sync: re-applied local results ({label})", flush=True)
+            continue  # retry push
+        else:
+            print(f"[runner] auto-sync: no local changes after reset ({label})", flush=True)
+            return True  # remote already has everything
+
     print(f"[runner] auto-sync: push failed after {max_retries} retries ({label})", flush=True)
     return False
 
