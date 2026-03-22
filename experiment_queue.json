@@ -12,14 +12,14 @@
       "title": "Contributor Onboarding \u2014 Pipeline Smoke Test (Daniel-PC)",
       "script": "experiments/v3_onboard_smoke_Daniel_PC.py",
       "args": [],
-      "estimated_minutes": 5,
+      "estimated_minutes": 10,
       "machine_affinity": "Daniel-PC",
       "status": "pending",
       "tags": [
         "onboarding",
         "smoke-test"
       ],
-      "notes": "Pipeline round-trip verification for newly onboarded Daniel-PC. Records GPU name, CUDA status, steps/sec. Not a scientific experiment."
+      "notes": "Three-block pipeline benchmark: env-only (pure CPU/Python), CPU training loop, GPU training loop. Reports env_steps_per_second, steps_per_second_cpu, steps_per_second_gpu for smart_assign() routing. Not a scientific experiment."
     }
   ]
 }
