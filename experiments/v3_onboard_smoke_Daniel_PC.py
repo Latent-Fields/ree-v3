@@ -102,7 +102,9 @@ def _run_training_block(
         action_prev: Optional[torch.Tensor] = None
 
         for _ in range(STEPS_PER_EP):
-            latent = agent.sense(obs_dict["body_state"], obs_dict["world_state"])
+            obs_body  = obs_dict["body_state"].to(agent.device) if isinstance(obs_dict["body_state"], torch.Tensor) else obs_dict["body_state"]
+            obs_world = obs_dict["world_state"].to(agent.device) if isinstance(obs_dict["world_state"], torch.Tensor) else obs_dict["world_state"]
+            latent = agent.sense(obs_body, obs_world)
 
             if z_self_prev is not None and action_prev is not None:
                 agent.record_transition(z_self_prev, action_prev, latent.z_self.detach())
