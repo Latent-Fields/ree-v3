@@ -31,7 +31,12 @@
       ],
       "description": "SD-005: Latent Information Separation Probe (design fix). Round-robin action assignment + binary contact probe with balanced sampling + 500 probe steps. Fixes EXQ-047c flaws.",
       "estimated_minutes": 25,
-      "machine_affinity": "any"
+      "machine_affinity": "any",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-22T11:02:15.584679+00:00"
+      },
+      "status": "claimed"
     },
     {
       "queue_id": "V3-ONBOARD-smoke-Daniel-PC-f",
