@@ -33,12 +33,9 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 730,
-      "status": "claimed",
+      "status": "pending",
       "estimated_minutes": 90.0,
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-22T00:39:36.539255+00:00"
-      }
+      "claimed_by": null
     },
     {
       "queue_id": "V3-EXQ-057b",
@@ -155,23 +152,29 @@
       "episodes_per_run": 1100,
       "status": "pending",
       "estimated_minutes": 90.0
-    }
-    ,
+    },
     {
       "queue_id": "V3-EXQ-062",
       "backlog_id": "",
       "claim_id": "MECH-104",
-      "title": "MECH-104 Surprise-Gated Volatility Interrupt — surprise-proportional de-commitment selectivity",
-      "description": "EXQ-061 (PASS) confirmed jitter mechanism is wired. EXQ-062 tests SELECTIVITY: does surprise-gated spike (|actual-predicted_harm| > threshold) de-commit less often than always-spike? Three conditions on single trained agent: (A) no interrupt — 0 uncommitted steps, (B) always-spike — frequent de-commitment, (C) surprise-gated — selective de-commitment. C4: n_uncommitted_C < n_uncommitted_B × 0.80.",
+      "title": "MECH-104 Surprise-Gated Volatility Interrupt \u2014 surprise-proportional de-commitment selectivity",
+      "description": "EXQ-061 (PASS) confirmed jitter mechanism is wired. EXQ-062 tests SELECTIVITY: does surprise-gated spike (|actual-predicted_harm| > threshold) de-commit less often than always-spike? Three conditions on single trained agent: (A) no interrupt \u2014 0 uncommitted steps, (B) always-spike \u2014 frequent de-commitment, (C) surprise-gated \u2014 selective de-commitment. C4: n_uncommitted_C < n_uncommitted_B \u00d7 0.80.",
       "script": "experiments/v3_exq_062_mech104_surprise_gate.py",
       "args": [
-        "--seed", "0",
-        "--warmup", "400",
-        "--eval-eps", "50",
-        "--steps", "200",
-        "--alpha-world", "0.9",
-        "--spike-magnitude", "0.05",
-        "--surprise-threshold", "0.02"
+        "--seed",
+        "0",
+        "--warmup",
+        "400",
+        "--eval-eps",
+        "50",
+        "--steps",
+        "200",
+        "--alpha-world",
+        "0.9",
+        "--spike-magnitude",
+        "0.05",
+        "--surprise-threshold",
+        "0.02"
       ],
       "seeds": 1,
       "conditions": 1,
@@ -183,16 +186,22 @@
       "queue_id": "V3-EXQ-047c",
       "backlog_id": "",
       "claim_id": "SD-005",
-      "title": "SD-005 Latent Information Separation Probe — z_self action-selective, z_world event-selective",
-      "description": "EXQ-047/047b FAIL via downstream task metrics (R²/attribution_gap insensitive at CausalGridWorld scale). Reframe: linear probes on frozen representations test information routing directly. SPLIT vs UNIFIED. Probe A: action decodability from z_self vs z_world. Probe B: event-type decodability from z_world vs z_self. PASS: double dissociation (C1/C2) + split more specialised than unified (C3/C4).",
+      "title": "SD-005 Latent Information Separation Probe \u2014 z_self action-selective, z_world event-selective",
+      "description": "EXQ-047/047b FAIL via downstream task metrics (R\u00b2/attribution_gap insensitive at CausalGridWorld scale). Reframe: linear probes on frozen representations test information routing directly. SPLIT vs UNIFIED. Probe A: action decodability from z_self vs z_world. Probe B: event-type decodability from z_world vs z_self. PASS: double dissociation (C1/C2) + split more specialised than unified (C3/C4).",
       "script": "experiments/v3_exq_047c_sd005_info_probe.py",
       "args": [
-        "--seed", "0",
-        "--warmup", "400",
-        "--eval-eps", "50",
-        "--steps", "200",
-        "--probe-steps", "200",
-        "--alpha-world", "0.9"
+        "--seed",
+        "0",
+        "--warmup",
+        "400",
+        "--eval-eps",
+        "50",
+        "--steps",
+        "200",
+        "--probe-steps",
+        "200",
+        "--alpha-world",
+        "0.9"
       ],
       "seeds": 1,
       "conditions": 1,
