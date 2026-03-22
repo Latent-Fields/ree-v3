@@ -1,27 +1,27 @@
 """
-V3-ONBOARD-smoke-Daniel-PC — Contributor Onboarding Smoke Test
+V3-ONBOARD-smoke-Daniel-PC -- Contributor Onboarding Smoke Test
 
 Purpose: verify the full experiment pipeline round-trip on a newly onboarded
 machine AND benchmark CPU vs GPU compute separately so experiment routing
 (smart_assign) can match experiment type to the best available machine.
 
 Three benchmark blocks:
-  1. ENV-ONLY  — pure environment stepping, no neural net. Isolates Python/CPU.
-  2. CPU       — full training loop forced to CPU. Baseline for env-heavy experiments.
-  3. GPU       — full training loop on CUDA (skipped if unavailable). For net-heavy experiments.
+  1. ENV-ONLY  -- pure environment stepping, no neural net. Isolates Python/CPU.
+  2. CPU       -- full training loop forced to CPU. Baseline for env-heavy experiments.
+  3. GPU       -- full training loop on CUDA (skipped if unavailable). For net-heavy experiments.
 
 Metrics written to result JSON and used by smart_assign() for routing:
-  env_steps_per_second    — pure env throughput (CPU-bound ceiling)
-  steps_per_second_cpu    — integrated training throughput on CPU
-  steps_per_second_gpu    — integrated training throughput on GPU (0.0 if no CUDA)
-  gpu_name                — GPU model string
-  cuda_available          — bool
+  env_steps_per_second    -- pure env throughput (CPU-bound ceiling)
+  steps_per_second_cpu    -- integrated training throughput on CPU
+  steps_per_second_gpu    -- integrated training throughput on GPU (0.0 if no CUDA)
+  gpu_name                -- GPU model string
+  cuda_available          -- bool
 
-Pass criteria (pipeline verification — not scientific):
+Pass criteria (pipeline verification -- not scientific):
   C1: all three benchmark blocks completed without exception
   C2: env_steps_per_second > 0
   C3: steps_per_second_cpu > 0
-  C4 (advisory): cuda_available — logged but does not gate PASS/FAIL
+  C4 (advisory): cuda_available -- logged but does not gate PASS/FAIL
 
 Machine affinity: Daniel-PC (set in experiment_queue.json).
 Estimated runtime: ~8 min on RTX 2060 Super + i5-8600K, ~15 min CPU-only.
@@ -47,7 +47,7 @@ from ree_core.utils.config import REEConfig
 EXPERIMENT_TYPE = "v3_onboard_smoke_Daniel_PC"
 CLAIM_IDS: list = []  # not tied to a scientific claim
 
-# Episode counts per block — kept short, this is a benchmark not a training run
+# Episode counts per block -- kept short, this is a benchmark not a training run
 ENV_ONLY_EPISODES = 50    # pure env stepping, no net
 CPU_EPISODES      = 15    # full loop forced to CPU
 GPU_EPISODES      = 15    # full loop on CUDA (skipped if unavailable)
@@ -87,12 +87,12 @@ def _run_training_block(
     agent: REEAgent,
     n_episodes: int,
     label: str,
+    world_dim: int = 32,
 ) -> float:
     """Run n_episodes of the full training loop. Returns steps/second."""
     optimizer = optim.Adam(agent.parameters(), lr=1e-3)
     total_steps = 0
     agent.train()
-    world_dim = agent.config.latent_stack.world_dim
 
     t0 = time.monotonic()
     for ep in range(n_episodes):
@@ -129,7 +129,7 @@ def _run_training_block(
 
     elapsed = time.monotonic() - t0
     sps = total_steps / elapsed if elapsed > 0 else 0.0
-    print(f"[ONBOARD/{label}] done — {total_steps} steps in {elapsed:.1f}s → {sps:.0f} steps/s", flush=True)
+    print(f"[ONBOARD/{label}] done -- {total_steps} steps in {elapsed:.1f}s -> {sps:.0f} steps/s", flush=True)
     return sps
 
 
@@ -149,24 +149,25 @@ def run(seed: int = 42) -> dict:
     )
 
     # ── Block 1: ENV-ONLY (pure Python, no net) ───────────────────────────────
-    print(f"\n[ONBOARD] Block 1/3 — ENV-ONLY ({ENV_ONLY_EPISODES} eps × {STEPS_PER_EP} steps)", flush=True)
+    print(f"\n[ONBOARD] Block 1/3 -- ENV-ONLY ({ENV_ONLY_EPISODES} eps x {STEPS_PER_EP} steps)", flush=True)
     env = _make_env(seed)
+    action_dim = env.action_dim
     total_env_steps = 0
     t0 = time.monotonic()
     for ep in range(ENV_ONLY_EPISODES):
         _, obs_dict = env.reset()
         for _ in range(STEPS_PER_EP):
-            action_idx = env.action_space.sample() if hasattr(env, 'action_space') else 0
+            action_idx = random.randint(0, action_dim - 1)
             _, obs_dict, _, done, _ = env.step(action_idx)
             total_env_steps += 1
             if done:
                 break
     env_elapsed = time.monotonic() - t0
     env_sps = total_env_steps / env_elapsed if env_elapsed > 0 else 0.0
-    print(f"[ONBOARD/ENV] {total_env_steps} steps in {env_elapsed:.1f}s → {env_sps:.0f} steps/s", flush=True)
+    print(f"[ONBOARD/ENV] {total_env_steps} steps in {env_elapsed:.1f}s -> {env_sps:.0f} steps/s", flush=True)
 
     # ── Block 2: CPU training loop ────────────────────────────────────────────
-    print(f"\n[ONBOARD] Block 2/3 — CPU training ({CPU_EPISODES} eps × {STEPS_PER_EP} steps)", flush=True)
+    print(f"\n[ONBOARD] Block 2/3 -- CPU training ({CPU_EPISODES} eps x {STEPS_PER_EP} steps)", flush=True)
     cpu_device = torch.device("cpu")
     env_cpu    = _make_env(seed + 1)
     agent_cpu  = _make_agent(env_cpu, cpu_device)
@@ -175,13 +176,13 @@ def run(seed: int = 42) -> dict:
     # ── Block 3: GPU training loop (skipped if no CUDA) ───────────────────────
     gpu_sps = 0.0
     if cuda_available:
-        print(f"\n[ONBOARD] Block 3/3 — GPU training ({GPU_EPISODES} eps × {STEPS_PER_EP} steps)", flush=True)
+        print(f"\n[ONBOARD] Block 3/3 -- GPU training ({GPU_EPISODES} eps x {STEPS_PER_EP} steps)", flush=True)
         gpu_device = torch.device("cuda")
         env_gpu    = _make_env(seed + 2)
         agent_gpu  = _make_agent(env_gpu, gpu_device)
         gpu_sps    = _run_training_block(env_gpu, agent_gpu, GPU_EPISODES, "GPU")
     else:
-        print("\n[ONBOARD] Block 3/3 — GPU training SKIPPED (no CUDA)", flush=True)
+        print("\n[ONBOARD] Block 3/3 -- GPU training SKIPPED (no CUDA)", flush=True)
         print("[ONBOARD] Advisory: experiments will run on CPU (slower for net-heavy workloads)", flush=True)
 
     # ── Summary ────────────────────────────────────────────────────────────────
