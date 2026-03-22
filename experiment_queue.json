@@ -31,8 +31,12 @@
       "seeds": 1,
       "conditions": 1,
       "episodes_per_run": 900,
-      "status": "pending",
-      "estimated_minutes": 90.0
+      "status": "claimed",
+      "estimated_minutes": 90.0,
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-22T03:44:51.550327+00:00"
+      }
     }
   ]
 }
