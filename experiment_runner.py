@@ -335,7 +335,7 @@ def write_status(status: dict, path: Path) -> None:
         tmp = path.with_suffix(".tmp")
         status["last_updated"] = now_utc()
         tmp.write_text(json.dumps(status, indent=2))
-        tmp.rename(path)
+        tmp.replace(path)  # replace() is atomic on Unix and works on Windows (unlike rename)
 
 
 def load_queue() -> dict:
