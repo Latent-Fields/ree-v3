@@ -282,6 +282,7 @@ def _eval_interrupt_policy(
     predicted_harms: List[float] = []
     actual_harms: List[float] = []
     surprise_vals: List[float] = []
+    surprise_at_spike_vals: List[float] = []  # surprise values only at gate-fire moments
     fatal = 0
 
     for _ in range(num_episodes):
@@ -347,6 +348,7 @@ def _eval_interrupt_policy(
                             if impulse > 0:
                                 agent.e3._running_variance += impulse
                                 n_surprise_spikes += 1
+                                surprise_at_spike_vals.append(surprise)
 
             except Exception:
                 fatal += 1
@@ -356,6 +358,7 @@ def _eval_interrupt_policy(
                 break
 
     mean_surprise = _mean_safe(surprise_vals)
+    mean_surprise_at_spike = _mean_safe(surprise_at_spike_vals)
     mean_pred_harm = _mean_safe(predicted_harms)
     mean_actual_harm = _mean_safe(actual_harms)
 
@@ -364,7 +367,8 @@ def _eval_interrupt_policy(
         f"  n_uncommitted={n_uncommitted}  n_committed={n_committed}"
         f"  harm_steps={n_harm_steps}  committed_harm_steps={n_committed_harm_steps}"
         f"  spikes={'N/A' if policy == 'none' else (n_always_spikes if policy == 'always' else n_surprise_spikes)}"
-        f"  mean_surprise={mean_surprise:.4f}",
+        f"  mean_surprise={mean_surprise:.4f}"
+        + (f"  mean_surprise_at_spike={mean_surprise_at_spike:.4f}" if policy == "surprise" else ""),
         flush=True,
     )
 
@@ -375,6 +379,7 @@ def _eval_interrupt_policy(
         "n_committed_harm_steps": n_committed_harm_steps,
         "n_spikes": n_always_spikes if policy == "always" else n_surprise_spikes,
         "mean_surprise": mean_surprise,
+        "mean_surprise_at_spike": mean_surprise_at_spike,
         "mean_predicted_harm": mean_pred_harm,
         "mean_actual_harm": mean_actual_harm,
         "fatal_errors": fatal,
@@ -463,6 +468,16 @@ def run(
         r_surprise["n_uncommitted"] / max(1, r_surprise["n_spikes"])
     )
 
+    # Discriminability: mean surprise at gate-fire vs mean surprise at all harm steps
+    # Tests whether the gate fires on genuinely high-surprise events, not just any harm.
+    # surprise_discriminability_ratio > 1.0 means the gate is selective on the right signal.
+    surprise_discriminability_ratio = (
+        r_surprise["mean_surprise_at_spike"]
+        / max(1e-6, r_surprise["mean_surprise"])
+        if r_surprise["mean_surprise_at_spike"] > 0
+        else 0.0
+    )
+
     # -- PASS / FAIL ---------------------------------------------------------
     c1_pass = r_none["n_uncommitted"] == 0
     c2_pass = r_always["n_uncommitted"] > 100
@@ -542,10 +557,12 @@ def run(
         "surprise_n_spikes":             float(r_surprise["n_spikes"]),
         "surprise_committed_harm_steps": float(r_surprise["n_committed_harm_steps"]),
         "surprise_per_spike":            float(surprise_per_spike),
-        "surprise_mean_surprise":        float(r_surprise["mean_surprise"]),
-        "surprise_mean_pred_harm":       float(r_surprise["mean_predicted_harm"]),
-        "surprise_mean_actual_harm":     float(r_surprise["mean_actual_harm"]),
-        "spike_count_ratio":             float(
+        "surprise_mean_surprise":           float(r_surprise["mean_surprise"]),
+        "surprise_mean_surprise_at_spike":  float(r_surprise["mean_surprise_at_spike"]),
+        "surprise_discriminability_ratio":  float(surprise_discriminability_ratio),
+        "surprise_mean_pred_harm":          float(r_surprise["mean_predicted_harm"]),
+        "surprise_mean_actual_harm":        float(r_surprise["mean_actual_harm"]),
+        "spike_count_ratio":                float(
             r_surprise["n_spikes"] / max(1, r_always["n_spikes"])
         ),
         "per_spike_ratio":               float(
@@ -610,6 +627,11 @@ EXQ-062b C4 tests the mechanism directly:
 
 Spike count ratio (C/B): {metrics['spike_count_ratio']:.3f}  (target: < 1.0 for C4a)
 Per-spike ratio (C/B):   {metrics['per_spike_ratio']:.3f}   (target: >= 0.90 for C4b)
+
+Discriminability (mean surprise at spike / mean surprise all harm): {surprise_discriminability_ratio:.3f}
+  mean_surprise_all_harm:  {r_surprise["mean_surprise"]:.4f}
+  mean_surprise_at_spike:  {r_surprise["mean_surprise_at_spike"]:.4f}
+  (diagnostic only -- ratio > 1.0 confirms gate fires on genuinely high-surprise events)
 
 ## PASS Criteria
 
