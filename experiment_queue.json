@@ -45,12 +45,16 @@
       "args": [],
       "estimated_minutes": 10,
       "machine_affinity": "Daniel-PC",
-      "status": "pending",
+      "status": "claimed",
       "tags": [
         "onboarding",
         "smoke-test"
       ],
-      "notes": "Re-run of -e to capture traceback."
+      "notes": "Re-run of -e to capture traceback.",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-03-22T11:02:50.913174+00:00"
+      }
     }
   ]
 }
