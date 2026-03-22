@@ -86,8 +86,12 @@
       "conditions": 3,
       "episodes_per_run": 240,
       "machine_affinity": "Daniel-PC",
-      "status": "pending",
-      "args": "--seed 0 --warmup 150 --eval-eps 30 --steps 200 --alpha-world 0.9"
+      "status": "claimed",
+      "args": "--seed 0 --warmup 150 --eval-eps 30 --steps 200 --alpha-world 0.9",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-03-22T23:45:33.075064+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-069",
