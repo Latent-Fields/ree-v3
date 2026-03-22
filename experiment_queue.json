@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-064",
-      "backlog_id": "EXP-0086",
-      "claim_id": "MECH-104",
-      "title": "MECH-104 Harm-Surprise Spike -- Route-2 Validation",
-      "script": "experiments/v3_exq_064_mech104_harm_surprise_spike.py",
-      "description": "Route-2 MECH-104: spike fires on UNEXPECTED harm (|actual - predicted| > threshold), not on expected harm. Two conditions: A = surprise-gated spike on committed unexpected harm steps; B = no-spike baseline. PASS: A shows variance increase on unexpected harm (delta_var_unexpected > 0.005), A does not spike on expected harm (delta_var_expected < 0.002), B stays flat. EXQ-061 validated Route-1 (any harm contact). This validates the surprise-selectivity of Route-2.",
-      "estimated_minutes": 70,
-      "seeds": 1,
-      "conditions": 2,
-      "episodes_per_run": 500,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "args": "--seed 0 --warmup 400 --eval-eps 50 --steps 200 --alpha-world 0.9 --spike-magnitude 0.05 --surprise-threshold 0.02",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-22T19:17:19.390929+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-062b",
       "backlog_id": "",
       "claim_id": "MECH-104",
