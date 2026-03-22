@@ -8,39 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-020c",
-      "backlog_id": "",
-      "claim_id": "MECH-100",
-      "title": "MECH-100 Event-Auxiliary Contrastive Encoder Loss (hazard_harm=0.02, alpha=0.9)",
-      "description": "FIXED: hazard_harm=0.02, alpha_world=0.9, warmup=1000. Tests SD-009/MECH-100: CE event classifier (Linear(world_dim,3)) backprops through z_world encoder. Labels: 0=none, 1=env_caused_hazard, 2=agent_caused_hazard. \u03bb_event=0.5. PASS C1: calibration_gap>0.05, C2: event_classification_acc>0.5, C3: selectivity_margin>0.005.",
-      "script": "experiments/v3_exq_020_event_contrastive.py",
-      "args": [
-        "--seed",
-        "0",
-        "--warmup",
-        "1000",
-        "--probe-resets",
-        "10",
-        "--steps",
-        "200",
-        "--lambda-event",
-        "0.5",
-        "--harm-scale",
-        "0.02",
-        "--alpha-world",
-        "0.9"
-      ],
-      "seeds": 1,
-      "conditions": 1,
-      "episodes_per_run": 1100,
-      "status": "claimed",
-      "estimated_minutes": 90.0,
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-22T01:42:32.743127+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-020c-s1",
       "backlog_id": "",
       "claim_id": "MECH-100",
