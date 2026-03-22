@@ -78,5 +78,7 @@
   "experiments/v3_exq_047b_sd005_sd010_joint.py": 282.3,
   "experiments/v3_exq_057_sd010_reafference_isolation.py": 24.7,
   "experiments/v3_exq_062_mech104_surprise_gate.py": 8164.7,
-  "experiments/v3_exq_047c_sd005_info_probe.py": 26.2
+  "experiments/v3_exq_047c_sd005_info_probe.py": 26.2,
+  "experiments/v3_exq_062a_mech104_surprise_gate_committed_only.py": 48533.0,
+  "experiments/v3_exq_047d_sd005_info_probe_v2.py": 198.5
 }
