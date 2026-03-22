@@ -6,24 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-062a",
-      "backlog_id": "",
-      "claim_id": "MECH-104",
-      "title": "MECH-104 Surprise-Gated Volatility Interrupt (committed-only fix)",
-      "script": "experiments/v3_exq_062a_mech104_surprise_gate_committed_only.py",
-      "description": "MECH-104: Surprise-Gated Volatility Interrupt (committed-only fix). Restricts both interrupt policies to committed steps only, breaking EXQ-062 positive feedback loop.",
-      "estimated_minutes": 13,
-      "seeds": 1,
-      "conditions": 1,
-      "episodes_per_run": 100,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-22T12:19:15.563628+00:00"
-      }
-    }
-  ]
+  "items": []
 }
