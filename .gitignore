@@ -20,3 +20,4 @@ runs/
 runner.pid
 runner *.pid
 script_timing.json
+runner_status.tmp
