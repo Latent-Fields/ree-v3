@@ -45,12 +45,16 @@
       "args": [],
       "estimated_minutes": 10,
       "machine_affinity": "Daniel-PC",
-      "status": "pending",
+      "status": "claimed",
       "tags": [
         "onboarding",
         "smoke-test"
       ],
-      "notes": "Fixed: agent.device must be updated after .to(gpu) since config defaults to cpu."
+      "notes": "Fixed: agent.device must be updated after .to(gpu) since config defaults to cpu.",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-03-22T11:43:55.758679+00:00"
+      }
     }
   ]
 }
