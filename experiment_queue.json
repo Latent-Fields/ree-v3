@@ -14,12 +14,16 @@
       "args": [],
       "estimated_minutes": 10,
       "machine_affinity": "Daniel-PC",
-      "status": "pending",
+      "status": "claimed",
       "tags": [
         "onboarding",
         "smoke-test"
       ],
-      "notes": "Fixed: select_action(candidates, ticks) and env.step() return order (flat_obs, harm, done, info, obs_dict)."
+      "notes": "Fixed: select_action(candidates, ticks) and env.step() return order (flat_obs, harm, done, info, obs_dict).",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-03-22T10:30:51.221462+00:00"
+      }
     }
   ]
 }
