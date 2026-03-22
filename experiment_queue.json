@@ -38,8 +38,12 @@
       "conditions": 2,
       "episodes_per_run": 500,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
-      "args": "--seed 0 --warmup 400 --eval-eps 50 --steps 200 --alpha-world 0.9 --spike-magnitude 0.05 --surprise-threshold 0.02"
+      "status": "claimed",
+      "args": "--seed 0 --warmup 400 --eval-eps 50 --steps 200 --alpha-world 0.9 --spike-magnitude 0.05 --surprise-threshold 0.02",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-22T17:03:26.826270+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-062b",
