@@ -124,7 +124,7 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
 ## Experiment Queue Rules
 - Every queue entry **must** have `estimated_minutes` set (never omit it).
 - Estimate from: total episodes × steps_per_episode, calibrated against known runtimes:
-  - **Mac (macbook)** — CPU, CausalGridWorldV2, typical REE agent:
+  - **Mac (`DLAPTOP-4.local`)** — CPU, CausalGridWorldV2, typical REE agent:
     - ~0.10 min/ep at 200 steps/ep
     - ~0.15 min/ep at 300 steps/ep
   - **Daniel-PC** — CPU preferred (GPU 3x slower at current model scale, batch=1):
@@ -133,7 +133,8 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
     - Calibrated from onboarding smoke runs 2026-03-22: 7.0 steps/sec CPU, 2.1 steps/sec GPU
     - GPU wins when: batch replay training (batch>=64), multi-step rollout sweeps, or latent dims 128+
   - Add ~20% overhead for scripts with stratified replay buffers or event classification
-- Set `machine_affinity` to match compute profile: `"macbook"` (online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"any"` (indifferent)
+- Set `machine_affinity` to match compute profile: `"DLAPTOP-4.local"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"any"` (indifferent)
+  - **IMPORTANT:** The runner matches affinity against `socket.gethostname()` exactly. The macbook hostname is `DLAPTOP-4.local` — do NOT use `"macbook"` as the affinity string, it will not match.
 - Always queue experiments immediately after writing the script.
 - Always include `estimated_minutes` — the runner's auto-calibration refines it over time.
 
