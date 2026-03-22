@@ -38,24 +38,6 @@
       "episodes_per_run": 200,
       "machine_affinity": "any",
       "status": "pending"
-    },
-    {
-      "queue_id": "V3-ONBOARD-smoke-Daniel-PC-k",
-      "title": "Contributor Onboarding -- Pipeline Smoke Test (Daniel-PC)",
-      "script": "experiments/v3_onboard_smoke_Daniel_PC.py",
-      "args": [],
-      "estimated_minutes": 10,
-      "machine_affinity": "Daniel-PC",
-      "status": "claimed",
-      "tags": [
-        "onboarding",
-        "smoke-test"
-      ],
-      "notes": "Full round-trip test with rebase-conflict-handling fix in runner.",
-      "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-03-22T12:41:34.687726+00:00"
-      }
     }
   ]
 }
