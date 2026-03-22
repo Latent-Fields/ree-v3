@@ -41,7 +41,7 @@ PASS criteria (ALL must hold):
   C1: mean_running_variance_perturbed > mean_running_variance_stable + 0.001
       (variance diverges in perturbed env).
       Calibrated 2026-03-18 from measured values: stable≈0.0027, perturbed≈0.0038.
-      Original threshold 0.02 assumed variance levels 10× higher than trained E2 achieves.
+      Original threshold 0.02 assumed variance levels 10x higher than trained E2 achieves.
   C2: mean_precision_stable > mean_precision_perturbed
       (precision drops in perturbed env)
   C3: commit_rate_stable > commit_rate_perturbed
@@ -297,7 +297,7 @@ def run(
     # ── Environment configs ────────────────────────────────────────────────
     # Stable: few hazards, effectively static (drift only every 100 steps with prob=0)
     # Perturbed: many hazards, maximally dynamic (drift every step with prob=1.0)
-    # This 10× contrast is needed to generate a measurable variance gap.
+    # This 10x contrast is needed to generate a measurable variance gap.
     # Prior design (10 vs 10 hazards, interval 10 vs 2, prob 0.1 vs 0.9) produced
     # only 6% variance difference — not enough for C1 (need var_diff > 0.02).
     env_stable = CausalGridWorld(
@@ -454,7 +454,7 @@ from E3's own prediction error EMA (running_variance). At each step:
   prediction_error  = z_world_{{t+1}} - z_world_predicted
   agent.e3.update_running_variance(prediction_error)
 
-  precision        = 1 / (running_variance + ε)
+  precision        = 1 / (running_variance + eps)
   commit_threshold = 0.003 (variance-space — E3Config.commitment_threshold, calibrated 2026-03-18)
   committed        = running_variance < commit_threshold
 

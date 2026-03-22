@@ -1,21 +1,21 @@
 """
-V3-EXQ-047 — Unified vs Split Latent Ablation (SD-005 efficiency test)
+V3-EXQ-047 -- Unified vs Split Latent Ablation (SD-005 efficiency test)
 
 Claims: SD-005, MECH-069
 
 Tests whether the z_self/z_world dimensional split itself (not just optimizer
 separation) provides efficiency advantages for calibration and attribution.
 
-Two conditions (same env seed, same architecture — only latent mode differs):
+Two conditions (same env seed, same architecture -- only latent mode differs):
 
-  split   — Current architecture. z_self=32, z_world=32 maintained as separate
+  split   -- Current architecture. z_self=32, z_world=32 maintained as separate
              channels with separate gradient flows. Each channel is specialized
              by its respective error signal (E2→z_self, E3→z_world).
 
-  unified — unified_latent_mode=True. After EMA blending, z_self and z_world
+  unified -- unified_latent_mode=True. After EMA blending, z_self and z_world
              are averaged into a single shared representation. Both channels
              carry the same vector. E2 and E3 gradients flow through the same
-             latent dimensions — no specialization.
+             latent dimensions -- no specialization.
 
 Motivation: EXQ-034 showed E2-ablation doesn't hurt calibration_gap (E3 alone
 suffices for harm detection). EXQ-035 tested optimizer separation but was
@@ -35,7 +35,7 @@ PASS criteria (ALL must hold):
   C5: n_approach_eval >= 50
       (sufficient approach steps)
 
-NOTE: C1 or C2 FAIL → unified performs comparably → latent split provides
+NOTE: C1 or C2 FAIL -> unified performs comparably -> latent split provides
 limited benefit beyond module specialization already covered by separate
 optimizers. This is a valid scientific result (not a REE failure).
 
@@ -94,7 +94,7 @@ def _compute_world_forward_r2(
         ss_res = ((tgt_test - pred_test) ** 2).sum()
         ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
     return r2
 
 
@@ -457,11 +457,11 @@ def run(
     status = "PASS" if all_pass else "FAIL"
 
     print(f"\n[V3-EXQ-044] Verdict: {status} ({criteria_met}/5 criteria met)", flush=True)
-    print(f"  C1 cal_gap split>unified+0.05: {r_split['calibration_gap_approach']:.4f} vs {r_unified['calibration_gap_approach']:.4f} → {'PASS' if crit1_pass else 'FAIL'}", flush=True)
-    print(f"  C2 attr_gap split>unified+0.01: {r_split['attribution_gap']:.4f} vs {r_unified['attribution_gap']:.4f} → {'PASS' if crit2_pass else 'FAIL'}", flush=True)
-    print(f"  C3 cal_gap_split>0.10: {r_split['calibration_gap_approach']:.4f} → {'PASS' if crit3_pass else 'FAIL'}", flush=True)
-    print(f"  C4 attr_gap_split>0.0: {r_split['attribution_gap']:.4f} → {'PASS' if crit4_pass else 'FAIL'}", flush=True)
-    print(f"  C5 n_approach>={50}: {r_split['n_counts'].get('hazard_approach', 0)} → {'PASS' if crit5_pass else 'FAIL'}", flush=True)
+    print(f"  C1 cal_gap split>unified+0.05: {r_split['calibration_gap_approach']:.4f} vs {r_unified['calibration_gap_approach']:.4f} -> {'PASS' if crit1_pass else 'FAIL'}", flush=True)
+    print(f"  C2 attr_gap split>unified+0.01: {r_split['attribution_gap']:.4f} vs {r_unified['attribution_gap']:.4f} -> {'PASS' if crit2_pass else 'FAIL'}", flush=True)
+    print(f"  C3 cal_gap_split>0.10: {r_split['calibration_gap_approach']:.4f} -> {'PASS' if crit3_pass else 'FAIL'}", flush=True)
+    print(f"  C4 attr_gap_split>0.0: {r_split['attribution_gap']:.4f} -> {'PASS' if crit4_pass else 'FAIL'}", flush=True)
+    print(f"  C5 n_approach>={50}: {r_split['n_counts'].get('hazard_approach', 0)} -> {'PASS' if crit5_pass else 'FAIL'}", flush=True)
 
     metrics = {
         "calibration_gap_approach_split":   r_split["calibration_gap_approach"],
@@ -492,7 +492,7 @@ def run(
         "criteria_met": float(criteria_met),
     }
 
-    summary_markdown = f"""# V3-EXQ-044 — Unified vs Split Latent Ablation
+    summary_markdown = f"""# V3-EXQ-044 -- Unified vs Split Latent Ablation
 
 **Status:** {status} ({criteria_met}/5 criteria)
 **Conditions:** split (z_self≠z_world) vs unified (z_self=z_world=avg)
@@ -504,18 +504,18 @@ def run(
 |---|---|---|---|
 | C1: cal_gap_approach split > unified+0.05 | {r_split['calibration_gap_approach']:.4f} | {r_unified['calibration_gap_approach']:.4f} | {'PASS' if crit1_pass else 'FAIL'} |
 | C2: attribution_gap split > unified+0.01 | {r_split['attribution_gap']:.4f} | {r_unified['attribution_gap']:.4f} | {'PASS' if crit2_pass else 'FAIL'} |
-| C3: cal_gap_split > 0.10 | {r_split['calibration_gap_approach']:.4f} | — | {'PASS' if crit3_pass else 'FAIL'} |
-| C4: attr_gap_split > 0.0 | {r_split['attribution_gap']:.4f} | — | {'PASS' if crit4_pass else 'FAIL'} |
-| C5: n_approach >= 50 | {r_split['n_counts'].get('hazard_approach', 0)} | — | {'PASS' if crit5_pass else 'FAIL'} |
+| C3: cal_gap_split > 0.10 | {r_split['calibration_gap_approach']:.4f} | -- | {'PASS' if crit3_pass else 'FAIL'} |
+| C4: attr_gap_split > 0.0 | {r_split['attribution_gap']:.4f} | -- | {'PASS' if crit4_pass else 'FAIL'} |
+| C5: n_approach >= 50 | {r_split['n_counts'].get('hazard_approach', 0)} | -- | {'PASS' if crit5_pass else 'FAIL'} |
 
-## World-Forward R²
+## World-Forward R2
 
 - Split: {condition_wf_r2.get('split', 0.0):.4f}
 - Unified: {condition_wf_r2.get('unified', 0.0):.4f}
 
 ## Interpretation
 
-- **C1 PASS → C2 PASS**: Latent split provides advantage on both calibration and attribution.
+- **C1 PASS -> C2 PASS**: Latent split provides advantage on both calibration and attribution.
   SD-005 confirmed as efficiency-relevant (not just attribution-relevant).
 - **C1 FAIL, C2 PASS**: Split helps attribution but not harm detection calibration.
   Consistent with EXQ-034 finding that E2 ablation doesn't hurt calibration.

@@ -323,7 +323,7 @@ def run(
     cal_gap_approach = mean_approach - mean_none
     cal_gap_contact  = mean_contact  - mean_none
 
-    # World_forward R² on held-out wf_buf
+    # World_forward R2 on held-out wf_buf
     wf_r2 = 0.0
     if len(wf_buf) >= 32:
         with torch.no_grad():
@@ -437,7 +437,7 @@ effect. EXQ-042 adds terrain_prior training.
 ## Pipeline Verification
 
 - E3 tick total: {e3_tick_total}  (clock functional: {c4})
-- world_forward R²: {wf_r2:.4f}
+- world_forward R2: {wf_r2:.4f}
 - final running_variance: {agent.e3._running_variance:.4f}
 
 ## PASS Criteria
@@ -448,7 +448,7 @@ effect. EXQ-042 adds terrain_prior training.
 | C2: cal_gap_approach > 0.03 (meaningful) | {"PASS" if c2 else "FAIL"} | {cal_gap_approach:.4f} |
 | C3: n_approach_eval >= 30 | {"PASS" if c3 else "FAIL"} | {n_approach} |
 | C4: e3_tick_count > 0 | {"PASS" if c4 else "FAIL"} | {e3_tick_total} |
-| C5: world_forward R² > 0.05 | {"PASS" if c5 else "FAIL"} | {wf_r2:.4f} |
+| C5: world_forward R2 > 0.05 | {"PASS" if c5 else "FAIL"} | {wf_r2:.4f} |
 
 Criteria met: {n_met}/5 → **{status}**
 {failure_section}

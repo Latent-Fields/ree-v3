@@ -26,8 +26,8 @@ estimate that correlates with actual hazard proximity significantly better than
 the fused z_world encoder?
 
 harm_obs layout (CausalGridWorldV2, use_proxy_fields=True):
-  [0:25]  hazard_field_view  — normalised hazard proximity gradient (5×5)
-  [25:50] resource_field_view — normalised resource gradient (5×5)
+  [0:25]  hazard_field_view  — normalised hazard proximity gradient (5x5)
+  [25:50] resource_field_view — normalised resource gradient (5x5)
   [50]    harm_exposure       — nociceptive EMA
 
 Training: 500 episodes (more than EXQ-056's 400), random policy.
@@ -80,7 +80,7 @@ Z_HARM_DIM   = 32
 STRAT_BUF_SIZE = 2000
 # Minimum samples per bucket before stratified training fires
 MIN_PER_BUCKET = 4
-# Batch: sample this many per bucket (3 buckets → batch = 3 × SAMPLES_PER_BUCKET)
+# Batch: sample this many per bucket (3 buckets → batch = 3 x SAMPLES_PER_BUCKET)
 SAMPLES_PER_BUCKET = 8
 
 

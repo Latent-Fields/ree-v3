@@ -68,7 +68,7 @@ class LatentStackConfig:
 
     # SD-007: ReafferencePredictor — perspective-shift correction for z_world.
     # Set reafference_action_dim = action_dim (e.g. 4) to enable.
-    # 0 = disabled (default; backward compatible with EXQ-001–025).
+    # 0 = disabled (default; backward compatible with EXQ-001-025).
     # When enabled, LatentStack.encode() accepts prev_action and applies:
     #   z_world_corrected = z_world_raw - ReafferencePredictor(z_self_prev, a_prev)
     # Trained on empty-space steps (transition_type=="none") only.

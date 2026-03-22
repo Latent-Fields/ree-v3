@@ -5,6 +5,12 @@
 See `REE_Working/CLAUDE.md` for session startup protocol.
 Check `REE_Working/WORKSPACE_STATE.md` before editing `experiment_queue.json`.
 
+## ASCII-Only in Python Output
+
+All `print()` statements and text reaching stdout/stderr must use ASCII only.
+No `→ ← — × …` or other non-ASCII in printed output — these break on Windows cp1252 terminals.
+Use `-> <- -- x ...` instead. Comments/docstrings may keep Unicode (read as UTF-8 by Python).
+
 ## Python
 Use /opt/local/bin/python3 for all execution (has torch 2.10.0).
 Use sys.executable for subprocesses within experiment runners.

@@ -1,23 +1,23 @@
 """
-V3-EXQ-021 — lstsq Linear Reafference Correction (SD-007, MECH-098)
+V3-EXQ-021 -- lstsq Linear Reafference Correction (SD-007, MECH-098)
 
 Claims: SD-007 (encoder.perspective_corrected_world_latent), MECH-098
 (encoder.reafference_cancellation), SD-003 (causal attribution).
 
 Motivation (2026-03-18):
-  EXQ-016 used a SGD MLP ReafferencePredictor and achieved R²_test=0.118 vs
-  the EXQ-014 lstsq benchmark of R²=0.333 (same feature space). Root causes:
+  EXQ-016 used a SGD MLP ReafferencePredictor and achieved R2_test=0.118 vs
+  the EXQ-014 lstsq benchmark of R2=0.333 (same feature space). Root causes:
     1. SGD MLP with 200 steps doesn't converge to the linear solution
-    2. C3 metric bug: correction was applied to BOTH endpoints of Δz_world,
+    2. C3 metric bug: correction was applied to BOTH endpoints of dz_world,
        causing cancellation: dz_corrected = (z_curr - pred) - (z_prev - pred)
        = z_curr - z_prev = dz_raw (correction had zero effect)
 
   This experiment fixes both issues:
     1. Replaces SGD MLP with torch.linalg.lstsq on the full collected dataset
        Feature matrix: X = [z_self | a_onehot | 1]  (self_dim + action_dim + 1)
-       Target matrix:  Y = Δz_world  (world_dim)
-       Solution: W = lstsq(X, Y)  →  pred = X @ W
-       Expected R²_test ≈ 0.333 (matching EXQ-014 linear prediction benchmark)
+       Target matrix:  Y = dz_world  (world_dim)
+       Solution: W = lstsq(X, Y)  ->  pred = X @ W
+       Expected R2_test ≈ 0.333 (matching EXQ-014 linear prediction benchmark)
     2. Fixed C3 metric: dz_corrected = dz_raw - pred (subtract ONCE from delta,
        not from each endpoint separately)
 
@@ -25,7 +25,7 @@ PASS criteria (ALL must hold):
   C1: calibration_gap > 0.05 using lstsq-corrected z_world in SD-003 probe
   C2: reafference_r2_test > 0.25 (lstsq should match EXQ-014 benchmark)
   C3: mean_dz_corrected(empty) < mean_dz_raw(empty)
-      (correction reduced perspective shift — using fixed per-step delta metric)
+      (correction reduced perspective shift -- using fixed per-step delta metric)
   C4: warmup harm events > 100
   C5: No fatal errors
 """
@@ -167,7 +167,7 @@ def _train_and_collect(
             elif harm_signal > 0:
                 total_benefit += 1
 
-            # Collect reafference data: (z_self_prev, a_prev, Δz_world) on empty steps
+            # Collect reafference data: (z_self_prev, a_prev, dz_world) on empty steps
             if (z_world_prev is not None and z_self_prev is not None and
                     a_prev is not None and ttype == "none"):
                 dz_world = z_world_curr - z_world_prev  # [1, world_dim]
@@ -250,15 +250,15 @@ def _fit_lstsq_predictor(
     """
     Fit a linear reafference predictor using torch.linalg.lstsq.
 
-    Feature matrix: X = [z_self | a_onehot | 1]  (n × (self_dim + action_dim + 1))
-    Target matrix:  Y = Δz_world                  (n × world_dim)
-    Solution:       W = lstsq(X, Y)               ((self_dim + action_dim + 1) × world_dim)
+    Feature matrix: X = [z_self | a_onehot | 1]  (n x (self_dim + action_dim + 1))
+    Target matrix:  Y = dz_world                  (n x world_dim)
+    Solution:       W = lstsq(X, Y)               ((self_dim + action_dim + 1) x world_dim)
     Prediction:     Y_pred = X @ W
 
     Returns (W, r2_train, r2_test).
     """
     if len(reaf_data) < 20:
-        print(f"  WARNING: only {len(reaf_data)} empty-step records — lstsq skipped",
+        print(f"  WARNING: only {len(reaf_data)} empty-step records -- lstsq skipped",
               flush=True)
         return None, 0.0, 0.0
 
@@ -293,7 +293,7 @@ def _fit_lstsq_predictor(
     r2_test  = _r2(X_test, dz_test, W)
 
     print(f"  lstsq predictor: n_train={n_train}  n_test={n-n_train}  "
-          f"R²_train={r2_train:.3f}  R²_test={r2_test:.3f}", flush=True)
+          f"R2_train={r2_train:.3f}  R2_test={r2_test:.3f}", flush=True)
 
     return W, r2_train, r2_test
 
@@ -324,7 +324,7 @@ def _measure_dz_correction(
     steps_per_episode: int,
 ) -> Dict:
     """
-    Measure mean ||Δz_world|| before and after lstsq correction.
+    Measure mean ||dz_world|| before and after lstsq correction.
 
     FIXED (vs EXQ-016): correction is subtracted ONCE from the delta, not
     from each endpoint separately.
@@ -398,10 +398,10 @@ def _measure_dz_correction(
     mean_dz_raw_env   = float(sum(dz_raw_env)   / max(1, len(dz_raw_env)))
     mean_dz_cor_env   = float(sum(dz_cor_env)   / max(1, len(dz_cor_env)))
 
-    print(f"  Δz correction (fixed C3) — empty: raw={mean_dz_raw_empty:.4f}  "
+    print(f"  dz correction (fixed C3) -- empty: raw={mean_dz_raw_empty:.4f}  "
           f"corrected={mean_dz_cor_empty:.4f}  "
           f"reduction={mean_dz_raw_empty - mean_dz_cor_empty:.4f}", flush=True)
-    print(f"  Δz correction — env_hazard: raw={mean_dz_raw_env:.4f}  "
+    print(f"  dz correction -- env_hazard: raw={mean_dz_raw_env:.4f}  "
           f"corrected={mean_dz_cor_env:.4f}", flush=True)
 
     return {
@@ -536,7 +536,7 @@ def run(
     optimizer      = optim.Adam(e12_params, lr=lr)
     net_eval_optim = optim.Adam(net_eval_head.parameters(), lr=1e-4)
 
-    print(f"[V3-EXQ-021] Warmup + collect: {warmup_episodes} eps (12×12, 15 hazards, drift)",
+    print(f"[V3-EXQ-021] Warmup + collect: {warmup_episodes} eps (12x12, 15 hazards, drift)",
           flush=True)
     train_out = _train_and_collect(
         agent, env, world_decoder, net_eval_head,
@@ -565,8 +565,8 @@ def run(
         r2_test = 0.0
     reafference_r2 = max(0.0, r2_test)
 
-    # Measure Δz correction (fixed C3 metric)
-    print(f"[V3-EXQ-021] Measuring Δz correction (20 episodes, fixed C3 metric)...",
+    # Measure dz correction (fixed C3 metric)
+    print(f"[V3-EXQ-021] Measuring dz correction (20 episodes, fixed C3 metric)...",
           flush=True)
     dz_stats = _measure_dz_correction(agent, W, env, 20, steps_per_episode)
 
@@ -594,13 +594,13 @@ def run(
         )
     if not c2_pass:
         failure_notes.append(
-            f"C2 FAIL: R²_test={reafference_r2:.3f} <= 0.25 "
+            f"C2 FAIL: R2_test={reafference_r2:.3f} <= 0.25 "
             f"(EXQ-014 lstsq benchmark = 0.333)"
         )
     if not c3_pass:
         failure_notes.append(
-            f"C3 FAIL: Δz_corrected(empty)={dz_stats['mean_dz_corrected_empty']:.4f} >= "
-            f"Δz_raw(empty)={dz_stats['mean_dz_raw_empty']:.4f}"
+            f"C3 FAIL: dz_corrected(empty)={dz_stats['mean_dz_corrected_empty']:.4f} >= "
+            f"dz_raw(empty)={dz_stats['mean_dz_raw_empty']:.4f}"
         )
     if not c4_pass:
         failure_notes.append(f"C4 FAIL: warmup_harm={warmup_harm} <= 100")
@@ -640,18 +640,18 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-021 — lstsq Linear Reafference Correction
+    summary_markdown = f"""# V3-EXQ-021 -- lstsq Linear Reafference Correction
 
 **Status:** {status}
-**Warmup:** {warmup_episodes} eps (RANDOM policy, 12×12, 15 hazards, drift_interval=3, drift_prob=0.5)
+**Warmup:** {warmup_episodes} eps (RANDOM policy, 12x12, 15 hazards, drift_interval=3, drift_prob=0.5)
 **Probe eval:** {eval_probe_resets} grid resets
 **Seed:** {seed}
 
 ## Motivation (SD-007 / MECH-098, EXQ-016 bug fixes)
 
-EXQ-016 failed on C2 (R²_test=0.118 vs threshold 0.2) and C3 (metric was broken).
+EXQ-016 failed on C2 (R2_test=0.118 vs threshold 0.2) and C3 (metric was broken).
 This experiment fixes both issues:
-  1. **lstsq**: torch.linalg.lstsq on [z_self|a|1] → Δz_world (expected R²≈0.333)
+  1. **lstsq**: torch.linalg.lstsq on [z_self|a|1] -> dz_world (expected R2≈0.333)
   2. **Fixed C3**: dz_corrected = dz_raw - pred (subtract ONCE, not from each endpoint)
 
 ## lstsq Predictor
@@ -660,12 +660,12 @@ This experiment fixes both issues:
 |---|---|
 | Feature dim | {self_dim + env.action_dim + 1} = self_dim({self_dim}) + actions({env.action_dim}) + 1 |
 | n_empty_steps | {n_empty_steps} |
-| R²_train | {r2_train:.3f} |
-| R²_test | {reafference_r2:.3f} |
+| R2_train | {r2_train:.3f} |
+| R2_test | {reafference_r2:.3f} |
 
-## Δz_world Before/After Correction (Fixed Metric)
+## dz_world Before/After Correction (Fixed Metric)
 
-| Event Type | Raw Δz_world | Corrected Δz_world | Reduction |
+| Event Type | Raw dz_world | Corrected dz_world | Reduction |
 |---|---|---|---|
 | empty_move (locomotion) | {dz_stats["mean_dz_raw_empty"]:.4f} | {dz_stats["mean_dz_corrected_empty"]:.4f} | {dz_stats["mean_dz_raw_empty"] - dz_stats["mean_dz_corrected_empty"]:.4f} |
 | env_caused_hazard | {dz_stats["mean_dz_raw_env"]:.4f} | {dz_stats["mean_dz_corrected_env"]:.4f} | {dz_stats["mean_dz_raw_env"] - dz_stats["mean_dz_corrected_env"]:.4f} |
@@ -685,12 +685,12 @@ Warmup: harm={warmup_harm}  benefit={warmup_benefit}
 | Criterion | Result | Value |
 |---|---|---|
 | C1: calibration_gap > 0.05 (lstsq-corrected) | {"PASS" if c1_pass else "FAIL"} | {probe["calibration_gap"]:.4f} |
-| C2: R²_test > 0.25 | {"PASS" if c2_pass else "FAIL"} | {reafference_r2:.3f} |
-| C3: Δz_corrected(empty) < Δz_raw(empty) | {"PASS" if c3_pass else "FAIL"} | {dz_stats["mean_dz_corrected_empty"]:.4f} vs {dz_stats["mean_dz_raw_empty"]:.4f} |
+| C2: R2_test > 0.25 | {"PASS" if c2_pass else "FAIL"} | {reafference_r2:.3f} |
+| C3: dz_corrected(empty) < dz_raw(empty) | {"PASS" if c3_pass else "FAIL"} | {dz_stats["mean_dz_corrected_empty"]:.4f} vs {dz_stats["mean_dz_raw_empty"]:.4f} |
 | C4: Warmup harm events > 100 | {"PASS" if c4_pass else "FAIL"} | {warmup_harm} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {fatal_errors} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

@@ -1,5 +1,5 @@
 """
-V3-EXQ-050 — MECH-025: Action-Doing Mode Probe
+V3-EXQ-050 -- MECH-025: Action-Doing Mode Probe
 
 Claims: MECH-025
 
@@ -16,7 +16,7 @@ Motivation (2026-03-19):
        (During doing, the agent's action has larger causal effect on z_world.)
     2. The beta gate is elevated during committed mode (gate-level doing signature).
     3. E3 running_variance is lower during committed steps (higher confidence
-       → less exploratory uncertainty → doing requires precision).
+       -> less exploratory uncertainty -> doing requires precision).
 
   Probes:
     causal_sig = E3(E2.world_forward(z_world, a_actual)) - E3(E2.world_forward(z_world, a_cf))
@@ -386,7 +386,7 @@ def run(
     world_forward_r2 = _compute_world_forward_r2(agent, train_out["wf_buf"])
     print(f"  world_forward_r2: {world_forward_r2:.4f}", flush=True)
 
-    print(f"\n[V3-EXQ-050] Eval — probing action-doing mode...", flush=True)
+    print(f"\n[V3-EXQ-050] Eval -- probing action-doing mode...", flush=True)
     eval_out = _eval_doing_mode(agent, env, eval_episodes, steps_per_episode, world_dim)
 
     # PASS / FAIL
@@ -445,10 +445,10 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-050 — MECH-025: Action-Doing Mode Probe
+    summary_markdown = f"""# V3-EXQ-050 -- MECH-025: Action-Doing Mode Probe
 
 **Status:** {status}
-**Claim:** MECH-025 — action-doing mode produces distinct internal signature
+**Claim:** MECH-025 -- action-doing mode produces distinct internal signature
 **Prerequisite:** EXQ-030b PASS (SD-003 attribution pipeline functional)
 **alpha_world:** {alpha_world}
 **Warmup:** {warmup_episodes} eps  |  Eval: {eval_episodes} eps
@@ -482,7 +482,7 @@ higher than during free exploration (uncommitted steps).
 | C4: harm_pred_std > 0.01 (E3 not collapsed) | {"PASS" if c4_pass else "FAIL"} | {eval_out['harm_pred_std']:.4f} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {eval_out['fatal_errors']} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

@@ -1,5 +1,5 @@
 """
-V3-EXQ-044 — SD-003 Trajectory Attribution: Fixed Sequential Training
+V3-EXQ-044 -- SD-003 Trajectory Attribution: Fixed Sequential Training
 
 Claims: SD-003, MECH-102
 
@@ -7,24 +7,24 @@ Root cause of EXQ-043 FAIL: simultaneous terrain_prior + E3 harm_eval training.
 As terrain_prior improves, the agent spends more time at approach states
 (navigating toward objectives through hazard gradients). harm_buf_pos fills
 with approach-heavy states; harm_buf_neg sees fewer genuine "none" states.
-E3 learns harm=1 for almost everything → collapses to none=0.90.
+E3 learns harm=1 for almost everything -> collapses to none=0.90.
 With E3 uniform-high, all trajectory J(ζ) scores are nearly equal →
 causal_sig stays at noise floor (~0.0004) regardless of true landscape.
 
 Fix: three separated training phases with no cross-contamination:
 
-  Phase 1 — terrain training (400 eps):
+  Phase 1 -- terrain training (400 eps):
     Train terrain_prior via E3 behavioral cloning.
     E2.world_forward trained simultaneously (wf data accumulates naturally).
-    E3.harm_eval NOT updated — weights frozen for this phase.
-    Goal: terrain_prior learns z_world → action_object mapping.
+    E3.harm_eval NOT updated -- weights frozen for this phase.
+    Goal: terrain_prior learns z_world -> action_object mapping.
 
-  Phase 2 — E3 calibration (200 eps):
+  Phase 2 -- E3 calibration (200 eps):
     Freeze terrain_prior. Random policy ensures balanced approach/none distribution.
     Train E3.harm_eval on theta-averaged z_world (MECH-089).
-    Goal: clean calibrated E3 with stable data — no terrain-induced imbalance.
+    Goal: clean calibrated E3 with stable data -- no terrain-induced imbalance.
 
-  Phase 3 — attribution eval (100 eps):
+  Phase 3 -- attribution eval (100 eps):
     Freeze ALL weights. Full pipeline with E3 selection.
     Generate N=16 hippocampal candidates per E3 tick.
     causal_sig = mean(E3_score(cf_trajs)) - E3_score(selected_traj)
@@ -169,9 +169,9 @@ def run(
     )
 
     # ────────────────────────────────────────────────────────────────────────
-    # PHASE 1 — Terrain training (E3.harm_eval frozen)
+    # PHASE 1 -- Terrain training (E3.harm_eval frozen)
     # ────────────────────────────────────────────────────────────────────────
-    print(f"\n[Phase 1] Terrain training ({terrain_episodes} eps) — E3.harm_eval frozen",
+    print(f"\n[Phase 1] Terrain training ({terrain_episodes} eps) -- E3.harm_eval frozen",
           flush=True)
     agent.train()
     e3_tick_total = 0
@@ -290,10 +290,10 @@ def run(
     terrain_loss_final   = sum(terrain_losses_late)  / max(1, len(terrain_losses_late))
 
     # ────────────────────────────────────────────────────────────────────────
-    # PHASE 2 — E3 calibration (terrain_prior frozen, random policy)
+    # PHASE 2 -- E3 calibration (terrain_prior frozen, random policy)
     # ────────────────────────────────────────────────────────────────────────
     print(
-        f"\n[Phase 2] E3 calibration ({calibration_episodes} eps) — "
+        f"\n[Phase 2] E3 calibration ({calibration_episodes} eps) -- "
         f"terrain_prior frozen, random policy",
         flush=True,
     )
@@ -317,7 +317,7 @@ def run(
             theta_z      = agent.theta_buffer.summary()
             z_world_curr = latent.z_world.detach()
 
-            # Random policy — ensures balanced ttype distribution
+            # Random policy -- ensures balanced ttype distribution
             action_idx = random.randint(0, env.action_dim - 1)
             action = torch.zeros(1, env.action_dim, device=agent.device)
             action[0, action_idx] = 1.0
@@ -383,9 +383,9 @@ def run(
                     )
 
     # ────────────────────────────────────────────────────────────────────────
-    # PHASE 3 — Attribution eval (all weights frozen)
+    # PHASE 3 -- Attribution eval (all weights frozen)
     # ────────────────────────────────────────────────────────────────────────
-    print(f"\n[Phase 3] Attribution eval ({eval_episodes} eps) — all weights frozen",
+    print(f"\n[Phase 3] Attribution eval ({eval_episodes} eps) -- all weights frozen",
           flush=True)
     agent.eval()
 
@@ -499,7 +499,7 @@ def run(
     if not c6:
         failure_notes.append(
             f"C6 FAIL (calibration gate): mean_harm_eval_none={mean_harm_none:.4f} >= 0.1. "
-            f"E3 collapsed again — trajectory attribution results are INVALID. "
+            f"E3 collapsed again -- trajectory attribution results are INVALID. "
             f"Check Phase 2 calibration balance."
         )
     if not c1:
@@ -568,7 +568,7 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-044 — SD-003 Trajectory Attribution (Fixed Sequential Training)
+    summary_markdown = f"""# V3-EXQ-044 -- SD-003 Trajectory Attribution (Fixed Sequential Training)
 
 **Status:** {status}
 **Claims:** SD-003, MECH-102
@@ -580,7 +580,7 @@ def run(
 ## Design: Sequential Training Phases
 
 **EXQ-043 failure mechanism:** Terrain_prior training shifts data distribution seen by
-E3.harm_eval — agent navigates toward objectives through hazard gradients, making
+E3.harm_eval -- agent navigates toward objectives through hazard gradients, making
 approach states dominate harm_buf_pos. E3 collapses to uniform-high output.
 
 **Fix:** Three sequential phases with no cross-contamination:
@@ -628,7 +628,7 @@ calibration_gap_approach: {cal_gap_approach:.4f}
 | C5: n_approach_eval >= 30 | {"PASS" if c5 else "FAIL"} | {n_approach} |
 | C6: mean_harm_eval_none < 0.1 (calibration gate) | {"PASS" if c6 else "FAIL"} | {mean_harm_none:.4f} |
 
-Criteria met: {n_met}/6 → **{status}**
+Criteria met: {n_met}/6 -> **{status}**
 {failure_section}
 """
 

@@ -1,19 +1,19 @@
 """
-V3-EXQ-023 — SD-008 alpha_world Fix (alpha_world=0.9 vs 0.3 baseline)
+V3-EXQ-023 -- SD-008 alpha_world Fix (alpha_world=0.9 vs 0.3 baseline)
 
 Claims: SD-008 (encoder.z_world_alpha_correction), SD-003, MECH-098, ARC-016.
 
 Motivation (2026-03-18):
-  The entire EXQ-013–019 FAIL cluster shares a single root cause: alpha=0.3 in
-  LatentStack.encode() means z_world = 0.3*z_new + 0.7*z_prev — a ~3-step EMA
+  The entire EXQ-013-019 FAIL cluster shares a single root cause: alpha=0.3 in
+  LatentStack.encode() means z_world = 0.3*z_new + 0.7*z_prev -- a ~3-step EMA
   that suppresses event responses to 30% per step, making z_world nearly constant.
 
   Consequences:
-    - Event selectivity ≈ 0 (EXQ-013): Δz_world barely differs by event type
-    - E2_world trivially accurate (MSE ≈ 0.005 regardless of env drift) — ARC-016
+    - Event selectivity ≈ 0 (EXQ-013): dz_world barely differs by event type
+    - E2_world trivially accurate (MSE ≈ 0.005 regardless of env drift) -- ARC-016
       precision stuck at ~188, commit_rate = 1.0 always (EXQ-018)
-    - Reafference predictor R²=0.118 instead of 0.333 because the multi-step
-      blended Δz_world signal can't be predicted from single-step (z_self, a)
+    - Reafference predictor R2=0.118 instead of 0.333 because the multi-step
+      blended dz_world signal can't be predicted from single-step (z_self, a)
     - z_self more autocorrelated than z_world (EXQ-019): backwards from MECH-058
 
   The fix (SD-008): set alpha_world >= 0.9 (or 1.0 = no EMA for z_world).
@@ -22,17 +22,17 @@ Motivation (2026-03-18):
   genuinely highly autocorrelated).
 
   This experiment runs a comprehensive joint test:
-    Phase 1: EXQ-013-style event selectivity (measures Δz_world by event type)
-    Phase 2: lstsq reafference fit (should now reach R² ≈ 0.333)
+    Phase 1: EXQ-013-style event selectivity (measures dz_world by event type)
+    Phase 2: lstsq reafference fit (should now reach R2 ≈ 0.333)
     Phase 3: ARC-016-style precision dynamics (stable vs perturbed env)
     Phase 4: SD-003 attribution probe (calibration_gap)
-    Phase 5: Timescale check (z_world more persistent than z_self — MECH-058)
+    Phase 5: Timescale check (z_world more persistent than z_self -- MECH-058)
 
   A second condition (alpha_world=1.0 = pure current encoding, no EMA) is also
   tested if --alpha-world=1.0 is passed. Default is 0.9.
 
 PASS criteria (ALL must hold):
-  C1: event_selectivity_margin > 0.005 (Δz_world(env_hazard) > Δz_world(empty))
+  C1: event_selectivity_margin > 0.005 (dz_world(env_hazard) > dz_world(empty))
   C2: reafference_r2_test > 0.25 (lstsq predictor recovers EXQ-014 benchmark)
   C3: var_diff > 0.001 (running_variance responds to env stability change)
   C4: calibration_gap > 0.05 (SD-003 threshold, with lstsq-corrected z_world)
@@ -291,7 +291,7 @@ def _fit_lstsq_predictor(reaf_data, self_dim, action_dim, world_dim):
     r2_train = _r2(X_all[:min(256, n_train)], dz_all[:min(256, n_train)])
     r2_test  = _r2(X_all[n_train:], dz_all[n_train:])
     print(f"  lstsq: n_train={n_train}  n_test={n-n_train}  "
-          f"R²_train={r2_train:.3f}  R²_test={r2_test:.3f}", flush=True)
+          f"R2_train={r2_train:.3f}  R2_test={r2_test:.3f}", flush=True)
     return W, r2_train, r2_test
 
 
@@ -314,8 +314,8 @@ def _eval_precision_dynamics(
     """
     ARC-016-style precision measurement (EXQ-018 methodology).
     Measures running_variance of E2_world prediction errors under stable vs perturbed envs.
-    With alpha_world=0.9, z_world should track env changes → prediction error rises
-    in perturbed env → running_variance rises → var_diff > 0.
+    With alpha_world=0.9, z_world should track env changes -> prediction error rises
+    in perturbed env -> running_variance rises -> var_diff > 0.
     """
     agent.eval()
     device = agent.device
@@ -495,7 +495,7 @@ def run(
 
     print(f"[V3-EXQ-023] SD-008 test: alpha_world={alpha_world}  alpha_self={alpha_self}",
           flush=True)
-    print(f"  Warmup: {warmup_episodes} eps (12×12, 15 hazards, drift)", flush=True)
+    print(f"  Warmup: {warmup_episodes} eps (12x12, 15 hazards, drift)", flush=True)
 
     train_out = _train_and_collect(
         agent, env, world_decoder, net_eval_head,
@@ -508,7 +508,7 @@ def run(
 
     selectivity_margin = mean_dz["env_caused_hazard"] - mean_dz["none"]
     print(f"  Warmup done. harm={warmup_harm}  benefit={warmup_benefit}", flush=True)
-    print(f"  Δz_world — none={mean_dz['none']:.4f}  "
+    print(f"  dz_world -- none={mean_dz['none']:.4f}  "
           f"env_hazard={mean_dz['env_caused_hazard']:.4f}  "
           f"selectivity_margin={selectivity_margin:.4f}", flush=True)
 
@@ -614,21 +614,21 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-023 — SD-008 alpha_world Fix Test
+    summary_markdown = f"""# V3-EXQ-023 -- SD-008 alpha_world Fix Test
 
 **Status:** {status}
-**alpha_world:** {alpha_world}  (baseline was 0.3 — root cause of EXQ-013–019 FAIL cluster)
+**alpha_world:** {alpha_world}  (baseline was 0.3 -- root cause of EXQ-013-019 FAIL cluster)
 **alpha_self:** {alpha_self}
-**Warmup:** {warmup_episodes} eps (RANDOM policy, 12×12, 15 hazards, drift_interval=3, drift_prob=0.5)
+**Warmup:** {warmup_episodes} eps (RANDOM policy, 12x12, 15 hazards, drift_interval=3, drift_prob=0.5)
 **Probe eval:** {eval_probe_resets} grid resets
 **Seed:** {seed}
 
 ## Motivation (SD-008)
 
-LatentStack.encode() used alpha=0.3 for z_world → ~3-step EMA → event responses
-suppressed to 30% per step. Root cause of all EXQ-013–019 FAILs:
-- EXQ-013: Δz_world barely differs by event type (selectivity ≈ 0)
-- EXQ-014/016/021: reafference R²=0.118 (SGD) instead of 0.333 (lstsq)
+LatentStack.encode() used alpha=0.3 for z_world -> ~3-step EMA -> event responses
+suppressed to 30% per step. Root cause of all EXQ-013-019 FAILs:
+- EXQ-013: dz_world barely differs by event type (selectivity ≈ 0)
+- EXQ-014/016/021: reafference R2=0.118 (SGD) instead of 0.333 (lstsq)
 - EXQ-018: ARC-016 precision ≈ 188 always (E2 trivially accurate)
 - EXQ-019: z_self more autocorrelated than z_world (backwards from MECH-058)
 
@@ -637,7 +637,7 @@ directly. MECH-089 theta buffer handles temporal integration; encoder EMA was re
 
 ## Event Selectivity (SD-008 diagnostic)
 
-| Event Type | mean Δz_world |
+| Event Type | mean dz_world |
 |---|---|
 | none (locomotion) | {mean_dz['none']:.4f} |
 | env_caused_hazard | {mean_dz['env_caused_hazard']:.4f} |
@@ -649,8 +649,8 @@ directly. MECH-089 theta buffer handles temporal integration; encoder EMA was re
 | Metric | Value |
 |---|---|
 | n_empty_steps | {train_out['n_empty_steps']} |
-| R²_train | {r2_train:.3f} |
-| R²_test | {reafference_r2:.3f} |
+| R2_train | {r2_train:.3f} |
+| R2_test | {reafference_r2:.3f} |
 
 ## ARC-016 Precision Dynamics
 
@@ -658,7 +658,7 @@ directly. MECH-089 theta buffer handles temporal integration; encoder EMA was re
 |---|---|---|---|
 | stable (drift_prob=0.1) | {prec_stats['mean_pred_err_stable']:.5f} | {prec_stats['variance_stable']:.5f} | {prec_stats['precision_stable']:.2f} |
 | perturbed (drift_prob=0.9) | {prec_stats['mean_pred_err_perturbed']:.5f} | {prec_stats['variance_perturbed']:.5f} | {prec_stats['precision_perturbed']:.2f} |
-| **var_diff** | — | **{prec_stats['var_diff']:.5f}** | — |
+| **var_diff** | -- | **{prec_stats['var_diff']:.5f}** | -- |
 
 ## SD-003 Attribution
 
@@ -675,12 +675,12 @@ Warmup: harm={warmup_harm}  benefit={warmup_benefit}
 | Criterion | Result | Value |
 |---|---|---|
 | C1: event_selectivity_margin > 0.005 | {"PASS" if c1_pass else "FAIL"} | {selectivity_margin:.4f} |
-| C2: R²_test > 0.25 (lstsq reafference) | {"PASS" if c2_pass else "FAIL"} | {reafference_r2:.3f} |
+| C2: R2_test > 0.25 (lstsq reafference) | {"PASS" if c2_pass else "FAIL"} | {reafference_r2:.3f} |
 | C3: var_diff > 0.001 (ARC-016 fires) | {"PASS" if c3_pass else "FAIL"} | {prec_stats['var_diff']:.5f} |
 | C4: calibration_gap > 0.05 (SD-003) | {"PASS" if c4_pass else "FAIL"} | {probe['calibration_gap']:.4f} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {fatal_errors} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

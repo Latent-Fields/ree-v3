@@ -18,7 +18,7 @@ Motivation (2026-03-19):
 
   This is structurally more robust than V2: world_delta is a property of E2's
   learned dynamics model, not an ill-supervised harm head. SD-003 (EXQ-029 PASS)
-  confirmed E2.world_forward achieves R²=0.947 and correct sign structure.
+  confirmed E2.world_forward achieves R2=0.947 and correct sign structure.
 
 Protocol:
   Phase 1 (400 eps): Train E1, E2, terrain_prior. E3.harm_eval frozen.

@@ -1,5 +1,5 @@
 """
-V3-EXQ-017 — Combined Lateral + Reafference (MECH-099 + MECH-098)
+V3-EXQ-017 -- Combined Lateral + Reafference (MECH-099 + MECH-098)
 
 Claims: MECH-099, MECH-098, SD-007, SD-003.
 
@@ -17,8 +17,8 @@ Motivation (2026-03-17):
     z_w_corr_cf  = reaf_pred.correct_z_world(z_world_raw, z_self, a_cf)
     z_w_next_act = E2.world_forward(z_w_corr_act, a_act)
     z_w_next_cf  = E2.world_forward(z_w_corr_cf, a_cf)
-    combined_act = combined_head([z_harm; z_w_next_act]) → scalar
-    combined_cf  = combined_head([z_harm; z_w_next_cf])  → scalar
+    combined_act = combined_head([z_harm; z_w_next_act]) -> scalar
+    combined_cf  = combined_head([z_harm; z_w_next_cf])  -> scalar
     causal_sig   = combined_act - combined_cf
 
   z_harm provides harm context (perspective-invariant; same for both actions but
@@ -28,7 +28,7 @@ Motivation (2026-03-17):
 
 Implementation:
   Phase 1 (warmup): train encoder + E2_world + E2_self + collect data
-    - collect reafference data (empty-step z_self, a, Δz_world)
+    - collect reafference data (empty-step z_self, a, dz_world)
     - collect signal buffer (z_harm, z_world, z_self, action, harm_signal)
   Phase 2: train ReafferencePredictor on empty-step data (200 mini-batches)
   Phase 3: train combined_head on signal buffer using corrected z_world
@@ -89,7 +89,7 @@ def _make_world_decoder(world_dim: int, world_obs_dim: int, hidden_dim: int = 64
 
 
 def _make_combined_head(harm_dim: int, world_dim: int, hidden_dim: int = 64) -> nn.Module:
-    """Combined net_eval head: [z_harm; z_world_next] → scalar ∈ [-1, 1]."""
+    """Combined net_eval head: [z_harm; z_world_next] -> scalar ∈ [-1, 1]."""
     return nn.Sequential(
         nn.Linear(harm_dim + world_dim, hidden_dim),
         nn.ReLU(),
@@ -291,8 +291,8 @@ def _train_reafference_predictor(
 
     r2_train = _r2(z_self_train[:256], a_train[:256], dz_train[:256])
     r2_test = _r2(z_self_test, a_test, dz_test)
-    print(f"  ReafferencePredictor: n_train={n_train}  R²_train={r2_train:.3f}  "
-          f"R²_test={r2_test:.3f}", flush=True)
+    print(f"  ReafferencePredictor: n_train={n_train}  R2_train={r2_train:.3f}  "
+          f"R2_test={r2_test:.3f}", flush=True)
     return rp, r2_train, r2_test
 
 
@@ -451,7 +451,7 @@ def _eval_combined_probes(
     mean_harm_safe = float(sum(safe_harm_norms) / max(1, len(safe_harm_norms)))
     pred_std = float(torch.tensor(all_pred_vals).std().item()) if len(all_pred_vals) > 1 else 0.0
 
-    print(f"  Combined probe — n_near={len(near_sigs)} n_safe={len(safe_sigs)}", flush=True)
+    print(f"  Combined probe -- n_near={len(near_sigs)} n_safe={len(safe_sigs)}", flush=True)
     print(f"  near={mean_near:.4f}  safe={mean_safe:.4f}  gap={calibration_gap:.4f}  "
           f"pred_std={pred_std:.4f}", flush=True)
     print(f"  ||z_harm|| near={mean_harm_near:.4f}  safe={mean_harm_safe:.4f}  "
@@ -556,7 +556,7 @@ def run(
     if not c2_pass:
         failure_notes.append(f"C2 FAIL: z_harm selectivity={probe['z_harm_selectivity_margin']:.4f} <= 0.01")
     if not c3_pass:
-        failure_notes.append(f"C3 FAIL: reafference R²_test={r2_test:.3f} <= 0.2")
+        failure_notes.append(f"C3 FAIL: reafference R2_test={r2_test:.3f} <= 0.2")
     if not c4_pass:
         failure_notes.append(f"C4 FAIL: warmup_harm={warmup_harm} <= 100")
     if not c5_pass:
@@ -594,10 +594,10 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-017 — Combined Lateral + Reafference (MECH-099 + MECH-098)
+    summary_markdown = f"""# V3-EXQ-017 -- Combined Lateral + Reafference (MECH-099 + MECH-098)
 
 **Status:** {status}
-**Warmup:** {warmup_episodes} eps (RANDOM policy, 12×12, 15 hazards, drift_interval=3, drift_prob=0.5)
+**Warmup:** {warmup_episodes} eps (RANDOM policy, 12x12, 15 hazards, drift_interval=3, drift_prob=0.5)
 **Probe eval:** {eval_probe_resets} grid resets
 **harm_dim:** {HARM_DIM}  **world_dim:** {world_dim}  **Seed:** {seed}
 
@@ -613,7 +613,7 @@ the lateral head provides harm-salient z_harm context. The combined attribution:
 
 ## ReafferencePredictor
 
-- R² train: {r2_train:.3f} | R² test: {r2_test:.3f}
+- R2 train: {r2_train:.3f} | R2 test: {r2_test:.3f}
 - Empty-step data: {n_empty_steps}
 
 ## Probe Results
@@ -632,11 +632,11 @@ Warmup: harm={warmup_harm}  benefit={warmup_benefit}
 |---|---|---|
 | C1: calibration_gap > 0.05 | {"PASS" if c1_pass else "FAIL"} | {probe["calibration_gap"]:.4f} |
 | C2: z_harm selectivity > 0.01 | {"PASS" if c2_pass else "FAIL"} | {probe["z_harm_selectivity_margin"]:.4f} |
-| C3: reafference R²_test > 0.2 | {"PASS" if c3_pass else "FAIL"} | {r2_test:.3f} |
+| C3: reafference R2_test > 0.2 | {"PASS" if c3_pass else "FAIL"} | {r2_test:.3f} |
 | C4: Warmup harm events > 100 | {"PASS" if c4_pass else "FAIL"} | {warmup_harm} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {fatal_errors} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

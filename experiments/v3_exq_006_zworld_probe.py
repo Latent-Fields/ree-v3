@@ -16,12 +16,12 @@ Experiment:
      - hazard_adjacent: 1 if a hazard is within Manhattan distance 1, else 0
      - agent_x, agent_y: grid position (regression targets)
   3. Fit a linear probe (logistic regression / linear regression) on z_world
-  4. Report accuracy / R² on held-out 20% test set
+  4. Report accuracy / R2 on held-out 20% test set
 
 PASS criteria (ALL must hold):
   C1: hazard_adjacent probe accuracy > 0.70 (z_world encodes hazard proximity)
-  C2: position_x probe R² > 0.50 (z_world encodes spatial info)
-  C3: position_y probe R² > 0.50
+  C2: position_x probe R2 > 0.50 (z_world encodes spatial info)
+  C3: position_y probe R2 > 0.50
   C4: fatal_error_count == 0
   C5: n_samples >= 1000
 

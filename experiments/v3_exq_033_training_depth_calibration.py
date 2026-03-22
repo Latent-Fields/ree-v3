@@ -1,5 +1,5 @@
 """
-V3-EXQ-033 — Training Depth vs. Gradient Detection Depth
+V3-EXQ-033 -- Training Depth vs. Gradient Detection Depth
          "Love Expands Under Intelligence" Computational Test
 
 Claims: ARC-024, MECH-071, INV-029
@@ -15,14 +15,14 @@ Philosophical basis (Philosophy/notes/2026-03-18_love_once_means_love_all.md):
     detected. Later training: approach detected. Even later: the gradient extends
     further back, covering more of the causal structure.
 
-    EXQ-029 showed the endpoint (500 eps → calibration_gap_approach=0.239).
-    This experiment tests THE CURVE — whether gradient detection deepens
+    EXQ-029 showed the endpoint (500 eps -> calibration_gap_approach=0.239).
+    This experiment tests THE CURVE -- whether gradient detection deepens
     monotonically and whether approach (one step back from contact) improves
     faster than contact (the endpoint) across training.
 
     If the curve shows approach_slope > contact_slope, it is the first direct
     computational evidence that intelligent harm-avoidance extends backward
-    along causal chains — the mechanism of "love expands."
+    along causal chains -- the mechanism of "love expands."
 
 Design:
     Train for 1000 episodes total. Pause training at checkpoints [100, 250, 500, 1000]
@@ -168,7 +168,7 @@ def _train_n_episodes(
                     )
                     reaf_optimizer.step()
 
-            # harm_eval training (balanced, observed states only — E2-predicted
+            # harm_eval training (balanced, observed states only -- E2-predicted
             # states would require separate wf training; keeping this pure)
             if len(harm_buf_pos) >= 4 and len(harm_buf_neg) >= 4:
                 k_pos = min(16, len(harm_buf_pos))
@@ -215,7 +215,7 @@ def _eval_checkpoint(
     steps_per_episode: int,
     checkpoint_eps: int,
 ) -> Dict:
-    """Lightweight eval — measure calibration_gap_approach and calibration_gap_contact."""
+    """Lightweight eval -- measure calibration_gap_approach and calibration_gap_contact."""
     agent.eval()
     scores: Dict[str, List[float]] = {
         "none": [], "env_caused_hazard": [], "agent_caused_hazard": [],
@@ -352,7 +352,7 @@ def run(
 
     for checkpoint in CHECKPOINTS:
         n_to_train = checkpoint - prev_checkpoint
-        print(f"\n[V3-EXQ-033] Training episodes {prev_checkpoint+1}–{checkpoint}...", flush=True)
+        print(f"\n[V3-EXQ-033] Training episodes {prev_checkpoint+1}-{checkpoint}...", flush=True)
 
         _train_n_episodes(
             agent, env, optimizer, harm_eval_optimizer, reaf_optimizer,
@@ -441,7 +441,7 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-033 — Training Depth vs. Gradient Detection Depth
+    summary_markdown = f"""# V3-EXQ-033 -- Training Depth vs. Gradient Detection Depth
             "Love Expands Under Intelligence" Computational Test
 
 **Status:** {status}
@@ -461,7 +461,7 @@ gradients further back along the causal chain. Approach detection (one step from
 should improve faster than contact detection (the endpoint), because the gradient
 representation requires a richer causal model.
 
-approach_slope > contact_slope → gradient extends backward with intelligence.
+approach_slope > contact_slope -> gradient extends backward with intelligence.
 
 ## Calibration Curve
 
@@ -480,10 +480,10 @@ approach_slope > contact_slope → gradient extends backward with intelligence.
 | C1: gap_approach[1000] > gap_approach[100] + 0.05 (grows with training) | {"PASS" if c1_pass else "FAIL"} | {gap_approach_1000:.4f} vs {gap_approach_100:.4f} |
 | C2: gap_approach[500] > gap_approach[100] (monotonic in first half) | {"PASS" if c2_pass else "FAIL"} | {gap_approach_500:.4f} vs {gap_approach_100:.4f} |
 | C3: gap_approach[1000] > 0.10 (non-trivial at endpoint) | {"PASS" if c3_pass else "FAIL"} | {gap_approach_1000:.4f} |
-| C4: approach_slope > contact_slope (CORE — gradient deepens faster) | {"PASS" if c4_pass else "FAIL"} | {approach_slope:.6f} vs {contact_slope:.6f} |
+| C4: approach_slope > contact_slope (CORE -- gradient deepens faster) | {"PASS" if c4_pass else "FAIL"} | {approach_slope:.6f} vs {contact_slope:.6f} |
 | C5: n_approach_min >= 20 (sufficient events at each checkpoint) | {"PASS" if c5_pass else "FAIL"} | {n_approach_min} |
 
-Criteria met: {n_met}/5 → **{status}**
+Criteria met: {n_met}/5 -> **{status}**
 {failure_section}
 """
 

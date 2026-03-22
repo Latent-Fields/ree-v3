@@ -106,7 +106,7 @@ def _compute_world_forward_r2(
         ss_res = ((tgt_test - pred_test) ** 2).sum()
         ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
     return r2
 
 
@@ -552,7 +552,7 @@ low-energy options.
 |---|---|
 {by_ttype_rows}
 
-- **world_forward R²**: {wf_r2:.4f}
+- **world_forward R2**: {wf_r2:.4f}
 
 ## PASS Criteria
 

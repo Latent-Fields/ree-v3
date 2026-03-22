@@ -1,5 +1,5 @@
 """
-V3-EXQ-020 — Event-Auxiliary Contrastive Encoder Loss (MECH-100, SD-009)
+V3-EXQ-020 -- Event-Auxiliary Contrastive Encoder Loss (MECH-100, SD-009)
 
 Claims: MECH-100 (encoder.event_contrastive_supervision), SD-003, SD-009.
 
@@ -23,7 +23,7 @@ Motivation (2026-03-18):
 PASS criteria (ALL must hold):
   C1: calibration_gap > 0.05 (SD-003 threshold, standard probe)
   C2: event_classification_acc > 0.5 (held-out evaluation of event_classifier)
-  C3: Δz_world(env_hazard) > Δz_world(empty) with margin > 0.005
+  C3: dz_world(env_hazard) > dz_world(empty) with margin > 0.005
       (direct event-selectivity check matching EXQ-013 C1)
   C4: warmup harm events > 100
   C5: No fatal errors
@@ -182,7 +182,7 @@ def _train_and_collect(
             elif harm_signal > 0:
                 total_benefit += 1
 
-            # Δz_world selectivity measurement (uses prev_ttype for labeling)
+            # dz_world selectivity measurement (uses prev_ttype for labeling)
             if z_world_prev is not None and prev_ttype in dz_world_by_event:
                 dz = float(torch.norm(z_world_curr.detach() - z_world_prev).item())
                 if len(dz_world_by_event[prev_ttype]) < MAX_DZ_PER_TYPE:
@@ -269,7 +269,7 @@ def _train_and_collect(
             print(f"  [train] ep {ep+1}/{num_episodes}  harm={total_harm}  "
                   f"ce_loss_mean={total_ce_loss / max(1, ce_steps):.4f}", flush=True)
 
-    # Compute mean Δz_world per event type
+    # Compute mean dz_world per event type
     mean_dz = {
         k: float(sum(v) / max(1, len(v))) for k, v in dz_world_by_event.items()
     }
@@ -430,7 +430,7 @@ def run(
     net_eval_optim = optim.Adam(net_eval_head.parameters(), lr=1e-4)
 
     print(f"[V3-EXQ-020] Warmup + contrastive training: {warmup_episodes} eps  "
-          f"λ_event={lambda_event}  (12×12, 15 hazards, drift)", flush=True)
+          f"λ_event={lambda_event}  (12x12, 15 hazards, drift)", flush=True)
     train_out = _train_and_collect(
         agent, env, world_decoder, net_eval_head, event_classifier,
         optimizer, net_eval_optim,
@@ -442,7 +442,7 @@ def run(
     mean_dz        = train_out["mean_dz_world_by_event"]
 
     print(f"  Warmup done. harm={warmup_harm}  benefit={warmup_benefit}", flush=True)
-    print(f"  Δz_world — none={mean_dz['none']:.4f}  "
+    print(f"  dz_world -- none={mean_dz['none']:.4f}  "
           f"env_hazard={mean_dz['env_caused_hazard']:.4f}  "
           f"agent_hazard={mean_dz['agent_caused_hazard']:.4f}", flush=True)
 
@@ -523,17 +523,17 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-020 — Event-Auxiliary Contrastive Encoder Loss
+    summary_markdown = f"""# V3-EXQ-020 -- Event-Auxiliary Contrastive Encoder Loss
 
 **Status:** {status}
-**Warmup:** {warmup_episodes} eps (RANDOM policy, 12×12, 15 hazards, drift_interval=3, drift_prob=0.5)
+**Warmup:** {warmup_episodes} eps (RANDOM policy, 12x12, 15 hazards, drift_interval=3, drift_prob=0.5)
 **λ_event:** {lambda_event}
 **Probe eval:** {eval_probe_resets} grid resets
 **Seed:** {seed}
 
 ## Motivation (MECH-100 / SD-009)
 
-EXQ-013 showed z_world has near-zero event selectivity — Δz_world barely differs
+EXQ-013 showed z_world has near-zero event selectivity -- dz_world barely differs
 between empty_move and env_caused_hazard. Root cause: encoder training losses are
 event-invariant (E1 reconstruction, E2 self-prediction reward all z_world equally).
 Fix: add cross-entropy event classifier (Linear(world_dim, 3)) to total_loss,
@@ -542,7 +542,7 @@ discriminative information.
 
 ## Event Selectivity
 
-| Event Type | mean Δz_world |
+| Event Type | mean dz_world |
 |---|---|
 | none (locomotion) | {mean_dz['none']:.4f} |
 | env_caused_hazard | {mean_dz['env_caused_hazard']:.4f} |
@@ -574,7 +574,7 @@ Warmup: harm={warmup_harm}  benefit={warmup_benefit}
 | C4: Warmup harm events > 100 | {"PASS" if c4_pass else "FAIL"} | {warmup_harm} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {fatal_errors} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

@@ -20,11 +20,11 @@ Motivation (2026-03-19):
     Separated (N_e1=1, N_e2=3, N_e3=9): multi-rate SD-006
 
   Key measurement: does calibration_gap_approach remain positive and meaningful
-  at 3× rate separation (N_e3=9 vs N_e1=1)?
+  at 3x rate separation (N_e3=9 vs N_e1=1)?
 
 PASS criteria (ALL must hold):
   C1: calibration_gap_approach_separated > 0.0  (E3 still functional at slower rate)
-  C2: e3_tick_ratio_separated < 0.3              (E3 runs at least 3× less than E1)
+  C2: e3_tick_ratio_separated < 0.3              (E3 runs at least 3x less than E1)
   C3: theta_buffer_size_used >= 3                (theta buffer is accumulating across steps)
   C4: e3_tick_count_separated >= 10             (E3 fired enough times)
   C5: No fatal errors
@@ -376,7 +376,7 @@ def run(
 
 SD-006 Phase 1: time-multiplexed multi-rate execution. E3 runs every 9 steps,
 receiving theta-averaged z_world from ThetaBuffer (MECH-089). This tests whether
-E3 remains functional (calibration_gap > 0) at 9× slower rate than E1.
+E3 remains functional (calibration_gap > 0) at 9x slower rate than E1.
 
 ## Multi-Rate Results
 

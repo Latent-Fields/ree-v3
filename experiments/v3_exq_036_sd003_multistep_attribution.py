@@ -6,7 +6,7 @@ Claims: SD-003, ARC-024, MECH-071
 Root cause of EXQ-030b C3 FAIL (causal_sig_approach=0.003149 < 0.005):
 
     With 1-step E2.world_forward, action-conditional predictions are nearly identical:
-    The agent moves 1 cell in a 12×12 grid per step. The hazard_field_view (proximity
+    The agent moves 1 cell in a 12x12 grid per step. The hazard_field_view (proximity
     channels in z_world) changes only slightly for any single-step move. So
     E3(E2(z_world, a_actual)) ≈ E3(E2(z_world, a_cf)) for almost all timesteps —
     the causal signature is diluted to noise.
@@ -33,7 +33,7 @@ World: identical to EXQ-030b (CausalGridWorldV2, size=12, num_hazards=4).
 PASS criteria (C3 threshold raised from 0.005 to 0.01 — 5-step rollout amplifies signal):
     C1: attribution_gap > 0  (approach attribution > env-caused attribution)
     C2: causal_sig_approach > causal_sig_none  (hazard approach more attributable)
-    C3: causal_sig_approach > 0.01  (minimum detectable signal with 5× amplification)
+    C3: causal_sig_approach > 0.01  (minimum detectable signal with 5x amplification)
     C4: world_forward_r2 > 0.05    (E2 functional)
     C5: n_approach_eval >= 50      (sufficient approach events)
 """
@@ -86,7 +86,7 @@ def _compute_world_forward_r2(
         ss_res = ((tgt_test - pred_test) ** 2).sum()
         ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
     return r2
 
 
@@ -510,7 +510,7 @@ def run(
 
 **EXQ-030b C3 FAIL — 1-step causal_sig too small:**
 Single-step E2.world_forward produces nearly identical next-states for all actions.
-Agent moves 1 cell/step in 12×12 grid → hazard_field_view changes ~1/12 of full range.
+Agent moves 1 cell/step in 12x12 grid → hazard_field_view changes ~1/12 of full range.
 E3(E2(z, a_actual)) ≈ E3(E2(z, a_cf)) → causal_sig ≈ noise.
 
 **Fix: k={k_rollout}-step rollout with shared random tail:**
@@ -527,7 +527,7 @@ propagated their position difference through E2's world model, amplifying proxim
 | env_caused_hazard    | {ms['env_caused_hazard']:.6f} | {nc['env_caused_hazard']} |
 | agent_caused_hazard  | {ms['agent_caused_hazard']:.6f} | {nc['agent_caused_hazard']} |
 
-- **world_forward R²**: {wf_r2:.4f}
+- **world_forward R2**: {wf_r2:.4f}
 - **attribution_gap** (approach − env): {eval_out['attribution_gap']:.6f}
 
 ## PASS Criteria

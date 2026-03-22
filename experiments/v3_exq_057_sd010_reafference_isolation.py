@@ -5,7 +5,7 @@ Claims: SD-010, SD-007, MECH-101
 
 EXQ-027b FAILED with calibration_gap_raw=0.024 (threshold 0.03). Root cause:
 hazard proximity signals were fused into z_world, and the ReafferencePredictor
-was trained to predict Δz_world on locomotion steps. Near hazards, Δz_world
+was trained to predict dz_world on locomotion steps. Near hazards, dz_world
 includes the hazard proximity gradient changing as the agent approaches —
 legitimate harm signal that the predictor incorrectly cancelled as "reafference".
 
@@ -234,7 +234,7 @@ def run(
                 flush=True,
             )
 
-    # ── Reafference R² on held-out locomotion buffer ─────────────────────────
+    # ── Reafference R2 on held-out locomotion buffer ─────────────────────────
     reaf_r2 = 0.0
     if len(reaf_buf) >= 20:
         n = len(reaf_buf)
@@ -250,7 +250,7 @@ def run(
                 ss_res = ((tgt_test - pred_test) ** 2).sum()
                 ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
                 reaf_r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  ReafferencePredictor R² (held-out locomotion): {reaf_r2:.4f}", flush=True)
+    print(f"  ReafferencePredictor R2 (held-out locomotion): {reaf_r2:.4f}", flush=True)
 
     # ── C5: Identity test — z_harm unaffected by reafference call ────────────
     # Constructive: harm_enc is outside LatentStack, so reafference never touches it.
@@ -322,7 +322,7 @@ def run(
     n_agent_hazard         = len(agent_vals)
 
     print(f"\n  --- SD-010 Reafference Isolation (EXQ-057) ---", flush=True)
-    print(f"  ReafferencePredictor R² (z_world, locomotion): {reaf_r2:.4f}", flush=True)
+    print(f"  ReafferencePredictor R2 (z_world, locomotion): {reaf_r2:.4f}", flush=True)
     print(f"  harm_eval_z_harm by ttype:", flush=True)
     print(f"    none:          mean={mean_none:.4f}  n={len(none_vals)}", flush=True)
     print(f"    hazard_approach: mean={mean_approach:.4f}  std={harm_pred_std_z_harm:.4f}  n={len(approach_vals)}", flush=True)

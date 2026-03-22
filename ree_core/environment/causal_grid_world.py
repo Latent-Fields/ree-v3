@@ -23,7 +23,7 @@ Observation structure (V3, use_proxy_fields=True — CausalGridWorldV2 mode):
   body_obs_dim  = 12
   world_obs_dim = 250
 
-Proxy-gradient rationale (ARC-024 / INV-025–029):
+Proxy-gradient rationale (ARC-024 / INV-025-029):
   Harm and benefit signals are proxies along gradients pointing toward asymptotic
   limits (death / complete union) that are unreachable from within experience.
   A world that generates harm only at contact models the endpoint, not the gradient.
@@ -452,7 +452,7 @@ class CausalGridWorld:
           [2]: agent_health
           [3]: agent_energy
           [4]: footprint_density at current cell
-          [5–8]: last action one-hot (4 actions: up/down/left/right)
+          [5-8]: last action one-hot (4 actions: up/down/left/right)
           [9]: steps / 500 (normalised episode progress)
 
         Additional body_state channels (use_proxy_fields=True):

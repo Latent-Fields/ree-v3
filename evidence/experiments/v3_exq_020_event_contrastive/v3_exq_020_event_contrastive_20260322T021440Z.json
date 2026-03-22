@@ -1,0 +1,40 @@
+{
+  "status": "FAIL",
+  "metrics": {
+    "fatal_error_count": 0.0,
+    "warmup_harm_events": 55381.0,
+    "warmup_benefit_events": 2257.0,
+    "event_classification_acc": 0.6940000057220459,
+    "event_selectivity_margin": 1.1910860333405435,
+    "mean_dz_world_none": 0.4547162482701242,
+    "mean_dz_world_env_hazard": 1.6458022816106677,
+    "mean_dz_world_agent_hazard": 1.5310568016432227,
+    "calibration_gap": 0.016035386033807747,
+    "mean_causal_sig_near_hazard": -0.05483533584823211,
+    "mean_causal_sig_safe": -0.07087072188203986,
+    "n_near_hazard_probes": 480.0,
+    "n_safe_probes": 22.0,
+    "net_eval_pred_std": 0.09051769971847534,
+    "lambda_event": 0.5,
+    "mean_ce_loss_train": 0.625664244815161,
+    "crit1_pass": 0.0,
+    "crit2_pass": 1.0,
+    "crit3_pass": 1.0,
+    "crit4_pass": 1.0,
+    "criteria_met": 4.0
+  },
+  "summary_markdown": "# V3-EXQ-020 \u2014 Event-Auxiliary Contrastive Encoder Loss\n\n**Status:** FAIL\n**Warmup:** 1000 eps (RANDOM policy, 12\u00d712, 15 hazards, drift_interval=3, drift_prob=0.5)\n**\u03bb_event:** 0.5\n**Probe eval:** 10 grid resets\n**Seed:** 1\n\n## Motivation (MECH-100 / SD-009)\n\nEXQ-013 showed z_world has near-zero event selectivity \u2014 \u0394z_world barely differs\nbetween empty_move and env_caused_hazard. Root cause: encoder training losses are\nevent-invariant (E1 reconstruction, E2 self-prediction reward all z_world equally).\nFix: add cross-entropy event classifier (Linear(world_dim, 3)) to total_loss,\nbackpropagating through z_world encoder. This forces z_world to carry event-type\ndiscriminative information.\n\n## Event Selectivity\n\n| Event Type | mean \u0394z_world |\n|---|---|\n| none (locomotion) | 0.4547 |\n| env_caused_hazard | 1.6458 |\n| agent_caused_hazard | 1.5311 |\n| **selectivity margin** (env - none) | **1.1911** |\n\nEvent classifier accuracy: 0.694\nTraining CE loss mean: 0.6257\n\n## SD-003 Attribution (Standard, No Reafference Correction)\n\n| Position | mean(causal_sig) |\n|---|---|\n| Near-hazard | -0.0548 |\n| Safe | -0.0709 |\n| **calibration_gap** | **0.0160** |\n\nnet_eval pred_std: 0.0905\nn_near=480  n_safe=22\nWarmup: harm=55381  benefit=2257\n\n## PASS Criteria\n\n| Criterion | Result | Value |\n|---|---|---|\n| C1: calibration_gap > 0.05 | FAIL | 0.0160 |\n| C2: event_classification_acc > 0.5 | PASS | 0.694 |\n| C3: selectivity_margin > 0.005 | PASS | 1.1911 |\n| C4: Warmup harm events > 100 | PASS | 55381 |\n| C5: No fatal errors | PASS | 0 |\n\nCriteria met: 4/5 \u2192 **FAIL**\n\n## Failure Notes\n\n- C1 FAIL: calibration_gap=0.0160 <= 0.05\n",
+  "claim_ids": [
+    "MECH-100",
+    "SD-009",
+    "SD-003"
+  ],
+  "evidence_direction": "mixed",
+  "experiment_type": "v3_exq_020_event_contrastive",
+  "fatal_error_count": 0,
+  "run_timestamp": "20260322T021440Z",
+  "claim": "MECH-100",
+  "verdict": "FAIL",
+  "run_id": "v3_exq_020_event_contrastive_20260322T021440Z_v3",
+  "architecture_epoch": "ree_hybrid_guardrails_v1"
+}

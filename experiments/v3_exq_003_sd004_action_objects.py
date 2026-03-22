@@ -1,18 +1,18 @@
 """
-V3-EXQ-003 — SD-004 Action-Object Planning Horizon Validation
+V3-EXQ-003 -- SD-004 Action-Object Planning Horizon Validation
 
 Claim: SD-004 (action-object space navigation) produces functionally better
 plans than random action shooting after training, because:
   a) HippocampalModule's CEM operates over compressed world-effect objects (16-dim)
-     rather than raw z_world (32-dim) — more efficient search
+     rather than raw z_world (32-dim) -- more efficient search
   b) Terrain prior biases proposals toward low-residue regions after residue accumulates
   c) Effective planning horizon extends to rollout_horizon=30 > E1.prediction_horizon=20
 
 Experimental logic:
   SINGLE trained agent (E1 + E2 self/world + residue accumulation via warmup episodes).
   Two evaluation conditions on the same agent:
-    TERRAIN: full SD-004 hippocampal.propose_trajectories() — CEM in action-object space
-    RANDOM:  e2.generate_candidates_random() — random action shooting, same horizon
+    TERRAIN: full SD-004 hippocampal.propose_trajectories() -- CEM in action-object space
+    RANDOM:  e2.generate_candidates_random() -- random action shooting, same horizon
 
   If SD-004 is working, TERRAIN should:
     - produce lower harm rate than RANDOM (terrain avoids residue regions)
@@ -167,8 +167,8 @@ def _eval_condition(
     """
     Evaluate one planning condition.
 
-    use_terrain=True:  hippocampal.propose_trajectories() — full SD-004 CEM
-    use_terrain=False: e2.generate_candidates_random()    — random action shooting
+    use_terrain=True:  hippocampal.propose_trajectories() -- full SD-004 CEM
+    use_terrain=False: e2.generate_candidates_random()    -- random action shooting
     """
     agent.eval()
     torch.manual_seed(seed + (2000 if use_terrain else 3000))
@@ -209,7 +209,7 @@ def _eval_condition(
                         result = agent.e3.select(candidates, temperature=1.5)
                         action = result.selected_action
                     else:
-                        # Baseline: random action shooting — generate candidates and
+                        # Baseline: random action shooting -- generate candidates and
                         # select uniformly at random (no E3 scoring; avoids NaN scores
                         # from uninitialised world_forward rollouts crashing multinomial).
                         candidates = agent.e2.generate_candidates_random(
@@ -307,13 +307,13 @@ def run(
     # ------------------------------------------------------------------ #
     # Training phase                                                       #
     # ------------------------------------------------------------------ #
-    print(f"\n[V3-EXQ-003] Seed {seed} — warmup {warmup_episodes} episodes ...", flush=True)
+    print(f"\n[V3-EXQ-003] Seed {seed} -- warmup {warmup_episodes} episodes ...", flush=True)
     train_metrics = _train_episodes(agent, env, optimizer, warmup_episodes, steps_per_episode)
     warmup_harm = train_metrics["harm_events"]
-    print(f"  Warmup complete — harm events: {warmup_harm}", flush=True)
+    print(f"  Warmup complete -- harm events: {warmup_harm}", flush=True)
 
     # ------------------------------------------------------------------ #
-    # Evaluation phase — TERRAIN vs RANDOM on the same trained agent      #
+    # Evaluation phase -- TERRAIN vs RANDOM on the same trained agent      #
     # ------------------------------------------------------------------ #
     print(f"\n[V3-EXQ-003] Evaluating TERRAIN condition ...", flush=True)
     r_terrain = _eval_condition(agent, env, eval_episodes, steps_per_episode,
@@ -401,11 +401,11 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-003 — SD-004 Action-Object Planning Horizon Validation
+    summary_markdown = f"""# V3-EXQ-003 -- SD-004 Action-Object Planning Horizon Validation
 
 **Status:** {status}
-**Warmup episodes:** {warmup_episodes} × {steps_per_episode} steps
-**Eval episodes:** {eval_episodes} × {steps_per_episode} steps (per condition)
+**Warmup episodes:** {warmup_episodes} x {steps_per_episode} steps
+**Eval episodes:** {eval_episodes} x {steps_per_episode} steps (per condition)
 **Seed:** {seed}
 
 ## PASS Criteria
@@ -426,13 +426,13 @@ def run(
 
 ## Planning Architecture
 
-- TERRAIN: hippocampal.propose_trajectories() — CEM in action-object space O (16-dim)
-  biased by terrain_prior(z_world, e1_prior, residue_val) → action_object_mean
-- RANDOM: e2.generate_candidates_random() — random action shooting, horizon={config.hippocampal.horizon}
+- TERRAIN: hippocampal.propose_trajectories() -- CEM in action-object space O (16-dim)
+  biased by terrain_prior(z_world, e1_prior, residue_val) -> action_object_mean
+- RANDOM: e2.generate_candidates_random() -- random action shooting, horizon={config.hippocampal.horizon}
 - Both conditions use the same trained agent and e3.select() for final action choice
-- E1.prediction_horizon={config.e1.prediction_horizon} — planning horizon={config.hippocampal.horizon} extends beyond E1 range
+- E1.prediction_horizon={config.e1.prediction_horizon} -- planning horizon={config.hippocampal.horizon} extends beyond E1 range
 
-Criteria met: {criteria_met}/4 → **{status}**
+Criteria met: {criteria_met}/4 -> **{status}**
 {failure_section}
 """
 

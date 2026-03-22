@@ -61,7 +61,7 @@ def variance_commit_threshold(config_threshold: float) -> float:
     Return the variance-space commit threshold (ARC-016).
 
     Commitment fires when running_variance < threshold (low variance = confident).
-    Threshold lives in variance space [~0.01–0.05], NOT precision space (~100).
+    Threshold lives in variance space [~0.01-0.05], NOT precision space (~100).
     (Prior precision_to_threshold() was on the wrong scale: returning ~0.703
     vs current_precision ~95 → always committed. Fixed 2026-03-18.)
     """

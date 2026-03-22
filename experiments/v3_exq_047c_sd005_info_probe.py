@@ -5,11 +5,11 @@ Claims: SD-005
 
 Context:
   EXQ-047 and EXQ-047b both tested SD-005 by measuring downstream task performance
-  (world_forward R² and attribution_gap). Both FAILED: the split doesn't improve
+  (world_forward R2 and attribution_gap). Both FAILED: the split doesn't improve
   — and in 047b slightly hurts — E2 prediction or causal attribution metrics.
 
   The diagnosis: downstream task metrics are insensitive at CausalGridWorld scale.
-  Both split and unified conditions achieve R² > 0.94 — there's no room for the
+  Both split and unified conditions achieve R2 > 0.94 — there's no room for the
   split to show a 5pp advantage when the baseline is already near ceiling.
   Attribution gaps are < 0.002 in absolute terms — below signal threshold.
 
@@ -446,8 +446,8 @@ def run(
 
 ## Design Rationale
 
-Prior tests (EXQ-047, 047b) measured downstream task performance (R², attribution_gap).
-Both failed because the CausalGridWorld task is too easy — both split and unified reach R²>0.94.
+Prior tests (EXQ-047, 047b) measured downstream task performance (R2, attribution_gap).
+Both failed because the CausalGridWorld task is too easy — both split and unified reach R2>0.94.
 This experiment instead probes information routing directly: does z_self carry more
 action-correlated signal, and z_world more event-correlated signal, in the split condition?
 

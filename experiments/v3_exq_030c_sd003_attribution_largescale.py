@@ -1,21 +1,21 @@
 """
-V3-EXQ-030c — SD-003 Full Attribution: Large-Scale (n_hazards=8, warmup=2000, eval=200)
+V3-EXQ-030c -- SD-003 Full Attribution: Large-Scale (n_hazards=8, warmup=2000, eval=200)
 
 Claims: SD-003, ARC-024, MECH-071
 
 Root cause of EXQ-030b seed-1 sign switch:
     n_agent_hazard_eval ≈ 32. With per-sample causal_sig std≈0.05,
     SE = 0.05/sqrt(32) ≈ 0.009. Seed-0 mean=+0.017 and seed-1 mean=-0.008
-    are both within 2 SE of zero — a statistical power failure, not a
+    are both within 2 SE of zero -- a statistical power failure, not a
     model failure. The sign structure cannot be distinguished from noise at N=32.
 
     EXQ-030c fixes this by scaling up:
-      - n_hazards: 4 → 8 (doubles contact rate from ~0.003 to ~0.006/step)
-      - warmup: 500 → 2000 episodes (E2 and E3 better calibrated on contact states)
-      - eval: 50 → 200 episodes (N ≈ 200+ contact events per type)
-      - steps: 200 → 300 (more time per episode near hazards)
+      - n_hazards: 4 -> 8 (doubles contact rate from ~0.003 to ~0.006/step)
+      - warmup: 500 -> 2000 episodes (E2 and E3 better calibrated on contact states)
+      - eval: 50 -> 200 episodes (N ≈ 200+ contact events per type)
+      - steps: 200 -> 300 (more time per episode near hazards)
     Target: n_agent_hazard_eval >= 100, n_env_hazard_eval >= 100.
-    At N=100, SE ≈ 0.005 — agent_caused mean of 0.010 would be 2 SE above zero.
+    At N=100, SE ≈ 0.005 -- agent_caused mean of 0.010 would be 2 SE above zero.
 
 Architecture basis:
     SD-003 (counterfactual self-attribution)
@@ -29,7 +29,7 @@ PASS criteria (same core as EXQ-030b, new N requirements):
     C2: causal_sig_approach > causal_sig_none
     C3: causal_sig_approach > 0.005
     C4: world_forward_r2 > 0.05
-    C5: n_agent_hazard_eval >= 100 (NEW — enough data for reliable contact stats)
+    C5: n_agent_hazard_eval >= 100 (NEW -- enough data for reliable contact stats)
 
 Diagnostic (not PASS/FAIL):
     sign_structure_correct = (causal_sig_agent_caused > causal_sig_env_caused)
@@ -84,7 +84,7 @@ def _compute_world_forward_r2(
         ss_res = ((tgt_test - pred_test) ** 2).sum()
         ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
     return r2
 
 
@@ -367,7 +367,7 @@ def run(
     agent = REEAgent(config)
 
     print(
-        f"[V3-EXQ-030c] SD-003 Full Attribution — Large Scale\n"
+        f"[V3-EXQ-030c] SD-003 Full Attribution -- Large Scale\n"
         f"  body_obs={env.body_obs_dim}  world_obs={env.world_obs_dim}\n"
         f"  num_hazards=8 (vs 4 in EXQ-030b)  warmup={warmup_episodes}  eval={eval_episodes}\n"
         f"  alpha_world={alpha_world}  proximity_scale={proximity_scale}\n"
@@ -440,7 +440,7 @@ def run(
     print(f"\nV3-EXQ-030c verdict: {status}  ({n_met}/5)", flush=True)
     for note in failure_notes:
         print(f"  {note}", flush=True)
-    print(f"  Diagnostic — sign_structure_correct: {eval_out['sign_correct']}", flush=True)
+    print(f"  Diagnostic -- sign_structure_correct: {eval_out['sign_correct']}", flush=True)
 
     tc = train_out["counts"]
     metrics = {
@@ -484,24 +484,24 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-030c — SD-003 Full Attribution (Large Scale)
+    summary_markdown = f"""# V3-EXQ-030c -- SD-003 Full Attribution (Large Scale)
 
 **Status:** {status}
 **Claims:** SD-003, ARC-024, MECH-071
 **World:** CausalGridWorldV2 (n_hazards=8, size=12, proximity_scale={proximity_scale})
-**Warmup:** {warmup_episodes} eps | **Eval:** {eval_episodes} eps × {steps_per_episode} steps
+**Warmup:** {warmup_episodes} eps | **Eval:** {eval_episodes} eps x {steps_per_episode} steps
 **alpha_world:** {alpha_world}  (SD-008)
 **Seed:** {seed}
 
 ## Motivation: Resolving EXQ-030b Sign Switch
 
 EXQ-030b seed-0 PASS (agent_caused=+0.017), seed-1 FAIL (agent_caused=-0.008).
-Root cause: n_agent_caused_eval ≈ 32 → SE ≈ 0.009. Both means within 2 SE of zero.
+Root cause: n_agent_caused_eval ≈ 32 -> SE ≈ 0.009. Both means within 2 SE of zero.
 EXQ-030c scales up to N ≥ 100 contact events per type:
-- n_hazards: 4 → 8 (doubles contact frequency)
-- warmup: 500 → 2000 (better-calibrated E2 and E3 on contact states)
-- eval: 50 → 200 episodes (more data)
-- steps: 200 → 300 (more exposure per episode)
+- n_hazards: 4 -> 8 (doubles contact frequency)
+- warmup: 500 -> 2000 (better-calibrated E2 and E3 on contact states)
+- eval: 50 -> 200 episodes (more data)
+- steps: 200 -> 300 (more exposure per episode)
 
 ## Attribution Results
 
@@ -512,9 +512,9 @@ EXQ-030c scales up to N ≥ 100 contact events per type:
 | env_caused_hazard    | {ms['env_caused_hazard']:.6f} | {md['env_caused_hazard']:.6f} | {sd['env_caused_hazard']:.6f} | {nc['env_caused_hazard']} |
 | agent_caused_hazard  | {ms['agent_caused_hazard']:.6f} | {md['agent_caused_hazard']:.6f} | {sd['agent_caused_hazard']:.6f} | {nc['agent_caused_hazard']} |
 
-- **world_forward R²**: {wf_r2:.4f}
+- **world_forward R2**: {wf_r2:.4f}
 - **attribution_gap** (approach − env_caused): {eval_out['attribution_gap']:.6f}
-- **sign_structure_correct** (agent > env): {eval_out['sign_correct']}  *(diagnostic — not a pass criterion)*
+- **sign_structure_correct** (agent > env): {eval_out['sign_correct']}  *(diagnostic -- not a pass criterion)*
 
 ## PASS Criteria
 
@@ -526,7 +526,7 @@ EXQ-030c scales up to N ≥ 100 contact events per type:
 | C4: world_forward_r2 > 0.05 | {"PASS" if c4_pass else "FAIL"} | {wf_r2:.4f} |
 | C5: n_agent_hazard_eval >= 100 (reliable contact stats) | {"PASS" if c5_pass else "FAIL"} | {nc['agent_caused_hazard']} |
 
-Criteria met: {n_met}/5 → **{status}**
+Criteria met: {n_met}/5 -> **{status}**
 {failure_section}
 """
 

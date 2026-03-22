@@ -322,7 +322,7 @@ def run(
 
 **Status:** {status}
 **Training episodes:** {num_train_episodes}
-**Eval episodes:** {num_episodes} × {steps_per_episode} steps
+**Eval episodes:** {num_episodes} x {steps_per_episode} steps
 **Seed:** {seed}
 
 ## PASS Criteria

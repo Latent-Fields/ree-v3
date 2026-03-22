@@ -318,7 +318,7 @@ def run(
 **Status:** {status}
 **alpha_world:** {alpha_world} (SD-008 fix)
 **Training episodes:** {num_train_episodes}
-**Eval episodes:** {num_episodes} × {steps_per_episode} steps
+**Eval episodes:** {num_episodes} x {steps_per_episode} steps
 **Seed:** {seed}
 **Context:** EXQ-001 FAILed with world_selectivity_margin=−0.1252 at alpha_world=0.3.
 This rerun tests whether SD-008 fix alone (alpha_world=0.9) restores positive selectivity.

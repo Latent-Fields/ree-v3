@@ -9,7 +9,7 @@ Motivation (2026-03-18):
   signal. V3 fix requires two components:
 
   1. SD-008 (alpha_world=0.9): z_world tracks current observations sharply,
-     so event transitions produce visible Δz_world.
+     so event transitions produce visible dz_world.
 
   2. SD-007 (ReafferencePredictor): trained on empty-space steps (ttype == "none")
      to predict the z_world delta caused by locomotion. Applied in LatentStack.encode():
@@ -37,7 +37,7 @@ Protocol:
 
 PASS criteria (ALL must hold):
   C1: calibration_gap > 0.15   (higher bar than EXQ-026; reafference should clean up signal)
-  C2: reafference_r2 > 0.20    (ReafferencePredictor explains >20% of Δz_world variance)
+  C2: reafference_r2 > 0.20    (ReafferencePredictor explains >20% of dz_world variance)
   C3: harm_pred_std > 0.01     (E3 not collapsed)
   C4: n_agent_hazard_steps >= 5
   C5: No fatal errors
@@ -81,7 +81,7 @@ def _action_to_onehot(action_idx: int, num_actions: int, device) -> torch.Tensor
 def _compute_reafference_r2(agent: REEAgent, reaf_data: List) -> float:
     """
     lstsq diagnostic: how well does ReafferencePredictor's output correlate
-    with actual Δz_world on held-out empty steps?
+    with actual dz_world on held-out empty steps?
     """
     if len(reaf_data) < 20:
         return 0.0
@@ -105,7 +105,7 @@ def _compute_reafference_r2(agent: REEAgent, reaf_data: List) -> float:
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
 
     print(
-        f"  reafference R² (test set n={pred_test.shape[0]}): {r2:.4f}",
+        f"  reafference R2 (test set n={pred_test.shape[0]}): {r2:.4f}",
         flush=True,
     )
     return max(0.0, r2)
@@ -190,7 +190,7 @@ def _train_with_reafference(
                     harm_buf_neg = harm_buf_neg[-MAX_BUF_EACH:]
 
             # Collect reafference training data (empty steps only)
-            # Target: Δz_world_raw = z_raw_curr - z_raw_prev
+            # Target: dz_world_raw = z_raw_curr - z_raw_prev
             # because z_world_raw is what the predictor should model
             if (
                 ttype == "none"
@@ -200,7 +200,7 @@ def _train_with_reafference(
             ):
                 dz_raw = z_raw_curr - z_raw_prev
                 # MECH-101: use z_raw_prev (z_world_raw from prev step) as feature,
-                # not z_self_prev. Cell content entering view dominates Δz_world_raw.
+                # not z_self_prev. Cell content entering view dominates dz_world_raw.
                 reaf_data.append((
                     z_raw_prev.cpu(),
                     a_prev.cpu(),
@@ -437,8 +437,8 @@ def run(
         warmup_episodes, steps_per_episode,
     )
 
-    # Diagnostic: reafference predictor R²
-    print("[V3-EXQ-027] Computing reafference R²...", flush=True)
+    # Diagnostic: reafference predictor R2
+    print("[V3-EXQ-027] Computing reafference R2...", flush=True)
     reafference_r2 = _compute_reafference_r2(agent, train_out["reaf_data"])
 
     # Eval
@@ -519,14 +519,14 @@ def run(
 **SD-007 enabled (MECH-101 fix):** ReafferencePredictor(z_world_raw_prev[{world_dim}] + a[{env.action_dim}] → {world_dim})
 **alpha_world:** {alpha_world}  (SD-008)
 **alpha_self:** {alpha_self}
-**Warmup:** {warmup_episodes} eps (random policy, 12×12, 15 hazards, drift)
+**Warmup:** {warmup_episodes} eps (random policy, 12x12, 15 hazards, drift)
 **Eval:** {eval_episodes} eps
 **Seed:** {seed}
 
 ## Motivation
 
 V3 SD-003 pipeline with full reafference correction (SD-007):
-1. ReafferencePredictor trained on empty steps to predict perspective-shift Δz_world
+1. ReafferencePredictor trained on empty steps to predict perspective-shift dz_world
 2. z_world_corrected = z_world_raw - predicted_shift (applied in LatentStack.encode)
 3. E3.harm_eval(z_world_corrected) trained and evaluated by event type
 4. calibration_gap = mean(agent_hazard) - mean(none) → PASS > 0.15
@@ -541,7 +541,7 @@ Compare with EXQ-026 (same design but no reafference): gap between them isolates
 ## ReafferencePredictor Diagnostic
 
 - n_empty_steps collected: {train_out['n_empty_steps']}
-- R² (held-out): **{reafference_r2:.4f}**  (PASS threshold: 0.20)
+- R2 (held-out): **{reafference_r2:.4f}**  (PASS threshold: 0.20)
 
 ## E3 harm_eval Scores (z_world_corrected)
 

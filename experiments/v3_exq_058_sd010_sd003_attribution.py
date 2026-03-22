@@ -259,7 +259,7 @@ def run(
                 flush=True,
             )
 
-    # World-forward R²
+    # World-forward R2
     wf_r2 = 0.0
     if len(wf_data) >= 20:
         n = len(wf_data)
@@ -275,7 +275,7 @@ def run(
                 ss_res = ((tgt_test - pred_test) ** 2).sum()
                 ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
                 wf_r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test): {wf_r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test): {wf_r2:.4f}", flush=True)
 
     # ── Phase 2: E3 calibration ───────────────────────────────────────────────
     print(f"\n[V3-EXQ-058] Phase 2: E3 calibration ({phase2_episodes} eps, random policy)...",
@@ -467,7 +467,7 @@ def run(
     n_approach_eval = len(approach_causal)
 
     print(f"\n  --- SD-003 Attribution with SD-010 (EXQ-058) ---", flush=True)
-    print(f"  world_forward R²: {wf_r2:.4f}", flush=True)
+    print(f"  world_forward R2: {wf_r2:.4f}", flush=True)
     print(f"  causal_sig by ttype:", flush=True)
     print(f"    none:            {causal_sig_none:.6f}  n={len(none_causal)}", flush=True)
     print(f"    hazard_approach: {causal_sig_approach:.6f}  n={len(approach_causal)}", flush=True)
@@ -570,7 +570,7 @@ features. CF pipeline: z_harm_cf = harm_enc(harm_bridge(E2.world_forward(z_world
 | hazard_approach        | {causal_sig_approach:.6f} |
 | contact (combined)     | {causal_sig_contact:.6f} |
 
-- **world_forward R²**: {wf_r2:.4f}
+- **world_forward R2**: {wf_r2:.4f}
 - **calibration_gap_approach**: {calibration_gap_approach:.4f}
 - **mean_harm_eval_none**: {mean_harm_none:.4f}  (collapse guard: < 0.2 required)
 

@@ -1,15 +1,15 @@
 """
-EXQ-051b — Q-007: z_beta Volatility Injection (NE/LC analog)
+EXQ-051b -- Q-007: z_beta Volatility Injection (NE/LC analog)
 
-Claim: Q-007 — z_beta should correlate with environmental volatility
+Claim: Q-007 -- z_beta should correlate with environmental volatility
        (running variance of harm prediction errors).
 
 Architectural gap identified in EXQ-051:
-  z_beta = beta_encoder(cat(z_self, z_world)) — purely sensory.
-  No pathway from E3's running_variance → z_beta always ≈ 0.72 in both
+  z_beta = beta_encoder(cat(z_self, z_world)) -- purely sensory.
+  No pathway from E3's running_variance -> z_beta always ≈ 0.72 in both
   stable and volatile conditions.
 
-Fix tested here (Option A — Yu & Dayan 2005, PMID 15944135):
+Fix tested here (Option A -- Yu & Dayan 2005, PMID 15944135):
   Inject running_variance as explicit scalar input to beta_encoder:
     z_beta = beta_encoder(cat(z_self, z_world, running_variance_scalar))
   Enabled via LatentStackConfig.volatility_signal_dim = 1.
@@ -17,7 +17,7 @@ Fix tested here (Option A — Yu & Dayan 2005, PMID 15944135):
 Biological basis:
   LC-NE encodes unexpected uncertainty: NE rises when prediction error
   variance exceeds what was expected under the current contingency.
-  This is not a sensory-content signal — it is a second-order signal
+  This is not a sensory-content signal -- it is a second-order signal
   about HOW UNPREDICTABLE the harm environment has been recently.
   running_variance is the REE analog of HGF log-volatility (μ₃), which
   drives affective state in precision-weighted inference models.
@@ -26,14 +26,14 @@ Design:
   Two conditions trained and evaluated in parallel:
     STABLE:   hazard positions fixed across all episodes (4 hazards)
     VOLATILE: hazard positions randomised each episode (4 hazards)
-  Both conditions have identical mean hazard count → same mean harm rate.
-  The difference is PREDICTABILITY — stable agents should learn E3 well
-  → low running_variance; volatile agents keep getting surprised → high
+  Both conditions have identical mean hazard count -> same mean harm rate.
+  The difference is PREDICTABILITY -- stable agents should learn E3 well
+  -> low running_variance; volatile agents keep getting surprised -> high
   running_variance.
 
   With running_variance injected into beta_encoder:
-    → z_beta should be higher in VOLATILE condition (arousal ↑)
-    → Pearson r(running_variance, z_beta_norm) > 0.3
+    -> z_beta should be higher in VOLATILE condition (arousal ↑)
+    -> Pearson r(running_variance, z_beta_norm) > 0.3
 
 Criteria:
   C1: z_beta_norm_volatile > z_beta_norm_stable + 0.05
@@ -41,7 +41,7 @@ Criteria:
   C2: Pearson r(running_variance_trajectory, z_beta_norm_trajectory) > 0.3
         (within-agent correlation over training episodes)
   C3: z_beta responds faster to sudden volatility increase (transfer test):
-        after 100 stable episodes → suddenly volatile → z_beta rises within
+        after 100 stable episodes -> suddenly volatile -> z_beta rises within
         20 episodes (relative to baseline, Δ > 0.02)
 
 Run-id: exq_051b_v3
@@ -73,7 +73,7 @@ from ree_core.utils.config import REEConfig, LatentStackConfig
 SEED             = 42
 N_TRAIN_EPISODES = 300    # 150 stable + 150 volatile (interleaved)
 N_EVAL_EPISODES  = 50     # 25 per condition
-TRANSFER_EPISODES = 150   # stable → volatile switch at episode 100
+TRANSFER_EPISODES = 150   # stable -> volatile switch at episode 100
 
 MAX_STEPS        = 150
 N_HAZARDS        = 4
@@ -85,7 +85,7 @@ SELF_DIM         = 32
 WORLD_DIM        = 32
 BETA_DIM         = 64
 
-VOLATILITY_SIGNAL_DIM = 1   # Q-007: scalar running_variance → beta_encoder
+VOLATILITY_SIGNAL_DIM = 1   # Q-007: scalar running_variance -> beta_encoder
 
 # C1 threshold
 C1_DELTA_THRESHOLD   = 0.05
@@ -128,7 +128,7 @@ def make_agent(seed: int) -> REEAgent:
     # Q-007: enable volatility injection
     config.latent.volatility_signal_dim = VOLATILITY_SIGNAL_DIM
 
-    # Stable commit threshold (EXQ-018b style — will be calibrated below)
+    # Stable commit threshold (EXQ-018b style -- will be calibrated below)
     config.e3.commitment_threshold = 0.40
 
     torch.manual_seed(seed)
@@ -303,10 +303,10 @@ def main():
 
     print(f"\n  Stable  : mean_rv={mean_stable_rv:.4f},  mean_z_beta={mean_stable_beta:.4f}")
     print(f"  Volatile: mean_rv={mean_volatile_rv:.4f}, mean_z_beta={mean_volatile_beta:.4f}")
-    print(f"  C1 delta={c1_delta:+.4f} (threshold {C1_DELTA_THRESHOLD}) → {'PASS' if c1_pass else 'FAIL'}")
-    print(f"  C2 Pearson r={c2_r:.4f} (threshold {C2_PEARSON_THRESHOLD}) → {'PASS' if c2_pass else 'FAIL'}")
+    print(f"  C1 delta={c1_delta:+.4f} (threshold {C1_DELTA_THRESHOLD}) -> {'PASS' if c1_pass else 'FAIL'}")
+    print(f"  C2 Pearson r={c2_r:.4f} (threshold {C2_PEARSON_THRESHOLD}) -> {'PASS' if c2_pass else 'FAIL'}")
 
-    # ── Phase 3: Transfer test (stable → volatile) ─────────────────────────
+    # ── Phase 3: Transfer test (stable -> volatile) ─────────────────────────
     print("\n[Phase 3] Transfer test: stable agent moved to volatile env...")
     env_transfer = make_env(volatile=True, seed=SEED + 999)
 
@@ -322,21 +322,21 @@ def main():
             m = run_episode(agent_stable, env_transfer, train=True)  # adapt to volatile
         transfer_betas.append(m["mean_z_beta_norm"])
 
-    # Check if z_beta rises within C3_WINDOW after switch (ep 100–120)
+    # Check if z_beta rises within C3_WINDOW after switch (ep 100-120)
     post_switch_beta = float(np.mean(transfer_betas[100:100 + C3_WINDOW]))
     c3_delta = post_switch_beta - baseline_beta
     c3_pass  = c3_delta > C3_DELTA_THRESHOLD
 
     print(f"  Baseline z_beta (stable): {baseline_beta:.4f}")
-    print(f"  Post-switch z_beta (ep 100–{100+C3_WINDOW}): {post_switch_beta:.4f}")
-    print(f"  C3 delta={c3_delta:+.4f} (threshold {C3_DELTA_THRESHOLD}) → {'PASS' if c3_pass else 'FAIL'}")
+    print(f"  Post-switch z_beta (ep 100-{100+C3_WINDOW}): {post_switch_beta:.4f}")
+    print(f"  C3 delta={c3_delta:+.4f} (threshold {C3_DELTA_THRESHOLD}) -> {'PASS' if c3_pass else 'FAIL'}")
 
     # ── Summary ────────────────────────────────────────────────────────────
     n_pass = sum([c1_pass, c2_pass, c3_pass])
     overall_pass = n_pass >= 2  # majority vote (2 of 3)
 
     print(f"\n{'='*60}")
-    print(f"RESULT: {n_pass}/3 criteria met → {'PASS' if overall_pass else 'FAIL'}")
+    print(f"RESULT: {n_pass}/3 criteria met -> {'PASS' if overall_pass else 'FAIL'}")
     print(f"{'='*60}")
 
     # ── Write result ───────────────────────────────────────────────────────
@@ -384,9 +384,9 @@ def main():
             "Q-007 fix (Option A): LatentStackConfig.volatility_signal_dim=1 injects "
             "E3._running_variance as scalar into beta_encoder at each encode() call. "
             "Biological analog: LC-NE unexpected uncertainty signal (Yu & Dayan 2005). "
-            "Volatile envs reset hazard positions each episode → E3 running_variance "
-            "stays elevated → z_beta arousal elevated. Stable envs → E3 learns positions "
-            "→ running_variance decays → z_beta arousal lower. "
+            "Volatile envs reset hazard positions each episode -> E3 running_variance "
+            "stays elevated -> z_beta arousal elevated. Stable envs -> E3 learns positions "
+            "→ running_variance decays -> z_beta arousal lower. "
             "Option C (harm-stream arousal) is the long-term target post SD-010."
         ),
     }

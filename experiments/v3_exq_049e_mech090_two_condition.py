@@ -1,5 +1,5 @@
 """
-V3-EXQ-049e — MECH-090: Beta-Gated Policy Propagation (two-condition design)
+V3-EXQ-049e -- MECH-090: Beta-Gated Policy Propagation (two-condition design)
 
 Claims: MECH-090
 
@@ -9,16 +9,16 @@ Root cause of EXQ-049d FAIL:
   (uncommitted_release_concordance) has no data and trivially fails.
 
   The agent can't be in both committed and uncommitted states in the same eval
-  without manufacturing artificial variance spikes — which would conflate the
+  without manufacturing artificial variance spikes -- which would conflate the
   training dynamics with the test.
 
-Fix — two-condition design (no hysteresis needed):
-  Condition A — TRAINED agent (400 warmup episodes).
-    E2 world-forward trained → running_variance collapses to ~0.
+Fix -- two-condition design (no hysteresis needed):
+  Condition A -- TRAINED agent (400 warmup episodes).
+    E2 world-forward trained -> running_variance collapses to ~0.
     Agent persistently committed. Tests: does gate ELEVATE when committed?
     Expected: committed_hold_concordance >> 0.6 (confirmed EXQ-049d: 1.0).
 
-  Condition B — FRESH agent (same architecture, zero training).
+  Condition B -- FRESH agent (same architecture, zero training).
     running_variance = precision_init = 0.5 > commit_threshold = 0.40.
     Agent persistently uncommitted throughout eval. Tests: does gate RELEASE
     when uncommitted?
@@ -26,22 +26,22 @@ Fix — two-condition design (no hysteresis needed):
 
   No hysteresis required: both conditions are at stable extremes of the variance
   distribution (near-0 vs 0.5). The boundary dynamics (oscillation around threshold)
-  are not being tested here — that is a separate question about commitment onset.
+  are not being tested here -- that is a separate question about commitment onset.
   Any commit_threshold between 1e-4 and 0.45 correctly classifies both conditions.
 
 Root cause chain:
-  EXQ-049:  select() bypassed → gate never wired
-  EXQ-049b: gate wired, post_action_update missing → variance frozen
+  EXQ-049:  select() bypassed -> gate never wired
+  EXQ-049b: gate wired, post_action_update missing -> variance frozen
   EXQ-049c: post_action_update deadlocked by _committed_trajectory guard
-  EXQ-049d: direct update_running_variance(wf_err) — deadlock broken.
+  EXQ-049d: direct update_running_variance(wf_err) -- deadlock broken.
             C1 PASS (1.0). C2 FAIL: n_uncommitted_steps=0 (always committed).
   EXQ-049e: two-condition design separates C1 and C2 into distinct agents.
 
 PASS criteria (ALL must hold):
   C1: trained agent committed_hold_concordance > 0.6
-      (gate elevates when agent is committed — gate hold is correct)
+      (gate elevates when agent is committed -- gate hold is correct)
   C2: fresh agent uncommitted_release_concordance > 0.5
-      (gate releases when agent is uncommitted — gate release is correct)
+      (gate releases when agent is uncommitted -- gate release is correct)
   C3: trained agent hold_count > 0
       (gate actually held at some point during eval)
   C4: fresh agent propagation_count > 0
@@ -207,7 +207,7 @@ def _train_agent(
                         list(agent.e2.world_action_encoder.parameters()), 1.0,
                     )
                     wf_optimizer.step()
-                # Direct variance update — breaks chicken-and-egg deadlock (EXQ-049d fix)
+                # Direct variance update -- breaks chicken-and-egg deadlock (EXQ-049d fix)
                 with torch.no_grad():
                     agent.e3.update_running_variance(
                         (wf_pred.detach() - zw1_b).detach()
@@ -375,8 +375,8 @@ def run(
 
     print(
         f"[V3-EXQ-049e] MECH-090: Two-Condition Beta Gate Test\n"
-        f"  Condition A: trained agent ({warmup_episodes} eps) → variance ~0 → committed\n"
-        f"  Condition B: fresh agent (0 eps) → variance=precision_init > threshold → uncommitted\n"
+        f"  Condition A: trained agent ({warmup_episodes} eps) -> variance ~0 -> committed\n"
+        f"  Condition B: fresh agent (0 eps) -> variance=precision_init > threshold -> uncommitted\n"
         f"  C1 from Condition A, C2 from Condition B\n"
         f"  alpha_world={alpha_world}  seed={seed}",
         flush=True,
@@ -384,7 +384,7 @@ def run(
 
     # ── Condition A: TRAINED agent ───────────────────────────────────────────
     print(f"\n{'='*60}", flush=True)
-    print(f"[V3-EXQ-049e] Condition A — TRAINED ({warmup_episodes} episodes)", flush=True)
+    print(f"[V3-EXQ-049e] Condition A -- TRAINED ({warmup_episodes} episodes)", flush=True)
     print('='*60, flush=True)
 
     agent_trained, env_a = _make_agent_and_env(seed, self_dim, world_dim, alpha_world)
@@ -409,7 +409,7 @@ def run(
 
     # ── Condition B: FRESH agent ─────────────────────────────────────────────
     print(f"\n{'='*60}", flush=True)
-    print(f"[V3-EXQ-049e] Condition B — FRESH (0 training episodes)", flush=True)
+    print(f"[V3-EXQ-049e] Condition B -- FRESH (0 training episodes)", flush=True)
     print('='*60, flush=True)
 
     # Fresh agent: same config, no training
@@ -418,7 +418,7 @@ def run(
     print(
         f"  precision_init={agent_fresh.e3._running_variance:.3f}"
         f"  commit_threshold={agent_fresh.e3.commit_threshold:.3f}"
-        f"  → uncommitted (variance > threshold)",
+        f"  -> uncommitted (variance > threshold)",
         flush=True,
     )
     print(f"\n[V3-EXQ-049e] Eval Condition B ({eval_episodes} eps)...", flush=True)
@@ -493,11 +493,11 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-049e — MECH-090: Two-Condition Beta Gate Test
+    summary_markdown = f"""# V3-EXQ-049e -- MECH-090: Two-Condition Beta Gate Test
 
 **Status:** {status}
-**Claim:** MECH-090 — beta gate holds E3 policy output during committed action, releases when uncommitted
-**Design:** Two-condition — trained agent (C1/C3) vs fresh agent (C2/C4)
+**Claim:** MECH-090 -- beta gate holds E3 policy output during committed action, releases when uncommitted
+**Design:** Two-condition -- trained agent (C1/C3) vs fresh agent (C2/C4)
 **alpha_world:** {alpha_world}  |  **Warmup:** {warmup_episodes} eps  |  **Eval:** {eval_episodes} eps/condition  |  **Seed:** {seed}
 
 ## Design Rationale
@@ -507,7 +507,7 @@ committed (variance ~0). A fresh agent starts at precision_init=0.5 > commit_thr
 so it is persistently uncommitted without any artificial variance manipulation.
 No hysteresis is needed: both conditions are at stable extremes of the variance distribution.
 
-## Condition A — Trained Agent
+## Condition A -- Trained Agent
 
 | Metric | Value |
 |--------|-------|
@@ -518,7 +518,7 @@ No hysteresis is needed: both conditions are at stable extremes of the variance 
 | committed_hold_concordance | {result_a['committed_hold_concordance']:.3f} |
 | hold_count | {result_a['hold_count']} |
 
-## Condition B — Fresh Agent
+## Condition B -- Fresh Agent
 
 | Metric | Value |
 |--------|-------|
@@ -538,7 +538,7 @@ No hysteresis is needed: both conditions are at stable extremes of the variance 
 | C4: fresh propagation_count > 0 | Cond B | {"PASS" if c4_pass else "FAIL"} | {result_b['propagation_count']} |
 | C5: No fatal errors | Both | {"PASS" if c5_pass else "FAIL"} | {result_a['fatal_errors'] + result_b['fatal_errors']} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

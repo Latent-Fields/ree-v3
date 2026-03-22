@@ -1,5 +1,5 @@
 """
-V3-EXQ-022 — Combined Event-Contrastive + lstsq Reafference (MECH-100 + MECH-098)
+V3-EXQ-022 -- Combined Event-Contrastive + lstsq Reafference (MECH-100 + MECH-098)
 
 Claims: MECH-100 (encoder.event_contrastive_supervision), SD-007, MECH-098, SD-003.
 
@@ -174,7 +174,7 @@ def _train_and_collect(
 
             # Collect reafference data on empty-space steps.
             # MECH-101: use z_world_prev as feature (not z_self_prev). Cell content
-            # entering view dominates Δz_world — available in z_world_prev, not z_self.
+            # entering view dominates dz_world -- available in z_world_prev, not z_self.
             if (z_world_prev is not None and a_prev is not None and ttype == "none"):
                 dz_world = z_world_curr.detach() - z_world_prev
                 reaf_data.append((z_world_prev.cpu(), a_prev.cpu(), dz_world.cpu()))
@@ -276,10 +276,10 @@ def _fit_lstsq_predictor(reaf_data, world_dim, action_dim):
     """Fit lstsq predictor on empty-space steps. Returns (W, r2_train, r2_test).
 
     MECH-101: features are [z_world_prev, a, 1], NOT [z_self, a, 1].
-    z_world_prev and dz_world are on the same scale → no scale mismatch.
+    z_world_prev and dz_world are on the same scale -> no scale mismatch.
     """
     if len(reaf_data) < 20:
-        print(f"  WARNING: only {len(reaf_data)} empty-step records — lstsq skipped",
+        print(f"  WARNING: only {len(reaf_data)} empty-step records -- lstsq skipped",
               flush=True)
         return None, 0.0, 0.0
 
@@ -305,7 +305,7 @@ def _fit_lstsq_predictor(reaf_data, world_dim, action_dim):
     r2_train = _r2(X_all[:min(256, n_train)], dz_all[:min(256, n_train)])
     r2_test  = _r2(X_all[n_train:], dz_all[n_train:])
     print(f"  lstsq: n_train={n_train}  n_test={n-n_train}  "
-          f"R²_train={r2_train:.3f}  R²_test={r2_test:.3f}", flush=True)
+          f"R2_train={r2_train:.3f}  R2_test={r2_test:.3f}", flush=True)
     return W, r2_train, r2_test
 
 
@@ -537,8 +537,8 @@ def run(
         r2_test = 0.0
     reafference_r2 = max(0.0, r2_test)
 
-    # Δz correction measurement
-    print(f"[V3-EXQ-022] Measuring Δz correction (20 episodes)...", flush=True)
+    # dz correction measurement
+    print(f"[V3-EXQ-022] Measuring dz correction (20 episodes)...", flush=True)
     dz_stats = _measure_dz_correction(agent, W, env, 20, steps_per_episode)
     print(f"  empty: raw={dz_stats['mean_dz_raw_empty']:.4f}  "
           f"corrected={dz_stats['mean_dz_corrected_empty']:.4f}", flush=True)
@@ -567,7 +567,7 @@ def run(
     if not c2_pass:
         failure_notes.append(f"C2 FAIL: event_classification_acc={eval_acc:.3f} <= 0.5")
     if not c3_pass:
-        failure_notes.append(f"C3 FAIL: R²_test={reafference_r2:.3f} <= 0.25")
+        failure_notes.append(f"C3 FAIL: R2_test={reafference_r2:.3f} <= 0.25")
     if not c4_pass:
         failure_notes.append(
             f"C4 FAIL: dz_corrected={dz_stats['mean_dz_corrected_empty']:.4f} >= "
@@ -612,10 +612,10 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-022 — Combined Event-Contrastive + lstsq Reafference
+    summary_markdown = f"""# V3-EXQ-022 -- Combined Event-Contrastive + lstsq Reafference
 
 **Status:** {status}
-**Warmup:** {warmup_episodes} eps (RANDOM policy, 12×12, 15 hazards, drift_interval=3, drift_prob=0.5)
+**Warmup:** {warmup_episodes} eps (RANDOM policy, 12x12, 15 hazards, drift_interval=3, drift_prob=0.5)
 **λ_event:** {lambda_event}
 **Probe eval:** {eval_probe_resets} grid resets
 **Seed:** {seed}
@@ -632,9 +632,9 @@ produces calibration_gap > 0.05 when neither alone does.
 | Metric | Value |
 |---|---|
 | event_classification_acc | {eval_acc:.3f} |
-| R²_test (lstsq reafference) | {reafference_r2:.3f} |
-| Δz_raw(empty) | {dz_stats['mean_dz_raw_empty']:.4f} |
-| Δz_corrected(empty) | {dz_stats['mean_dz_corrected_empty']:.4f} |
+| R2_test (lstsq reafference) | {reafference_r2:.3f} |
+| dz_raw(empty) | {dz_stats['mean_dz_raw_empty']:.4f} |
+| dz_corrected(empty) | {dz_stats['mean_dz_corrected_empty']:.4f} |
 | **calibration_gap** | **{probe['calibration_gap']:.4f}** |
 | warmup harm events | {warmup_harm} |
 | n_empty_steps | {train_out['n_empty_steps']} |
@@ -645,12 +645,12 @@ produces calibration_gap > 0.05 when neither alone does.
 |---|---|---|
 | C1: calibration_gap > 0.05 | {"PASS" if c1_pass else "FAIL"} | {probe['calibration_gap']:.4f} |
 | C2: event_classification_acc > 0.5 | {"PASS" if c2_pass else "FAIL"} | {eval_acc:.3f} |
-| C3: R²_test > 0.25 | {"PASS" if c3_pass else "FAIL"} | {reafference_r2:.3f} |
-| C4: Δz_corrected < Δz_raw (empty) | {"PASS" if c4_pass else "FAIL"} | {dz_stats["mean_dz_corrected_empty"]:.4f} vs {dz_stats["mean_dz_raw_empty"]:.4f} |
+| C3: R2_test > 0.25 | {"PASS" if c3_pass else "FAIL"} | {reafference_r2:.3f} |
+| C4: dz_corrected < dz_raw (empty) | {"PASS" if c4_pass else "FAIL"} | {dz_stats["mean_dz_corrected_empty"]:.4f} vs {dz_stats["mean_dz_raw_empty"]:.4f} |
 | C5: Warmup harm > 100 | {"PASS" if c5_pass else "FAIL"} | {warmup_harm} |
 | C6: No fatal errors | {"PASS" if c6_pass else "FAIL"} | {fatal_errors} |
 
-Criteria met: {criteria_met}/6 → **{status}**
+Criteria met: {criteria_met}/6 -> **{status}**
 {failure_section}
 """
 

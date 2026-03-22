@@ -400,7 +400,7 @@ def run(
     )
 
     reafference_r2 = _compute_reafference_r2(agent, train_out["reaf_data"])
-    print(f"  reafference R²: {reafference_r2:.4f}", flush=True)
+    print(f"  reafference R2: {reafference_r2:.4f}", flush=True)
 
     eval_out = _eval_by_event(agent, head_corrected, env, eval_episodes, steps_per_episode)
 
@@ -479,7 +479,7 @@ def run(
 **Claims:** SD-007, MECH-098, MECH-101
 **SD-007 enabled (MECH-101 fix):** ReafferencePredictor(z_world_raw_prev + a → z_world)
 **alpha_world:** {alpha_world}  (SD-008)
-**Warmup:** {warmup_episodes} eps (random policy, 12×12, 15 hazards, drift)
+**Warmup:** {warmup_episodes} eps (random policy, 12x12, 15 hazards, drift)
 **Eval:** {eval_episodes} eps
 **Seed:** {seed}
 

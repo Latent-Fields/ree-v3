@@ -55,7 +55,7 @@ class ReafferencePredictor(nn.Module):
     view — inaccessible from body state alone but available in z_world_raw_prev.
     Biological basis: MSTd receives full visual optic flow (content-dependent)
     + vestibular + efference copy. The optic flow is scene-content-dependent;
-    body state encodes position only. EXQ-027 confirmed R²=0.027 with z_self
+    body state encodes position only. EXQ-027 confirmed R2=0.027 with z_self
     inputs (near-zero because cell content dominates the delta).
 
     Biological basis: MSTd congruent/incongruent neuron populations (Gu et al.

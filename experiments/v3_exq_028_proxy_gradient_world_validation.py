@@ -9,7 +9,7 @@ Inverts the EXQ-006 failure condition:
 
 EXQ-006 failure: mean_dz_world_agent_hazard < mean_dz_world_empty
   (stepping toward hazard produces LESS z_world change than empty locomotion)
-  Root cause: binary contact-only harm → E2 can't learn approach dynamics
+  Root cause: binary contact-only harm -> E2 can't learn approach dynamics
 
 EXQ-028 PASS: mean_dz_world_hazard_approach > mean_dz_world_none
   (approach to hazard produces MORE z_world change than empty locomotion)
@@ -63,7 +63,7 @@ def run(args):
     print(f"\n=== V3-EXQ-028: CausalGridWorldV2 Proxy-Gradient Validation ===")
     print(f"body_obs_dim={env.body_obs_dim}, world_obs_dim={env.world_obs_dim}")
     print(f"hazard_field_decay={args.field_decay}, proximity_scale={args.proximity_scale}")
-    print(f"Running {args.episodes} episodes × {args.steps} steps")
+    print(f"Running {args.episodes} episodes x {args.steps} steps")
 
     # Collect raw z_world changes per transition type
     dz_world_by_type = defaultdict(list)
@@ -107,7 +107,7 @@ def run(args):
     for tt, vals in dz_world_by_type.items():
         means[tt] = float(np.mean(vals)) if vals else 0.0
         stds[tt] = float(np.std(vals)) if vals else 0.0
-        print(f"  {tt:25s}: mean_dz={means[tt]:.4f} ± {stds[tt]:.4f}  "
+        print(f"  {tt:25s}: mean_dz={means[tt]:.4f} +/-{stds[tt]:.4f}  "
               f"harm_sig={np.mean(harm_signal_by_type[tt]):.4f}  "
               f"field={np.mean(field_val_by_type[tt]):.3f}  "
               f"exposure={np.mean(harm_exposure_by_type[tt]):.4f}  n={counts[tt]}")
@@ -126,7 +126,7 @@ def run(args):
     c1_pass = hazard_approach_dz > none_dz and n_approach >= 50
     # C2: gradient magnitude is non-trivial
     c2_pass = hazard_approach_dz > 0.02 and n_approach >= 50
-    # C3: benefit gradient visible (optional — may not be enough samples)
+    # C3: benefit gradient visible (optional -- may not be enough samples)
     c3_pass = (benefit_approach_dz > none_dz and n_benefit >= 20) if n_benefit >= 20 else None
     # C4: harm_exposure EMA accumulates on approach vs none
     exposure_approach = np.mean(harm_exposure_by_type.get("hazard_approach", [0.0]))
@@ -134,13 +134,13 @@ def run(args):
     c4_pass = exposure_approach > exposure_none and n_approach >= 50
 
     print(f"\n--- Criteria ---")
-    print(f"C1 (gradient_dominance):  hazard_approach_dz({hazard_approach_dz:.4f}) > none_dz({none_dz:.4f})  → {'PASS' if c1_pass else 'FAIL'}")
-    print(f"C2 (gradient_magnitude):  hazard_approach_dz({hazard_approach_dz:.4f}) > 0.02               → {'PASS' if c2_pass else 'FAIL'}")
+    print(f"C1 (gradient_dominance):  hazard_approach_dz({hazard_approach_dz:.4f}) > none_dz({none_dz:.4f})  -> {'PASS' if c1_pass else 'FAIL'}")
+    print(f"C2 (gradient_magnitude):  hazard_approach_dz({hazard_approach_dz:.4f}) > 0.02               -> {'PASS' if c2_pass else 'FAIL'}")
     if c3_pass is not None:
-        print(f"C3 (benefit_gradient):    benefit_approach_dz({benefit_approach_dz:.4f}) > none_dz({none_dz:.4f})  → {'PASS' if c3_pass else 'FAIL'}")
+        print(f"C3 (benefit_gradient):    benefit_approach_dz({benefit_approach_dz:.4f}) > none_dz({none_dz:.4f})  -> {'PASS' if c3_pass else 'FAIL'}")
     else:
         print(f"C3 (benefit_gradient):    skipped (n_benefit={n_benefit} < 20)")
-    print(f"C4 (ema_accumulation):    exposure_approach({exposure_approach:.4f}) > exposure_none({exposure_none:.4f})  → {'PASS' if c4_pass else 'FAIL'}")
+    print(f"C4 (ema_accumulation):    exposure_approach({exposure_approach:.4f}) > exposure_none({exposure_none:.4f})  -> {'PASS' if c4_pass else 'FAIL'}")
 
     required_pass = c1_pass and c2_pass and c4_pass
     final_verdict = "PASS" if required_pass else "FAIL"

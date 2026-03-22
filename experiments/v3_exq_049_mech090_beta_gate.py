@@ -1,18 +1,18 @@
 """
-V3-EXQ-049 — MECH-090: Beta-Gated Policy Propagation
+V3-EXQ-049 -- MECH-090: Beta-Gated Policy Propagation
 
 Claims: MECH-090
 
 Motivation (2026-03-19):
   MECH-090: Beta oscillations gate E3→action_selection propagation.
-  During committed action sequence: beta_gate.is_elevated = True → E3 updates
+  During committed action sequence: beta_gate.is_elevated = True -> E3 updates
   internally but policy output is held (propagate() returns None).
-  At completion / stop-change signal: beta_gate releases → E3 state propagates.
+  At completion / stop-change signal: beta_gate releases -> E3 state propagates.
 
   BetaGate is implemented in ree_core/heartbeat/beta_gate.py.
   Agent sets beta state via:
-    result.committed → beta_gate.elevate() → propagate() returns None
-    not result.committed → beta_gate.release() → propagate() returns action
+    result.committed -> beta_gate.elevate() -> propagate() returns None
+    not result.committed -> beta_gate.release() -> propagate() returns action
 
   This experiment measures the gate's behavior across a full eval run:
     - policy_hold_rate: fraction of steps where gate is elevated (holding)
@@ -361,7 +361,7 @@ def run(
         warmup_episodes, steps_per_episode, world_dim,
     )
 
-    print(f"\n[V3-EXQ-049] Eval — beta gate concordance...", flush=True)
+    print(f"\n[V3-EXQ-049] Eval -- beta gate concordance...", flush=True)
     eval_out = _eval_beta_concordance(agent, env, eval_episodes, steps_per_episode, world_dim)
 
     # PASS / FAIL
@@ -419,10 +419,10 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-049 — MECH-090: Beta-Gated Policy Propagation
+    summary_markdown = f"""# V3-EXQ-049 -- MECH-090: Beta-Gated Policy Propagation
 
 **Status:** {status}
-**Claim:** MECH-090 — beta gate holds E3 policy output during committed action
+**Claim:** MECH-090 -- beta gate holds E3 policy output during committed action
 **alpha_world:** {alpha_world}
 **Warmup:** {warmup_episodes} eps  |  Eval: {eval_episodes} eps
 **Seed:** {seed}
@@ -455,7 +455,7 @@ This measures the concordance between commitment state and gate state.
 | C4: propagation_count > 0 (gate releases) | {"PASS" if c4_pass else "FAIL"} | {eval_out['propagation_count']} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {eval_out['fatal_errors']} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

@@ -541,7 +541,7 @@ E2.world_action_encoder use a dedicated Adam(lr=1e-3) optimizer, isolated from m
 agent updates. This keeps world-model training from interfering with the E1/E2-self
 training signal — an architectural requirement given incommensurable error channels.
 
-**Architecture:** precision = 1 / (running_variance + ε); committed = running_variance < commit_threshold
+**Architecture:** precision = 1 / (running_variance + eps); committed = running_variance < commit_threshold
 
 ## Phase Results
 

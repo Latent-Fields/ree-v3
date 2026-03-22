@@ -409,7 +409,7 @@ def run(
 **Claim:** MECH-071 V3 redesign (harm_eval belongs on E3, not E2)
 **alpha_world:** {alpha_world}  (SD-008: must be >= 0.9 for event sensitivity)
 **alpha_self:** {alpha_self}
-**Warmup:** {warmup_episodes} eps (random policy, 12×12, 15 hazards, drift)
+**Warmup:** {warmup_episodes} eps (random policy, 12x12, 15 hazards, drift)
 **Eval:** {eval_episodes} eps
 **Seed:** {seed}
 

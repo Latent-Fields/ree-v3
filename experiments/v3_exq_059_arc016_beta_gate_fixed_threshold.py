@@ -6,7 +6,7 @@ Claims: ARC-016, MECH-057b, MECH-090
 Context (2026-03-20):
   EXQ-048 and EXQ-049 both FAILED on C1 (committed_step_count == 0).
   Root cause: commit_threshold was 0.003, but actual running_variance converges to ~0.33
-  in trained environments (EXQ-038). The threshold was 25,000× below actual values, so
+  in trained environments (EXQ-038). The threshold was 25,000x below actual values, so
   `running_variance < commit_threshold` was NEVER true → result.committed never fired →
   beta_gate.elevate() was never called → hold_rate_during_committed was undefined (0/0).
 
@@ -47,8 +47,8 @@ Bug fixes applied (2026-03-20, second run):
 
 Design:
   Training: 400 episodes, full pipeline (same as EXQ-048)
-  Eval: 50 episodes × 200 steps
-  Same env: CausalGridWorldV2, 12×12, 4 hazards
+  Eval: 50 episodes x 200 steps
+  Same env: CausalGridWorldV2, 12x12, 4 hazards
 
 PASS criteria:
   C1: committed_step_count >= 10        (ARC-016: commitment gate fires with corrected threshold)

@@ -1,31 +1,31 @@
 """
-V3-EXQ-018b — ARC-016 Relative Threshold
+V3-EXQ-018b -- ARC-016 Relative Threshold
 
 Claims: ARC-016 (precision.e3_derived_dynamic_precision).
 
 Rewrite of EXQ-018 with RELATIVE commit threshold instead of absolute.
 
 Motivation (2026-03-20):
-  EXQ-018 FAIL diagnosis: The variance mechanism is confirmed working — precision
+  EXQ-018 FAIL diagnosis: The variance mechanism is confirmed working -- precision
   drops 40% (718→426) under maximal perturbation. But commit_threshold=0.40 is
-  100× the actual operating variance range (stable≈0.0026, perturbed≈0.0036).
+  100x the actual operating variance range (stable≈0.0026, perturbed≈0.0036).
   Absolute threshold calibration is fragile: any environment change shifts the
   variance operating range.
 
   Fix: RELATIVE threshold calibrated from training baseline.
-    commit_threshold = calibration_factor × training_baseline_variance
+    commit_threshold = calibration_factor x training_baseline_variance
   where training_baseline_variance = mean running_variance over the LAST 100
   training episodes, and calibration_factor = 2.0.
 
-  Biological analogy — "sleep recalibration":
+  Biological analogy -- "sleep recalibration":
     Slow-wave sleep resets the prediction error baseline. Waking commitment
     thresholds are calibrated relative to that baseline, not against absolute
     values set at design time. An agent that wakes into a new environment will
     re-establish its baseline during the first sleep cycle and adjust its
     commitment thresholds accordingly.
 
-  This ensures the threshold is always 2× the stable operating variance,
-  regardless of the absolute scale — the agent commits when variance is within
+  This ensures the threshold is always 2x the stable operating variance,
+  regardless of the absolute scale -- the agent commits when variance is within
   its normal operating range, and withholds commitment when variance exceeds
   that range by more than the calibration factor.
 
@@ -36,8 +36,8 @@ More extreme environment contrast than EXQ-018:
 
 Protocol:
   1. Training (stable env, 1000 eps): train agent + E2.world_forward.
-     Record mean running_variance over LAST 100 training episodes → training_baseline_variance.
-  2. Set commit_threshold = 2.0 × training_baseline_variance.
+     Record mean running_variance over LAST 100 training episodes -> training_baseline_variance.
+  2. Set commit_threshold = 2.0 x training_baseline_variance.
      Also update agent.e3.config.commitment_threshold to match.
   3. Eval stable (50 eps): record variance trajectory + commit decisions.
   4. Eval perturbed (50 eps, extreme drift): same metrics.
@@ -45,8 +45,8 @@ Protocol:
 
 PASS criteria (ALL must hold):
   C0: training_baseline_variance > 0  (calibration succeeded)
-  C1: var_diff > 0.5 × training_baseline_variance
-      (relative threshold — perturbed must exceed 1.5× baseline)
+  C1: var_diff > 0.5 x training_baseline_variance
+      (relative threshold -- perturbed must exceed 1.5x baseline)
   C2: mean_precision_stable > mean_precision_perturbed
       (precision drops in perturbed env)
   C3: commit_rate_stable > commit_rate_perturbed
@@ -56,7 +56,7 @@ PASS criteria (ALL must hold):
 Note on sleep recalibration:
   The training_baseline_variance is analogous to the prediction error baseline
   established during slow-wave sleep. The calibration_factor (2.0) is the
-  "wakefulness safety margin" — the agent treats variance within 2× of sleep
+  "wakefulness safety margin" -- the agent treats variance within 2x of sleep
   baseline as familiar territory warranting commitment, and variance beyond
   that as a signal to withhold commitment and explore.
 """
@@ -82,7 +82,7 @@ from ree_core.utils.config import REEConfig
 EXPERIMENT_TYPE = "v3_exq_018b_arc016_relative_threshold"
 CLAIM_IDS = ["ARC-016"]
 
-CALIBRATION_FACTOR   = 2.0     # commit_threshold = CALIBRATION_FACTOR × baseline_variance
+CALIBRATION_FACTOR   = 2.0     # commit_threshold = CALIBRATION_FACTOR x baseline_variance
 BASELINE_WINDOW      = 100     # last N training episodes used for baseline estimation
 E3_DECISION_INTERVAL = 10      # steps between E3 candidate evaluations
 NUM_CANDIDATES       = 16
@@ -129,7 +129,7 @@ def _run_phase(
 
     If record_last_n_variance > 0 and train=True, the mean running_variance
     over the last `record_last_n_variance` episodes is returned as
-    'baseline_variance' — used for relative threshold calibration.
+    'baseline_variance' -- used for relative threshold calibration.
     """
     if train:
         agent.train()
@@ -359,7 +359,7 @@ def run(
     print(f"  calibration_factor         = {CALIBRATION_FACTOR}", flush=True)
     print(f"  commit_threshold (relative) = {calibrated_commit_threshold:.6f}", flush=True)
     print(f"  (Baseline is mean over last {BASELINE_WINDOW} training episodes)", flush=True)
-    print(f"  (Threshold = {CALIBRATION_FACTOR}× baseline: commit when variance is within "
+    print(f"  (Threshold = {CALIBRATION_FACTOR}x baseline: commit when variance is within "
           f"normal operating range)", flush=True)
 
     # Apply calibrated threshold to agent
@@ -399,8 +399,8 @@ def run(
     # C0: calibration succeeded
     c0_pass = training_baseline_variance > 0
 
-    # C1: RELATIVE threshold — perturbed variance exceeds 0.5× baseline above stable
-    # (i.e., var_diff > 0.5 × training_baseline_variance)
+    # C1: RELATIVE threshold -- perturbed variance exceeds 0.5x baseline above stable
+    # (i.e., var_diff > 0.5 x training_baseline_variance)
     c1_threshold = 0.5 * training_baseline_variance
     c1_pass = var_diff > c1_threshold
 
@@ -416,11 +416,11 @@ def run(
     if not c0_pass:
         failure_notes.append(
             f"C0 FAIL: training_baseline_variance={training_baseline_variance:.6f} <= 0. "
-            f"Calibration failed — no variance signal recorded during training."
+            f"Calibration failed -- no variance signal recorded during training."
         )
     if not c1_pass:
         failure_notes.append(
-            f"C1 FAIL: var_diff={var_diff:.6f} <= 0.5 × baseline={c1_threshold:.6f}. "
+            f"C1 FAIL: var_diff={var_diff:.6f} <= 0.5 x baseline={c1_threshold:.6f}. "
             f"[perturbed={perturbed_out['mean_running_variance']:.6f} "
             f"stable={stable_out['mean_running_variance']:.6f}] "
             f"Perturbed environment does not produce sufficient variance elevation "
@@ -490,7 +490,7 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-018b — ARC-016 Relative Threshold
+    summary_markdown = f"""# V3-EXQ-018b -- ARC-016 Relative Threshold
 
 **Status:** {status}
 **Training:** {train_episodes} eps (stable: num_hazards=2, drift_interval=200, drift_prob=0.0)
@@ -500,18 +500,18 @@ def run(
 
 ## Fix vs EXQ-018: Relative Threshold (Sleep Recalibration)
 
-EXQ-018 FAIL: commit_threshold=0.40 was 100× the operating variance range
+EXQ-018 FAIL: commit_threshold=0.40 was 100x the operating variance range
 (stable≈0.0026, perturbed≈0.0036). Absolute threshold calibration is fragile.
 
 Fix: **relative threshold** calibrated from training baseline:
-  `commit_threshold = {CALIBRATION_FACTOR} × training_baseline_variance`
+  `commit_threshold = {CALIBRATION_FACTOR} x training_baseline_variance`
 
 `training_baseline_variance` = mean running_variance over last {BASELINE_WINDOW} training episodes.
 
 Biological analogy (sleep recalibration): Slow-wave sleep resets the prediction error
 baseline. Waking commitment thresholds are calibrated relative to that baseline.
 An agent "waking into" a stable environment establishes a reference variance level,
-then commits when variance stays within 2× of that reference, and withholds
+then commits when variance stays within 2x of that reference, and withholds
 commitment when variance exceeds that margin.
 
 ## Calibration Results
@@ -521,7 +521,7 @@ commitment when variance exceeds that margin.
 | training_baseline_variance | {training_baseline_variance:.6f} |
 | calibration_factor | {CALIBRATION_FACTOR} |
 | calibrated_commit_threshold | {calibrated_commit_threshold:.6f} |
-| C1 relative threshold (0.5 × baseline) | {c1_threshold:.6f} |
+| C1 relative threshold (0.5 x baseline) | {c1_threshold:.6f} |
 
 ## Phase Results
 
@@ -542,25 +542,25 @@ commitment when variance exceeds that margin.
 | Criterion | Result | Value |
 |---|---|---|
 | C0: training_baseline_variance > 0 (calibration succeeded) | {"PASS" if c0_pass else "FAIL"} | {training_baseline_variance:.6f} |
-| C1: var_diff > 0.5 × baseline={c1_threshold:.6f} (relative criterion) | {"PASS" if c1_pass else "FAIL"} | {var_diff:.6f} |
+| C1: var_diff > 0.5 x baseline={c1_threshold:.6f} (relative criterion) | {"PASS" if c1_pass else "FAIL"} | {var_diff:.6f} |
 | C2: precision_stable > precision_perturbed | {"PASS" if c2_pass else "FAIL"} | {prec_diff:.4f} |
 | C3: commit_rate_stable > commit_rate_perturbed (ARC-016) | {"PASS" if c3_pass else "FAIL"} | {commit_diff:.4f} |
 | C4: n_stable_decisions >= 20 | {"PASS" if c4_pass else "FAIL"} | {stable_out["n_commit_decisions"]} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 
 ## Sleep Recalibration Note
 
 This experiment models the biological observation that sleep establishes a "prediction
 error baseline." The training phase (stable environment) corresponds to the waking
 period during which the agent learns about its environment. The last {BASELINE_WINDOW}
-episodes before sleep are used to compute the baseline variance — this is the agent's
+episodes before sleep are used to compute the baseline variance -- this is the agent's
 best estimate of "normal" operating variance. The calibrated commit_threshold
-({calibrated_commit_threshold:.6f} = {CALIBRATION_FACTOR} × {training_baseline_variance:.6f}) is then used in
+({calibrated_commit_threshold:.6f} = {CALIBRATION_FACTOR} x {training_baseline_variance:.6f}) is then used in
 the subsequent waking period (eval phases). An agent experiencing a perturbed
-environment will have running_variance > threshold → withholds commitment → explores.
+environment will have running_variance > threshold -> withholds commitment -> explores.
 An agent in a familiar stable environment will have running_variance < threshold →
-commits → exploits.
+commits -> exploits.
 {failure_section}
 """
 

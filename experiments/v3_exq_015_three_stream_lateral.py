@@ -1,12 +1,12 @@
 """
-V3-EXQ-015 — Three-Stream Lateral Head (MECH-099)
+V3-EXQ-015 -- Three-Stream Lateral Head (MECH-099)
 
 Claims: MECH-099 (three-pathway architecture), SD-003 (causal attribution).
 
 Motivation (2026-03-17):
   The biological three-stream architecture (Haak & Beckmann 2018, HCP n=470)
   shows a lateral/third stream (MT→MST/FST→STS) specialised for dynamic motion
-  and biological motion — it terminates near TPJ and feeds harm/agency detection
+  and biological motion -- it terminates near TPJ and feeds harm/agency detection
   directly, bypassing ventral (content) processing.
 
   In REE terms: E3's harm_eval operates on z_world, which is contaminated by
@@ -22,8 +22,8 @@ Motivation (2026-03-17):
   SD-003 calibration_gap > 0.05 WITHOUT reafference correction.
 
   SD-003 attribution pipeline (lateral variant):
-    z_harm_actual = encode(world_obs with actual action → lateral head → z_harm)
-    z_harm_cf     = encode(world_obs + cf_action → direct probe on saved z_harm)
+    z_harm_actual = encode(world_obs with actual action -> lateral head -> z_harm)
+    z_harm_cf     = encode(world_obs + cf_action -> direct probe on saved z_harm)
     causal_sig    = net_eval(z_harm_actual) - net_eval(z_harm_cf)
 
   Implementation note: Because z_harm is derived from world_obs (not from
@@ -88,7 +88,7 @@ def _make_world_decoder(world_dim: int, world_obs_dim: int, hidden_dim: int = 64
 
 
 def _make_net_eval_head(input_dim: int, hidden_dim: int = 32) -> nn.Module:
-    """Signed regression net_eval head: z_harm → scalar net value ∈ [-1, 1]."""
+    """Signed regression net_eval head: z_harm -> scalar net value ∈ [-1, 1]."""
     return nn.Sequential(
         nn.Linear(input_dim, hidden_dim),
         nn.ReLU(),
@@ -314,7 +314,7 @@ def _eval_probes(
 
     pred_std = float(torch.tensor(all_pred_vals).std().item()) if len(all_pred_vals) > 1 else 0.0
 
-    print(f"  Probe — n_near={len(near_vals)} n_safe={len(safe_vals)}", flush=True)
+    print(f"  Probe -- n_near={len(near_vals)} n_safe={len(safe_vals)}", flush=True)
     print(f"  net_eval near={mean_near:.4f}  safe={mean_safe:.4f}  gap={calibration_gap:.4f}",
           flush=True)
     print(f"  ||z_harm|| near={mean_harm_near:.4f}  safe={mean_harm_safe:.4f}  "
@@ -450,17 +450,17 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-015 — Three-Stream Lateral Head (MECH-099)
+    summary_markdown = f"""# V3-EXQ-015 -- Three-Stream Lateral Head (MECH-099)
 
 **Status:** {status}
-**Warmup:** {warmup_episodes} eps (RANDOM policy, 12×12, 15 hazards)
+**Warmup:** {warmup_episodes} eps (RANDOM policy, 12x12, 15 hazards)
 **Probe eval:** {eval_probe_resets} grid resets
 **harm_dim:** {HARM_DIM}
 **Seed:** {seed}
 
 ## Motivation (MECH-099 / SD-007 / SD-003)
 
-EXQ-012 showed calibration_gap ≈ 0.0007 with z_world — E2 identity shortcut.
+EXQ-012 showed calibration_gap ≈ 0.0007 with z_world -- E2 identity shortcut.
 This experiment tests whether a dedicated lateral encoder head processing ONLY
 hazard + contamination channels (lateral stream in MECH-099 biological grounding)
 gives E3 a harm-salient z_harm embedding that bypasses the identity shortcut.
@@ -468,7 +468,7 @@ gives E3 a harm-salient z_harm embedding that bypasses the identity shortcut.
 Attribution pipeline (lateral variant):
 ```
 z_harm = SplitEncoder.lateral_head(hazard_channels + contamination_view)  # [16-dim]
-net_eval: z_harm → scalar ∈ [-1, 1]  (trained on harm_signal values)
+net_eval: z_harm -> scalar ∈ [-1, 1]  (trained on harm_signal values)
 causal_signal = net_eval(z_harm_near_hazard) - net_eval(z_harm_safe)
 calibration_gap = mean(causal_signal near-hazard) - mean(causal_signal safe)
 ```
@@ -479,7 +479,7 @@ calibration_gap = mean(causal_signal near-hazard) - mean(causal_signal safe)
 |---|---|---|---|
 | net_eval (z_harm) | {probe["mean_net_eval_near"]:.4f} | {probe["mean_net_eval_safe"]:.4f} | {probe["calibration_gap"]:.4f} |
 | \|\|z_harm\|\| norm | {probe["mean_z_harm_norm_near"]:.4f} | {probe["mean_z_harm_norm_safe"]:.4f} | {probe["z_harm_selectivity_margin"]:.4f} |
-| \|\|z_world\|\| norm | {probe["mean_z_world_norm_near"]:.4f} | {probe["mean_z_world_norm_safe"]:.4f} | — |
+| \|\|z_world\|\| norm | {probe["mean_z_world_norm_near"]:.4f} | {probe["mean_z_world_norm_safe"]:.4f} | -- |
 
 net_eval pred_std: {probe["net_eval_pred_std"]:.4f}
 Warmup: harm={warmup_harm}  benefit={warmup_benefit}
@@ -494,7 +494,7 @@ Warmup: harm={warmup_harm}  benefit={warmup_benefit}
 | C4: Probe coverage >= 10 each | {"PASS" if c4_pass else "FAIL"} | near={probe["n_near_hazard_probes"]} safe={probe["n_safe_probes"]} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {fatal_errors} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

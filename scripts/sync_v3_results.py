@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sync_v3_results.py — Sync V3 experiment results to REE_assembly run pack format.
+sync_v3_results.py -- Sync V3 experiment results to REE_assembly run pack format.
 
 Reads flat JSON results from ree-v3/evidence/experiments/*/*.json and creates
 governance-compatible run packs in:
@@ -45,9 +45,9 @@ RUNNER_VERSION = "3.0.0"
 
 
 def _claim_to_experiment_type(claim_id: str) -> str:
-    """SD-005 → claim_probe_sd_005, V3-EXQ-001 → v3_exq_001, etc."""
+    """SD-005 -> claim_probe_sd_005, V3-EXQ-001 -> v3_exq_001, etc."""
     if claim_id.upper().startswith("V3-EXQ"):
-        # V3-EXQ-001 → v3_exq_001
+        # V3-EXQ-001 -> v3_exq_001
         return claim_id.lower().replace("-", "_")
     normalized = claim_id.lower().replace("-", "_")
     return f"claim_probe_{normalized}"
@@ -202,7 +202,7 @@ def sync_v3_results(
 
         data = _load_latest(exp_dir)
         if data is None:
-            print(f"  SKIP {exp_dir.name} — no JSON found")
+            print(f"  SKIP {exp_dir.name} -- no JSON found")
             continue
 
         exp_name = exp_dir.name
@@ -215,12 +215,12 @@ def sync_v3_results(
         target_dir = assembly_evidence_dir / experiment_type / "runs" / run_id
 
         if target_dir.exists():
-            print(f"  SKIP {run_id} — already exists")
+            print(f"  SKIP {run_id} -- already exists")
             skipped += 1
             continue
 
         _write_run_pack(target_dir, data, exp_name, dry_run=dry_run)
-        print(f"  {'[DRY] ' if dry_run else ''}WROTE {run_id} → {experiment_type}")
+        print(f"  {'[DRY] ' if dry_run else ''}WROTE {run_id} -> {experiment_type}")
         written += 1
 
     print(f"\nSync complete: {written} written, {skipped} skipped")
@@ -251,9 +251,9 @@ def main() -> None:
     print(f"V3 evidence dir:      {args.v3_evidence_dir}")
     print(f"Assembly target dir:  {args.assembly_evidence_dir}")
     if args.dry_run:
-        print("DRY RUN — nothing will be written\n")
+        print("DRY RUN -- nothing will be written\n")
 
-    # Primary pass: ree-v3/evidence/experiments/ → REE_assembly runs/
+    # Primary pass: ree-v3/evidence/experiments/ -> REE_assembly runs/
     n = sync_v3_results(
         v3_evidence_dir=args.v3_evidence_dir,
         assembly_evidence_dir=args.assembly_evidence_dir,

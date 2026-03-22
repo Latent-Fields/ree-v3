@@ -1,5 +1,5 @@
 """
-V3-EXQ-058 — ARC-027 / SD-010: Harm Stream Calibration Validation
+V3-EXQ-058 -- ARC-027 / SD-010: Harm Stream Calibration Validation
 
 Claims: ARC-027, SD-010, MECH-071
 
@@ -11,7 +11,7 @@ ARC-027 diagnosis (from EXQ-027b, EXQ-044, EXQ-045, EXQ-047):
   - EXQ-047: z_self/z_world split insufficient (21% calibration gain, needs 3rd stream)
 
 SD-010 implementation (2026-03-20):
-  - HarmEncoder(harm_obs → z_harm) in LatentStack — active when use_harm_stream=True
+  - HarmEncoder(harm_obs -> z_harm) in LatentStack -- active when use_harm_stream=True
   - agent.sense(obs_body, obs_world, obs_harm=harm_obs) routes through HarmEncoder
   - z_harm bypasses reafference correction by construction
   - harm_obs layout: hazard_field_view[25] + resource_field_view[25] + harm_exposure[1]
@@ -23,12 +23,12 @@ This experiment validates the harm stream produces a calibrated signal:
 
 Design:
   Training: 500 episodes, full pipeline with use_harm_stream=True
-  Eval: 50 episodes × 200 steps
+  Eval: 50 episodes x 200 steps
   E3 trains harm_eval_head on z_harm (not z_world) via hazard contact labels
   E2 trains world_forward separately
 
 PASS criteria:
-  C1: cal_gap_z_harm_approach > 0         (correct sign — no inversion in harm stream)
+  C1: cal_gap_z_harm_approach > 0         (correct sign -- no inversion in harm stream)
   C2: cal_gap_z_harm_approach > 0.03      (meaningful signal above noise floor)
   C3: n_approach_eval >= 30               (sufficient approach samples)
   C4: world_forward_r2 > 0.05            (E2 functional)
@@ -70,7 +70,7 @@ def _make_agent_and_env(seed: int):
         world_obs_dim=env.world_obs_dim,
         action_dim=env.action_dim,
         alpha_world=0.9,           # SD-008
-        use_harm_stream=True,      # SD-010 — nociceptive separation
+        use_harm_stream=True,      # SD-010 -- nociceptive separation
     )
     agent = REEAgent(cfg)
     return agent, env, cfg
@@ -119,12 +119,12 @@ def _train(agent: REEAgent, env: CausalGridWorldV2, n_episodes: int):
                 opt_e2.zero_grad(); loss_e2.backward(); opt_e2.step()
                 wf_buf.clear()
 
-            # E3 harm_eval training — on z_harm (SD-010) AND z_world (baseline)
+            # E3 harm_eval training -- on z_harm (SD-010) AND z_world (baseline)
             ttype = info.get("transition_type", "none")
             harm_label = torch.tensor([[1.0 if ttype in ("hazard_approach",
                                         "env_caused_hazard", "agent_caused_hazard")
                                        else 0.0]])
-            z_harm = latent.z_harm    # [1, z_harm_dim] — from HarmEncoder
+            z_harm = latent.z_harm    # [1, z_harm_dim] -- from HarmEncoder
             z_world_now = latent.z_world
 
             # Train z_harm head
@@ -215,7 +215,7 @@ if __name__ == "__main__":
     from datetime import datetime, timezone
 
     agent, env, cfg = _make_agent_and_env(SEED)
-    print(f"[EXQ-056] Training {WARMUP_EPISODES} eps — harm stream enabled (use_harm_stream=True)")
+    print(f"[EXQ-056] Training {WARMUP_EPISODES} eps -- harm stream enabled (use_harm_stream=True)")
     _train(agent, env, WARMUP_EPISODES)
 
     print("[EXQ-056] Evaluating calibration (z_harm vs z_world)...")
@@ -233,7 +233,7 @@ if __name__ == "__main__":
     print(f"\n[EXQ-056] {status} ({n_pass}/5 criteria)")
     print(f"  cal_gap z_harm (approach):  {m['cal_gap_z_harm_approach']:.4f}")
     print(f"  cal_gap z_world (approach): {m['cal_gap_z_world_approach']:.4f}")
-    print(f"  world_forward R²: {m['world_forward_r2']:.4f}")
+    print(f"  world_forward R2: {m['world_forward_r2']:.4f}")
     print(f"  n_approach: {m['n_approach_eval']}")
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

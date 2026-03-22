@@ -12,7 +12,7 @@ Context:
     and unified conditions still carry harm proximity signals that conflate
     calibration metrics."
 
-  SD-010 is now confirmed (EXQ-056c PASS, R=0.914; EXQ-059c PASS, 10× harm
+  SD-010 is now confirmed (EXQ-056c PASS, R=0.914; EXQ-059c PASS, 10x harm
   reduction). The dedicated HarmEncoder routes harm_obs → z_harm independently
   of z_world. This removes nociceptive content from z_world, creating the
   conditions EXQ-047 needed.
@@ -374,7 +374,7 @@ def _eval_condition(
                 mean_sig = float(np.mean(sigs)) if sigs else 0.0
                 causal_sigs_by_ttype.setdefault(ttype, []).append(mean_sig)
 
-                # World-forward R² data
+                # World-forward R2 data
                 if z_world_prev is not None and a_prev is not None:
                     z_world_pred = agent.e2.world_forward(z_world_prev, a_prev)
                     wf_preds_all.append(z_world_pred)
@@ -385,7 +385,7 @@ def _eval_condition(
             if done:
                 break
 
-    # World-forward R²
+    # World-forward R2
     if len(wf_preds_all) >= 10:
         preds   = torch.cat(wf_preds_all, dim=0)
         targets = torch.cat(wf_targets_all, dim=0)

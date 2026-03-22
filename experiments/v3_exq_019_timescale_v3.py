@@ -31,17 +31,17 @@ Motivation (2026-03-17):
   to perspective shift contamination.
 
 Metrics:
-  Per step: Δz_self = ||z_self_t - z_self_{t-1}||
-           Δz_world_raw = ||z_world_t - z_world_{t-1}||
-           Δz_world_corr = ||z_world_corr_t - z_world_corr_{t-1}||
+  Per step: dz_self = ||z_self_t - z_self_{t-1}||
+           dz_world_raw = ||z_world_t - z_world_{t-1}||
+           dz_world_corr = ||z_world_corr_t - z_world_corr_{t-1}||
   Autocorrelation of delta series at lag 1, 2, 5, 10
 
 PASS criteria (ALL must hold):
   C1 (pre-correction, confirming the problem):
-     mean(Δz_world_raw) > mean(Δz_self) -- world looks fast (perspective shift)
+     mean(dz_world_raw) > mean(dz_self) -- world looks fast (perspective shift)
   C2 (post-correction, validating SD-007 restores correct timescale):
-     autocorr(Δz_world_corrected, lag=5) > autocorr(Δz_self, lag=5) -- world now slower
-  C3: mean(Δz_world_raw) > mean(Δz_world_corrected) -- correction reduced world churn
+     autocorr(dz_world_corrected, lag=5) > autocorr(dz_self, lag=5) -- world now slower
+  C3: mean(dz_world_raw) > mean(dz_world_corrected) -- correction reduced world churn
   C4: n_steps_collected >= 3000
   C5: No fatal errors
 
@@ -323,7 +323,7 @@ def _train_reafference_predictor(
         else:
             r2 = 0.0
 
-    print(f"  ReafferencePredictor: n_train={n_train}  R²_test={r2:.3f}", flush=True)
+    print(f"  ReafferencePredictor: n_train={n_train}  R2_test={r2:.3f}", flush=True)
     return rp, r2
 
 
@@ -494,7 +494,7 @@ def run(
     summary_markdown = f"""# V3-EXQ-019 — MECH-058 V3 Timescale Separation
 
 **Status:** {status}
-**Warmup:** {warmup_episodes} eps (RANDOM policy, 12×12, 15 hazards, drift_interval=3, drift_prob=0.5)
+**Warmup:** {warmup_episodes} eps (RANDOM policy, 12x12, 15 hazards, drift_interval=3, drift_prob=0.5)
 **Eval:** {eval_episodes} eps
 **Seed:** {seed}
 
@@ -517,15 +517,15 @@ measures both before and after correction.
 Autocorr(corrected, lag=5) - Autocorr(self, lag=5) = {autocorr_corr[5] - autocorr_self[5]:.4f}
 
 Event-type z_world_raw means: empty={mean_dz_empty:.4f}  env_hazard={mean_dz_env:.4f}
-n_steps = {n_steps}  |  ReafferencePredictor R²_test = {reaf_r2:.3f}
+n_steps = {n_steps}  |  ReafferencePredictor R2_test = {reaf_r2:.3f}
 
 ## PASS Criteria
 
 | Criterion | Result | Value |
 |---|---|---|
-| C1: Δz_world_raw > Δz_self (perspective shift dominates) | {"PASS" if c1_pass else "FAIL"} | {mean_dz_raw:.4f} vs {mean_dz_self:.4f} |
+| C1: dz_world_raw > dz_self (perspective shift dominates) | {"PASS" if c1_pass else "FAIL"} | {mean_dz_raw:.4f} vs {mean_dz_self:.4f} |
 | C2: autocorr_corr[5] > autocorr_self[5] (corrected world slower) | {"PASS" if c2_pass else "FAIL"} | {autocorr_corr[5]:.4f} vs {autocorr_self[5]:.4f} |
-| C3: Δz_world_corr < Δz_world_raw (correction reduced churn) | {"PASS" if c3_pass else "FAIL"} | {mean_dz_corr:.4f} vs {mean_dz_raw:.4f} |
+| C3: dz_world_corr < dz_world_raw (correction reduced churn) | {"PASS" if c3_pass else "FAIL"} | {mean_dz_corr:.4f} vs {mean_dz_raw:.4f} |
 | C4: n_steps >= 3000 | {"PASS" if c4_pass else "FAIL"} | {n_steps} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | 0 |
 

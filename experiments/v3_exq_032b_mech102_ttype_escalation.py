@@ -1,18 +1,18 @@
 """
-V3-EXQ-032b — MECH-102: Energy Escalation Ladder via Transition-Type Split
+V3-EXQ-032b -- MECH-102: Energy Escalation Ladder via Transition-Type Split
 
 Claims: MECH-102, ARC-024, SD-003
 
 EXQ-032 FAIL post-mortem:
     E3-guided harm-minimizing policy on 6-hazard, 3-resource world never entered
     high harm_exposure states (mean=0.0018, n_high=0). The agent was too effective
-    at avoidance — viability was never genuinely threatened.
+    at avoidance -- viability was never genuinely threatened.
 
 EXQ-032b redesign: avoid the harm_exposure EMA entirely.
     Instead, split steps directly by transition_type:
-        none             → baseline: no hazard proximity
-        hazard_approach  → medium-energy: near hazard, gradient increasing
-        contact          → high-energy: actual hazard contact (agent + env combined)
+        none             -> baseline: no hazard proximity
+        hazard_approach  -> medium-energy: near hazard, gradient increasing
+        contact          -> high-energy: actual hazard contact (agent + env combined)
 
     Use RANDOM policy during eval. This:
       (a) Guarantees the agent enters all ttype categories naturally
@@ -23,8 +23,8 @@ EXQ-032b redesign: avoid the harm_exposure EMA entirely.
     With random policy, causal_sig = E3(E2(z, a_rand)) - mean_cf(E3(E2(z, a_cf))).
     At contact steps (agent in hazard): the actual action (stepped into hazard)
     produces a high-harm predicted next state; counterfactuals (step away) produce
-    lower-harm predicted states → positive causal_sig.
-    At none steps (safe zone): E3 varies little across actions → small causal_sig.
+    lower-harm predicted states -> positive causal_sig.
+    At none steps (safe zone): E3 varies little across actions -> small causal_sig.
 
 MECH-102 prediction (reformulated for ttype split):
     causal_sig_contact > causal_sig_approach > causal_sig_none
@@ -42,7 +42,7 @@ PASS criteria (ALL must hold):
 
 Architecture basis:
     MECH-102 (violence as terminal error correction)
-    ARC-024 (gradient world — approach events are meaningful intermediate states)
+    ARC-024 (gradient world -- approach events are meaningful intermediate states)
     SD-003 (counterfactual causal_sig via E2.world_forward + E3.harm_eval)
 """
 
@@ -93,7 +93,7 @@ def _compute_world_forward_r2(
         ss_res = ((tgt_test - pred_test) ** 2).sum()
         ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
     return r2
 
 
@@ -245,7 +245,7 @@ def _eval_ttype_ladder(
 ) -> Dict:
     """
     Random-policy eval. Measure causal_sig by transition_type.
-    Group "env_caused_hazard" + "agent_caused_hazard" → "contact" for MECH-102.
+    Group "env_caused_hazard" + "agent_caused_hazard" -> "contact" for MECH-102.
     """
     agent.eval()
     num_actions = env.action_dim
@@ -315,7 +315,7 @@ def _eval_ttype_ladder(
     print(f"  none (baseline):   causal_sig={mean_none:.6f}  n={n_none}", flush=True)
     print(f"  hazard_approach:   causal_sig={mean_approach:.6f}  n={n_approach}", flush=True)
     print(f"  contact (combined): causal_sig={mean_contact:.6f}  n={n_contact}", flush=True)
-    print(f"  Ladder: none={mean_none:.4f} → approach={mean_approach:.4f} → contact={mean_contact:.4f}", flush=True)
+    print(f"  Ladder: none={mean_none:.4f} -> approach={mean_approach:.4f} -> contact={mean_contact:.4f}", flush=True)
     print(f"\n  By individual ttype:", flush=True)
     for tt, sigs in sorted(causal_sigs_by_ttype.items()):
         print(f"    {tt:28s}: causal_sig={_mean(sigs):.6f}  n={len(sigs)}", flush=True)
@@ -465,13 +465,13 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-032b — MECH-102: Energy Escalation Ladder (ttype split, random policy)
+    summary_markdown = f"""# V3-EXQ-032b -- MECH-102: Energy Escalation Ladder (ttype split, random policy)
 
 **Status:** {status}
 **Claims:** MECH-102, ARC-024, SD-003
 **World:** CausalGridWorldV2 (6 hazards, 3 resources)
 **Policy:** RANDOM (avoids EMA-avoidance failure mode of EXQ-032)
-**Split:** transition_type → none / hazard_approach / contact
+**Split:** transition_type -> none / hazard_approach / contact
 **alpha_world:** {alpha_world}  (SD-008)
 **Seed:** {seed}
 
@@ -482,24 +482,24 @@ FAIL: the ethical policy was so effective that harm_exposure never exceeded 0.20
 (n_high=0). No viability threat was measurable.
 
 EXQ-032b replaces:
-1. **Policy**: random → agent naturally enters all ttype states
-2. **Split**: harm_exposure EMA → transition_type (directly reflects state-space energy)
+1. **Policy**: random -> agent naturally enters all ttype states
+2. **Split**: harm_exposure EMA -> transition_type (directly reflects state-space energy)
 
-The random policy is not less ethical — MECH-102 is about the *environment constraining
+The random policy is not less ethical -- MECH-102 is about the *environment constraining
 the option space*, not about unethical choices. With random policy, when the agent
 happens to step into a hazard (agent_caused_hazard), that action had higher causal_sig
 than alternatives (step away). The escalation ladder tests whether state-level energy
 (ttype) predicts action-level consequentiality (causal_sig).
 
-## Results — Energy Escalation Ladder
+## Results -- Energy Escalation Ladder
 
 | State Energy Level | causal_sig | n steps |
 |---|---|---|
 | none (safe locomotion) | {eval_out['mean_causal_sig_none']:.6f} | {eval_out['n_none']} |
 | hazard_approach (medium) | {eval_out['mean_causal_sig_approach']:.6f} | {eval_out['n_approach']} |
-| contact (high — agent+env) | {eval_out['mean_causal_sig_contact']:.6f} | {eval_out['n_contact']} |
+| contact (high -- agent+env) | {eval_out['mean_causal_sig_contact']:.6f} | {eval_out['n_contact']} |
 
-- **world_forward R²**: {wf_r2:.4f}
+- **world_forward R2**: {wf_r2:.4f}
 
 ## PASS Criteria
 
@@ -511,7 +511,7 @@ than alternatives (step away). The escalation ladder tests whether state-level e
 | C4: world_forward_r2 > 0.05 | {"PASS" if c4_pass else "FAIL"} | {wf_r2:.4f} |
 | C5: n_contact >= 50 | {"PASS" if c5_pass else "FAIL"} | {eval_out['n_contact']} |
 
-Criteria met: {n_met}/5 → **{status}**
+Criteria met: {n_met}/5 -> **{status}**
 {failure_section}
 """
 

@@ -1,5 +1,5 @@
 """
-V3-EXQ-016 — SD-007 Reafference Correction
+V3-EXQ-016 -- SD-007 Reafference Correction
 
 Claims: SD-007 (encoder.perspective_corrected_world_latent), MECH-098
 (encoder.reafference_cancellation), SD-003 (causal attribution).
@@ -16,16 +16,16 @@ Motivation (2026-03-17):
   E3.harm_eval a cleaner input that actually varies with action choice.
 
   Implementation (MSTd-equivalent, z-space level):
-  - ReafferencePredictor: Linear(self_dim + action_dim, 64) → ReLU → Linear(64, world_dim)
+  - ReafferencePredictor: Linear(self_dim + action_dim, 64) -> ReLU -> Linear(64, world_dim)
   - Trained on empty-space steps (transition_type == "none"):
-    minimize MSE(Δz_world_predicted, z_world_actual - z_world_prev)
+    minimize MSE(dz_world_predicted, z_world_actual - z_world_prev)
   - Applied at inference: z_world_corrected = z_world_raw - prediction
   - SD-003 probe uses z_world_corrected in both E2.world_forward and E3.harm_eval
 
 PASS criteria (ALL must hold):
   C1: calibration_gap > 0.05 using reafference-corrected z_world in SD-003 probe
   C2: reafference_reconstruction_r2 > 0.2 on held-out empty steps
-      (confirms predictor learned something real about locomotion → z_world change)
+      (confirms predictor learned something real about locomotion -> z_world change)
   C3: mean_dz_world_corrected(empty_move) < mean_dz_world_raw(empty_move)
       (correction reduced perspective shift in z_world)
   C4: warmup harm events > 100
@@ -259,7 +259,7 @@ def _train_reafference_predictor(
     Returns (predictor, r2_train, r2_test).
     """
     if len(reaf_data) < 20:
-        print(f"  WARNING: only {len(reaf_data)} empty-step records — skipping reaf fit",
+        print(f"  WARNING: only {len(reaf_data)} empty-step records -- skipping reaf fit",
               flush=True)
         rp = ReafferencePredictor(self_dim, action_dim, world_dim)
         return rp, 0.0, 0.0
@@ -310,7 +310,7 @@ def _train_reafference_predictor(
     r2_test  = _r2(z_self_test,  a_test,  dz_test)
 
     print(f"  ReafferencePredictor: n_train={n_train}  n_test={n-n_train}  "
-          f"R²_train={r2_train:.3f}  R²_test={r2_test:.3f}", flush=True)
+          f"R2_train={r2_train:.3f}  R2_test={r2_test:.3f}", flush=True)
 
     return rp, r2_train, r2_test
 
@@ -412,7 +412,7 @@ def _eval_corrected_probes(
     calibration_gap = mean_near - mean_safe
     pred_std = float(torch.tensor(all_pred_vals).std().item()) if len(all_pred_vals) > 1 else 0.0
 
-    print(f"  Corrected probe — n_near={len(near_sigs)} n_safe={len(safe_sigs)}", flush=True)
+    print(f"  Corrected probe -- n_near={len(near_sigs)} n_safe={len(safe_sigs)}", flush=True)
     print(f"  near={mean_near:.4f}  safe={mean_safe:.4f}  gap={calibration_gap:.4f}  "
           f"pred_std={pred_std:.4f}", flush=True)
 
@@ -434,7 +434,7 @@ def _measure_dz_correction(
     num_episodes: int,
     steps_per_episode: int,
 ) -> Dict:
-    """Measure mean ||Δz_world|| before and after correction for empty-space steps."""
+    """Measure mean ||dz_world|| before and after correction for empty-space steps."""
     agent.eval()
     reaf_predictor.eval()
 
@@ -499,10 +499,10 @@ def _measure_dz_correction(
     mean_dz_raw_env   = float(sum(dz_raw_env)   / max(1, len(dz_raw_env)))
     mean_dz_cor_env   = float(sum(dz_cor_env)   / max(1, len(dz_cor_env)))
 
-    print(f"  Δz correction — empty: raw={mean_dz_raw_empty:.4f}  "
+    print(f"  dz correction -- empty: raw={mean_dz_raw_empty:.4f}  "
           f"corrected={mean_dz_cor_empty:.4f}  "
           f"reduction={mean_dz_raw_empty - mean_dz_cor_empty:.4f}", flush=True)
-    print(f"  Δz correction — env_hazard: raw={mean_dz_raw_env:.4f}  "
+    print(f"  dz correction -- env_hazard: raw={mean_dz_raw_env:.4f}  "
           f"corrected={mean_dz_cor_env:.4f}", flush=True)
 
     return {
@@ -548,7 +548,7 @@ def run(
     optimizer       = optim.Adam(e12_params, lr=lr)
     net_eval_optim  = optim.Adam(net_eval_head.parameters(), lr=1e-4)
 
-    print(f"[V3-EXQ-016] Warmup + collect: {warmup_episodes} eps (12×12, 15 hazards, drift)",
+    print(f"[V3-EXQ-016] Warmup + collect: {warmup_episodes} eps (12x12, 15 hazards, drift)",
           flush=True)
     train_out = _train_and_collect(
         agent, env, world_decoder, net_eval_head,
@@ -572,7 +572,7 @@ def run(
     reafference_r2 = max(0.0, r2_test)
 
     # ── Measure z_world delta before/after correction ─────────────────────
-    print(f"[V3-EXQ-016] Measuring Δz correction (20 episodes)...", flush=True)
+    print(f"[V3-EXQ-016] Measuring dz correction (20 episodes)...", flush=True)
     dz_stats = _measure_dz_correction(agent, reaf_predictor, env, 20, steps_per_episode)
 
     # ── SD-003 probe with corrected z_world ───────────────────────────────
@@ -601,12 +601,12 @@ def run(
         )
     if not c2_pass:
         failure_notes.append(
-            f"C2 FAIL: reafference R²_test={reafference_r2:.3f} <= 0.2"
+            f"C2 FAIL: reafference R2_test={reafference_r2:.3f} <= 0.2"
         )
     if not c3_pass:
         failure_notes.append(
-            f"C3 FAIL: Δz_corrected(empty)={dz_stats['mean_dz_corrected_empty']:.4f} >= "
-            f"Δz_raw(empty)={dz_stats['mean_dz_raw_empty']:.4f}"
+            f"C3 FAIL: dz_corrected(empty)={dz_stats['mean_dz_corrected_empty']:.4f} >= "
+            f"dz_raw(empty)={dz_stats['mean_dz_raw_empty']:.4f}"
         )
     if not c4_pass:
         failure_notes.append(f"C4 FAIL: warmup_harm={warmup_harm} <= 100")
@@ -646,16 +646,16 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-016 — SD-007 Reafference Correction
+    summary_markdown = f"""# V3-EXQ-016 -- SD-007 Reafference Correction
 
 **Status:** {status}
-**Warmup:** {warmup_episodes} eps (RANDOM policy, 12×12, 15 hazards, drift_interval=3, drift_prob=0.5)
+**Warmup:** {warmup_episodes} eps (RANDOM policy, 12x12, 15 hazards, drift_interval=3, drift_prob=0.5)
 **Probe eval:** {eval_probe_resets} grid resets
 **Seed:** {seed}
 
 ## Motivation (SD-007 / MECH-098)
 
-EXQ-012 revealed calibration_gap ≈ 0.0007 — E2 identity shortcut from perspective shift.
+EXQ-012 revealed calibration_gap ≈ 0.0007 -- E2 identity shortcut from perspective shift.
 EXQ-014 (expected) confirmed locomotion explains > 30% of z_world variance.
 This experiment applies reafference correction (SD-007) at z-space level:
   `z_world_corrected = z_world_raw - ReafferencePredictor(z_self_prev, a_prev)`
@@ -663,14 +663,14 @@ Then re-runs the SD-003 attribution probe using corrected z_world.
 
 ## ReafferencePredictor
 
-- Architecture: Linear({self_dim + env.action_dim if hasattr(env, 'action_dim') else '?'}, 64) → ReLU → Linear(64, {world_dim})
+- Architecture: Linear({self_dim + env.action_dim if hasattr(env, 'action_dim') else '?'}, 64) -> ReLU -> Linear(64, {world_dim})
 - Trained on empty-space steps (transition_type == "none")
-- R² train: {r2_train:.3f} | R² test: {reafference_r2:.3f}
+- R2 train: {r2_train:.3f} | R2 test: {reafference_r2:.3f}
 - Empty-step data collected: {n_empty_steps}
 
-## Δz_world Before/After Correction
+## dz_world Before/After Correction
 
-| Event Type | Raw Δz_world | Corrected Δz_world | Reduction |
+| Event Type | Raw dz_world | Corrected dz_world | Reduction |
 |---|---|---|---|
 | empty_move (locomotion) | {dz_stats["mean_dz_raw_empty"]:.4f} | {dz_stats["mean_dz_corrected_empty"]:.4f} | {dz_stats["mean_dz_raw_empty"] - dz_stats["mean_dz_corrected_empty"]:.4f} |
 | env_caused_hazard | {dz_stats["mean_dz_raw_env"]:.4f} | {dz_stats["mean_dz_corrected_env"]:.4f} | {dz_stats["mean_dz_raw_env"] - dz_stats["mean_dz_corrected_env"]:.4f} |
@@ -692,12 +692,12 @@ Warmup: harm={warmup_harm}  benefit={warmup_benefit}
 | Criterion | Result | Value |
 |---|---|---|
 | C1: calibration_gap > 0.05 (corrected) | {"PASS" if c1_pass else "FAIL"} | {probe["calibration_gap"]:.4f} |
-| C2: reafference R²_test > 0.2 | {"PASS" if c2_pass else "FAIL"} | {reafference_r2:.3f} |
-| C3: Δz_corrected(empty) < Δz_raw(empty) | {"PASS" if c3_pass else "FAIL"} | {dz_stats["mean_dz_corrected_empty"]:.4f} vs {dz_stats["mean_dz_raw_empty"]:.4f} |
+| C2: reafference R2_test > 0.2 | {"PASS" if c2_pass else "FAIL"} | {reafference_r2:.3f} |
+| C3: dz_corrected(empty) < dz_raw(empty) | {"PASS" if c3_pass else "FAIL"} | {dz_stats["mean_dz_corrected_empty"]:.4f} vs {dz_stats["mean_dz_raw_empty"]:.4f} |
 | C4: Warmup harm events > 100 | {"PASS" if c4_pass else "FAIL"} | {warmup_harm} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {fatal_errors} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

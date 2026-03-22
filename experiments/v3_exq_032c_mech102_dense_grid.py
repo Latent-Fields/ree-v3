@@ -3,11 +3,11 @@ V3-EXQ-032c — MECH-102: Forced Escalation via Dense Constrained Grid
 
 Claims: MECH-102, ARC-024, SD-003
 
-EXQ-032 FAIL: E3-guided policy on a 12×12 grid with 6 hazards (4.2% coverage)
+EXQ-032 FAIL: E3-guided policy on a 12x12 grid with 6 hazards (4.2% coverage)
 could navigate around all hazards — viability was never genuinely threatened.
 
 EXQ-032c redesign: constrain the environment so avoidance is impossible.
-    Grid: 8×8 (64 cells), 10 hazards (15.6% of cells)
+    Grid: 8x8 (64 cells), 10 hazards (15.6% of cells)
     E3-guided harm-minimizing policy (argmin E3(E2(z_world, a)))
     With 15.6% hazard coverage, the agent cannot avoid hazard proximity.
     Even the most ethical possible policy accumulates harm_exposure.
@@ -87,7 +87,7 @@ def _compute_world_forward_r2(
         ss_res = ((tgt_test - pred_test) ** 2).sum()
         ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
     return r2
 
 
@@ -348,7 +348,7 @@ def run(
     torch.manual_seed(seed)
     random.seed(seed)
 
-    # Dense constrained grid: 8×8 with 10 hazards = 15.6% coverage
+    # Dense constrained grid: 8x8 with 10 hazards = 15.6% coverage
     # E3-guided policy cannot avoid all hazards at this density
     env = CausalGridWorldV2(
         seed=seed, size=8, num_hazards=10, num_resources=2,
@@ -375,7 +375,7 @@ def run(
     print(
         f"[V3-EXQ-032c] MECH-102 Forced Escalation — Dense Grid\n"
         f"  body_obs={env.body_obs_dim}  world_obs={env.world_obs_dim}\n"
-        f"  Grid: 8×8  num_hazards=10 (15.6% coverage — unavoidable density)\n"
+        f"  Grid: 8x8  num_hazards=10 (15.6% coverage — unavoidable density)\n"
         f"  Policy: E3-guided harm-minimizing (argmin E3(E2(z_world,a)))\n"
         f"  Thresholds: low_exposure<{LOW_EXPOSURE_MAX}  high_exposure>={HIGH_EXPOSURE_MIN}",
         flush=True,
@@ -473,11 +473,11 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-032c — MECH-102: Forced Escalation in Dense Grid (8×8, 10 hazards)
+    summary_markdown = f"""# V3-EXQ-032c — MECH-102: Forced Escalation in Dense Grid (8x8, 10 hazards)
 
 **Status:** {status}
 **Claims:** MECH-102, ARC-024, SD-003
-**Grid:** 8×8, 10 hazards (15.6% cell coverage — physically unavoidable)
+**Grid:** 8x8, 10 hazards (15.6% cell coverage — physically unavoidable)
 **Policy:** E3-guided harm-minimizing (argmin E3(E2(z_world, a)))
 **Exposure thresholds:** low < {LOW_EXPOSURE_MAX}  |  high >= {HIGH_EXPOSURE_MIN}
 **alpha_world:** {alpha_world}  (SD-008)
@@ -485,12 +485,12 @@ def run(
 
 ## Design Rationale
 
-EXQ-032 used a 12×12 grid with 6 hazards (4.2% coverage). The harm-minimizing
+EXQ-032 used a 12x12 grid with 6 hazards (4.2% coverage). The harm-minimizing
 policy succeeded in avoiding all hazards — n_high_exposure=0. This is not a model
 failure; it is a test design failure: the environment was not constraining enough
 to force viability threat.
 
-EXQ-032c uses 8×8 = 64 cells with 10 hazards (15.6% coverage). At this density,
+EXQ-032c uses 8x8 = 64 cells with 10 hazards (15.6% coverage). At this density,
 even an optimal harm-minimizing policy cannot avoid frequent proximity to hazards.
 The harm_exposure EMA accumulates continuously.
 
@@ -506,7 +506,7 @@ than when safe paths exist — regardless of the ethical intent of the selection
 | High exposure (>= {HIGH_EXPOSURE_MIN}) | {eval_out['mean_harm_exposure_high']:.4f} | {eval_out['causal_sig_high_exposure']:.6f} | {eval_out['n_high_exposure']} |
 
 **Escalation gap** (high - low): {eval_out['escalation_gap']:.6f}
-**world_forward R²**: {wf_r2:.4f}
+**world_forward R2**: {wf_r2:.4f}
 
 ## PASS Criteria
 

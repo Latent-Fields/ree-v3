@@ -32,7 +32,7 @@ REVISED CRITERIA (5 required, all must hold):
         Tests that E3 scores E2-predicted dangerous futures higher than safe ones.
     C3: causal_sig_approach > 0.005  (lowered from 0.02 based on observed magnitude)
         Minimum signal threshold. EXQ-030 observed 0.0055 with untrained E3-on-E2 distribution.
-        With Fix 2, expect 5–10× improvement.
+        With Fix 2, expect 5-10x improvement.
     C4: world_forward_r2 > 0.05     (unchanged — E2 learned world dynamics, was 0.95 in EXQ-030)
     C5: n_approach_steps >= 50      (unchanged)
 
@@ -71,7 +71,7 @@ def _compute_world_forward_r2(
     agent: REEAgent,
     wf_data: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
 ) -> float:
-    """R² of E2.world_forward on held-out transitions."""
+    """R2 of E2.world_forward on held-out transitions."""
     if len(wf_data) < 20:
         return 0.0
     n = len(wf_data)
@@ -88,7 +88,7 @@ def _compute_world_forward_r2(
         ss_res = ((tgt_test - pred_test) ** 2).sum()
         ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
     return r2
 
 
@@ -524,7 +524,7 @@ and E2.world_forward(z_world_neg, a_rand) → label=0. Teaches E3 to evaluate E2
 | env_caused_hazard    | {md['env_caused_hazard']:.4f} | {ms['env_caused_hazard']:.6f} | {nc['env_caused_hazard']} |
 | agent_caused_hazard  | {md['agent_caused_hazard']:.4f} | {ms['agent_caused_hazard']:.6f} | {nc['agent_caused_hazard']} |
 
-- **world_forward R²**: {wf_r2:.4f}  (PASS > 0.05)
+- **world_forward R2**: {wf_r2:.4f}  (PASS > 0.05)
 - **attribution_gap** (approach − env): {eval_out['attribution_gap']:.6f}  (PASS > 0)
 
 ## PASS Criteria (Revised)

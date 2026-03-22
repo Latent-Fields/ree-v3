@@ -1,10 +1,10 @@
 """
-V3-EXQ-045 — MECH-102: Energy Escalation Ladder (Ethical Policy + ttype Split)
+V3-EXQ-045 -- MECH-102: Energy Escalation Ladder (Ethical Policy + ttype Split)
 
 Claims: MECH-102, ARC-024
 
 EXQ-032b PASS confirmed the MECH-102 escalation ladder under random policy:
-  none=-0.032  →  approach=+0.006  →  contact=+0.017
+  none=-0.032  ->  approach=+0.006  ->  contact=+0.017
 But random policy provides a one-sided test: the agent sometimes blunders into
 hazards, producing positive causal_sig at contact (harm_actual > mean_cf).
 
@@ -12,9 +12,9 @@ EXQ-045 complements EXQ-032b with the ETHICAL policy variant. The agent always
 picks the action that minimises predicted harm: argmin E3(E2(z_world, a)).
 
 With an ethical policy the sign of causal_sig inverts:
-  harm_actual  = E3(E2(z, a_best))   ← minimum possible harm
-  mean_cf_harm = mean(E3(E2(z, a_cf))) ← average over all other actions
-  causal_sig   = harm_actual - mean_cf   ← NEGATIVE (agent avoided harm)
+  harm_actual  = E3(E2(z, a_best))   <- minimum possible harm
+  mean_cf_harm = mean(E3(E2(z, a_cf))) <- average over all other actions
+  causal_sig   = harm_actual - mean_cf   <- NEGATIVE (agent avoided harm)
 
 The interesting metric becomes the ADVANTAGE of the ethical choice:
   advantage_sig = mean_cf_harm - harm_actual
@@ -29,7 +29,7 @@ Interpretation:
     advantage_sig ≈ 0.
   - At "approach" (near hazard): some actions go deeper into the hazard gradient,
     others retreat. The ethical agent actively avoids harm; advantage rises.
-  - At "contact" (hazard overlap): action space has maximum gradient — some paths
+  - At "contact" (hazard overlap): action space has maximum gradient -- some paths
     continue through residue, some escape. Ethical advantage is maximised.
 
 Relationship to EXQ-032b:
@@ -220,7 +220,7 @@ def run(
                     )
                     world_forward_optimizer.step()
 
-            # E3.harm_eval: Fix2 — train on both observed and E2-predicted states
+            # E3.harm_eval: Fix2 -- train on both observed and E2-predicted states
             if len(harm_buf_pos) >= 4 and len(harm_buf_neg) >= 4:
                 k_pos = min(16, len(harm_buf_pos))
                 k_neg = min(16, len(harm_buf_neg))
@@ -274,7 +274,7 @@ def run(
                 flush=True,
             )
 
-    # ── world_forward R² ────────────────────────────────────────────────────
+    # ── world_forward R2 ────────────────────────────────────────────────────
     wf_r2 = 0.0
     if len(wf_data) >= 20:
         n = len(wf_data)
@@ -290,7 +290,7 @@ def run(
                 ss_res = ((tgt_test - pred_test) ** 2).sum()
                 ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
                 wf_r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test): {wf_r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test): {wf_r2:.4f}", flush=True)
 
     # ── Eval: ethical policy + advantage_sig by ttype ───────────────────────
     print(
@@ -363,7 +363,7 @@ def run(
     print(f"  none (baseline):     advantage_sig={mean_none:.6f}  n={n_none}", flush=True)
     print(f"  hazard_approach:     advantage_sig={mean_approach:.6f}  n={n_approach}", flush=True)
     print(f"  contact (combined):  advantage_sig={mean_contact:.6f}  n={n_contact}", flush=True)
-    print(f"  Ladder: none={mean_none:.4f} → approach={mean_approach:.4f} → contact={mean_contact:.4f}", flush=True)
+    print(f"  Ladder: none={mean_none:.4f} -> approach={mean_approach:.4f} -> contact={mean_contact:.4f}", flush=True)
     print(f"\n  By individual ttype:", flush=True)
     for tt, sigs in sorted(advantage_sigs_by_ttype.items()):
         print(f"    {tt:28s}: advantage_sig={_mean(sigs):.6f}  n={len(sigs)}", flush=True)
@@ -395,7 +395,7 @@ def run(
     if not c3:
         failure_notes.append(
             f"C3 FAIL: advantage_sig_contact={mean_contact:.6f} <= 0.001 "
-            f"(all actions equally harmful at contact — no room for ethical choice)"
+            f"(all actions equally harmful at contact -- no room for ethical choice)"
         )
     if not c4:
         failure_notes.append(f"C4 FAIL: world_forward_r2={wf_r2:.4f} <= 0.05")
@@ -436,7 +436,7 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-045 — MECH-102: Energy Escalation Ladder (Ethical Policy + ttype Split)
+    summary_markdown = f"""# V3-EXQ-045 -- MECH-102: Energy Escalation Ladder (Ethical Policy + ttype Split)
 
 **Status:** {status}
 **Claims:** MECH-102, ARC-024
@@ -455,22 +455,22 @@ With ethical policy, harm_actual is the *minimum* over all actions.
 advantage_sig = mean_cf − harm_actual = how much harm the ethical choice spared.
 
 MECH-102 prediction: advantage_sig escalates with transition energy:
-- none (safe): all actions harmless → advantage ≈ 0
-- approach: action space starts to diverge (toward vs away from hazard) → advantage rises
-- contact: maximum action-space gradient → advantage maximised
+- none (safe): all actions harmless -> advantage ≈ 0
+- approach: action space starts to diverge (toward vs away from hazard) -> advantage rises
+- contact: maximum action-space gradient -> advantage maximised
 
 If PASS: ethical agency matters MOST when stakes are highest.
 Both EXQ-032b (harm incurred) and EXQ-045 (harm avoided) confirm MECH-102.
 
-## Results — Ethical Advantage Ladder
+## Results -- Ethical Advantage Ladder
 
 | State Energy Level | advantage_sig | n steps |
 |---|---|---|
 | none (safe locomotion)    | {mean_none:.6f} | {n_none} |
 | hazard_approach (medium)  | {mean_approach:.6f} | {n_approach} |
-| contact (high — combined) | {mean_contact:.6f} | {n_contact} |
+| contact (high -- combined) | {mean_contact:.6f} | {n_contact} |
 
-- **world_forward R²**: {wf_r2:.4f}
+- **world_forward R2**: {wf_r2:.4f}
 
 ## PASS Criteria
 
@@ -482,7 +482,7 @@ Both EXQ-032b (harm incurred) and EXQ-045 (harm avoided) confirm MECH-102.
 | C4: world_forward_r2 > 0.05 | {"PASS" if c4 else "FAIL"} | {wf_r2:.4f} |
 | C5: n_contact >= 50 | {"PASS" if c5 else "FAIL"} | {n_contact} |
 
-Criteria met: {n_met}/5 → **{status}**
+Criteria met: {n_met}/5 -> **{status}**
 {failure_section}
 """
 

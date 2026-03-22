@@ -83,7 +83,7 @@ def _compute_world_forward_r2(
     agent: REEAgent,
     wf_data: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
 ) -> float:
-    """R² of E2.world_forward on held-out transitions."""
+    """R2 of E2.world_forward on held-out transitions."""
     if len(wf_data) < 20:
         return 0.0
     n = len(wf_data)
@@ -100,7 +100,7 @@ def _compute_world_forward_r2(
         ss_res = ((tgt_test - pred_test) ** 2).sum()
         ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
     return r2
 
 
@@ -690,7 +690,7 @@ def run(
         "alpha_world":    float(alpha_world),
         "proximity_scale": float(proximity_scale),
 
-        # world_forward R² — e3_ablated trains E2 too, so wf_r2 should match full
+        # world_forward R2 — e3_ablated trains E2 too, so wf_r2 should match full
         "wf_r2_full":       float(condition_wf_r2["full"]),
         "wf_r2_e3_ablated": float(condition_wf_r2["e3_ablated"]),
         "wf_r2_e2_ablated": float(condition_wf_r2["e2_ablated"]),
@@ -817,7 +817,7 @@ holds. Two engines are tested here:
 |-----------------|-----------|------------|------------|
 | attribution_gap | **{rf['attribution_gap']:.6f}** | {re3['attribution_gap']:.6f} | {re2['attribution_gap']:.6f} |
 
-## World-Forward R²
+## World-Forward R2
 
 | Condition   | wf_r2 |
 |-------------|-------|

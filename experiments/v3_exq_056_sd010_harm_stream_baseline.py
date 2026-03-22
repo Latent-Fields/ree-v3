@@ -13,8 +13,8 @@ If it discriminates better than z_world, we have evidence that separating the
 harm signal from the world model is the correct architectural choice.
 
 harm_obs layout (CausalGridWorldV2, use_proxy_fields=True):
-  [0:25]  hazard_field_view  — normalised hazard proximity gradient (5×5)
-  [25:50] resource_field_view — normalised resource gradient (5×5)
+  [0:25]  hazard_field_view  — normalised hazard proximity gradient (5x5)
+  [25:50] resource_field_view — normalised resource gradient (5x5)
   [50]    harm_exposure       — nociceptive EMA
 
 Baseline: E3.harm_eval(z_world) trained with the same hazard proximity labels.

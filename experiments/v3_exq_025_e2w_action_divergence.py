@@ -4,7 +4,7 @@ V3-EXQ-025 — E2_world Action-Conditional Divergence Diagnostic
 Claims: SD-003, SD-008.
 
 Motivation (2026-03-18):
-  EXQ-023 showed E2_world MSE = 4–7× worse than identity baseline, meaning
+  EXQ-023 showed E2_world MSE = 4-7x worse than identity baseline, meaning
   E2_world has learned nothing useful. But does it learn ANYTHING after adding
   the 1-step direct loss (EXQ-024 fix)? This experiment isolates E2_world quality
   WITHOUT going through the net_eval bottleneck.
@@ -32,7 +32,7 @@ Motivation (2026-03-18):
 
 PASS criteria (ALL must hold):
   C1: e2w_improvement_ratio(1step) > 2.0 in condition B
-      (E2_world with 1-step loss is 2× better than identity prediction)
+      (E2_world with 1-step loss is 2x better than identity prediction)
   C2: action_div_near(B) > action_div_safe(B) with margin > 0.002
       (E2_world distinguishes near-hazard action consequences)
   C3: action_div_near(B) > action_div_near(A) * 1.2
@@ -403,7 +403,7 @@ def run(
     # Root cause: agent's own contamination trail (left on every cell it visits) depleted
     # health at 0.4/step — not just explicit hazard cells.
     # With both=0.02: avg episode ≈ 182 steps, 46% hit the 200-step cap.
-    # 1000 eps × ~182 steps = ~182,000 training steps (vs 5,500 in EXQ-023).
+    # 1000 eps x ~182 steps = ~182,000 training steps (vs 5,500 in EXQ-023).
     train_env = CausalGridWorld(
         seed=seed, size=12, num_hazards=15, num_resources=5,
         env_drift_interval=3, env_drift_prob=0.5,
@@ -506,7 +506,7 @@ def run(
         )
     if not c3_pass:
         failure_notes.append(
-            f"C3 FAIL: div_near(B)={div_B_raw['action_div_near']:.4f} not ≥1.2× "
+            f"C3 FAIL: div_near(B)={div_B_raw['action_div_near']:.4f} not ≥1.2x "
             f"div_near(A)={div_A_raw['action_div_near']:.4f}"
         )
     if not c4_pass:
@@ -578,8 +578,8 @@ Conditions:
 
 | Condition | 1-step MSE | Identity MSE | Improvement ratio |
 |---|---|---|---|
-| A (rollout-only) | {stats_A['mean_e2w_1step_mse']:.5f} | {stats_A['mean_identity_mse']:.5f} | {stats_A['improvement_ratio']:.2f}× |
-| B (1-step loss)  | {stats_B['mean_e2w_1step_mse']:.5f} | {stats_B['mean_identity_mse']:.5f} | {stats_B['improvement_ratio']:.2f}× |
+| A (rollout-only) | {stats_A['mean_e2w_1step_mse']:.5f} | {stats_A['mean_identity_mse']:.5f} | {stats_A['improvement_ratio']:.2f}x |
+| B (1-step loss)  | {stats_B['mean_e2w_1step_mse']:.5f} | {stats_B['mean_identity_mse']:.5f} | {stats_B['improvement_ratio']:.2f}x |
 
 ## Action-Conditional Divergence
 
@@ -595,9 +595,9 @@ n_near={n_near}  n_safe={n_safe}  (probe_env: {probe_num_hazards} hazards)
 
 | Criterion | Result | Value |
 |---|---|---|
-| C1: improvement_ratio(B) > 2.0× | {"PASS" if c1_pass else "FAIL"} | {stats_B['improvement_ratio']:.2f}× |
+| C1: improvement_ratio(B) > 2.0x | {"PASS" if c1_pass else "FAIL"} | {stats_B['improvement_ratio']:.2f}x |
 | C2: action_div_gap(B) > 0.002 | {"PASS" if c2_pass else "FAIL"} | {div_B_raw['action_div_gap']:.4f} |
-| C3: div_near(B) ≥ 1.2× div_near(A) | {"PASS" if c3_pass else "FAIL"} | {div_B_raw['action_div_near']:.4f} vs {div_A_raw['action_div_near']:.4f} |
+| C3: div_near(B) ≥ 1.2x div_near(A) | {"PASS" if c3_pass else "FAIL"} | {div_B_raw['action_div_near']:.4f} vs {div_A_raw['action_div_near']:.4f} |
 | C4: n_near >= 50 and n_safe >= 50 | {"PASS" if c4_pass else "FAIL"} | {n_near}, {n_safe} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {fatal_errors} |
 

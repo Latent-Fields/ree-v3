@@ -1,5 +1,5 @@
 """
-V3-EXQ-014 — Perspective Shift Calibration
+V3-EXQ-014 -- Perspective Shift Calibration
 
 Claim: SD-007 (encoder.perspective_corrected_world_latent), MECH-098 (encoder
 reafference cancellation).
@@ -15,11 +15,11 @@ Motivation (2026-03-17):
   is explained by locomotion alone (self-motion + action)?
 
   Method:
-  1. Run 300 episodes collecting (z_self_prev, a_prev, Δz_world, transition_type)
+  1. Run 300 episodes collecting (z_self_prev, a_prev, dz_world, transition_type)
   2. Fit a linear predictor on empty-space steps:
-       Δz_world_hat = W @ concat([z_self_prev; a_prev]) + b
-  3. Compute R² on held-out empty steps → locomotion_explained_variance
-  4. Compute mean ||Δz_world|| per event type → perspective_shift_dominance_ratio
+       dz_world_hat = W @ concat([z_self_prev; a_prev]) + b
+  3. Compute R2 on held-out empty steps -> locomotion_explained_variance
+  4. Compute mean ||dz_world|| per event type -> perspective_shift_dominance_ratio
 
 PASS criteria:
   C1: locomotion_explained_variance > 0.3
@@ -225,7 +225,7 @@ def _compute_r_squared(
     test_mask: torch.Tensor,
 ) -> Tuple[float, float]:
     """
-    Fit linear regression on train_mask, evaluate R² on test_mask.
+    Fit linear regression on train_mask, evaluate R2 on test_mask.
     X: [N, input_dim], y: [N, output_dim]
     Returns (r2_train, r2_test)
     """
@@ -328,10 +328,10 @@ def run(
     n_env   = int(env_mask.sum().item())
     n_agent = int(agent_mask.sum().item())
 
-    print(f"  Data counts — empty: {n_empty}  env_hazard: {n_env}  agent_hazard: {n_agent}",
+    print(f"  Data counts -- empty: {n_empty}  env_hazard: {n_env}  agent_hazard: {n_agent}",
           flush=True)
 
-    # ── Mean ||Δz_world|| by event type ───────────────────────────────
+    # ── Mean ||dz_world|| by event type ───────────────────────────────
     def _mean_norm(mask):
         vals = [dz_norms[i] for i, m in enumerate(mask.tolist()) if m]
         return float(sum(vals) / max(1, len(vals))) if vals else 0.0
@@ -340,9 +340,9 @@ def run(
     mean_dz_env    = _mean_norm(env_mask)
     mean_dz_agent  = _mean_norm(agent_mask)
 
-    # ── Linear reafference predictor: z_self + action → Δz_world ─────
+    # ── Linear reafference predictor: z_self + action -> dz_world ─────
     # Input: concat(z_self_prev [self_dim], a_prev [action_dim])
-    # Output: Δz_world_vec [world_dim]
+    # Output: dz_world_vec [world_dim]
     # Train ONLY on empty-space steps, test on held-out 20% of empty steps
 
     r2_train = 0.0
@@ -365,22 +365,22 @@ def run(
 
         r2_train, r2_test = _compute_r_squared(X_all, y_all, train_mask_bool, test_mask_bool)
         locomotion_explained_variance = max(0.0, r2_test)
-        print(f"  Linear reafference predictor: R²_train={r2_train:.3f}  "
-              f"R²_test={r2_test:.3f}  locomotion_explained_var={locomotion_explained_variance:.3f}",
+        print(f"  Linear reafference predictor: R2_train={r2_train:.3f}  "
+              f"R2_test={r2_test:.3f}  locomotion_explained_var={locomotion_explained_variance:.3f}",
               flush=True)
     else:
-        print(f"  WARNING: only {n_empty} empty steps — skipping linear fit (need >= 20)",
+        print(f"  WARNING: only {n_empty} empty steps -- skipping linear fit (need >= 20)",
               flush=True)
 
     # ── Perspective shift dominance ratio ─────────────────────────────
-    # Ratio of empty-move Δz_world to env-caused Δz_world
+    # Ratio of empty-move dz_world to env-caused dz_world
     # > 1.0 means locomotion induces more z_world change than genuine world events (backwards!)
     if mean_dz_env > 1e-8:
         perspective_shift_dominance_ratio = mean_dz_empty / mean_dz_env
     else:
         perspective_shift_dominance_ratio = 0.0
 
-    print(f"  mean_dz_world — empty: {mean_dz_empty:.4f}  "
+    print(f"  mean_dz_world -- empty: {mean_dz_empty:.4f}  "
           f"env_hazard: {mean_dz_env:.4f}  "
           f"dominance_ratio: {perspective_shift_dominance_ratio:.3f}", flush=True)
 
@@ -434,40 +434,40 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-014 — Perspective Shift Calibration
+    summary_markdown = f"""# V3-EXQ-014 -- Perspective Shift Calibration
 
 **Status:** {status}
-**Training:** {num_train_episodes} eps (RANDOM policy, 12×12, 15 hazards, drift_interval=3, drift_prob=0.5)
+**Training:** {num_train_episodes} eps (RANDOM policy, 12x12, 15 hazards, drift_interval=3, drift_prob=0.5)
 **Eval:** {num_eval_episodes} eps
 **Seed:** {seed}
 
 ## Motivation (SD-007 / MECH-098)
 
-EXQ-012 revealed true calibration_gap ≈ 0.0007 — near-zero. Root cause: E2_world
+EXQ-012 revealed true calibration_gap ≈ 0.0007 -- near-zero. Root cause: E2_world
 takes an identity shortcut because the egocentric world_obs changes on every body
 movement (perspective shift), not genuine world change. This experiment quantifies
 that problem before implementing the reafference correction (SD-007).
 
-## Mean ||Δz_world|| by Event Type
+## Mean ||dz_world|| by Event Type
 
-| Event Type | n | Mean Δz_world |
+| Event Type | n | Mean dz_world |
 |---|---|---|
 | empty_move (locomotion only) | {n_empty} | {mean_dz_empty:.4f} |
 | env_caused_hazard (genuine world event) | {n_env} | {mean_dz_env:.4f} |
 | agent_caused_hazard | {n_agent} | {mean_dz_agent:.4f} |
 
 **Perspective shift dominance ratio:** {perspective_shift_dominance_ratio:.3f}
-(ratio > 1.0 = locomotion induces more z_world change than genuine world events — the problem)
+(ratio > 1.0 = locomotion induces more z_world change than genuine world events -- the problem)
 
 ## Reafference Predictor (linear fit)
 
-Linear predictor `Δz_world = W @ [z_self; action] + b` trained on empty-space steps:
-- R² (train): {r2_train:.3f}
-- R² (test, held-out empty steps): {r2_test:.3f}
+Linear predictor `dz_world = W @ [z_self; action] + b` trained on empty-space steps:
+- R2 (train): {r2_train:.3f}
+- R2 (test, held-out empty steps): {r2_test:.3f}
 - **Locomotion explained variance: {locomotion_explained_variance:.3f}**
 
-High R² on held-out empty steps confirms that z_self + action can predict the
-z_world change caused by locomotion — i.e., that z_world encodes perspective shift.
+High R2 on held-out empty steps confirms that z_self + action can predict the
+z_world change caused by locomotion -- i.e., that z_world encodes perspective shift.
 This is the perspective shift that SD-007 must subtract.
 
 ## PASS Criteria
@@ -479,7 +479,7 @@ This is the perspective shift that SD-007 must subtract.
 | C3: n_empty >= 200 | {"PASS" if c3_pass else "FAIL"} | {n_empty} |
 | C4: No fatal errors | {"PASS" if c4_pass else "FAIL"} | 0 |
 
-Criteria met: {criteria_met}/4 → **{status}**
+Criteria met: {criteria_met}/4 -> **{status}**
 {failure_section}
 """
 

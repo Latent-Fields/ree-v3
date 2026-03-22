@@ -1,5 +1,5 @@
 """
-V3-EXQ-024 — E2_world 1-Step Loss + Fixed SD-003 Probe
+V3-EXQ-024 -- E2_world 1-Step Loss + Fixed SD-003 Probe
 
 Claims: SD-003, SD-008, ARC-016.
 
@@ -7,26 +7,26 @@ Motivation (2026-03-18 diagnosis of EXQ-023):
   EXQ-023 confirmed SD-008 (alpha_world=0.9 restores event selectivity, C1 PASS).
   But C3 and C4 still FAIL due to two compounding problems identified in the diagnosis:
 
-  Problem 1 — E2_world worse than identity baseline:
+  Problem 1 -- E2_world worse than identity baseline:
     With E2_ROLLOUT_STEPS=5 on a random policy:
       - ~50% of actions hit walls (no movement), producing unpredictable 5-step outcomes
       - E2_world can't converge to a useful model; it defaults to near-zero output
     EXQ-023 identity MSE = 0.072²/32 = 0.000162
-    EXQ-023 reported e2w_mse = 0.0006–0.0008  (4–7× WORSE than identity)
+    EXQ-023 reported e2w_mse = 0.0006-0.0008  (4-7x WORSE than identity)
     Fix: add a 1-step direct loss inline during training:
         e2w_1step_loss = MSE(E2.world_forward(z_world_t, a_t), z_world_{t+1})
     The 1-step signal is clean and immediately available from consecutive observations.
     The 5-step rollout loss is kept as auxiliary (rollout weight = 0.5, 1-step weight = 1.0).
 
-  Problem 2 — SD-003 probe geometry broken with 15 hazards on 12×12 grid:
-    15 hazards × ~25 cells at min_dist <= 3 = ~375 cell-exclusions on 144 total cells
-    Result: only 27–59 valid "safe" cells — barely any safe space exists
+  Problem 2 -- SD-003 probe geometry broken with 15 hazards on 12x12 grid:
+    15 hazards x ~25 cells at min_dist <= 3 = ~375 cell-exclusions on 144 total cells
+    Result: only 27-59 valid "safe" cells -- barely any safe space exists
     The "calibration_gap" compares near-hazard vs near-hazard, not near vs far
     Fix: use separate probe_env with num_hazards=6, min_dist threshold lowered to > 2
 
 PASS criteria (ALL must hold):
   C1: event_selectivity_margin > 0.005
-  C2: e2w_improvement_ratio > 2.0 (E2_world at least 2× better than identity baseline)
+  C2: e2w_improvement_ratio > 2.0 (E2_world at least 2x better than identity baseline)
   C3: var_diff > 0.001 (ARC-016 precision fires with corrected E2_world)
   C4: calibration_gap > 0.05 (SD-003 threshold, probe_env with 6 hazards, min_dist > 2)
   C5: No fatal errors
@@ -332,7 +332,7 @@ def _fit_lstsq_predictor(reaf_data, self_dim, action_dim, world_dim):
     r2_train = _r2(X_all[:min(256, n_train)], dz_all[:min(256, n_train)])
     r2_test  = _r2(X_all[n_train:], dz_all[n_train:])
     print(f"  lstsq: n_train={n_train}  n_test={n-n_train}  "
-          f"R²_train={r2_train:.3f}  R²_test={r2_test:.3f}", flush=True)
+          f"R2_train={r2_train:.3f}  R2_test={r2_test:.3f}", flush=True)
     return W, r2_train, r2_test
 
 
@@ -418,8 +418,8 @@ def _eval_sd003_probe(agent, net_eval_head, W, probe_env, num_resets, min_dist_s
     """
     SD-003 probe using probe_env (sparse hazards) with min_dist_safe > 2.
     Key fix vs EXQ-023:
-      - probe_env has num_hazards=6 (not 15) → meaningful near vs safe distinction
-      - min_dist_safe=2 (not 3) → more safe cells available
+      - probe_env has num_hazards=6 (not 15) -> meaningful near vs safe distinction
+      - min_dist_safe=2 (not 3) -> more safe cells available
     """
     agent.eval()
     net_eval_head.eval()
@@ -517,10 +517,10 @@ def run(
     random.seed(seed)
 
     # Training env: dense hazards for event data, low harm values so episodes are long.
-    # EXQ-023 defaults: hazard_harm=0.5, contaminated_harm=0.4 → avg episode = 18 steps.
+    # EXQ-023 defaults: hazard_harm=0.5, contaminated_harm=0.4 -> avg episode = 18 steps.
     # Root cause: contaminated cells (agent's own trail) also deplete health at 0.4/step.
     # With both=0.02: avg episode ≈ 182 steps, 46% hit the 200-step cap.
-    # 1000 eps × ~182 steps = ~182,000 training steps (vs 5,500 in EXQ-023).
+    # 1000 eps x ~182 steps = ~182,000 training steps (vs 5,500 in EXQ-023).
     env = CausalGridWorld(
         seed=seed, size=12, num_hazards=15, num_resources=5,
         env_drift_interval=3, env_drift_prob=0.5,
@@ -554,9 +554,9 @@ def run(
 
     print(f"[V3-EXQ-024] E2_world 1-step loss + fixed probe", flush=True)
     print(f"  alpha_world={alpha_world}  alpha_self={alpha_self}", flush=True)
-    print(f"  Training env: 15 hazards, 12×12, hazard_harm={train_hazard_harm}", flush=True)
+    print(f"  Training env: 15 hazards, 12x12, hazard_harm={train_hazard_harm}", flush=True)
     print(f"  Probe env: {probe_num_hazards} hazards, min_dist > {probe_min_dist_safe}", flush=True)
-    print(f"  warmup_episodes={warmup_episodes}  (EXQ-023 had 300 but avg ep=18 steps → only ~5500 training steps)", flush=True)
+    print(f"  warmup_episodes={warmup_episodes}  (EXQ-023 had 300 but avg ep=18 steps -> only ~5500 training steps)", flush=True)
     print(f"  E2W_1STEP_WEIGHT={E2W_1STEP_WEIGHT}  E2W_ROLLOUT_WEIGHT={E2W_ROLLOUT_WEIGHT}",
           flush=True)
 
@@ -574,7 +574,7 @@ def run(
     e2w_improvement_ratio = train_out["e2w_improvement_ratio"]
 
     print(f"  Warmup done. harm={warmup_harm}  benefit={warmup_benefit}", flush=True)
-    print(f"  Δz_world — none={mean_dz['none']:.4f}  "
+    print(f"  dz_world -- none={mean_dz['none']:.4f}  "
           f"env_hazard={mean_dz['env_caused_hazard']:.4f}  "
           f"selectivity={selectivity_margin:.4f}", flush=True)
     print(f"  E2_world: 1-step MSE={train_out['mean_e2w_1step_mse']:.5f}  "
@@ -688,7 +688,7 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-024 — E2_world 1-Step Loss + Fixed SD-003 Probe
+    summary_markdown = f"""# V3-EXQ-024 -- E2_world 1-Step Loss + Fixed SD-003 Probe
 
 **Status:** {status}
 **alpha_world:** {alpha_world}  (SD-008 fix, same as EXQ-023)
@@ -703,11 +703,11 @@ Two problems diagnosed from EXQ-023:
 
 1. **E2_world worse than identity baseline**: With 5-step rollout on random policy,
    ~50% wall collisions produce unpredictable 5-step outcomes.
-   EXQ-023 identity_MSE = 0.000162; reported E2_world MSE = 0.0006–0.0008 (4–7× worse).
+   EXQ-023 identity_MSE = 0.000162; reported E2_world MSE = 0.0006-0.0008 (4-7x worse).
    Fix: add 1-step direct loss `MSE(E2.world_forward(z_world_t, a_t), z_world_t+1)`.
 
-2. **Probe geometry broken at 15 hazards**: 15 × ~25 cells exclusion = ~375 on 144 grid.
-   Only 27–59 safe cells — measuring near-hazard vs near-hazard.
+2. **Probe geometry broken at 15 hazards**: 15 x ~25 cells exclusion = ~375 on 144 grid.
+   Only 27-59 safe cells -- measuring near-hazard vs near-hazard.
    Fix: probe_env with {probe_num_hazards} hazards + min_dist > {probe_min_dist_safe}.
 
 ## E2_world Quality
@@ -716,11 +716,11 @@ Two problems diagnosed from EXQ-023:
 |---|---|
 | 1-step MSE | {train_out['mean_e2w_1step_mse']:.5f} |
 | Identity baseline MSE | {train_out['mean_identity_mse']:.5f} |
-| Improvement ratio | {e2w_improvement_ratio:.2f}× |
+| Improvement ratio | {e2w_improvement_ratio:.2f}x |
 
 ## Event Selectivity
 
-| Event Type | mean Δz_world |
+| Event Type | mean dz_world |
 |---|---|
 | none (locomotion) | {mean_dz['none']:.4f} |
 | env_caused_hazard | {mean_dz['env_caused_hazard']:.4f} |
@@ -733,7 +733,7 @@ Two problems diagnosed from EXQ-023:
 |---|---|---|---|
 | stable (drift=0.1) | {prec_stats['mean_pred_err_stable']:.5f} | {prec_stats['variance_stable']:.5f} | {prec_stats['precision_stable']:.2f} |
 | perturbed (drift=0.9) | {prec_stats['mean_pred_err_perturbed']:.5f} | {prec_stats['variance_perturbed']:.5f} | {prec_stats['precision_perturbed']:.2f} |
-| **var_diff** | — | **{prec_stats['var_diff']:.5f}** | — |
+| **var_diff** | -- | **{prec_stats['var_diff']:.5f}** | -- |
 
 ## SD-003 Attribution
 
@@ -750,12 +750,12 @@ n_near={probe['n_near_hazard_probes']}  n_safe={probe['n_safe_probes']}
 | Criterion | Result | Value |
 |---|---|---|
 | C1: event_selectivity_margin > 0.005 | {"PASS" if c1_pass else "FAIL"} | {selectivity_margin:.4f} |
-| C2: e2w_improvement_ratio > 2.0× | {"PASS" if c2_pass else "FAIL"} | {e2w_improvement_ratio:.2f}× |
+| C2: e2w_improvement_ratio > 2.0x | {"PASS" if c2_pass else "FAIL"} | {e2w_improvement_ratio:.2f}x |
 | C3: var_diff > 0.001 (ARC-016) | {"PASS" if c3_pass else "FAIL"} | {prec_stats['var_diff']:.5f} |
 | C4: calibration_gap > 0.05 (SD-003) | {"PASS" if c4_pass else "FAIL"} | {probe['calibration_gap']:.4f} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {fatal_errors} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

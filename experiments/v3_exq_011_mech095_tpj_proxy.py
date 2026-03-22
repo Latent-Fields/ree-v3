@@ -1,9 +1,9 @@
 """
-V3-EXQ-011 — MECH-095 TPJ Agency-Detection Proxy
+V3-EXQ-011 -- MECH-095 TPJ Agency-Detection Proxy
 
-Claim: MECH-095 — At the z_self/z_world interface, the efference-copy-predicted
-z_self change must be compared against the observed z_self change. Match → self-caused
-(no residue). Mismatch → world-contributed cause (residue candidate).
+Claim: MECH-095 -- At the z_self/z_world interface, the efference-copy-predicted
+z_self change must be compared against the observed z_self change. Match -> self-caused
+(no residue). Mismatch -> world-contributed cause (residue candidate).
 
 Experimental logic:
   This experiment tests two necessary conditions for the TPJ comparator to function:
@@ -16,21 +16,21 @@ Experimental logic:
   CONDITION B (z_self does not discriminate harm type):
     The mismatch is NOT significantly different between agent_caused_hazard and
     env_caused_hazard steps. The z_self channel is blind to the causal origin of
-    harm — it only knows something unexpected happened to the body state. The
+    harm -- it only knows something unexpected happened to the body state. The
     discrimination between agent-caused and env-caused must come from z_world.
     This confirms that z_world routing (the full MECH-095 mechanism) is necessary.
 
     If this condition FAILS (z_self mismatch DOES discriminate), it would mean the
-    SD-005 z_self/z_world split has leaked contamination signal into z_self — the
+    SD-005 z_self/z_world split has leaked contamination signal into z_self -- the
     MECH-096 dual-stream encoder is not maintaining architectural separation.
 
 Design:
-  Phase 1 — Training (RANDOM policy):
+  Phase 1 -- Training (RANDOM policy):
     Train E2 motor-sensory model (predict_next_self) over WARMUP_EPISODES.
     At each step record (z_self_t, action, z_self_observed_{t+1}) for mismatch
     computation, grouped by transition_type.
 
-  Phase 2 — Eval (RANDOM policy, no training):
+  Phase 2 -- Eval (RANDOM policy, no training):
     Collect mismatch measurements across EVAL_EPISODES. Record mismatch per step
     with transition_type label from environment ground truth.
 
@@ -155,7 +155,7 @@ def _collect_mismatch(
                         no_harm_buffer = no_harm_buffer[-500:]
 
                 if train and optimizer is not None:
-                    # Train E2 motor-sensory: z_self_t + action → z_self_{t+1}
+                    # Train E2 motor-sensory: z_self_t + action -> z_self_{t+1}
                     agent.record_transition(
                         z_self_t,
                         action.detach(),
@@ -229,7 +229,7 @@ def run(
     optimizer = optim.Adam(agent.parameters(), lr=lr)
 
     # ── Phase 1: Training ────────────────────────────────────────────────
-    print(f"\n[V3-EXQ-011] Seed {seed} — Phase 1: Training ({warmup_episodes} eps)",
+    print(f"\n[V3-EXQ-011] Seed {seed} -- Phase 1: Training ({warmup_episodes} eps)",
           flush=True)
     _, train_fatal = _collect_mismatch(
         agent, env, warmup_episodes, steps_per_episode,
@@ -237,7 +237,7 @@ def run(
     )
 
     # ── Phase 2: Eval (collect mismatch data) ───────────────────────────
-    print(f"[V3-EXQ-011] Seed {seed} — Phase 2: Eval ({eval_episodes} eps)", flush=True)
+    print(f"[V3-EXQ-011] Seed {seed} -- Phase 2: Eval ({eval_episodes} eps)", flush=True)
     mismatch_by_type, eval_fatal = _collect_mismatch(
         agent, env, eval_episodes, steps_per_episode,
         train=False, optimizer=None,
@@ -280,7 +280,7 @@ def run(
 
     failure_notes = []
     if not c1: failure_notes.append(f"C1 FAIL: harm_safe_gap {harm_safe_gap:.5f} <= 0.005 (TPJ does not fire at harm events)")
-    if not c2: failure_notes.append(f"C2 FAIL: agent_env_gap {agent_env_gap:.5f} >= 0.05 (z_self discriminates cause type — possible encoder leak)")
+    if not c2: failure_notes.append(f"C2 FAIL: agent_env_gap {agent_env_gap:.5f} >= 0.05 (z_self discriminates cause type -- possible encoder leak)")
     if not c3: failure_notes.append(f"C3 FAIL: n_harm={n_harm} < 30")
     if not c4: failure_notes.append(f"C4 FAIL: n_safe={n_safe} < 200")
     if not c5: failure_notes.append(f"C5 FAIL: fatal_errors={fatal_errors}")
@@ -313,7 +313,7 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-011 — MECH-095 TPJ Agency-Detection Proxy
+    summary_markdown = f"""# V3-EXQ-011 -- MECH-095 TPJ Agency-Detection Proxy
 
 **Status:** {status}
 **Seed:** {seed}
@@ -327,12 +327,12 @@ mismatch (||E2.predict_next_self(z_self_t, a_t) - z_self_observed_t+1||).
 
 ## Two-Condition Test
 
-**C1 — Mismatch detects unexpected events (harm_safe_gap > 0.005):**
+**C1 -- Mismatch detects unexpected events (harm_safe_gap > 0.005):**
 E2 motor-sensory mismatch should be elevated at harm steps vs safe steps.
 The body experienced something the motor model could not predict from the action alone.
 This is what the TPJ comparator would detect and flag as `residue_flag=True`.
 
-**C2 — z_self blind to cause type (agent_env_gap < 0.05):**
+**C2 -- z_self blind to cause type (agent_env_gap < 0.05):**
 The mismatch should NOT discriminate agent_caused from env_caused harm.
 Both types cause unexpected body-state changes. Only z_world carries the causal
 origin information. If C2 fails, SD-005 z_self/z_world separation has leaked.
@@ -358,7 +358,7 @@ origin information. If C2 fails, SD-005 z_self/z_world separation has leaked.
 | C4: n_safe >= 200 | {"PASS" if c4 else "FAIL"} | {n_safe} |
 | C5: no fatal errors | {"PASS" if c5 else "FAIL"} | {fatal_errors} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

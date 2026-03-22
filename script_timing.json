@@ -24,7 +24,7 @@
   "experiments/v3_exq_024_e2w_1step_loss.py": 62.0,
   "experiments/v3_exq_026_mech071_v3.py": 21.8,
   "experiments/v3_exq_027_sd003_v3_reafference.py": 26.2,
-  "experiments/v3_exq_020_event_contrastive.py": 1133.4,
+  "experiments/v3_exq_020_event_contrastive.py": 830.4,
   "experiments/v3_exq_022_combined_contrastive_lstsq.py": 1073.6,
   "experiments/v3_exq_028_proxy_gradient_world_validation.py": 15.0,
   "experiments/v3_exq_029_sd003_proxy_gradient_world.py": 28.5,
@@ -76,5 +76,7 @@
   "experiments/v3_exq_049e_mech090_two_condition.py": 8915.1,
   "experiments/v3_exq_061_mech104_volatility_jitter.py": 4602.4,
   "experiments/v3_exq_047b_sd005_sd010_joint.py": 282.3,
-  "experiments/v3_exq_057_sd010_reafference_isolation.py": 24.7
+  "experiments/v3_exq_057_sd010_reafference_isolation.py": 24.7,
+  "experiments/v3_exq_062_mech104_surprise_gate.py": 8164.7,
+  "experiments/v3_exq_047c_sd005_info_probe.py": 26.2
 }

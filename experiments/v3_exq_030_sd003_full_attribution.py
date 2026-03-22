@@ -78,7 +78,7 @@ def _compute_world_forward_r2(
     agent: REEAgent,
     wf_data: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
 ) -> float:
-    """R² of E2.world_forward on held-out transitions."""
+    """R2 of E2.world_forward on held-out transitions."""
     if len(wf_data) < 20:
         return 0.0
     n = len(wf_data)
@@ -95,7 +95,7 @@ def _compute_world_forward_r2(
         ss_res = ((tgt_test - pred_test) ** 2).sum()
         ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
     return r2
 
 
@@ -499,7 +499,7 @@ EXQ-029 confirmed E3 detects gradients. This tests whether E2 models them.
 | env_caused_hazard    | {md['env_caused_hazard']:.4f} | {ms['env_caused_hazard']:.4f} | {nc['env_caused_hazard']} |
 | agent_caused_hazard  | {md['agent_caused_hazard']:.4f} | {ms['agent_caused_hazard']:.4f} | {nc['agent_caused_hazard']} |
 
-- **world_forward R²**: {wf_r2:.4f}  (PASS > 0.05)
+- **world_forward R2**: {wf_r2:.4f}  (PASS > 0.05)
 - **attribution_gap** (approach - env): {eval_out['attribution_gap']:.4f}  (PASS > 0)
 
 ## PASS Criteria

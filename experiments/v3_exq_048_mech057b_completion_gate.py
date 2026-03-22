@@ -1,5 +1,5 @@
 """
-V3-EXQ-048 — MECH-057b: Trajectory Completion Gate
+V3-EXQ-048 -- MECH-057b: Trajectory Completion Gate
 
 Claims: MECH-057b
 
@@ -31,7 +31,7 @@ Motivation (2026-03-19):
   being held by the beta gate? And are they released at completion?
 
 Protocol:
-  1. Train agent (400 eps) — full pipeline to get E3 making committed selections.
+  1. Train agent (400 eps) -- full pipeline to get E3 making committed selections.
   2. Eval (50 eps): step-by-step tracking of:
      - is_committed (agent._committed_candidates is not None)
      - beta_gate.is_elevated at each step
@@ -284,7 +284,7 @@ def _eval_beta_gate(
                 else:
                     uncommitted_steps += 1
 
-                # Count gate release events (elevated → not-elevated)
+                # Count gate release events (elevated -> not-elevated)
                 if prev_elevated and not is_elevated:
                     gate_release_events += 1
                 prev_elevated = is_elevated
@@ -408,7 +408,7 @@ def run(
         warmup_episodes, steps_per_episode, world_dim,
     )
 
-    print(f"\n[V3-EXQ-048] Eval — tracking beta gate state...", flush=True)
+    print(f"\n[V3-EXQ-048] Eval -- tracking beta gate state...", flush=True)
     eval_out = _eval_beta_gate(agent, env, eval_episodes, steps_per_episode, world_dim)
 
     # PASS / FAIL
@@ -469,10 +469,10 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-048 — MECH-057b: Trajectory Completion Gate
+    summary_markdown = f"""# V3-EXQ-048 -- MECH-057b: Trajectory Completion Gate
 
 **Status:** {status}
-**Claim:** MECH-057b — commitment gate fires at trajectory completion, not initiation
+**Claim:** MECH-057b -- commitment gate fires at trajectory completion, not initiation
 **Prerequisite:** EXQ-042 PASS (HippocampalModule terrain prior functional)
 **alpha_world:** {alpha_world}
 **Warmup:** {warmup_episodes} eps  |  Eval: {eval_episodes} eps
@@ -507,7 +507,7 @@ when sequences complete.
 | C4: calibration_gap_approach > 0 (E3 functional) | {"PASS" if c4_pass else "FAIL"} | {eval_out['calibration_gap_approach']:.4f} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {eval_out['fatal_errors']} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

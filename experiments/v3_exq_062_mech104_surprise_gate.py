@@ -30,7 +30,7 @@ Design — single trained agent, three interrupt policies (eval only):
 
   Condition C — SURPRISE-GATED SPIKE
     predicted_harm = e3.harm_eval(z_world) queried BEFORE env.step().
-    running_variance += spike_magnitude × max(0, |actual_harm - predicted_harm| - surprise_threshold)
+    running_variance += spike_magnitude x max(0, |actual_harm - predicted_harm| - surprise_threshold)
     Only fires when actual_harm substantially exceeds predicted_harm.
     Expected: selective de-commitment — fires less than always-spike, more than baseline.
 
@@ -38,7 +38,7 @@ Key distinction vs EXQ-061:
   EXQ-061 C3 measured variance_after_harm > variance_before_harm, which is trivially
   true by construction (the spike IS the mechanism). EXQ-062 tests whether the spike
   fires *selectively* (Condition C de-commits less than Condition B) by requiring
-  C4: n_uncommitted_C < n_uncommitted_B × 0.80 — i.e., surprise-gating reduces
+  C4: n_uncommitted_C < n_uncommitted_B x 0.80 — i.e., surprise-gating reduces
   unnecessary de-commitment by at least 20%.
 
 PASS criteria (ALL must hold):
@@ -48,7 +48,7 @@ PASS criteria (ALL must hold):
       (always-spike enables de-commitment)
   C3: Condition C n_uncommitted_steps > 30
       (surprise-gated also enables de-commitment on genuine surprise)
-  C4: Condition C n_uncommitted_steps < Condition B n_uncommitted_steps × 0.80
+  C4: Condition C n_uncommitted_steps < Condition B n_uncommitted_steps x 0.80
       (surprise-gated is more selective — fires on fewer steps than always-spike)
   C5: No fatal errors
 """
@@ -474,7 +474,7 @@ def run(
         threshold_val = r_always["n_uncommitted"] * 0.80
         failure_notes.append(
             f"C4 FAIL: n_uncommitted_C={r_surprise['n_uncommitted']}"
-            f" not < {threshold_val:.0f} (= n_always × 0.80)"
+            f" not < {threshold_val:.0f} (= n_always x 0.80)"
             " (surprise-gating not more selective than always-spike)"
         )
     if not c5_pass:
@@ -558,7 +558,7 @@ Selectivity ratio (C/B): {metrics['selectivity_ratio']:.3f}
 | C1: n_uncommitted_A == 0 (baseline collapse) | {"PASS" if c1_pass else "FAIL"} | {r_none['n_uncommitted']} |
 | C2: n_uncommitted_B > 100 (always-spike works) | {"PASS" if c2_pass else "FAIL"} | {r_always['n_uncommitted']} |
 | C3: n_uncommitted_C > 30 (surprise fires on genuine events) | {"PASS" if c3_pass else "FAIL"} | {r_surprise['n_uncommitted']} |
-| C4: n_uncommitted_C < n_B × 0.80 (surprise is more selective) | {"PASS" if c4_pass else "FAIL"} | {r_surprise['n_uncommitted']} vs {r_always['n_uncommitted'] * 0.80:.0f} |
+| C4: n_uncommitted_C < n_B x 0.80 (surprise is more selective) | {"PASS" if c4_pass else "FAIL"} | {r_surprise['n_uncommitted']} vs {r_always['n_uncommitted'] * 0.80:.0f} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {metrics['fatal_error_count']:.0f} |
 
 Criteria met: {criteria_met}/5 → **{status}**

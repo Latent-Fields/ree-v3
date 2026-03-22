@@ -14,7 +14,7 @@ Hypothesis (2026-03-17):
     resource:            +0.3   none:               0.0
 
   Fix: replace binary BCE with a REGRESSION net_eval head trained on actual
-  harm_signal values. E3 now learns the full ±0.3–0.5 value boundary.
+  harm_signal values. E3 now learns the full ±0.3-0.5 value boundary.
 
   The causal signature:
     causal_sig = net_eval(E2.world_forward(z_world, a_actual))
@@ -22,7 +22,7 @@ Hypothesis (2026-03-17):
   has sharper contrast because:
   - z_world_actual (entering hazard) → net_eval ≈ -0.4 to -0.5
   - z_world_cf (safe or resource cell) → net_eval ≈ 0.0 to +0.3
-  - Difference is 0.4–0.8 vs ~0.1 under binary classification
+  - Difference is 0.4-0.8 vs ~0.1 under binary classification
 
 All other components identical to EXQ-002r6:
   - Multi-step E2 training (N=5 rollouts)
@@ -485,7 +485,7 @@ def run(
 
 **Status:** {status}
 **Warmup:** {warmup_episodes} eps, RANDOM policy + recon loss + {E2_ROLLOUT_STEPS}-step E2 + net_eval regression
-**Probe eval:** {eval_probe_resets} grid resets × (near-hazard + safe positions)
+**Probe eval:** {eval_probe_resets} grid resets x (near-hazard + safe positions)
 **Seed:** {seed}
 
 ## Key Change vs EXQ-002 through EXQ-010
@@ -498,7 +498,7 @@ Binary BCE `harm_eval` (harm=1, no-harm=0) replaced with signed REGRESSION
 - `resource`            → target ≈ +0.6  (`+0.3 / 0.5`)
 - `none`                → target ≈  0.0
 
-E3 now has full ±0.3–0.5 value boundaries. Benefit/harm contrast amplifies
+E3 now has full ±0.3-0.5 value boundaries. Benefit/harm contrast amplifies
 the SD-003 causal signature.
 
 Mean E2 world loss: {mean_e2w:.6f}  |  Mean reconstruction loss: {mean_recon:.5f}

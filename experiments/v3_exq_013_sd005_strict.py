@@ -1,12 +1,12 @@
 """
-V3-EXQ-013 — SD-005 Strict: Event-Conditional Separation
+V3-EXQ-013 -- SD-005 Strict: Event-Conditional Separation
 
 Claim: SD-005 (z_self/z_world split) produces functionally distinct channels
 when evaluated under event-conditional conditions.
 
 Motivation (2026-03-17):
   EXQ-001 used permissive aggregate-correlation tests. body_selectivity_margin
-  was -0.137 (z_world was MORE sensitive to body movement than z_self — backwards)
+  was -0.137 (z_world was MORE sensitive to body movement than z_self -- backwards)
   but this was not a PASS criterion. The split exists architecturally but is
   not functionally working. This experiment uses event-conditional measurement
   to properly test functional separation.
@@ -24,9 +24,9 @@ Three event types (collected separately):
                           into contaminated terrain. Both z_self and z_world change.
 
 PASS criteria (ALL must hold):
-  C1: Δz_world(env_caused) > Δz_world(empty_move) with margin > 0.005
+  C1: dz_world(env_caused) > dz_world(empty_move) with margin > 0.005
       World channel responds more to genuine world events than to locomotion.
-  C2: Δz_self(empty_move) > Δz_world(empty_move)
+  C2: dz_self(empty_move) > dz_world(empty_move)
       Body channel more responsive to locomotion than world channel.
       (This FAILED in EXQ-001 where margin was -0.137.)
   C3: E2 action-conditional divergence at near-hazard > at safe (margin > 0.002)
@@ -347,7 +347,7 @@ def run(
     c1_margin = stats_env["mean_dz_world"] - stats_empty["mean_dz_world"]
     c1_pass = c1_margin > 0.005
 
-    # C2: z_self(empty_move) > z_world(empty_move) — body selectivity
+    # C2: z_self(empty_move) > z_world(empty_move) -- body selectivity
     c2_margin = stats_empty["mean_dz_self"] - stats_empty["mean_dz_world"]
     c2_pass = c2_margin > 0.0
 
@@ -371,14 +371,14 @@ def run(
     failure_notes = []
     if not c1_pass:
         failure_notes.append(
-            f"C1 FAIL: Δz_world(env_hazard)={stats_env['mean_dz_world']:.4f} vs "
-            f"Δz_world(empty)={stats_empty['mean_dz_world']:.4f}  margin={c1_margin:.4f} <= 0.005"
+            f"C1 FAIL: dz_world(env_hazard)={stats_env['mean_dz_world']:.4f} vs "
+            f"dz_world(empty)={stats_empty['mean_dz_world']:.4f}  margin={c1_margin:.4f} <= 0.005"
         )
     if not c2_pass:
         failure_notes.append(
             f"C2 FAIL: body_selectivity margin={c2_margin:.4f} <= 0.0 "
-            f"[Δz_self(empty)={stats_empty['mean_dz_self']:.4f} "
-            f"Δz_world(empty)={stats_empty['mean_dz_world']:.4f}]"
+            f"[dz_self(empty)={stats_empty['mean_dz_self']:.4f} "
+            f"dz_world(empty)={stats_empty['mean_dz_world']:.4f}]"
         )
     if not c3_pass:
         failure_notes.append(
@@ -387,14 +387,14 @@ def run(
         )
     if not c4_pass:
         failure_notes.append(
-            f"C4 FAIL: event counts too low — "
+            f"C4 FAIL: event counts too low -- "
             f"empty={n_empty} env={n_env} agent_caused={n_agent} (need >= 30 each)"
         )
 
     print(f"\nV3-EXQ-013 verdict: {status}  ({criteria_met}/5)", flush=True)
-    print(f"  Events — empty_move: {n_empty}  env_hazard: {n_env}  agent_hazard: {n_agent}",
+    print(f"  Events -- empty_move: {n_empty}  env_hazard: {n_env}  agent_hazard: {n_agent}",
           flush=True)
-    print(f"  C1: Δz_world env={stats_env['mean_dz_world']:.4f} "
+    print(f"  C1: dz_world env={stats_env['mean_dz_world']:.4f} "
           f"vs empty={stats_empty['mean_dz_world']:.4f} margin={c1_margin:.4f} "
           f"({'PASS' if c1_pass else 'FAIL'})", flush=True)
     print(f"  C2: body_sel margin={c2_margin:.4f} "
@@ -445,17 +445,17 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-013 — SD-005 Strict: Event-Conditional Separation
+    summary_markdown = f"""# V3-EXQ-013 -- SD-005 Strict: Event-Conditional Separation
 
 **Status:** {status}
-**Training:** {num_train_episodes} eps (RANDOM policy, 12×12, 15 hazards, drift_interval=3, drift_prob=0.5)
+**Training:** {num_train_episodes} eps (RANDOM policy, 12x12, 15 hazards, drift_interval=3, drift_prob=0.5)
 **Eval:** {num_eval_episodes} eps
 **Seed:** {seed}
 
 ## Motivation
 
 EXQ-001 (SD-005 PASS) used aggregate correlations. body_selectivity_margin was −0.137
-(z_world MORE sensitive to body movement than z_self — backwards) but was not a PASS criterion.
+(z_world MORE sensitive to body movement than z_self -- backwards) but was not a PASS criterion.
 This experiment uses event-conditional measurement to test functional separation.
 
 ## Event Counts
@@ -466,20 +466,20 @@ This experiment uses event-conditional measurement to test functional separation
 | env_caused_hazard | {n_env} |
 | agent_caused_hazard | {n_agent} |
 
-## Δz Statistics by Event Type
+## dz Statistics by Event Type
 
-| Event Type | Δz_self (mean±std) | Δz_world (mean±std) |
+| Event Type | dz_self (mean±std) | dz_world (mean±std) |
 |---|---|---|
-| empty_move    | {stats_empty["mean_dz_self"]:.4f} ± {stats_empty["std_dz_self"]:.4f} | {stats_empty["mean_dz_world"]:.4f} ± {stats_empty["std_dz_world"]:.4f} |
-| env_hazard    | {stats_env["mean_dz_self"]:.4f} ± {stats_env["std_dz_self"]:.4f} | {stats_env["mean_dz_world"]:.4f} ± {stats_env["std_dz_world"]:.4f} |
-| agent_hazard  | {stats_agent["mean_dz_self"]:.4f} ± {stats_agent["std_dz_self"]:.4f} | {stats_agent["mean_dz_world"]:.4f} ± {stats_agent["std_dz_world"]:.4f} |
+| empty_move    | {stats_empty["mean_dz_self"]:.4f} +/-{stats_empty["std_dz_self"]:.4f} | {stats_empty["mean_dz_world"]:.4f} +/-{stats_empty["std_dz_world"]:.4f} |
+| env_hazard    | {stats_env["mean_dz_self"]:.4f} +/-{stats_env["std_dz_self"]:.4f} | {stats_env["mean_dz_world"]:.4f} +/-{stats_env["std_dz_world"]:.4f} |
+| agent_hazard  | {stats_agent["mean_dz_self"]:.4f} +/-{stats_agent["std_dz_self"]:.4f} | {stats_agent["mean_dz_world"]:.4f} +/-{stats_agent["std_dz_world"]:.4f} |
 
 ## PASS Criteria
 
 | Criterion | Result | Value |
 |---|---|---|
-| C1: Δz_world(env_caused) > Δz_world(empty_move), margin > 0.005 | {"PASS" if c1_pass else "FAIL"} | margin={c1_margin:.4f} |
-| C2: Δz_self(empty_move) > Δz_world(empty_move) (body selectivity) | {"PASS" if c2_pass else "FAIL"} | margin={c2_margin:.4f} |
+| C1: dz_world(env_caused) > dz_world(empty_move), margin > 0.005 | {"PASS" if c1_pass else "FAIL"} | margin={c1_margin:.4f} |
+| C2: dz_self(empty_move) > dz_world(empty_move) (body selectivity) | {"PASS" if c2_pass else "FAIL"} | margin={c2_margin:.4f} |
 | C3: E2 divergence near-hazard > safe, margin > 0.002 | {"PASS" if c3_pass else "FAIL"} | margin={e2_divergence_margin:.4f} |
 | C4: n >= 30 per event type | {"PASS" if c4_pass else "FAIL"} | empty={n_empty} env={n_env} agent={n_agent} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | 0 |
@@ -491,7 +491,7 @@ This experiment uses event-conditional measurement to test functional separation
 - Margin: {e2_divergence_margin:.4f}
 - n_near_hazard probes: {len(near_hazard_divs)}, n_safe probes: {len(safe_divs)}
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

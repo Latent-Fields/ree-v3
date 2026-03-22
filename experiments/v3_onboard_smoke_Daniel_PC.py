@@ -148,7 +148,7 @@ def run(seed: int = 42) -> dict:
         flush=True,
     )
 
-    # ── Block 1: ENV-ONLY (pure Python, no net) ───────────────────────────────
+    # -- Block 1: ENV-ONLY (pure Python, no net) ------------------------------─
     print(f"\n[ONBOARD] Block 1/3 -- ENV-ONLY ({ENV_ONLY_EPISODES} eps x {STEPS_PER_EP} steps)", flush=True)
     env = _make_env(seed)
     action_dim = env.action_dim
@@ -166,14 +166,14 @@ def run(seed: int = 42) -> dict:
     env_sps = total_env_steps / env_elapsed if env_elapsed > 0 else 0.0
     print(f"[ONBOARD/ENV] {total_env_steps} steps in {env_elapsed:.1f}s -> {env_sps:.0f} steps/s", flush=True)
 
-    # ── Block 2: CPU training loop ────────────────────────────────────────────
+    # -- Block 2: CPU training loop --------------------------------------------
     print(f"\n[ONBOARD] Block 2/3 -- CPU training ({CPU_EPISODES} eps x {STEPS_PER_EP} steps)", flush=True)
     cpu_device = torch.device("cpu")
     env_cpu    = _make_env(seed + 1)
     agent_cpu  = _make_agent(env_cpu, cpu_device)
     cpu_sps    = _run_training_block(env_cpu, agent_cpu, CPU_EPISODES, "CPU")
 
-    # ── Block 3: GPU training loop (skipped if no CUDA) ───────────────────────
+    # -- Block 3: GPU training loop (skipped if no CUDA) ----------------------─
     gpu_sps = 0.0
     if cuda_available:
         print(f"\n[ONBOARD] Block 3/3 -- GPU training ({GPU_EPISODES} eps x {STEPS_PER_EP} steps)", flush=True)
@@ -185,17 +185,17 @@ def run(seed: int = 42) -> dict:
         print("\n[ONBOARD] Block 3/3 -- GPU training SKIPPED (no CUDA)", flush=True)
         print("[ONBOARD] Advisory: experiments will run on CPU (slower for net-heavy workloads)", flush=True)
 
-    # ── Summary ────────────────────────────────────────────────────────────────
+    # -- Summary ----------------------------------------------------------------
     gpu_speedup = (gpu_sps / cpu_sps) if cpu_sps > 0 and gpu_sps > 0 else None
     passed = env_sps > 0 and cpu_sps > 0
     status = "PASS" if passed else "FAIL"
 
-    print(f"\n[ONBOARD] ── Results ──────────────────────────────────────────", flush=True)
+    print(f"\n[ONBOARD] -- Results ------------------------------------------", flush=True)
     print(f"[ONBOARD]   env_steps/s (CPU-only):  {env_sps:.0f}", flush=True)
     print(f"[ONBOARD]   training steps/s (CPU):  {cpu_sps:.0f}", flush=True)
     print(f"[ONBOARD]   training steps/s (GPU):  {gpu_sps:.0f}", flush=True)
     if gpu_speedup:
-        print(f"[ONBOARD]   GPU speedup vs CPU:      {gpu_speedup:.1f}×", flush=True)
+        print(f"[ONBOARD]   GPU speedup vs CPU:      {gpu_speedup:.1f}x", flush=True)
     print(f"[ONBOARD]   status: {status}", flush=True)
 
     return {
@@ -258,4 +258,4 @@ if __name__ == "__main__":
     print(f"  training (CPU):   {m['steps_per_second_cpu']} steps/s", flush=True)
     print(f"  training (GPU):   {m['steps_per_second_gpu']} steps/s", flush=True)
     if m.get("gpu_speedup"):
-        print(f"  GPU speedup:      {m['gpu_speedup']}×", flush=True)
+        print(f"  GPU speedup:      {m['gpu_speedup']}x", flush=True)

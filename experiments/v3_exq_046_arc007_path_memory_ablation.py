@@ -620,7 +620,7 @@ ablation causes quality collapse, hippocampal module has no independent value he
 | Criterion | Result | Value |
 |---|---|---|
 | C1: hippo_quality_gap_intact > 0 | {"PASS" if c1_pass else "FAIL"} | {eval_a['hippo_quality_gap']:.6f} |
-| C2: ablated <= intact × 0.5 (ablation degrades ≥50%) | {"PASS" if c2_pass else "FAIL"} | {eval_b['hippo_quality_gap']:.6f} vs {eval_a['hippo_quality_gap'] * 0.5:.6f} |
+| C2: ablated <= intact x 0.5 (ablation degrades ≥50%) | {"PASS" if c2_pass else "FAIL"} | {eval_b['hippo_quality_gap']:.6f} vs {eval_a['hippo_quality_gap'] * 0.5:.6f} |
 | C3: restored >= ablated (no further degradation) | {"PASS" if c3_pass else "FAIL"} | {eval_c['hippo_quality_gap']:.6f} vs {eval_b['hippo_quality_gap']:.6f} |
 | C4: calibration_gap_approach > 0.03 | {"PASS" if c4_pass else "FAIL"} | {eval_a['calibration_gap_approach']:.4f} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | 0 |

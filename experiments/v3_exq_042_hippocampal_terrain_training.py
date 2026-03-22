@@ -530,7 +530,7 @@ Positive quality gap = hippocampal proposals navigate to lower-residue regions.
 | C2: hippo_quality_gap > 0 | {"PASS" if c2 else "FAIL"} | {hippo_quality_gap:.6f} |
 | C3: cal_gap_approach > 0.03 | {"PASS" if c3 else "FAIL"} | {cal_gap_approach:.4f} |
 | C4: n_approach_eval >= 30 | {"PASS" if c4 else "FAIL"} | {n_approach} |
-| C5: world_forward R² > 0.05 | {"PASS" if c5 else "FAIL"} | {wf_r2:.4f} |
+| C5: world_forward R2 > 0.05 | {"PASS" if c5 else "FAIL"} | {wf_r2:.4f} |
 
 Criteria met: {n_met}/5 → **{status}**
 {failure_section}

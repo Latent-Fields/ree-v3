@@ -314,7 +314,7 @@ def run(
                 flush=True,
             )
 
-    # ── world_forward R² ─────────────────────────────────────────────────────
+    # ── world_forward R2 ─────────────────────────────────────────────────────
     wf_r2 = 0.0
     if len(wf_data) >= 20:
         n = len(wf_data)
@@ -330,7 +330,7 @@ def run(
                 ss_res = ((tgt_test - pred_test) ** 2).sum()
                 ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
                 wf_r2  = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test): {wf_r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test): {wf_r2:.4f}", flush=True)
 
     # ── Eval: ethical policy ─────────────────────────────────────────────────
     print(
@@ -405,7 +405,7 @@ def run(
     print(f"  none (baseline):     advantage_sig={mean_none:.6f}  n={n_none}", flush=True)
     print(f"  hazard_approach:     advantage_sig={mean_approach:.6f}  n={n_approach}", flush=True)
     print(f"  contact (combined):  advantage_sig={mean_contact:.6f}  n={n_contact}", flush=True)
-    print(f"  world_forward R²: {wf_r2:.4f}", flush=True)
+    print(f"  world_forward R2: {wf_r2:.4f}", flush=True)
     print(f"\n  All ttypes:", flush=True)
     for tt, sigs in sorted(advantage_by_ttype.items()):
         print(f"    {tt:28s}: advantage_sig={_mean(sigs):.6f}  n={len(sigs)}", flush=True)
@@ -501,7 +501,7 @@ advantage_sig = mean_cf_harm - harm_actual = how much harm the ethical agent spa
 | hazard_approach (medium)  | {mean_approach:.6f} | {n_approach} |
 | contact (high — combined) | {mean_contact:.6f} | {n_contact} |
 
-- **world_forward R²**: {wf_r2:.4f}
+- **world_forward R2**: {wf_r2:.4f}
 
 ## PASS Criteria
 

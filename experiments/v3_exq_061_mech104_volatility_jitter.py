@@ -1,5 +1,5 @@
 """
-V3-EXQ-061 — MECH-104: Volatility Interrupt (Jitter Approximation)
+V3-EXQ-061 -- MECH-104: Volatility Interrupt (Jitter Approximation)
 
 Claims: MECH-104, MECH-090
 
@@ -15,7 +15,7 @@ Motivation:
   uncertainty mechanism before full wiring.
 
   Two-condition design:
-    Condition A (baseline): standard training — no surprise spike.
+    Condition A (baseline): standard training -- no surprise spike.
       Expected: variance collapses, agent permanently committed, n_uncommitted=0.
       This documents the problem MECH-104 solves.
 
@@ -30,9 +30,9 @@ PASS criteria (ALL must hold):
   C2: spike condition n_uncommitted_steps > 100 during eval
       (jitter enables measurable de-commitment events)
   C3: spike condition: mean_variance_after_harm > mean_variance_before_harm
-      (variance rises on contact — causal relationship confirmed)
+      (variance rises on contact -- causal relationship confirmed)
   C4: spike condition calibration_gap_approach > 0.0
-      (harm discrimination preserved — jitter does not degrade E3 signal)
+      (harm discrimination preserved -- jitter does not degrade E3 signal)
   C5: No fatal errors in either condition
 """
 
@@ -395,7 +395,7 @@ def run(
 
     # ── Condition A: baseline (no spike) ────────────────────────────────────
     print(f"\n{'='*60}", flush=True)
-    print("[V3-EXQ-061] Condition A — Baseline (no spike)", flush=True)
+    print("[V3-EXQ-061] Condition A -- Baseline (no spike)", flush=True)
     print('='*60, flush=True)
 
     result_a = _train_and_eval(
@@ -411,7 +411,7 @@ def run(
 
     # ── Condition B: surprise spike ──────────────────────────────────────────
     print(f"\n{'='*60}", flush=True)
-    print(f"[V3-EXQ-061] Condition B — Surprise Spike (ε={spike_magnitude})", flush=True)
+    print(f"[V3-EXQ-061] Condition B -- Surprise Spike (eps={spike_magnitude})", flush=True)
     print('='*60, flush=True)
 
     result_b = _train_and_eval(
@@ -499,11 +499,11 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-061 — MECH-104: Volatility Interrupt (Jitter Approximation)
+    summary_markdown = f"""# V3-EXQ-061 -- MECH-104: Volatility Interrupt (Jitter Approximation)
 
 **Status:** {status}
 **Claims:** MECH-104, MECH-090
-**Design:** Two-condition — baseline (no spike) vs surprise spike on harm contact
+**Design:** Two-condition -- baseline (no spike) vs surprise spike on harm contact
 **spike_magnitude:** {spike_magnitude}  |  **alpha_world:** {alpha_world}  |  **Warmup:** {warmup_episodes} eps  |  **Seed:** {seed}
 
 ## Design Rationale
@@ -514,7 +514,7 @@ elevated). MECH-104 proposes that unexpected harm contact should spike running_v
 upward, enabling de-commitment. This experiment tests the V3 jitter approximation:
 add spike_magnitude to _running_variance when actual_harm < {HARM_CONTACT_THRESHOLD}.
 
-## Condition A — Baseline (no spike)
+## Condition A -- Baseline (no spike)
 
 | Metric | Value |
 |--------|-------|
@@ -523,7 +523,7 @@ add spike_magnitude to _running_variance when actual_harm < {HARM_CONTACT_THRESH
 | Committed steps (eval) | {result_a['n_committed_steps']} |
 | calibration_gap_approach | {result_a['calibration_gap_approach']:.4f} |
 
-## Condition B — Surprise Spike (ε={spike_magnitude})
+## Condition B -- Surprise Spike (eps={spike_magnitude})
 
 | Metric | Value |
 |--------|-------|
@@ -541,11 +541,11 @@ add spike_magnitude to _running_variance when actual_harm < {HARM_CONTACT_THRESH
 |---|---|---|
 | C1: baseline n_uncommitted == 0 (confirms collapse) | {"PASS" if c1_pass else "FAIL"} | {result_a['n_uncommitted_steps']} |
 | C2: spike n_uncommitted > 100 (de-commitment enabled) | {"PASS" if c2_pass else "FAIL"} | {result_b['n_uncommitted_steps']} |
-| C3: variance rises after harm contact | {"PASS" if c3_pass else "FAIL"} | {result_b['mean_variance_before_harm']:.4f} → {result_b['mean_variance_after_harm']:.4f} |
+| C3: variance rises after harm contact | {"PASS" if c3_pass else "FAIL"} | {result_b['mean_variance_before_harm']:.4f} -> {result_b['mean_variance_after_harm']:.4f} |
 | C4: spike calibration_gap > 0 (harm signal preserved) | {"PASS" if c4_pass else "FAIL"} | {result_b['calibration_gap_approach']:.4f} |
 | C5: No fatal errors | {"PASS" if c5_pass else "FAIL"} | {result_a['fatal_errors'] + result_b['fatal_errors']} |
 
-Criteria met: {criteria_met}/5 → **{status}**
+Criteria met: {criteria_met}/5 -> **{status}**
 {failure_section}
 """
 

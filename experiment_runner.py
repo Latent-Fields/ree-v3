@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-# Ensure UTF-8 output on Windows (default cp1252 breaks → and other Unicode in experiment scripts)
+# Ensure UTF-8 output on Windows (default cp1252 breaks -> and other Unicode in experiment scripts)
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -120,7 +120,7 @@ def git_push_queue() -> None:
             cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=30,
         )
         if r.returncode == 0:
-            print("[runner] auto-sync: pushed queue update → ree-v3", flush=True)
+            print("[runner] auto-sync: pushed queue update -> ree-v3", flush=True)
         else:
             print(f"[runner] auto-sync queue push warn: {r.stderr.strip()}", flush=True)
     except Exception as e:
@@ -134,7 +134,7 @@ def git_push_results(ree_assembly_path: Path) -> None:
             ["git", "add", "evidence/experiments/"],
             cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
         )
-        # Nothing staged → skip
+        # Nothing staged -> skip
         diff = subprocess.run(
             ["git", "diff", "--cached", "--quiet"],
             cwd=str(ree_assembly_path), timeout=5,
@@ -152,7 +152,7 @@ def git_push_results(ree_assembly_path: Path) -> None:
             cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=30,
         )
         if r.returncode == 0:
-            print("[runner] auto-sync: pushed results → REE_assembly", flush=True)
+            print("[runner] auto-sync: pushed results -> REE_assembly", flush=True)
         else:
             print(f"[runner] auto-sync push warn: {r.stderr.strip()}", flush=True)
     except Exception as e:
@@ -181,7 +181,7 @@ def _is_stale_claim(claimed_by: dict) -> bool:
         age = datetime.now(timezone.utc) - claimed_at
         return age.total_seconds() > CLAIM_TTL_HOURS * 3600
     except Exception:
-        return True  # malformed → treat as stale
+        return True  # malformed -> treat as stale
 
 
 def _git_undo_last_commit(repo: Path) -> None:
@@ -203,8 +203,8 @@ def attempt_claim(queue_file: Path, queue_id: str, machine: str
       1. git pull (get latest state)
       2. Check item is unclaimed + affinity matches
       3. Write claim, commit, push
-      4. If push rejected (non-fast-forward) → undo commit, return "already_claimed"
-      5. On unrelated error → return "error" (runner proceeds anyway)
+      4. If push rejected (non-fast-forward) -> undo commit, return "already_claimed"
+      5. On unrelated error -> return "error" (runner proceeds anyway)
     """
     repo = queue_file.parent
     try:
@@ -235,7 +235,7 @@ def attempt_claim(queue_file: Path, queue_id: str, machine: str
         # 4. Commit + push
         subprocess.run(["git", "add", queue_file.name],
                        cwd=str(repo), capture_output=True, check=True)
-        subprocess.run(["git", "commit", "-m", f"claim: {queue_id} → {machine}"],
+        subprocess.run(["git", "commit", "-m", f"claim: {queue_id} -> {machine}"],
                        cwd=str(repo), capture_output=True, check=True)
 
         push = subprocess.run(["git", "push", "origin", "HEAD:main"],
@@ -244,12 +244,12 @@ def attempt_claim(queue_file: Path, queue_id: str, machine: str
         if push.returncode == 0:
             return "ok"
 
-        # Push rejected — another machine got there first
+        # Push rejected -- another machine got there first
         _git_undo_last_commit(repo)
         stderr = push.stderr.lower()
         if "non-fast-forward" in stderr or "rejected" in stderr:
             return "already_claimed"
-        # Network or auth error — don't block the experiment
+        # Network or auth error -- don't block the experiment
         print(f"[runner] claim push error ({queue_id}): {push.stderr.strip()}", flush=True)
         return "error"
 
@@ -265,7 +265,7 @@ def attempt_claim(queue_file: Path, queue_id: str, machine: str
 def release_claim(queue_file: Path, queue_id: str, machine: str) -> None:
     """
     Release a claim on shutdown so another machine can pick up the experiment.
-    Best-effort — warns on failure but never raises.
+    Best-effort -- warns on failure but never raises.
     """
     repo = queue_file.parent
     try:
@@ -287,7 +287,7 @@ def release_claim(queue_file: Path, queue_id: str, machine: str) -> None:
         subprocess.run(["git", "add", queue_file.name],
                        cwd=str(repo), capture_output=True)
         subprocess.run(["git", "commit", "-m",
-                        f"release claim: {queue_id} ← {machine} (shutdown)"],
+                        f"release claim: {queue_id} <- {machine} (shutdown)"],
                        cwd=str(repo), capture_output=True)
         subprocess.run(["git", "push", "origin", "HEAD:main"],
                        cwd=str(repo), capture_output=True, timeout=30)
@@ -392,7 +392,7 @@ def save_script_timing(script: str, actual_secs: float, seeds: int, conditions: 
     timing = load_script_timing()
     timing[script] = actual_ms_per
     SCRIPT_TIMING_FILE.write_text(json.dumps(timing, indent=2))
-    print(f"[runner] Calibration updated: {script} → {actual_ms_per:.0f} ms/ep-cond", flush=True)
+    print(f"[runner] Calibration updated: {script} -> {actual_ms_per:.0f} ms/ep-cond", flush=True)
 
 
 def estimate_minutes(item: dict, calibration: dict, script_timing: dict | None = None) -> float:
@@ -499,7 +499,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         write_status(status, status_path)
 
     est = item.get('estimated_minutes')
-    est_str = f" — est. {est} min" if est else ""
+    est_str = f" -- est. {est} min" if est else ""
     print(f"[runner] Starting: {item['title']} ({item['queue_id']}){est_str}", flush=True)
     print(f"[runner] Command: {' '.join(str(a) for a in args)}", flush=True)
 
@@ -518,7 +518,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         elif remaining > 0:
             time_str = f"~{int(remaining)} sec remaining"
         else:
-            time_str = "finishing…"
+            time_str = "finishing..."
         print(f"[runner] {bar} {pct:.0f}% | {time_str}", flush=True)
 
     result_info = {
@@ -565,7 +565,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             if m:
                 episodes_in_run = int(m.group(1))
 
-            # Progress bar — print every 20% of progress
+            # Progress bar -- print every 20% of progress
             if episodes_in_run > 0:
                 pct_milestone = (int(overall_pct()) // 20) * 20
                 if pct_milestone > last_bar_pct:
@@ -676,7 +676,7 @@ def main():
             git_pull(REPO_ROOT, "ree-v3")
             git_pull(ree_assembly_path, "REE_assembly")
         else:
-            print("[runner] Auto-sync: ON but REE_assembly not found — sync disabled", flush=True)
+            print("[runner] Auto-sync: ON but REE_assembly not found -- sync disabled", flush=True)
         recover_stale_claims(QUEUE_FILE, machine)
 
     PID_FILE.write_text(str(os.getpid()))
@@ -727,7 +727,7 @@ def main():
     write_status(status, status_path)
 
     if args.dry_run:
-        print(f"[runner] Dry run — V3 queue (machine: {machine}):")
+        print(f"[runner] Dry run -- V3 queue (machine: {machine}):")
         for item in items:
             script = REPO_ROOT / item["script"]
             runnable = script.exists()
@@ -742,7 +742,7 @@ def main():
             PID_FILE.unlink()
         return
 
-    print(f"[runner] PID {os.getpid()} — {len(items)} experiments queued", flush=True)
+    print(f"[runner] PID {os.getpid()} -- {len(items)} experiments queued", flush=True)
     if args.loop:
         print(f"[runner] Loop mode: polling every {args.loop_interval}s", flush=True)
 
@@ -761,14 +761,14 @@ def main():
             if queue_id in completed_ids:
                 continue
 
-            # Skip experiments that previously failed (scientific FAIL — not retried automatically).
+            # Skip experiments that previously failed (scientific FAIL -- not retried automatically).
             # On first encounter: log clearly, move to completed list, and remove from queue file
             # so the explorer queue shows only actionable (pending) items.
             if item.get("status") == "failed":
                 if queue_id not in completed_ids:
                     failure_reason = item.get("failure_reason", "")
-                    reason_short = (failure_reason[:80] + "…") if len(failure_reason) > 80 else failure_reason
-                    print(f"[runner] Skipping {queue_id} — previously failed"
+                    reason_short = (failure_reason[:80] + "...") if len(failure_reason) > 80 else failure_reason
+                    print(f"[runner] Skipping {queue_id} -- previously failed"
                           f"{': ' + reason_short if reason_short else ''}", flush=True)
                     completed_entry = {
                         "queue_id": queue_id,
@@ -801,7 +801,7 @@ def main():
 
             # Skip experiments assigned to a different machine
             if not _affinity_matches(item, machine):
-                print(f"[runner] Skipping {queue_id} — affinity={item.get('machine_affinity')} "
+                print(f"[runner] Skipping {queue_id} -- affinity={item.get('machine_affinity')} "
                       f"(this machine: {machine})", flush=True)
                 continue
 
@@ -810,13 +810,13 @@ def main():
             if (existing_claim
                     and existing_claim.get("machine") != machine
                     and not _is_stale_claim(existing_claim)):
-                print(f"[runner] Skipping {queue_id} — claimed by "
+                print(f"[runner] Skipping {queue_id} -- claimed by "
                       f"{existing_claim['machine']}", flush=True)
                 continue
 
             script = REPO_ROOT / item["script"]
             if not script.exists():
-                print(f"[runner] Skipping {queue_id} — script not found: {item['script']}", flush=True)
+                print(f"[runner] Skipping {queue_id} -- script not found: {item['script']}", flush=True)
                 for qi in status["queue"]:
                     if qi["queue_id"] == queue_id:
                         qi["status"] = "needs_script"
@@ -827,20 +827,20 @@ def main():
             if args.auto_sync:
                 claim_result = attempt_claim(QUEUE_FILE, queue_id, machine)
                 if claim_result == "already_claimed":
-                    print(f"[runner] {queue_id} — claim lost to another machine, skipping",
+                    print(f"[runner] {queue_id} -- claim lost to another machine, skipping",
                           flush=True)
                     continue
                 if claim_result == "error":
-                    print(f"[runner] {queue_id} — claim push failed (network?), "
+                    print(f"[runner] {queue_id} -- claim push failed (network?), "
                           f"running anyway", flush=True)
-                # "ok" or "error" → proceed; track for signal handler
+                # "ok" or "error" -> proceed; track for signal handler
                 _current_claim.clear()
                 _current_claim.append(queue_id)
 
             try:
               result = run_experiment(item, status, status_path, calibration, script_timing)
             except Exception as _run_exc:
-                # Unexpected exception escaping run_experiment — treat as ERROR and continue
+                # Unexpected exception escaping run_experiment -- treat as ERROR and continue
                 print(f"[runner] UNEXPECTED ERROR in {queue_id}: {_run_exc}", flush=True)
                 completed_ids.add(queue_id)
                 status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] != queue_id]
@@ -863,7 +863,7 @@ def main():
                 script_timing = load_script_timing()
 
             if result["result"] == "ERROR":
-                # Script crashed — move to completed (so it appears in the explorer
+                # Script crashed -- move to completed (so it appears in the explorer
                 # completed list) and remove from queue, just like a finished experiment.
                 # The ERROR result label distinguishes it from PASS/FAIL.
                 completed_entry = {
@@ -895,11 +895,11 @@ def main():
                 except Exception as _qe:
                     print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
                           flush=True)
-                print(f"[runner] ERROR: {queue_id} — moved to completed, continuing", flush=True)
+                print(f"[runner] ERROR: {queue_id} -- moved to completed, continuing", flush=True)
                 continue
 
             if result["result"] == "FAIL":
-                # Scientific FAIL — move to completed (with FAIL label) and remove from queue,
+                # Scientific FAIL -- move to completed (with FAIL label) and remove from queue,
                 # same treatment as ERROR. Failed experiments should not accumulate as dead weight
                 # in the queue; they appear in the explorer completed list for review/redesign.
                 failure_reason = result.get("result_summary", "")
@@ -932,7 +932,7 @@ def main():
                 except Exception as _qe:
                     print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
                           flush=True)
-                print(f"[runner] FAIL: {queue_id} — moved to completed, continuing to next",
+                print(f"[runner] FAIL: {queue_id} -- moved to completed, continuing to next",
                       flush=True)
                 continue
 
@@ -958,7 +958,7 @@ def main():
 
             write_status(status, status_path)
 
-            # Remove completed item from queue file — runner_status.json is the
+            # Remove completed item from queue file -- runner_status.json is the
             # authoritative record of what has run; queue file should only contain
             # pending work to avoid silent accumulation of stale entries.
             try:
@@ -971,7 +971,7 @@ def main():
             except Exception as _qe:
                 print(f"[runner] warn: could not update queue file for {queue_id}: {_qe}", flush=True)
 
-            print(f"[runner] Done: {queue_id} — {result['result']}", flush=True)
+            print(f"[runner] Done: {queue_id} -- {result['result']}", flush=True)
 
         if not args.loop:
             break
@@ -983,9 +983,9 @@ def main():
         status["current"] = None
         write_status(status, status_path)
         if ran_any:
-            print(f"[runner] Pass complete. Waiting {args.loop_interval}s …", flush=True)
+            print(f"[runner] Pass complete. Waiting {args.loop_interval}s ...", flush=True)
         else:
-            print(f"[runner] No new items. Waiting {args.loop_interval}s …", flush=True)
+            print(f"[runner] No new items. Waiting {args.loop_interval}s ...", flush=True)
 
         time.sleep(args.loop_interval)
 

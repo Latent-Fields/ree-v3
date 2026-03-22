@@ -88,7 +88,7 @@ def _compute_reafference_r2(agent: REEAgent, reaf_data: List) -> float:
         ss_tot = ((dz_test - dz_test.mean(dim=0, keepdim=True)) ** 2).sum()
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
 
-    print(f"  reafference R² (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
+    print(f"  reafference R2 (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
     return max(0.0, r2)
 
 

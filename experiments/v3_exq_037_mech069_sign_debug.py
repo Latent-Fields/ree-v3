@@ -1,5 +1,5 @@
 """
-V3-EXQ-037 — MECH-069 Sign Investigation (EXQ-035 Follow-up)
+V3-EXQ-037 -- MECH-069 Sign Investigation (EXQ-035 Follow-up)
 
 Claims: MECH-069, SD-003
 
@@ -10,7 +10,7 @@ EXQ-035 FAIL analysis:
     Both conditions have NEGATIVE calibration_gap.
 
     Negative calibration_gap means E3.harm_eval scores hazard_approach steps LOWER
-    than none (safe locomotion) steps. This is backwards — E3 should score dangerous
+    than none (safe locomotion) steps. This is backwards -- E3 should score dangerous
     situations HIGHER.
 
     Contrast with EXQ-026 PASS: calibration_gap = +0.0375.
@@ -29,15 +29,15 @@ diagnostics to identify the sign inversion root cause:
        (check if the issue is raw logit sign vs probability sign)
     3. Report E3.harm_eval head weight norms and bias
     4. Compare two E3 training variants:
-       Variant A: Fix 2 (observed + E2-predicted) — same as EXQ-030b/035
-       Variant B: observed-only — same as EXQ-026 (which PASSED)
+       Variant A: Fix 2 (observed + E2-predicted) -- same as EXQ-030b/035
+       Variant B: observed-only -- same as EXQ-026 (which PASSED)
     Both use separated optimizers (MECH-069).
 
 Design: run two sub-conditions sequentially (same seed, fresh agents):
     SUB-A (Fix2): E3 trained on observed + E2-predicted (EXQ-035 setup)
     SUB-B (ObsOnly): E3 trained on observed states only (EXQ-026 setup)
 
-PASS criteria (ALL must hold for SUB-B at minimum — establishes sign direction):
+PASS criteria (ALL must hold for SUB-B at minimum -- establishes sign direction):
     C1: calibration_gap_obsonly > 0  (obs-only E3 gives correct sign)
     C2: calibration_gap_obsonly > 0.01  (obs-only E3 above noise floor)
     C3: mean_harm_eval_approach_obsonly > mean_harm_eval_none_obsonly  (correct ordering)
@@ -96,7 +96,7 @@ def _compute_world_forward_r2(
         ss_res = ((tgt_test - pred_test) ** 2).sum()
         ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
         r2 = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test n={pred_test.shape[0]}): {r2:.4f}", flush=True)
     return r2
 
 
@@ -426,13 +426,13 @@ def run(
         f"[V3-EXQ-037] MECH-069 Sign Debug\n"
         f"  Two sub-conditions (same seed, fresh agents):\n"
         f"    SUB-A (Fix2): E3 on observed + E2-predicted states [EXQ-035 setup]\n"
-        f"    SUB-B (ObsOnly): E3 on observed states only [EXQ-026 setup — PASS]\n"
+        f"    SUB-B (ObsOnly): E3 on observed states only [EXQ-026 setup -- PASS]\n"
         f"  Diagnostic: does Fix 2 cause sign inversion?",
         flush=True,
     )
 
     # --- SUB-A: Fix2 (same as EXQ-035 separated condition) ---
-    print(f"\n[V3-EXQ-037] === SUB-A (Fix2) — E3 on observed + E2-predicted ===", flush=True)
+    print(f"\n[V3-EXQ-037] === SUB-A (Fix2) -- E3 on observed + E2-predicted ===", flush=True)
     torch.manual_seed(seed)
     random.seed(seed)
     agent_a, opt_a, he_opt_a, wf_opt_a = _make_agent_and_optimizers(env, config, lr)
@@ -444,8 +444,8 @@ def run(
     print(f"\n[V3-EXQ-037] Eval SUB-A ({eval_episodes} eps)...", flush=True)
     eval_a = _eval_calibration(agent_a, env, eval_episodes, steps_per_episode, "Fix2")
 
-    # --- SUB-B: ObsOnly (same as EXQ-026 — PASS condition) ---
-    print(f"\n[V3-EXQ-037] === SUB-B (ObsOnly) — E3 on observed states only ===", flush=True)
+    # --- SUB-B: ObsOnly (same as EXQ-026 -- PASS condition) ---
+    print(f"\n[V3-EXQ-037] === SUB-B (ObsOnly) -- E3 on observed states only ===", flush=True)
     torch.manual_seed(seed)
     random.seed(seed)
     agent_b, opt_b, he_opt_b, wf_opt_b = _make_agent_and_optimizers(env, config, lr)
@@ -464,7 +464,7 @@ def run(
     print(f"  SUB-B (ObsOnly) cal_gap_raw: {eval_b['cal_gap_raw']:.4f}", flush=True)
     print(f"  Sign inversion detected (A<0, B>0): {sign_inversion_detected}", flush=True)
 
-    # PASS criteria (SUB-B must show correct sign — establishes baseline)
+    # PASS criteria (SUB-B must show correct sign -- establishes baseline)
     nc_b = eval_b["n_counts"]
     c1_pass = eval_b["cal_gap_raw"] > 0.0
     c2_pass = eval_b["cal_gap_raw"] > 0.01
@@ -528,23 +528,23 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-037 — MECH-069 Sign Investigation (EXQ-035 Follow-up)
+    summary_markdown = f"""# V3-EXQ-037 -- MECH-069 Sign Investigation (EXQ-035 Follow-up)
 
 **Status:** {status}
 **Claims:** MECH-069, SD-003
 **World:** CausalGridWorldV2 (proximity_scale={proximity_scale})
 **alpha_world:** {alpha_world}  (SD-008)
 **Seed:** {seed}
-**Predecessor:** EXQ-035 (FAIL — calibration_gap_separated=-0.028 < 0)
+**Predecessor:** EXQ-035 (FAIL -- calibration_gap_separated=-0.028 < 0)
 
 ## Problem Statement
 
 EXQ-035 found negative calibration_gap for BOTH separated and merged conditions.
-E3.harm_eval scores hazard_approach LOWER than none — backwards from expectation.
+E3.harm_eval scores hazard_approach LOWER than none -- backwards from expectation.
 EXQ-026 (obs-only E3 training, simpler setup) got calibration_gap=+0.0375 (PASS).
 Hypothesis: Fix 2 (E3 trained on E2-predicted states) causes sign inversion.
 
-## SUB-A Results (Fix2 — E3 on observed + E2-predicted)
+## SUB-A Results (Fix2 -- E3 on observed + E2-predicted)
 
 | Transition | mean harm_eval (raw) | mean harm_eval (sigmoid) |
 |---|---|---|
@@ -557,7 +557,7 @@ Hypothesis: Fix 2 (E3 trained on E2-predicted states) causes sign inversion.
 - **cal_gap_sig**: {eval_a['cal_gap_sig']:.4f}
 - **wf_r2**: {wf_r2_a:.4f}
 
-## SUB-B Results (ObsOnly — E3 on observed states only, as in EXQ-026)
+## SUB-B Results (ObsOnly -- E3 on observed states only, as in EXQ-026)
 
 | Transition | mean harm_eval (raw) | mean harm_eval (sigmoid) |
 |---|---|---|
@@ -585,7 +585,7 @@ Hypothesis: Fix 2 (E3 trained on E2-predicted states) causes sign inversion.
 | C4: wf_r2_obsonly > 0.05 | {"PASS" if c4_pass else "FAIL"} | {wf_r2_b:.4f} |
 | C5: n_approach_obsonly >= 30 | {"PASS" if c5_pass else "FAIL"} | {nc_b.get('hazard_approach', 0)} |
 
-Criteria met: {n_met}/5 → **{status}**
+Criteria met: {n_met}/5 -> **{status}**
 {failure_section}
 """
 

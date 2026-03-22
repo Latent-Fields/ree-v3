@@ -326,7 +326,7 @@ def run(
                 flush=True,
             )
 
-    # ── world_forward R² ─────────────────────────────────────────────────────
+    # ── world_forward R2 ─────────────────────────────────────────────────────
     wf_r2 = 0.0
     if len(wf_data) >= 20:
         n = len(wf_data)
@@ -342,7 +342,7 @@ def run(
                 ss_res = ((tgt_test - pred_test) ** 2).sum()
                 ss_tot = ((tgt_test - tgt_test.mean(0, keepdim=True)) ** 2).sum()
                 wf_r2  = float((1 - ss_res / (ss_tot + 1e-8)).item())
-    print(f"  world_forward R² (test): {wf_r2:.4f}", flush=True)
+    print(f"  world_forward R2 (test): {wf_r2:.4f}", flush=True)
 
     # ── Eval: ethical policy ─────────────────────────────────────────────────
     print(
@@ -479,7 +479,7 @@ def run(
           f"= {contact_rate_random:.4f} contact rate", flush=True)
     print(f"  reduction: {contact_rate_random - contact_rate_ethical:.4f}", flush=True)
     print(f"  approach advantage (harm spread at approach): {approach_adv:.6f}", flush=True)
-    print(f"  world_forward R²: {wf_r2:.4f}", flush=True)
+    print(f"  world_forward R2: {wf_r2:.4f}", flush=True)
     print(f"\n  Step-level (diagnostic):", flush=True)
     for tt, sigs in sorted(advantage_by_ttype.items()):
         print(f"    {tt:28s}: advantage_sig={_mean(sigs):.6f}  n={len(sigs)}", flush=True)
@@ -584,7 +584,7 @@ def run(
 | Reduction | — | — | {contact_rate_random - contact_rate_ethical:.4f} |
 
 - **Approach advantage** (harm spread at approach): {approach_adv:.6f}
-- **world_forward R²**: {wf_r2:.4f}
+- **world_forward R2**: {wf_r2:.4f}
 
 ## PASS Criteria
 

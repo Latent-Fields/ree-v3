@@ -1,25 +1,25 @@
 """
-V3-EXQ-008 — SD-003 Self-Attribution: Larger World + Smaller Observation
+V3-EXQ-008 -- SD-003 Self-Attribution: Larger World + Smaller Observation
 
 Claim: SD-003
 
 Tests whether the E2 identity shortcut (delta≈0) is caused by insufficient
-per-step observation change in the 5×5 local view. With a 5×5 view, moving
-one cell changes ~20% of the observation. With a 3×3 view on a larger grid
+per-step observation change in the 5x5 local view. With a 5x5 view, moving
+one cell changes ~20% of the observation. With a 3x3 view on a larger grid
 with more hazards, each step changes ~44% of the view.
 
 Environment changes (experiment-local, does not modify CausalGridWorld):
   - Grid size: 12 (vs default 10)
-  - Hazards: 8 (denser — 0.083/cell vs 0.03/cell in default)
-  - Observation: 3×3 local view (vs 5×5) — each step changes more
-  - world_obs_dim: 3×3×7 + 3×3 = 72 (vs 5×5×7 + 5×5 = 200)
+  - Hazards: 8 (denser -- 0.083/cell vs 0.03/cell in default)
+  - Observation: 3x3 local view (vs 5x5) -- each step changes more
+  - world_obs_dim: 3x3x7 + 3x3 = 72 (vs 5x5x7 + 5x5 = 200)
 
 The encoder and E2 architectures are scaled to the smaller observation.
 All other training logic (multi-step E2, recon loss, probe eval, separate
 E3 optimizer) identical to r6.
 
 If PASS: SD-003 attribution works when the world has sufficient per-step
-variation — positive signal for real-world scalability where observations
+variation -- positive signal for real-world scalability where observations
 change substantially each timestep.
 
 If FAIL: the problem is deeper than observation autocorrelation.
@@ -58,22 +58,22 @@ E2_ROLLOUT_STEPS = 5
 # Environment overrides
 GRID_SIZE = 12
 NUM_HAZARDS = 8
-OBS_RADIUS = 1  # 3×3 view (radius 1 → -1..+1)
+OBS_RADIUS = 1  # 3x3 view (radius 1 -> -1..+1)
 OBS_VIEW_SIZE = 2 * OBS_RADIUS + 1  # 3
 
 
 class SmallViewEnv(CausalGridWorld):
-    """CausalGridWorld with a 3×3 local observation instead of 5×5.
+    """CausalGridWorld with a 3x3 local observation instead of 5x5.
 
-    Overrides _get_observation_dict to use obs_radius=1 (3×3 view).
-    This is experiment-local — does not modify the base class.
+    Overrides _get_observation_dict to use obs_radius=1 (3x3 view).
+    This is experiment-local -- does not modify the base class.
     """
 
     def __init__(self, **kwargs):
-        # Set dims BEFORE super().__init__ because it calls reset() → _get_observation_dict()
+        # Set dims BEFORE super().__init__ because it calls reset() -> _get_observation_dict()
         view = OBS_VIEW_SIZE
         self._body_obs_dim = 10  # same as base
-        self._world_obs_dim = view * view * 7 + view * view  # 3×3×7 + 3×3 = 72
+        self._world_obs_dim = view * view * 7 + view * view  # 3x3x7 + 3x3 = 72
         super().__init__(**kwargs)
         # Re-set with actual NUM_ENTITY_TYPES (in case it differs from 7)
         self._world_obs_dim = view * view * self.NUM_ENTITY_TYPES + view * view
@@ -103,7 +103,7 @@ class SmallViewEnv(CausalGridWorld):
         body[5 + action_enc] = 1.0
         body[9] = min(1.0, self.steps / 500.0)
 
-        # --- local_view (3×3×7) ---
+        # --- local_view (3x3x7) ---
         local_view = torch.zeros(view, view, self.NUM_ENTITY_TYPES)
         for di in range(-r, r + 1):
             for dj in range(-r, r + 1):
@@ -115,7 +115,7 @@ class SmallViewEnv(CausalGridWorld):
                 local_view[di + r, dj + r, etype] = 1.0
         local_view_flat = local_view.reshape(-1)
 
-        # --- contamination_view (3×3) ---
+        # --- contamination_view (3x3) ---
         cont_view = torch.zeros(view, view)
         for di in range(-r, r + 1):
             for dj in range(-r, r + 1):
@@ -433,7 +433,7 @@ def run(
 
     config = REEConfig.from_dims(
         body_obs_dim=env.body_obs_dim,
-        world_obs_dim=env.world_obs_dim,  # 72 (3×3×7 + 3×3)
+        world_obs_dim=env.world_obs_dim,  # 72 (3x3x7 + 3x3)
         action_dim=env.action_dim,
         self_dim=32,
         world_dim=world_dim,
@@ -442,8 +442,8 @@ def run(
     fatal_errors = 0
     results_by_condition = {}
 
-    print(f"\n[V3-EXQ-008] Seed {seed} — Grid {GRID_SIZE}×{GRID_SIZE}, "
-          f"{NUM_HAZARDS} hazards, {OBS_VIEW_SIZE}×{OBS_VIEW_SIZE} obs "
+    print(f"\n[V3-EXQ-008] Seed {seed} -- Grid {GRID_SIZE}x{GRID_SIZE}, "
+          f"{NUM_HAZARDS} hazards, {OBS_VIEW_SIZE}x{OBS_VIEW_SIZE} obs "
           f"(world_obs_dim={env.world_obs_dim})", flush=True)
 
     print(f"\n[V3-EXQ-008] Condition TRAINED", flush=True)
@@ -543,11 +543,11 @@ def run(
     if failure_notes:
         failure_section = "\n## Failure Notes\n\n" + "\n".join(f"- {n}" for n in failure_notes)
 
-    summary_markdown = f"""# V3-EXQ-008 — SD-003 Larger World + 3×3 Observation
+    summary_markdown = f"""# V3-EXQ-008 -- SD-003 Larger World + 3x3 Observation
 
 **Status:** {status}
-**Environment:** {GRID_SIZE}×{GRID_SIZE} grid, {NUM_HAZARDS} hazards, {OBS_VIEW_SIZE}×{OBS_VIEW_SIZE} local view
-**world_obs_dim:** {env.world_obs_dim} (vs 200 in standard 5×5 view)
+**Environment:** {GRID_SIZE}x{GRID_SIZE} grid, {NUM_HAZARDS} hazards, {OBS_VIEW_SIZE}x{OBS_VIEW_SIZE} local view
+**world_obs_dim:** {env.world_obs_dim} (vs 200 in standard 5x5 view)
 **Warmup:** {warmup_episodes} episodes, RANDOM policy + recon loss + {E2_ROLLOUT_STEPS}-step E2 rollouts + target stopgrad
 **Probe eval:** {eval_probe_resets} grid resets x (near-hazard + safe positions)
 **Seed:** {seed}
@@ -555,14 +555,14 @@ def run(
 ## Hypothesis
 
 The E2 identity shortcut may be caused by insufficient per-step observation
-change. In a 5×5 view, moving one cell changes ~20% of pixels. In a 3×3 view,
+change. In a 5x5 view, moving one cell changes ~20% of pixels. In a 3x3 view,
 each step changes ~44%. Combined with a larger grid and more hazards, z_world
 should encode genuinely different states each step.
 
 A PASS here is a positive scalability signal: real-world observations change
-substantially each timestep, matching this condition more than the 5×5 view.
+substantially each timestep, matching this condition more than the 5x5 view.
 
-Mean E2 world loss: {mean_e2w:.6f} (compare r6: 0.000311 on 5×5 view)
+Mean E2 world loss: {mean_e2w:.6f} (compare r6: 0.000311 on 5x5 view)
 Mean reconstruction loss: {mean_recon:.5f}
 
 ## PASS Criteria
