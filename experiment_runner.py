@@ -878,6 +878,7 @@ def main():
                     "completed_at": result["completed_at"],
                     "output_file": result.get("output_file", ""),
                     "completed_by": machine,
+                    "actual_secs": result.get("actual_secs", 0),
                 }
                 status["completed"].append(completed_entry)
                 completed_ids.add(queue_id)
@@ -914,6 +915,7 @@ def main():
                     "completed_at": result["completed_at"],
                     "output_file": result.get("output_file", ""),
                     "completed_by": machine,
+                    "actual_secs": result.get("actual_secs", 0),
                 }
                 status["completed"].append(completed_entry)
                 completed_ids.add(queue_id)
@@ -946,6 +948,7 @@ def main():
                 "completed_at": result["completed_at"],
                 "output_file": result.get("output_file", ""),
                 "completed_by": machine,
+                "actual_secs": result.get("actual_secs", 0),
             }
             status["completed"].append(completed_entry)
             completed_ids.add(queue_id)
