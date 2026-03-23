@@ -121,6 +121,21 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
 - Biological rationale: sleep mechanisms are evolutionary successors to waking
   decision architecture. V3 must deliver working waking circuit before V4 sleep.
 
+**V4 scope (self-navigation — not V3, gated by MECH-113/114 results):**
+- ARC-031: Hippocampal z_self trajectory navigation (planning deliberation sequences).
+  GATE: Do NOT implement or experiment on Level 2 MECH-113 (allostatic anticipatory
+  setpoint) until ALL of the following are met:
+  (1) EXQ-075 PASS (Level 1 D_eff reactive homeostasis confirmed)
+  (2) EXQ-076 PASS (MECH-114 D_eff commit gating confirmed)
+  (3) Q-022 dissociation result available (D_eff vs Hopfield stability)
+  Level 2 requires HippocampalModule to navigate z_self space — ARC-031 is a V4
+  prerequisite. Premature Level 2 experiments will produce uninterpretable results
+  because the anticipatory setpoint mechanism cannot function without z_self navigation.
+- MECH-118/119 Hopfield familiarity signal and coherent-unfamiliar pathology detection.
+  GATE: Q-022 dissociation test (EVB-0069) must be run first. If D_eff and Hopfield
+  stability always co-vary (no dissociation), MECH-118/119 collapse into MECH-113
+  and no separate implementation is needed.
+
 ## Experiment Queue Rules
 - Every queue entry **must** have `estimated_minutes` set (never omit it).
 - Estimate from: total episodes × steps_per_episode, calibrated against known runtimes:

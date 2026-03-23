@@ -14,6 +14,8 @@ V3 changes vs V2:
 from dataclasses import dataclass, field
 from typing import Optional
 
+from ree_core.goal import GoalConfig
+
 
 @dataclass
 class LatentStackConfig:
@@ -304,6 +306,7 @@ class REEConfig:
     residue: ResidueConfig = field(default_factory=ResidueConfig)
     heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
     environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
+    goal: GoalConfig = field(default_factory=GoalConfig)
 
     device: str = "cpu"
     seed: Optional[int] = None
@@ -336,6 +339,14 @@ class REEConfig:
         novelty_bonus_weight: float = 0.0,
         self_maintenance_weight: float = 0.0,
         self_maintenance_d_eff_target: float = 1.5,
+        # MECH-112 / MECH-116: z_goal substrate
+        z_goal_enabled: bool = False,
+        alpha_goal: float = 0.05,
+        decay_goal: float = 0.005,
+        benefit_threshold: float = 0.1,
+        goal_weight: float = 1.0,
+        e1_goal_conditioned: bool = True,
+        **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
         config = cls()
@@ -397,5 +408,25 @@ class REEConfig:
         # Environment
         config.environment.body_obs_dim = body_obs_dim
         config.environment.world_obs_dim = world_obs_dim
+
+        # GoalConfig fields -- wire goal_dim to world_dim by default
+        goal_fields = {
+            "z_goal_enabled", "alpha_goal", "decay_goal",
+            "benefit_threshold", "goal_weight", "e1_goal_conditioned",
+        }
+        local_goal_vals = {
+            "z_goal_enabled": z_goal_enabled,
+            "alpha_goal": alpha_goal,
+            "decay_goal": decay_goal,
+            "benefit_threshold": benefit_threshold,
+            "goal_weight": goal_weight,
+            "e1_goal_conditioned": e1_goal_conditioned,
+        }
+        for _key in goal_fields:
+            if _key in local_goal_vals:
+                setattr(config.goal, _key, local_goal_vals[_key])
+        # Keep goal_dim in sync with world_dim
+        if hasattr(config, "latent") and hasattr(config.latent, "world_dim"):
+            config.goal.goal_dim = config.latent.world_dim
 
         return config

@@ -33,6 +33,7 @@ import torch.nn.functional as F
 from ree_core.utils.config import E3Config
 from ree_core.predictors.e2_fast import Trajectory
 from ree_core.residue.field import ResidueField
+from ree_core.goal import GoalState
 
 
 @dataclass
@@ -364,7 +365,21 @@ class E3TrajectorySelector(nn.Module):
         benefit = benefit_flat.reshape(batch, horizon_p1)   # [batch, horizon+1]
         return benefit.sum(dim=-1)                          # [batch]
 
-    def score_trajectory(self, trajectory: Trajectory) -> torch.Tensor:
+    def compute_goal_score(
+        self, trajectory: Trajectory, goal_state: GoalState
+    ) -> torch.Tensor:
+        """
+        Goal proximity score across trajectory (wanting signal, MECH-112/117).
+        Shape: [batch]. Higher = trajectory ends closer to z_goal.
+        """
+        world_seq = self._get_world_states(trajectory)
+        batch, horizon_p1, _ = world_seq.shape
+        flat = world_seq.reshape(batch * horizon_p1, -1)
+        prox_flat = goal_state.goal_proximity(flat)
+        prox = prox_flat.reshape(batch, horizon_p1)
+        return prox.sum(dim=-1)
+
+    def score_trajectory(self, trajectory: Trajectory, goal_state: Optional[GoalState] = None) -> torch.Tensor:
         """
         Total score J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ) - β·B(ζ) - η·novelty.
         Lower is better.
@@ -392,6 +407,13 @@ class E3TrajectorySelector(nn.Module):
             novelty_bonus = torch.tensor(self._novelty_ema, device=device)
             score = score - self.config.novelty_bonus_weight * novelty_bonus
 
+        # MECH-112 / MECH-117: wanting signal via z_goal distance
+        if (goal_state is not None
+                and goal_state.is_active()
+                and self.config.goal_weight > 0.0):
+            g = self.compute_goal_score(trajectory, goal_state)
+            score = score - self.config.goal_weight * g
+
         return score
 
     # ------------------------------------------------------------------ #
@@ -402,6 +424,7 @@ class E3TrajectorySelector(nn.Module):
         self,
         candidates: List[Trajectory],
         temperature: float = 1.0,
+        goal_state: Optional[GoalState] = None,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -418,7 +441,7 @@ class E3TrajectorySelector(nn.Module):
         if not candidates:
             raise ValueError("No candidate trajectories provided")
 
-        scores = torch.stack([self.score_trajectory(t) for t in candidates])
+        scores = torch.stack([self.score_trajectory(t, goal_state=goal_state) for t in candidates])
         scores = scores.mean(dim=-1)
         self.last_scores = scores.detach()
 
@@ -506,5 +529,6 @@ class E3TrajectorySelector(nn.Module):
         self,
         candidates: List[Trajectory],
         temperature: float = 1.0,
+        goal_state: Optional[GoalState] = None,
     ) -> SelectionResult:
-        return self.select(candidates, temperature)
+        return self.select(candidates, temperature, goal_state=goal_state)

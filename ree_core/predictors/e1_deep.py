@@ -121,6 +121,17 @@ class E1DeepPredictor(nn.Module):
 
         self._hidden_state: Optional[Tuple[torch.Tensor, torch.Tensor]] = None
 
+        # MECH-116: optional goal conditioning projection
+        # Projects [z_self, z_world, z_goal] -> latent_dim before LSTM
+        goal_dim = getattr(config, 'goal_dim', 0)
+        self._goal_dim = goal_dim
+        if goal_dim > 0:
+            self.goal_input_proj = nn.Linear(
+                config.latent_dim + goal_dim, config.latent_dim
+            )
+        else:
+            self.goal_input_proj = None
+
     def reset_hidden_state(self) -> None:
         """Reset hidden state for a new episode."""
         self._hidden_state = None
@@ -240,17 +251,26 @@ class E1DeepPredictor(nn.Module):
         self,
         current_state: torch.Tensor,
         horizon: Optional[int] = None,
+        z_goal: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass.
 
         Args:
             current_state: [z_self, z_world] concatenated [batch, total_dim]
+            z_goal:        optional goal latent [1, goal_dim] for MECH-116 conditioning
 
         Returns:
             predictions: [batch, horizon, total_dim]
             prior:       world-domain prior [batch, world_dim] for HippocampalModule
         """
-        predictions = self.predict_long_horizon(current_state, horizon)
+        # MECH-116: apply goal conditioning if provided
+        total_state = current_state
+        if self.goal_input_proj is not None and z_goal is not None:
+            goal_exp = z_goal.expand(total_state.shape[0], -1)
+            total_state = self.goal_input_proj(
+                torch.cat([total_state, goal_exp], dim=-1)
+            )
+        predictions = self.predict_long_horizon(total_state, horizon)
         prior = self.generate_prior(current_state)
         return predictions, prior

@@ -39,6 +39,7 @@ import torch.nn.functional as F
 
 from ree_core.utils.config import REEConfig
 from ree_core.latent.stack import LatentStack, LatentState
+from ree_core.goal import GoalState
 from ree_core.latent.theta_buffer import ThetaBuffer
 from ree_core.predictors.e1_deep import E1DeepPredictor
 from ree_core.predictors.e2_fast import E2FastPredictor, Trajectory
@@ -138,6 +139,12 @@ class REEAgent(nn.Module):
         self._last_action: Optional[torch.Tensor] = None
 
         self.device = torch.device(config.device)
+
+        # MECH-112/116: persistent goal representation
+        self.goal_state: Optional[GoalState] = None
+        _goal_cfg = getattr(self.config, "goal", None)
+        if _goal_cfg is not None and _goal_cfg.z_goal_enabled:
+            self.goal_state = GoalState(_goal_cfg, self.device)
 
     @classmethod
     def from_config(
@@ -249,7 +256,14 @@ class REEAgent(nn.Module):
                 del buf[:-1000]
 
         # Run E1 for prior generation
-        _, e1_prior = self.e1(total_state)
+        _z_goal_input = None
+        _goal_cfg = getattr(self.config, "goal", None)
+        if (self.goal_state is not None
+                and _goal_cfg is not None
+                and _goal_cfg.e1_goal_conditioned
+                and self.goal_state.is_active()):
+            _z_goal_input = self.goal_state.z_goal
+        _, e1_prior = self.e1(total_state, z_goal=_z_goal_input)
 
         # MECH-089: push z_self, z_world estimates to ThetaBuffer
         self.theta_buffer.update(latent_state.z_world, latent_state.z_self)
@@ -331,7 +345,7 @@ class REEAgent(nn.Module):
         if not ticks["e3_tick"] and self._last_action is not None:
             return self._last_action
 
-        result = self.e3.select(candidates, temperature)
+        result = self.e3.select(candidates, temperature, goal_state=self.goal_state)
         action = result.selected_action
 
         # MECH-090: gate policy propagation based on beta state
@@ -576,6 +590,30 @@ class REEAgent(nn.Module):
         elif target.dim() == 1:
             target = target.unsqueeze(-1)
         return F.mse_loss(benefit_pred, target.expand_as(benefit_pred))
+
+    def update_z_goal(self, benefit_exposure: float) -> None:
+        """Update z_goal from benefit signal (MECH-112 wanting update)."""
+        if self.goal_state is None or self._current_latent is None:
+            return
+        self.goal_state.update(
+            self._current_latent.z_world,
+            benefit_exposure,
+        )
+
+    def compute_goal_maintenance_diagnostic(self) -> dict:
+        """Goal state metrics for MECH-116 (EXQ-076 criterion C1)."""
+        if self.goal_state is None or self._current_latent is None:
+            return {"goal_norm": 0.0, "goal_proximity": 0.0, "is_active": False}
+        prox = float(
+            self.goal_state.goal_proximity(
+                self._current_latent.z_world
+            ).mean().item()
+        )
+        return {
+            "goal_norm": self.goal_state.goal_norm(),
+            "goal_proximity": prox,
+            "is_active": self.goal_state.is_active(),
+        }
 
     def compute_z_self_d_eff(self) -> Optional[float]:
         """
