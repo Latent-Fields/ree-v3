@@ -68,9 +68,12 @@
       "conditions": 8,
       "episodes_per_run": 5,
       "machine_affinity": "Daniel-PC",
-      "status": "pending",
+      "status": "claimed",
       "args": "",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-03-23T14:35:10.710800+00:00"
+      }
     }
   ]
 }
