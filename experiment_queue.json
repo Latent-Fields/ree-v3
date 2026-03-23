@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-072",
-      "backlog_id": "EVB-0061",
-      "claim_id": "Q-021",
-      "title": "Q-021 Behavioral Flatness -- NoGo-only vs Competitive vs Random baseline",
-      "script": "experiments/v3_exq_072_q021_behavioral_flatness.py",
-      "description": "Three conditions: NoGo-only (benefit_eval_enabled=False), Competitive (benefit_eval_enabled=True, ARC-030 Go channel), Random baseline. Environment: CausalGridWorldV2 use_proxy_fields=True. Tests Q-021: does pure-avoidance gradient produce quiescence (resource-visit rate <= random)? PASS (C1) nogo<=random+0.02, (C2) comp>=nogo+0.05, (C3) entropy gap>=0.10, (C4) nogo resource events<=comp*0.80.",
-      "estimated_minutes": 65,
-      "seeds": 1,
-      "conditions": 3,
-      "episodes_per_run": 550,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "args": "--seed 42 --warmup 200 --eval-eps 50 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T12:19:05.365311+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-073",
       "backlog_id": "",
       "claim_id": "MECH-111",
