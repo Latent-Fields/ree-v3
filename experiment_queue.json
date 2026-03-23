@@ -55,25 +55,6 @@
       "status": "pending",
       "args": "--seeds 42 7 --warmup 350 --eval-eps 60 --steps 200 --alpha-sharp 0.9 --alpha-smooth 0.3",
       "claimed_by": null
-    },
-    {
-      "queue_id": "V3-BENCH-scale-001",
-      "backlog_id": "",
-      "claim_id": "",
-      "title": "GPU/CPU Scale Crossover Benchmark -- world_dim=[32,64,128,256]",
-      "script": "experiments/v3_scale_benchmark.py",
-      "description": "Operational benchmark (not a scientific experiment). Sweeps world_dim=[32,64,128,256] and measures CPU vs GPU training throughput at each scale. Identifies the GPU crossover point on current hardware. Provides baseline data for comparison against Spark hardware when available. Results recorded to evidence/experiments/v3_scale_benchmark/. Not tied to a scientific claim.",
-      "estimated_minutes": 40,
-      "seeds": 1,
-      "conditions": 8,
-      "episodes_per_run": 5,
-      "machine_affinity": "Daniel-PC",
-      "status": "claimed",
-      "args": "",
-      "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-03-23T14:35:10.710800+00:00"
-      }
     }
   ]
 }
