@@ -158,7 +158,7 @@
       "tags": [
         "SD-003"
       ],
-      "notes": "Re-queue after scipy installed on Daniel-PC."
+      "notes": "scipy confirmed installed on Daniel-PC 2026-03-23."
     },
     {
       "queue_id": "V3-EXQ-074b",
