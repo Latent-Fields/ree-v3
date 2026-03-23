@@ -41,34 +41,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-071b",
-      "title": "SD-003 Rollout-Batched Attribution -- batched world_forward preserves selectivity (3 distractor levels)",
-      "script": "experiments/v3_exq_071_rollout_batched_attribution.py",
-      "args": [
-        "--seed",
-        "0",
-        "--warmup",
-        "150",
-        "--eval-eps",
-        "30",
-        "--steps",
-        "200",
-        "--alpha-world",
-        "0.9"
-      ],
-      "estimated_minutes": 145,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "tags": [
-        "SD-003"
-      ],
-      "notes": "scipy confirmed installed on Daniel-PC 2026-03-23.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T12:19:33.307226+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-074b",
       "backlog_id": "",
       "claim_id": "MECH-117",
