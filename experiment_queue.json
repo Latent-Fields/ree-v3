@@ -8,35 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-075b",
-      "title": "MECH-113 self-maintenance D_eff homeostasis -- NoMaintenance vs Maintenance",
-      "script": "experiments/v3_exq_075_mech113_self_maintenance.py",
-      "args": [
-        "--seed",
-        "42",
-        "--warmup",
-        "200",
-        "--eval-eps",
-        "30",
-        "--steps",
-        "200",
-        "--noise-sigma",
-        "2.0",
-        "--alpha-world",
-        "0.9"
-      ],
-      "estimated_minutes": 60,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "tags": [
-        "MECH-113"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T18:55:23.214767+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-076b",
       "title": "MECH-116/ARC-032 E1 LSTM goal conditioning -- wanting with vs without E1 goal input",
       "script": "experiments/v3_exq_076_mech116_arc032_e1_goal_conditioning.py",
