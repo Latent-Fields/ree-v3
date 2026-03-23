@@ -41,6 +41,42 @@
       }
     },
     {
+      "queue_id": "V3-EXQ-079",
+      "backlog_id": "EVB-0006",
+      "claim_id": "MECH-071",
+      "title": "MECH-071 Harm Calibration Discriminative Pair -- SHARP_WORLD vs SMOOTH_WORLD (SD-008)",
+      "script": "experiments/v3_exq_079_mech071_harm_calib_pair.py",
+      "estimated_minutes": 145,
+      "seeds": 2,
+      "conditions": 2,
+      "episodes_per_run": 350,
+      "machine_affinity": "any",
+      "deadline": "2026-03-26",
+      "status": "pending",
+      "args": "--seeds 42 7 --warmup 350 --eval-eps 60 --steps 200 --alpha-sharp 0.9 --alpha-smooth 0.3",
+      "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-047f",
+      "backlog_id": "EVB-0005",
+      "claim_id": "SD-005",
+      "title": "SD-005 Orthogonality-Constrained Split vs Unified -- action/contact probe discrimination",
+      "script": "experiments/v3_exq_047f_sd005_orth_split_pair.py",
+      "description": "Discriminative pair for SD-005: SPLIT_ORTH (unified_latent_mode=False, orth_weight=0.05 baked into all 400 training eps) vs UNIFIED (unified_latent_mode=True, no separation pressure). Replaces EXQ-047e adversarial GRL (only 80 post-hoc eps) with persistent orthogonality loss throughout learning: L_orth = mean(|cos(z_self, z_world)|). PASS: C1 action_dissoc>0.10, C2 contact_dissoc>0.05, C3 action_vs_unified>0.03, C4 orth_cos_eval<0.15. Decision: retain_ree/hybridize/retire_ree_claim. EVB-0005 mandatory decision by 2026-03-26.",
+      "estimated_minutes": 80,
+      "seeds": 2,
+      "conditions": 2,
+      "episodes_per_run": 400,
+      "machine_affinity": "any",
+      "deadline": "2026-03-26",
+      "status": "claimed",
+      "args": "--seeds 42 7 --warmup 400 --eval-eps 100 --steps 200 --alpha-world 0.9",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T12:41:21.206390+00:00"
+      }
+    },
+    {
       "queue_id": "V3-BENCH-scale-001",
       "backlog_id": "",
       "claim_id": "",
