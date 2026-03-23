@@ -8,7 +8,7 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-074b",
+      "queue_id": "V3-EXQ-074c",
       "title": "MECH-112/117 wanting vs liking dissociation (goal attractor vs benefit_eval)",
       "script": "experiments/v3_exq_074b_mech112_117_wanting_liking.py",
       "args": [
@@ -23,14 +23,18 @@
       ],
       "estimated_minutes": 40,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "tags": [
         "MECH-112",
         "MECH-117"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T18:55:16.811428+00:00"
+      }
     },
     {
-      "queue_id": "V3-EXQ-075",
+      "queue_id": "V3-EXQ-075b",
       "title": "MECH-113 self-maintenance D_eff homeostasis -- NoMaintenance vs Maintenance",
       "script": "experiments/v3_exq_075_mech113_self_maintenance.py",
       "args": [
@@ -55,7 +59,7 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-076",
+      "queue_id": "V3-EXQ-076b",
       "title": "MECH-116/ARC-032 E1 LSTM goal conditioning -- wanting with vs without E1 goal input",
       "script": "experiments/v3_exq_076_mech116_arc032_e1_goal_conditioning.py",
       "args": [
@@ -77,7 +81,7 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-085",
+      "queue_id": "V3-EXQ-085b",
       "title": "MECH-071 goal-directed harm calibration redesign (resolves EXQ-079 null signal)",
       "script": "experiments/v3_exq_085_mech071_goal_directed_calibration.py",
       "args": [
@@ -97,7 +101,7 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-047g",
+      "queue_id": "V3-EXQ-047h",
       "title": "SD-005 functional separation probe -- z_self action decoding vs z_world contact decoding",
       "script": "experiments/v3_exq_047g_sd005_functional_separation.py",
       "args": [
@@ -116,7 +120,7 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-084",
+      "queue_id": "V3-EXQ-084b",
       "title": "Q-022 D_eff / Hopfield stability dissociation test",
       "script": "experiments/v3_exq_084_q022_deff_hopfield_dissociation.py",
       "args": [
