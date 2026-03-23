@@ -58,11 +58,15 @@
       ],
       "estimated_minutes": 145,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "tags": [
         "SD-003"
       ],
-      "notes": "scipy confirmed installed on Daniel-PC 2026-03-23."
+      "notes": "scipy confirmed installed on Daniel-PC 2026-03-23.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T12:19:33.307226+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-074b",
