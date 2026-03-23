@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-068",
-      "backlog_id": "",
-      "claim_id": "MECH-047",
-      "title": "MECH-047 Mode Manager Hysteresis -- post-commitment inertia after incentive removal",
-      "script": "experiments/v3_exq_068_mech047_mode_hysteresis.py",
-      "description": "Two-agent design: Agent H (Phase A 200 high-hazard + Phase B 100 low-hazard + 50 eval) vs Control C (100 low-hazard + 50 eval). Measures hysteresis_decay_steps and beta_gate_post_commit_mean. PASS: C1 hysteresis_decay_steps>20, C2 beta_gate_post_commit_mean>control*1.1, C3 commitment_rate_phase_a>0.3, C4 no fatal errors.",
-      "estimated_minutes": 55,
-      "seeds": 1,
-      "conditions": 2,
-      "episodes_per_run": 500,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "args": "--seed 0 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-22T23:40:30.602279+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-065",
       "backlog_id": "",
       "claim_id": "MECH-029",
