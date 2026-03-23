@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-075",
-      "backlog_id": "",
-      "claim_id": "MECH-113",
-      "title": "MECH-113 Self-Maintenance -- z_self D_eff homeostasis under perturbation",
-      "script": "experiments/v3_exq_075_mech113_self_maintenance.py",
-      "description": "Two conditions: NoMaintenance (weight=0) vs Maintenance (weight=0.1, D_eff target=1.5). Inject Gaussian noise (sigma=2.0) into z_self at eval start. D_eff=participation ratio from epistemic-mapping. PASS: (C1) maint D_eff ratio<=1.5x, (C2) nomaint D_eff ratio>=2.0x, (C3) gap>=0.5*nomaint_post, (C4) E2 loss not degraded.",
-      "estimated_minutes": 60,
-      "seeds": 1,
-      "conditions": 2,
-      "episodes_per_run": 480,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "args": "--seed 42 --maintenance-weight 0.1 --d-eff-target 1.5 --noise-sigma 2.0 --warmup 200 --eval-eps 30 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T12:19:27.853103+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-046d",
       "title": "ARC-007 Path Memory Ablation (Proper) -- residue field zeroing degrades hippocampal proposals",
       "script": "experiments/v3_exq_046_arc007_path_memory_ablation.py",
