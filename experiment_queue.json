@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-073",
-      "backlog_id": "",
-      "claim_id": "MECH-111",
-      "title": "MECH-111 Novelty Signal -- E1 error EMA as exploration bonus",
-      "script": "experiments/v3_exq_073_mech111_novelty_signal.py",
-      "description": "Two conditions: NoveltyOFF (novelty_bonus_weight=0) vs NoveltyON (weight=0.1). E1 prediction error EMA fed back as trajectory scoring bonus. PASS: (C1) entropy gap>=0.10, (C2) novel cell coverage +3 cells, (C3) harm delta<=0.02, (C4) novelty_ema>0 at eval.",
-      "estimated_minutes": 50,
-      "seeds": 1,
-      "conditions": 2,
-      "episodes_per_run": 400,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "args": "--seed 42 --novelty-weight 0.1 --warmup 150 --eval-eps 50 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T12:19:11.221599+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-074",
       "backlog_id": "",
       "claim_id": "MECH-112",
