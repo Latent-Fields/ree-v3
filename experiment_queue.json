@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-051b",
-      "backlog_id": "",
-      "claim_id": "Q-007",
-      "title": "Q-007 z_beta Volatility Injection -- running_variance as explicit beta_encoder input",
-      "script": "experiments/v3_exq_051b_q007_zbeta_volatility_injection.py",
-      "description": "EXQ-051 FAIL: z_beta had no pathway from E3 running_variance, stuck at ~0.72 in stable and volatile conditions. Fix (Yu & Dayan 2005): inject running_variance as explicit scalar input to beta_encoder (LatentStackConfig.volatility_signal_dim=1). Two conditions interleaved: STABLE (fixed hazard positions) vs VOLATILE (randomised each episode). Transfer test: switch stable->volatile at ep 100, z_beta should rise within 20 eps. PASS: C1 z_beta_corr>0.05, C2 z_beta_volatile>z_beta_stable+0.02, C3 delta_z_beta>0.02 within transfer window, C4 harm_pred_corr>0.",
-      "estimated_minutes": 50,
-      "seeds": 1,
-      "conditions": 2,
-      "episodes_per_run": 500,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "args": "--seed 0 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T12:18:59.938144+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-072",
       "backlog_id": "EVB-0061",
       "claim_id": "Q-021",
