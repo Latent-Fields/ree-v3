@@ -29,12 +29,16 @@
       ],
       "estimated_minutes": 55,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "tags": [
         "Q-022",
         "MECH-118",
         "MECH-119"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T18:57:14.358848+00:00"
+      }
     }
   ]
 }
