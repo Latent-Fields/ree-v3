@@ -67,9 +67,12 @@
       "seeds": 1,
       "conditions": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "args": "--seed 42 --alpha-world 0.9",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T12:19:54.727179+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-077",
