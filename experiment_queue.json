@@ -8,32 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-074c",
-      "title": "MECH-112/117 wanting vs liking dissociation (goal attractor vs benefit_eval)",
-      "script": "experiments/v3_exq_074b_mech112_117_wanting_liking.py",
-      "args": [
-        "--seed",
-        "42",
-        "--world-dim",
-        "32",
-        "--alpha-world",
-        "0.9",
-        "--lr",
-        "1e-3"
-      ],
-      "estimated_minutes": 40,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "tags": [
-        "MECH-112",
-        "MECH-117"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T18:55:16.811428+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-075b",
       "title": "MECH-113 self-maintenance D_eff homeostasis -- NoMaintenance vs Maintenance",
       "script": "experiments/v3_exq_075_mech113_self_maintenance.py",
