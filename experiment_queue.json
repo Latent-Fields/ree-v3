@@ -41,19 +41,35 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-080",
-      "backlog_id": "EXP-0089",
-      "claim_id": "MECH-029",
-      "title": "MECH-029 BreathOscillator Uncommitted Windows -- sweep-phase vs inter-sweep commitment contrast",
-      "script": "experiments/v3_exq_080_mech029_breathoscillator_commit_windows.py",
-      "estimated_minutes": 15,
+      "queue_id": "V3-EXQ-079",
+      "backlog_id": "EVB-0006",
+      "claim_id": "MECH-071",
+      "title": "MECH-071 Harm Calibration Discriminative Pair -- SHARP_WORLD vs SMOOTH_WORLD (SD-008)",
+      "script": "experiments/v3_exq_079_mech071_harm_calib_pair.py",
+      "estimated_minutes": 145,
+      "seeds": 2,
+      "conditions": 2,
+      "episodes_per_run": 350,
       "machine_affinity": "any",
-      "status": "claimed",
-      "args": "",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T12:45:38.282867+00:00"
-      }
+      "deadline": "2026-03-26",
+      "status": "pending",
+      "args": "--seeds 42 7 --warmup 350 --eval-eps 60 --steps 200 --alpha-sharp 0.9 --alpha-smooth 0.3",
+      "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-083",
+      "backlog_id": "EVB-0013",
+      "claim_id": "MECH-102",
+      "title": "MECH-102 Terminal Correction Pair -- COORDINATION_ENABLED vs COORDINATION_BLOCKED (E3-guided policy)",
+      "script": "experiments/v3_exq_083_mech102_terminal_correction_pair.py",
+      "estimated_minutes": 200,
+      "seeds": 2,
+      "conditions": 2,
+      "episodes_per_run": 400,
+      "machine_affinity": "any",
+      "status": "pending",
+      "args": "--seeds 42 7 --warmup 400 --eval-eps 80 --steps 200 --alpha-world 0.9",
+      "claimed_by": null
     },
     {
       "queue_id": "V3-BENCH-scale-001",
