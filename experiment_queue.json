@@ -143,29 +143,6 @@
         "MECH-118",
         "MECH-119"
       ]
-    },
-    {
-      "queue_id": "V3-EXQ-090",
-      "title": "Adversarial split drift test -- GRL prevents schizophrenic drift in z_self encoder",
-      "script": "experiments/v3_exq_090_adversarial_split_drift.py",
-      "args": [
-        "--seed",
-        "42",
-        "--eps",
-        "300",
-        "--steps",
-        "150"
-      ],
-      "estimated_minutes": 65,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "tags": [
-        "SD-005"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T18:42:34.676454+00:00"
-      }
     }
   ]
 }
