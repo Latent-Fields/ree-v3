@@ -157,6 +157,9 @@ class E3Config:
     - harm_eval() method: evaluates harm of a z_world state (SD-003 V3 pipeline)
     - Dynamic precision: derived from E3 prediction error variance (ARC-016)
       replaces hardcoded precision_init/precision_max/precision_min
+    - benefit_eval_head: Go channel for symmetric approach/avoidance (ARC-030, MECH-112)
+    - novelty_bonus: E1 prediction error variance as exploration signal (MECH-111)
+    - self_maintenance_weight: penalty on high z_self D_eff (MECH-113)
 
     Scoring equation J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ) remains a working
     hypothesis — see ARCHITECTURE NOTE in e3_selector.py.
@@ -182,6 +185,28 @@ class E3Config:
     commitment_threshold: float = 0.40    # variance-space threshold
     precision_ema_alpha: float = 0.05     # EMA decay for running variance estimate
     precision_init: float = 0.5          # initial running variance (starts uncommitted)
+
+    # ARC-030 / MECH-112: Go channel — benefit evaluation head.
+    # benefit_eval_head maps z_world -> [0,1] (resource/goal proximity score).
+    # When enabled, score_trajectory() subtracts benefit_weight * benefit_score,
+    # creating competitive Go/NoGo evaluation of the same trajectory proposals.
+    # benefit_eval_enabled=False by default — backward compatible with all prior experiments.
+    benefit_eval_enabled: bool = False
+    benefit_weight: float = 1.0
+
+    # MECH-111: novelty bonus — E1 prediction error variance as exploration signal.
+    # novelty_bonus_weight=0 disables (default). When > 0, score_trajectory()
+    # subtracts novelty_bonus_weight * novelty_score, favouring novel states.
+    # Novelty is tracked as an EMA of E1 MSE error per-trajectory final state.
+    novelty_bonus_weight: float = 0.0
+
+    # MECH-113: self-maintenance penalty — penalises high z_self D_eff.
+    # D_eff = (sum|z_self|)^2 / sum(z_self^2) — participation ratio (epistemic-mapping).
+    # self_maintenance_weight=0 disables (default). When > 0, training applies
+    # an auxiliary loss penalising D_eff > self_maintenance_d_eff_target.
+    # This is an agent.py training signal, not a trajectory scoring term.
+    self_maintenance_weight: float = 0.0
+    self_maintenance_d_eff_target: float = 1.5   # target max D_eff for z_self
 
 
 @dataclass
@@ -305,6 +330,12 @@ class REEConfig:
         use_harm_stream: bool = False,
         harm_obs_dim: int = 51,
         z_harm_dim: int = 32,
+        # ARC-030 / MECH-111 / MECH-112 / MECH-113
+        benefit_eval_enabled: bool = False,
+        benefit_weight: float = 1.0,
+        novelty_bonus_weight: float = 0.0,
+        self_maintenance_weight: float = 0.0,
+        self_maintenance_d_eff_target: float = 1.5,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
         config = cls()
@@ -348,6 +379,11 @@ class REEConfig:
         # E3
         config.e3.world_dim = world_dim
         config.e3.latent_dim = config.latent.beta_dim  # E3 also uses beta for scoring
+        config.e3.benefit_eval_enabled = benefit_eval_enabled
+        config.e3.benefit_weight = benefit_weight
+        config.e3.novelty_bonus_weight = novelty_bonus_weight
+        config.e3.self_maintenance_weight = self_maintenance_weight
+        config.e3.self_maintenance_d_eff_target = self_maintenance_d_eff_target
 
         # Hippocampal
         config.hippocampal.world_dim = world_dim

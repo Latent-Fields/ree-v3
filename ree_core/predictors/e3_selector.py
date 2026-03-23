@@ -130,6 +130,23 @@ class E3TrajectorySelector(nn.Module):
             nn.Sigmoid(),  # harm in [0, 1]
         )
 
+        # ARC-030 / MECH-112: benefit_eval head — Go channel (symmetric to harm_eval NoGo).
+        # Evaluates resource/goal proximity from z_world states.
+        # Instantiated unconditionally (adds ~4K params); only receives gradients
+        # in experiments that call benefit_eval() or enable benefit_eval_enabled.
+        # Biological basis: D1 (Go) pathway evaluates same proposals as D2 (NoGo).
+        self.benefit_eval_head = nn.Sequential(
+            nn.Linear(world_dim, self.config.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.config.hidden_dim, 1),
+            nn.Sigmoid(),  # benefit in [0, 1]
+        )
+
+        # MECH-111: novelty EMA — tracks recent E1 prediction error per trajectory.
+        # Stored as a scalar EMA; decays toward zero between updates.
+        self._novelty_ema: float = 0.0
+        self._novelty_ema_alpha: float = 0.1
+
         # SD-010: harm_eval head operating on z_harm (dedicated nociceptive stream).
         # z_harm comes from HarmEncoder(harm_obs), NOT from z_world.
         # This head is always instantiated (adds ~4K params); it only receives
@@ -200,6 +217,34 @@ class E3TrajectorySelector(nn.Module):
             harm estimate [batch, 1] in [0, 1]
         """
         return self.harm_eval_head(z_world)
+
+    def benefit_eval(self, z_world: torch.Tensor) -> torch.Tensor:
+        """
+        Evaluate benefit/goal proximity from a world-state (ARC-030 Go channel).
+
+        Symmetric to harm_eval() — both evaluate the same z_world trajectory
+        proposals. This is the D1 (Go) pathway counterpart to harm_eval()'s
+        D2 (NoGo) role (Bariselli 2018). Commit threshold is the balance point.
+
+        Args:
+            z_world: [batch, world_dim]
+
+        Returns:
+            benefit estimate [batch, 1] in [0, 1]
+        """
+        return self.benefit_eval_head(z_world)
+
+    def update_novelty_ema(self, e1_prediction_error_mse: float) -> None:
+        """
+        MECH-111: Update novelty EMA from E1 prediction error.
+
+        Higher E1 error = more novel state. Used in score_trajectory()
+        when novelty_bonus_weight > 0 to reward unexplored regions.
+        """
+        self._novelty_ema = (
+            (1 - self._novelty_ema_alpha) * self._novelty_ema
+            + self._novelty_ema_alpha * e1_prediction_error_mse
+        )
 
     def harm_eval_lateral(
         self,
@@ -304,14 +349,50 @@ class E3TrajectorySelector(nn.Module):
         world_seq = self._get_world_states(trajectory)   # [batch, horizon+1, world_dim]
         return self.residue_field.evaluate_trajectory(world_seq)
 
+    def compute_benefit_score(self, trajectory: Trajectory) -> torch.Tensor:
+        """
+        Go channel benefit score B(ζ) — ARC-030 / MECH-112.
+
+        Evaluates resource/goal proximity across z_world trajectory.
+        Returns summed benefit signal (higher = more beneficial trajectory).
+        Subtracted from total score (lower J = better, so benefit reduces J).
+        """
+        world_seq = self._get_world_states(trajectory)  # [batch, horizon+1, world_dim]
+        batch, horizon_p1, _ = world_seq.shape
+        flat = world_seq.reshape(batch * horizon_p1, -1)
+        benefit_flat = self.benefit_eval_head(flat)         # [batch*horizon, 1]
+        benefit = benefit_flat.reshape(batch, horizon_p1)   # [batch, horizon+1]
+        return benefit.sum(dim=-1)                          # [batch]
+
     def score_trajectory(self, trajectory: Trajectory) -> torch.Tensor:
         """
-        Total score J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ). Lower is better.
+        Total score J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ) - β·B(ζ) - η·novelty.
+        Lower is better.
+
+        - F(ζ): reality cost (smoothness + viability)
+        - M(ζ): ethical cost via harm_eval (NoGo channel, D2 pathway)
+        - Φ_R(ζ): residue field cost
+        - B(ζ): benefit score (Go channel, D1 pathway) — subtracted when enabled
+        - novelty: E1 error EMA bonus — subtracted when novelty_bonus_weight > 0
         """
         f = self.compute_reality_cost(trajectory)
         m = self.compute_ethical_cost(trajectory)
         phi = self.compute_residue_cost(trajectory)
-        return f + self.config.lambda_ethical * m + self.config.rho_residue * phi
+        score = f + self.config.lambda_ethical * m + self.config.rho_residue * phi
+
+        # ARC-030 / MECH-112: Go channel — subtract benefit from cost
+        if self.config.benefit_eval_enabled and self.config.benefit_weight > 0.0:
+            b = self.compute_benefit_score(trajectory)
+            score = score - self.config.benefit_weight * b
+
+        # MECH-111: novelty bonus — subtract EMA novelty signal
+        if self.config.novelty_bonus_weight > 0.0:
+            # Scalar EMA novelty applies uniformly across trajectory batch dim
+            device = score.device
+            novelty_bonus = torch.tensor(self._novelty_ema, device=device)
+            score = score - self.config.novelty_bonus_weight * novelty_bonus
+
+        return score
 
     # ------------------------------------------------------------------ #
     # Selection                                                            #

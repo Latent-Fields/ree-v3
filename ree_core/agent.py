@@ -548,6 +548,81 @@ class REEAgent(nn.Module):
         self.e1._hidden_state = saved_hidden
         return loss
 
+    def compute_benefit_eval_loss(
+        self,
+        benefit_exposure: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        ARC-030 / MECH-112: Train benefit_eval_head from benefit_exposure signal.
+
+        benefit_exposure = body_state[11] (CausalGridWorldV2 use_proxy_fields=True).
+        Supervises E3.benefit_eval_head to predict resource proximity.
+        Gradient flows through E3's benefit_eval_head only.
+
+        Args:
+            benefit_exposure: [batch, 1] or scalar tensor in [0, 1]
+
+        Returns:
+            MSE loss scalar (zero if current_latent is not set)
+        """
+        zero_loss = next(self.e3.parameters()).sum() * 0.0
+        if self._current_latent is None:
+            return zero_loss
+        z_world = self._current_latent.z_world.detach()
+        benefit_pred = self.e3.benefit_eval(z_world)  # [batch, 1]
+        target = benefit_exposure.to(z_world.device).float()
+        if target.dim() == 0:
+            target = target.unsqueeze(0).unsqueeze(0)
+        elif target.dim() == 1:
+            target = target.unsqueeze(-1)
+        return F.mse_loss(benefit_pred, target.expand_as(benefit_pred))
+
+    def compute_z_self_d_eff(self) -> Optional[float]:
+        """
+        MECH-113: Compute z_self participation ratio (D_eff).
+
+        D_eff = (sum|z_self|)^2 / sum(z_self^2)
+        From epistemic-mapping: measures effective dimensionality of the
+        self-model. High D_eff = distributed/uncertain; low D_eff = focused.
+        Self-maintenance loss penalises D_eff exceeding the target threshold.
+
+        Returns:
+            D_eff scalar or None if no latent state available.
+        """
+        if self._current_latent is None:
+            return None
+        z = self._current_latent.z_self.detach().squeeze(0)  # [self_dim]
+        abs_z = z.abs()
+        numerator = abs_z.sum().pow(2)
+        denominator = z.pow(2).sum()
+        if denominator.item() < 1e-8:
+            return None
+        return (numerator / denominator).item()
+
+    def compute_self_maintenance_loss(self) -> torch.Tensor:
+        """
+        MECH-113: Self-maintenance auxiliary loss on z_self D_eff.
+
+        Penalises D_eff > self_maintenance_d_eff_target.
+        This creates a homeostatic pressure to keep z_self representations
+        focused (low D_eff = coherent self-model). Disabled when weight=0.
+
+        Returns:
+            Scalar loss tensor (zero if disabled or no latent state).
+        """
+        weight = self.config.e3.self_maintenance_weight
+        zero_loss = next(self.e3.parameters()).sum() * 0.0
+        if weight == 0.0 or self._current_latent is None:
+            return zero_loss
+        z = self._current_latent.z_self  # [batch, self_dim] — keep in graph
+        abs_z = z.abs()
+        numerator = abs_z.sum(dim=-1).pow(2)     # [batch]
+        denominator = z.pow(2).sum(dim=-1)        # [batch]
+        d_eff = numerator / (denominator + 1e-8)  # [batch]
+        target = self.config.e3.self_maintenance_d_eff_target
+        excess = F.relu(d_eff - target)           # penalise only excess
+        return weight * excess.mean()
+
     def compute_e2_loss(self, batch_size: int = 16) -> torch.Tensor:
         """E2 motor-sensory forward-model loss (z_self domain)."""
         zero_loss = next(self.e2.parameters()).sum() * 0.0
