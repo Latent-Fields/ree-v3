@@ -77,22 +77,23 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-047g",
-      "title": "SD-005 functional separation probe -- correct test, no orthogonality (long run ~3h)",
-      "script": "experiments/v3_exq_047g_sd005_functional_separation.py",
+      "queue_id": "V3-EXQ-085",
+      "title": "MECH-071 goal-directed harm calibration redesign (resolves EXQ-079 null signal)",
+      "script": "experiments/v3_exq_085_mech071_goal_directed_calibration.py",
       "args": [
         "--warmup",
-        "400",
-        "--probe-eps",
-        "20",
+        "300",
+        "--eval-eps",
+        "50",
         "--alpha-world",
         "0.9"
       ],
-      "estimated_minutes": 175,
+      "estimated_minutes": 25,
       "machine_affinity": "DLAPTOP-4.local",
       "status": "pending",
       "tags": [
-        "SD-005"
+        "MECH-071",
+        "INV-034"
       ]
     },
     {
