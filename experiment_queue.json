@@ -36,8 +36,8 @@
       ],
       "notes": "Fixed: zeroed_eval returns [batch] not [batch,1] to match real evaluate() signature.",
       "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-03-23T08:10:16.298308+00:00"
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T14:11:02.803827+00:00"
       }
     },
     {
