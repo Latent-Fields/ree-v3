@@ -430,3 +430,91 @@ class REEConfig:
             config.goal.goal_dim = config.latent.world_dim
 
         return config
+
+    @classmethod
+    def large(
+        cls,
+        body_obs_dim: int,
+        world_obs_dim: int,
+        action_dim: int,
+        **kwargs,
+    ) -> "REEConfig":
+        """Config preset for GPU-beneficial scale (world_dim=128).
+
+        Designed for NVIDIA Spark (GB10 Blackwell) or equivalent hardware.
+        GPU becomes faster than CPU at world_dim >= 128 per V3 calibration data
+        (Daniel-PC GTX 1050 Ti: CPU always wins at world_dim=32 at batch=1).
+
+        Scaling choices:
+          self_dim=128, world_dim=128 (SD-005 split, each 4x default)
+          action_object_dim=64 (maintains SD-004 compression ratio vs world_dim)
+          E1/E2/Hippocampal hidden_dim=256, E3 hidden_dim=128
+          ResidueField: 64 basis functions, hidden_dim=128
+
+        All feature flags (z_goal_enabled, benefit_eval_enabled, etc.) are
+        forwarded to from_dims() via **kwargs.
+        """
+        config = cls.from_dims(
+            body_obs_dim=body_obs_dim,
+            world_obs_dim=world_obs_dim,
+            action_dim=action_dim,
+            self_dim=128,
+            world_dim=128,
+            alpha_world=0.9,
+            alpha_self=0.3,
+            action_object_dim=64,
+            **kwargs,
+        )
+        config.e1.hidden_dim = 256
+        config.e2.hidden_dim = 256
+        config.e3.hidden_dim = 128
+        config.hippocampal.hidden_dim = 256
+        config.residue.hidden_dim = 128
+        config.residue.num_basis_functions = 64
+        return config
+
+    @classmethod
+    def xlarge(
+        cls,
+        body_obs_dim: int,
+        world_obs_dim: int,
+        action_dim: int,
+        **kwargs,
+    ) -> "REEConfig":
+        """Config preset for large-scale GPU experiments (world_dim=256).
+
+        Designed for two linked NVIDIA Sparks (256 GB unified memory) or
+        a datacenter GPU with >= 32 GB VRAM.
+
+        Suitable for:
+          - V5 multi-agent social synchronisation experiments
+          - V4 sleep consolidation at scale (MECH-120/121/122/123)
+          - SD-010 nociceptive separation (ARC-027) full implementation
+          - SD-005/SD-004 co-design scale validation
+
+        Scaling choices:
+          self_dim=256, world_dim=256
+          action_object_dim=64 (compression ratio maintained)
+          E1/E2/Hippocampal hidden_dim=512, E3 hidden_dim=256
+          ResidueField: 128 basis functions, hidden_dim=256
+
+        All feature flags forwarded to from_dims() via **kwargs.
+        """
+        config = cls.from_dims(
+            body_obs_dim=body_obs_dim,
+            world_obs_dim=world_obs_dim,
+            action_dim=action_dim,
+            self_dim=256,
+            world_dim=256,
+            alpha_world=0.9,
+            alpha_self=0.3,
+            action_object_dim=64,
+            **kwargs,
+        )
+        config.e1.hidden_dim = 512
+        config.e2.hidden_dim = 512
+        config.e3.hidden_dim = 256
+        config.hippocampal.hidden_dim = 512
+        config.residue.hidden_dim = 256
+        config.residue.num_basis_functions = 128
+        return config
