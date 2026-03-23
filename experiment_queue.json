@@ -160,10 +160,14 @@
       ],
       "estimated_minutes": 55,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "tags": [
         "MECH-095"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T18:42:20.494770+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-090",
