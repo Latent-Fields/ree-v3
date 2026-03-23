@@ -57,24 +57,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-076",
-      "backlog_id": "",
-      "claim_id": "MECH-116",
-      "title": "MECH-116 / ARC-032 E1 Goal Conditioning -- frontal working memory goal persistence",
-      "script": "experiments/v3_exq_076_mech116_arc032_e1_goal_conditioning.py",
-      "description": "Two conditions: wanting_noe1 (z_goal_enabled, e1_goal_conditioned=False) vs wanting_withe1 (z_goal_enabled, e1_goal_conditioned=True). 2000 steps, resource removed at step 1000. Measures goal half-life (steps until goal_prox < 30% of peak). PASS: C1 halflife_withe1>=1.5x_noe1, C2 resource_rate gap>=0.03, C3 noe1 goal decays to <50% peak by t1200, C4 withe1 goal_norm_t1200 >= noe1+0.02.",
-      "estimated_minutes": 60,
-      "seeds": 1,
-      "conditions": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "args": "--seed 42 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T12:19:54.727179+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-077",
       "backlog_id": "EVB-0004",
       "claim_id": "ARC-024",
