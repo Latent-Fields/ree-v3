@@ -205,6 +205,38 @@
       "status": "pending",
       "args": "--seed 42 --alpha-world 0.9",
       "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-077",
+      "backlog_id": "EVB-0004",
+      "claim_id": "ARC-024",
+      "title": "ARC-024 Asymptotic Proxy Structure Discriminative Pair -- GRADIENT vs CONTACT_ONLY",
+      "script": "experiments/v3_exq_077_arc024_asymptotic_proxy_pair.py",
+      "description": "Discriminative pair for ARC-024: GRADIENT (proximity_harm_scale=0.05, harm_signal fires at approach AND contact) vs CONTACT_ONLY (proximity_harm_scale=0.0, harm_signal fires at contact only). Both use CausalGridWorldV2 use_proxy_fields=True (same obs dimensions). Reafference disabled to isolate ARC-024 from SD-007. E3.harm_eval trained on harm_signal < 0 events. Primary discriminator: delta_approach_gap = gap_approach_GRADIENT - gap_approach_CONTACT_ONLY. Pre-registered PASS: C1 gap_approach_GRADIENT>0.06, C2 gap_approach_CONTACT<0.02, C3 delta>0.04, C4 gap_contact_GRADIENT>0.04. Decision: retain_ree/hybridize/retire_ree_claim. Addresses EXP-0004/EVB-0004 mandatory_decision_checkpoint deadline 2026-03-26.",
+      "estimated_minutes": 145,
+      "seeds": 2,
+      "conditions": 2,
+      "episodes_per_run": 350,
+      "machine_affinity": "any",
+      "status": "pending",
+      "args": "--seeds 42 7 --warmup 350 --eval-eps 50 --steps 200 --alpha-world 0.9",
+      "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-078",
+      "backlog_id": "EVB-0005",
+      "claim_id": "SD-005",
+      "title": "SD-005 Split vs Unified Latent -- harm calibration discriminative pair",
+      "script": "experiments/v3_exq_078_sd005_split_vs_unified_harm_pair.py",
+      "description": "Discriminative pair for SD-005: SPLIT (unified_latent_mode=False, z_self and z_world separate) vs UNIFIED (unified_latent_mode=True, z_world = avg(z_self_raw, z_world_raw)). Both use CausalGridWorldV2 proximity_harm_scale=0.05 (gradient fields active). Reafference and SD-010 NOT enabled (isolates SD-005). Primary discriminator: delta_approach_gap = gap_approach_SPLIT - gap_approach_UNIFIED. Pre-registered PASS: C1 delta_approach_gap>0.02, C2 gap_approach_SPLIT>0.06, C3 gap_approach_UNIFIED>0. Decision: retain_ree/hybridize/retire_ree_claim. Addresses EXP-0005/EVB-0005 mandatory_decision_checkpoint deadline 2026-03-26.",
+      "estimated_minutes": 145,
+      "seeds": 2,
+      "conditions": 2,
+      "episodes_per_run": 350,
+      "machine_affinity": "any",
+      "status": "pending",
+      "args": "--seeds 42 7 --warmup 350 --eval-eps 50 --steps 200 --alpha-world 0.9",
+      "claimed_by": null
     }
   ]
 }
