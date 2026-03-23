@@ -41,7 +41,7 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-079",
+      "queue_id": "V3-EXQ-079b",
       "backlog_id": "EVB-0006",
       "claim_id": "MECH-071",
       "title": "MECH-071 Harm Calibration Discriminative Pair -- SHARP_WORLD vs SMOOTH_WORLD (SD-008)",
@@ -52,9 +52,13 @@
       "episodes_per_run": 350,
       "machine_affinity": "any",
       "deadline": "2026-03-26",
-      "status": "pending",
+      "status": "claimed",
       "args": "--seeds 42 7 --warmup 350 --eval-eps 60 --steps 200 --alpha-sharp 0.9 --alpha-smooth 0.3",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T12:44:44.045465+00:00"
+      },
+      "notes": " Renamed from V3-EXQ-079: that ID was consumed by MECH-102 depletion run (FAIL 2026-03-23). Runner would have silently skipped the original ID."
     },
     {
       "queue_id": "V3-EXQ-080",
