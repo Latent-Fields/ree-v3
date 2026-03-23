@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-074",
-      "backlog_id": "",
-      "claim_id": "MECH-112",
-      "title": "MECH-112 Goal Attractor -- benefit_eval_head as prospective goal drive",
-      "script": "experiments/v3_exq_074_mech112_goal_attractor.py",
-      "description": "Two conditions: NoGoOnly (benefit_eval_enabled=False) vs GoNoGo (enabled, benefit_weight=1.0). Supervised from benefit_exposure (body_state[11], use_proxy_fields=True). PASS: (C1) resource_visit_rate gap>=0.05, (C2) benefit_eval_r2>0.10, (C3) pre_arrival benefit score gap>0.02, (C4) harm delta<=0.03.",
-      "estimated_minutes": 75,
-      "seeds": 1,
-      "conditions": 2,
-      "episodes_per_run": 600,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "args": "--seed 42 --warmup 250 --eval-eps 50 --steps 200 --alpha-world 0.9 --benefit-weight 1.0",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T12:19:18.310539+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-075",
       "backlog_id": "",
       "claim_id": "MECH-113",
