@@ -8,32 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-076b",
-      "title": "MECH-116/ARC-032 E1 LSTM goal conditioning -- wanting with vs without E1 goal input",
-      "script": "experiments/v3_exq_076_mech116_arc032_e1_goal_conditioning.py",
-      "args": [
-        "--seed",
-        "42",
-        "--world-dim",
-        "32",
-        "--alpha-world",
-        "0.9",
-        "--lr",
-        "1e-3"
-      ],
-      "estimated_minutes": 35,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "tags": [
-        "MECH-116",
-        "ARC-032"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T18:55:28.277016+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-085b",
       "title": "MECH-071 goal-directed harm calibration redesign (resolves EXQ-079 null signal)",
       "script": "experiments/v3_exq_085_mech071_goal_directed_calibration.py",
