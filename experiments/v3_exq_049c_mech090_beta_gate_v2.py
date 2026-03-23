@@ -1,3 +1,6 @@
+# SUPERSEDED -- do not queue. EXQ-049d (PASS via v3) and EXQ-049e resolved MECH-090.
+# This script was never run and is kept for reference only.
+
 """
 V3-EXQ-049c — MECH-090: Beta-Gated Policy Propagation (running_variance fix)
 

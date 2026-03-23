@@ -1,3 +1,6 @@
+# SUPERSEDED -- do not queue. EXQ-049d and EXQ-049e resolved MECH-090; MECH-057b lineage
+# ended at EXQ-048b. This script was never run and is kept for reference only.
+
 """
 V3-EXQ-048c — MECH-057b: Trajectory Completion Gate (running_variance fix)
 
