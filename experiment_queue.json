@@ -143,6 +143,95 @@
         "MECH-118",
         "MECH-119"
       ]
+    },
+    {
+      "queue_id": "V3-EXQ-087",
+      "title": "HarmBridge counterfactual validation -- SD-010 direct z_world->z_harm projector",
+      "script": "experiments/v3_exq_087_harm_bridge_validation.py",
+      "args": [
+        "--seed",
+        "42",
+        "--phase1",
+        "300",
+        "--phase2",
+        "150",
+        "--eval",
+        "100",
+        "--steps",
+        "200"
+      ],
+      "estimated_minutes": 70,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "tags": [
+        "SD-010",
+        "SD-003"
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T18:41:33.373666+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-088",
+      "title": "ARC-016 harm variance commit signal sweep -- replaces EXQ-038",
+      "script": "experiments/v3_exq_088_arc016_harm_variance_commit.py",
+      "args": [
+        "--seed",
+        "42",
+        "--warmup",
+        "200",
+        "--eval",
+        "80",
+        "--steps",
+        "150"
+      ],
+      "estimated_minutes": 50,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "tags": [
+        "ARC-016"
+      ]
+    },
+    {
+      "queue_id": "V3-EXQ-089",
+      "title": "MECH-095 TPJ agency comparator validation -- self vs world-caused attribution",
+      "script": "experiments/v3_exq_089_mech095_tpj_validation.py",
+      "args": [
+        "--seed",
+        "42",
+        "--phase1",
+        "300",
+        "--eval",
+        "200",
+        "--steps",
+        "200"
+      ],
+      "estimated_minutes": 55,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "tags": [
+        "MECH-095"
+      ]
+    },
+    {
+      "queue_id": "V3-EXQ-090",
+      "title": "Adversarial split drift test -- GRL prevents schizophrenic drift in z_self encoder",
+      "script": "experiments/v3_exq_090_adversarial_split_drift.py",
+      "args": [
+        "--seed",
+        "42",
+        "--eps",
+        "300",
+        "--steps",
+        "150"
+      ],
+      "estimated_minutes": 65,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "tags": [
+        "SD-005"
+      ]
     }
   ]
 }
