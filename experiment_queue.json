@@ -57,26 +57,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-047f",
-      "backlog_id": "EVB-0005",
-      "claim_id": "SD-005",
-      "title": "SD-005 Orthogonality-Constrained Split vs Unified -- action/contact probe discrimination",
-      "script": "experiments/v3_exq_047f_sd005_orth_split_pair.py",
-      "description": "Discriminative pair for SD-005: SPLIT_ORTH (unified_latent_mode=False, orth_weight=0.05 baked into all 400 training eps) vs UNIFIED (unified_latent_mode=True, no separation pressure). Replaces EXQ-047e adversarial GRL (only 80 post-hoc eps) with persistent orthogonality loss throughout learning: L_orth = mean(|cos(z_self, z_world)|). PASS: C1 action_dissoc>0.10, C2 contact_dissoc>0.05, C3 action_vs_unified>0.03, C4 orth_cos_eval<0.15. Decision: retain_ree/hybridize/retire_ree_claim. EVB-0005 mandatory decision by 2026-03-26.",
-      "estimated_minutes": 80,
-      "seeds": 2,
-      "conditions": 2,
-      "episodes_per_run": 400,
-      "machine_affinity": "any",
-      "deadline": "2026-03-26",
-      "status": "claimed",
-      "args": "--seeds 42 7 --warmup 400 --eval-eps 100 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T12:41:21.206390+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-080",
       "backlog_id": "EXP-0089",
       "claim_id": "MECH-029",
@@ -102,6 +82,22 @@
       "machine_affinity": "Daniel-PC",
       "status": "pending",
       "args": "",
+      "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-081",
+      "backlog_id": "EVB-0013",
+      "claim_id": "MECH-102",
+      "title": "MECH-102 Depletion Ordering -- SPARSE vs DENSE hazard density (last-resort ordering)",
+      "script": "experiments/v3_exq_079_mech102_depletion_ordering.py",
+      "description": "Discriminative pair for MECH-102 last-resort ordering: SPARSE (size=10, 2 hazards, ~2% density) vs DENSE (size=7, 8 hazards, ~16% density). Tests whether ethical policy scales avoidance proportionally to alternative availability and shows anticipatory harm_eval elevation before forced contacts. PASS: C1 reduction_sparse>0.70, C2 reduction_dense>0.25, C3 anticipatory_delta>0.01 (if n>=10), C4 ethical_vs_random>0.005 (if n>=10). SD-008 alpha_world=0.9. Addresses EXP-0016/EVB-0013.",
+      "estimated_minutes": 240,
+      "seeds": 2,
+      "conditions": 2,
+      "episodes_per_run": 400,
+      "machine_affinity": "any",
+      "status": "pending",
+      "args": "--seeds 42 7 --warmup 400 --eval-eps 60 --steps 200 --alpha-world 0.9",
       "claimed_by": null
     }
   ]
