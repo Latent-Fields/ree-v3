@@ -253,6 +253,8 @@ class ResidueConfig:
     num_basis_functions: int = 32
     kernel_bandwidth: float = 1.0
     integration_rate: float = 0.01
+    # ARC-030 / MECH-117: benefit terrain (liking -- separate from z_goal wanting)
+    benefit_terrain_enabled: bool = False
 
 
 @dataclass

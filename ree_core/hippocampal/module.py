@@ -65,12 +65,17 @@ class HippocampalModule(nn.Module):
         self.e2 = e2
         self.residue_field = residue_field
 
-        # SD-004 + SD-002: terrain prior now maps (z_world, e1_prior, residue_val)
+        # SD-004 + SD-002: terrain prior maps (z_world, e1_prior, residue_val[, benefit_val])
         # → action_object_mean (in action-object space O).
         # Output: action_object_dim * horizon (flattened)
-        # Input: 2*world_dim + 1 (z_world + e1_prior + residue scalar)
+        # Input: 2*world_dim + 1 (harm only) or 2*world_dim + 2 (harm + benefit, ARC-030)
+        # Benefit channel added when residue_field.benefit_terrain_enabled=True.
+        # Wanting/liking distinction (MECH-117): benefit terrain = liking (hippocampal);
+        # z_goal = wanting (frontal). Both are separate inputs to trajectory scoring.
+        self._benefit_terrain = getattr(residue_field, "benefit_terrain_enabled", False)
+        terrain_input_dim = config.world_dim * 2 + 1 + (1 if self._benefit_terrain else 0)
         self.terrain_prior = nn.Sequential(
-            nn.Linear(config.world_dim * 2 + 1, config.hidden_dim),
+            nn.Linear(terrain_input_dim, config.hidden_dim),
             nn.ReLU(),
             nn.Linear(config.hidden_dim, config.action_object_dim * config.horizon),
         )
@@ -108,7 +113,12 @@ class HippocampalModule(nn.Module):
         if e1_prior is None:
             e1_prior = torch.zeros_like(z_world)
 
-        combined = torch.cat([z_world, e1_prior, residue_val], dim=-1)
+        if self._benefit_terrain:
+            with torch.no_grad():
+                benefit_val = self.residue_field.evaluate_benefit(z_world).unsqueeze(-1)
+            combined = torch.cat([z_world, e1_prior, residue_val, benefit_val], dim=-1)
+        else:
+            combined = torch.cat([z_world, e1_prior, residue_val], dim=-1)
         mean_flat = self.terrain_prior(combined)  # [batch, action_object_dim * horizon]
         return mean_flat.view(
             z_world.shape[0], self.config.horizon, self.config.action_object_dim

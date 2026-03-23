@@ -16,6 +16,17 @@ Accumulation contract (V3):
     residue; only real world-outcomes can.
   - Residue cannot be erased (architectural invariant, preserved from V1/V2).
 
+Benefit terrain (ARC-030, MECH-117):
+  - When ResidueConfig.benefit_terrain_enabled=True, a separate RBFLayer
+    accumulates positive attractors at resource contact/approach events via
+    accumulate_benefit(). evaluate_benefit() returns a scalar >= 0; higher
+    means closer to a previously-beneficial z_world region.
+  - HippocampalModule reads both harm residue AND benefit terrain, giving the
+    hippocampal landscape repellers (harm) and attractors (benefit).
+  - Wanting/liking distinction (MECH-117): benefit terrain = LIKING (where
+    benefit was received, hippocampal/contact-based). z_goal = WANTING
+    (frontal attractor, persistent). These remain separate channels.
+
 The ResidueField is an input to multiple modules (not just E3's Φ_R cost):
   - HippocampalModule: residue field is the terrain that action objects navigate
   - E3 scoring: Φ_R term in J(ζ)
@@ -127,6 +138,20 @@ class ResidueField(nn.Module):
         self.register_buffer("num_harm_events", torch.tensor(0))
         self._harm_history: List[torch.Tensor] = []
 
+        # ARC-030 / MECH-117: benefit terrain (liking -- where benefit was received)
+        # Separate from z_goal (wanting -- frontal goal attractor).
+        self.benefit_terrain_enabled: bool = getattr(
+            self.config, "benefit_terrain_enabled", False
+        )
+        if self.benefit_terrain_enabled:
+            self.benefit_rbf_field = RBFLayer(
+                world_dim=self.config.world_dim,
+                num_centers=self.config.num_basis_functions,
+                bandwidth=self.config.kernel_bandwidth,
+            )
+            self.register_buffer("total_benefit", torch.tensor(0.0))
+            self.register_buffer("num_benefit_events", torch.tensor(0))
+
     def evaluate(self, z_world: torch.Tensor) -> torch.Tensor:
         """
         Evaluate φ(z_world) at a point.
@@ -205,6 +230,45 @@ class ResidueField(nn.Module):
             "center_idx": torch.tensor(center_idx),
             "num_harm_events": self.num_harm_events,
         }
+
+    def evaluate_benefit(self, z_world: torch.Tensor) -> torch.Tensor:
+        """
+        Evaluate benefit terrain at z_world (ARC-030 / MECH-117 liking signal).
+
+        Returns benefit attraction value [batch]. Higher = closer to a
+        previously-beneficial region. Returns zeros if benefit terrain disabled.
+        """
+        if not self.benefit_terrain_enabled:
+            return torch.zeros(z_world.shape[0], device=z_world.device)
+        return self.benefit_rbf_field(z_world)
+
+    def accumulate_benefit(
+        self,
+        z_world: torch.Tensor,
+        benefit_magnitude: float = 1.0,
+        hypothesis_tag: bool = False,
+    ) -> None:
+        """
+        Accumulate benefit attractor at a z_world location (ARC-030).
+
+        MECH-094: hypothesis_tag=True blocks accumulation (replay cannot
+        create benefit terrain, only real reward contact can).
+
+        Args:
+            z_world:           Location in z_world space [batch, world_dim]
+            benefit_magnitude: Strength of attractor (default 1.0)
+            hypothesis_tag:    MECH-094 gate -- if True, no accumulation
+        """
+        if not self.benefit_terrain_enabled or hypothesis_tag:
+            return
+        if z_world.dim() == 2:
+            loc = z_world.mean(dim=0)
+        else:
+            loc = z_world
+        with torch.no_grad():
+            self.benefit_rbf_field.add_residue(loc, float(benefit_magnitude))
+            self.total_benefit = self.total_benefit + benefit_magnitude
+            self.num_benefit_events = self.num_benefit_events + 1
 
     def integrate(self, num_steps: int = 10) -> Dict[str, float]:
         """
