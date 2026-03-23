@@ -41,24 +41,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-074b",
-      "backlog_id": "",
-      "claim_id": "MECH-117",
-      "title": "MECH-117 Wanting/Liking Dissociation -- z_goal_latent vs benefit_eval_head post-relocation",
-      "script": "experiments/v3_exq_074b_mech112_117_wanting_liking.py",
-      "description": "Three conditions: nogo (no drive), liking (benefit_eval_head), wanting (z_goal_latent). 3000 steps, 8x8 grid. Resource L1 relocated to L2 at step 1500. Tests MECH-117 dissociation: wanting should maintain L1 approach >=25% of steps 1500-1700; liking should redirect to L2 within 15 steps. PASS: C1 wanting resource_rate >= nogo+0.04, C2 liking l2_redirect<=15, C3 wanting l1_fraction>=0.25, C4 wanting harm delta<=0.03.",
-      "estimated_minutes": 90,
-      "seeds": 1,
-      "conditions": 3,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "args": "--seed 42 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T12:19:48.011249+00:00"
-      }
-    },
-    {
       "queue_id": "V3-BENCH-scale-001",
       "backlog_id": "",
       "claim_id": "",
