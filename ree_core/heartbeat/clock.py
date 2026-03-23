@@ -15,6 +15,19 @@ Claims implemented:
   ARC-023: Three characteristic update rates
   MECH-091: phase_reset() on salient events (completion, unexpected harm, commit cross)
   MECH-093: e3_steps_per_tick varies with z_beta magnitude (arousal → faster E3)
+  MECH-108: BreathOscillator — periodic uncommitted windows at breath-cycle rate
+
+BreathOscillator (MECH-108):
+  When breath_period > 0, the clock tracks a breath cycle. Every breath_period
+  env steps, a sweep phase of sweep_duration steps begins. During the sweep phase,
+  sweep_active=True. Experiments read sweep_active to apply a lower effective
+  commit_threshold (lowering the threshold forces the agent into uncommitted mode
+  when running_variance > sweep_threshold, i.e. the agent is pushed out of the
+  committed regime). sweep_amplitude is the fractional reduction to apply:
+    effective_threshold = base_threshold * (1.0 - sweep_amplitude)
+  Biological basis: exhalation-phase respiratory coupling cyclically modulates
+  hippocampal/PFC gain (Zelano 2016, Karalis & Bhatt 2020) -- see LIT-0094 for
+  physiologically-grounded parameter values.
 
 Note: phase 2 (full HTA with separate goroutines/threads) is deferred per spec §3/SD-006.
 """
@@ -41,6 +54,9 @@ class MultiRateClock:
         beta_rate_min_steps: int = 5,
         beta_rate_max_steps: int = 20,
         beta_magnitude_scale: float = 1.0,
+        breath_period: int = 0,
+        sweep_amplitude: float = 0.1,
+        sweep_duration: int = 5,
     ):
         self.e1_steps_per_tick = e1_steps_per_tick
         self.e2_steps_per_tick = e2_steps_per_tick
@@ -63,6 +79,23 @@ class MultiRateClock:
         # MECH-092: quiescence tracking (no salient event this E3 cycle)
         self._salient_event_this_cycle: bool = False
 
+        # MECH-108: BreathOscillator — periodic uncommitted windows.
+        # breath_period=0 disables (backward compatible with all existing experiments).
+        # breath_period is the TOTAL cycle length (inter-sweep + sweep combined).
+        #   e.g., breath_period=50, sweep_duration=5: 45 inter-sweep steps + 5 sweep steps.
+        # sweep_amplitude: fractional reduction of commit_threshold during sweep phase.
+        #   effective_threshold = base_threshold * (1.0 - sweep_amplitude)
+        #   This LOWERS the variance bar, pushing agent into uncommitted mode when
+        #   running_variance > effective_threshold.
+        # _breath_phase_step: cyclic counter [0, breath_period). Sweep fires when
+        #   _breath_phase_step is in the LAST sweep_duration steps of each period
+        #   (i.e., >= breath_period - sweep_duration). This places the first sweep at
+        #   step (breath_period - sweep_duration), giving a predictable initial delay.
+        self._breath_period: int = breath_period
+        self._sweep_amplitude: float = sweep_amplitude
+        self._sweep_duration: int = sweep_duration
+        self._breath_phase_step: int = 0   # cyclic counter [0, breath_period)
+
     @property
     def global_step(self) -> int:
         return self._global_step
@@ -70,6 +103,26 @@ class MultiRateClock:
     @property
     def e3_steps_per_tick(self) -> int:
         return self._current_e3_steps
+
+    @property
+    def sweep_active(self) -> bool:
+        """True during BreathOscillator sweep phase (uncommitted window).
+
+        MECH-108: respiratory sweep forces periodic uncommitted windows.
+        Experiments read this flag to apply a reduced commit_threshold:
+            effective = base_threshold * (1.0 - sweep_amplitude)
+        Returns False when breath_period=0 (oscillator disabled).
+
+        Sweep fires during the last sweep_duration steps of each breath_period cycle.
+        """
+        if self._breath_period <= 0:
+            return False
+        return self._breath_phase_step >= (self._breath_period - self._sweep_duration)
+
+    @property
+    def sweep_amplitude(self) -> float:
+        """Fractional threshold reduction during sweep phase (MECH-108)."""
+        return self._sweep_amplitude
 
     def advance(self) -> dict:
         """
@@ -81,6 +134,7 @@ class MultiRateClock:
           e3_tick:      True if E3 should update this step
           e3_quiescent: True if E3 ticked and no salient event (→ replay, MECH-092)
           theta_tick:   True if ThetaBuffer should summarise this step (MECH-089)
+          sweep_active: True if BreathOscillator sweep phase is active (MECH-108)
         """
         self._global_step += 1
         self._e3_phase_step += 1
@@ -108,6 +162,13 @@ class MultiRateClock:
         # Theta buffer update: once per theta_buffer_size steps (MECH-089)
         theta_tick = (self._global_step % self.theta_buffer_size == 0)
 
+        # MECH-108: BreathOscillator — advance breath cycle state.
+        # breath_period=0 means oscillator is disabled (no-op).
+        # _breath_phase_step cycles [0, breath_period); sweep is active when
+        # phase_step >= breath_period - sweep_duration (last N steps of period).
+        if self._breath_period > 0:
+            self._breath_phase_step = (self._breath_phase_step + 1) % self._breath_period
+
         return {
             "e1_tick": e1_tick,
             "e2_tick": e2_tick,
@@ -115,6 +176,7 @@ class MultiRateClock:
             "e3_quiescent": e3_quiescent,
             "theta_tick": theta_tick,
             "global_step": self._global_step,
+            "sweep_active": self.sweep_active,
         }
 
     def phase_reset(self) -> None:
@@ -165,6 +227,8 @@ class MultiRateClock:
         self._pending_phase_reset = False
         self._salient_event_this_cycle = False
         self._current_e3_steps = self._e3_base_steps
+        # MECH-108: reset breath cycle state across episodes
+        self._breath_phase_step = 0
 
     def get_state(self) -> dict:
         return {
@@ -172,4 +236,6 @@ class MultiRateClock:
             "e3_phase_step": self._e3_phase_step,
             "current_e3_steps": self._current_e3_steps,
             "pending_phase_reset": self._pending_phase_reset,
+            "sweep_active": self.sweep_active,
+            "breath_phase_step": self._breath_phase_step,
         }

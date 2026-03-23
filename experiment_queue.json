@@ -77,6 +77,18 @@
       }
     },
     {
+      "queue_id": "V3-EXQ-080",
+      "backlog_id": "EXP-0089",
+      "claim_id": "MECH-029",
+      "title": "MECH-029 BreathOscillator Uncommitted Windows -- sweep-phase vs inter-sweep commitment contrast",
+      "script": "experiments/v3_exq_080_mech029_breathoscillator_commit_windows.py",
+      "estimated_minutes": 15,
+      "machine_affinity": "any",
+      "status": "pending",
+      "args": "",
+      "claimed_by": null
+    },
+    {
       "queue_id": "V3-BENCH-scale-001",
       "backlog_id": "",
       "claim_id": "",
