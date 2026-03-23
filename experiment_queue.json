@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-066",
-      "backlog_id": "",
-      "claim_id": "MECH-089",
-      "title": "MECH-089 Theta Batching -- E3 noise reduced when sampling batched E1 updates",
-      "script": "experiments/v3_exq_066_mech089_theta_batching.py",
-      "description": "Two conditions matched seeds: Condition A theta_buffer_size=4 (batched, E3 samples every 4 E1 steps) vs Condition B theta_buffer_size=1 (raw, every step). Measures e3_prediction_error variance. PASS: C1 e3_error_batched < e3_error_raw*0.90, C2 e1_per_e3_batched>=3, C3 harm_pred_std_batched>0.01, C4 harm_pred_std_raw>0.01, C5 no fatal errors.",
-      "estimated_minutes": 65,
-      "seeds": 1,
-      "conditions": 2,
-      "episodes_per_run": 300,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "args": "--seed 0 --episodes 300 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T02:33:30.810082+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-047e",
       "backlog_id": "",
       "claim_id": "SD-005",
