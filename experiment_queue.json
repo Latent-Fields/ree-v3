@@ -35,9 +35,12 @@
       "conditions": 2,
       "episodes_per_run": 430,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "args": "--seeds 42 7 --warmup 400 --eval-eps 30 --steps 200 --alpha-world 0.9",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T12:16:59.068271+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-072",
