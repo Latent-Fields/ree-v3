@@ -97,6 +97,34 @@
       ]
     },
     {
+      "queue_id": "V3-EXQ-086",
+      "title": "ARC-030 Go/NoGo symmetry -- NOGO_ONLY vs GO_NOGO (first end-to-end Go channel)",
+      "script": "experiments/v3_exq_086_arc030_go_nogo_symmetry.py",
+      "args": [
+        "--seeds",
+        "42",
+        "7",
+        "--warmup",
+        "150",
+        "--eval-eps",
+        "30",
+        "--steps",
+        "200",
+        "--alpha-world",
+        "0.9"
+      ],
+      "estimated_minutes": 40,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "tags": [
+        "ARC-030"
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T17:58:55.376015+00:00"
+      }
+    },
+    {
       "queue_id": "V3-EXQ-084",
       "title": "Q-022 D_eff / Hopfield stability dissociation test",
       "script": "experiments/v3_exq_084_q022_deff_hopfield_dissociation.py",
