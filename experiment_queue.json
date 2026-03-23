@@ -125,6 +125,25 @@
       }
     },
     {
+      "queue_id": "V3-EXQ-047g",
+      "title": "SD-005 functional separation probe -- z_self action decoding vs z_world contact decoding",
+      "script": "experiments/v3_exq_047g_sd005_functional_separation.py",
+      "args": [
+        "--warmup",
+        "400",
+        "--probe-eps",
+        "20",
+        "--alpha-world",
+        "0.9"
+      ],
+      "estimated_minutes": 175,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "tags": [
+        "SD-005"
+      ]
+    },
+    {
       "queue_id": "V3-EXQ-084",
       "title": "Q-022 D_eff / Hopfield stability dissociation test",
       "script": "experiments/v3_exq_084_q022_deff_hopfield_dissociation.py",

@@ -1,5 +1,5 @@
 """
-V3-EXQ-085 -- ARC-030 Go/NoGo Symmetry (Approach-Avoidance)
+V3-EXQ-086 -- ARC-030 Go/NoGo Symmetry (Approach-Avoidance)
 
 Claims: ARC-030
 
@@ -58,7 +58,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 
 
-EXPERIMENT_TYPE = "v3_exq_085_arc030_go_nogo_symmetry"
+EXPERIMENT_TYPE = "v3_exq_086_arc030_go_nogo_symmetry"
 CLAIM_IDS = ["ARC-030"]
 
 
@@ -368,7 +368,7 @@ def run(
 ) -> dict:
     """ARC-030: NOGO_ONLY vs GO_NOGO discriminative pair."""
     print(
-        f"\n[EXQ-085] ARC-030 Go/NoGo symmetry"
+        f"\n[EXQ-086] ARC-030 Go/NoGo symmetry"
         f" seeds={seeds} warmup={warmup_episodes} eval={eval_episodes}",
         flush=True,
     )
@@ -430,7 +430,7 @@ def run(
     else:
         decision = "retire_ree_claim"
 
-    print(f"\n[EXQ-085] Final results:", flush=True)
+    print(f"\n[EXQ-086] Final results:", flush=True)
     print(
         f"  benefit_rate:  GO_NOGO={benefit_rate_go:.5f}"
         f"  NOGO_ONLY={benefit_rate_nogo:.5f}"
@@ -517,7 +517,7 @@ def run(
     )
 
     summary_markdown = (
-        f"# V3-EXQ-085 -- ARC-030 Go/NoGo Symmetry (Approach-Avoidance)\n\n"
+        f"# V3-EXQ-086 -- ARC-030 Go/NoGo Symmetry (Approach-Avoidance)\n\n"
         f"**Status:** {status}\n"
         f"**Claims:** ARC-030\n"
         f"**Decision:** {decision}\n"
