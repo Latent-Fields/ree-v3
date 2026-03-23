@@ -39,22 +39,6 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-03-23T14:11:02.803827+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-079",
-      "backlog_id": "EVB-0006",
-      "claim_id": "MECH-071",
-      "title": "MECH-071 Harm Calibration Discriminative Pair -- SHARP_WORLD vs SMOOTH_WORLD (SD-008)",
-      "script": "experiments/v3_exq_079_mech071_harm_calib_pair.py",
-      "estimated_minutes": 145,
-      "seeds": 2,
-      "conditions": 2,
-      "episodes_per_run": 350,
-      "machine_affinity": "any",
-      "deadline": "2026-03-26",
-      "status": "pending",
-      "args": "--seeds 42 7 --warmup 350 --eval-eps 60 --steps 200 --alpha-sharp 0.9 --alpha-smooth 0.3",
-      "claimed_by": null
     }
   ]
 }
