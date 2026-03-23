@@ -71,26 +71,6 @@
       "status": "pending",
       "args": "",
       "claimed_by": null
-    },
-    {
-      "queue_id": "V3-EXQ-082",
-      "backlog_id": "EVB-0001",
-      "claim_id": "MECH-098",
-      "title": "MECH-098 Reafference vs No-Reafference -- harm calibration discriminative pair",
-      "script": "experiments/v3_exq_082_mech098_reafference_harm_pair.py",
-      "description": "Discriminative pair for MECH-098: REAFFERENCE (SD-007 ON, reafference_action_dim=action_dim) vs NO_REAFFERENCE (SD-007 OFF, ablation). Both use alpha_world=0.9 (SD-008), z_self/z_world split (SD-005), SD-010 disabled. Primary discriminator: delta_approach_gap = gap_approach_REAFFERENCE - gap_approach_NO_REAFFERENCE. PASS: C1 delta>0.02, C2 gap_REAFFERENCE>0.06, C3 gap_NO_REAFFERENCE>0. Addresses EXP-0001/EVB-0001 mandatory decision checkpoint deadline 2026-03-26. Also provides behavioral evidence for EXP-0002 (SD-007).",
-      "estimated_minutes": 145,
-      "seeds": 2,
-      "conditions": 2,
-      "episodes_per_run": 350,
-      "machine_affinity": "any",
-      "deadline": "2026-03-26",
-      "status": "claimed",
-      "args": "--seeds 42 7 --warmup 350 --eval-eps 50 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T13:16:28.079980+00:00"
-      }
     }
   ]
 }
