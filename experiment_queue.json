@@ -57,24 +57,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-083",
-      "backlog_id": "EVB-0013",
-      "claim_id": "MECH-102",
-      "title": "MECH-102 Terminal Correction Pair -- COORDINATION_ENABLED vs COORDINATION_BLOCKED (E3-guided policy)",
-      "script": "experiments/v3_exq_083_mech102_terminal_correction_pair.py",
-      "estimated_minutes": 200,
-      "seeds": 2,
-      "conditions": 2,
-      "episodes_per_run": 400,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "args": "--seeds 42 7 --warmup 400 --eval-eps 80 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T13:12:00.081703+00:00"
-      }
-    },
-    {
       "queue_id": "V3-BENCH-scale-001",
       "backlog_id": "",
       "claim_id": "",
