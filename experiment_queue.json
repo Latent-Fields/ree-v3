@@ -144,12 +144,16 @@
       ],
       "estimated_minutes": 90,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "tags": [
         "ARC-007",
         "SD-004"
       ],
-      "notes": "Fixed: zeroed_eval returns [batch] not [batch,1] to match real evaluate() signature."
+      "notes": "Fixed: zeroed_eval returns [batch] not [batch,1] to match real evaluate() signature.",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-03-23T08:10:16.298308+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-071b",
