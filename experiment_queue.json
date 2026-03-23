@@ -145,31 +145,6 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-089",
-      "title": "MECH-095 TPJ agency comparator validation -- self vs world-caused attribution",
-      "script": "experiments/v3_exq_089_mech095_tpj_validation.py",
-      "args": [
-        "--seed",
-        "42",
-        "--phase1",
-        "300",
-        "--eval",
-        "200",
-        "--steps",
-        "200"
-      ],
-      "estimated_minutes": 55,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "tags": [
-        "MECH-095"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T18:42:20.494770+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-090",
       "title": "Adversarial split drift test -- GRL prevents schizophrenic drift in z_self encoder",
       "script": "experiments/v3_exq_090_adversarial_split_drift.py",
