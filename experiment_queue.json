@@ -18,7 +18,7 @@
       "seeds": 1,
       "conditions": 2,
       "episodes_per_run": 500,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "args": "--seed 0 --alpha-world 0.9",
       "claimed_by": null
@@ -50,7 +50,7 @@
       "seeds": 1,
       "conditions": 3,
       "episodes_per_run": 550,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "args": "--seed 42 --warmup 200 --eval-eps 50 --steps 200 --alpha-world 0.9",
       "claimed_by": null
@@ -66,7 +66,7 @@
       "seeds": 1,
       "conditions": 2,
       "episodes_per_run": 400,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "args": "--seed 42 --novelty-weight 0.1 --warmup 150 --eval-eps 50 --steps 200 --alpha-world 0.9",
       "claimed_by": null
@@ -82,7 +82,7 @@
       "seeds": 1,
       "conditions": 2,
       "episodes_per_run": 600,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "args": "--seed 42 --warmup 250 --eval-eps 50 --steps 200 --alpha-world 0.9 --benefit-weight 1.0",
       "claimed_by": null
@@ -98,7 +98,7 @@
       "seeds": 1,
       "conditions": 2,
       "episodes_per_run": 480,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "args": "--seed 42 --maintenance-weight 0.1 --d-eff-target 1.5 --noise-sigma 2.0 --warmup 200 --eval-eps 30 --steps 200 --alpha-world 0.9",
       "claimed_by": null
@@ -170,7 +170,7 @@
       "estimated_minutes": 90,
       "seeds": 1,
       "conditions": 3,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "args": "--seed 42 --alpha-world 0.9",
       "claimed_by": null
@@ -185,7 +185,7 @@
       "estimated_minutes": 60,
       "seeds": 1,
       "conditions": 2,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "args": "--seed 42 --alpha-world 0.9",
       "claimed_by": null
