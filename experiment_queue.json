@@ -6,39 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-046d",
-      "title": "ARC-007 Path Memory Ablation (Proper) -- residue field zeroing degrades hippocampal proposals",
-      "script": "experiments/v3_exq_046_arc007_path_memory_ablation.py",
-      "args": [
-        "--seed",
-        "0",
-        "--warmup",
-        "600",
-        "--eval-eps",
-        "50",
-        "--eval-restore",
-        "30",
-        "--steps",
-        "200",
-        "--alpha-world",
-        "0.9",
-        "--harm-scale",
-        "0.02"
-      ],
-      "estimated_minutes": 90,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "tags": [
-        "ARC-007",
-        "SD-004"
-      ],
-      "notes": "Fixed: zeroed_eval returns [batch] not [batch,1] to match real evaluate() signature.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T14:11:02.803827+00:00"
-      }
-    }
-  ]
+  "items": []
 }
