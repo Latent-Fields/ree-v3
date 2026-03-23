@@ -85,7 +85,7 @@ def _ablate_residue_field(agent: REEAgent) -> Tuple:
     orig_eval_traj = agent.residue_field.evaluate_trajectory
 
     def zeroed_eval(z_world: torch.Tensor) -> torch.Tensor:
-        return torch.zeros(z_world.shape[0], 1, device=z_world.device)
+        return torch.zeros(z_world.shape[0], device=z_world.device)  # [batch] not [batch,1]
 
     def zeroed_eval_traj(z_world_seq: torch.Tensor) -> torch.Tensor:
         return torch.zeros(z_world_seq.shape[0], device=z_world_seq.device)

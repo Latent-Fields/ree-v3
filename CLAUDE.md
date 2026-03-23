@@ -131,7 +131,11 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
     - ~0.50 min/ep at 200 steps/ep  (~5x slower than Mac)
     - ~0.72 min/ep at 300 steps/ep
     - Calibrated from onboarding smoke runs 2026-03-22: 7.0 steps/sec CPU, 2.1 steps/sec GPU
-    - GPU wins when: batch replay training (batch>=64), multi-step rollout sweeps, or latent dims 128+
+    - GPU NEVER wins at current model scale (world_dim=32): EXQ-070 tested batch 1-512,
+      CPU always faster (200k vs 133k samples/s at batch=512). RTX 2060 Super overhead
+      dominates for tiny networks. GPU becomes useful ONLY when world_dim >= 128 or
+      networks are substantially deeper. Design experiments with larger networks to
+      exploit the GPU when the architecture requires it (SD-004, SD-010).
   - Add ~20% overhead for scripts with stratified replay buffers or event classification
 - Set `machine_affinity` to match compute profile: `"DLAPTOP-4.local"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"any"` (indifferent)
   - **IMPORTANT:** The runner matches affinity against `socket.gethostname()` exactly. The macbook hostname is `DLAPTOP-4.local` — do NOT use `"macbook"` as the affinity string, it will not match.
