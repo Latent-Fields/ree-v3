@@ -67,9 +67,12 @@
       "conditions": 2,
       "episodes_per_run": 400,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "args": "--seeds 42 7 --warmup 400 --eval-eps 80 --steps 200 --alpha-world 0.9",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T13:12:00.081703+00:00"
+      }
     },
     {
       "queue_id": "V3-BENCH-scale-001",
