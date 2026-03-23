@@ -173,6 +173,14 @@ completed list. If an experiment was previously run (PASS/FAIL/ERROR) and then r
 with the same ID, the runner will silently skip it. Fix: rename the queue ID (e.g., append
 `b`, `c`, etc.) before re-queueing.
 
+**How this happens in practice (2026-03-23 incident):** Six experiments errored or failed,
+were removed from the queue normally, then were re-queued by a subsequent session with the
+same IDs to re-run them after script fixes or design tweaks. The runner had no way to
+distinguish a re-run intent from a stale entry -- it only checks queue_id against the
+completed list. Affected IDs: EXQ-075, EXQ-074b, EXQ-076, EXQ-084 (all ERROR exit 1),
+EXQ-085 and EXQ-047g (FAIL). Fix was to rename to 075b, 074c, 076b, 084b, 085b, 047h.
+Diagnosis: check `runner_status.json` completed list for the stuck queue IDs.
+
 **git pull fails with `fatal: bad object refs/remotes/origin/main 2`**:
 Run `git remote prune origin` in ree-v3. This cleans up a spurious remote tracking ref.
 Verify with `git fetch` (should return silently).
