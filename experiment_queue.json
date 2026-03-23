@@ -48,9 +48,12 @@
       "script": "experiments/v3_exq_080_mech029_breathoscillator_commit_windows.py",
       "estimated_minutes": 15,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "args": "",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T12:45:38.282867+00:00"
+      }
     },
     {
       "queue_id": "V3-BENCH-scale-001",
