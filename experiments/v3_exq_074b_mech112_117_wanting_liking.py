@@ -233,18 +233,15 @@ def _run_condition(
         # Benefit exposure for wanted/liking conditions
         benefit_exp_val = float(obs_body[11])
 
-        # E1 training
+        # E1 + E2 training (combined backward avoids inplace op conflict after e1_opt.step)
         e1_loss = agent.compute_prediction_loss()
-        if e1_loss.requires_grad:
-            e1_opt.zero_grad()
-            e1_loss.backward()
-            e1_opt.step()
-
-        # E2 training
         e2_loss = agent.compute_e2_loss()
-        if e2_loss.requires_grad:
+        total_e1_e2 = e1_loss + e2_loss
+        if total_e1_e2.requires_grad:
+            e1_opt.zero_grad()
             e2_opt.zero_grad()
-            e2_loss.backward()
+            total_e1_e2.backward()
+            e1_opt.step()
             e2_opt.step()
 
         # E3 harm supervision

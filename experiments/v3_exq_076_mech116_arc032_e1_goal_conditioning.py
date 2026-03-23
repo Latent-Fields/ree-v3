@@ -200,18 +200,15 @@ def _run_condition(
             else:
                 e1_err_neutral_steps.append(e1_err_val)
 
-        # E1 training
+        # E1 + E2 training (combined backward avoids inplace op conflict after e1_opt.step)
         e1_loss_train = agent.compute_prediction_loss()
-        if e1_loss_train.requires_grad:
-            e1_opt.zero_grad()
-            e1_loss_train.backward()
-            e1_opt.step()
-
-        # E2 training
         e2_loss = agent.compute_e2_loss()
-        if e2_loss.requires_grad:
+        total_e1_e2 = e1_loss_train + e2_loss
+        if total_e1_e2.requires_grad:
+            e1_opt.zero_grad()
             e2_opt.zero_grad()
-            e2_loss.backward()
+            total_e1_e2.backward()
+            e1_opt.step()
             e2_opt.step()
 
         # E3 harm supervision

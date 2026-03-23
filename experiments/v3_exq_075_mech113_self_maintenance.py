@@ -67,7 +67,7 @@ EXPERIMENT_TYPE = "v3_exq_075_mech113_self_maintenance"
 CLAIM_IDS = ["MECH-113"]
 
 BODY_OBS_DIM = 10
-WORLD_OBS_DIM = 54
+WORLD_OBS_DIM = 200
 ACTION_DIM = 4
 
 
@@ -181,18 +181,15 @@ def _run_single(
             harm_signal = float(reward) if reward < 0 else 0.0
             ep_harm += abs(harm_signal)
 
-            # E1 loss
+            # E1 + E2 training (combined backward avoids inplace op conflict after e1_opt.step)
             e1_loss = agent.compute_prediction_loss()
-            if e1_loss.requires_grad:
-                e1_opt.zero_grad()
-                e1_loss.backward()
-                e1_opt.step()
-
-            # E2 loss
             e2_loss = agent.compute_e2_loss()
-            if e2_loss.requires_grad:
+            total_e1_e2 = e1_loss + e2_loss
+            if total_e1_e2.requires_grad:
+                e1_opt.zero_grad()
                 e2_opt.zero_grad()
-                e2_loss.backward()
+                total_e1_e2.backward()
+                e1_opt.step()
                 e2_opt.step()
 
             # E3 harm supervision + self-maintenance loss
