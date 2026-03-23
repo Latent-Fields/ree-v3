@@ -33,6 +33,7 @@ from typing import Optional, Dict, Any, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Function
 
 from ree_core.utils.config import LatentStackConfig
 
@@ -162,6 +163,156 @@ class HarmEncoder(nn.Module):
             z_harm: [batch, z_harm_dim]
         """
         return self.encoder(harm_obs)
+
+
+class HarmBridge(nn.Module):
+    """
+    SD-010 / SD-003: Counterfactual harm bridge.
+
+    Maps z_world latent -> z_harm latent space, allowing the SD-003 attribution
+    pipeline to compute counterfactual harm without access to raw harm_obs.
+
+    Used as:
+        z_harm_cf = harm_bridge(E2.world_forward(z_world, a_cf))
+        causal_sig = e3.harm_eval_z_harm(z_harm_actual) - e3.harm_eval_z_harm(z_harm_cf)
+
+    This is a learned projector trained to minimise:
+        ||HarmBridge(z_world) - HarmEncoder(harm_obs)||
+
+    so that the harm latent derived from the world model approximates the latent
+    derived from the direct nociceptive stream, enabling counterfactual queries
+    where harm_obs is not available (the agent cannot observe harm_obs for actions
+    it did not take).
+
+    Biological analogy: the cortical harm evaluation pathway (slow, contextual)
+    must be able to simulate "what would I have felt if I had acted differently"
+    using the world model alone, without re-running the spinothalamic pathway.
+    This is the bridge between the slow cortical and fast nociceptive routes.
+
+    See CLAUDE.md: SD-010.
+    """
+
+    def __init__(self, world_dim: int = 32, z_harm_dim: int = 32):
+        super().__init__()
+        self.world_dim = world_dim
+        self.z_harm_dim = z_harm_dim
+        self.bridge = nn.Sequential(
+            nn.Linear(world_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, z_harm_dim),
+        )
+
+    def forward(self, z_world: torch.Tensor) -> torch.Tensor:
+        """
+        Project world latent into harm latent space.
+
+        Args:
+            z_world: [batch, world_dim] — world-state latent (from E2.world_forward or encoder)
+
+        Returns:
+            z_harm_approx: [batch, z_harm_dim] — harm latent approximation for counterfactual
+        """
+        return self.bridge(z_world)
+
+
+class _GradReverseFn(Function):
+    """Gradient reversal function (Ganin et al. 2016)."""
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, alpha: float) -> torch.Tensor:  # type: ignore[override]
+        ctx.alpha = alpha
+        return x.clone()
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):  # type: ignore[override]
+        return -ctx.alpha * grad_output, None
+
+
+class AdversarialSplitHead(nn.Module):
+    """
+    SD-010 / EXQ-090: Adversarial z_self / harm boundary maintenance.
+
+    Prevents "schizophrenic drift": the gradual blurring of the z_self encoder's
+    boundary as harm training pressure inadvertently causes z_self to carry
+    harm-predictive information (a z_world property).
+
+    Mechanism: gradient reversal layer (Ganin et al. 2016 JMLR).
+      - During forward pass: z_self -> harm_pred (normal MLP)
+      - During backward pass: gradient into z_self encoder is NEGATED
+      - Effect: z_self encoder learns to NOT be informative about harm outcomes
+
+    The adversarial head trains normally to predict harm from z_self; the encoder
+    receives the reversed gradient, pushing it toward harm-uninformative encodings.
+
+    Usage in training loop:
+        adv_loss = adv_head(z_self.detach(), z_self)  # train head on detached z_self
+        # Then backward on adv_loss -- gradient reversal handles encoder update
+
+        # Or use the helper:
+        encoder_penalty, head_loss = adv_head.split_losses(z_self, harm_label)
+
+    PASS criterion (EXQ-090):
+        R2(z_self -> harm_outcome) < 0.05 with adversarial loss active
+        vs R2 > 0.15 without adversarial loss (demonstrating drift prevention)
+
+    References:
+        Ganin et al. (2016). Domain-adversarial training of neural networks. JMLR.
+    """
+
+    def __init__(self, self_dim: int = 32, hidden_dim: int = 32, grl_alpha: float = 1.0):
+        """
+        Args:
+            self_dim:   z_self dimensionality
+            hidden_dim: hidden layer size for the adversarial harm predictor
+            grl_alpha:  gradient reversal scale factor (1.0 = full reversal)
+        """
+        super().__init__()
+        self.grl_alpha = grl_alpha
+        self.harm_predictor = nn.Sequential(
+            nn.Linear(self_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def forward(self, z_self: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass with gradient reversal.
+
+        The gradient reversal layer sits between z_self and the harm predictor.
+        Backward pass through this method will negate the gradient back to z_self.
+
+        Args:
+            z_self: [batch, self_dim] -- z_self encoder output (with gradients)
+
+        Returns:
+            harm_pred: [batch, 1] -- predicted harm (used for adversarial head loss)
+        """
+        z_reversed = _GradReverseFn.apply(z_self, self.grl_alpha)
+        return self.harm_predictor(z_reversed)
+
+    def split_losses(
+        self,
+        z_self: torch.Tensor,
+        harm_label: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute split adversarial losses.
+
+        Returns:
+            encoder_penalty: loss that, when backpropagated into z_self encoder,
+                             pushes it toward harm-uninformative encodings (via GRL)
+            head_loss:       loss for updating the adversarial harm predictor head
+                             (trained with normal gradients on detached z_self)
+        """
+        # Encoder update: backprop through GRL negates gradient into encoder
+        harm_pred_grl = self.forward(z_self)
+        encoder_penalty = F.mse_loss(harm_pred_grl, harm_label)
+
+        # Head update: train harm predictor on detached z_self (normal gradients)
+        harm_pred_direct = self.harm_predictor(z_self.detach())
+        head_loss = F.mse_loss(harm_pred_direct, harm_label)
+
+        return encoder_penalty, head_loss
 
 
 @dataclass

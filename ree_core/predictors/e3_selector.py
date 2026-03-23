@@ -379,7 +379,43 @@ class E3TrajectorySelector(nn.Module):
         prox = prox_flat.reshape(batch, horizon_p1)
         return prox.sum(dim=-1)
 
-    def score_trajectory(self, trajectory: Trajectory, goal_state: Optional[GoalState] = None) -> torch.Tensor:
+    def compute_harm_stream_cost(
+        self,
+        trajectory: Trajectory,
+        harm_bridge: "nn.Module",
+    ) -> torch.Tensor:
+        """
+        SD-010: Ethical cost M(ζ) via harm stream (z_harm) rather than z_world.
+
+        Applies HarmBridge to each z_world state in the trajectory to get z_harm
+        approximations, then evaluates via harm_eval_z_harm_head. This is the
+        SD-010 replacement for compute_ethical_cost() when the nociceptive stream
+        is available.
+
+        Used in select() when harm_bridge is provided.
+
+        Args:
+            trajectory:  candidate trajectory with world_states
+            harm_bridge: HarmBridge instance (z_world -> z_harm)
+
+        Returns:
+            harm_cost: [batch] — summed harm cost over trajectory horizon
+        """
+        world_seq = self._get_world_states(trajectory)  # [batch, horizon+1, world_dim]
+        batch, horizon_p1, world_dim = world_seq.shape
+
+        flat = world_seq.reshape(batch * horizon_p1, world_dim)
+        z_harm_flat = harm_bridge(flat)                              # [batch*horizon, z_harm_dim]
+        harm_flat = self.harm_eval_z_harm_head(z_harm_flat)         # [batch*horizon, 1]
+        harm = harm_flat.reshape(batch, horizon_p1)                  # [batch, horizon+1]
+        return harm.sum(dim=-1)                                      # [batch]
+
+    def score_trajectory(
+        self,
+        trajectory: Trajectory,
+        goal_state: Optional[GoalState] = None,
+        harm_bridge: Optional["nn.Module"] = None,
+    ) -> torch.Tensor:
         """
         Total score J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ) - β·B(ζ) - η·novelty.
         Lower is better.
@@ -389,9 +425,15 @@ class E3TrajectorySelector(nn.Module):
         - Φ_R(ζ): residue field cost
         - B(ζ): benefit score (Go channel, D1 pathway) — subtracted when enabled
         - novelty: E1 error EMA bonus — subtracted when novelty_bonus_weight > 0
+
+        SD-010: if harm_bridge is provided, M(ζ) uses the dedicated harm stream
+        (harm_eval_z_harm_head via HarmBridge) instead of harm_eval_head on z_world.
         """
         f = self.compute_reality_cost(trajectory)
-        m = self.compute_ethical_cost(trajectory)
+        if harm_bridge is not None:
+            m = self.compute_harm_stream_cost(trajectory, harm_bridge)
+        else:
+            m = self.compute_ethical_cost(trajectory)
         phi = self.compute_residue_cost(trajectory)
         score = f + self.config.lambda_ethical * m + self.config.rho_residue * phi
 
@@ -425,6 +467,8 @@ class E3TrajectorySelector(nn.Module):
         candidates: List[Trajectory],
         temperature: float = 1.0,
         goal_state: Optional[GoalState] = None,
+        harm_bridge: Optional["nn.Module"] = None,
+        use_harm_variance_commit: bool = False,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -432,8 +476,15 @@ class E3TrajectorySelector(nn.Module):
         Uses dynamic precision (ARC-016) to determine commit threshold.
 
         Args:
-            candidates:  list of Trajectory objects
-            temperature: softmax temperature (exploration vs exploitation)
+            candidates:             list of Trajectory objects
+            temperature:            softmax temperature (exploration vs exploitation)
+            harm_bridge:            optional HarmBridge (SD-010); if provided, M(zeta) uses
+                                    harm stream scores
+            use_harm_variance_commit: if True, commit decision uses variance of harm
+                                    scores across candidates rather than z_world running
+                                    variance (ARC-016 reframe: "do I know what will
+                                    happen to me?" rather than "is the world stable?").
+                                    Requires harm_bridge to be provided.
 
         Returns:
             SelectionResult
@@ -441,15 +492,30 @@ class E3TrajectorySelector(nn.Module):
         if not candidates:
             raise ValueError("No candidate trajectories provided")
 
-        scores = torch.stack([self.score_trajectory(t, goal_state=goal_state) for t in candidates])
+        scores = torch.stack([
+            self.score_trajectory(t, goal_state=goal_state, harm_bridge=harm_bridge)
+            for t in candidates
+        ])
         scores = scores.mean(dim=-1)
         self.last_scores = scores.detach()
 
         probs = F.softmax(-scores / temperature, dim=0)
 
-        # Dynamic commit threshold (ARC-016): commit when variance is LOW
-        # (confident predictions → greedy selection)
-        committed = self._running_variance < self.commit_threshold
+        # ARC-016 commit decision: two modes
+        # Default: commit when z_world running_variance is LOW (world-stability signal)
+        # Reframe: commit when variance of harm scores across candidates is LOW
+        # ("do I know what harm each trajectory leads to?" — decision-uncertainty signal)
+        if use_harm_variance_commit and harm_bridge is not None:
+            # Compute harm scores per candidate (mean over batch), take variance across candidates
+            harm_scores = torch.stack([
+                self.compute_harm_stream_cost(t, harm_bridge).mean()
+                for t in candidates
+            ])
+            harm_score_variance = harm_scores.var().item()
+            committed = harm_score_variance < self.commit_threshold
+        else:
+            # Default: running variance from z_world prediction error (EMA)
+            committed = self._running_variance < self.commit_threshold
         if committed:
             selected_idx = int(scores.argmin().item())
         else:
@@ -530,5 +596,13 @@ class E3TrajectorySelector(nn.Module):
         candidates: List[Trajectory],
         temperature: float = 1.0,
         goal_state: Optional[GoalState] = None,
+        harm_bridge: Optional["nn.Module"] = None,
+        use_harm_variance_commit: bool = False,
     ) -> SelectionResult:
-        return self.select(candidates, temperature, goal_state=goal_state)
+        return self.select(
+            candidates,
+            temperature,
+            goal_state=goal_state,
+            harm_bridge=harm_bridge,
+            use_harm_variance_commit=use_harm_variance_commit,
+        )
