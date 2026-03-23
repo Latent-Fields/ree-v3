@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-065",
-      "backlog_id": "",
-      "claim_id": "MECH-029",
-      "title": "MECH-029 Default Mode Probe -- z_world variance higher during uncommitted steps",
-      "script": "experiments/v3_exq_065_mech029_default_mode_probe.py",
-      "description": "Single-condition. 500 train + 100 eval episodes. Labels each eval step committed/uncommitted via running_variance vs calibrated threshold. Measures z_world variance and E3 running_variance by mode. PASS: C1 uncommitted_z_world_var > committed*1.1, C2 uncommitted_e3_var > committed*1.05, C3 both modes observed (>=20 steps each), C4 harm_pred_std>0.01, C5 no fatal errors.",
-      "estimated_minutes": 60,
-      "seeds": 1,
-      "conditions": 1,
-      "episodes_per_run": 600,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "args": "--seed 0 --train-eps 500 --eval-eps 100 --steps 200 --alpha-world 0.9",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-23T00:52:38.329115+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-066",
       "backlog_id": "",
       "claim_id": "MECH-089",
