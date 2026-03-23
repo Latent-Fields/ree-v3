@@ -21,10 +21,14 @@
       ],
       "estimated_minutes": 175,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "tags": [
         "SD-005"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-23T18:56:20.902695+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-084b",
