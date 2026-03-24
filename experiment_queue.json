@@ -32,6 +32,28 @@
         "machine": "Daniel-PC",
         "claimed_at": "2026-03-24T14:20:28.223638+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-093",
+      "script": "experiments/v3_exq_093_harm_bridge_e3_fix.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 55,
+      "note": "Fix for EXQ-087: E3 harm_eval_z_harm_head now in opt_harm during Phase 1, trained jointly with HarmEncoder. Smoke: C1/C2/C3 pass at 2 eps. 300+150+100 eps x 200 steps = 55 min Mac / 275 min Daniel-PC.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-24T15:31:59.227648+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-094",
+      "script": "experiments/v3_exq_094_arc016_rollout_e3_fix.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "queued",
+      "estimated_minutes": 45,
+      "note": "Fix for EXQ-088: explicit E3 training step during warmup using harm_bridge(z_world).detach() as input (matches eval distribution). 200 warmup + 5x80 eval eps x 150 steps = 45 min Mac / 225 min Daniel-PC."
     }
   ]
 }
