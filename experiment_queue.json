@@ -8,20 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-091",
-      "title": "MECH-071 GoalState Persistence Fix (085c bug)",
-      "script": "experiments/v3_exq_085d_mech071_goal_persist.py",
-      "priority": 1,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 240,
-      "note": "Fix for EXQ-085c: removed goal_state.reset() per-episode bug. GoalState persists across episodes. 500 warmup + 100 eval x 2 seeds x 2 conditions = 240 min Mac.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T20:21:11.308006+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-092",
       "title": "MECH-095 TPJ CE Routing Fix (047i bug)",
       "script": "experiments/v3_exq_047j_tpj_routing_ce.py",
