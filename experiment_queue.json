@@ -25,9 +25,13 @@
       "script": "experiments/v3_exq_047j_tpj_routing_ce.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "queued",
+      "status": "claimed",
       "estimated_minutes": 168,
-      "note": "Fix for EXQ-047i: CE routing head replaces near-zero MSE loss; balanced contact probe replaces majority-class collapse. 400 warmup + 20 probe x 2 seeds x 2 conditions = 168 min Mac."
+      "note": "Fix for EXQ-047i: CE routing head replaces near-zero MSE loss; balanced contact probe replaces majority-class collapse. 400 warmup + 20 probe x 2 seeds x 2 conditions = 168 min Mac.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-24T03:33:18.309896+00:00"
+      }
     }
   ]
 }
