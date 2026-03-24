@@ -157,9 +157,18 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
 - Always queue experiments immediately after writing the script.
 - Always include `estimated_minutes` — the runner's auto-calibration refines it over time.
 
-## Experiment IDs
-V3 experiments: V3-EXQ-001 onward
-First priority: V3-EXQ-001 → V3-EXQ-002 → V3-EXQ-003 + V3-EXQ-004 (parallel)
+## Experiment IDs and Versioning
+
+V3 experiments: V3-EXQ-001 onward.
+
+**Labeling rule (see also REE_Working/CLAUDE.md "EXQ Versioning and Supersession Policy"):**
+- Bug fix / minor implementation tweak to same hypothesis: append next letter (EXQ-047a, 047b, ... 047j).
+- New hypothesis / major redesign: new number (EXQ-048).
+- NEVER re-use an ID that was previously run. The runner silently skips any queue_id already in `runner_status.json` completed list.
+
+**Supersession:** when a lettered iteration corrects a bug that invalidated the predecessor's evidence, add `"supersedes": "V3-EXQ-047i"` to the new queue entry. After the run completes, set `evidence_direction: "superseded"` on the old manifest and rebuild the index (governance pipeline). This prevents buggy experiments from continuing to weight claim confidence scores.
+
+**Queue validation:** `validate_queue.py` is called automatically at runner startup. Run it manually after any queue edit: `/opt/local/bin/python3 validate_queue.py`
 
 ## Troubleshooting Runner
 
@@ -180,6 +189,16 @@ distinguish a re-run intent from a stale entry -- it only checks queue_id agains
 completed list. Affected IDs: EXQ-075, EXQ-074b, EXQ-076, EXQ-084 (all ERROR exit 1),
 EXQ-085 and EXQ-047g (FAIL). Fix was to rename to 075b, 074c, 076b, 084b, 085b, 047h.
 Diagnosis: check `runner_status.json` completed list for the stuck queue IDs.
+
+**Runner says "No new items" due to missing `title` field (2026-03-24 incident)**:
+Queue items without a `title` field cause `run_experiment()` to crash with `KeyError: 'title'`
+(the runner does a hard dict access at the "Starting:" log line). The UNEXPECTED ERROR handler
+adds the item to in-memory `completed_ids` (not persisted to runner_status.json), so the
+runner permanently skips it until restarted. Symptom: log shows "UNEXPECTED ERROR in EXQ-XXX:
+'title'" once, then "No new items" forever.
+Fix: add `"title": "..."` to the queue item, run `validate_queue.py`, then restart the runner.
+Note: `title` is optional per schema but the runner required it -- fixed 2026-03-24 to use
+`item.get('title', item['queue_id'])`. All new queue entries should still include a title.
 
 **git pull fails with `fatal: bad object refs/remotes/origin/main 2`**:
 Run `git remote prune origin` in ree-v3. This cleans up a spurious remote tracking ref.

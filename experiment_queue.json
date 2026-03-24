@@ -9,6 +9,7 @@
   "items": [
     {
       "queue_id": "V3-EXQ-091",
+      "title": "MECH-071 GoalState Persistence Fix (085c bug)",
       "script": "experiments/v3_exq_085d_mech071_goal_persist.py",
       "priority": 1,
       "machine_affinity": "any",
@@ -22,6 +23,7 @@
     },
     {
       "queue_id": "V3-EXQ-092",
+      "title": "MECH-095 TPJ CE Routing Fix (047i bug)",
       "script": "experiments/v3_exq_047j_tpj_routing_ce.py",
       "priority": 2,
       "machine_affinity": "any",
@@ -35,6 +37,7 @@
     },
     {
       "queue_id": "V3-EXQ-093",
+      "title": "SD-010 HarmBridge E3 Fix (087 bug)",
       "script": "experiments/v3_exq_093_harm_bridge_e3_fix.py",
       "priority": 3,
       "machine_affinity": "any",
@@ -48,6 +51,7 @@
     },
     {
       "queue_id": "V3-EXQ-094",
+      "title": "ARC-016 Rollout E3 Training Fix (088 bug)",
       "script": "experiments/v3_exq_094_arc016_rollout_e3_fix.py",
       "priority": 4,
       "machine_affinity": "any",

@@ -416,6 +416,19 @@ def write_status(status: dict, path: Path) -> None:
 
 
 def load_queue() -> dict:
+    # Validate schema before loading -- raises SystemExit on errors so the
+    # runner never silently skips malformed entries.
+    try:
+        from validate_queue import validate
+        errors = validate(QUEUE_FILE)
+        if errors:
+            print(f"[runner] Queue validation FAILED -- {len(errors)} error(s):",
+                  flush=True)
+            for e in errors:
+                print(f"[runner]   ERROR: {e}", flush=True)
+            sys.exit(1)
+    except ImportError:
+        pass  # validator not present -- skip (graceful degradation)
     with open(QUEUE_FILE) as f:
         return json.load(f)
 
@@ -548,7 +561,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
 
     est = item.get('estimated_minutes')
     est_str = f" -- est. {est} min" if est else ""
-    print(f"[runner] Starting: {item['title']} ({item['queue_id']}){est_str}", flush=True)
+    print(f"[runner] Starting: {item.get('title', item['queue_id'])} ({item['queue_id']}){est_str}", flush=True)
     print(f"[runner] Command: {' '.join(str(a) for a in args)}", flush=True)
 
     last_write = time.monotonic()
@@ -803,8 +816,8 @@ def main():
             claim = item.get("claimed_by")
             claim_str = f" [claimed:{claim['machine']}]" if claim else ""
             mine = "✓" if _affinity_matches(item, machine) else f"✗({affinity})"
-            print(f"  {mine} {item['queue_id']} {item['claim_id']:12s} ~{mins:.0f}min  "
-                  f"{'READY' if runnable else 'NEEDS_SCRIPT'}: {item['title']}{claim_str}")
+            print(f"  {mine} {item['queue_id']} {item.get('claim_id', ''):12s} ~{mins:.0f}min  "
+                  f"{'READY' if runnable else 'NEEDS_SCRIPT'}: {item.get('title', item['queue_id'])}{claim_str}")
         if PID_FILE.exists():
             PID_FILE.unlink()
         return
