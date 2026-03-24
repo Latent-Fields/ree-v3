@@ -60,22 +60,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-047i",
-      "backlog_id": "",
-      "claim_id": "MECH-095",
-      "title": "MECH-095 / SD-005 Supervised TPJ Routing PoC -- routing loss vs baseline contact dissociation",
-      "description": "EXQ-047h showed contact_dissociation=0.000. EXQ-089 showed unsupervised E2 mismatch insufficient (gap=0.004, false_attribution=1.0). This tests whether supervised routing loss (lambda=0.1, ground-truth transition_type labels) produces contact_dissociation > 0.05 -- validating MECH-095 routing principle before substrate implementation.",
-      "script": "experiments/v3_exq_047i_tpj_routing_poc.py",
-      "args": "--seeds 42 7 --warmup 400 --probe-eps 20 --steps 200 --alpha-world 0.9 --lambda-route 0.1",
-      "machine_affinity": "DLAPTOP-4.local",
-      "estimated_minutes": 10,
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T01:26:20.090594+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-085c",
       "backlog_id": "EVB-0006",
       "claim_id": "MECH-071",
