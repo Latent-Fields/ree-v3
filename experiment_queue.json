@@ -69,7 +69,11 @@
       "args": "--seeds 42 7 --warmup 400 --probe-eps 20 --steps 200 --alpha-world 0.9 --lambda-route 0.1",
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 10,
-      "status": "pending"
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-24T01:26:20.090594+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-085c",
