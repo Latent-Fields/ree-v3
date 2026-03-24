@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-075c",
-      "backlog_id": "",
-      "claim_id": "MECH-113",
-      "title": "MECH-113 Self-Maintenance D_eff Homeostasis -- fixed WORLD_OBS_DIM=200 + combined e1+e2 backward",
-      "description": "MECH-113 self-maintenance D_eff homeostasis -- fixed WORLD_OBS_DIM=200 + combined e1+e2 backward",
-      "script": "experiments/v3_exq_075_mech113_self_maintenance.py",
-      "args": "--seed 42 --warmup 200 --eval-eps 30 --steps 200 --noise-sigma 2.0 --alpha-world 0.9",
-      "machine_affinity": "DLAPTOP-4.local",
-      "estimated_minutes": 60,
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T02:25:11.778202+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-076c",
       "backlog_id": "",
       "claim_id": "MECH-116",
