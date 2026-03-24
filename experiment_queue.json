@@ -58,22 +58,6 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-03-24T01:26:18.679912+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-085c",
-      "backlog_id": "EVB-0006",
-      "claim_id": "MECH-071",
-      "title": "MECH-071 / INV-034 Curiosity + Goal Calibration -- circular seeding fix + SD-010 wired",
-      "description": "EXQ-085b root cause: z_goal never seeds (circular dependency). Fix: MECH-111 curiosity (novelty_bonus_weight=0.1) breaks the loop. SD-010 wired (use_proxy_fields=True, harm_obs to encoder). Metric: benefit acquisition rate (goal_present vs goal_absent) replaces n_agent_events. PASS if z_goal seeds (norm>0.1) and goal_present acquires 1.3x more benefit.",
-      "script": "experiments/v3_exq_085c_mech071_curiosity_goal.py",
-      "args": "--seeds 42 7 --warmup 500 --eval-eps 100 --steps 200 --alpha-world 0.9 --novelty-weight 0.1",
-      "machine_affinity": "DLAPTOP-4.local",
-      "estimated_minutes": 15,
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T01:27:22.853543+00:00"
-      }
     }
   ]
 }
