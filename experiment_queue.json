@@ -46,7 +46,7 @@
       "note": "Fix for EXQ-087: E3 harm_eval_z_harm_head now in opt_harm during Phase 1, trained jointly with HarmEncoder. Smoke: C1/C2/C3 pass at 2 eps. 300+150+100 eps x 200 steps = 55 min Mac / 275 min Daniel-PC.",
       "claimed_by": {
         "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T16:42:47.990667+00:00"
+        "claimed_at": "2026-03-24T17:24:51.345496+00:00"
       }
     },
     {
