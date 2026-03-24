@@ -9,6 +9,9 @@
   "items": [
     {
       "queue_id": "V3-EXQ-074d",
+      "backlog_id": "",
+      "claim_id": "MECH-112",
+      "title": "MECH-112/117 Wanting vs Liking Dissociation -- fixed combined e1+e2 backward",
       "description": "MECH-112/117 wanting vs liking dissociation (goal attractor vs benefit_eval) -- fixed combined e1+e2 backward",
       "script": "experiments/v3_exq_074b_mech112_117_wanting_liking.py",
       "args": "--seed 42 --world-dim 32 --alpha-world 0.9 --lr 1e-3",
@@ -18,6 +21,9 @@
     },
     {
       "queue_id": "V3-EXQ-075c",
+      "backlog_id": "",
+      "claim_id": "MECH-113",
+      "title": "MECH-113 Self-Maintenance D_eff Homeostasis -- fixed WORLD_OBS_DIM=200 + combined e1+e2 backward",
       "description": "MECH-113 self-maintenance D_eff homeostasis -- fixed WORLD_OBS_DIM=200 + combined e1+e2 backward",
       "script": "experiments/v3_exq_075_mech113_self_maintenance.py",
       "args": "--seed 42 --warmup 200 --eval-eps 30 --steps 200 --noise-sigma 2.0 --alpha-world 0.9",
@@ -27,6 +33,9 @@
     },
     {
       "queue_id": "V3-EXQ-076c",
+      "backlog_id": "",
+      "claim_id": "MECH-116",
+      "title": "MECH-116/ARC-032 E1 Goal Conditioning (Frontal WM) -- fixed combined e1+e2 backward",
       "description": "MECH-116/ARC-032 E1 goal conditioning (frontal WM) -- fixed combined e1+e2 backward",
       "script": "experiments/v3_exq_076_mech116_arc032_e1_goal_conditioning.py",
       "args": "--seed 42 --world-dim 32 --alpha-world 0.9 --lr 1e-3",
@@ -36,6 +45,9 @@
     },
     {
       "queue_id": "V3-EXQ-084c",
+      "backlog_id": "",
+      "claim_id": "Q-022",
+      "title": "Q-022 / MECH-118/119 D_eff / Hopfield Stability Dissociation -- fixed combined e1+e2 backward",
       "description": "Q-022 D_eff / Hopfield stability dissociation test -- fixed combined e1+e2 backward",
       "script": "experiments/v3_exq_084_q022_deff_hopfield_dissociation.py",
       "args": "--seed 42 --warmup 300 --memory-eps 50 --analysis-eps 100 --steps 200 --noise-sigma 2.0 --alpha-world 0.9",
