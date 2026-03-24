@@ -46,7 +46,7 @@
       "note": "Fix for EXQ-088: explicit E3 training step during warmup using harm_bridge(z_world).detach() as input (matches eval distribution). 200 warmup + 5x80 eval eps x 150 steps = 45 min Mac / 225 min Daniel-PC.",
       "claimed_by": {
         "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T16:42:49.639588+00:00"
+        "claimed_at": "2026-03-24T17:25:15.838263+00:00"
       }
     }
   ]
