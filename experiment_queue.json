@@ -17,7 +17,11 @@
       "args": "--seed 42 --warmup 200 --eval-eps 30 --steps 200 --noise-sigma 2.0 --alpha-world 0.9",
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 60,
-      "status": "pending"
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-24T02:25:11.778202+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-076c",
