@@ -23,6 +23,14 @@ Observation structure (V3, use_proxy_fields=True — CausalGridWorldV2 mode):
   body_obs_dim  = 12
   world_obs_dim = 250
 
+  Extra obs_dict keys (not in flat observation):
+    harm_obs   [51]: SD-010 sensory-discriminative harm stream (Adelta-pathway analog).
+                     hazard_field_view[25] + resource_field_view[25] + harm_exposure[1].
+                     Immediate proximity; forward-predictable from action (HarmForwardModel).
+    harm_obs_a [50]: SD-011 affective-motivational harm stream (C-fiber analog).
+                     EMA of proximity fields at tau~20 steps. Accumulated homeostatic
+                     deviation. NOT forward-predicted -- feeds E3 directly (ARC-033).
+
 Proxy-gradient rationale (ARC-024 / INV-025-029):
   Harm and benefit signals are proxies along gradients pointing toward asymptotic
   limits (death / complete union) that are unreachable from within experience.
@@ -103,6 +111,7 @@ class CausalGridWorld:
         proximity_harm_scale: float = 0.05,
         proximity_benefit_scale: float = 0.03,
         nociception_ema_alpha: float = 0.1,
+        harm_obs_a_ema_alpha: float = 0.05,
         proximity_approach_threshold: float = 0.15,
     ):
         self.size = size
@@ -130,6 +139,7 @@ class CausalGridWorld:
         self.proximity_harm_scale = proximity_harm_scale
         self.proximity_benefit_scale = proximity_benefit_scale
         self.nociception_ema_alpha = nociception_ema_alpha
+        self.harm_obs_a_ema_alpha = harm_obs_a_ema_alpha
         self.proximity_approach_threshold = proximity_approach_threshold
 
         self._rng = np.random.default_rng(seed)
@@ -232,6 +242,11 @@ class CausalGridWorld:
         self.benefit_exposure: float = 0.0
         self.hazard_field = np.zeros((self.size, self.size), dtype=np.float32)
         self.resource_field = np.zeros((self.size, self.size), dtype=np.float32)
+        # SD-011: affective-motivational harm accumulator (C-fiber/paleospinothalamic analog).
+        # EMA of the 50-dim proximity vector (hazard_field_view[25] + resource_field_view[25])
+        # at a slower time constant (tau ~ 20 steps) than the scalar harm_exposure (tau ~ 10).
+        # Represents accumulated homeostatic threat state, not immediate proximity.
+        self.harm_obs_a_ema: np.ndarray = np.zeros(50, dtype=np.float32)
         if self.use_proxy_fields:
             self._compute_proximity_fields()
 
@@ -388,6 +403,24 @@ class CausalGridWorld:
                 self.benefit_exposure = (1 - alpha) * self.benefit_exposure + alpha * harm_signal
             else:
                 self.benefit_exposure = (1 - alpha) * self.benefit_exposure
+            # SD-011: update affective harm accumulator (slower tau than harm_exposure).
+            # EMA of the 50-dim proximity vector read at observation time (just before
+            # _get_observation_dict is called below). Proximity fields were already
+            # recomputed for this step via _compute_proximity_fields.
+            alpha_a = self.harm_obs_a_ema_alpha
+            ax2, ay2 = int(self.agent_x), int(self.agent_y)
+            hazard_max = float(self.hazard_field.max()) + 1e-6
+            resource_max = float(self.resource_field.max()) + 1e-6
+            prox_now = np.zeros(50, dtype=np.float32)
+            idx = 0
+            for di in range(-2, 3):
+                for dj in range(-2, 3):
+                    ni, nj = ax2 + di, ay2 + dj
+                    if 0 <= ni < self.size and 0 <= nj < self.size:
+                        prox_now[idx] = self.hazard_field[ni, nj] / hazard_max
+                        prox_now[idx + 25] = self.resource_field[ni, nj] / resource_max
+                    idx += 1
+            self.harm_obs_a_ema = (1.0 - alpha_a) * self.harm_obs_a_ema + alpha_a * prox_now
 
         # Env-caused drift
         if self.steps % self.env_drift_interval == 0 and self.steps > 0:
@@ -536,14 +569,18 @@ class CausalGridWorld:
             result["hazard_field_view"] = hazard_field_flat.float()
             result["resource_field_view"] = resource_field_flat.float()
             # SD-010: dedicated harm_obs for HarmEncoder (nociceptive separation).
-            # Combines the three harm-proximal signals into a single vector that
-            # bypasses the z_world encoder and reafference correction pipeline.
+            # Sensory-discriminative stream (z_harm_s, Adelta-pathway analog):
             # Layout: hazard_field_view[25] + resource_field_view[25] + harm_exposure[1]
             result["harm_obs"] = torch.cat([
                 hazard_field_flat.float(),
                 resource_field_flat.float(),
                 torch.tensor([float(np.clip(self.harm_exposure, 0.0, 1.0))]),
             ], dim=0)  # [51]
+            # SD-011: harm_obs_a for AffectiveHarmEncoder (affective-motivational stream,
+            # C-fiber/paleospinothalamic analog). EMA of proximity fields at slower tau
+            # (~20 steps vs ~10 for harm_exposure). Represents accumulated homeostatic
+            # threat state, not immediate proximity. Does NOT need a forward model.
+            result["harm_obs_a"] = torch.from_numpy(self.harm_obs_a_ema.copy()).float()  # [50]
         return result
 
     def _dict_to_flat(self, obs_dict: Dict[str, torch.Tensor]) -> torch.Tensor:

@@ -6,5 +6,25 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-095",
+      "title": "SD-003 Redesign: HarmForwardModel Counterfactual Pipeline",
+      "script": "experiments/v3_exq_095_harm_forward_model_sd003.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 130
+    },
+    {
+      "queue_id": "V3-EXQ-047k",
+      "title": "MECH-095 TPJ CE Routing Larger-N (4 seeds, relaxed action_dissoc)",
+      "script": "experiments/v3_exq_047k_tpj_routing_larger_n.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 340,
+      "supersedes": "V3-EXQ-047j"
+    }
+  ]
 }
