@@ -6,22 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-084c",
-      "backlog_id": "",
-      "claim_id": "Q-022",
-      "title": "Q-022 / MECH-118/119 D_eff / Hopfield Stability Dissociation -- fixed combined e1+e2 backward",
-      "description": "Q-022 D_eff / Hopfield stability dissociation test -- fixed combined e1+e2 backward",
-      "script": "experiments/v3_exq_084_q022_deff_hopfield_dissociation.py",
-      "args": "--seed 42 --warmup 300 --memory-eps 50 --analysis-eps 100 --steps 200 --noise-sigma 2.0 --alpha-world 0.9",
-      "machine_affinity": "DLAPTOP-4.local",
-      "estimated_minutes": 55,
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T02:25:20.327192+00:00"
-      }
-    }
-  ]
+  "items": []
 }
