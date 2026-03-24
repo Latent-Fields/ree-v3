@@ -14,11 +14,7 @@
       "args": "--seed 42 --world-dim 32 --alpha-world 0.9 --lr 1e-3",
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 15,
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T01:26:13.947959+00:00"
-      }
+      "status": "pending"
     },
     {
       "queue_id": "V3-EXQ-075c",
@@ -27,11 +23,7 @@
       "args": "--seed 42 --warmup 200 --eval-eps 30 --steps 200 --noise-sigma 2.0 --alpha-world 0.9",
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 60,
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T01:26:15.757295+00:00"
-      }
+      "status": "pending"
     },
     {
       "queue_id": "V3-EXQ-076c",
@@ -40,11 +32,7 @@
       "args": "--seed 42 --world-dim 32 --alpha-world 0.9 --lr 1e-3",
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 10,
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T01:26:17.304646+00:00"
-      }
+      "status": "pending"
     },
     {
       "queue_id": "V3-EXQ-084c",
@@ -53,11 +41,7 @@
       "args": "--seed 42 --warmup 300 --memory-eps 50 --analysis-eps 100 --steps 200 --noise-sigma 2.0 --alpha-world 0.9",
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 55,
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T01:26:18.679912+00:00"
-      }
+      "status": "pending"
     }
   ]
 }
