@@ -17,7 +17,11 @@
       "args": "--seed 42 --world-dim 32 --alpha-world 0.9 --lr 1e-3",
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 15,
-      "status": "pending"
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-24T02:25:06.534894+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-075c",
