@@ -56,26 +56,47 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   See MECH-098, MECH-101.
 
 ## SD Design Decisions Pending (V3)
-- SD-010: harm_stream.nociceptive_separation — The HARM stream (ARC-027) must be
-  implemented as a separate sensory pathway independent of z_world. Currently
-  hazard_field and resource_field proximity signals are fused into z_world via the
-  alpha_world EMA encoder. Required changes:
-  (1) CausalGridWorldV2 must emit a separate `harm_obs` vector (hazard proximity,
-      resource proximity) distinct from `world_obs` (positions, layout, content).
-  (2) A dedicated harm encoder: HarmEncoder(harm_obs → z_harm), small MLP, not
-      subject to reafference correction (by design — nociception is not reafference-
-      cancellable).
-  (3) E3.harm_eval takes z_harm as primary input (not z_world). z_harm has its own
-      training signal: direct supervision from hazard proximity labels.
-  (4) SD-007 reafference correction applies to z_world only (exteroceptive stream);
-      z_harm is untouched. This resolves the EXQ-027b over-correction paradox.
-  (5) SD-003 attribution: causal_sig = E3_harm(z_harm_actual) - E3_harm(z_harm_cf),
-      where z_harm_cf = HarmEncoder(E2.world_forward(z_world, a_cf)). Attribution
-      operates on the harm stream output, not the full world latent. This resolves
-      the EXQ-043/044 calibration collapse chain.
-  Evidence: EXQ-027b (reafference over-correction), EXQ-044 (SD-003 collapse),
-  EXQ-045 (MECH-102 advantage reversal), EXQ-047 (SD-005 calibration shortfall)
-  all converge on fused z_world as root cause. See ARC-027, ARC-017.
+- SD-010: harm_stream.nociceptive_separation — IMPLEMENTED. CausalGridWorldV2 emits
+  harm_obs; HarmEncoder(harm_obs -> z_harm) trains on proximity labels; E3.harm_eval
+  takes z_harm; SD-007 reafference does not apply to z_harm. EXQ-056c/058b PASS.
+  NOTE: SD-010 single-stream architecture is insufficient for SD-003 counterfactual.
+  See SD-011 for the required dual-stream extension.
+- SD-011: harm_stream.dual_nociceptive_streams — REQUIRED. EXQ-093/094 confirmed
+  bridge_r2=0: z_world perp z_harm by SD-010 design, so HarmBridge(z_world->z_harm)
+  is architecturally infeasible. The single z_harm conflates two functionally distinct
+  nociceptive signals that must be separated (Melzack & Casey 1968; Craig 2002/2009):
+  (1) z_harm_s (sensory-discriminative, Adelta-pathway analog): immediate proximity/
+      intensity. Analogous to lateral spinothalamic tract -> VPL -> S1/S2. FORWARD-
+      PREDICTABLE: moving away from hazard reduces proximity. E2_harm_s(z_harm_s, a)
+      -> z_harm_s_next is the correct counterfactual mechanism (ARC-033). SD-003
+      redesign: causal_sig = E3(z_harm_s_actual) - E3(z_harm_s_cf).
+  (2) z_harm_a (affective-motivational, C-fiber/paleospinothalamic analog): accumulated
+      homeostatic deviation/unpleasantness. Analogous to medial pathway -> CM/PF ->
+      ACC/insula/amygdala. INTEGRATIVE: EMA of harm_obs_s with tau=10-30 steps. NOT
+      counterfactually modeled. Feeds E3 directly as motivational urgency. ARC-016
+      harm variance gating (z_harm_a variance scales with accumulated threat state).
+  Required implementation changes:
+  (a) CausalGridWorldV2: emit harm_obs_a (EMA harm accumulator) alongside harm_obs_s.
+  (b) HarmEncoderS (rename HarmEncoder) + new HarmEncoderA(harm_obs_a -> z_harm_a).
+  (c) LatentState: add z_harm_a field.
+  (d) New E2_harm_s forward model module (ARC-033).
+  (e) E3Selector: take z_harm_s (attribution) and z_harm_a (commit gating) separately.
+  Biological grounding: Rainville et al. (1997, Science) gold-standard dissociation --
+  hypnotic modulation of unpleasantness modulates ACC (affective), not S1 (discriminative).
+  See ARC-033, SD-003 redesign note.
+- SD-008: encoder.z_world_alpha_correction — LatentStack.encode() EMA alpha for z_world
+  must be >= 0.9 (not 0.3). MECH-089 theta buffer already handles temporal integration;
+  the 0.3 encoder EMA double-smoothes z_world into a ~3-step average, suppressing event
+  responses (Δz_world ≈ 0 on all events), trivialising E2_world prediction (MSE ≈ 0.005
+  invariant to env perturbation), and preventing ARC-016 from firing (precision stuck at
+  ~188). alpha_self may remain low (body state is genuinely autocorrelated). Evidence:
+  EXQ-013 (event selectivity ≈ 0), EXQ-018 (precision invariant to drift_prob), EXQ-019
+  (z_self more autocorrelated than z_world — backwards). See MECH-100.
+  Config: LatentStackConfig.alpha_world (default 0.3 for compat; set to 0.9 or 1.0).
+- SD-009: encoder.event_contrastive_supervision — z_world encoder requires event-type
+  cross-entropy auxiliary loss during training (MECH-100). Reconstruction + E1-prediction
+  losses are invariant to harm-relevance; only supervised event discrimination forces
+  z_world to represent hazard-vs-empty distinctions. See EXQ-020.
 - SD-008: encoder.z_world_alpha_correction — LatentStack.encode() EMA alpha for z_world
   must be >= 0.9 (not 0.3). MECH-089 theta buffer already handles temporal integration;
   the 0.3 encoder EMA double-smoothes z_world into a ~3-step average, suppressing event
@@ -91,17 +112,19 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   z_world to represent hazard-vs-empty distinctions. See EXQ-020.
 
 ## SD Design Decisions Validated (V3) — 2026-03-18
-- SD-003: self_attribution.counterfactual_e2_pipeline — VALIDATED EXQ-030b PASS.
-  Full pipeline: z_world_actual = E2.world_forward(z_world, a_actual),
+- SD-003: self_attribution.counterfactual_e2_pipeline — VALIDATED EXQ-030b PASS
+  (on z_world pipeline). REDESIGN IN PROGRESS for z_harm_s pipeline (SD-011/ARC-033).
+  EXQ-030b pipeline: z_world_actual = E2.world_forward(z_world, a_actual),
   z_world_cf = E2.world_forward(z_world, a_cf), causal_sig = E3(z_world_actual) - E3(z_world_cf).
-  Results: world_forward_r2=0.947, attribution_gap=0.035, correct sign structure:
-    none=-0.074, env_caused=-0.029, hazard_approach=+0.005, agent_caused=+0.017.
-  Agent-caused events have positive causal signature; env-caused have negative.
-  Key fix: E3 must be trained on E2-predicted z_world states (not just observed)
-  to avoid distribution mismatch at eval. See experiments/v3_exq_030b_*.py.
-  Prerequisites confirmed: ARC-024 (gradient world, EXQ-028 PASS), MECH-071 (E3
-  harm_eval calibration, EXQ-026 + EXQ-029 PASS), SD-007 (reafference, EXQ-021 PASS),
-  SD-008 (alpha_world=0.9, EXQ-023 PASS).
+  Results: world_forward_r2=0.947, attribution_gap=0.035, correct sign structure.
+  NOTE: EXQ-030b validated the counterfactual ARCHITECTURE before SD-010 wired E3 to
+  take z_harm. Now that E3 operates on z_harm, the counterfactual must operate on the
+  harm stream. EXQ-093/094 confirmed HarmBridge(z_world->z_harm) has bridge_r2=0
+  (infeasible: z_world perp z_harm by SD-010 design). Redesigned pipeline (post SD-011):
+    z_harm_s_cf = E2_harm_s(z_harm_s, a_cf)
+    causal_sig = E3(z_harm_s_actual) - E3(z_harm_s_cf)
+  E2_harm_s is a learnable forward model on the sensory-discriminative harm stream (ARC-033).
+  DO NOT attempt HarmBridge counterfactuals -- bridge_r2=0 is architectural, not a bug.
 
 ## V3 / V4 Scope Boundary (2026-03-21)
 

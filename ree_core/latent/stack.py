@@ -165,9 +165,117 @@ class HarmEncoder(nn.Module):
         return self.encoder(harm_obs)
 
 
+class AffectiveHarmEncoder(nn.Module):
+    """
+    SD-011: Affective-motivational harm stream encoder (C-fiber/paleospinothalamic analog).
+
+    Encodes accumulated harm exposure (harm_obs_a) into z_harm_a. The input is a
+    temporally-integrated version of harm_obs -- an EMA maintained in the experiment
+    loop over tau=10-30 steps -- representing accumulated homeostatic deviation rather
+    than immediate proximity.
+
+    Distinct from HarmEncoder (sensory-discriminative, Adelta-pathway analog) in:
+    - Temporal scope: operates on integrated/accumulated signal, not immediate proximity
+    - Functional role: feeds E3 commit gating directly as motivational urgency signal
+    - NOT counterfactually predicted (no E2_harm_a forward model needed)
+    - ARC-016 harm variance gating operates on z_harm_a (accumulated threat state
+      should modulate commit threshold)
+
+    Biological grounding: C-fiber / paleospinothalamic tract (medial system) projects
+    via intralaminar thalamus (CM/PF) to ACC, anterior insula, amygdala. Encodes
+    unpleasantness, motivational urgency, homeostatic deviation. Slower temporal
+    profile than lateral (Adelta) system. Less suppressed by predictability --
+    Rainville et al. (1997, Science): hypnotic modulation of unpleasantness modulates
+    ACC (affective) not S1 (discriminative). Craig (2003): pain as homeostatic emotion.
+
+    See CLAUDE.md: SD-011. See HarmEncoder for the sensory-discriminative partner.
+    """
+
+    def __init__(self, harm_obs_a_dim: int = 51, z_harm_a_dim: int = 16):
+        super().__init__()
+        self.harm_obs_a_dim = harm_obs_a_dim
+        self.z_harm_a_dim = z_harm_a_dim
+        self.encoder = nn.Sequential(
+            nn.Linear(harm_obs_a_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, z_harm_a_dim),
+        )
+
+    def forward(self, harm_obs_a: torch.Tensor) -> torch.Tensor:
+        """
+        Encode accumulated harm observations into z_harm_a latent.
+
+        Args:
+            harm_obs_a: [batch, harm_obs_a_dim] -- EMA-accumulated harm proximity vector
+
+        Returns:
+            z_harm_a: [batch, z_harm_a_dim]
+        """
+        return self.encoder(harm_obs_a)
+
+
+class HarmForwardModel(nn.Module):
+    """
+    ARC-033: Sensory-discriminative harm forward model (E2_harm_s).
+
+    Predicts z_harm_s_next = E2_harm_s(z_harm_s, action), enabling SD-003
+    counterfactual attribution to operate within the harm stream without a
+    cross-stream bridge from z_world.
+
+    This is the solution to the EXQ-093/094 bridge_r2=0 problem. HarmBridge
+    (z_world -> z_harm) has R^2=0 by construction: SD-010 makes z_world perp
+    z_harm. HarmForwardModel avoids this by predicting z_harm_s from z_harm_s
+    (same stream) + action, exploiting the fact that sensory-discriminative
+    proximity is PREDICTABLE from action: moving away from a hazard reduces
+    proximity in a learnable, action-conditional way.
+
+    SD-003 redesigned pipeline (post-SD-011):
+        z_harm_s_cf = harm_fwd(z_harm_s, a_cf)
+        causal_sig = e3.harm_eval_z_harm(z_harm_s_actual) - e3.harm_eval_z_harm(z_harm_s_cf)
+
+    Biological grounding: Keltner et al. (2006, J Neurosci): predictability
+    suppresses sensory-discriminative pain activity (S1/S2). The brain models
+    expected nociceptive consequences of voluntary movement and cancels predicted
+    input -- the same cancellation logic that is not available for the affective
+    stream (ACC/insula, which integrates homeostatic context beyond single actions).
+
+    See CLAUDE.md: SD-011, ARC-033. Compare: HarmBridge (deprecated counterfactual).
+    """
+
+    def __init__(self, z_harm_dim: int = 32, action_dim: int = 4, hidden_dim: int = 64):
+        super().__init__()
+        self.z_harm_dim = z_harm_dim
+        self.action_dim = action_dim
+        self.forward_net = nn.Sequential(
+            nn.Linear(z_harm_dim + action_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, z_harm_dim),
+        )
+
+    def forward(self, z_harm_s: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        """
+        Predict next harm latent given current harm latent and action.
+
+        Args:
+            z_harm_s: [batch, z_harm_dim] -- sensory-discriminative harm latent (current)
+            action:   [batch, action_dim] -- action (one-hot or continuous)
+
+        Returns:
+            z_harm_s_next: [batch, z_harm_dim] -- predicted next harm latent
+        """
+        x = torch.cat([z_harm_s, action], dim=-1)
+        return self.forward_net(x)
+
+
 class HarmBridge(nn.Module):
     """
     SD-010 / SD-003: Counterfactual harm bridge.
+
+    DEPRECATED for SD-003 counterfactual use (2026-03-24).
+    EXQ-093/094 confirmed bridge_r2=0 -- z_world perp z_harm by SD-010 design;
+    this bridge has nothing to learn. Use HarmForwardModel (ARC-033) instead:
+        z_harm_s_cf = HarmForwardModel(z_harm_s, a_cf)
+    This class is kept for backward compatibility with existing experiment scripts.
 
     Maps z_world latent -> z_harm latent space, allowing the SD-003 attribution
     pipeline to compute counterfactual harm without access to raw harm_obs.
@@ -347,7 +455,8 @@ class LatentState:
     precision: Dict[str, torch.Tensor]
     timestamp: Optional[int] = None
     hypothesis_tag: bool = False  # MECH-094
-    z_harm: Optional[torch.Tensor] = None        # MECH-099 [batch, harm_dim]
+    z_harm: Optional[torch.Tensor] = None        # SD-010 sensory-discriminative harm [batch, harm_dim]
+    z_harm_a: Optional[torch.Tensor] = None      # SD-011 affective-motivational harm [batch, z_harm_a_dim]
     z_world_raw: Optional[torch.Tensor] = None   # SD-007 diagnostic [batch, world_dim]
     event_logits: Optional[torch.Tensor] = None  # SD-009 [batch, 3] for CE loss; None if not enabled
 
@@ -373,6 +482,7 @@ class LatentState:
             timestamp=self.timestamp,
             hypothesis_tag=self.hypothesis_tag,
             z_harm=self.z_harm.detach() if self.z_harm is not None else None,
+            z_harm_a=self.z_harm_a.detach() if self.z_harm_a is not None else None,
             z_world_raw=self.z_world_raw.detach() if self.z_world_raw is not None else None,
             event_logits=self.event_logits.detach() if self.event_logits is not None else None,
         )

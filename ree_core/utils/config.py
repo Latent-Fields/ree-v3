@@ -68,6 +68,17 @@ class LatentStackConfig:
     harm_obs_dim: int = 51    # hazard_field(25) + resource_field(25) + harm_exposure(1)
     z_harm_dim: int = 32
 
+    # SD-011: affective-motivational harm stream (C-fiber/paleospinothalamic analog, ARC-033).
+    # Separate from use_harm_stream (SD-010 sensory-discriminative, Adelta-analog).
+    # When True, experiments construct AffectiveHarmEncoder and maintain harm_obs_a as EMA
+    # of recent harm_obs (tau=10-30 steps). z_harm_a is NOT counterfactually predicted --
+    # it feeds E3 commit gating directly (motivational/urgency signal).
+    # harm_obs_a layout: same as harm_obs_s by default (full proximity vector EMA);
+    # or use harm_obs[50:] (1-dim harm_exposure EMA already emitted by env).
+    use_affective_harm_stream: bool = False
+    harm_obs_a_dim: int = 51  # same layout as harm_obs; experiment may pass [:50] or all
+    z_harm_a_dim: int = 16    # smaller than z_harm_dim -- less spatial resolution needed
+
     # SD-007: ReafferencePredictor — perspective-shift correction for z_world.
     # Set reafference_action_dim = action_dim (e.g. 4) to enable.
     # 0 = disabled (default; backward compatible with EXQ-001-025).
