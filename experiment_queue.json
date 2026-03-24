@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-076c",
-      "backlog_id": "",
-      "claim_id": "MECH-116",
-      "title": "MECH-116/ARC-032 E1 Goal Conditioning (Frontal WM) -- fixed combined e1+e2 backward",
-      "description": "MECH-116/ARC-032 E1 goal conditioning (frontal WM) -- fixed combined e1+e2 backward",
-      "script": "experiments/v3_exq_076_mech116_arc032_e1_goal_conditioning.py",
-      "args": "--seed 42 --world-dim 32 --alpha-world 0.9 --lr 1e-3",
-      "machine_affinity": "DLAPTOP-4.local",
-      "estimated_minutes": 10,
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T02:25:16.140088+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-084c",
       "backlog_id": "",
       "claim_id": "Q-022",
