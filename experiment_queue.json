@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-074d",
-      "backlog_id": "",
-      "claim_id": "MECH-112",
-      "title": "MECH-112/117 Wanting vs Liking Dissociation -- fixed combined e1+e2 backward",
-      "description": "MECH-112/117 wanting vs liking dissociation (goal attractor vs benefit_eval) -- fixed combined e1+e2 backward",
-      "script": "experiments/v3_exq_074b_mech112_117_wanting_liking.py",
-      "args": "--seed 42 --world-dim 32 --alpha-world 0.9 --lr 1e-3",
-      "machine_affinity": "DLAPTOP-4.local",
-      "estimated_minutes": 15,
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-24T02:25:06.534894+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-075c",
       "backlog_id": "",
       "claim_id": "MECH-113",
