@@ -6,5 +6,34 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-085e",
+      "title": "MECH-071 drive-modulated goal seeding (SD-012 fix)",
+      "experiment_type": "v3_exq_085e_mech071_drive_modulated_goal",
+      "script": "experiments/v3_exq_085e_mech071_drive_modulated_goal.py",
+      "supersedes": "V3-EXQ-085d",
+      "machine_affinity": "any",
+      "priority": 1,
+      "status": "claimed",
+      "estimated_minutes": 210,
+      "args": {
+        "seeds": [
+          42,
+          7,
+          13
+        ],
+        "warmup": 300,
+        "eval_eps": 50,
+        "steps": 200,
+        "curriculum": 100,
+        "drive_weight": 2.0,
+        "alpha_world": 0.9
+      },
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-25T06:14:31.724746+00:00"
+      }
+    }
+  ]
 }
