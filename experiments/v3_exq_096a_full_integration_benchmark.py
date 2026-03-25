@@ -42,9 +42,12 @@ from ree_core.utils.config import REEConfig
 
 EXPERIMENT_TYPE = "v3_exq_096a_full_integration_benchmark"
 CLAIM_IDS = [
-    "SD-005", "ARC-016", "MECH-094", "MECH-090",
+    "SD-005", "ARC-016", "MECH-090",
     "SD-006", "ARC-007", "MECH-089", "MECH-093",
 ]
+# MECH-094 removed: C5 (residue_harm_coverage) tests residue accumulation, not hypothesis-tag
+# gating. hypothesis_tag=False was hardcoded throughout; tag was never varied. A dedicated
+# experiment toggling hypothesis_tag is required (see evidence_direction_note in manifest).
 
 HARM_OBS_DIM    = 51
 HARM_OBS_A_DIM  = 50
