@@ -13,9 +13,13 @@
       "script": "experiments/v3_exq_047k_tpj_routing_larger_n.py",
       "priority": 2,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 340,
-      "supersedes": "V3-EXQ-047j"
+      "supersedes": "V3-EXQ-047j",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-25T02:13:51.090084+00:00"
+      }
     }
   ]
 }
