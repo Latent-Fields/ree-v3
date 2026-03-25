@@ -8,6 +8,16 @@
   },
   "items": [
     {
+      "queue_id": "V3-ONBOARD-smoke-EWINPC",
+      "title": "Onboarding smoke test -- EWINPC (Eoin)",
+      "experiment_type": "v3_onboard_smoke_EWINPC",
+      "script": "experiments/v3_onboard_smoke_EWINPC.py",
+      "machine_affinity": "EWINPC",
+      "priority": 0,
+      "status": "pending",
+      "estimated_minutes": 20
+    },
+    {
       "queue_id": "V3-EXQ-085e",
       "title": "MECH-071 drive-modulated goal seeding (SD-012 fix)",
       "experiment_type": "v3_exq_085e_mech071_drive_modulated_goal",
