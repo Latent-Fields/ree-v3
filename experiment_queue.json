@@ -6,30 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-096a",
-      "title": "Full integration benchmark (EXQ-096a) -- residue fix, cumulative progress, extended P2",
-      "script": "experiments/v3_exq_096a_full_integration_benchmark.py",
-      "estimated_minutes": 170,
-      "episodes_per_run": 1100,
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 3,
-      "supersedes": "V3-EXQ-096",
-      "status": "claimed",
-      "tags": [
-        "integration",
-        "sd-005",
-        "sd-010",
-        "sd-011",
-        "mech-090",
-        "mech-094",
-        "arc-016"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-25T05:26:44.511759+00:00"
-      }
-    }
-  ]
+  "items": []
 }
