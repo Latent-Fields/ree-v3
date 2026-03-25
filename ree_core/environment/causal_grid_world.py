@@ -106,6 +106,8 @@ class CausalGridWorld:
         sequence_commitment_timeout: int = 20,
         # Proxy-gradient field mode (ARC-024, CausalGridWorldV2)
         use_proxy_fields: bool = False,
+        # SD-012: resource respawn for repeated drive-reduction cycles
+        resource_respawn_on_consume: bool = False,
         hazard_field_decay: float = 0.5,
         resource_field_decay: float = 0.5,
         proximity_harm_scale: float = 0.05,
@@ -134,6 +136,7 @@ class CausalGridWorld:
 
         # Proxy-gradient parameters
         self.use_proxy_fields = use_proxy_fields
+        self.resource_respawn_on_consume = resource_respawn_on_consume
         self.hazard_field_decay = hazard_field_decay
         self.resource_field_decay = resource_field_decay
         self.proximity_harm_scale = proximity_harm_scale
@@ -333,7 +336,10 @@ class CausalGridWorld:
                 self.resources = [
                     r for r in self.resources if not (r[0] == new_x and r[1] == new_y)
                 ]
-                # Resource consumed — recompute resource field
+                # SD-012: optional resource respawn for repeated drive-reduction cycles
+                if self.resource_respawn_on_consume:
+                    self._respawn_resource()
+                # Resource consumed (or respawned) — recompute resource field
                 if self.use_proxy_fields:
                     self._compute_proximity_fields()
 
@@ -641,6 +647,21 @@ class CausalGridWorld:
         # Recompute hazard field after any drift
         if self.use_proxy_fields and drifted:
             self._compute_proximity_fields()
+
+    def _respawn_resource(self) -> None:
+        """SD-012: Spawn one new resource at a random empty cell after consumption."""
+        available = [
+            (i, j)
+            for i in range(1, self.size - 1)
+            for j in range(1, self.size - 1)
+            if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+        ]
+        if not available:
+            return
+        self._rng.shuffle(available)
+        rx, ry = available[0]
+        self.grid[rx, ry] = self.ENTITY_TYPES["resource"]
+        self.resources.append([rx, ry])
 
     def _respawn_waypoints(self) -> None:
         """Respawn waypoints after sequence completion or timeout."""

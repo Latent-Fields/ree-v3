@@ -591,13 +591,20 @@ class REEAgent(nn.Module):
             target = target.unsqueeze(-1)
         return F.mse_loss(benefit_pred, target.expand_as(benefit_pred))
 
-    def update_z_goal(self, benefit_exposure: float) -> None:
-        """Update z_goal from benefit signal (MECH-112 wanting update)."""
+    def update_z_goal(self, benefit_exposure: float, drive_level: float = 1.0) -> None:
+        """Update z_goal from benefit signal (MECH-112 wanting update).
+
+        Args:
+            benefit_exposure: scalar benefit this step (obs_body[11] in proxy mode)
+            drive_level: homeostatic drive 0=sated, 1=depleted (SD-012).
+                         Compute as: 1.0 - float(obs_body[0, 3]) where obs_body[3]=energy.
+        """
         if self.goal_state is None or self._current_latent is None:
             return
         self.goal_state.update(
             self._current_latent.z_world,
             benefit_exposure,
+            drive_level=drive_level,
         )
 
     def compute_goal_maintenance_diagnostic(self) -> dict:

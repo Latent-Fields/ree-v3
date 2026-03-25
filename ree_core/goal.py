@@ -37,6 +37,12 @@ class GoalConfig:
     # Weight of goal proximity in trajectory scoring (subtracted from cost)
     goal_weight: float = 1.0
 
+    # SD-012: drive modulation weight for z_goal update.
+    # effective_benefit = benefit_exposure * (1.0 + drive_weight * drive_level)
+    # drive_level = 1.0 - energy (obs_body[3]).
+    # 0.0 disables drive modulation (backward compat); 2.0 recommended for seeding.
+    drive_weight: float = 0.0
+
     # Whether E1 receives z_goal as conditioning input (MECH-116)
     e1_goal_conditioned: bool = True
 
@@ -73,21 +79,30 @@ class GoalState:
         self,
         z_world_current: torch.Tensor,
         benefit_exposure: float,
+        drive_level: float = 1.0,
     ) -> None:
         """
         Update z_goal from current world state and benefit signal.
 
-        Always decays. Pulls toward z_world if benefit > threshold.
+        Always decays. Pulls toward z_world if drive-scaled benefit > threshold.
 
         Args:
             z_world_current: [batch, world_dim]
             benefit_exposure: scalar benefit this step (body_state[11])
+            drive_level: homeostatic drive 0=sated, 1=depleted (SD-012).
+                         effective_benefit = benefit_exposure * (1 + drive_weight * drive_level).
+                         Default 1.0 for backward compat when drive_weight=0.
         """
         # Always decay toward zero
         self._z_goal = self._z_goal * (1.0 - self.config.decay_goal)
 
-        # Pull toward current z_world if benefit fires
-        if benefit_exposure > self.config.benefit_threshold:
+        # SD-012: scale benefit by drive level
+        effective_benefit = benefit_exposure * (
+            1.0 + self.config.drive_weight * drive_level
+        )
+
+        # Pull toward current z_world if effective benefit fires
+        if effective_benefit > self.config.benefit_threshold:
             z_w = z_world_current.detach()
             if z_w.dim() == 2:
                 z_w = z_w.mean(dim=0, keepdim=True)
