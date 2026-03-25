@@ -35,5 +35,34 @@
         "claimed_at": "2026-03-25T07:08:53.413379+00:00"
       }
     }
+    ,
+    {
+      "queue_id": "V3-EXQ-074b",
+      "title": "MECH-112/117 wanting/liking dissociation",
+      "experiment_type": "v3_exq_074b_mech112_117_wanting_liking",
+      "script": "experiments/v3_exq_074b_mech112_117_wanting_liking.py",
+      "supersedes": "V3-EXQ-074",
+      "machine_affinity": "any",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 15,
+      "seeds": 1,
+      "conditions": 3,
+      "args": ["--seed", "42", "--alpha-world", "0.9"]
+    },
+    {
+      "queue_id": "V3-EXQ-076b",
+      "title": "MECH-116/ARC-032 E1 goal conditioning (frontal working memory)",
+      "experiment_type": "v3_exq_076_mech116_arc032_e1_goal_conditioning",
+      "script": "experiments/v3_exq_076_mech116_arc032_e1_goal_conditioning.py",
+      "supersedes": "V3-EXQ-076",
+      "machine_affinity": "any",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 10,
+      "seeds": 1,
+      "conditions": 2,
+      "args": ["--seed", "42", "--alpha-world", "0.9"]
+    }
   ]
 }
