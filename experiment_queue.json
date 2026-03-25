@@ -6,5 +6,30 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-096",
+      "title": "V3 Full Integration Benchmark",
+      "script": "experiments/v3_exq_096_full_integration_benchmark.py",
+      "claim_ids": [
+        "SD-005",
+        "ARC-016",
+        "MECH-094",
+        "MECH-090",
+        "SD-006",
+        "ARC-007",
+        "MECH-089",
+        "MECH-093"
+      ],
+      "priority": 1,
+      "estimated_minutes": 150,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "notes": "Full-stack V3 integration benchmark. All components active: E1+E2+E3+Hippocampus+ResidueField+MultiRateClock+ThetaBuffer+BetaGate+SD-005/010/011. P1=terrain(500ep random), P2=E3-cal(300ep stratified), P3=agent-eval(150ep full loop), P4=edge-cases(4x50ep). Tests: SD-005 self-other boundary, E3 harm avoidance, MECH-094 residue gate, MECH-090 beta gate, SD-006 multi-rate clock.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-25T04:38:19.033314+00:00"
+      }
+    }
+  ]
 }
