@@ -13,8 +13,12 @@
       "script": "experiments/v3_exq_095_harm_forward_model_sd003.py",
       "priority": 1,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
-      "estimated_minutes": 130
+      "status": "claimed",
+      "estimated_minutes": 130,
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-25T02:13:35.179390+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-047k",
