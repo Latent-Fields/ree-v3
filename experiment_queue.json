@@ -16,8 +16,20 @@
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 3,
       "supersedes": "V3-EXQ-096",
-      "status": "pending",
-      "tags": ["integration", "sd-005", "sd-010", "sd-011", "mech-090", "mech-094", "arc-016"]
+      "status": "claimed",
+      "tags": [
+        "integration",
+        "sd-005",
+        "sd-010",
+        "sd-011",
+        "mech-090",
+        "mech-094",
+        "arc-016"
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-25T05:26:44.511759+00:00"
+      }
     }
   ]
 }
