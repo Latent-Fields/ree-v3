@@ -625,6 +625,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             m = RE_EP_PROGRESS.search(line)
             if m:
                 episodes_in_run = int(m.group(1))
+                episodes_per_run = int(m.group(2))  # use denominator for accurate pct
 
             # Progress bar -- print every 20% of progress
             if episodes_in_run > 0:
