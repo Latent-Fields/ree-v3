@@ -54,22 +54,6 @@
         "--alpha-world",
         "0.9"
       ]
-    },
-    {
-      "queue_id": "V3-EXQ-098",
-      "title": "MECH-099 Three-Stream vs Two-Stream Harm Channel Architecture",
-      "script": "experiments/v3_exq_098_mech099_three_stream.py",
-      "claim_id": "MECH-099",
-      "machine_affinity": "any",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 20,
-      "args": "--alpha-world 0.9 --seeds 42 7",
-      "note": "MECH-099 conflict resolution: THREE_STREAM (harm_dim=16) vs TWO_STREAM (harm_dim=0). Supersedes EXQ-015 and EXQ-017 (contaminated by SD-008 alpha_world=0.3 bug).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-26T21:48:19.373408+00:00"
-      }
     }
   ]
 }
