@@ -28,17 +28,26 @@
       "status": "claimed",
       "estimated_minutes": 210,
       "args": [
-        "--seeds", "42", "7", "13",
-        "--warmup", "300",
-        "--eval-eps", "50",
-        "--steps", "200",
-        "--curriculum", "100",
-        "--drive-weight", "2.0",
-        "--alpha-world", "0.9"
+        "--seeds",
+        "42",
+        "7",
+        "13",
+        "--warmup",
+        "300",
+        "--eval-eps",
+        "50",
+        "--steps",
+        "200",
+        "--curriculum",
+        "100",
+        "--drive-weight",
+        "2.0",
+        "--alpha-world",
+        "0.9"
       ],
       "claimed_by": {
         "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-26T13:34:05.176701+00:00"
+        "claimed_at": "2026-03-26T16:58:19.267265+00:00"
       }
     },
     {
