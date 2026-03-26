@@ -521,7 +521,16 @@ class REEAgent(nn.Module):
         z_self_t1: torch.Tensor,
     ) -> None:
         """Record (z_self_t, a_t, z_self_{t+1}) for E2 motor-sensory training."""
-        self._e2_transition_buffer.append((z_self_t, action, z_self_t1))
+        # Detach all three: replay buffer entries must not retain computation graphs.
+        # action from E3 select() is a slice (AsStrided) of trajectory tensors that
+        # may have E3 parameter grad_fns. Without detach, compute_e2_loss() backward()
+        # propagates through E3's graph and version-increments E3 tensors mid-backward,
+        # causing "modified by an inplace operation" RuntimeError on the next call.
+        self._e2_transition_buffer.append((
+            z_self_t.detach().clone(),
+            action.detach().clone(),
+            z_self_t1.detach().clone(),
+        ))
         if len(self._e2_transition_buffer) > 1000:
             self._e2_transition_buffer = self._e2_transition_buffer[-1000:]
 

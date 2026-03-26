@@ -18,11 +18,11 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-074b",
-      "title": "MECH-112/117 wanting/liking dissociation",
-      "experiment_type": "v3_exq_074b_mech112_117_wanting_liking",
-      "script": "experiments/v3_exq_074b_mech112_117_wanting_liking.py",
-      "supersedes": "V3-EXQ-074",
+      "queue_id": "V3-EXQ-074c",
+      "title": "MECH-112/117 wanting/liking dissociation (detach fix)",
+      "experiment_type": "v3_exq_074c_mech112_117_wanting_liking",
+      "script": "experiments/v3_exq_074c_mech112_117_wanting_liking.py",
+      "supersedes": "V3-EXQ-074b",
       "machine_affinity": "any",
       "priority": 2,
       "status": "pending",
@@ -37,11 +37,11 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-076b",
-      "title": "MECH-116/ARC-032 E1 goal conditioning (frontal working memory)",
-      "experiment_type": "v3_exq_076_mech116_arc032_e1_goal_conditioning",
-      "script": "experiments/v3_exq_076_mech116_arc032_e1_goal_conditioning.py",
-      "supersedes": "V3-EXQ-076",
+      "queue_id": "V3-EXQ-076c",
+      "title": "MECH-116/ARC-032 E1 goal conditioning (frontal working memory, detach fix)",
+      "experiment_type": "v3_exq_076c_mech116_arc032_e1_goal_conditioning",
+      "script": "experiments/v3_exq_076c_mech116_arc032_e1_goal_conditioning.py",
+      "supersedes": "V3-EXQ-076b",
       "machine_affinity": "any",
       "priority": 2,
       "status": "pending",
