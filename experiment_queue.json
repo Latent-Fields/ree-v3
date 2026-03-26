@@ -18,39 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-085e",
-      "title": "MECH-071 drive-modulated goal seeding (SD-012 fix)",
-      "experiment_type": "v3_exq_085e_mech071_drive_modulated_goal",
-      "script": "experiments/v3_exq_085e_mech071_drive_modulated_goal.py",
-      "supersedes": "V3-EXQ-085d",
-      "machine_affinity": "any",
-      "priority": 1,
-      "status": "claimed",
-      "estimated_minutes": 210,
-      "args": [
-        "--seeds",
-        "42",
-        "7",
-        "13",
-        "--warmup",
-        "300",
-        "--eval-eps",
-        "50",
-        "--steps",
-        "200",
-        "--curriculum",
-        "100",
-        "--drive-weight",
-        "2.0",
-        "--alpha-world",
-        "0.9"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-26T18:08:39.749076+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-074b",
       "title": "MECH-112/117 wanting/liking dissociation",
       "experiment_type": "v3_exq_074b_mech112_117_wanting_liking",
