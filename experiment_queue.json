@@ -54,20 +54,6 @@
         "--alpha-world",
         "0.9"
       ]
-    },
-    {
-      "queue_id": "V3-EXQ-099",
-      "title": "MECH-098 reafference upgrade gate (3-layer MLP h=128) + discriminative pair",
-      "experiment_type": "v3_exq_099_mech098_reafference_upgrade",
-      "script": "experiments/v3_exq_099_mech098_reafference_upgrade.py",
-      "machine_affinity": "any",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 35,
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-26T22:05:40.671039+00:00"
-      }
     }
   ]
 }
