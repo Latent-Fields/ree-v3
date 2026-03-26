@@ -42,10 +42,9 @@
       },
       "claimed_by": {
         "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-25T07:08:53.413379+00:00"
+        "claimed_at": "2026-03-26T13:34:05.176701+00:00"
       }
-    }
-    ,
+    },
     {
       "queue_id": "V3-EXQ-074b",
       "title": "MECH-112/117 wanting/liking dissociation",
@@ -58,7 +57,12 @@
       "estimated_minutes": 15,
       "seeds": 1,
       "conditions": 3,
-      "args": ["--seed", "42", "--alpha-world", "0.9"]
+      "args": [
+        "--seed",
+        "42",
+        "--alpha-world",
+        "0.9"
+      ]
     },
     {
       "queue_id": "V3-EXQ-076b",
@@ -72,7 +76,12 @@
       "estimated_minutes": 10,
       "seeds": 1,
       "conditions": 2,
-      "args": ["--seed", "42", "--alpha-world", "0.9"]
+      "args": [
+        "--seed",
+        "42",
+        "--alpha-world",
+        "0.9"
+      ]
     }
   ]
 }
