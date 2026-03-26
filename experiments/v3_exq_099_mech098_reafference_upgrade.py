@@ -12,15 +12,17 @@ Root cause of prior FAILs (EXQ-069, EXQ-082):
   held-out data. At this quality the correction subtracts real signal along with noise,
   degrading z_world. This is an ENGINEERING failure, not a conceptual one.
   R2 target >= 0.70 before re-testing MECH-098.
-  Upgrade path: 3-layer MLP, hidden_dim=128.
+  Upgrade path: LSTM, hidden_dim=128 (trajectory-aware; MLP cannot model optic-flow accumulation).
 
 This experiment has TWO PHASES:
 
 Phase 1 -- Predictor upgrade gate:
-  Instantiate UpgradedReafferencePredictor (3-layer MLP, hidden_dim=128) inline.
-  Collect (z_world_raw_prev, a_prev) -> delta_z_world_raw training data from pure
-  locomotion steps (transition_type == "none"). Train supervised. Measure R2 on
-  held-out set.
+  Instantiate UpgradedReafferencePredictor (LSTM, hidden_dim=128) inline.
+  Collect consecutive locomotion sequences (transition_type == "none") as episode-level
+  sequences. Train via BPTT (sequence-level MSE). Measure R2 on held-out sequences.
+  LSTM is necessary because perspective shifts depend on accumulated motion trajectory
+  (optic flow is trajectory-dependent, not single-step), so temporal memory is
+  load-bearing.
   If R2_test < 0.70: FAIL with note "predictor R2 insufficient (R2=X), engineering
   bottleneck remains." This DOES NOT weaken MECH-098 conceptually.
 
@@ -70,31 +72,42 @@ CLAIM_IDS = ["MECH-098"]
 
 class UpgradedReafferencePredictor(nn.Module):
     """
-    3-layer MLP, hidden_dim=128. Upgrade of SD-007 ReafferencePredictor (2-layer, h=64).
+    LSTM reafference predictor (hidden_dim=128).
+    Upgrade of SD-007 ReafferencePredictor (2-layer MLP, h=64, R2=0.339).
 
-    Same public interface as ReafferencePredictor in stack.py:
-      forward(z_world_prev, a_prev) -> delta_z_world_loco
+    Perspective shifts depend on accumulated motion trajectory, not just the
+    current action: optic flow integrates over direction-of-travel history
+    (cell content entering/leaving the egocentric view window). An MLP sees
+    only (z_world_raw_prev, a_prev) as a stateless pair and cannot model this
+    accumulation. The LSTM maintains trajectory context in its hidden state.
+
+    Public interface (matches ReafferencePredictor in stack.py):
+      forward(z_world_prev, a_prev) -> delta_z_world_loco  [single-step, stateful]
+      forward_sequence(x_seq)       -> delta_seq            [BPTT training only]
       correct_z_world(z_world_raw, z_world_prev, a_prev) -> z_world_corrected
-
-    Biological basis: MSTd congruent neuron populations (Gu et al. 2008) decompose
-    optic flow into self-motion (reafference) vs genuine world change (exafference)
-    using efference copy from premotor cortex. This larger network better models the
-    content-dependent perspective shift (cell content entering view during locomotion).
+      reset_hidden()                                        [call at episode boundary]
 
     MECH-101: input is z_world_raw_prev (NOT z_self_prev).
+    Biological basis: MSTd congruent populations (Gu et al. 2008) + efference copy.
     """
 
     def __init__(self, world_dim: int, action_dim: int, hidden_dim: int = 128):
         super().__init__()
-        self.world_dim = world_dim
+        self.world_dim  = world_dim
         self.action_dim = action_dim
-        self.net = nn.Sequential(
-            nn.Linear(world_dim + action_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, world_dim),
+        self.hidden_dim = hidden_dim
+        self.lstm = nn.LSTM(
+            input_size=world_dim + action_dim,
+            hidden_size=hidden_dim,
+            num_layers=1,
+            batch_first=True,
         )
+        self.out = nn.Linear(hidden_dim, world_dim)
+        self._hidden: Optional[Tuple[torch.Tensor, torch.Tensor]] = None
+
+    def reset_hidden(self) -> None:
+        """Reset LSTM hidden state at episode boundary."""
+        self._hidden = None
 
     def forward(
         self,
@@ -102,16 +115,29 @@ class UpgradedReafferencePredictor(nn.Module):
         a_prev: torch.Tensor,
     ) -> torch.Tensor:
         """
-        Predict z_world delta caused by self-motion (perspective shift).
+        Single-step stateful forward. Updates internal hidden state.
 
         Args:
             z_world_prev: [batch, world_dim]
             a_prev:       [batch, action_dim]
-
         Returns:
             delta_z_world_loco: [batch, world_dim]
         """
-        return self.net(torch.cat([z_world_prev, a_prev], dim=-1))
+        x = torch.cat([z_world_prev, a_prev], dim=-1).unsqueeze(1)  # [B, 1, in]
+        out, self._hidden = self.lstm(x, self._hidden)
+        return self.out(out.squeeze(1))  # [B, world_dim]
+
+    def forward_sequence(self, x_seq: torch.Tensor) -> torch.Tensor:
+        """
+        Sequence forward for BPTT training. Does NOT use internal hidden state.
+
+        Args:
+            x_seq: [batch, seq_len, world_dim + action_dim]
+        Returns:
+            delta_seq: [batch, seq_len, world_dim]
+        """
+        out, _ = self.lstm(x_seq)
+        return self.out(out)
 
     def correct_z_world(
         self,
@@ -119,11 +145,6 @@ class UpgradedReafferencePredictor(nn.Module):
         z_world_prev: torch.Tensor,
         a_prev: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Apply reafference correction.
-
-        z_world_corrected = z_world_raw - delta_z_world_loco
-        """
         return z_world_raw - self.forward(z_world_prev, a_prev)
 
 
@@ -179,7 +200,7 @@ def _build_config(
 # Phase 1: collect data + train upgraded predictor
 # ---------------------------------------------------------------------------
 
-def _collect_predictor_data(
+def _collect_predictor_sequences(
     seed: int,
     n_episodes: int,
     steps_per_episode: int,
@@ -189,13 +210,20 @@ def _collect_predictor_data(
     alpha_self: float,
     harm_scale: float,
     proximity_harm_scale: float,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    max_seq_len: int = 60,
+) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
     """
-    Collect (z_world_raw_prev + a_prev, delta_z_world_raw) training pairs
-    from pure-locomotion steps (transition_type == "none").
+    Collect per-episode locomotion sequences for LSTM BPTT training.
 
-    Uses reafference DISABLED so z_world_raw is truly the raw encoder output
-    with no partial correction applied.
+    Each element is one episode's consecutive locomotion-only steps
+    (transition_type == "none"), returned as:
+      X_seq: [seq_len, world_dim + action_dim]
+      Y_seq: [seq_len, world_dim]   (delta_z_world_raw)
+
+    Episodes with fewer than 2 locomotion steps are skipped.
+    max_seq_len caps sequence length for stable BPTT.
+
+    Reafference is DISABLED so z_world_raw is the true raw encoder output.
     """
     torch.manual_seed(seed)
     random.seed(seed)
@@ -205,16 +233,18 @@ def _collect_predictor_data(
     agent = REEAgent(config)
     agent.eval()
 
-    inputs: List[torch.Tensor] = []
-    targets: List[torch.Tensor] = []
+    X_seqs: List[torch.Tensor] = []
+    Y_seqs: List[torch.Tensor] = []
 
-    for ep in range(n_episodes):
+    for _ in range(n_episodes):
         _, obs_dict = env.reset()
         agent.reset()
 
         prev_z_world_raw: Optional[torch.Tensor] = None
+        ep_inputs: List[torch.Tensor] = []
+        ep_targets: List[torch.Tensor] = []
 
-        for step in range(steps_per_episode):
+        for _ in range(steps_per_episode):
             obs_body  = obs_dict["body_state"]
             obs_world = obs_dict["world_state"]
 
@@ -222,9 +252,9 @@ def _collect_predictor_data(
                 latent = agent.sense(obs_body, obs_world)
             agent.clock.advance()
 
-            z_world_raw_curr = latent.z_world_raw  # uncorrected encoder output
+            z_world_raw_curr = latent.z_world_raw
             if z_world_raw_curr is None:
-                z_world_raw_curr = latent.z_world   # fallback (should not happen)
+                z_world_raw_curr = latent.z_world  # fallback
 
             action_idx = random.randint(0, env.action_dim - 1)
             action = _action_to_onehot(action_idx, env.action_dim, agent.device)
@@ -233,32 +263,59 @@ def _collect_predictor_data(
             _, _, done, info, obs_dict = env.step(action)
             ttype = info.get("transition_type", "none")
 
-            # Collect only pure locomotion steps (no genuine world event)
             if ttype == "none" and prev_z_world_raw is not None:
-                delta = (z_world_raw_curr - prev_z_world_raw).detach()  # [1, world_dim]
-                inp = torch.cat(
+                delta = (z_world_raw_curr - prev_z_world_raw).detach()
+                inp   = torch.cat(
                     [prev_z_world_raw.detach(), action.detach()], dim=-1
-                )  # [1, world_dim + action_dim]
-                inputs.append(inp.squeeze(0))
-                targets.append(delta.squeeze(0))
+                )
+                ep_inputs.append(inp.squeeze(0))
+                ep_targets.append(delta.squeeze(0))
+
+                # Flush sequence at max_seq_len to bound BPTT graph size
+                if len(ep_inputs) >= max_seq_len:
+                    X_seqs.append(torch.stack(ep_inputs))
+                    Y_seqs.append(torch.stack(ep_targets))
+                    ep_inputs  = []
+                    ep_targets = []
 
             prev_z_world_raw = z_world_raw_curr.detach()
 
             if done:
                 break
 
-    if not inputs:
-        # Return empty tensors; caller handles insufficient data
-        wdim = world_dim
-        adim = env.action_dim
-        return torch.empty(0, wdim + adim), torch.empty(0, wdim)
+        # Save partial sequence at episode end (if >= 2 steps)
+        if len(ep_inputs) >= 2:
+            X_seqs.append(torch.stack(ep_inputs))
+            Y_seqs.append(torch.stack(ep_targets))
 
-    return torch.stack(inputs), torch.stack(targets)
+    return X_seqs, Y_seqs
+
+
+def _r2_on_sequences(
+    pred: "UpgradedReafferencePredictor",
+    X_seqs: List[torch.Tensor],
+    Y_seqs: List[torch.Tensor],
+) -> float:
+    """Compute R2 across all test sequences (flattened)."""
+    all_pred: List[torch.Tensor] = []
+    all_true: List[torch.Tensor] = []
+    with torch.no_grad():
+        for X_seq, Y_seq in zip(X_seqs, Y_seqs):
+            p = pred.forward_sequence(X_seq.unsqueeze(0)).squeeze(0)  # [seq_len, world_dim]
+            all_pred.append(p)
+            all_true.append(Y_seq)
+    if not all_pred:
+        return 0.0
+    preds = torch.cat(all_pred, dim=0)
+    trues = torch.cat(all_true, dim=0)
+    ss_res = ((preds - trues) ** 2).sum().item()
+    ss_tot = ((trues - trues.mean(dim=0)) ** 2).sum().item()
+    return 1.0 - ss_res / ss_tot if ss_tot > 1e-10 else 0.0
 
 
 def _train_upgraded_predictor(
-    inputs: torch.Tensor,
-    targets: torch.Tensor,
+    X_seqs: List[torch.Tensor],
+    Y_seqs: List[torch.Tensor],
     world_dim: int,
     action_dim: int,
     n_epochs: int,
@@ -266,63 +323,70 @@ def _train_upgraded_predictor(
     gate_threshold: float,
 ) -> Tuple["UpgradedReafferencePredictor", float]:
     """
-    Train upgraded predictor (3-layer MLP, h=128) on collected data.
-    80/20 train/test split. Returns (trained_predictor, r2_test).
+    Train LSTM reafference predictor via BPTT over collected locomotion sequences.
+    80/20 sequence-level train/test split. Returns (trained_predictor, r2_test).
     """
-    n = len(inputs)
+    n_seqs = len(X_seqs)
+    n_steps = sum(len(x) for x in X_seqs)
     print(
-        f"  [Phase1] Training upgraded predictor on {n} samples"
+        f"  [Phase1] Training LSTM predictor on {n_seqs} sequences ({n_steps} steps)"
         f" (80/20 split, {n_epochs} epochs)",
         flush=True,
     )
 
-    if n < 20:
+    pred = UpgradedReafferencePredictor(world_dim, action_dim)
+
+    if n_seqs < 2:
         print(
-            f"  [Phase1] WARNING: only {n} samples -- insufficient for reliable R2."
+            f"  [Phase1] WARNING: only {n_seqs} sequences -- insufficient."
             " R2 forced to 0.0.",
             flush=True,
         )
-        pred = UpgradedReafferencePredictor(world_dim, action_dim)
         return pred, 0.0
 
-    # Shuffle + split
-    perm = torch.randperm(n)
-    inputs  = inputs[perm]
-    targets = targets[perm]
-    n_train = int(0.8 * n)
-    X_train, X_test = inputs[:n_train],  inputs[n_train:]
-    Y_train, Y_test = targets[:n_train], targets[n_train:]
+    # Shuffle + split at sequence level
+    perm = list(range(n_seqs))
+    random.shuffle(perm)
+    n_train = max(1, int(0.8 * n_seqs))
+    train_idx = perm[:n_train]
+    test_idx  = perm[n_train:] if n_train < n_seqs else perm[:1]  # at least 1 test seq
 
-    pred = UpgradedReafferencePredictor(world_dim, action_dim)
-    opt  = optim.Adam(pred.parameters(), lr=lr)
+    X_train = [X_seqs[i] for i in train_idx]
+    Y_train = [Y_seqs[i] for i in train_idx]
+    X_test  = [X_seqs[i] for i in test_idx]
+    Y_test  = [Y_seqs[i] for i in test_idx]
+
+    opt = optim.Adam(pred.parameters(), lr=lr)
 
     pred.train()
     for epoch in range(n_epochs):
-        pred_out = pred.net(X_train)
-        loss = F.mse_loss(pred_out, Y_train)
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
+        epoch_loss = 0.0
+        epoch_steps = 0
+        for X_seq, Y_seq in zip(X_train, Y_train):
+            x = X_seq.unsqueeze(0)   # [1, seq_len, input_dim]
+            y = Y_seq.unsqueeze(0)   # [1, seq_len, world_dim]
+            pred_out = pred.forward_sequence(x)
+            loss = F.mse_loss(pred_out, y)
+            opt.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(pred.parameters(), 1.0)
+            opt.step()
+            epoch_loss  += loss.item() * len(X_seq)
+            epoch_steps += len(X_seq)
 
         if (epoch + 1) % 50 == 0 or epoch == n_epochs - 1:
-            with torch.no_grad():
-                test_pred = pred.net(X_test)
-                ss_res = ((test_pred - Y_test) ** 2).sum().item()
-                ss_tot = ((Y_test - Y_test.mean(dim=0)) ** 2).sum().item()
-                r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-10 else 0.0
+            pred.eval()
+            r2 = _r2_on_sequences(pred, X_test, Y_test)
+            pred.train()
+            avg_loss = epoch_loss / max(1, epoch_steps)
             print(
                 f"  [Phase1] epoch {epoch+1}/{n_epochs}"
-                f" train_loss={loss.item():.6f} R2_test={r2:.4f}",
+                f" train_loss={avg_loss:.6f} R2_test={r2:.4f}",
                 flush=True,
             )
 
     pred.eval()
-    with torch.no_grad():
-        test_pred = pred.net(X_test)
-        ss_res = ((test_pred - Y_test) ** 2).sum().item()
-        ss_tot = ((Y_test - Y_test.mean(dim=0)) ** 2).sum().item()
-        r2_test = 1.0 - ss_res / ss_tot if ss_tot > 1e-10 else 0.0
-
+    r2_test = _r2_on_sequences(pred, X_test, Y_test)
     print(
         f"  [Phase1] Final R2_test={r2_test:.4f}"
         f" (gate threshold={gate_threshold:.2f})",
@@ -394,6 +458,8 @@ def _run_single(
     for ep in range(warmup_episodes):
         _, obs_dict = env.reset()
         agent.reset()
+        if reafference and upgraded_predictor is not None:
+            agent.latent_stack.reafference_predictor.reset_hidden()
 
         for _ in range(steps_per_episode):
             obs_body  = obs_dict["body_state"]
@@ -485,6 +551,8 @@ def _run_single(
     for _ in range(eval_episodes):
         _, obs_dict = env.reset()
         agent.reset()
+        if reafference and upgraded_predictor is not None:
+            agent.latent_stack.reafference_predictor.reset_hidden()
         prev_z_world: Optional[torch.Tensor] = None
 
         for _ in range(steps_per_episode):
@@ -608,7 +676,7 @@ def run(
 
     # ----- Phase 1: predictor upgrade gate -----
     print("\n[V3-EXQ-099] Phase 1 -- collecting predictor training data...", flush=True)
-    inputs, targets = _collect_predictor_data(
+    X_seqs, Y_seqs = _collect_predictor_sequences(
         seed=seed,
         n_episodes=data_collection_episodes,
         steps_per_episode=steps_per_episode,
@@ -619,12 +687,13 @@ def run(
         harm_scale=harm_scale,
         proximity_harm_scale=proximity_harm_scale,
     )
-    n_samples = len(inputs)
-    print(f"  [Phase1] Collected {n_samples} none-transition samples.", flush=True)
+    n_seqs  = len(X_seqs)
+    n_steps = sum(len(x) for x in X_seqs)
+    print(f"  [Phase1] Collected {n_seqs} sequences ({n_steps} steps).", flush=True)
 
     upgraded_predictor, r2_test = _train_upgraded_predictor(
-        inputs=inputs,
-        targets=targets,
+        X_seqs=X_seqs,
+        Y_seqs=Y_seqs,
         world_dim=world_dim,
         action_dim=env_dummy.action_dim,
         n_epochs=predictor_epochs,
@@ -647,7 +716,8 @@ def run(
         metrics = {
             "r2_test": float(r2_test),
             "gate_threshold": float(gate_threshold),
-            "n_samples": int(n_samples),
+            "n_seqs": int(n_seqs),
+            "n_steps": int(n_steps),
             "c1_pass": 0.0,
             "c2_pass": 0.0,
             "c3_pass": 0.0,
@@ -816,7 +886,8 @@ def run(
         f"## Phase 1 -- Predictor Upgrade Gate\n\n"
         f"| Metric | Value |\n"
         f"|--------|-------|\n"
-        f"| n_samples | {n_samples} |\n"
+        f"| n_seqs | {n_seqs} |\n"
+        f"| n_steps | {n_steps} |\n"
         f"| R2_test | {r2_test:.4f} |\n"
         f"| gate_threshold | {gate_threshold:.2f} |\n"
         f"| C1 | {'PASS' if c1_pass else 'FAIL'} |\n\n"
@@ -849,7 +920,8 @@ def run(
     metrics = {
         "r2_test":                  float(r2_test),
         "gate_threshold":           float(gate_threshold),
-        "n_samples_phase1":         int(n_samples),
+        "n_seqs_phase1":            int(n_seqs),
+        "n_steps_phase1":           int(n_steps),
         "event_selectivity_on":     float(sel_on),
         "event_selectivity_off":    float(sel_off),
         "selectivity_ratio":        float(sel_on / max(sel_off, 1e-8)),
