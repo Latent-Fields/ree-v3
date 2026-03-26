@@ -55,5 +55,19 @@
         "0.9"
       ]
     }
+    ,
+    {
+      "queue_id": "V3-EXQ-099a",
+      "title": "MECH-098 reafference upgrade gate + discriminative pair (collection filter fix)",
+      "script": "experiments/v3_exq_099a_mech098_reafference_upgrade.py",
+      "claim_id": "MECH-098",
+      "supersedes": "V3-EXQ-099",
+      "machine_affinity": "any",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 35,
+      "args": "--alpha-world 0.9",
+      "note": "Fixes EXQ-099 bug: collection filter was ttype=='none' but CausalGridWorldV2 reclassifies proximity steps to hazard_approach/benefit_approach, leaving ~8 samples. Fix: collect all non-genuine-world-event steps."
+    }
   ]
 }
