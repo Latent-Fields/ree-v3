@@ -54,26 +54,6 @@
         "--alpha-world",
         "0.9"
       ]
-    },
-    {
-      "queue_id": "V3-EXQ-097",
-      "title": "MECH-093 z_beta heartbeat rate modulation discriminative pair",
-      "experiment_type": "v3_exq_097_mech093_heartbeat_rate",
-      "script": "experiments/v3_exq_097_mech093_heartbeat_rate.py",
-      "machine_affinity": "any",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 70,
-      "args": [
-        "--alpha-world",
-        "0.9",
-        "--seed",
-        "42"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-26T21:33:36.609015+00:00"
-      }
     }
   ]
 }
