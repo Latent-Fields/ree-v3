@@ -14,9 +14,13 @@
       "script": "experiments/v3_exq_100b_affective_harm_diagnostic.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 1,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 85,
-      "supersedes": "V3-EXQ-100"
+      "supersedes": "V3-EXQ-100",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-27T17:42:22.508109+00:00"
+      }
     },
     {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
