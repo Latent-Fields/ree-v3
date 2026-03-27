@@ -8,6 +8,32 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-095b",
+      "title": "ARC-033/SD-011 HarmForwardModel slow-learning extension (1800 eps)",
+      "experiment_type": "v3_exq_095b_harm_fwd_slow_learning",
+      "script": "experiments/v3_exq_095b_harm_fwd_slow_learning.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 1,
+      "status": "claimed",
+      "estimated_minutes": 250,
+      "supersedes": "V3-EXQ-095a",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-27T17:40:56.415793+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-100b",
+      "title": "SD-011/ARC-016 affective harm stream root-cause diagnostic",
+      "experiment_type": "v3_exq_100b_affective_harm_diagnostic",
+      "script": "experiments/v3_exq_100b_affective_harm_diagnostic.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 1,
+      "status": "pending",
+      "estimated_minutes": 85,
+      "supersedes": "V3-EXQ-100"
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
