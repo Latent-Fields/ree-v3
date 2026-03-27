@@ -13,8 +13,12 @@
       "script": "experiments/v3_exq_100_z_harm_a_integration.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 2,
-      "status": "pending",
-      "estimated_minutes": 70
+      "status": "claimed",
+      "estimated_minutes": 70,
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-27T17:21:13.869904+00:00"
+      }
     },
     {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
