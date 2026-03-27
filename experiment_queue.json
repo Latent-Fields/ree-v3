@@ -8,6 +8,21 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-101",
+      "title": "SD-011/ARC-016 harm_obs_a normalization fix validation",
+      "experiment_type": "v3_exq_101_harm_obs_a_normfix",
+      "script": "experiments/v3_exq_101_harm_obs_a_normfix.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 1,
+      "status": "claimed",
+      "estimated_minutes": 85,
+      "supersedes": "V3-EXQ-100b",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-27T17:58:12.809174+00:00"
+      }
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
