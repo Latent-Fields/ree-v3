@@ -8,20 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-085f",
-      "title": "MECH-071/MECH-112/MECH-117 goal-wired navigation (fix: E3.select uses goal_state)",
-      "script": "experiments/v3_exq_085f_mech071_goal_wired_navigation.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 2,
-      "status": "claimed",
-      "supersedes": "V3-EXQ-085e",
-      "estimated_minutes": 250,
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-27T17:18:03.717654+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-095a",
       "title": "ARC-033/SD-011 HarmForwardModel training diagnosis (grad norms + hazard-only parallel)",
       "script": "experiments/v3_exq_095a_harm_fwd_diagnosis.py",
