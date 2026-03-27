@@ -13,9 +13,13 @@
       "script": "experiments/v3_exq_098b_mech099_agency_attribution.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 1,
-      "status": "pending",
+      "status": "claimed",
       "supersedes": "V3-EXQ-098",
-      "estimated_minutes": 200
+      "estimated_minutes": 200,
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-27T15:54:14.933179+00:00"
+      }
     },
     {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
