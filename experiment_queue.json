@@ -13,9 +13,13 @@
       "script": "experiments/v3_exq_095a_harm_fwd_diagnosis.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "supersedes": "V3-EXQ-095",
-      "estimated_minutes": 120
+      "estimated_minutes": 120,
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-27T17:20:27.231636+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-100",
