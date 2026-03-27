@@ -16,29 +16,6 @@
       "priority": 0,
       "status": "pending",
       "estimated_minutes": 20
-    },
-    {
-      "queue_id": "V3-EXQ-074e",
-      "title": "MECH-112/117 wanting/liking dissociation (navigation-seeded fix)",
-      "experiment_type": "v3_exq_074e_mech112_117_wanting_liking",
-      "script": "experiments/v3_exq_074e_mech112_117_wanting_liking.py",
-      "supersedes": "V3-EXQ-074d",
-      "machine_affinity": "any",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 10,
-      "seeds": 1,
-      "conditions": 3,
-      "args": [
-        "--seed",
-        "42",
-        "--alpha-world",
-        "0.9"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-27T06:59:55.776082+00:00"
-      }
     }
   ]
 }
