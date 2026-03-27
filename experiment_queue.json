@@ -8,20 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-095a",
-      "title": "ARC-033/SD-011 HarmForwardModel training diagnosis (grad norms + hazard-only parallel)",
-      "script": "experiments/v3_exq_095a_harm_fwd_diagnosis.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 2,
-      "status": "claimed",
-      "supersedes": "V3-EXQ-095",
-      "estimated_minutes": 120,
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-27T17:20:27.231636+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-100",
       "title": "SD-011/ARC-016 z_harm_a first integration test (affective stream temporal stability)",
       "script": "experiments/v3_exq_100_z_harm_a_integration.py",
