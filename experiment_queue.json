@@ -35,29 +35,6 @@
         "--alpha-world",
         "0.9"
       ]
-    },
-    {
-      "queue_id": "V3-EXQ-076d",
-      "title": "MECH-116/ARC-032 E1 goal conditioning (navigation-seeded fix)",
-      "experiment_type": "v3_exq_076d_mech116_arc032_e1_goal_conditioning",
-      "script": "experiments/v3_exq_076d_mech116_arc032_e1_goal_conditioning.py",
-      "supersedes": "V3-EXQ-076c",
-      "machine_affinity": "any",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 5,
-      "seeds": 1,
-      "conditions": 2,
-      "args": [
-        "--seed",
-        "42",
-        "--alpha-world",
-        "0.9"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-27T06:55:39.265394+00:00"
-      }
     }
   ]
 }
