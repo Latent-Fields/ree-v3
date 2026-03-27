@@ -8,6 +8,26 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-097b",
+      "title": "MECH-093 z_beta heartbeat rate modulation: step-level Pearson r (fixes EXQ-097 episode-averaging flaw)",
+      "experiment_type": "v3_exq_097b_mech093_heartbeat_rate",
+      "script": "experiments/v3_exq_097b_mech093_heartbeat_rate.py",
+      "claim_ids": [
+        "MECH-093"
+      ],
+      "description": "Discriminative pair BETA_MOD_ON vs BETA_MOD_OFF. C1 redesigned: step-level Pearson r(|z_beta|_norm, 1/e3_steps_per_tick) >= 0.15. 500 warmup episodes. EXQ-097 used episode-level mean gap which was too coarse (16:1 pool skew, minimal between-episode z_beta variance).",
+      "hypothesis": "Step-level |z_beta| magnitude positively correlates with instantaneous E3 tick rate (r>=0.15) when BETA_MOD_ON vs OFF.",
+      "supersedes": "V3-EXQ-097",
+      "machine_affinity": "any",
+      "priority": 50,
+      "status": "claimed",
+      "estimated_minutes": 105,
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-27T14:32:33.537092+00:00"
+      }
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
