@@ -15,8 +15,12 @@
       "supersedes": "V3-EXQ-076d",
       "machine_affinity": "any",
       "priority": 1,
-      "status": "pending",
-      "estimated_minutes": 15
+      "status": "claimed",
+      "estimated_minutes": 15,
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-27T14:29:52.590523+00:00"
+      }
     },
     {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
