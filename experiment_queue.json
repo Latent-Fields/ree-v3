@@ -8,6 +8,17 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-076e",
+      "title": "EXQ-076e -- MECH-116/ARC-032 E1 goal conditioning 10k-step budget",
+      "experiment_type": "v3_exq_076e_mech116_arc032_e1_goal_conditioning",
+      "script": "experiments/v3_exq_076e_mech116_arc032_e1_goal_conditioning.py",
+      "supersedes": "V3-EXQ-076d",
+      "machine_affinity": "any",
+      "priority": 1,
+      "status": "pending",
+      "estimated_minutes": 15
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
