@@ -24,12 +24,16 @@
       "script": "experiments/v3_exq_118_sd007_reafference_multiseed.py",
       "machine_affinity": "any",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 110,
       "claim_id": "SD-007",
       "backlog_id": "EVB-0012",
       "supersedes": "V3-EXQ-111",
-      "note": "EXP-0015 -- thorough multi-seed discriminative pair. 3 matched seeds [42,123,456] x 2 conditions = 6 cells. Phase 1: LSTM predictor (600 epochs, 40 collect eps, C1 R2>=0.10). Phase 2: 300 warmup + 50 eval eps x 200 steps each. 4 pre-registered criteria: C1 predictor quality, C2 selectivity lift>=15%, C3 consistency all 3 seeds, C4 data quality>=30 approach events 2/3 seeds. Supersedes EXQ-111 (2 seeds, 150 warmup)."
+      "note": "EXP-0015 -- thorough multi-seed discriminative pair. 3 matched seeds [42,123,456] x 2 conditions = 6 cells. Phase 1: LSTM predictor (600 epochs, 40 collect eps, C1 R2>=0.10). Phase 2: 300 warmup + 50 eval eps x 200 steps each. 4 pre-registered criteria: C1 predictor quality, C2 selectivity lift>=15%, C3 consistency all 3 seeds, C4 data quality>=30 approach events 2/3 seeds. Supersedes EXQ-111 (2 seeds, 150 warmup).",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T21:24:52.422127+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-119",
