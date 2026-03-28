@@ -57,23 +57,6 @@
       "claim_id": "MECH-135",
       "backlog_id": "EVB-0004",
       "supersedes": "V3-EXQ-104b"
-    },
-    {
-      "queue_id": "V3-EXQ-112",
-      "title": "MECH-071 harm_eval trained vs random discriminative pair (EVB-0005)",
-      "experiment_type": "v3_exq_112_mech071_harm_eval_discriminative",
-      "script": "experiments/v3_exq_112_mech071_harm_eval_discriminative.py",
-      "priority": 1,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 55,
-      "backlog_id": "EVB-0005",
-      "claim_id": "MECH-071",
-      "note": "Decision-grade evidence for MECH-071 before 2026-03-31 deadline. Within-run comparison: E3.harm_eval_head TRAINED vs RANDOM on same z_world states. 6x6 grid, proxy fields, nav_bias=0.40. Pre-registered C1=calib_gap_trained>=0.08, C2=calib_gap_random<=0.04, C3=delta>=0.05, C4=graded model, C5=events. Outcomes: retain_ree | hybridize | retire_ree_claim.",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T16:17:56.448159+00:00"
-      }
     }
   ]
 }
