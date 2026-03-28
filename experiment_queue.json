@@ -252,6 +252,19 @@
       "backlog_id": "EVB-0060",
       "claim_id": "MECH-094",
       "note": "EXP-0070 / EVB-0060: matched-seed discriminative pair for MECH-094. TAG_GATE_ON (hypothesis_tag=True blocks replay harm events from phi(z) write pathway -- only real harm events train harm_eval head) vs TAG_GATE_ABLATED (tag absent: replay harm accumulates alongside real harm in buffer -- PTSD contamination mechanism). Seeds [42,123] x 2 conditions = 4 cells. N_REPLAY_PER_EP=2 replay episodes per real episode (offset-seed env + noise_std=0.10 to mark internally generated content). 5 pre-registered criteria: C1 contamination_gap_ON<=0.02 both seeds (tag suppresses replay routing; low spurious elevation), C2 contamination_gap_ABLATED>=0.04 both seeds (tag loss inflates harm_eval on replay content), C3 per-seed delta_contamination(ABLATED-ON)>=0.03 both seeds (discriminative gap), C4 real_harm_gap_ON>=0.03 both seeds (real harm still learned when tag active), C5 n_real_harm_min>=15 and n_replay_harm_min>=15 (data quality). Key diagnostic: replay_harm_buf_writes=0 in TAG_GATE_ON vs >0 in TAG_GATE_ABLATED (confirmed in dry-run). 400 warmup + 50 eval real eps x 200 steps, size=6, 4 hazards, nav_bias=0.45, alpha_world=0.9."
+    },
+    {
+      "queue_id": "V3-EXQ-141",
+      "title": "MECH-111: NOVELTY_DRIVE_ON vs NOVELTY_DRIVE_ABLATED x 2 seeds (curiosity/novelty drive discriminative pair)",
+      "experiment_type": "v3_exq_141_mech111_novelty_drive_pair",
+      "script": "experiments/v3_exq_141_mech111_novelty_drive_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "backlog_id": "EVB-0061",
+      "claim_id": "MECH-111",
+      "note": "EXP-0072 / EVB-0061: matched-seed discriminative pair for MECH-111. NOVELTY_DRIVE_ON (E1 prediction-error EMA feeds as exploration bonus to E3 trajectory scoring; novelty_bonus_weight=0.10 -- higher-E1-error trajectories preferred, curiosity-surprise drives approach toward novel states) vs NOVELTY_DRIVE_ABLATED (novelty_bonus_weight=0.0; pure harm-avoidance baseline; drive absent). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 per-seed entropy_gap(ON-ABLATED)>=0.10 both seeds (novelty drive increases action diversity), C2 per-seed cell_gap(ON-ABLATED)>=3 both seeds (more unique cells visited), C3 per-seed harm_delta(ON-ABLATED)<=0.02 both seeds (curiosity-surprise is harm-safe; drive does not push into dangerous zones -- key MECH-111 prediction), C4 novelty_ema_ON>1e-6 both seeds (manipulation check: drive signal is non-zero), C5 n_harm_min>=10 both conditions both seeds (harm-avoidance context exists). Extends EXQ-073b (single-seed) to proper matched-seed discriminative pair. CausalGridWorld size=10, 5 hazards, 5 resources, nav_bias=0.30 (lower than harm-only exps to allow exploration). 200 warmup + 50 eval eps x 200 steps."
     }
   ]
 }
