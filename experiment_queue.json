@@ -63,6 +63,66 @@
       "status": "pending",
       "estimated_minutes": 50,
       "claims": ["MECH-135"]
+    },
+    {
+      "queue_id": "V3-EXQ-051c",
+      "title": "Q-007 z_beta volatility injection (API fix)",
+      "experiment_type": "v3_exq_051c_q007_zbeta_volatility_injection",
+      "script": "experiments/v3_exq_051c_q007_zbeta_volatility_injection.py",
+      "priority": 3,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 15,
+      "supersedes": "V3-EXQ-051b",
+      "claim_ids": ["Q-007"]
+    },
+    {
+      "queue_id": "V3-EXQ-072b",
+      "title": "Q-021 behavioral flatness (API rerun)",
+      "experiment_type": "v3_exq_072b_q021_behavioral_flatness",
+      "script": "experiments/v3_exq_072b_q021_behavioral_flatness.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 40,
+      "supersedes": "V3-EXQ-072",
+      "claim_ids": ["Q-021"]
+    },
+    {
+      "queue_id": "V3-EXQ-073b",
+      "title": "MECH-111 novelty signal (obs dim + record_transition fix)",
+      "experiment_type": "v3_exq_073b_mech111_novelty_signal",
+      "script": "experiments/v3_exq_073b_mech111_novelty_signal.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 30,
+      "supersedes": "V3-EXQ-073",
+      "claim_ids": ["MECH-111"]
+    },
+    {
+      "queue_id": "V3-EXQ-075d",
+      "title": "MECH-113 self-maintenance D_eff (methods now exist)",
+      "experiment_type": "v3_exq_075d_mech113_self_maintenance",
+      "script": "experiments/v3_exq_075d_mech113_self_maintenance.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 45,
+      "supersedes": "V3-EXQ-075c",
+      "claim_ids": ["MECH-113"]
+    },
+    {
+      "queue_id": "V3-EXQ-084d",
+      "title": "Q-022 D_eff/Hopfield dissociation (methods now exist)",
+      "experiment_type": "v3_exq_084d_q022_deff_hopfield_dissociation",
+      "script": "experiments/v3_exq_084d_q022_deff_hopfield_dissociation.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "supersedes": "V3-EXQ-084c",
+      "claim_ids": ["Q-022", "MECH-118", "MECH-119"]
     }
   ]
 }
