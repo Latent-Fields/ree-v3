@@ -24,11 +24,15 @@
       "script": "experiments/v3_exq_124_mech033_kernel_chain_pair.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 70,
       "backlog_id": "EVB-0018",
       "claim_id": "MECH-033",
-      "note": "EXP-0023: matched-seed discriminative pair. KERNEL_CHAIN_ON (HippocampalModule CEM in action-object space, E2 action_object kernels chained across horizon, terrain prior + residue scoring) vs KERNEL_CHAIN_ABLATED (random candidates, E3 selects best via one-step E2 world_forward -- no kernel chaining). Seeds [42,123] x 2 conditions = 4 cells. 4 pre-registered criteria: C1 harm_reduction_delta>=0.03, C2 relative_reduction>=0.15, C3 consistent both seeds, C4 min_contacts_ablated>=20. 400 warmup + 50 eval eps x 200 steps. Replicates EXQ-055 PASS with proper matched-seed discriminative design."
+      "note": "EXP-0023: matched-seed discriminative pair. KERNEL_CHAIN_ON (HippocampalModule CEM in action-object space, E2 action_object kernels chained across horizon, terrain prior + residue scoring) vs KERNEL_CHAIN_ABLATED (random candidates, E3 selects best via one-step E2 world_forward -- no kernel chaining). Seeds [42,123] x 2 conditions = 4 cells. 4 pre-registered criteria: C1 harm_reduction_delta>=0.03, C2 relative_reduction>=0.15, C3 consistent both seeds, C4 min_contacts_ablated>=20. 400 warmup + 50 eval eps x 200 steps. Replicates EXQ-055 PASS with proper matched-seed discriminative design.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T22:11:53.681307+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-106a",
