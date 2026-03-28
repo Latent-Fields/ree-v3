@@ -65,12 +65,16 @@
       "script": "experiments/v3_exq_110_mech098_reafference_pair.py",
       "priority": 1,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "backlog_id": "EVB-0002",
       "claim_id": "MECH-098",
       "supersedes": "V3-EXQ-099a",
-      "note": "Fixes data collection bottleneck: separate low-hazard collection env (size=8, 1 hazard, threshold=0.04) gives 7000+ locomotion samples. Pre-registered C1=0.10, C2=1.15x, C3 directional."
+      "note": "Fixes data collection bottleneck: separate low-hazard collection env (size=8, 1 hazard, threshold=0.04) gives 7000+ locomotion samples. Pre-registered C1=0.10, C2=1.15x, C3 directional.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T16:16:35.752838+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-111",
