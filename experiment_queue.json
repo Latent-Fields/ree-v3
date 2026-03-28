@@ -43,6 +43,18 @@
       "claim_id": "MECH-135",
       "backlog_id": "EVB-0004",
       "supersedes": "V3-EXQ-104b"
+    },
+    {
+      "queue_id": "V3-EXQ-114",
+      "title": "ARC-007 path memory probe: MAP_NAV vs MAP_ABLATED discriminative pair",
+      "experiment_type": "v3_exq_114_arc007_path_memory_probe",
+      "script": "experiments/v3_exq_114_arc007_path_memory_probe.py",
+      "machine_affinity": "any",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 70,
+      "claim_id": "ARC-007",
+      "backlog_id": "EVB-0007"
     }
   ]
 }
