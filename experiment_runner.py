@@ -575,7 +575,15 @@ def build_initial_status(queue_data: dict, script_timing: dict | None = None) ->
     }
 
 
-def run_experiment(item: dict, status: dict, status_path: Path, calibration: dict, script_timing: dict | None = None) -> dict:
+def run_experiment(item: dict, status: dict, status_path: Path, calibration: dict,
+                   script_timing: dict | None = None,
+                   proc_ref: list | None = None) -> dict:
+    """Run a single experiment script as a subprocess.
+
+    proc_ref: if provided, the active Popen object is stored as proc_ref[0] immediately
+    after launch and cleared on completion.  The signal handler uses this to kill the
+    subprocess on a forced stop.
+    """
     script = REPO_ROOT / item["script"]
     raw_args = item.get("args", [])
     if isinstance(raw_args, str):
@@ -682,6 +690,9 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             text=True,
             bufsize=1,
         )
+        if proc_ref is not None:
+            proc_ref.clear()
+            proc_ref.append(proc)
 
         _hb_stop = threading.Event()
         def _heartbeat():
@@ -768,6 +779,11 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         result_info["result_summary"] = str(exc)
         print(f"[runner] ERROR running {item['queue_id']}: {exc}", flush=True)
 
+    finally:
+        # Always clear proc_ref so the signal handler doesn't try to kill a finished process.
+        if proc_ref is not None:
+            proc_ref.clear()
+
     result_info["completed_at"] = now_utc()
     result_info["actual_secs"] = round(time.monotonic() - started_at, 1)
 
@@ -829,25 +845,62 @@ def main():
     # Track active claim so signal handler can release it
     _current_claim: list[str] = []  # 0 or 1 elements (mutable container for closure)
 
-    def handle_signal(sig, frame):
-        print(f"\n[runner] Caught signal {sig}, shutting down.", flush=True)
+    # Graceful-drain state: set by first stop signal; second signal force-kills.
+    # _current_proc holds the active experiment subprocess so the second signal can kill it.
+    _drain_flag: list[bool] = []           # non-empty -> drain requested
+    _current_proc: list[subprocess.Popen] = []  # 0 or 1 elements
+
+    def _do_immediate_exit() -> None:
+        """Final cleanup steps shared by both force-exit and post-drain exit."""
         if args.auto_sync and _current_claim:
             release_claim(QUEUE_FILE, _current_claim[0], machine)
         if status_path.exists():
             try:
-                status = json.loads(status_path.read_text())
-                status["idle"] = True
-                status["current"] = None
-                status["runner_pid"] = None
-                for qi in status.get("queue", []):
+                s = json.loads(status_path.read_text())
+                s["idle"] = True
+                s["draining"] = False
+                s["current"] = None
+                s["runner_pid"] = None
+                for qi in s.get("queue", []):
                     if qi.get("status") == "running":
                         qi["status"] = "pending"
-                write_status(status, status_path)
+                write_status(s, status_path)
             except Exception:
                 pass
         if PID_FILE.exists():
             PID_FILE.unlink()
-        sys.exit(0)
+
+    def handle_signal(sig, frame):
+        if _drain_flag:
+            # Second signal while already draining -- force exit immediately.
+            print(f"\n[runner] Second signal -- force-stopping now.", flush=True)
+            if _current_proc:
+                try:
+                    _current_proc[0].kill()
+                except Exception:
+                    pass
+            _do_immediate_exit()
+            sys.exit(0)
+
+        # First stop signal: request graceful drain.
+        print(f"\n[runner] Caught signal {sig} -- will stop after current experiment finishes.",
+              flush=True)
+        print("[runner] Send signal again to force-stop immediately.", flush=True)
+        _drain_flag.append(True)
+
+        # Write draining indicator so the Explorer can show the correct state.
+        try:
+            if status_path.exists():
+                s = json.loads(status_path.read_text())
+                s["draining"] = True
+                write_status(s, status_path)
+        except Exception:
+            pass
+
+        # If no experiment is currently running, exit immediately.
+        if not _current_claim:
+            _do_immediate_exit()
+            sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_signal)
     if sys.platform != "win32":  # SIGTERM not available on Windows
@@ -1002,7 +1055,8 @@ def main():
                 _current_claim.append(queue_id)
 
             try:
-              result = run_experiment(item, status, status_path, calibration, script_timing)
+                result = run_experiment(item, status, status_path, calibration, script_timing,
+                                        proc_ref=_current_proc)
             except Exception as _run_exc:
                 # Unexpected exception escaping run_experiment -- treat as ERROR and continue
                 print(f"[runner] UNEXPECTED ERROR in {queue_id}: {_run_exc}", flush=True)
@@ -1137,6 +1191,14 @@ def main():
 
             print(f"[runner] Done: {queue_id} -- {result['result']}", flush=True)
 
+            # Graceful drain: if a stop was requested, exit after this experiment.
+            if _drain_flag:
+                print("[runner] Drain complete -- stopping as requested.", flush=True)
+                break
+
+        if _drain_flag:
+            break  # drain requested while no experiment was running (between items)
+
         if not args.loop:
             break
 
@@ -1182,10 +1244,14 @@ def main():
             write_status(status, status_path)
 
     status["idle"] = True
+    status["draining"] = False
     status["current"] = None
     status["runner_pid"] = None
     write_status(status, status_path)
-    print("[runner] Queue exhausted. Runner idle.", flush=True)
+    if _drain_flag:
+        print("[runner] Graceful drain complete. Exiting.", flush=True)
+    else:
+        print("[runner] Queue exhausted. Runner idle.", flush=True)
 
     if args.auto_sync and ree_assembly_path:
         git_push_results(ree_assembly_path)
