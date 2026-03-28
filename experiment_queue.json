@@ -24,11 +24,15 @@
       "script": "experiments/v3_exq_123_mech102_harm_gradient_pair.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 70,
       "backlog_id": "EVB-0017",
       "claim_id": "MECH-102",
-      "note": "EXP-0021: matched-seed discriminative pair. HARM_EVAL_ON (E3 harm_eval_head trained on harm_signal labels) vs HARM_EVAL_ABLATED (harm_eval_head frozen at random init). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 grad_delta>=0.15, C2 gradient_score_ON>=0.65, C3 consistent both seeds, C4 min_approach_contact_pairs>=20, C5 escalation_gap>=0.05 (diagnostic). Gradient score = P(approach_harm_score < contact_harm_score). 400 warmup + 50 eval eps x 200 steps. Phase detection: approach=harm_signal in (-0.015,0), contact=harm_signal<=-0.015."
+      "note": "EXP-0021: matched-seed discriminative pair. HARM_EVAL_ON (E3 harm_eval_head trained on harm_signal labels) vs HARM_EVAL_ABLATED (harm_eval_head frozen at random init). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 grad_delta>=0.15, C2 gradient_score_ON>=0.65, C3 consistent both seeds, C4 min_approach_contact_pairs>=20, C5 escalation_gap>=0.05 (diagnostic). Gradient score = P(approach_harm_score < contact_harm_score). 400 warmup + 50 eval eps x 200 steps. Phase detection: approach=harm_signal in (-0.015,0), contact=harm_signal<=-0.015.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T22:11:01.531294+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-124",
