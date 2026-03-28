@@ -18,20 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-051c",
-      "title": "Q-007 z_beta volatility injection (API fix)",
-      "experiment_type": "v3_exq_051c_q007_zbeta_volatility_injection",
-      "script": "experiments/v3_exq_051c_q007_zbeta_volatility_injection.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 15,
-      "supersedes": "V3-EXQ-051b",
-      "claim_ids": [
-        "Q-007"
-      ]
-    },
-    {
       "queue_id": "V3-EXQ-108",
       "title": "MECH-135 discriminative pair: E1 co-evolution vs frozen z_world plan selection",
       "experiment_type": "v3_exq_108_mech135_discriminative_pair",
