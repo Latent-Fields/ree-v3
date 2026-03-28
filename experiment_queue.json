@@ -83,6 +83,19 @@
       "backlog_id": "EVB-0009",
       "supersedes": "V3-EXQ-097b",
       "note": "EXP-0011 -- multi-seed replication of EXQ-097b PASS. 2x seeds [42,123] x 2x conditions = 4 cells. 500 warmup + 40 eval eps each. C1: Pearson r>=0.15 both seeds; C3: direction consistent."
+    },
+    {
+      "queue_id": "V3-EXQ-117",
+      "title": "ARC-024 harm-benefit opposing gradient discriminative pair: GRADIENT_PAIR vs FLAT_CONTROL, seeds [42,123]",
+      "experiment_type": "v3_exq_117_arc024_harm_benefit_gradient_pair",
+      "script": "experiments/v3_exq_117_arc024_harm_benefit_gradient_pair.py",
+      "machine_affinity": "any",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 70,
+      "claim_id": "ARC-024",
+      "backlog_id": "EVB-0011",
+      "note": "EXP-0014 -- full discriminative pair. 2 matched seeds [42,123]. Tests BOTH harm gradient (C1) and benefit gradient (C2) arms of ARC-024, plus opposing cosine test (C3). 400 warmup + 40 eval eps x 200 steps. Extends EXQ-107 (FAIL C1 gap=0.003) with benefit arm, reduced threshold (0.04), and 2x warmup."
     }
   ]
 }
