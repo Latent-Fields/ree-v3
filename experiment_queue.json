@@ -65,11 +65,15 @@
       "script": "experiments/v3_exq_111_sd007_discriminative_pair.py",
       "priority": 1,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "backlog_id": "EVB-0003",
       "claim_id": "SD-007",
-      "note": "Decision-grade evidence for SD-007 before 2026-03-31 deadline. REAF_ON vs REAF_OFF using LSTM predictor (all-transitions training). Pre-registered C1=0.10, C2=1.15x, C3=pair_pass_count>=2. Outcomes: retain_ree | hybridize | retire_ree_claim."
+      "note": "Decision-grade evidence for SD-007 before 2026-03-31 deadline. REAF_ON vs REAF_OFF using LSTM predictor (all-transitions training). Pre-registered C1=0.10, C2=1.15x, C3=pair_pass_count>=2. Outcomes: retain_ree | hybridize | retire_ree_claim.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T16:17:16.931880+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-112",
