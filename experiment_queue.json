@@ -24,11 +24,15 @@
       "script": "experiments/v3_exq_122_mech089_theta_integration_pair.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 70,
       "backlog_id": "EVB-0016",
       "claim_id": "MECH-089",
-      "note": "EXP-0020: matched-seed discriminative pair. THETA_INTEGRATION_ON (ThetaBuffer mean z_world to E3, theta_k=2) vs THETA_INTEGRATION_ABLATED (raw most-recent z_world to E3, same E3 update rate). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 harm_auc_delta>=0.05, C2 harm_auc_ON>=0.60, C3 consistent both seeds, C4 min_harm_steps>=20, C5 mean_batch_var>=1e-5 (diagnostic). Redesign of EXQ-066 (theta_k=4 was too coarse, degraded E3). theta_k=2 with matched E3 update rate isolates averaging effect. 400 warmup + 50 eval eps x 200 steps."
+      "note": "EXP-0020: matched-seed discriminative pair. THETA_INTEGRATION_ON (ThetaBuffer mean z_world to E3, theta_k=2) vs THETA_INTEGRATION_ABLATED (raw most-recent z_world to E3, same E3 update rate). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 harm_auc_delta>=0.05, C2 harm_auc_ON>=0.60, C3 consistent both seeds, C4 min_harm_steps>=20, C5 mean_batch_var>=1e-5 (diagnostic). Redesign of EXQ-066 (theta_k=4 was too coarse, degraded E3). theta_k=2 with matched E3 update rate isolates averaging effect. 400 warmup + 50 eval eps x 200 steps.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T22:09:41.753135+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-123",
