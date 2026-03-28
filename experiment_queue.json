@@ -265,6 +265,19 @@
       "backlog_id": "EVB-0063",
       "claim_id": "MECH-118",
       "note": "EXP-0076 / EVB-0063: matched-seed discriminative pair for MECH-118. HOPFIELD_ON (D_eff homeostatic loss [maint_weight=0.1, d_eff_target=1.5] + Hopfield familiarity pull loss [hopfield_weight=0.05, LRU-64 memory]: pulls z_self toward nearest stored pattern; memory filled from 30 baseline eval eps then frozen) vs HOPFIELD_ABLATED (D_eff homeostatic loss only; same weight; no Hopfield component). Seeds [42,123] x 2 conditions = 4 cells. Perturbation: Regime 3 coherent-unfamiliar vector (orthogonal to mean stored pattern, same norm as baseline z_self -- low D_eff ~1, near-zero Hopfield stability ~0) injected at first eval step. Critical test: D_eff homeostasis cannot detect R3 as abnormal (both R3 and normal z_self have low D_eff); only Hopfield familiarity signal detects unfamiliar configuration. 5 pre-registered criteria: C1 HOPFIELD_ON stab_post>=0.30 both seeds (familiarity recovery after R3 perturbation), C2 HOPFIELD_ABLATED stab_post<=0.20 both seeds (no spontaneous recovery -- D_eff loss blind to unfamiliarity), C3 per-seed stab_gap(ON-ABL)>=0.08 both seeds (discriminative separation), C4 |d_eff_post_ON - d_eff_post_ABL|<=0.80 both seeds (Hopfield adds familiarity signal orthogonally -- does not replace D_eff control), C5 n_stab>=50 per condition per seed (data quality). 300 warmup + 30 memory collection + 50 post-perturb eval eps x 200 steps. CausalGridWorldV2 size=10, 3 hazards, 4 resources, nav_bias=0.35, alpha_world=0.9."
+    },
+    {
+      "queue_id": "V3-EXQ-144",
+      "title": "MECH-119: R3_COHERENT_UNFAMILIAR vs R2_DISPERSED x 2 seeds (coherent-unfamiliar pathology discriminative pair)",
+      "experiment_type": "v3_exq_144_mech119_coherent_unfamiliar_pair",
+      "script": "experiments/v3_exq_144_mech119_coherent_unfamiliar_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "backlog_id": "EVB-0064",
+      "claim_id": "MECH-119",
+      "note": "EXP-0078 / EVB-0064: discriminative pair for MECH-119. Tests whether Regime 3 (low D_eff + low Hopfield stability = coherent-but-unfamiliar) is a distinct pathological state from Regime 2 (high D_eff + low stability = dispersed). R3_COHERENT_UNFAMILIAR: z_self perturbed with a one-hot spike in the least-used dimension (D_eff=1 -- maximally coherent, analytically) that is orthogonal to stored patterns (stability~0 -- unfamiliar). R2_DISPERSED: z_self perturbed with a Gaussian noise vector (D_eff~16 -- dispersed). Both conditions use the SAME trained agent per seed (no ablation -- within-agent perturbation characterisation). Criteria use ANALYTIC properties of injection vectors. 5 pre-registered criteria: C1 R3 analytic D_eff<=4.0 both seeds (coherent), C2 R3 analytic stability<=0.25 both seeds (unfamiliar), C3 R2 analytic D_eff>=8.0 both seeds (dispersed), C4 R2 analytic stability<=0.25 both seeds (also unfamiliar -- confirms both low-stability but different D_eff), C5 per-seed D_eff gap(R2-R3)>=5.0 both seeds (discriminative separation). Dry-run PASS 5/5: R3 d_eff=1.0/stab=0.014 vs R2 d_eff=19.2/stab=0.070, gap~18-22. Seeds [42,123] x 2 conditions = 4 cells. 300 warmup + 30 memory collection + 50 post-perturb eval eps x 200 steps. CausalGridWorldV2 size=10, 3 hazards, 4 resources, nav_bias=0.35, alpha_world=0.9."
     }
   ]
 }
