@@ -18,22 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-114",
-      "title": "ARC-007 path memory probe: MAP_NAV vs MAP_ABLATED discriminative pair",
-      "experiment_type": "v3_exq_114_arc007_path_memory_probe",
-      "script": "experiments/v3_exq_114_arc007_path_memory_probe.py",
-      "machine_affinity": "any",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 70,
-      "claim_id": "ARC-007",
-      "backlog_id": "EVB-0007",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T19:54:45.513168+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-115",
       "title": "SD-003 z_harm_s counterfactual attribution: TRAINED vs ABLATED HarmForwardModel",
       "experiment_type": "v3_exq_115_sd003_zharms_counterfactual",
