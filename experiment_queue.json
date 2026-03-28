@@ -24,10 +24,14 @@
       "script": "experiments/v3_exq_114_arc007_path_memory_probe.py",
       "machine_affinity": "any",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 70,
       "claim_id": "ARC-007",
-      "backlog_id": "EVB-0007"
+      "backlog_id": "EVB-0007",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T19:54:45.513168+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-115",
