@@ -409,26 +409,20 @@ class CausalGridWorld:
                 self.benefit_exposure = (1 - alpha) * self.benefit_exposure + alpha * harm_signal
             else:
                 self.benefit_exposure = (1 - alpha) * self.benefit_exposure
-            # SD-011: update affective harm accumulator (slower tau than harm_exposure).
-            # EMA of the 50-dim proximity vector read at observation time (just before
-            # _get_observation_dict is called below). Proximity fields were already
-            # recomputed for this step via _compute_proximity_fields.
+            # SD-011: update affective harm accumulator (C-fiber / paleospinothalamic analog).
+            # EXQ-102 confirmed the prior spatial-window EMA had autocorr~0: as the agent
+            # moves, the 5x5 local window content changes each step, destroying temporal
+            # persistence. C-fiber / affective harm signal represents accumulated homeostatic
+            # unpleasantness -- it follows the agent's trajectory, not the current grid view.
+            # Fix (2026-03-28): EMA of the agent's current-cell hazard/resource scalar,
+            # replicated uniformly across all 25 dims per channel. This gives autocorr ~
+            # (1-alpha)^lag (e.g. lag=10 -> ~0.60 >> threshold 0.30). Interface stays 50-dim.
             alpha_a = self.harm_obs_a_ema_alpha
             ax2, ay2 = int(self.agent_x), int(self.agent_y)
-            # Use raw field values (no per-step normalization by field.max()).
-            # Normalizing by hazard_max caused inversion: more hazards -> higher max ->
-            # smaller normalized values -> lower EMA despite higher actual exposure.
-            # Field values are already bounded ~[0,1] per hazard; clipping suffices.
-            prox_now = np.zeros(50, dtype=np.float32)
-            idx = 0
-            for di in range(-2, 3):
-                for dj in range(-2, 3):
-                    ni, nj = ax2 + di, ay2 + dj
-                    if 0 <= ni < self.size and 0 <= nj < self.size:
-                        prox_now[idx] = float(np.clip(self.hazard_field[ni, nj], 0.0, 1.0))
-                        prox_now[idx + 25] = float(np.clip(self.resource_field[ni, nj], 0.0, 1.0))
-                    idx += 1
-            self.harm_obs_a_ema = (1.0 - alpha_a) * self.harm_obs_a_ema + alpha_a * prox_now
+            hazard_at_agent = float(np.clip(self.hazard_field[ax2, ay2], 0.0, 1.0))
+            resource_at_agent = float(np.clip(self.resource_field[ax2, ay2], 0.0, 1.0))
+            self.harm_obs_a_ema[:25] = (1.0 - alpha_a) * self.harm_obs_a_ema[:25] + alpha_a * hazard_at_agent
+            self.harm_obs_a_ema[25:] = (1.0 - alpha_a) * self.harm_obs_a_ema[25:] + alpha_a * resource_at_agent
 
         # Env-caused drift
         if self.steps % self.env_drift_interval == 0 and self.steps > 0:

@@ -65,6 +65,30 @@
       "claims": ["MECH-135"]
     },
     {
+      "queue_id": "V3-EXQ-106",
+      "title": "harm_obs_a temporal persistence validation -- SD-011 fix (post-EXQ-102)",
+      "experiment_type": "v3_exq_106_harm_obs_a_temporal_persistence",
+      "script": "experiments/v3_exq_106_harm_obs_a_temporal_persistence.py",
+      "machine_affinity": "any",
+      "priority": 1,
+      "status": "pending",
+      "estimated_minutes": 5,
+      "supersedes": "V3-EXQ-102",
+      "claims": ["SD-011"]
+    },
+    {
+      "queue_id": "V3-EXQ-104b",
+      "title": "E1/E2 parallel rollout with trained agent -- MECH-135 diagnostic (post-EXQ-104)",
+      "experiment_type": "v3_exq_104b_e1_parallel_rollout_trained",
+      "script": "experiments/v3_exq_104b_e1_parallel_rollout_trained.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 20,
+      "supersedes": "V3-EXQ-104",
+      "claims": ["MECH-135"]
+    },
+    {
       "queue_id": "V3-EXQ-051c",
       "title": "Q-007 z_beta volatility injection (API fix)",
       "experiment_type": "v3_exq_051c_q007_zbeta_volatility_injection",
