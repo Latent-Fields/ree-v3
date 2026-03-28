@@ -24,12 +24,16 @@
       "script": "experiments/v3_exq_115_sd003_zharms_counterfactual.py",
       "machine_affinity": "any",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 70,
       "claim_id": "SD-003",
       "backlog_id": "EVB-0008",
       "supersedes": "V3-EXQ-109",
-      "note": "EXP-0009 -- redesigned post-SD-011: z_harm_s stream counterfactual with matched seeds [42,123]. Supersedes EXQ-109 (pre-SD-011, single z_harm stream)."
+      "note": "EXP-0009 -- redesigned post-SD-011: z_harm_s stream counterfactual with matched seeds [42,123]. Supersedes EXQ-109 (pre-SD-011, single z_harm stream).",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T20:48:17.304877+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-116",
