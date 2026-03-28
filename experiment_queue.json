@@ -116,26 +116,6 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-071c",
-      "title": "SD-003 batched attribution: world_forward([n_cf,d]) equivalence to sequential",
-      "experiment_type": "v3_exq_071c_rollout_batched_attribution",
-      "script": "experiments/v3_exq_071c_rollout_batched_attribution.py",
-      "machine_affinity": "any",
-      "priority": 3,
-      "status": "claimed",
-      "estimated_minutes": 30,
-      "supersedes": "V3-EXQ-071b",
-      "claim_ids": [
-        "SD-003",
-        "ARC-024",
-        "MECH-071"
-      ],
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T17:18:23.231900+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-084d",
       "title": "Q-022 D_eff vs Hopfield familiarity dissociation (inline HopfieldMemory)",
       "experiment_type": "v3_exq_084d_q022_deff_hopfield_dissociation",
