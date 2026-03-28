@@ -8,6 +8,24 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-102",
+      "title": "harm_obs_a clip vs raw density diagnostic (SD-011)",
+      "experiment_type": "v3_exq_102_harm_obs_a_clip_diagnosis",
+      "script": "experiments/v3_exq_102_harm_obs_a_clip_diagnosis.py",
+      "priority": 10,
+      "status": "claimed",
+      "estimated_minutes": 8,
+      "machine_affinity": "any",
+      "supersedes": "V3-EXQ-101",
+      "claims": [
+        "SD-011"
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-28T09:37:47.821640+00:00"
+      }
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
