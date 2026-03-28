@@ -117,6 +117,19 @@
       "status": "pending",
       "estimated_minutes": 70,
       "claim_id": "ARC-024"
+    },
+    {
+      "queue_id": "V3-EXQ-108",
+      "title": "MECH-135 discriminative pair: E1 co-evolution vs frozen z_world plan selection",
+      "experiment_type": "v3_exq_108_mech135_discriminative_pair",
+      "script": "experiments/v3_exq_108_mech135_discriminative_pair.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 30,
+      "claim_id": "MECH-135",
+      "backlog_id": "EVB-0004",
+      "supersedes": "V3-EXQ-104b"
     }
   ]
 }
