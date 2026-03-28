@@ -18,24 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-119",
-      "title": "MECH-090 beta gate committed dynamics: GATE_ON vs GATE_OFF x 2 seeds",
-      "experiment_type": "v3_exq_119_mech090_beta_gate_pair",
-      "script": "experiments/v3_exq_119_mech090_beta_gate_pair.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 70,
-      "backlog_id": "EVB-0013",
-      "claim_id": "MECH-090",
-      "supersedes": "V3-EXQ-049e",
-      "note": "EXP-0016: matched-seed discriminative pair. BETA_GATE_ON vs BETA_GATE_OFF x seeds [42,123]. 5 criteria: C1 hold_conc>=0.60 both seeds, C2 release_conc>=0.50 >=1 seed, C3 ablation hold_conc<0.40 both seeds, C4 n_committed>=50, C5 no fatal errors.",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T21:25:59.278801+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-120",
       "title": "ARC-018 viability map: VIABILITY_MAP_ON vs VIABILITY_MAP_ABLATED x 2 seeds",
       "experiment_type": "v3_exq_120_arc018_viability_map_pair",
@@ -240,6 +222,19 @@
       "backlog_id": "EVB-0022",
       "claim_id": "MECH-103",
       "note": "Independent replication of EXQ-128 (auditory channel) using somatosensory modality (contact-force + near-surface vibration). Formal execution of EXP-0030/EVB-0022. Seeds [42,123]. 400 warmup + 50 eval eps x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-135",
+      "title": "ARC-017: REALITY_COHERENCE_ON vs REALITY_COHERENCE_ABLATED x 2 seeds (reality-coherence lane discriminative pair)",
+      "experiment_type": "v3_exq_135_arc017_reality_coherence_pair",
+      "script": "experiments/v3_exq_135_arc017_reality_coherence_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "backlog_id": "EVB-0023",
+      "claim_id": "ARC-017",
+      "note": "EXP-0031 / EVB-0023: matched-seed discriminative pair testing the reality-coherence lane facet of ARC-017. REALITY_COHERENCE_ON (world encoder trained exclusively on real env observations -- provenance preserved) vs REALITY_COHERENCE_ABLATED (world encoder also trained on noise-perturbed replay of past world_obs at noise_std=0.10, REPLAY_BATCH_PER_STEP=4 -- provenance constraint violated, real and imagined inputs treated equivalently). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 gap_on>=0.04 (both seeds), C2 per-seed delta (ON-ABLATED)>=0.02 (both seeds), C3 gap_ablated>=0.0, C4 n_harm_eval_min>=20, C5 n_replay_contam_min>=50 (manipulation check). Evaluation uses real env observations only in both conditions; training is the only difference. Tests ARC-017 reality-coherence dimension: does keeping the world encoder anchored to real sensory provenance improve harm_eval discrimination vs an encoder contaminated by imagined/reconstructed inputs? Complementary to EXQ-129 (which tests stream-type routing dimension of ARC-017). 400 warmup + 50 eval eps x 200 steps, size=6, 4 hazards, nav_bias=0.40, alpha_world=0.9."
     }
   ]
 }
