@@ -46,24 +46,6 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-072b",
-      "title": "Q-021 behavioral flatness (API rerun)",
-      "experiment_type": "v3_exq_072b_q021_behavioral_flatness",
-      "script": "experiments/v3_exq_072b_q021_behavioral_flatness.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 40,
-      "supersedes": "V3-EXQ-072",
-      "claim_ids": [
-        "Q-021"
-      ],
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T12:37:47.175292+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-073b",
       "title": "MECH-111 novelty signal (obs dim + record_transition fix)",
       "experiment_type": "v3_exq_073b_mech111_novelty_signal",
