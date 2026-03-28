@@ -278,6 +278,19 @@
       "backlog_id": "EVB-0053",
       "claim_id": "ARC-030",
       "note": "EXP-0061 / EVB-0053: canonical matched-seed discriminative pair for ARC-030 Go/NoGo symmetry. GO_NOGO_SUPPORT (full BG D1/D2 symmetry: harm_eval trained + z_goal attractor updated + benefit_eval trained + e1_goal_conditioned) vs NOGO_ONLY_ABLATED (pure NoGo: harm_eval only, z_goal/benefit_eval/e1_goal_cond all disabled). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 delta_benefit_rate>=0.002 (averaged seeds), C2 benefit_rate_go>=0.002 per seed (Go channel active), C3 harm_rate_go<=harm_rate_nogo*1.50 (harm avoidance maintained), C4 per-seed direction GO>NOGO (both seeds), C5 n_benefit_buf_go>=100 per seed (manipulation check: Go channel trained). Strengthens EXQ-086 (FAIL: warmup=150 too short, benefit_rate_go=0.0). Fixes: warmup 150->400, proximity_benefit_scale 0.05->0.10, num_resources 4->5, seeds [42,7]->[42,123]. Tests ARC-030 core prediction: pure NoGo produces behavioral flatness; full Go+NoGo symmetry breaks flatness and drives resource approach."
+    },
+    {
+      "queue_id": "V3-EXQ-139",
+      "title": "MECH-057a: COMPLETION_GATE_ON vs COMPLETION_GATE_ABLATED x 2 seeds (action loop completion gate discriminative pair)",
+      "experiment_type": "v3_exq_139_mech057a_action_loop_gate_pair",
+      "script": "experiments/v3_exq_139_mech057a_action_loop_gate_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "backlog_id": "EVB-0056",
+      "claim_id": "MECH-057a",
+      "note": "EXP-0065 / EVB-0056: matched-seed discriminative pair for MECH-057a. COMPLETION_GATE_ON (precision/running_variance updates suppressed during committed sequences, flushed as batch at completion boundary -- uncommitted transition; BetaGate active: elevated when committed, released at completion) vs COMPLETION_GATE_ABLATED (continuous per-step running_variance updates regardless of commitment state; BetaGate disabled). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 harm_rate_on<=harm_rate_ablated*0.90 (10% relative reduction, both seeds), C2 per-seed absolute gap>=0.005 (both seeds), C3 n_harm_contact_min>=20 per cell, C4 n_committed_steps_min>=30 in eval (GATE_ON per seed, manipulation check: agent enters committed state), C5 no fatal errors. MECH-057a claim: committed sequences suppress precision updates until execution completes; completion events are principal policy-propagation opportunities (beta drops, E3 propagates). Distinct from EXQ-119 (MECH-090): that test measured beta gate CONCORDANCE with commitment; this test measures whether suppressing precision updates DURING commitment improves harm avoidance. 400 warmup + 50 eval eps x 200 steps, size=6, 4 hazards, nav_bias=0.45, alpha_world=0.9."
     }
   ]
 }
