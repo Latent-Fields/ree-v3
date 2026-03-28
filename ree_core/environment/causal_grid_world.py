@@ -415,16 +415,18 @@ class CausalGridWorld:
             # recomputed for this step via _compute_proximity_fields.
             alpha_a = self.harm_obs_a_ema_alpha
             ax2, ay2 = int(self.agent_x), int(self.agent_y)
-            hazard_max = float(self.hazard_field.max()) + 1e-6
-            resource_max = float(self.resource_field.max()) + 1e-6
+            # Use raw field values (no per-step normalization by field.max()).
+            # Normalizing by hazard_max caused inversion: more hazards -> higher max ->
+            # smaller normalized values -> lower EMA despite higher actual exposure.
+            # Field values are already bounded ~[0,1] per hazard; clipping suffices.
             prox_now = np.zeros(50, dtype=np.float32)
             idx = 0
             for di in range(-2, 3):
                 for dj in range(-2, 3):
                     ni, nj = ax2 + di, ay2 + dj
                     if 0 <= ni < self.size and 0 <= nj < self.size:
-                        prox_now[idx] = self.hazard_field[ni, nj] / hazard_max
-                        prox_now[idx + 25] = self.resource_field[ni, nj] / resource_max
+                        prox_now[idx] = float(np.clip(self.hazard_field[ni, nj], 0.0, 1.0))
+                        prox_now[idx + 25] = float(np.clip(self.resource_field[ni, nj], 0.0, 1.0))
                     idx += 1
             self.harm_obs_a_ema = (1.0 - alpha_a) * self.harm_obs_a_ema + alpha_a * prox_now
 
