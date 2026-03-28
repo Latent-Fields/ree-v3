@@ -111,6 +111,56 @@ def git_pull(repo_path: Path, label: str) -> None:
             return
 
 
+def _check_active_claim_on_file(relative_path: str) -> bool:
+    """Return True if TASK_CLAIMS.json has an active claim covering relative_path.
+
+    Used to log a warning before overwriting local edits during git reset --hard.
+    Never raises -- returns False on any error.
+    """
+    try:
+        claims_path = REPO_ROOT.parent / "TASK_CLAIMS.json"
+        if not claims_path.exists():
+            return False
+        data = json.loads(claims_path.read_text(encoding="utf-8"))
+        for entry in data.get("claims", []):
+            if entry.get("status") != "active":
+                continue
+            for res in entry.get("resources", []):
+                if relative_path in res or res.endswith(relative_path):
+                    return True
+        return False
+    except Exception:
+        return False
+
+
+def _merge_queue_json(remote_content: str, saved_content: str) -> str:
+    """JSON-level merge of two experiment_queue.json strings.
+
+    Strategy: take remote as the base (preserving completed-item removals pushed
+    by the remote runner), then append any items from saved_content whose queue_id
+    does not appear in the remote version.
+
+    Returns the merged JSON string, or remote_content unchanged if merging fails.
+    """
+    try:
+        remote = json.loads(remote_content)
+        saved = json.loads(saved_content)
+        remote_ids = {item["queue_id"] for item in remote.get("items", [])}
+        new_items = [
+            item for item in saved.get("items", [])
+            if item["queue_id"] not in remote_ids
+        ]
+        if not new_items:
+            return remote_content
+        remote["items"] = remote.get("items", []) + new_items
+        labels = [item["queue_id"] for item in new_items]
+        print(f"[runner] queue merge: restored {len(new_items)} item(s): {labels}", flush=True)
+        return json.dumps(remote, indent=2)
+    except Exception as e:
+        print(f"[runner] queue merge failed: {e} -- keeping remote version", flush=True)
+        return remote_content
+
+
 def _git_push_with_retry(cwd: str, branch: str, label: str, max_retries: int = 3) -> bool:
     """Push to origin, retrying with pull --rebase on rejection. Returns True on success.
 
@@ -143,11 +193,32 @@ def _git_push_with_retry(cwd: str, branch: str, label: str, max_retries: int = 3
         # Rebase failed (conflict) -- abort, accept remote, re-add our changes
         print(f"[runner] auto-sync: rebase conflict ({label}), resolving...", flush=True)
         subprocess.run(["git", "rebase", "--abort"], cwd=cwd, capture_output=True, timeout=10)
+
+        # Save experiment_queue.json BEFORE reset so we can restore locally-added items.
+        # (git reset --hard would wipe any new queue entries added by the current session.)
+        queue_path = Path(cwd) / "experiment_queue.json"
+        saved_queue: str | None = None
+        if queue_path.exists():
+            if _check_active_claim_on_file("experiment_queue.json"):
+                print(f"[runner] auto-sync: active TASK_CLAIMS entry on experiment_queue.json -- will restore after reset", flush=True)
+            saved_queue = queue_path.read_text(encoding="utf-8")
+
         # Reset to remote state
         subprocess.run(["git", "fetch", "origin"], cwd=cwd, capture_output=True, timeout=30)
         subprocess.run(["git", "reset", "--hard", f"origin/{branch}"], cwd=cwd, capture_output=True, timeout=10)
+
+        # Restore locally-added queue items that aren't present in the remote version.
+        # Remote items are kept as-is (completed-item removals from remote runner are honoured).
+        if saved_queue is not None and queue_path.exists():
+            remote_queue = queue_path.read_text(encoding="utf-8")
+            merged = _merge_queue_json(remote_queue, saved_queue)
+            if merged != remote_queue:
+                queue_path.write_text(merged, encoding="utf-8")
+
         # Re-stage all local evidence (our results are still on disk)
         subprocess.run(["git", "add", "evidence/experiments/"], cwd=cwd, capture_output=True, timeout=10)
+        if saved_queue is not None and queue_path.exists():
+            subprocess.run(["git", "add", "experiment_queue.json"], cwd=cwd, capture_output=True, timeout=10)
         diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cwd, timeout=5)
         if diff.returncode != 0:
             subprocess.run(
