@@ -355,6 +355,19 @@
       "backlog_id": "EVB-0074",
       "claim_id": "Q-005",
       "note": "EXP-0094 (EVB-0074): Q-005 asks whether offline integration can be modeled as annealing or resetting R(x,t). Three conditions: NO_ANNEAL (residue persists, current default), ANNEAL (RBF weights *= 0.3 after each waking phase, synaptic homeostasis analog), RESET (RBF weights zeroed, tabula rasa). Protocol: 3 waking phases x 100 episodes x 200 steps separated by 2 sleep phases. Primary metric: mean_harm_post_sleep (mean over waking phases 2+3 -- after first sleep). 5 pre-registered criteria: C1 ANNEAL harm < NO_ANNEAL * 0.92 (both seeds), C2 RESET harm < NO_ANNEAL * 1.15 (no catastrophic regression, both seeds), C3 ANNEAL residue_contrast > 0.03 (field retains structure after anneal, both seeds), C4 NO_ANNEAL residue_contrast > 0.02 (persistent field builds spatial contrast, both seeds), C5 seed-consistent direction. PASS (C1+C3+C5): ANNEAL beneficial; offline partial R(x,t) decay is load-bearing. PARTIAL (NO_ANNEAL wins): persistent residue preferred; no offline op needed. FAIL (C3/C4 fails): residue field does not build/retain usable structure. 2 seeds x 3 conditions = 6 cells. CausalGridWorldV2 size=10 2 hazards 3 resources hazard_harm=0.05."
+    },
+    {
+      "queue_id": "V3-EXQ-151",
+      "title": "Q-006 ethics developmental vs additive: SEQUENTIAL vs LATE_ADD vs FULL_ABLATION (seeds [42,123])",
+      "experiment_type": "v3_exq_151_q006_ethics_developmental_pair",
+      "script": "experiments/v3_exq_151_q006_ethics_developmental_pair.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 30,
+      "backlog_id": "EVB-0075",
+      "claim_id": "Q-006",
+      "note": "EXP-0096 (EVB-0075): Q-006 asks whether ethics is developmental or additive. Three conditions: SEQUENTIAL (harm supervision from episode 1, developmental), LATE_ADD (harm supervision from episode 75/150, additive with equal total budget), FULL_ABLATION (no harm supervision, floor). Primary metric: mean_harm in final 30 episodes. 5 pre-registered criteria: C1 SEQUENTIAL harm < LATE_ADD * 0.90 (>=10% advantage, both seeds), C2 both ethics conditions beat FULL_ABLATION harm by >=5% (both seeds), C3 SEQUENTIAL residue_contrast > 0.03 in final eval window (both seeds), C4 LATE_ADD residue_contrast > 0.02 (both seeds), C5 C1 direction seed-consistent. PASS (C1+C2+C3+C5): ethics is developmental -- early integration better. PARTIAL_ADDITIVE_ADEQUATE (not C1, C2+C4+C5): additive ethics adequate. PARTIAL_TIMING_MATTERS (C1+C2a+not C2b): sequential wins but late addition insufficient. FAIL (not C3 or not C2a): implementation problem. 2 seeds x 3 conditions = 6 cells. CausalGridWorldV2 size=10 2 hazards 3 resources hazard_harm=0.05 150 episodes x 200 steps each."
     }
   ]
 }
