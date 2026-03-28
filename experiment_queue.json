@@ -52,7 +52,7 @@
       "script": "experiments/v3_exq_109_sd003_harm_counterfactual.py",
       "machine_affinity": "any",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 100,
       "claim_id": "SD-003",
       "claim_ids": [
@@ -60,7 +60,11 @@
         "ARC-033"
       ],
       "backlog_id": "EVB-0010",
-      "note": "Discriminative pair: TRAINED vs RANDOM HarmForwardModel CF. 6x6 grid, 4 hazards, nav_bias=0.60. Fixes EXQ-095/095a/095b sparsity (12x12 sparse grid + random nav)."
+      "note": "Discriminative pair: TRAINED vs RANDOM HarmForwardModel CF. 6x6 grid, 4 hazards, nav_bias=0.60. Fixes EXQ-095/095a/095b sparsity (12x12 sparse grid + random nav).",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T16:16:07.291670+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-108",
