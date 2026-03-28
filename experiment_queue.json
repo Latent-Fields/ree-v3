@@ -24,11 +24,15 @@
       "script": "experiments/v3_exq_108_mech135_discriminative_pair.py",
       "machine_affinity": "any",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 30,
       "claim_id": "MECH-135",
       "backlog_id": "EVB-0004",
-      "supersedes": "V3-EXQ-104b"
+      "supersedes": "V3-EXQ-104b",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T19:53:17.771667+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-114",
