@@ -318,6 +318,19 @@
       "note": "EXP-0088 (covering MECH-128 and Q-002): Validates that E1 LSTM goal-conditioning (MECH-128) shapes E1 predictive distribution. GOAL_CONDITIONED: config.e1.goal_dim=world_dim (goal_input_proj active, z_goal passed to E1). GOAL_ABLATED: config.e1.goal_dim=0 (goal_input_proj disabled, z_goal withheld). Key metric: interaction term = (neutral_err_ablated - neutral_err_cond) - (goal_err_ablated - goal_err_cond). Positive interaction = goal context selectively reduces goal-relevant prediction error (MECH-128). Secondary Q-002 probe: world_dim=32 vs world_dim=16 for R-field resolution guidance. 5 pre-registered criteria: C1 interaction_32>=0.005 (both seeds), C2 err_goal_cond < err_goal_abla (both seeds, dim=32), C3 neutral_diff_32 < 0.03 (specificity, both seeds), C4 err_all_32 <= err_all_16*1.10 (Q-002 resolution), C5 interaction_16>=0.003 (replication). CausalGridWorldV2 size=10, 2 hazards, 3 resources. 2 seeds [42,123]. 400 warmup + 120 eval eps x 200 steps per condition per seed. 4 conditions total (COND/ABLA x dim=32/16)."
     },
     {
+      "queue_id": "V3-EXQ-149",
+      "title": "Q-004 tau_R calibration pair: FAST_TAU vs SLOW_TAU vs DEFAULT_TAU (seeds [42,123])",
+      "experiment_type": "v3_exq_149_q004_tau_r_calibration_pair",
+      "script": "experiments/v3_exq_149_q004_tau_r_calibration_pair.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 75,
+      "backlog_id": "EVB-0073",
+      "claim_id": "Q-004",
+      "note": "EXP-0092 / EVB-0073: Q-004 tau_R calibration discriminative triple. Tests whether tau_R (residue field effective integration timescale) should be calibrated to E2 forward-model horizon (~30 steps, FAST_TAU: accum_rate=0.5, bw=0.5) or E1 LSTM integration horizon (~200 steps, SLOW_TAU: accum_rate=0.02, bw=2.0), with DEFAULT_TAU (accum_rate=0.1, bw=1.0) as baseline. Key metric: mean_harm over 100 eval episodes x 200 steps. 5 pre-registered criteria: C1 FAST_TAU mean_harm < SLOW_TAU * 0.90 (both seeds), C2 SLOW_TAU mean_harm < FAST_TAU * 0.90 (both seeds), C3 DEFAULT_TAU ranks between FAST and SLOW (monotone ordering), C4 FAST_TAU residue_contrast > 0.05 (RBF field builds usable signal), C5 seed consistency. PASS (C1+C4+C5) => calibrate to E2; PASS (C2+C4+C5) => calibrate to E1; PARTIAL (C4 only) => tau_R robust in range; FAIL (C4 fails) => accumulation pathological. CausalGridWorldV2 size=10, 2 hazards, 3 resources, hazard_harm=0.05. 300 warmup + 100 eval eps x 200 steps x 3 conditions x 2 seeds = 6 cells."
+    },
+    {
       "queue_id": "V3-EXQ-148",
       "title": "Q-003 R-field dimensionality pair: SCALAR vs VECTOR (seeds [42,123])",
       "experiment_type": "v3_exq_148_q003_r_field_dimensionality_pair",
