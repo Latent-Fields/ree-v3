@@ -252,6 +252,19 @@
       "backlog_id": "EVB-0062",
       "claim_id": "MECH-113",
       "note": "EXP-0074 / EVB-0062: matched-seed discriminative pair for MECH-113. SELF_MAINT_ON (self_maintenance_weight=0.1, d_eff_target=1.5 -- homeostatic D_eff penalty penalises z_self dispersal above setpoint; reactive Level 1 allostatic self-efficacy, Stephan 2016) vs SELF_MAINT_ABLATED (self_maintenance_weight=0.0; no homeostatic signal; z_self learns only from E2 motor-sensory and E3 harm losses). Seeds [42,123] x 2 conditions = 4 cells. Perturbation: Gaussian noise sigma=2.0 injected into z_self at start of post-training eval. 5 pre-registered criteria: C1 ON d_eff_ratio(post/baseline)<=1.5x both seeds (homeostatic recovery), C2 ABLATED d_eff_ratio(post/baseline)>=2.0x both seeds (uncontrolled dispersal without homeostasis), C3 per-seed gap(ABLATED_post - ON_post)>=0.5x ABLATED_post both seeds (clear condition separation), C4 e2_loss_ON <= e2_loss_ABLATED+0.01 both seeds (homeostasis does not degrade E2 motor-sensory model), C5 n_d_eff_min>=50 per condition per seed (data quality). Extends EXQ-075d (single seed, no formal ablation pair) to canonical 2-seed discriminative design. CausalGridWorld size=10, 3 hazards, 5 resources, nav_bias=0.35. 200 warmup + 10 baseline + 30 post-perturb eval eps x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-143",
+      "title": "MECH-118: HOPFIELD_ON vs HOPFIELD_ABLATED x 2 seeds (Hopfield familiarity signal discriminative pair)",
+      "experiment_type": "v3_exq_143_mech118_hopfield_familiarity_pair",
+      "script": "experiments/v3_exq_143_mech118_hopfield_familiarity_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "backlog_id": "EVB-0063",
+      "claim_id": "MECH-118",
+      "note": "EXP-0076 / EVB-0063: matched-seed discriminative pair for MECH-118. HOPFIELD_ON (D_eff homeostatic loss [maint_weight=0.1, d_eff_target=1.5] + Hopfield familiarity pull loss [hopfield_weight=0.05, LRU-64 memory]: pulls z_self toward nearest stored pattern; memory filled from 30 baseline eval eps then frozen) vs HOPFIELD_ABLATED (D_eff homeostatic loss only; same weight; no Hopfield component). Seeds [42,123] x 2 conditions = 4 cells. Perturbation: Regime 3 coherent-unfamiliar vector (orthogonal to mean stored pattern, same norm as baseline z_self -- low D_eff ~1, near-zero Hopfield stability ~0) injected at first eval step. Critical test: D_eff homeostasis cannot detect R3 as abnormal (both R3 and normal z_self have low D_eff); only Hopfield familiarity signal detects unfamiliar configuration. 5 pre-registered criteria: C1 HOPFIELD_ON stab_post>=0.30 both seeds (familiarity recovery after R3 perturbation), C2 HOPFIELD_ABLATED stab_post<=0.20 both seeds (no spontaneous recovery -- D_eff loss blind to unfamiliarity), C3 per-seed stab_gap(ON-ABL)>=0.08 both seeds (discriminative separation), C4 |d_eff_post_ON - d_eff_post_ABL|<=0.80 both seeds (Hopfield adds familiarity signal orthogonally -- does not replace D_eff control), C5 n_stab>=50 per condition per seed (data quality). 300 warmup + 30 memory collection + 50 post-perturb eval eps x 200 steps. CausalGridWorldV2 size=10, 3 hazards, 4 resources, nav_bias=0.35, alpha_world=0.9."
     }
   ]
 }
