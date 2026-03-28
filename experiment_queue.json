@@ -242,6 +242,19 @@
       "backlog_id": "EVB-0025",
       "claim_id": "ARC-023",
       "note": "EXP-0033 / EVB-0025: matched-seed discriminative pair. MULTIRATE_ON (E3 updates only every 5 steps -- deliberation-rate separation, ARC-023 architecture; SD-006 phase 1 time-multiplexed proxy) vs MULTIRATE_ABLATED (E3 updates every step -- same rate as E1/E2, no rate separation). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 gap_on>=0.04 (both seeds), C2 per-seed delta (ON-ABLATED)>=0.02 (both seeds), C3 gap_ablated>=0.0, C4 n_harm_eval_min>=20, C5 no fatal errors. Tests ARC-023 functional claim: rate-separated E3 (deliberation-rate loop) integrating z_world evidence over K-step chunks produces higher harm_eval signal-to-noise than same-rate E3. Secondary diagnostic: var_harm_eval -- lower variance in MULTIRATE_ON indicates more stable heartbeat integration. 400 warmup + 50 eval eps x 200 steps, size=6, 4 hazards, nav_bias=0.40, alpha_world=0.9, e3_heartbeat_k=5."
+    },
+    {
+      "queue_id": "V3-EXQ-132",
+      "title": "MECH-070 E2 Motor-Model Discriminative Pair",
+      "experiment_type": "v3_exq_132_mech070_e2_motor_model_pair",
+      "script": "experiments/v3_exq_132_mech070_e2_motor_model_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "backlog_id": "EVB-0026",
+      "claim_id": "MECH-070",
+      "note": "EXP-0034 / EVB-0026: matched-seed discriminative pair. E2_MOTOR_ON (E2 trained as z_self forward model: 1-step MSE on z_self motor-sensory transitions, cerebellar analog) vs E2_MOTOR_ABLATED (E2 frozen at random init, motor model removed). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 gap_motor_on>=0.04 (both seeds), C2 per-seed delta (ON-ABLATED)>=0.02 (both seeds), C3 gap_ablated>=0.0, C4 n_harm_eval_min>=20, C5 e2_r2_on>=0.05 (manipulation check: E2 learned a useful z_self model). Tests MECH-070 functional claim: E2 as a trained z_self motor forward model contributes to trajectory quality (harm_eval discrimination). E3 harm_eval trains normally in both conditions (trains on z_world). E1 trains normally in both conditions. Secondary diagnostic: e2_r2 (confirms manipulation integrity -- dry-run shows 0.83 vs 0.0 as expected). 400 warmup + 50 eval eps x 200 steps, size=6, 4 hazards, nav_bias=0.40, alpha_world=0.9."
     }
   ]
 }
