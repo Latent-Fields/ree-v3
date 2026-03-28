@@ -128,7 +128,10 @@
       "status": "pending",
       "estimated_minutes": 100,
       "claim_id": "SD-003",
-      "claim_ids": ["SD-003", "ARC-033"],
+      "claim_ids": [
+        "SD-003",
+        "ARC-033"
+      ],
       "backlog_id": "EVB-0010",
       "note": "Discriminative pair: TRAINED vs RANDOM HarmForwardModel CF. 6x6 grid, 4 hazards, nav_bias=0.60. Fixes EXQ-095/095a/095b sparsity (12x12 sparse grid + random nav)."
     },
@@ -144,6 +147,20 @@
       "claim_id": "MECH-135",
       "backlog_id": "EVB-0004",
       "supersedes": "V3-EXQ-104b"
+    },
+    {
+      "queue_id": "V3-EXQ-110",
+      "title": "MECH-098 reafference discriminative pair (proper data collection)",
+      "experiment_type": "v3_exq_110_mech098_reafference_pair",
+      "script": "experiments/v3_exq_110_mech098_reafference_pair.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "backlog_id": "EVB-0002",
+      "claim_id": "MECH-098",
+      "supersedes": "V3-EXQ-099a",
+      "note": "Fixes data collection bottleneck: separate low-hazard collection env (size=8, 1 hazard, threshold=0.04) gives 7000+ locomotion samples. Pre-registered C1=0.10, C2=1.15x, C3 directional."
     }
   ]
 }
