@@ -52,12 +52,16 @@
       "script": "experiments/v3_exq_073b_mech111_novelty_signal.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 30,
       "supersedes": "V3-EXQ-073",
       "claim_ids": [
         "MECH-111"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T13:55:43.773191+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-075d",
