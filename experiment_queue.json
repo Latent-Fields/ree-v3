@@ -18,24 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-116",
-      "title": "MECH-093 z_beta heartbeat modulation: BETA_MOD_ON vs OFF, matched seeds [42,123]",
-      "experiment_type": "v3_exq_116_mech093_heartbeat_multiseed",
-      "script": "experiments/v3_exq_116_mech093_heartbeat_multiseed.py",
-      "machine_affinity": "any",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 70,
-      "claim_id": "MECH-093",
-      "backlog_id": "EVB-0009",
-      "supersedes": "V3-EXQ-097b",
-      "note": "EXP-0011 -- multi-seed replication of EXQ-097b PASS. 2x seeds [42,123] x 2x conditions = 4 cells. 500 warmup + 40 eval eps each. C1: Pearson r>=0.15 both seeds; C3: direction consistent.",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T20:48:38.271116+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-117",
       "title": "ARC-024 harm-benefit opposing gradient discriminative pair: GRADIENT_PAIR vs FLAT_CONTROL, seeds [42,123]",
       "experiment_type": "v3_exq_117_arc024_harm_benefit_gradient_pair",
