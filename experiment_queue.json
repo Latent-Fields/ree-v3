@@ -38,11 +38,15 @@
       "script": "experiments/v3_exq_104_e1_parallel_rollout.py",
       "machine_affinity": "any",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 35,
       "claims": [
         "MECH-135"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-28T09:54:14.817265+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-105",
