@@ -160,6 +160,19 @@
       "backlog_id": "EVB-0003",
       "claim_id": "SD-007",
       "note": "Decision-grade evidence for SD-007 before 2026-03-31 deadline. REAF_ON vs REAF_OFF using LSTM predictor (all-transitions training). Pre-registered C1=0.10, C2=1.15x, C3=pair_pass_count>=2. Outcomes: retain_ree | hybridize | retire_ree_claim."
+    },
+    {
+      "queue_id": "V3-EXQ-112",
+      "title": "MECH-071 harm_eval trained vs random discriminative pair (EVB-0005)",
+      "experiment_type": "v3_exq_112_mech071_harm_eval_discriminative",
+      "script": "experiments/v3_exq_112_mech071_harm_eval_discriminative.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 55,
+      "backlog_id": "EVB-0005",
+      "claim_id": "MECH-071",
+      "note": "Decision-grade evidence for MECH-071 before 2026-03-31 deadline. Within-run comparison: E3.harm_eval_head TRAINED vs RANDOM on same z_world states. 6x6 grid, proxy fields, nav_bias=0.40. Pre-registered C1=calib_gap_trained>=0.08, C2=calib_gap_random<=0.04, C3=delta>=0.05, C4=graded model, C5=events. Outcomes: retain_ree | hybridize | retire_ree_claim."
     }
   ]
 }
