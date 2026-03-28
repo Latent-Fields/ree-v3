@@ -96,6 +96,20 @@
       "claim_id": "ARC-024",
       "backlog_id": "EVB-0011",
       "note": "EXP-0014 -- full discriminative pair. 2 matched seeds [42,123]. Tests BOTH harm gradient (C1) and benefit gradient (C2) arms of ARC-024, plus opposing cosine test (C3). 400 warmup + 40 eval eps x 200 steps. Extends EXQ-107 (FAIL C1 gap=0.003) with benefit arm, reduced threshold (0.04), and 2x warmup."
+    },
+    {
+      "queue_id": "V3-EXQ-118",
+      "title": "SD-007 reafference matched-seed discriminative pair: REAF_ON vs REAF_OFF, seeds [42,123,456]",
+      "experiment_type": "discriminative_pair_sd007_reafference_multiseed",
+      "script": "experiments/v3_exq_118_sd007_reafference_multiseed.py",
+      "machine_affinity": "any",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 110,
+      "claim_id": "SD-007",
+      "backlog_id": "EVB-0012",
+      "supersedes": "V3-EXQ-111",
+      "note": "EXP-0015 -- thorough multi-seed discriminative pair. 3 matched seeds [42,123,456] x 2 conditions = 6 cells. Phase 1: LSTM predictor (600 epochs, 40 collect eps, C1 R2>=0.10). Phase 2: 300 warmup + 50 eval eps x 200 steps each. 4 pre-registered criteria: C1 predictor quality, C2 selectivity lift>=15%, C3 consistency all 3 seeds, C4 data quality>=30 approach events 2/3 seeds. Supersedes EXQ-111 (2 seeds, 150 warmup)."
     }
   ]
 }
