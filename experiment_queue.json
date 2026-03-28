@@ -24,12 +24,16 @@
       "script": "experiments/v3_exq_119_mech090_beta_gate_pair.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 70,
       "backlog_id": "EVB-0013",
       "claim_id": "MECH-090",
       "supersedes": "V3-EXQ-049e",
-      "note": "EXP-0016: matched-seed discriminative pair. BETA_GATE_ON vs BETA_GATE_OFF x seeds [42,123]. 5 criteria: C1 hold_conc>=0.60 both seeds, C2 release_conc>=0.50 >=1 seed, C3 ablation hold_conc<0.40 both seeds, C4 n_committed>=50, C5 no fatal errors."
+      "note": "EXP-0016: matched-seed discriminative pair. BETA_GATE_ON vs BETA_GATE_OFF x seeds [42,123]. 5 criteria: C1 hold_conc>=0.60 both seeds, C2 release_conc>=0.50 >=1 seed, C3 ablation hold_conc<0.40 both seeds, C4 n_committed>=50, C5 no fatal errors.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T21:25:59.278801+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-120",
