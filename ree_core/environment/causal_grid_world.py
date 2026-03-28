@@ -146,6 +146,10 @@ class CausalGridWorld:
         self.proximity_approach_threshold = proximity_approach_threshold
 
         self._rng = np.random.default_rng(seed)
+        # SD-011: harm_obs_a_ema persists across episodes (homeostatic accumulator).
+        # Initialized here, NOT in reset(), so accumulated threat state carries over.
+        # Resetting per-episode destroys autocorrelation (EXQ-106 C4 FAIL root cause).
+        self.harm_obs_a_ema: np.ndarray = np.zeros(50, dtype=np.float32)
         self.reset()
 
     # ------------------------------------------------------------------ #
@@ -245,11 +249,7 @@ class CausalGridWorld:
         self.benefit_exposure: float = 0.0
         self.hazard_field = np.zeros((self.size, self.size), dtype=np.float32)
         self.resource_field = np.zeros((self.size, self.size), dtype=np.float32)
-        # SD-011: affective-motivational harm accumulator (C-fiber/paleospinothalamic analog).
-        # EMA of the 50-dim proximity vector (hazard_field_view[25] + resource_field_view[25])
-        # at a slower time constant (tau ~ 20 steps) than the scalar harm_exposure (tau ~ 10).
-        # Represents accumulated homeostatic threat state, not immediate proximity.
-        self.harm_obs_a_ema: np.ndarray = np.zeros(50, dtype=np.float32)
+        # harm_obs_a_ema is NOT reset here -- it persists across episodes (see __init__).
         if self.use_proxy_fields:
             self._compute_proximity_fields()
 

@@ -166,6 +166,31 @@
       "backlog_id": "EVB-0018",
       "claim_id": "MECH-033",
       "note": "EXP-0023: matched-seed discriminative pair. KERNEL_CHAIN_ON (HippocampalModule CEM in action-object space, E2 action_object kernels chained across horizon, terrain prior + residue scoring) vs KERNEL_CHAIN_ABLATED (random candidates, E3 selects best via one-step E2 world_forward -- no kernel chaining). Seeds [42,123] x 2 conditions = 4 cells. 4 pre-registered criteria: C1 harm_reduction_delta>=0.03, C2 relative_reduction>=0.15, C3 consistent both seeds, C4 min_contacts_ablated>=20. 400 warmup + 50 eval eps x 200 steps. Replicates EXQ-055 PASS with proper matched-seed discriminative design."
+    },
+    {
+      "queue_id": "V3-EXQ-106a",
+      "title": "SD-011 harm_obs_a temporal persistence: episode-reset fix validation",
+      "experiment_type": "v3_exq_106a_harm_obs_a_persistence_fix",
+      "script": "experiments/v3_exq_106a_harm_obs_a_persistence_fix.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "claim_id": "SD-011",
+      "supersedes": "V3-EXQ-106",
+      "note": "Fix: harm_obs_a_ema moved from reset() to __init__() in CausalGridWorldV2. EXQ-106 C4 FAIL (autocorr=0.070) was caused by episode-reset wiping the EMA each episode (sawtooth). With persistent EMA, expected autocorr ~ (1-0.05)^10 ~ 0.60 >> threshold 0.30. Smoke test confirmed PASS 4/4 (autocorr=0.511). 4 criteria: C1 grid_high>2.5x grid_low, C3 raw density responsive, C4 autocorr_lag10>0.30, C5 no errors. 5 seeds x 500 steps x 2 conditions."
+    },
+    {
+      "queue_id": "V3-EXQ-125",
+      "title": "ARC-029: COMMITTED_MODE_ON vs COMMITTED_MODE_ABLATED x stable/volatile x 2 seeds",
+      "experiment_type": "v3_exq_125_arc029_committed_mode_pair",
+      "script": "experiments/v3_exq_125_arc029_committed_mode_pair.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 85,
+      "claim_id": "ARC-029",
+      "note": "EXP-0085: matched-seed discriminative pair. COMMITTED_MODE_ON (BG beta gate active, agent trained to committed state) vs COMMITTED_MODE_ABLATED (gate disabled: running_var forced > commit_threshold each step) x stable (drift=0.0) vs volatile (drift=0.4, interval=3). Seeds [42,123] x 2 conditions x 2 envs = 8 cells. 6 pre-registered criteria: C1 harm_gap_stable>=0.0001 (both seeds), C2 gap_volatile<gap_stable (both seeds), C3 gap_ratio<=0.90 (both seeds), C4 gate active in ON condition, C5 ablation complete, C6 no fatal errors. 400 warmup + 50 eval eps x 200 steps. Strengthens EXQ-063 PASS (5/5, conf=0.774) with canonical matched seeds."
     }
   ]
 }
