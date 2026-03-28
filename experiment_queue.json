@@ -24,11 +24,15 @@
       "script": "experiments/v3_exq_106a_harm_obs_a_persistence_fix.py",
       "priority": 1,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 5,
       "claim_id": "SD-011",
       "supersedes": "V3-EXQ-106",
-      "note": "Fix: harm_obs_a_ema moved from reset() to __init__() in CausalGridWorldV2. EXQ-106 C4 FAIL (autocorr=0.070) was caused by episode-reset wiping the EMA each episode (sawtooth). With persistent EMA, expected autocorr ~ (1-0.05)^10 ~ 0.60 >> threshold 0.30. Smoke test confirmed PASS 4/4 (autocorr=0.511). 4 criteria: C1 grid_high>2.5x grid_low, C3 raw density responsive, C4 autocorr_lag10>0.30, C5 no errors. 5 seeds x 500 steps x 2 conditions."
+      "note": "Fix: harm_obs_a_ema moved from reset() to __init__() in CausalGridWorldV2. EXQ-106 C4 FAIL (autocorr=0.070) was caused by episode-reset wiping the EMA each episode (sawtooth). With persistent EMA, expected autocorr ~ (1-0.05)^10 ~ 0.60 >> threshold 0.30. Smoke test confirmed PASS 4/4 (autocorr=0.511). 4 criteria: C1 grid_high>2.5x grid_low, C3 raw density responsive, C4 autocorr_lag10>0.30, C5 no errors. 5 seeds x 500 steps x 2 conditions.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T22:26:00.979792+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-125",
