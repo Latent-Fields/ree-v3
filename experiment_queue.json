@@ -115,25 +115,6 @@
         "MECH-118",
         "MECH-119"
       ]
-    },
-    {
-      "queue_id": "V3-EXQ-076e",
-      "title": "MECH-116/ARC-032 E1 goal conditioning: 10k-step budget for halflife measurement",
-      "experiment_type": "v3_exq_076e_mech116_arc032_e1_goal_conditioning",
-      "script": "experiments/v3_exq_076e_mech116_arc032_e1_goal_conditioning.py",
-      "machine_affinity": "any",
-      "priority": 3,
-      "status": "claimed",
-      "estimated_minutes": 50,
-      "supersedes": "V3-EXQ-076c",
-      "claim_ids": [
-        "MECH-116",
-        "ARC-032"
-      ],
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T18:12:27.173318+00:00"
-      }
     }
   ]
 }
