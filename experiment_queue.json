@@ -68,7 +68,9 @@
       "status": "pending",
       "estimated_minutes": 25,
       "supersedes": "V3-EXQ-072",
-      "claim_ids": ["Q-021"]
+      "claim_ids": [
+        "Q-021"
+      ]
     },
     {
       "queue_id": "V3-EXQ-073b",
@@ -80,7 +82,9 @@
       "status": "pending",
       "estimated_minutes": 25,
       "supersedes": "V3-EXQ-073",
-      "claim_ids": ["MECH-111"]
+      "claim_ids": [
+        "MECH-111"
+      ]
     },
     {
       "queue_id": "V3-EXQ-074e",
@@ -92,7 +96,10 @@
       "status": "pending",
       "estimated_minutes": 25,
       "supersedes": "V3-EXQ-074d",
-      "claim_ids": ["MECH-112", "MECH-117"]
+      "claim_ids": [
+        "MECH-112",
+        "MECH-117"
+      ]
     },
     {
       "queue_id": "V3-EXQ-075d",
@@ -104,7 +111,9 @@
       "status": "pending",
       "estimated_minutes": 35,
       "supersedes": "V3-EXQ-075c",
-      "claim_ids": ["MECH-113"]
+      "claim_ids": [
+        "MECH-113"
+      ]
     },
     {
       "queue_id": "V3-EXQ-071c",
@@ -113,10 +122,18 @@
       "script": "experiments/v3_exq_071c_rollout_batched_attribution.py",
       "machine_affinity": "any",
       "priority": 3,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 30,
       "supersedes": "V3-EXQ-071b",
-      "claim_ids": ["SD-003", "ARC-024", "MECH-071"]
+      "claim_ids": [
+        "SD-003",
+        "ARC-024",
+        "MECH-071"
+      ],
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T17:18:23.231900+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-084d",
@@ -128,7 +145,11 @@
       "status": "pending",
       "estimated_minutes": 45,
       "supersedes": "V3-EXQ-084c",
-      "claim_ids": ["Q-022", "MECH-118", "MECH-119"]
+      "claim_ids": [
+        "Q-022",
+        "MECH-118",
+        "MECH-119"
+      ]
     },
     {
       "queue_id": "V3-EXQ-076e",
@@ -140,7 +161,10 @@
       "status": "pending",
       "estimated_minutes": 50,
       "supersedes": "V3-EXQ-076c",
-      "claim_ids": ["MECH-116", "ARC-032"]
+      "claim_ids": [
+        "MECH-116",
+        "ARC-032"
+      ]
     }
   ]
 }
