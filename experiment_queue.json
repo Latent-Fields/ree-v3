@@ -63,7 +63,7 @@
       "title": "Q-021 behavioral flatness: NoGo-only vs competitive vs random baseline",
       "experiment_type": "v3_exq_072b_q021_behavioral_flatness",
       "script": "experiments/v3_exq_072b_q021_behavioral_flatness.py",
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 25,
@@ -77,7 +77,7 @@
       "title": "MECH-111 novelty signal: E1 prediction error variance as exploration bonus",
       "experiment_type": "v3_exq_073b_mech111_novelty_signal",
       "script": "experiments/v3_exq_073b_mech111_novelty_signal.py",
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 25,
@@ -91,22 +91,26 @@
       "title": "MECH-112/117 wanting vs liking dissociation (re-run: rewritten post-detach-fix)",
       "experiment_type": "v3_exq_074e_mech112_117_wanting_liking",
       "script": "experiments/v3_exq_074e_mech112_117_wanting_liking.py",
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "priority": 3,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 25,
       "supersedes": "V3-EXQ-074d",
       "claim_ids": [
         "MECH-112",
         "MECH-117"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T18:12:02.162894+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-075d",
       "title": "MECH-113 self-maintenance: D_eff homeostasis under Gaussian perturbation",
       "experiment_type": "v3_exq_075d_mech113_self_maintenance",
       "script": "experiments/v3_exq_075d_mech113_self_maintenance.py",
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 35,
@@ -116,11 +120,27 @@
       ]
     },
     {
+      "queue_id": "V3-EXQ-071d",
+      "title": "SD-003 batched attribution: world_forward([n_cf,d]) equivalence (scipy-free)",
+      "experiment_type": "v3_exq_071d_rollout_batched_attribution",
+      "script": "experiments/v3_exq_071d_rollout_batched_attribution.py",
+      "machine_affinity": "any",
+      "priority": 3,
+      "status": "pending",
+      "estimated_minutes": 30,
+      "supersedes": "V3-EXQ-071c",
+      "claim_ids": [
+        "SD-003",
+        "ARC-024",
+        "MECH-071"
+      ]
+    },
+    {
       "queue_id": "V3-EXQ-084d",
       "title": "Q-022 D_eff vs Hopfield familiarity dissociation (inline HopfieldMemory)",
       "experiment_type": "v3_exq_084d_q022_deff_hopfield_dissociation",
       "script": "experiments/v3_exq_084d_q022_deff_hopfield_dissociation.py",
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 45,
@@ -136,7 +156,7 @@
       "title": "MECH-116/ARC-032 E1 goal conditioning: 10k-step budget for halflife measurement",
       "experiment_type": "v3_exq_076e_mech116_arc032_e1_goal_conditioning",
       "script": "experiments/v3_exq_076e_mech116_arc032_e1_goal_conditioning.py",
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 50,
