@@ -18,23 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-120",
-      "title": "ARC-018 viability map: VIABILITY_MAP_ON vs VIABILITY_MAP_ABLATED x 2 seeds",
-      "experiment_type": "v3_exq_120_arc018_viability_map_pair",
-      "script": "experiments/v3_exq_120_arc018_viability_map_pair.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 70,
-      "backlog_id": "EVB-0014",
-      "claim_id": "ARC-018",
-      "note": "EXP-0017: matched-seed discriminative pair. VIABILITY_MAP_ON (residue accumulation + hippocampal proposals) vs VIABILITY_MAP_ABLATED (no terrain, random action). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 harm_reduction>=15%, C2 residue_events_min>=20, C3 consistent both seeds, C4 n_harm_min>=20, C5 active_centers_min>=5. 400 warmup + 50 eval eps x 200 steps.",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T21:33:09.168081+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-121",
       "title": "MECH-095 agency attribution: AGENCY_ATTRIBUTION_ON vs AGENCY_ATTRIBUTION_ABLATED x 2 seeds",
       "experiment_type": "v3_exq_121_mech095_agency_attribution_pair",
