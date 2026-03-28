@@ -316,6 +316,19 @@
       "backlog_id": "EVB-0071",
       "claim_id": "MECH-128",
       "note": "EXP-0088 (covering MECH-128 and Q-002): Validates that E1 LSTM goal-conditioning (MECH-128) shapes E1 predictive distribution. GOAL_CONDITIONED: config.e1.goal_dim=world_dim (goal_input_proj active, z_goal passed to E1). GOAL_ABLATED: config.e1.goal_dim=0 (goal_input_proj disabled, z_goal withheld). Key metric: interaction term = (neutral_err_ablated - neutral_err_cond) - (goal_err_ablated - goal_err_cond). Positive interaction = goal context selectively reduces goal-relevant prediction error (MECH-128). Secondary Q-002 probe: world_dim=32 vs world_dim=16 for R-field resolution guidance. 5 pre-registered criteria: C1 interaction_32>=0.005 (both seeds), C2 err_goal_cond < err_goal_abla (both seeds, dim=32), C3 neutral_diff_32 < 0.03 (specificity, both seeds), C4 err_all_32 <= err_all_16*1.10 (Q-002 resolution), C5 interaction_16>=0.003 (replication). CausalGridWorldV2 size=10, 2 hazards, 3 resources. 2 seeds [42,123]. 400 warmup + 120 eval eps x 200 steps per condition per seed. 4 conditions total (COND/ABLA x dim=32/16)."
+    },
+    {
+      "queue_id": "V3-EXQ-148",
+      "title": "Q-003 R-field dimensionality pair: SCALAR vs VECTOR (seeds [42,123])",
+      "experiment_type": "v3_exq_148_q003_r_field_dimensionality_pair",
+      "script": "experiments/v3_exq_148_q003_r_field_dimensionality_pair.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 50,
+      "backlog_id": "EVB-0072",
+      "claim_id": "Q-003",
+      "note": "EXP-0090 (EVB-0072): Q-003 asks whether R(x,t) should be scalar or vector. SCALAR condition uses standard ResidueField.evaluate() (1-D output). VECTOR condition uses VectorResidueWrapper.evaluate_vector() producing 3 dims: harm_intensity (standard RBF), harm_recency (EMA-decayed weights), benefit_proximity (ARC-030 benefit terrain). E3 receives vector fused into z_world via Linear(world_dim+3, world_dim) projection trained jointly. Key discriminator: harm_ratio = mean_harm_vector / mean_harm_scalar. 5 pre-registered criteria: C1 harm_ratio<0.92 (vector reduces harm >=8%, both seeds), C2 dim_var>0.01 dims 0+1 (non-degenerate vector, both seeds), C3 benefit_dim2_mean>0.01 (benefit dim non-zero, both seeds), C4 harm_ratio<1.10 (no regression, both seeds), C5 C1 seed-consistent. PASS (C1+C2+C3): vector preferred. FAIL (C4): scalar preferred. FAIL (C2): inconclusive/collapsed. CausalGridWorldV2 size=10, 2 hazards, 3 resources, drift_interval=10. 2 seeds [42,123]. 300 warmup + 100 eval eps x 200 steps per condition per seed."
     }
   ]
 }
