@@ -278,6 +278,18 @@
       "backlog_id": "EVB-0064",
       "claim_id": "MECH-119",
       "note": "EXP-0078 / EVB-0064: discriminative pair for MECH-119. Tests whether Regime 3 (low D_eff + low Hopfield stability = coherent-but-unfamiliar) is a distinct pathological state from Regime 2 (high D_eff + low stability = dispersed). R3_COHERENT_UNFAMILIAR: z_self perturbed with a one-hot spike in the least-used dimension (D_eff=1 -- maximally coherent, analytically) that is orthogonal to stored patterns (stability~0 -- unfamiliar). R2_DISPERSED: z_self perturbed with a Gaussian noise vector (D_eff~16 -- dispersed). Both conditions use the SAME trained agent per seed (no ablation -- within-agent perturbation characterisation). Criteria use ANALYTIC properties of injection vectors. 5 pre-registered criteria: C1 R3 analytic D_eff<=4.0 both seeds (coherent), C2 R3 analytic stability<=0.25 both seeds (unfamiliar), C3 R2 analytic D_eff>=8.0 both seeds (dispersed), C4 R2 analytic stability<=0.25 both seeds (also unfamiliar -- confirms both low-stability but different D_eff), C5 per-seed D_eff gap(R2-R3)>=5.0 both seeds (discriminative separation). Dry-run PASS 5/5: R3 d_eff=1.0/stab=0.014 vs R2 d_eff=19.2/stab=0.070, gap~18-22. Seeds [42,123] x 2 conditions = 4 cells. 300 warmup + 30 memory collection + 50 post-perturb eval eps x 200 steps. CausalGridWorldV2 size=10, 3 hazards, 4 resources, nav_bias=0.35, alpha_world=0.9."
+    },
+    {
+      "queue_id": "V3-EXQ-145",
+      "title": "SD-008+SD-007+SD-003: integration test -- all three co-operate end-to-end (seeds [42,123])",
+      "experiment_type": "v3_exq_145_sd008_sd007_sd003_integration",
+      "script": "experiments/v3_exq_145_sd008_sd007_sd003_integration.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "claim_id": "SD-008",
+      "note": "EXP-0087: integration test for SD-008 (alpha_world=0.9) + SD-007 (LSTM reafference) + SD-003 (counterfactual attribution pipeline) composing correctly in a single run. Each mechanism validated individually (EXQ-040, EXQ-099a, EXQ-030b); this tests compositional correctness. Phase 1: train LSTM predictor (seed=42, R2 gate>=0.08). Phase 2: warmup+eval on seeds [42,123] with all three active simultaneously. 6 pre-registered criteria (per seed or pooled): C1 event_selectivity_margin>0.05 (SD-008 in integration, both seeds), C2 reaf_selectivity_ratio>=1.10 (SD-007, both seeds), C3 attribution_gap>0.0 (SD-003 agent vs env, both seeds), C4 causal_sig_approach>0.003 (SD-003 minimum signal, both seeds), C5 world_forward_r2>0.05 (E2 learned world dynamics, pooled), C6 n_approach>=30 (data quality, each seed). Not an ablation pair -- single condition with all mechanisms ON per seed. evidence_direction_per_claim used to give fine-grained per-claim governance signal. CausalGridWorldV2 size=10, 3 hazards, 4 resources. 400 warmup + 60 eval eps x 200 steps per seed."
     }
   ]
 }
