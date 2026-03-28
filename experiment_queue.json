@@ -18,6 +18,23 @@
       "estimated_minutes": 20
     },
     {
+      "queue_id": "V3-EXQ-113",
+      "title": "SD-005 double dissociation: z_world improves + z_self purified in SPLIT vs UNIFIED",
+      "experiment_type": "v3_exq_113_sd005_double_dissociation",
+      "script": "experiments/v3_exq_113_sd005_double_dissociation.py",
+      "machine_affinity": "any",
+      "priority": 1,
+      "status": "claimed",
+      "estimated_minutes": 70,
+      "claim_id": "SD-005",
+      "backlog_id": "EVB-0006",
+      "note": "Decision-grade discriminative pair for SD-005 (governance deadline 2026-03-31). Double dissociation: C1-C3 replicate EXQ-078 z_world advantage; C4 tests z_self purification (new). 2 matched seeds [42,123].",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T16:21:13.171702+00:00"
+      }
+    },
+    {
       "queue_id": "V3-EXQ-104b",
       "title": "E1/E2 parallel rollout with trained agent -- MECH-135 diagnostic (post-EXQ-104)",
       "experiment_type": "v3_exq_104b_e1_parallel_rollout_trained",
