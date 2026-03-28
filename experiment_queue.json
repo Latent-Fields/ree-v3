@@ -110,6 +110,20 @@
       "backlog_id": "EVB-0012",
       "supersedes": "V3-EXQ-111",
       "note": "EXP-0015 -- thorough multi-seed discriminative pair. 3 matched seeds [42,123,456] x 2 conditions = 6 cells. Phase 1: LSTM predictor (600 epochs, 40 collect eps, C1 R2>=0.10). Phase 2: 300 warmup + 50 eval eps x 200 steps each. 4 pre-registered criteria: C1 predictor quality, C2 selectivity lift>=15%, C3 consistency all 3 seeds, C4 data quality>=30 approach events 2/3 seeds. Supersedes EXQ-111 (2 seeds, 150 warmup)."
+    },
+    {
+      "queue_id": "V3-EXQ-119",
+      "title": "MECH-090 beta gate committed dynamics: GATE_ON vs GATE_OFF x 2 seeds",
+      "experiment_type": "v3_exq_119_mech090_beta_gate_pair",
+      "script": "experiments/v3_exq_119_mech090_beta_gate_pair.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 70,
+      "backlog_id": "EVB-0013",
+      "claim_id": "MECH-090",
+      "supersedes": "V3-EXQ-049e",
+      "note": "EXP-0016: matched-seed discriminative pair. BETA_GATE_ON vs BETA_GATE_OFF x seeds [42,123]. 5 criteria: C1 hold_conc>=0.60 both seeds, C2 release_conc>=0.50 >=1 seed, C3 ablation hold_conc<0.40 both seeds, C4 n_committed>=50, C5 no fatal errors."
     }
   ]
 }
