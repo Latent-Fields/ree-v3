@@ -30,23 +30,6 @@
       "priority": 0,
       "status": "pending",
       "estimated_minutes": 20
-    },
-    {
-      "queue_id": "V3-EXQ-105",
-      "title": "Rollout horizon sweep x co-evolution condition -- MECH-135 interaction",
-      "experiment_type": "v3_exq_105_rollout_horizon_sweep",
-      "script": "experiments/v3_exq_105_rollout_horizon_sweep.py",
-      "machine_affinity": "any",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 50,
-      "claims": [
-        "MECH-135"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-28T09:54:20.488463+00:00"
-      }
     }
   ]
 }
