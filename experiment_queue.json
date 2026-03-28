@@ -107,14 +107,18 @@
       "script": "experiments/v3_exq_071d_rollout_batched_attribution.py",
       "machine_affinity": "any",
       "priority": 3,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 30,
       "supersedes": "V3-EXQ-071c",
       "claim_ids": [
         "SD-003",
         "ARC-024",
         "MECH-071"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T18:12:17.890856+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-084d",
