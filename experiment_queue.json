@@ -123,13 +123,17 @@
       "script": "experiments/v3_exq_076e_mech116_arc032_e1_goal_conditioning.py",
       "machine_affinity": "any",
       "priority": 3,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 50,
       "supersedes": "V3-EXQ-076c",
       "claim_ids": [
         "MECH-116",
         "ARC-032"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T18:12:27.173318+00:00"
+      }
     }
   ]
 }
