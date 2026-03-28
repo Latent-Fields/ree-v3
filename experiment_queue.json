@@ -46,26 +46,6 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-084d",
-      "title": "Q-022 D_eff/Hopfield dissociation (methods now exist)",
-      "experiment_type": "v3_exq_084d_q022_deff_hopfield_dissociation",
-      "script": "experiments/v3_exq_084d_q022_deff_hopfield_dissociation.py",
-      "priority": 4,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "supersedes": "V3-EXQ-084c",
-      "claim_ids": [
-        "Q-022",
-        "MECH-118",
-        "MECH-119"
-      ],
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T15:57:41.614601+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-107",
       "title": "ARC-024 gradient vs flat proxy structure discriminative test",
       "experiment_type": "v3_exq_107_arc024_gradient_vs_flat_structure",
