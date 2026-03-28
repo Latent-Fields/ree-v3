@@ -46,21 +46,6 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-107",
-      "title": "ARC-024 gradient vs flat proxy structure discriminative test",
-      "experiment_type": "v3_exq_107_arc024_gradient_vs_flat_structure",
-      "script": "experiments/v3_exq_107_arc024_gradient_vs_flat_structure.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 70,
-      "claim_id": "ARC-024",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T16:06:51.355931+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-109",
       "title": "SD-003 harm-stream counterfactual attribution discriminative pair",
       "experiment_type": "v3_exq_109_sd003_harm_counterfactual",
