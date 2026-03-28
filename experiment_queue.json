@@ -24,12 +24,16 @@
       "script": "experiments/v3_exq_106_harm_obs_a_temporal_persistence.py",
       "machine_affinity": "any",
       "priority": 1,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 5,
       "supersedes": "V3-EXQ-102",
       "claims": [
         "SD-011"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T12:37:43.579166+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-104b",
