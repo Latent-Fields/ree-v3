@@ -303,6 +303,19 @@
       "backlog_id": "EVB-0070",
       "claim_id": "Q-001",
       "note": "EXP-0086/EVB-0070: Q-001 entity emergence and binding. Tests whether z_self attentional gating (self_maintenance_weight=0.1) is the operative mechanism for entity persistence in z_world. ENTITY_BINDING_ON: z_self active, self_maintenance_weight=0.1. ENTITY_ABLATED: z_self zeroed after each sense(), no maintenance gradient. 5 pre-registered criteria: C1 BINDING entity_event_response>=0.05, C2 ABLATED entity_event_response<=0.15, C3 per-seed event_response gap>=0.02, C4 BINDING persistence>=0.70, C5 per-seed persistence gap>=0.05. Entity events detected via obs_world delta>0.02 on env drift steps. CausalGridWorldV2 size=10 drift_prob=0.3. 2 seeds [42,123]. 300 warmup + 100 eval eps x 200 steps per condition per seed. Low priority (priority=4) per Q-001 designation."
+    },
+    {
+      "queue_id": "V3-EXQ-147",
+      "title": "MECH-128/Q-002 E1 goal-conditioning pair: GOAL_CONDITIONED vs GOAL_ABLATED (seeds [42,123], world_dim=32+16)",
+      "experiment_type": "v3_exq_147_mech128_e1_goal_conditioning_pair",
+      "script": "experiments/v3_exq_147_mech128_e1_goal_conditioning_pair.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 420,
+      "backlog_id": "EVB-0071",
+      "claim_id": "MECH-128",
+      "note": "EXP-0088 (covering MECH-128 and Q-002): Validates that E1 LSTM goal-conditioning (MECH-128) shapes E1 predictive distribution. GOAL_CONDITIONED: config.e1.goal_dim=world_dim (goal_input_proj active, z_goal passed to E1). GOAL_ABLATED: config.e1.goal_dim=0 (goal_input_proj disabled, z_goal withheld). Key metric: interaction term = (neutral_err_ablated - neutral_err_cond) - (goal_err_ablated - goal_err_cond). Positive interaction = goal context selectively reduces goal-relevant prediction error (MECH-128). Secondary Q-002 probe: world_dim=32 vs world_dim=16 for R-field resolution guidance. 5 pre-registered criteria: C1 interaction_32>=0.005 (both seeds), C2 err_goal_cond < err_goal_abla (both seeds, dim=32), C3 neutral_diff_32 < 0.03 (specificity, both seeds), C4 err_all_32 <= err_all_16*1.10 (Q-002 resolution), C5 interaction_16>=0.003 (replication). CausalGridWorldV2 size=10, 2 hazards, 3 resources. 2 seeds [42,123]. 400 warmup + 120 eval eps x 200 steps per condition per seed. 4 conditions total (COND/ABLA x dim=32/16)."
     }
   ]
 }
