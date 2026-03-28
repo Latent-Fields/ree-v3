@@ -46,24 +46,6 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-075d",
-      "title": "MECH-113 self-maintenance D_eff (methods now exist)",
-      "experiment_type": "v3_exq_075d_mech113_self_maintenance",
-      "script": "experiments/v3_exq_075d_mech113_self_maintenance.py",
-      "priority": 4,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 45,
-      "supersedes": "V3-EXQ-075c",
-      "claim_ids": [
-        "MECH-113"
-      ],
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T14:53:21.409355+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-084d",
       "title": "Q-022 D_eff/Hopfield dissociation (methods now exist)",
       "experiment_type": "v3_exq_084d_q022_deff_hopfield_dissociation",
