@@ -13,13 +13,17 @@
       "experiment_type": "v3_exq_102_harm_obs_a_clip_diagnosis",
       "script": "experiments/v3_exq_102_harm_obs_a_clip_diagnosis.py",
       "priority": 10,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 8,
       "machine_affinity": "any",
       "supersedes": "V3-EXQ-101",
       "claims": [
         "SD-011"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-28T12:37:19.403399+00:00"
+      }
     },
     {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
@@ -40,7 +44,9 @@
       "priority": 2,
       "status": "pending",
       "estimated_minutes": 25,
-      "claims": ["MECH-135"]
+      "claims": [
+        "MECH-135"
+      ]
     },
     {
       "queue_id": "V3-EXQ-104",
@@ -51,7 +57,9 @@
       "priority": 2,
       "status": "pending",
       "estimated_minutes": 35,
-      "claims": ["MECH-135"]
+      "claims": [
+        "MECH-135"
+      ]
     },
     {
       "queue_id": "V3-EXQ-105",
@@ -62,7 +70,9 @@
       "priority": 2,
       "status": "pending",
       "estimated_minutes": 50,
-      "claims": ["MECH-135"]
+      "claims": [
+        "MECH-135"
+      ]
     },
     {
       "queue_id": "V3-EXQ-106",
@@ -74,7 +84,9 @@
       "status": "pending",
       "estimated_minutes": 5,
       "supersedes": "V3-EXQ-102",
-      "claims": ["SD-011"]
+      "claims": [
+        "SD-011"
+      ]
     },
     {
       "queue_id": "V3-EXQ-104b",
@@ -86,7 +98,9 @@
       "status": "pending",
       "estimated_minutes": 20,
       "supersedes": "V3-EXQ-104",
-      "claims": ["MECH-135"]
+      "claims": [
+        "MECH-135"
+      ]
     },
     {
       "queue_id": "V3-EXQ-051c",
@@ -98,7 +112,9 @@
       "status": "pending",
       "estimated_minutes": 15,
       "supersedes": "V3-EXQ-051b",
-      "claim_ids": ["Q-007"]
+      "claim_ids": [
+        "Q-007"
+      ]
     },
     {
       "queue_id": "V3-EXQ-072b",
@@ -110,7 +126,9 @@
       "status": "pending",
       "estimated_minutes": 40,
       "supersedes": "V3-EXQ-072",
-      "claim_ids": ["Q-021"]
+      "claim_ids": [
+        "Q-021"
+      ]
     },
     {
       "queue_id": "V3-EXQ-073b",
@@ -122,7 +140,9 @@
       "status": "pending",
       "estimated_minutes": 30,
       "supersedes": "V3-EXQ-073",
-      "claim_ids": ["MECH-111"]
+      "claim_ids": [
+        "MECH-111"
+      ]
     },
     {
       "queue_id": "V3-EXQ-075d",
@@ -134,7 +154,9 @@
       "status": "pending",
       "estimated_minutes": 45,
       "supersedes": "V3-EXQ-075c",
-      "claim_ids": ["MECH-113"]
+      "claim_ids": [
+        "MECH-113"
+      ]
     },
     {
       "queue_id": "V3-EXQ-084d",
@@ -146,7 +168,22 @@
       "status": "pending",
       "estimated_minutes": 90,
       "supersedes": "V3-EXQ-084c",
-      "claim_ids": ["Q-022", "MECH-118", "MECH-119"]
+      "claim_ids": [
+        "Q-022",
+        "MECH-118",
+        "MECH-119"
+      ]
+    },
+    {
+      "queue_id": "V3-EXQ-107",
+      "title": "ARC-024 gradient vs flat proxy structure discriminative test",
+      "experiment_type": "v3_exq_107_arc024_gradient_vs_flat_structure",
+      "script": "experiments/v3_exq_107_arc024_gradient_vs_flat_structure.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 70,
+      "claim_id": "ARC-024"
     }
   ]
 }
