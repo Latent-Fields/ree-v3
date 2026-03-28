@@ -18,24 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-104b",
-      "title": "E1/E2 parallel rollout with trained agent -- MECH-135 diagnostic (post-EXQ-104)",
-      "experiment_type": "v3_exq_104b_e1_parallel_rollout_trained",
-      "script": "experiments/v3_exq_104b_e1_parallel_rollout_trained.py",
-      "machine_affinity": "any",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 20,
-      "supersedes": "V3-EXQ-104",
-      "claims": [
-        "MECH-135"
-      ],
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T18:25:51.553600+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-051c",
       "title": "Q-007 z_beta volatility injection (API fix)",
       "experiment_type": "v3_exq_051c_q007_zbeta_volatility_injection",
