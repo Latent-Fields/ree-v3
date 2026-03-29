@@ -42,9 +42,13 @@
       "supersedes": "V3-EXQ-164",
       "priority": 1,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 768,
-      "note": "Bug fix for EXQ-164: obs_dict keys 'harm_signal' and 'resource_count' do not exist in CausalGridWorldV2 -- both returned 0.0 every step, causing all axes and metrics to be identically zero. Fix: read harm_prev from harm_obs[12] (center hazard field cell, instantaneous proximity) and benefit_prev from harm_obs[37] (center resource field cell). Dry-run confirms last_q_harm=0.59 (was 0.0). Same protocol: WITH_DECORRELATION vs NO_DECORRELATION, 2 seeds, 1600 eps."
+      "note": "Bug fix for EXQ-164: obs_dict keys 'harm_signal' and 'resource_count' do not exist in CausalGridWorldV2 -- both returned 0.0 every step, causing all axes and metrics to be identically zero. Fix: read harm_prev from harm_obs[12] (center hazard field cell, instantaneous proximity) and benefit_prev from harm_obs[37] (center resource field cell). Dry-run confirms last_q_harm=0.59 (was 0.0). Same protocol: WITH_DECORRELATION vs NO_DECORRELATION, 2 seeds, 1600 eps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T20:46:50.898247+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-166",
