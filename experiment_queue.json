@@ -38,9 +38,13 @@
       "claim_id": "MECH-141",
       "priority": 4,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 288,
-      "note": "Tests MECH-141: dual-timescale tri-loop arbitration (slow EMA tau=30 + fast hyperdirect) vs SLOW_ONLY and FAST_ONLY baselines. MECH-140 soft-competitive disinhibition tested jointly. 3 conditions x 2 seeds = 6 cells. Slow: accumulated conflict EMA over 30 steps (indirect pathway analog). Fast: current-step conflict spike (STN hyperdirect analog). Dual: both active with w_slow=w_fast=0.5. C1: DUAL harm_rate < best(SLOW,FAST) - 0.02 (both seeds). C2: DUAL inter_loop_spread >= SLOW inter_loop_spread (both seeds; dual does not collapse axis separation). C3: timescale_gate_corr < 0.70 (both seeds; timescales are not redundant). C4: n_conflict_steps > 50 per condition per seed. CausalGridWorldV2 size=8 num_hazards=4 num_resources=2. 400 total episodes, 200 steps/ep. Mac-only (288 min estimate)."
+      "note": "Tests MECH-141: dual-timescale tri-loop arbitration (slow EMA tau=30 + fast hyperdirect) vs SLOW_ONLY and FAST_ONLY baselines. MECH-140 soft-competitive disinhibition tested jointly. 3 conditions x 2 seeds = 6 cells. Slow: accumulated conflict EMA over 30 steps (indirect pathway analog). Fast: current-step conflict spike (STN hyperdirect analog). Dual: both active with w_slow=w_fast=0.5. C1: DUAL harm_rate < best(SLOW,FAST) - 0.02 (both seeds). C2: DUAL inter_loop_spread >= SLOW inter_loop_spread (both seeds; dual does not collapse axis separation). C3: timescale_gate_corr < 0.70 (both seeds; timescales are not redundant). C4: n_conflict_steps > 50 per condition per seed. CausalGridWorldV2 size=8 num_hazards=4 num_resources=2. 400 total episodes, 200 steps/ep. Mac-only (288 min estimate).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T20:38:22.862838+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-165",
