@@ -176,6 +176,19 @@
       "backlog_id": "EVB-0080",
       "claim_id": "Q-016",
       "note": "EXP-0106 (EVB-0080): Q-016 asks what arbitration policy best resolves tri-loop gate conflicts without coupling collapse. Four conditions: PRIORITY_HARM (motivational gate overrides at conflict steps; mean of all three otherwise), WEIGHTED_SUM (fixed linear blend: 0.2*motor + 0.3*cog + 0.5*mot), WINNER_TAKE_ALL (argmax gate wins, others contribute 0), BLENDED baseline (no gating, 0.5*harm + 0.5*world_pred loss). Three loop gates trained jointly: motor (body-state input), cognitive (world-state input), motivational (joint input). Conflict = |g_motor - g_cog| > 0.15. Key metrics: harm_rate (mean harm in last 125 episodes), inter_loop_spread (mean pairwise absolute difference between gate values at conflict steps -- higher = more loop independence), commit_gate_variance (gate informativeness), n_conflict_steps (data quality gate). 5 pre-registered criteria: C1 best-policy harm_rate < BLENDED - 0.03 both seeds; C2 best-policy inter_loop_spread > 0.05 both seeds (no coupling collapse); C3 WTA inter_loop_spread > WEIGHTED_SUM both seeds (directional: hard inhibition preserves loop independence better than blending); C4 n_conflict_steps >= 50 per gated condition per seed; C5 best-policy commit_gate_variance > 0.01 both seeds (gate informative). PASS: winning policy identified. PARTIAL_NO_WINNER: no policy achieves both harm avoidance and loop independence. PARTIAL_COLLAPSE_ONLY: all policies collapse. FAIL: insufficient conflict events. 4 conditions x 2 seeds = 8 cells. CausalGridWorldV2 size=8 num_hazards=5 num_resources=2 hazard_harm=0.1 env_drift_interval=5 env_drift_prob=0.4. 500 total episodes, 125 measurement (last quartile), 200 steps/ep. Mac-only (440 min estimate)."
+    },
+    {
+      "queue_id": "V3-EXQ-158",
+      "title": "Q-018 RC-conflict threshold calibration: LOW_THRESH vs HIGH_THRESH vs ADAPTIVE_THRESH (seeds [42,123])",
+      "experiment_type": "v3_exq_158_q018_rc_conflict_threshold_calibration",
+      "script": "experiments/v3_exq_158_q018_rc_conflict_threshold_calibration.py",
+      "priority": 4,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 264,
+      "backlog_id": "EVB-0082",
+      "claim_id": "Q-018",
+      "note": "EXP-0110 (EVB-0082): Q-018 asks what RC-conflict threshold calibration blocks authority spoofing without chronic over-suppression. Three conditions: LOW_THRESH (rc=0.05, fixed), HIGH_THRESH (rc=0.40, fixed), ADAPTIVE_THRESH (EMA+2*sigma). Authority spoofing injected on 10% of measurement steps (SPOOF_MAGNITUDE=3.0). Key metrics: discrimination_gap (suppression_rate_spoofing - suppression_rate_clean), clean_suppression_rate, harm_rate. 5 pre-registered criteria: C1 ADAPTIVE disc_gap>=0.10 both seeds; C2 ADAPTIVE clean_rate < LOW clean_rate - 0.05 both seeds; C3 ADAPTIVE harm_rate <= HIGH harm_rate + 0.02 both seeds; C4 n_spoofing >= 30 per condition per seed; C5 LOW_THRESH disc_gap > 0 (sanity). PASS: EMA+sigma adaptive calibration blocks spoofing and avoids over-suppression; Q-018 partially resolved. PARTIAL_ADAPTIVE_DISC: discrimination good but over-suppression persists. PARTIAL_TRADEOFF: fundamental tension. FAIL: mechanism broken. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=4 num_resources=2 hazard_harm=0.08 env_drift_interval=8 env_drift_prob=0.3. 400 total episodes, 100 measurement (last quartile), 200 steps/ep. Mac-only (264 min estimate)."
     }
   ]
 }
