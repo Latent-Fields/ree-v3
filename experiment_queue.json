@@ -24,11 +24,15 @@
       "script": "experiments/v3_exq_158_q018_rc_conflict_threshold_calibration.py",
       "priority": 4,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 264,
       "backlog_id": "EVB-0082",
       "claim_id": "Q-018",
-      "note": "EXP-0110 (EVB-0082): Q-018 asks what RC-conflict threshold calibration blocks authority spoofing without chronic over-suppression. Three conditions: LOW_THRESH (rc=0.05, fixed), HIGH_THRESH (rc=0.40, fixed), ADAPTIVE_THRESH (EMA+2*sigma). Authority spoofing injected on 10% of measurement steps (SPOOF_MAGNITUDE=3.0). Key metrics: discrimination_gap (suppression_rate_spoofing - suppression_rate_clean), clean_suppression_rate, harm_rate. 5 pre-registered criteria: C1 ADAPTIVE disc_gap>=0.10 both seeds; C2 ADAPTIVE clean_rate < LOW clean_rate - 0.05 both seeds; C3 ADAPTIVE harm_rate <= HIGH harm_rate + 0.02 both seeds; C4 n_spoofing >= 30 per condition per seed; C5 LOW_THRESH disc_gap > 0 (sanity). PASS: EMA+sigma adaptive calibration blocks spoofing and avoids over-suppression; Q-018 partially resolved. PARTIAL_ADAPTIVE_DISC: discrimination good but over-suppression persists. PARTIAL_TRADEOFF: fundamental tension. FAIL: mechanism broken. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=4 num_resources=2 hazard_harm=0.08 env_drift_interval=8 env_drift_prob=0.3. 400 total episodes, 100 measurement (last quartile), 200 steps/ep. Mac-only (264 min estimate)."
+      "note": "EXP-0110 (EVB-0082): Q-018 asks what RC-conflict threshold calibration blocks authority spoofing without chronic over-suppression. Three conditions: LOW_THRESH (rc=0.05, fixed), HIGH_THRESH (rc=0.40, fixed), ADAPTIVE_THRESH (EMA+2*sigma). Authority spoofing injected on 10% of measurement steps (SPOOF_MAGNITUDE=3.0). Key metrics: discrimination_gap (suppression_rate_spoofing - suppression_rate_clean), clean_suppression_rate, harm_rate. 5 pre-registered criteria: C1 ADAPTIVE disc_gap>=0.10 both seeds; C2 ADAPTIVE clean_rate < LOW clean_rate - 0.05 both seeds; C3 ADAPTIVE harm_rate <= HIGH harm_rate + 0.02 both seeds; C4 n_spoofing >= 30 per condition per seed; C5 LOW_THRESH disc_gap > 0 (sanity). PASS: EMA+sigma adaptive calibration blocks spoofing and avoids over-suppression; Q-018 partially resolved. PARTIAL_ADAPTIVE_DISC: discrimination good but over-suppression persists. PARTIAL_TRADEOFF: fundamental tension. FAIL: mechanism broken. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=4 num_resources=2 hazard_harm=0.08 env_drift_interval=8 env_drift_prob=0.3. 400 total episodes, 100 measurement (last quartile), 200 steps/ep. Mac-only (264 min estimate).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T19:28:52.590056+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-159",
