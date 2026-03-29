@@ -81,6 +81,19 @@
       "status": "pending",
       "estimated_minutes": 192,
       "note": "Tests MECH-143 (dorsal CA1 value-flat) and MECH-144 (ventral CA1 valence-organised). FIXED_VALUE: goal_A=1.0, goal_B=0.5 fixed. SHUFFLED_VALUE: swap every K=50 episodes with p=0.5. HippocampalTerrainNavigator is value-blind (residue-field only); GoalSelectionHead is reward-sensitive. C1: |harm diff FIXED vs SHUFFLED| < 0.02. C2: |completion diff| < 0.05. C3: post_shuffle_harm_spike < 0.01. C4: data quality check. PASS => value-flat navigation supports MECH-143/ARC-007 STRICT. PARTIAL_VALUE_SENSITIVE => significant value-sensitivity supports MECH-144 over MECH-143. 2 conditions x 2 seeds = 4 cells, 400 total episodes, 200 steps/ep. Any machine (192 min estimate)."
+    },
+    {
+      "queue_id": "V3-EXQ-166",
+      "title": "SD-003/ARC-033 obs-space forward model for E2_harm_s (TRAINED vs ABLATED)",
+      "experiment_type": "v3_exq_166_sd003_obs_space_forward_model",
+      "script": "experiments/v3_exq_166_sd003_obs_space_forward_model.py",
+      "claim_ids": ["SD-003", "ARC-033", "SD-011"],
+      "supersedes": "V3-EXQ-115",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 50,
+      "note": "Fixes EXQ-115 identity collapse. Three root causes of EXQ-115 harm_fwd_r2=0: (1) co-training instability -- HarmEncoder and HarmForwardModel updated concurrently against each other's changing outputs; (2) representational sparsity -- encoder supervised on one scalar label, 31/32 z_harm dims unstructured; (3) identity collapse -- per-step proximity change tiny, MSE-optimal solution is z_harm_next=z_harm_curr, giving zero counterfactual signal. Fix (Approach B): train forward model in OBSERVATION SPACE (harm_obs_s_next [51] prediction) using residual architecture (predict delta, not absolute). Staged training: P0=HarmEncoder pre-train 50 eps (frozen fwd), P1=frozen encoder + obs-fwd model 80 eps, P2=E3 calibration 30 eps, P3=attribution eval 40 eps. Causal pipeline: obs_cf=fwd(harm_obs_t, a_cf) -> z_harm_cf=frozen_enc(obs_cf) -> causal_sig=harm_eval(z_harm_t1)-harm_eval(z_harm_cf). Dry-run: obs_fwd_r2=0.56 in just 3 training eps (vs EXQ-115 R2=0.0 after full training). 6 cells = 2 seeds (TRAINED+ABLATED evaluated per seed). 200 eps x 200 steps x 2 seeds. ~50 min DLAPTOP-4.local."
     }
   ]
 }
