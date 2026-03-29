@@ -31,23 +31,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-149",
-      "title": "Q-004 tau_R calibration pair: FAST_TAU vs SLOW_TAU vs DEFAULT_TAU (seeds [42,123])",
-      "experiment_type": "v3_exq_149_q004_tau_r_calibration_pair",
-      "script": "experiments/v3_exq_149_q004_tau_r_calibration_pair.py",
-      "priority": 4,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 75,
-      "backlog_id": "EVB-0073",
-      "claim_id": "Q-004",
-      "note": "EXP-0092 / EVB-0073: Q-004 tau_R calibration discriminative triple. Tests whether tau_R (residue field effective integration timescale) should be calibrated to E2 forward-model horizon (~30 steps, FAST_TAU: accum_rate=0.5, bw=0.5) or E1 LSTM integration horizon (~200 steps, SLOW_TAU: accum_rate=0.02, bw=2.0), with DEFAULT_TAU (accum_rate=0.1, bw=1.0) as baseline. Key metric: mean_harm over 100 eval episodes x 200 steps. 5 pre-registered criteria: C1 FAST_TAU mean_harm < SLOW_TAU * 0.90 (both seeds), C2 SLOW_TAU mean_harm < FAST_TAU * 0.90 (both seeds), C3 DEFAULT_TAU ranks between FAST and SLOW (monotone ordering), C4 FAST_TAU residue_contrast > 0.05 (RBF field builds usable signal), C5 seed consistency. PASS (C1+C4+C5) => calibrate to E2; PASS (C2+C4+C5) => calibrate to E1; PARTIAL (C4 only) => tau_R robust in range; FAIL (C4 fails) => accumulation pathological. CausalGridWorldV2 size=10, 2 hazards, 3 resources, hazard_harm=0.05. 300 warmup + 100 eval eps x 200 steps x 3 conditions x 2 seeds = 6 cells.",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-29T13:03:15.662479+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-148",
       "title": "Q-003 R-field dimensionality pair: SCALAR vs VECTOR (seeds [42,123])",
       "experiment_type": "v3_exq_148_q003_r_field_dimensionality_pair",
