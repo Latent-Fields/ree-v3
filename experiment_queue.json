@@ -86,10 +86,14 @@
       "script": "experiments/v3_exq_145_sd008_sd007_sd003_integration.py",
       "priority": 3,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 100,
       "claim_id": "SD-008",
-      "note": "Full REEAgent variant of EXP-0087 (vs v3_exq_177 which uses lightweight inline model). Both queued to compare compositional robustness in full vs minimal architecture."
+      "note": "Full REEAgent variant of EXP-0087 (vs v3_exq_177 which uses lightweight inline model). Both queued to compare compositional robustness in full vs minimal architecture.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T21:58:01.882602+00:00"
+      }
     }
   ]
 }
