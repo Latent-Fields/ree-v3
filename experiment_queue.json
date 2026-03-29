@@ -38,9 +38,13 @@
       "claim_id": "MECH-142",
       "priority": 4,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 768,
-      "note": "Tests MECH-142: valence-arousal axis orthogonality requires active cholinergic-analog maintenance. Two conditions x 2 seeds = 4 cells. Both use FULL_AXES (z_tonic=EMA(harm,tau=50), z_phasic=|harm-z_tonic|, z_affect=harm-benefit). WITH_DECORRELATION adds L_decorr=DECORR_WEIGHT*sum(|pearson_r(axis_pair)|) over rolling buffer of last 100 axis values. NO_DECORRELATION is identical FULL_AXES without decorrelation loss. Checkpoints at episodes [100,200,400,800,1200,1600] measuring mean_axis_correlation and regime_separation. C1: WITH final_corr < NO final_corr - 0.10 (both seeds). C2: NO final_corr > NO initial_corr + 0.10 (both seeds; confirms drift). C3: WITH regime_sep >= NO regime_sep - 0.05 (both seeds; decorrelation does not hurt). C4: WITH last_q_harm <= NO last_q_harm + 0.03 (both seeds; no policy degradation). PASS: decorrelation maintains orthogonality and regime separability. PARTIAL_DRIFT_CONFIRMED: C1+C2+C4 but not C3. PARTIAL_NO_DRIFT: C1+C3+C4 but not C2. FAIL: C1 fails. CausalGridWorldV2 size=8 num_hazards=4 num_resources=2 hazard_harm=0.05. 1600 total episodes, 200 steps/ep. Mac-only (768 min estimate)."
+      "note": "Tests MECH-142: valence-arousal axis orthogonality requires active cholinergic-analog maintenance. Two conditions x 2 seeds = 4 cells. Both use FULL_AXES (z_tonic=EMA(harm,tau=50), z_phasic=|harm-z_tonic|, z_affect=harm-benefit). WITH_DECORRELATION adds L_decorr=DECORR_WEIGHT*sum(|pearson_r(axis_pair)|) over rolling buffer of last 100 axis values. NO_DECORRELATION is identical FULL_AXES without decorrelation loss. Checkpoints at episodes [100,200,400,800,1200,1600] measuring mean_axis_correlation and regime_separation. C1: WITH final_corr < NO final_corr - 0.10 (both seeds). C2: NO final_corr > NO initial_corr + 0.10 (both seeds; confirms drift). C3: WITH regime_sep >= NO regime_sep - 0.05 (both seeds; decorrelation does not hurt). C4: WITH last_q_harm <= NO last_q_harm + 0.03 (both seeds; no policy degradation). PASS: decorrelation maintains orthogonality and regime separability. PARTIAL_DRIFT_CONFIRMED: C1+C2+C4 but not C3. PARTIAL_NO_DRIFT: C1+C3+C4 but not C2. FAIL: C1 fails. CausalGridWorldV2 size=8 num_hazards=4 num_resources=2 hazard_harm=0.05. 1600 total episodes, 200 steps/ep. Mac-only (768 min estimate).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T20:14:14.117902+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-162",
