@@ -120,6 +120,18 @@
       "backlog_id": "EVB-0085",
       "claim_id": "Q-024",
       "note": "EXP-0116 (EVB-0085): Q-024 asks what is the correct formal representation for threshold/feedback processes reliably reaching emergent state q, and whether DESCRIPTIVE, PRESCRIPTIVE, and DIAGNOSTIC variants are all needed or one subsumes the others. Three conditions: DESCRIPTIVE (pure attractor tracking -- where does harm end up?), PRESCRIPTIVE (Lyapunov-proxy constraint: penalty on harm regressing above running minimum + MONO_MARGIN=0.005; LYAP_WEIGHT=0.5; enforces monotone non-increasing harm energy function proxy), DIAGNOSTIC (same as DESCRIPTIVE but adds transfer entropy TE(harm_{t-lag} -> harm_t) measurement at lags [1,5,10] via binary MI estimator; non-zero TE = non-Markovian harm dynamics). Key metrics: harm_rate_final (last 125 of 500 episodes), monotone_violation_rate (PRESCRIPTIVE only; fraction episodes violating monotone decrease), te_k1/k5/k10 (DIAGNOSTIC only; transfer entropy at lag 1,5,10). 5 pre-registered criteria: C1 PRESCRIPTIVE harm_rate_final <= DESCRIPTIVE harm_rate_final - 0.02 (both seeds; Lyapunov adds value); C2 DIAGNOSTIC te_k1 > 0.01 (both seeds; non-Markovian dynamics confirmed; diagnostic irreducible); C3 PRESCRIPTIVE monotone_violation_rate < 0.30 (both seeds; Lyapunov proxy functioning); C4 DIAGNOSTIC harm_rate_final within 0.02 of DESCRIPTIVE (both seeds; diagnostic measurement does not disrupt convergence); C5 n_harm_events >= 20 per condition per seed. PASS (C1-C5): all three variants irreducibly needed -- prescriptive adds value, diagnostic reveals nth-order dynamics, both coexist. PARTIAL_PRESCRIPTIVE_DOMINATES: C1+C3+C5 pass, C2 fails -- Lyapunov adds value but TE=0 (diagnostic redundant; prescriptive subsumes). PARTIAL_DESCRIPTIVE_SUFFICIENT: C1 and C2 both fail -- attractor tracking alone is sufficient. PARTIAL_DIAGNOSTIC_ONLY: C2 but not C1 -- TE real but Lyapunov constraint does not help. FAIL: insufficient harm events. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=5 num_resources=2 hazard_harm=0.08 env_drift_interval=6 env_drift_prob=0.30. 500 total episodes, 125 measurement (last quartile), 200 steps/ep. Mac-only (330 min estimate)."
+    },
+    {
+      "queue_id": "V3-EXQ-162",
+      "title": "MECH-137/138/139 commit token structure anatomy (THREE_PHASE vs TWO_PHASE)",
+      "experiment_type": "v3_exq_162_mech137_commit_token_structure",
+      "script": "experiments/v3_exq_162_mech137_commit_token_structure.py",
+      "claim_id": "MECH-137",
+      "priority": 4,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 80,
+      "note": "Tests MECH-137 dual temporal registers, MECH-138 cancel-window veto pathway, MECH-139 distributed commitment trajectory. THREE_PHASE vs TWO_PHASE baseline. 2 conditions x 2 seeds = 4 cells."
     }
   ]
 }
