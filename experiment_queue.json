@@ -37,12 +37,16 @@
       "script": "experiments/v3_exq_170_q002_r_field_resolution_pair.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 6,
       "claim_ids": [
         "Q-002"
       ],
-      "note": "Inline RBF residue field test. FINE=32 RBF centers vs COARSE=4 centers in z_world latent space. 200 warmup episodes (encoder+E2 training) + 100 eval episodes (greedy avoidance). Metrics: harm_rate and residue_accuracy (Pearson r of field scores vs hazard proximity). 2 conditions x 2 seeds = 4 cells. Fast CPU inline (~6 min)."
+      "note": "Inline RBF residue field test. FINE=32 RBF centers vs COARSE=4 centers in z_world latent space. 200 warmup episodes (encoder+E2 training) + 100 eval episodes (greedy avoidance). Metrics: harm_rate and residue_accuracy (Pearson r of field scores vs hazard proximity). 2 conditions x 2 seeds = 4 cells. Fast CPU inline (~6 min).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T21:37:04.046226+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-171",
