@@ -18,22 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-126",
-      "title": "MECH-104: SURPRISE_GATE_ON vs SURPRISE_GATE_ABLATED x 2 seeds (volatility gate discriminative pair)",
-      "experiment_type": "v3_exq_126_mech104_surprise_gate_pair",
-      "script": "experiments/v3_exq_126_mech104_surprise_gate_pair.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "claim_id": "MECH-104",
-      "note": "EXP-0086: matched-seed discriminative pair. SURPRISE_GATE_ON (surprise gate active: unexpected harm spikes running_variance) vs SURPRISE_GATE_ABLATED (gate disabled: no variance impulse on harm). Seeds [42,123] x 2 conditions = 4 cells. 6 pre-registered criteria: C1 ON delta_var_unexpected>=0.005 (both seeds), C2 ON delta_var_expected<0.002 (selective, both seeds), C3 ABLATED delta_var_unexpected<0.002 (baseline flat, both seeds), C4 (ON-ABLATED) discriminative_delta>=0.004 (both seeds), C5 n_unexpected_harm_ON>=10 (both seeds), C6 no fatal errors. spike_magnitude=0.05 surprise_threshold=0.02. Extends EXQ-064 PASS (single seed, 5/5) with matched-seed discriminative ablation design. Route-2 MECH-104 validation. 400 warmup + 50 eval eps x 200 steps.",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-29T01:01:07.947741+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-127",
       "title": "MECH-030: REPLAY_ON vs REPLAY_ABLATED x 2 seeds (sleep consolidation discriminative pair)",
       "experiment_type": "v3_exq_127_mech030_sleep_consolidation_pair",
