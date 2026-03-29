@@ -74,10 +74,14 @@
       "script": "experiments/v3_exq_131_arc023_multirate_heartbeat_pair.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "backlog_id": "EVB-0054",
-      "claim_id": "ARC-023"
+      "claim_id": "ARC-023",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T21:55:06.449157+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-175",
