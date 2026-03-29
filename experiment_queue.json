@@ -37,11 +37,15 @@
       "script": "experiments/v3_exq_151_q006_ethics_developmental_pair.py",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 30,
       "backlog_id": "EVB-0075",
       "claim_id": "Q-006",
-      "note": "EXP-0096 (EVB-0075): Q-006 asks whether ethics is developmental or additive. Three conditions: SEQUENTIAL (harm supervision from episode 1, developmental), LATE_ADD (harm supervision from episode 75/150, additive with equal total budget), FULL_ABLATION (no harm supervision, floor). Primary metric: mean_harm in final 30 episodes. 5 pre-registered criteria: C1 SEQUENTIAL harm < LATE_ADD * 0.90 (>=10% advantage, both seeds), C2 both ethics conditions beat FULL_ABLATION harm by >=5% (both seeds), C3 SEQUENTIAL residue_contrast > 0.03 in final eval window (both seeds), C4 LATE_ADD residue_contrast > 0.02 (both seeds), C5 C1 direction seed-consistent. PASS (C1+C2+C3+C5): ethics is developmental -- early integration better. PARTIAL_ADDITIVE_ADEQUATE (not C1, C2+C4+C5): additive ethics adequate. PARTIAL_TIMING_MATTERS (C1+C2a+not C2b): sequential wins but late addition insufficient. FAIL (not C3 or not C2a): implementation problem. 2 seeds x 3 conditions = 6 cells. CausalGridWorldV2 size=10 2 hazards 3 resources hazard_harm=0.05 150 episodes x 200 steps each."
+      "note": "EXP-0096 (EVB-0075): Q-006 asks whether ethics is developmental or additive. Three conditions: SEQUENTIAL (harm supervision from episode 1, developmental), LATE_ADD (harm supervision from episode 75/150, additive with equal total budget), FULL_ABLATION (no harm supervision, floor). Primary metric: mean_harm in final 30 episodes. 5 pre-registered criteria: C1 SEQUENTIAL harm < LATE_ADD * 0.90 (>=10% advantage, both seeds), C2 both ethics conditions beat FULL_ABLATION harm by >=5% (both seeds), C3 SEQUENTIAL residue_contrast > 0.03 in final eval window (both seeds), C4 LATE_ADD residue_contrast > 0.02 (both seeds), C5 C1 direction seed-consistent. PASS (C1+C2+C3+C5): ethics is developmental -- early integration better. PARTIAL_ADDITIVE_ADEQUATE (not C1, C2+C4+C5): additive ethics adequate. PARTIAL_TIMING_MATTERS (C1+C2a+not C2b): sequential wins but late addition insufficient. FAIL (not C3 or not C2a): implementation problem. 2 seeds x 3 conditions = 6 cells. CausalGridWorldV2 size=10 2 hazards 3 resources hazard_harm=0.05 150 episodes x 200 steps each.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-29T13:15:06.060924+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-152",
