@@ -124,6 +124,19 @@
       "backlog_id": "EVB-0077",
       "claim_id": "Q-013",
       "note": "EXP-0100 (EVB-0077): Q-013 asks whether deterministic JEPA plus derived dispersion can match explicit stochastic uncertainty heads for REE precision routing. Two conditions: DETERMINISTIC_DISPERSION (plain linear encoder + running z_world std over last 10 steps as uncertainty signal, no KL), STOCHASTIC_HEAD (mean+log_var encoder, reparametrized z_world, sigma=exp(0.5*log_var), KL_WEIGHT=0.001). Both trained with E1 world prediction loss only (no E3/harm supervision -- uncertainty must emerge from world-model training alone). Calibration metric: AUC of uncertainty signal predicting harm in next 5 steps. 5 pre-registered criteria: C1 STOCHASTIC_HEAD calibration_auc >= 0.58 both seeds; C2 DETERMINISTIC_DISPERSION calibration_auc >= 0.58 both seeds; C3 STOCHASTIC gap >= 0.05 over DETERMINISTIC both seeds; C4 n_harm_events >= 30 per condition per seed (data quality); C5 seed-consistent direction. PASS (C1+C3+C4+C5): stochastic heads superior; hybridize recommendation supported. PARTIAL_DET_ADEQUATE (C2+C4+C5+not C3): deterministic dispersion adequate at this scale. PARTIAL_BOTH_POOR (not C1, not C2): neither calibrated; inconclusive. FAIL: insufficient harm events or degenerate AUC. 2 seeds x 2 conditions = 4 cells. CausalGridWorldV2 size=10 4 hazards 0 resources hazard_harm=0.05 env_drift_interval=5 env_drift_prob=0.3. 200 warmup + 50 eval episodes x 200 steps each."
+    },
+    {
+      "queue_id": "V3-EXQ-154",
+      "title": "Q-014 JEPA invariance blind spot: JEPA_INVARIANT vs HARM_SENSITIVE (seeds [42,123])",
+      "experiment_type": "v3_exq_154_q014_jepa_invariance_blind_spot_pair",
+      "script": "experiments/v3_exq_154_q014_jepa_invariance_blind_spot_pair.py",
+      "priority": 4,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 192,
+      "backlog_id": "EVB-0078",
+      "claim_id": "Q-014",
+      "note": "EXP-0102 (EVB-0078): Q-014 asks whether JEPA invariances hide ethically relevant distinctions in REE attribution contexts. Two conditions: JEPA_INVARIANT (stop-gradient target encoder EMA tau=0.99, predictor-only gradient flow, VICReg collapse prevention, no event supervision), HARM_SENSITIVE (event cross-entropy auxiliary loss + world prediction loss, full encoder gradient). Key metric: attribution_auc = AUC of post-hoc linear probe decoding agent-caused vs env-caused harm from z_world. 5 pre-registered criteria: C1 HARM_SENSITIVE attribution_auc >= 0.65 both seeds; C2 JEPA_INVARIANT attribution_auc >= 0.65 both seeds; C3 HARM_SENSITIVE exceeds JEPA_INVARIANT by >= 0.08 both seeds (blind-spot confirmed); C4 n_agent_harm >= 20 and n_env_harm >= 20 per condition per seed (data quality); C5 seed-consistent direction. PASS (C1+C3+C4+C5): JEPA invariance suppresses attribution signal; hybridize recommendation supported. PARTIAL_BOTH_HIGH (C2+C4+C5+not C3): JEPA preserves attribution at this scale; blind-spot not confirmed. PARTIAL_BOTH_LOW (not C1, not C2): neither encoder achieves attribution calibration; inconclusive. FAIL: insufficient harm events or implementation problem. 2 seeds x 2 conditions = 4 cells. CausalGridWorldV2 size=8 5 hazards 0 resources hazard_harm=0.05 env_drift_interval=3 env_drift_prob=0.4. 300 train + 100 probe episodes x 200 steps each. Mac-only (192 min estimate; ~5x slower on Daniel-PC)."
     }
   ]
 }
