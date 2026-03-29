@@ -24,10 +24,14 @@
       "script": "experiments/v3_exq_145_sd008_sd007_sd003_integration.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "claim_id": "SD-008",
-      "note": "EXP-0087: integration test for SD-008 (alpha_world=0.9) + SD-007 (LSTM reafference) + SD-003 (counterfactual attribution pipeline) composing correctly in a single run. Each mechanism validated individually (EXQ-040, EXQ-099a, EXQ-030b); this tests compositional correctness. Phase 1: train LSTM predictor (seed=42, R2 gate>=0.08). Phase 2: warmup+eval on seeds [42,123] with all three active simultaneously. 6 pre-registered criteria (per seed or pooled): C1 event_selectivity_margin>0.05 (SD-008 in integration, both seeds), C2 reaf_selectivity_ratio>=1.10 (SD-007, both seeds), C3 attribution_gap>0.0 (SD-003 agent vs env, both seeds), C4 causal_sig_approach>0.003 (SD-003 minimum signal, both seeds), C5 world_forward_r2>0.05 (E2 learned world dynamics, pooled), C6 n_approach>=30 (data quality, each seed). Not an ablation pair -- single condition with all mechanisms ON per seed. evidence_direction_per_claim used to give fine-grained per-claim governance signal. CausalGridWorldV2 size=10, 3 hazards, 4 resources. 400 warmup + 60 eval eps x 200 steps per seed."
+      "note": "EXP-0087: integration test for SD-008 (alpha_world=0.9) + SD-007 (LSTM reafference) + SD-003 (counterfactual attribution pipeline) composing correctly in a single run. Each mechanism validated individually (EXQ-040, EXQ-099a, EXQ-030b); this tests compositional correctness. Phase 1: train LSTM predictor (seed=42, R2 gate>=0.08). Phase 2: warmup+eval on seeds [42,123] with all three active simultaneously. 6 pre-registered criteria (per seed or pooled): C1 event_selectivity_margin>0.05 (SD-008 in integration, both seeds), C2 reaf_selectivity_ratio>=1.10 (SD-007, both seeds), C3 attribution_gap>0.0 (SD-003 agent vs env, both seeds), C4 causal_sig_approach>0.003 (SD-003 minimum signal, both seeds), C5 world_forward_r2>0.05 (E2 learned world dynamics, pooled), C6 n_approach>=30 (data quality, each seed). Not an ablation pair -- single condition with all mechanisms ON per seed. evidence_direction_per_claim used to give fine-grained per-claim governance signal. CausalGridWorldV2 size=10, 3 hazards, 4 resources. 400 warmup + 60 eval eps x 200 steps per seed.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-29T07:24:59.469091+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-146",
