@@ -189,6 +189,19 @@
       "backlog_id": "EVB-0082",
       "claim_id": "Q-018",
       "note": "EXP-0110 (EVB-0082): Q-018 asks what RC-conflict threshold calibration blocks authority spoofing without chronic over-suppression. Three conditions: LOW_THRESH (rc=0.05, fixed), HIGH_THRESH (rc=0.40, fixed), ADAPTIVE_THRESH (EMA+2*sigma). Authority spoofing injected on 10% of measurement steps (SPOOF_MAGNITUDE=3.0). Key metrics: discrimination_gap (suppression_rate_spoofing - suppression_rate_clean), clean_suppression_rate, harm_rate. 5 pre-registered criteria: C1 ADAPTIVE disc_gap>=0.10 both seeds; C2 ADAPTIVE clean_rate < LOW clean_rate - 0.05 both seeds; C3 ADAPTIVE harm_rate <= HIGH harm_rate + 0.02 both seeds; C4 n_spoofing >= 30 per condition per seed; C5 LOW_THRESH disc_gap > 0 (sanity). PASS: EMA+sigma adaptive calibration blocks spoofing and avoids over-suppression; Q-018 partially resolved. PARTIAL_ADAPTIVE_DISC: discrimination good but over-suppression persists. PARTIAL_TRADEOFF: fundamental tension. FAIL: mechanism broken. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=4 num_resources=2 hazard_harm=0.08 env_drift_interval=8 env_drift_prob=0.3. 400 total episodes, 100 measurement (last quartile), 200 steps/ep. Mac-only (264 min estimate)."
+    },
+    {
+      "queue_id": "V3-EXQ-159",
+      "title": "Q-020 ARC-007 valence constraint: VALUE_FLAT vs VALUE_FLAT_NO_RESIDUE vs VALUE_LADEN (seeds [42,123])",
+      "experiment_type": "v3_exq_159_q020_arc007_valence_constraint_pair",
+      "script": "experiments/v3_exq_159_q020_arc007_valence_constraint_pair.py",
+      "priority": 4,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 330,
+      "backlog_id": "EVB-0083",
+      "claim_id": "Q-020",
+      "note": "EXP-0112 (EVB-0083): Q-020 asks whether ARC-007's no-value-computation constraint survives MECH-073 (valence intrinsic to hippocampal map). Three conditions: VALUE_FLAT (residue-field shaping of candidate proposals, no direct valence head; ARC-007 compliant), VALUE_FLAT_NO_RESIDUE (ablation: no residue, no direct valence -- identifies whether residue is the mechanism), VALUE_LADEN (learned ValenceHead scores candidates during proposal generation before E3 sees them; MECH-073 analog). Key metrics: harm_rate (primary), n_harm_events (data quality), proposal_harm_score_mean (valence head activity). 5 pre-registered criteria: C1 |VALUE_LADEN harm_rate - VALUE_FLAT harm_rate| <= 0.05 (parity, both seeds); C2 VALUE_FLAT_NO_RESIDUE harm_rate >= VALUE_FLAT harm_rate + 0.04 (residue benefit confirmed, both seeds); C3 VALUE_LADEN harm_rate <= 0.40 (not at floor); C4 n_harm_events >= 20 per condition per seed; C5 VALUE_LADEN proposal_harm_score_mean > 0.01 (valence head active). PASS (C1+C2+C3+C4+C5): ARC-007 constraint survives -- value-flat + residue achieves parity with value-laden; residue field is the operative mechanism. PARTIAL_LADEN_ADVANTAGE: VALUE_LADEN outperforms VALUE_FLAT beyond parity margin; direct valence adds value; ARC-007 may need revision. PARTIAL_NO_RESIDUE_EFFECT: residue ablation does not worsen VALUE_FLAT; confound at this scale. FAIL: insufficient harm events or valence head inactive. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=5 num_resources=0 hazard_harm=0.05 env_drift_interval=5 env_drift_prob=0.35. 500 total episodes, 125 measurement (last quartile), 200 steps/ep. Mac-only (330 min estimate)."
     }
   ]
 }
