@@ -153,9 +153,13 @@
       "claim_id": "MECH-143",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
-      "note": "Tests MECH-143 (dorsal CA1 value-free) and MECH-144 (ventral CA1 implicit valence). FIXED_VALUE vs SHUFFLED_VALUE (swap goal reward assignments every K=50 episodes). Inline 8x8 grid, value-blind HippocampalTerrainNavigator (residue field only). Separate GoalSelectionHead is reward-sensitive (expected to show shuffle disruption). 2 conditions x 2 seeds = 4 cells. C1: harm_rate diff < 0.02. C2: completion_rate diff < 0.05. C3: post_shuffle_harm_spike < 0.01. C4: data quality gates. PASS => value-flat navigation confirmed (MECH-143 / ARC-007 STRICT). PARTIAL_VALUE_SENSITIVE => implicit valence in undifferentiated module (MECH-144)."
+      "note": "Tests MECH-143 (dorsal CA1 value-free) and MECH-144 (ventral CA1 implicit valence). FIXED_VALUE vs SHUFFLED_VALUE (swap goal reward assignments every K=50 episodes). Inline 8x8 grid, value-blind HippocampalTerrainNavigator (residue field only). Separate GoalSelectionHead is reward-sensitive (expected to show shuffle disruption). 2 conditions x 2 seeds = 4 cells. C1: harm_rate diff < 0.02. C2: completion_rate diff < 0.05. C3: post_shuffle_harm_spike < 0.01. C4: data quality gates. PASS => value-flat navigation confirmed (MECH-143 / ARC-007 STRICT). PARTIAL_VALUE_SENSITIVE => implicit valence in undifferentiated module (MECH-144).",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-29T15:27:50.649610+00:00"
+      }
     }
   ]
 }
