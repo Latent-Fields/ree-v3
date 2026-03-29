@@ -44,9 +44,13 @@
       "supersedes": "V3-EXQ-085f",
       "priority": 5,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
-      "note": "Fixes EXQ-085f seeding quality failure (benefit_ratio=0.28x, goal_resource_r=0.087). Root cause: proximity-EMA seeding fires on broad noisy field, anchoring z_goal to random z_world states with near-zero correlation to resource locations. Fix: contact-gated seeding -- z_goal updated with benefit=1.0 only on ttype==resource events (actual resource acquisition), anchoring to z_world observed at moment of contact. alpha_goal raised 0.1->0.3 (faster convergence per contact event, which are rarer than proximity events). Proximity seeding retained as secondary fallback. Key diagnostic: goal_resource_r (Pearson r between goal_proximity and resource_proximity) -- must exceed 0.2 for C2 to be achievable. 3 seeds x 2 conditions x 600 eps x 200 steps. ~90 min DLAPTOP-4.local."
+      "note": "Fixes EXQ-085f seeding quality failure (benefit_ratio=0.28x, goal_resource_r=0.087). Root cause: proximity-EMA seeding fires on broad noisy field, anchoring z_goal to random z_world states with near-zero correlation to resource locations. Fix: contact-gated seeding -- z_goal updated with benefit=1.0 only on ttype==resource events (actual resource acquisition), anchoring to z_world observed at moment of contact. alpha_goal raised 0.1->0.3 (faster convergence per contact event, which are rarer than proximity events). Proximity seeding retained as secondary fallback. Key diagnostic: goal_resource_r (Pearson r between goal_proximity and resource_proximity) -- must exceed 0.2 for C2 to be achievable. 3 seeds x 2 conditions x 600 eps x 200 steps. ~90 min DLAPTOP-4.local.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T21:06:17.258281+00:00"
+      }
     }
   ]
 }
