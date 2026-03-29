@@ -37,11 +37,15 @@
       "script": "experiments/v3_exq_150_q005_sleep_anneal_pair.py",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 45,
       "backlog_id": "EVB-0074",
       "claim_id": "Q-005",
-      "note": "EXP-0094 (EVB-0074): Q-005 asks whether offline integration can be modeled as annealing or resetting R(x,t). Three conditions: NO_ANNEAL (residue persists, current default), ANNEAL (RBF weights *= 0.3 after each waking phase, synaptic homeostasis analog), RESET (RBF weights zeroed, tabula rasa). Protocol: 3 waking phases x 100 episodes x 200 steps separated by 2 sleep phases. Primary metric: mean_harm_post_sleep (mean over waking phases 2+3 -- after first sleep). 5 pre-registered criteria: C1 ANNEAL harm < NO_ANNEAL * 0.92 (both seeds), C2 RESET harm < NO_ANNEAL * 1.15 (no catastrophic regression, both seeds), C3 ANNEAL residue_contrast > 0.03 (field retains structure after anneal, both seeds), C4 NO_ANNEAL residue_contrast > 0.02 (persistent field builds spatial contrast, both seeds), C5 seed-consistent direction. PASS (C1+C3+C5): ANNEAL beneficial; offline partial R(x,t) decay is load-bearing. PARTIAL (NO_ANNEAL wins): persistent residue preferred; no offline op needed. FAIL (C3/C4 fails): residue field does not build/retain usable structure. 2 seeds x 3 conditions = 6 cells. CausalGridWorldV2 size=10 2 hazards 3 resources hazard_harm=0.05."
+      "note": "EXP-0094 (EVB-0074): Q-005 asks whether offline integration can be modeled as annealing or resetting R(x,t). Three conditions: NO_ANNEAL (residue persists, current default), ANNEAL (RBF weights *= 0.3 after each waking phase, synaptic homeostasis analog), RESET (RBF weights zeroed, tabula rasa). Protocol: 3 waking phases x 100 episodes x 200 steps separated by 2 sleep phases. Primary metric: mean_harm_post_sleep (mean over waking phases 2+3 -- after first sleep). 5 pre-registered criteria: C1 ANNEAL harm < NO_ANNEAL * 0.92 (both seeds), C2 RESET harm < NO_ANNEAL * 1.15 (no catastrophic regression, both seeds), C3 ANNEAL residue_contrast > 0.03 (field retains structure after anneal, both seeds), C4 NO_ANNEAL residue_contrast > 0.02 (persistent field builds spatial contrast, both seeds), C5 seed-consistent direction. PASS (C1+C3+C5): ANNEAL beneficial; offline partial R(x,t) decay is load-bearing. PARTIAL (NO_ANNEAL wins): persistent residue preferred; no offline op needed. FAIL (C3/C4 fails): residue field does not build/retain usable structure. 2 seeds x 3 conditions = 6 cells. CausalGridWorldV2 size=10 2 hazards 3 resources hazard_harm=0.05.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-29T13:09:49.832225+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-151",
