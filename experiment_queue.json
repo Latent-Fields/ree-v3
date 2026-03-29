@@ -31,27 +31,6 @@
       "note": "EXP-0108 (EVB-0081): Q-017 asks what is the minimal orthogonal control-axis subset that preserves observed regime separations. Three conditions: FULL_AXES (3D: z_tonic=EMA(harm,tau=50), z_phasic=|harm-z_tonic|, z_affect=harm-benefit), COLLAPSED_SCALAR (1D: raw harm signal), MINIMAL_SUBSET (2D: z_tonic+z_phasic, no affect). Regime separation = mean |harm_rate_avoidance - harm_rate_exploration| + mean |action_entropy_exploitation - action_entropy_exploration|. 5 pre-registered criteria: C1 FULL_AXES regime_sep > COLLAPSED_SCALAR regime_sep + THRESH_SEP_MARGIN (both seeds; orthogonal decomposition adds value); C2 FULL_AXES regime_sep > THRESH_SEP_ABS_MIN (both seeds; above-floor signal); C3 n_avoidance/exploitation/exploration_windows >= THRESH_MIN_REGIME_WINDOWS per condition per seed (data quality); C4 FULL_AXES axis_variance[tonic/phasic/affect] > THRESH_AXIS_VAR_MIN (both seeds; non-degenerate axes); C5 MINIMAL_SUBSET regime_sep direction seed-consistent. PASS (C1-C5 + |FULL-MINIMAL|>THRESH): all three axes load-bearing. PARTIAL_TWO_SUFFICIENT: C1-C4 but |FULL-MINIMAL|<=THRESH_EQUIV (both seeds); affective axis dispensable. PARTIAL_COLLAPSE_ADEQUATE: C1 fails; raw harm sufficient. FAIL: C2 or C3 fails. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=4 num_resources=3 hazard_harm=0.1 env_drift_interval=10 env_drift_prob=0.3. 400 total episodes, 100 measurement (last quartile), 200 steps/ep. Mac-only (264 min estimate)."
     },
     {
-      "queue_id": "V3-EXQ-166",
-      "title": "SD-003/ARC-033 obs-space forward model for E2_harm_s (TRAINED vs ABLATED)",
-      "experiment_type": "v3_exq_166_sd003_obs_space_forward_model",
-      "script": "experiments/v3_exq_166_sd003_obs_space_forward_model.py",
-      "claim_ids": [
-        "SD-003",
-        "ARC-033",
-        "SD-011"
-      ],
-      "supersedes": "V3-EXQ-115",
-      "priority": 5,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 50,
-      "note": "Fixes EXQ-115 identity collapse. Three root causes of EXQ-115 harm_fwd_r2=0: (1) co-training instability -- HarmEncoder and HarmForwardModel updated concurrently against each other's changing outputs; (2) representational sparsity -- encoder supervised on one scalar label, 31/32 z_harm dims unstructured; (3) identity collapse -- per-step proximity change tiny, MSE-optimal solution is z_harm_next=z_harm_curr, giving zero counterfactual signal. Fix (Approach B): train forward model in OBSERVATION SPACE (harm_obs_s_next [51] prediction) using residual architecture (predict delta, not absolute). Staged training: P0=HarmEncoder pre-train 50 eps (frozen fwd), P1=frozen encoder + obs-fwd model 80 eps, P2=E3 calibration 30 eps, P3=attribution eval 40 eps. Causal pipeline: obs_cf=fwd(harm_obs_t, a_cf) -> z_harm_cf=frozen_enc(obs_cf) -> causal_sig=harm_eval(z_harm_t1)-harm_eval(z_harm_cf). Dry-run: obs_fwd_r2=0.56 in just 3 training eps (vs EXQ-115 R2=0.0 after full training). 6 cells = 2 seeds (TRAINED+ABLATED evaluated per seed). 200 eps x 200 steps x 2 seeds. ~50 min DLAPTOP-4.local.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-29T21:04:57.855857+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-085g",
       "title": "MECH-071 contact-gated z_goal seeding (seeding quality fix)",
       "experiment_type": "v3_exq_085g_mech071_contact_gated_seeding",
