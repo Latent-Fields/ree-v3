@@ -24,11 +24,15 @@
       "script": "experiments/v3_exq_130_mech096_dual_stream_routing_pair.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "backlog_id": "EVB-0024",
       "claim_id": "MECH-096",
-      "note": "EXP-0028 / EVB-0024: matched-seed discriminative pair. THREE_STREAM_ON (dedicated dorsal/ventral/lateral encoder heads: body_obs -> z_self, world_obs -> z_world, harm_obs routed via SD-010 harm encoder -- MECH-096 dual-stream architecture) vs THREE_STREAM_ABLATED (single merged encoder: cat(world_obs, harm_obs, body_obs) -> z_merged serving as both z_world and z_harm -- no dedicated stream routing). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 gap_on>=0.04 (both seeds), C2 per-seed delta (ON-ABLATED)>=0.02 (both seeds), C3 gap_ablated>=0.0, C4 n_harm_eval_min>=20, C5 no fatal errors. Tests MECH-096: does dedicated encoder head per stream (Goodale and Milner 1992 dorsal/ventral + Haak and Beckmann 2018 lateral stream) preserve z_self/z_world split and improve harm representation quality vs merged untyped encoder? Secondary diagnostic: cosine_sim(z_self, z_world) -- expected lower in THREE_STREAM_ON (cleaner split). 400 warmup + 50 eval eps x 200 steps, size=6, 4 hazards, nav_bias=0.40, alpha_world=0.9."
+      "note": "EXP-0028 / EVB-0024: matched-seed discriminative pair. THREE_STREAM_ON (dedicated dorsal/ventral/lateral encoder heads: body_obs -> z_self, world_obs -> z_world, harm_obs routed via SD-010 harm encoder -- MECH-096 dual-stream architecture) vs THREE_STREAM_ABLATED (single merged encoder: cat(world_obs, harm_obs, body_obs) -> z_merged serving as both z_world and z_harm -- no dedicated stream routing). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 gap_on>=0.04 (both seeds), C2 per-seed delta (ON-ABLATED)>=0.02 (both seeds), C3 gap_ablated>=0.0, C4 n_harm_eval_min>=20, C5 no fatal errors. Tests MECH-096: does dedicated encoder head per stream (Goodale and Milner 1992 dorsal/ventral + Haak and Beckmann 2018 lateral stream) preserve z_self/z_world split and improve harm representation quality vs merged untyped encoder? Secondary diagnostic: cosine_sim(z_self, z_world) -- expected lower in THREE_STREAM_ON (cleaner split). 400 warmup + 50 eval eps x 200 steps, size=6, 4 hazards, nav_bias=0.40, alpha_world=0.9.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-29T03:19:35.450805+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-131",
