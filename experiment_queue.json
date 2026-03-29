@@ -37,11 +37,15 @@
       "script": "experiments/v3_exq_153_q013_uncertainty_calibration_pair.py",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "backlog_id": "EVB-0077",
       "claim_id": "Q-013",
-      "note": "EXP-0100 (EVB-0077): Q-013 asks whether deterministic JEPA plus derived dispersion can match explicit stochastic uncertainty heads for REE precision routing. Two conditions: DETERMINISTIC_DISPERSION (plain linear encoder + running z_world std over last 10 steps as uncertainty signal, no KL), STOCHASTIC_HEAD (mean+log_var encoder, reparametrized z_world, sigma=exp(0.5*log_var), KL_WEIGHT=0.001). Both trained with E1 world prediction loss only (no E3/harm supervision -- uncertainty must emerge from world-model training alone). Calibration metric: AUC of uncertainty signal predicting harm in next 5 steps. 5 pre-registered criteria: C1 STOCHASTIC_HEAD calibration_auc >= 0.58 both seeds; C2 DETERMINISTIC_DISPERSION calibration_auc >= 0.58 both seeds; C3 STOCHASTIC gap >= 0.05 over DETERMINISTIC both seeds; C4 n_harm_events >= 30 per condition per seed (data quality); C5 seed-consistent direction. PASS (C1+C3+C4+C5): stochastic heads superior; hybridize recommendation supported. PARTIAL_DET_ADEQUATE (C2+C4+C5+not C3): deterministic dispersion adequate at this scale. PARTIAL_BOTH_POOR (not C1, not C2): neither calibrated; inconclusive. FAIL: insufficient harm events or degenerate AUC. 2 seeds x 2 conditions = 4 cells. CausalGridWorldV2 size=10 4 hazards 0 resources hazard_harm=0.05 env_drift_interval=5 env_drift_prob=0.3. 200 warmup + 50 eval episodes x 200 steps each."
+      "note": "EXP-0100 (EVB-0077): Q-013 asks whether deterministic JEPA plus derived dispersion can match explicit stochastic uncertainty heads for REE precision routing. Two conditions: DETERMINISTIC_DISPERSION (plain linear encoder + running z_world std over last 10 steps as uncertainty signal, no KL), STOCHASTIC_HEAD (mean+log_var encoder, reparametrized z_world, sigma=exp(0.5*log_var), KL_WEIGHT=0.001). Both trained with E1 world prediction loss only (no E3/harm supervision -- uncertainty must emerge from world-model training alone). Calibration metric: AUC of uncertainty signal predicting harm in next 5 steps. 5 pre-registered criteria: C1 STOCHASTIC_HEAD calibration_auc >= 0.58 both seeds; C2 DETERMINISTIC_DISPERSION calibration_auc >= 0.58 both seeds; C3 STOCHASTIC gap >= 0.05 over DETERMINISTIC both seeds; C4 n_harm_events >= 30 per condition per seed (data quality); C5 seed-consistent direction. PASS (C1+C3+C4+C5): stochastic heads superior; hybridize recommendation supported. PARTIAL_DET_ADEQUATE (C2+C4+C5+not C3): deterministic dispersion adequate at this scale. PARTIAL_BOTH_POOR (not C1, not C2): neither calibrated; inconclusive. FAIL: insufficient harm events or degenerate AUC. 2 seeds x 2 conditions = 4 cells. CausalGridWorldV2 size=10 4 hazards 0 resources hazard_harm=0.05 env_drift_interval=5 env_drift_prob=0.3. 200 warmup + 50 eval episodes x 200 steps each.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-29T13:20:32.151544+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-154",
