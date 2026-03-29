@@ -24,11 +24,15 @@
       "script": "experiments/v3_exq_134_mech103_somatosensory_fusion_pair.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "backlog_id": "EVB-0022",
       "claim_id": "MECH-103",
-      "note": "Independent replication of EXQ-128 (auditory channel) using somatosensory modality (contact-force + near-surface vibration). Formal execution of EXP-0030/EVB-0022. Seeds [42,123]. 400 warmup + 50 eval eps x 200 steps."
+      "note": "Independent replication of EXQ-128 (auditory channel) using somatosensory modality (contact-force + near-surface vibration). Formal execution of EXP-0030/EVB-0022. Seeds [42,123]. 400 warmup + 50 eval eps x 200 steps.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-29T03:22:35.441943+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-135",
