@@ -38,9 +38,13 @@
       "claim_id": "MECH-137",
       "priority": 4,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 80,
-      "note": "Tests MECH-137 dual temporal registers, MECH-138 cancel-window veto pathway, MECH-139 distributed commitment trajectory. THREE_PHASE vs TWO_PHASE baseline. 2 conditions x 2 seeds = 4 cells."
+      "note": "Tests MECH-137 dual temporal registers, MECH-138 cancel-window veto pathway, MECH-139 distributed commitment trajectory. THREE_PHASE vs TWO_PHASE baseline. 2 conditions x 2 seeds = 4 cells.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T20:34:44.785221+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-163",
