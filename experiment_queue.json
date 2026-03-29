@@ -38,9 +38,13 @@
       "claim_id": "MECH-143",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 192,
-      "note": "Tests MECH-143 (dorsal CA1 value-flat) and MECH-144 (ventral CA1 valence-organised). FIXED_VALUE: goal_A=1.0, goal_B=0.5 fixed. SHUFFLED_VALUE: swap every K=50 episodes with p=0.5. HippocampalTerrainNavigator is value-blind (residue-field only); GoalSelectionHead is reward-sensitive. C1: |harm diff FIXED vs SHUFFLED| < 0.02. C2: |completion diff| < 0.05. C3: post_shuffle_harm_spike < 0.01. C4: data quality check. PASS => value-flat navigation supports MECH-143/ARC-007 STRICT. PARTIAL_VALUE_SENSITIVE => significant value-sensitivity supports MECH-144 over MECH-143. 2 conditions x 2 seeds = 4 cells, 400 total episodes, 200 steps/ep. Any machine (192 min estimate)."
+      "note": "Tests MECH-143 (dorsal CA1 value-flat) and MECH-144 (ventral CA1 valence-organised). FIXED_VALUE: goal_A=1.0, goal_B=0.5 fixed. SHUFFLED_VALUE: swap every K=50 episodes with p=0.5. HippocampalTerrainNavigator is value-blind (residue-field only); GoalSelectionHead is reward-sensitive. C1: |harm diff FIXED vs SHUFFLED| < 0.02. C2: |completion diff| < 0.05. C3: post_shuffle_harm_spike < 0.01. C4: data quality check. PASS => value-flat navigation supports MECH-143/ARC-007 STRICT. PARTIAL_VALUE_SENSITIVE => significant value-sensitivity supports MECH-144 over MECH-143. 2 conditions x 2 seeds = 4 cells, 400 total episodes, 200 steps/ep. Any machine (192 min estimate).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T20:46:39.204064+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-164a",
