@@ -31,24 +31,6 @@
       "note": "EXP-0108 (EVB-0081): Q-017 asks what is the minimal orthogonal control-axis subset that preserves observed regime separations. Three conditions: FULL_AXES (3D: z_tonic=EMA(harm,tau=50), z_phasic=|harm-z_tonic|, z_affect=harm-benefit), COLLAPSED_SCALAR (1D: raw harm signal), MINIMAL_SUBSET (2D: z_tonic+z_phasic, no affect). Regime separation = mean |harm_rate_avoidance - harm_rate_exploration| + mean |action_entropy_exploitation - action_entropy_exploration|. 5 pre-registered criteria: C1 FULL_AXES regime_sep > COLLAPSED_SCALAR regime_sep + THRESH_SEP_MARGIN (both seeds; orthogonal decomposition adds value); C2 FULL_AXES regime_sep > THRESH_SEP_ABS_MIN (both seeds; above-floor signal); C3 n_avoidance/exploitation/exploration_windows >= THRESH_MIN_REGIME_WINDOWS per condition per seed (data quality); C4 FULL_AXES axis_variance[tonic/phasic/affect] > THRESH_AXIS_VAR_MIN (both seeds; non-degenerate axes); C5 MINIMAL_SUBSET regime_sep direction seed-consistent. PASS (C1-C5 + |FULL-MINIMAL|>THRESH): all three axes load-bearing. PARTIAL_TWO_SUFFICIENT: C1-C4 but |FULL-MINIMAL|<=THRESH_EQUIV (both seeds); affective axis dispensable. PARTIAL_COLLAPSE_ADEQUATE: C1 fails; raw harm sufficient. FAIL: C2 or C3 fails. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=4 num_resources=3 hazard_harm=0.1 env_drift_interval=10 env_drift_prob=0.3. 400 total episodes, 100 measurement (last quartile), 200 steps/ep. Mac-only (264 min estimate)."
     },
     {
-      "queue_id": "V3-EXQ-168",
-      "title": "ARC-030 Go/NoGo symmetry discriminative pair: GO_NOGO_SUPPORT vs NOGO_ONLY_ABLATED, canonical warmup=400 (EVB-0032 re-queue, corrected from EXQ-086)",
-      "experiment_type": "v3_exq_138_arc030_go_nogo_pair",
-      "script": "experiments/v3_exq_138_arc030_go_nogo_pair.py",
-      "priority": 3,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 180,
-      "backlog_id": "EVB-0032",
-      "claim_id": "ARC-030",
-      "supersedes": "V3-EXQ-086",
-      "note": "Was using v3_exq_086 (warmup=150, already failed as EXQ-086). Updated to v3_exq_138: warmup=400, proximity_benefit_scale=0.10, num_resources=5, seeds=[42,123].",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-29T21:51:28.571867+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-169",
       "title": "MECH-135 E2 training horizon ablation: 1-step vs 3-step vs 5-step BPTT (EVB-0034 re-queue)",
       "experiment_type": "v3_exq_103_e2_training_horizon_ablation",
