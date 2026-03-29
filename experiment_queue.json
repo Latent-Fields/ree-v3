@@ -29,6 +29,142 @@
       "backlog_id": "EVB-0081",
       "claim_id": "Q-017",
       "note": "EXP-0108 (EVB-0081): Q-017 asks what is the minimal orthogonal control-axis subset that preserves observed regime separations. Three conditions: FULL_AXES (3D: z_tonic=EMA(harm,tau=50), z_phasic=|harm-z_tonic|, z_affect=harm-benefit), COLLAPSED_SCALAR (1D: raw harm signal), MINIMAL_SUBSET (2D: z_tonic+z_phasic, no affect). Regime separation = mean |harm_rate_avoidance - harm_rate_exploration| + mean |action_entropy_exploitation - action_entropy_exploration|. 5 pre-registered criteria: C1 FULL_AXES regime_sep > COLLAPSED_SCALAR regime_sep + THRESH_SEP_MARGIN (both seeds; orthogonal decomposition adds value); C2 FULL_AXES regime_sep > THRESH_SEP_ABS_MIN (both seeds; above-floor signal); C3 n_avoidance/exploitation/exploration_windows >= THRESH_MIN_REGIME_WINDOWS per condition per seed (data quality); C4 FULL_AXES axis_variance[tonic/phasic/affect] > THRESH_AXIS_VAR_MIN (both seeds; non-degenerate axes); C5 MINIMAL_SUBSET regime_sep direction seed-consistent. PASS (C1-C5 + |FULL-MINIMAL|>THRESH): all three axes load-bearing. PARTIAL_TWO_SUFFICIENT: C1-C4 but |FULL-MINIMAL|<=THRESH_EQUIV (both seeds); affective axis dispensable. PARTIAL_COLLAPSE_ADEQUATE: C1 fails; raw harm sufficient. FAIL: C2 or C3 fails. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=4 num_resources=3 hazard_harm=0.1 env_drift_interval=10 env_drift_prob=0.3. 400 total episodes, 100 measurement (last quartile), 200 steps/ep. Mac-only (264 min estimate)."
+    },
+    {
+      "queue_id": "V3-EXQ-167",
+      "title": "MECH-118/119 Q-022 D_eff vs Hopfield dissociation discriminative pair (EVB-0030 re-queue)",
+      "experiment_type": "v3_exq_084d_q022_deff_hopfield_dissociation",
+      "script": "experiments/v3_exq_084d_q022_deff_hopfield_dissociation.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 120,
+      "backlog_id": "EVB-0030",
+      "claim_id": "MECH-118",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T21:41:50.186787+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-168",
+      "title": "ARC-030 go/no-go symmetry discriminative pair (EVB-0032 re-queue)",
+      "experiment_type": "v3_exq_086_arc030_go_nogo_symmetry",
+      "script": "experiments/v3_exq_086_arc030_go_nogo_symmetry.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "backlog_id": "EVB-0032",
+      "claim_id": "ARC-030"
+    },
+    {
+      "queue_id": "V3-EXQ-169",
+      "title": "MECH-135 E2 training horizon ablation: 1-step vs 3-step vs 5-step BPTT (EVB-0034 re-queue)",
+      "experiment_type": "v3_exq_103_e2_training_horizon_ablation",
+      "script": "experiments/v3_exq_103_e2_training_horizon_ablation.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 30,
+      "backlog_id": "EVB-0034",
+      "claim_id": "MECH-135"
+    },
+    {
+      "queue_id": "V3-EXQ-170",
+      "title": "Q-002 R-field resolution: FINE(32 RBF) vs COARSE(4 RBF) discriminative pair (seeds [42,123])",
+      "experiment_type": "v3_exq_170_q002_r_field_resolution_pair",
+      "script": "experiments/v3_exq_170_q002_r_field_resolution_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 6,
+      "backlog_id": "EVB-0033",
+      "claim_id": "Q-002"
+    },
+    {
+      "queue_id": "V3-EXQ-171",
+      "title": "MECH-033 kernel chain vs ablated discriminative pair: 600-ep warmup fix (EVB-0035, supersedes EXQ-124)",
+      "experiment_type": "v3_exq_171_mech033_kernel_chain_pair",
+      "script": "experiments/v3_exq_171_mech033_kernel_chain_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 13,
+      "backlog_id": "EVB-0035",
+      "claim_id": "MECH-033",
+      "supersedes": "V3-EXQ-124"
+    },
+    {
+      "queue_id": "V3-EXQ-172",
+      "title": "ARC-018 rollout viability vs greedy harm discriminative pair (EVB-0037)",
+      "experiment_type": "v3_exq_172_arc018_rollout_viability_pair",
+      "script": "experiments/v3_exq_172_arc018_rollout_viability_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 15,
+      "backlog_id": "EVB-0037",
+      "claim_id": "ARC-018"
+    },
+    {
+      "queue_id": "V3-EXQ-173",
+      "title": "MECH-096 dual-stream routing discriminative pair (EVB-0052 re-queue)",
+      "experiment_type": "v3_exq_130_mech096_dual_stream_routing_pair",
+      "script": "experiments/v3_exq_130_mech096_dual_stream_routing_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180,
+      "backlog_id": "EVB-0052",
+      "claim_id": "MECH-096"
+    },
+    {
+      "queue_id": "V3-EXQ-174",
+      "title": "ARC-023 multirate heartbeat discriminative pair (EVB-0054 re-queue)",
+      "experiment_type": "v3_exq_131_arc023_multirate_heartbeat_pair",
+      "script": "experiments/v3_exq_131_arc023_multirate_heartbeat_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180,
+      "backlog_id": "EVB-0054",
+      "claim_id": "ARC-023"
+    },
+    {
+      "queue_id": "V3-EXQ-175",
+      "title": "MECH-097 PPS commit locus discriminative pair (EVB-0057 re-queue)",
+      "experiment_type": "v3_exq_137_mech097_pps_commit_locus_pair",
+      "script": "experiments/v3_exq_137_mech097_pps_commit_locus_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180,
+      "backlog_id": "EVB-0057",
+      "claim_id": "MECH-097"
+    },
+    {
+      "queue_id": "V3-EXQ-176",
+      "title": "ARC-036 valence dimension probe: harm vs benefit RBF dissociation (EVB-0038)",
+      "experiment_type": "v3_exq_176_arc036_valence_dimension_probe",
+      "script": "experiments/v3_exq_176_arc036_valence_dimension_probe.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 17,
+      "backlog_id": "EVB-0038",
+      "claim_id": "ARC-036"
+    },
+    {
+      "queue_id": "V3-EXQ-177",
+      "title": "SD-008+SD-007+SD-003 full-stack integration test: event selectivity + world forward + attribution (EXP-0087)",
+      "experiment_type": "v3_exq_177_sd008_integration_test",
+      "script": "experiments/v3_exq_177_sd008_integration_test.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 100,
+      "claim_id": "SD-008"
     }
   ]
 }
