@@ -29,28 +29,6 @@
       "backlog_id": "EVB-0081",
       "claim_id": "Q-017",
       "note": "EXP-0108 (EVB-0081): Q-017 asks what is the minimal orthogonal control-axis subset that preserves observed regime separations. Three conditions: FULL_AXES (3D: z_tonic=EMA(harm,tau=50), z_phasic=|harm-z_tonic|, z_affect=harm-benefit), COLLAPSED_SCALAR (1D: raw harm signal), MINIMAL_SUBSET (2D: z_tonic+z_phasic, no affect). Regime separation = mean |harm_rate_avoidance - harm_rate_exploration| + mean |action_entropy_exploitation - action_entropy_exploration|. 5 pre-registered criteria: C1 FULL_AXES regime_sep > COLLAPSED_SCALAR regime_sep + THRESH_SEP_MARGIN (both seeds; orthogonal decomposition adds value); C2 FULL_AXES regime_sep > THRESH_SEP_ABS_MIN (both seeds; above-floor signal); C3 n_avoidance/exploitation/exploration_windows >= THRESH_MIN_REGIME_WINDOWS per condition per seed (data quality); C4 FULL_AXES axis_variance[tonic/phasic/affect] > THRESH_AXIS_VAR_MIN (both seeds; non-degenerate axes); C5 MINIMAL_SUBSET regime_sep direction seed-consistent. PASS (C1-C5 + |FULL-MINIMAL|>THRESH): all three axes load-bearing. PARTIAL_TWO_SUFFICIENT: C1-C4 but |FULL-MINIMAL|<=THRESH_EQUIV (both seeds); affective axis dispensable. PARTIAL_COLLAPSE_ADEQUATE: C1 fails; raw harm sufficient. FAIL: C2 or C3 fails. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=4 num_resources=3 hazard_harm=0.1 env_drift_interval=10 env_drift_prob=0.3. 400 total episodes, 100 measurement (last quartile), 200 steps/ep. Mac-only (264 min estimate)."
-    },
-    {
-      "queue_id": "V3-EXQ-085g",
-      "title": "MECH-071 contact-gated z_goal seeding (seeding quality fix)",
-      "experiment_type": "v3_exq_085g_mech071_contact_gated_seeding",
-      "script": "experiments/v3_exq_085g_mech071_contact_gated_seeding.py",
-      "claim_ids": [
-        "MECH-071",
-        "MECH-112",
-        "MECH-117",
-        "SD-012"
-      ],
-      "supersedes": "V3-EXQ-085f",
-      "priority": 5,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "note": "Fixes EXQ-085f seeding quality failure (benefit_ratio=0.28x, goal_resource_r=0.087). Root cause: proximity-EMA seeding fires on broad noisy field, anchoring z_goal to random z_world states with near-zero correlation to resource locations. Fix: contact-gated seeding -- z_goal updated with benefit=1.0 only on ttype==resource events (actual resource acquisition), anchoring to z_world observed at moment of contact. alpha_goal raised 0.1->0.3 (faster convergence per contact event, which are rarer than proximity events). Proximity seeding retained as secondary fallback. Key diagnostic: goal_resource_r (Pearson r between goal_proximity and resource_proximity) -- must exceed 0.2 for C2 to be achievable. 3 seeds x 2 conditions x 600 eps x 200 steps. ~90 min DLAPTOP-4.local.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-29T21:06:17.258281+00:00"
-      }
     }
   ]
 }
