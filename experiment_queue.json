@@ -18,23 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-127",
-      "title": "MECH-030: REPLAY_ON vs REPLAY_ABLATED x 2 seeds (sleep consolidation discriminative pair)",
-      "experiment_type": "v3_exq_127_mech030_sleep_consolidation_pair",
-      "script": "experiments/v3_exq_127_mech030_sleep_consolidation_pair.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "backlog_id": "EVB-0019",
-      "claim_id": "MECH-030",
-      "note": "EXP-0025 / EVB-0019: matched-seed discriminative pair. REPLAY_ON (online updates + post-episode batch consolidation: n_replay_steps=10, replay_batch=32) vs REPLAY_ABLATED (online updates only, no consolidation). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 gap_replay_on>=0.04 (both seeds), C2 per-seed delta (ON-ABLATED)>=0.02 (both seeds), C3 gap_ablated>=0.0 (ablation learns something), C4 n_harm_eval_min>=20, C5 no fatal errors. Tests MECH-030 V3 proxy: does offline batch consolidation improve harm_eval_head quality beyond online-only training? Functional restatement of MECH-092 (offline batch consolidation during idle periods). 400 warmup + 50 eval eps x 200 steps, size=6, 4 hazards, nav_bias=0.35, alpha_world=0.9.",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-29T03:17:04.471533+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-128",
       "title": "MECH-103: FUSION_ON vs FUSION_ABLATED x 2 seeds (multimodal exteroceptive fusion discriminative pair)",
       "experiment_type": "v3_exq_128_mech103_multimodal_fusion_pair",
