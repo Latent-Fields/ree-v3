@@ -37,13 +37,17 @@
       "script": "experiments/v3_exq_171_mech033_kernel_chain_pair.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 13,
       "claim_ids": [
         "MECH-033"
       ],
       "supersedes": "V3-EXQ-124",
-      "note": "Fixes EXQ-124 root cause: 400-episode warmup was insufficient (E2 world_forward not trained before eval). This script uses 600 warmup episodes + explicit E2 R^2 convergence check (C3: world_forward_r2 >= 0.20) before declaring result. KERNEL_CHAIN: 3-step E2 rollout, select action minimizing cumulative predicted harm. ABLATED: random action. 2 conditions x 2 seeds, shared warmup per seed = 4 eval cells. Fast CPU inline (~13 min)."
+      "note": "Fixes EXQ-124 root cause: 400-episode warmup was insufficient (E2 world_forward not trained before eval). This script uses 600 warmup episodes + explicit E2 R^2 convergence check (C3: world_forward_r2 >= 0.20) before declaring result. KERNEL_CHAIN: 3-step E2 rollout, select action minimizing cumulative predicted harm. ABLATED: random action. 2 conditions x 2 seeds, shared warmup per seed = 4 eval cells. Fast CPU inline (~13 min).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T21:38:14.620319+00:00"
+      }
     }
   ]
 }
