@@ -18,22 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-125",
-      "title": "ARC-029: COMMITTED_MODE_ON vs COMMITTED_MODE_ABLATED x stable/volatile x 2 seeds",
-      "experiment_type": "v3_exq_125_arc029_committed_mode_pair",
-      "script": "experiments/v3_exq_125_arc029_committed_mode_pair.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 85,
-      "claim_id": "ARC-029",
-      "note": "EXP-0085: matched-seed discriminative pair. COMMITTED_MODE_ON (BG beta gate active, agent trained to committed state) vs COMMITTED_MODE_ABLATED (gate disabled: running_var forced > commit_threshold each step) x stable (drift=0.0) vs volatile (drift=0.4, interval=3). Seeds [42,123] x 2 conditions x 2 envs = 8 cells. 6 pre-registered criteria: C1 harm_gap_stable>=0.0001 (both seeds), C2 gap_volatile<gap_stable (both seeds), C3 gap_ratio<=0.90 (both seeds), C4 gate active in ON condition, C5 ablation complete, C6 no fatal errors. 400 warmup + 50 eval eps x 200 steps. Strengthens EXQ-063 PASS (5/5, conf=0.774) with canonical matched seeds.",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-28T22:26:05.808862+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-126",
       "title": "MECH-104: SURPRISE_GATE_ON vs SURPRISE_GATE_ABLATED x 2 seeds (volatility gate discriminative pair)",
       "experiment_type": "v3_exq_126_mech104_surprise_gate_pair",
