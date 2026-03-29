@@ -37,10 +37,14 @@
       "script": "experiments/v3_exq_103_e2_training_horizon_ablation.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 30,
       "backlog_id": "EVB-0034",
-      "claim_id": "MECH-135"
+      "claim_id": "MECH-135",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T21:54:09.230513+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-170",
