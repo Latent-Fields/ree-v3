@@ -24,11 +24,15 @@
       "script": "experiments/v3_exq_137_mech097_pps_commit_locus_pair.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "backlog_id": "EVB-0029",
       "claim_id": "MECH-097",
-      "note": "EXP-0037 / EVB-0029: matched-seed discriminative pair. PPS_LOCUS_ON (harm_eval_head receives cat(z_world, pps_feature) where pps_feature = max hazard_field intensity in central 3x3 of 5x5 hazard_field_view -- encodes proximity to commit boundary) vs PPS_LOCUS_ABLATED (harm_eval_head receives z_world only, no PPS spatial signal). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 gap_locus_on>=0.04 (both seeds), C2 per-seed delta (ON-ABLATED)>=0.02 (both seeds), C3 gap_ablated>=0.0, C4 n_harm_eval_min>=20, C5 n_approach_contacts_min>=10 (manipulation check: proximity events fired). Tests MECH-097 functional claim: does encoding PPS geometry (proximity to commit boundary) improve harm_eval discrimination beyond z_world-only baseline? PPS feature is the max hazard field intensity in the agent peripersonal neighbourhood -- the spatial envelope where z_self->z_world causal transitions occur. 400 warmup + 50 eval eps x 200 steps, size=6, 4 hazards, nav_bias=0.45, alpha_world=0.9. Both harm_eval_heads are standalone modules (HarmEvalHeadExtended) trained with separate optimizers."
+      "note": "EXP-0037 / EVB-0029: matched-seed discriminative pair. PPS_LOCUS_ON (harm_eval_head receives cat(z_world, pps_feature) where pps_feature = max hazard_field intensity in central 3x3 of 5x5 hazard_field_view -- encodes proximity to commit boundary) vs PPS_LOCUS_ABLATED (harm_eval_head receives z_world only, no PPS spatial signal). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 gap_locus_on>=0.04 (both seeds), C2 per-seed delta (ON-ABLATED)>=0.02 (both seeds), C3 gap_ablated>=0.0, C4 n_harm_eval_min>=20, C5 n_approach_contacts_min>=10 (manipulation check: proximity events fired). Tests MECH-097 functional claim: does encoding PPS geometry (proximity to commit boundary) improve harm_eval discrimination beyond z_world-only baseline? PPS feature is the max hazard field intensity in the agent peripersonal neighbourhood -- the spatial envelope where z_self->z_world causal transitions occur. 400 warmup + 50 eval eps x 200 steps, size=6, 4 hazards, nav_bias=0.45, alpha_world=0.9. Both harm_eval_heads are standalone modules (HarmEvalHeadExtended) trained with separate optimizers.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-29T03:25:32.854581+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-138",
