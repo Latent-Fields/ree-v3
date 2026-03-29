@@ -18,23 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-132",
-      "title": "MECH-070 E2 Motor-Model Discriminative Pair",
-      "experiment_type": "v3_exq_132_mech070_e2_motor_model_pair",
-      "script": "experiments/v3_exq_132_mech070_e2_motor_model_pair.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "backlog_id": "EVB-0026",
-      "claim_id": "MECH-070",
-      "note": "EXP-0034 / EVB-0026: matched-seed discriminative pair. E2_MOTOR_ON (E2 trained as z_self forward model: 1-step MSE on z_self motor-sensory transitions, cerebellar analog) vs E2_MOTOR_ABLATED (E2 frozen at random init, motor model removed). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 gap_motor_on>=0.04 (both seeds), C2 per-seed delta (ON-ABLATED)>=0.02 (both seeds), C3 gap_ablated>=0.0, C4 n_harm_eval_min>=20, C5 e2_r2_on>=0.05 (manipulation check: E2 learned a useful z_self model). Tests MECH-070 functional claim: E2 as a trained z_self motor forward model contributes to trajectory quality (harm_eval discrimination). E3 harm_eval trains normally in both conditions (trains on z_world). E1 trains normally in both conditions. Secondary diagnostic: e2_r2 (confirms manipulation integrity -- dry-run shows 0.83 vs 0.0 as expected). 400 warmup + 50 eval eps x 200 steps, size=6, 4 hazards, nav_bias=0.40, alpha_world=0.9.",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-29T03:21:04.335104+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-133",
       "title": "MECH-091: PHASE_RESET_ON vs PHASE_RESET_ABLATED x 2 seeds (salient-event E3 heartbeat phase-reset discriminative pair)",
       "experiment_type": "v3_exq_133_mech091_phase_reset_pair",
