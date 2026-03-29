@@ -175,6 +175,14 @@ class E3TrajectorySelector(nn.Module):
         self._committed_trajectory: Optional[Trajectory] = None
         self.last_scores: Optional[torch.Tensor] = None
 
+        # ARC-030: benefit_eval warmup gate.
+        # benefit_eval_head starts at random init — scoring with it before training
+        # converges adds harmful noise to trajectory selection. Gate is lifted once
+        # enough benefit samples have been seen (call record_benefit_sample() from
+        # the experiment training loop when adding to the benefit buffer).
+        self._benefit_samples_seen: int = 0
+        self._BENEFIT_WARMUP_SAMPLES: int = 50
+
     # ------------------------------------------------------------------ #
     # Dynamic precision (ARC-016)                                         #
     # ------------------------------------------------------------------ #
@@ -196,6 +204,15 @@ class E3TrajectorySelector(nn.Module):
             (1 - self._ema_alpha) * self._running_variance
             + self._ema_alpha * error_var
         )
+
+    def record_benefit_sample(self, n: int = 1) -> None:
+        """Record that n benefit training samples have been added to the buffer.
+
+        Call from the experiment training loop each time a positive benefit
+        sample is added. Once _benefit_samples_seen >= _BENEFIT_WARMUP_SAMPLES,
+        benefit scoring is activated in score_trajectory().
+        """
+        self._benefit_samples_seen += n
 
     # ------------------------------------------------------------------ #
     # harm_eval (SD-003 V3 pipeline)                                      #
@@ -437,8 +454,12 @@ class E3TrajectorySelector(nn.Module):
         phi = self.compute_residue_cost(trajectory)
         score = f + self.config.lambda_ethical * m + self.config.rho_residue * phi
 
-        # ARC-030 / MECH-112: Go channel — subtract benefit from cost
-        if self.config.benefit_eval_enabled and self.config.benefit_weight > 0.0:
+        # ARC-030 / MECH-112: Go channel — subtract benefit from cost.
+        # Gated until _benefit_samples_seen >= _BENEFIT_WARMUP_SAMPLES to prevent
+        # random-init noise from corrupting trajectory selection early in training.
+        if (self.config.benefit_eval_enabled
+                and self.config.benefit_weight > 0.0
+                and self._benefit_samples_seen >= self._BENEFIT_WARMUP_SAMPLES):
             b = self.compute_benefit_score(trajectory)
             score = score - self.config.benefit_weight * b
 
