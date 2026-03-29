@@ -24,11 +24,15 @@
       "script": "experiments/v3_exq_146_q001_entity_binding_pair.py",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 160,
       "backlog_id": "EVB-0070",
       "claim_id": "Q-001",
-      "note": "EXP-0086/EVB-0070: Q-001 entity emergence and binding. Tests whether z_self attentional gating (self_maintenance_weight=0.1) is the operative mechanism for entity persistence in z_world. ENTITY_BINDING_ON: z_self active, self_maintenance_weight=0.1. ENTITY_ABLATED: z_self zeroed after each sense(), no maintenance gradient. 5 pre-registered criteria: C1 BINDING entity_event_response>=0.05, C2 ABLATED entity_event_response<=0.15, C3 per-seed event_response gap>=0.02, C4 BINDING persistence>=0.70, C5 per-seed persistence gap>=0.05. Entity events detected via obs_world delta>0.02 on env drift steps. CausalGridWorldV2 size=10 drift_prob=0.3. 2 seeds [42,123]. 300 warmup + 100 eval eps x 200 steps per condition per seed. Low priority (priority=4) per Q-001 designation."
+      "note": "EXP-0086/EVB-0070: Q-001 entity emergence and binding. Tests whether z_self attentional gating (self_maintenance_weight=0.1) is the operative mechanism for entity persistence in z_world. ENTITY_BINDING_ON: z_self active, self_maintenance_weight=0.1. ENTITY_ABLATED: z_self zeroed after each sense(), no maintenance gradient. 5 pre-registered criteria: C1 BINDING entity_event_response>=0.05, C2 ABLATED entity_event_response<=0.15, C3 per-seed event_response gap>=0.02, C4 BINDING persistence>=0.70, C5 per-seed persistence gap>=0.05. Entity events detected via obs_world delta>0.02 on env drift steps. CausalGridWorldV2 size=10 drift_prob=0.3. 2 seeds [42,123]. 300 warmup + 100 eval eps x 200 steps per condition per seed. Low priority (priority=4) per Q-001 designation.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-29T07:25:05.136386+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-147",
