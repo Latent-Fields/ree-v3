@@ -37,11 +37,15 @@
       "script": "experiments/v3_exq_148_q003_r_field_dimensionality_pair.py",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 50,
       "backlog_id": "EVB-0072",
       "claim_id": "Q-003",
-      "note": "EXP-0090 (EVB-0072): Q-003 asks whether R(x,t) should be scalar or vector. SCALAR condition uses standard ResidueField.evaluate() (1-D output). VECTOR condition uses VectorResidueWrapper.evaluate_vector() producing 3 dims: harm_intensity (standard RBF), harm_recency (EMA-decayed weights), benefit_proximity (ARC-030 benefit terrain). E3 receives vector fused into z_world via Linear(world_dim+3, world_dim) projection trained jointly. Key discriminator: harm_ratio = mean_harm_vector / mean_harm_scalar. 5 pre-registered criteria: C1 harm_ratio<0.92 (vector reduces harm >=8%, both seeds), C2 dim_var>0.01 dims 0+1 (non-degenerate vector, both seeds), C3 benefit_dim2_mean>0.01 (benefit dim non-zero, both seeds), C4 harm_ratio<1.10 (no regression, both seeds), C5 C1 seed-consistent. PASS (C1+C2+C3): vector preferred. FAIL (C4): scalar preferred. FAIL (C2): inconclusive/collapsed. CausalGridWorldV2 size=10, 2 hazards, 3 resources, drift_interval=10. 2 seeds [42,123]. 300 warmup + 100 eval eps x 200 steps per condition per seed."
+      "note": "EXP-0090 (EVB-0072): Q-003 asks whether R(x,t) should be scalar or vector. SCALAR condition uses standard ResidueField.evaluate() (1-D output). VECTOR condition uses VectorResidueWrapper.evaluate_vector() producing 3 dims: harm_intensity (standard RBF), harm_recency (EMA-decayed weights), benefit_proximity (ARC-030 benefit terrain). E3 receives vector fused into z_world via Linear(world_dim+3, world_dim) projection trained jointly. Key discriminator: harm_ratio = mean_harm_vector / mean_harm_scalar. 5 pre-registered criteria: C1 harm_ratio<0.92 (vector reduces harm >=8%, both seeds), C2 dim_var>0.01 dims 0+1 (non-degenerate vector, both seeds), C3 benefit_dim2_mean>0.01 (benefit dim non-zero, both seeds), C4 harm_ratio<1.10 (no regression, both seeds), C5 C1 seed-consistent. PASS (C1+C2+C3): vector preferred. FAIL (C4): scalar preferred. FAIL (C2): inconclusive/collapsed. CausalGridWorldV2 size=10, 2 hazards, 3 resources, drift_interval=10. 2 seeds [42,123]. 300 warmup + 100 eval eps x 200 steps per condition per seed.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-29T13:09:13.553481+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-150",
