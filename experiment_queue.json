@@ -31,26 +31,6 @@
       "note": "EXP-0108 (EVB-0081): Q-017 asks what is the minimal orthogonal control-axis subset that preserves observed regime separations. Three conditions: FULL_AXES (3D: z_tonic=EMA(harm,tau=50), z_phasic=|harm-z_tonic|, z_affect=harm-benefit), COLLAPSED_SCALAR (1D: raw harm signal), MINIMAL_SUBSET (2D: z_tonic+z_phasic, no affect). Regime separation = mean |harm_rate_avoidance - harm_rate_exploration| + mean |action_entropy_exploitation - action_entropy_exploration|. 5 pre-registered criteria: C1 FULL_AXES regime_sep > COLLAPSED_SCALAR regime_sep + THRESH_SEP_MARGIN (both seeds; orthogonal decomposition adds value); C2 FULL_AXES regime_sep > THRESH_SEP_ABS_MIN (both seeds; above-floor signal); C3 n_avoidance/exploitation/exploration_windows >= THRESH_MIN_REGIME_WINDOWS per condition per seed (data quality); C4 FULL_AXES axis_variance[tonic/phasic/affect] > THRESH_AXIS_VAR_MIN (both seeds; non-degenerate axes); C5 MINIMAL_SUBSET regime_sep direction seed-consistent. PASS (C1-C5 + |FULL-MINIMAL|>THRESH): all three axes load-bearing. PARTIAL_TWO_SUFFICIENT: C1-C4 but |FULL-MINIMAL|<=THRESH_EQUIV (both seeds); affective axis dispensable. PARTIAL_COLLAPSE_ADEQUATE: C1 fails; raw harm sufficient. FAIL: C2 or C3 fails. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=4 num_resources=3 hazard_harm=0.1 env_drift_interval=10 env_drift_prob=0.3. 400 total episodes, 100 measurement (last quartile), 200 steps/ep. Mac-only (264 min estimate)."
     },
     {
-      "queue_id": "V3-EXQ-164a",
-      "title": "MECH-142 axis decorrelation maintenance (bug fix: harm/resource obs keys)",
-      "experiment_type": "v3_exq_164a_mech142_axis_decorrelation",
-      "script": "experiments/v3_exq_164a_mech142_axis_decorrelation.py",
-      "claim_ids": [
-        "MECH-142",
-        "MECH-063"
-      ],
-      "supersedes": "V3-EXQ-164",
-      "priority": 1,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 768,
-      "note": "Bug fix for EXQ-164: obs_dict keys 'harm_signal' and 'resource_count' do not exist in CausalGridWorldV2 -- both returned 0.0 every step, causing all axes and metrics to be identically zero. Fix: read harm_prev from harm_obs[12] (center hazard field cell, instantaneous proximity) and benefit_prev from harm_obs[37] (center resource field cell). Dry-run confirms last_q_harm=0.59 (was 0.0). Same protocol: WITH_DECORRELATION vs NO_DECORRELATION, 2 seeds, 1600 eps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-29T20:46:50.898247+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-166",
       "title": "SD-003/ARC-033 obs-space forward model for E2_harm_s (TRAINED vs ABLATED)",
       "experiment_type": "v3_exq_166_sd003_obs_space_forward_model",
