@@ -78,22 +78,6 @@
       "estimated_minutes": 17,
       "backlog_id": "EVB-0038",
       "claim_id": "ARC-036"
-    },
-    {
-      "queue_id": "V3-EXQ-145",
-      "title": "SD-008+SD-007+SD-003 full REEAgent pipeline integration: compositional correctness (6 criteria, 2 seeds) -- EXP-0087 full-stack variant",
-      "experiment_type": "v3_exq_145_sd008_sd007_sd003_integration",
-      "script": "experiments/v3_exq_145_sd008_sd007_sd003_integration.py",
-      "priority": 3,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 100,
-      "claim_id": "SD-008",
-      "note": "Full REEAgent variant of EXP-0087 (vs v3_exq_177 which uses lightweight inline model). Both queued to compare compositional robustness in full vs minimal architecture.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-29T21:58:01.882602+00:00"
-      }
     }
   ]
 }
