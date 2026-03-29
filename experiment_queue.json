@@ -43,9 +43,13 @@
       "supersedes": "V3-EXQ-115",
       "priority": 5,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 50,
-      "note": "Fixes EXQ-115 identity collapse. Three root causes of EXQ-115 harm_fwd_r2=0: (1) co-training instability -- HarmEncoder and HarmForwardModel updated concurrently against each other's changing outputs; (2) representational sparsity -- encoder supervised on one scalar label, 31/32 z_harm dims unstructured; (3) identity collapse -- per-step proximity change tiny, MSE-optimal solution is z_harm_next=z_harm_curr, giving zero counterfactual signal. Fix (Approach B): train forward model in OBSERVATION SPACE (harm_obs_s_next [51] prediction) using residual architecture (predict delta, not absolute). Staged training: P0=HarmEncoder pre-train 50 eps (frozen fwd), P1=frozen encoder + obs-fwd model 80 eps, P2=E3 calibration 30 eps, P3=attribution eval 40 eps. Causal pipeline: obs_cf=fwd(harm_obs_t, a_cf) -> z_harm_cf=frozen_enc(obs_cf) -> causal_sig=harm_eval(z_harm_t1)-harm_eval(z_harm_cf). Dry-run: obs_fwd_r2=0.56 in just 3 training eps (vs EXQ-115 R2=0.0 after full training). 6 cells = 2 seeds (TRAINED+ABLATED evaluated per seed). 200 eps x 200 steps x 2 seeds. ~50 min DLAPTOP-4.local."
+      "note": "Fixes EXQ-115 identity collapse. Three root causes of EXQ-115 harm_fwd_r2=0: (1) co-training instability -- HarmEncoder and HarmForwardModel updated concurrently against each other's changing outputs; (2) representational sparsity -- encoder supervised on one scalar label, 31/32 z_harm dims unstructured; (3) identity collapse -- per-step proximity change tiny, MSE-optimal solution is z_harm_next=z_harm_curr, giving zero counterfactual signal. Fix (Approach B): train forward model in OBSERVATION SPACE (harm_obs_s_next [51] prediction) using residual architecture (predict delta, not absolute). Staged training: P0=HarmEncoder pre-train 50 eps (frozen fwd), P1=frozen encoder + obs-fwd model 80 eps, P2=E3 calibration 30 eps, P3=attribution eval 40 eps. Causal pipeline: obs_cf=fwd(harm_obs_t, a_cf) -> z_harm_cf=frozen_enc(obs_cf) -> causal_sig=harm_eval(z_harm_t1)-harm_eval(z_harm_cf). Dry-run: obs_fwd_r2=0.56 in just 3 training eps (vs EXQ-115 R2=0.0 after full training). 6 cells = 2 seeds (TRAINED+ABLATED evaluated per seed). 200 eps x 200 steps x 2 seeds. ~50 min DLAPTOP-4.local.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T21:04:57.855857+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-085g",
