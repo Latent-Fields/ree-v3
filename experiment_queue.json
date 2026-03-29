@@ -86,9 +86,13 @@
       "script": "experiments/v3_exq_177_sd008_integration_test.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 100,
-      "claim_id": "SD-008"
+      "claim_id": "SD-008",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-29T21:56:42.705677+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-145",
