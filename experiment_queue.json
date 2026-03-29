@@ -18,23 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-136",
-      "title": "MECH-092: QUIESCENT_REPLAY_ON vs QUIESCENT_REPLAY_ABLATED x 2 seeds (quiescent intra-episode replay discriminative pair)",
-      "experiment_type": "v3_exq_136_mech092_quiescent_replay_pair",
-      "script": "experiments/v3_exq_136_mech092_quiescent_replay_pair.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "backlog_id": "EVB-0028",
-      "claim_id": "MECH-092",
-      "note": "EXP-0036 / EVB-0028: matched-seed discriminative pair. QUIESCENT_REPLAY_ON (online updates + quiescent intra-episode replay: fires N=8 consolidation steps after K=10 consecutive non-harm steps -- simulating MECH-092 quiescent E3 heartbeat window trigger) vs QUIESCENT_REPLAY_ABLATED (online updates only; quiescence counter runs but replay never fires). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 gap_replay_on>=0.04 (both seeds), C2 per-seed delta (ON-ABLATED)>=0.02 (both seeds), C3 gap_ablated>=0.0, C4 n_harm_eval_min>=20, C5 n_quiescent_triggers_min>=15 (manipulation check: quiescent windows fired). Key distinction from EXQ-127 (MECH-030): EXQ-127 tests post-episode consolidation; EXQ-136 tests quiescent INTRA-EPISODE windows -- replay specifically triggered when K consecutive non-harm steps accumulate within an episode. Tests MECH-092 micro-quiescence mechanism: does consolidation triggered specifically during quiescent E3 heartbeat windows (no salient event) improve harm_eval discrimination beyond online-only updates? 400 warmup + 50 eval eps x 200 steps, size=6, 4 hazards, nav_bias=0.40, alpha_world=0.9, quiescence_k=10, n_replay_steps=8, replay_batch=16.",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-03-29T03:24:43.994276+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-137",
       "title": "MECH-097: PPS_LOCUS_ON vs PPS_LOCUS_ABLATED x 2 seeds (peripersonal space commit locus discriminative pair)",
       "experiment_type": "v3_exq_137_mech097_pps_commit_locus_pair",
