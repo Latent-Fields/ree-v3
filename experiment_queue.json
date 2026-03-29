@@ -24,11 +24,15 @@
       "script": "experiments/v3_exq_138_arc030_go_nogo_pair.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "backlog_id": "EVB-0053",
       "claim_id": "ARC-030",
-      "note": "EXP-0061 / EVB-0053: canonical matched-seed discriminative pair for ARC-030 Go/NoGo symmetry. GO_NOGO_SUPPORT (full BG D1/D2 symmetry: harm_eval trained + z_goal attractor updated + benefit_eval trained + e1_goal_conditioned) vs NOGO_ONLY_ABLATED (pure NoGo: harm_eval only, z_goal/benefit_eval/e1_goal_cond all disabled). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 delta_benefit_rate>=0.002 (averaged seeds), C2 benefit_rate_go>=0.002 per seed (Go channel active), C3 harm_rate_go<=harm_rate_nogo*1.50 (harm avoidance maintained), C4 per-seed direction GO>NOGO (both seeds), C5 n_benefit_buf_go>=100 per seed (manipulation check: Go channel trained). Strengthens EXQ-086 (FAIL: warmup=150 too short, benefit_rate_go=0.0). Fixes: warmup 150->400, proximity_benefit_scale 0.05->0.10, num_resources 4->5, seeds [42,7]->[42,123]. Tests ARC-030 core prediction: pure NoGo produces behavioral flatness; full Go+NoGo symmetry breaks flatness and drives resource approach."
+      "note": "EXP-0061 / EVB-0053: canonical matched-seed discriminative pair for ARC-030 Go/NoGo symmetry. GO_NOGO_SUPPORT (full BG D1/D2 symmetry: harm_eval trained + z_goal attractor updated + benefit_eval trained + e1_goal_conditioned) vs NOGO_ONLY_ABLATED (pure NoGo: harm_eval only, z_goal/benefit_eval/e1_goal_cond all disabled). Seeds [42,123] x 2 conditions = 4 cells. 5 pre-registered criteria: C1 delta_benefit_rate>=0.002 (averaged seeds), C2 benefit_rate_go>=0.002 per seed (Go channel active), C3 harm_rate_go<=harm_rate_nogo*1.50 (harm avoidance maintained), C4 per-seed direction GO>NOGO (both seeds), C5 n_benefit_buf_go>=100 per seed (manipulation check: Go channel trained). Strengthens EXQ-086 (FAIL: warmup=150 too short, benefit_rate_go=0.0). Fixes: warmup 150->400, proximity_benefit_scale 0.05->0.10, num_resources 4->5, seeds [42,7]->[42,123]. Tests ARC-030 core prediction: pure NoGo produces behavioral flatness; full Go+NoGo symmetry breaks flatness and drives resource approach.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-03-29T03:26:23.816529+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-139",
