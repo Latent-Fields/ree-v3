@@ -48,15 +48,17 @@
     },
     {
       "queue_id": "V3-EXQ-168",
-      "title": "ARC-030 go/no-go symmetry discriminative pair (EVB-0032 re-queue)",
-      "experiment_type": "v3_exq_086_arc030_go_nogo_symmetry",
-      "script": "experiments/v3_exq_086_arc030_go_nogo_symmetry.py",
+      "title": "ARC-030 Go/NoGo symmetry discriminative pair: GO_NOGO_SUPPORT vs NOGO_ONLY_ABLATED, canonical warmup=400 (EVB-0032 re-queue, corrected from EXQ-086)",
+      "experiment_type": "v3_exq_138_arc030_go_nogo_pair",
+      "script": "experiments/v3_exq_138_arc030_go_nogo_pair.py",
       "priority": 3,
-      "machine_affinity": "any",
+      "machine_affinity": "DLAPTOP-4.local",
       "status": "pending",
-      "estimated_minutes": 120,
+      "estimated_minutes": 180,
       "backlog_id": "EVB-0032",
-      "claim_id": "ARC-030"
+      "claim_id": "ARC-030",
+      "supersedes": "V3-EXQ-086",
+      "note": "Was using v3_exq_086 (warmup=150, already failed as EXQ-086). Updated to v3_exq_138: warmup=400, proximity_benefit_scale=0.10, num_resources=5, seeds=[42,123]."
     },
     {
       "queue_id": "V3-EXQ-169",
@@ -165,6 +167,18 @@
       "status": "pending",
       "estimated_minutes": 100,
       "claim_id": "SD-008"
+    },
+    {
+      "queue_id": "V3-EXQ-145",
+      "title": "SD-008+SD-007+SD-003 full REEAgent pipeline integration: compositional correctness (6 criteria, 2 seeds) -- EXP-0087 full-stack variant",
+      "experiment_type": "v3_exq_145_sd008_sd007_sd003_integration",
+      "script": "experiments/v3_exq_145_sd008_sd007_sd003_integration.py",
+      "priority": 3,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 100,
+      "claim_id": "SD-008",
+      "note": "Full REEAgent variant of EXP-0087 (vs v3_exq_177 which uses lightweight inline model). Both queued to compare compositional robustness in full vs minimal architecture."
     }
   ]
 }
