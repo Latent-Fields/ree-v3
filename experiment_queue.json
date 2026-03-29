@@ -29,27 +29,6 @@
       "backlog_id": "EVB-0081",
       "claim_id": "Q-017",
       "note": "EXP-0108 (EVB-0081): Q-017 asks what is the minimal orthogonal control-axis subset that preserves observed regime separations. Three conditions: FULL_AXES (3D: z_tonic=EMA(harm,tau=50), z_phasic=|harm-z_tonic|, z_affect=harm-benefit), COLLAPSED_SCALAR (1D: raw harm signal), MINIMAL_SUBSET (2D: z_tonic+z_phasic, no affect). Regime separation = mean |harm_rate_avoidance - harm_rate_exploration| + mean |action_entropy_exploitation - action_entropy_exploration|. 5 pre-registered criteria: C1 FULL_AXES regime_sep > COLLAPSED_SCALAR regime_sep + THRESH_SEP_MARGIN (both seeds; orthogonal decomposition adds value); C2 FULL_AXES regime_sep > THRESH_SEP_ABS_MIN (both seeds; above-floor signal); C3 n_avoidance/exploitation/exploration_windows >= THRESH_MIN_REGIME_WINDOWS per condition per seed (data quality); C4 FULL_AXES axis_variance[tonic/phasic/affect] > THRESH_AXIS_VAR_MIN (both seeds; non-degenerate axes); C5 MINIMAL_SUBSET regime_sep direction seed-consistent. PASS (C1-C5 + |FULL-MINIMAL|>THRESH): all three axes load-bearing. PARTIAL_TWO_SUFFICIENT: C1-C4 but |FULL-MINIMAL|<=THRESH_EQUIV (both seeds); affective axis dispensable. PARTIAL_COLLAPSE_ADEQUATE: C1 fails; raw harm sufficient. FAIL: C2 or C3 fails. 3 conditions x 2 seeds = 6 cells. CausalGridWorldV2 size=8 num_hazards=4 num_resources=3 hazard_harm=0.1 env_drift_interval=10 env_drift_prob=0.3. 400 total episodes, 100 measurement (last quartile), 200 steps/ep. Mac-only (264 min estimate)."
-    },
-    {
-      "queue_id": "V3-EXQ-166a",
-      "title": "SD-003/ARC-033 obs-space forward model -- 4-seed stability fix with P0 quality gate",
-      "experiment_type": "v3_exq_166a_sd003_obs_space_forward_model",
-      "script": "experiments/v3_exq_166a_sd003_obs_space_forward_model.py",
-      "priority": 3,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 92,
-      "claim_ids": [
-        "SD-003",
-        "ARC-033",
-        "SD-011"
-      ],
-      "supersedes": "V3-EXQ-166",
-      "note": "EXQ-166 MIXED (2026-03-29): seed 42 obs_fwd_r2=0.867 (architecture valid) but seed 123 obs_fwd_r2=0.0 (P0 encoder collapse -- 50 episodes insufficient). Fix: 4 seeds (42/123/7/13), P0=80 episodes, P0 z_harm variance diagnostic (threshold 0.005), C6 majority criterion (>=3/4 seeds positive). Supersedes EXQ-166.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-29T21:30:33.264949+00:00"
-      }
     }
   ]
 }
