@@ -83,6 +83,19 @@
       "note": "Tests MECH-143 (dorsal CA1 value-flat) and MECH-144 (ventral CA1 valence-organised). FIXED_VALUE: goal_A=1.0, goal_B=0.5 fixed. SHUFFLED_VALUE: swap every K=50 episodes with p=0.5. HippocampalTerrainNavigator is value-blind (residue-field only); GoalSelectionHead is reward-sensitive. C1: |harm diff FIXED vs SHUFFLED| < 0.02. C2: |completion diff| < 0.05. C3: post_shuffle_harm_spike < 0.01. C4: data quality check. PASS => value-flat navigation supports MECH-143/ARC-007 STRICT. PARTIAL_VALUE_SENSITIVE => significant value-sensitivity supports MECH-144 over MECH-143. 2 conditions x 2 seeds = 4 cells, 400 total episodes, 200 steps/ep. Any machine (192 min estimate)."
     },
     {
+      "queue_id": "V3-EXQ-164a",
+      "title": "MECH-142 axis decorrelation maintenance (bug fix: harm/resource obs keys)",
+      "experiment_type": "v3_exq_164a_mech142_axis_decorrelation",
+      "script": "experiments/v3_exq_164a_mech142_axis_decorrelation.py",
+      "claim_ids": ["MECH-142", "MECH-063"],
+      "supersedes": "V3-EXQ-164",
+      "priority": 4,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 768,
+      "note": "Bug fix for EXQ-164: obs_dict keys 'harm_signal' and 'resource_count' do not exist in CausalGridWorldV2 -- both returned 0.0 every step, causing all axes and metrics to be identically zero. Fix: read harm_prev from harm_obs[12] (center hazard field cell, instantaneous proximity) and benefit_prev from harm_obs[37] (center resource field cell). Dry-run confirms last_q_harm=0.59 (was 0.0). Same protocol: WITH_DECORRELATION vs NO_DECORRELATION, 2 seeds, 1600 eps."
+    },
+    {
       "queue_id": "V3-EXQ-166",
       "title": "SD-003/ARC-033 obs-space forward model for E2_harm_s (TRAINED vs ABLATED)",
       "experiment_type": "v3_exq_166_sd003_obs_space_forward_model",
