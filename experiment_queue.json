@@ -50,7 +50,7 @@
     },
     {
       "queue_id": "V3-EXQ-171a",
-      "supersedes": "V3-EXQ-124",
+      "supersedes": "V3-EXQ-171",
       "title": "MECH-033 kernel chain vs ablated discriminative pair: 600-ep warmup fix (EVB-0035, supersedes EXQ-124)",
       "experiment_type": "v3_exq_171_mech033_kernel_chain_pair",
       "script": "experiments/v3_exq_171_mech033_kernel_chain_pair.py",
