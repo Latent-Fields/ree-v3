@@ -8,21 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-085o",
-      "title": "SD-015 Sorted-RF Proximity Encoder (Position-Invariant)",
-      "experiment_type": "v3_exq_085o_sd015_sorted_rf_enc",
-      "script": "experiments/v3_exq_085o_sd015_sorted_rf_enc.py",
-      "machine_affinity": "any",
-      "priority": 1,
-      "status": "claimed",
-      "estimated_minutes": 130,
-      "supersedes": "V3-EXQ-085l",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T21:42:52.878854+00:00"
-      }
-    },
-    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
