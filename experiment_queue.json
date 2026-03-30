@@ -14,9 +14,13 @@
       "script": "experiments/v3_exq_085m_arc030_benefit_eval_e3.py",
       "machine_affinity": "any",
       "priority": 1,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 185,
-      "supersedes": "V3-EXQ-085l"
+      "supersedes": "V3-EXQ-085l",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-30T21:17:22.377985+00:00"
+      }
     },
     {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
