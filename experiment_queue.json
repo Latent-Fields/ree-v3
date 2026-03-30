@@ -8,27 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-085n",
-      "title": "SD-015: Multi-step greedy RFM rollout (depth=5) -- planning horizon test",
-      "experiment_type": "v3_exq_085n_sd015_multistep_rfm_rollout",
-      "script": "experiments/v3_exq_085n_sd015_multistep_rfm_rollout.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 7,
-      "status": "claimed",
-      "estimated_minutes": 130,
-      "supersedes": "V3-EXQ-085l",
-      "claims": [
-        "SD-015",
-        "SD-012",
-        "MECH-112"
-      ],
-      "notes": "Expected FAIL. Pre-registered hypothesis: depth=5 greedy rollout insufficient for grid-scale navigation -- SD-004 hippocampal navigation required. Ties off planning-horizon hypothesis.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T21:23:05.265972+00:00"
-      }
-    },
-    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
