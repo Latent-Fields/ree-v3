@@ -25,10 +25,14 @@
       "script": "experiments/v3_exq_172_arc018_rollout_viability_pair.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 15,
       "backlog_id": "EVB-0037",
-      "claim_id": "ARC-018"
+      "claim_id": "ARC-018",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-30T07:04:06.721438+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-176a",
