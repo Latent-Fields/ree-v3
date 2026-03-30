@@ -8,6 +8,21 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-085j",
+      "title": "SD-015 ResourceEncoder with Spatial Invariance",
+      "experiment_type": "v3_exq_085j_sd015_resource_encoder",
+      "script": "experiments/v3_exq_085j_sd015_resource_encoder.py",
+      "machine_affinity": "any",
+      "priority": 1,
+      "status": "claimed",
+      "estimated_minutes": 130,
+      "supersedes": "V3-EXQ-085i",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-30T20:00:27.326615+00:00"
+      }
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
