@@ -8,23 +8,20 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-178a",
-      "title": "SD-011 dual stream dissociation v2: fresh fwd transitions + autocorr C3 (supersedes EXQ-178)",
-      "experiment_type": "v3_exq_178a_sd011_dual_stream_dissociation",
-      "script": "experiments/v3_exq_178a_sd011_dual_stream_dissociation.py",
+      "queue_id": "V3-EXQ-085h",
+      "title": "SD-015 resource indicator diagnostic: RFM + resource_field_view-seeded z_goal vs z_world-seeded z_goal",
+      "experiment_type": "v3_exq_085h_sd015_resource_indicator_diag",
+      "script": "experiments/v3_exq_085h_sd015_resource_indicator_diag.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 10,
-      "status": "claimed",
-      "estimated_minutes": 28,
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 420,
       "target_claims": [
-        "SD-011",
-        "ARC-033"
+        "SD-015",
+        "SD-012",
+        "MECH-112"
       ],
-      "supersedes": "V3-EXQ-178",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T19:18:09.759702+00:00"
-      }
+      "supersedes": "V3-EXQ-085g"
     },
     {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
