@@ -8,6 +8,18 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-178a",
+      "title": "SD-011 dual stream dissociation v2: fresh fwd transitions + autocorr C3 (supersedes EXQ-178)",
+      "experiment_type": "v3_exq_178a_sd011_dual_stream_dissociation",
+      "script": "experiments/v3_exq_178a_sd011_dual_stream_dissociation.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 10,
+      "status": "pending",
+      "estimated_minutes": 28,
+      "target_claims": ["SD-011", "ARC-033"],
+      "supersedes": "V3-EXQ-178"
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
