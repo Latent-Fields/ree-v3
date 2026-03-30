@@ -8,6 +8,17 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-085l",
+      "title": "SD-015 Proximity Regression Encoder",
+      "experiment_type": "v3_exq_085l_sd015_proximity_regression_enc",
+      "script": "experiments/v3_exq_085l_sd015_proximity_regression_enc.py",
+      "machine_affinity": "any",
+      "priority": 1,
+      "status": "pending",
+      "estimated_minutes": 130,
+      "supersedes": "V3-EXQ-085k"
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
