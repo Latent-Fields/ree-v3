@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-166d",
-      "title": "SD-003 harm latent forward model: decoder-based discrimination",
-      "experiment_type": "v3_exq_166d_sd003_harm_decoder_discrimination",
-      "script": "experiments/v3_exq_166d_sd003_harm_decoder_discrimination.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 8,
-      "status": "claimed",
-      "estimated_minutes": 115,
-      "target_claims": [
-        "SD-003",
-        "ARC-033",
-        "SD-011"
-      ],
-      "supersedes": "V3-EXQ-166c",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T19:43:38.198956+00:00"
-      }
-    },
-    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
