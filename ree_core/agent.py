@@ -600,6 +600,66 @@ class REEAgent(nn.Module):
             target = target.unsqueeze(-1)
         return F.mse_loss(benefit_pred, target.expand_as(benefit_pred))
 
+    # SD-009 / MECH-100: event label mapping.
+    # obs_t is labeled with the transition_type that PRODUCED obs_t --
+    # pass info_{t-1}["transition_type"] from the previous env.step(), not the current one.
+    _EVENT_LABEL_MAP = {"none": 0, "env_caused_hazard": 1, "agent_caused_hazard": 2}
+
+    def compute_event_contrastive_loss(
+        self,
+        transition_type: str,
+        latent_state: "LatentState",
+    ) -> torch.Tensor:
+        """
+        SD-009 / MECH-100: Event contrastive CE loss on z_world encoder.
+
+        Trains the SplitEncoder event_classifier head to distinguish transition
+        types (none / env_caused_hazard / agent_caused_hazard) from z_world,
+        forcing the world encoder to represent harm-relevance distinctions.
+        Without this, E1/E2/reconstruction losses are invariant to event type
+        and z_world converges to a harm-agnostic representation.
+
+        Requires use_event_classifier=True in LatentStackConfig. Returns zero
+        otherwise (backward-compatible with all prior experiments).
+
+        IMPORTANT: pass the LatentState returned directly by sense(), NOT
+        agent._current_latent (which is detached). Gradient must flow from the
+        CE loss back through the world encoder. Usage:
+
+            latent = agent.sense(obs_body, obs_world)
+            # ... end of step t ... record transition_type from info ...
+            # at step t+1, label the t+1 encoding with t's transition_type:
+            latent_next = agent.sense(obs_body_next, obs_world_next)
+            loss += lambda_event * agent.compute_event_contrastive_loss(
+                prev_ttype, latent_next)
+
+        Labeling convention (from EXQ-020): obs_t is labeled with the transition
+        that PRODUCED obs_t. Pass info_{t-1}["transition_type"], not the current
+        step's info. On the first step (no prev_ttype), skip or pass "none".
+
+        Args:
+            transition_type: string from env info dict, one of
+                "none", "env_caused_hazard", "agent_caused_hazard".
+                Unknown strings map to label 0 (none).
+            latent_state: LatentState from sense() with retained gradients.
+
+        Returns:
+            CE loss scalar. Gradient flows through latent_stack encoder.
+        """
+        zero_loss = next(self.latent_stack.parameters()).sum() * 0.0
+        if not getattr(self.config.latent, "use_event_classifier", False):
+            return zero_loss
+        if latent_state.event_logits is None:
+            return zero_loss
+        label = self._EVENT_LABEL_MAP.get(transition_type, 0)
+        label_t = torch.tensor([label], dtype=torch.long,
+                               device=latent_state.event_logits.device)
+        # event_logits: [batch, 3]; F.cross_entropy expects [N, C]
+        logits = latent_state.event_logits
+        if logits.dim() == 1:
+            logits = logits.unsqueeze(0)
+        return F.cross_entropy(logits, label_t)
+
     def update_z_goal(self, benefit_exposure: float, drive_level: float = 1.0) -> None:
         """Update z_goal from benefit signal (MECH-112 wanting update).
 
