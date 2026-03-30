@@ -8,20 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-179",
-      "title": "H-A/H-B goal navigation causal diagnostic",
-      "experiment_type": "v3_exq_179_goal_nav_diagnostic",
-      "script": "experiments/v3_exq_179_goal_nav_diagnostic.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 240,
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T19:56:20.691468+00:00"
-      }
-    },
-    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
