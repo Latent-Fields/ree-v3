@@ -703,5 +703,6 @@ if __name__ == "__main__":
         with open(out_path, "w") as f:
             json.dump(manifest, f, indent=2)
         print(f"[EXQ-166e] written -> {out_path}", flush=True)
+        print(f"Status: {outcome}", flush=True)
     else:
         print("[EXQ-166e] dry-run: no output written.", flush=True)
