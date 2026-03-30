@@ -16,6 +16,25 @@
       "priority": 0,
       "status": "pending",
       "estimated_minutes": 20
+    },
+    {
+      "queue_id": "V3-EXQ-166e",
+      "title": "EXQ-166e: harm-delta predictor -- SD-003/ARC-033 causal signal via scalar delta",
+      "experiment_type": "v3_exq_166e_sd003_harm_delta_predictor",
+      "script": "experiments/v3_exq_166e_sd003_harm_delta_predictor.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 10,
+      "status": "claimed",
+      "estimated_minutes": 45,
+      "supersedes": "V3-EXQ-166d",
+      "claim_ids": [
+        "SD-003",
+        "ARC-033"
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-30T19:47:21.241882+00:00"
+      }
     }
   ]
 }
