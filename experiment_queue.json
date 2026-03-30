@@ -8,6 +8,31 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-085k",
+      "title": "SD-015 RFM+Encoder Hybrid Action Selection",
+      "experiment_type": "v3_exq_085k_sd015_rfm_enc_hybrid",
+      "script": "experiments/v3_exq_085k_sd015_rfm_enc_hybrid.py",
+      "machine_affinity": "any",
+      "priority": 1,
+      "status": "claimed",
+      "estimated_minutes": 130,
+      "supersedes": "V3-EXQ-085j",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-30T20:18:48.610544+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-180",
+      "title": "Resource proximity gradient diagnostic (linear probe + benefit_eval_head)",
+      "experiment_type": "v3_exq_180_resource_prox_gradient_diag",
+      "script": "experiments/v3_exq_180_resource_prox_gradient_diag.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 260
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
