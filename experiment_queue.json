@@ -25,10 +25,14 @@
       "script": "experiments/v3_exq_176_arc036_valence_dimension_probe.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 17,
       "backlog_id": "EVB-0038",
-      "claim_id": "ARC-036"
+      "claim_id": "ARC-036",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-30T07:04:27.695225+00:00"
+      }
     }
   ]
 }
