@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-085h",
-      "title": "SD-015 resource indicator diagnostic: RFM + resource_field_view-seeded z_goal vs z_world-seeded z_goal",
-      "experiment_type": "v3_exq_085h_sd015_resource_indicator_diag",
-      "script": "experiments/v3_exq_085h_sd015_resource_indicator_diag.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 420,
-      "target_claims": [
-        "SD-015",
-        "SD-012",
-        "MECH-112"
-      ],
-      "supersedes": "V3-EXQ-085g",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T19:20:29.767500+00:00"
-      }
-    },
-    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
