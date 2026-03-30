@@ -1,6 +1,6 @@
 #!/opt/local/bin/python3
 """
-V3-EXQ-085m -- SD-015 Sorted-RF Proximity Encoder (Position-Invariant)
+V3-EXQ-085o -- SD-015 Sorted-RF Proximity Encoder (Position-Invariant)
 
 Claims: SD-015, SD-012, MECH-112
 
@@ -74,7 +74,7 @@ from ree_core.goal import GoalState, GoalConfig
 from ree_core.utils.config import REEConfig
 
 
-EXPERIMENT_TYPE = "v3_exq_085m_sd015_sorted_rf_enc"
+EXPERIMENT_TYPE = "v3_exq_085o_sd015_sorted_rf_enc"
 CLAIM_IDS = ["SD-015", "SD-012", "MECH-112"]
 
 RESOURCE_OBS_DIM = 25  # resource_field_view: 5x5 proximity grid
@@ -720,7 +720,7 @@ def run(
         for goal_present in [True, False]:
             label = "GOAL_PRESENT" if goal_present else "GOAL_ABSENT"
             print(
-                f"\n[V3-EXQ-085m] {label} seed={seed}"
+                f"\n[V3-EXQ-085o] {label} seed={seed}"
                 f" warmup={warmup_episodes} eval={eval_episodes}"
                 f" curriculum={curriculum_episodes}"
                 f" drive_weight={drive_weight} alpha_world={alpha_world}"
@@ -790,7 +790,7 @@ def run(
 
     mech124_flag_salience = avg_goal_vs_harm_ratio < 0.3
 
-    print(f"\n[V3-EXQ-085m] Final results:", flush=True)
+    print(f"\n[V3-EXQ-085o] Final results:", flush=True)
     print(
         f"  z_goal_norm_enc={z_goal_norm_enc_avg:.3f}",
         flush=True,
@@ -878,7 +878,7 @@ def run(
         )
 
     summary_markdown = (
-        f"# V3-EXQ-085m -- SD-015 Sorted-RF Proximity Encoder\n\n"
+        f"# V3-EXQ-085o -- SD-015 Sorted-RF Proximity Encoder\n\n"
         f"**Status:** {status}\n"
         f"**Claims:** SD-015, SD-012, MECH-112\n"
         f"**Decision:** {decision}\n"
