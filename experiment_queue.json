@@ -25,10 +25,14 @@
       "script": "experiments/v3_exq_171_mech033_kernel_chain_pair.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 13,
       "backlog_id": "EVB-0035",
-      "claim_id": "MECH-033"
+      "claim_id": "MECH-033",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-30T07:02:36.783617+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-172a",
