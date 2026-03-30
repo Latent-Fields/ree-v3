@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-178b",
-      "title": "SD-011 dual nociceptive stream dissociation -- fix Phase 1 training (supersedes 178a)",
-      "experiment_type": "v3_exq_178b_sd011_dual_stream_dissociation",
-      "script": "experiments/v3_exq_178b_sd011_dual_stream_dissociation.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 10,
-      "status": "claimed",
-      "estimated_minutes": 32,
-      "supersedes": "V3-EXQ-178a",
-      "claims": [
-        "SD-011",
-        "ARC-033"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T19:34:21.812296+00:00"
-      }
-    },
-    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
