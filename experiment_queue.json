@@ -14,9 +14,13 @@
       "script": "experiments/v3_exq_085l_sd015_proximity_regression_enc.py",
       "machine_affinity": "any",
       "priority": 1,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 130,
-      "supersedes": "V3-EXQ-085k"
+      "supersedes": "V3-EXQ-085k",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-30T21:05:44.796816+00:00"
+      }
     },
     {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
