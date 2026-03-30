@@ -8,6 +8,26 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-085i",
+      "title": "SD-015 contact-only seeding: fix 085h secondary seeding contamination",
+      "experiment_type": "v3_exq_085i_sd015_contact_only_seeding",
+      "script": "experiments/v3_exq_085i_sd015_contact_only_seeding.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "claimed",
+      "estimated_minutes": 65,
+      "target_claims": [
+        "SD-015",
+        "SD-012",
+        "MECH-112"
+      ],
+      "supersedes": "V3-EXQ-085h",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-30T19:40:31.059980+00:00"
+      }
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
