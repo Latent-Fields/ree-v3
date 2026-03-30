@@ -76,7 +76,7 @@ class LatentStackConfig:
     # harm_obs_a layout: same as harm_obs_s by default (full proximity vector EMA);
     # or use harm_obs[50:] (1-dim harm_exposure EMA already emitted by env).
     use_affective_harm_stream: bool = False
-    harm_obs_a_dim: int = 51  # same layout as harm_obs; experiment may pass [:50] or all
+    harm_obs_a_dim: int = 50  # hazard_field(25) + resource_field(25) -- no harm_exposure scalar
     z_harm_a_dim: int = 16    # smaller than z_harm_dim -- less spatial resolution needed
 
     # SD-007: ReafferencePredictor — perspective-shift correction for z_world.
@@ -346,6 +346,10 @@ class REEConfig:
         use_harm_stream: bool = False,
         harm_obs_dim: int = 51,
         z_harm_dim: int = 32,
+        # SD-011: affective-motivational harm stream
+        use_affective_harm_stream: bool = False,
+        harm_obs_a_dim: int = 50,
+        z_harm_a_dim: int = 16,
         # ARC-030 / MECH-111 / MECH-112 / MECH-113
         benefit_eval_enabled: bool = False,
         benefit_weight: float = 1.0,
@@ -388,6 +392,11 @@ class REEConfig:
         config.latent.use_harm_stream = use_harm_stream
         config.latent.harm_obs_dim = harm_obs_dim
         config.latent.z_harm_dim = z_harm_dim
+
+        # SD-011: affective-motivational harm stream
+        config.latent.use_affective_harm_stream = use_affective_harm_stream
+        config.latent.harm_obs_a_dim = harm_obs_a_dim
+        config.latent.z_harm_a_dim = z_harm_a_dim
 
         # E1
         config.e1.self_dim = self_dim

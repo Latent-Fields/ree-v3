@@ -741,6 +741,17 @@ class LatentStack(nn.Module):
         else:
             self.harm_encoder = None
 
+        # SD-011: AffectiveHarmEncoder (C-fiber/paleospinothalamic analog, ARC-033).
+        # Encodes harm_obs_a (EMA of proximity fields, tau~20 steps) into z_harm_a.
+        # NOT counterfactually predicted -- feeds E3 commit gating directly.
+        if getattr(self.config, "use_affective_harm_stream", False):
+            self.affective_harm_encoder: Optional[AffectiveHarmEncoder] = AffectiveHarmEncoder(
+                harm_obs_a_dim=getattr(self.config, "harm_obs_a_dim", 50),
+                z_harm_a_dim=getattr(self.config, "z_harm_a_dim", 16),
+            )
+        else:
+            self.affective_harm_encoder = None
+
         # Top-down projections
         self.delta_to_theta = nn.Linear(self.config.delta_dim, self.config.topdown_dim)
         self.theta_to_beta = nn.Linear(self.config.theta_dim, self.config.topdown_dim)
@@ -798,6 +809,7 @@ class LatentStack(nn.Module):
         prev_state: Optional[LatentState] = None,
         prev_action: Optional[torch.Tensor] = None,
         harm_obs: Optional[torch.Tensor] = None,
+        harm_obs_a: Optional[torch.Tensor] = None,
         volatility_signal: Optional[torch.Tensor] = None,
     ) -> LatentState:
         """
@@ -821,6 +833,10 @@ class LatentStack(nn.Module):
             harm_obs:     SD-010 nociceptive observation [batch, harm_obs_dim].
                           When provided and harm_encoder is active, overrides z_harm
                           from the MECH-099 lateral head with the dedicated stream.
+            harm_obs_a:   SD-011 affective-motivational harm observation [batch, harm_obs_a_dim].
+                          EMA of proximity fields maintained in environment (tau~20 steps).
+                          When provided and affective_harm_encoder is active, produces z_harm_a.
+                          None = disabled (default, backward compat).
             volatility_signal: Q-007/EXQ-051b — NE/LC analog [batch, volatility_signal_dim]
                           or scalar float/tensor auto-expanded. When provided and
                           LatentStackConfig.volatility_signal_dim > 0, appended to
@@ -931,6 +947,15 @@ class LatentStack(nn.Module):
                 ho = ho.unsqueeze(0).expand(batch_size, -1)
             z_harm = self.harm_encoder(ho)
 
+        # SD-011: affective-motivational harm stream — NOT perspective-corrected.
+        # AffectiveHarmEncoder encodes the EMA-accumulated proximity signal into z_harm_a.
+        z_harm_a = None
+        if harm_obs_a is not None and self.affective_harm_encoder is not None:
+            hoa = harm_obs_a.to(device).float()
+            if hoa.dim() == 1:
+                hoa = hoa.unsqueeze(0).expand(batch_size, -1)
+            z_harm_a = self.affective_harm_encoder(hoa)
+
         return LatentState(
             z_self=z_self,
             z_world=z_world,
@@ -943,6 +968,7 @@ class LatentStack(nn.Module):
             },
             timestamp=(prev_state.timestamp or 0) + 1,
             z_harm=z_harm,         # SD-010 or MECH-099: None if neither enabled
+            z_harm_a=z_harm_a,     # SD-011: None if affective stream not enabled
             z_world_raw=z_world_raw,  # SD-007 diagnostic (uncorrected z_world)
             event_logits=event_logits,  # SD-009: None if event classifier not enabled
         )

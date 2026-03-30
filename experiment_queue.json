@@ -8,6 +8,17 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-178",
+      "title": "SD-011 dual nociceptive stream dissociation (AffectiveHarmEncoder wiring + HarmForwardModel R2)",
+      "experiment_type": "v3_exq_178_sd011_dual_stream_dissociation",
+      "script": "experiments/v3_exq_178_sd011_dual_stream_dissociation.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 10,
+      "status": "pending",
+      "estimated_minutes": 28,
+      "target_claims": ["SD-011", "ARC-033"]
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
