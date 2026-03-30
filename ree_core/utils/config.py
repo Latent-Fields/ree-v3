@@ -221,6 +221,13 @@ class E3Config:
     self_maintenance_weight: float = 0.0
     self_maintenance_d_eff_target: float = 1.5   # target max D_eff for z_self
 
+    # MECH-112 / MECH-117: wanting signal weight in trajectory scoring.
+    # score_trajectory() subtracts goal_weight * goal_proximity when goal_state is active.
+    # Logically belongs here (it's an E3 scoring parameter) even though GoalConfig also
+    # carries a copy for standalone goal experiments. Canonical source: this field.
+    # 0.0 disables goal contribution (backward-compatible default).
+    goal_weight: float = 0.0
+
 
 @dataclass
 class HippocampalConfig:
