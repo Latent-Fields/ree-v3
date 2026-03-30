@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-051c",
-      "title": "Q-007 z_beta Volatility Injection -- NE/LC analog via running_variance input",
-      "experiment_type": "v3_exq_051c_q007_zbeta_volatility_injection",
-      "script": "experiments/v3_exq_051c_q007_zbeta_volatility_injection.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 75,
-      "supersedes": "V3-EXQ-051b",
-      "claim_id": "Q-007",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T16:40:58.044886+00:00"
-      }
-    },
-    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
