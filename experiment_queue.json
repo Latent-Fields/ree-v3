@@ -18,23 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-170a",
-      "supersedes": "V3-EXQ-170",
-      "title": "Q-002 R-field resolution: FINE(32 RBF) vs COARSE(4 RBF) discriminative pair (seeds [42,123])",
-      "experiment_type": "v3_exq_170_q002_r_field_resolution_pair",
-      "script": "experiments/v3_exq_170_q002_r_field_resolution_pair.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 6,
-      "backlog_id": "EVB-0033",
-      "claim_id": "Q-002",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T07:01:27.816149+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-171a",
       "supersedes": "V3-EXQ-171",
       "title": "MECH-033 kernel chain vs ablated discriminative pair: 600-ep warmup fix (EVB-0035, supersedes EXQ-124)",
