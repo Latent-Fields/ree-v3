@@ -8,27 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-166c",
-      "title": "SD-003 harm latent forward model: shuffled-action ablation (EXQ-166c)",
-      "experiment_type": "v3_exq_166c_sd003_harm_latent_shuffled_ablation",
-      "script": "experiments/v3_exq_166c_sd003_harm_latent_shuffled_ablation.py",
-      "claim_ids": [
-        "SD-003",
-        "ARC-033",
-        "SD-011"
-      ],
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 115,
-      "supersedes": "V3-EXQ-166b",
-      "notes": "Fixes EXQ-166b C2 criterion flaw (random-weights ablation out-of-distribution). SHUFFLED model trains on same data with actions permuted per batch -- in-distribution for harm_eval, zero action-conditional info. New C2: trained model discriminates approach vs retreat actions. Dry-run: C3/C4/C6 all pass at 3 eps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T19:27:37.495992+00:00"
-      }
-    },
-    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
