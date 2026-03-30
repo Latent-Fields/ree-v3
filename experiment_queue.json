@@ -16,6 +16,27 @@
       "priority": 0,
       "status": "pending",
       "estimated_minutes": 20
+    },
+    {
+      "queue_id": "V3-EXQ-166b",
+      "title": "SD-003 harm latent forward model + reconstruction branch (EXQ-166b)",
+      "experiment_type": "v3_exq_166b_sd003_harm_latent_reconstruction",
+      "script": "experiments/v3_exq_166b_sd003_harm_latent_reconstruction.py",
+      "claim_ids": [
+        "SD-003",
+        "ARC-033",
+        "SD-011"
+      ],
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "claimed",
+      "estimated_minutes": 110,
+      "supersedes": "V3-EXQ-166a",
+      "notes": "Latent forward model (HarmForwardModel) + HarmDecoder reconstruction branch. Fixes EXQ-166a C2 failure: obs-space diluted harm signal in 51-dim MSE. P0 autoencoder ensures rich z_harm. Phase 1 joint loss: latent prediction + reconstruction prevents identity collapse.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-30T19:14:24.700408+00:00"
+      }
     }
   ]
 }
