@@ -16,23 +16,6 @@
       "priority": 0,
       "status": "pending",
       "estimated_minutes": 20
-    },
-    {
-      "queue_id": "V3-EXQ-176a",
-      "supersedes": "V3-EXQ-176",
-      "title": "ARC-036 valence dimension probe: harm vs benefit RBF dissociation (EVB-0038)",
-      "experiment_type": "v3_exq_176_arc036_valence_dimension_probe",
-      "script": "experiments/v3_exq_176_arc036_valence_dimension_probe.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 17,
-      "backlog_id": "EVB-0038",
-      "claim_id": "ARC-036",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T07:04:27.695225+00:00"
-      }
     }
   ]
 }
