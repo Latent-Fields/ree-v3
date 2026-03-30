@@ -8,21 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-085m",
-      "title": "ARC-030 benefit_eval_head resource proximity + E3 native selection",
-      "experiment_type": "v3_exq_085m_arc030_benefit_eval_e3",
-      "script": "experiments/v3_exq_085m_arc030_benefit_eval_e3.py",
-      "machine_affinity": "any",
-      "priority": 1,
-      "status": "claimed",
-      "estimated_minutes": 185,
-      "supersedes": "V3-EXQ-085l",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-30T21:17:22.377985+00:00"
-      }
-    },
-    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
