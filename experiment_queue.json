@@ -16,20 +16,6 @@
       "priority": 0,
       "status": "pending",
       "estimated_minutes": 20
-    },
-    {
-      "queue_id": "V3-EXQ-181",
-      "title": "E1 prior context discrimination diagnostic (SD-016 substrate test)",
-      "experiment_type": "v3_exq_181_e1_prior_context_discrimination",
-      "script": "experiments/v3_exq_181_e1_prior_context_discrimination.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 10,
-      "status": "claimed",
-      "estimated_minutes": 30,
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-31T07:21:51.394323+00:00"
-      }
     }
   ]
 }
