@@ -8,6 +8,18 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-182",
+      "title": "SD-016 supervised terrain calibration (MECH-150 cue context differentiation)",
+      "experiment_type": "v3_exq_182_sd016_terrain_calibration",
+      "script": "experiments/v3_exq_182_sd016_terrain_calibration.py",
+      "claim_id": "MECH-150",
+      "priority": 3,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "note": "Adds supervised terrain_loss (lambda=0.1) to E1 training, training extract_cue_context() pathway end-to-end. Tests whether cue_context differentiates hazard-proximate vs distal contexts (C1 cosine_sim<0.85, C2 r(w_harm,hazard)>0.5, C3 r(w_goal,hazard)<-0.3). Prerequisite for EXQ-183/184 (MECH-152/ARC-041)."
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
