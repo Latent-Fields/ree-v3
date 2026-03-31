@@ -15,9 +15,13 @@
       "claim_id": "MECH-150",
       "priority": 3,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
-      "note": "Adds supervised terrain_loss (lambda=0.1) to E1 training, training extract_cue_context() pathway end-to-end. Tests whether cue_context differentiates hazard-proximate vs distal contexts (C1 cosine_sim<0.85, C2 r(w_harm,hazard)>0.5, C3 r(w_goal,hazard)<-0.3). Prerequisite for EXQ-183/184 (MECH-152/ARC-041)."
+      "note": "Adds supervised terrain_loss (lambda=0.1) to E1 training, training extract_cue_context() pathway end-to-end. Tests whether cue_context differentiates hazard-proximate vs distal contexts (C1 cosine_sim<0.85, C2 r(w_harm,hazard)>0.5, C3 r(w_goal,hazard)<-0.3). Prerequisite for EXQ-183/184 (MECH-152/ARC-041).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-31T20:50:57.437163+00:00"
+      }
     },
     {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
