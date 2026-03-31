@@ -30,25 +30,6 @@
         "SD-015"
       ],
       "notes": "EXP-0091. Critical diagnostic: if E3 cannot exploit a perfect oracle goal signal, selection mechanism is broken. If it can, representation is the bottleneck."
-    },
-    {
-      "queue_id": "V3-EXQ-183",
-      "title": "ARC-030 shared harm+goal selector payoff -- combined vs harm-only",
-      "experiment_type": "v3_exq_183_arc030_shared_selector_payoff",
-      "script": "experiments/v3_exq_183_arc030_shared_selector_payoff.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 180,
-      "claim_ids": [
-        "ARC-030",
-        "MECH-112"
-      ],
-      "notes": "EXP-0093. Paper-1 anchor test. benefit_eval_head trained with BCE (not Sigmoid+MSE). Tests Go+NoGo symmetry in hazard-bearing goal task.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-03-31T21:07:06.993425+00:00"
-      }
     }
   ]
 }
