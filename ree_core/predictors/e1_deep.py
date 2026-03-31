@@ -132,6 +132,19 @@ class E1DeepPredictor(nn.Module):
         else:
             self.goal_input_proj = None
 
+        # SD-016: frontal cue-indexed integration (MECH-150/151/152, ARC-041).
+        # Three new projections gated by sd016_enabled for backward compatibility.
+        # world_query_proj: projects z_world -> memory_dim for z_world-only query
+        #   (bypasses ContextMemory.query_proj which expects full latent_dim input).
+        # cue_action_proj:  cue_context [latent_dim] -> action_bias [action_object_dim]
+        # cue_terrain_proj: cue_context [latent_dim] -> 2 (w_harm, w_goal logits)
+        if getattr(config, 'sd016_enabled', False):
+            cue_context_dim = self.config.self_dim + self.config.world_dim  # = latent_dim = 64
+            action_object_dim = getattr(config, 'action_object_dim', 16)
+            self.world_query_proj = nn.Linear(self.config.world_dim, self.config.hidden_dim)
+            self.cue_action_proj  = nn.Linear(cue_context_dim, action_object_dim)
+            self.cue_terrain_proj = nn.Linear(cue_context_dim, 2)
+
     def reset_hidden_state(self) -> None:
         """Reset hidden state for a new episode."""
         self._hidden_state = None
@@ -203,6 +216,54 @@ class E1DeepPredictor(nn.Module):
         context = self.context_memory.read(current_state)
         combined = torch.cat([current_state, context], dim=-1)
         return self.prior_generator(combined)
+
+    def extract_cue_context(
+        self,
+        z_world: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        E1 frontal cue-indexed association retrieval (SD-016, MECH-150).
+
+        Queries ContextMemory with z_world ONLY (exteroceptive cues only),
+        bypassing ContextMemory.query_proj (which expects full latent_dim input)
+        via a dedicated world_query_proj (world_dim -> memory_dim).
+
+        Unlike generate_prior() -- which queries with [z_self, z_world] and
+        produces a bulk terrain prior for HippocampalModule -- this method
+        queries with z_world alone and projects to two downstream signals:
+
+            action_bias:    E1 -> E2 affordance modulation (MECH-151)
+            terrain_weight: E1 -> E3 precision modulation  (MECH-152)
+
+        Must only be called when sd016_enabled=True (attribute check: hasattr(e1, 'world_query_proj')).
+
+        Args:
+            z_world: [batch, world_dim] -- exteroceptive latent
+
+        Returns:
+            action_bias:    [batch, action_object_dim] -- additive to E2.action_object o_t
+            terrain_weight: [batch, 2] in (0, 1) -- [w_harm, w_goal] for E3 scoring
+        """
+        batch_size = z_world.shape[0]
+        memory_dim = self.context_memory.memory_dim
+
+        # z_world-only attention over ContextMemory slots.
+        # world_query_proj maps z_world -> memory_dim (bypasses query_proj).
+        q = self.world_query_proj(z_world).unsqueeze(1)  # [batch, 1, memory_dim]
+
+        memory = self.context_memory.memory  # [num_slots, memory_dim]
+        k = self.context_memory.key_proj(memory).unsqueeze(0).expand(batch_size, -1, -1)
+        v = self.context_memory.value_proj(memory).unsqueeze(0).expand(batch_size, -1, -1)
+
+        scores = torch.bmm(q, k.transpose(1, 2)) / (memory_dim ** 0.5)  # [batch, 1, num_slots]
+        weights = F.softmax(scores, dim=-1)                               # [batch, 1, num_slots]
+        context = torch.bmm(weights, v).squeeze(1)                        # [batch, memory_dim]
+
+        cue_context = self.context_memory.output_proj(context)  # [batch, latent_dim=64]
+
+        action_bias    = self.cue_action_proj(cue_context)                    # [batch, action_object_dim]
+        terrain_weight = torch.sigmoid(self.cue_terrain_proj(cue_context))    # [batch, 2] in (0,1)
+        return action_bias, terrain_weight
 
     def split_prediction(
         self, prediction: torch.Tensor

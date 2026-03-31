@@ -166,6 +166,7 @@ class HippocampalModule(nn.Module):
         z_self: Optional[torch.Tensor] = None,
         num_candidates: Optional[int] = None,
         e1_prior: Optional[torch.Tensor] = None,
+        action_bias: Optional[torch.Tensor] = None,
     ) -> List[Trajectory]:
         """
         Propose candidate trajectories via terrain-guided CEM in action-object space.
@@ -181,11 +182,18 @@ class HippocampalModule(nn.Module):
            e. Refit distribution to elite (lowest-residue) samples
         3. Return final candidates for E3 to evaluate
 
+        SD-016 (MECH-151): optional action_bias [batch, action_object_dim] from
+        E1.extract_cue_context(). When provided, passed through to every
+        E2.rollout_with_world() call so that each action-object in the CEM search
+        is shifted by the cue-indexed contextual bias. When None (all existing
+        callers), behaviour is unchanged.
+
         Args:
             z_world:        Current z_world [batch, world_dim]
             z_self:         Current z_self [batch, self_dim] (for E2 rollouts)
             num_candidates: Number of candidates per CEM iteration
             e1_prior:       E1 world-domain prior [batch, world_dim] (SD-002)
+            action_bias:    [batch, action_object_dim] or None (SD-016)
 
         Returns:
             List of Trajectory objects
@@ -216,9 +224,12 @@ class HippocampalModule(nn.Module):
                 # Decode action objects → actions for E2 rollout
                 actions = self._decode_action_objects(action_objects_sample)
 
-                # Roll out: track both z_self and z_world for scoring
+                # Roll out: track both z_self and z_world for scoring.
+                # SD-016: action_bias is passed through to action_object() calls.
                 traj = self.e2.rollout_with_world(
-                    z_self, z_world, actions, compute_action_objects=True
+                    z_self, z_world, actions,
+                    compute_action_objects=True,
+                    action_bias=action_bias,
                 )
                 trajectories.append(traj)
                 scores.append(self._score_trajectory(traj))
@@ -292,8 +303,10 @@ class HippocampalModule(nn.Module):
         z_self: Optional[torch.Tensor] = None,
         num_candidates: Optional[int] = None,
         e1_prior: Optional[torch.Tensor] = None,
+        action_bias: Optional[torch.Tensor] = None,
     ) -> List[Trajectory]:
         """Forward pass: propose trajectories from z_world."""
         return self.propose_trajectories(
-            z_world, z_self=z_self, num_candidates=num_candidates, e1_prior=e1_prior
+            z_world, z_self=z_self, num_candidates=num_candidates,
+            e1_prior=e1_prior, action_bias=action_bias,
         )

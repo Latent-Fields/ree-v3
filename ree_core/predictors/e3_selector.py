@@ -432,6 +432,7 @@ class E3TrajectorySelector(nn.Module):
         trajectory: Trajectory,
         goal_state: Optional[GoalState] = None,
         harm_bridge: Optional["nn.Module"] = None,
+        terrain_weight: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Total score J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ) - β·B(ζ) - η·novelty.
@@ -445,6 +446,14 @@ class E3TrajectorySelector(nn.Module):
 
         SD-010: if harm_bridge is provided, M(ζ) uses the dedicated harm stream
         (harm_eval_z_harm_head via HarmBridge) instead of harm_eval_head on z_world.
+
+        SD-016 (MECH-152): optional terrain_weight [batch, 2] from
+        E1.extract_cue_context(). When provided, scales M(ζ) by w_harm and
+        B(ζ)/goal-score by w_goal AFTER evaluation, modulating harm vs goal
+        scoring precision in response to contextual cues BEFORE harm accumulates
+        in z_harm_a. terrain_weight is sigmoid-bounded in (0,1); both channels
+        are always positive so sign of M/B is preserved.
+        When None (all existing callers), behaviour is unchanged.
         """
         f = self.compute_reality_cost(trajectory)
         if harm_bridge is not None:
@@ -452,6 +461,12 @@ class E3TrajectorySelector(nn.Module):
         else:
             m = self.compute_ethical_cost(trajectory)
         phi = self.compute_residue_cost(trajectory)
+
+        # SD-016 (MECH-152): scale harm cost by w_harm from terrain_weight
+        if terrain_weight is not None:
+            w_harm = terrain_weight[:, 0]  # [batch]
+            m = m * w_harm
+
         score = f + self.config.lambda_ethical * m + self.config.rho_residue * phi
 
         # ARC-030 / MECH-112: Go channel — subtract benefit from cost.
@@ -461,6 +476,10 @@ class E3TrajectorySelector(nn.Module):
                 and self.config.benefit_weight > 0.0
                 and self._benefit_samples_seen >= self._BENEFIT_WARMUP_SAMPLES):
             b = self.compute_benefit_score(trajectory)
+            # SD-016 (MECH-152): scale benefit by w_goal from terrain_weight
+            if terrain_weight is not None:
+                w_goal = terrain_weight[:, 1]  # [batch]
+                b = b * w_goal
             score = score - self.config.benefit_weight * b
 
         # MECH-111: novelty bonus — subtract EMA novelty signal
@@ -475,6 +494,10 @@ class E3TrajectorySelector(nn.Module):
                 and goal_state.is_active()
                 and self.config.goal_weight > 0.0):
             g = self.compute_goal_score(trajectory, goal_state)
+            # SD-016 (MECH-152): scale goal proximity by w_goal from terrain_weight
+            if terrain_weight is not None:
+                w_goal = terrain_weight[:, 1]  # [batch]
+                g = g * w_goal
             score = score - self.config.goal_weight * g
 
         return score
@@ -490,6 +513,7 @@ class E3TrajectorySelector(nn.Module):
         goal_state: Optional[GoalState] = None,
         harm_bridge: Optional["nn.Module"] = None,
         use_harm_variance_commit: bool = False,
+        terrain_weight: Optional[torch.Tensor] = None,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -506,6 +530,9 @@ class E3TrajectorySelector(nn.Module):
                                     variance (ARC-016 reframe: "do I know what will
                                     happen to me?" rather than "is the world stable?").
                                     Requires harm_bridge to be provided.
+            terrain_weight:         [batch, 2] or None (SD-016 MECH-152). When provided,
+                                    scales harm cost by w_harm and benefit/goal by w_goal
+                                    in each score_trajectory() call.
 
         Returns:
             SelectionResult
@@ -514,7 +541,10 @@ class E3TrajectorySelector(nn.Module):
             raise ValueError("No candidate trajectories provided")
 
         scores = torch.stack([
-            self.score_trajectory(t, goal_state=goal_state, harm_bridge=harm_bridge)
+            self.score_trajectory(
+                t, goal_state=goal_state, harm_bridge=harm_bridge,
+                terrain_weight=terrain_weight,
+            )
             for t in candidates
         ])
         scores = scores.mean(dim=-1)
@@ -619,6 +649,7 @@ class E3TrajectorySelector(nn.Module):
         goal_state: Optional[GoalState] = None,
         harm_bridge: Optional["nn.Module"] = None,
         use_harm_variance_commit: bool = False,
+        terrain_weight: Optional[torch.Tensor] = None,
     ) -> SelectionResult:
         return self.select(
             candidates,
@@ -626,4 +657,5 @@ class E3TrajectorySelector(nn.Module):
             goal_state=goal_state,
             harm_bridge=harm_bridge,
             use_harm_variance_commit=use_harm_variance_commit,
+            terrain_weight=terrain_weight,
         )

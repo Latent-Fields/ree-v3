@@ -138,6 +138,11 @@ class REEAgent(nn.Module):
         # Last selected action (held between E3 ticks)
         self._last_action: Optional[torch.Tensor] = None
 
+        # SD-016: cached frontal cue signals (updated each E1 tick).
+        # None when sd016_enabled=False (all existing experiments unaffected).
+        self._cue_action_bias:    Optional[torch.Tensor] = None
+        self._cue_terrain_weight: Optional[torch.Tensor] = None
+
         self.device = torch.device(config.device)
 
         # MECH-112/116: persistent goal representation
@@ -178,6 +183,8 @@ class REEAgent(nn.Module):
         self._harm_this_episode = 0.0
         self._committed_candidates = None
         self._last_action = None
+        self._cue_action_bias    = None
+        self._cue_terrain_weight = None
         self.clock.reset()
         self.theta_buffer.reset()
         self.beta_gate.reset()
@@ -271,6 +278,20 @@ class REEAgent(nn.Module):
         # MECH-093: update E3 rate from z_beta magnitude
         self.clock.update_e3_rate_from_beta(latent_state.z_beta)
 
+        # SD-016 (MECH-150/151/152): frontal cue-indexed integration.
+        # Extract action_bias and terrain_weight from z_world-only ContextMemory query.
+        # Detached: cue signals are modulation inputs, not part of current-step gradient graph.
+        # Cached until next E1 tick (same theta-cycle rate as generate_prior).
+        if hasattr(self.e1, 'world_query_proj'):
+            action_bias, terrain_weight = self.e1.extract_cue_context(
+                latent_state.z_world.detach()
+            )
+            self._cue_action_bias    = action_bias.detach()
+            self._cue_terrain_weight = terrain_weight.detach()
+        else:
+            self._cue_action_bias    = None
+            self._cue_terrain_weight = None
+
         return e1_prior
 
     def _e3_tick(
@@ -289,12 +310,15 @@ class REEAgent(nn.Module):
         # MECH-089: E3 consumes theta-cycle summary
         z_world_for_e3 = self.theta_buffer.summary()  # theta-averaged z_world
 
-        # HippocampalModule proposes in action-object space (SD-004)
+        # HippocampalModule proposes in action-object space (SD-004).
+        # SD-016 (MECH-151): pass cached action_bias so each action_object()
+        # call in the CEM loop is contextually biased by z_world cue retrieval.
         candidates = self.hippocampal.propose_trajectories(
             z_world=z_world_for_e3,
             z_self=latent_state.z_self,
             num_candidates=num_candidates,
             e1_prior=e1_prior,
+            action_bias=self._cue_action_bias,
         )
         self._committed_candidates = candidates
         return candidates
@@ -345,7 +369,13 @@ class REEAgent(nn.Module):
         if not ticks["e3_tick"] and self._last_action is not None:
             return self._last_action
 
-        result = self.e3.select(candidates, temperature, goal_state=self.goal_state)
+        # SD-016 (MECH-152): pass cached terrain_weight so harm/goal scoring
+        # precision reflects current z_world cue context.
+        result = self.e3.select(
+            candidates, temperature,
+            goal_state=self.goal_state,
+            terrain_weight=self._cue_terrain_weight,
+        )
         action = result.selected_action
 
         # MECH-090: gate policy propagation based on beta state

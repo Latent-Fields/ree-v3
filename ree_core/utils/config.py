@@ -126,6 +126,13 @@ class E1Config:
 
     Episode-boundary semantics: E1 maintains persistent hidden state
     across episode steps, reset via reset_hidden_state().
+
+    SD-016: frontal cue-indexed integration.
+    When sd016_enabled=True, E1 gains world_query_proj, cue_action_proj,
+    cue_terrain_proj and exposes extract_cue_context(z_world) which queries
+    ContextMemory with z_world alone (exteroceptive cues only) and produces
+    action_bias [batch, action_object_dim] for E2 and terrain_weight [batch, 2]
+    for E3. Disabled by default for full backward compatibility.
     """
     self_dim: int = 32         # z_self dimension
     world_dim: int = 32        # z_world dimension
@@ -134,6 +141,10 @@ class E1Config:
     num_layers: int = 3
     prediction_horizon: int = 20   # Steps into future
     learning_rate: float = 1e-4
+
+    # SD-016: frontal cue-indexed integration circuit (MECH-150/151/152, ARC-041)
+    sd016_enabled: bool = False
+    action_object_dim: int = 16    # must match E2Config.action_object_dim
 
 
 @dataclass
@@ -357,6 +368,8 @@ class REEConfig:
         use_affective_harm_stream: bool = False,
         harm_obs_a_dim: int = 50,
         z_harm_a_dim: int = 16,
+        # SD-016: frontal cue-indexed integration
+        sd016_enabled: bool = False,
         # ARC-030 / MECH-111 / MECH-112 / MECH-113
         benefit_eval_enabled: bool = False,
         benefit_weight: float = 1.0,
@@ -409,6 +422,8 @@ class REEConfig:
         config.e1.self_dim = self_dim
         config.e1.world_dim = world_dim
         config.e1.latent_dim = self_dim + world_dim
+        config.e1.sd016_enabled = sd016_enabled
+        config.e1.action_object_dim = action_object_dim
 
         # E2
         config.e2.self_dim = self_dim

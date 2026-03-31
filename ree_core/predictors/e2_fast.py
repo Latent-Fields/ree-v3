@@ -183,6 +183,7 @@ class E2FastPredictor(nn.Module):
         self,
         z_world: torch.Tensor,
         action: torch.Tensor,
+        action_bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Produce compressed world-effect action object o_t (SD-004).
@@ -194,15 +195,25 @@ class E2FastPredictor(nn.Module):
         Planning horizon extends because action-object space is lower-dimensional
         and semantically grounded.
 
+        SD-016 (MECH-151): optional action_bias [batch, action_object_dim] from
+        E1.extract_cue_context(). When provided, added to o_t AFTER the base
+        computation. This shifts the apparent affordance of each action-object
+        by a cue-indexed contextual signal without replacing the base output.
+        When None (all existing callers), behaviour is unchanged.
+
         Args:
-            z_world: [batch, world_dim]
-            action:  [batch, action_dim]
+            z_world:     [batch, world_dim]
+            action:      [batch, action_dim]
+            action_bias: [batch, action_object_dim] or None (SD-016)
 
         Returns:
             o_t [batch, action_object_dim]
         """
         z_a = torch.cat([z_world, action], dim=-1)
-        return self.action_object_head(z_a)
+        o_t = self.action_object_head(z_a)
+        if action_bias is not None:
+            o_t = o_t + action_bias
+        return o_t
 
     def forward_counterfactual(
         self,
@@ -260,6 +271,7 @@ class E2FastPredictor(nn.Module):
         initial_z_world: torch.Tensor,
         action_sequence: torch.Tensor,
         compute_action_objects: bool = True,
+        action_bias: Optional[torch.Tensor] = None,
     ) -> "Trajectory":
         """
         Roll out trajectory tracking both z_self and z_world.
@@ -267,11 +279,16 @@ class E2FastPredictor(nn.Module):
         Used by HippocampalModule for action-object proposals and
         by SD-003 attribution pipeline.
 
+        SD-016 (MECH-151): optional action_bias [batch, action_object_dim] from
+        E1.extract_cue_context(). Applied to each action_object() call within
+        the rollout. When None (all existing callers), behaviour is unchanged.
+
         Args:
-            initial_z_self:   [batch, self_dim]
-            initial_z_world:  [batch, world_dim]
-            action_sequence:  [batch, horizon, action_dim]
+            initial_z_self:        [batch, self_dim]
+            initial_z_world:       [batch, world_dim]
+            action_sequence:       [batch, horizon, action_dim]
             compute_action_objects: whether to compute action objects (SD-004)
+            action_bias:           [batch, action_object_dim] or None (SD-016)
 
         Returns:
             Trajectory with states (z_self), world_states (z_world),
@@ -289,7 +306,7 @@ class E2FastPredictor(nn.Module):
             action = action_sequence[:, t, :]
 
             if compute_action_objects:
-                o_t = self.action_object(z_world, action)
+                o_t = self.action_object(z_world, action, action_bias=action_bias)
                 action_objects.append(o_t)
 
             z_self  = self.predict_next_self(z_self, action)
@@ -320,18 +337,23 @@ class E2FastPredictor(nn.Module):
         num_candidates: Optional[int] = None,
         horizon: Optional[int] = None,
         compute_action_objects: bool = True,
+        action_bias: Optional[torch.Tensor] = None,
     ) -> List["Trajectory"]:
         """
         Generate candidate trajectories using random shooting.
 
         Used by HippocampalModule during CEM iterations.
 
+        SD-016 (MECH-151): optional action_bias [batch, action_object_dim] passed
+        through to each rollout's action_object() calls.
+
         Args:
-            initial_z_self:  [batch, self_dim]
-            initial_z_world: [batch, world_dim] (optional; needed for SD-004 objects)
-            num_candidates:  number of trajectories
-            horizon:         rollout steps
+            initial_z_self:        [batch, self_dim]
+            initial_z_world:       [batch, world_dim] (optional; needed for SD-004 objects)
+            num_candidates:        number of trajectories
+            horizon:               rollout steps
             compute_action_objects: whether to compute action objects
+            action_bias:           [batch, action_object_dim] or None (SD-016)
 
         Returns:
             List of Trajectory objects
@@ -346,7 +368,8 @@ class E2FastPredictor(nn.Module):
             actions = self.generate_random_actions(batch_size, h, device)
             if initial_z_world is not None:
                 traj = self.rollout_with_world(
-                    initial_z_self, initial_z_world, actions, compute_action_objects
+                    initial_z_self, initial_z_world, actions,
+                    compute_action_objects, action_bias=action_bias,
                 )
             else:
                 traj = self.rollout_self(initial_z_self, actions)
