@@ -8,6 +8,26 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-181b",
+      "title": "E1 prior context discrimination -- Context-B fix (num_hazards=1, revised thresholds)",
+      "experiment_type": "v3_exq_181b_sd016_context_separation_fix",
+      "script": "experiments/v3_exq_181b_sd016_context_separation_fix.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "claimed",
+      "estimated_minutes": 120,
+      "claim_ids": [
+        "MECH-150",
+        "ARC-041"
+      ],
+      "supersedes": "V3-EXQ-181",
+      "notes": "Fixes EXQ-181 Context-B=0 bug. Two changes: (1) num_hazards=1 for spatial gradient; (2) thresholds revised for proxy-field range: Context A > 0.7, Context B < 0.33. Dry-run clean. Full 100-ep run needed for context coverage.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-03-31T13:10:23.554203+00:00"
+      }
+    },
+    {
       "queue_id": "V3-ONBOARD-smoke-EWINPC",
       "title": "Onboarding smoke test -- EWINPC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWINPC",
