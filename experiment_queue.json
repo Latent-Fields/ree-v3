@@ -18,33 +18,35 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-182",
-      "title": "SD-015 handcrafted goal cue diagnostic -- oracle vs absent",
-      "experiment_type": "v3_exq_182_sd015_handcrafted_goal_diagnostic",
-      "script": "experiments/v3_exq_182_sd015_handcrafted_goal_diagnostic.py",
+      "queue_id": "V3-EXQ-182a",
+      "title": "SD-015 handcrafted goal cue diagnostic -- oracle vs absent (re-queue: 182 ID collision)",
+      "experiment_type": "v3_exq_182a_sd015_handcrafted_goal_diagnostic",
+      "script": "experiments/v3_exq_182a_sd015_handcrafted_goal_diagnostic.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
       "status": "pending",
       "estimated_minutes": 120,
+      "supersedes": "V3-EXQ-182",
       "claim_ids": [
         "SD-015"
       ],
-      "notes": "EXP-0091. Critical diagnostic: if E3 cannot exploit a perfect oracle goal signal, selection mechanism is broken. If it can, representation is the bottleneck."
+      "notes": "EXP-0091. Re-queue: 182 ran as terrain_calibration (wrong script), not the SD-015 goal diagnostic. Script unchanged from 182. Critical diagnostic: if E3 cannot exploit a perfect oracle goal signal, selection mechanism is broken."
     },
     {
-      "queue_id": "V3-EXQ-187",
-      "title": "MECH-153 validation: supervised context-labeling for E1 ContextMemory",
-      "experiment_type": "v3_exq_187_mech153_supervised_context_labeling",
-      "script": "experiments/v3_exq_187_mech153_supervised_context_labeling.py",
+      "queue_id": "V3-EXQ-187a",
+      "title": "MECH-153 validation: supervised context-labeling for E1 ContextMemory (fix: populate memory)",
+      "experiment_type": "v3_exq_187a_mech153_supervised_context_labeling",
+      "script": "experiments/v3_exq_187a_mech153_supervised_context_labeling.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 6,
       "status": "pending",
       "estimated_minutes": 150,
+      "supersedes": "V3-EXQ-187",
       "claim_ids": [
         "MECH-153",
         "ARC-042"
       ],
-      "notes": "MECH-153 validation. Adds terrain_loss (supervised hazard-field label, lambda=0.1) to E1 training with sd016_enabled=True. Re-runs EXQ-181b diagnostic on extract_cue_context() outputs. Baseline: EXQ-181b cosine_sim=0.9999 without supervised training. PASS if cosine_sim < 0.85 + terrain_weight accuracy > 70% + harm_r2 > 0.3."
+      "notes": "MECH-153 validation. Fix: 187 never called context_memory.write() -- memory slots stayed at randn*0.01, making attention output constant. 187a adds write() calls during Phase 0 training. PASS if cosine_sim < 0.85 + terrain_weight accuracy > 70% + harm_r2 > 0.3."
     },
     {
       "queue_id": "V3-EXQ-190",
