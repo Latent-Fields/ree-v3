@@ -45,6 +45,23 @@
         "ARC-042"
       ],
       "notes": "MECH-153 validation. Adds terrain_loss (supervised hazard-field label, lambda=0.1) to E1 training with sd016_enabled=True. Re-runs EXQ-181b diagnostic on extract_cue_context() outputs. Baseline: EXQ-181b cosine_sim=0.9999 without supervised training. PASS if cosine_sim < 0.85 + terrain_weight accuracy > 70% + harm_r2 > 0.3."
+    },
+    {
+      "queue_id": "V3-EXQ-194a",
+      "title": "Direct terrain pathway with phased training (MECH-152 isolation)",
+      "experiment_type": "v3_exq_194a_direct_terrain_phased",
+      "script": "experiments/v3_exq_194a_direct_terrain_phased.py",
+      "claim_id": "MECH-152",
+      "priority": 3,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "estimated_minutes": 160,
+      "supersedes": "V3-EXQ-194",
+      "note": "Fixes EXQ-194 MIXED: (1) phased training (P0 E1+E2 warmup 200eps, P1 frozen-encoder TerrainHead 100eps, P2 collection 100eps) per 166e lesson; (2) corrected w_goal threshold (< 0.33 not < 0.1). Bypasses ContextMemory with standalone TerrainHead.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T18:52:23.614342+00:00"
+      }
     }
   ]
 }
