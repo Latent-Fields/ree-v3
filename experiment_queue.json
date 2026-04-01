@@ -18,26 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-187a",
-      "title": "MECH-153 validation: supervised context-labeling for E1 ContextMemory (fix: populate memory)",
-      "experiment_type": "v3_exq_187a_mech153_supervised_context_labeling",
-      "script": "experiments/v3_exq_187a_mech153_supervised_context_labeling.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 6,
-      "status": "claimed",
-      "estimated_minutes": 150,
-      "supersedes": "V3-EXQ-187",
-      "claim_ids": [
-        "MECH-153",
-        "ARC-042"
-      ],
-      "notes": "MECH-153 validation. Fix: 187 never called context_memory.write() -- memory slots stayed at randn*0.01, making attention output constant. 187a adds write() calls during Phase 0 training. PASS if cosine_sim < 0.85 + terrain_weight accuracy > 70% + harm_r2 > 0.3.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-01T23:25:01.911225+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-193",
       "title": "Q-012 control constraint necessity (REE_FULL vs PREDICTIVE_ONLY)",
       "experiment_type": "v3_exq_193_q012_control_constraints_pair",
