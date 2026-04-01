@@ -53,12 +53,16 @@
       "script": "experiments/v3_exq_184_mech033_kernel_chain_pair.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "claim_ids": [
         "MECH-033"
       ],
-      "notes": "EXP-0039. Discriminative pair: CHAIN_ACTIVE (E2 multi-step kernel chain via world_forward) vs CHAIN_ABLATED (single-step only). 3 seeds, 100-step episodes."
+      "notes": "EXP-0039. Discriminative pair: CHAIN_ACTIVE (E2 multi-step kernel chain via world_forward) vs CHAIN_ABLATED (single-step only). 3 seeds, 100-step episodes.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T18:53:59.032767+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-189",
