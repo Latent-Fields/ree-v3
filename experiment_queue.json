@@ -47,21 +47,130 @@
       "notes": "MECH-153 validation. Adds terrain_loss (supervised hazard-field label, lambda=0.1) to E1 training with sd016_enabled=True. Re-runs EXQ-181b diagnostic on extract_cue_context() outputs. Baseline: EXQ-181b cosine_sim=0.9999 without supervised training. PASS if cosine_sim < 0.85 + terrain_weight accuracy > 70% + harm_r2 > 0.3."
     },
     {
-      "queue_id": "V3-EXQ-194a",
-      "title": "Direct terrain pathway with phased training (MECH-152 isolation)",
-      "experiment_type": "v3_exq_194a_direct_terrain_phased",
-      "script": "experiments/v3_exq_194a_direct_terrain_phased.py",
-      "claim_id": "MECH-152",
-      "priority": 3,
+      "queue_id": "V3-EXQ-184",
+      "title": "MECH-033 kernel chain discriminative pair (chain vs ablated)",
+      "experiment_type": "v3_exq_184_mech033_kernel_chain_pair",
+      "script": "experiments/v3_exq_184_mech033_kernel_chain_pair.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 200,
+      "claim_ids": [
+        "MECH-033"
+      ],
+      "notes": "EXP-0039. Discriminative pair: CHAIN_ACTIVE (E2 multi-step kernel chain via world_forward) vs CHAIN_ABLATED (single-step only). 3 seeds, 100-step episodes."
+    },
+    {
+      "queue_id": "V3-EXQ-189",
+      "title": "MECH-112 goal-directed behavior: GOAL_PRESENT vs GOAL_ABSENT",
+      "experiment_type": "v3_exq_189_mech112_goal_present_absent",
+      "script": "experiments/v3_exq_189_mech112_goal_present_absent.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 240,
+      "claim_ids": [
+        "MECH-112"
+      ],
+      "notes": "EXP-0092. GOAL_PRESENT (SD-015) vs GOAL_ABSENT. 3 seeds, 300 warmup + 100 eval x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-190",
+      "title": "MECH-022 hippocampal hypothesis injection probe",
+      "experiment_type": "v3_exq_190_mech022_hypothesis_injection_probe",
+      "script": "experiments/v3_exq_190_mech022_hypothesis_injection_probe.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 6,
+      "status": "pending",
+      "estimated_minutes": 45,
+      "claim_ids": [
+        "MECH-022"
+      ],
+      "notes": "EXP-0042. First V3 test of MECH-022. CEM proposals vs random trajectories. 2 seeds, 150 warmup + 50 eval x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-191",
+      "title": "ARC-038 schema-primed rapid assimilation probe",
+      "experiment_type": "v3_exq_191_arc038_schema_assimilation_probe",
+      "script": "experiments/v3_exq_191_arc038_schema_assimilation_probe.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 6,
+      "status": "pending",
       "estimated_minutes": 160,
-      "supersedes": "V3-EXQ-194",
-      "note": "Fixes EXQ-194 MIXED: (1) phased training (P0 E1+E2 warmup 200eps, P1 frozen-encoder TerrainHead 100eps, P2 collection 100eps) per 166e lesson; (2) corrected w_goal threshold (< 0.33 not < 0.1). Bypasses ContextMemory with standalone TerrainHead.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-01T18:52:23.614342+00:00"
-      }
+      "claim_ids": [
+        "ARC-038"
+      ],
+      "notes": "EXP-0045. First ARC-038 test. SCHEMA_PRIMED vs NAIVE on novel env. 2 seeds x 2 env pairs x (200+200) episodes x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-192",
+      "title": "MECH-075 hippocampal-VTA novelty loop probe",
+      "experiment_type": "v3_exq_192_mech075_novelty_loop_probe",
+      "script": "experiments/v3_exq_192_mech075_novelty_loop_probe.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 6,
+      "status": "pending",
+      "estimated_minutes": 55,
+      "claim_ids": [
+        "MECH-075"
+      ],
+      "notes": "EXP-0046. First MECH-075 test. Novelty-scaled CEM exploration vs fixed CEM. 2 seeds, 200 warmup + 50 eval x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-193",
+      "title": "Q-012 control constraint necessity (REE_FULL vs PREDICTIVE_ONLY)",
+      "experiment_type": "v3_exq_193_q012_control_constraints_pair",
+      "script": "experiments/v3_exq_193_q012_control_constraints_pair.py",
+      "machine_affinity": "Daniel-PC",
+      "priority": 6,
+      "status": "pending",
+      "estimated_minutes": 400,
+      "claim_ids": [
+        "Q-012"
+      ],
+      "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-196",
+      "title": "ARC-018 hippocampal rollout + viability mapping pair",
+      "experiment_type": "v3_exq_196_arc018_rollout_viability_pair",
+      "script": "experiments/v3_exq_196_arc018_rollout_viability_pair.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 110,
+      "claim_ids": [
+        "ARC-018"
+      ],
+      "notes": "EXP-0040. ARC-018 redesign with real ree_core modules. VIABILITY_MAPPED vs VIABILITY_ABLATED. 3 seeds, 400 train + 40 eval x 150 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-197",
+      "title": "MECH-104 volatility interrupt discriminative pair",
+      "experiment_type": "v3_exq_197_mech104_volatility_interrupt_pair",
+      "script": "experiments/v3_exq_197_mech104_volatility_interrupt_pair.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 150,
+      "claim_ids": [
+        "MECH-104"
+      ],
+      "notes": "EXP-0041. Matched-seed pair: ACTIVE (surprise gate on committed harm) vs ABLATED (gate disabled). 3 seeds, 400 warmup + 50 eval x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-198",
+      "title": "SD-011 dual nociceptive stream stability test",
+      "experiment_type": "v3_exq_198_sd011_dual_stream_stability",
+      "script": "experiments/v3_exq_198_sd011_dual_stream_stability.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 110,
+      "claim_ids": [
+        "SD-011"
+      ],
+      "notes": "EXP-0090. SD-011 stability replication. DUAL_STREAM vs FUSED_STREAM. 2 seeds, 150+80+40 episodes x 200 steps. 6 criteria."
     }
   ]
 }
