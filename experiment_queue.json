@@ -53,12 +53,16 @@
       "script": "experiments/v3_exq_190_mech022_hypothesis_injection_probe.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 6,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 45,
       "claim_ids": [
         "MECH-022"
       ],
-      "notes": "EXP-0042. First V3 test of MECH-022. CEM proposals vs random trajectories. 2 seeds, 150 warmup + 50 eval x 200 steps."
+      "notes": "EXP-0042. First V3 test of MECH-022. CEM proposals vs random trajectories. 2 seeds, 150 warmup + 50 eval x 200 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T18:57:19.238145+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-191",
