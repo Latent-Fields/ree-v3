@@ -63,24 +63,6 @@
       "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps."
     },
     {
-      "queue_id": "V3-EXQ-196",
-      "title": "ARC-018 hippocampal rollout + viability mapping pair",
-      "experiment_type": "v3_exq_196_arc018_rollout_viability_pair",
-      "script": "experiments/v3_exq_196_arc018_rollout_viability_pair.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 110,
-      "claim_ids": [
-        "ARC-018"
-      ],
-      "notes": "EXP-0040. ARC-018 redesign with real ree_core modules. VIABILITY_MAPPED vs VIABILITY_ABLATED. 3 seeds, 400 train + 40 eval x 150 steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-01T19:40:14.593165+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-197",
       "title": "MECH-104 volatility interrupt discriminative pair",
       "experiment_type": "v3_exq_197_mech104_volatility_interrupt_pair",
