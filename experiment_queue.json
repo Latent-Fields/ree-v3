@@ -53,12 +53,16 @@
       "script": "experiments/v3_exq_189_mech112_goal_present_absent.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 240,
       "claim_ids": [
         "MECH-112"
       ],
-      "notes": "EXP-0092. GOAL_PRESENT (SD-015) vs GOAL_ABSENT. 3 seeds, 300 warmup + 100 eval x 200 steps."
+      "notes": "EXP-0092. GOAL_PRESENT (SD-015) vs GOAL_ABSENT. 3 seeds, 300 warmup + 100 eval x 200 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T18:56:13.307845+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-190",
