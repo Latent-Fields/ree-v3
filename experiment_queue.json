@@ -30,6 +30,40 @@
         "SD-015"
       ],
       "notes": "EXP-0091. Critical diagnostic: if E3 cannot exploit a perfect oracle goal signal, selection mechanism is broken. If it can, representation is the bottleneck."
+    },
+    {
+      "queue_id": "V3-EXQ-185",
+      "title": "Direct proximity-argmax action selection -- no z_goal, no cosine_sim",
+      "experiment_type": "v3_exq_185_direct_prox_argmax",
+      "script": "experiments/v3_exq_185_direct_prox_argmax.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "claimed",
+      "estimated_minutes": 150,
+      "claim_ids": [
+        "MECH-112",
+        "SD-015"
+      ],
+      "notes": "Goal-lift battery step 3. Bypasses z_goal entirely: action = argmax predict_proximity(RFM(rf, a)). Tests whether validated representation (prox_r2=0.91) can drive navigation with maximally simple action selection.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T02:53:05.670302+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-186",
+      "title": "Hybrid benefit+harm selector -- COMBINED vs BENEFIT_ONLY vs HARM_ONLY vs RANDOM",
+      "experiment_type": "v3_exq_186_hybrid_benefit_harm_selector",
+      "script": "experiments/v3_exq_186_hybrid_benefit_harm_selector.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 210,
+      "claim_ids": [
+        "ARC-030",
+        "MECH-112"
+      ],
+      "notes": "Goal-lift battery step 4. ARC-030 paper-ready test: observation-space benefit (ProximityEncoder+RFM) combined with E3 harm avoidance (WorldForwardModel+harm_eval). 4 conditions test whether approach+avoidance > either alone."
     }
   ]
 }
