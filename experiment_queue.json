@@ -30,6 +30,21 @@
         "SD-015"
       ],
       "notes": "EXP-0091. Critical diagnostic: if E3 cannot exploit a perfect oracle goal signal, selection mechanism is broken. If it can, representation is the bottleneck."
+    },
+    {
+      "queue_id": "V3-EXQ-187",
+      "title": "MECH-153 validation: supervised context-labeling for E1 ContextMemory",
+      "experiment_type": "v3_exq_187_mech153_supervised_context_labeling",
+      "script": "experiments/v3_exq_187_mech153_supervised_context_labeling.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 6,
+      "status": "pending",
+      "estimated_minutes": 150,
+      "claim_ids": [
+        "MECH-153",
+        "ARC-042"
+      ],
+      "notes": "MECH-153 validation. Adds terrain_loss (supervised hazard-field label, lambda=0.1) to E1 training with sd016_enabled=True. Re-runs EXQ-181b diagnostic on extract_cue_context() outputs. Baseline: EXQ-181b cosine_sim=0.9999 without supervised training. PASS if cosine_sim < 0.85 + terrain_weight accuracy > 70% + harm_r2 > 0.3."
     }
   ]
 }
