@@ -18,25 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-182a",
-      "title": "SD-015 handcrafted goal cue diagnostic -- oracle vs absent (re-queue: 182 ID collision)",
-      "experiment_type": "v3_exq_182a_sd015_handcrafted_goal_diagnostic",
-      "script": "experiments/v3_exq_182a_sd015_handcrafted_goal_diagnostic.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "supersedes": "V3-EXQ-182",
-      "claim_ids": [
-        "SD-015"
-      ],
-      "notes": "EXP-0091. Re-queue: 182 ran as terrain_calibration (wrong script), not the SD-015 goal diagnostic. Script unchanged from 182. Critical diagnostic: if E3 cannot exploit a perfect oracle goal signal, selection mechanism is broken.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-01T23:24:45.142852+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-187a",
       "title": "MECH-153 validation: supervised context-labeling for E1 ContextMemory (fix: populate memory)",
       "experiment_type": "v3_exq_187a_mech153_supervised_context_labeling",
