@@ -38,13 +38,17 @@
       "script": "experiments/v3_exq_186_hybrid_benefit_harm_selector.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 210,
       "claim_ids": [
         "ARC-030",
         "MECH-112"
       ],
-      "notes": "Goal-lift battery step 4. ARC-030 paper-ready test: observation-space benefit (ProximityEncoder+RFM) combined with E3 harm avoidance (WorldForwardModel+harm_eval). 4 conditions test whether approach+avoidance > either alone."
+      "notes": "Goal-lift battery step 4. ARC-030 paper-ready test: observation-space benefit (ProximityEncoder+RFM) combined with E3 harm avoidance (WorldForwardModel+harm_eval). 4 conditions test whether approach+avoidance > either alone.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T02:58:38.479524+00:00"
+      }
     }
   ]
 }
