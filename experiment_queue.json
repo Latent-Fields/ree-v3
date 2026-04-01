@@ -55,12 +55,16 @@
       "script": "experiments/v3_exq_192_mech075_novelty_loop_probe.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 6,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 55,
       "claim_ids": [
         "MECH-075"
       ],
-      "notes": "EXP-0046. First MECH-075 test. Novelty-scaled CEM exploration vs fixed CEM. 2 seeds, 200 warmup + 50 eval x 200 steps."
+      "notes": "EXP-0046. First MECH-075 test. Novelty-scaled CEM exploration vs fixed CEM. 2 seeds, 200 warmup + 50 eval x 200 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T19:40:09.448060+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-193",
