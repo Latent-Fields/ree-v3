@@ -30,6 +30,22 @@
         "SD-015"
       ],
       "notes": "EXP-0091. Critical diagnostic: if E3 cannot exploit a perfect oracle goal signal, selection mechanism is broken. If it can, representation is the bottleneck."
+    },
+    {
+      "queue_id": "V3-EXQ-194",
+      "title": "Direct z_world terrain pathway (MECH-152 isolation, bypasses ContextMemory)",
+      "experiment_type": "v3_exq_194_direct_terrain_pathway",
+      "script": "experiments/v3_exq_194_direct_terrain_pathway.py",
+      "claim_id": "MECH-152",
+      "priority": 4,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "estimated_minutes": 120,
+      "note": "EXQ-182 FAIL: ContextMemory attention uniform due to non-diff EMA slots. Fix: standalone TerrainHead(Linear->ReLU->Linear->Sigmoid) from z_world, same terrain_loss. Isolates MECH-152 from ContextMemory question.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T02:49:11.096698+00:00"
+      }
     }
   ]
 }
