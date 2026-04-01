@@ -55,12 +55,16 @@
       "script": "experiments/v3_exq_191_arc038_schema_assimilation_probe.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 6,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 160,
       "claim_ids": [
         "ARC-038"
       ],
-      "notes": "EXP-0045. First ARC-038 test. SCHEMA_PRIMED vs NAIVE on novel env. 2 seeds x 2 env pairs x (200+200) episodes x 200 steps."
+      "notes": "EXP-0045. First ARC-038 test. SCHEMA_PRIMED vs NAIVE on novel env. 2 seeds x 2 env pairs x (200+200) episodes x 200 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T19:36:48.983785+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-192",
