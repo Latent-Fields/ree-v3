@@ -38,13 +38,17 @@
       "script": "experiments/v3_exq_195_sd003_zharms_full_counterfactual.py",
       "machine_affinity": "any",
       "priority": 10,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 220,
       "claim_ids": [
         "SD-003",
         "ARC-033"
       ],
-      "notes": "EXP-0094. Anchor: responsibility/attribution is real. EXQ-030b pipeline transposed to z_harm_s with ResidualHarmForward (identity-collapse fix) + Fix #2 (distribution matching). 4 seeds, 6 criteria. Supersedes EXQ-166e scalar proxy."
+      "notes": "EXP-0094. Anchor: responsibility/attribution is real. EXQ-030b pipeline transposed to z_harm_s with ResidualHarmForward (identity-collapse fix) + Fix #2 (distribution matching). 4 seeds, 6 criteria. Supersedes EXQ-166e scalar proxy.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T03:13:49.642771+00:00"
+      }
     }
   ]
 }
