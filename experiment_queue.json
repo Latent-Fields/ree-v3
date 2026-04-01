@@ -30,25 +30,6 @@
         "Q-012"
       ],
       "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps."
-    },
-    {
-      "queue_id": "V3-EXQ-180a",
-      "title": "ARC-030 benefit_eval_head with phased training (resource proximity)",
-      "experiment_type": "v3_exq_180a_arc030_benefit_eval_phased",
-      "script": "experiments/v3_exq_180a_arc030_benefit_eval_phased.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 200,
-      "supersedes": "V3-EXQ-180",
-      "claim_ids": [
-        "ARC-030"
-      ],
-      "notes": "Re-run of EXQ-180 with phased training. EXQ-180 showed probe_r2=0.619 (z_world encodes resource proximity) but benefit_ratio=0.29x (head trained jointly couldn't exploit it). Fix: P0 E1+E2 warmup (200 eps), P1 freeze encoder + train head on detached z_world (100 eps), P2 eval with benefit_eval in E3 (200 eps). 3 seeds, resource_field_view.max() labels.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-01T23:25:48.218340+00:00"
-      }
     }
   ]
 }
