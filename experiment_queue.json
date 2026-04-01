@@ -69,12 +69,16 @@
       "script": "experiments/v3_exq_198_sd011_dual_stream_stability.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 110,
       "claim_ids": [
         "SD-011"
       ],
-      "notes": "EXP-0090. SD-011 stability replication. DUAL_STREAM vs FUSED_STREAM. 2 seeds, 150+80+40 episodes x 200 steps. 6 criteria."
+      "notes": "EXP-0090. SD-011 stability replication. DUAL_STREAM vs FUSED_STREAM. 2 seeds, 150+80+40 episodes x 200 steps. 6 criteria.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T23:17:37.356138+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-180a",
