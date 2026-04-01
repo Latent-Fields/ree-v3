@@ -69,12 +69,16 @@
       "script": "experiments/v3_exq_197_mech104_volatility_interrupt_pair.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 150,
       "claim_ids": [
         "MECH-104"
       ],
-      "notes": "EXP-0041. Matched-seed pair: ACTIVE (surprise gate on committed harm) vs ABLATED (gate disabled). 3 seeds, 400 warmup + 50 eval x 200 steps."
+      "notes": "EXP-0041. Matched-seed pair: ACTIVE (surprise gate on committed harm) vs ABLATED (gate disabled). 3 seeds, 400 warmup + 50 eval x 200 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-01T19:56:29.470805+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-198",
