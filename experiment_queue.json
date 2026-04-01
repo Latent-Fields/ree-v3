@@ -47,24 +47,6 @@
       "notes": "MECH-153 validation. Adds terrain_loss (supervised hazard-field label, lambda=0.1) to E1 training with sd016_enabled=True. Re-runs EXQ-181b diagnostic on extract_cue_context() outputs. Baseline: EXQ-181b cosine_sim=0.9999 without supervised training. PASS if cosine_sim < 0.85 + terrain_weight accuracy > 70% + harm_r2 > 0.3."
     },
     {
-      "queue_id": "V3-EXQ-189",
-      "title": "MECH-112 goal-directed behavior: GOAL_PRESENT vs GOAL_ABSENT",
-      "experiment_type": "v3_exq_189_mech112_goal_present_absent",
-      "script": "experiments/v3_exq_189_mech112_goal_present_absent.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 240,
-      "claim_ids": [
-        "MECH-112"
-      ],
-      "notes": "EXP-0092. GOAL_PRESENT (SD-015) vs GOAL_ABSENT. 3 seeds, 300 warmup + 100 eval x 200 steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-01T18:56:13.307845+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-190",
       "title": "MECH-022 hippocampal hypothesis injection probe",
       "experiment_type": "v3_exq_190_mech022_hypothesis_injection_probe",
