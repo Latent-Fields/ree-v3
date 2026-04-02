@@ -32,25 +32,6 @@
       "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps."
     },
     {
-      "queue_id": "V3-EXQ-201",
-      "title": "MECH-029 DMN/reflective mode probe with BreathOscillator",
-      "experiment_type": "v3_exq_201_mech029_dmn_probe_breath",
-      "script": "experiments/v3_exq_201_mech029_dmn_probe_breath.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 7,
-      "status": "claimed",
-      "estimated_minutes": 130,
-      "supersedes": "V3-EXQ-080",
-      "claim_ids": [
-        "MECH-029"
-      ],
-      "notes": "Substrate fix: BreathOscillator creates uncommitted windows for DMN testing. Tests E3 activity patterns committed vs uncommitted.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-02T22:19:50.032066+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-202",
       "title": "MECH-026 Ready vigilance with BreathOscillator uncommitted windows",
       "experiment_type": "v3_exq_202_mech026_vigilance_breath",
