@@ -32,25 +32,6 @@
       "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps."
     },
     {
-      "queue_id": "V3-EXQ-203",
-      "title": "MECH-057a Completion gate with BreathOscillator uncommitted windows",
-      "experiment_type": "v3_exq_203_mech057a_completion_gate_breath",
-      "script": "experiments/v3_exq_203_mech057a_completion_gate_breath.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 7,
-      "status": "claimed",
-      "estimated_minutes": 130,
-      "supersedes": "V3-EXQ-139",
-      "claim_ids": [
-        "MECH-057a"
-      ],
-      "notes": "Substrate fix: BreathOscillator creates uncommitted windows. Tests GATE_ON vs GATE_ABLATED harm rate difference.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-02T23:03:23.214383+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-074e",
       "title": "MECH-112/117 Wanting vs Liking Dissociation -- z_goal_latent vs benefit_eval_head",
       "experiment_type": "v3_exq_074e_mech112_117_wanting_liking",
