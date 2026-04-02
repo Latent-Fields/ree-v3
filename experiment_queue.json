@@ -32,19 +32,83 @@
       "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps."
     },
     {
-      "queue_id": "V3-EXQ-051c",
-      "title": "Q-007 z_beta Volatility Injection -- fixed CausalGridWorld kwargs + WORLD_OBS_DIM",
-      "experiment_type": "v3_exq_051c_q007_zbeta_volatility_injection",
-      "script": "experiments/v3_exq_051c_q007_zbeta_volatility_injection.py",
+      "queue_id": "V3-EXQ-199",
+      "title": "MECH-025 Action-Doing Mode with BreathOscillator uncommitted windows",
+      "experiment_type": "v3_exq_199_mech025_doing_mode_breath",
+      "script": "experiments/v3_exq_199_mech025_doing_mode_breath.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
+      "priority": 7,
+      "status": "claimed",
+      "estimated_minutes": 130,
+      "supersedes": "V3-EXQ-050b",
+      "claim_ids": [
+        "MECH-025"
+      ],
+      "notes": "Substrate fix: BreathOscillator (MECH-108) creates periodic uncommitted windows. Replaces manual threshold calibration. Tests causal signature committed vs uncommitted.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-02T19:27:41.208522+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-200",
+      "title": "Q-007 z_beta volatility pathway (rv->z_beta via volatility_signal_dim=1)",
+      "experiment_type": "v3_exq_200_q007_zbeta_volatility_pathway",
+      "script": "experiments/v3_exq_200_q007_zbeta_volatility_pathway.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 7,
       "status": "pending",
-      "estimated_minutes": 100,
-      "supersedes": "V3-EXQ-051b",
+      "estimated_minutes": 130,
+      "supersedes": "V3-EXQ-051c",
       "claim_ids": [
         "Q-007"
       ],
-      "notes": "Fix: removed invalid body_obs_dim/world_obs_dim/randomise_hazard_positions kwargs from CausalGridWorldV2; corrected WORLD_OBS_DIM from 54 to 200; uses env_drift_prob for volatility."
+      "notes": "Substrate fix: volatility_signal_dim=1 enables rv->z_beta pathway. Tests whether z_beta encodes arousal/volatility state. Replaces manual injection approach."
+    },
+    {
+      "queue_id": "V3-EXQ-201",
+      "title": "MECH-029 DMN/reflective mode probe with BreathOscillator",
+      "experiment_type": "v3_exq_201_mech029_dmn_probe_breath",
+      "script": "experiments/v3_exq_201_mech029_dmn_probe_breath.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 7,
+      "status": "pending",
+      "estimated_minutes": 130,
+      "supersedes": "V3-EXQ-080",
+      "claim_ids": [
+        "MECH-029"
+      ],
+      "notes": "Substrate fix: BreathOscillator creates uncommitted windows for DMN testing. Tests E3 activity patterns committed vs uncommitted."
+    },
+    {
+      "queue_id": "V3-EXQ-202",
+      "title": "MECH-026 Ready vigilance with BreathOscillator uncommitted windows",
+      "experiment_type": "v3_exq_202_mech026_vigilance_breath",
+      "script": "experiments/v3_exq_202_mech026_vigilance_breath.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 7,
+      "status": "pending",
+      "estimated_minutes": 130,
+      "supersedes": "V3-EXQ-067",
+      "claim_ids": [
+        "MECH-026"
+      ],
+      "notes": "Substrate fix: BreathOscillator creates uncommitted windows. Tests readiness gap (harm_eval responsiveness near hazard during uncommitted mode)."
+    },
+    {
+      "queue_id": "V3-EXQ-203",
+      "title": "MECH-057a Completion gate with BreathOscillator uncommitted windows",
+      "experiment_type": "v3_exq_203_mech057a_completion_gate_breath",
+      "script": "experiments/v3_exq_203_mech057a_completion_gate_breath.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 7,
+      "status": "pending",
+      "estimated_minutes": 130,
+      "supersedes": "V3-EXQ-139",
+      "claim_ids": [
+        "MECH-057a"
+      ],
+      "notes": "Substrate fix: BreathOscillator creates uncommitted windows. Tests GATE_ON vs GATE_ABLATED harm rate difference."
     },
     {
       "queue_id": "V3-EXQ-074e",
