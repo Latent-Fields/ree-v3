@@ -64,23 +64,6 @@
       "notes": "Fix: progressive fixes through 076-076c (combined e1+e2 backward, dimension corrections). 10000 total steps (up from 076d's 2000) for meaningful halflife measurement."
     },
     {
-      "queue_id": "V3-EXQ-205",
-      "title": "SD-003/ARC-033 harm attribution discriminative pair (z_harm_s, phased training)",
-      "experiment_type": "v3_exq_205_sd003_harm_attribution_pair",
-      "script": "experiments/v3_exq_205_sd003_harm_attribution_pair.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 140,
-      "claim_id": "SD-003",
-      "supersedes": "V3-EXQ-195",
-      "note": "Fixes EXQ-195 attribution_gap denominator (approach-none not approach-env_hazard). Phased training. Adds null CF sanity check + intact_vs_ablated discriminative pair. EXQ-195 hf_r2=0.914 confirmed forward model works; this run tests attribution correctly.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-02T23:06:13.935202+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-204",
       "title": "MECH-104 volatility interrupt discriminative pair (ON vs OFF ablation)",
       "experiment_type": "v3_exq_204_mech104_surprise_gate_pair",
