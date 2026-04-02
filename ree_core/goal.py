@@ -40,8 +40,9 @@ class GoalConfig:
     # SD-012: drive modulation weight for z_goal update.
     # effective_benefit = benefit_exposure * (1.0 + drive_weight * drive_level)
     # drive_level = 1.0 - energy (obs_body[3]).
-    # 0.0 disables drive modulation (backward compat); 2.0 recommended for seeding.
-    drive_weight: float = 0.0
+    # 0.0 disables drive modulation; 2.0 is the validated default for goal seeding.
+    # Set to 0.0 explicitly for ablation baselines.
+    drive_weight: float = 2.0
 
     # Whether E1 receives z_goal as conditioning input (MECH-116)
     e1_goal_conditioned: bool = True

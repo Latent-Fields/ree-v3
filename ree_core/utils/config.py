@@ -393,6 +393,7 @@ class REEConfig:
         benefit_threshold: float = 0.1,
         goal_weight: float = 1.0,
         e1_goal_conditioned: bool = True,
+        drive_weight: float = 2.0,  # SD-012: benefit amplification when depleted
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -467,6 +468,7 @@ class REEConfig:
         goal_fields = {
             "z_goal_enabled", "alpha_goal", "decay_goal",
             "benefit_threshold", "goal_weight", "e1_goal_conditioned",
+            "drive_weight",  # SD-012
         }
         local_goal_vals = {
             "z_goal_enabled": z_goal_enabled,
@@ -475,6 +477,7 @@ class REEConfig:
             "benefit_threshold": benefit_threshold,
             "goal_weight": goal_weight,
             "e1_goal_conditioned": e1_goal_conditioned,
+            "drive_weight": drive_weight,  # SD-012
         }
         for _key in goal_fields:
             if _key in local_goal_vals:

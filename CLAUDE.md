@@ -55,57 +55,34 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   Biological basis: MSTd receives visual optic flow (content-dependent) + efference copy.
   See MECH-098, MECH-101.
 
-## SD Design Decisions Pending (V3)
+## SD Design Decisions Implemented (V3) — continued
 - SD-010: harm_stream.nociceptive_separation — IMPLEMENTED. CausalGridWorldV2 emits
   harm_obs; HarmEncoder(harm_obs -> z_harm) trains on proximity labels; E3.harm_eval
   takes z_harm; SD-007 reafference does not apply to z_harm. EXQ-056c/058b PASS.
-  NOTE: SD-010 single-stream architecture is insufficient for SD-003 counterfactual.
-  See SD-011 for the required dual-stream extension.
-- SD-011: harm_stream.dual_nociceptive_streams — REQUIRED. EXQ-093/094 confirmed
-  bridge_r2=0: z_world perp z_harm by SD-010 design, so HarmBridge(z_world->z_harm)
-  is architecturally infeasible. The single z_harm conflates two functionally distinct
-  nociceptive signals that must be separated (Melzack & Casey 1968; Craig 2002/2009):
-  (1) z_harm_s (sensory-discriminative, Adelta-pathway analog): immediate proximity/
-      intensity. Analogous to lateral spinothalamic tract -> VPL -> S1/S2. FORWARD-
-      PREDICTABLE: moving away from hazard reduces proximity. E2_harm_s(z_harm_s, a)
-      -> z_harm_s_next is the correct counterfactual mechanism (ARC-033). SD-003
-      redesign: causal_sig = E3(z_harm_s_actual) - E3(z_harm_s_cf).
-  (2) z_harm_a (affective-motivational, C-fiber/paleospinothalamic analog): accumulated
-      homeostatic deviation/unpleasantness. Analogous to medial pathway -> CM/PF ->
-      ACC/insula/amygdala. INTEGRATIVE: EMA of harm_obs_s with tau=10-30 steps. NOT
-      counterfactually modeled. Feeds E3 directly as motivational urgency. ARC-016
-      harm variance gating (z_harm_a variance scales with accumulated threat state).
-  Required implementation changes:
-  (a) CausalGridWorldV2: emit harm_obs_a (EMA harm accumulator) alongside harm_obs_s.
-  (b) HarmEncoderS (rename HarmEncoder) + new HarmEncoderA(harm_obs_a -> z_harm_a).
-  (c) LatentState: add z_harm_a field.
-  (d) New E2_harm_s forward model module (ARC-033).
-  (e) E3Selector: take z_harm_s (attribution) and z_harm_a (commit gating) separately.
-  Biological grounding: Rainville et al. (1997, Science) gold-standard dissociation --
-  hypnotic modulation of unpleasantness modulates ACC (affective), not S1 (discriminative).
-  See ARC-033, SD-003 redesign note.
-- SD-008: encoder.z_world_alpha_correction — LatentStack.encode() EMA alpha for z_world
-  must be >= 0.9 (not 0.3). MECH-089 theta buffer already handles temporal integration;
-  the 0.3 encoder EMA double-smoothes z_world into a ~3-step average, suppressing event
-  responses (Δz_world ≈ 0 on all events), trivialising E2_world prediction (MSE ≈ 0.005
-  invariant to env perturbation), and preventing ARC-016 from firing (precision stuck at
-  ~188). alpha_self may remain low (body state is genuinely autocorrelated). Evidence:
-  EXQ-013 (event selectivity ≈ 0), EXQ-018 (precision invariant to drift_prob), EXQ-019
-  (z_self more autocorrelated than z_world — backwards). See MECH-100.
-  Config: LatentStackConfig.alpha_world (default 0.3 for compat; set to 0.9 or 1.0).
-- SD-009: encoder.event_contrastive_supervision — z_world encoder requires event-type
-  cross-entropy auxiliary loss during training (MECH-100). Reconstruction + E1-prediction
-  losses are invariant to harm-relevance; only supervised event discrimination forces
-  z_world to represent hazard-vs-empty distinctions. See EXQ-020.
-- SD-008: encoder.z_world_alpha_correction — LatentStack.encode() EMA alpha for z_world
-  must be >= 0.9 (not 0.3). MECH-089 theta buffer already handles temporal integration;
-  the 0.3 encoder EMA double-smoothes z_world into a ~3-step average, suppressing event
-  responses (Δz_world ≈ 0 on all events), trivialising E2_world prediction (MSE ≈ 0.005
-  invariant to env perturbation), and preventing ARC-016 from firing (precision stuck at
-  ~188). alpha_self may remain low (body state is genuinely autocorrelated). Evidence:
-  EXQ-013 (event selectivity ≈ 0), EXQ-018 (precision invariant to drift_prob), EXQ-019
-  (z_self more autocorrelated than z_world — backwards). See MECH-100.
-  Config: LatentStackConfig.alpha_world (default 0.3 for compat; set to 0.9 or 1.0).
+  SD-010 single-stream is a prerequisite for SD-011 (dual-stream extension).
+- SD-011: harm_stream.dual_nociceptive_streams — IMPLEMENTED 2026-03-30.
+  AffectiveHarmEncoder added to latent/stack.py; z_harm_a field added to LatentState;
+  CausalGridWorldV2 emits harm_obs_a [50] (EMA at tau~20 steps). Validated EXQ-178b PASS.
+  (1) z_harm_s: HarmEncoder(harm_obs) -> z_harm -- sensory-discriminative (A-delta analog).
+  (2) z_harm_a: AffectiveHarmEncoder(harm_obs_a) -> z_harm_a -- affective-motivational
+      (C-fiber analog, EMA-accumulated). NOT counterfactually modeled. Feeds E3 commit
+      gating directly as motivational urgency (ARC-016 variance gating).
+  E2_harm_s forward model (ARC-033) and SD-003 redesign to use z_harm_s for counterfactual
+  attribution remain as next experiments (EXQ-195 queued). See ARC-033, SD-003 note.
+- SD-008: encoder.z_world_alpha_correction — IMPLEMENTED in factory presets (alpha_world=0.9).
+  LatentStackConfig default is 0.3 for backward compat; REEConfig.from_dims() default is
+  0.9 (all experiment configs built via factory get the fix). Set alpha_world=0.9 or 1.0
+  explicitly; set 0.3 only for ablation. Evidence: EXQ-013, EXQ-018, EXQ-019 (all failures
+  confirmed 0.3 suppresses event responses). See MECH-100.
+- SD-012: goal.homeostatic_drive_modulation — IMPLEMENTED 2026-04-02.
+  GoalConfig.drive_weight changed from 0.0 to 2.0 (default). drive_weight=2.0 means
+  effective_benefit = benefit_exposure * (1.0 + 2.0 * drive_level). With drive_level=1.0
+  (fully depleted), a benefit_exposure of 0.04 becomes 0.12 -- above benefit_threshold=0.1.
+  drive_weight added to REEConfig.from_dims() parameter list (overridable per experiment).
+  Set drive_weight=0.0 explicitly for ablation baselines. EXQ-074e and EXQ-085 successors
+  will benefit immediately. See GoalConfig, agent.py update_z_goal().
+
+## SD Design Decisions Pending (V3)
 - SD-009: encoder.event_contrastive_supervision — z_world encoder requires event-type
   cross-entropy auxiliary loss during training (MECH-100). Reconstruction + E1-prediction
   losses are invariant to harm-relevance; only supervised event discrimination forces
