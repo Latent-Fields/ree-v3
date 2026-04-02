@@ -38,13 +38,17 @@
       "script": "experiments/v3_exq_203_mech057a_completion_gate_breath.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 7,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 130,
       "supersedes": "V3-EXQ-139",
       "claim_ids": [
         "MECH-057a"
       ],
-      "notes": "Substrate fix: BreathOscillator creates uncommitted windows. Tests GATE_ON vs GATE_ABLATED harm rate difference."
+      "notes": "Substrate fix: BreathOscillator creates uncommitted windows. Tests GATE_ON vs GATE_ABLATED harm rate difference.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-02T23:03:23.214383+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-074e",
