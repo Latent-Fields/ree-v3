@@ -214,6 +214,7 @@ class AffectiveHarmEncoder(nn.Module):
         return self.encoder(harm_obs_a)
 
 
+# DEPRECATED 2026-04-02 -- use ResidualHarmForward (ARC-033). Identity collapse on autocorrelated signals.
 class HarmForwardModel(nn.Module):
     """
     ARC-033: Sensory-discriminative harm forward model (E2_harm_s).
@@ -265,6 +266,56 @@ class HarmForwardModel(nn.Module):
         """
         x = torch.cat([z_harm_s, action], dim=-1)
         return self.forward_net(x)
+
+
+class ResidualHarmForward(nn.Module):
+    """Residual forward model for z_harm_s (ARC-033 / SD-003).
+    Predicts delta rather than absolute next state to avoid identity collapse
+    on autocorrelated harm signals. Mirrors E2FastPredictor.world_forward()
+    but operates on the sensory-discriminative harm stream.
+
+    Structurally prevents identity collapse: to output z_harm_s unchanged,
+    the network must output exactly zero for all actions -- but that is
+    suboptimal when harm proximity changes direction-dependently (approach
+    increases, retreat decreases).
+
+    Supersedes HarmForwardModel (deprecated 2026-04-02). HarmForwardModel
+    predicts z_harm_s_next directly, which converges to identity on
+    autocorrelated signals (r~0.9). ResidualHarmForward predicts DELTA and
+    adds it to the input, forcing the net to learn change not identity.
+
+    SD-003 redesigned pipeline (post-SD-011):
+        z_harm_s_actual = ResidualHarmForward(z_harm_s_t, a_actual)
+        z_harm_s_cf     = ResidualHarmForward(z_harm_s_t, a_cf)
+        causal_sig      = E3.harm_eval_z_harm(z_harm_s_actual) - E3.harm_eval_z_harm(z_harm_s_cf)
+
+    See EXQ-195 for validation. See EXQ-166b/c/d for identity-collapse evidence.
+    """
+
+    def __init__(self, z_harm_dim: int = 32, action_dim: int = 4, hidden_dim: int = 128):
+        super().__init__()
+        self.z_harm_dim = z_harm_dim
+        self.action_dim = action_dim
+        self.action_encoder = nn.Linear(action_dim, 16)
+        self.transition_net = nn.Sequential(
+            nn.Linear(z_harm_dim + 16, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, z_harm_dim),
+        )
+
+    def forward(self, z_harm_s: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        """Predict z_harm_s at next step via residual delta.
+
+        Args:
+            z_harm_s: [batch, z_harm_dim] -- sensory-discriminative harm latent (current)
+            action:   [batch, action_dim] -- action (one-hot or continuous)
+
+        Returns:
+            z_harm_s_next: [batch, z_harm_dim] -- predicted next harm latent
+        """
+        action_enc = self.action_encoder(action)
+        delta = self.transition_net(torch.cat([z_harm_s, action_enc], dim=-1))
+        return z_harm_s + delta
 
 
 class HarmBridge(nn.Module):

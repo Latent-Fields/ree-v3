@@ -71,7 +71,7 @@ import numpy as np
 
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
-from ree_core.latent.stack import HarmEncoder
+from ree_core.latent.stack import HarmEncoder, ResidualHarmForward
 from ree_core.utils.config import REEConfig
 
 
@@ -79,38 +79,6 @@ EXPERIMENT_TYPE = "v3_exq_195_sd003_zharms_full_counterfactual"
 CLAIM_IDS = ["SD-003", "ARC-033"]
 
 HARM_OBS_DIM = 51  # hazard_field(25) + resource_field(25) + exposure(1)
-
-
-# ---------------------------------------------------------------------------
-# ResidualHarmForward -- the fix for EXQ-166b/c/d identity collapse.
-# Mirrors E2.world_forward architecture: predict DELTA, add to input.
-# ---------------------------------------------------------------------------
-
-class ResidualHarmForward(nn.Module):
-    """
-    Residual harm forward model: z_harm_s_next = z_harm_s + delta(z_harm_s, action).
-
-    Unlike HarmForwardModel in stack.py (which predicts z_harm_s_next directly),
-    this predicts the CHANGE and adds it to the input. This structurally prevents
-    identity collapse: to output z_harm_s unchanged, the network must output
-    exactly zero for all actions -- but that is suboptimal when harm proximity
-    changes direction-dependently (approach increases, retreat decreases).
-    """
-
-    def __init__(self, z_harm_dim: int = 32, action_dim: int = 5, hidden_dim: int = 64):
-        super().__init__()
-        self.action_encoder = nn.Linear(action_dim, 16)
-        self.transition_net = nn.Sequential(
-            nn.Linear(z_harm_dim + 16, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, z_harm_dim),
-        )
-
-    def forward(self, z_harm_s: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
-        a_enc = self.action_encoder(action)
-        x = torch.cat([z_harm_s, a_enc], dim=-1)
-        delta = self.transition_net(x)
-        return z_harm_s + delta
 
 
 # ---------------------------------------------------------------------------
