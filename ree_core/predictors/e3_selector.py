@@ -171,8 +171,24 @@ class E3TrajectorySelector(nn.Module):
         self._running_variance: float = self.config.precision_init
         self._ema_alpha: float = self.config.precision_ema_alpha
 
+        # Q-007: volatility estimate = var(rv) over a sliding window.
+        # Raw rv tracks moment-to-moment prediction error (fast EMA, half-life
+        # ~14 steps).  In both stable and volatile environments rv converges to
+        # near-zero once E2 adapts, losing the between-condition signal.
+        # var(rv) captures how much rv *fluctuates*: stable env -> rv flat ->
+        # var(rv) ~ 0; volatile env -> rv spikes on hazard moves -> var(rv) high.
+        # This is the LC-NE tonic firing analog (Yu & Dayan 2005).
+        from collections import deque
+        self._rv_history: deque = deque(maxlen=100)
+        self._volatility_estimate: float = 0.0
+
         # Commitment state
         self._committed_trajectory: Optional[Trajectory] = None
+        # ARC-016: store last selected trajectory for rv updates regardless of
+        # commitment.  Without this, rv only updates when committed, creating a
+        # deadlock: rv starts above commit_threshold -> agent never commits ->
+        # rv never updates -> agent can never commit.
+        self._last_selected_trajectory: Optional[Trajectory] = None
         self.last_scores: Optional[torch.Tensor] = None
 
         # ARC-030: benefit_eval warmup gate.
@@ -197,6 +213,11 @@ class E3TrajectorySelector(nn.Module):
         """Variance-space commit threshold (ARC-016). Committed when variance < threshold."""
         return variance_commit_threshold(self.config.commitment_threshold)
 
+    @property
+    def volatility_estimate(self) -> float:
+        """Q-007: var(rv) over sliding window -- LC-NE tonic volatility signal."""
+        return self._volatility_estimate
+
     def update_running_variance(self, prediction_error: torch.Tensor) -> None:
         """Update EMA of prediction error variance (ARC-016 dynamic precision)."""
         error_var = prediction_error.pow(2).mean().item()
@@ -204,6 +225,14 @@ class E3TrajectorySelector(nn.Module):
             (1 - self._ema_alpha) * self._running_variance
             + self._ema_alpha * error_var
         )
+        # Q-007: track rv history and compute volatility estimate
+        self._rv_history.append(self._running_variance)
+        if len(self._rv_history) >= 10:
+            vals = list(self._rv_history)
+            mean = sum(vals) / len(vals)
+            self._volatility_estimate = sum((v - mean) ** 2 for v in vals) / len(vals)
+        else:
+            self._volatility_estimate = 0.0
 
     def record_benefit_sample(self, n: int = 1) -> None:
         """Record that n benefit training samples have been added to the buffer.
@@ -595,6 +624,8 @@ class E3TrajectorySelector(nn.Module):
 
         if committed:
             self._committed_trajectory = selected_trajectory
+        # Always store for rv updates (ARC-016 deadlock fix)
+        self._last_selected_trajectory = selected_trajectory
 
         return SelectionResult(
             selected_trajectory=selected_trajectory,
@@ -627,23 +658,29 @@ class E3TrajectorySelector(nn.Module):
         """
         metrics: Dict[str, torch.Tensor] = {}
 
-        if self._committed_trajectory is not None and self._committed_trajectory.world_states is not None:
-            predicted_world = self._committed_trajectory.world_states[1]
+        # ARC-016: update running variance from any selected trajectory, not
+        # just committed ones.  Previous code gated on _committed_trajectory,
+        # creating a deadlock: rv starts at precision_init (0.5), above
+        # commit_threshold (0.40), so the agent never commits, rv never
+        # updates, and the agent can never commit.
+        ref_trajectory = self._committed_trajectory or self._last_selected_trajectory
+        if ref_trajectory is not None and ref_trajectory.world_states is not None:
+            predicted_world = ref_trajectory.world_states[1]
             prediction_error = actual_z_world - predicted_world
 
-            # ARC-016: update running variance → dynamic precision
             self.update_running_variance(prediction_error)
 
             metrics["prediction_error"] = prediction_error.pow(2).mean()
             metrics["running_variance"] = torch.tensor(self._running_variance)
             metrics["dynamic_precision"] = torch.tensor(self.current_precision)
 
-            if harm_occurred and self.residue_field is not None:
-                # Residue accumulates on z_world (SD-005), not z_gamma
-                self.residue_field.accumulate(
-                    actual_z_world, harm_magnitude=1.0, hypothesis_tag=False
-                )
-                metrics["residue_updated"] = torch.tensor(1.0)
+        # Residue accumulation stays commitment-gated (only accumulate for
+        # actions the agent was committed to)
+        if self._committed_trajectory is not None and harm_occurred and self.residue_field is not None:
+            self.residue_field.accumulate(
+                actual_z_world, harm_magnitude=1.0, hypothesis_tag=False
+            )
+            metrics["residue_updated"] = torch.tensor(1.0)
 
         self._committed_trajectory = None
         return metrics

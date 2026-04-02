@@ -224,13 +224,14 @@ class REEAgent(nn.Module):
         enc_combined = torch.cat([enc_body, enc_world], dim=-1)
         # SD-007: pass last action as prev_action for reafference correction.
         # _last_action is None on the first step (no correction applied).
-        # Q-007: pass running_variance as volatility signal to z_beta encoder.
-        # When volatility_signal_dim > 0, this injects E3's prediction error
-        # variance (LC-NE unexpected uncertainty analog) into z_beta, enabling
-        # affect-dimension regime formation. See Yu & Dayan 2005.
+        # Q-007: pass volatility estimate (var(rv) over sliding window) to
+        # z_beta encoder.  Raw rv converges to near-zero in both stable and
+        # volatile environments once E2 adapts.  var(rv) captures how much rv
+        # *fluctuates*: high in volatile envs (rv spikes on hazard moves),
+        # low in stable envs (rv is flat).  LC-NE tonic firing analog.
         vol_signal = None
         if self.config.latent.volatility_signal_dim > 0:
-            vol_signal = self.e3._running_variance
+            vol_signal = self.e3.volatility_estimate
         new_latent = self.latent_stack.encode(
             enc_combined, self._current_latent,
             prev_action=self._last_action,
@@ -532,6 +533,18 @@ class REEAgent(nn.Module):
         """
         metrics: Dict[str, Any] = {}
 
+        # ARC-016: update running variance on EVERY step so rv tracks world
+        # prediction error continuously.  Previously gated on harm_signal < 0,
+        # which meant rv only updated on harm steps -- too sparse for
+        # volatility tracking (Q-007) and caused rv deadlock.
+        if self._current_latent is not None:
+            z_world = self._current_latent.z_world
+            e3_metrics = self.e3.post_action_update(
+                actual_z_world=z_world,
+                harm_occurred=(harm_signal < 0),
+            )
+            metrics.update({f"e3_{k}": v for k, v in e3_metrics.items()})
+
         if harm_signal < 0:
             harm_magnitude = abs(harm_signal)
             self._harm_this_episode += harm_magnitude
@@ -546,14 +559,7 @@ class REEAgent(nn.Module):
                 )
                 metrics.update({f"residue_{k}": v for k, v in residue_metrics.items()})
 
-                # E3 post-action update (dynamic precision)
-                e3_metrics = self.e3.post_action_update(
-                    actual_z_world=z_world,
-                    harm_occurred=True,
-                )
-                metrics.update({f"e3_{k}": v for k, v in e3_metrics.items()})
-
-                # MECH-091: harm is salient → phase reset
+                # MECH-091: harm is salient -> phase reset
                 self.clock.phase_reset()
 
         metrics["harm_signal"] = harm_signal

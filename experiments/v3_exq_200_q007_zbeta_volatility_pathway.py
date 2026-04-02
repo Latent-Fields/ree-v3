@@ -200,6 +200,7 @@ def run_episode(
 
     z_beta_norms: List[float] = []
     running_vars: List[float] = []
+    volatility_ests: List[float] = []
     total_harm = 0.0
     z_world_prev: Optional[torch.Tensor] = None
     action_prev: Optional[torch.Tensor] = None
@@ -208,9 +209,10 @@ def run_episode(
         obs_body = obs_dict["body_state"]
         obs_world = obs_dict["world_state"]
 
-        # Record running_variance before sense() -- sense() reads it internally
+        # Record signals before sense() -- sense() reads volatility_estimate
         # when volatility_signal_dim > 0 (Q-007 pathway).
         rv = float(agent.e3._running_variance)
+        vol_est = float(agent.e3.volatility_estimate)
 
         if train:
             latent = agent.sense(obs_body, obs_world)
@@ -220,6 +222,7 @@ def run_episode(
 
         z_beta_norms.append(float(latent.z_beta.norm().item()))
         running_vars.append(rv)
+        volatility_ests.append(vol_est)
 
         ticks = agent.clock.advance()
         e1_prior = (
@@ -288,8 +291,10 @@ def run_episode(
         "total_harm": total_harm,
         "z_beta_norms": z_beta_norms,
         "running_vars": running_vars,
+        "volatility_ests": volatility_ests,
         "mean_z_beta_norm": _mean_safe(z_beta_norms),
         "mean_running_variance": _mean_safe(running_vars),
+        "mean_volatility_est": _mean_safe(volatility_ests),
     }
 
 
@@ -351,8 +356,8 @@ def run_seed(seed: int, dry_run: bool = False) -> Dict:
         if (ep + 1) % 100 == 0 or (dry_run and ep == n_train - 1):
             print(
                 f"    ep {ep+1:3d}: "
-                f"stable rv={m_s['mean_running_variance']:.4f} z_b={m_s['mean_z_beta_norm']:.4f} | "
-                f"volatile rv={m_v['mean_running_variance']:.4f} z_b={m_v['mean_z_beta_norm']:.4f}",
+                f"stable rv={m_s['mean_running_variance']:.4f} vol={m_s['mean_volatility_est']:.2e} z_b={m_s['mean_z_beta_norm']:.4f} | "
+                f"volatile rv={m_v['mean_running_variance']:.4f} vol={m_v['mean_volatility_est']:.2e} z_b={m_v['mean_z_beta_norm']:.4f}",
                 flush=True,
             )
 
@@ -365,10 +370,13 @@ def run_seed(seed: int, dry_run: bool = False) -> Dict:
     eval_volatile_betas = []
     eval_stable_rvs = []
     eval_volatile_rvs = []
-    # Collect step-level data for Pearson correlation
-    eval_stable_step_rv = []
+    eval_stable_vols = []
+    eval_volatile_vols = []
+    # Collect step-level data for Pearson correlation (C2 uses volatility_est,
+    # which is the actual signal injected into z_beta)
+    eval_stable_step_vol = []
     eval_stable_step_beta = []
-    eval_volatile_step_rv = []
+    eval_volatile_step_vol = []
     eval_volatile_step_beta = []
 
     for _ep in range(n_eval):
@@ -378,9 +386,11 @@ def run_seed(seed: int, dry_run: bool = False) -> Dict:
         eval_volatile_betas.append(m_v["mean_z_beta_norm"])
         eval_stable_rvs.append(m_s["mean_running_variance"])
         eval_volatile_rvs.append(m_v["mean_running_variance"])
-        eval_stable_step_rv.extend(m_s["running_vars"])
+        eval_stable_vols.append(m_s["mean_volatility_est"])
+        eval_volatile_vols.append(m_v["mean_volatility_est"])
+        eval_stable_step_vol.extend(m_s["volatility_ests"])
         eval_stable_step_beta.extend(m_s["z_beta_norms"])
-        eval_volatile_step_rv.extend(m_v["running_vars"])
+        eval_volatile_step_vol.extend(m_v["volatility_ests"])
         eval_volatile_step_beta.extend(m_v["z_beta_norms"])
 
     mean_stable_beta = _mean_safe(eval_stable_betas)
@@ -392,14 +402,19 @@ def run_seed(seed: int, dry_run: bool = False) -> Dict:
     c1_delta = mean_volatile_beta - mean_stable_beta
     c1_pass = c1_delta > C1_DELTA_THRESHOLD
 
-    # C2: Pearson r(rv, z_beta) > 0.3 in at least one condition (step-level)
-    c2_r_stable = pearson_r(eval_stable_step_rv, eval_stable_step_beta)
-    c2_r_volatile = pearson_r(eval_volatile_step_rv, eval_volatile_step_beta)
+    # C2: Pearson r(volatility_est, z_beta) > 0.3 in at least one condition
+    # Uses volatility_estimate (var(rv)) since that is the signal injected
+    # into z_beta, not raw rv.
+    c2_r_stable = pearson_r(eval_stable_step_vol, eval_stable_step_beta)
+    c2_r_volatile = pearson_r(eval_volatile_step_vol, eval_volatile_step_beta)
     c2_r_best = max(c2_r_stable, c2_r_volatile)
     c2_pass = c2_r_best > C2_PEARSON_THRESHOLD
 
-    print(f"    Stable:   mean_rv={mean_stable_rv:.4f}, mean_z_beta={mean_stable_beta:.4f}", flush=True)
-    print(f"    Volatile: mean_rv={mean_volatile_rv:.4f}, mean_z_beta={mean_volatile_beta:.4f}", flush=True)
+    mean_stable_vol = _mean_safe(eval_stable_vols)
+    mean_volatile_vol = _mean_safe(eval_volatile_vols)
+
+    print(f"    Stable:   mean_rv={mean_stable_rv:.4f}, vol_est={mean_stable_vol:.2e}, mean_z_beta={mean_stable_beta:.4f}", flush=True)
+    print(f"    Volatile: mean_rv={mean_volatile_rv:.4f}, vol_est={mean_volatile_vol:.2e}, mean_z_beta={mean_volatile_beta:.4f}", flush=True)
     print(f"    C1 delta={c1_delta:+.4f} (threshold {C1_DELTA_THRESHOLD}) -> {'PASS' if c1_pass else 'FAIL'}", flush=True)
     print(f"    C2 r_stable={c2_r_stable:.4f}, r_volatile={c2_r_volatile:.4f}, best={c2_r_best:.4f} "
           f"(threshold {C2_PEARSON_THRESHOLD}) -> {'PASS' if c2_pass else 'FAIL'}", flush=True)
@@ -436,6 +451,8 @@ def run_seed(seed: int, dry_run: bool = False) -> Dict:
         "mean_volatile_z_beta": mean_volatile_beta,
         "mean_stable_rv": mean_stable_rv,
         "mean_volatile_rv": mean_volatile_rv,
+        "mean_stable_vol": mean_stable_vol,
+        "mean_volatile_vol": mean_volatile_vol,
         "c1_delta": c1_delta,
         "c1_pass": c1_pass,
         "c2_r_stable": c2_r_stable,
@@ -491,6 +508,8 @@ def run(**kwargs) -> dict:
     agg_volatile_beta = _mean_safe([r["mean_volatile_z_beta"] for r in seed_results])
     agg_stable_rv = _mean_safe([r["mean_stable_rv"] for r in seed_results])
     agg_volatile_rv = _mean_safe([r["mean_volatile_rv"] for r in seed_results])
+    agg_stable_vol = _mean_safe([r["mean_stable_vol"] for r in seed_results])
+    agg_volatile_vol = _mean_safe([r["mean_volatile_vol"] for r in seed_results])
     agg_c1_delta = _mean_safe([r["c1_delta"] for r in seed_results])
     agg_c2_best = _mean_safe([r["c2_r_best"] for r in seed_results])
     agg_c3_delta = _mean_safe([r["c3_delta"] for r in seed_results])
@@ -511,6 +530,8 @@ def run(**kwargs) -> dict:
         "agg_volatile_z_beta": agg_volatile_beta,
         "agg_stable_rv": agg_stable_rv,
         "agg_volatile_rv": agg_volatile_rv,
+        "agg_stable_vol": agg_stable_vol,
+        "agg_volatile_vol": agg_volatile_vol,
         "agg_c1_delta": agg_c1_delta,
         "c1_majority_pass": 1.0 if c1_majority else 0.0,
         "agg_c2_r_best": agg_c2_best,
