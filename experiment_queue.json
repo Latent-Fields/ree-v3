@@ -32,25 +32,6 @@
       "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps."
     },
     {
-      "queue_id": "V3-EXQ-200",
-      "title": "Q-007 z_beta volatility pathway (rv->z_beta via volatility_signal_dim=1)",
-      "experiment_type": "v3_exq_200_q007_zbeta_volatility_pathway",
-      "script": "experiments/v3_exq_200_q007_zbeta_volatility_pathway.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 7,
-      "status": "claimed",
-      "estimated_minutes": 130,
-      "supersedes": "V3-EXQ-051c",
-      "claim_ids": [
-        "Q-007"
-      ],
-      "notes": "Substrate fix: volatility_signal_dim=1 enables rv->z_beta pathway. Tests whether z_beta encodes arousal/volatility state. Replaces manual injection approach.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-02T20:48:37.337074+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-201",
       "title": "MECH-029 DMN/reflective mode probe with BreathOscillator",
       "experiment_type": "v3_exq_201_mech029_dmn_probe_breath",
@@ -207,6 +188,32 @@
         "ARC-033"
       ],
       "notes": "Full latent z_harm_s counterfactual pipeline. Uses ResidualHarmForward (now in ree_core) to avoid identity collapse. Transposition of EXQ-030b (z_world) to z_harm_s. EXQ-166e validated scalar proxy; this validates the full latent version."
+    },
+    {
+      "queue_id": "V3-EXQ-209",
+      "title": "MECH-075 BG dopaminergic gain probe (novelty_bonus low vs high)",
+      "experiment_type": "v3_exq_209_mech075_bg_hippocampal_gain_probe",
+      "script": "experiments/v3_exq_209_mech075_bg_hippocampal_gain_probe.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 80,
+      "backlog_id": "EVB-0050",
+      "claim_id": "MECH-075",
+      "note": "DA proxy: novelty_bonus_weight=0 vs 2. Measures trajectory diversity difference. 3 seeds x 100 warmup + 30 eval x 200 steps per condition."
+    },
+    {
+      "queue_id": "V3-EXQ-210",
+      "title": "MECH-156 theta traversal in E1 hidden state (sequential ordering within theta cycle)",
+      "experiment_type": "v3_exq_210_mech156_theta_traversal_probe",
+      "script": "experiments/v3_exq_210_mech156_theta_traversal_probe.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "backlog_id": "EVB-0051",
+      "claim_id": "MECH-156",
+      "note": "RSA probe: E1 hidden state drift monotonicity within theta cycles + autocorr at theta lag. 3 seeds x 100 warmup + 10 eval x 200 steps."
     }
   ]
 }
