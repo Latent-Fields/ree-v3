@@ -70,11 +70,15 @@
       "script": "experiments/v3_exq_206_inv043_ethical_capacity_probe.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "backlog_id": "EVB-0046",
       "claim_id": "INV-043",
-      "note": "Proxy test for INV-043 (single-agent analog of caregiving exposure). Shared HarmEncoder; PROBE_RICH trained with harm events; PROBE_SPARSE trained without. Both eval on same test set."
+      "note": "Proxy test for INV-043 (single-agent analog of caregiving exposure). Shared HarmEncoder; PROBE_RICH trained with harm events; PROBE_SPARSE trained without. Both eval on same test set.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-02T23:05:50.464597+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-205",
