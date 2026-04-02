@@ -64,23 +64,6 @@
       "notes": "Fix: progressive fixes through 076-076c (combined e1+e2 backward, dimension corrections). 10000 total steps (up from 076d's 2000) for meaningful halflife measurement."
     },
     {
-      "queue_id": "V3-EXQ-206",
-      "title": "INV-043 ethical capacity proxy: harm-rich vs harm-sparse training regimes",
-      "experiment_type": "v3_exq_206_inv043_ethical_capacity_probe",
-      "script": "experiments/v3_exq_206_inv043_ethical_capacity_probe.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "backlog_id": "EVB-0046",
-      "claim_id": "INV-043",
-      "note": "Proxy test for INV-043 (single-agent analog of caregiving exposure). Shared HarmEncoder; PROBE_RICH trained with harm events; PROBE_SPARSE trained without. Both eval on same test set.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-02T23:05:50.464597+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-205",
       "title": "SD-003/ARC-033 harm attribution discriminative pair (z_harm_s, phased training)",
       "experiment_type": "v3_exq_205_sd003_harm_attribution_pair",
