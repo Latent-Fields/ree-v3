@@ -53,13 +53,17 @@
       "script": "experiments/v3_exq_073b_mech111_novelty_signal.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 80,
       "supersedes": "V3-EXQ-073",
       "claim_ids": [
         "MECH-111"
       ],
-      "notes": "Fix: corrected WORLD_OBS_DIM from 54 to 200 for size=10 use_proxy_fields=False."
+      "notes": "Fix: corrected WORLD_OBS_DIM from 54 to 200 for size=10 use_proxy_fields=False.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-02T01:21:01.814786+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-074e",
