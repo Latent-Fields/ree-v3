@@ -63,25 +63,6 @@
       "notes": "Fix: progressive fixes through 074-074d (env kwargs, agent init, combined backward). Different design from EXQ-189 (wanting/liking dissociation with resource relocation)."
     },
     {
-      "queue_id": "V3-EXQ-075d",
-      "title": "MECH-113 Self-Maintenance D_eff Homeostasis -- noise injection recovery",
-      "experiment_type": "v3_exq_075d_mech113_self_maintenance",
-      "script": "experiments/v3_exq_075d_mech113_self_maintenance.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 100,
-      "supersedes": "V3-EXQ-075c",
-      "claim_ids": [
-        "MECH-113"
-      ],
-      "notes": "Fix: compute_z_self_d_eff() and compute_self_maintenance_loss() now exist in REEAgent (added after 075c errored). V4 prerequisite gate experiment.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-02T02:18:33.430504+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-076e",
       "title": "MECH-116/ARC-032 E1 LSTM Goal Conditioning -- frontal working memory persistence",
       "experiment_type": "v3_exq_076e_mech116_arc032_e1_goal_conditioning",
