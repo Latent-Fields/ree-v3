@@ -30,6 +30,119 @@
         "Q-012"
       ],
       "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-051c",
+      "title": "Q-007 z_beta Volatility Injection -- fixed CausalGridWorld kwargs + WORLD_OBS_DIM",
+      "experiment_type": "v3_exq_051c_q007_zbeta_volatility_injection",
+      "script": "experiments/v3_exq_051c_q007_zbeta_volatility_injection.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 100,
+      "supersedes": "V3-EXQ-051b",
+      "claim_ids": [
+        "Q-007"
+      ],
+      "notes": "Fix: removed invalid body_obs_dim/world_obs_dim/randomise_hazard_positions kwargs from CausalGridWorldV2; corrected WORLD_OBS_DIM from 54 to 200; uses env_drift_prob for volatility."
+    },
+    {
+      "queue_id": "V3-EXQ-072b",
+      "title": "Q-021 Behavioral Flatness -- NoGo-only vs Competitive vs Random",
+      "experiment_type": "v3_exq_072b_q021_behavioral_flatness",
+      "script": "experiments/v3_exq_072b_q021_behavioral_flatness.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "claimed",
+      "estimated_minutes": 100,
+      "supersedes": "V3-EXQ-072",
+      "claim_ids": [
+        "Q-021"
+      ],
+      "notes": "Fix: corrected dimension constants and API usage. Tests pure-avoidance gradient producing quiescence.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-02T00:04:02.100428+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-073b",
+      "title": "MECH-111 Novelty Signal -- E1 error EMA as exploration bonus",
+      "experiment_type": "v3_exq_073b_mech111_novelty_signal",
+      "script": "experiments/v3_exq_073b_mech111_novelty_signal.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 80,
+      "supersedes": "V3-EXQ-073",
+      "claim_ids": [
+        "MECH-111"
+      ],
+      "notes": "Fix: corrected WORLD_OBS_DIM from 54 to 200 for size=10 use_proxy_fields=False."
+    },
+    {
+      "queue_id": "V3-EXQ-074e",
+      "title": "MECH-112/117 Wanting vs Liking Dissociation -- z_goal_latent vs benefit_eval_head",
+      "experiment_type": "v3_exq_074e_mech112_117_wanting_liking",
+      "script": "experiments/v3_exq_074e_mech112_117_wanting_liking.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 80,
+      "supersedes": "V3-EXQ-074d",
+      "claim_ids": [
+        "MECH-112",
+        "MECH-117"
+      ],
+      "notes": "Fix: progressive fixes through 074-074d (env kwargs, agent init, combined backward). Different design from EXQ-189 (wanting/liking dissociation with resource relocation)."
+    },
+    {
+      "queue_id": "V3-EXQ-075d",
+      "title": "MECH-113 Self-Maintenance D_eff Homeostasis -- noise injection recovery",
+      "experiment_type": "v3_exq_075d_mech113_self_maintenance",
+      "script": "experiments/v3_exq_075d_mech113_self_maintenance.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 100,
+      "supersedes": "V3-EXQ-075c",
+      "claim_ids": [
+        "MECH-113"
+      ],
+      "notes": "Fix: compute_z_self_d_eff() and compute_self_maintenance_loss() now exist in REEAgent (added after 075c errored). V4 prerequisite gate experiment."
+    },
+    {
+      "queue_id": "V3-EXQ-076e",
+      "title": "MECH-116/ARC-032 E1 LSTM Goal Conditioning -- frontal working memory persistence",
+      "experiment_type": "v3_exq_076e_mech116_arc032_e1_goal_conditioning",
+      "script": "experiments/v3_exq_076e_mech116_arc032_e1_goal_conditioning.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 120,
+      "supersedes": "V3-EXQ-076c",
+      "claim_ids": [
+        "MECH-116",
+        "ARC-032"
+      ],
+      "notes": "Fix: progressive fixes through 076-076c (combined e1+e2 backward, dimension corrections). 10000 total steps (up from 076d's 2000) for meaningful halflife measurement."
+    },
+    {
+      "queue_id": "V3-EXQ-084d",
+      "title": "Q-022 / MECH-118/119 D_eff / Hopfield Stability Dissociation",
+      "experiment_type": "v3_exq_084d_q022_deff_hopfield_dissociation",
+      "script": "experiments/v3_exq_084d_q022_deff_hopfield_dissociation.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 200,
+      "supersedes": "V3-EXQ-084c",
+      "claim_ids": [
+        "Q-022",
+        "MECH-118",
+        "MECH-119"
+      ],
+      "notes": "Fix: compute_z_self_d_eff() and Hopfield methods now exist in REEAgent. V4 prerequisite gate experiment (determines if MECH-118/119 collapse into MECH-113)."
     }
   ]
 }
