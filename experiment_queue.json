@@ -121,7 +121,7 @@
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 90,
-      "backlog_id": "EVB-0044",
+      "backlog_id": "EVB-0046",
       "claim_id": "INV-043",
       "note": "Proxy test for INV-043 (single-agent analog of caregiving exposure). Shared HarmEncoder; PROBE_RICH trained with harm events; PROBE_SPARSE trained without. Both eval on same test set."
     },
@@ -134,7 +134,6 @@
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 140,
-      "backlog_id": "EVB-0089",
       "claim_id": "SD-003",
       "supersedes": "V3-EXQ-195",
       "note": "Fixes EXQ-195 attribution_gap denominator (approach-none not approach-env_hazard). Phased training. Adds null CF sanity check + intact_vs_ablated discriminative pair. EXQ-195 hf_r2=0.914 confirmed forward model works; this run tests attribution correctly."
@@ -148,7 +147,7 @@
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 90,
-      "backlog_id": "EVB-0043",
+      "backlog_id": "EVB-0044",
       "claim_id": "MECH-104",
       "note": "Discriminative pair resolving active_conflict on MECH-104. VOLATILITY_ON vs VOLATILITY_OFF (_ema_alpha=0 ablation). 3 seeds x 200 warmup + 50 eval x 200 steps."
     },
@@ -161,7 +160,7 @@
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 60,
-      "backlog_id": "EVB-0047",
+      "backlog_id": "EVB-0053",
       "claim_id": "MECH-155",
       "note": "RSA probe: E1 LSTM hidden state correlated with both spatial position matrix and recent-harm-history matrix. 3 seeds x 100 warmup + 10 eval x 200 steps."
     },
@@ -174,7 +173,7 @@
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 65,
-      "backlog_id": "EVB-0048",
+      "backlog_id": "EVB-0055",
       "claim_id": "ARC-022",
       "note": "Diagnostic: RSA abstraction gradient across 3 levels (z_world, E1 hidden, E2 pred). 3 seeds x 100 warmup + 10 eval x 200 steps. EXPERIMENT_PURPOSE=diagnostic."
     },
@@ -202,7 +201,7 @@
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 80,
-      "backlog_id": "EVB-0050",
+      "backlog_id": "EVB-0049",
       "claim_id": "MECH-075",
       "note": "DA proxy: novelty_bonus_weight=0 vs 2. Measures trajectory diversity difference. 3 seeds x 100 warmup + 30 eval x 200 steps per condition."
     },
@@ -215,9 +214,48 @@
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 60,
-      "backlog_id": "EVB-0051",
+      "backlog_id": "EVB-0058",
       "claim_id": "MECH-156",
       "note": "RSA probe: E1 hidden state drift monotonicity within theta cycles + autocorr at theta lag. 3 seeds x 100 warmup + 10 eval x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-147a",
+      "title": "MECH-128 E1 goal conditioning pair (SD-012 fix: drive_weight=2.0)",
+      "experiment_type": "v3_exq_147a_mech128_e1_goal_conditioning_pair",
+      "script": "experiments/v3_exq_147a_mech128_e1_goal_conditioning_pair.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "claim_id": "MECH-128",
+      "supersedes": "V3-EXQ-147",
+      "note": "Replication of EXQ-147 with drive_weight=2.0 (SD-012). EXQ-147 failed because drive_weight=0.0 left z_goal inactive. 3 seeds x 400 warmup + 120 eval x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-211",
+      "title": "MECH-153/ARC-042 supervised context labeling (ContextMemory discrimination)",
+      "experiment_type": "v3_exq_211_mech153_arc042_supervised_labeling",
+      "script": "experiments/v3_exq_211_mech153_arc042_supervised_labeling.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "claim_id": "MECH-153",
+      "supersedes": "V3-EXQ-181b",
+      "note": "Supervised context label forcing: adds nn.Linear(world_dim,2) head trained via CE loss through generate_prior(). Tests whether supervised labeling reduces cosine similarity between context A/B priors. Fixes EXQ-181b cosim~=1.0 (no discrimination). 3 seeds x 200 warmup + 50 eval x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-212",
+      "title": "MECH-070 E2 vs E1 rollout horizon comparison (action-conditioned vs action-free)",
+      "experiment_type": "v3_exq_212_mech070_e2_motor_model_pair",
+      "script": "experiments/v3_exq_212_mech070_e2_motor_model_pair.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "backlog_id": "EVB-0068",
+      "claim_id": "MECH-070",
+      "note": "Compares E2 (chained predict_next_self with actual actions) vs E1 (predict_long_horizon, no actions) on z_self prediction accuracy at horizons 1-15. E2 action-conditioning should degrade slower. 3 seeds x 100 warmup + 30 eval x 200 steps."
     }
   ]
 }
