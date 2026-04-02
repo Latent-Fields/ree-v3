@@ -85,7 +85,7 @@
       "script": "experiments/v3_exq_084d_q022_deff_hopfield_dissociation.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "supersedes": "V3-EXQ-084c",
       "claim_ids": [
@@ -93,7 +93,11 @@
         "MECH-118",
         "MECH-119"
       ],
-      "notes": "Fix: compute_z_self_d_eff() and Hopfield methods now exist in REEAgent. V4 prerequisite gate experiment (determines if MECH-118/119 collapse into MECH-113)."
+      "notes": "Fix: compute_z_self_d_eff() and Hopfield methods now exist in REEAgent. V4 prerequisite gate experiment (determines if MECH-118/119 collapse into MECH-113).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-02T03:23:59.662522+00:00"
+      }
     }
   ]
 }
