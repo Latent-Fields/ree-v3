@@ -141,6 +141,9 @@ def _merge_queue_json(remote_content: str, saved_content: str) -> str:
     by the remote runner), then append any items from saved_content whose queue_id
     does not appear in the remote version.
 
+    After merging, validates the result with validate_queue logic.  If validation
+    fails, returns remote_content unchanged to avoid committing a broken queue.
+
     Returns the merged JSON string, or remote_content unchanged if merging fails.
     """
     try:
@@ -154,20 +157,46 @@ def _merge_queue_json(remote_content: str, saved_content: str) -> str:
         if not new_items:
             return remote_content
         remote["items"] = remote.get("items", []) + new_items
+        merged_str = json.dumps(remote, indent=2)
+
+        # Validate merged result before accepting it
+        try:
+            from validate_queue import validate
+            # Write to a temp file for validation
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tf:
+                tf.write(merged_str)
+                tf_path = tf.name
+            errors = validate(Path(tf_path))
+            Path(tf_path).unlink(missing_ok=True)
+            if errors:
+                print(f"[runner] queue merge validation FAILED ({len(errors)} errors) "
+                      f"-- keeping remote version", flush=True)
+                for e in errors[:3]:
+                    print(f"[runner]   {e}", flush=True)
+                return remote_content
+        except ImportError:
+            pass  # validator not available -- accept merge without validation
+
         labels = [item["queue_id"] for item in new_items]
         print(f"[runner] queue merge: restored {len(new_items)} item(s): {labels}", flush=True)
-        return json.dumps(remote, indent=2)
+        return merged_str
     except Exception as e:
         print(f"[runner] queue merge failed: {e} -- keeping remote version", flush=True)
         return remote_content
 
 
-def _git_push_with_retry(cwd: str, branch: str, label: str, max_retries: int = 3) -> bool:
+def _git_push_with_retry(cwd: str, branch: str, label: str,
+                         result_files: list[str] | None = None,
+                         max_retries: int = 3) -> bool:
     """Push to origin, retrying with pull --rebase on rejection. Returns True on success.
 
-    If pull --rebase fails (e.g. conflict on runner_status.json), aborts the rebase,
-    accepts the remote version of conflicting files, re-commits, and retries.
-    This prevents the repo from being left in a broken rebase state.
+    Uses git stash to preserve uncommitted work (e.g. from concurrent Claude sessions)
+    instead of git reset --hard, which would destroy uncommitted edits.
+
+    If pull --rebase fails (e.g. conflict), aborts the rebase and skips pushing
+    rather than force-resetting. Lost pushes are recoverable on the next sync;
+    lost uncommitted edits are not.
     """
     for attempt in range(max_retries):
         r = subprocess.run(
@@ -191,35 +220,59 @@ def _git_push_with_retry(cwd: str, branch: str, label: str, max_retries: int = 3
             print(f"[runner] auto-sync: pull-rebase {label} (retry {attempt+1})", flush=True)
             continue
 
-        # Rebase failed (conflict) -- abort, accept remote, re-add our changes
-        print(f"[runner] auto-sync: rebase conflict ({label}), resolving...", flush=True)
+        # Rebase failed (conflict) -- abort rebase, then use stash-based recovery
+        print(f"[runner] auto-sync: rebase conflict ({label}), resolving safely...", flush=True)
         subprocess.run(["git", "rebase", "--abort"], cwd=cwd, capture_output=True, timeout=10)
 
-        # Save experiment_queue.json BEFORE reset so we can restore locally-added items.
-        # (git reset --hard would wipe any new queue entries added by the current session.)
-        queue_path = Path(cwd) / "experiment_queue.json"
-        saved_queue: str | None = None
-        if queue_path.exists():
-            if _check_active_claim_on_file("experiment_queue.json"):
-                print(f"[runner] auto-sync: active TASK_CLAIMS entry on experiment_queue.json -- will restore after reset", flush=True)
-            saved_queue = queue_path.read_text(encoding="utf-8")
+        # Check for active claims on REE_assembly files before any destructive action
+        if _check_active_claim_on_file("evidence/experiments/"):
+            print(f"[runner] auto-sync: active TASK_CLAIMS on evidence/experiments/ "
+                  f"-- skipping push to avoid data loss ({label})", flush=True)
+            return False
 
-        # Reset to remote state
+        # Stash uncommitted work (preserves concurrent Claude session edits)
+        stash_result = subprocess.run(
+            ["git", "stash", "--include-untracked", "-m", f"runner-auto-sync-{now_utc()[:10]}"],
+            cwd=cwd, capture_output=True, text=True, timeout=10,
+        )
+        stashed = "No local changes" not in stash_result.stdout
+
+        # Fetch + reset to remote
         subprocess.run(["git", "fetch", "origin"], cwd=cwd, capture_output=True, timeout=30)
-        subprocess.run(["git", "reset", "--hard", f"origin/{branch}"], cwd=cwd, capture_output=True, timeout=10)
+        subprocess.run(["git", "reset", "--hard", f"origin/{branch}"],
+                       cwd=cwd, capture_output=True, timeout=10)
 
-        # Restore locally-added queue items that aren't present in the remote version.
-        # Remote items are kept as-is (completed-item removals from remote runner are honoured).
-        if saved_queue is not None and queue_path.exists():
-            remote_queue = queue_path.read_text(encoding="utf-8")
-            merged = _merge_queue_json(remote_queue, saved_queue)
-            if merged != remote_queue:
-                queue_path.write_text(merged, encoding="utf-8")
+        # Pop stash to restore uncommitted work
+        if stashed:
+            pop = subprocess.run(
+                ["git", "stash", "pop"],
+                cwd=cwd, capture_output=True, text=True, timeout=10,
+            )
+            if pop.returncode != 0:
+                # Stash pop conflict -- restore stash and skip pushing
+                print(f"[runner] auto-sync: stash pop conflict -- skipping push ({label}). "
+                      f"Stash preserved for manual recovery.", flush=True)
+                return False
 
-        # Re-stage all local evidence (our results are still on disk)
-        subprocess.run(["git", "add", "evidence/experiments/"], cwd=cwd, capture_output=True, timeout=10)
-        if saved_queue is not None and queue_path.exists():
-            subprocess.run(["git", "add", "experiment_queue.json"], cwd=cwd, capture_output=True, timeout=10)
+        # Re-stage only the specific result files the runner wrote (selective)
+        if result_files:
+            for f in result_files:
+                try:
+                    rel = str(Path(f).relative_to(Path(cwd)))
+                except ValueError:
+                    rel = f
+                subprocess.run(["git", "add", rel], cwd=cwd, capture_output=True, timeout=10)
+        else:
+            # Fallback: broad staging (only if no specific files known)
+            subprocess.run(["git", "add", "evidence/experiments/"],
+                           cwd=cwd, capture_output=True, timeout=10)
+
+        # Re-stage queue if present
+        queue_path = Path(cwd) / "experiment_queue.json"
+        if queue_path.exists():
+            subprocess.run(["git", "add", "experiment_queue.json"],
+                           cwd=cwd, capture_output=True, timeout=10)
+
         diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cwd, timeout=5)
         if diff.returncode != 0:
             subprocess.run(
@@ -258,13 +311,35 @@ def git_push_queue() -> None:
         print(f"[runner] auto-sync queue push error: {e}", flush=True)
 
 
-def git_push_results(ree_assembly_path: Path) -> None:
-    """Stage, commit, and push experiment results in REE_assembly. Warns on failure."""
+def git_push_results(ree_assembly_path: Path, result_files: list[str] | None = None) -> None:
+    """Stage, commit, and push experiment results in REE_assembly.
+
+    If result_files is provided, only those specific files are staged (selective
+    commit).  Otherwise falls back to staging the entire evidence/experiments/
+    directory -- but this broad mode is discouraged because it can sweep up
+    unrelated files from concurrent Claude sessions.
+
+    Warns on failure; never raises.
+    """
     try:
-        subprocess.run(
-            ["git", "add", "evidence/experiments/"],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
-        )
+        if result_files:
+            # Selective staging: only the files the runner actually wrote
+            for f in result_files:
+                # Convert absolute paths to repo-relative
+                try:
+                    rel = str(Path(f).relative_to(ree_assembly_path))
+                except ValueError:
+                    rel = f  # already relative or external -- stage as-is
+                subprocess.run(
+                    ["git", "add", rel],
+                    cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
+                )
+        else:
+            # Fallback: broad staging (legacy behaviour)
+            subprocess.run(
+                ["git", "add", "evidence/experiments/"],
+                cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
+            )
         # Nothing staged -> skip
         diff = subprocess.run(
             ["git", "diff", "--cached", "--quiet"],
@@ -973,6 +1048,10 @@ def main():
     status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] not in completed_ids]
     write_status(status, status_path)
 
+    # Collect output files written during this pass so git_push_results can
+    # stage them selectively instead of sweeping evidence/experiments/.
+    _result_files_this_pass: list[str] = []
+
     while True:
         ran_any = False
 
@@ -1073,6 +1152,10 @@ def main():
                 continue
             ran_any = True
             _current_claim.clear()  # no longer running this experiment
+
+            # Collect output file for selective git staging
+            if result.get("output_file"):
+                _result_files_this_pass.append(result["output_file"])
 
             if result["result"] not in ("ERROR", "UNKNOWN") and result.get("actual_secs"):
                 save_script_timing(
@@ -1207,7 +1290,8 @@ def main():
             break
 
         if args.auto_sync and ran_any and ree_assembly_path:
-            git_push_results(ree_assembly_path)
+            git_push_results(ree_assembly_path, _result_files_this_pass or None)
+            _result_files_this_pass.clear()
 
         status["idle"] = True
         status["current"] = None
@@ -1258,7 +1342,7 @@ def main():
         print("[runner] Queue exhausted. Runner idle.", flush=True)
 
     if args.auto_sync and ree_assembly_path:
-        git_push_results(ree_assembly_path)
+        git_push_results(ree_assembly_path, _result_files_this_pass or None)
 
     if PID_FILE.exists():
         PID_FILE.unlink()

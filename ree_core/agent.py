@@ -100,6 +100,9 @@ class REEAgent(nn.Module):
             beta_rate_min_steps=config.heartbeat.beta_rate_min_steps,
             beta_rate_max_steps=config.heartbeat.beta_rate_max_steps,
             beta_magnitude_scale=config.heartbeat.beta_magnitude_scale,
+            breath_period=config.heartbeat.breath_period,
+            sweep_amplitude=config.heartbeat.breath_sweep_amplitude,
+            sweep_duration=config.heartbeat.breath_sweep_duration,
         )
 
         # MECH-089: ThetaBuffer for cross-rate integration
@@ -221,10 +224,18 @@ class REEAgent(nn.Module):
         enc_combined = torch.cat([enc_body, enc_world], dim=-1)
         # SD-007: pass last action as prev_action for reafference correction.
         # _last_action is None on the first step (no correction applied).
+        # Q-007: pass running_variance as volatility signal to z_beta encoder.
+        # When volatility_signal_dim > 0, this injects E3's prediction error
+        # variance (LC-NE unexpected uncertainty analog) into z_beta, enabling
+        # affect-dimension regime formation. See Yu & Dayan 2005.
+        vol_signal = None
+        if self.config.latent.volatility_signal_dim > 0:
+            vol_signal = self.e3._running_variance
         new_latent = self.latent_stack.encode(
             enc_combined, self._current_latent,
             prev_action=self._last_action,
             harm_obs=obs_harm,   # SD-010: nociceptive stream (None = disabled)
+            volatility_signal=vol_signal,
         )
         # Detach before storing: prevents EMA from linking computational graphs
         # across time steps. Without detach, optimizer.step() modifies weights
@@ -371,10 +382,15 @@ class REEAgent(nn.Module):
 
         # SD-016 (MECH-152): pass cached terrain_weight so harm/goal scoring
         # precision reflects current z_world cue context.
+        # MECH-108: pass BreathOscillator sweep reduction during sweep phase.
+        # Creates periodic uncommitted windows even when running_variance has
+        # converged below base commit_threshold after training.
+        sweep_reduction = self.clock.sweep_amplitude if self.clock.sweep_active else 0.0
         result = self.e3.select(
             candidates, temperature,
             goal_state=self.goal_state,
             terrain_weight=self._cue_terrain_weight,
+            sweep_threshold_reduction=sweep_reduction,
         )
         action = result.selected_action
 

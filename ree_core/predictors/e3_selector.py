@@ -514,6 +514,7 @@ class E3TrajectorySelector(nn.Module):
         harm_bridge: Optional["nn.Module"] = None,
         use_harm_variance_commit: bool = False,
         terrain_weight: Optional[torch.Tensor] = None,
+        sweep_threshold_reduction: float = 0.0,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -533,6 +534,12 @@ class E3TrajectorySelector(nn.Module):
             terrain_weight:         [batch, 2] or None (SD-016 MECH-152). When provided,
                                     scales harm cost by w_harm and benefit/goal by w_goal
                                     in each score_trajectory() call.
+            sweep_threshold_reduction: MECH-108 BreathOscillator threshold reduction.
+                                    Fractional reduction (0-1) applied to commit_threshold
+                                    during respiratory sweep phase. 0.0 = no reduction
+                                    (default, backward compat). E.g. 0.25 reduces threshold
+                                    by 25%, creating periodic uncommitted windows even when
+                                    running_variance has converged below base threshold.
 
         Returns:
             SelectionResult
@@ -556,6 +563,14 @@ class E3TrajectorySelector(nn.Module):
         # Default: commit when z_world running_variance is LOW (world-stability signal)
         # Reframe: commit when variance of harm scores across candidates is LOW
         # ("do I know what harm each trajectory leads to?" — decision-uncertainty signal)
+        #
+        # MECH-108: BreathOscillator sweep reduces effective threshold, creating
+        # periodic uncommitted windows even after training converges variance below
+        # base threshold. Without this, the agent becomes permanently committed.
+        effective_threshold = self.commit_threshold
+        if sweep_threshold_reduction > 0.0:
+            effective_threshold = effective_threshold * (1.0 - sweep_threshold_reduction)
+
         if use_harm_variance_commit and harm_bridge is not None:
             # Compute harm scores per candidate (mean over batch), take variance across candidates
             harm_scores = torch.stack([
@@ -563,10 +578,10 @@ class E3TrajectorySelector(nn.Module):
                 for t in candidates
             ])
             harm_score_variance = harm_scores.var().item()
-            committed = harm_score_variance < self.commit_threshold
+            committed = harm_score_variance < effective_threshold
         else:
             # Default: running variance from z_world prediction error (EMA)
-            committed = self._running_variance < self.commit_threshold
+            committed = self._running_variance < effective_threshold
         if committed:
             selected_idx = int(scores.argmin().item())
         else:

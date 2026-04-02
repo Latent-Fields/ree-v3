@@ -309,6 +309,16 @@ class HeartbeatConfig:
     beta_rate_max_steps: int = 20  # Slowest E3 rate (low arousal)
     beta_magnitude_scale: float = 1.0  # Scale factor for z_beta magnitude
 
+    # MECH-108: BreathOscillator — periodic uncommitted windows.
+    # breath_period=0 disables (backward compatible). When > 0, the oscillator
+    # creates periodic sweep phases that reduce the effective commit_threshold,
+    # forcing uncommitted windows even after training converges variance below
+    # the base threshold. Without this, the agent becomes permanently committed.
+    # See clock.py for timing semantics.
+    breath_period: int = 0           # 0 = disabled; e.g. 50 = sweep every 50 steps
+    breath_sweep_amplitude: float = 0.25  # Fractional threshold reduction during sweep
+    breath_sweep_duration: int = 5   # Duration of each sweep phase (steps)
+
 
 @dataclass
 class EnvironmentConfig:
