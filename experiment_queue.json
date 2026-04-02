@@ -47,25 +47,6 @@
       "notes": "Fix: removed invalid body_obs_dim/world_obs_dim/randomise_hazard_positions kwargs from CausalGridWorldV2; corrected WORLD_OBS_DIM from 54 to 200; uses env_drift_prob for volatility."
     },
     {
-      "queue_id": "V3-EXQ-072b",
-      "title": "Q-021 Behavioral Flatness -- NoGo-only vs Competitive vs Random",
-      "experiment_type": "v3_exq_072b_q021_behavioral_flatness",
-      "script": "experiments/v3_exq_072b_q021_behavioral_flatness.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 100,
-      "supersedes": "V3-EXQ-072",
-      "claim_ids": [
-        "Q-021"
-      ],
-      "notes": "Fix: corrected dimension constants and API usage. Tests pure-avoidance gradient producing quiescence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-02T00:04:02.100428+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-073b",
       "title": "MECH-111 Novelty Signal -- E1 error EMA as exploration bonus",
       "experiment_type": "v3_exq_073b_mech111_novelty_signal",
