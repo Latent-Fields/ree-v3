@@ -38,13 +38,17 @@
       "script": "experiments/v3_exq_200_q007_zbeta_volatility_pathway.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 7,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 130,
       "supersedes": "V3-EXQ-051c",
       "claim_ids": [
         "Q-007"
       ],
-      "notes": "Substrate fix: volatility_signal_dim=1 enables rv->z_beta pathway. Tests whether z_beta encodes arousal/volatility state. Replaces manual injection approach."
+      "notes": "Substrate fix: volatility_signal_dim=1 enables rv->z_beta pathway. Tests whether z_beta encodes arousal/volatility state. Replaces manual injection approach.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-02T20:48:37.337074+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-201",
