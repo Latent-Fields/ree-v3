@@ -32,25 +32,6 @@
       "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps."
     },
     {
-      "queue_id": "V3-EXQ-199",
-      "title": "MECH-025 Action-Doing Mode with BreathOscillator uncommitted windows",
-      "experiment_type": "v3_exq_199_mech025_doing_mode_breath",
-      "script": "experiments/v3_exq_199_mech025_doing_mode_breath.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 7,
-      "status": "claimed",
-      "estimated_minutes": 130,
-      "supersedes": "V3-EXQ-050b",
-      "claim_ids": [
-        "MECH-025"
-      ],
-      "notes": "Substrate fix: BreathOscillator (MECH-108) creates periodic uncommitted windows. Replaces manual threshold calibration. Tests causal signature committed vs uncommitted.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-02T19:27:41.208522+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-200",
       "title": "Q-007 z_beta volatility pathway (rv->z_beta via volatility_signal_dim=1)",
       "experiment_type": "v3_exq_200_q007_zbeta_volatility_pathway",
