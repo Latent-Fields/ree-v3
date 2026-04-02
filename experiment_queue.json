@@ -38,13 +38,17 @@
       "script": "experiments/v3_exq_201_mech029_dmn_probe_breath.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 7,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 130,
       "supersedes": "V3-EXQ-080",
       "claim_ids": [
         "MECH-029"
       ],
-      "notes": "Substrate fix: BreathOscillator creates uncommitted windows for DMN testing. Tests E3 activity patterns committed vs uncommitted."
+      "notes": "Substrate fix: BreathOscillator creates uncommitted windows for DMN testing. Tests E3 activity patterns committed vs uncommitted.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-02T22:19:50.032066+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-202",
