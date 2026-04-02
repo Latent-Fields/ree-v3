@@ -103,7 +103,15 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   E2_harm_s is a learnable forward model on the sensory-discriminative harm stream (ARC-033).
   DO NOT attempt HarmBridge counterfactuals -- bridge_r2=0 is architectural, not a bug.
 
-## V3 / V4 Scope Boundary (2026-03-21)
+## V3 / V4 Scope Boundary (updated 2026-04-02)
+
+**Two-tier V3 completion:**
+- V3 FIRST-PAPER GATE: habit-system goal-directed behavior (SD-012 + EXQ-182a oracle +
+  goal-lift experiment). Demonstrates goal representations are real and influence behavior.
+- V3 FULL COMPLETION GATE: hippocampal multi-step trajectory planning validated (MECH-163
+  VTA/planned system). Required before V4 entry because V4 social extension ("sharing
+  joys and sorrows") requires planning trajectories that affect another agent's z_harm_a
+  and benefit_exposure over time -- structurally inaccessible to 1-step greedy.
 
 **V3 scope (waking mechanisms):**
 - Volatility interrupt / LC-NE analog (MECH-104): surprise-spike on running_variance
@@ -111,6 +119,9 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
 - Hippocampal→BG completion coupling (MECH-105, ARC-028)
 - Beta gate committed→uncommitted dynamics (MECH-090)
 - Trajectory completion signal from HippocampalModule (ARC-028)
+- Dual goal-directed systems: habit (SNc/model-free) and hippocampally-planned
+  (VTA/model-based). Both systems in V3; validation of the planned system is
+  V3 full completion gate (MECH-163).
 
 **V4 scope (sleep mechanisms — not V3):**
 - Sharp-wave ripple (SWR) consolidation of place-reward associations
