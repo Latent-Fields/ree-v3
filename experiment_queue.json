@@ -126,6 +126,87 @@
         "ARC-032"
       ],
       "notes": "Fix: progressive fixes through 076-076c (combined e1+e2 backward, dimension corrections). 10000 total steps (up from 076d's 2000) for meaningful halflife measurement."
+    },
+    {
+      "queue_id": "V3-EXQ-206",
+      "title": "INV-043 ethical capacity proxy: harm-rich vs harm-sparse training regimes",
+      "experiment_type": "v3_exq_206_inv043_ethical_capacity_probe",
+      "script": "experiments/v3_exq_206_inv043_ethical_capacity_probe.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "backlog_id": "EVB-0044",
+      "claim_id": "INV-043",
+      "note": "Proxy test for INV-043 (single-agent analog of caregiving exposure). Shared HarmEncoder; PROBE_RICH trained with harm events; PROBE_SPARSE trained without. Both eval on same test set."
+    },
+    {
+      "queue_id": "V3-EXQ-205",
+      "title": "SD-003/ARC-033 harm attribution discriminative pair (z_harm_s, phased training)",
+      "experiment_type": "v3_exq_205_sd003_harm_attribution_pair",
+      "script": "experiments/v3_exq_205_sd003_harm_attribution_pair.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 140,
+      "backlog_id": "EVB-0089",
+      "claim_id": "SD-003",
+      "supersedes": "V3-EXQ-195",
+      "note": "Fixes EXQ-195 attribution_gap denominator (approach-none not approach-env_hazard). Phased training. Adds null CF sanity check + intact_vs_ablated discriminative pair. EXQ-195 hf_r2=0.914 confirmed forward model works; this run tests attribution correctly."
+    },
+    {
+      "queue_id": "V3-EXQ-204",
+      "title": "MECH-104 volatility interrupt discriminative pair (ON vs OFF ablation)",
+      "experiment_type": "v3_exq_204_mech104_surprise_gate_pair",
+      "script": "experiments/v3_exq_204_mech104_surprise_gate_pair.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "backlog_id": "EVB-0043",
+      "claim_id": "MECH-104",
+      "note": "Discriminative pair resolving active_conflict on MECH-104. VOLATILITY_ON vs VOLATILITY_OFF (_ema_alpha=0 ablation). 3 seeds x 200 warmup + 50 eval x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-207",
+      "title": "MECH-155 general associative indexing in E1 (RSA spatial vs event domains)",
+      "experiment_type": "v3_exq_207_mech155_general_indexing_probe",
+      "script": "experiments/v3_exq_207_mech155_general_indexing_probe.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "backlog_id": "EVB-0047",
+      "claim_id": "MECH-155",
+      "note": "RSA probe: E1 LSTM hidden state correlated with both spatial position matrix and recent-harm-history matrix. 3 seeds x 100 warmup + 10 eval x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-208",
+      "title": "ARC-022 hierarchical abstraction diagnostic (z_world->E1->E2 RSA gradient)",
+      "experiment_type": "v3_exq_208_arc022_hierarchical_pipeline_probe",
+      "script": "experiments/v3_exq_208_arc022_hierarchical_pipeline_probe.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 65,
+      "backlog_id": "EVB-0048",
+      "claim_id": "ARC-022",
+      "note": "Diagnostic: RSA abstraction gradient across 3 levels (z_world, E1 hidden, E2 pred). 3 seeds x 100 warmup + 10 eval x 200 steps. EXPERIMENT_PURPOSE=diagnostic."
+    },
+    {
+      "queue_id": "V3-EXQ-195",
+      "title": "SD-003 Full Latent Counterfactual Attribution on z_harm_s (post-SD-011)",
+      "experiment_type": "v3_exq_195_sd003_zharms_full_counterfactual",
+      "script": "experiments/v3_exq_195_sd003_zharms_full_counterfactual.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 150,
+      "claim_ids": [
+        "SD-003",
+        "ARC-033"
+      ],
+      "notes": "Full latent z_harm_s counterfactual pipeline. Uses ResidualHarmForward (now in ree_core) to avoid identity collapse. Transposition of EXQ-030b (z_world) to z_harm_s. EXQ-166e validated scalar proxy; this validates the full latent version."
     }
   ]
 }
