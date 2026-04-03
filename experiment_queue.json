@@ -79,23 +79,6 @@
       "notes": "Full latent z_harm_s counterfactual pipeline. Uses ResidualHarmForward (now in ree_core) to avoid identity collapse. Transposition of EXQ-030b (z_world) to z_harm_s. EXQ-166e validated scalar proxy; this validates the full latent version."
     },
     {
-      "queue_id": "V3-EXQ-214",
-      "title": "ARC-039 entorhinal consolidation probe (with_consolidation vs no_consolidation)",
-      "experiment_type": "v3_exq_214_arc039_entorhinal_consolidation_probe",
-      "script": "experiments/v3_exq_214_arc039_entorhinal_consolidation_probe.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 180,
-      "backlog_id": "EVB-0054",
-      "claim_id": "ARC-039",
-      "note": "ARC-039 targeted probe: WITH_CONSOLIDATION (residue.integrate() every 20 eps) vs NO_CONSOLIDATION. V3 proxy for hippocampal-entorhinal offline consolidation principle. diagnostic purpose. 3 seeds x 2 conditions.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-03T20:23:22.534079+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-215",
       "title": "Q-002 residue field resolution pair (high_res=64 vs low_res=8 RBF centers)",
       "experiment_type": "v3_exq_215_q002_residue_resolution_pair",
