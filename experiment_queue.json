@@ -85,12 +85,16 @@
       "script": "experiments/v3_exq_215_q002_residue_resolution_pair.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 4,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 115,
       "backlog_id": "EVB-0043",
       "claim_id": "Q-002",
       "supersedes": "V3-EXQ-170",
-      "note": "Q-002 discriminative pair: HIGH_RES (64 RBF centers) vs LOW_RES (8 RBF centers). Uses real ResidueField from ree_core. Supersedes EXQ-170 (inline arch). 3 seeds."
+      "note": "Q-002 discriminative pair: HIGH_RES (64 RBF centers) vs LOW_RES (8 RBF centers). Uses real ResidueField from ree_core. Supersedes EXQ-170 (inline arch). 3 seeds.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-03T20:23:47.850074+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-184",
