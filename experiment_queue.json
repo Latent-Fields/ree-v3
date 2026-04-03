@@ -64,23 +64,6 @@
       "notes": "Fix: progressive fixes through 076-076c (combined e1+e2 backward, dimension corrections). 10000 total steps (up from 076d's 2000) for meaningful halflife measurement."
     },
     {
-      "queue_id": "V3-EXQ-204",
-      "title": "MECH-104 volatility interrupt discriminative pair (ON vs OFF ablation)",
-      "experiment_type": "v3_exq_204_mech104_surprise_gate_pair",
-      "script": "experiments/v3_exq_204_mech104_surprise_gate_pair.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "backlog_id": "EVB-0044",
-      "claim_id": "MECH-104",
-      "note": "Discriminative pair resolving active_conflict on MECH-104. VOLATILITY_ON vs VOLATILITY_OFF (_ema_alpha=0 ablation). 3 seeds x 200 warmup + 50 eval x 200 steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-02T23:07:20.326843+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-207",
       "title": "MECH-155 general associative indexing in E1 (RSA spatial vs event domains)",
       "experiment_type": "v3_exq_207_mech155_general_indexing_probe",
