@@ -79,23 +79,6 @@
       "notes": "Full latent z_harm_s counterfactual pipeline. Uses ResidualHarmForward (now in ree_core) to avoid identity collapse. Transposition of EXQ-030b (z_world) to z_harm_s. EXQ-166e validated scalar proxy; this validates the full latent version."
     },
     {
-      "queue_id": "V3-EXQ-212",
-      "title": "MECH-070 E2 vs E1 rollout horizon comparison (action-conditioned vs action-free)",
-      "experiment_type": "v3_exq_212_mech070_e2_motor_model_pair",
-      "script": "experiments/v3_exq_212_mech070_e2_motor_model_pair.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "backlog_id": "EVB-0068",
-      "claim_id": "MECH-070",
-      "note": "Compares E2 (chained predict_next_self with actual actions) vs E1 (predict_long_horizon, no actions) on z_self prediction accuracy at horizons 1-15. E2 action-conditioning should degrade slower. 3 seeds x 100 warmup + 30 eval x 200 steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-03T07:57:41.020769+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-138a",
       "title": "ARC-030 Go/NoGo Symmetry Pair -- goal_weight fix re-run",
       "experiment_type": "v3_exq_138a_arc030_go_nogo_pair",
