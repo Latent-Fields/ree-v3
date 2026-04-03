@@ -85,11 +85,15 @@
       "script": "experiments/v3_exq_214_arc039_entorhinal_consolidation_probe.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "backlog_id": "EVB-0054",
       "claim_id": "ARC-039",
-      "note": "ARC-039 targeted probe: WITH_CONSOLIDATION (residue.integrate() every 20 eps) vs NO_CONSOLIDATION. V3 proxy for hippocampal-entorhinal offline consolidation principle. diagnostic purpose. 3 seeds x 2 conditions."
+      "note": "ARC-039 targeted probe: WITH_CONSOLIDATION (residue.integrate() every 20 eps) vs NO_CONSOLIDATION. V3 proxy for hippocampal-entorhinal offline consolidation principle. diagnostic purpose. 3 seeds x 2 conditions.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-03T20:23:22.534079+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-215",
