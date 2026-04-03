@@ -79,23 +79,6 @@
       "notes": "Full latent z_harm_s counterfactual pipeline. Uses ResidualHarmForward (now in ree_core) to avoid identity collapse. Transposition of EXQ-030b (z_world) to z_harm_s. EXQ-166e validated scalar proxy; this validates the full latent version."
     },
     {
-      "queue_id": "V3-EXQ-147a",
-      "title": "MECH-128 E1 goal conditioning pair (SD-012 fix: drive_weight=2.0)",
-      "experiment_type": "v3_exq_147a_mech128_e1_goal_conditioning_pair",
-      "script": "experiments/v3_exq_147a_mech128_e1_goal_conditioning_pair.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "claim_id": "MECH-128",
-      "supersedes": "V3-EXQ-147",
-      "note": "Replication of EXQ-147 with drive_weight=2.0 (SD-012). EXQ-147 failed because drive_weight=0.0 left z_goal inactive. 3 seeds x 400 warmup + 120 eval x 200 steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-03T02:50:57.697961+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-211",
       "title": "MECH-153/ARC-042 supervised context labeling (ContextMemory discrimination)",
       "experiment_type": "v3_exq_211_mech153_arc042_supervised_labeling",
@@ -131,7 +114,9 @@
       "status": "pending",
       "estimated_minutes": 200,
       "supersedes": "V3-EXQ-138",
-      "claim_ids": ["ARC-030"],
+      "claim_ids": [
+        "ARC-030"
+      ],
       "note": "Re-run of EXQ-138 after goal_weight was added to E3Config. No script logic changes. 2 seeds x 400 warmup + 50 eval x 200 steps. GO_NOGO_SUPPORT vs NOGO_ONLY_ABLATED."
     },
     {
@@ -144,7 +129,9 @@
       "status": "pending",
       "estimated_minutes": 90,
       "supersedes": "V3-EXQ-192",
-      "claim_ids": ["MECH-075"],
+      "claim_ids": [
+        "MECH-075"
+      ],
       "note": "Fix: pred[:, -world_dim:] on 3D tensor [1,20,64] -> pred[:, 0, -world_dim:] to extract z_world from first horizon step. Novelty loop probe: CEM noise modulated by E1 world-model surprise. 2 seeds x 200 warmup + 50 eval x 200 steps."
     }
   ]
