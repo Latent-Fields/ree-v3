@@ -85,11 +85,15 @@
       "script": "experiments/v3_exq_209_mech075_bg_hippocampal_gain_probe.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 80,
       "backlog_id": "EVB-0049",
       "claim_id": "MECH-075",
-      "note": "DA proxy: novelty_bonus_weight=0 vs 2. Measures trajectory diversity difference. 3 seeds x 100 warmup + 30 eval x 200 steps per condition."
+      "note": "DA proxy: novelty_bonus_weight=0 vs 2. Measures trajectory diversity difference. 3 seeds x 100 warmup + 30 eval x 200 steps per condition.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-03T02:11:24.606585+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-210",
