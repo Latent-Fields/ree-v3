@@ -65,9 +65,10 @@ pipeline (post SD-011), since E3 now takes z_harm rather than z_world as primary
 - Self-navigation via z_self hippocampal trajectories (ARC-031): gated on EXQ-075 and EXQ-076
   PASS results and Q-022 dissociation test before any implementation
 
-**MECH-124 diagnostic (V4 risk indicator):** When reviewing EXQ-074b and EXQ-076b results,
-check whether z_goal salience is competitive with harm salience. If not, this is an early risk
-indicator for consolidation-mediated option-space contraction in V4.
+**MECH-124 diagnostic (V4 risk indicator):** When reviewing wanting/liking and E1 goal-conditioning
+results (EXQ-074 series, EXQ-076 series), check whether z_goal salience is competitive with harm
+salience. If not, this is an early risk indicator for consolidation-mediated option-space
+contraction in V4.
 
 ### Q-020 Decision
 
@@ -269,48 +270,56 @@ primary input to `harm_eval()`. ReafferencePredictor does NOT apply to z_harm (h
 inherently agent-relative — the action is the relevant context, not optical flow correction).
 EXQ-056c/058b/059c all PASS.
 
-### SD-011 — Dual Nociceptive Streams (PENDING)
+### SD-011 — Dual Nociceptive Streams
 
-**Status: NOT YET IMPLEMENTED — current primary bottleneck.**
+**Status: Implemented 2026-03-30. Validated EXQ-178b PASS.**
 
-**Problem:** Single z_harm conflates two neurobiologically incommensurable nociceptive pathways
-(Melzack & Casey 1968; Rainville et al. 1997 Science gold-standard dissociation):
-- z_harm_s (sensory-discriminative, Adelta-pathway analog): immediate proximity/intensity,
-  forward-predictable from action. Lateral spinothalamic tract → VPL → S1/S2 analog.
-- z_harm_a (affective-motivational, C-fiber/paleospinothalamic analog): accumulated homeostatic
-  deviation, not forward-predictable. Medial pathway → CM/PF → ACC/insula/amygdala analog.
+**Problem (original):** Single `z_harm` conflated two neurobiologically incommensurable nociceptive
+pathways (Melzack & Casey 1968; Rainville et al. 1997 Science gold-standard dissociation). A
+single stream cannot simultaneously serve SD-003 counterfactual attribution (requires
+action-predictable sensory component) and E3 commit gating (requires accumulated motivational
+urgency). EXQ-093/094 confirmed `HarmBridge(z_world → z_harm)` has `bridge_r2=0` — architecturally
+infeasible because z_world ⊥ z_harm by SD-010 design.
 
-**Why EXQ-093/094 found bridge_r2=0:** z_world ⊥ z_harm by SD-010 design.
-`HarmBridge(z_world → z_harm)` is architecturally infeasible. This is not a bug.
+**Implementation:**
+- `CausalGridWorldV2` emits `harm_obs_a` (EMA harm accumulator, tau~20 steps) alongside `harm_obs`
+- `HarmEncoder(harm_obs → z_harm)` — unchanged; sensory-discriminative, Adelta-pathway analog
+  (immediate proximity/intensity, forward-predictable from action). Lateral spinothalamic → S1/S2.
+- `AffectiveHarmEncoder(harm_obs_a → z_harm_a)` — new; affective-motivational, C-fiber/
+  paleospinothalamic analog (accumulated homeostatic deviation, NOT forward-predictable). Medial
+  pathway → CM/PF → ACC/insula/amygdala. Feeds E3 commit gating directly as motivational urgency.
+- `LatentState.z_harm_a` field added (optional `[batch, z_harm_a_dim]`)
+- `ResidualHarmForward` promoted to `ree_core/latent/stack.py` 2026-04-02 (supersedes `HarmForwardModel`,
+  deprecated 2026-04-02 — identity collapse on autocorrelated signals; see EXQ-166b/c/d)
 
-**Required implementation:**
-```
-(a) CausalGridWorldV2: add harm_obs_a (EMA harm accumulator, tau=10-30 steps) alongside harm_obs_s
-(b) HarmEncoderS (rename current HarmEncoder) + new HarmEncoderA(harm_obs_a → z_harm_a)
-(c) LatentState: add z_harm_a field
-(d) E2_harm_s: new forward model (z_harm_s, action) → z_harm_s_next (ARC-033)
-(e) E3Selector: take z_harm_s (SD-003 counterfactual) + z_harm_a (commit gating) separately
-```
-
-**SD-003 redesign after SD-011:**
+**SD-003 redesigned pipeline (post-SD-011):**
 ```python
-z_harm_s_cf = E2_harm_s(z_harm_s, a_cf)
-causal_sig = E3.harm_eval(z_harm_s_actual) - E3.harm_eval(z_harm_s_cf)
+z_harm_s_cf = ResidualHarmForward(z_harm_s, a_cf)   # predicts delta, adds to input
+causal_sig = E3.harm_eval_z_harm(z_harm_s_actual) - E3.harm_eval_z_harm(z_harm_s_cf)
 ```
 Do NOT attempt HarmBridge counterfactuals — bridge_r2=0 is architectural.
 
-### SD-012 — Homeostatic Drive Modulation (PENDING)
+**Still open (EXQ-195 queued):** Full validation of `ResidualHarmForward` + E3 dual-stream
+counterfactual pipeline (ARC-033). The architecture is in place; the experiment is queued.
 
-**Status: REGISTERED, not yet implemented.**
+### SD-012 — Homeostatic Drive Modulation
 
-**Problem:** `GoalState.update()` does not use `drive_level`. `benefit_exposure` (EMA alpha=0.1
-of raw benefit signals) never reliably crosses `benefit_threshold=0.05` during random-walk warmup:
-single resource contact produces benefit_exposure ~0.03, which decays before the next contact.
-EXQ-085 through EXQ-085d all failed at goal-seeding bottleneck (z_goal_norm < 0.1 in every run).
+**Status: Implemented 2026-04-02.**
 
-**Solution:** Drive-scaled benefit signals: when `drive_level` is high (depleted agent), benefit
-signal amplitude is multiplied by `drive_scale_factor`, making z_goal seeding reliable during
-appetitive approach. `drive_level = 1.0 - agent_energy` is already computable from `obs_body[3]`.
+**Problem (original):** `GoalState.update()` did not use `drive_level`. `benefit_exposure` (EMA
+alpha=0.1 of raw benefit signals) never reliably crossed `benefit_threshold` during random-walk
+warmup: a single resource contact produced `benefit_exposure ~0.03`, which decayed before the
+next contact. EXQ-085 through EXQ-085d all failed at the goal-seeding bottleneck
+(`z_goal_norm < 0.1` in every run).
+
+**Implementation:** Drive-scaled benefit signals: `effective_benefit = benefit_exposure * (1.0 + drive_weight * drive_level)`.
+- `GoalConfig.drive_weight` default changed from 0.0 to 2.0
+- `drive_weight` added to `REEConfig.from_dims()` parameter list (overridable per experiment)
+- With `drive_level=1.0` (fully depleted) and `drive_weight=2.0`: `effective_benefit = 0.04 * 3.0 = 0.12`,
+  which exceeds `benefit_threshold=0.1`
+- Set `drive_weight=0.0` explicitly for ablation baselines
+- `drive_level = 1.0 - agent_energy` computable from `obs_body[3]`
+
 See MECH-112, MECH-113 for the broader homeostatic architecture.
 
 ---
@@ -340,16 +349,30 @@ Q-020 asks whether rollout proposals from HippocampalModule arrive at E3 pre-wei
 ```python
 @dataclass
 class LatentState:
-    z_self: torch.Tensor    # [batch, self_dim]  — proprioceptive + interoceptive  (E2 domain)
-    z_world: torch.Tensor   # [batch, world_dim] — exteroceptive world model        (E3 domain)
-    z_beta: torch.Tensor    # [batch, beta_dim]  — affective latent                 (shared)
-    z_theta: torch.Tensor   # [batch, theta_dim] — sequence context                 (shared)
-    z_delta: torch.Tensor   # [batch, delta_dim] — regime/motivation                (shared)
+    # Core streams (required)
+    z_self: torch.Tensor    # [batch, self_dim]   — proprioceptive + interoceptive  (E2 domain)
+    z_world: torch.Tensor   # [batch, world_dim]  — exteroceptive world model        (E3 domain)
+    z_beta: torch.Tensor    # [batch, beta_dim]   — affective latent                 (shared)
+    z_theta: torch.Tensor   # [batch, theta_dim]  — sequence context                 (shared)
+    z_delta: torch.Tensor   # [batch, delta_dim]  — regime/motivation                (shared)
     precision: Dict[str, torch.Tensor]
     timestamp: Optional[int] = None
+    hypothesis_tag: bool = False  # MECH-094: True = replay/simulation, blocks residue accumulation
+
+    # Harm streams (optional — present when SD-010/011 enabled)
+    z_harm: Optional[torch.Tensor] = None     # SD-010: sensory-discriminative harm [batch, harm_dim]
+                                               #   HarmEncoder(harm_obs) — Adelta-pathway analog
+    z_harm_a: Optional[torch.Tensor] = None   # SD-011: affective-motivational harm [batch, z_harm_a_dim]
+                                               #   AffectiveHarmEncoder(harm_obs_a) — C-fiber analog
+
+    # Diagnostic fields (optional)
+    z_world_raw: Optional[torch.Tensor] = None   # SD-007: raw z_world before reafference correction
+    event_logits: Optional[torch.Tensor] = None  # SD-009: [batch, 3] for event-contrastive CE loss
 ```
 
-`z_gamma` is removed. Encoder is split into `self_encoder` and `world_encoder`. All downstream modules are updated to consume the appropriate stream.
+`z_gamma` is removed. Encoder is split into `self_encoder` and `world_encoder`. All downstream
+modules consume the appropriate stream. Optional fields default to `None` for compatibility with
+experiments that do not enable the corresponding SD.
 
 ### 5.2 E1 (deep predictor)
 
@@ -377,20 +400,33 @@ E2 trains on motor-sensory prediction error over `z_self` (primary). `world_forw
 
 ### 5.4 E3 complex
 
-**New harm evaluation method (SD-003 V3):**
+**Harm evaluation methods (implemented):**
 ```python
-class E3Selector:
+class E3TrajectorySelector:
     def harm_eval(self, z_world: Tensor) -> Tensor:
-        """Evaluate harm of a world-state. Used in SD-003 attribution pipeline."""
+        """Evaluate harm of a world-state via z_world. SD-003 original pipeline."""
+
+    def harm_eval_z_harm(self, z_harm: Tensor) -> Tensor:
+        """Evaluate harm via dedicated z_harm stream (SD-010/011 pipeline).
+        Used in post-SD-011 counterfactual: E3(z_harm_s_actual) - E3(z_harm_s_cf)."""
+
+    def benefit_eval(self, z_world: Tensor) -> Tensor:
+        """Evaluate benefit/goal proximity from z_world (ARC-030 Go channel).
+        D1/Go symmetric to harm_eval's D2/NoGo role."""
 ```
 
-E3 trains on harm + goal error over `z_world`. E3's harm evaluator is the correct locus for harm prediction — not E2. Precision is E3-derived (from E3 prediction error variance), not hardcoded (required for ARC-016).
+E3 trains on harm + goal error over `z_world`. E3's harm evaluator is the correct locus for harm
+prediction — not E2. Post-SD-011: the counterfactual attribution pipeline operates on `z_harm_s`
+(sensory-discriminative stream) via `harm_eval_z_harm`, not on `z_world` directly.
 
-**Dynamic precision:**
+Precision is E3-derived (from E3 prediction error variance), not hardcoded (required for ARC-016).
+
+**Dynamic precision (ARC-016 — implemented):**
 ```python
-precision = E3.current_prediction_error_variance.running_mean
-# Used to gate commitment threshold (ARC-016)
-commit_threshold = precision_to_threshold(precision)
+# Commitment fires when running_variance < commit_threshold (variance space, not precision space)
+# Fixed 2026-03-18: prior precision_to_threshold() was on wrong scale, causing always-committed state
+commit_threshold = variance_commit_threshold(config.commitment_threshold)
+committed = e3._running_variance < commit_threshold
 ```
 
 ### 5.5 HippocampalModule
@@ -443,7 +479,6 @@ These claims are V3-scoped. Implement and test in order:
 > **This section is historical.** These were the first 10 experiments planned at V3 launch
 > (2026-03-16). All have been run or superseded. The active experiment queue is in
 > `ree-v3/experiment_queue.json`; completed runs are in `ree-v3/runner_status.json`.
-> Current queue count: EXQ-074b and EXQ-076b (as of 2026-03-26).
 
 These were the first experiments designed after substrate was built:
 
@@ -560,9 +595,9 @@ After experiments complete: run sync_v3_results.py then build_experiment_indexes
 
 ## 11. Build Order (Historical — COMPLETED 2026-03-16 to 2026-03-18)
 
-> **This section is historical.** The 12-step build order was completed at V3 launch.
+> **This section is historical.** The 12-step build order was completed at V3 launch (2026-03-16 to 2026-03-18).
 > Current implementation status is in §0 (SD table) and `ree-v3/CLAUDE.md`.
-> Pending implementation: SD-011 (dual nociceptive streams) and SD-012 (homeostatic drive).
+> All SDs listed in §0 as "Implemented" are now complete, including SD-011 (2026-03-30) and SD-012 (2026-04-02).
 
 1. **Q-020 adjudication** ✓ — ARC-007 strict decided 2026-03-16
 2. **Latent split (SD-005)** ✓ — LatentState z_self/z_world, split encoder
