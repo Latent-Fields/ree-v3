@@ -85,11 +85,15 @@
       "script": "experiments/v3_exq_211_mech153_arc042_supervised_labeling.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "claim_id": "MECH-153",
       "supersedes": "V3-EXQ-181b",
-      "note": "Supervised context label forcing: adds nn.Linear(world_dim,2) head trained via CE loss through generate_prior(). Tests whether supervised labeling reduces cosine similarity between context A/B priors. Fixes EXQ-181b cosim~=1.0 (no discrimination). 3 seeds x 200 warmup + 50 eval x 200 steps."
+      "note": "Supervised context label forcing: adds nn.Linear(world_dim,2) head trained via CE loss through generate_prior(). Tests whether supervised labeling reduces cosine similarity between context A/B priors. Fixes EXQ-181b cosim~=1.0 (no discrimination). 3 seeds x 200 warmup + 50 eval x 200 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-03T07:56:48.099892+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-212",
