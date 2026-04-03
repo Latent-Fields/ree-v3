@@ -89,6 +89,9 @@ class HippocampalModule(nn.Module):
             nn.Linear(config.hidden_dim, config.action_dim),
         )
 
+        # ARC-028 / MECH-105: last completion signal cache
+        self._last_completion_signal: float = 0.0
+
     def _get_terrain_action_object_mean(
         self,
         z_world: torch.Tensor,
@@ -296,6 +299,41 @@ class HippocampalModule(nn.Module):
             replay_trajectories.append(traj)
 
         return replay_trajectories
+
+    def compute_completion_signal(self, trajectories: List[Trajectory]) -> float:
+        """
+        Compute the hippocampal trajectory completion signal (ARC-028, MECH-105).
+
+        This is the dopamine-analog value fed to BetaGate.receive_hippocampal_completion().
+        It implements the subiculum->NAc->VP->VTA loop described in Lisman & Grace (2005):
+        a high-quality trajectory (low residue cost) drives a dopamine-analog release that
+        causes the BG beta gate to drop, allowing E3 state to propagate to action selection.
+
+        Formula:
+            best_score = min residue cost across trajectories (lower = better)
+            completion_signal = sigmoid(-best_score * 0.5)
+            -> maps [0, inf) residue to [0.5, 1.0) signal
+            -> high completion (near 0 residue) -> signal near 1.0
+            -> poor completion (high residue) -> signal near 0.5
+            -> empty list -> 0.0
+
+        The result is cached in self._last_completion_signal.
+
+        Args:
+            trajectories: List of Trajectory objects (as returned by propose_trajectories).
+
+        Returns:
+            float in [0.0, 1.0): dopamine-analog completion quality signal.
+        """
+        if not trajectories:
+            self._last_completion_signal = 0.0
+            return 0.0
+
+        scores = [self._score_trajectory(t) for t in trajectories]
+        best_score = min(s.item() if isinstance(s, torch.Tensor) else float(s) for s in scores)
+        signal = float(torch.sigmoid(torch.tensor(-best_score * 0.5)).item())
+        self._last_completion_signal = signal
+        return signal
 
     def forward(
         self,

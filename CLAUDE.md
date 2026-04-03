@@ -88,6 +88,28 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   are invariant to harm-relevance; supervised event discrimination forces z_world to
   represent hazard-vs-empty distinctions. See MECH-100.
 
+## SD Design Decisions Implemented (V3) — continued
+- SD-014: hippocampus.valence_vector_node_recording — IMPLEMENTED 2026-04-04.
+  4-component valence vector V=[wanting, liking, harm_discriminative, surprise] added to
+  RBFLayer and ResidueField (ree_core/residue/field.py). Each RBF center now stores a
+  valence_vecs buffer [num_centers, 4] updated incrementally per visit.
+  New methods: RBFLayer.evaluate_valence(z) -> [batch, 4]; ResidueField.update_valence(),
+  evaluate_valence(), get_valence_priority(z_world, drive_state). VALENCE_WANTING=0,
+  VALENCE_LIKING=1, VALENCE_HARM_DISCRIMINATIVE=2, VALENCE_SURPRISE=3 constants defined
+  at module level. ResidueConfig.valence_enabled (default True; set False for ablation).
+  MECH-094 gate applies: hypothesis_tag=True blocks valence updates. Prerequisite for
+  ARC-036 (multidimensional valence map) and replay prioritisation via drive state.
+
+- ARC-028 + MECH-105: control_plane.hippocampal_betagate_coupling — IMPLEMENTED 2026-04-04.
+  HippocampalModule.compute_completion_signal(trajectories) -> float: scores all proposed
+  trajectories via _score_trajectory(), maps best score to sigmoid dopamine-analog value
+  in [0.5, 1.0). Caches as self._last_completion_signal.
+  BetaGate.receive_hippocampal_completion(signal) -> bool: if beta elevated and signal >=
+  completion_release_threshold (default 0.75), calls self.release() and returns True.
+  Implements Lisman & Grace 2005 subiculum->NAc->VP->VTA loop: high hippocampal completion
+  quality -> dopamine signal -> beta drops -> E3 state propagates to action selection.
+  get_state() and reset() updated. Return type of propose_trajectories() unchanged.
+
 ## SD Design Decisions Validated (V3) — 2026-03-18
 - SD-003: self_attribution.counterfactual_e2_pipeline — VALIDATED EXQ-030b PASS
   (on z_world pipeline). REDESIGN IN PROGRESS for z_harm_s pipeline (SD-011/ARC-033).
@@ -116,9 +138,9 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
 **V3 scope (waking mechanisms):**
 - Volatility interrupt / LC-NE analog (MECH-104): surprise-spike on running_variance
 - BG hysteresis and outcome-valence modulation (MECH-106)
-- Hippocampal→BG completion coupling (MECH-105, ARC-028)
+- Hippocampal→BG completion coupling (MECH-105, ARC-028) — IMPLEMENTED 2026-04-04
 - Beta gate committed→uncommitted dynamics (MECH-090)
-- Trajectory completion signal from HippocampalModule (ARC-028)
+- Trajectory completion signal from HippocampalModule (ARC-028) — IMPLEMENTED 2026-04-04
 - Dual goal-directed systems: habit (SNc/model-free) and hippocampally-planned
   (VTA/model-based). Both systems in V3; validation of the planned system is
   V3 full completion gate (MECH-163).

@@ -41,6 +41,19 @@ import torch.nn.functional as F
 
 from ree_core.utils.config import ResidueConfig
 
+# SD-014 / ARC-036: Valence vector component indices.
+# Each hippocampal map node stores a 4-component valence vector updated incrementally.
+# Component 0: wanting        -- z_goal signal (frontal goal attractor, drives approach)
+# Component 1: liking         -- benefit terrain signal (where benefit was received)
+# Component 2: harm_discriminative -- z_harm_s signal (sensory-discriminative, A-delta analog)
+# Component 3: surprise       -- prediction error (novelty / unexpectedness signal)
+VALENCE_WANTING: int = 0
+VALENCE_LIKING: int = 1
+VALENCE_HARM_DISCRIMINATIVE: int = 2
+VALENCE_SURPRISE: int = 3
+VALENCE_DIM: int = 4
+VALENCE_COMPONENTS = [VALENCE_WANTING, VALENCE_LIKING, VALENCE_HARM_DISCRIMINATIVE, VALENCE_SURPRISE]
+
 
 class RBFLayer(nn.Module):
     """RBF field over z_world — unchanged from V2 except latent_dim → world_dim."""
@@ -55,6 +68,10 @@ class RBFLayer(nn.Module):
         self.weights = nn.Parameter(torch.zeros(num_centers))
         self.register_buffer("active_mask", torch.zeros(num_centers, dtype=torch.bool))
         self.register_buffer("next_center_idx", torch.tensor(0))
+        # SD-014 / ARC-036: 4-component valence vector per center.
+        # Shape [num_centers, VALENCE_DIM]: [wanting, liking, harm_discriminative, surprise].
+        # Sparse by design -- most centers start at zeros and are updated incrementally.
+        self.register_buffer("valence_vecs", torch.zeros(num_centers, VALENCE_DIM))
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """
@@ -97,6 +114,53 @@ class RBFLayer(nn.Module):
             self.next_center_idx = (self.next_center_idx + 1) % self.num_centers
         return idx
 
+    def update_valence(
+        self, center_idx: int, valence_component: int, value: float
+    ) -> None:
+        """
+        Incrementally update a single valence component at a center (SD-014).
+
+        Does NOT replace the existing value -- adds to it so the vector accumulates
+        across visits. Callers are responsible for scaling (e.g. EMA step size).
+
+        Args:
+            center_idx:        Index of the RBF center to update (0-based).
+            valence_component: One of VALENCE_WANTING/LIKING/HARM_DISCRIMINATIVE/SURPRISE.
+            value:             Signed scalar to add to the component.
+        """
+        with torch.no_grad():
+            self.valence_vecs[center_idx, valence_component] += value
+
+    def evaluate_valence(self, z: torch.Tensor) -> torch.Tensor:
+        """
+        Return weighted valence vector at z_world query points (SD-014).
+
+        Uses the same RBF activations as forward() but sums valence_vecs instead
+        of scalar weights. Only active centers contribute.
+
+        Args:
+            z: [batch, world_dim]
+
+        Returns:
+            valence: [batch, VALENCE_DIM]  -- component order [wanting, liking,
+                     harm_discriminative, surprise]
+        """
+        if not self.active_mask.any():
+            return torch.zeros(z.shape[0], VALENCE_DIM, device=z.device, dtype=z.dtype)
+
+        # [batch, num_centers]
+        diffs = z.unsqueeze(1) - self.centers.unsqueeze(0)
+        distances_sq = (diffs ** 2).sum(dim=-1)
+        rbf_values = torch.exp(-distances_sq / (2 * self.bandwidth ** 2))
+
+        # Zero out inactive centers
+        active_rbf = rbf_values * self.active_mask.float().unsqueeze(0)  # [batch, num_centers]
+
+        # Weighted sum of valence vecs: [batch, num_centers] x [num_centers, VALENCE_DIM]
+        # -> [batch, VALENCE_DIM]
+        valence = torch.matmul(active_rbf, self.valence_vecs)
+        return valence
+
 
 class ResidueField(nn.Module):
     """
@@ -113,6 +177,15 @@ class ResidueField(nn.Module):
     - hypothesis_tag check (MECH-094): simulation cannot produce residue
     - world_delta accumulation: magnitude of world-state change drives
       accumulation strength (requires SD-003 pipeline to be wired)
+
+    SD-014 / ARC-036 — 4-component valence vector:
+    Each RBF center also stores a 4-component valence vector [wanting, liking,
+    harm_discriminative, surprise] that is updated incrementally as the agent
+    visits different z_world regions.  The valence map enables drive-weighted
+    replay prioritisation:  priority(node) = dot(V_node, d_current) + epsilon
+    where d_current = [w_drive, l_drive, h_drive, s_drive] is the current
+    drive-state vector.  API: update_valence(), evaluate_valence(),
+    get_valence_priority().  Controlled by ResidueConfig.valence_enabled.
     """
 
     def __init__(self, config: Optional[ResidueConfig] = None):
@@ -269,6 +342,102 @@ class ResidueField(nn.Module):
             self.benefit_rbf_field.add_residue(loc, float(benefit_magnitude))
             self.total_benefit = self.total_benefit + benefit_magnitude
             self.num_benefit_events = self.num_benefit_events + 1
+
+    # ------------------------------------------------------------------
+    # SD-014 / ARC-036: 4-component valence vector API
+    # ------------------------------------------------------------------
+
+    def update_valence(
+        self,
+        z_world: torch.Tensor,
+        component: int,
+        value: float,
+        hypothesis_tag: bool = False,
+    ) -> None:
+        """
+        Update valence at the nearest active RBF center (SD-014).
+
+        MECH-094 gate: if hypothesis_tag=True, skip (simulated/replay content
+        cannot update real valence, mirroring the accumulate() invariant).
+
+        If no active centers exist yet, skips silently (avoids a crash during
+        early training before any residue has been accumulated).
+
+        Args:
+            z_world:        Location in z_world space [batch, world_dim] or [world_dim].
+            component:      Valence component index (use VALENCE_* constants).
+            value:          Signed scalar to add (incremental, not replace).
+            hypothesis_tag: MECH-094 gate -- if True, no update occurs.
+        """
+        if hypothesis_tag:
+            return
+        if not getattr(self.config, "valence_enabled", True):
+            return
+        if not self.rbf_field.active_mask.any():
+            return
+
+        # Reduce batch to a single representative point
+        if z_world.dim() == 2:
+            z_point = z_world.mean(dim=0, keepdim=True)   # [1, world_dim]
+        else:
+            z_point = z_world.unsqueeze(0)                 # [1, world_dim]
+
+        # Find nearest active center
+        active_idxs = self.rbf_field.active_mask.nonzero(as_tuple=True)[0]  # [n_active]
+        active_centers = self.rbf_field.centers[active_idxs]                  # [n_active, world_dim]
+        diffs = z_point - active_centers                                       # [n_active, world_dim]
+        dists_sq = (diffs ** 2).sum(dim=-1)                                   # [n_active]
+        nearest_local = dists_sq.argmin().item()
+        nearest_global = active_idxs[nearest_local].item()
+
+        self.rbf_field.update_valence(nearest_global, component, value)
+
+    def evaluate_valence(self, z_world: torch.Tensor) -> torch.Tensor:
+        """
+        Return [batch, 4] valence vector from the RBF field (SD-014).
+
+        Component order: [wanting, liking, harm_discriminative, surprise].
+        Returns zeros when no centers are active or valence_enabled=False.
+
+        Args:
+            z_world: [batch, world_dim]
+
+        Returns:
+            valence: [batch, VALENCE_DIM]
+        """
+        if not getattr(self.config, "valence_enabled", True):
+            return torch.zeros(z_world.shape[0], VALENCE_DIM,
+                               device=z_world.device, dtype=z_world.dtype)
+        return self.rbf_field.evaluate_valence(z_world)
+
+    def get_valence_priority(
+        self, z_world: torch.Tensor, drive_state: torch.Tensor, epsilon: float = 1e-6
+    ) -> torch.Tensor:
+        """
+        Compute drive-weighted replay priority (SD-014).
+
+        priority(node) = dot(V_node, d_current) + epsilon
+        where V_node = evaluate_valence(z_world) [batch, 4]
+        and   d_current = drive_state [4] current drive weights.
+
+        A high priority means the node is strongly relevant to current drive.
+        All priorities are strictly positive (epsilon floor) so they can be
+        used directly as sampling weights.
+
+        Args:
+            z_world:     [batch, world_dim] query points
+            drive_state: [4] current drive weight vector
+                         [w_drive, l_drive, h_drive, s_drive]
+            epsilon:     small constant for numerical stability (default 1e-6)
+
+        Returns:
+            priority: [batch] scalar priority per query point
+        """
+        valence = self.evaluate_valence(z_world)           # [batch, 4]
+        # drive_state may be on a different device; move to match
+        d = drive_state.to(valence.device).to(valence.dtype)  # [4]
+        priority = (valence * d.unsqueeze(0)).sum(dim=-1) + epsilon  # [batch]
+        return priority
 
     def integrate(self, num_steps: int = 10) -> Dict[str, float]:
         """

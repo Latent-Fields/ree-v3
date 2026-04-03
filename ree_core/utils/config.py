@@ -284,6 +284,11 @@ class ResidueConfig:
     integration_rate: float = 0.01
     # ARC-030 / MECH-117: benefit terrain (liking -- separate from z_goal wanting)
     benefit_terrain_enabled: bool = False
+    # SD-014: 4-component valence vector [wanting, liking, harm_discriminative, surprise].
+    # When False, evaluate_valence() returns zeros and update_valence() is a no-op.
+    # Used to ablate valence tracking in experiments that do not need replay prioritisation.
+    # Prerequisite for ARC-036 (multidimensional valence map).
+    valence_enabled: bool = True
 
 
 @dataclass
