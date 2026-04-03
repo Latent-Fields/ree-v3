@@ -111,10 +111,14 @@
       "script": "experiments/v3_exq_223_minimal_vertebrate_ablation.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 7,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 80,
       "claim_ids": [],
-      "notes": "Milestone diagnostic. Ablates commitment architecture (commitment_threshold=-1.0, z_goal_enabled=False) to test whether E1+E2+hippocampus core loop gradient-follows without commitment. Sidesteps SD-011 and SD-012 blockers. PASS = minimal mind loop structurally sound."
+      "notes": "Milestone diagnostic. Ablates commitment architecture (commitment_threshold=-1.0, z_goal_enabled=False) to test whether E1+E2+hippocampus core loop gradient-follows without commitment. Sidesteps SD-011 and SD-012 blockers. PASS = minimal mind loop structurally sound.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-03T21:41:06.340478+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-125",
