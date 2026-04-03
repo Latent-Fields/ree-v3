@@ -64,23 +64,6 @@
       "notes": "Fix: progressive fixes through 076-076c (combined e1+e2 backward, dimension corrections). 10000 total steps (up from 076d's 2000) for meaningful halflife measurement."
     },
     {
-      "queue_id": "V3-EXQ-207",
-      "title": "MECH-155 general associative indexing in E1 (RSA spatial vs event domains)",
-      "experiment_type": "v3_exq_207_mech155_general_indexing_probe",
-      "script": "experiments/v3_exq_207_mech155_general_indexing_probe.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 60,
-      "backlog_id": "EVB-0053",
-      "claim_id": "MECH-155",
-      "note": "RSA probe: E1 LSTM hidden state correlated with both spatial position matrix and recent-harm-history matrix. 3 seeds x 100 warmup + 10 eval x 200 steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-03T02:05:42.571587+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-208",
       "title": "ARC-022 hierarchical abstraction diagnostic (z_world->E1->E2 RSA gradient)",
       "experiment_type": "v3_exq_208_arc022_hierarchical_pipeline_probe",
