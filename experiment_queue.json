@@ -70,11 +70,15 @@
       "script": "experiments/v3_exq_207_mech155_general_indexing_probe.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "backlog_id": "EVB-0053",
       "claim_id": "MECH-155",
-      "note": "RSA probe: E1 LSTM hidden state correlated with both spatial position matrix and recent-harm-history matrix. 3 seeds x 100 warmup + 10 eval x 200 steps."
+      "note": "RSA probe: E1 LSTM hidden state correlated with both spatial position matrix and recent-harm-history matrix. 3 seeds x 100 warmup + 10 eval x 200 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-03T02:05:42.571587+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-208",
