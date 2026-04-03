@@ -79,23 +79,6 @@
       "notes": "Full latent z_harm_s counterfactual pipeline. Uses ResidualHarmForward (now in ree_core) to avoid identity collapse. Transposition of EXQ-030b (z_world) to z_harm_s. EXQ-166e validated scalar proxy; this validates the full latent version."
     },
     {
-      "queue_id": "V3-EXQ-210",
-      "title": "MECH-156 theta traversal in E1 hidden state (sequential ordering within theta cycle)",
-      "experiment_type": "v3_exq_210_mech156_theta_traversal_probe",
-      "script": "experiments/v3_exq_210_mech156_theta_traversal_probe.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 60,
-      "backlog_id": "EVB-0058",
-      "claim_id": "MECH-156",
-      "note": "RSA probe: E1 hidden state drift monotonicity within theta cycles + autocorr at theta lag. 3 seeds x 100 warmup + 10 eval x 200 steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-03T02:48:11.797211+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-147a",
       "title": "MECH-128 E1 goal conditioning pair (SD-012 fix: drive_weight=2.0)",
       "experiment_type": "v3_exq_147a_mech128_e1_goal_conditioning_pair",
