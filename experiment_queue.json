@@ -85,13 +85,17 @@
       "script": "experiments/v3_exq_138a_arc030_go_nogo_pair.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "supersedes": "V3-EXQ-138",
       "claim_ids": [
         "ARC-030"
       ],
-      "note": "Re-run of EXQ-138 after goal_weight was added to E3Config. No script logic changes. 2 seeds x 400 warmup + 50 eval x 200 steps. GO_NOGO_SUPPORT vs NOGO_ONLY_ABLATED."
+      "note": "Re-run of EXQ-138 after goal_weight was added to E3Config. No script logic changes. 2 seeds x 400 warmup + 50 eval x 200 steps. GO_NOGO_SUPPORT vs NOGO_ONLY_ABLATED.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-03T07:59:41.888425+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-192a",
