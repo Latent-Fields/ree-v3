@@ -64,23 +64,6 @@
       "notes": "Fix: progressive fixes through 076-076c (combined e1+e2 backward, dimension corrections). 10000 total steps (up from 076d's 2000) for meaningful halflife measurement."
     },
     {
-      "queue_id": "V3-EXQ-208",
-      "title": "ARC-022 hierarchical abstraction diagnostic (z_world->E1->E2 RSA gradient)",
-      "experiment_type": "v3_exq_208_arc022_hierarchical_pipeline_probe",
-      "script": "experiments/v3_exq_208_arc022_hierarchical_pipeline_probe.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 65,
-      "backlog_id": "EVB-0055",
-      "claim_id": "ARC-022",
-      "note": "Diagnostic: RSA abstraction gradient across 3 levels (z_world, E1 hidden, E2 pred). 3 seeds x 100 warmup + 10 eval x 200 steps. EXPERIMENT_PURPOSE=diagnostic.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-03T02:08:33.950851+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-195",
       "title": "SD-003 Full Latent Counterfactual Attribution on z_harm_s (post-SD-011)",
       "experiment_type": "v3_exq_195_sd003_zharms_full_counterfactual",
