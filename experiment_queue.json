@@ -85,11 +85,15 @@
       "script": "experiments/v3_exq_147a_mech128_e1_goal_conditioning_pair.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "claim_id": "MECH-128",
       "supersedes": "V3-EXQ-147",
-      "note": "Replication of EXQ-147 with drive_weight=2.0 (SD-012). EXQ-147 failed because drive_weight=0.0 left z_goal inactive. 3 seeds x 400 warmup + 120 eval x 200 steps."
+      "note": "Replication of EXQ-147 with drive_weight=2.0 (SD-012). EXQ-147 failed because drive_weight=0.0 left z_goal inactive. 3 seeds x 400 warmup + 120 eval x 200 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-03T02:50:57.697961+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-211",
