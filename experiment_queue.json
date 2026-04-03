@@ -77,6 +77,88 @@
         "ARC-033"
       ],
       "notes": "Full latent z_harm_s counterfactual pipeline. Uses ResidualHarmForward (now in ree_core) to avoid identity collapse. Transposition of EXQ-030b (z_world) to z_harm_s. EXQ-166e validated scalar proxy; this validates the full latent version."
+    },
+    {
+      "queue_id": "V3-EXQ-213",
+      "title": "MECH-072 foreseeable-harm gating discriminative pair (gated vs ungated residue)",
+      "experiment_type": "v3_exq_213_mech072_foreseeable_harm_gating",
+      "script": "experiments/v3_exq_213_mech072_foreseeable_harm_gating.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 4,
+      "status": "claimed",
+      "estimated_minutes": 120,
+      "backlog_id": "EVB-0029",
+      "claim_id": "MECH-072",
+      "note": "MECH-072 discriminative pair: GATED (E2 foreseeability gate on residue accumulation) vs UNGATED (all harm events). False attribution rate + harm preservation. 3 seeds x 300 train + 100 eval x 150 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-03T20:23:03.718599+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-214",
+      "title": "ARC-039 entorhinal consolidation probe (with_consolidation vs no_consolidation)",
+      "experiment_type": "v3_exq_214_arc039_entorhinal_consolidation_probe",
+      "script": "experiments/v3_exq_214_arc039_entorhinal_consolidation_probe.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 180,
+      "backlog_id": "EVB-0054",
+      "claim_id": "ARC-039",
+      "note": "ARC-039 targeted probe: WITH_CONSOLIDATION (residue.integrate() every 20 eps) vs NO_CONSOLIDATION. V3 proxy for hippocampal-entorhinal offline consolidation principle. diagnostic purpose. 3 seeds x 2 conditions."
+    },
+    {
+      "queue_id": "V3-EXQ-215",
+      "title": "Q-002 residue field resolution pair (high_res=64 vs low_res=8 RBF centers)",
+      "experiment_type": "v3_exq_215_q002_residue_resolution_pair",
+      "script": "experiments/v3_exq_215_q002_residue_resolution_pair.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 4,
+      "status": "pending",
+      "estimated_minutes": 115,
+      "backlog_id": "EVB-0043",
+      "claim_id": "Q-002",
+      "supersedes": "V3-EXQ-170",
+      "note": "Q-002 discriminative pair: HIGH_RES (64 RBF centers) vs LOW_RES (8 RBF centers). Uses real ResidueField from ree_core. Supersedes EXQ-170 (inline arch). 3 seeds."
+    },
+    {
+      "queue_id": "V3-EXQ-184",
+      "title": "MECH-033 E2 kernel chain pair (chain vs no-chain, 3-seed replication)",
+      "experiment_type": "v3_exq_184_mech033_kernel_chain_pair",
+      "script": "experiments/v3_exq_184_mech033_kernel_chain_pair.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 4,
+      "status": "pending",
+      "estimated_minutes": 170,
+      "backlog_id": "EVB-0050",
+      "claim_id": "MECH-033",
+      "note": "MECH-033 3-seed replication (extends EXQ-171 2-seed). KERNEL_CHAIN vs NO_CHAIN greedy avoidance. 600 warmup + 50 eval eps per seed."
+    },
+    {
+      "queue_id": "V3-EXQ-196",
+      "title": "ARC-018 rollout viability pair (viability_mapped vs viability_ablated)",
+      "experiment_type": "v3_exq_196_arc018_rollout_viability_pair",
+      "script": "experiments/v3_exq_196_arc018_rollout_viability_pair.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 4,
+      "status": "pending",
+      "estimated_minutes": 125,
+      "backlog_id": "EVB-0048",
+      "claim_id": "ARC-018",
+      "note": "ARC-018 discriminative pair: VIABILITY_MAPPED (ResidueField + HippocampalModule CEM terrain) vs VIABILITY_ABLATED (residue field zeroed). Real ree_core modules. Fixes EXQ-172 inline-module issue. 3 seeds."
+    },
+    {
+      "queue_id": "V3-EXQ-125",
+      "title": "ARC-029 committed vs ablated mode harm pair (stable + volatile envs)",
+      "experiment_type": "v3_exq_125_arc029_committed_mode_pair",
+      "script": "experiments/v3_exq_125_arc029_committed_mode_pair.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 4,
+      "status": "pending",
+      "estimated_minutes": 180,
+      "claim_id": "ARC-029",
+      "note": "ARC-029 matched-seed discriminative pair. Extends EXQ-063 (PASS) with explicit pre-registered thresholds + 2 matched seeds. 2x2 gate x environment (stable/volatile). 400 warmup + 50 eval x 200 steps."
     }
   ]
 }
