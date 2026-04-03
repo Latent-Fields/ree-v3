@@ -123,14 +123,11 @@
       "script": "experiments/v3_exq_125_arc029_committed_mode_pair.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 4,
-      "status": "claimed",
+      "status": "pending",
       "estimated_minutes": 180,
       "claim_id": "ARC-029",
       "note": "ARC-029 matched-seed discriminative pair. Extends EXQ-063 (PASS) with explicit pre-registered thresholds + 2 matched seeds. 2x2 gate x environment (stable/volatile). 400 warmup + 50 eval x 200 steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-03T20:24:37.282018+00:00"
-      }
+      "claimed_by": null
     }
   ]
 }
