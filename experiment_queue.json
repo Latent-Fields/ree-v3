@@ -120,6 +120,32 @@
       "backlog_id": "EVB-0068",
       "claim_id": "MECH-070",
       "note": "Compares E2 (chained predict_next_self with actual actions) vs E1 (predict_long_horizon, no actions) on z_self prediction accuracy at horizons 1-15. E2 action-conditioning should degrade slower. 3 seeds x 100 warmup + 30 eval x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-138a",
+      "title": "ARC-030 Go/NoGo Symmetry Pair -- goal_weight fix re-run",
+      "experiment_type": "v3_exq_138a_arc030_go_nogo_pair",
+      "script": "experiments/v3_exq_138a_arc030_go_nogo_pair.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 200,
+      "supersedes": "V3-EXQ-138",
+      "claim_ids": ["ARC-030"],
+      "note": "Re-run of EXQ-138 after goal_weight was added to E3Config. No script logic changes. 2 seeds x 400 warmup + 50 eval x 200 steps. GO_NOGO_SUPPORT vs NOGO_ONLY_ABLATED."
+    },
+    {
+      "queue_id": "V3-EXQ-192a",
+      "title": "MECH-075 Hippocampal-VTA Novelty Loop -- pred shape fix",
+      "experiment_type": "v3_exq_192a_mech075_novelty_loop_probe",
+      "script": "experiments/v3_exq_192a_mech075_novelty_loop_probe.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 90,
+      "supersedes": "V3-EXQ-192",
+      "claim_ids": ["MECH-075"],
+      "note": "Fix: pred[:, -world_dim:] on 3D tensor [1,20,64] -> pred[:, 0, -world_dim:] to extract z_world from first horizon step. Novelty loop probe: CEM noise modulated by E1 world-model surprise. 2 seeds x 200 warmup + 50 eval x 200 steps."
     }
   ]
 }
