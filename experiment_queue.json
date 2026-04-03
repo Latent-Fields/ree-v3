@@ -110,7 +110,7 @@
       "experiment_type": "v3_exq_223_minimal_vertebrate_ablation",
       "script": "experiments/v3_exq_223_minimal_vertebrate_ablation.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 3,
+      "priority": 7,
       "status": "pending",
       "estimated_minutes": 80,
       "claim_ids": [],
