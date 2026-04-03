@@ -82,11 +82,11 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   Set drive_weight=0.0 explicitly for ablation baselines. EXQ-074e and EXQ-085 successors
   will benefit immediately. See GoalConfig, agent.py update_z_goal().
 
-## SD Design Decisions Pending (V3)
-- SD-009: encoder.event_contrastive_supervision — z_world encoder requires event-type
-  cross-entropy auxiliary loss during training (MECH-100). Reconstruction + E1-prediction
-  losses are invariant to harm-relevance; only supervised event discrimination forces
-  z_world to represent hazard-vs-empty distinctions. See EXQ-020.
+## SD Design Decisions Implemented (V3) — continued
+- SD-009: encoder.event_contrastive_supervision — IMPLEMENTED (EXQ-020 PASS). z_world
+  encoder event-type cross-entropy auxiliary loss. Reconstruction + E1-prediction losses
+  are invariant to harm-relevance; supervised event discrimination forces z_world to
+  represent hazard-vs-empty distinctions. See MECH-100.
 
 ## SD Design Decisions Validated (V3) — 2026-03-18
 - SD-003: self_attribution.counterfactual_e2_pipeline — VALIDATED EXQ-030b PASS

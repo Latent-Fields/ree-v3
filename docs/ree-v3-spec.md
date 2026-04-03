@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-03-26
+**Last updated:** 2026-04-03
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -26,8 +26,8 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-008 | alpha_world >= 0.9 in LatentStackConfig | Implemented (EXQ-040 validated) |
 | SD-009 | Event-contrastive CE auxiliary loss for z_world encoder | Implemented (EXQ-020 PASS) |
 | SD-010 | Harm stream separated as dedicated pathway (z_harm) | Implemented (EXQ-056c/058b/059c PASS) |
-| SD-011 | Dual nociceptive streams: z_harm_s + z_harm_a | **PENDING — current bottleneck** |
-| SD-012 | Homeostatic drive modulation for z_goal seeding | **PENDING — not yet implemented** |
+| SD-011 | Dual nociceptive streams: z_harm_s + z_harm_a | Implemented (2026-03-30; EXQ-178b PASS) |
+| SD-012 | Homeostatic drive modulation for z_goal seeding | Implemented (2026-04-02) |
 
 SD-003 (self-attribution counterfactual pipeline) was validated at EXQ-030b PASS
 (world_forward_r2=0.947, attribution_gap=0.035). Redesign now in progress to use z_harm_s
@@ -35,13 +35,19 @@ pipeline (post SD-011), since E3 now takes z_harm rather than z_world as primary
 
 ### Experiment Status
 
-- **~96 experiments run** (EXQ-001 through EXQ-096a), covering SD-003 through SD-010 validation,
-  heartbeat architecture (SD-006), reafference (SD-007), encoder fixes (SD-008/009), harm stream
-  separation (SD-010), wanting/liking dissociation (MECH-112/117), goal conditioning (MECH-116/ARC-032).
-- **Currently queued:** EXQ-074b (MECH-112/117 wanting/liking dissociation, supersedes EXQ-074),
-  EXQ-076b (MECH-116/ARC-032 E1 goal conditioning, supersedes EXQ-076).
-- **SD-011 blocks:** ~10 experiments are FAILing because the single z_harm stream is architecturally
-  insufficient for the SD-003 counterfactual redesign. These will be re-run after SD-011 implementation.
+- **~198 experiments run** (EXQ-001 through EXQ-212+ series), covering SD-003 through SD-012
+  validation, heartbeat architecture (SD-006), reafference (SD-007), encoder fixes (SD-008/009),
+  harm stream separation (SD-010), dual nociceptive streams (SD-011), homeostatic drive (SD-012),
+  wanting/liking dissociation (MECH-112/117), goal conditioning (MECH-116/ARC-032), context
+  memory (MECH-153/ARC-042), and breath oscillator / z_beta pathway fixes (EXQ-199--203).
+- **Currently queued (2026-04-03):** EXQ-074e (MECH-112/117 wanting/liking, supersedes EXQ-074d),
+  EXQ-076e (MECH-116/ARC-032 E1 goal conditioning, supersedes EXQ-076c),
+  EXQ-195 (SD-003 full z_harm_s counterfactual, post-SD-011),
+  EXQ-211 (MECH-153/ARC-042 supervised context labeling),
+  EXQ-212 (MECH-070 E2 vs E1 rollout horizon comparison).
+- **Current bottleneck:** First-paper gate experiments (SD-012 + MECH-112 behavioral lift;
+  ARC-030 harm/goal competition in shared selector; EXQ-182a oracle ceiling).
+  SD-011/012 blocks lifted -- both implemented and validated.
 
 ### V3 / V4 Scope Boundary
 

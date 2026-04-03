@@ -12,15 +12,26 @@ V2 experiments (EXQ-014–028) produced three architectural failures requiring n
 
 ## Core Design Decisions
 
+**Founding substrate decisions (co-designed):**
 - **SD-004**: Action objects as hippocampal map backbone — E2 produces compressed action-object representations that HippocampalModule maps over, enabling planning horizons far beyond raw state space.
-- **SD-005**: Self/World latent split — z_gamma is replaced by z_self (E2's domain: motor-sensory, proprioceptive) and z_world (E3/Hippocampus domain: residue, moral attribution, causal footprint). SD-004 and SD-005 must be co-designed.
+- **SD-005**: Self/World latent split — z_gamma replaced by z_self (E2 domain: motor-sensory, proprioceptive) and z_world (E3/Hippocampus domain: residue, moral attribution, causal footprint). SD-004 and SD-005 must be co-designed.
 - **SD-006**: Asynchronous multi-rate loop execution — E1, E2, E3 run at characteristic rates rather than lockstep.
+
+**V3 substrate refinements (all implemented):**
+- **SD-007**: Perspective-corrected z_world via ReafferencePredictor (implemented 2026-03-18, validated EXQ-027).
+- **SD-008**: alpha_world >= 0.9 in LatentStackConfig — prevents EMA suppression of event responses (validated EXQ-040).
+- **SD-009**: Event-contrastive CE auxiliary loss for z_world encoder — forces hazard vs empty discrimination (validated EXQ-020).
+- **SD-010**: Harm stream separated as dedicated pathway (z_harm) — prerequisite for SD-003 counterfactual (validated EXQ-056c/058b/059c).
+- **SD-011**: Dual nociceptive streams (z_harm_s + z_harm_a) — sensory-discriminative and affective-motivational streams (implemented 2026-03-30, validated EXQ-178b).
+- **SD-012**: Homeostatic drive modulation for z_goal seeding — drive_weight scales benefit_exposure by depletion level (implemented 2026-04-02).
 
 SD-004 and SD-005 are interdependent: action objects require z_world to exist; z_world's separation from z_self is what makes action-object attribution meaningful.
 
-## Specification
+## Current Status (2026-04-03)
 
-Full architecture specification: [`docs/ree-v3-spec.md`](docs/ree-v3-spec.md)
+~198 experiments run. SD-004 through SD-012 all implemented. Current focus: first-paper gate experiments — EXQ-074e (wanting/liking dissociation), EXQ-076e (E1 goal conditioning), EXQ-195 (SD-003 z_harm_s counterfactual post-SD-011), EXQ-182a (habit-system oracle ceiling).
+
+Full specification with substrate status table: [`docs/ree-v3-spec.md`](docs/ree-v3-spec.md)
 
 ## Experiment Tagging
 
@@ -30,11 +41,15 @@ Full architecture specification: [`docs/ree-v3-spec.md`](docs/ree-v3-spec.md)
 
 ## Governance
 
-After experiments complete, from `REE_assembly/` root:
+From `REE_assembly/` root:
 
 ```bash
-python scripts/sync_v3_results.py
-python scripts/build_experiment_indexes.py
+bash scripts/governance.sh
+```
+
+Or manually:
+```bash
+python evidence/experiments/scripts/build_experiment_indexes.py
 python scripts/generate_pending_review.py
 ```
 
