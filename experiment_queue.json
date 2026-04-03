@@ -85,13 +85,17 @@
       "script": "experiments/v3_exq_192a_mech075_novelty_loop_probe.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "supersedes": "V3-EXQ-192",
       "claim_ids": [
         "MECH-075"
       ],
-      "note": "Fix: pred[:, -world_dim:] on 3D tensor [1,20,64] -> pred[:, 0, -world_dim:] to extract z_world from first horizon step. Novelty loop probe: CEM noise modulated by E1 world-model surprise. 2 seeds x 200 warmup + 50 eval x 200 steps."
+      "note": "Fix: pred[:, -world_dim:] on 3D tensor [1,20,64] -> pred[:, 0, -world_dim:] to extract z_world from first horizon step. Novelty loop probe: CEM noise modulated by E1 world-model surprise. 2 seeds x 200 warmup + 50 eval x 200 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-03T09:04:30.354913+00:00"
+      }
     }
   ]
 }
