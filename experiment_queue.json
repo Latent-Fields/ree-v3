@@ -79,23 +79,6 @@
       "notes": "Full latent z_harm_s counterfactual pipeline. Uses ResidualHarmForward (now in ree_core) to avoid identity collapse. Transposition of EXQ-030b (z_world) to z_harm_s. EXQ-166e validated scalar proxy; this validates the full latent version."
     },
     {
-      "queue_id": "V3-EXQ-213",
-      "title": "MECH-072 foreseeable-harm gating discriminative pair (gated vs ungated residue)",
-      "experiment_type": "v3_exq_213_mech072_foreseeable_harm_gating",
-      "script": "experiments/v3_exq_213_mech072_foreseeable_harm_gating.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 4,
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "backlog_id": "EVB-0029",
-      "claim_id": "MECH-072",
-      "note": "MECH-072 discriminative pair: GATED (E2 foreseeability gate on residue accumulation) vs UNGATED (all harm events). False attribution rate + harm preservation. 3 seeds x 300 train + 100 eval x 150 steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-03T20:23:03.718599+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-214",
       "title": "ARC-039 entorhinal consolidation probe (with_consolidation vs no_consolidation)",
       "experiment_type": "v3_exq_214_arc039_entorhinal_consolidation_probe",
