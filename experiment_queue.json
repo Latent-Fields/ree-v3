@@ -90,12 +90,16 @@
       "script": "experiments/v3_exq_229_mech128_e1_goal_conditioning_pair.py",
       "machine_affinity": "any",
       "priority": 4,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "claim_ids": [
         "MECH-128"
       ],
-      "notes": "GOAL_CONDITIONED (e1.goal_dim=32) vs GOAL_ABLATED (e1.goal_dim=0). drive_weight=2.0. 3 seeds x 400 warmup + 100 eval x 200 steps. PASS: interaction>=0.005 in >=2/3 seeds, goal-relevant E1 error lower in GOAL_CONDITIONED, neutral error similar. C4 (z_goal_norm > 0.05) required in all seeds."
+      "notes": "GOAL_CONDITIONED (e1.goal_dim=32) vs GOAL_ABLATED (e1.goal_dim=0). drive_weight=2.0. 3 seeds x 400 warmup + 100 eval x 200 steps. PASS: interaction>=0.005 in >=2/3 seeds, goal-relevant E1 error lower in GOAL_CONDITIONED, neutral error similar. C4 (z_goal_norm > 0.05) required in all seeds.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-04T10:37:00.501664+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-230",
