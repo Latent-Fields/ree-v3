@@ -84,24 +84,6 @@
       "note": "ARC-018 discriminative pair: VIABILITY_MAPPED (ResidueField + HippocampalModule CEM terrain) vs VIABILITY_ABLATED (residue field zeroed). Real ree_core modules. Fixes EXQ-172 inline-module issue. 3 seeds."
     },
     {
-      "queue_id": "V3-EXQ-227",
-      "title": "ARC-029 discrepancy diagnostic (EXQ-063 vs EXQ-125 conditions reproduced)",
-      "experiment_type": "v3_exq_227_arc029_discrepancy_diagnostic",
-      "script": "experiments/v3_exq_227_arc029_discrepancy_diagnostic.py",
-      "machine_affinity": "any",
-      "priority": 4,
-      "status": "claimed",
-      "estimated_minutes": 240,
-      "claim_ids": [
-        "ARC-029"
-      ],
-      "notes": "Diagnostic: reproduce EXQ-063 exact conditions (seeds=[0,1]) and EXQ-125 exact conditions (seeds=[42,123]) to identify why 063 PASS while 125 FAIL. PASS: EXQ-063 conditions still reproduce harm_gap_stable > 0.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-04T03:45:26.331766+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-228",
       "title": "MECH-116 / ARC-032 theta-bypass ablation (theta_buffer zeroed vs enabled)",
       "experiment_type": "v3_exq_228_mech116_arc032_theta_bypass_ablation",
@@ -139,7 +121,9 @@
       "priority": 5,
       "status": "pending",
       "estimated_minutes": 90,
-      "claim_ids": ["MECH-075"],
+      "claim_ids": [
+        "MECH-075"
+      ],
       "notes": "Diagnostic after EXQ-192a FAIL + EXQ-209 weakens. Probes whether novelty signal (E1 world-prediction MSE EMA) is active and whether CEM noise scaling produces >= 10% exploration gap. PASS: novelty_mag > 0.01 AND explore_gap >= 0.10 in >= 2/3 seeds. EXPERIMENT_PURPOSE=diagnostic. 3 seeds x 150 train + 50 eval x 200 steps."
     },
     {
@@ -151,7 +135,9 @@
       "priority": 4,
       "status": "pending",
       "estimated_minutes": 120,
-      "claim_ids": ["MECH-106"],
+      "claim_ids": [
+        "MECH-106"
+      ],
       "notes": "First experiment for MECH-106. PERSISTENT (min_hold=20 steps + margin release) vs REACTIVE (instantaneous variance-threshold). PASS: persistence_ratio_PERSISTENT > 2.0 AND reactive_ratio <= 1.5 in >= 2/3 seeds. 3 seeds x 400 eps x 200 steps."
     },
     {
@@ -163,7 +149,9 @@
       "priority": 5,
       "status": "pending",
       "estimated_minutes": 250,
-      "claim_ids": ["ARC-026"],
+      "claim_ids": [
+        "ARC-026"
+      ],
       "notes": "Resolves EXQ-033 conflict_ratio=1.0. Uses peak-checkpoint analysis (not terminal) to handle training instability. 1500 eps, checkpoints at [200,400,600,800,1000,1500]. PASS: approach_slope > contact_slope at peak in >= 2/3 seeds, approach_gap > 0.05 at peak. Phased E3 supervision from ep100."
     },
     {
@@ -175,7 +163,10 @@
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 90,
-      "claim_ids": ["SD-012", "MECH-112"],
+      "claim_ids": [
+        "SD-012",
+        "MECH-112"
+      ],
       "notes": "Validates drive_weight as causal variable for z_goal seeding. SD012_ACTIVE (drive_weight=2.0) vs SD012_ABLATED (drive_weight=0.0). PASS: goal_norm_active > 0.1 in all seeds (C1), goal_norm_ablated < 0.05 in all seeds (C2), benefit_goal_corr > 0.2 in >= 2/3 seeds (C3). evidence_direction_per_claim for SD-012 and MECH-112."
     },
     {
@@ -187,7 +178,10 @@
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 90,
-      "claim_ids": ["MECH-112", "MECH-117"],
+      "claim_ids": [
+        "MECH-112",
+        "MECH-117"
+      ],
       "notes": "Independent replication of EXQ-074f (seeds [42,7,13]) with seeds [1,2,3]. Same design: 3000 steps, 6x6 grid, L1->L2 relocation at step 1500. Wanting chases L1 (incentive salience); liking redirects to L2. PASS: 4/4 criteria in >= 2/3 seeds. Supports MECH-117 stable promotion. evidence_direction_per_claim for MECH-112 and MECH-117."
     },
     {
@@ -199,7 +193,9 @@
       "priority": 4,
       "status": "pending",
       "estimated_minutes": 300,
-      "claim_ids": ["ARC-029"],
+      "claim_ids": [
+        "ARC-029"
+      ],
       "supersedes": "V3-EXQ-125",
       "notes": "Redesign to fix low statistical power under SD-010/011/012 substrate. num_hazards 4->8, hazard_harm 0.02->0.05, proximity_harm_scale 0.05->0.15. Seeds [0,42,100,123,200] with majority rule C1/C2/C3>=4/5 seeds. MIN_HARM_GAP_STABLE raised 0.0001->0.001. harm_obs passed to sense() (SD-010 nociceptive stream active). EXQ-125 failed 3x: harm rates ~100x smaller than EXQ-063 due to substrate, making committed-gate advantage undetectable."
     }
