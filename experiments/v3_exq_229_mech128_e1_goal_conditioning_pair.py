@@ -193,8 +193,8 @@ def _run_condition(
         ep_harm    = 0.0
 
         for _ in range(steps_per_episode):
-            obs_body  = torch.tensor(obs_dict["body_state"],  dtype=torch.float32)
-            obs_world = torch.tensor(obs_dict["world_state"], dtype=torch.float32)
+            obs_body  = torch.as_tensor(obs_dict["body_state"],  dtype=torch.float32)
+            obs_world = torch.as_tensor(obs_dict["world_state"], dtype=torch.float32)
 
             latent = agent.sense(obs_body, obs_world)
             ticks  = agent.clock.advance()
@@ -270,8 +270,8 @@ def _run_condition(
         agent.reset()
 
         for _ in range(steps_per_episode):
-            obs_body  = torch.tensor(obs_dict["body_state"],  dtype=torch.float32)
-            obs_world = torch.tensor(obs_dict["world_state"], dtype=torch.float32)
+            obs_body  = torch.as_tensor(obs_dict["body_state"],  dtype=torch.float32)
+            obs_world = torch.as_tensor(obs_dict["world_state"], dtype=torch.float32)
 
             with torch.no_grad():
                 latent = agent.sense(obs_body, obs_world)
