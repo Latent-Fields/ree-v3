@@ -130,6 +130,21 @@
       "notes": "First experiment for MECH-106. PERSISTENT (min_hold=20 steps + margin release) vs REACTIVE (instantaneous variance-threshold). PASS: persistence_ratio_PERSISTENT > 2.0 AND reactive_ratio <= 1.5 in >= 2/3 seeds. 3 seeds x 400 eps x 200 steps."
     },
     {
+      "queue_id": "V3-EXQ-231a",
+      "title": "MECH-106 BG Hysteresis Redesign (valence-modulated threshold vs no-bias ablation)",
+      "experiment_type": "v3_exq_231a_mech106_bg_hysteresis_redesign",
+      "script": "experiments/v3_exq_231a_mech106_bg_hysteresis_redesign.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 4,
+      "status": "pending",
+      "estimated_minutes": 150,
+      "claim_ids": [
+        "MECH-106"
+      ],
+      "supersedes": "V3-EXQ-231",
+      "notes": "Redesign of EXQ-231 (FAIL: persist_ratio=reactive_ratio=1.0, rv never recovered above threshold). New design: (1) explicit positive/negative outcome history phases using easy env (0 hazards) and hard env (5 hazards); (2) valence EMA updated via tanh-amplified net outcome; (3) MECH-106 formula: threshold_eff = base * (1 + 1.2 * (da - 0.5)); (4) latency-to-first-commitment metric with rv reset to 0.65 each probe episode. VALENCE_BIAS vs NO_BIAS measured on same agent (no training confound). 5 seeds x (100 train + 40 pos + 40 neg + 50 probe) eps x 200 steps. C1: da_divergence > 0.20 in 4/5; C2: threshold_asymmetry > 1.20 in 4/5; C3: latency_ratio_vb > 2.0 in 3/5; C4: NO_BIAS ratio in [0.5, 2.5] in 3/5; C5: asymmetry_delta > 1.0 in 3/5."
+    },
+    {
       "queue_id": "V3-EXQ-232",
       "title": "ARC-026 Approach/Contact Slope Conflict Resolution (peak-checkpoint analysis)",
       "experiment_type": "v3_exq_232_arc026_approach_contact_resolution",
@@ -214,6 +229,17 @@
       "claim_ids": ["MECH-163"],
       "experiment_purpose": "evidence",
       "notes": "2x2 factorial: context (SIMPLE 2res/1haz/80steps vs LONG_HORIZON 1res/3haz/150steps) x policy (HABIT z_goal=False/benefit_eval=True vs PLANNED z_goal=True/e1_goal_cond=True). Full agent pipeline eval (generate_trajectories+select_action). Tests MECH-163 interaction: planned advantage specifically in long-horizon context. Criteria: C1 goal_norm>=0.05, C3 lift_long>=0.05, C4 interaction>0.02, C5 harm_ratio<=1.5, majority 2/3 seeds."
+    },
+    {
+      "queue_id": "V3-EXQ-223a",
+      "title": "Toroidal Minimal Vertebrate Cognition Ablation -- no-wall replication of EXQ-223",
+      "experiment_type": "v3_exq_223a_toroidal_minimal_vertebrate",
+      "script": "experiments/v3_exq_223a_toroidal_minimal_vertebrate.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 8,
+      "notes": "Replicates EXQ-223 with toroidal=True (no walls, wrapping edges). Tests whether EXQ-223 PASS was genuine gradient-following or wall-hugging artifact. Secondary question: does agent develop row/column preference in open torus?"
     },
     {
       "queue_id": "V3-EXQ-125a",
