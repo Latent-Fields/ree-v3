@@ -33,23 +33,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-196",
-      "title": "ARC-018 rollout viability pair (viability_mapped vs viability_ablated)",
-      "experiment_type": "v3_exq_196_arc018_rollout_viability_pair",
-      "script": "experiments/v3_exq_196_arc018_rollout_viability_pair.py",
-      "machine_affinity": "any",
-      "priority": 4,
-      "status": "claimed",
-      "estimated_minutes": 125,
-      "backlog_id": "EVB-0048",
-      "claim_id": "ARC-018",
-      "note": "ARC-018 discriminative pair: VIABILITY_MAPPED (ResidueField + HippocampalModule CEM terrain) vs VIABILITY_ABLATED (residue field zeroed). Real ree_core modules. Fixes EXQ-172 inline-module issue. 3 seeds.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-04T16:15:58.038511+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-230",
       "title": "MECH-075 Novelty Loop Diagnostic (GATED vs ABLATED)",
       "experiment_type": "v3_exq_230_mech075_novelty_diagnostic",
