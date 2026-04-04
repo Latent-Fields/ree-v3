@@ -218,17 +218,18 @@
       "notes": "Conflict resolution for EXQ-120 PASS vs EXQ-172/196 FAIL. ROLLOUT_k5 (HippocampalModule CEM horizon=5, E3.select()) vs GREEDY_k1 (1-step E2.world_forward + E3.harm_eval, argmin). Shared trained modules, residue field ACTIVE in both. proximity_harm_scale=0.0 (point-source harm only, fixes EXQ-196 saturation). Harm counted as direct env_caused_hazard contacts. E2-quality-gating diagnostic: Pearson(per-seed r2, per-seed advantage). 5 seeds x 250 train + 30 eval eps."
     },
     {
-      "queue_id": "V3-EXQ-237",
+      "queue_id": "V3-EXQ-237a",
       "title": "MECH-163: Dual Goal-Directed Systems Discrimination (2x2: SIMPLE/LONG_HORIZON x HABIT/PLANNED)",
-      "experiment_type": "v3_exq_237_mech163_dual_system_discrimination",
-      "script": "experiments/v3_exq_237_mech163_dual_system_discrimination.py",
+      "experiment_type": "v3_exq_237a_mech163_dual_system_discrimination",
+      "script": "experiments/v3_exq_237a_mech163_dual_system_discrimination.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 250,
       "claim_ids": ["MECH-163"],
       "experiment_purpose": "evidence",
-      "notes": "2x2 factorial: context (SIMPLE 2res/1haz/80steps vs LONG_HORIZON 1res/3haz/150steps) x policy (HABIT z_goal=False/benefit_eval=True vs PLANNED z_goal=True/e1_goal_cond=True). Full agent pipeline eval (generate_trajectories+select_action). Tests MECH-163 interaction: planned advantage specifically in long-horizon context. Criteria: C1 goal_norm>=0.05, C3 lift_long>=0.05, C4 interaction>0.02, C5 harm_ratio<=1.5, majority 2/3 seeds."
+      "supersedes": "V3-EXQ-237",
+      "notes": "Bug fix of EXQ-237: hazard_harm=0.5 -> 0.02 (premature episode termination at ~18 steps). 2x2 factorial: context (SIMPLE 2res/1haz/80steps vs LONG_HORIZON 1res/3haz/150steps) x policy (HABIT z_goal=False/benefit_eval=True vs PLANNED z_goal=True/e1_goal_cond=True). Full agent pipeline eval (generate_trajectories+select_action). Tests MECH-163 interaction: planned advantage specifically in long-horizon context. Criteria: C1 goal_norm>=0.05, C3 lift_long>=0.05, C4 interaction>0.02, C5 harm_ratio<=1.5, majority 2/3 seeds."
     },
     {
       "queue_id": "V3-EXQ-223a",
