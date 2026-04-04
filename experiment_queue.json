@@ -24,12 +24,16 @@
       "script": "experiments/v3_exq_193_q012_control_constraints_pair.py",
       "machine_affinity": "any",
       "priority": 6,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 400,
       "claim_ids": [
         "Q-012"
       ],
-      "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps."
+      "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-04T15:14:43.424898+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-223",
