@@ -33,23 +33,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-184",
-      "title": "MECH-033 E2 kernel chain pair (chain vs no-chain, 3-seed replication)",
-      "experiment_type": "v3_exq_184_mech033_kernel_chain_pair",
-      "script": "experiments/v3_exq_184_mech033_kernel_chain_pair.py",
-      "machine_affinity": "any",
-      "priority": 4,
-      "status": "claimed",
-      "estimated_minutes": 170,
-      "backlog_id": "EVB-0050",
-      "claim_id": "MECH-033",
-      "note": "MECH-033 3-seed replication (extends EXQ-171 2-seed). KERNEL_CHAIN vs NO_CHAIN greedy avoidance. 600 warmup + 50 eval eps per seed.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-04T16:11:25.731823+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-196",
       "title": "ARC-018 rollout viability pair (viability_mapped vs viability_ablated)",
       "experiment_type": "v3_exq_196_arc018_rollout_viability_pair",
