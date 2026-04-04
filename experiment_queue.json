@@ -84,24 +84,6 @@
       "note": "ARC-018 discriminative pair: VIABILITY_MAPPED (ResidueField + HippocampalModule CEM terrain) vs VIABILITY_ABLATED (residue field zeroed). Real ree_core modules. Fixes EXQ-172 inline-module issue. 3 seeds."
     },
     {
-      "queue_id": "V3-EXQ-229",
-      "title": "MECH-128 E1 goal-conditioning pair (GOAL_CONDITIONED vs GOAL_ABLATED)",
-      "experiment_type": "v3_exq_229_mech128_e1_goal_conditioning_pair",
-      "script": "experiments/v3_exq_229_mech128_e1_goal_conditioning_pair.py",
-      "machine_affinity": "any",
-      "priority": 4,
-      "status": "claimed",
-      "estimated_minutes": 180,
-      "claim_ids": [
-        "MECH-128"
-      ],
-      "notes": "GOAL_CONDITIONED (e1.goal_dim=32) vs GOAL_ABLATED (e1.goal_dim=0). drive_weight=2.0. 3 seeds x 400 warmup + 100 eval x 200 steps. PASS: interaction>=0.005 in >=2/3 seeds, goal-relevant E1 error lower in GOAL_CONDITIONED, neutral error similar. C4 (z_goal_norm > 0.05) required in all seeds.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-04T10:37:00.501664+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-230",
       "title": "MECH-075 Novelty Loop Diagnostic (GATED vs ABLATED)",
       "experiment_type": "v3_exq_230_mech075_novelty_diagnostic",
@@ -226,7 +208,9 @@
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 250,
-      "claim_ids": ["MECH-163"],
+      "claim_ids": [
+        "MECH-163"
+      ],
       "experiment_purpose": "evidence",
       "supersedes": "V3-EXQ-237",
       "notes": "Bug fix of EXQ-237: hazard_harm=0.5 -> 0.02 (premature episode termination at ~18 steps). 2x2 factorial: context (SIMPLE 2res/1haz/80steps vs LONG_HORIZON 1res/3haz/150steps) x policy (HABIT z_goal=False/benefit_eval=True vs PLANNED z_goal=True/e1_goal_cond=True). Full agent pipeline eval (generate_trajectories+select_action). Tests MECH-163 interaction: planned advantage specifically in long-horizon context. Criteria: C1 goal_norm>=0.05, C3 lift_long>=0.05, C4 interaction>0.02, C5 harm_ratio<=1.5, majority 2/3 seeds."
