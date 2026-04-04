@@ -33,25 +33,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-195",
-      "title": "SD-003 Full Latent Counterfactual Attribution on z_harm_s (post-SD-011)",
-      "experiment_type": "v3_exq_195_sd003_zharms_full_counterfactual",
-      "script": "experiments/v3_exq_195_sd003_zharms_full_counterfactual.py",
-      "machine_affinity": "any",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 150,
-      "claim_ids": [
-        "SD-003",
-        "ARC-033"
-      ],
-      "notes": "Full latent z_harm_s counterfactual pipeline. Uses ResidualHarmForward (now in ree_core) to avoid identity collapse. Transposition of EXQ-030b (z_world) to z_harm_s. EXQ-166e validated scalar proxy; this validates the full latent version.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-04T16:09:20.616388+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-184",
       "title": "MECH-033 E2 kernel chain pair (chain vs no-chain, 3-seed replication)",
       "experiment_type": "v3_exq_184_mech033_kernel_chain_pair",
