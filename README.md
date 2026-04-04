@@ -24,12 +24,14 @@ V2 experiments (EXQ-014–028) produced three architectural failures requiring n
 - **SD-010**: Harm stream separated as dedicated pathway (z_harm) — prerequisite for SD-003 counterfactual (validated EXQ-056c/058b/059c).
 - **SD-011**: Dual nociceptive streams (z_harm_s + z_harm_a) — sensory-discriminative and affective-motivational streams (implemented 2026-03-30, validated EXQ-178b).
 - **SD-012**: Homeostatic drive modulation for z_goal seeding — drive_weight scales benefit_exposure by depletion level (implemented 2026-04-02).
+- **SD-014**: Hippocampal valence vector node recording — 4-component valence vector [wanting, liking, harm_discriminative, surprise] in RBFLayer and ResidueField (implemented 2026-04-04). Prerequisite for ARC-036 and replay prioritisation.
+- **ARC-028 + MECH-105**: HippocampalModule completion signal + BetaGate coupling — implements Lisman & Grace 2005 subiculum->NAc->VP->VTA dopamine loop (implemented 2026-04-04).
 
 SD-004 and SD-005 are interdependent: action objects require z_world to exist; z_world's separation from z_self is what makes action-object attribution meaningful.
 
-## Current Status (2026-04-03)
+## Current Status (2026-04-04)
 
-~198 experiments run. SD-004 through SD-012 all implemented. Current focus: first-paper gate experiments — EXQ-074e (wanting/liking dissociation), EXQ-076e (E1 goal conditioning), EXQ-195 (SD-003 z_harm_s counterfactual post-SD-011), EXQ-182a (habit-system oracle ceiling).
+~292 experiment scripts authored. SD-004 through SD-015 implemented (SD-015 in progress/experimental). EXQ-223 PASS (2026-04-03): minimal vertebrate ablation confirmed E1+E2+hippocampus core loop is sufficient for navigation, harm avoidance, and resource acquisition — named-structure match to zebrafish larva (5-7 dpf). Current focus: first-paper gate experiments — EXQ-074e (wanting/liking dissociation), EXQ-076e (E1 goal conditioning), EXQ-195 (SD-003 z_harm_s counterfactual post-SD-011). SD-014 valence vector and ARC-028/MECH-105 hippocampal-BetaGate coupling now implemented.
 
 Full specification with substrate status table: [`docs/ree-v3-spec.md`](docs/ree-v3-spec.md)
 

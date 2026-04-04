@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-04-03
+**Last updated:** 2026-04-04
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-03-26)
+## 0. Current V3 State (2026-04-04)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -28,6 +28,9 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-010 | Harm stream separated as dedicated pathway (z_harm) | Implemented (EXQ-056c/058b/059c PASS) |
 | SD-011 | Dual nociceptive streams: z_harm_s + z_harm_a | Implemented (2026-03-30; EXQ-178b PASS) |
 | SD-012 | Homeostatic drive modulation for z_goal seeding | Implemented (2026-04-02) |
+| SD-014 | Hippocampal valence vector node recording (4-component) | Implemented (2026-04-04) |
+| SD-015 | Resource indicator encoder | In progress / experimental (EXQ-085h--085o) |
+| ARC-028 + MECH-105 | HippocampalModule completion signal + BetaGate coupling | Implemented (2026-04-04) |
 
 SD-003 (self-attribution counterfactual pipeline) was validated at EXQ-030b PASS
 (world_forward_r2=0.947, attribution_gap=0.035). Redesign now in progress to use z_harm_s
@@ -35,28 +38,36 @@ pipeline (post SD-011), since E3 now takes z_harm rather than z_world as primary
 
 ### Experiment Status
 
-- **~198 experiments run** (EXQ-001 through EXQ-212+ series), covering SD-003 through SD-012
-  validation, heartbeat architecture (SD-006), reafference (SD-007), encoder fixes (SD-008/009),
-  harm stream separation (SD-010), dual nociceptive streams (SD-011), homeostatic drive (SD-012),
+- **~292 experiment scripts authored** (EXQ-001 through EXQ-223 series, including lettered
+  iterations), covering SD-003 through SD-015 validation, heartbeat architecture (SD-006),
+  reafference (SD-007), encoder fixes (SD-008/009), harm stream separation (SD-010), dual
+  nociceptive streams (SD-011), homeostatic drive (SD-012), valence vector recording (SD-014),
   wanting/liking dissociation (MECH-112/117), goal conditioning (MECH-116/ARC-032), context
-  memory (MECH-153/ARC-042), and breath oscillator / z_beta pathway fixes (EXQ-199--203).
-- **Currently queued (2026-04-03):** EXQ-074e (MECH-112/117 wanting/liking, supersedes EXQ-074d),
+  memory (MECH-153/ARC-042), breath oscillator / z_beta pathway fixes (EXQ-199--203), and
+  the EXQ-223 minimal vertebrate ablation milestone.
+- **Currently queued (2026-04-04):** EXQ-223 (minimal vertebrate ablation, priority 5),
+  EXQ-074e (MECH-112/117 wanting/liking, supersedes EXQ-074d),
   EXQ-076e (MECH-116/ARC-032 E1 goal conditioning, supersedes EXQ-076c),
   EXQ-195 (SD-003 full z_harm_s counterfactual, post-SD-011),
-  EXQ-211 (MECH-153/ARC-042 supervised context labeling),
-  EXQ-212 (MECH-070 E2 vs E1 rollout horizon comparison).
-- **Current bottleneck:** First-paper gate experiments (SD-012 + MECH-112 behavioral lift;
-  ARC-030 harm/goal competition in shared selector; EXQ-182a oracle ceiling).
-  SD-011/012 blocks lifted -- both implemented and validated.
+  EXQ-184 (MECH-033 kernel chain pair), EXQ-196 (ARC-018 rollout viability pair),
+  EXQ-125 (ARC-029 committed vs ablated mode, currently claimed by DLAPTOP-4.local),
+  EXQ-193 (Q-012, Daniel-PC), V3-ONBOARD-smoke-EWINPC.
+- **Current bottleneck:** First-paper gate experiments. EXQ-223 PASS (2026-04-03) confirmed
+  the minimal E1+E2+hippocampus core loop works. Current focus: EXQ-074e (wanting/liking),
+  EXQ-076e (goal conditioning), EXQ-195 (SD-003 z_harm_s counterfactual), and downstream
+  goal-lift behavior. SD-014 valence vector and ARC-028/MECH-105 hippocampal-BetaGate coupling
+  now implemented.
 
 ### V3 / V4 Scope Boundary
 
 **V3 scope (waking mechanisms):**
 - Volatility interrupt / LC-NE analog (MECH-104)
 - BG hysteresis and outcome-valence modulation (MECH-106)
-- Hippocampal->BG completion coupling (MECH-105, ARC-028)
+- Hippocampal->BG completion coupling (MECH-105, ARC-028) — IMPLEMENTED 2026-04-04
 - Beta gate committed->uncommitted dynamics (MECH-090)
-- Trajectory completion signal from HippocampalModule (ARC-028)
+- Trajectory completion signal from HippocampalModule (ARC-028) — IMPLEMENTED 2026-04-04
+- Valence vector node recording: 4-component V=[wanting, liking, harm_discriminative,
+  surprise] in RBFLayer + ResidueField (SD-014) — IMPLEMENTED 2026-04-04
 
 **V4 scope (NOT V3):**
 - Sharp-wave ripple (SWR) consolidation during sleep
@@ -322,23 +333,63 @@ next contact. EXQ-085 through EXQ-085d all failed at the goal-seeding bottleneck
 
 See MECH-112, MECH-113 for the broader homeostatic architecture.
 
+### SD-014 — Hippocampal Valence Vector Node Recording
+
+**Status: Implemented 2026-04-04.**
+
+**Problem (original):** RBF nodes in HippocampalModule accumulated only spatial/temporal visit
+statistics. There was no per-node record of the affective significance of each location, making
+it impossible to implement drive-state-dependent prioritisation of replay or navigation targets.
+
+**Implementation:** 4-component valence vector `V = [wanting, liking, harm_discriminative, surprise]`
+added to `RBFLayer` and `ResidueField` (`ree_core/residue/field.py`).
+- `RBFLayer.valence_vecs` buffer: shape `[num_centers, 4]`, updated incrementally per visit
+- New methods: `RBFLayer.evaluate_valence(z) -> [batch, 4]`; `ResidueField.update_valence()`,
+  `evaluate_valence()`, `get_valence_priority(z_world, drive_state)`
+- Constants defined at module level: `VALENCE_WANTING=0`, `VALENCE_LIKING=1`,
+  `VALENCE_HARM_DISCRIMINATIVE=2`, `VALENCE_SURPRISE=3`
+- `ResidueConfig.valence_enabled` (default `True`; set `False` for ablation)
+- MECH-094 gate applies: `hypothesis_tag=True` blocks valence updates during replay/simulation
+
+Prerequisite for ARC-036 (multidimensional valence map) and replay prioritisation via drive state.
+
+### ARC-028 + MECH-105 — Hippocampal-BetaGate Completion Coupling
+
+**Status: Implemented 2026-04-04.**
+
+**Problem (original):** HippocampalModule and BetaGate operated independently. There was no
+mechanism for hippocampal trajectory quality to influence beta oscillation state — the Lisman &
+Grace 2005 subiculum -> NAc -> VP -> VTA dopamine loop was architecturally absent.
+
+**Implementation:** Two new methods wired the loop:
+- `HippocampalModule.compute_completion_signal(trajectories) -> float`: scores all proposed
+  trajectories via `_score_trajectory()`, maps best score to a sigmoid dopamine-analog value
+  in `[0.5, 1.0)`. Caches as `self._last_completion_signal`.
+- `BetaGate.receive_hippocampal_completion(signal) -> bool`: if beta is elevated and
+  `signal >= completion_release_threshold` (default 0.75), calls `self.release()` and returns
+  `True`.
+
+Implements the biological loop: high hippocampal completion quality → dopamine signal → beta
+drops → E3 state propagates to action selection. `get_state()` and `reset()` updated.
+Return type of `propose_trajectories()` unchanged.
+
 ---
 
-## 4. Open Design Gate: Q-020
+## 4. Design Gate: Q-020 — Adjudicated 2026-03-16
 
-**CRITICAL — resolve before finalising HippocampalModule.**
+**Resolution: ARC-007 strict.** HippocampalModule generates value-flat proposals. Terrain
+sensitivity is a consequence of navigating residue-shaped z_world, not a separate hippocampal
+value computation. MECH-073 reframed as a consequence of ARC-013 applied to z_world.
 
-Q-020 asks whether rollout proposals from HippocampalModule arrive at E3 pre-weighted by map geometry (MECH-073) or value-neutral (ARC-007 strict).
+Q-020 asked whether rollout proposals from HippocampalModule arrive at E3 pre-weighted by map
+geometry (MECH-073) or value-neutral (ARC-007 strict). The resolution followed the SD-005
+dissolution hypothesis: once z_gamma is split into z_self and z_world, the hippocampal map
+operates over z_world (the residue field's domain). Valence lives in z_world structure (residue
+field curvature), not in a separate hippocampal computation. ARC-007 is vindicated; Q-020
+dissolved as an artefact of the unsplit z_gamma.
 
-- If **MECH-073**: HippocampalModule samples proposals with value-correlated frequency before E3 scores them. The E3 input contract includes pre-weighted proposals. The amygdala-analogue write interface (MECH-074) is required before HippocampalModule is finalised.
-- If **ARC-007 strict**: HippocampalModule generates value-flat proposals; E3 introduces all weighting. Simpler E3 input contract. MECH-074 may still exist but isn't a prerequisite.
-
-**Working hypothesis (SD-005 dissolution):** Once `z_gamma` is split into `z_self` and `z_world`, the hippocampal map *is* `z_world`, which *is* the residue field's domain. Valence may live in `z_world` structure (residue field curvature), not in a separate hippocampal computation. If so:
-- ARC-007 is vindicated: no independent value computation in hippocampus
-- MECH-073 is reframed as a consequence of ARC-013 applied to `z_world`
-- Q-020 dissolves — it was an artefact of the unsplit `z_gamma`
-
-**Action:** Adjudicate Q-020 theoretically (before implementation) by evaluating the SD-005 dissolution hypothesis. If accepted, proceed with ARC-007-strict HippocampalModule. Test formally with V3-EXQ-006 and V3-EXQ-008 after substrate exists.
+MECH-074 (amygdala write interface) remains valid but is not a HippocampalModule prerequisite.
+See ree-v3/CLAUDE.md Q-020 Decision section for the operative policy.
 
 ---
 
@@ -597,7 +648,9 @@ After experiments complete: run sync_v3_results.py then build_experiment_indexes
 
 > **This section is historical.** The 12-step build order was completed at V3 launch (2026-03-16 to 2026-03-18).
 > Current implementation status is in §0 (SD table) and `ree-v3/CLAUDE.md`.
-> All SDs listed in §0 as "Implemented" are now complete, including SD-011 (2026-03-30) and SD-012 (2026-04-02).
+> All SDs listed in §0 as "Implemented" are now complete, including SD-011 (2026-03-30),
+> SD-012 (2026-04-02), SD-014 (2026-04-04), and ARC-028+MECH-105 (2026-04-04).
+> SD-015 (resource indicator encoder) is in progress.
 
 1. **Q-020 adjudication** ✓ — ARC-007 strict decided 2026-03-16
 2. **Latent split (SD-005)** ✓ — LatentState z_self/z_world, split encoder
