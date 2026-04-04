@@ -78,6 +78,10 @@ THRESH_C2 = 1.0   # ree/rand harm ratio < 1.0 (any harm reduction vs random)
 THRESH_C3 = 2     # informational: mean hippocampal candidates >= 2 per e3 tick
 THRESH_C4 = 0.0   # warmup last-25 reward > warmup first-25 reward (positive delta)
 
+# Episode logging thresholds (for mode classification)
+HARM_MODE_THRESH   = 0.25   # z_harm norm -> avoid
+EXPLORE_ERR_THRESH = 0.10   # z_world change norm -> explore (novelty proxy)
+
 ENV_KWARGS = dict(
     size=10,
     num_hazards=3,
@@ -293,6 +297,21 @@ def _warmup_train(
 
 
 # ---------------------------------------------------------------------------
+# Episode logging helpers
+# ---------------------------------------------------------------------------
+
+def _classify_mode(z_harm_norm: float, world_change_norm: float, harm_signal: float) -> str:
+    """Classify behavioural mode from latent signals (per step)."""
+    if z_harm_norm > HARM_MODE_THRESH:
+        return "avoid"
+    if harm_signal > 0.01:
+        return "approach"
+    if world_change_norm > EXPLORE_ERR_THRESH:
+        return "explore"
+    return "neutral"
+
+
+# ---------------------------------------------------------------------------
 # Phase 1 / 2: Evaluation
 # ---------------------------------------------------------------------------
 
@@ -303,6 +322,7 @@ def _eval_agent(
     steps_per_episode: int,
     use_random: bool = False,
     label: str = "",
+    record_episodes: bool = False,
 ) -> Dict:
     """Evaluate REE ablated agent or random baseline."""
     action_dim     = env.action_dim
@@ -310,6 +330,7 @@ def _eval_agent(
     episode_rewards: List[float] = []
     episode_harms:   List[float] = []
     n_cands_log:     List[int]   = []
+    episodes_log:    List[Dict]  = []
 
     agent.eval()
 
@@ -317,12 +338,20 @@ def _eval_agent(
         flat_obs, obs_dict = env.reset()
         agent.reset()
 
-        z_self_prev: Optional[torch.Tensor] = None
-        action_prev: Optional[torch.Tensor] = None
+        z_self_prev:  Optional[torch.Tensor] = None
+        z_world_prev: Optional[torch.Tensor] = None
+        action_prev:  Optional[torch.Tensor] = None
         ep_reward = 0.0
         ep_harm   = 0.0
 
-        for _ in range(steps_per_episode):
+        if record_episodes and not use_random:
+            ep_steps:         List[Dict] = []
+            initial_hazards   = [list(h) for h in env.hazards]
+            initial_resources = [list(r) for r in env.resources]
+            current_hazards   = [list(h) for h in env.hazards]
+            current_resources = [list(r) for r in env.resources]
+
+        for step_idx in range(steps_per_episode):
             if use_random:
                 action = _action_to_onehot(
                     random.randint(0, action_dim - 1), action_dim, device
@@ -353,8 +382,46 @@ def _eval_agent(
                         agent._last_action = action
 
                 flat_obs, harm_signal, done, info, obs_dict = env.step(action)
-                z_self_prev = latent.z_self.detach()
-                action_prev = action.detach()
+
+                if record_episodes:
+                    if info.get("env_drift_occurred", False):
+                        current_hazards   = [list(h) for h in env.hazards]
+                        current_resources = [list(r) for r in env.resources]
+                    z_harm_norm = (
+                        float(latent.z_harm.norm().item())
+                        if latent.z_harm is not None else 0.0
+                    )
+                    z_beta_val = (
+                        float(latent.z_beta.mean().item())
+                        if latent.z_beta is not None else 0.0
+                    )
+                    world_change_norm = (
+                        float((latent.z_world - z_world_prev).norm().item())
+                        if z_world_prev is not None else 0.0
+                    )
+                    mode = _classify_mode(z_harm_norm, world_change_norm, float(harm_signal))
+                    ep_steps.append({
+                        "t":               step_idx,
+                        "pos":             [int(env.agent_x), int(env.agent_y)],
+                        "action":          int(action.argmax(dim=-1).item()),
+                        "harm_signal":     float(harm_signal),
+                        "z_harm_norm":     z_harm_norm,
+                        "z_world_norm":    float(latent.z_world.norm().item()),
+                        "z_beta_val":      z_beta_val,
+                        "world_change_norm": world_change_norm,
+                        "mode":            mode,
+                        "transition_type": info.get("transition_type", "none"),
+                        "health":          float(info.get("health", 1.0)),
+                        "energy":          float(info.get("energy", 1.0)),
+                        "harm_event":      float(harm_signal) < 0,
+                        "n_cands":         len(candidates),
+                        "hazards":         [list(h) for h in current_hazards],
+                        "resources":       [list(r) for r in current_resources],
+                    })
+
+                z_self_prev  = latent.z_self.detach()
+                z_world_prev = latent.z_world.detach()
+                action_prev  = action.detach()
 
             ep_reward += float(harm_signal)
             if float(harm_signal) < 0:
@@ -365,6 +432,14 @@ def _eval_agent(
         episode_rewards.append(ep_reward)
         episode_harms.append(ep_harm)
 
+        if record_episodes and not use_random:
+            episodes_log.append({
+                "ep":               ep_idx,
+                "initial_hazards":  initial_hazards,
+                "initial_resources": initial_resources,
+                "steps":            ep_steps,
+            })
+
         if (ep_idx + 1) % 25 == 0 or ep_idx == num_episodes - 1:
             print(
                 f"  [eval {label}] ep {ep_idx+1}/{num_episodes}"
@@ -372,12 +447,15 @@ def _eval_agent(
                 flush=True,
             )
 
-    return {
+    result = {
         "mean_reward":  float(np.mean(episode_rewards)),
         "mean_harm":    float(np.mean(episode_harms)),
         "rewards":      episode_rewards,
         "mean_n_cands": float(np.mean(n_cands_log)) if n_cands_log else 0.0,
     }
+    if record_episodes:
+        result["episodes"] = episodes_log
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -402,7 +480,7 @@ def run_seed(seed: int, dry_run: bool = False) -> Dict:
 
     print(f"[EXQ-223] Seed {seed} -- Phase 1: REE ablated eval", flush=True)
     ree = _eval_agent(agent, env, eval_eps, STEPS_PER_EPISODE,
-                      use_random=False, label="REE-ablated")
+                      use_random=False, label="REE-ablated", record_episodes=True)
 
     print(f"[EXQ-223] Seed {seed} -- Phase 2: random baseline", flush=True)
     rnd = _eval_agent(agent, env, eval_eps, STEPS_PER_EPISODE,
@@ -439,6 +517,7 @@ def run_seed(seed: int, dry_run: bool = False) -> Dict:
         "rand_mean_reward":      rnd["mean_reward"],
         "rand_mean_harm":        rnd["mean_harm"],
         "harm_ratio":            harm_ratio,
+        "episodes":              ree.get("episodes", []),
     }
 
 
@@ -605,6 +684,16 @@ Criteria met (C1+C2+C4): {criteria_met}/3 -> **{status}**
         else ("mixed" if criteria_met >= 2 else "weakens")
     )
 
+    episode_log = {
+        "experiment_type": EXPERIMENT_TYPE,
+        "env_config":      ENV_KWARGS,
+        "phase":           "eval_ree",
+        "seeds": [
+            {"seed": r["seed"], "episodes": r.get("episodes", [])}
+            for r in seed_results
+        ],
+    }
+
     return {
         "status":             status,
         "metrics":            metrics,
@@ -613,6 +702,7 @@ Criteria met (C1+C2+C4): {criteria_met}/3 -> **{status}**
         "experiment_purpose": EXPERIMENT_PURPOSE,
         "evidence_direction": evidence_direction,
         "experiment_type":    EXPERIMENT_TYPE,
+        "episode_log":        episode_log,
     }
 
 
@@ -640,6 +730,15 @@ if __name__ == "__main__":
         / "REE_assembly" / "evidence" / "experiments" / EXPERIMENT_TYPE
     )
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write companion episode log (separate file; popped from result to keep metrics JSON lean)
+    episode_log = result.pop("episode_log", None)
+    if episode_log is not None:
+        episode_log["run_id"] = result["run_id"]
+        log_path = out_dir / f"{EXPERIMENT_TYPE}_{ts}_episode_log.json"
+        log_path.write_text(json.dumps(episode_log, indent=2) + "\n", encoding="utf-8")
+        print(f"Episode log written to: {log_path}", flush=True)
+
     out_path = out_dir / f"{EXPERIMENT_TYPE}_{ts}.json"
     out_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
