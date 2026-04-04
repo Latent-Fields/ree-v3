@@ -49,14 +49,18 @@
       "script": "experiments/v3_exq_074f_mech112_117_wanting_liking.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 80,
       "supersedes": "V3-EXQ-074e",
       "claim_ids": [
         "MECH-112",
         "MECH-117"
       ],
-      "notes": "Fix from 074e: wanting chases L1 (spatial greedy) post-relocation; liking chases L2 (current resource). Pre-relocation: greedy+random for all conditions to seed z_goal. Criteria revised: C1 floor, C4 l1-fraction dissociation test."
+      "notes": "Fix from 074e: wanting chases L1 (spatial greedy) post-relocation; liking chases L2 (current resource). Pre-relocation: greedy+random for all conditions to seed z_goal. Criteria revised: C1 floor, C4 l1-fraction dissociation test.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-04T02:25:53.034931+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-076f",
