@@ -32,6 +32,17 @@
       "notes": "EXP-0062. Q-012 replication at 2x EXQ-152 scale. REE_FULL vs PREDICTIVE_ONLY vs NO_LEARNING. 3 seeds x 3 conditions x 300 episodes x 300 steps."
     },
     {
+      "queue_id": "V3-EXQ-223",
+      "title": "Minimal Vertebrate Cognition Ablation -- E1+E2+hippocampus core loop",
+      "experiment_type": "v3_exq_223_minimal_vertebrate_ablation",
+      "script": "experiments/v3_exq_223_minimal_vertebrate_ablation.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 80,
+      "notes": "Milestone architecture validation. Strips commitment architecture (commitment_threshold=-1.0, z_goal_enabled=False, benefit_eval_enabled=False). Tests whether core E1/E2/hippocampus loop gradient-follows on raw env signals. Sidesteps SD-011/SD-012 blockers. PASS criteria: C1 reward > random, C2 harm < random, C4 learning within warmup (all >= 2/3 seeds)."
+    },
+    {
       "queue_id": "V3-EXQ-074e",
       "title": "MECH-112/117 Wanting vs Liking Dissociation -- z_goal_latent vs benefit_eval_head",
       "experiment_type": "v3_exq_074e_mech112_117_wanting_liking",
@@ -48,20 +59,20 @@
       "notes": "Fix: progressive fixes through 074-074d (env kwargs, agent init, combined backward). Different design from EXQ-189 (wanting/liking dissociation with resource relocation)."
     },
     {
-      "queue_id": "V3-EXQ-076e",
+      "queue_id": "V3-EXQ-076f",
       "title": "MECH-116/ARC-032 E1 LSTM Goal Conditioning -- frontal working memory persistence",
-      "experiment_type": "v3_exq_076e_mech116_arc032_e1_goal_conditioning",
-      "script": "experiments/v3_exq_076e_mech116_arc032_e1_goal_conditioning.py",
+      "experiment_type": "v3_exq_076f_mech116_arc032_e1_goal_conditioning",
+      "script": "experiments/v3_exq_076f_mech116_arc032_e1_goal_conditioning.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
       "status": "pending",
       "estimated_minutes": 120,
-      "supersedes": "V3-EXQ-076c",
+      "supersedes": "V3-EXQ-076e",
       "claim_ids": [
         "MECH-116",
         "ARC-032"
       ],
-      "notes": "Fix: progressive fixes through 076-076c (combined e1+e2 backward, dimension corrections). 10000 total steps (up from 076d's 2000) for meaningful halflife measurement."
+      "notes": "Fix: config.e1.goal_dim not propagated by from_dims() -- E1Config has no goal_dim field, so E1DeepPredictor.goal_input_proj was None in BOTH conditions across 076-076e. All prior iterations measured identical E1 behavior in both arms. Fix: set config.e1.goal_dim=world_dim after from_dims() for goal_conditioned only. Pattern from EXQ-147/147a."
     },
     {
       "queue_id": "V3-EXQ-195",
@@ -103,6 +114,18 @@
       "backlog_id": "EVB-0048",
       "claim_id": "ARC-018",
       "note": "ARC-018 discriminative pair: VIABILITY_MAPPED (ResidueField + HippocampalModule CEM terrain) vs VIABILITY_ABLATED (residue field zeroed). Real ree_core modules. Fixes EXQ-172 inline-module issue. 3 seeds."
+    },
+    {
+      "queue_id": "V3-EXQ-224",
+      "title": "MECH-124 z_goal salience vs harm salience -- V4 risk diagnostic",
+      "experiment_type": "v3_exq_224_mech124_zgoal_salience_diag",
+      "script": "experiments/v3_exq_224_mech124_zgoal_salience_diag.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 4,
+      "status": "pending",
+      "estimated_minutes": 180,
+      "claim_id": "MECH-124",
+      "note": "Diagnostic (not evidence). Measures whether z_goal norm stays competitive with harm salience over 300 episodes x 3 seeds. BASELINE (z_goal_enabled=True, drive_weight=2.0) vs ABLATION. SD-012 now implemented. Flags V4 consolidation risk if harm dominates."
     },
     {
       "queue_id": "V3-EXQ-125",
