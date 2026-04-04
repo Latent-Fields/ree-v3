@@ -280,6 +280,19 @@
       ],
       "experiment_purpose": "diagnostic",
       "note": "Diagnostic POC: implements dual-stream harm encoder (z_harm_s=fast/localizable via HarmEncoder, z_harm_a=slow EMA via AffectiveHarmEncoder) as standalone encoders on existing CausalGridWorldV2 observations. Tests orthogonality (D1: cos_sim < 0.5), sensory forward-predictability (D2: R2_s > 0.3), and differential predictability (D3: R2_a < R2_s). No ree_core changes required."
+    },
+    {
+      "queue_id": "V3-EXQ-242",
+      "title": "SD-017 Minimal Sleep Phase Ablation (SWS-analog + REM-analog vs waking-only)",
+      "experiment_type": "v3_exq_242_sd017_sleep_phase_ablation",
+      "script": "experiments/v3_exq_242_sd017_sleep_phase_ablation.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 3,
+      "status": "pending",
+      "estimated_minutes": 300,
+      "claim_ids": ["SD-017", "ARC-045", "MECH-166"],
+      "experiment_purpose": "diagnostic",
+      "notes": "SD-017 minimal sleep phase ablation. Three conditions: WAKING_ONLY, SWS_ONLY, SWS_THEN_REM. Two-context alternating environment (SAFE: 1 hazard vs DANGEROUS: 8 hazards). SWS-analog: interleaved SAFE/DANGEROUS writes to E1.context_memory (schema slot differentiation, hip->cx direction). REM-analog: targeted harm_eval gradient updates on DANGEROUS harm events in temporal order, plus residue_field.integrate() (slot-filling, cx->hip direction). Primary measure: slot_cosine_sim (lower=more differentiated). Secondary: harm_rate_dangerous, harm_discrimination. PASS: C1 (SWS slot differentiation) AND (C2 harm benefit OR C4 discrimination improvement). Diagnostic: SD-017 not yet first-class substrate component -- tests existing context_memory.write + harm_eval hooks as minimal proxy."
     }
   ]
 }
