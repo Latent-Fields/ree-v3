@@ -84,25 +84,6 @@
       "note": "ARC-018 discriminative pair: VIABILITY_MAPPED (ResidueField + HippocampalModule CEM terrain) vs VIABILITY_ABLATED (residue field zeroed). Real ree_core modules. Fixes EXQ-172 inline-module issue. 3 seeds."
     },
     {
-      "queue_id": "V3-EXQ-228",
-      "title": "MECH-116 / ARC-032 theta-bypass ablation (theta_buffer zeroed vs enabled)",
-      "experiment_type": "v3_exq_228_mech116_arc032_theta_bypass_ablation",
-      "script": "experiments/v3_exq_228_mech116_arc032_theta_bypass_ablation.py",
-      "machine_affinity": "any",
-      "priority": 4,
-      "status": "claimed",
-      "estimated_minutes": 135,
-      "claim_ids": [
-        "MECH-116",
-        "ARC-032"
-      ],
-      "notes": "THETA_BYPASS_ENABLED vs THETA_BYPASS_DISABLED (theta_buffer zeroed after each update). E1 goal-conditioned in both. Measures E1 prediction error in goal-zone vs neutral-zone. PASS: goal-relevant error increases when theta disabled (margin>0.02, interaction>0.01) in >= 2/3 seeds. evidence_direction_per_claim required.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-04T10:01:47.450389+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-229",
       "title": "MECH-128 E1 goal-conditioning pair (GOAL_CONDITIONED vs GOAL_ABLATED)",
       "experiment_type": "v3_exq_229_mech128_e1_goal_conditioning_pair",
@@ -197,7 +178,10 @@
       "priority": 2,
       "status": "pending",
       "estimated_minutes": 290,
-      "claim_ids": ["MECH-112", "ARC-030"],
+      "claim_ids": [
+        "MECH-112",
+        "ARC-030"
+      ],
       "notes": "Paper gate for learned goal-directed behavior. GOAL_ACTIVE (harm+benefit+z_goal selector) vs GOAL_ABLATED (same selector, goal channel zeroed). 8x8 grid, 1 resource, 5 seeds, early-acquisition metrics (success@40, first-hit latency, goal_resource_corr alignment probe). Nearby variant: 2 hazards. Fixes EXQ-225/226 design flaws: matched selector structure, simpler environment, no multi-resource confound. CRITICAL: config.e1.goal_dim=world_dim set after from_dims() for GOAL_ACTIVE (pattern from EXQ-076f fix)."
     },
     {
