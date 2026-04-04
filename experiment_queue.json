@@ -12,7 +12,7 @@
       "title": "Onboarding smoke test -- EWIN-PC (Eoin)",
       "experiment_type": "v3_onboard_smoke_EWIN-PC",
       "script": "experiments/v3_onboard_smoke_EWIN-PC.py",
-      "machine_affinity": "EWIN-PC",
+      "machine_affinity": "EWINPC",
       "priority": 0,
       "status": "pending",
       "estimated_minutes": 20
@@ -186,6 +186,20 @@
       "status": "pending",
       "estimated_minutes": 8,
       "notes": "Replicates EXQ-223 with toroidal=True (no walls, wrapping edges). Tests whether EXQ-223 PASS was genuine gradient-following or wall-hugging artifact. Secondary question: does agent develop row/column preference in open torus?"
+    },
+    {
+      "queue_id": "V3-EXQ-228a",
+      "title": "ARC-032 theta-rate pathway behavioral test (THETA_ACTIVE vs THETA_ZEROED)",
+      "experiment_type": "v3_exq_228a_arc032_theta_bypass_behavioral",
+      "script": "experiments/v3_exq_228a_arc032_theta_bypass_behavioral.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 6,
+      "status": "pending",
+      "estimated_minutes": 150,
+      "claim_ids": ["ARC-032"],
+      "supersedes": "V3-EXQ-228",
+      "experiment_purpose": "evidence",
+      "notes": "Fix of EXQ-228 metric-ablation mismatch: compute_prediction_loss() has zero dependency on theta_buffer (E1 internal MSE). Fix: switch to behavioral outcomes (resource_rate, harm_rate) via full generate_trajectories+select_action pipeline. Between-agents: both trained from scratch with identical greedy/random warmup. THETA_ZEROED patches theta_buffer.summary() to return zeros -- severs E1->theta->E3 context pathway. C1: lift>=0.05 in >=2/3 seeds. Precondition: z_goal_norm>=0.05 in THETA_ACTIVE."
     },
     {
       "queue_id": "V3-EXQ-125a",
