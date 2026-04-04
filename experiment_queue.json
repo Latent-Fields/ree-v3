@@ -43,26 +43,6 @@
       "notes": "Milestone architecture validation. Strips commitment architecture (commitment_threshold=-1.0, z_goal_enabled=False, benefit_eval_enabled=False). Tests whether core E1/E2/hippocampus loop gradient-follows on raw env signals. Sidesteps SD-011/SD-012 blockers. PASS criteria: C1 reward > random, C2 harm < random, C4 learning within warmup (all >= 2/3 seeds)."
     },
     {
-      "queue_id": "V3-EXQ-076f",
-      "title": "MECH-116/ARC-032 E1 LSTM Goal Conditioning -- frontal working memory persistence",
-      "experiment_type": "v3_exq_076f_mech116_arc032_e1_goal_conditioning",
-      "script": "experiments/v3_exq_076f_mech116_arc032_e1_goal_conditioning.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "supersedes": "V3-EXQ-076e",
-      "claim_ids": [
-        "MECH-116",
-        "ARC-032"
-      ],
-      "notes": "Fix: config.e1.goal_dim not propagated by from_dims() -- E1Config has no goal_dim field, so E1DeepPredictor.goal_input_proj was None in BOTH conditions across 076-076e. All prior iterations measured identical E1 behavior in both arms. Fix: set config.e1.goal_dim=world_dim after from_dims() for goal_conditioned only. Pattern from EXQ-147/147a.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-04T02:26:11.877703+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-195",
       "title": "SD-003 Full Latent Counterfactual Attribution on z_harm_s (post-SD-011)",
       "experiment_type": "v3_exq_195_sd003_zharms_full_counterfactual",
