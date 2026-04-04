@@ -988,6 +988,7 @@ def main():
     queue_data = load_queue()
     calibration = queue_data.get("calibration", {})
     items = queue_data.get("items", [])
+    items.sort(key=lambda x: x.get("priority", 0), reverse=True)
     script_timing = load_script_timing()
 
     # Preserve existing completed runs from per-machine file
@@ -1309,6 +1310,7 @@ def main():
         queue_data = load_queue()
         calibration = queue_data.get("calibration", {})
         items = queue_data.get("items", [])
+        items.sort(key=lambda x: x.get("priority", 0), reverse=True)
 
         new_pending = [i for i in items if i["queue_id"] not in completed_ids]
         if new_pending:
