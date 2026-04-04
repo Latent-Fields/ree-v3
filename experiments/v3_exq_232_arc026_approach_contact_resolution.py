@@ -103,8 +103,7 @@ def _make_env(seed: int) -> CausalGridWorldV2:
         num_hazards=3,
         num_resources=3,
         hazard_harm=0.1,   # Stronger harm signal for gradient detection
-        # No env_drift_interval=0: that causes ZeroDivisionError in env.step().
-        # Use default (5) -- static enough for gradient detection.
+        env_drift_interval=5,  # Explicit: default=5 but guard against 0 (ZeroDivisionError)
     )
 
 
