@@ -82,22 +82,6 @@
       "backlog_id": "EVB-0048",
       "claim_id": "ARC-018",
       "note": "ARC-018 discriminative pair: VIABILITY_MAPPED (ResidueField + HippocampalModule CEM terrain) vs VIABILITY_ABLATED (residue field zeroed). Real ree_core modules. Fixes EXQ-172 inline-module issue. 3 seeds."
-    },
-    {
-      "queue_id": "V3-EXQ-224",
-      "title": "MECH-124 z_goal salience vs harm salience -- V4 risk diagnostic",
-      "experiment_type": "v3_exq_224_mech124_zgoal_salience_diag",
-      "script": "experiments/v3_exq_224_mech124_zgoal_salience_diag.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 4,
-      "status": "claimed",
-      "estimated_minutes": 180,
-      "claim_id": "MECH-124",
-      "note": "Diagnostic (not evidence). Measures whether z_goal norm stays competitive with harm salience over 300 episodes x 3 seeds. BASELINE (z_goal_enabled=True, drive_weight=2.0) vs ABLATION. SD-012 now implemented. Flags V4 consolidation risk if harm dominates.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-04T02:26:49.575805+00:00"
-      }
     }
   ]
 }
