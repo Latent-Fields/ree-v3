@@ -234,6 +234,46 @@
       "supersedes": "V3-EXQ-233",
       "experiment_purpose": "evidence",
       "notes": "Fix for EXQ-233 design error: adds proximity_benefit_scale=0.18 so benefit_exposure exceeds seeding threshold. SD012_ACTIVE (drive_weight=2.0) vs SD012_ABLATED (drive_weight=0.0). Expected: ACTIVE seeds z_goal (norm>0.1), ABLATED does not (norm<0.05). Clean causal ablation proof."
+    },
+    {
+      "queue_id": "V3-EXQ-240",
+      "title": "ARC-038 Waking Consolidation Mode Probe (CONSOLIDATE vs NO_CONSOLIDATE offline map update)",
+      "experiment_type": "v3_exq_240_arc038_waking_consolidation_probe",
+      "script": "experiments/v3_exq_240_arc038_waking_consolidation_probe.py",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 300,
+      "claim_ids": [
+        "ARC-038"
+      ],
+      "experiment_purpose": "diagnostic",
+      "note": "Redesign of EXQ-191: implements offline consolidation pass (no z_goal, updates residue field from trajectory buffer via hippocampal.replay() + residue_field.integrate()), reachable target_harm_rate=0.05, diagnostic classification. 5 seeds x 200 episodes, CONSOLIDATE fires every 10 episodes."
+    },
+    {
+      "queue_id": "V3-EXQ-239",
+      "title": "MECH-153 Context Memory Sufficient Signal (lambda=0.5, 500 warmup eps vs ABLATED)",
+      "experiment_type": "v3_exq_239_mech153_context_memory_sufficient_signal",
+      "script": "experiments/v3_exq_239_mech153_context_memory_sufficient_signal.py",
+      "priority": 4,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 200,
+      "claim_id": "MECH-153",
+      "note": "Redesign of EXQ-187a: 5x lambda (0.5 vs 0.1), 3x warmup (500 vs 150 eps). Tests whether sufficient supervised signal produces cosine_sim < 0.95 vs ABLATED baseline."
+    },
+    {
+      "queue_id": "V3-EXQ-241",
+      "title": "SD-011 Dual Nociceptive Stream Proof-of-Concept (z_harm_s sensory-discriminative vs z_harm_a affective-motivational)",
+      "experiment_type": "v3_exq_241_sd011_dual_nociceptive_stream_poc",
+      "script": "experiments/v3_exq_241_sd011_dual_nociceptive_stream_poc.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 250,
+      "claim_ids": ["SD-011"],
+      "experiment_purpose": "diagnostic",
+      "note": "Diagnostic POC: implements dual-stream harm encoder (z_harm_s=fast/localizable via HarmEncoder, z_harm_a=slow EMA via AffectiveHarmEncoder) as standalone encoders on existing CausalGridWorldV2 observations. Tests orthogonality (D1: cos_sim < 0.5), sensory forward-predictability (D2: R2_s > 0.3), and differential predictability (D3: R2_a < R2_s). No ree_core changes required."
     }
   ]
 }
