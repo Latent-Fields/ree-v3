@@ -90,10 +90,14 @@
       "script": "experiments/v3_exq_224_mech124_zgoal_salience_diag.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 4,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "claim_id": "MECH-124",
-      "note": "Diagnostic (not evidence). Measures whether z_goal norm stays competitive with harm salience over 300 episodes x 3 seeds. BASELINE (z_goal_enabled=True, drive_weight=2.0) vs ABLATION. SD-012 now implemented. Flags V4 consolidation risk if harm dominates."
+      "note": "Diagnostic (not evidence). Measures whether z_goal norm stays competitive with harm salience over 300 episodes x 3 seeds. BASELINE (z_goal_enabled=True, drive_weight=2.0) vs ABLATION. SD-012 now implemented. Flags V4 consolidation risk if harm dominates.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-04T02:26:49.575805+00:00"
+      }
     }
   ]
 }
