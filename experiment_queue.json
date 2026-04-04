@@ -282,6 +282,67 @@
       ],
       "experiment_purpose": "diagnostic",
       "notes": "SD-017 minimal sleep phase ablation. Three conditions: WAKING_ONLY, SWS_ONLY, SWS_THEN_REM. Two-context alternating environment (SAFE: 1 hazard vs DANGEROUS: 8 hazards). SWS-analog: interleaved SAFE/DANGEROUS writes to E1.context_memory (schema slot differentiation, hip->cx direction). REM-analog: targeted harm_eval gradient updates on DANGEROUS harm events in temporal order, plus residue_field.integrate() (slot-filling, cx->hip direction). Primary measure: slot_cosine_sim (lower=more differentiated). Secondary: harm_rate_dangerous, harm_discrimination. PASS: C1 (SWS slot differentiation) AND (C2 harm benefit OR C4 discrimination improvement). Diagnostic: SD-017 not yet first-class substrate component -- tests existing context_memory.write + harm_eval hooks as minimal proxy."
+    },
+    {
+      "queue_id": "V3-EXQ-243",
+      "title": "INV-045 Phase Ordering Necessity + MECH-123 Precision Recalibration",
+      "experiment_type": "v3_exq_243_inv045_phase_ordering_necessity",
+      "script": "experiments/v3_exq_243_inv045_phase_ordering_necessity.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 3,
+      "status": "pending",
+      "estimated_minutes": 350,
+      "claim_ids": [
+        "INV-045",
+        "MECH-123"
+      ],
+      "experiment_purpose": "evidence",
+      "note": "Five conditions: WAKING_ONLY, REM_ONLY, REM_THEN_SWS (wrong order), SWS_THEN_REM (correct), SWS_THEN_REM_RECAL (+MECH-123 precision reset). PASS=P1(REM_ONLY fails)+P2(wrong order fails)+P3(correct order wins). MECH-123 via P4. Direct evidence test of INV-045."
+    },
+    {
+      "queue_id": "V3-EXQ-244",
+      "title": "MECH-165 Reverse Replay Diversity (Forward vs Balanced forward+reverse)",
+      "experiment_type": "v3_exq_244_mech165_reverse_replay_diversity",
+      "script": "experiments/v3_exq_244_mech165_reverse_replay_diversity.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 3,
+      "status": "pending",
+      "estimated_minutes": 400,
+      "claim_ids": [
+        "MECH-165"
+      ],
+      "experiment_purpose": "evidence",
+      "note": "Three conditions: WAKING_ONLY, FORWARD_ONLY_REPLAY, BALANCED_REPLAY (forward+reverse). Measures action_entropy and monostrategy_rate. PASS: BALANCED > FORWARD on entropy (M1) AND (monostrategy_rate lower M2 OR entropy > waking M3). Reverse replay traces back from harm events to causal antecedents, enabling alternative route identification."
+    },
+    {
+      "queue_id": "V3-EXQ-245",
+      "title": "MECH-120 SHY-Analog Normalisation Phase Ordering (SHY before vs after SWS)",
+      "experiment_type": "v3_exq_245_mech120_shy_normalisation",
+      "script": "experiments/v3_exq_245_mech120_shy_normalisation.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 3,
+      "status": "pending",
+      "estimated_minutes": 220,
+      "claim_ids": [
+        "MECH-120"
+      ],
+      "experiment_purpose": "evidence",
+      "note": "Four conditions: WAKING_ONLY, SWS_NO_SHY, SHY_THEN_SWS (correct order), SWS_THEN_SHY (wrong order). Uses shy_normalise(decay=0.85) substrate addition. PASS: SHY_THEN_SWS has lower slot_cosine_sim than SWS_NO_SHY (S1) AND lower than SWS_THEN_SHY (S2) in >=2/3 seeds. Tests that SHY homeostasis before SWS is functionally necessary."
+    },
+    {
+      "queue_id": "V3-EXQ-246",
+      "title": "MECH-122 Phase 3 Spindle Coordination Proxy (ThetaBuffer consolidation_summary->ContextMemory)",
+      "experiment_type": "v3_exq_246_mech122_spindle_coordination",
+      "script": "experiments/v3_exq_246_mech122_spindle_coordination.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 4,
+      "status": "pending",
+      "estimated_minutes": 280,
+      "claim_ids": [
+        "MECH-122"
+      ],
+      "experiment_purpose": "diagnostic",
+      "note": "Three conditions: WAKING_ONLY, SWS_REM_NO_SPINDLE, SWS_REM_WITH_SPINDLE. Phase 3 proxy: theta_buffer.set_consolidation_mode(True), consolidation_summary() (recency-weighted z_world), write back to ContextMemory. PASS: Phase 3 does not worsen harm avoidance (T1) AND maintains/improves harm discrimination (T2). Deliberately weak criteria -- MECH-122 full effect is V4 scope. Establishes V3 proxy baseline."
     }
   ]
 }

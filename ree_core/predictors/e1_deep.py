@@ -121,6 +121,13 @@ class E1DeepPredictor(nn.Module):
 
         self._hidden_state: Optional[Tuple[torch.Tensor, torch.Tensor]] = None
 
+        # MECH-120: SHY-analog offline mode flag.
+        # When True, context_memory.write() calls are suppressed during waking steps.
+        # Set via REEAgent.enter_offline_mode() / exit_offline_mode().
+        # This prevents new waking observations from overwriting fresh schema slots
+        # installed during the SWS-analog pass.
+        self._offline_mode: bool = False
+
         # MECH-116: optional goal conditioning projection
         # Projects [z_self, z_world, z_goal] -> latent_dim before LSTM
         goal_dim = getattr(config, 'goal_dim', 0)
@@ -273,15 +280,39 @@ class E1DeepPredictor(nn.Module):
         z_world_pred = prediction[:, self.config.self_dim:]
         return z_self_pred, z_world_pred
 
+    def shy_normalise(self, decay: float = 0.85) -> None:
+        """
+        MECH-120: SHY-analog synaptic homeostasis normalisation.
+
+        Decays ContextMemory slot weights toward the slot-mean, flattening
+        dominant attractors before replay repopulates them (Tononi SHY hypothesis).
+        This must run BEFORE replay (Phase 1 before Phase 2 in offline_phases.md):
+        replaying into a landscape dominated by a recent high-salience experience
+        reinforces the dominant trace rather than consolidating diverse content.
+
+        decay=0.85 preserves 85% of each slot's deviation from the mean.
+        Lower decay = more aggressive normalisation.
+        No gradient: direct .data write.
+
+        Args:
+            decay: EMA weight toward mean. 0.85 = mild homeostasis.
+        """
+        with torch.no_grad():
+            mem = self.context_memory.memory.data   # [num_slots, memory_dim]
+            slot_mean = mem.mean(dim=0, keepdim=True)  # [1, memory_dim]
+            # Decay deviation from mean: new = mean + (old - mean) * decay
+            self.context_memory.memory.data = slot_mean + (mem - slot_mean) * decay
+
     def update_from_observation(
         self,
         observation_state: torch.Tensor,
         prediction_error: torch.Tensor,
     ) -> Dict[str, torch.Tensor]:
-        self.context_memory.write(observation_state)
+        if not self._offline_mode:
+            self.context_memory.write(observation_state)
         return {
             "e1_error_magnitude": prediction_error.pow(2).mean(),
-            "context_updated": torch.tensor(1.0),
+            "context_updated": torch.tensor(float(not self._offline_mode)),
         }
 
     def integrate_experience(

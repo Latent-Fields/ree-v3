@@ -55,6 +55,13 @@ class ThetaBuffer:
         self._last_summary_z_world: Optional[torch.Tensor] = None
         self._last_summary_z_self:  Optional[torch.Tensor] = None
 
+        # MECH-122 / Phase 3 spindle coordination: consolidation mode flag.
+        # When True, the buffer is in offline consolidation mode (cx->hip direction).
+        # set_consolidation_mode(True) before Phase 3 offline pass.
+        # consolidation_summary() returns reverse-temporal-order packaged E1 updates
+        # for hippocampal transfer (bidirectional theta-packaging proxy).
+        self._consolidation_mode: bool = False
+
     def update(
         self,
         z_world: torch.Tensor,
@@ -135,6 +142,54 @@ class ThetaBuffer:
     def is_full(self) -> bool:
         """True when buffer has reached capacity."""
         return len(self._z_world_buffer) == self.buffer_size
+
+    def set_consolidation_mode(self, enabled: bool) -> None:
+        """
+        MECH-122 Phase 3: Toggle bidirectional theta-packaging mode.
+
+        When enabled=True, the buffer is in offline consolidation mode (cx->hip).
+        Use consolidation_summary() to get reverse-order packaged E1 updates
+        for hippocampal transfer.
+
+        Call set_consolidation_mode(True) before Phase 3 offline pass.
+        Call set_consolidation_mode(False) to return to normal waking mode.
+        """
+        self._consolidation_mode = enabled
+
+    def consolidation_summary(self) -> Optional[torch.Tensor]:
+        """
+        MECH-122 Phase 3: Return reverse-temporal-order packaged E1 updates.
+
+        Theta-packages the buffered z_world estimates in reverse temporal order
+        (newest-first) for hippocampal transfer (cx->hip direction proxy).
+
+        Normal summary() averages oldest-to-newest (hip->cx, E3 consumption).
+        consolidation_summary() weights RECENT states more heavily by reading
+        in reverse: most recent z_world has highest weight (linear decay).
+
+        This is a V3 proxy for the full bidirectional ThetaBuffer mode (V4).
+        The reverse-ordering gives Phase 3 its distinct computational signature:
+        E1 updates are packaged starting from the agent's current state and
+        tracing backward, giving hippocampus recency-weighted terrain context.
+
+        Returns:
+            Recency-weighted z_world summary [batch, world_dim], or None if empty.
+        """
+        if not self._z_world_buffer:
+            return None
+
+        # Stack in REVERSE temporal order (newest first)
+        entries = list(self._z_world_buffer)  # oldest to newest
+        stacked = torch.stack(list(reversed(entries)), dim=0)  # [T, batch, world_dim]
+        T = stacked.shape[0]
+
+        # Linear recency weights: newest entry has weight T, oldest has weight 1
+        weights = torch.arange(T, 0, -1, dtype=torch.float, device=stacked.device)
+        weights = weights / weights.sum()
+        weights = weights.view(T, 1, 1)
+
+        result = (stacked * weights).sum(dim=0)  # [batch, world_dim]
+        return result
 
     def reset(self) -> None:
         """Clear the buffer (episode reset)."""

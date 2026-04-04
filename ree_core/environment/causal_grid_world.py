@@ -106,6 +106,8 @@ class CausalGridWorld:
         sequence_commitment_timeout: int = 20,
         # Proxy-gradient field mode (ARC-024, CausalGridWorldV2)
         use_proxy_fields: bool = False,
+        # Toroidal wrapping: no walls, movement wraps at grid edges
+        toroidal: bool = False,
         # SD-012: resource respawn for repeated drive-reduction cycles
         resource_respawn_on_consume: bool = False,
         hazard_field_decay: float = 0.5,
@@ -136,6 +138,7 @@ class CausalGridWorld:
 
         # Proxy-gradient parameters
         self.use_proxy_fields = use_proxy_fields
+        self.toroidal = toroidal
         self.resource_respawn_on_consume = resource_respawn_on_consume
         self.hazard_field_decay = hazard_field_decay
         self.resource_field_decay = resource_field_decay
@@ -192,19 +195,27 @@ class CausalGridWorld:
     def reset(self) -> Tuple[torch.Tensor, Dict]:
         """Reset environment. Returns (flat_obs, obs_dict)."""
         self.grid = np.zeros((self.size, self.size), dtype=np.int32)
-        self.grid[0, :] = self.ENTITY_TYPES["wall"]
-        self.grid[-1, :] = self.ENTITY_TYPES["wall"]
-        self.grid[:, 0] = self.ENTITY_TYPES["wall"]
-        self.grid[:, -1] = self.ENTITY_TYPES["wall"]
+        if not self.toroidal:
+            self.grid[0, :] = self.ENTITY_TYPES["wall"]
+            self.grid[-1, :] = self.ENTITY_TYPES["wall"]
+            self.grid[:, 0] = self.ENTITY_TYPES["wall"]
+            self.grid[:, -1] = self.ENTITY_TYPES["wall"]
 
         self.contamination_grid = np.zeros((self.size, self.size), dtype=np.float32)
         self.footprint_grid = np.zeros((self.size, self.size), dtype=np.int32)
 
-        available = [
-            (i, j)
-            for i in range(1, self.size - 1)
-            for j in range(1, self.size - 1)
-        ]
+        if self.toroidal:
+            available = [
+                (i, j)
+                for i in range(self.size)
+                for j in range(self.size)
+            ]
+        else:
+            available = [
+                (i, j)
+                for i in range(1, self.size - 1)
+                for j in range(1, self.size - 1)
+            ]
         self._rng.shuffle(available)
 
         ax, ay = available.pop()
@@ -281,16 +292,20 @@ class CausalGridWorld:
         self._last_action = action
 
         dx, dy = self.ACTIONS[action]
-        new_x = self.agent_x + dx
-        new_y = self.agent_y + dy
+        if self.toroidal:
+            new_x = (self.agent_x + dx) % self.size
+            new_y = (self.agent_y + dy) % self.size
+        else:
+            new_x = self.agent_x + dx
+            new_y = self.agent_y + dy
 
         harm_signal = 0.0
         transition_type = "none"
         contamination_delta = 0.0
         env_drift_occurred = False
 
-        # Move agent if not wall
-        if self.grid[new_x, new_y] != self.ENTITY_TYPES["wall"]:
+        # Move agent if not wall (toroidal has no walls, so always move)
+        if self.toroidal or self.grid[new_x, new_y] != self.ENTITY_TYPES["wall"]:
             old_x, old_y = self.agent_x, self.agent_y
 
             if self.contamination_grid[old_x, old_y] >= self.contamination_threshold:
@@ -523,11 +538,15 @@ class CausalGridWorld:
         local_view = torch.zeros(5, 5, self.NUM_ENTITY_TYPES)
         for di in range(-2, 3):
             for dj in range(-2, 3):
-                ni, nj = ax + di, ay + dj
-                if 0 <= ni < self.size and 0 <= nj < self.size:
+                if self.toroidal:
+                    ni, nj = (ax + di) % self.size, (ay + dj) % self.size
                     etype = self.grid[ni, nj]
                 else:
-                    etype = self.ENTITY_TYPES["wall"]
+                    ni, nj = ax + di, ay + dj
+                    if 0 <= ni < self.size and 0 <= nj < self.size:
+                        etype = self.grid[ni, nj]
+                    else:
+                        etype = self.ENTITY_TYPES["wall"]
                 local_view[di + 2, dj + 2, etype] = 1.0
         local_view_flat = local_view.reshape(-1)  # [175]
 
@@ -535,9 +554,13 @@ class CausalGridWorld:
         cont_view = torch.zeros(5, 5)
         for di in range(-2, 3):
             for dj in range(-2, 3):
-                ni, nj = ax + di, ay + dj
-                if 0 <= ni < self.size and 0 <= nj < self.size:
+                if self.toroidal:
+                    ni, nj = (ax + di) % self.size, (ay + dj) % self.size
                     cont_view[di + 2, dj + 2] = float(self.contamination_grid[ni, nj])
+                else:
+                    ni, nj = ax + di, ay + dj
+                    if 0 <= ni < self.size and 0 <= nj < self.size:
+                        cont_view[di + 2, dj + 2] = float(self.contamination_grid[ni, nj])
         cont_view_flat = (cont_view / (self.contamination_threshold + 1e-6)).reshape(-1)  # [25]
 
         world_parts = [local_view_flat, cont_view_flat]
@@ -552,10 +575,15 @@ class CausalGridWorld:
             r_view = torch.zeros(5, 5)
             for di in range(-2, 3):
                 for dj in range(-2, 3):
-                    ni, nj = ax + di, ay + dj
-                    if 0 <= ni < self.size and 0 <= nj < self.size:
+                    if self.toroidal:
+                        ni, nj = (ax + di) % self.size, (ay + dj) % self.size
                         h_view[di + 2, dj + 2] = float(self.hazard_field[ni, nj]) / hazard_max
                         r_view[di + 2, dj + 2] = float(self.resource_field[ni, nj]) / resource_max
+                    else:
+                        ni, nj = ax + di, ay + dj
+                        if 0 <= ni < self.size and 0 <= nj < self.size:
+                            h_view[di + 2, dj + 2] = float(self.hazard_field[ni, nj]) / hazard_max
+                            r_view[di + 2, dj + 2] = float(self.resource_field[ni, nj]) / resource_max
             hazard_field_flat = h_view.reshape(-1)    # [25]
             resource_field_flat = r_view.reshape(-1)  # [25]
             world_parts.extend([hazard_field_flat, resource_field_flat])
@@ -632,14 +660,24 @@ class CausalGridWorld:
             if self._rng.random() < self.env_drift_prob:
                 self._rng.shuffle(available_dirs)
                 for dx, dy in available_dirs:
-                    nx, ny = hazard[0] + dx, hazard[1] + dy
-                    if (0 < nx < self.size - 1 and 0 < ny < self.size - 1 and
-                            self.grid[nx, ny] == self.ENTITY_TYPES["empty"]):
-                        self.grid[hazard[0], hazard[1]] = self.ENTITY_TYPES["empty"]
-                        hazard[0], hazard[1] = nx, ny
-                        self.grid[nx, ny] = self.ENTITY_TYPES["hazard"]
-                        drifted = True
-                        break
+                    if self.toroidal:
+                        nx = (hazard[0] + dx) % self.size
+                        ny = (hazard[1] + dy) % self.size
+                        if self.grid[nx, ny] == self.ENTITY_TYPES["empty"]:
+                            self.grid[hazard[0], hazard[1]] = self.ENTITY_TYPES["empty"]
+                            hazard[0], hazard[1] = nx, ny
+                            self.grid[nx, ny] = self.ENTITY_TYPES["hazard"]
+                            drifted = True
+                            break
+                    else:
+                        nx, ny = hazard[0] + dx, hazard[1] + dy
+                        if (0 < nx < self.size - 1 and 0 < ny < self.size - 1 and
+                                self.grid[nx, ny] == self.ENTITY_TYPES["empty"]):
+                            self.grid[hazard[0], hazard[1]] = self.ENTITY_TYPES["empty"]
+                            hazard[0], hazard[1] = nx, ny
+                            self.grid[nx, ny] = self.ENTITY_TYPES["hazard"]
+                            drifted = True
+                            break
         # Recompute hazard field after any drift
         if self.use_proxy_fields and drifted:
             self._compute_proximity_fields()

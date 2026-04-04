@@ -823,6 +823,24 @@ class REEAgent(nn.Module):
     def should_integrate(self) -> bool:
         return self._step_count % self.config.offline_integration_frequency == 0
 
+    def enter_offline_mode(self) -> None:
+        """
+        MECH-120 / SD-017: Gate E1 context_memory writes during offline phases.
+
+        Sets e1._offline_mode = True, which suppresses context_memory.write()
+        calls in E1.update_from_observation(). This prevents new waking
+        observations from overwriting schema slots installed during the
+        SWS-analog pass (Phase 0 sensory gate from offline_phases.md).
+
+        Call before running SWS/REM-analog passes.
+        Paired with exit_offline_mode() to resume normal waking writes.
+        """
+        self.e1._offline_mode = True
+
+    def exit_offline_mode(self) -> None:
+        """Resume normal waking context_memory writes (undo enter_offline_mode)."""
+        self.e1._offline_mode = False
+
     def get_state(self) -> AgentState:
         return AgentState(
             latent_state=self._current_latent,
