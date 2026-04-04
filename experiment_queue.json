@@ -104,13 +104,17 @@
       "script": "experiments/v3_exq_233_sd012_zgoal_seeding_validation.py",
       "machine_affinity": "any",
       "priority": 3,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "claim_ids": [
         "SD-012",
         "MECH-112"
       ],
-      "notes": "Validates drive_weight as causal variable for z_goal seeding. SD012_ACTIVE (drive_weight=2.0) vs SD012_ABLATED (drive_weight=0.0). PASS: goal_norm_active > 0.1 in all seeds (C1), goal_norm_ablated < 0.05 in all seeds (C2), benefit_goal_corr > 0.2 in >= 2/3 seeds (C3). evidence_direction_per_claim for SD-012 and MECH-112."
+      "notes": "Validates drive_weight as causal variable for z_goal seeding. SD012_ACTIVE (drive_weight=2.0) vs SD012_ABLATED (drive_weight=0.0). PASS: goal_norm_active > 0.1 in all seeds (C1), goal_norm_ablated < 0.05 in all seeds (C2), benefit_goal_corr > 0.2 in >= 2/3 seeds (C3). evidence_direction_per_claim for SD-012 and MECH-112.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-04T16:46:15.685212+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-234",
