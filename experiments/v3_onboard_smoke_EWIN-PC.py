@@ -1,5 +1,5 @@
 """
-V3-ONBOARD-smoke-EWINPC -- Contributor Onboarding Smoke Test
+V3-ONBOARD-smoke-EWIN-PC -- Contributor Onboarding Smoke Test
 
 Purpose: verify the full experiment pipeline round-trip on a newly onboarded
 machine AND benchmark CPU vs GPU compute separately so experiment routing
@@ -23,7 +23,7 @@ Pass criteria (pipeline verification -- not scientific):
   C3: steps_per_second_cpu > 0
   C4 (advisory): cuda_available -- logged but does not gate PASS/FAIL
 
-Machine affinity: EWINPC (set in experiment_queue.json).
+Machine affinity: EWIN-PC (set in experiment_queue.json).
 Estimated runtime: ~10-20 min depending on hardware.
 """
 
@@ -44,7 +44,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 
 
-EXPERIMENT_TYPE = "v3_onboard_smoke_EWINPC"
+EXPERIMENT_TYPE = "v3_onboard_smoke_EWIN-PC"
 CLAIM_IDS: list = []  # not tied to a scientific claim
 
 # Episode counts per block -- kept short, this is a benchmark not a training run

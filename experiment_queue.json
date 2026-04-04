@@ -8,11 +8,11 @@
   },
   "items": [
     {
-      "queue_id": "V3-ONBOARD-smoke-EWINPC",
-      "title": "Onboarding smoke test -- EWINPC (Eoin)",
-      "experiment_type": "v3_onboard_smoke_EWINPC",
-      "script": "experiments/v3_onboard_smoke_EWINPC.py",
-      "machine_affinity": "EWINPC",
+      "queue_id": "V3-ONBOARD-smoke-EWIN-PC",
+      "title": "Onboarding smoke test -- EWIN-PC (Eoin)",
+      "experiment_type": "v3_onboard_smoke_EWIN-PC",
+      "script": "experiments/v3_onboard_smoke_EWIN-PC.py",
+      "machine_affinity": "EWIN-PC",
       "priority": 0,
       "status": "pending",
       "estimated_minutes": 20
