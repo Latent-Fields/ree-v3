@@ -90,13 +90,17 @@
       "script": "experiments/v3_exq_228_mech116_arc032_theta_bypass_ablation.py",
       "machine_affinity": "any",
       "priority": 4,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 135,
       "claim_ids": [
         "MECH-116",
         "ARC-032"
       ],
-      "notes": "THETA_BYPASS_ENABLED vs THETA_BYPASS_DISABLED (theta_buffer zeroed after each update). E1 goal-conditioned in both. Measures E1 prediction error in goal-zone vs neutral-zone. PASS: goal-relevant error increases when theta disabled (margin>0.02, interaction>0.01) in >= 2/3 seeds. evidence_direction_per_claim required."
+      "notes": "THETA_BYPASS_ENABLED vs THETA_BYPASS_DISABLED (theta_buffer zeroed after each update). E1 goal-conditioned in both. Measures E1 prediction error in goal-zone vs neutral-zone. PASS: goal-relevant error increases when theta disabled (margin>0.02, interaction>0.01) in >= 2/3 seeds. evidence_direction_per_claim required.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-04T10:01:47.450389+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-229",
