@@ -76,12 +76,16 @@
       "script": "experiments/v3_exq_230_mech075_novelty_diagnostic.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "claim_ids": [
         "MECH-075"
       ],
-      "notes": "Diagnostic after EXQ-192a FAIL + EXQ-209 weakens. Probes whether novelty signal (E1 world-prediction MSE EMA) is active and whether CEM noise scaling produces >= 10% exploration gap. PASS: novelty_mag > 0.01 AND explore_gap >= 0.10 in >= 2/3 seeds. EXPERIMENT_PURPOSE=diagnostic. 3 seeds x 150 train + 50 eval x 200 steps."
+      "notes": "Diagnostic after EXQ-192a FAIL + EXQ-209 weakens. Probes whether novelty signal (E1 world-prediction MSE EMA) is active and whether CEM noise scaling produces >= 10% exploration gap. PASS: novelty_mag > 0.01 AND explore_gap >= 0.10 in >= 2/3 seeds. EXPERIMENT_PURPOSE=diagnostic. 3 seeds x 150 train + 50 eval x 200 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-04T15:29:34.077503+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-231",
