@@ -129,6 +129,79 @@
         "MECH-128"
       ],
       "notes": "GOAL_CONDITIONED (e1.goal_dim=32) vs GOAL_ABLATED (e1.goal_dim=0). drive_weight=2.0. 3 seeds x 400 warmup + 100 eval x 200 steps. PASS: interaction>=0.005 in >=2/3 seeds, goal-relevant E1 error lower in GOAL_CONDITIONED, neutral error similar. C4 (z_goal_norm > 0.05) required in all seeds."
+    },
+    {
+      "queue_id": "V3-EXQ-230",
+      "title": "MECH-075 Novelty Loop Diagnostic (GATED vs ABLATED)",
+      "experiment_type": "v3_exq_230_mech075_novelty_diagnostic",
+      "script": "experiments/v3_exq_230_mech075_novelty_diagnostic.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 90,
+      "claim_ids": ["MECH-075"],
+      "notes": "Diagnostic after EXQ-192a FAIL + EXQ-209 weakens. Probes whether novelty signal (E1 world-prediction MSE EMA) is active and whether CEM noise scaling produces >= 10% exploration gap. PASS: novelty_mag > 0.01 AND explore_gap >= 0.10 in >= 2/3 seeds. EXPERIMENT_PURPOSE=diagnostic. 3 seeds x 150 train + 50 eval x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-231",
+      "title": "MECH-106 BG Hysteresis First Experiment (PERSISTENT vs REACTIVE)",
+      "experiment_type": "v3_exq_231_mech106_bg_hysteresis",
+      "script": "experiments/v3_exq_231_mech106_bg_hysteresis.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 4,
+      "status": "pending",
+      "estimated_minutes": 120,
+      "claim_ids": ["MECH-106"],
+      "notes": "First experiment for MECH-106. PERSISTENT (min_hold=20 steps + margin release) vs REACTIVE (instantaneous variance-threshold). PASS: persistence_ratio_PERSISTENT > 2.0 AND reactive_ratio <= 1.5 in >= 2/3 seeds. 3 seeds x 400 eps x 200 steps."
+    },
+    {
+      "queue_id": "V3-EXQ-232",
+      "title": "ARC-026 Approach/Contact Slope Conflict Resolution (peak-checkpoint analysis)",
+      "experiment_type": "v3_exq_232_arc026_approach_contact_resolution",
+      "script": "experiments/v3_exq_232_arc026_approach_contact_resolution.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 250,
+      "claim_ids": ["ARC-026"],
+      "notes": "Resolves EXQ-033 conflict_ratio=1.0. Uses peak-checkpoint analysis (not terminal) to handle training instability. 1500 eps, checkpoints at [200,400,600,800,1000,1500]. PASS: approach_slope > contact_slope at peak in >= 2/3 seeds, approach_gap > 0.05 at peak. Phased E3 supervision from ep100."
+    },
+    {
+      "queue_id": "V3-EXQ-233",
+      "title": "SD-012 z_goal Seeding Causal Validation (drive_weight=2.0 vs 0.0)",
+      "experiment_type": "v3_exq_233_sd012_zgoal_seeding_validation",
+      "script": "experiments/v3_exq_233_sd012_zgoal_seeding_validation.py",
+      "machine_affinity": "any",
+      "priority": 3,
+      "status": "pending",
+      "estimated_minutes": 90,
+      "claim_ids": ["SD-012", "MECH-112"],
+      "notes": "Validates drive_weight as causal variable for z_goal seeding. SD012_ACTIVE (drive_weight=2.0) vs SD012_ABLATED (drive_weight=0.0). PASS: goal_norm_active > 0.1 in all seeds (C1), goal_norm_ablated < 0.05 in all seeds (C2), benefit_goal_corr > 0.2 in >= 2/3 seeds (C3). evidence_direction_per_claim for SD-012 and MECH-112."
+    },
+    {
+      "queue_id": "V3-EXQ-234",
+      "title": "MECH-117 Wanting/Liking Dissociation Replication (seeds [1,2,3])",
+      "experiment_type": "v3_exq_234_mech117_wanting_liking_replication",
+      "script": "experiments/v3_exq_234_mech117_wanting_liking_replication.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 3,
+      "status": "pending",
+      "estimated_minutes": 90,
+      "claim_ids": ["MECH-112", "MECH-117"],
+      "notes": "Independent replication of EXQ-074f (seeds [42,7,13]) with seeds [1,2,3]. Same design: 3000 steps, 6x6 grid, L1->L2 relocation at step 1500. Wanting chases L1 (incentive salience); liking redirects to L2. PASS: 4/4 criteria in >= 2/3 seeds. Supports MECH-117 stable promotion. evidence_direction_per_claim for MECH-112 and MECH-117."
+    },
+    {
+      "queue_id": "V3-EXQ-125a",
+      "title": "ARC-029 committed-mode harm redesign (8 hazards, 5 seeds, majority rule)",
+      "experiment_type": "v3_exq_125a_arc029_committed_mode_redesign",
+      "script": "experiments/v3_exq_125a_arc029_committed_mode_redesign.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 4,
+      "status": "pending",
+      "estimated_minutes": 300,
+      "claim_ids": ["ARC-029"],
+      "supersedes": "V3-EXQ-125",
+      "notes": "Redesign to fix low statistical power under SD-010/011/012 substrate. num_hazards 4->8, hazard_harm 0.02->0.05, proximity_harm_scale 0.05->0.15. Seeds [0,42,100,123,200] with majority rule C1/C2/C3>=4/5 seeds. MIN_HARM_GAP_STABLE raised 0.0001->0.001. harm_obs passed to sense() (SD-010 nociceptive stream active). EXQ-125 failed 3x: harm rates ~100x smaller than EXQ-063 due to substrate, making committed-gate advantage undetectable."
     }
   ]
 }
