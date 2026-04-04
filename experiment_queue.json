@@ -343,6 +343,19 @@
       ],
       "experiment_purpose": "diagnostic",
       "note": "Three conditions: WAKING_ONLY, SWS_REM_NO_SPINDLE, SWS_REM_WITH_SPINDLE. Phase 3 proxy: theta_buffer.set_consolidation_mode(True), consolidation_summary() (recency-weighted z_world), write back to ContextMemory. PASS: Phase 3 does not worsen harm avoidance (T1) AND maintains/improves harm discrimination (T2). Deliberately weak criteria -- MECH-122 full effect is V4 scope. Establishes V3 proxy baseline."
+    },
+    {
+      "queue_id": "V3-EXQ-247",
+      "title": "SD-011/SD-012 Full Integration Validation (urgency gating + affective amplification + drive extraction)",
+      "experiment_type": "v3_exq_247_sd011_sd012_integration",
+      "script": "experiments/v3_exq_247_sd011_sd012_integration.py",
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 200,
+      "claim_ids": ["SD-011", "SD-012", "ARC-033", "ARC-030"],
+      "experiment_purpose": "evidence",
+      "notes": "First experiment exercising full SD-011/SD-012 co-design wired through E3. 4-arm: FULL (urgency+affective+drive) vs NO_URGENCY vs NO_AFFECT vs BASELINE. Tests z_harm_a urgency lowers commit threshold under threat (C1), affective amplification raises M(zeta) (C2), drive extraction enables z_goal seeding (C3), backward compat (C4), threshold separation (C5). 3 seeds x 200 train + 50 eval x 200 steps. PASS: all C1-C5."
     }
   ]
 }

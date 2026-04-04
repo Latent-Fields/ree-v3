@@ -239,6 +239,19 @@ class E3Config:
     # 0.0 disables goal contribution (backward-compatible default).
     goal_weight: float = 0.0
 
+    # SD-011: z_harm_a urgency modulation of commit threshold (ARC-016 reframe).
+    # When > 0 and z_harm_a is provided to select(), effective_threshold is LOWERED
+    # proportionally to z_harm_a.norm(), making the agent commit faster under threat
+    # (D2 avoidance escape response). 0.0 disables (default, backward compat).
+    urgency_weight: float = 0.0
+    urgency_max: float = 0.5    # saturation cap: threshold never drops below 50% of base
+
+    # SD-011: z_harm_a amplification of M(zeta) ethical cost.
+    # lambda_eff = lambda_ethical * (1.0 + affective_harm_scale * z_harm_a_norm)
+    # When accumulated threat is high, harm costs weigh more in trajectory scoring.
+    # 0.0 disables (default, backward compat).
+    affective_harm_scale: float = 0.0
+
 
 @dataclass
 class HippocampalConfig:
@@ -391,6 +404,10 @@ class REEConfig:
         novelty_bonus_weight: float = 0.0,
         self_maintenance_weight: float = 0.0,
         self_maintenance_d_eff_target: float = 1.5,
+        # SD-011: z_harm_a E3 integration
+        urgency_weight: float = 0.0,
+        urgency_max: float = 0.5,
+        affective_harm_scale: float = 0.0,
         # MECH-112 / MECH-116: z_goal substrate
         z_goal_enabled: bool = False,
         alpha_goal: float = 0.05,
@@ -455,6 +472,9 @@ class REEConfig:
         config.e3.novelty_bonus_weight = novelty_bonus_weight
         config.e3.self_maintenance_weight = self_maintenance_weight
         config.e3.self_maintenance_d_eff_target = self_maintenance_d_eff_target
+        config.e3.urgency_weight = urgency_weight
+        config.e3.urgency_max = urgency_max
+        config.e3.affective_harm_scale = affective_harm_scale
 
         # Hippocampal
         config.hippocampal.world_dim = world_dim

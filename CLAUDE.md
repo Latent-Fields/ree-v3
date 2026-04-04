@@ -82,6 +82,22 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   Set drive_weight=0.0 explicitly for ablation baselines. EXQ-074e and EXQ-085 successors
   will benefit immediately. See GoalConfig, agent.py update_z_goal().
 
+## SD-011/SD-012 E3 Integration (2026-04-05)
+  z_harm_a now flows through the full agent loop into E3:
+  - agent.sense(obs_harm_a=...) passes harm_obs_a to LatentStack.encode()
+  - agent.select_action() extracts z_harm_a from LatentState, passes to E3.select()
+  - E3Config.urgency_weight (default 0.0): z_harm_a.norm() lowers effective commit
+    threshold (D2 avoidance escape). Capped by urgency_max (default 0.5).
+  - E3Config.affective_harm_scale (default 0.0): amplifies lambda_ethical by
+    (1 + affective_harm_scale * z_harm_a_norm). Accumulated threat -> higher M(zeta).
+  - E3.compute_harm_forward_cost(): ResidualHarmForward-based trajectory scoring,
+    replaces deprecated HarmBridge path. Rolls out z_harm_s step-by-step through
+    trajectory actions and evaluates via harm_eval_z_harm_head.
+  - Agent.compute_drive_level(obs_body) static method: canonical SD-012 formula
+    drive_level = 1.0 - energy (obs_body[3]).
+  All new parameters default to 0.0/None for full backward compatibility.
+  EXQ-247 queued: full integration validation (4-arm ablation).
+
 ## SD Design Decisions Implemented (V3) — continued
 - SD-009: encoder.event_contrastive_supervision — IMPLEMENTED (EXQ-020 PASS). z_world
   encoder event-type cross-entropy auxiliary loss. Reconstruction + E1-prediction losses

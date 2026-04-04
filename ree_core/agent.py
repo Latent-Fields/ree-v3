@@ -197,9 +197,10 @@ class REEAgent(nn.Module):
         obs_body: torch.Tensor,
         obs_world: torch.Tensor,
         obs_harm: Optional[torch.Tensor] = None,
+        obs_harm_a: Optional[torch.Tensor] = None,
     ) -> LatentState:
         """
-        SENSE + UPDATE step: encode split observation → update latent state.
+        SENSE + UPDATE step: encode split observation -> update latent state.
 
         Args:
             obs_body:   [batch, body_obs_dim] proprioceptive channels
@@ -207,6 +208,11 @@ class REEAgent(nn.Module):
             obs_harm:   SD-010 nociceptive channels [batch, harm_obs_dim] or None.
                         When provided and use_harm_stream=True in config, routes
                         through HarmEncoder to z_harm (bypasses reafference correction).
+            obs_harm_a: SD-011 affective-motivational harm channels
+                        [batch, harm_obs_a_dim] or None. EMA-accumulated proximity
+                        signal from environment. When provided and
+                        use_affective_harm_stream=True, routes through
+                        AffectiveHarmEncoder to z_harm_a.
 
         Returns:
             Updated LatentState
@@ -235,7 +241,8 @@ class REEAgent(nn.Module):
         new_latent = self.latent_stack.encode(
             enc_combined, self._current_latent,
             prev_action=self._last_action,
-            harm_obs=obs_harm,   # SD-010: nociceptive stream (None = disabled)
+            harm_obs=obs_harm,       # SD-010: nociceptive stream (None = disabled)
+            harm_obs_a=obs_harm_a,   # SD-011: affective harm stream (None = disabled)
             volatility_signal=vol_signal,
         )
         # Detach before storing: prevents EMA from linking computational graphs
@@ -387,11 +394,16 @@ class REEAgent(nn.Module):
         # Creates periodic uncommitted windows even when running_variance has
         # converged below base commit_threshold after training.
         sweep_reduction = self.clock.sweep_amplitude if self.clock.sweep_active else 0.0
+        # SD-011: extract z_harm_a for E3 urgency gating and ethical cost amplification.
+        z_harm_a = None
+        if self._current_latent is not None and self._current_latent.z_harm_a is not None:
+            z_harm_a = self._current_latent.z_harm_a
         result = self.e3.select(
             candidates, temperature,
             goal_state=self.goal_state,
             terrain_weight=self._cue_terrain_weight,
             sweep_threshold_reduction=sweep_reduction,
+            z_harm_a=z_harm_a,
         )
         action = result.selected_action
 
@@ -490,7 +502,10 @@ class REEAgent(nn.Module):
             latent_state, e1_prior, ticks,
             sequence_in_progress=sequence_in_progress,
         )
-        result = self.e3.select(candidates, temperature)
+        z_harm_a = None
+        if self._current_latent is not None and self._current_latent.z_harm_a is not None:
+            z_harm_a = self._current_latent.z_harm_a
+        result = self.e3.select(candidates, temperature, z_harm_a=z_harm_a)
         self._last_action = result.selected_action
         self._step_count += 1
         return result.selected_action, result.log_prob
@@ -727,6 +742,19 @@ class REEAgent(nn.Module):
             benefit_exposure,
             drive_level=drive_level,
         )
+
+    @staticmethod
+    def compute_drive_level(obs_body: torch.Tensor) -> float:
+        """SD-012: Compute homeostatic drive from body observation.
+
+        drive_level = 1.0 - energy (obs_body[3]). 0=sated, 1=depleted.
+        Canonical formula -- single source of truth for SD-012.
+        """
+        if obs_body.dim() == 2:
+            energy = float(obs_body[0, 3])
+        else:
+            energy = float(obs_body[3])
+        return max(0.0, 1.0 - energy)
 
     def compute_goal_maintenance_diagnostic(self) -> dict:
         """Goal state metrics for MECH-116 (EXQ-076 criterion C1)."""

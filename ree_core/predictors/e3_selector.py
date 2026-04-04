@@ -55,6 +55,7 @@ class SelectionResult:
     precision: float
     committed: bool
     log_prob: Optional[torch.Tensor] = None
+    urgency: float = 0.0  # SD-011: z_harm_a urgency applied to commit threshold
 
 
 def variance_commit_threshold(config_threshold: float) -> float:
@@ -456,12 +457,52 @@ class E3TrajectorySelector(nn.Module):
         harm = harm_flat.reshape(batch, horizon_p1)                  # [batch, horizon+1]
         return harm.sum(dim=-1)                                      # [batch]
 
+    def compute_harm_forward_cost(
+        self,
+        trajectory: Trajectory,
+        harm_forward_model: "nn.Module",
+        z_harm_s_current: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        SD-011/ARC-033: Ethical cost M(zeta) via ResidualHarmForward rollout.
+
+        Replaces compute_harm_stream_cost (HarmBridge-based, deprecated).
+        Rolls out z_harm_s step-by-step through the trajectory actions using
+        the residual harm forward model, then evaluates each predicted state
+        via harm_eval_z_harm_head.
+
+        Args:
+            trajectory:          candidate trajectory with actions
+            harm_forward_model:  ResidualHarmForward instance
+            z_harm_s_current:    [batch, z_harm_dim] current sensory-discriminative
+                                 harm latent
+
+        Returns:
+            harm_cost: [batch] -- summed harm cost over trajectory horizon
+        """
+        actions = trajectory.actions  # [batch, horizon, action_dim]
+        batch, horizon, _ = actions.shape
+
+        z_harm_step = z_harm_s_current  # [batch, z_harm_dim]
+        harm_total = torch.zeros(batch, device=z_harm_step.device)
+
+        for t in range(horizon):
+            a_t = actions[:, t, :]  # [batch, action_dim]
+            z_harm_step = harm_forward_model(z_harm_step, a_t)  # [batch, z_harm_dim]
+            harm_t = self.harm_eval_z_harm_head(z_harm_step)    # [batch, 1]
+            harm_total = harm_total + harm_t.squeeze(-1)
+
+        return harm_total
+
     def score_trajectory(
         self,
         trajectory: Trajectory,
         goal_state: Optional[GoalState] = None,
         harm_bridge: Optional["nn.Module"] = None,
         terrain_weight: Optional[torch.Tensor] = None,
+        harm_forward_model: Optional["nn.Module"] = None,
+        z_harm_s_current: Optional[torch.Tensor] = None,
+        z_harm_a: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Total score J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ) - β·B(ζ) - η·novelty.
@@ -473,30 +514,38 @@ class E3TrajectorySelector(nn.Module):
         - B(ζ): benefit score (Go channel, D1 pathway) — subtracted when enabled
         - novelty: E1 error EMA bonus — subtracted when novelty_bonus_weight > 0
 
-        SD-010: if harm_bridge is provided, M(ζ) uses the dedicated harm stream
-        (harm_eval_z_harm_head via HarmBridge) instead of harm_eval_head on z_world.
+        M(ζ) evaluation priority:
+        1. harm_forward_model + z_harm_s_current (SD-011/ARC-033, preferred)
+        2. harm_bridge (SD-010, deprecated but backward compat)
+        3. harm_eval_head on z_world (default)
 
-        SD-016 (MECH-152): optional terrain_weight [batch, 2] from
-        E1.extract_cue_context(). When provided, scales M(ζ) by w_harm and
-        B(ζ)/goal-score by w_goal AFTER evaluation, modulating harm vs goal
-        scoring precision in response to contextual cues BEFORE harm accumulates
-        in z_harm_a. terrain_weight is sigmoid-bounded in (0,1); both channels
-        are always positive so sign of M/B is preserved.
-        When None (all existing callers), behaviour is unchanged.
+        SD-011: z_harm_a amplifies lambda_ethical when affective_harm_scale > 0.
+        SD-016 (MECH-152): optional terrain_weight scales M/B after evaluation.
         """
         f = self.compute_reality_cost(trajectory)
-        if harm_bridge is not None:
+        if harm_forward_model is not None and z_harm_s_current is not None:
+            m = self.compute_harm_forward_cost(
+                trajectory, harm_forward_model, z_harm_s_current
+            )
+        elif harm_bridge is not None:
             m = self.compute_harm_stream_cost(trajectory, harm_bridge)
         else:
             m = self.compute_ethical_cost(trajectory)
         phi = self.compute_residue_cost(trajectory)
+
+        # SD-011: z_harm_a amplification of ethical cost.
+        # When accumulated threat is high, harm costs weigh more.
+        lambda_eff = self.config.lambda_ethical
+        if z_harm_a is not None and self.config.affective_harm_scale > 0.0:
+            z_harm_a_norm = z_harm_a.norm(dim=-1).mean().item()
+            lambda_eff = lambda_eff * (1.0 + self.config.affective_harm_scale * z_harm_a_norm)
 
         # SD-016 (MECH-152): scale harm cost by w_harm from terrain_weight
         if terrain_weight is not None:
             w_harm = terrain_weight[:, 0]  # [batch]
             m = m * w_harm
 
-        score = f + self.config.lambda_ethical * m + self.config.rho_residue * phi
+        score = f + lambda_eff * m + self.config.rho_residue * phi
 
         # ARC-030 / MECH-112: Go channel — subtract benefit from cost.
         # Gated until _benefit_samples_seen >= _BENEFIT_WARMUP_SAMPLES to prevent
@@ -544,6 +593,9 @@ class E3TrajectorySelector(nn.Module):
         use_harm_variance_commit: bool = False,
         terrain_weight: Optional[torch.Tensor] = None,
         sweep_threshold_reduction: float = 0.0,
+        z_harm_a: Optional[torch.Tensor] = None,
+        harm_forward_model: Optional["nn.Module"] = None,
+        z_harm_s_current: Optional[torch.Tensor] = None,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -557,18 +609,19 @@ class E3TrajectorySelector(nn.Module):
                                     harm stream scores
             use_harm_variance_commit: if True, commit decision uses variance of harm
                                     scores across candidates rather than z_world running
-                                    variance (ARC-016 reframe: "do I know what will
-                                    happen to me?" rather than "is the world stable?").
-                                    Requires harm_bridge to be provided.
-            terrain_weight:         [batch, 2] or None (SD-016 MECH-152). When provided,
-                                    scales harm cost by w_harm and benefit/goal by w_goal
-                                    in each score_trajectory() call.
+                                    variance (ARC-016 reframe).
+            terrain_weight:         [batch, 2] or None (SD-016 MECH-152).
             sweep_threshold_reduction: MECH-108 BreathOscillator threshold reduction.
-                                    Fractional reduction (0-1) applied to commit_threshold
-                                    during respiratory sweep phase. 0.0 = no reduction
-                                    (default, backward compat). E.g. 0.25 reduces threshold
-                                    by 25%, creating periodic uncommitted windows even when
-                                    running_variance has converged below base threshold.
+            z_harm_a:               SD-011 affective-motivational harm latent [batch, z_harm_a_dim].
+                                    When provided and urgency_weight > 0, lowers effective
+                                    commit threshold under accumulated threat (D2 avoidance).
+                                    When provided and affective_harm_scale > 0, amplifies
+                                    lambda_ethical in score_trajectory().
+            harm_forward_model:     SD-011/ARC-033 ResidualHarmForward instance. When
+                                    provided with z_harm_s_current, replaces harm_bridge
+                                    for M(zeta) computation via step-by-step rollout.
+            z_harm_s_current:       [batch, z_harm_dim] current sensory-discriminative harm
+                                    latent. Required when harm_forward_model is provided.
 
         Returns:
             SelectionResult
@@ -580,6 +633,9 @@ class E3TrajectorySelector(nn.Module):
             self.score_trajectory(
                 t, goal_state=goal_state, harm_bridge=harm_bridge,
                 terrain_weight=terrain_weight,
+                harm_forward_model=harm_forward_model,
+                z_harm_s_current=z_harm_s_current,
+                z_harm_a=z_harm_a,
             )
             for t in candidates
         ])
@@ -591,7 +647,6 @@ class E3TrajectorySelector(nn.Module):
         # ARC-016 commit decision: two modes
         # Default: commit when z_world running_variance is LOW (world-stability signal)
         # Reframe: commit when variance of harm scores across candidates is LOW
-        # ("do I know what harm each trajectory leads to?" — decision-uncertainty signal)
         #
         # MECH-108: BreathOscillator sweep reduces effective threshold, creating
         # periodic uncommitted windows even after training converges variance below
@@ -600,8 +655,20 @@ class E3TrajectorySelector(nn.Module):
         if sweep_threshold_reduction > 0.0:
             effective_threshold = effective_threshold * (1.0 - sweep_threshold_reduction)
 
+        # SD-011: z_harm_a urgency modulation.
+        # High accumulated threat -> LOWER effective threshold -> commit faster.
+        # D2 avoidance escape response. Capped by urgency_max to prevent
+        # threshold collapse to zero (which would produce permanent commitment).
+        urgency_applied = 0.0
+        if z_harm_a is not None and self.config.urgency_weight > 0.0:
+            z_harm_a_norm = z_harm_a.norm(dim=-1).mean().item()
+            urgency_applied = min(
+                z_harm_a_norm * self.config.urgency_weight,
+                self.config.urgency_max,
+            )
+            effective_threshold = effective_threshold * (1.0 - urgency_applied)
+
         if use_harm_variance_commit and harm_bridge is not None:
-            # Compute harm scores per candidate (mean over batch), take variance across candidates
             harm_scores = torch.stack([
                 self.compute_harm_stream_cost(t, harm_bridge).mean()
                 for t in candidates
@@ -609,7 +676,6 @@ class E3TrajectorySelector(nn.Module):
             harm_score_variance = harm_scores.var().item()
             committed = harm_score_variance < effective_threshold
         else:
-            # Default: running variance from z_world prediction error (EMA)
             committed = self._running_variance < effective_threshold
         if committed:
             selected_idx = int(scores.argmin().item())
@@ -635,6 +701,7 @@ class E3TrajectorySelector(nn.Module):
             precision=self.current_precision,
             committed=committed,
             log_prob=log_prob,
+            urgency=urgency_applied,
         )
 
     # ------------------------------------------------------------------ #
