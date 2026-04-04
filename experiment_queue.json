@@ -69,25 +69,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-231a",
-      "title": "MECH-106 BG Hysteresis Redesign (valence-modulated threshold vs no-bias ablation)",
-      "experiment_type": "v3_exq_231a_mech106_bg_hysteresis_redesign",
-      "script": "experiments/v3_exq_231a_mech106_bg_hysteresis_redesign.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 4,
-      "status": "claimed",
-      "estimated_minutes": 150,
-      "claim_ids": [
-        "MECH-106"
-      ],
-      "supersedes": "V3-EXQ-231",
-      "notes": "Redesign of EXQ-231 (FAIL: persist_ratio=reactive_ratio=1.0, rv never recovered above threshold). New design: (1) explicit positive/negative outcome history phases using easy env (0 hazards) and hard env (5 hazards); (2) valence EMA updated via tanh-amplified net outcome; (3) MECH-106 formula: threshold_eff = base * (1 + 1.2 * (da - 0.5)); (4) latency-to-first-commitment metric with rv reset to 0.65 each probe episode. VALENCE_BIAS vs NO_BIAS measured on same agent (no training confound). 5 seeds x (100 train + 40 pos + 40 neg + 50 probe) eps x 200 steps. C1: da_divergence > 0.20 in 4/5; C2: threshold_asymmetry > 1.20 in 4/5; C3: latency_ratio_vb > 2.0 in 3/5; C4: NO_BIAS ratio in [0.5, 2.5] in 3/5; C5: asymmetry_delta > 1.0 in 3/5.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-04T20:18:24.298342+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-232",
       "title": "ARC-026 Approach/Contact Slope Conflict Resolution (peak-checkpoint analysis)",
       "experiment_type": "v3_exq_232_arc026_approach_contact_resolution",
@@ -290,7 +271,11 @@
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 300,
-      "claim_ids": ["SD-017", "ARC-045", "MECH-166"],
+      "claim_ids": [
+        "SD-017",
+        "ARC-045",
+        "MECH-166"
+      ],
       "experiment_purpose": "diagnostic",
       "notes": "SD-017 minimal sleep phase ablation. Three conditions: WAKING_ONLY, SWS_ONLY, SWS_THEN_REM. Two-context alternating environment (SAFE: 1 hazard vs DANGEROUS: 8 hazards). SWS-analog: interleaved SAFE/DANGEROUS writes to E1.context_memory (schema slot differentiation, hip->cx direction). REM-analog: targeted harm_eval gradient updates on DANGEROUS harm events in temporal order, plus residue_field.integrate() (slot-filling, cx->hip direction). Primary measure: slot_cosine_sim (lower=more differentiated). Secondary: harm_rate_dangerous, harm_discrimination. PASS: C1 (SWS slot differentiation) AND (C2 harm benefit OR C4 discrimination improvement). Diagnostic: SD-017 not yet first-class substrate component -- tests existing context_memory.write + harm_eval hooks as minimal proxy."
     }
