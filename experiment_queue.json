@@ -74,12 +74,16 @@
       "script": "experiments/v3_exq_231_mech106_bg_hysteresis.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 4,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "claim_ids": [
         "MECH-106"
       ],
-      "notes": "First experiment for MECH-106. PERSISTENT (min_hold=20 steps + margin release) vs REACTIVE (instantaneous variance-threshold). PASS: persistence_ratio_PERSISTENT > 2.0 AND reactive_ratio <= 1.5 in >= 2/3 seeds. 3 seeds x 400 eps x 200 steps."
+      "notes": "First experiment for MECH-106. PERSISTENT (min_hold=20 steps + margin release) vs REACTIVE (instantaneous variance-threshold). PASS: persistence_ratio_PERSISTENT > 2.0 AND reactive_ratio <= 1.5 in >= 2/3 seeds. 3 seeds x 400 eps x 200 steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-04T16:23:06.426986+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-231a",
