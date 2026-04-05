@@ -217,13 +217,17 @@
       "script": "experiments/v3_exq_246_mech122_spindle_coordination.py",
       "machine_affinity": "any",
       "priority": 7,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 280,
       "claim_ids": [
         "MECH-122"
       ],
       "experiment_purpose": "diagnostic",
-      "note": "Three conditions: WAKING_ONLY, SWS_REM_NO_SPINDLE, SWS_REM_WITH_SPINDLE. Phase 3 proxy: theta_buffer.set_consolidation_mode(True), consolidation_summary() (recency-weighted z_world), write back to ContextMemory. PASS: Phase 3 does not worsen harm avoidance (T1) AND maintains/improves harm discrimination (T2). Deliberately weak criteria -- MECH-122 full effect is V4 scope. Establishes V3 proxy baseline."
+      "note": "Three conditions: WAKING_ONLY, SWS_REM_NO_SPINDLE, SWS_REM_WITH_SPINDLE. Phase 3 proxy: theta_buffer.set_consolidation_mode(True), consolidation_summary() (recency-weighted z_world), write back to ContextMemory. PASS: Phase 3 does not worsen harm avoidance (T1) AND maintains/improves harm discrimination (T2). Deliberately weak criteria -- MECH-122 full effect is V4 scope. Establishes V3 proxy baseline.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-05T13:16:55.875388+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-247",
