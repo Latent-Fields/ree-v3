@@ -157,26 +157,6 @@
       "note": "Diagnostic POC: implements dual-stream harm encoder (z_harm_s=fast/localizable via HarmEncoder, z_harm_a=slow EMA via AffectiveHarmEncoder) as standalone encoders on existing CausalGridWorldV2 observations. Tests orthogonality (D1: cos_sim < 0.5), sensory forward-predictability (D2: R2_s > 0.3), and differential predictability (D3: R2_a < R2_s). No ree_core changes required."
     },
     {
-      "queue_id": "V3-EXQ-243",
-      "title": "INV-045 Phase Ordering Necessity + MECH-123 Precision Recalibration",
-      "experiment_type": "v3_exq_243_inv045_phase_ordering_necessity",
-      "script": "experiments/v3_exq_243_inv045_phase_ordering_necessity.py",
-      "machine_affinity": "any",
-      "priority": 8,
-      "status": "claimed",
-      "estimated_minutes": 350,
-      "claim_ids": [
-        "INV-045",
-        "MECH-123"
-      ],
-      "experiment_purpose": "evidence",
-      "note": "Five conditions: WAKING_ONLY, REM_ONLY, REM_THEN_SWS (wrong order), SWS_THEN_REM (correct), SWS_THEN_REM_RECAL (+MECH-123 precision reset). PASS=P1(REM_ONLY fails)+P2(wrong order fails)+P3(correct order wins). MECH-123 via P4. Direct evidence test of INV-045.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-05T13:15:51.246888+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-244",
       "title": "MECH-165 Reverse Replay Diversity (Forward vs Balanced forward+reverse)",
       "experiment_type": "v3_exq_244_mech165_reverse_replay_diversity",
