@@ -574,6 +574,74 @@ def write_status(status: dict, path: Path) -> None:
         tmp.replace(path)  # replace() is atomic on Unix and works on Windows (unlike rename)
 
 
+def merge_peer_status(status_path: Path) -> set:
+    """Merge all per-machine runner_status files into the monolithic runner_status.json.
+
+    Reads every *.json file in the runner_status/ directory (one per machine),
+    deduplicates by queue_id (preferring non-ERROR over ERROR for the same ID),
+    and writes the combined completed list to the monolithic runner_status.json.
+
+    Returns the set of all queue_ids present across all machines, so the caller
+    can absorb them into completed_ids and prevent re-running peer experiments.
+
+    Never raises -- logs warnings and returns empty set on any error.
+    """
+    status_dir = status_path.parent          # .../runner_status/
+    monolithic = status_dir.parent / "runner_status.json"  # .../evidence/experiments/runner_status.json
+
+    if not status_dir.is_dir():
+        return set()
+
+    all_completed: list = []
+    seen_ids: set = set()
+
+    for f in sorted(status_dir.glob("*.json")):
+        try:
+            data = json.loads(f.read_text())
+        except Exception as e:
+            print(f"[runner] status sync: could not read {f.name}: {e}", flush=True)
+            continue
+        for entry in data.get("completed", []):
+            qid = entry.get("queue_id", "")
+            if not qid:
+                continue
+            if qid not in seen_ids:
+                seen_ids.add(qid)
+                all_completed.append(entry)
+            elif entry.get("result") != "ERROR":
+                # Prefer non-ERROR over ERROR for the same experiment
+                for i, x in enumerate(all_completed):
+                    if x.get("queue_id") == qid and x.get("result") == "ERROR":
+                        all_completed[i] = entry
+                        break
+
+    if not all_completed:
+        return seen_ids
+
+    try:
+        existing = json.loads(monolithic.read_text()) if monolithic.exists() else {}
+    except Exception:
+        existing = {}
+
+    old_count = len(existing.get("completed", []))
+    existing["schema_version"] = "v1"
+    existing["completed"] = all_completed
+    with _write_status_lock:
+        tmp = monolithic.with_suffix(".tmp")
+        existing["last_updated"] = now_utc()
+        tmp.write_text(json.dumps(existing, indent=2))
+        tmp.replace(monolithic)
+
+    new_count = len(all_completed)
+    if new_count != old_count:
+        n_files = len(list(status_dir.glob("*.json")))
+        print(f"[runner] status sync: {new_count} completed entries merged from "
+              f"{n_files} machine file(s) -> runner_status.json "
+              f"({new_count - old_count:+d})", flush=True)
+
+    return seen_ids
+
+
 def load_queue() -> dict:
     # Validate schema before loading -- raises SystemExit on errors so the
     # runner never silently skips malformed entries.
@@ -919,6 +987,10 @@ def main():
             print("[runner] Auto-sync: ON but REE_assembly not found -- sync disabled", flush=True)
         recover_stale_claims(QUEUE_FILE, machine)
 
+    # Merge all per-machine status files into monolithic runner_status.json (always,
+    # not just in auto-sync mode) so the explorer has an up-to-date combined view.
+    _peer_ids = merge_peer_status(status_path)
+
     PID_FILE.write_text(str(os.getpid()))
 
     # Track active claim so signal handler can release it
@@ -1043,7 +1115,9 @@ def main():
     if args.loop:
         print(f"[runner] Loop mode: polling every {args.loop_interval}s", flush=True)
 
-    completed_ids = {c["queue_id"] for c in existing_completed}
+    # Include peer-machine completed IDs so we never re-run an experiment
+    # another machine already finished (extra safety net beyond queue removal).
+    completed_ids = {c["queue_id"] for c in existing_completed} | _peer_ids
 
     # Prune already-completed items from queue display
     status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] not in completed_ids]
@@ -1306,6 +1380,10 @@ def main():
 
         if args.auto_sync and ree_assembly_path:
             git_pull(REPO_ROOT, "ree-v3")
+
+        # Re-merge peer status after pull so monolithic file stays current and
+        # completed_ids absorbs anything another machine finished since last pass.
+        completed_ids |= merge_peer_status(status_path)
 
         queue_data = load_queue()
         calibration = queue_data.get("calibration", {})
