@@ -47,7 +47,7 @@
       "script": "experiments/v3_exq_237a_mech163_dual_system_discrimination.py",
       "machine_affinity": "any",
       "priority": 3,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 250,
       "episodes_per_run": 200,
       "seeds": 3,
@@ -57,7 +57,11 @@
       ],
       "experiment_purpose": "evidence",
       "supersedes": "V3-EXQ-237",
-      "notes": "Bug fix of EXQ-237: hazard_harm=0.5 -> 0.02 (premature episode termination at ~18 steps). 2x2 factorial: context (SIMPLE 2res/1haz/80steps vs LONG_HORIZON 1res/3haz/150steps) x policy (HABIT z_goal=False/benefit_eval=True vs PLANNED z_goal=True/e1_goal_cond=True). Full agent pipeline eval (generate_trajectories+select_action). Tests MECH-163 interaction: planned advantage specifically in long-horizon context. Criteria: C1 goal_norm>=0.05, C3 lift_long>=0.05, C4 interaction>0.02, C5 harm_ratio<=1.5, majority 2/3 seeds."
+      "notes": "Bug fix of EXQ-237: hazard_harm=0.5 -> 0.02 (premature episode termination at ~18 steps). 2x2 factorial: context (SIMPLE 2res/1haz/80steps vs LONG_HORIZON 1res/3haz/150steps) x policy (HABIT z_goal=False/benefit_eval=True vs PLANNED z_goal=True/e1_goal_cond=True). Full agent pipeline eval (generate_trajectories+select_action). Tests MECH-163 interaction: planned advantage specifically in long-horizon context. Criteria: C1 goal_norm>=0.05, C3 lift_long>=0.05, C4 interaction>0.02, C5 harm_ratio<=1.5, majority 2/3 seeds.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-05T14:33:38.977837+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-125a",
