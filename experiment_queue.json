@@ -65,26 +65,6 @@
       "notes": "Bug fix of EXQ-237: hazard_harm=0.5 -> 0.02 (premature episode termination at ~18 steps). 2x2 factorial: context (SIMPLE 2res/1haz/80steps vs LONG_HORIZON 1res/3haz/150steps) x policy (HABIT z_goal=False/benefit_eval=True vs PLANNED z_goal=True/e1_goal_cond=True). Full agent pipeline eval (generate_trajectories+select_action). Tests MECH-163 interaction: planned advantage specifically in long-horizon context. Criteria: C1 goal_norm>=0.05, C3 lift_long>=0.05, C4 interaction>0.02, C5 harm_ratio<=1.5, majority 2/3 seeds."
     },
     {
-      "queue_id": "V3-EXQ-228a",
-      "title": "ARC-032 theta-rate pathway behavioral test (THETA_ACTIVE vs THETA_ZEROED)",
-      "experiment_type": "v3_exq_228a_arc032_theta_bypass_behavioral",
-      "script": "experiments/v3_exq_228a_arc032_theta_bypass_behavioral.py",
-      "machine_affinity": "any",
-      "priority": 6,
-      "status": "claimed",
-      "estimated_minutes": 150,
-      "claim_ids": [
-        "ARC-032"
-      ],
-      "supersedes": "V3-EXQ-228",
-      "experiment_purpose": "evidence",
-      "notes": "Fix of EXQ-228 metric-ablation mismatch: compute_prediction_loss() has zero dependency on theta_buffer (E1 internal MSE). Fix: switch to behavioral outcomes (resource_rate, harm_rate) via full generate_trajectories+select_action pipeline. Between-agents: both trained from scratch with identical greedy/random warmup. THETA_ZEROED patches theta_buffer.summary() to return zeros -- severs E1->theta->E3 context pathway. C1: lift>=0.05 in >=2/3 seeds. Precondition: z_goal_norm>=0.05 in THETA_ACTIVE.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-05T13:19:41.457096+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-125a",
       "title": "ARC-029 committed-mode harm redesign (8 hazards, 5 seeds, majority rule)",
       "experiment_type": "v3_exq_125a_arc029_committed_mode_redesign",
