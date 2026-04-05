@@ -20,27 +20,6 @@
       "notes": "Re-run after GPU block hardening. Original V3-ONBOARD-smoke-EWIN-PC errored 2026-04-05 (exit code 1, 94.3s, no output file). Script now wraps Block 3 GPU in try/except (graceful fallback to CPU-only) and writes diagnostic error JSON on any crash."
     },
     {
-      "queue_id": "V3-EXQ-236",
-      "title": "ARC-018 Rollout Fidelity Gate (ROLLOUT_k5 vs GREEDY_k1, E2-quality-stratified)",
-      "experiment_type": "v3_exq_236_arc018_rollout_fidelity_gate",
-      "script": "experiments/v3_exq_236_arc018_rollout_fidelity_gate.py",
-      "machine_affinity": "any",
-      "priority": 3,
-      "status": "claimed",
-      "estimated_minutes": 250,
-      "episodes_per_run": 250,
-      "seeds": 5,
-      "conditions": 1,
-      "claim_ids": [
-        "ARC-018"
-      ],
-      "notes": "Conflict resolution for EXQ-120 PASS vs EXQ-172/196 FAIL. ROLLOUT_k5 (HippocampalModule CEM horizon=5, E3.select()) vs GREEDY_k1 (1-step E2.world_forward + E3.harm_eval, argmin). Shared trained modules, residue field ACTIVE in both. proximity_harm_scale=0.0 (point-source harm only, fixes EXQ-196 saturation). Harm counted as direct env_caused_hazard contacts. E2-quality-gating diagnostic: Pearson(per-seed r2, per-seed advantage). 5 seeds x 250 train + 30 eval eps.",
-      "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-04-05T14:26:46.123635+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-237a",
       "title": "MECH-163: Dual Goal-Directed Systems Discrimination (2x2: SIMPLE/LONG_HORIZON x HABIT/PLANNED)",
       "experiment_type": "v3_exq_237a_mech163_dual_system_discrimination",
