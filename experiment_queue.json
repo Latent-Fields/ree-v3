@@ -69,24 +69,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-232",
-      "title": "ARC-026 Approach/Contact Slope Conflict Resolution (peak-checkpoint analysis)",
-      "experiment_type": "v3_exq_232_arc026_approach_contact_resolution",
-      "script": "experiments/v3_exq_232_arc026_approach_contact_resolution.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 250,
-      "claim_ids": [
-        "ARC-026"
-      ],
-      "notes": "Resolves EXQ-033 conflict_ratio=1.0. Uses peak-checkpoint analysis (not terminal) to handle training instability. 1500 eps, checkpoints at [200,400,600,800,1000,1500]. PASS: approach_slope > contact_slope at peak in >= 2/3 seeds, approach_gap > 0.05 at peak. Phased E3 supervision from ep100.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-04T23:13:41.067609+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-234",
       "title": "MECH-117 Wanting/Liking Dissociation Replication (seeds [1,2,3])",
       "experiment_type": "v3_exq_234_mech117_wanting_liking_replication",
@@ -334,7 +316,12 @@
       "priority": 2,
       "status": "pending",
       "estimated_minutes": 200,
-      "claim_ids": ["SD-011", "SD-012", "ARC-033", "ARC-030"],
+      "claim_ids": [
+        "SD-011",
+        "SD-012",
+        "ARC-033",
+        "ARC-030"
+      ],
       "experiment_purpose": "evidence",
       "notes": "First experiment exercising full SD-011/SD-012 co-design wired through E3. 4-arm: FULL (urgency+affective+drive) vs NO_URGENCY vs NO_AFFECT vs BASELINE. Tests z_harm_a urgency lowers commit threshold under threat (C1), affective amplification raises M(zeta) (C2), drive extraction enables z_goal seeding (C3), backward compat (C4), threshold separation (C5). 3 seeds x 200 train + 50 eval x 200 steps. PASS: all C1-C5."
     }
