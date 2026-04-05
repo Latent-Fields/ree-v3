@@ -235,7 +235,7 @@
       "experiment_type": "v3_exq_242_sd017_sleep_phase_ablation",
       "script": "experiments/v3_exq_242_sd017_sleep_phase_ablation.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 3,
+      "priority": 15,
       "status": "pending",
       "estimated_minutes": 300,
       "claim_ids": [
@@ -252,7 +252,7 @@
       "experiment_type": "v3_exq_243_inv045_phase_ordering_necessity",
       "script": "experiments/v3_exq_243_inv045_phase_ordering_necessity.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 3,
+      "priority": 15,
       "status": "pending",
       "estimated_minutes": 350,
       "claim_ids": [
@@ -268,7 +268,7 @@
       "experiment_type": "v3_exq_244_mech165_reverse_replay_diversity",
       "script": "experiments/v3_exq_244_mech165_reverse_replay_diversity.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 3,
+      "priority": 15,
       "status": "pending",
       "estimated_minutes": 400,
       "claim_ids": [
@@ -283,7 +283,7 @@
       "experiment_type": "v3_exq_245_mech120_shy_normalisation",
       "script": "experiments/v3_exq_245_mech120_shy_normalisation.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 3,
+      "priority": 15,
       "status": "pending",
       "estimated_minutes": 220,
       "claim_ids": [
@@ -298,7 +298,7 @@
       "experiment_type": "v3_exq_246_mech122_spindle_coordination",
       "script": "experiments/v3_exq_246_mech122_spindle_coordination.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 4,
+      "priority": 15,
       "status": "pending",
       "estimated_minutes": 280,
       "claim_ids": [
