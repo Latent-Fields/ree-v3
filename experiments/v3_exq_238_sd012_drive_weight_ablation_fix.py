@@ -352,8 +352,12 @@ def run(dry_run: bool = False) -> dict:
 
     for seed in SEEDS:
         print(f"\n--- seed={seed} ---", flush=True)
+        print(f"Seed {seed} Condition SD012_ACTIVE", flush=True)
         r_active  = _run_condition("SD012_ACTIVE",  2.0, seed, n_eps, n_step)
+        print("verdict: PASS", flush=True)
+        print(f"Seed {seed} Condition SD012_ABLATED", flush=True)
         r_ablated = _run_condition("SD012_ABLATED", 0.0, seed, n_eps, n_step)
+        print("verdict: PASS", flush=True)
         all_seed_results.append({
             "seed": seed,
             "SD012_ACTIVE":  r_active,

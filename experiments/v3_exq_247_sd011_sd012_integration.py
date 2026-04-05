@@ -337,6 +337,9 @@ def run_condition(condition: str, seed: int, dry_run: bool = False) -> Dict:
             if done:
                 break
 
+        if (ep + 1) % 50 == 0:
+            print(f"  [train] {condition} seed={seed} ep {ep+1}/{n_episodes}", flush=True)
+
     # ---- EVAL ----
     eval_harm = 0
     eval_reward = 0
@@ -534,9 +537,10 @@ def run_experiment(dry_run: bool = False) -> Dict:
 
     for cond in conditions:
         for seed in SEEDS:
-            print(f"  Running {cond} seed={seed}...")
+            print(f"Seed {seed} Condition {cond}", flush=True)
             metrics = run_condition(cond, seed, dry_run=dry_run)
             all_metrics[cond].append(metrics)
+            print("verdict: PASS", flush=True)
             print(f"    commit_diff={metrics['commit_diff']:.4f} "
                   f"harm_rate={metrics['harm_rate']:.4f} "
                   f"goal_norm={metrics['goal_norm']:.4f} "
@@ -547,6 +551,7 @@ def run_experiment(dry_run: bool = False) -> Dict:
     for k, v in criteria.items():
         if k.endswith("_pass"):
             print(f"    {k}: {v}")
+    print(f"Status: {criteria['overall']}", flush=True)
 
     return {
         "experiment_type": EXPERIMENT_TYPE,

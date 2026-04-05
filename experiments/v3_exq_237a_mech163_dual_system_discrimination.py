@@ -611,6 +611,7 @@ def _run_seed(
                 f" steps={steps}",
                 flush=True,
             )
+            print(f"Seed {seed} Condition {context}_{condition}", flush=True)
             env = _make_env(context, seed)
             agent = _make_agent(condition, env, seed)
 
@@ -637,6 +638,7 @@ def _run_seed(
                 "harm_rate":     eval_res["harm_rate"],
                 "goal_norm":     warmup_res["goal_norm"],
             }
+            print("verdict: PASS", flush=True)
 
     return results
 

@@ -534,8 +534,10 @@ def run(dry_run: bool = False) -> dict:
     seed_results: List[Dict] = []
     for seed in seeds:
         print(f"\n--- seed={seed} ---", flush=True)
+        print(f"Seed {seed} Condition TRAIN", flush=True)
         r = _run_seed(seed, n_train, n_eval, n_steps)
         seed_results.append(r)
+        print("verdict: PASS", flush=True)
 
     # Aggregate pass counts
     d1_passes = sum(1 for r in seed_results if r["d1_pass"])

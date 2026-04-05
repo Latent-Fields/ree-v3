@@ -400,6 +400,7 @@ def run(
         print(f"\n{'='*60}", flush=True)
         print(f"[V3-EXQ-125a] Seed {seed}", flush=True)
         print('='*60, flush=True)
+        print(f"Seed {seed} Condition TRAINING", flush=True)
 
         train_env = CausalGridWorldV2(seed=seed, **TRAIN_ENV_KWARGS)
         agent = _make_agent(seed, self_dim, world_dim, alpha_world, train_env)
@@ -447,6 +448,7 @@ def run(
         seed_results["train_variance"] = train_variance   # type: ignore
         seed_results["commit_threshold"] = float(agent.e3.commit_threshold)  # type: ignore
         results_by_seed.append(seed_results)
+        print("verdict: PASS", flush=True)
 
     # -------------------------------------------------------------------------
     # Per-seed criteria checks

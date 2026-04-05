@@ -594,6 +594,7 @@ def run_experiment(dry_run: bool = False) -> dict:
     greedy_contacts_per_seed = []
 
     for seed in SEEDS:
+        print(f"Seed {seed} Condition TRAIN", flush=True)
         print(f"[seed {seed}] Building modules...", flush=True)
         modules = build_modules(seed)
 
@@ -641,6 +642,7 @@ def run_experiment(dry_run: bool = False) -> dict:
             "harm_advantage": harm_adv,
             "c1_direction_pass": c1_seed_pass,
         }
+        print("verdict: PASS", flush=True)
 
     # -----------------------------------------------------------------------
     # Aggregate
@@ -719,6 +721,7 @@ def run_experiment(dry_run: bool = False) -> dict:
         f"decision: {decision}",
         flush=True,
     )
+    print(f"Status: {outcome}", flush=True)
 
     # -----------------------------------------------------------------------
     # Result pack

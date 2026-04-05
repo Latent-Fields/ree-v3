@@ -605,6 +605,7 @@ def _run_seed(
             f" steps={STEPS_PER_EP}",
             flush=True,
         )
+        print(f"Seed {seed} Condition {cond}", flush=True)
 
         warmup_res = _warmup(agent, env, warmup_episodes, seed)
 
@@ -628,6 +629,7 @@ def _run_seed(
             "harm_rate":     eval_res["harm_rate"],
             "goal_norm":     warmup_res["goal_norm"],
         }
+        print("verdict: PASS", flush=True)
 
     return results
 

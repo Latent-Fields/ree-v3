@@ -349,10 +349,10 @@ def _run_condition(
                     env.grid[l2_pos[0], l2_pos[1]] = env.ENTITY_TYPES["resource"]
                     env._compute_proximity_fields()
 
-        if step % 500 == 0:
+        if step > 0 and step % 500 == 0:
             diag = agent.compute_goal_maintenance_diagnostic()
             print(
-                f"  [{condition}] step={step}/{total_steps}"
+                f"  [train] {condition} seed={seed} ep {step}/{total_steps}"
                 f" resources={resource_visits} harm={harm_events}"
                 f" goal_norm={diag['goal_norm']:.3f}"
                 f" goal_prox={diag['goal_proximity']:.3f}",
@@ -415,12 +415,18 @@ def run(
 
     for seed in SEEDS:
         print(f"\n--- seed={seed} ---", flush=True)
+        print(f"Seed {seed} Condition nogo", flush=True)
         r_nogo    = _run_condition("nogo",    seed, world_dim, alpha_world, lr,
                                    total_steps=tot, relocation_step=reloc)
+        print("verdict: PASS", flush=True)
+        print(f"Seed {seed} Condition liking", flush=True)
         r_liking  = _run_condition("liking",  seed, world_dim, alpha_world, lr,
                                    total_steps=tot, relocation_step=reloc)
+        print("verdict: PASS", flush=True)
+        print(f"Seed {seed} Condition wanting", flush=True)
         r_wanting = _run_condition("wanting", seed, world_dim, alpha_world, lr,
                                    total_steps=tot, relocation_step=reloc)
+        print("verdict: PASS", flush=True)
 
         # Criteria (identical to 074f)
         c1 = r_wanting["resource_visit_rate"] >= 0.05

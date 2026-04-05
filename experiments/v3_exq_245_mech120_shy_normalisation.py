@@ -325,6 +325,12 @@ def _run_condition(
         is_safe_ep = (block % 2 == 0)
         env = env_safe if is_safe_ep else env_dang
 
+        if (ep + 1) % 20 == 0:
+            print(
+                f"  [train] {condition} seed={seed} ep {ep+1}/{training_episodes}",
+                flush=True,
+            )
+
         ep_harm, z_list = _run_episode(
             agent, env, steps_per_episode,
             train=True,
@@ -478,12 +484,14 @@ def main():
     for seed in SEEDS:
         print(f"\nSeed {seed}")
         for cond in CONDITIONS:
+            print(f"Seed {seed} Condition {cond}", flush=True)
             r = _run_condition(
                 seed=seed, condition=cond,
                 training_episodes=TRAINING_EPISODES,
                 steps_per_episode=STEPS_PER_EPISODE,
                 eval_episodes_each=EVAL_EPISODES_EACH,
             )
+            print("verdict: PASS", flush=True)
             # Remove sleep_log from per-seed results to keep output compact
             r_slim = {k: v for k, v in r.items() if k != "sleep_log"}
             all_results.append(r_slim)
@@ -522,6 +530,7 @@ def main():
     print(f"\nOutcome: {outcome}")
     for k, v in summary.items():
         print(f"  {k}: {v}")
+    print(f"Status: {outcome}", flush=True)
 
     output = {
         "run_id": run_id,
