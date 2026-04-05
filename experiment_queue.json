@@ -49,7 +49,7 @@
       "script": "experiments/v3_exq_125a_arc029_committed_mode_redesign.py",
       "machine_affinity": "any",
       "priority": 3,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 300,
       "episodes_per_run": 350,
       "seeds": 5,
@@ -58,7 +58,11 @@
         "ARC-029"
       ],
       "supersedes": "V3-EXQ-125",
-      "notes": "Redesign to fix low statistical power under SD-010/011/012 substrate. num_hazards 4->8, hazard_harm 0.02->0.05, proximity_harm_scale 0.05->0.15. Seeds [0,42,100,123,200] with majority rule C1/C2/C3>=4/5 seeds. MIN_HARM_GAP_STABLE raised 0.0001->0.001. harm_obs passed to sense() (SD-010 nociceptive stream active). EXQ-125 failed 3x: harm rates ~100x smaller than EXQ-063 due to substrate, making committed-gate advantage undetectable."
+      "notes": "Redesign to fix low statistical power under SD-010/011/012 substrate. num_hazards 4->8, hazard_harm 0.02->0.05, proximity_harm_scale 0.05->0.15. Seeds [0,42,100,123,200] with majority rule C1/C2/C3>=4/5 seeds. MIN_HARM_GAP_STABLE raised 0.0001->0.001. harm_obs passed to sense() (SD-010 nociceptive stream active). EXQ-125 failed 3x: harm rates ~100x smaller than EXQ-063 due to substrate, making committed-gate advantage undetectable.",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-04-05T14:40:04.128899+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-238",
