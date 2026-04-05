@@ -35,25 +35,6 @@
       "notes": "Independent replication of EXQ-074f (seeds [42,7,13]) with seeds [1,2,3]. Same design: 3000 steps, 6x6 grid, L1->L2 relocation at step 1500. Wanting chases L1 (incentive salience); liking redirects to L2. PASS: 4/4 criteria in >= 2/3 seeds. Supports MECH-117 stable promotion. evidence_direction_per_claim for MECH-112 and MECH-117."
     },
     {
-      "queue_id": "V3-EXQ-235",
-      "title": "MECH-112 / ARC-030: Clean Learned-Goal Gate (Paper Gate)",
-      "experiment_type": "v3_exq_235_mech112_arc030_clean_goal_gate",
-      "script": "experiments/v3_exq_235_mech112_arc030_clean_goal_gate.py",
-      "machine_affinity": "any",
-      "priority": 4,
-      "status": "claimed",
-      "estimated_minutes": 290,
-      "claim_ids": [
-        "MECH-112",
-        "ARC-030"
-      ],
-      "notes": "Paper gate for learned goal-directed behavior. GOAL_ACTIVE (harm+benefit+z_goal selector) vs GOAL_ABLATED (same selector, goal channel zeroed). 8x8 grid, 1 resource, 5 seeds, early-acquisition metrics (success@40, first-hit latency, goal_resource_corr alignment probe). Nearby variant: 2 hazards. Fixes EXQ-225/226 design flaws: matched selector structure, simpler environment, no multi-resource confound. CRITICAL: config.e1.goal_dim=world_dim set after from_dims() for GOAL_ACTIVE (pattern from EXQ-076f fix).",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-05T13:37:32.381748+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-236",
       "title": "ARC-018 Rollout Fidelity Gate (ROLLOUT_k5 vs GREEDY_k1, E2-quality-stratified)",
       "experiment_type": "v3_exq_236_arc018_rollout_fidelity_gate",
