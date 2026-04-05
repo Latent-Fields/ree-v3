@@ -152,22 +152,6 @@
       "note": "Redesign of EXQ-191: implements offline consolidation pass (no z_goal, updates residue field from trajectory buffer via hippocampal.replay() + residue_field.integrate()), reachable target_harm_rate=0.05, diagnostic classification. 5 seeds x 200 episodes, CONSOLIDATE fires every 10 episodes."
     },
     {
-      "queue_id": "V3-EXQ-239",
-      "title": "MECH-153 Context Memory Sufficient Signal (lambda=0.5, 500 warmup eps vs ABLATED)",
-      "experiment_type": "v3_exq_239_mech153_context_memory_sufficient_signal",
-      "script": "experiments/v3_exq_239_mech153_context_memory_sufficient_signal.py",
-      "priority": 10,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 200,
-      "claim_id": "MECH-153",
-      "note": "Redesign of EXQ-187a: 5x lambda (0.5 vs 0.1), 3x warmup (500 vs 150 eps). Tests whether sufficient supervised signal produces cosine_sim < 0.95 vs ABLATED baseline.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-05T12:57:58.530236+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-241",
       "title": "SD-011 Dual Nociceptive Stream Proof-of-Concept (z_harm_s sensory-discriminative vs z_harm_a affective-motivational)",
       "experiment_type": "v3_exq_241_sd011_dual_nociceptive_stream_poc",
