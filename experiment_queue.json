@@ -173,7 +173,7 @@
       "script": "experiments/v3_exq_242_sd017_sleep_phase_ablation.py",
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 9,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 300,
       "claim_ids": [
         "SD-017",
@@ -181,7 +181,11 @@
         "MECH-166"
       ],
       "experiment_purpose": "diagnostic",
-      "notes": "SD-017 minimal sleep phase ablation. Three conditions: WAKING_ONLY, SWS_ONLY, SWS_THEN_REM. Two-context alternating environment (SAFE: 1 hazard vs DANGEROUS: 8 hazards). SWS-analog: interleaved SAFE/DANGEROUS writes to E1.context_memory (schema slot differentiation, hip->cx direction). REM-analog: targeted harm_eval gradient updates on DANGEROUS harm events in temporal order, plus residue_field.integrate() (slot-filling, cx->hip direction). Primary measure: slot_cosine_sim (lower=more differentiated). Secondary: harm_rate_dangerous, harm_discrimination. PASS: C1 (SWS slot differentiation) AND (C2 harm benefit OR C4 discrimination improvement). Diagnostic: SD-017 not yet first-class substrate component -- tests existing context_memory.write + harm_eval hooks as minimal proxy."
+      "notes": "SD-017 minimal sleep phase ablation. Three conditions: WAKING_ONLY, SWS_ONLY, SWS_THEN_REM. Two-context alternating environment (SAFE: 1 hazard vs DANGEROUS: 8 hazards). SWS-analog: interleaved SAFE/DANGEROUS writes to E1.context_memory (schema slot differentiation, hip->cx direction). REM-analog: targeted harm_eval gradient updates on DANGEROUS harm events in temporal order, plus residue_field.integrate() (slot-filling, cx->hip direction). Primary measure: slot_cosine_sim (lower=more differentiated). Secondary: harm_rate_dangerous, harm_discrimination. PASS: C1 (SWS slot differentiation) AND (C2 harm benefit OR C4 discrimination improvement). Diagnostic: SD-017 not yet first-class substrate component -- tests existing context_memory.write + harm_eval hooks as minimal proxy.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-05T13:04:02.112860+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-243",
