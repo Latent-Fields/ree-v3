@@ -13,7 +13,7 @@
       "experiment_type": "v3_onboard_smoke_EWIN-PC",
       "script": "experiments/v3_onboard_smoke_EWIN-PC.py",
       "machine_affinity": "EWIN-PC",
-      "priority": 0,
+      "priority": 1,
       "status": "pending",
       "estimated_minutes": 20
     },
@@ -56,7 +56,7 @@
       "experiment_type": "v3_exq_231_mech106_bg_hysteresis",
       "script": "experiments/v3_exq_231_mech106_bg_hysteresis.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 4,
+      "priority": 1,
       "status": "claimed",
       "estimated_minutes": 120,
       "claim_ids": [
@@ -89,7 +89,7 @@
       "experiment_type": "v3_exq_235_mech112_arc030_clean_goal_gate",
       "script": "experiments/v3_exq_235_mech112_arc030_clean_goal_gate.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 2,
+      "priority": 4,
       "status": "pending",
       "estimated_minutes": 290,
       "claim_ids": [
@@ -104,7 +104,7 @@
       "experiment_type": "v3_exq_236_arc018_rollout_fidelity_gate",
       "script": "experiments/v3_exq_236_arc018_rollout_fidelity_gate.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 4,
+      "priority": 3,
       "status": "pending",
       "estimated_minutes": 250,
       "claim_ids": [
@@ -161,7 +161,7 @@
       "experiment_type": "v3_exq_125a_arc029_committed_mode_redesign",
       "script": "experiments/v3_exq_125a_arc029_committed_mode_redesign.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 4,
+      "priority": 3,
       "status": "pending",
       "estimated_minutes": 300,
       "claim_ids": [
@@ -176,7 +176,7 @@
       "experiment_type": "v3_exq_238_sd012_drive_weight_ablation_fix",
       "script": "experiments/v3_exq_238_sd012_drive_weight_ablation_fix.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 3,
+      "priority": 4,
       "status": "pending",
       "estimated_minutes": 90,
       "claim_ids": [
@@ -192,7 +192,7 @@
       "title": "ARC-038 Waking Consolidation Mode Probe (CONSOLIDATE vs NO_CONSOLIDATE offline map update)",
       "experiment_type": "v3_exq_240_arc038_waking_consolidation_probe",
       "script": "experiments/v3_exq_240_arc038_waking_consolidation_probe.py",
-      "priority": 5,
+      "priority": 6,
       "machine_affinity": "DLAPTOP-4.local",
       "status": "pending",
       "estimated_minutes": 300,
@@ -235,7 +235,7 @@
       "experiment_type": "v3_exq_242_sd017_sleep_phase_ablation",
       "script": "experiments/v3_exq_242_sd017_sleep_phase_ablation.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 15,
+      "priority": 9,
       "status": "pending",
       "estimated_minutes": 300,
       "claim_ids": [
@@ -252,7 +252,7 @@
       "experiment_type": "v3_exq_243_inv045_phase_ordering_necessity",
       "script": "experiments/v3_exq_243_inv045_phase_ordering_necessity.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 15,
+      "priority": 8,
       "status": "pending",
       "estimated_minutes": 350,
       "claim_ids": [
@@ -268,7 +268,7 @@
       "experiment_type": "v3_exq_244_mech165_reverse_replay_diversity",
       "script": "experiments/v3_exq_244_mech165_reverse_replay_diversity.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 15,
+      "priority": 6,
       "status": "pending",
       "estimated_minutes": 400,
       "claim_ids": [
@@ -283,7 +283,7 @@
       "experiment_type": "v3_exq_245_mech120_shy_normalisation",
       "script": "experiments/v3_exq_245_mech120_shy_normalisation.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 15,
+      "priority": 7,
       "status": "pending",
       "estimated_minutes": 220,
       "claim_ids": [
@@ -298,7 +298,7 @@
       "experiment_type": "v3_exq_246_mech122_spindle_coordination",
       "script": "experiments/v3_exq_246_mech122_spindle_coordination.py",
       "machine_affinity": "DLAPTOP-4.local",
-      "priority": 15,
+      "priority": 7,
       "status": "pending",
       "estimated_minutes": 280,
       "claim_ids": [
