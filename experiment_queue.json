@@ -8,20 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-ONBOARD-smoke-EWIN-PC",
-      "title": "Onboarding smoke test -- EWIN-PC (Eoin)",
-      "experiment_type": "v3_onboard_smoke_EWIN-PC",
-      "script": "experiments/v3_onboard_smoke_EWIN-PC.py",
-      "machine_affinity": "EWIN-PC",
-      "priority": 1,
-      "status": "claimed",
-      "estimated_minutes": 20,
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-05T13:06:11.565086+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-234",
       "title": "MECH-117 Wanting/Liking Dissociation Replication (seeds [1,2,3])",
       "experiment_type": "v3_exq_234_mech117_wanting_liking_replication",
