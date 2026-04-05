@@ -72,7 +72,7 @@
       "script": "experiments/v3_exq_241_sd011_dual_nociceptive_stream_poc.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 250,
       "episodes_per_run": 80,
       "seeds": 5,
@@ -81,7 +81,11 @@
         "SD-011"
       ],
       "experiment_purpose": "diagnostic",
-      "note": "Diagnostic POC: implements dual-stream harm encoder (z_harm_s=fast/localizable via HarmEncoder, z_harm_a=slow EMA via AffectiveHarmEncoder) as standalone encoders on existing CausalGridWorldV2 observations. Tests orthogonality (D1: cos_sim < 0.5), sensory forward-predictability (D2: R2_s > 0.3), and differential predictability (D3: R2_a < R2_s). No ree_core changes required."
+      "note": "Diagnostic POC: implements dual-stream harm encoder (z_harm_s=fast/localizable via HarmEncoder, z_harm_a=slow EMA via AffectiveHarmEncoder) as standalone encoders on existing CausalGridWorldV2 observations. Tests orthogonality (D1: cos_sim < 0.5), sensory forward-predictability (D2: R2_s > 0.3), and differential predictability (D3: R2_a < R2_s). No ree_core changes required.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-05T16:08:10.749149+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-245",
