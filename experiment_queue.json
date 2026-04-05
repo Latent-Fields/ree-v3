@@ -80,21 +80,6 @@
       "notes": "Bug fix of EXQ-237: hazard_harm=0.5 -> 0.02 (premature episode termination at ~18 steps). 2x2 factorial: context (SIMPLE 2res/1haz/80steps vs LONG_HORIZON 1res/3haz/150steps) x policy (HABIT z_goal=False/benefit_eval=True vs PLANNED z_goal=True/e1_goal_cond=True). Full agent pipeline eval (generate_trajectories+select_action). Tests MECH-163 interaction: planned advantage specifically in long-horizon context. Criteria: C1 goal_norm>=0.05, C3 lift_long>=0.05, C4 interaction>0.02, C5 harm_ratio<=1.5, majority 2/3 seeds."
     },
     {
-      "queue_id": "V3-EXQ-223a",
-      "title": "Toroidal Minimal Vertebrate Cognition Ablation -- no-wall replication of EXQ-223",
-      "experiment_type": "v3_exq_223a_toroidal_minimal_vertebrate",
-      "script": "experiments/v3_exq_223a_toroidal_minimal_vertebrate.py",
-      "machine_affinity": "any",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 8,
-      "notes": "Replicates EXQ-223 with toroidal=True (no walls, wrapping edges). Tests whether EXQ-223 PASS was genuine gradient-following or wall-hugging artifact. Secondary question: does agent develop row/column preference in open torus?",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-05T13:28:51.794833+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-228a",
       "title": "ARC-032 theta-rate pathway behavioral test (THETA_ACTIVE vs THETA_ZEROED)",
       "experiment_type": "v3_exq_228a_arc032_theta_bypass_behavioral",
