@@ -86,9 +86,13 @@
       "script": "experiments/v3_exq_223a_toroidal_minimal_vertebrate.py",
       "machine_affinity": "any",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 8,
-      "notes": "Replicates EXQ-223 with toroidal=True (no walls, wrapping edges). Tests whether EXQ-223 PASS was genuine gradient-following or wall-hugging artifact. Secondary question: does agent develop row/column preference in open torus?"
+      "notes": "Replicates EXQ-223 with toroidal=True (no walls, wrapping edges). Tests whether EXQ-223 PASS was genuine gradient-following or wall-hugging artifact. Secondary question: does agent develop row/column preference in open torus?",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-05T13:28:51.794833+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-228a",
