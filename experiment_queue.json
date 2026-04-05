@@ -26,7 +26,7 @@
       "script": "experiments/v3_exq_234_mech117_wanting_liking_replication.py",
       "machine_affinity": "any",
       "priority": 3,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 3000,
       "seeds": 3,
@@ -35,7 +35,11 @@
         "MECH-112",
         "MECH-117"
       ],
-      "notes": "Independent replication of EXQ-074f (seeds [42,7,13]) with seeds [1,2,3]. Same design: 3000 steps, 6x6 grid, L1->L2 relocation at step 1500. Wanting chases L1 (incentive salience); liking redirects to L2. PASS: 4/4 criteria in >= 2/3 seeds. Supports MECH-117 stable promotion. evidence_direction_per_claim for MECH-112 and MECH-117."
+      "notes": "Independent replication of EXQ-074f (seeds [42,7,13]) with seeds [1,2,3]. Same design: 3000 steps, 6x6 grid, L1->L2 relocation at step 1500. Wanting chases L1 (incentive salience); liking redirects to L2. PASS: 4/4 criteria in >= 2/3 seeds. Supports MECH-117 stable promotion. evidence_direction_per_claim for MECH-112 and MECH-117.",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-04-05T14:24:08.186884+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-236",
