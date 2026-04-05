@@ -18,57 +18,6 @@
       "estimated_minutes": 20
     },
     {
-      "queue_id": "V3-EXQ-223",
-      "title": "Minimal Vertebrate Cognition Ablation -- E1+E2+hippocampus core loop",
-      "experiment_type": "v3_exq_223_minimal_vertebrate_ablation",
-      "script": "experiments/v3_exq_223_minimal_vertebrate_ablation.py",
-      "machine_affinity": "any",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 80,
-      "notes": "Milestone architecture validation. Strips commitment architecture (commitment_threshold=-1.0, z_goal_enabled=False, benefit_eval_enabled=False). Tests whether core E1/E2/hippocampus loop gradient-follows on raw env signals. Sidesteps SD-011/SD-012 blockers. PASS criteria: C1 reward > random, C2 harm < random, C4 learning within warmup (all >= 2/3 seeds).",
-      "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-04-04T15:51:24.564410+00:00"
-      }
-    },
-    {
-      "queue_id": "V3-EXQ-230",
-      "title": "MECH-075 Novelty Loop Diagnostic (GATED vs ABLATED)",
-      "experiment_type": "v3_exq_230_mech075_novelty_diagnostic",
-      "script": "experiments/v3_exq_230_mech075_novelty_diagnostic.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "claim_ids": [
-        "MECH-075"
-      ],
-      "notes": "Diagnostic after EXQ-192a FAIL + EXQ-209 weakens. Probes whether novelty signal (E1 world-prediction MSE EMA) is active and whether CEM noise scaling produces >= 10% exploration gap. PASS: novelty_mag > 0.01 AND explore_gap >= 0.10 in >= 2/3 seeds. EXPERIMENT_PURPOSE=diagnostic. 3 seeds x 150 train + 50 eval x 200 steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-04T15:29:34.077503+00:00"
-      }
-    },
-    {
-      "queue_id": "V3-EXQ-231",
-      "title": "MECH-106 BG Hysteresis First Experiment (PERSISTENT vs REACTIVE)",
-      "experiment_type": "v3_exq_231_mech106_bg_hysteresis",
-      "script": "experiments/v3_exq_231_mech106_bg_hysteresis.py",
-      "machine_affinity": "DLAPTOP-4.local",
-      "priority": 1,
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "claim_ids": [
-        "MECH-106"
-      ],
-      "notes": "First experiment for MECH-106. PERSISTENT (min_hold=20 steps + margin release) vs REACTIVE (instantaneous variance-threshold). PASS: persistence_ratio_PERSISTENT > 2.0 AND reactive_ratio <= 1.5 in >= 2/3 seeds. 3 seeds x 400 eps x 200 steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-04T16:23:06.426986+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-234",
       "title": "MECH-117 Wanting/Liking Dissociation Replication (seeds [1,2,3])",
       "experiment_type": "v3_exq_234_mech117_wanting_liking_replication",
