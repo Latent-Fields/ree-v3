@@ -106,7 +106,7 @@
       "script": "experiments/v3_exq_238_sd012_drive_weight_ablation_fix.py",
       "machine_affinity": "any",
       "priority": 4,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "claim_ids": [
         "SD-012",
@@ -114,7 +114,11 @@
       ],
       "supersedes": "V3-EXQ-233",
       "experiment_purpose": "evidence",
-      "notes": "Fix for EXQ-233 design error: adds proximity_benefit_scale=0.18 so benefit_exposure exceeds seeding threshold. SD012_ACTIVE (drive_weight=2.0) vs SD012_ABLATED (drive_weight=0.0). Expected: ACTIVE seeds z_goal (norm>0.1), ABLATED does not (norm<0.05). Clean causal ablation proof."
+      "notes": "Fix for EXQ-233 design error: adds proximity_benefit_scale=0.18 so benefit_exposure exceeds seeding threshold. SD012_ACTIVE (drive_weight=2.0) vs SD012_ABLATED (drive_weight=0.0). Expected: ACTIVE seeds z_goal (norm>0.1), ABLATED does not (norm<0.05). Clean causal ablation proof.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-05T13:43:17.300940+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-241",
