@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-04-04
+**Last updated:** 2026-04-06
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-04-04)
+## 0. Current V3 State (2026-04-06)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -31,6 +31,7 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-014 | Hippocampal valence vector node recording (4-component) | Implemented (2026-04-04) |
 | SD-015 | Resource indicator encoder | In progress / experimental (EXQ-085h--085o) |
 | ARC-028 + MECH-105 | HippocampalModule completion signal + BetaGate coupling | Implemented (2026-04-04) |
+| SD-011/SD-012 E3 Integration | z_harm_a urgency gating + affective amplification wired through full agent loop into E3 | Implemented (2026-04-05) |
 
 SD-003 (self-attribution counterfactual pipeline) was validated at EXQ-030b PASS
 (world_forward_r2=0.947, attribution_gap=0.035). Redesign now in progress to use z_harm_s
@@ -45,18 +46,28 @@ pipeline (post SD-011), since E3 now takes z_harm rather than z_world as primary
   wanting/liking dissociation (MECH-112/117), goal conditioning (MECH-116/ARC-032), context
   memory (MECH-153/ARC-042), breath oscillator / z_beta pathway fixes (EXQ-199--203), and
   the EXQ-223 minimal vertebrate ablation milestone.
-- **Currently queued (2026-04-04):** EXQ-223 (minimal vertebrate ablation, priority 5),
-  EXQ-074e (MECH-112/117 wanting/liking, supersedes EXQ-074d),
-  EXQ-076e (MECH-116/ARC-032 E1 goal conditioning, supersedes EXQ-076c),
-  EXQ-195 (SD-003 full z_harm_s counterfactual, post-SD-011),
-  EXQ-184 (MECH-033 kernel chain pair), EXQ-196 (ARC-018 rollout viability pair),
-  EXQ-125 (ARC-029 committed vs ablated mode, currently claimed by DLAPTOP-4.local),
-  EXQ-193 (Q-012, Daniel-PC), V3-ONBOARD-smoke-EWINPC.
+- **Currently queued (2026-04-06):** V3-ONBOARD-smoke-EWIN-PC (Eoin onboarding, EWIN-PC),
+  EXQ-223 (minimal vertebrate ablation, claimed Daniel-PC), EXQ-230 (MECH-075 novelty
+  diagnostic, claimed DLAPTOP-4.local), EXQ-231 (MECH-106 BG hysteresis, claimed
+  DLAPTOP-4.local), EXQ-232 (ARC-026 approach/contact, claimed DLAPTOP-4.local),
+  EXQ-234 (MECH-117 wanting/liking replication, seeds [1,2,3]), EXQ-235 (MECH-112/ARC-030
+  clean goal gate, paper gate), EXQ-236 (ARC-018 rollout fidelity gate), EXQ-237a
+  (MECH-163 dual system discrimination, supersedes EXQ-237), EXQ-223a (toroidal minimal
+  vertebrate replication), EXQ-228a (ARC-032 theta-rate pathway behavioral, supersedes
+  EXQ-228), EXQ-125a (ARC-029 committed mode redesign, supersedes EXQ-125), EXQ-238
+  (SD-012 drive_weight ablation fix, supersedes EXQ-233), EXQ-240 (ARC-038 waking
+  consolidation probe), EXQ-239 (MECH-153 context memory sufficient signal), EXQ-241
+  (SD-011 dual nociceptive stream POC), EXQ-242 (SD-017 minimal sleep phase ablation),
+  EXQ-243 (INV-045 phase ordering necessity + MECH-123), EXQ-244 (MECH-165 reverse replay
+  diversity), EXQ-245 (MECH-120 SHY normalisation), EXQ-246 (MECH-122 spindle coordination
+  proxy), EXQ-247 (SD-011/SD-012 full integration validation, 4-arm ablation).
+  22 items total.
 - **Current bottleneck:** First-paper gate experiments. EXQ-223 PASS (2026-04-03) confirmed
-  the minimal E1+E2+hippocampus core loop works. Current focus: EXQ-074e (wanting/liking),
-  EXQ-076e (goal conditioning), EXQ-195 (SD-003 z_harm_s counterfactual), and downstream
-  goal-lift behavior. SD-014 valence vector and ARC-028/MECH-105 hippocampal-BetaGate coupling
-  now implemented.
+  the minimal E1+E2+hippocampus core loop works. Current focus: EXQ-074e/234 (wanting/liking),
+  EXQ-076e/235 (goal conditioning), EXQ-195 (SD-003 z_harm_s counterfactual), EXQ-247
+  (SD-011/SD-012 full integration validation, 4-arm ablation), and sleep-architecture
+  experiments (EXQ-242--246). SD-014 valence vector and ARC-028/MECH-105 hippocampal-BetaGate
+  coupling now implemented. SD-011/SD-012 E3 integration complete (2026-04-05).
 
 ### V3 / V4 Scope Boundary
 

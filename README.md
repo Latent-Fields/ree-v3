@@ -29,9 +29,9 @@ V2 experiments (EXQ-014–028) produced three architectural failures requiring n
 
 SD-004 and SD-005 are interdependent: action objects require z_world to exist; z_world's separation from z_self is what makes action-object attribution meaningful.
 
-## Current Status (2026-04-04)
+## Current Status (2026-04-06)
 
-~292 experiment scripts authored. SD-004 through SD-015 implemented (SD-015 in progress/experimental). EXQ-223 PASS (2026-04-03): minimal vertebrate ablation confirmed E1+E2+hippocampus core loop is sufficient for navigation, harm avoidance, and resource acquisition — named-structure match to zebrafish larva (5-7 dpf). Current focus: first-paper gate experiments — EXQ-074e (wanting/liking dissociation), EXQ-076e (E1 goal conditioning), EXQ-195 (SD-003 z_harm_s counterfactual post-SD-011). SD-014 valence vector and ARC-028/MECH-105 hippocampal-BetaGate coupling now implemented.
+~292 experiment scripts authored. ~198 experiments run. SD-004 through SD-015 implemented (SD-015 in progress/experimental); SD-011/SD-012 E3 integration complete (2026-04-05): z_harm_a urgency gating and affective amplification now wired through the full agent loop into E3. EXQ-247 queued: 4-arm ablation validating full SD-011/SD-012 E3 integration. EXQ-223 PASS (2026-04-03): minimal vertebrate ablation confirmed E1+E2+hippocampus core loop is sufficient for navigation, harm avoidance, and resource acquisition — named-structure match to zebrafish larva (5-7 dpf). Current focus: first-paper gate experiments — EXQ-074e/234 (wanting/liking dissociation), EXQ-076e/235 (E1 goal conditioning), EXQ-195 (SD-003 z_harm_s counterfactual post-SD-011), EXQ-247 (SD-011/012 full integration), and sleep-architecture experiments (EXQ-242--246). SD-014 valence vector and ARC-028/MECH-105 hippocampal-BetaGate coupling implemented 2026-04-04.
 
 Full specification with substrate status table: [`docs/ree-v3-spec.md`](docs/ree-v3-spec.md)
 
