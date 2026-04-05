@@ -152,13 +152,17 @@
       "script": "experiments/v3_exq_244_mech165_reverse_replay_diversity.py",
       "machine_affinity": "any",
       "priority": 6,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 400,
       "claim_ids": [
         "MECH-165"
       ],
       "experiment_purpose": "evidence",
-      "note": "Three conditions: WAKING_ONLY, FORWARD_ONLY_REPLAY, BALANCED_REPLAY (forward+reverse). Measures action_entropy and monostrategy_rate. PASS: BALANCED > FORWARD on entropy (M1) AND (monostrategy_rate lower M2 OR entropy > waking M3). Reverse replay traces back from harm events to causal antecedents, enabling alternative route identification."
+      "note": "Three conditions: WAKING_ONLY, FORWARD_ONLY_REPLAY, BALANCED_REPLAY (forward+reverse). Measures action_entropy and monostrategy_rate. PASS: BALANCED > FORWARD on entropy (M1) AND (monostrategy_rate lower M2 OR entropy > waking M3). Reverse replay traces back from harm events to causal antecedents, enabling alternative route identification.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-05T13:20:22.934002+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-245",
