@@ -131,25 +131,6 @@
       "notes": "Fix for EXQ-233 design error: adds proximity_benefit_scale=0.18 so benefit_exposure exceeds seeding threshold. SD012_ACTIVE (drive_weight=2.0) vs SD012_ABLATED (drive_weight=0.0). Expected: ACTIVE seeds z_goal (norm>0.1), ABLATED does not (norm<0.05). Clean causal ablation proof."
     },
     {
-      "queue_id": "V3-EXQ-240",
-      "title": "ARC-038 Waking Consolidation Mode Probe (CONSOLIDATE vs NO_CONSOLIDATE offline map update)",
-      "experiment_type": "v3_exq_240_arc038_waking_consolidation_probe",
-      "script": "experiments/v3_exq_240_arc038_waking_consolidation_probe.py",
-      "priority": 6,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 300,
-      "claim_ids": [
-        "ARC-038"
-      ],
-      "experiment_purpose": "diagnostic",
-      "note": "Redesign of EXQ-191: implements offline consolidation pass (no z_goal, updates residue field from trajectory buffer via hippocampal.replay() + residue_field.integrate()), reachable target_harm_rate=0.05, diagnostic classification. 5 seeds x 200 episodes, CONSOLIDATE fires every 10 episodes.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-05T13:20:13.284992+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-241",
       "title": "SD-011 Dual Nociceptive Stream Proof-of-Concept (z_harm_s sensory-discriminative vs z_harm_a affective-motivational)",
       "experiment_type": "v3_exq_241_sd011_dual_nociceptive_stream_poc",
