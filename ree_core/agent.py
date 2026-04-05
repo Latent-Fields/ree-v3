@@ -398,9 +398,19 @@ class REEAgent(nn.Module):
         z_harm_a = None
         if self._current_latent is not None and self._current_latent.z_harm_a is not None:
             z_harm_a = self._current_latent.z_harm_a
+        # MECH-188: PFC top-down z_goal injection (EXQ-253).
+        # When z_goal_inject > 0, apply a constant norm floor to z_goal for
+        # action selection ONLY. Does not modify the persistent attractor.
+        # Simulates DRN-mPFC top-down goal persistence bypassing terrain seeding.
+        _goal_inject = getattr(
+            getattr(self.config, "goal", None), "z_goal_inject", 0.0
+        )
+        _goal_state_for_select = self.goal_state
+        if _goal_inject > 0.0 and self.goal_state is not None:
+            _goal_state_for_select = self.goal_state.with_injection(_goal_inject)
         result = self.e3.select(
             candidates, temperature,
-            goal_state=self.goal_state,
+            goal_state=_goal_state_for_select,
             terrain_weight=self._cue_terrain_weight,
             sweep_threshold_reduction=sweep_reduction,
             z_harm_a=z_harm_a,

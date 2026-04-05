@@ -50,6 +50,33 @@ class GoalConfig:
     # Master switch -- disabled by default (ablation baseline)
     z_goal_enabled: bool = False
 
+    # MECH-187: gain multiplier on z_goal seeding signal.
+    # Applied before drive modulation: effective_benefit = benefit_exposure * z_goal_seeding_gain * (...)
+    # 1.0 = no change (default, fully backward compatible).
+    # < 1.0 suppresses seeding (5-HT serotonergic inhibition of incentive salience).
+    # > 1.0 elevates seeding (disinhibition or pharmacological augmentation).
+    # Empirical range from Korte et al. 2016: suppression ~x0.6-0.8, elevation ~x1.5-2.5.
+    z_goal_seeding_gain: float = 1.0
+
+    # MECH-186: serotonergic benefit terrain maintenance (valence_wanting floor).
+    # When > 0, the z_goal norm is prevented from decaying below this value.
+    # Simulates tonic serotonergic support maintaining minimum wanting tone.
+    # Default None/0.0 = disabled (no floor, backward-compatible).
+    # Set to 0.05 for the MECH-186 floor-maintained condition.
+    valence_wanting_floor: float = 0.0
+
+    # MECH-188: PFC top-down z_goal injection (constant floor on effective z_goal norm
+    # during action selection only -- does NOT modify the persistent z_goal attractor).
+    # Simulates DRN-mPFC serotonergic top-down goal persistence (Miyazaki et al. 2020):
+    # when terrain-based seeding has failed (LONG_HORIZON depression attractor), an
+    # external PFC signal can maintain goal representation.
+    # z_goal_inject=0.0 disables (default, fully backward compatible).
+    # z_goal_inject=0.3 applies a constant norm floor of 0.3 to z_goal during
+    # agent.select_action() -- does not affect update() or z_goal decay.
+    # Used by EXQ-253 (condition B) to test whether top-down injection suffices to
+    # maintain PLANNED/HABIT behavioral gap when bottom-up terrain seeding has collapsed.
+    z_goal_inject: float = 0.0
+
 
 class GoalState:
     """
@@ -97,8 +124,25 @@ class GoalState:
         # Always decay toward zero
         self._z_goal = self._z_goal * (1.0 - self.config.decay_goal)
 
+        # MECH-186: valence_wanting floor -- prevent z_goal norm from dropping
+        # below the floor value. Simulates tonic serotonergic benefit terrain
+        # maintenance. Applied after decay, before any benefit-triggered update.
+        # Disabled when valence_wanting_floor <= 0.0 (default).
+        floor = getattr(self.config, "valence_wanting_floor", 0.0)
+        if floor > 0.0:
+            current_norm = self._z_goal.norm().item()
+            if current_norm < floor and current_norm > 1e-9:
+                # Scale up to floor norm while preserving direction
+                self._z_goal = self._z_goal * (floor / current_norm)
+            elif current_norm <= 1e-9 and floor > 0.0:
+                # z_goal is zero vector: cannot preserve direction.
+                # Floor clamp has no effect until first benefit contact seeds direction.
+                pass
+
+        # MECH-187: apply seeding gain before drive modulation
+        # gain=1.0 (default) is identity -- fully backward compatible.
         # SD-012: scale benefit by drive level
-        effective_benefit = benefit_exposure * (
+        effective_benefit = benefit_exposure * self.config.z_goal_seeding_gain * (
             1.0 + self.config.drive_weight * drive_level
         )
 
@@ -128,6 +172,45 @@ class GoalState:
         """Raw MSE distance from goal. Lower = closer. Shape: [batch]."""
         z_goal_exp = self._z_goal.expand_as(z_world)
         return F.mse_loss(z_world, z_goal_exp, reduction="none").sum(dim=-1)
+
+    def with_injection(self, inject_norm: float) -> "GoalState":
+        """
+        MECH-188: Return a view of this GoalState with z_goal norm floored at inject_norm.
+
+        Creates a lightweight wrapper that shares the same config but overrides
+        _z_goal with a version that has a minimum L2 norm of inject_norm.
+        Used by agent.select_action() when z_goal_inject > 0 -- applies to
+        action selection only, does NOT modify the persistent attractor.
+
+        If z_goal has no direction (norm=0), a constant unit vector is used so
+        that goal_proximity still produces a non-trivial gradient for trajectory
+        scoring. The first non-zero dimension (index 0) is set.
+
+        Args:
+            inject_norm: minimum L2 norm floor for the injected z_goal.
+
+        Returns:
+            A GoalState whose _z_goal has norm >= inject_norm.
+        """
+        injected = GoalState.__new__(GoalState)
+        injected.config = self.config
+        injected.device = self.device
+        injected._goal_norm_peak = self._goal_norm_peak
+
+        current_norm = self._z_goal.norm().item()
+        if current_norm >= inject_norm:
+            # Already above floor: no change
+            injected._z_goal = self._z_goal
+        elif current_norm > 1e-9:
+            # Scale up to floor norm while preserving direction
+            injected._z_goal = self._z_goal * (inject_norm / current_norm)
+        else:
+            # z_goal is zero: use first-dimension unit vector scaled to inject_norm
+            z_seed = torch.zeros_like(self._z_goal)
+            z_seed[0, 0] = inject_norm
+            injected._z_goal = z_seed
+
+        return injected
 
     def is_active(self) -> bool:
         """True if z_goal has been updated at least once."""

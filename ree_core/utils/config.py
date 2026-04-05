@@ -416,6 +416,9 @@ class REEConfig:
         goal_weight: float = 1.0,
         e1_goal_conditioned: bool = True,
         drive_weight: float = 2.0,  # SD-012: benefit amplification when depleted
+        valence_wanting_floor: float = 0.0,  # MECH-186: minimum z_goal norm floor (0=disabled)
+        z_goal_seeding_gain: float = 1.0,  # MECH-187: gain on seeding signal (1.0=no change)
+        z_goal_inject: float = 0.0,  # MECH-188: PFC top-down injection norm floor (0=disabled)
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -494,6 +497,9 @@ class REEConfig:
             "z_goal_enabled", "alpha_goal", "decay_goal",
             "benefit_threshold", "goal_weight", "e1_goal_conditioned",
             "drive_weight",  # SD-012
+            "valence_wanting_floor",  # MECH-186
+            "z_goal_seeding_gain",  # MECH-187
+            "z_goal_inject",  # MECH-188
         }
         local_goal_vals = {
             "z_goal_enabled": z_goal_enabled,
@@ -503,6 +509,9 @@ class REEConfig:
             "goal_weight": goal_weight,
             "e1_goal_conditioned": e1_goal_conditioned,
             "drive_weight": drive_weight,  # SD-012
+            "valence_wanting_floor": valence_wanting_floor,  # MECH-186
+            "z_goal_seeding_gain": z_goal_seeding_gain,  # MECH-187
+            "z_goal_inject": z_goal_inject,  # MECH-188
         }
         for _key in goal_fields:
             if _key in local_goal_vals:
