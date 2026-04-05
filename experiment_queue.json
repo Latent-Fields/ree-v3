@@ -158,25 +158,6 @@
       "note": "Diagnostic POC: implements dual-stream harm encoder (z_harm_s=fast/localizable via HarmEncoder, z_harm_a=slow EMA via AffectiveHarmEncoder) as standalone encoders on existing CausalGridWorldV2 observations. Tests orthogonality (D1: cos_sim < 0.5), sensory forward-predictability (D2: R2_s > 0.3), and differential predictability (D3: R2_a < R2_s). No ree_core changes required."
     },
     {
-      "queue_id": "V3-EXQ-244",
-      "title": "MECH-165 Reverse Replay Diversity (Forward vs Balanced forward+reverse)",
-      "experiment_type": "v3_exq_244_mech165_reverse_replay_diversity",
-      "script": "experiments/v3_exq_244_mech165_reverse_replay_diversity.py",
-      "machine_affinity": "any",
-      "priority": 6,
-      "status": "claimed",
-      "estimated_minutes": 400,
-      "claim_ids": [
-        "MECH-165"
-      ],
-      "experiment_purpose": "evidence",
-      "note": "Three conditions: WAKING_ONLY, FORWARD_ONLY_REPLAY, BALANCED_REPLAY (forward+reverse). Measures action_entropy and monostrategy_rate. PASS: BALANCED > FORWARD on entropy (M1) AND (monostrategy_rate lower M2 OR entropy > waking M3). Reverse replay traces back from harm events to causal antecedents, enabling alternative route identification.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-05T13:20:22.934002+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-245",
       "title": "MECH-120 SHY-Analog Normalisation Phase Ordering (SHY before vs after SWS)",
       "experiment_type": "v3_exq_245_mech120_shy_normalisation",
