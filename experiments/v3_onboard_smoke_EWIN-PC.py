@@ -179,12 +179,19 @@ def run(seed: int = 42) -> dict:
 
     # -- Block 3: GPU training loop (skipped if no CUDA) ----------------------
     gpu_sps = 0.0
+    gpu_block_error: Optional[str] = None
     if cuda_available:
         print(f"\n[ONBOARD] Block 3/3 -- GPU training ({GPU_EPISODES} eps x {STEPS_PER_EP} steps)", flush=True)
-        gpu_device = torch.device("cuda")
-        env_gpu    = _make_env(seed + 2)
-        agent_gpu  = _make_agent(env_gpu, gpu_device)
-        gpu_sps    = _run_training_block(env_gpu, agent_gpu, GPU_EPISODES, "GPU")
+        try:
+            gpu_device = torch.device("cuda")
+            env_gpu    = _make_env(seed + 2)
+            agent_gpu  = _make_agent(env_gpu, gpu_device)
+            gpu_sps    = _run_training_block(env_gpu, agent_gpu, GPU_EPISODES, "GPU")
+        except Exception as e:
+            gpu_block_error = str(e)
+            print(f"[ONBOARD] GPU block FAILED: {e}", flush=True)
+            print("[ONBOARD] Advisory: CUDA reported available but failed at runtime -- treating as CPU-only", flush=True)
+            cuda_available = False
     else:
         print("\n[ONBOARD] Block 3/3 -- GPU training SKIPPED (no CUDA)", flush=True)
         print("[ONBOARD] Advisory: experiments will run on CPU (slower for net-heavy workloads)", flush=True)
@@ -211,6 +218,7 @@ def run(seed: int = 42) -> dict:
             "gpu_speedup":            round(gpu_speedup, 2) if gpu_speedup else None,
             "cuda_available":         cuda_available,
             "gpu_name":               gpu_name,
+            "gpu_block_error":        gpu_block_error,
             "torch_version":          torch_version,
             "platform":               platform_str,
             "env_only_episodes":      ENV_ONLY_EPISODES,
@@ -235,31 +243,50 @@ def run(seed: int = 42) -> dict:
 
 if __name__ == "__main__":
     import json
+    import traceback as _traceback
     from datetime import datetime, timezone
 
-    result = run(seed=42)
-
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    result["run_timestamp"]      = ts
-    result["run_id"]             = f"{EXPERIMENT_TYPE}_{ts}_v3"
-    result["architecture_epoch"] = "ree_hybrid_guardrails_v1"
-    result["claim"]              = "onboarding"
-    result["verdict"]            = result["status"]
-
-    out_dir = (
+    _out_dir = (
         Path(__file__).resolve().parents[2]
         / "REE_assembly" / "evidence" / "experiments" / EXPERIMENT_TYPE
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{EXPERIMENT_TYPE}_{ts}.json"
-    out_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
-    print(f"\nResult written to: {out_path}", flush=True)
-    print(f"Status: {result['status']}", flush=True)
-    print("\nBenchmark summary:", flush=True)
-    m = result["metrics"]
-    print(f"  env steps/s:      {m['env_steps_per_second']}", flush=True)
-    print(f"  training (CPU):   {m['steps_per_second_cpu']} steps/s", flush=True)
-    print(f"  training (GPU):   {m['steps_per_second_gpu']} steps/s", flush=True)
-    if m.get("gpu_speedup"):
-        print(f"  GPU speedup:      {m['gpu_speedup']}x", flush=True)
+    try:
+        result = run(seed=42)
+
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        result["run_timestamp"]      = ts
+        result["run_id"]             = f"{EXPERIMENT_TYPE}_{ts}_v3"
+        result["architecture_epoch"] = "ree_hybrid_guardrails_v1"
+        result["claim"]              = "onboarding"
+        result["verdict"]            = result["status"]
+
+        _out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = _out_dir / f"{EXPERIMENT_TYPE}_{ts}.json"
+        out_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+
+        print(f"\nResult written to: {out_path}", flush=True)
+        print(f"Status: {result['status']}", flush=True)
+        print("\nBenchmark summary:", flush=True)
+        m = result["metrics"]
+        print(f"  env steps/s:      {m['env_steps_per_second']}", flush=True)
+        print(f"  training (CPU):   {m['steps_per_second_cpu']} steps/s", flush=True)
+        print(f"  training (GPU):   {m['steps_per_second_gpu']} steps/s", flush=True)
+        if m.get("gpu_speedup"):
+            print(f"  GPU speedup:      {m['gpu_speedup']}x", flush=True)
+
+    except Exception as _e:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        _out_dir.mkdir(parents=True, exist_ok=True)
+        _err_result = {
+            "status": "ERROR",
+            "error": str(_e),
+            "traceback": _traceback.format_exc(),
+            "run_id": f"{EXPERIMENT_TYPE}_{ts}_v3",
+            "architecture_epoch": "ree_hybrid_guardrails_v1",
+            "claim": "onboarding",
+        }
+        _err_path = _out_dir / f"{EXPERIMENT_TYPE}_{ts}_error.json"
+        _err_path.write_text(json.dumps(_err_result, indent=2) + "\n", encoding="utf-8")
+        print(f"[ONBOARD] ERROR -- traceback written to: {_err_path}", flush=True)
+        raise

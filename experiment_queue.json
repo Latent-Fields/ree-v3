@@ -8,6 +8,18 @@
   },
   "items": [
     {
+      "queue_id": "V3-ONBOARD-smoke-EWIN-PC-b",
+      "title": "Onboarding smoke test -- EWIN-PC (Eoin) [retry b]",
+      "experiment_type": "v3_onboard_smoke_EWIN-PC",
+      "script": "experiments/v3_onboard_smoke_EWIN-PC.py",
+      "machine_affinity": "EWIN-PC",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 20,
+      "claim_ids": [],
+      "notes": "Re-run after GPU block hardening. Original V3-ONBOARD-smoke-EWIN-PC errored 2026-04-05 (exit code 1, 94.3s, no output file). Script now wraps Block 3 GPU in try/except (graceful fallback to CPU-only) and writes diagnostic error JSON on any crash."
+    },
+    {
       "queue_id": "V3-EXQ-234",
       "title": "MECH-117 Wanting/Liking Dissociation Replication (seeds [1,2,3])",
       "experiment_type": "v3_exq_234_mech117_wanting_liking_replication",
