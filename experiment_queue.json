@@ -94,7 +94,7 @@
       "script": "experiments/v3_exq_247_sd011_sd012_integration.py",
       "machine_affinity": "any",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "episodes_per_run": 200,
       "seeds": 3,
@@ -106,7 +106,11 @@
         "ARC-030"
       ],
       "experiment_purpose": "evidence",
-      "notes": "First experiment exercising full SD-011/SD-012 co-design wired through E3. 4-arm: FULL (urgency+affective+drive) vs NO_URGENCY vs NO_AFFECT vs BASELINE. Tests z_harm_a urgency lowers commit threshold under threat (C1), affective amplification raises M(zeta) (C2), drive extraction enables z_goal seeding (C3), backward compat (C4), threshold separation (C5). 3 seeds x 200 train + 50 eval x 200 steps. PASS: all C1-C5."
+      "notes": "First experiment exercising full SD-011/SD-012 co-design wired through E3. 4-arm: FULL (urgency+affective+drive) vs NO_URGENCY vs NO_AFFECT vs BASELINE. Tests z_harm_a urgency lowers commit threshold under threat (C1), affective amplification raises M(zeta) (C2), drive extraction enables z_goal seeding (C3), backward compat (C4), threshold separation (C5). 3 seeds x 200 train + 50 eval x 200 steps. PASS: all C1-C5.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-05T16:11:26.519037+00:00"
+      }
     }
   ]
 }
