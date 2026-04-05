@@ -14,8 +14,12 @@
       "script": "experiments/v3_onboard_smoke_EWIN-PC.py",
       "machine_affinity": "EWIN-PC",
       "priority": 1,
-      "status": "pending",
-      "estimated_minutes": 20
+      "status": "claimed",
+      "estimated_minutes": 20,
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-05T13:06:11.565086+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-234",
