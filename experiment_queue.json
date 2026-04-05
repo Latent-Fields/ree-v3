@@ -85,14 +85,18 @@
       "script": "experiments/v3_exq_228a_arc032_theta_bypass_behavioral.py",
       "machine_affinity": "any",
       "priority": 6,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 150,
       "claim_ids": [
         "ARC-032"
       ],
       "supersedes": "V3-EXQ-228",
       "experiment_purpose": "evidence",
-      "notes": "Fix of EXQ-228 metric-ablation mismatch: compute_prediction_loss() has zero dependency on theta_buffer (E1 internal MSE). Fix: switch to behavioral outcomes (resource_rate, harm_rate) via full generate_trajectories+select_action pipeline. Between-agents: both trained from scratch with identical greedy/random warmup. THETA_ZEROED patches theta_buffer.summary() to return zeros -- severs E1->theta->E3 context pathway. C1: lift>=0.05 in >=2/3 seeds. Precondition: z_goal_norm>=0.05 in THETA_ACTIVE."
+      "notes": "Fix of EXQ-228 metric-ablation mismatch: compute_prediction_loss() has zero dependency on theta_buffer (E1 internal MSE). Fix: switch to behavioral outcomes (resource_rate, harm_rate) via full generate_trajectories+select_action pipeline. Between-agents: both trained from scratch with identical greedy/random warmup. THETA_ZEROED patches theta_buffer.summary() to return zeros -- severs E1->theta->E3 context pathway. C1: lift>=0.05 in >=2/3 seeds. Precondition: z_goal_norm>=0.05 in THETA_ACTIVE.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-05T13:19:41.457096+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-125a",
