@@ -209,10 +209,14 @@
       "script": "experiments/v3_exq_239_mech153_context_memory_sufficient_signal.py",
       "priority": 10,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "claim_id": "MECH-153",
-      "note": "Redesign of EXQ-187a: 5x lambda (0.5 vs 0.1), 3x warmup (500 vs 150 eps). Tests whether sufficient supervised signal produces cosine_sim < 0.95 vs ABLATED baseline."
+      "note": "Redesign of EXQ-187a: 5x lambda (0.5 vs 0.1), 3x warmup (500 vs 150 eps). Tests whether sufficient supervised signal produces cosine_sim < 0.95 vs ABLATED baseline.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-05T12:52:29.327273+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-241",
