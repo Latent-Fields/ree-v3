@@ -28,6 +28,9 @@
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 90,
+      "episodes_per_run": 3000,
+      "seeds": 3,
+      "conditions": 3,
       "claim_ids": [
         "MECH-112",
         "MECH-117"
@@ -43,6 +46,9 @@
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 250,
+      "episodes_per_run": 250,
+      "seeds": 5,
+      "conditions": 1,
       "claim_ids": [
         "ARC-018"
       ],
@@ -57,6 +63,9 @@
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 250,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 4,
       "claim_ids": [
         "MECH-163"
       ],
@@ -73,6 +82,9 @@
       "priority": 3,
       "status": "pending",
       "estimated_minutes": 300,
+      "episodes_per_run": 350,
+      "seeds": 5,
+      "conditions": 1,
       "claim_ids": [
         "ARC-029"
       ],
@@ -88,6 +100,9 @@
       "priority": 4,
       "status": "claimed",
       "estimated_minutes": 90,
+      "episodes_per_run": 300,
+      "seeds": 3,
+      "conditions": 2,
       "claim_ids": [
         "SD-012",
         "MECH-112"
@@ -109,6 +124,9 @@
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 250,
+      "episodes_per_run": 80,
+      "seeds": 5,
+      "conditions": 1,
       "claim_ids": [
         "SD-011"
       ],
@@ -124,6 +142,9 @@
       "priority": 7,
       "status": "claimed",
       "estimated_minutes": 220,
+      "episodes_per_run": 100,
+      "seeds": 3,
+      "conditions": 4,
       "claim_ids": [
         "MECH-120"
       ],
@@ -143,6 +164,9 @@
       "priority": 2,
       "status": "pending",
       "estimated_minutes": 200,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 4,
       "claim_ids": [
         "SD-011",
         "SD-012",
