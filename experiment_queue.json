@@ -207,7 +207,7 @@
       "title": "MECH-153 Context Memory Sufficient Signal (lambda=0.5, 500 warmup eps vs ABLATED)",
       "experiment_type": "v3_exq_239_mech153_context_memory_sufficient_signal",
       "script": "experiments/v3_exq_239_mech153_context_memory_sufficient_signal.py",
-      "priority": 4,
+      "priority": 10,
       "machine_affinity": "DLAPTOP-4.local",
       "status": "pending",
       "estimated_minutes": 200,
