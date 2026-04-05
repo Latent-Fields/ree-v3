@@ -198,13 +198,17 @@
       "script": "experiments/v3_exq_245_mech120_shy_normalisation.py",
       "machine_affinity": "any",
       "priority": 7,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 220,
       "claim_ids": [
         "MECH-120"
       ],
       "experiment_purpose": "evidence",
-      "note": "Four conditions: WAKING_ONLY, SWS_NO_SHY, SHY_THEN_SWS (correct order), SWS_THEN_SHY (wrong order). Uses shy_normalise(decay=0.85) substrate addition. PASS: SHY_THEN_SWS has lower slot_cosine_sim than SWS_NO_SHY (S1) AND lower than SWS_THEN_SHY (S2) in >=2/3 seeds. Tests that SHY homeostasis before SWS is functionally necessary."
+      "note": "Four conditions: WAKING_ONLY, SWS_NO_SHY, SHY_THEN_SWS (correct order), SWS_THEN_SHY (wrong order). Uses shy_normalise(decay=0.85) substrate addition. PASS: SHY_THEN_SWS has lower slot_cosine_sim than SWS_NO_SHY (S1) AND lower than SWS_THEN_SHY (S2) in >=2/3 seeds. Tests that SHY homeostasis before SWS is functionally necessary.",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-04-05T13:16:42.048248+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-246",
