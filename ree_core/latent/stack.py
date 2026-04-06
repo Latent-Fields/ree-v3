@@ -510,6 +510,7 @@ class LatentState:
     z_harm_a: Optional[torch.Tensor] = None      # SD-011 affective-motivational harm [batch, z_harm_a_dim]
     z_world_raw: Optional[torch.Tensor] = None   # SD-007 diagnostic [batch, world_dim]
     event_logits: Optional[torch.Tensor] = None  # SD-009 [batch, 3] for CE loss; None if not enabled
+    resource_prox_pred: Optional[torch.Tensor] = None  # SD-018 [batch, 1] for MSE loss; None if not enabled
 
     def to_tensor(self) -> torch.Tensor:
         """Concatenate all channels into a single tensor (excludes z_harm)."""
@@ -536,6 +537,7 @@ class LatentState:
             z_harm_a=self.z_harm_a.detach() if self.z_harm_a is not None else None,
             z_world_raw=self.z_world_raw.detach() if self.z_world_raw is not None else None,
             event_logits=self.event_logits.detach() if self.event_logits is not None else None,
+            resource_prox_pred=self.resource_prox_pred.detach() if self.resource_prox_pred is not None else None,
         )
 
 
@@ -572,6 +574,7 @@ class SplitEncoder(nn.Module):
         hidden_dim: int = 64,
         harm_dim: int = 0,
         use_event_classifier: bool = False,
+        use_resource_proximity_head: bool = False,
     ):
         super().__init__()
         self.self_dim = self_dim
@@ -608,6 +611,19 @@ class SplitEncoder(nn.Module):
             self.event_classifier = nn.Linear(world_dim, 3)
         else:
             self.event_classifier = None
+
+        # SD-018: resource proximity regression head.
+        # Maps z_world → scalar in [0,1] predicting max(resource_field_view).
+        # MSE auxiliary loss backprops through z_world encoder, forcing it to
+        # represent resource proximity — which E1 prediction loss does not.
+        # Without this, benefit_eval_head(z_world) produces R2=-0.004 (EXQ-085m).
+        if use_resource_proximity_head:
+            self.resource_proximity_head = nn.Sequential(
+                nn.Linear(world_dim, 1),
+                nn.Sigmoid(),
+            )
+        else:
+            self.resource_proximity_head = None
 
         # Top-down conditioning projections
         if topdown_dim > 0:
@@ -670,7 +686,12 @@ class SplitEncoder(nn.Module):
         if self.event_classifier is not None:
             event_logits = self.event_classifier(z_world)         # [batch, 3]
 
-        return z_self, z_world, prec_self, prec_world, z_harm, event_logits
+        # SD-018: resource proximity regression (optional)
+        resource_prox_pred = None
+        if self.resource_proximity_head is not None:
+            resource_prox_pred = self.resource_proximity_head(z_world)  # [batch, 1]
+
+        return z_self, z_world, prec_self, prec_world, z_harm, event_logits, resource_prox_pred
 
 
 class SharedDepthEncoder(nn.Module):
@@ -741,6 +762,7 @@ class LatentStack(nn.Module):
             hidden_dim=hidden,
             harm_dim=getattr(self.config, "harm_dim", 0),
             use_event_classifier=getattr(self.config, "use_event_classifier", False),
+            use_resource_proximity_head=getattr(self.config, "use_resource_proximity_head", False),
         )
 
         # SD-007: optional ReafferencePredictor for perspective-shift correction.
@@ -908,7 +930,7 @@ class LatentStack(nn.Module):
         body_obs, world_obs = self._split_observation(observation)
 
         # First pass: no top-down (to get initial estimates for top-down computation)
-        z_self_init, z_world_init, _, _, _, _ = self.split_encoder(body_obs, world_obs)
+        z_self_init, z_world_init, _, _, _, _, _ = self.split_encoder(body_obs, world_obs)
         combined_init = torch.cat([z_self_init, z_world_init], dim=-1)
 
         # Q-007: append volatility signal (NE/LC unexpected-uncertainty analog) to beta input.
@@ -939,8 +961,8 @@ class LatentStack(nn.Module):
         topdown_split = self.beta_to_split(z_beta)
 
         # Second pass: split encoder with top-down from z_beta
-        # Returns (z_self, z_world, prec_self, prec_world, z_harm, event_logits)
-        z_self, z_world, prec_self, prec_world, z_harm, event_logits = self.split_encoder(
+        # Returns (z_self, z_world, prec_self, prec_world, z_harm, event_logits, resource_prox_pred)
+        z_self, z_world, prec_self, prec_world, z_harm, event_logits, resource_prox_pred = self.split_encoder(
             body_obs, world_obs, topdown=topdown_split
         )
 
@@ -1022,6 +1044,7 @@ class LatentStack(nn.Module):
             z_harm_a=z_harm_a,     # SD-011: None if affective stream not enabled
             z_world_raw=z_world_raw,  # SD-007 diagnostic (uncorrected z_world)
             event_logits=event_logits,  # SD-009: None if event classifier not enabled
+            resource_prox_pred=resource_prox_pred,  # SD-018: None if resource head not enabled
         )
 
     def predict(self, state: LatentState) -> LatentState:

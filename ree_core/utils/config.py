@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from ree_core.goal import GoalConfig
+from ree_core.neuromodulation.serotonin import SerotoninConfig
 
 
 @dataclass
@@ -93,6 +94,16 @@ class LatentStackConfig:
     # training loop can apply CE loss with event_type labels from the environment.
     # Labels: 0=none, 1=env_caused_hazard, 2=agent_caused_hazard.
     use_event_classifier: bool = False
+
+    # SD-018: resource proximity regression head on z_world encoder.
+    # When True, SplitEncoder.forward() returns resource_prox_pred [batch, 1]
+    # and training loop can apply MSE loss with max(resource_field_view) target.
+    # Forces z_world to encode resource proximity, which SD-009 does NOT cover
+    # (SD-009 discriminates event types but not resource saliency).
+    # Without this, benefit_eval_head(z_world) produces R2=-0.004 (EXQ-085m).
+    use_resource_proximity_head: bool = False
+    # Auxiliary loss weight (scales MSE contribution to total loss).
+    resource_proximity_weight: float = 0.5
 
     # Q-007 / EXQ-051b: volatility (NE/LC) signal injection into beta_encoder.
     # When > 0, beta_encoder input becomes cat(z_self_init, z_world_init, volatility_signal)
@@ -366,6 +377,7 @@ class REEConfig:
     heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
     environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
     goal: GoalConfig = field(default_factory=GoalConfig)
+    serotonin: SerotoninConfig = field(default_factory=SerotoninConfig)
 
     device: str = "cpu"
     seed: Optional[int] = None
@@ -389,6 +401,8 @@ class REEConfig:
         alpha_self: float = 0.3,
         reafference_action_dim: int = 0,
         use_event_classifier: bool = False,
+        use_resource_proximity_head: bool = False,
+        resource_proximity_weight: float = 0.5,
         use_harm_stream: bool = False,
         harm_obs_dim: int = 51,
         z_harm_dim: int = 32,
@@ -419,6 +433,8 @@ class REEConfig:
         valence_wanting_floor: float = 0.0,  # MECH-186: minimum z_goal norm floor (0=disabled)
         z_goal_seeding_gain: float = 1.0,  # MECH-187: gain on seeding signal (1.0=no change)
         z_goal_inject: float = 0.0,  # MECH-188: PFC top-down injection norm floor (0=disabled)
+        # MECH-203/204: serotonergic neuromodulation
+        tonic_5ht_enabled: bool = False,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -443,6 +459,10 @@ class REEConfig:
 
         # SD-009: event contrastive classifier
         config.latent.use_event_classifier = use_event_classifier
+
+        # SD-018: resource proximity supervision
+        config.latent.use_resource_proximity_head = use_resource_proximity_head
+        config.latent.resource_proximity_weight = resource_proximity_weight
 
         # SD-010: dedicated harm stream
         config.latent.use_harm_stream = use_harm_stream
@@ -519,6 +539,9 @@ class REEConfig:
         # Keep goal_dim in sync with world_dim
         if hasattr(config, "latent") and hasattr(config.latent, "world_dim"):
             config.goal.goal_dim = config.latent.world_dim
+
+        # MECH-203/204: serotonin config
+        config.serotonin.tonic_5ht_enabled = tonic_5ht_enabled
 
         return config
 

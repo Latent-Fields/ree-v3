@@ -48,6 +48,8 @@ from ree_core.residue.field import ResidueField
 from ree_core.hippocampal.module import HippocampalModule
 from ree_core.heartbeat.clock import MultiRateClock
 from ree_core.heartbeat.beta_gate import BetaGate
+from ree_core.neuromodulation.serotonin import SerotoninModule
+from ree_core.residue.field import VALENCE_WANTING
 
 
 @dataclass
@@ -61,6 +63,8 @@ class AgentState:
     is_committed: bool
     beta_elevated: bool
     e3_steps_per_tick: int
+    # MECH-203/204: serotonergic state (None when disabled)
+    serotonin_state: Optional[Dict[str, Any]] = None
 
 
 class REEAgent(nn.Module):
@@ -114,6 +118,9 @@ class REEAgent(nn.Module):
 
         # MECH-090: BetaGate for policy propagation
         self.beta_gate = BetaGate()
+
+        # MECH-203/204: serotonergic neuromodulation (sleep + benefit-salience)
+        self.serotonin = SerotoninModule(config.serotonin)
 
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
@@ -191,6 +198,7 @@ class REEAgent(nn.Module):
         self.clock.reset()
         self.theta_buffer.reset()
         self.beta_gate.reset()
+        self.serotonin.reset()
 
     def sense(
         self,
@@ -525,13 +533,23 @@ class REEAgent(nn.Module):
         MECH-092: SWR-equivalent replay on quiescent E3 cycles.
 
         All replay content carries hypothesis_tag=True — cannot produce residue.
+        MECH-203: when serotonin is enabled, passes drive_state to replay()
+        for valence-weighted start point selection (balanced consolidation).
         """
         recent = self.theta_buffer.recent
         if recent is None:
             return
-        # Replay trajectories are generated but not used for residue accumulation.
-        # They could be used for future offline map consolidation.
-        replay_trajs = self.hippocampal.replay(recent)
+        # MECH-203: build drive_state for valence-weighted replay
+        drive_state = None
+        if self.serotonin.enabled:
+            # Drive state = [wanting_weight, liking_weight, harm_weight, surprise_weight]
+            # Serotonergic benefit bias: tonic_5ht amplifies wanting channel
+            t5ht = self.serotonin.tonic_5ht
+            drive_state = torch.tensor(
+                [t5ht, 0.5, 1.0 - t5ht, 0.3],
+                device=self.device,
+            )
+        replay_trajs = self.hippocampal.replay(recent, drive_state=drive_state)
         # hypothesis_tag=True: these trajectories cannot update residue
         # (MECH-094 — enforced in ResidueField.accumulate)
 
@@ -737,6 +755,54 @@ class REEAgent(nn.Module):
             logits = logits.unsqueeze(0)
         return F.cross_entropy(logits, label_t)
 
+    def compute_resource_proximity_loss(
+        self,
+        resource_proximity_target: float,
+        latent_state: "LatentState",
+    ) -> torch.Tensor:
+        """
+        SD-018: Resource proximity regression loss on z_world encoder.
+
+        Trains the SplitEncoder resource_proximity_head to predict
+        max(resource_field_view) from z_world, forcing the world encoder to
+        represent resource proximity. Without this, benefit_eval_head(z_world)
+        produces R2=-0.004 (EXQ-085m) because E1/reconstruction losses are
+        invariant to resource saliency.
+
+        Requires use_resource_proximity_head=True in LatentStackConfig. Returns
+        zero otherwise (backward-compatible with all prior experiments).
+
+        IMPORTANT: pass the LatentState returned directly by sense(), NOT
+        agent._current_latent (which is detached). Gradient must flow from the
+        MSE loss back through the world encoder.
+
+        Labeling: target is max(resource_field_view) from the observation that
+        produced this LatentState. The environment provides this in
+        obs_dict["resource_field_view"] when use_proxy_fields=True.
+
+        Args:
+            resource_proximity_target: float in [0, 1], the peak resource
+                proximity from the agent's current 5x5 view.
+            latent_state: LatentState from sense() with retained gradients.
+
+        Returns:
+            MSE loss scalar. Gradient flows through latent_stack encoder.
+        """
+        zero_loss = next(self.latent_stack.parameters()).sum() * 0.0
+        if not getattr(self.config.latent, "use_resource_proximity_head", False):
+            return zero_loss
+        if latent_state.resource_prox_pred is None:
+            return zero_loss
+        pred = latent_state.resource_prox_pred  # [batch, 1]
+        if pred.dim() == 1:
+            pred = pred.unsqueeze(0)
+        target = torch.tensor(
+            [[resource_proximity_target]],
+            dtype=torch.float32,
+            device=pred.device,
+        )
+        return F.mse_loss(pred, target)
+
     def update_z_goal(self, benefit_exposure: float, drive_level: float = 1.0) -> None:
         """Update z_goal from benefit signal (MECH-112 wanting update).
 
@@ -752,6 +818,56 @@ class REEAgent(nn.Module):
             benefit_exposure,
             drive_level=drive_level,
         )
+
+    def serotonin_step(self, benefit_exposure: float) -> None:
+        """
+        MECH-203: Update tonic 5-HT and dynamically modulate GoalConfig.
+
+        Extracts z_harm_a norm from current latent state. Updates tonic_5ht,
+        then writes current_seeding_gain and current_wanting_floor into
+        the GoalConfig so that goal.update() uses dynamic serotonergic values.
+
+        No-op when serotonin.enabled is False (default).
+        """
+        if not self.serotonin.enabled:
+            return
+
+        z_harm_a_norm = 0.0
+        if self._current_latent is not None and self._current_latent.z_harm_a is not None:
+            z_harm_a_norm = float(self._current_latent.z_harm_a.norm().item())
+
+        self.serotonin.serotonin_step(benefit_exposure, z_harm_a_norm)
+
+        # Dynamically modulate GoalConfig parameters
+        if self.goal_state is not None:
+            self.goal_state.config.z_goal_seeding_gain = self.serotonin.current_seeding_gain()
+            self.goal_state.config.valence_wanting_floor = self.serotonin.current_wanting_floor()
+
+    def update_benefit_salience(self, benefit_exposure: float) -> None:
+        """
+        MECH-203 (SR-2): Tag current residue field location with benefit salience.
+
+        Uses SD-014 VALENCE_WANTING infrastructure: writes benefit_salience into
+        the residue field's valence vector at the current z_world position.
+
+        No-op when serotonin is disabled or no current latent state.
+        """
+        if not self.serotonin.enabled or self._current_latent is None:
+            return
+
+        salience = self.serotonin.benefit_salience(benefit_exposure)
+        if salience <= 0.0:
+            return
+
+        z_world = self._current_latent.z_world
+        if hasattr(self.residue_field, 'update_valence'):
+            # Write benefit_salience into VALENCE_WANTING (index 0) at current z_world
+            self.residue_field.update_valence(
+                z_world,
+                component=VALENCE_WANTING,
+                value=salience,
+                hypothesis_tag=False,
+            )
 
     @staticmethod
     def compute_drive_level(obs_body: torch.Tensor) -> float:
@@ -879,6 +995,38 @@ class REEAgent(nn.Module):
         """Resume normal waking context_memory writes (undo enter_offline_mode)."""
         self.e1._offline_mode = False
 
+    # -- Sleep mode convenience methods (SD-017 + MECH-203/204) --
+
+    def enter_sws_mode(self) -> None:
+        """
+        Enter SWS-analog phase.
+
+        Composes: enter_offline_mode() + serotonin.enter_sws().
+        E1 context_memory writes gated. 5-HT held at waking level.
+        """
+        self.enter_offline_mode()
+        self.serotonin.enter_sws()
+
+    def enter_rem_mode(self) -> None:
+        """
+        Enter REM-analog phase.
+
+        Composes: enter_offline_mode() + serotonin.enter_rem().
+        SR-3: captures current E3 precision as zero-point reference.
+        """
+        self.enter_offline_mode()
+        self.serotonin.enter_rem(current_precision=self.e3.current_precision)
+
+    def exit_sleep_mode(self) -> None:
+        """
+        Exit sleep, return to waking mode.
+
+        Composes: exit_offline_mode() + serotonin.exit_sleep().
+        Restores E1 context_memory writes and pre-sleep 5-HT level.
+        """
+        self.exit_offline_mode()
+        self.serotonin.exit_sleep()
+
     def get_state(self) -> AgentState:
         return AgentState(
             latent_state=self._current_latent,
@@ -889,6 +1037,7 @@ class REEAgent(nn.Module):
             is_committed=self.e3._committed_trajectory is not None,
             beta_elevated=self.beta_gate.is_elevated,
             e3_steps_per_tick=self.clock.e3_steps_per_tick,
+            serotonin_state=self.serotonin.get_state() if self.serotonin.enabled else None,
         )
 
     def get_residue_statistics(self) -> Dict[str, torch.Tensor]:
