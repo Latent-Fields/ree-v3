@@ -165,6 +165,21 @@
       "conditions": 6,
       "claim_id": "INV-052",
       "note": "INV-052 single mechanism sufficiency with SD-018."
+    },
+    {
+      "queue_id": "V3-EXQ-258",
+      "title": "MECH-205: Surprise-Gated Replay Validation (Tier 1)",
+      "experiment_type": "v3_exq_258_mech205_surprise_gated_replay",
+      "script": "experiments/v3_exq_258_mech205_surprise_gated_replay.py",
+      "priority": 8,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 50,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-205",
+      "note": "MECH-205 Tier 1 validation: surprise-gated replay via PE -> VALENCE_SURPRISE -> drive_state. 2 conditions (control vs surprise gate), 3 seeds. Both use serotonergic substrate (MECH-203)."
     }
   ]
 }
