@@ -20,28 +20,6 @@
       "notes": "Re-run after GPU block hardening. Original V3-ONBOARD-smoke-EWIN-PC errored 2026-04-05 (exit code 1, 94.3s, no output file). Script now wraps Block 3 GPU in try/except (graceful fallback to CPU-only) and writes diagnostic error JSON on any crash."
     },
     {
-      "queue_id": "V3-EXQ-125a",
-      "title": "ARC-029 committed-mode harm redesign (8 hazards, 5 seeds, majority rule)",
-      "experiment_type": "v3_exq_125a_arc029_committed_mode_redesign",
-      "script": "experiments/v3_exq_125a_arc029_committed_mode_redesign.py",
-      "machine_affinity": "any",
-      "priority": 3,
-      "status": "claimed",
-      "estimated_minutes": 300,
-      "episodes_per_run": 350,
-      "seeds": 5,
-      "conditions": 1,
-      "claim_ids": [
-        "ARC-029"
-      ],
-      "supersedes": "V3-EXQ-125",
-      "notes": "Redesign to fix low statistical power under SD-010/011/012 substrate. num_hazards 4->8, hazard_harm 0.02->0.05, proximity_harm_scale 0.05->0.15. Seeds [0,42,100,123,200] with majority rule C1/C2/C3>=4/5 seeds. MIN_HARM_GAP_STABLE raised 0.0001->0.001. harm_obs passed to sense() (SD-010 nociceptive stream active). EXQ-125 failed 3x: harm rates ~100x smaller than EXQ-063 due to substrate, making committed-gate advantage undetectable.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-05T22:38:07.935437+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-238",
       "title": "SD-012 drive_weight ablation fix (proximity_benefit_scale corrected)",
       "experiment_type": "v3_exq_238_sd012_drive_weight_ablation_fix",
