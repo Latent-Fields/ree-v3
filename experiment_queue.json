@@ -45,13 +45,17 @@
       "script": "experiments/v3_exq_237a_mech163_dual_system_discrimination.py",
       "priority": 8,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 45,
       "episodes_per_run": 80,
       "seeds": 3,
       "conditions": 2,
       "claim_id": "MECH-163",
-      "note": "MECH-163 dual system discrimination with SD-018 resource proximity head."
+      "note": "MECH-163 dual system discrimination with SD-018 resource proximity head.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-06T17:23:58.403625+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-238c",
