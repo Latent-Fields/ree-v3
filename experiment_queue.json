@@ -66,31 +66,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-247",
-      "title": "SD-011/SD-012 Full Integration Validation (urgency gating + affective amplification + drive extraction)",
-      "experiment_type": "v3_exq_247_sd011_sd012_integration",
-      "script": "experiments/v3_exq_247_sd011_sd012_integration.py",
-      "machine_affinity": "any",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 200,
-      "episodes_per_run": 200,
-      "seeds": 3,
-      "conditions": 4,
-      "claim_ids": [
-        "SD-011",
-        "SD-012",
-        "ARC-033",
-        "ARC-030"
-      ],
-      "experiment_purpose": "evidence",
-      "notes": "First experiment exercising full SD-011/SD-012 co-design wired through E3. 4-arm: FULL (urgency+affective+drive) vs NO_URGENCY vs NO_AFFECT vs BASELINE. Tests z_harm_a urgency lowers commit threshold under threat (C1), affective amplification raises M(zeta) (C2), drive extraction enables z_goal seeding (C3), backward compat (C4), threshold separation (C5). 3 seeds x 200 train + 50 eval x 200 steps. PASS: all C1-C5.",
-      "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-04-05T23:57:25.226829+00:00"
-      }
-    },
-    {
       "queue_id": "V3-ONBOARD-smoke-ree-cloud-1",
       "title": "Onboarding smoke test -- ree-cloud-1 (Hetzner CX22)",
       "experiment_type": "v3_onboard_smoke_ree_cloud_1",
@@ -212,6 +187,36 @@
         "machine": "ree-cloud-1",
         "claimed_at": "2026-04-06T02:11:42.875880+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-255",
+      "title": "MECH-203: Benefit-Salience Tagging Diagnostic (serotonergic SR-1/SR-2)",
+      "experiment_type": "v3_exq_255_mech203_benefit_tagging",
+      "script": "experiments/v3_exq_255_mech203_benefit_tagging.py",
+      "priority": 35,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 100,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-203",
+      "note": "MECH-203 SR-2 benefit-salience tagging. SEROTONIN vs NO_SEROTONIN: verifies tonic_5ht rises with benefit, VALENCE_WANTING tagged higher at benefit locations, z_goal_seeding_gain varies dynamically."
+    },
+    {
+      "queue_id": "V3-EXQ-256",
+      "title": "MECH-203: Balanced Replay Priority Evidence (valence-weighted SWS start)",
+      "experiment_type": "v3_exq_256_mech203_balanced_replay",
+      "script": "experiments/v3_exq_256_mech203_balanced_replay.py",
+      "priority": 36,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 45,
+      "episodes_per_run": 60,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-203",
+      "note": "MECH-203 valence-weighted replay start. Waking training -> SWS replay with drive_state -> post-sleep goal maintenance. Tests that serotonin-enabled replay includes benefit-adjacent starts and preserves z_goal norm after sleep."
     }
   ]
 }
