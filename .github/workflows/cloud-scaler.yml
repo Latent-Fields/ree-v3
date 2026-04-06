@@ -7,11 +7,14 @@ on:
     - cron: '*/15 * * * *'  # every 15 minutes
   workflow_dispatch: {}       # manual trigger
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   scale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           sparse-checkout: experiment_queue.json
 
