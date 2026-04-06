@@ -154,26 +154,6 @@
       "note": "MECH-187 bidirectional prediction. Gain multipliers: x0.6/x0.2 suppression (SIMPLE), x2.0/x5.0 elevation (LONG_HORIZON). Empirical anchors from Korte et al. 2016 (5-HT1B NAc microdialysis). Run after V3-EXQ-249."
     },
     {
-      "queue_id": "V3-EXQ-253",
-      "title": "MECH-188: z_goal Injection (constant 0.3 floor, LONG_HORIZON, 2-cond x 3-seed)",
-      "experiment_type": "v3_exq_253_mech188_zgoal_injection",
-      "script": "experiments/v3_exq_253_mech188_zgoal_injection.py",
-      "priority": 32,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 40,
-      "episodes_per_run": 300,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-188",
-      "backlog_id": "EVB-0083",
-      "note": "MECH-188: PFC top-down goal injection (z_goal_inject=0.3) bypasses terrain seeding. Maps to behavioural activation therapy. Run after V3-EXQ-249. Grounded in Miyazaki et al. 2020 (DRN-mPFC patience under uncertainty).",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-04-06T10:00:15.181437+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-254",
       "title": "INV-052: Single Mechanism Sufficiency (6-cond: SIMPLE/depression/MECH186/187/188/combined)",
       "experiment_type": "v3_exq_254_inv052_single_mechanism_sufficiency",
