@@ -75,13 +75,17 @@
       "script": "experiments/v3_exq_249_inv053_depression_attractor_replication.py",
       "priority": 8,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 30,
       "episodes_per_run": 300,
       "seeds": 5,
       "conditions": 2,
       "claim_id": "INV-053",
-      "note": "Multi-seed replication of EXQ-237a depression attractor. Includes approach_rate metric (Treadway & Zald 2011 wanting/liking grounding). Must run before EXQ-251/252/253 rescue experiments."
+      "note": "Multi-seed replication of EXQ-237a depression attractor. Includes approach_rate metric (Treadway & Zald 2011 wanting/liking grounding). Must run before EXQ-251/252/253 rescue experiments.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-06T15:56:06.212295+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-252",
