@@ -184,7 +184,7 @@ def run_condition(seed: int, condition: str) -> Dict:
             # Store for next step
             prev_ttype = info.get("transition_type", "none")
             rfv = obs_dict.get("resource_field_view", None)
-            prev_resource_prox = float(max(rfv)) if rfv is not None else 0.0
+            prev_resource_prox = float(rfv[12]) if rfv is not None else 0.0  # center cell = agent pos
 
             # Record E2 transition
             if agent._current_latent is not None:
@@ -252,7 +252,7 @@ def run_condition(seed: int, condition: str) -> Dict:
             if benefit_optimizer is not None:
                 rfv = obs_dict.get("resource_field_view", None)
                 if rfv is not None:
-                    target_prox = float(max(rfv))
+                    target_prox = float(rfv[12])  # center cell = agent pos
                     pred = agent.e3.benefit_eval_head(z_world_detached)
                     target_t = torch.tensor([[target_prox]], device=device)
                     loss = F.mse_loss(pred, target_t)
@@ -312,7 +312,7 @@ def run_condition(seed: int, condition: str) -> Dict:
                     resource_prox_preds.append(latent.resource_prox_pred.item())
                     rfv = obs_dict.get("resource_field_view", None)
                     if rfv is not None:
-                        resource_prox_actuals.append(float(max(rfv)))
+                        resource_prox_actuals.append(float(rfv[12]))  # center cell = agent pos
 
                 # Benefit eval head prediction
                 z_w = latent.z_world
@@ -320,7 +320,7 @@ def run_condition(seed: int, condition: str) -> Dict:
                 benefit_preds_eval.append(bpred.item())
                 rfv = obs_dict.get("resource_field_view", None)
                 if rfv is not None:
-                    benefit_actuals_eval.append(float(max(rfv)))
+                    benefit_actuals_eval.append(float(rfv[12]))  # center cell = agent pos
 
             # Action: use E3 trajectory scoring (not random)
             ticks = agent.clock.advance()

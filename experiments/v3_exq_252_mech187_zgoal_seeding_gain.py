@@ -358,7 +358,7 @@ def _warmup(
             # SD-018: resource proximity supervision
             rfv = obs_dict.get("resource_field_view", None)
             if rfv is not None:
-                rp_target = max(rfv).item()
+                rp_target = rfv[12].item()  # center cell = agent pos
                 rp_loss = agent.compute_resource_proximity_loss(
                     rp_target, latent)
                 if rp_loss.requires_grad:

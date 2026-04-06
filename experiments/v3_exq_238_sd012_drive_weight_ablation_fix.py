@@ -288,7 +288,7 @@ def _run_condition(
 
             # SD-018: resource proximity supervision
             if rfv is not None:
-                rp_target = rfv.max().item()
+                rp_target = rfv[12].item()  # center cell = agent pos
                 rp_loss = agent.compute_resource_proximity_loss(
                     rp_target, latent
                 )
