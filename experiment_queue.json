@@ -20,30 +20,6 @@
       "notes": "Re-run after GPU block hardening. Original V3-ONBOARD-smoke-EWIN-PC errored 2026-04-05 (exit code 1, 94.3s, no output file). Script now wraps Block 3 GPU in try/except (graceful fallback to CPU-only) and writes diagnostic error JSON on any crash."
     },
     {
-      "queue_id": "V3-EXQ-238",
-      "title": "SD-012 drive_weight ablation fix (proximity_benefit_scale corrected)",
-      "experiment_type": "v3_exq_238_sd012_drive_weight_ablation_fix",
-      "script": "experiments/v3_exq_238_sd012_drive_weight_ablation_fix.py",
-      "machine_affinity": "any",
-      "priority": 4,
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "episodes_per_run": 300,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "SD-012",
-        "MECH-112"
-      ],
-      "supersedes": "V3-EXQ-233",
-      "experiment_purpose": "evidence",
-      "notes": "Fix for EXQ-233 design error: adds proximity_benefit_scale=0.18 so benefit_exposure exceeds seeding threshold. SD012_ACTIVE (drive_weight=2.0) vs SD012_ABLATED (drive_weight=0.0). Expected: ACTIVE seeds z_goal (norm>0.1), ABLATED does not (norm<0.05). Clean causal ablation proof.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-05T13:43:17.300940+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-245",
       "title": "MECH-120 SHY-Analog Normalisation Phase Ordering (SHY before vs after SWS)",
       "experiment_type": "v3_exq_245_mech120_shy_normalisation",
@@ -171,6 +147,86 @@
       "conditions": 2,
       "claim_id": "SD-018",
       "note": "Critical unblocking experiment: tests whether aux resource proximity regression on z_world enables benefit_eval and goal-directed behavior. P0/P1/P2 phased training. WITH vs WITHOUT ablation pair."
+    },
+    {
+      "queue_id": "V3-EXQ-225a",
+      "title": "MECH-112: Goal Lift Redesign (SD-018 fix)",
+      "experiment_type": "v3_exq_225_mech112_goal_lift_redesign",
+      "script": "experiments/v3_exq_225_mech112_goal_lift_redesign.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 30,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-112",
+      "supersedes": "V3-EXQ-225",
+      "note": "SD-018 fix: use_resource_proximity_head=True so z_world encodes resource proximity. Original FAIL was substrate gap, not mechanism failure."
+    },
+    {
+      "queue_id": "V3-EXQ-237b",
+      "title": "MECH-163: Dual System Discrimination (SD-018 fix)",
+      "experiment_type": "v3_exq_237a_mech163_dual_system_discrimination",
+      "script": "experiments/v3_exq_237a_mech163_dual_system_discrimination.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 45,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-163",
+      "supersedes": "V3-EXQ-237a",
+      "note": "SD-018 fix: resource proximity supervision. V3 full completion gate experiment. Original FAIL (PLANNED=HABIT) was z_world noise, not planning failure."
+    },
+    {
+      "queue_id": "V3-EXQ-238a",
+      "title": "SD-012: Drive Weight Ablation (SD-018 fix)",
+      "experiment_type": "v3_exq_238_sd012_drive_weight_ablation_fix",
+      "script": "experiments/v3_exq_238_sd012_drive_weight_ablation_fix.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 35,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "SD-012",
+      "supersedes": "V3-EXQ-238",
+      "note": "SD-018 fix: resource proximity supervision. Original showed ~1% drive_weight effect because z_goal seeded from noise-level z_world."
+    },
+    {
+      "queue_id": "V3-EXQ-253a",
+      "title": "MECH-188: z_goal PFC Injection (SD-018 fix)",
+      "experiment_type": "v3_exq_253_mech188_zgoal_injection",
+      "script": "experiments/v3_exq_253_mech188_zgoal_injection.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 40,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-188",
+      "supersedes": "V3-EXQ-253",
+      "note": "SD-018 fix: resource proximity supervision. z_goal injection needs a gradient to produce behavioral difference."
+    },
+    {
+      "queue_id": "V3-EXQ-254a",
+      "title": "INV-052: Single Mechanism Sufficiency (SD-018 fix)",
+      "experiment_type": "v3_exq_254_inv052_single_mechanism_sufficiency",
+      "script": "experiments/v3_exq_254_inv052_single_mechanism_sufficiency.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 6,
+      "claim_id": "INV-052",
+      "supersedes": "V3-EXQ-254",
+      "note": "SD-018 fix: resource proximity supervision. Tests joint necessity of all three serotonergic mechanisms."
     }
   ]
 }

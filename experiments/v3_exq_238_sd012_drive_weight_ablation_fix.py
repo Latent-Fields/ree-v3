@@ -100,11 +100,12 @@ THRESH_CORR         = 0.2   # C3: Pearson r(benefit_rate, z_goal_norm_window) > 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-BODY_OBS_DIM  = 12
-WORLD_OBS_DIM = 250
-ACTION_DIM    = 5
-WORLD_DIM     = 32
-SELF_DIM      = 32
+BODY_OBS_DIM    = 12
+WORLD_OBS_DIM   = 250
+ACTION_DIM      = 5
+WORLD_DIM       = 32
+SELF_DIM        = 32
+LAMBDA_RESOURCE = 0.5
 
 TOTAL_EPISODES = 300
 STEPS_PER_EP   = 200
@@ -163,6 +164,8 @@ def _make_config(drive_weight: float) -> REEConfig:
         e1_goal_conditioned=True,
         goal_weight=1.0,
         drive_weight=drive_weight,   # SD-012 on=2.0 / off=0.0
+        use_resource_proximity_head=True,
+        resource_proximity_weight=LAMBDA_RESOURCE,
     )
 
 
@@ -214,6 +217,9 @@ def _run_condition(
         for _ in range(steps_per_ep):
             obs_body  = torch.tensor(obs_dict["body_state"],  dtype=torch.float32)
             obs_world = torch.tensor(obs_dict["world_state"], dtype=torch.float32)
+
+            # SD-018: capture resource_field_view before env.step() overwrites obs_dict
+            rfv = obs_dict.get("resource_field_view", None)
 
             # Extract benefit_exposure and drive_level from obs before sense()
             # obs_body layout (CausalGridWorldV2):
@@ -279,6 +285,15 @@ def _run_condition(
             e1_loss = agent.compute_prediction_loss()
             e2_loss = agent.compute_e2_loss()
             total   = e1_loss + e2_loss
+
+            # SD-018: resource proximity supervision
+            if rfv is not None:
+                rp_target = rfv.max().item()
+                rp_loss = agent.compute_resource_proximity_loss(
+                    rp_target, latent
+                )
+                total = total + LAMBDA_RESOURCE * rp_loss
+
             if total.requires_grad:
                 e1_opt.zero_grad(); e2_opt.zero_grad()
                 total.backward()

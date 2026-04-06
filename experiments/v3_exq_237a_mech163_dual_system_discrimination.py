@@ -176,10 +176,11 @@ WORLD_DIM       = 32
 BATCH_SIZE      = 16
 
 # Learning rates
-LR_E1      = 1e-3
-LR_E2_WF   = 1e-3
-LR_HARM    = 1e-4
-LR_BENEFIT = 1e-3
+LR_E1           = 1e-3
+LR_E2_WF        = 1e-3
+LR_HARM         = 1e-4
+LR_BENEFIT      = 1e-3
+LAMBDA_RESOURCE = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +302,8 @@ def _make_agent(condition: str, env: CausalGridWorldV2, seed: int) -> REEAgent:
         e1_goal_conditioned=planned,
         goal_weight=1.0 if planned else 0.0,
         drive_weight=2.0 if planned else 0.0,
+        use_resource_proximity_head=True,
+        resource_proximity_weight=LAMBDA_RESOURCE,
     )
     return REEAgent(config)
 
@@ -361,6 +364,9 @@ def _warmup(
             obs_world = obs_dict["world_state"]
             obs_harm  = obs_dict.get("harm_obs", None)
 
+            # SD-018: capture resource_field_view before env.step() overwrites obs_dict
+            rfv = obs_dict.get("resource_field_view", None)
+
             # Sense
             latent = agent.sense(obs_body, obs_world, obs_harm=obs_harm)
             ticks  = agent.clock.advance()
@@ -396,9 +402,18 @@ def _warmup(
             if planned:
                 _update_z_goal(agent, obs_dict["body_state"])
 
-            # --- Train E1 (prediction loss) ---
+            # --- Train E1 (prediction loss) + SD-018 resource proximity ---
             if len(agent._world_experience_buffer) >= 2:
                 e1_loss = agent.compute_prediction_loss()
+
+                # SD-018: resource proximity supervision
+                if rfv is not None:
+                    rp_target = rfv.max().item()
+                    rp_loss = agent.compute_resource_proximity_loss(
+                        rp_target, latent
+                    )
+                    e1_loss = e1_loss + LAMBDA_RESOURCE * rp_loss
+
                 if e1_loss.requires_grad:
                     e1_opt.zero_grad()
                     e1_loss.backward()

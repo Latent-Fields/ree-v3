@@ -75,9 +75,10 @@ GOAL_NORM_THRESH     = 0.05   # C3: z_goal norm must exceed this
 # ---------------------------------------------------------------------------
 # Action-selection weights (harm penalised harder than goal rewarded)
 # ---------------------------------------------------------------------------
-HARM_WEIGHT    = 1.0
-BENEFIT_WEIGHT = 0.5
-GOAL_WEIGHT    = 0.5
+HARM_WEIGHT      = 1.0
+BENEFIT_WEIGHT   = 0.5
+GOAL_WEIGHT      = 0.5
+LAMBDA_RESOURCE  = 0.5
 
 # ---------------------------------------------------------------------------
 # Episode settings
@@ -215,6 +216,8 @@ def _run_seed(
             e1_goal_conditioned=goal_present,
             goal_weight=GOAL_WEIGHT if goal_present else 0.0,
             drive_weight=2.0 if goal_present else 0.0,
+            use_resource_proximity_head=True,
+            resource_proximity_weight=LAMBDA_RESOURCE,
         )
         agent = REEAgent(config)
 
@@ -246,6 +249,9 @@ def _run_seed(
                 obs_world = obs_dict["world_state"]
                 obs_harm  = obs_dict.get("harm_obs", None)
 
+                # SD-018: capture resource_field_view before env.step() overwrites obs_dict
+                rfv = obs_dict.get("resource_field_view", None)
+
                 latent = agent.sense(obs_body, obs_world, obs_harm=obs_harm)
                 agent.clock.advance()
                 z_world_curr = latent.z_world.detach()
@@ -274,6 +280,15 @@ def _run_seed(
                 e1_loss = agent.compute_prediction_loss()
                 e2_loss = agent.compute_e2_loss()
                 total   = e1_loss + e2_loss
+
+                # SD-018: resource proximity supervision
+                if rfv is not None:
+                    rp_target = rfv.max().item()
+                    rp_loss = agent.compute_resource_proximity_loss(
+                        rp_target, latent
+                    )
+                    total = total + LAMBDA_RESOURCE * rp_loss
+
                 if total.requires_grad:
                     optimizer.zero_grad()
                     total.backward()
