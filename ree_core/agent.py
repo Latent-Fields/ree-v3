@@ -49,7 +49,7 @@ from ree_core.hippocampal.module import HippocampalModule
 from ree_core.heartbeat.clock import MultiRateClock
 from ree_core.heartbeat.beta_gate import BetaGate
 from ree_core.neuromodulation.serotonin import SerotoninModule
-from ree_core.residue.field import VALENCE_WANTING
+from ree_core.residue.field import VALENCE_WANTING, VALENCE_SURPRISE
 
 
 @dataclass
@@ -155,6 +155,10 @@ class REEAgent(nn.Module):
 
         self.device = torch.device(config.device)
 
+        # MECH-205: surprise-gated replay PE tracking
+        self._pe_ema: float = 0.0  # EMA of prediction error magnitude
+        self._pe_ema_alpha: float = 0.1  # EMA smoothing factor
+
         # MECH-112/116: persistent goal representation
         self.goal_state: Optional[GoalState] = None
         _goal_cfg = getattr(self.config, "goal", None)
@@ -199,6 +203,7 @@ class REEAgent(nn.Module):
         self.theta_buffer.reset()
         self.beta_gate.reset()
         self.serotonin.reset()
+        self._pe_ema = 0.0
 
     def sense(
         self,
@@ -539,14 +544,17 @@ class REEAgent(nn.Module):
         recent = self.theta_buffer.recent
         if recent is None:
             return
-        # MECH-203: build drive_state for valence-weighted replay
+        # MECH-203 + MECH-205: build drive_state for valence-weighted replay
         drive_state = None
-        if self.serotonin.enabled:
+        if self.serotonin.enabled or self.config.surprise_gated_replay:
             # Drive state = [wanting_weight, liking_weight, harm_weight, surprise_weight]
-            # Serotonergic benefit bias: tonic_5ht amplifies wanting channel
-            t5ht = self.serotonin.tonic_5ht
+            t5ht = self.serotonin.tonic_5ht if self.serotonin.enabled else 0.0
+            # MECH-205: surprise weight scales with recent PE magnitude
+            surprise_weight = 0.3
+            if self.config.surprise_gated_replay and self._pe_ema > 0:
+                surprise_weight = min(1.0, self._pe_ema * 5.0)
             drive_state = torch.tensor(
-                [t5ht, 0.5, 1.0 - t5ht, 0.3],
+                [t5ht, 0.5, 1.0 - t5ht, surprise_weight],
                 device=self.device,
             )
         replay_trajs = self.hippocampal.replay(recent, drive_state=drive_state)
@@ -587,6 +595,20 @@ class REEAgent(nn.Module):
                 harm_occurred=(harm_signal < 0),
             )
             metrics.update({f"e3_{k}": v for k, v in e3_metrics.items()})
+
+            # MECH-205: populate VALENCE_SURPRISE on residue field
+            if self.config.surprise_gated_replay:
+                pe_val = e3_metrics.get("prediction_error")
+                if pe_val is not None:
+                    pe_mag = float(pe_val.detach())
+                    self._pe_ema = (1 - self._pe_ema_alpha) * self._pe_ema + self._pe_ema_alpha * pe_mag
+                    surprise = max(0.0, pe_mag - self._pe_ema)
+                    self.residue_field.update_valence(
+                        z_world, VALENCE_SURPRISE, surprise, hypothesis_tag=False
+                    )
+                    metrics["mech205_pe_mag"] = pe_mag
+                    metrics["mech205_pe_ema"] = self._pe_ema
+                    metrics["mech205_surprise"] = surprise
 
         if harm_signal < 0:
             harm_magnitude = abs(harm_signal)

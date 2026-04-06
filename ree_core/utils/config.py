@@ -387,6 +387,12 @@ class REEConfig:
     # MECH-057a: action-loop completion gate (preserved from V2)
     action_loop_gate_enabled: bool = False
 
+    # MECH-205: surprise-gated replay. When True, prediction error from
+    # E3.post_action_update() populates VALENCE_SURPRISE in the residue field,
+    # and the replay drive_state surprise weight is set from recent PE magnitude.
+    # Requires valence_enabled=True in residue config. Default False (backward compat).
+    surprise_gated_replay: bool = False
+
     @classmethod
     def from_dims(
         cls,
@@ -435,6 +441,8 @@ class REEConfig:
         z_goal_inject: float = 0.0,  # MECH-188: PFC top-down injection norm floor (0=disabled)
         # MECH-203/204: serotonergic neuromodulation
         tonic_5ht_enabled: bool = False,
+        # MECH-205: surprise-gated replay
+        surprise_gated_replay: bool = False,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -542,6 +550,9 @@ class REEConfig:
 
         # MECH-203/204: serotonin config
         config.serotonin.tonic_5ht_enabled = tonic_5ht_enabled
+
+        # MECH-205: surprise-gated replay
+        config.surprise_gated_replay = surprise_gated_replay
 
         return config
 
