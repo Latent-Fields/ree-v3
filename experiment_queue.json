@@ -44,14 +44,14 @@
       "experiment_type": "v3_exq_257_sd018_resource_prox_validation",
       "script": "experiments/v3_exq_257_sd018_resource_prox_validation.py",
       "priority": 10,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 45,
       "episodes_per_run": 80,
       "seeds": 3,
       "conditions": 2,
       "claim_id": "SD-018",
-      "note": "Mac-only: cloud missing SD-018 code, errored twice. Pinned to DLAPTOP-4.local."
+      "note": "SD-018 resource proximity supervision validation. WITH vs WITHOUT ablation pair."
     },
     {
       "queue_id": "V3-EXQ-225c",
@@ -59,14 +59,14 @@
       "experiment_type": "v3_exq_225_mech112_goal_lift_redesign",
       "script": "experiments/v3_exq_225_mech112_goal_lift_redesign.py",
       "priority": 8,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 30,
       "episodes_per_run": 80,
       "seeds": 3,
       "conditions": 2,
       "claim_id": "MECH-112",
-      "note": "Mac-only: cloud missing SD-018 code, errored twice. Pinned to DLAPTOP-4.local."
+      "note": "MECH-112 goal lift redesign with SD-018 resource proximity head."
     },
     {
       "queue_id": "V3-EXQ-237d",
@@ -74,14 +74,14 @@
       "experiment_type": "v3_exq_237a_mech163_dual_system_discrimination",
       "script": "experiments/v3_exq_237a_mech163_dual_system_discrimination.py",
       "priority": 8,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 45,
       "episodes_per_run": 80,
       "seeds": 3,
       "conditions": 2,
       "claim_id": "MECH-163",
-      "note": "Mac-only: cloud missing SD-018 code, errored twice. Pinned to DLAPTOP-4.local."
+      "note": "MECH-163 dual system discrimination with SD-018 resource proximity head."
     },
     {
       "queue_id": "V3-EXQ-238c",
@@ -89,14 +89,14 @@
       "experiment_type": "v3_exq_238_sd012_drive_weight_ablation_fix",
       "script": "experiments/v3_exq_238_sd012_drive_weight_ablation_fix.py",
       "priority": 8,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 35,
       "episodes_per_run": 80,
       "seeds": 3,
       "conditions": 2,
       "claim_id": "SD-012",
-      "note": "Mac-only: cloud missing SD-018 code, errored twice. Pinned to DLAPTOP-4.local."
+      "note": "SD-012 drive weight ablation with SD-018 resource proximity head."
     },
     {
       "queue_id": "V3-EXQ-248b",
@@ -104,14 +104,14 @@
       "experiment_type": "v3_exq_248_q034_threshold_sweep",
       "script": "experiments/v3_exq_248_q034_threshold_sweep.py",
       "priority": 8,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 180,
       "episodes_per_run": 200,
       "seeds": 3,
       "conditions": 3,
       "claim_id": "Q-034",
-      "note": "Mac-only: cloud missing SD-018 code, errored twice. Pinned to DLAPTOP-4.local."
+      "note": "Q-034 hazard/resource ratio threshold sweep with SD-018."
     },
     {
       "queue_id": "V3-EXQ-249b",
@@ -119,14 +119,14 @@
       "experiment_type": "v3_exq_249_inv053_depression_attractor_replication",
       "script": "experiments/v3_exq_249_inv053_depression_attractor_replication.py",
       "priority": 8,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 300,
       "episodes_per_run": 200,
       "seeds": 5,
       "conditions": 1,
       "claim_id": "INV-053",
-      "note": "Mac-only: cloud missing SD-018 code, errored twice. Pinned to DLAPTOP-4.local."
+      "note": "INV-053 depression attractor replication with SD-018. 5-seed multi-seed."
     },
     {
       "queue_id": "V3-EXQ-250b",
@@ -134,14 +134,14 @@
       "experiment_type": "v3_exq_250_inv054_phase_transition_recovery",
       "script": "experiments/v3_exq_250_inv054_phase_transition_recovery.py",
       "priority": 8,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 180,
       "episodes_per_run": 200,
       "seeds": 3,
       "conditions": 1,
       "claim_id": "INV-054",
-      "note": "Mac-only: cloud missing SD-018 code, errored twice. Pinned to DLAPTOP-4.local."
+      "note": "INV-054 phase-transition recovery with SD-018."
     },
     {
       "queue_id": "V3-EXQ-251b",
@@ -149,14 +149,14 @@
       "experiment_type": "v3_exq_251_mech186_valence_wanting_floor",
       "script": "experiments/v3_exq_251_mech186_valence_wanting_floor.py",
       "priority": 8,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 60,
       "episodes_per_run": 200,
       "seeds": 3,
       "conditions": 2,
       "claim_id": "MECH-186",
-      "note": "Mac-only: cloud missing SD-018 code, errored twice. Pinned to DLAPTOP-4.local."
+      "note": "MECH-186 valence wanting floor clamp with SD-018."
     },
     {
       "queue_id": "V3-EXQ-253c",
@@ -164,14 +164,14 @@
       "experiment_type": "v3_exq_253_mech188_zgoal_injection",
       "script": "experiments/v3_exq_253_mech188_zgoal_injection.py",
       "priority": 5,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 40,
       "episodes_per_run": 200,
       "seeds": 3,
       "conditions": 2,
       "claim_id": "MECH-188",
-      "note": "Mac-only: cloud missing SD-018 code, errored twice. Pinned to DLAPTOP-4.local."
+      "note": "MECH-188 z_goal PFC injection with SD-018."
     },
     {
       "queue_id": "V3-EXQ-254c",
@@ -179,14 +179,14 @@
       "experiment_type": "v3_exq_254_inv052_single_mechanism_sufficiency",
       "script": "experiments/v3_exq_254_inv052_single_mechanism_sufficiency.py",
       "priority": 5,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 60,
       "episodes_per_run": 80,
       "seeds": 3,
       "conditions": 6,
       "claim_id": "INV-052",
-      "note": "Mac-only: cloud missing SD-018 code, errored twice. Pinned to DLAPTOP-4.local."
+      "note": "INV-052 single mechanism sufficiency with SD-018."
     }
   ]
 }
