@@ -208,7 +208,7 @@ class HippocampalModule(nn.Module):
 
         # Fallback z_self (zeros) when not provided
         if z_self is None:
-            z_self = torch.zeros(batch_size, self.config.world_dim, device=device)
+            z_self = torch.zeros(batch_size, self.e2.config.self_dim, device=device)
 
         # Initialise in action-object space (SD-004)
         ao_mean = self._get_terrain_action_object_mean(z_world, e1_prior=e1_prior)
@@ -262,6 +262,7 @@ class HippocampalModule(nn.Module):
         self,
         theta_buffer_recent: torch.Tensor,
         num_replay_steps: int = 5,
+        drive_state: Optional[torch.Tensor] = None,
     ) -> List[Trajectory]:
         """
         SWR-equivalent replay for viability map consolidation (MECH-092).
@@ -270,10 +271,19 @@ class HippocampalModule(nn.Module):
         All content carries hypothesis_tag=True — replay cannot produce residue
         (MECH-094 invariant).
 
+        MECH-203 extension: when drive_state is provided (from serotonergic
+        system), replay start point is selected by valence-weighted priority
+        using ResidueField.get_valence_priority(). Without drive_state, falls
+        back to most-recent z_world (original behavior, fully backward compat).
+
         Args:
             theta_buffer_recent: Recent theta-cycle buffer content
                 [T, batch, world_dim]
             num_replay_steps: Number of replay trajectories to generate
+            drive_state: Optional [4] drive weights for valence-weighted start
+                point selection. When provided, each buffer entry is scored
+                by dot(valence, drive_state) and the highest-priority entry
+                is used as replay start. When None, uses most recent entry.
 
         Returns:
             List of Trajectory objects (all hypothesis_tag=True on caller side)
@@ -281,11 +291,19 @@ class HippocampalModule(nn.Module):
         if theta_buffer_recent is None or theta_buffer_recent.shape[0] == 0:
             return []
 
-        # Use the most recent z_world from the buffer as replay start
-        z_world_replay = theta_buffer_recent[-1]   # [batch, world_dim]
+        # Select replay start point
+        if drive_state is not None and theta_buffer_recent.shape[0] > 1:
+            # MECH-203: valence-weighted replay start selection
+            z_world_replay = self._select_valence_weighted_start(
+                theta_buffer_recent, drive_state
+            )
+        else:
+            # Default: most recent z_world from buffer
+            z_world_replay = theta_buffer_recent[-1]   # [batch, world_dim]
+
         batch_size = z_world_replay.shape[0]
         device = z_world_replay.device
-        z_self_zeros = torch.zeros(batch_size, self.config.world_dim, device=device)
+        z_self_zeros = torch.zeros(batch_size, self.e2.config.self_dim, device=device)
 
         # Generate random action sequences for replay rollouts
         replay_trajectories = []
@@ -299,6 +317,46 @@ class HippocampalModule(nn.Module):
             replay_trajectories.append(traj)
 
         return replay_trajectories
+
+    def _select_valence_weighted_start(
+        self,
+        theta_buffer_recent: torch.Tensor,
+        drive_state: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        MECH-203: Select replay start point by valence priority.
+
+        Scores each buffer entry via ResidueField.get_valence_priority()
+        and returns the highest-priority entry. Falls back to most recent
+        if valence scoring is unavailable.
+
+        Args:
+            theta_buffer_recent: [T, batch, world_dim]
+            drive_state: [4] drive weights
+
+        Returns:
+            z_world_replay: [batch, world_dim]
+        """
+        if not hasattr(self.residue_field, 'get_valence_priority'):
+            return theta_buffer_recent[-1]
+
+        T = theta_buffer_recent.shape[0]
+        best_idx = T - 1  # default: most recent
+        best_priority = -float('inf')
+
+        with torch.no_grad():
+            for t in range(T):
+                z_w = theta_buffer_recent[t]  # [batch, world_dim]
+                priority = self.residue_field.get_valence_priority(
+                    z_w, drive_state
+                )
+                # Sum across batch for comparison
+                p_val = float(priority.sum().item())
+                if p_val > best_priority:
+                    best_priority = p_val
+                    best_idx = t
+
+        return theta_buffer_recent[best_idx]
 
     def compute_completion_signal(self, trajectories: List[Trajectory]) -> float:
         """
