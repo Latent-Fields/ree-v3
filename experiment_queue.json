@@ -90,14 +90,18 @@
       "script": "experiments/v3_exq_250_inv054_phase_transition_recovery.py",
       "priority": 8,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 400,
       "episodes_per_run": 500,
       "seeds": 3,
       "conditions": 1,
       "claim_id": "INV-054",
       "backlog_id": "EVB-0074",
-      "note": "Phase-transition recovery test. PASS: recovery latency >50 Phase-2 episodes. Adds terrain_coverage_by_ep metric (INV-054 mechanism: re-exposure breaks attractor). STAR*D anchored."
+      "note": "Phase-transition recovery test. PASS: recovery latency >50 Phase-2 episodes. Adds terrain_coverage_by_ep metric (INV-054 mechanism: re-exposure breaks attractor). STAR*D anchored.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-06T15:56:02.894842+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-252",
