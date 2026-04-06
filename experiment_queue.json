@@ -106,13 +106,17 @@
       "script": "experiments/v3_exq_251_mech186_valence_wanting_floor.py",
       "priority": 8,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "episodes_per_run": 300,
       "seeds": 3,
       "conditions": 2,
       "claim_id": "MECH-186",
-      "note": "MECH-186: serotonergic terrain maintenance (valence_wanting_floor=0.05) prevents depression attractor. Run after V3-EXQ-249 confirms attractor is robust."
+      "note": "MECH-186: serotonergic terrain maintenance (valence_wanting_floor=0.05) prevents depression attractor. Run after V3-EXQ-249 confirms attractor is robust.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-06T15:55:59.517819+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-252",
