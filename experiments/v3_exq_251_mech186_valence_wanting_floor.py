@@ -123,6 +123,9 @@ LR_E2_WF   = 1e-3
 LR_HARM    = 1e-4
 LR_BENEFIT = 1e-3
 
+# SD-018: resource proximity supervision
+LAMBDA_RESOURCE = 0.5
+
 # MECH-186: floor value for FLOOR_MAINTAINED condition
 VALENCE_WANTING_FLOOR = 0.05
 
@@ -257,6 +260,8 @@ def _make_agent(
         goal_weight=1.0 if planned else 0.0,
         drive_weight=2.0 if planned else 0.0,
         valence_wanting_floor=VALENCE_WANTING_FLOOR if (planned and use_floor) else 0.0,
+        use_resource_proximity_head=True,
+        resource_proximity_weight=0.5,
     )
     return REEAgent(config)
 
@@ -350,6 +355,18 @@ def _warmup(
                 if e1_loss.requires_grad:
                     e1_opt.zero_grad()
                     e1_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(e1_params, 1.0)
+                    e1_opt.step()
+
+            # SD-018: resource proximity supervision
+            rfv = obs_dict.get("resource_field_view", None)
+            if rfv is not None:
+                rp_target = max(rfv).item()
+                rp_loss = agent.compute_resource_proximity_loss(
+                    rp_target, latent)
+                if rp_loss.requires_grad:
+                    e1_opt.zero_grad()
+                    (LAMBDA_RESOURCE * rp_loss).backward()
                     torch.nn.utils.clip_grad_norm_(e1_params, 1.0)
                     e1_opt.step()
 
