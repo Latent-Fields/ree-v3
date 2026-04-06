@@ -116,6 +116,18 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   MECH-094 gate applies: hypothesis_tag=True blocks valence updates. Prerequisite for
   ARC-036 (multidimensional valence map) and replay prioritisation via drive state.
 
+- MECH-203 + MECH-204: neuromodulation.serotonergic_sleep_substrate — IMPLEMENTED 2026-04-07.
+  SerotoninModule (ree_core/neuromodulation/serotonin.py) with SerotoninConfig.
+  SR-1: tonic_5ht [0,1] state variable. Waking: rises on benefit, decays to baseline,
+  suppressed by z_harm_a. SWS: held at waking level. REM: drops to 0 (dorsal raphe quiescence).
+  SR-2: benefit_salience = tonic_5ht * benefit_exposure. Tags SD-014 VALENCE_WANTING for
+  balanced replay prioritisation. SR-3: _precision_at_rem_entry captured on enter_rem().
+  Dynamic GoalConfig modulation: z_goal_seeding_gain and valence_wanting_floor modulated
+  by tonic_5ht each step. Agent methods: serotonin_step(), update_benefit_salience(),
+  enter_sws_mode(), enter_rem_mode(), exit_sleep_mode(). HippocampalModule.replay() accepts
+  optional drive_state for valence-weighted start selection. Master switch:
+  tonic_5ht_enabled=False (default, fully backward compatible).
+
 - ARC-028 + MECH-105: control_plane.hippocampal_betagate_coupling — IMPLEMENTED 2026-04-04.
   HippocampalModule.compute_completion_signal(trajectories) -> float: scores all proposed
   trajectories via _score_trajectory(), maps best score to sigmoid dopamine-analog value
@@ -161,14 +173,66 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   (VTA/model-based). Both systems in V3; validation of the planned system is
   V3 full completion gate (MECH-163).
 
-**V4 scope (sleep mechanisms — not V3):**
-- Sharp-wave ripple (SWR) consolidation of place-reward associations
+**V3 scope (serotonergic sleep substrate — pulled from V4 2026-04-07):**
+- MECH-203: SerotoninModule tonic_5ht state variable + benefit-salience tagging (SR-1/SR-2).
+  Without this, ALL SWS replay is harm-biased (depressive consolidation asymmetry is default).
+- MECH-204: REM zero-point hook (SR-3). Captures precision_at_rem_entry for recalibration.
+- Sleep convenience methods: enter_sws_mode(), enter_rem_mode(), exit_sleep_mode().
+- Valence-weighted replay start selection in HippocampalModule.replay(drive_state=...).
+- Master switch: tonic_5ht_enabled=False (default). All existing experiments unaffected.
+- Location: ree_core/neuromodulation/serotonin.py
+
+**V4 scope (full sleep mechanisms — not V3):**
+- Full SWR consolidation pipeline (MECH-121 complete implementation)
 - Slow-wave sleep prediction error baseline reset
-- Sleep-dependent recalibration of commit thresholds
+- Sleep-dependent recalibration of commit thresholds (full SR-3/SR-4)
 - Theta-gamma coupling during offline replay for memory formation
 - Lansink et al. (2009) hippocampus-leads-striatum replay is V4 evidence
-- Biological rationale: sleep mechanisms are evolutionary successors to waking
-  decision architecture. V3 must deliver working waking circuit before V4 sleep.
+- Phase boundary triggers (SR-4: sws_consolidation_complete -> REM transition)
+
+**V4 scope (self-model integration — INV-064/MECH-214/MECH-215 audit, 2026-04-07):**
+
+Wiring audit against the maturational sequence claims revealed five architectural gaps.
+None are V3 errors — V3's grid-world spatial goals and 4-action motor model are correctly
+scoped. All become requirements when the architecture handles richer agents, environments,
+or goal types:
+
+- DR-10: z_self in E3 trajectory scoring. Currently score_trajectory() evaluates entirely
+  in z_world space. The agent's interoceptive state (energy, fatigue, pain) does not
+  influence which trajectory is selected. V4 needs z_self-weighted trajectory costs so that
+  bodily state modulates viability (the same path is worse when exhausted vs. fresh).
+  Implements: MECH-215 (self-model prerequisite for agentive prediction).
+
+- DR-11: z_self-domain goal representation. Currently z_goal lives purely in z_world space
+  (GoalState seeds from z_world_current). Self-state goals ("I want my energy restored",
+  "I want to not be in pain") cannot be represented. V4 needs a parallel z_goal_self
+  attractor, or GoalState extended to operate on [z_self, z_world] jointly. Without this,
+  homeostatic and hedonic goals are structurally inaccessible to the planning system.
+  Implements: MECH-214 (goal-referent E1-representability) for the z_self domain.
+
+- DR-12: E2 prediction error -> E3 confidence modulation. Currently E3 trusts E2's
+  rollout unconditionally. When E2's capacity model is degraded (producing inflated or
+  deflated z_self predictions), E3 inherits the error with no "this rollout might be
+  unreliable" signal. V4 needs E2 PE magnitude to modulate E3's confidence in each
+  trajectory's self-transition feasibility, so that trajectories generated from
+  unreliable E2 predictions are appropriately discounted.
+  Implements: MECH-215 pessimistic/optimistic failure modes.
+
+- DR-13: z_self temporal depth. Currently z_self = body_obs -> MLP -> EMA smooth.
+  Single hidden layer, no recurrence, no body-state memory. E1's LSTM integrates z_self
+  over time but is read-only on z_self (doesn't enrich the representation). V4 needs
+  either: (a) recurrent z_self encoder, or (b) E1 feedback into z_self enrichment,
+  or (c) dedicated E2-as-self-model that provides capacity trends not just next-step
+  predictions. Without temporal self-model, MECH-215 capacity estimates are snapshots
+  not trajectories.
+
+- DR-14: Environment must dissociate proxy from hedonic content. CausalGridWorldV2
+  conflates location with reward — the z_world at a resource IS the benefit. This
+  means the MECH-214 addiction failure mode (wanting system fires on z_goal objects
+  that E1 can't ground in genuine hedonic schema) cannot be surfaced. V4 needs an
+  environment where goal location and hedonic satisfaction can dissociate, so that
+  z_goal tracking a proxy without hedonic grounding produces observable behavioral
+  pathology (pursuit without satisfaction, the addiction signature).
 
 **V4 scope (self-navigation — not V3, gated by MECH-113/114 results):**
 - ARC-031: Hippocampal z_self trajectory navigation (planning deliberation sequences).
