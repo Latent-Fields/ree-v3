@@ -39,26 +39,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-253a",
-      "title": "MECH-188: z_goal PFC Injection (SD-018 fix)",
-      "experiment_type": "v3_exq_253_mech188_zgoal_injection",
-      "script": "experiments/v3_exq_253_mech188_zgoal_injection.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 40,
-      "episodes_per_run": 80,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-188",
-      "supersedes": "V3-EXQ-253",
-      "note": "SD-018 fix: resource proximity supervision. z_goal injection needs a gradient to produce behavioral difference.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-04-06T15:58:40.740848+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-254a",
       "title": "INV-052: Single Mechanism Sufficiency (SD-018 fix)",
       "experiment_type": "v3_exq_254_inv052_single_mechanism_sufficiency",
