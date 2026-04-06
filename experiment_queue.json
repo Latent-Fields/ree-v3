@@ -223,13 +223,17 @@
       "script": "experiments/v3_exq_254_inv052_single_mechanism_sufficiency.py",
       "priority": 33,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 300,
       "seeds": 3,
       "conditions": 6,
       "claim_id": "INV-052",
-      "note": "INV-052: joint necessity of tonic system. PASS = no single mechanism (C/D/E) restores >=80% of SIMPLE baseline on both z_goal_norm and behavioral_gap. Run after V3-EXQ-251/252/253 complete -- use their results to calibrate condition C/D/E parameters if needed."
+      "note": "INV-052: joint necessity of tonic system. PASS = no single mechanism (C/D/E) restores >=80% of SIMPLE baseline on both z_goal_norm and behavioral_gap. Run after V3-EXQ-251/252/253 complete -- use their results to calibrate condition C/D/E parameters if needed.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-06T02:11:42.875880+00:00"
+      }
     }
   ]
 }
