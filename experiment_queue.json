@@ -39,26 +39,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-225a",
-      "title": "MECH-112: Goal Lift Redesign (SD-018 fix)",
-      "experiment_type": "v3_exq_225_mech112_goal_lift_redesign",
-      "script": "experiments/v3_exq_225_mech112_goal_lift_redesign.py",
-      "priority": 8,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 30,
-      "episodes_per_run": 80,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-112",
-      "supersedes": "V3-EXQ-225",
-      "note": "SD-018 fix: use_resource_proximity_head=True so z_world encodes resource proximity. Original FAIL was substrate gap, not mechanism failure.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-04-06T15:58:30.866294+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-237b",
       "title": "MECH-163: Dual System Discrimination (SD-018 fix)",
       "experiment_type": "v3_exq_237a_mech163_dual_system_discrimination",
