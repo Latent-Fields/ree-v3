@@ -60,13 +60,17 @@
       "script": "experiments/v3_exq_248_q034_threshold_sweep.py",
       "priority": 8,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "episodes_per_run": 300,
       "seeds": 3,
       "conditions": 18,
       "claim_id": "Q-034",
-      "note": "3x3 hazard/resource sweep; finds threshold ratio above which PLANNED=HABIT (depression attractor). Parameter extension of EXQ-237a."
+      "note": "3x3 hazard/resource sweep; finds threshold ratio above which PLANNED=HABIT (depression attractor). Parameter extension of EXQ-237a.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-06T15:56:09.358912+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-252",
