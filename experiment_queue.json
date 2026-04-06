@@ -26,10 +26,14 @@
       "script": "experiments/v3_onboard_smoke_ree_cloud_1.py",
       "machine_affinity": "ree-cloud-1",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 15,
       "claim_ids": [],
-      "notes": "First-run pipeline verification for Hetzner CX22 cloud worker. CPU-only (no GPU). Tests env stepping + full training loop throughput. Will be claimed automatically when cloud worker comes online."
+      "notes": "First-run pipeline verification for Hetzner CX22 cloud worker. CPU-only (no GPU). Tests env stepping + full training loop throughput. Will be claimed automatically when cloud worker comes online.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-06T15:56:15.747972+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-252",
