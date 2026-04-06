@@ -86,7 +86,7 @@ def make_agent(condition: str) -> REEAgent:
     config = REEConfig.from_dims(
         body_obs_dim=12,
         world_obs_dim=250,
-        action_dim=4,
+        action_dim=5,
         self_dim=32,
         world_dim=32,
         alpha_world=0.9,
@@ -137,9 +137,11 @@ def run_condition(seed: int, condition: str) -> Dict:
     benefit_optimizer = optim.Adam(benefit_params, lr=LR) if benefit_params else None
 
     # ---- P0: Encoder warmup ----
+    z_self_prev = None
     for ep in range(P0_EPISODES):
         _, obs_dict = env.reset()
         agent.reset()
+        z_self_prev = None
         prev_ttype = None
         prev_resource_prox = None
 
@@ -148,14 +150,12 @@ def run_condition(seed: int, condition: str) -> Dict:
             obs_world = torch.tensor(obs_dict["world_state"], dtype=torch.float32).unsqueeze(0)
             obs_harm = torch.tensor(obs_dict.get("harm_obs", np.zeros(51)), dtype=torch.float32).unsqueeze(0)
 
-            # Sense (retains grad for aux losses)
-            latent = agent.latent_stack.encode(
-                torch.cat([obs_body, obs_world], dim=-1),
-                agent._current_latent,
-                prev_action=agent._last_action,
-                harm_obs=obs_harm,
-            )
-            agent._current_latent = latent.detach()
+            # Capture z_self before sense (for record_transition)
+            if agent._current_latent is not None:
+                z_self_prev = agent._current_latent.z_self.detach().clone()
+
+            # Sense via agent.sense() — routes through body/world encoders
+            latent = agent.sense(obs_body.squeeze(0), obs_world.squeeze(0), obs_harm=obs_harm)
 
             # Compute losses
             e1_loss = agent.compute_prediction_loss()
@@ -177,31 +177,19 @@ def run_condition(seed: int, condition: str) -> Dict:
                 torch.nn.utils.clip_grad_norm_(agent.parameters(), 1.0)
                 optimizer.step()
 
-            # Action selection (simple random for P0)
-            action_idx = np.random.randint(4)
+            # Record E2 transition (z_self before -> z_self after sense)
+            action_idx = np.random.randint(5)
+            action_t = torch.zeros(1, 5, device=device)
+            action_t[0, action_idx] = 1.0
+            if z_self_prev is not None:
+                agent.record_transition(z_self_prev, action_t, latent.z_self.detach())
+
             _, reward, done, info, obs_dict_next = env.step(action_idx)
 
             # Store for next step
             prev_ttype = info.get("transition_type", "none")
             rfv = obs_dict.get("resource_field_view", None)
             prev_resource_prox = float(rfv[12]) if rfv is not None else 0.0  # center cell = agent pos
-
-            # Record E2 transition
-            if agent._current_latent is not None:
-                z_self_t = agent._current_latent.z_self
-                action_t = torch.zeros(1, 4, device=device)
-                action_t[0, action_idx] = 1.0
-                latent_next = agent.latent_stack.encode(
-                    torch.cat([
-                        torch.tensor(obs_dict_next["body_state"], dtype=torch.float32).unsqueeze(0),
-                        torch.tensor(obs_dict_next["world_state"], dtype=torch.float32).unsqueeze(0),
-                    ], dim=-1),
-                    agent._current_latent,
-                    prev_action=action_t,
-                    harm_obs=torch.tensor(obs_dict_next.get("harm_obs", np.zeros(51)), dtype=torch.float32).unsqueeze(0),
-                )
-                agent.record_transition(z_self_t, action_t, latent_next.z_self.detach())
-                agent._current_latent = latent_next.detach()
 
             # Update z_goal
             be = obs_dict_next["body_state"][11] if len(obs_dict_next["body_state"]) > 11 else 0.0
@@ -240,11 +228,7 @@ def run_condition(seed: int, condition: str) -> Dict:
             obs_world = torch.tensor(obs_dict["world_state"], dtype=torch.float32).unsqueeze(0)
 
             with torch.no_grad():
-                latent = agent.latent_stack.encode(
-                    torch.cat([obs_body, obs_world], dim=-1),
-                    agent._current_latent,
-                )
-                agent._current_latent = latent.detach()
+                latent = agent.sense(obs_body.squeeze(0), obs_world.squeeze(0))
 
             z_world_detached = latent.z_world.detach()
 
@@ -263,7 +247,7 @@ def run_condition(seed: int, condition: str) -> Dict:
                     benefit_preds_train.append(pred.item())
                     benefit_actuals_train.append(target_prox)
 
-            action_idx = np.random.randint(4)
+            action_idx = np.random.randint(5)
             _, reward, done, info, obs_dict_next = env.step(action_idx)
 
             be = obs_dict_next["body_state"][11] if len(obs_dict_next["body_state"]) > 11 else 0.0
@@ -301,11 +285,7 @@ def run_condition(seed: int, condition: str) -> Dict:
             obs_world = torch.tensor(obs_dict["world_state"], dtype=torch.float32).unsqueeze(0)
 
             with torch.no_grad():
-                latent = agent.latent_stack.encode(
-                    torch.cat([obs_body, obs_world], dim=-1),
-                    agent._current_latent,
-                )
-                agent._current_latent = latent.detach()
+                latent = agent.sense(obs_body.squeeze(0), obs_world.squeeze(0))
 
                 # SD-018: resource proximity prediction
                 if latent.resource_prox_pred is not None:
@@ -330,7 +310,6 @@ def run_condition(seed: int, condition: str) -> Dict:
             candidates = agent.generate_trajectories(latent, e1_prior, ticks)
             action = agent.select_action(candidates, ticks)
             action_idx = int(action.argmax(dim=-1).item()) if action.dim() > 1 else int(action.item())
-            action_idx = min(action_idx, 3)
 
             _, reward, done, info, obs_dict_next = env.step(action_idx)
 
