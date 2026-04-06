@@ -60,6 +60,8 @@ from typing import List, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -78,9 +80,7 @@ TRANSFER_EPISODES = 150   # stable -> volatile switch at episode 100
 MAX_STEPS        = 150
 N_HAZARDS        = 4
 GRID_SIZE        = 10
-BODY_OBS_DIM     = 10
-WORLD_OBS_DIM    = 54
-ACTION_DIM       = 4
+ACTION_DIM       = 5   # env.action_dim (5 directions)
 SELF_DIM         = 32
 WORLD_DIM        = 32
 BETA_DIM         = 64
@@ -100,14 +100,16 @@ DEVICE = "cpu"
 # ─── Environment helpers ──────────────────────────────────────────────────────
 
 def make_env(volatile: bool, seed: Optional[int] = None) -> CausalGridWorldV2:
-    """Create environment. volatile=True randomises hazard positions each episode."""
+    """Create environment.
+    volatile=True: hazards drift every step (high within-episode unpredictability).
+    volatile=False: hazards are static within episodes (low unpredictability).
+    """
     env = CausalGridWorldV2(
         size=GRID_SIZE,
         num_hazards=N_HAZARDS,
         num_resources=3,
-        body_obs_dim=BODY_OBS_DIM,
-        world_obs_dim=WORLD_OBS_DIM,
-        randomise_hazard_positions=volatile,  # key toggle
+        env_drift_interval=1 if volatile else 9999,
+        env_drift_prob=0.4 if volatile else 0.0,
         seed=seed,
     )
     return env
@@ -115,11 +117,12 @@ def make_env(volatile: bool, seed: Optional[int] = None) -> CausalGridWorldV2:
 
 # ─── Agent with volatility injection ─────────────────────────────────────────
 
-def make_agent(seed: int) -> REEAgent:
+def make_agent(seed: int, env):
+    """Returns (agent, opts) where opts = {'e1': opt, 'e2': opt, 'e3': opt}."""
     config = REEConfig.from_dims(
-        body_obs_dim=BODY_OBS_DIM,
-        world_obs_dim=WORLD_OBS_DIM,
-        action_dim=ACTION_DIM,
+        body_obs_dim=env.body_obs_dim,
+        world_obs_dim=env.world_obs_dim,
+        action_dim=env.action_dim,
         self_dim=SELF_DIM,
         world_dim=WORLD_DIM,
         alpha_world=0.9,   # SD-008: event-responsive z_world
@@ -133,89 +136,104 @@ def make_agent(seed: int) -> REEAgent:
 
     torch.manual_seed(seed)
     agent = REEAgent(config)
-    return agent
+    opts = {
+        "e1": optim.Adam(agent.e1.parameters(), lr=1e-4),
+        "e2": optim.Adam(agent.e2.parameters(), lr=3e-4),
+        "e3": optim.Adam(agent.e3.parameters(), lr=1e-4),
+    }
+    return agent, opts
 
 
 # ─── Episode runner ───────────────────────────────────────────────────────────
 
 def run_episode(
     agent: REEAgent,
-    env: CausalGridWorldV2,
+    env,
     train: bool = True,
+    opts: dict = None,
 ) -> dict:
     """
     Run one episode. Returns per-episode metrics including running_variance
     and mean z_beta norm.
-    """
-    obs, _ = env.reset()
-    obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
-    latent = agent.latent_stack.init_state(batch_size=1, device=DEVICE)
 
-    prev_action = None
+    Volatility injection is handled internally by agent.sense() via
+    LatentStackConfig.volatility_signal_dim > 0 (configured in make_agent).
+    """
+    _, obs_dict = env.reset()
+    agent.reset()
+
     total_harm = 0.0
     z_beta_norms: List[float] = []
     running_vars: List[float] = []
-    transition_types: List[str] = []
 
-    for step in range(MAX_STEPS):
-        # Get current running_variance from E3 (Q-007 NE/LC signal)
-        rv = agent.e3._running_variance      # scalar float
-        rv_tensor = torch.tensor([[rv]], dtype=torch.float32)  # [1, 1]
+    step = 0
+    done = False
+    while step < MAX_STEPS and not done:
+        obs_body  = torch.tensor(obs_dict["body_state"],  dtype=torch.float32)
+        obs_world = torch.tensor(obs_dict["world_state"], dtype=torch.float32)
 
-        # Encode with volatility injection
-        latent = agent.latent_stack.encode(
-            obs_t,
-            prev_state=latent,
-            prev_action=prev_action,
-            volatility_signal=rv_tensor,
-        )
+        # Q-007: collect running_variance before sense (updated inside e3 each step)
+        running_vars.append(agent.e3._running_variance)
 
+        # SENSE (volatility injection into z_beta happens inside sense() automatically)
+        latent = agent.sense(obs_body, obs_world)
         z_beta_norms.append(latent.z_beta.norm().item())
-        running_vars.append(rv)
 
-        # Select action via agent
-        candidates = agent.e2.generate_candidates(latent.z_self, latent.z_world)
-        action_result = agent.select_action(candidates, ticks=step, temperature=1.0)
-        action = action_result.action
+        # ACTION SELECTION
+        ticks = agent.clock.advance()
+        e1_prior = (
+            agent._e1_tick(latent) if ticks["e1_tick"]
+            else torch.zeros(1, agent.config.latent.world_dim, device=agent.device)
+        )
+        z_self_prev = (
+            agent._current_latent.z_self.detach().clone()
+            if agent._current_latent is not None else None
+        )
+        candidates = agent.generate_trajectories(latent, e1_prior, ticks)
+        action = agent.select_action(candidates, ticks, temperature=1.0)
 
-        prev_action = torch.tensor(
-            [action], dtype=torch.float32
-        ).unsqueeze(0)
+        if z_self_prev is not None:
+            agent.record_transition(z_self_prev, action, latent.z_self.detach())
 
-        obs_next, reward, done, truncated, info = env.step(action)
-        obs_t = torch.tensor(obs_next, dtype=torch.float32).unsqueeze(0)
+        _, reward, done, info, obs_dict = env.step(action)
+        harm_signal = float(reward) if reward < 0 else 0.0
+        total_harm += abs(harm_signal)
 
-        harm = float(reward < 0)
-        total_harm += harm
+        # TRAINING
+        if train and opts is not None:
+            e1_loss = agent.compute_prediction_loss()
+            e2_loss = agent.compute_e2_loss()
+            total_e1_e2 = e1_loss + e2_loss
+            if total_e1_e2.requires_grad:
+                opts["e1"].zero_grad()
+                opts["e2"].zero_grad()
+                total_e1_e2.backward()
+                opts["e1"].step()
+                opts["e2"].step()
 
-        t_type = info.get("transition_type", "none")
-        transition_types.append(t_type)
+            if agent._current_latent is not None:
+                z_world = agent._current_latent.z_world.detach()
+                harm_target = torch.tensor(
+                    [[1.0 if harm_signal < 0 else 0.0]], device=agent.device
+                )
+                harm_loss = F.mse_loss(agent.e3.harm_eval(z_world), harm_target)
+                maint_loss = agent.compute_self_maintenance_loss()
+                total_e3 = harm_loss + maint_loss
+                opts["e3"].zero_grad()
+                total_e3.backward()
+                opts["e3"].step()
 
-        # Train E3 on world prediction if training
-        if train:
-            latent_next = agent.latent_stack.encode(
-                obs_t,
-                prev_state=latent,
-                volatility_signal=rv_tensor,  # pass same rv for next step
-            )
-            e3_metrics = agent.e3.update(
-                prev_z_world=latent.z_world,
-                action=prev_action,
-                next_z_world=latent_next.z_world,
-                harm_occurred=(reward < 0),
-            )
-
-        if done or truncated:
-            break
+        agent.update_residue(harm_signal)
+        step += 1
 
     return {
         "total_harm": total_harm,
-        "mean_z_beta_norm": float(np.mean(z_beta_norms)),
-        "mean_running_variance": float(np.mean(running_vars)),
+        "mean_z_beta_norm": float(np.mean(z_beta_norms)) if z_beta_norms else 0.0,
+        "mean_running_variance": float(np.mean(running_vars)) if running_vars else 0.0,
         "final_running_variance": running_vars[-1] if running_vars else 0.0,
         "z_beta_norms": z_beta_norms,
         "running_vars": running_vars,
-        "n_steps": step + 1,
+        "n_steps": step,
     }
 
 
@@ -244,10 +262,10 @@ def main():
 
     # ── Phase 1: Train two agents ──────────────────────────────────────────
     print("\n[Phase 1] Training stable agent...")
-    agent_stable   = make_agent(SEED)
     env_stable     = make_env(volatile=False, seed=SEED)
-    agent_volatile = make_agent(SEED + 1)
     env_volatile   = make_env(volatile=True,  seed=SEED + 1)
+    agent_stable,   opts_stable   = make_agent(SEED,     env_stable)
+    agent_volatile, opts_volatile = make_agent(SEED + 1, env_volatile)
 
     stable_ep_rvs   = []   # per-episode mean running_variance
     stable_ep_beta  = []   # per-episode mean z_beta_norm
@@ -255,8 +273,8 @@ def main():
     volatile_ep_beta = []
 
     for ep in range(N_TRAIN_EPISODES):
-        m_s = run_episode(agent_stable,   env_stable,   train=True)
-        m_v = run_episode(agent_volatile, env_volatile, train=True)
+        m_s = run_episode(agent_stable,   env_stable,   train=True,  opts=opts_stable)
+        m_v = run_episode(agent_volatile, env_volatile, train=True,  opts=opts_volatile)
 
         stable_ep_rvs.append(m_s["mean_running_variance"])
         stable_ep_beta.append(m_s["mean_z_beta_norm"])
@@ -317,9 +335,9 @@ def main():
     for ep in range(TRANSFER_EPISODES):
         # Switch to volatile after 100 stable episodes
         if ep < 100:
-            m = run_episode(agent_stable, env_stable, train=False)
+            m = run_episode(agent_stable, env_stable,    train=False)
         else:
-            m = run_episode(agent_stable, env_transfer, train=True)  # adapt to volatile
+            m = run_episode(agent_stable, env_transfer,  train=True, opts=opts_stable)  # adapt to volatile
         transfer_betas.append(m["mean_z_beta_norm"])
 
     # Check if z_beta rises within C3_WINDOW after switch (ep 100-120)
