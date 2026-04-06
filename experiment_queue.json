@@ -45,13 +45,17 @@
       "script": "experiments/v3_exq_257_sd018_resource_prox_validation.py",
       "priority": 10,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 45,
       "episodes_per_run": 80,
       "seeds": 3,
       "conditions": 2,
       "claim_id": "SD-018",
-      "note": "Critical unblocking experiment: tests whether aux resource proximity regression on z_world enables benefit_eval and goal-directed behavior. P0/P1/P2 phased training. WITH vs WITHOUT ablation pair."
+      "note": "Critical unblocking experiment: tests whether aux resource proximity regression on z_world enables benefit_eval and goal-directed behavior. P0/P1/P2 phased training. WITH vs WITHOUT ablation pair.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-06T15:58:27.631003+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-225a",
