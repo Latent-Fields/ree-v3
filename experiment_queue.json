@@ -39,26 +39,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-238a",
-      "title": "SD-012: Drive Weight Ablation (SD-018 fix)",
-      "experiment_type": "v3_exq_238_sd012_drive_weight_ablation_fix",
-      "script": "experiments/v3_exq_238_sd012_drive_weight_ablation_fix.py",
-      "priority": 8,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 35,
-      "episodes_per_run": 80,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "SD-012",
-      "supersedes": "V3-EXQ-238",
-      "note": "SD-018 fix: resource proximity supervision. Original showed ~1% drive_weight effect because z_goal seeded from noise-level z_world.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-04-06T15:58:37.404176+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-253a",
       "title": "MECH-188: z_goal PFC Injection (SD-018 fix)",
       "experiment_type": "v3_exq_253_mech188_zgoal_injection",
