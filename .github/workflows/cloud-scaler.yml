@@ -1,0 +1,54 @@
+name: Cloud Worker Scaler
+# Auto-starts Hetzner cloud worker when experiments are queued,
+# stops it when the queue is empty.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # every 15 minutes
+  workflow_dispatch: {}       # manual trigger
+
+jobs:
+  scale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: experiment_queue.json
+
+      - name: Check queue and scale cloud worker
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Install hcloud CLI
+          HCLOUD_VERSION="v1.43.0"
+          curl -sL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_VERSION}/hcloud-linux-amd64.tar.gz" \
+            | tar xz -C /usr/local/bin hcloud
+
+          SERVER_NAME="ree-worker-1"
+
+          # Count pending (unclaimed) queue items
+          PENDING=$(python3 -c "
+          import json
+          q = json.load(open('experiment_queue.json'))
+          pending = [i for i in q.get('items', []) if i.get('status') == 'pending']
+          print(len(pending))
+          ")
+
+          # Get current server status
+          STATUS=$(hcloud server describe "$SERVER_NAME" -o format='{{.Status}}' 2>/dev/null || echo "unknown")
+
+          echo "Pending items: $PENDING"
+          echo "Server status: $STATUS"
+
+          if [ "$PENDING" -gt 0 ] && [ "$STATUS" = "off" ]; then
+            echo "Queue has work -- starting cloud worker..."
+            hcloud server poweron "$SERVER_NAME"
+          elif [ "$PENDING" -eq 0 ] && [ "$STATUS" = "running" ]; then
+            echo "Queue empty -- stopping cloud worker..."
+            # Use shutdown (not poweroff) so systemd sends SIGTERM for graceful drain
+            hcloud server shutdown "$SERVER_NAME"
+          else
+            echo "No action needed."
+          fi

@@ -1,0 +1,42 @@
+# REE Experiment Runner -- systemd service template for cloud workers
+#
+# Installation (on the cloud VM):
+#   1. Copy this file:
+#        sudo cp ree-runner.service /etc/systemd/system/ree-runner.service
+#   2. Edit the file to replace <user> with your username
+#   3. Enable and start:
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable ree-runner
+#        sudo systemctl start ree-runner
+#
+# The runner starts automatically on boot (for auto-scaler integration).
+# On shutdown, systemd sends SIGTERM which triggers the runner's graceful drain
+# (finishes current experiment, releases claim, then exits).
+#
+# Logs: journalctl -u ree-runner -f
+
+[Unit]
+Description=REE Experiment Runner (auto-sync cloud worker)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<user>
+WorkingDirectory=/home/<user>/Documents/GitHub/REE_Working/ree-v3
+ExecStart=/home/<user>/.venv/ree/bin/python3 experiment_runner.py --auto-sync --loop --loop-interval 120 --machine ree-cloud-1
+
+# Graceful drain: give 10 minutes for current experiment episode to finish
+TimeoutStopSec=600
+KillSignal=SIGTERM
+
+# Do not auto-restart -- the GitHub Actions auto-scaler manages lifecycle
+Restart=no
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ree-runner
+
+[Install]
+WantedBy=multi-user.target

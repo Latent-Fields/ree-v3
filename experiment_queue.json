@@ -113,6 +113,18 @@
       }
     },
     {
+      "queue_id": "V3-ONBOARD-smoke-ree-cloud-1",
+      "title": "Onboarding smoke test -- ree-cloud-1 (Hetzner CX22)",
+      "experiment_type": "v3_onboard_smoke_ree_cloud_1",
+      "script": "experiments/v3_onboard_smoke_ree_cloud_1.py",
+      "machine_affinity": "ree-cloud-1",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 15,
+      "claim_ids": [],
+      "notes": "First-run pipeline verification for Hetzner CX22 cloud worker. CPU-only (no GPU). Tests env stepping + full training loop throughput. Will be claimed automatically when cloud worker comes online."
+    },
+    {
       "queue_id": "V3-EXQ-248",
       "title": "Q-034: Hazard/Resource Ratio Threshold Sweep (3x3 grid, HABIT vs PLANNED)",
       "experiment_type": "v3_exq_248_q034_threshold_sweep",
