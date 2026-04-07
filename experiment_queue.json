@@ -14,10 +14,14 @@
       "script": "experiments/v3_onboard_smoke_EWIN-PC.py",
       "machine_affinity": "EWIN-PC",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 20,
       "claim_ids": [],
-      "notes": "Re-run after GPU block hardening. Original V3-ONBOARD-smoke-EWIN-PC errored 2026-04-05 (exit code 1, 94.3s, no output file). Script now wraps Block 3 GPU in try/except (graceful fallback to CPU-only) and writes diagnostic error JSON on any crash."
+      "notes": "Re-run after GPU block hardening. Original V3-ONBOARD-smoke-EWIN-PC errored 2026-04-05 (exit code 1, 94.3s, no output file). Script now wraps Block 3 GPU in try/except (graceful fallback to CPU-only) and writes diagnostic error JSON on any crash.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-07T08:06:53.664531+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-252",
