@@ -83,13 +83,17 @@
       "script": "experiments/v3_exq_249_inv053_depression_attractor_replication.py",
       "priority": 8,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 300,
       "episodes_per_run": 200,
       "seeds": 5,
       "conditions": 1,
       "claim_id": "INV-053",
-      "note": "INV-053 depression attractor replication with SD-018. 5-seed multi-seed."
+      "note": "INV-053 depression attractor replication with SD-018. 5-seed multi-seed.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-07T00:45:16.597800+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-250b",
