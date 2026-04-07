@@ -27,25 +27,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-238c",
-      "title": "SD-012: Drive Weight Ablation (SD-018)",
-      "experiment_type": "v3_exq_238_sd012_drive_weight_ablation_fix",
-      "script": "experiments/v3_exq_238_sd012_drive_weight_ablation_fix.py",
-      "priority": 8,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 35,
-      "episodes_per_run": 80,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "SD-012",
-      "note": "SD-012 drive weight ablation with SD-018 resource proximity head.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-07T09:14:42.524864+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-248b",
       "title": "Q-034: Hazard/Resource Ratio Sweep (SD-018)",
       "experiment_type": "v3_exq_248_q034_threshold_sweep",
