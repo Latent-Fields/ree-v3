@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-ONBOARD-smoke-EWIN-PC-b",
-      "title": "Onboarding smoke test -- EWIN-PC (Eoin) [retry b]",
-      "experiment_type": "v3_onboard_smoke_EWIN-PC",
-      "script": "experiments/v3_onboard_smoke_EWIN-PC.py",
-      "machine_affinity": "EWIN-PC",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 20,
-      "claim_ids": [],
-      "notes": "Re-run after GPU block hardening. Original V3-ONBOARD-smoke-EWIN-PC errored 2026-04-05 (exit code 1, 94.3s, no output file). Script now wraps Block 3 GPU in try/except (graceful fallback to CPU-only) and writes diagnostic error JSON on any crash.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-07T08:06:53.664531+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-252",
       "title": "MECH-187: Bidirectional z_goal Seeding Gain (5-cond: x0.6/x0.2 suppression, x2.0/x5.0 elevation)",
       "experiment_type": "v3_exq_252_mech187_zgoal_seeding_gain",
