@@ -41,8 +41,8 @@
       "claim_id": "SD-012",
       "note": "SD-012 drive weight ablation with SD-018 resource proximity head.",
       "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-06T18:13:21.615473+00:00"
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-07T09:14:42.524864+00:00"
       }
     },
     {
