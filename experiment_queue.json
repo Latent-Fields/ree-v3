@@ -44,25 +44,6 @@
         "machine": "EWIN-PC",
         "claimed_at": "2026-04-07T16:52:41.481925+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-254c",
-      "title": "INV-052: Single Mechanism Sufficiency (SD-018)",
-      "experiment_type": "v3_exq_254_inv052_single_mechanism_sufficiency",
-      "script": "experiments/v3_exq_254_inv052_single_mechanism_sufficiency.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 60,
-      "episodes_per_run": 80,
-      "seeds": 3,
-      "conditions": 6,
-      "claim_id": "INV-052",
-      "note": "INV-052 single mechanism sufficiency with SD-018.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-07T16:16:49.415722+00:00"
-      }
     }
   ]
 }
