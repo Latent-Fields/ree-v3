@@ -41,8 +41,8 @@
       "claim_id": "Q-034",
       "note": "Q-034 hazard/resource ratio threshold sweep with SD-018.",
       "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-07T16:52:41.481925+00:00"
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-07T22:53:35.420395+00:00"
       }
     }
   ]
