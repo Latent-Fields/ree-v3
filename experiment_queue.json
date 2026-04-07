@@ -83,13 +83,17 @@
       "script": "experiments/v3_exq_251_mech186_valence_wanting_floor.py",
       "priority": 8,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "episodes_per_run": 200,
       "seeds": 3,
       "conditions": 2,
       "claim_id": "MECH-186",
-      "note": "MECH-186 valence wanting floor clamp with SD-018."
+      "note": "MECH-186 valence wanting floor clamp with SD-018.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-07T05:59:06.080077+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-253c",
