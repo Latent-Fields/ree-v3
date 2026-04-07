@@ -63,25 +63,6 @@
         "machine": "EWIN-PC",
         "claimed_at": "2026-04-07T10:15:50.627153+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-258",
-      "title": "MECH-205: Surprise-Gated Replay Validation (Tier 1)",
-      "experiment_type": "v3_exq_258_mech205_surprise_gated_replay",
-      "script": "experiments/v3_exq_258_mech205_surprise_gated_replay.py",
-      "priority": 8,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 50,
-      "episodes_per_run": 200,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-205",
-      "note": "MECH-205 Tier 1 validation: surprise-gated replay via PE -> VALENCE_SURPRISE -> drive_state. 2 conditions (control vs surprise gate), 3 seeds. Both use serotonergic substrate (MECH-203).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-07T12:50:54.710814+00:00"
-      }
     }
   ]
 }
