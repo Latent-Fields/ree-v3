@@ -83,13 +83,17 @@
       "script": "experiments/v3_exq_250_inv054_phase_transition_recovery.py",
       "priority": 8,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "episodes_per_run": 200,
       "seeds": 3,
       "conditions": 1,
       "claim_id": "INV-054",
-      "note": "INV-054 phase-transition recovery with SD-018."
+      "note": "INV-054 phase-transition recovery with SD-018.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-07T02:29:52.565309+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-251b",
