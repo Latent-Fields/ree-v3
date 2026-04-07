@@ -71,13 +71,17 @@
       "script": "experiments/v3_exq_258_mech205_surprise_gated_replay.py",
       "priority": 8,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 50,
       "episodes_per_run": 200,
       "seeds": 3,
       "conditions": 2,
       "claim_id": "MECH-205",
-      "note": "MECH-205 Tier 1 validation: surprise-gated replay via PE -> VALENCE_SURPRISE -> drive_state. 2 conditions (control vs surprise gate), 3 seeds. Both use serotonergic substrate (MECH-203)."
+      "note": "MECH-205 Tier 1 validation: surprise-gated replay via PE -> VALENCE_SURPRISE -> drive_state. 2 conditions (control vs surprise gate), 3 seeds. Both use serotonergic substrate (MECH-203).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-07T12:50:54.710814+00:00"
+      }
     }
   ]
 }
