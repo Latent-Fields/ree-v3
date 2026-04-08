@@ -65,6 +65,20 @@
         "machine": "ree-cloud-1",
         "claimed_at": "2026-04-08T23:21:42.552778+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-263",
+      "title": "MECH-216: E1 predictive wanting schema readout validation",
+      "script": "experiments/v3_exq_263_mech216_e1_predictive_wanting.py",
+      "claim_ids": [
+        "MECH-216"
+      ],
+      "experiment_purpose": "diagnostic",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 100,
+      "machine_affinity": "DLAPTOP-4.local",
+      "notes": "2-condition ablation (WITH_SCHEMA vs WITHOUT_SCHEMA) x 3 seeds. Tests schema readout head learning + wanting landscape coverage. C1: salience>0.1, C2: wanting coverage higher, C3: resource rate lift 2/3."
     }
   ]
 }
