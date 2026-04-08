@@ -16,11 +16,15 @@
       ],
       "experiment_purpose": "diagnostic",
       "priority": 1,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "machine_affinity": "any",
       "supersedes": "V3-EXQ-241a",
-      "notes": "2-condition (WITH_HISTORY vs WITHOUT_HISTORY) x 3 seeds. Info gain criterion: z_harm_a predicts accumulated_harm better than z_harm_s. Fixes flawed D3 forward-probe from 241a (EMA smoothness confound). C1: stream_corr<0.85, C2: info_gain>0.05, C3: r2_s_to_a<0.80, C4: accum_loss<0.05."
+      "notes": "2-condition (WITH_HISTORY vs WITHOUT_HISTORY) x 3 seeds. Info gain criterion: z_harm_a predicts accumulated_harm better than z_harm_s. Fixes flawed D3 forward-probe from 241a (EMA smoothness confound). C1: stream_corr<0.85, C2: info_gain>0.05, C3: r2_s_to_a<0.80, C4: accum_loss<0.05.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-08T23:18:44.037984+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-261b",
