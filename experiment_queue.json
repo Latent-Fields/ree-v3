@@ -32,11 +32,15 @@
       ],
       "experiment_purpose": "evidence",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "machine_affinity": "any",
       "supersedes": "V3-EXQ-260",
-      "notes": "3-condition (RAW_ACCUM, SURPRISE_PE, COMBINED) x 3 seeds. Tests Chen 2023 claim: AIC encodes PE not raw state. Fix: grid_size -> size in env constructor."
+      "notes": "3-condition (RAW_ACCUM, SURPRISE_PE, COMBINED) x 3 seeds. Tests Chen 2023 claim: AIC encodes PE not raw state. Fix: grid_size -> size in env constructor.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-08T21:56:01.336887+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-261a",
