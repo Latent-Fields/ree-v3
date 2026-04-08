@@ -56,11 +56,15 @@
       ],
       "experiment_purpose": "evidence",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "machine_affinity": "any",
       "supersedes": "V3-EXQ-258",
-      "notes": "Write path fix: rbf_field attr corrected, pe_ema_alpha=0.02 (was 0.1), pe_surprise_threshold=0.001. Same 2-cond x 3-seed design."
+      "notes": "Write path fix: rbf_field attr corrected, pe_ema_alpha=0.02 (was 0.1), pe_surprise_threshold=0.001. Same 2-cond x 3-seed design.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-08T23:21:42.552778+00:00"
+      }
     }
   ]
 }
