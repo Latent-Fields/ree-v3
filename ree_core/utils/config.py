@@ -398,6 +398,10 @@ class REEConfig:
     # Requires valence_enabled=True in residue config. Default False (backward compat).
     surprise_gated_replay: bool = False
 
+    # MECH-120: SHY-analog synaptic homeostasis in SWS
+    shy_enabled: bool = False          # master switch (default off for backward compat)
+    shy_decay_rate: float = 0.85       # EMA decay toward slot-mean; 0.85 per Tononi SHY lit
+
     @classmethod
     def from_dims(
         cls,
@@ -448,6 +452,9 @@ class REEConfig:
         tonic_5ht_enabled: bool = False,
         # MECH-205: surprise-gated replay
         surprise_gated_replay: bool = False,
+        # MECH-120: SHY-analog synaptic homeostasis
+        shy_enabled: bool = False,
+        shy_decay_rate: float = 0.85,
         # VALENCE_WANTING gradient in trajectory scoring
         wanting_weight: float = 0.0,
         **kwargs,
@@ -561,6 +568,10 @@ class REEConfig:
 
         # MECH-205: surprise-gated replay
         config.surprise_gated_replay = surprise_gated_replay
+
+        # MECH-120: SHY normalization
+        config.shy_enabled = shy_enabled
+        config.shy_decay_rate = shy_decay_rate
 
         return config
 

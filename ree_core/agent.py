@@ -1023,10 +1023,14 @@ class REEAgent(nn.Module):
         """
         Enter SWS-analog phase.
 
-        Composes: enter_offline_mode() + serotonin.enter_sws().
-        E1 context_memory writes gated. 5-HT held at waking level.
+        Composes: enter_offline_mode() + SHY normalisation + serotonin.enter_sws().
+        Phase 0: gate waking writes. Phase 1: SHY normalisation (MECH-120).
+        Phase 2 (replay) runs after this method returns.
         """
         self.enter_offline_mode()
+        # MECH-120: SHY normalization before replay (Phase 1)
+        if self.config.shy_enabled:
+            self.e1.shy_normalise(decay=self.config.shy_decay_rate)
         self.serotonin.enter_sws()
 
     def enter_rem_mode(self) -> None:
