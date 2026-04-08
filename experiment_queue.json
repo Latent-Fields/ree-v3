@@ -51,25 +51,6 @@
       "estimated_minutes": 60,
       "machine_affinity": "any",
       "notes": "2-condition (NO_DESCENDING, WITH_DESCENDING) x 3 seeds. Tests whether commitment-gated z_harm_s attenuation (alpha=0.3) enables goal-directed behavior through hazards without reckless harm-seeking."
-    },
-    {
-      "queue_id": "V3-EXQ-262",
-      "title": "MECH-220: cross-stream harm hub coordination",
-      "script": "experiments/v3_exq_262_mech220_harm_hub.py",
-      "claim_ids": [
-        "MECH-220",
-        "SD-011"
-      ],
-      "experiment_purpose": "evidence",
-      "priority": 3,
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "machine_affinity": "any",
-      "notes": "3-condition (NO_HUB, S_TO_A_HUB, BIDI_HUB) x 3 seeds. Tests whether lightweight cross-stream gating (z_harm_s norm -> z_harm_a context) improves forward model R^2 and maintains stream distinctness.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-08T21:51:39.009361+00:00"
-      }
     }
   ]
 }
