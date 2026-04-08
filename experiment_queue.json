@@ -11,7 +11,9 @@
       "queue_id": "V3-EXQ-241a",
       "title": "SD-011 second source validation: harm_history input resolves D3 reversal",
       "script": "experiments/v3_exq_241a_sd011_second_source_validation.py",
-      "claim_ids": ["SD-011"],
+      "claim_ids": [
+        "SD-011"
+      ],
       "experiment_purpose": "diagnostic",
       "priority": 1,
       "status": "pending",
@@ -19,6 +21,55 @@
       "machine_affinity": "any",
       "supersedes": "V3-EXQ-241",
       "notes": "2-condition ablation (WITH_HISTORY vs WITHOUT_HISTORY), 3 seeds. Tests that harm_history_len=10 resolves the D3 reversal (r2_a > r2_s) seen in EXQ-241. Phased: P0=100ep training, P1=50ep eval."
+    },
+    {
+      "queue_id": "V3-EXQ-260",
+      "title": "SD-020: z_harm_a surprise PE training vs raw accumulation",
+      "script": "experiments/v3_exq_260_sd020_harm_surprise_pe.py",
+      "claim_ids": [
+        "SD-020",
+        "SD-011"
+      ],
+      "experiment_purpose": "evidence",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 90,
+      "machine_affinity": "any",
+      "notes": "3-condition (RAW_ACCUM, SURPRISE_PE, COMBINED) x 3 seeds. Tests Chen 2023 claim: AIC encodes PE not raw state. C1: surprise urgency_corr > raw urgency_corr. C2: surprise stream_corr < raw stream_corr."
+    },
+    {
+      "queue_id": "V3-EXQ-261",
+      "title": "SD-021: descending pain modulation during commitment",
+      "script": "experiments/v3_exq_261_sd021_descending_pain_mod.py",
+      "claim_ids": [
+        "SD-021",
+        "SD-011"
+      ],
+      "experiment_purpose": "evidence",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 60,
+      "machine_affinity": "any",
+      "notes": "2-condition (NO_DESCENDING, WITH_DESCENDING) x 3 seeds. Tests whether commitment-gated z_harm_s attenuation (alpha=0.3) enables goal-directed behavior through hazards without reckless harm-seeking."
+    },
+    {
+      "queue_id": "V3-EXQ-262",
+      "title": "MECH-220: cross-stream harm hub coordination",
+      "script": "experiments/v3_exq_262_mech220_harm_hub.py",
+      "claim_ids": [
+        "MECH-220",
+        "SD-011"
+      ],
+      "experiment_purpose": "evidence",
+      "priority": 3,
+      "status": "claimed",
+      "estimated_minutes": 90,
+      "machine_affinity": "any",
+      "notes": "3-condition (NO_HUB, S_TO_A_HUB, BIDI_HUB) x 3 seeds. Tests whether lightweight cross-stream gating (z_harm_s norm -> z_harm_a context) improves forward model R^2 and maintains stream distinctness.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-08T21:51:39.009361+00:00"
+      }
     }
   ]
 }
