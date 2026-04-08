@@ -46,6 +46,21 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-04-08T23:10:58.114922+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-258a",
+      "title": "MECH-205: surprise-gated replay write path fix validation",
+      "script": "experiments/v3_exq_258a_mech205_surprise_gated_replay.py",
+      "claim_ids": [
+        "MECH-205"
+      ],
+      "experiment_purpose": "evidence",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 60,
+      "machine_affinity": "any",
+      "supersedes": "V3-EXQ-258",
+      "notes": "Write path fix: rbf_field attr corrected, pe_ema_alpha=0.02 (was 0.1), pe_surprise_threshold=0.001. Same 2-cond x 3-seed design."
     }
   ]
 }
