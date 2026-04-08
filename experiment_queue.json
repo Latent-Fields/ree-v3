@@ -8,6 +8,30 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-259",
+      "title": "Wanting-gradient navigation: VALENCE_WANTING trajectory scoring vs ablation",
+      "experiment_type": "v3_exq_259_wanting_gradient_navigation",
+      "script": "experiments/v3_exq_259_wanting_gradient_navigation.py",
+      "priority": 9,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "estimated_minutes": 100,
+      "episodes_per_run": 150,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-015",
+        "MECH-112",
+        "ARC-030",
+        "SD-012"
+      ],
+      "note": "Tests wanting-gradient in HippocampalModule._score_trajectory(). WITH_WANTING (wanting_weight=0.4) vs WITHOUT (ablation). Resolves SD-015 via VALENCE_WANTING landscape. Requires tonic_5ht_enabled=True + use_resource_proximity_head=True.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-08T16:48:12.435750+00:00"
+      }
+    },
+    {
       "queue_id": "V3-EXQ-252",
       "title": "MECH-187: Bidirectional z_goal Seeding Gain (5-cond: x0.6/x0.2 suppression, x2.0/x5.0 elevation)",
       "experiment_type": "v3_exq_252_mech187_zgoal_seeding_gain",
