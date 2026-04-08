@@ -80,6 +80,18 @@ class LatentStackConfig:
     harm_obs_a_dim: int = 50  # hazard_field(25) + resource_field(25) -- no harm_exposure scalar
     z_harm_a_dim: int = 16    # smaller than z_harm_dim -- less spatial resolution needed
 
+    # SD-011 second source: harm history rolling window for AffectiveHarmEncoder.
+    # When > 0, env emits harm_history [harm_history_len] (FIFO of past harm_exposure
+    # scalars), which is concatenated with harm_obs_a as encoder input. This gives
+    # z_harm_a genuinely distinct temporal information that z_harm_s does not receive,
+    # breaking the monotone redundancy confirmed by EXQ-241 (D3 reversal).
+    # 0 = disabled (backward compat: encoder input dim = harm_obs_a_dim only).
+    harm_history_len: int = 0
+    # Auxiliary loss weight for harm accumulation prediction head on z_harm_a.
+    # Forces encoder to integrate temporal harm info (not just spatial proximity).
+    # Only active when harm_history_len > 0. Default 0.1.
+    z_harm_a_aux_loss_weight: float = 0.1
+
     # SD-007: ReafferencePredictor — perspective-shift correction for z_world.
     # Set reafference_action_dim = action_dim (e.g. 4) to enable.
     # 0 = disabled (default; backward compatible with EXQ-001-025).
@@ -402,6 +414,12 @@ class REEConfig:
     shy_enabled: bool = False          # master switch (default off for backward compat)
     shy_decay_rate: float = 0.85       # EMA decay toward slot-mean; 0.85 per Tononi SHY lit
 
+    # MECH-165: reverse replay diversity scheduler
+    replay_diversity_enabled: bool = False   # master switch (default off for backward compat)
+    reverse_replay_fraction: float = 0.3     # fraction of replay calls using reverse mode
+    random_replay_fraction: float = 0.2      # fraction using random action rollout
+    exploration_buffer_len: int = 50         # max stored exploration trajectories (FIFO)
+
     @classmethod
     def from_dims(
         cls,
@@ -425,6 +443,9 @@ class REEConfig:
         use_affective_harm_stream: bool = False,
         harm_obs_a_dim: int = 50,
         z_harm_a_dim: int = 16,
+        # SD-011 second source: harm history window
+        harm_history_len: int = 0,
+        z_harm_a_aux_loss_weight: float = 0.1,
         # SD-016: frontal cue-indexed integration
         sd016_enabled: bool = False,
         # ARC-030 / MECH-111 / MECH-112 / MECH-113
@@ -455,6 +476,11 @@ class REEConfig:
         # MECH-120: SHY-analog synaptic homeostasis
         shy_enabled: bool = False,
         shy_decay_rate: float = 0.85,
+        # MECH-165: reverse replay diversity scheduler
+        replay_diversity_enabled: bool = False,
+        reverse_replay_fraction: float = 0.3,
+        random_replay_fraction: float = 0.2,
+        exploration_buffer_len: int = 50,
         # VALENCE_WANTING gradient in trajectory scoring
         wanting_weight: float = 0.0,
         **kwargs,
@@ -495,6 +521,8 @@ class REEConfig:
         config.latent.use_affective_harm_stream = use_affective_harm_stream
         config.latent.harm_obs_a_dim = harm_obs_a_dim
         config.latent.z_harm_a_dim = z_harm_a_dim
+        config.latent.harm_history_len = harm_history_len
+        config.latent.z_harm_a_aux_loss_weight = z_harm_a_aux_loss_weight
 
         # E1
         config.e1.self_dim = self_dim
@@ -572,6 +600,12 @@ class REEConfig:
         # MECH-120: SHY normalization
         config.shy_enabled = shy_enabled
         config.shy_decay_rate = shy_decay_rate
+
+        # MECH-165: reverse replay diversity scheduler
+        config.replay_diversity_enabled = replay_diversity_enabled
+        config.reverse_replay_fraction = reverse_replay_fraction
+        config.random_replay_fraction = random_replay_fraction
+        config.exploration_buffer_len = exploration_buffer_len
 
         return config
 

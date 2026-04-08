@@ -191,27 +191,62 @@ class AffectiveHarmEncoder(nn.Module):
     See CLAUDE.md: SD-011. See HarmEncoder for the sensory-discriminative partner.
     """
 
-    def __init__(self, harm_obs_a_dim: int = 51, z_harm_a_dim: int = 16):
+    def __init__(self, harm_obs_a_dim: int = 51, z_harm_a_dim: int = 16,
+                 harm_history_len: int = 0):
         super().__init__()
         self.harm_obs_a_dim = harm_obs_a_dim
         self.z_harm_a_dim = z_harm_a_dim
+        self.harm_history_len = harm_history_len
+        # SD-011 second source: when harm_history_len > 0, input includes
+        # temporal harm history (FIFO of past harm_exposure scalars).
+        input_dim = harm_obs_a_dim + harm_history_len
         self.encoder = nn.Sequential(
-            nn.Linear(harm_obs_a_dim, 32),
+            nn.Linear(input_dim, 64),
             nn.ReLU(),
-            nn.Linear(32, z_harm_a_dim),
+            nn.Linear(64, z_harm_a_dim),
         )
+        # Auxiliary loss head: predict accumulated harm scalar.
+        # Forces z_harm_a to integrate temporal information, creating gradient
+        # pressure for divergence from z_harm_s (which has no history input).
+        self.harm_accum_head: Optional[nn.Module] = None
+        if harm_history_len > 0:
+            self.harm_accum_head = nn.Sequential(
+                nn.Linear(z_harm_a_dim, 1),
+                nn.Sigmoid(),
+            )
 
-    def forward(self, harm_obs_a: torch.Tensor) -> torch.Tensor:
+    def forward(self, harm_obs_a: torch.Tensor,
+                harm_history: Optional[torch.Tensor] = None,
+                ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
         Encode accumulated harm observations into z_harm_a latent.
 
         Args:
             harm_obs_a: [batch, harm_obs_a_dim] -- EMA-accumulated harm proximity vector
+            harm_history: [batch, harm_history_len] -- rolling window of past harm_exposure
+                          scalars. None when harm_history_len=0 (backward compat).
 
         Returns:
             z_harm_a: [batch, z_harm_a_dim]
+            harm_accum_pred: [batch, 1] or None -- aux head prediction for training
         """
-        return self.encoder(harm_obs_a)
+        if self.harm_history_len > 0 and harm_history is not None:
+            x = torch.cat([harm_obs_a, harm_history], dim=-1)
+        else:
+            # Backward compat: pad with zeros if history expected but not provided.
+            if self.harm_history_len > 0:
+                zeros = torch.zeros(
+                    harm_obs_a.shape[0], self.harm_history_len,
+                    device=harm_obs_a.device, dtype=harm_obs_a.dtype,
+                )
+                x = torch.cat([harm_obs_a, zeros], dim=-1)
+            else:
+                x = harm_obs_a
+        z_harm_a = self.encoder(x)
+        harm_accum_pred = None
+        if self.harm_accum_head is not None:
+            harm_accum_pred = self.harm_accum_head(z_harm_a)
+        return z_harm_a, harm_accum_pred
 
 
 # DEPRECATED 2026-04-02 -- use ResidualHarmForward (ARC-033). Identity collapse on autocorrelated signals.
@@ -508,6 +543,7 @@ class LatentState:
     hypothesis_tag: bool = False  # MECH-094
     z_harm: Optional[torch.Tensor] = None        # SD-010 sensory-discriminative harm [batch, harm_dim]
     z_harm_a: Optional[torch.Tensor] = None      # SD-011 affective-motivational harm [batch, z_harm_a_dim]
+    harm_accum_pred: Optional[torch.Tensor] = None  # SD-011 aux head: predicted accumulated harm [batch, 1]
     z_world_raw: Optional[torch.Tensor] = None   # SD-007 diagnostic [batch, world_dim]
     event_logits: Optional[torch.Tensor] = None  # SD-009 [batch, 3] for CE loss; None if not enabled
     resource_prox_pred: Optional[torch.Tensor] = None  # SD-018 [batch, 1] for MSE loss; None if not enabled
@@ -535,6 +571,7 @@ class LatentState:
             hypothesis_tag=self.hypothesis_tag,
             z_harm=self.z_harm.detach() if self.z_harm is not None else None,
             z_harm_a=self.z_harm_a.detach() if self.z_harm_a is not None else None,
+            harm_accum_pred=self.harm_accum_pred.detach() if self.harm_accum_pred is not None else None,
             z_world_raw=self.z_world_raw.detach() if self.z_world_raw is not None else None,
             event_logits=self.event_logits.detach() if self.event_logits is not None else None,
             resource_prox_pred=self.resource_prox_pred.detach() if self.resource_prox_pred is not None else None,
@@ -821,6 +858,7 @@ class LatentStack(nn.Module):
             self.affective_harm_encoder: Optional[AffectiveHarmEncoder] = AffectiveHarmEncoder(
                 harm_obs_a_dim=getattr(self.config, "harm_obs_a_dim", 50),
                 z_harm_a_dim=getattr(self.config, "z_harm_a_dim", 16),
+                harm_history_len=getattr(self.config, "harm_history_len", 0),
             )
         else:
             self.affective_harm_encoder = None
@@ -883,6 +921,7 @@ class LatentStack(nn.Module):
         prev_action: Optional[torch.Tensor] = None,
         harm_obs: Optional[torch.Tensor] = None,
         harm_obs_a: Optional[torch.Tensor] = None,
+        harm_history: Optional[torch.Tensor] = None,
         volatility_signal: Optional[torch.Tensor] = None,
     ) -> LatentState:
         """
@@ -909,6 +948,10 @@ class LatentStack(nn.Module):
             harm_obs_a:   SD-011 affective-motivational harm observation [batch, harm_obs_a_dim].
                           EMA of proximity fields maintained in environment (tau~20 steps).
                           When provided and affective_harm_encoder is active, produces z_harm_a.
+                          None = disabled (default, backward compat).
+            harm_history: SD-011 second source [batch, harm_history_len]. Rolling window of
+                          past harm_exposure scalars from the environment. Concatenated with
+                          harm_obs_a as AffectiveHarmEncoder input when harm_history_len > 0.
                           None = disabled (default, backward compat).
             volatility_signal: Q-007/EXQ-051b — NE/LC analog [batch, volatility_signal_dim]
                           or scalar float/tensor auto-expanded. When provided and
@@ -1022,12 +1065,20 @@ class LatentStack(nn.Module):
 
         # SD-011: affective-motivational harm stream — NOT perspective-corrected.
         # AffectiveHarmEncoder encodes the EMA-accumulated proximity signal into z_harm_a.
+        # SD-011 second source: when harm_history is provided, concatenated with harm_obs_a
+        # as encoder input, giving z_harm_a genuinely distinct temporal information.
         z_harm_a = None
+        harm_accum_pred = None
         if harm_obs_a is not None and self.affective_harm_encoder is not None:
             hoa = harm_obs_a.to(device).float()
             if hoa.dim() == 1:
                 hoa = hoa.unsqueeze(0).expand(batch_size, -1)
-            z_harm_a = self.affective_harm_encoder(hoa)
+            hh = None
+            if harm_history is not None:
+                hh = harm_history.to(device).float()
+                if hh.dim() == 1:
+                    hh = hh.unsqueeze(0).expand(batch_size, -1)
+            z_harm_a, harm_accum_pred = self.affective_harm_encoder(hoa, hh)
 
         return LatentState(
             z_self=z_self,
@@ -1042,6 +1093,7 @@ class LatentStack(nn.Module):
             timestamp=(prev_state.timestamp or 0) + 1,
             z_harm=z_harm,         # SD-010 or MECH-099: None if neither enabled
             z_harm_a=z_harm_a,     # SD-011: None if affective stream not enabled
+            harm_accum_pred=harm_accum_pred,  # SD-011 aux head: None if history not enabled
             z_world_raw=z_world_raw,  # SD-007 diagnostic (uncorrected z_world)
             event_logits=event_logits,  # SD-009: None if event classifier not enabled
             resource_prox_pred=resource_prox_pred,  # SD-018: None if resource head not enabled

@@ -6,5 +6,19 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-241a",
+      "title": "SD-011 second source validation: harm_history input resolves D3 reversal",
+      "script": "experiments/v3_exq_241a_sd011_second_source_validation.py",
+      "claim_ids": ["SD-011"],
+      "experiment_purpose": "diagnostic",
+      "priority": 1,
+      "status": "pending",
+      "estimated_minutes": 60,
+      "machine_affinity": "any",
+      "supersedes": "V3-EXQ-241",
+      "notes": "2-condition ablation (WITH_HISTORY vs WITHOUT_HISTORY), 3 seeds. Tests that harm_history_len=10 resolves the D3 reversal (r2_a > r2_s) seen in EXQ-241. Phased: P0=100ep training, P1=50ep eval."
+    }
+  ]
 }

@@ -117,6 +117,10 @@ class CausalGridWorld:
         nociception_ema_alpha: float = 0.1,
         harm_obs_a_ema_alpha: float = 0.05,
         proximity_approach_threshold: float = 0.15,
+        # SD-011 second source: rolling window of past harm_exposure values.
+        # 0 = disabled (backward compat). When > 0, obs_dict includes
+        # "harm_history" [harm_history_len] and "accumulated_harm" scalar.
+        harm_history_len: int = 0,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -147,12 +151,20 @@ class CausalGridWorld:
         self.nociception_ema_alpha = nociception_ema_alpha
         self.harm_obs_a_ema_alpha = harm_obs_a_ema_alpha
         self.proximity_approach_threshold = proximity_approach_threshold
+        self.harm_history_len = harm_history_len
 
         self._rng = np.random.default_rng(seed)
         # SD-011: harm_obs_a_ema persists across episodes (homeostatic accumulator).
         # Initialized here, NOT in reset(), so accumulated threat state carries over.
         # Resetting per-episode destroys autocorrelation (EXQ-106 C4 FAIL root cause).
         self.harm_obs_a_ema: np.ndarray = np.zeros(50, dtype=np.float32)
+        # SD-011 second source: rolling harm history buffer (FIFO of harm_exposure).
+        # Persists across episodes like harm_obs_a_ema (same rationale).
+        if self.harm_history_len > 0:
+            self._harm_history = np.zeros(self.harm_history_len, dtype=np.float32)
+            self._harm_history_ptr = 0
+            self._accumulated_harm_exposure = 0.0
+            self._accumulated_harm_steps = 0
         self.reset()
 
     # ------------------------------------------------------------------ #
@@ -439,6 +451,14 @@ class CausalGridWorld:
             self.harm_obs_a_ema[:25] = (1.0 - alpha_a) * self.harm_obs_a_ema[:25] + alpha_a * hazard_at_agent
             self.harm_obs_a_ema[25:] = (1.0 - alpha_a) * self.harm_obs_a_ema[25:] + alpha_a * resource_at_agent
 
+            # SD-011 second source: record harm_exposure into rolling history buffer.
+            if self.harm_history_len > 0:
+                idx = self._harm_history_ptr % self.harm_history_len
+                self._harm_history[idx] = float(np.clip(self.harm_exposure, 0.0, 1.0))
+                self._harm_history_ptr += 1
+                self._accumulated_harm_exposure += float(np.clip(self.harm_exposure, 0.0, 1.0))
+                self._accumulated_harm_steps += 1
+
         # Env-caused drift
         if self.steps % self.env_drift_interval == 0 and self.steps > 0:
             self._drift_hazards()
@@ -611,6 +631,14 @@ class CausalGridWorld:
             # (~20 steps vs ~10 for harm_exposure). Represents accumulated homeostatic
             # threat state, not immediate proximity. Does NOT need a forward model.
             result["harm_obs_a"] = torch.from_numpy(self.harm_obs_a_ema.copy()).float()  # [50]
+            # SD-011 second source: rolling harm history and accumulated harm target.
+            if self.harm_history_len > 0:
+                # FIFO oldest-first: roll so oldest entry comes first.
+                rolled = np.roll(self._harm_history, -self._harm_history_ptr)
+                result["harm_history"] = torch.from_numpy(rolled.copy()).float()  # [harm_history_len]
+                # Accumulated harm target for auxiliary loss (running average, clipped [0,1]).
+                accum = self._accumulated_harm_exposure / max(self._accumulated_harm_steps, 1)
+                result["accumulated_harm"] = float(np.clip(accum, 0.0, 1.0))
         return result
 
     def _dict_to_flat(self, obs_dict: Dict[str, torch.Tensor]) -> torch.Tensor:

@@ -159,6 +159,17 @@ class REEAgent(nn.Module):
         self._pe_ema: float = 0.0  # EMA of prediction error magnitude
         self._pe_ema_alpha: float = 0.1  # EMA smoothing factor
 
+        # MECH-165: episode trajectory recording for exploration buffer
+        self._episode_world_states: List[torch.Tensor] = []
+        self._episode_self_states: List[torch.Tensor] = []
+        self._episode_actions: List[torch.Tensor] = []
+
+        # MECH-165: pass config to hippocampal for buffer sizing
+        if self.config.replay_diversity_enabled:
+            self.hippocampal._exploration_buffer_maxlen = self.config.exploration_buffer_len
+            self.hippocampal._reverse_fraction = self.config.reverse_replay_fraction
+            self.hippocampal._random_fraction = self.config.random_replay_fraction
+
         # MECH-112/116: persistent goal representation
         self.goal_state: Optional[GoalState] = None
         _goal_cfg = getattr(self.config, "goal", None)
@@ -189,6 +200,9 @@ class REEAgent(nn.Module):
 
     def reset(self) -> None:
         """Reset agent for a new episode. Does NOT reset residue (invariant)."""
+        # MECH-165: flush waking trajectory to exploration buffer before reset
+        self._flush_exploration_episode()
+
         self._current_latent = self.latent_stack.init_state(
             batch_size=1, device=self.device
         )
@@ -205,12 +219,71 @@ class REEAgent(nn.Module):
         self.serotonin.reset()
         self._pe_ema = 0.0
 
+    def _record_exploration_state(self) -> None:
+        """MECH-165: record current latent state for exploration trajectory."""
+        if not self.config.replay_diversity_enabled:
+            return
+        if self._current_latent is None:
+            return
+        self._episode_world_states.append(
+            self._current_latent.z_world.detach().clone()
+        )
+        self._episode_self_states.append(
+            self._current_latent.z_self.detach().clone()
+        )
+
+    def _record_exploration_action(self, action: torch.Tensor) -> None:
+        """MECH-165: record selected action for exploration trajectory."""
+        if not self.config.replay_diversity_enabled:
+            return
+        self._episode_actions.append(action.detach().clone())
+
+    def _flush_exploration_episode(self) -> None:
+        """
+        MECH-165: build Trajectory from accumulated episode data and
+        store in HippocampalModule exploration buffer. Clears episode buffers.
+        Minimum 5 steps required to form a useful trajectory.
+        """
+        if not self.config.replay_diversity_enabled:
+            return
+        min_steps = 5
+        n_states = len(self._episode_world_states)
+        n_actions = len(self._episode_actions)
+        if n_states < min_steps or n_actions < min_steps:
+            self._episode_world_states.clear()
+            self._episode_self_states.clear()
+            self._episode_actions.clear()
+            return
+
+        # Align: states[0..N], actions[0..N-1]
+        # Trim to min(n_states, n_actions+1) for clean pairing
+        n = min(n_states, n_actions + 1)
+        states = self._episode_self_states[:n]
+        world_states = self._episode_world_states[:n]
+        actions_list = self._episode_actions[:n - 1]
+
+        # Build actions tensor [batch, horizon, action_dim]
+        actions_tensor = torch.stack(actions_list, dim=1)  # [batch, horizon, action_dim]
+
+        traj = Trajectory(
+            states=states,
+            actions=actions_tensor,
+            world_states=world_states,
+            is_reverse=False,
+        )
+        self.hippocampal.record_exploration_trajectory(traj)
+
+        self._episode_world_states.clear()
+        self._episode_self_states.clear()
+        self._episode_actions.clear()
+
     def sense(
         self,
         obs_body: torch.Tensor,
         obs_world: torch.Tensor,
         obs_harm: Optional[torch.Tensor] = None,
         obs_harm_a: Optional[torch.Tensor] = None,
+        obs_harm_history: Optional[torch.Tensor] = None,
     ) -> LatentState:
         """
         SENSE + UPDATE step: encode split observation -> update latent state.
@@ -226,6 +299,10 @@ class REEAgent(nn.Module):
                         signal from environment. When provided and
                         use_affective_harm_stream=True, routes through
                         AffectiveHarmEncoder to z_harm_a.
+            obs_harm_history: SD-011 second source [batch, harm_history_len] or None.
+                        Rolling window of past harm_exposure scalars. Concatenated
+                        with harm_obs_a as AffectiveHarmEncoder input when
+                        harm_history_len > 0.
 
         Returns:
             Updated LatentState
@@ -256,6 +333,7 @@ class REEAgent(nn.Module):
             prev_action=self._last_action,
             harm_obs=obs_harm,       # SD-010: nociceptive stream (None = disabled)
             harm_obs_a=obs_harm_a,   # SD-011: affective harm stream (None = disabled)
+            harm_history=obs_harm_history,  # SD-011 second source (None = disabled)
             volatility_signal=vol_signal,
         )
         # Detach before storing: prevents EMA from linking computational graphs
@@ -263,6 +341,8 @@ class REEAgent(nn.Module):
         # in-place, invalidating the old graph's version — causing RuntimeError
         # "modified by an inplace operation" on the next backward() call.
         self._current_latent = new_latent.detach()
+        # MECH-165: record state for exploration trajectory
+        self._record_exploration_state()
         return new_latent
 
     def sense_flat(self, observation: torch.Tensor) -> LatentState:
@@ -444,6 +524,8 @@ class REEAgent(nn.Module):
                 action = self._last_action
 
         self._last_action = action
+        # MECH-165: record action for exploration trajectory
+        self._record_exploration_action(action)
         return action
 
     def act(
@@ -530,6 +612,8 @@ class REEAgent(nn.Module):
             z_harm_a = self._current_latent.z_harm_a
         result = self.e3.select(candidates, temperature, z_harm_a=z_harm_a)
         self._last_action = result.selected_action
+        # MECH-165: record action for exploration trajectory
+        self._record_exploration_action(result.selected_action)
         self._step_count += 1
         return result.selected_action, result.log_prob
 
@@ -557,9 +641,15 @@ class REEAgent(nn.Module):
                 [t5ht, 0.5, 1.0 - t5ht, surprise_weight],
                 device=self.device,
             )
-        replay_trajs = self.hippocampal.replay(recent, drive_state=drive_state)
+        # MECH-165: use diverse replay scheduler when enabled
+        if self.config.replay_diversity_enabled:
+            replay_trajs = self.hippocampal.diverse_replay(
+                recent, drive_state=drive_state, mode="auto",
+            )
+        else:
+            replay_trajs = self.hippocampal.replay(recent, drive_state=drive_state)
         # hypothesis_tag=True: these trajectories cannot update residue
-        # (MECH-094 — enforced in ResidueField.accumulate)
+        # (MECH-094 -- enforced in ResidueField.accumulate)
 
     def update_residue(
         self,
@@ -824,6 +914,51 @@ class REEAgent(nn.Module):
             device=pred.device,
         )
         return F.mse_loss(pred, target)
+
+    def compute_harm_accum_loss(
+        self,
+        accumulated_harm_target: float,
+        latent_state: "LatentState",
+    ) -> torch.Tensor:
+        """
+        SD-011 second source: auxiliary loss for harm accumulation prediction.
+
+        Trains the AffectiveHarmEncoder harm_accum_head to predict accumulated
+        harm exposure from z_harm_a, forcing the affective encoder to integrate
+        temporal harm information that z_harm_s does not receive. This creates
+        gradient pressure for genuine stream divergence (resolving EXQ-241 D3
+        reversal where z_harm_a was monotonically redundant with z_harm_s).
+
+        Requires harm_history_len > 0 in LatentStackConfig. Returns zero
+        otherwise (backward-compatible with all prior experiments).
+
+        IMPORTANT: pass the LatentState returned directly by sense(), NOT
+        agent._current_latent (which is detached). Gradient must flow from the
+        MSE loss back through the affective harm encoder.
+
+        Args:
+            accumulated_harm_target: float in [0, 1], running average of
+                harm_exposure over the episode. From obs_dict["accumulated_harm"].
+            latent_state: LatentState from sense() with retained gradients.
+
+        Returns:
+            Weighted MSE loss scalar. Weight = z_harm_a_aux_loss_weight.
+        """
+        zero_loss = next(self.latent_stack.parameters()).sum() * 0.0
+        if getattr(self.config.latent, "harm_history_len", 0) <= 0:
+            return zero_loss
+        if latent_state.harm_accum_pred is None:
+            return zero_loss
+        pred = latent_state.harm_accum_pred  # [batch, 1]
+        if pred.dim() == 1:
+            pred = pred.unsqueeze(0)
+        target = torch.tensor(
+            [[accumulated_harm_target]],
+            dtype=torch.float32,
+            device=pred.device,
+        )
+        weight = getattr(self.config.latent, "z_harm_a_aux_loss_weight", 0.1)
+        return weight * F.mse_loss(pred, target)
 
     def update_z_goal(self, benefit_exposure: float, drive_level: float = 1.0) -> None:
         """Update z_goal from benefit signal (MECH-112 wanting update).
