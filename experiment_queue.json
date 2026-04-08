@@ -32,10 +32,14 @@
       ],
       "experiment_purpose": "evidence",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "machine_affinity": "any",
-      "notes": "3-condition (RAW_ACCUM, SURPRISE_PE, COMBINED) x 3 seeds. Tests Chen 2023 claim: AIC encodes PE not raw state. C1: surprise urgency_corr > raw urgency_corr. C2: surprise stream_corr < raw stream_corr."
+      "notes": "3-condition (RAW_ACCUM, SURPRISE_PE, COMBINED) x 3 seeds. Tests Chen 2023 claim: AIC encodes PE not raw state. C1: surprise urgency_corr > raw urgency_corr. C2: surprise stream_corr < raw stream_corr.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-08T21:51:43.428127+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-261",
