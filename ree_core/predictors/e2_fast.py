@@ -51,6 +51,7 @@ class Trajectory:
     actions: torch.Tensor                # [batch, horizon, action_dim]
     world_states: Optional[List[torch.Tensor]] = None  # z_world: for SD-003 attribution
     action_objects: Optional[List[torch.Tensor]] = None  # o_t: for HippocampalModule
+    is_reverse: bool = False             # MECH-165: True when trajectory is reverse-replayed
 
     @property
     def total_length(self) -> int:

@@ -169,6 +169,13 @@ class E1Config:
     sd016_enabled: bool = False
     action_object_dim: int = 16    # must match E2Config.action_object_dim
 
+    # MECH-216: E1 predictive wanting (schema readout head).
+    # When enabled, a Linear(hidden_dim, 1)+Sigmoid head reads E1's LSTM hidden state
+    # and produces a scalar schema_salience in [0, 1]. High salience at positions where
+    # E1's internal schemas predict resource proximity seeds VALENCE_WANTING before
+    # direct resource contact (Pavlovian conditioned wanting, Zhang/Berridge 2009).
+    schema_wanting_enabled: bool = False
+
 
 @dataclass
 class E2Config:
@@ -429,6 +436,13 @@ class REEConfig:
     random_replay_fraction: float = 0.2      # fraction using random action rollout
     exploration_buffer_len: int = 50         # max stored exploration trajectories (FIFO)
 
+    # MECH-216: E1 predictive wanting (schema readout).
+    # schema_wanting_threshold: minimum schema_salience to seed VALENCE_WANTING.
+    # schema_wanting_gain: multiplier on schema_salience * drive_level -> wanting value.
+    # Master switch is E1Config.schema_wanting_enabled (default False).
+    schema_wanting_threshold: float = 0.3
+    schema_wanting_gain: float = 0.5
+
     @classmethod
     def from_dims(
         cls,
@@ -494,6 +508,10 @@ class REEConfig:
         exploration_buffer_len: int = 50,
         # VALENCE_WANTING gradient in trajectory scoring
         wanting_weight: float = 0.0,
+        # MECH-216: E1 predictive wanting (schema readout)
+        schema_wanting_enabled: bool = False,
+        schema_wanting_threshold: float = 0.3,
+        schema_wanting_gain: float = 0.5,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -541,6 +559,7 @@ class REEConfig:
         config.e1.latent_dim = self_dim + world_dim
         config.e1.sd016_enabled = sd016_enabled
         config.e1.action_object_dim = action_object_dim
+        config.e1.schema_wanting_enabled = schema_wanting_enabled
 
         # E2
         config.e2.self_dim = self_dim
@@ -619,6 +638,10 @@ class REEConfig:
         config.reverse_replay_fraction = reverse_replay_fraction
         config.random_replay_fraction = random_replay_fraction
         config.exploration_buffer_len = exploration_buffer_len
+
+        # MECH-216: E1 predictive wanting
+        config.schema_wanting_threshold = schema_wanting_threshold
+        config.schema_wanting_gain = schema_wanting_gain
 
         return config
 

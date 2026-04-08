@@ -139,6 +139,17 @@ class E1DeepPredictor(nn.Module):
         else:
             self.goal_input_proj = None
 
+        # MECH-216: E1 predictive wanting (schema readout head).
+        # Linear(hidden_dim, 1) + Sigmoid on LSTM top-layer hidden state -> schema_salience [0,1].
+        # High salience at resource-proximal positions seeds VALENCE_WANTING before contact.
+        self._schema_wanting_enabled = getattr(config, 'schema_wanting_enabled', False)
+        if self._schema_wanting_enabled:
+            self.schema_readout_head = nn.Sequential(
+                nn.Linear(self.config.hidden_dim, 1),
+                nn.Sigmoid(),
+            )
+        self._last_schema_salience: Optional[torch.Tensor] = None
+
         # SD-016: frontal cue-indexed integration (MECH-150/151/152, ARC-041).
         # Three new projections gated by sd016_enabled for backward compatibility.
         # world_query_proj: projects z_world -> memory_dim for z_world-only query
@@ -208,6 +219,14 @@ class E1DeepPredictor(nn.Module):
             input_state = predicted.unsqueeze(1)
 
         self._hidden_state = (hidden[0].detach(), hidden[1].detach())
+
+        # MECH-216: extract schema salience from LSTM top-layer hidden state.
+        if self._schema_wanting_enabled:
+            h_top = hidden[0][-1]  # [batch, hidden_dim] — top layer
+            self._last_schema_salience = self.schema_readout_head(h_top)  # [batch, 1]
+        else:
+            self._last_schema_salience = None
+
         return torch.stack(predictions, dim=1)  # [batch, horizon, total_dim]
 
     def generate_prior(self, current_state: torch.Tensor) -> torch.Tensor:
@@ -271,6 +290,24 @@ class E1DeepPredictor(nn.Module):
         action_bias    = self.cue_action_proj(cue_context)                    # [batch, action_object_dim]
         terrain_weight = torch.sigmoid(self.cue_terrain_proj(cue_context))    # [batch, 2] in (0,1)
         return action_bias, terrain_weight
+
+    def get_schema_salience(self) -> Optional[torch.Tensor]:
+        """MECH-216: return last schema salience [batch, 1] or None."""
+        return self._last_schema_salience
+
+    def compute_schema_readout_loss(
+        self, resource_proximity_target: torch.Tensor
+    ) -> torch.Tensor:
+        """MECH-216: MSE loss between schema_salience and resource proximity target.
+
+        Args:
+            resource_proximity_target: [batch, 1] float in [0, 1].
+        Returns:
+            Scalar MSE loss (0.0 if schema wanting disabled or no salience).
+        """
+        if not self._schema_wanting_enabled or self._last_schema_salience is None:
+            return torch.tensor(0.0, device=resource_proximity_target.device)
+        return F.mse_loss(self._last_schema_salience, resource_proximity_target)
 
     def split_prediction(
         self, prediction: torch.Tensor

@@ -30,6 +30,7 @@ MECH-092 (replay):
 """
 
 from typing import List, Optional
+import random
 
 import torch
 import torch.nn as nn
@@ -91,6 +92,12 @@ class HippocampalModule(nn.Module):
 
         # ARC-028 / MECH-105: last completion signal cache
         self._last_completion_signal: float = 0.0
+
+        # MECH-165: exploration trajectory buffer for diverse replay
+        self._exploration_buffer: List[Trajectory] = []
+        self._exploration_buffer_maxlen: int = getattr(config, "exploration_buffer_len", 50)
+        self._reverse_fraction: float = getattr(config, "reverse_replay_fraction", 0.3)
+        self._random_fraction: float = getattr(config, "random_replay_fraction", 0.2)
 
     def _get_terrain_action_object_mean(
         self,
@@ -377,6 +384,111 @@ class HippocampalModule(nn.Module):
                     best_idx = t
 
         return theta_buffer_recent[best_idx]
+
+    # ------------------------------------------------------------------ #
+    # MECH-165: Reverse replay diversity scheduler                         #
+    # ------------------------------------------------------------------ #
+
+    def record_exploration_trajectory(self, trajectory: Trajectory) -> None:
+        """MECH-165: record a waking exploration trajectory for replay source material.
+
+        Detaches all tensors to avoid holding computation graphs in the buffer.
+        FIFO eviction when buffer exceeds exploration_buffer_maxlen.
+        """
+        detached_states = [s.detach() for s in trajectory.states]
+        detached_actions = trajectory.actions.detach()
+        detached_world = None
+        if trajectory.world_states is not None:
+            detached_world = [w.detach() for w in trajectory.world_states]
+        detached_ao = None
+        if trajectory.action_objects is not None:
+            detached_ao = [ao.detach() for ao in trajectory.action_objects]
+        detached = Trajectory(
+            states=detached_states,
+            actions=detached_actions,
+            world_states=detached_world,
+            action_objects=detached_ao,
+            is_reverse=False,
+        )
+        self._exploration_buffer.append(detached)
+        if len(self._exploration_buffer) > self._exploration_buffer_maxlen:
+            self._exploration_buffer.pop(0)  # FIFO eviction
+
+    def reverse_replay(self, trajectory: Trajectory) -> Trajectory:
+        """MECH-165: replay stored trajectory in reverse temporal order.
+
+        Reverses the state and world_state sequences; flips action tensor along
+        the time dimension. Marks the returned trajectory with is_reverse=True.
+        No new E2 rollout is performed -- this is a pure temporal reversal.
+        """
+        reversed_states = list(reversed(trajectory.states))
+        reversed_actions = trajectory.actions.flip(1)  # flip time dim
+        reversed_world = (
+            list(reversed(trajectory.world_states))
+            if trajectory.world_states is not None
+            else None
+        )
+        reversed_ao = (
+            list(reversed(trajectory.action_objects))
+            if trajectory.action_objects is not None
+            else None
+        )
+        return Trajectory(
+            states=reversed_states,
+            actions=reversed_actions,
+            world_states=reversed_world,
+            action_objects=reversed_ao,
+            is_reverse=True,
+        )
+
+    def diverse_replay(
+        self,
+        theta_buffer_recent: torch.Tensor,
+        num_replay_steps: int = 5,
+        drive_state: Optional[torch.Tensor] = None,
+        mode: str = "auto",
+    ) -> List[Trajectory]:
+        """MECH-165: diversity-scheduled replay.
+
+        Modes:
+          "forward"  -- existing replay() behavior (random rollout from buffer)
+          "reverse"  -- pick stored traj from exploration_buffer, replay in reverse
+          "random"   -- existing replay() (same as forward in current impl)
+          "auto"     -- sample mode probabilistically per config fractions
+
+        Args:
+            theta_buffer_recent: [T, batch, world_dim]
+            num_replay_steps: number of replay trajectories to generate
+            drive_state: optional [4] drive weights (MECH-203)
+            mode: replay mode selection
+
+        Returns:
+            List of Trajectory objects
+        """
+        trajectories: List[Trajectory] = []
+        for _ in range(num_replay_steps):
+            step_mode = mode
+            if step_mode == "auto":
+                r = random.random()
+                has_buffer = len(self._exploration_buffer) > 0
+                if r < self._reverse_fraction and has_buffer:
+                    step_mode = "reverse"
+                elif r < self._reverse_fraction + self._random_fraction:
+                    step_mode = "random"
+                else:
+                    step_mode = "forward"
+
+            if step_mode == "reverse" and len(self._exploration_buffer) > 0:
+                source = random.choice(self._exploration_buffer)
+                trajectories.append(self.reverse_replay(source))
+            else:
+                # forward or random: delegate to existing replay()
+                step_trajs = self.replay(
+                    theta_buffer_recent, num_replay_steps=1,
+                    drive_state=drive_state,
+                )
+                trajectories.extend(step_trajs)
+        return trajectories
 
     def compute_completion_signal(self, trajectories: List[Trajectory]) -> float:
         """

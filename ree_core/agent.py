@@ -155,6 +155,9 @@ class REEAgent(nn.Module):
 
         self.device = torch.device(config.device)
 
+        # MECH-216: cached schema salience from E1 readout head
+        self._schema_salience: Optional[torch.Tensor] = None
+
         # MECH-205: surprise-gated replay PE tracking
         self._pe_ema: float = 0.0  # EMA of prediction error magnitude
         self._pe_ema_alpha: float = config.pe_ema_alpha  # from config (default 0.02)
@@ -390,6 +393,10 @@ class REEAgent(nn.Module):
 
         # MECH-093: update E3 rate from z_beta magnitude
         self.clock.update_e3_rate_from_beta(latent_state.z_beta)
+
+        # MECH-216: cache schema salience from E1 readout head.
+        schema_sal = self.e1.get_schema_salience()
+        self._schema_salience = schema_sal.detach() if schema_sal is not None else None
 
         # SD-016 (MECH-150/151/152): frontal cue-indexed integration.
         # Extract action_bias and terrain_weight from z_world-only ContextMemory query.
@@ -1043,6 +1050,38 @@ class REEAgent(nn.Module):
         else:
             energy = float(obs_body[3])
         return max(0.0, 1.0 - energy)
+
+    def update_schema_wanting(self, drive_level: float = 1.0) -> None:
+        """MECH-216: seed VALENCE_WANTING from E1 schema salience.
+
+        Zhang/Berridge: W_m = kappa (drive_level) x V_hat (schema_salience).
+        Only writes when schema_salience >= threshold and schema_wanting is enabled.
+        """
+        if self._schema_salience is None or self._current_latent is None:
+            return
+        if not getattr(self.config.e1, 'schema_wanting_enabled', False):
+            return
+        sal_val = float(self._schema_salience.squeeze())
+        threshold = getattr(self.config, 'schema_wanting_threshold', 0.3)
+        if sal_val < threshold:
+            return
+        gain = getattr(self.config, 'schema_wanting_gain', 0.5)
+        wanting_value = sal_val * gain * max(drive_level, 0.1)
+        z_world = self._current_latent.z_world
+        if hasattr(self.residue_field, 'update_valence'):
+            self.residue_field.update_valence(
+                z_world, component=VALENCE_WANTING,
+                value=wanting_value, hypothesis_tag=False,
+            )
+
+    def compute_schema_readout_loss(
+        self, resource_proximity_target: float
+    ) -> torch.Tensor:
+        """MECH-216: passthrough to E1.compute_schema_readout_loss."""
+        if not getattr(self.config.e1, 'schema_wanting_enabled', False):
+            return torch.tensor(0.0)
+        target = torch.tensor([[resource_proximity_target]], dtype=torch.float32)
+        return self.e1.compute_schema_readout_loss(target)
 
     def compute_goal_maintenance_diagnostic(self) -> dict:
         """Goal state metrics for MECH-116 (EXQ-076 criterion C1)."""
