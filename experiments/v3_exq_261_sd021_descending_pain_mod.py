@@ -20,18 +20,12 @@ Design
   WITH_DESCENDING: z_harm_s contribution to ethical cost attenuated by
                    alpha_descending when E3 is committed
 
-Implementation: during E3 commitment, multiply z_harm_s-based harm_eval scores
-by alpha_descending (0.3) for the PREDICTED component. z_harm_a is NOT attenuated.
-
-Env: Goal-through-hazard layout -- resource placed behind a hazard barrier.
-Agent must cross hazard to reach resource. Without descending modulation, the
-harm cost dominates and the agent avoids the hazard (never reaches resource).
-With descending modulation, committed traversal attenuates the expected harm
-component, enabling goal completion.
+Implementation: during E3 commitment, multiply z_harm_s by alpha_descending
+(0.3) for E3 harm evaluation. z_harm_a is NOT attenuated.
 
 Each condition:
-  Phase 0 (P0): 150 episodes training (full agent + E2_harm_s forward model)
-  Phase 1 (P1): 50 episodes evaluation
+  Phase 0 (P0): 150 episodes training (full agent)
+  Phase 1 (P1): 50 episodes evaluation with E3 action selection
 
 Success criteria (>= 2/3 seeds):
   C1: resource_rate(WITH) > resource_rate(NO) + 0.05
@@ -45,23 +39,22 @@ PASS: C1 AND C2 (>= 2/3 seeds). C3 is informational.
 FAIL: either C1 or C2 not met.
 
 Seeds: [42, 7, 13]
-Env: CausalGridWorldV2 size=8, hazard_barrier layout, 2 hazards, 3 resources
+Env: CausalGridWorldV2 size=8, 2 hazards, 3 resources
 Est: ~60 min (DLAPTOP-4.local) -- 3 seeds x 2 conditions x 200 eps x 150 steps
 """
 
 import sys
 import json
-import math
+import random
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import torch
-import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
+import torch.optim as optim
 
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
@@ -85,12 +78,12 @@ SEED_PASS_QUOTA      = 2
 # Architecture
 # ---------------------------------------------------------------------------
 BODY_OBS_DIM   = 12
-WORLD_OBS_DIM  = 50
+WORLD_OBS_DIM  = 250
 HARM_OBS_DIM   = 51
 WORLD_DIM      = 32
 Z_HARM_DIM     = 32
 Z_HARM_A_DIM   = 16
-ACTION_DIM     = 4
+ACTION_DIM     = 5   # CausalGridWorld has 5 actions (0-4)
 HARM_HISTORY_LEN = 10
 GRID_SIZE      = 8
 NUM_HAZARDS    = 2
@@ -108,13 +101,14 @@ STEPS_PER_EP   = 150
 def run_condition(seed: int, condition: str) -> Dict:
     """Run one seed x condition pair."""
     torch.manual_seed(seed)
+    random.seed(seed)
 
     config = REEConfig.from_dims(
         body_obs_dim=BODY_OBS_DIM,
         world_obs_dim=WORLD_OBS_DIM,
         harm_obs_dim=HARM_OBS_DIM,
         world_dim=WORLD_DIM,
-        action_dim=ACTION_DIM,
+        action_dim=ACTION_DIM - 1,
         z_harm_dim=Z_HARM_DIM,
         z_harm_a_dim=Z_HARM_A_DIM,
         alpha_world=0.9,
@@ -128,7 +122,7 @@ def run_condition(seed: int, condition: str) -> Dict:
 
     agent = REEAgent(config)
     env = CausalGridWorldV2(
-        grid_size=GRID_SIZE,
+        size=GRID_SIZE,
         num_hazards=NUM_HAZARDS,
         num_resources=NUM_RESOURCES,
         hazard_harm=HAZARD_HARM,
@@ -140,84 +134,101 @@ def run_condition(seed: int, condition: str) -> Dict:
     agent_opt = optim.Adam(agent.parameters(), lr=1e-3)
 
     # Evaluation counters
-    eval_resource_hits = 0
-    eval_harm_hits = 0
+    eval_resource_steps = 0
+    eval_harm_steps = 0
     eval_committed_traversals = 0
-    eval_steps = 0
+    eval_total_steps = 0
     total_episodes = P0_EPISODES + P1_EPISODES
 
     for ep in range(total_episodes):
-        obs = env.reset()
-        agent.reset_episode()
+        _flat_obs, obs_dict = env.reset()
+        agent.reset()
         episode_harm_accum = 0.0
-        was_committed = False
         traversed_while_committed = False
 
         for step in range(STEPS_PER_EP):
-            obs_body = torch.tensor(obs["body_obs"], dtype=torch.float32).unsqueeze(0)
-            obs_world = torch.tensor(obs["world_obs"], dtype=torch.float32).unsqueeze(0)
-            obs_harm = torch.tensor(obs["harm_obs"], dtype=torch.float32).unsqueeze(0)
-            obs_harm_a = torch.tensor(obs["harm_obs_a"], dtype=torch.float32).unsqueeze(0)
-            obs_harm_hist = None
-            if "harm_history" in obs and obs["harm_history"] is not None:
-                obs_harm_hist = torch.tensor(obs["harm_history"], dtype=torch.float32).unsqueeze(0)
+            obs_body = obs_dict["body_state"]
+            obs_world = obs_dict["world_state"]
+            obs_harm = obs_dict.get("harm_obs")
+            obs_harm_a = obs_dict.get("harm_obs_a")
+            obs_harm_hist = obs_dict.get("harm_history")
 
-            agent.sense(
-                obs_body=obs_body, obs_world=obs_world,
-                obs_harm=obs_harm, obs_harm_a=obs_harm_a,
+            latent = agent.sense(
+                obs_body, obs_world,
+                obs_harm=obs_harm,
+                obs_harm_a=obs_harm_a,
                 obs_harm_history=obs_harm_hist,
             )
 
-            # SD-021: Apply descending modulation during commitment
-            # Attenuate z_harm_s contribution before E3 scoring
-            if condition == "WITH_DESCENDING" and agent.e3._committed_trajectory is not None:
-                latent = agent._current_latent
-                if latent is not None and latent.z_harm is not None:
-                    # Scale z_harm (sensory) by alpha_descending during commitment
-                    # This simulates descending pain modulation: predicted harm is attenuated
-                    latent.z_harm = latent.z_harm * ALPHA_DESCENDING
-                    # z_harm_a is NOT attenuated (affective load persists)
+            # SD-021: Apply descending modulation during E3 commitment
+            is_committed = agent.e3._committed_trajectory is not None
+            if condition == "WITH_DESCENDING" and is_committed:
+                # Scale z_harm (sensory) by alpha_descending during commitment
+                # z_harm_a is NOT attenuated (affective load persists)
+                if agent._current_latent is not None and agent._current_latent.z_harm is not None:
+                    agent._current_latent.z_harm = (
+                        agent._current_latent.z_harm * ALPHA_DESCENDING
+                    )
 
-            result = agent.select_action()
-            action_idx = result.selected_action.argmax(-1).item()
+            # Action selection: full E3 loop during eval, random during training
+            if ep >= P0_EPISODES:
+                # Full E3 action selection
+                ticks = agent.clock.advance()
+                e1_prior = torch.zeros(1, WORLD_DIM)
+                if ticks.get("e1_tick", False):
+                    try:
+                        e1_prior = agent._e1_tick(latent)
+                    except Exception:
+                        pass
+                candidates = agent.generate_trajectories(
+                    latent_state=latent, e1_prior=e1_prior, ticks=ticks,
+                )
+                action_t = agent.select_action(
+                    candidates=candidates, ticks=ticks,
+                )
+                action_idx = action_t.argmax(-1).item()
+            else:
+                # Random exploration during training
+                action_idx = random.randint(0, ACTION_DIM - 1)
 
-            current_harm = float(obs.get("harm_exposure", 0.0))
-            episode_harm_accum += current_harm
+            # Track harm from obs_dict
+            current_accum = float(obs_dict.get("accumulated_harm", 0.0))
+            step_harm = max(current_accum - episode_harm_accum, 0.0)
+            episode_harm_accum = current_accum
 
             # Track commitment through hazards
-            is_committed = agent.e3._committed_trajectory is not None
-            if is_committed and current_harm > 0.01:
+            if is_committed and step_harm > 0.01:
                 traversed_while_committed = True
 
             # Training
             if ep < P0_EPISODES:
-                agent_opt.zero_grad()
-                latent = agent._current_latent
                 if latent is not None and latent.harm_accum_pred is not None:
                     target_val = episode_harm_accum / max(step + 1, 1)
                     loss = agent.compute_harm_accum_loss(target_val, latent)
                     if loss.requires_grad:
+                        agent_opt.zero_grad()
                         loss.backward()
                         agent_opt.step()
 
             # Evaluation phase
             if ep >= P0_EPISODES:
-                eval_steps += 1
-                if current_harm > 0.01:
-                    eval_harm_hits += 1
-                benefit = float(obs.get("benefit_exposure", 0.0))
-                if benefit > 0.01:
-                    eval_resource_hits += 1
+                eval_total_steps += 1
+                if step_harm > 0.01:
+                    eval_harm_steps += 1
+                # Check benefit from env info
+                benefit = float(obs_dict.get("resource_field_view", torch.zeros(1)).max().item())
+                if benefit > 0.5:  # close to a resource
+                    eval_resource_steps += 1
 
-            obs, _, done, info = env.step(action_idx)
+            _flat_obs, _harm_signal, done, _info, obs_dict = env.step(action_idx)
             if done:
                 break
 
         if ep >= P0_EPISODES and traversed_while_committed:
             eval_committed_traversals += 1
 
-    resource_rate = eval_resource_hits / max(eval_steps, 1)
-    harm_rate = eval_harm_hits / max(eval_steps, 1)
+    resource_rate = eval_resource_steps / max(eval_total_steps, 1)
+    harm_rate = eval_harm_steps / max(eval_total_steps, 1)
 
     return {
         "seed": seed,
@@ -239,8 +250,10 @@ def main():
         for cond in CONDITIONS:
             print(f"  seed={seed} condition={cond} ...", end=" ", flush=True)
             r = run_condition(seed, cond)
-            print(f"resource={r['resource_rate']:.3f} harm={r['harm_rate']:.3f} "
-                  f"committed_trav={r['committed_traversals']}")
+            print(
+                f"resource={r['resource_rate']:.3f} harm={r['harm_rate']:.3f} "
+                f"committed_trav={r['committed_traversals']}"
+            )
             all_results.append(r)
 
     # Per-seed criteria
@@ -296,7 +309,10 @@ def main():
         },
     }
 
-    out_dir = Path(__file__).resolve().parents[1].parent / "REE_assembly" / "evidence" / "experiments"
+    out_dir = (
+        Path(__file__).resolve().parents[1].parent
+        / "REE_assembly" / "evidence" / "experiments"
+    )
     out_file = out_dir / f"{run_id}.json"
     out_file.parent.mkdir(parents=True, exist_ok=True)
     with open(out_file, "w") as f:

@@ -49,7 +49,7 @@ Est: ~90 min (DLAPTOP-4.local) -- 3 seeds x 3 conditions x 180 eps x 150 steps
 
 import sys
 import json
-import math
+import random
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List
@@ -82,12 +82,12 @@ SEED_PASS_QUOTA     = 2
 # Architecture
 # ---------------------------------------------------------------------------
 BODY_OBS_DIM   = 12
-WORLD_OBS_DIM  = 50
+WORLD_OBS_DIM  = 250
 HARM_OBS_DIM   = 51
 WORLD_DIM      = 32
 Z_HARM_DIM     = 32
 Z_HARM_A_DIM   = 16
-ACTION_DIM     = 4
+ACTION_DIM     = 5   # CausalGridWorld has 5 actions (0-4)
 HARM_HISTORY_LEN = 10
 GRID_SIZE      = 10
 NUM_HAZARDS    = 3
@@ -103,7 +103,7 @@ STEPS_PER_EP   = 150
 
 class ForwardProbe(nn.Module):
     """MLP probe: (z_harm_s, action) -> z_harm_s_next."""
-    def __init__(self, z_dim: int = 32, action_dim: int = 4):
+    def __init__(self, z_dim: int = 32, action_dim: int = 5):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(z_dim + action_dim, 64),
@@ -129,13 +129,14 @@ class HubGate(nn.Module):
 def run_condition(seed: int, condition: str) -> Dict:
     """Run one seed x condition pair."""
     torch.manual_seed(seed)
+    random.seed(seed)
 
     config = REEConfig.from_dims(
         body_obs_dim=BODY_OBS_DIM,
         world_obs_dim=WORLD_OBS_DIM,
         harm_obs_dim=HARM_OBS_DIM,
         world_dim=WORLD_DIM,
-        action_dim=ACTION_DIM,
+        action_dim=ACTION_DIM - 1,
         z_harm_dim=Z_HARM_DIM,
         z_harm_a_dim=Z_HARM_A_DIM,
         alpha_world=0.9,
@@ -147,7 +148,7 @@ def run_condition(seed: int, condition: str) -> Dict:
 
     agent = REEAgent(config)
     env = CausalGridWorldV2(
-        grid_size=GRID_SIZE,
+        size=GRID_SIZE,
         num_hazards=NUM_HAZARDS,
         num_resources=NUM_RESOURCES,
         hazard_harm=HAZARD_HARM,
@@ -164,12 +165,12 @@ def run_condition(seed: int, condition: str) -> Dict:
     fwd_probe = ForwardProbe(Z_HARM_DIM, ACTION_DIM)
     fwd_opt = optim.Adam(fwd_probe.parameters(), lr=1e-3)
 
-    all_params = list(agent.parameters())
+    all_params = list(agent.latent_stack.parameters())
     if s_to_a_hub is not None:
         all_params += list(s_to_a_hub.parameters())
     if bidi_gain is not None:
         all_params += [bidi_gain]
-    agent_opt = optim.Adam(all_params, lr=1e-3)
+    agent_opt = optim.Adam(all_params, lr=1e-4)
 
     # Evaluation storage
     fwd_r2_scores: List[float] = []
@@ -178,38 +179,42 @@ def run_condition(seed: int, condition: str) -> Dict:
 
     total_episodes = P0_EPISODES + P1_EPISODES
     prev_z_harm_s = None
-    prev_action = None
+    prev_action_oh = None
 
     for ep in range(total_episodes):
-        obs = env.reset()
-        agent.reset_episode()
+        _flat_obs, obs_dict = env.reset()
+        agent.reset()
         prev_z_harm_s = None
-        prev_action = None
+        prev_action_oh = None
 
-        ep_z_harm_s = []
-        ep_z_harm_a = []
-        ep_urgency = []
-        ep_fwd_preds = []
-        ep_fwd_targets = []
+        ep_z_harm_s: List[torch.Tensor] = []
+        ep_z_harm_a: List[torch.Tensor] = []
+        ep_urgency: List[float] = []
+        ep_fwd_preds: List[torch.Tensor] = []
+        ep_fwd_targets: List[torch.Tensor] = []
 
         for step in range(STEPS_PER_EP):
-            obs_body = torch.tensor(obs["body_obs"], dtype=torch.float32).unsqueeze(0)
-            obs_world = torch.tensor(obs["world_obs"], dtype=torch.float32).unsqueeze(0)
-            obs_harm = torch.tensor(obs["harm_obs"], dtype=torch.float32).unsqueeze(0)
-            obs_harm_a = torch.tensor(obs["harm_obs_a"], dtype=torch.float32).unsqueeze(0)
-            obs_harm_hist = None
-            if "harm_history" in obs and obs["harm_history"] is not None:
-                obs_harm_hist = torch.tensor(obs["harm_history"], dtype=torch.float32).unsqueeze(0)
+            obs_body = obs_dict["body_state"]
+            obs_world = obs_dict["world_state"]
+            obs_harm = obs_dict.get("harm_obs")
+            obs_harm_a = obs_dict.get("harm_obs_a")
+            obs_harm_hist = obs_dict.get("harm_history")
 
-            agent.sense(
-                obs_body=obs_body, obs_world=obs_world,
-                obs_harm=obs_harm, obs_harm_a=obs_harm_a,
+            latent = agent.sense(
+                obs_body, obs_world,
+                obs_harm=obs_harm,
+                obs_harm_a=obs_harm_a,
                 obs_harm_history=obs_harm_hist,
             )
 
-            latent = agent._current_latent
-            z_s = latent.z_harm.detach() if latent is not None and latent.z_harm is not None else None
-            z_a = latent.z_harm_a.detach() if latent is not None and latent.z_harm_a is not None else None
+            z_s = agent._current_latent.z_harm.detach() if (
+                agent._current_latent is not None
+                and agent._current_latent.z_harm is not None
+            ) else None
+            z_a = agent._current_latent.z_harm_a.detach() if (
+                agent._current_latent is not None
+                and agent._current_latent.z_harm_a is not None
+            ) else None
 
             # Apply hub gating
             if z_s is not None and z_a is not None:
@@ -217,51 +222,63 @@ def run_condition(seed: int, condition: str) -> Dict:
                     # S -> A: affective stream gets sensory norm as context
                     s_norm = z_s.norm(dim=-1, keepdim=True)
                     z_a_hubbed = s_to_a_hub(z_a, s_norm)
-                    # Write back (for E3 urgency calculation)
-                    if latent is not None:
-                        latent.z_harm_a = z_a_hubbed
+                    if agent._current_latent is not None:
+                        agent._current_latent.z_harm_a = z_a_hubbed
 
-                if bidi_gain is not None and z_a is not None:
+                if bidi_gain is not None:
                     # A -> S: sensory stream modulated by affective urgency
                     a_norm = z_a.norm(dim=-1, keepdim=True)
                     z_s_modulated = z_s * (1.0 + bidi_gain * a_norm)
-                    if latent is not None:
-                        latent.z_harm = z_s_modulated
+                    if agent._current_latent is not None:
+                        agent._current_latent.z_harm = z_s_modulated
                     z_s = z_s_modulated.detach()
 
-            result = agent.select_action()
-            action_idx = result.selected_action.argmax(-1).item()
-            action_onehot = result.selected_action.detach()
+            # Random action
+            action_idx = random.randint(0, ACTION_DIM - 1)
+            action_onehot = F.one_hot(
+                torch.tensor([action_idx]), ACTION_DIM
+            ).float()
 
-            # Forward probe training
-            if ep < P0_EPISODES and prev_z_harm_s is not None and prev_action is not None and z_s is not None:
+            # Forward probe training (P0)
+            if ep < P0_EPISODES and prev_z_harm_s is not None and prev_action_oh is not None and z_s is not None:
                 fwd_opt.zero_grad()
-                pred = fwd_probe(prev_z_harm_s, prev_action)
+                pred = fwd_probe(prev_z_harm_s, prev_action_oh)
                 target = z_s.detach()
                 fwd_loss = F.mse_loss(pred, target)
                 fwd_loss.backward()
                 fwd_opt.step()
 
-            # Evaluation
+            # Train encoding + hub
+            if ep < P0_EPISODES:
+                if latent is not None and latent.harm_accum_pred is not None:
+                    accum_target = float(obs_dict.get("accumulated_harm", 0.0)) / max(step + 1, 1)
+                    loss = agent.compute_harm_accum_loss(accum_target, latent)
+                    if loss.requires_grad:
+                        agent_opt.zero_grad()
+                        loss.backward()
+                        agent_opt.step()
+
+            # Evaluation (P1)
             if ep >= P0_EPISODES and z_s is not None and z_a is not None:
                 ep_z_harm_s.append(z_s.squeeze())
                 ep_z_harm_a.append(z_a.squeeze() if z_a.dim() > 0 else z_a)
-                ep_urgency.append(result.urgency)
+                # Urgency = z_harm_a norm
+                ep_urgency.append(float(z_a.norm().item()))
 
-                if prev_z_harm_s is not None and prev_action is not None:
+                if prev_z_harm_s is not None and prev_action_oh is not None:
                     with torch.no_grad():
-                        pred = fwd_probe(prev_z_harm_s, prev_action)
+                        pred = fwd_probe(prev_z_harm_s, prev_action_oh)
                         ep_fwd_preds.append(pred.squeeze())
                         ep_fwd_targets.append(z_s.squeeze())
 
             prev_z_harm_s = z_s
-            prev_action = action_onehot
+            prev_action_oh = action_onehot
 
-            obs, _, done, info = env.step(action_idx)
+            _flat_obs, _harm_signal, done, _info, obs_dict = env.step(action_idx)
             if done:
                 break
 
-        # End-of-episode metrics
+        # End-of-episode metrics (P1)
         if ep >= P0_EPISODES:
             if len(ep_z_harm_s) > 10 and len(ep_z_harm_a) > 10:
                 zs = torch.stack(ep_z_harm_s)
@@ -308,8 +325,10 @@ def main():
         for cond in CONDITIONS:
             print(f"  seed={seed} condition={cond} ...", end=" ", flush=True)
             r = run_condition(seed, cond)
-            print(f"fwd_r2={r['mean_fwd_r2']:.3f} stream_corr={r['mean_stream_corr']:.3f} "
-                  f"urg_std={r['mean_urgency_std']:.4f}")
+            print(
+                f"fwd_r2={r['mean_fwd_r2']:.3f} stream_corr={r['mean_stream_corr']:.3f} "
+                f"urg_std={r['mean_urgency_std']:.4f}"
+            )
             all_results.append(r)
 
     # Per-seed criteria
@@ -345,7 +364,9 @@ def main():
         },
         "criteria": {
             "C1_fwd_r2_improvement": {"pass": c1_pass, "seeds_passing": c1_count},
-            "C2_stream_distinctness": {"pass": c2_pass, "seeds_passing": c2_count, "ceiling": STREAM_CORR_CEILING},
+            "C2_stream_distinctness": {
+                "pass": c2_pass, "seeds_passing": c2_count, "ceiling": STREAM_CORR_CEILING,
+            },
             "C3_urgency_stability": {"informational": True, "seeds_passing": c3_count},
         },
         "per_seed_results": all_results,
@@ -356,7 +377,10 @@ def main():
         },
     }
 
-    out_dir = Path(__file__).resolve().parents[1].parent / "REE_assembly" / "evidence" / "experiments"
+    out_dir = (
+        Path(__file__).resolve().parents[1].parent
+        / "REE_assembly" / "evidence" / "experiments"
+    )
     out_file = out_dir / f"{run_id}.json"
     out_file.parent.mkdir(parents=True, exist_ok=True)
     with open(out_file, "w") as f:
