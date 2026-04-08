@@ -32,11 +32,15 @@
       ],
       "experiment_purpose": "evidence",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "machine_affinity": "any",
       "supersedes": "V3-EXQ-260a",
-      "notes": "3-condition (RAW_ACCUM, SURPRISE_PE, COMBINED) x 3 seeds. Fix: grid_size->size, WORLD_OBS_DIM 50->250, correct env/agent API."
+      "notes": "3-condition (RAW_ACCUM, SURPRISE_PE, COMBINED) x 3 seeds. Fix: grid_size->size, WORLD_OBS_DIM 50->250, correct env/agent API.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-08T23:11:24.168346+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-261b",
