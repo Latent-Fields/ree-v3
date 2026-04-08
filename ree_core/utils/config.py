@@ -285,6 +285,11 @@ class HippocampalConfig:
     num_candidates: int = 32
     num_cem_iterations: int = 3
     elite_fraction: float = 0.2
+    # VALENCE_WANTING gradient: when > 0, trajectories toward high-wanting
+    # (resource-proximal) regions score better during CEM selection.
+    # Subtracted from terrain score (lower score = better in CEM).
+    # Default 0.0 (backward compat). Set ~0.3-0.5 for goal-directed navigation.
+    wanting_weight: float = 0.0
 
 
 @dataclass
@@ -443,6 +448,8 @@ class REEConfig:
         tonic_5ht_enabled: bool = False,
         # MECH-205: surprise-gated replay
         surprise_gated_replay: bool = False,
+        # VALENCE_WANTING gradient in trajectory scoring
+        wanting_weight: float = 0.0,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -512,6 +519,7 @@ class REEConfig:
         config.hippocampal.action_dim = action_dim
         config.hippocampal.action_object_dim = action_object_dim
         config.hippocampal.horizon = config.e2.rollout_horizon
+        config.hippocampal.wanting_weight = wanting_weight
 
         # Residue
         config.residue.world_dim = world_dim

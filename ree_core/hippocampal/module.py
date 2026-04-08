@@ -36,7 +36,7 @@ import torch.nn as nn
 
 from ree_core.utils.config import HippocampalConfig
 from ree_core.predictors.e2_fast import E2FastPredictor, Trajectory
-from ree_core.residue.field import ResidueField
+from ree_core.residue.field import ResidueField, VALENCE_WANTING
 
 
 class HippocampalModule(nn.Module):
@@ -149,15 +149,35 @@ class HippocampalModule(nn.Module):
         """
         Score a trajectory for CEM elite selection.
 
-        ARC-007 STRICT: scoring is terrain-only (residue field over z_world).
-        No independent harm prediction here — E3 introduces all value weighting.
+        ARC-007 STRICT: primary scoring is terrain-only (residue field over z_world).
+        No independent harm prediction here -- E3 introduces all value weighting.
 
-        Returns a scalar score (lower = better terrain, less residue).
+        VALENCE_WANTING extension (config.wanting_weight > 0):
+        Subtracts the mean VALENCE_WANTING value along the trajectory from the
+        terrain score, biasing CEM selection toward high-wanting (resource-proximal)
+        regions. Subtraction because CEM minimises the score (lower = better).
+        The wanting gradient is the residue field's accumulated VALENCE_WANTING
+        component -- populated by SerotoninModule.update_benefit_salience() during
+        waking steps when tonic_5ht_enabled=True.
+
+        Returns a scalar score (lower = better).
         """
         if trajectory.world_states is not None:
-            world_seq = trajectory.get_world_state_sequence()
+            world_seq = trajectory.get_world_state_sequence()  # [batch, horizon, world_dim]
             if world_seq is not None:
-                return self.residue_field.evaluate_trajectory(world_seq).sum()
+                terrain_score = self.residue_field.evaluate_trajectory(world_seq).sum()
+
+                if self.config.wanting_weight > 0:
+                    # Reshape to [batch*horizon, world_dim] for evaluate_valence
+                    batch, horizon, world_dim = world_seq.shape
+                    flat = world_seq.reshape(batch * horizon, world_dim)
+                    with torch.no_grad():
+                        valence_flat = self.residue_field.evaluate_valence(flat)  # [B*H, 4]
+                    wanting_flat = valence_flat[..., VALENCE_WANTING]  # [B*H]
+                    wanting_score = wanting_flat.mean()
+                    return terrain_score - self.config.wanting_weight * wanting_score
+
+                return terrain_score
 
         # Fallback: residue over z_self states (pre-SD-005 wiring)
         states = trajectory.get_state_sequence()

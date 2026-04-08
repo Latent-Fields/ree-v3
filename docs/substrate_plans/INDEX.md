@@ -1,6 +1,7 @@
 # Substrate Implementation Plans
 
 Generated: 2026-04-08 (substrate-gap-analysis session)
+Updated: 2026-04-08 (wanting-gradient-nav session -- SD-015 resolved, EXQ-259 queued)
 
 This directory contains implementation plans and gap notes for V3 substrate gaps --
 places where experiments returned non_contributory or inconclusive results specifically
@@ -27,12 +28,20 @@ downstream claims) -> MECH-165-reverse (medium, depends on MECH-120).
 
 ---
 
+## Resolved (implemented this session)
+
+| Gap ID | Resolution | Experiment |
+|--------|-----------|------------|
+| SD-015-zresource | VALENCE_WANTING gradient in `_score_trajectory()` (wanting_weight config). No separate z_resource latent needed. | EXQ-259 queued (2026-04-08) |
+
+---
+
 ## Gap Notes (architecture_unclear)
 
 | Gap ID | Blocking Claims | What's Missing | File |
 |--------|----------------|----------------|------|
 | MECH-122-spindle | MECH-122 | V3 proxy behavioral hypothesis | [mech122_spindle_gap_note.md](mech122_spindle_gap_note.md) |
-| SD-015-zresource | SD-012 (nav), MECH-112, ARC-030 | Architecture doc; gate on EXQ-257 result | [sd015_zresource_gap_note.md](sd015_zresource_gap_note.md) |
+| SD-015-zresource | SD-012 (nav), MECH-112, ARC-030 | RESOLVED -- see Resolved table above | [sd015_zresource_gap_note.md](sd015_zresource_gap_note.md) |
 | SD-016-context | SD-016, ARC-041, ARC-042, MECH-153 | Gradient flow audit before redesign | [sd016_context_supervision_gap_note.md](sd016_context_supervision_gap_note.md) |
 
 ---

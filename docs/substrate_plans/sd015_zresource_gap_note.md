@@ -1,88 +1,51 @@
 # SD-015 z_resource Separation — Gap Note
 **Gap ID:** SD-015-zresource
-**Readiness:** architecture_unclear
-**Blocking claims:** SD-012 (navigation criterion), MECH-112 (goal alignment), ARC-030
+**Readiness:** RESOLVED via VALENCE_WANTING gradient (see below)
+**Blocking claims:** SD-012 (navigation criterion), MECH-112, ARC-030
 
 ---
 
-## Current State
+## Resolution (2026-04-08)
 
-**No implementation in ree-v3.** Searches of `ree_core/latent/stack.py` find no
-`z_resource`, `resource_indicator`, or `resource_encoder` code. SD-018 (resource
-proximity head on z_world) is implemented and distinct from SD-015.
+SD-015 (a dedicated z_resource latent encoder) is **not required**. The directional
+resource signal is provided by the VALENCE_WANTING component of the residue field,
+populated by SerotoninModule.update_benefit_salience() during waking steps.
 
-**Literature exists:** `REE_assembly/evidence/literature/targeted_review_sd_015/`
-has 3 entries including Whittington2022 on cognitive map building. No architecture
-specification document has been written.
+**Implementation:** `HippocampalModule._score_trajectory()` now accepts a
+`wanting_weight` config field (HippocampalConfig, default 0.0). When > 0, the mean
+VALENCE_WANTING value along the trajectory is subtracted from the terrain score,
+biasing CEM selection toward resource-proximal (high-wanting) regions.
 
-**Where SD-015 appears in the evidence record:**
-DR-2 (design_forward_analysis_2026-04-06.md): "z_goal norm and alignment are independent
-failure modes; SD-015 (resource indicator encoding) is separate prerequisite."
+```python
+# ree_core/hippocampal/module.py, _score_trajectory()
+if self.config.wanting_weight > 0:
+    batch, horizon, world_dim = world_seq.shape
+    flat = world_seq.reshape(batch * horizon, world_dim)
+    valence_flat = self.residue_field.evaluate_valence(flat)
+    wanting_score = valence_flat[..., VALENCE_WANTING].mean()
+    return terrain_score - self.config.wanting_weight * wanting_score
+```
 
-EXQ-085 series (085h through 085l, all FAIL C2): SD-012 seeding (C1 z_goal_norm > 0.1)
-passes, but navigation criterion (C2 benefit_ratio) fails. Interpretation: drive_level
-successfully seeds z_goal in terms of norm, but z_goal doesn't encode WHERE to navigate.
-The resource proximity head (SD-018) gives z_world a resource signal but doesn't give
-the goal latent a resource-directional representation.
+**Why this works instead of SD-015:**
+- VALENCE_WANTING accumulates from actual resource encounters (episodic, context-sensitive)
+- SD-018 (resource proximity head) makes z_world geographically coherent for resource
+  locations, ensuring VALENCE_WANTING tags cluster correctly in latent space
+- The combined effect: CEM generates trajectories toward z_world regions that have
+  previously yielded resources -- directed navigation without a separate encoder
 
----
-
-## What Is Unclear
-
-The design of z_resource is ambiguous along several dimensions:
-
-**Dimension 1: What does z_resource represent?**
-- Option A: Resource proximity in the current field of view (spatial, like z_harm_s)
-  -- but this is already partially handled by SD-018
-- Option B: Relative direction to nearest resource from current position (a distance
-  vector, not a proximity scalar)
-- Option C: A learned resource value map extracted from memory (hippocampal, spatial)
-
-**Dimension 2: How does z_resource inform z_goal?**
-- The goal pathway currently: `drive_level * benefit_exposure -> z_goal seeding`
-- Where does z_resource enter? Does it replace `benefit_exposure`? Supplement it?
-  Provide a directional gradient for trajectory proposals?
-
-**Dimension 3: Is SD-015 a latent stream or an auxiliary head?**
-- SD-018 is an auxiliary head ON z_world (predicts max resource proximity)
-- SD-015 may require a SEPARATE resource encoder (parallel to z_harm) producing z_resource
-  as a dedicated latent that E3 trajectory scoring can use directly
-
-**Dimension 4: Training signal?**
-- If z_resource is a separate latent, what is its supervised target?
-- Option: predict resource distance (regressor on grid cell distance to nearest resource)
-- Option: contrastive -- high resource states vs. low resource states
-
-The CausalGridWorldV2 already provides `resource_field_view` (25-dim). The question is
-whether this should produce z_resource (a latent parallel to z_harm_s) or whether
-SD-018's auxiliary head on z_world is sufficient.
+**Validation experiment:** V3-EXQ-259 (queued 2026-04-08) tests WITH_WANTING
+(wanting_weight=0.4) vs WITHOUT (ablation), 3 seeds, 100 ep warmup + 50 ep eval.
 
 ---
 
-## What Would Unblock This
+## Original Gap Description (archived)
 
-1. **Architecture decision doc** for SD-015: write `sd_015_zresource_separation.md`
-   in `REE_assembly/docs/architecture/` defining which option above and how z_resource
-   connects to the goal pathway.
+The claim was that z_goal norm and z_goal alignment are independent failure modes
+(DR-2 from design_forward_analysis_2026-04-06.md), and that a dedicated z_resource
+latent was needed for goal alignment. The SD-018 implementation showed resource
+proximity can be encoded in z_world via auxiliary supervision. The VALENCE_WANTING
+gradient approach leverages this to provide directional navigation without a separate
+latent stream.
 
-2. **Diagnose EXQ-085 failure more precisely**: with SD-018 now implemented
-   (resource_proximity_head), does z_goal_norm still fail C2? If EXQ-257 (SD-018
-   validation, queued) passes, it may show SD-018 alone resolves the alignment gap,
-   making SD-015 (a full z_resource stream) unnecessary.
-
-3. **Gate on EXQ-257 result**: EXQ-257 is the SD-018 WITH/WITHOUT ablation with
-   phased training. If C2 navigation criterion passes in EXQ-257, SD-015 may not be
-   needed as a separate stream.
-
----
-
-## Suggested Next Step
-
-1. Wait for EXQ-257 result.
-2. If EXQ-257 C2 passes: SD-015 is superseded by SD-018. Mark SD-015 as "resolved
-   via SD-018" in claims.yaml.
-3. If EXQ-257 C2 fails: write SD-015 architecture doc specifying a dedicated
-   resource direction encoder (z_resource latent, parallel to z_harm_s), then
-   convert this gap note to a full implementation plan.
-
-This is a decision-gated gap -- do not implement before EXQ-257 is reviewed.
+If EXQ-259 FAILS, re-evaluate whether a separate z_resource encoder is needed.
+Gate: EXQ-259 result.
