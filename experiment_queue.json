@@ -32,10 +32,14 @@
       ],
       "experiment_purpose": "evidence",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "machine_affinity": "any",
-      "notes": "2-condition (NO_DESCENDING, WITH_DESCENDING) x 3 seeds. Tests whether commitment-gated z_harm_s attenuation (alpha=0.3) enables goal-directed behavior through hazards without reckless harm-seeking."
+      "notes": "2-condition (NO_DESCENDING, WITH_DESCENDING) x 3 seeds. Tests whether commitment-gated z_harm_s attenuation (alpha=0.3) enables goal-directed behavior through hazards without reckless harm-seeking.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-08T21:51:47.826116+00:00"
+      }
     }
   ]
 }
