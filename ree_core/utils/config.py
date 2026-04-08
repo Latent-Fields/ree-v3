@@ -409,6 +409,15 @@ class REEConfig:
     # and the replay drive_state surprise weight is set from recent PE magnitude.
     # Requires valence_enabled=True in residue config. Default False (backward compat).
     surprise_gated_replay: bool = False
+    # MECH-205: PE EMA smoothing factor. Controls how fast the baseline tracks PE.
+    # 0.02 = ~50-step effective window (default). 0.1 = ~10-step (too fast -- surprise
+    # stays near zero because EMA tracks spikes immediately). Only active when
+    # surprise_gated_replay=True.
+    pe_ema_alpha: float = 0.02
+    # MECH-205: minimum surprise magnitude to write to residue field. Filters out
+    # negligible PE-EMA deltas that would accumulate as noise. Only active when
+    # surprise_gated_replay=True.
+    pe_surprise_threshold: float = 0.001
 
     # MECH-120: SHY-analog synaptic homeostasis in SWS
     shy_enabled: bool = False          # master switch (default off for backward compat)
@@ -473,6 +482,8 @@ class REEConfig:
         tonic_5ht_enabled: bool = False,
         # MECH-205: surprise-gated replay
         surprise_gated_replay: bool = False,
+        pe_ema_alpha: float = 0.02,
+        pe_surprise_threshold: float = 0.001,
         # MECH-120: SHY-analog synaptic homeostasis
         shy_enabled: bool = False,
         shy_decay_rate: float = 0.85,
@@ -596,6 +607,8 @@ class REEConfig:
 
         # MECH-205: surprise-gated replay
         config.surprise_gated_replay = surprise_gated_replay
+        config.pe_ema_alpha = pe_ema_alpha
+        config.pe_surprise_threshold = pe_surprise_threshold
 
         # MECH-120: SHY normalization
         config.shy_enabled = shy_enabled

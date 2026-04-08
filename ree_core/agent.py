@@ -157,7 +157,8 @@ class REEAgent(nn.Module):
 
         # MECH-205: surprise-gated replay PE tracking
         self._pe_ema: float = 0.0  # EMA of prediction error magnitude
-        self._pe_ema_alpha: float = 0.1  # EMA smoothing factor
+        self._pe_ema_alpha: float = config.pe_ema_alpha  # from config (default 0.02)
+        self._surprise_write_count: int = 0  # diagnostic counter
 
         # MECH-165: episode trajectory recording for exploration buffer
         self._episode_world_states: List[torch.Tensor] = []
@@ -693,12 +694,16 @@ class REEAgent(nn.Module):
                     pe_mag = float(pe_val.detach())
                     self._pe_ema = (1 - self._pe_ema_alpha) * self._pe_ema + self._pe_ema_alpha * pe_mag
                     surprise = max(0.0, pe_mag - self._pe_ema)
-                    self.residue_field.update_valence(
-                        z_world, VALENCE_SURPRISE, surprise, hypothesis_tag=False
-                    )
+                    # Gate: only write genuine surprises above threshold
+                    if surprise > self.config.pe_surprise_threshold:
+                        self.residue_field.update_valence(
+                            z_world, VALENCE_SURPRISE, surprise, hypothesis_tag=False
+                        )
+                        self._surprise_write_count += 1
                     metrics["mech205_pe_mag"] = pe_mag
                     metrics["mech205_pe_ema"] = self._pe_ema
                     metrics["mech205_surprise"] = surprise
+                    metrics["mech205_write_count"] = self._surprise_write_count
 
         if harm_signal < 0:
             harm_magnitude = abs(harm_signal)

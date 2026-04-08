@@ -8,9 +8,9 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-241a",
-      "title": "SD-011 second source validation: harm_history input resolves D3 reversal",
-      "script": "experiments/v3_exq_241a_sd011_second_source_validation.py",
+      "queue_id": "V3-EXQ-241b",
+      "title": "SD-011 second source info gain: z_harm_a encodes temporal harm info z_harm_s cannot",
+      "script": "experiments/v3_exq_241b_sd011_second_source_info_gain.py",
       "claim_ids": [
         "SD-011"
       ],
@@ -19,8 +19,8 @@
       "status": "pending",
       "estimated_minutes": 60,
       "machine_affinity": "any",
-      "supersedes": "V3-EXQ-241",
-      "notes": "2-condition ablation (WITH_HISTORY vs WITHOUT_HISTORY), 3 seeds. Tests that harm_history_len=10 resolves the D3 reversal (r2_a > r2_s) seen in EXQ-241. Phased: P0=100ep training, P1=50ep eval."
+      "supersedes": "V3-EXQ-241a",
+      "notes": "2-condition (WITH_HISTORY vs WITHOUT_HISTORY) x 3 seeds. Info gain criterion: z_harm_a predicts accumulated_harm better than z_harm_s. Fixes flawed D3 forward-probe from 241a (EMA smoothness confound). C1: stream_corr<0.85, C2: info_gain>0.05, C3: r2_s_to_a<0.80, C4: accum_loss<0.05."
     },
     {
       "queue_id": "V3-EXQ-261b",
