@@ -32,11 +32,15 @@
       ],
       "experiment_purpose": "evidence",
       "priority": 2,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "machine_affinity": "any",
       "supersedes": "V3-EXQ-261",
-      "notes": "2-condition (NO_DESCENDING, WITH_DESCENDING) x 3 seeds. Commitment-gated z_harm_s attenuation (alpha=0.3). Fix: grid_size -> size in env constructor."
+      "notes": "2-condition (NO_DESCENDING, WITH_DESCENDING) x 3 seeds. Commitment-gated z_harm_s attenuation (alpha=0.3). Fix: grid_size -> size in env constructor.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-08T21:56:04.986193+00:00"
+      }
     }
   ]
 }
