@@ -6,5 +6,25 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-245a",
+      "title": "MECH-120 SHY wiring validation (shy_enabled ablation)",
+      "script": "experiments/v3_exq_245a_mech120_shy_wiring_validation.py",
+      "claim_ids": [
+        "MECH-120"
+      ],
+      "experiment_purpose": "diagnostic",
+      "status": "claimed",
+      "priority": 1,
+      "estimated_minutes": 60,
+      "machine_affinity": "any",
+      "notes": "Diagnostic: validates enter_sws_mode() -> shy_normalise() wiring. 2 conditions x 3 seeds x 100 eps x 150 steps + 20 eval eps each. Supersedes EXQ-245 (non_contributory due to absent wiring).",
+      "supersedes": "V3-EXQ-245",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-08T18:28:12.996939+00:00"
+      }
+    }
+  ]
 }
