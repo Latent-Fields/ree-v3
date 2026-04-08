@@ -6,21 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-252",
-      "title": "MECH-187: Bidirectional z_goal Seeding Gain (5-cond: x0.6/x0.2 suppression, x2.0/x5.0 elevation)",
-      "experiment_type": "v3_exq_252_mech187_zgoal_seeding_gain",
-      "script": "experiments/v3_exq_252_mech187_zgoal_seeding_gain.py",
-      "priority": 8,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 50,
-      "episodes_per_run": 300,
-      "seeds": 3,
-      "conditions": 5,
-      "claim_id": "MECH-187",
-      "note": "MECH-187 bidirectional prediction. Gain multipliers: x0.6/x0.2 suppression (SIMPLE), x2.0/x5.0 elevation (LONG_HORIZON). Empirical anchors from Korte et al. 2016 (5-HT1B NAc microdialysis). Run after V3-EXQ-249."
-    }
-  ]
+  "items": []
 }
