@@ -6,25 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-245b",
-      "title": "MECH-120 SHY decay parameter sweep (0.90/0.95/0.98 x 20/40 writes)",
-      "script": "experiments/v3_exq_245b_mech120_shy_decay_sweep.py",
-      "claim_ids": [
-        "MECH-120"
-      ],
-      "experiment_purpose": "diagnostic",
-      "status": "claimed",
-      "priority": 1,
-      "estimated_minutes": 240,
-      "machine_affinity": "any",
-      "notes": "7 conditions x 3 seeds. Finds decay/write regime where SHY differentiates without collapsing. Supersedes EXQ-245a (decay=0.85 too aggressive).",
-      "supersedes": "V3-EXQ-245a",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-08T21:32:12.170712+00:00"
-      }
-    }
-  ]
+  "items": []
 }
