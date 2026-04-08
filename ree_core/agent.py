@@ -487,6 +487,8 @@ class REEAgent(nn.Module):
         If E3 hasn't ticked, return the held action (MECH-090).
         """
         if not ticks["e3_tick"] and self._last_action is not None:
+            # MECH-165: record held action for exploration trajectory (every step)
+            self._record_exploration_action(self._last_action)
             return self._last_action
 
         # SD-016 (MECH-152): pass cached terrain_weight so harm/goal scoring
