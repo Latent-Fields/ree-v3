@@ -23,26 +23,6 @@
       "notes": "2-condition ablation (WITH_HISTORY vs WITHOUT_HISTORY), 3 seeds. Tests that harm_history_len=10 resolves the D3 reversal (r2_a > r2_s) seen in EXQ-241. Phased: P0=100ep training, P1=50ep eval."
     },
     {
-      "queue_id": "V3-EXQ-260a",
-      "title": "SD-020: z_harm_a surprise PE training vs raw accumulation",
-      "script": "experiments/v3_exq_260_sd020_harm_surprise_pe.py",
-      "claim_ids": [
-        "SD-020",
-        "SD-011"
-      ],
-      "experiment_purpose": "evidence",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "machine_affinity": "any",
-      "supersedes": "V3-EXQ-260",
-      "notes": "3-condition (RAW_ACCUM, SURPRISE_PE, COMBINED) x 3 seeds. Tests Chen 2023 claim: AIC encodes PE not raw state. Fix: grid_size -> size in env constructor.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-08T21:56:01.336887+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-261a",
       "title": "SD-021: descending pain modulation during commitment",
       "script": "experiments/v3_exq_261_sd021_descending_pain_mod.py",
