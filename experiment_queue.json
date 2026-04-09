@@ -20,6 +20,21 @@
       "estimated_minutes": 100,
       "machine_affinity": "DLAPTOP-4.local",
       "notes": "2-condition ablation (WITH_SCHEMA vs WITHOUT_SCHEMA) x 3 seeds. Tests schema readout head learning + wanting landscape coverage. C1: salience>0.1, C2: wanting coverage higher, C3: resource rate lift 2/3."
+    },
+    {
+      "queue_id": "V3-EXQ-240a",
+      "title": "ARC-038 Waking Consolidation Mode Probe (substrate fix re-run)",
+      "script": "experiments/v3_exq_240a_arc038_waking_consolidation_probe.py",
+      "claim_ids": [
+        "ARC-038"
+      ],
+      "experiment_purpose": "diagnostic",
+      "priority": 5,
+      "status": "pending",
+      "estimated_minutes": 300,
+      "machine_affinity": "any",
+      "supersedes": "V3-EXQ-240",
+      "notes": "Re-run after substrate fix: hippocampal.replay() z_self_zeros shape mismatch (world_dim instead of self_dim). Script unchanged; substrate bug resolved."
     }
   ]
 }
