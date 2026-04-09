@@ -14,7 +14,7 @@
       "script": "experiments/v3_exq_278_inv054_depression_recovery_phase_transition.py",
       "priority": 2,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "episodes_per_run": 600,
       "seeds": 3,
@@ -24,7 +24,11 @@
         "INV-054"
       ],
       "backlog_id": "EXP-0097",
-      "note": "Phase-transition recovery: LONG_HORIZON -> LOW_HARM switch. Smoke PASS."
+      "note": "Phase-transition recovery: LONG_HORIZON -> LOW_HARM switch. Smoke PASS.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-09T19:41:39.863424+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-288",
