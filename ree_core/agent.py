@@ -1234,6 +1234,243 @@ class REEAgent(nn.Module):
         self.exit_offline_mode()
         self.serotonin.exit_sleep()
 
+    # -- SD-017: SWS-analog and REM-analog passes --
+
+    def run_sws_schema_pass(self) -> Dict[str, float]:
+        """
+        SD-017 SWS-analog pass: hippocampus-to-cortex schema installation.
+
+        Installs differentiated context attractors in E1.ContextMemory by
+        writing compressed z_world prototypes from recent waking experience.
+        This is the slot-formation phase (MECH-166): before this pass, the
+        ContextMemory slots are undifferentiated (cosine_sim -> 1.0); after,
+        they form attractors that slot-filling (REM-analog) can populate.
+
+        Must be called after enter_sws_mode() (which gates waking writes and
+        runs MECH-120 SHY normalisation). The offline gate prevents new waking
+        observations from overwriting slots installed here.
+
+        Algorithm:
+        1. Sample sws_consolidation_steps prototype z_worlds from the world
+           experience buffer (diverse sampling: early, mid, and recent windows).
+        2. For each prototype, construct the full E1 input [z_self_mean, z_world]
+           and write it directly to ContextMemory bypassing the offline gate.
+           (The offline gate suppresses waking writes; this pass writes offline
+           schema content, which is the intended action during SWS.)
+        3. Compute slot diversity (mean pairwise cosine distance) as a metric
+           for context differentiation quality.
+
+        Args: none (uses self._world_experience_buffer internally)
+
+        Returns:
+            dict with keys:
+              sws_n_writes: number of prototype writes attempted
+              sws_slot_diversity: mean pairwise cosine distance of ContextMemory
+                                  slots after pass (higher = more differentiated)
+              sws_buffer_size: size of experience buffer used
+        """
+        metrics: Dict[str, float] = {
+            "sws_n_writes": 0.0,
+            "sws_slot_diversity": 0.0,
+            "sws_buffer_size": 0.0,
+        }
+
+        if not self.config.sws_enabled:
+            return metrics
+
+        wb = self._world_experience_buffer
+        sb = self._self_experience_buffer
+        n_buf = len(wb)
+        metrics["sws_buffer_size"] = float(n_buf)
+
+        if n_buf < 2:
+            return metrics
+
+        # Temporarily lift offline gate for schema writes
+        # (gate suppresses waking obs; schema installation is intentional offline write)
+        was_offline = self.e1._offline_mode
+        self.e1._offline_mode = False
+
+        n_steps = min(self.config.sws_consolidation_steps, n_buf)
+        # Diverse sampling: spread across buffer windows
+        if n_steps >= n_buf:
+            indices = list(range(n_buf))
+        else:
+            # Sample from early, mid, recent thirds plus random fill
+            step = max(1, n_buf // n_steps)
+            indices = list(range(0, n_buf, step))[:n_steps]
+
+        n_writes = 0
+        self_dim = self.config.latent.self_dim
+
+        for idx in indices:
+            z_world = wb[idx].detach()     # [1, world_dim] or [world_dim]
+            if z_world.dim() == 1:
+                z_world = z_world.unsqueeze(0)
+
+            # Pair with corresponding z_self if available, else zeros
+            if idx < len(sb):
+                z_self = sb[idx].detach()
+                if z_self.dim() == 1:
+                    z_self = z_self.unsqueeze(0)
+            else:
+                z_self = torch.zeros(1, self_dim, device=self.device)
+
+            # Full E1 input: [z_self, z_world] concatenated
+            e1_input = torch.cat([z_self, z_world], dim=-1)  # [1, self_dim+world_dim]
+
+            # Write to ContextMemory (offline gate lifted for this block only)
+            self.e1.context_memory.write(e1_input)
+            n_writes += 1
+
+        # Restore gate
+        self.e1._offline_mode = was_offline
+
+        metrics["sws_n_writes"] = float(n_writes)
+
+        # Compute slot diversity: mean pairwise cosine distance across memory slots
+        with torch.no_grad():
+            mem = self.e1.context_memory.memory  # [num_slots, memory_dim]
+            num_slots = mem.shape[0]
+            if num_slots > 1:
+                # Normalise rows
+                norms = mem.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+                normed = mem / norms  # [num_slots, memory_dim]
+                # Cosine similarity matrix [num_slots, num_slots]
+                sim_mat = torch.mm(normed, normed.t())
+                # Mask diagonal (self-similarity = 1.0)
+                mask = torch.eye(num_slots, device=sim_mat.device, dtype=torch.bool)
+                off_diag = sim_mat[~mask]
+                # Diversity = mean pairwise distance (1 - cosine similarity)
+                diversity = float((1.0 - off_diag).mean().item())
+                metrics["sws_slot_diversity"] = diversity
+
+        return metrics
+
+    def run_rem_attribution_pass(self) -> Dict[str, float]:
+        """
+        SD-017 REM-analog pass: causal attribution replay (slot-filling, MECH-166).
+
+        Replays recent trajectory experience through the hippocampal module in
+        both forward and reverse temporal order (ARC-045 bidirectional flow proxy).
+        Evaluates residue terrain per trajectory segment WITHOUT accumulating new
+        residue (hypothesis_tag=True per MECH-094). This is the slot-filling phase:
+        with schema attractors installed by the SWS pass, trajectory evidence can
+        now be attributed to differentiated context slots.
+
+        Must be called after run_sws_schema_pass() (slots must exist before
+        filling). The offline gate should still be active (enter_rem_mode()
+        ensures this).
+
+        Algorithm:
+        1. Take recent z_world from theta_buffer (waking experience).
+        2. For each attribution step:
+           a. Forward replay: hippocampal.replay() -- random rollout from recent z_world.
+           b. Reverse replay: hippocampal.reverse_replay() on a stored trajectory.
+           c. Evaluate residue terrain on each trajectory (read-only, no writes).
+        3. Aggregate attribution metrics: mean harm terrain, benefit terrain (if enabled),
+           context differentiation proxy (variance of terrain scores across rollouts).
+
+        Returns:
+            dict with keys:
+              rem_n_rollouts: number of rollouts attempted
+              rem_mean_harm_terrain: mean residue terrain score across rollouts
+              rem_terrain_variance: variance of terrain scores (context differentiation proxy)
+              rem_n_reverse: number of reverse-order rollouts included
+        """
+        metrics: Dict[str, float] = {
+            "rem_n_rollouts": 0.0,
+            "rem_mean_harm_terrain": 0.0,
+            "rem_terrain_variance": 0.0,
+            "rem_n_reverse": 0.0,
+        }
+
+        if not self.config.rem_enabled:
+            return metrics
+
+        recent = self.theta_buffer.recent
+        if recent is None:
+            return metrics
+
+        n_steps = self.config.rem_attribution_steps
+        terrain_scores: List[float] = []
+        n_reverse = 0
+
+        # Forward replay pass: hypothesis_tag=True (read-only, no residue writes)
+        forward_trajs = self.hippocampal.replay(
+            recent,
+            num_replay_steps=max(1, n_steps // 2),
+            drive_state=None,  # attribution mode: drive-neutral
+        )
+
+        for traj in forward_trajs:
+            score = self.hippocampal._score_trajectory(traj)
+            terrain_scores.append(float(score.item() if isinstance(score, torch.Tensor) else score))
+
+        # Reverse replay pass (ARC-045 bidirectional flow proxy)
+        # Only if exploration buffer has stored trajectories
+        n_reverse_steps = max(1, n_steps - len(forward_trajs))
+        if len(self.hippocampal._exploration_buffer) > 0:
+            reverse_trajs = self.hippocampal.diverse_replay(
+                recent,
+                num_replay_steps=n_reverse_steps,
+                drive_state=None,
+                mode="reverse",
+            )
+            for traj in reverse_trajs:
+                score = self.hippocampal._score_trajectory(traj)
+                terrain_scores.append(float(score.item() if isinstance(score, torch.Tensor) else score))
+                n_reverse += 1
+        else:
+            # No exploration buffer yet: extra forward rollouts
+            extra = self.hippocampal.replay(recent, num_replay_steps=n_reverse_steps)
+            for traj in extra:
+                score = self.hippocampal._score_trajectory(traj)
+                terrain_scores.append(float(score.item() if isinstance(score, torch.Tensor) else score))
+
+        if terrain_scores:
+            metrics["rem_n_rollouts"] = float(len(terrain_scores))
+            metrics["rem_mean_harm_terrain"] = float(sum(terrain_scores) / len(terrain_scores))
+            if len(terrain_scores) > 1:
+                mean_s = metrics["rem_mean_harm_terrain"]
+                var_s = sum((s - mean_s) ** 2 for s in terrain_scores) / len(terrain_scores)
+                metrics["rem_terrain_variance"] = var_s
+            metrics["rem_n_reverse"] = float(n_reverse)
+
+        return metrics
+
+    def run_sleep_cycle(self) -> Dict[str, float]:
+        """
+        SD-017: Run a complete SWS->REM sleep cycle.
+
+        Convenience method: calls enter_sws_mode(), run_sws_schema_pass(),
+        enter_rem_mode(), run_rem_attribution_pass(), then exit_sleep_mode().
+
+        Returns merged metrics from both passes.
+
+        IMPORTANT: Only call this when sws_enabled=True or rem_enabled=True.
+        If both are False this is a no-op returning empty metrics.
+        """
+        all_metrics: Dict[str, float] = {}
+        if not self.config.sws_enabled and not self.config.rem_enabled:
+            return all_metrics
+
+        # SWS phase
+        if self.config.sws_enabled:
+            self.enter_sws_mode()
+            sws_metrics = self.run_sws_schema_pass()
+            all_metrics.update(sws_metrics)
+            self.exit_sleep_mode()
+
+        # REM phase (requires slots installed by SWS; safe to run standalone too)
+        if self.config.rem_enabled:
+            self.enter_rem_mode()
+            rem_metrics = self.run_rem_attribution_pass()
+            all_metrics.update(rem_metrics)
+            self.exit_sleep_mode()
+
+        return all_metrics
+
     def get_state(self) -> AgentState:
         return AgentState(
             latent_state=self._current_latent,

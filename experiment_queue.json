@@ -6,5 +6,65 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-264",
+      "title": "ARC-033: E2_harm_s forward model validation",
+      "experiment_type": "v3_exq_264_arc033_e2_harm_s_forward",
+      "script": "experiments/v3_exq_264_arc033_e2_harm_s_forward.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "ARC-033",
+      "claim_ids": ["ARC-033"]
+    },
+    {
+      "queue_id": "V3-EXQ-265",
+      "title": "SD-017 sleep phase methods validation (sws/rem pass activation)",
+      "script": "experiments/v3_exq_265_sd017_sleep_phase_methods_validation.py",
+      "claim_ids": ["SD-017"],
+      "experiment_purpose": "diagnostic",
+      "estimated_minutes": 45,
+      "machine_affinity": "DLAPTOP-4.local",
+      "priority": 4,
+      "status": "pending",
+      "notes": "Validates first-class SD-017 substrate methods: run_sws_schema_pass() and run_rem_attribution_pass(). Tests activation (C1-C3) and slot differentiation quality (C4). Supersedes the proxy-hook approach used in EXQ-242 (non_contributory)."
+    },
+    {
+      "queue_id": "V3-EXQ-266",
+      "title": "Q-020: hippocampal valence geometry discriminative pair",
+      "experiment_type": "v3_exq_266_q020_valence_geometry_pair",
+      "script": "experiments/v3_exq_266_q020_valence_geometry_pair.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "episodes_per_run": 350,
+      "seeds": 2,
+      "conditions": 2,
+      "claim_id": "Q-020",
+      "claim_ids": ["Q-020"],
+      "backlog_id": "EVB-0047"
+    },
+    {
+      "queue_id": "V3-EXQ-267",
+      "title": "ARC-038: waking consolidation discriminative evidence",
+      "experiment_type": "v3_exq_267_arc038_waking_consolidation_discriminative",
+      "script": "experiments/v3_exq_267_arc038_waking_consolidation_discriminative.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 65,
+      "episodes_per_run": 100,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "ARC-038",
+      "claim_ids": ["ARC-038"],
+      "backlog_id": "EVB-0051"
+    }
+  ]
 }

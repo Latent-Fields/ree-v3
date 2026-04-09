@@ -133,6 +133,13 @@ class LatentStackConfig:
     # the z_self/z_world split itself (vs. unified latent) provides efficiency gains.
     unified_latent_mode: bool = False
 
+    # ARC-033: E2_harm_s forward model (sensory-discriminative harm stream predictor).
+    # When True, experiments should construct an E2HarmSForward instance and train it
+    # on z_harm_s transitions (P1 phase, after P0 HarmEncoder warmup).
+    # Disabled by default -- backward compatible with all existing experiments.
+    # See ree_core/predictors/e2_harm_s.py for the module and training protocol.
+    use_e2_harm_s_forward: bool = False
+
     # Top-down conditioning
     topdown_dim: int = 16
 
@@ -430,6 +437,21 @@ class REEConfig:
     shy_enabled: bool = False          # master switch (default off for backward compat)
     shy_decay_rate: float = 0.85       # EMA decay toward slot-mean; 0.85 per Tononi SHY lit
 
+    # SD-017: minimal sleep-phase infrastructure (SWS-analog + REM-analog passes)
+    # SWS-analog pass: hippocampus-to-cortex schema installation.
+    # Writes compressed z_world prototypes from recent experience into ContextMemory
+    # slots, installing differentiated context attractors (slot-formation, MECH-166).
+    # Must be called after enter_sws_mode() which gates waking writes + runs SHY.
+    sws_enabled: bool = False          # master switch (default off for backward compat)
+    sws_consolidation_steps: int = 5   # schema-installation write passes per SWS call
+    sws_schema_weight: float = 0.1     # EMA weight for ContextMemory slot installation
+    # REM-analog pass: causal attribution replay (slot-filling, MECH-166).
+    # Replays recent trajectory experience through the hippocampal module.
+    # Evaluates residue terrain per trajectory; hypothesis_tag=True (no new residue).
+    # ARC-045: forward + reverse replay both run (bidirectional information flow proxy).
+    rem_enabled: bool = False          # master switch (default off for backward compat)
+    rem_attribution_steps: int = 10    # attribution rollouts per REM call
+
     # MECH-165: reverse replay diversity scheduler
     replay_diversity_enabled: bool = False   # master switch (default off for backward compat)
     reverse_replay_fraction: float = 0.3     # fraction of replay calls using reverse mode
@@ -501,6 +523,12 @@ class REEConfig:
         # MECH-120: SHY-analog synaptic homeostasis
         shy_enabled: bool = False,
         shy_decay_rate: float = 0.85,
+        # SD-017: minimal sleep-phase infrastructure
+        sws_enabled: bool = False,
+        sws_consolidation_steps: int = 5,
+        sws_schema_weight: float = 0.1,
+        rem_enabled: bool = False,
+        rem_attribution_steps: int = 10,
         # MECH-165: reverse replay diversity scheduler
         replay_diversity_enabled: bool = False,
         reverse_replay_fraction: float = 0.3,
@@ -512,6 +540,8 @@ class REEConfig:
         schema_wanting_enabled: bool = False,
         schema_wanting_threshold: float = 0.3,
         schema_wanting_gain: float = 0.5,
+        # ARC-033: E2_harm_s forward model (sensory-discriminative harm stream predictor)
+        use_e2_harm_s_forward: bool = False,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -633,6 +663,13 @@ class REEConfig:
         config.shy_enabled = shy_enabled
         config.shy_decay_rate = shy_decay_rate
 
+        # SD-017: minimal sleep-phase infrastructure
+        config.sws_enabled = sws_enabled
+        config.sws_consolidation_steps = sws_consolidation_steps
+        config.sws_schema_weight = sws_schema_weight
+        config.rem_enabled = rem_enabled
+        config.rem_attribution_steps = rem_attribution_steps
+
         # MECH-165: reverse replay diversity scheduler
         config.replay_diversity_enabled = replay_diversity_enabled
         config.reverse_replay_fraction = reverse_replay_fraction
@@ -642,6 +679,9 @@ class REEConfig:
         # MECH-216: E1 predictive wanting
         config.schema_wanting_threshold = schema_wanting_threshold
         config.schema_wanting_gain = schema_wanting_gain
+
+        # ARC-033: E2_harm_s forward model
+        config.latent.use_e2_harm_s_forward = use_e2_harm_s_forward
 
         return config
 
