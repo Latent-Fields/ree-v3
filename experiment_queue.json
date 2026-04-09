@@ -14,15 +14,21 @@
       "script": "experiments/v3_exq_268_inv053_depression_attractor_replication.py",
       "priority": 2,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 175,
       "episodes_per_run": 350,
       "seeds": 5,
       "conditions": 1,
       "claim_id": "INV-053",
-      "claim_ids": ["INV-053"],
+      "claim_ids": [
+        "INV-053"
+      ],
       "backlog_id": "EXP-0096",
-      "note": "Multi-seed replication of depression attractor. LONG_HORIZON condition. Smoke PASS."
+      "note": "Multi-seed replication of depression attractor. LONG_HORIZON condition. Smoke PASS.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-09T18:49:20.648431+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-278",
@@ -37,7 +43,9 @@
       "seeds": 3,
       "conditions": 1,
       "claim_id": "INV-054",
-      "claim_ids": ["INV-054"],
+      "claim_ids": [
+        "INV-054"
+      ],
       "backlog_id": "EXP-0097",
       "note": "Phase-transition recovery: LONG_HORIZON -> LOW_HARM switch. Smoke PASS."
     },
@@ -54,7 +62,9 @@
       "seeds": 3,
       "conditions": 9,
       "claim_id": "Q-034",
-      "claim_ids": ["Q-034"],
+      "claim_ids": [
+        "Q-034"
+      ],
       "backlog_id": "EXP-0095",
       "note": "3x3 hazard_rate x resource_rate grid, HABIT vs PLANNED modes. Identifies threshold ratio. Smoke PASS."
     },
