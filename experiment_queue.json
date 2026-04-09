@@ -18,8 +18,12 @@
       "estimated_minutes": 45,
       "machine_affinity": "DLAPTOP-4.local",
       "priority": 4,
-      "status": "pending",
-      "notes": "Validates first-class SD-017 substrate methods: run_sws_schema_pass() and run_rem_attribution_pass(). Tests activation (C1-C3) and slot differentiation quality (C4). Supersedes the proxy-hook approach used in EXQ-242 (non_contributory)."
+      "status": "claimed",
+      "notes": "Validates first-class SD-017 substrate methods: run_sws_schema_pass() and run_rem_attribution_pass(). Tests activation (C1-C3) and slot differentiation quality (C4). Supersedes the proxy-hook approach used in EXQ-242 (non_contributory).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-09T17:27:19.735605+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-266",
