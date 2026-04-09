@@ -54,7 +54,7 @@
       "script": "experiments/v3_exq_267_arc038_waking_consolidation_discriminative.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 65,
       "episodes_per_run": 100,
       "seeds": 3,
@@ -63,7 +63,11 @@
       "claim_ids": [
         "ARC-038"
       ],
-      "backlog_id": "EVB-0051"
+      "backlog_id": "EVB-0051",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-09T17:40:44.665104+00:00"
+      }
     }
   ]
 }
