@@ -6,25 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-263a",
-      "title": "MECH-216: E1 predictive wanting schema readout validation (API fix)",
-      "experiment_type": "v3_exq_263a_mech216_e1_predictive_wanting",
-      "script": "experiments/v3_exq_263a_mech216_e1_predictive_wanting.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 65,
-      "supersedes": "V3-EXQ-263",
-      "claim_id": "MECH-216",
-      "claim_ids": [
-        "MECH-216"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-09T07:24:04.418557+00:00"
-      }
-    }
-  ]
+  "items": []
 }
