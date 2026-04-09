@@ -111,6 +111,24 @@
         "machine": "ree-cloud-1",
         "claimed_at": "2026-04-09T17:40:44.665104+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-318",
+      "title": "SD-022 limb damage stream separation validation (3 seeds)",
+      "experiment_type": "v3_exq_318_sd022_limb_damage_stream_separation",
+      "script": "experiments/v3_exq_318_sd022_limb_damage_stream_separation.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 30,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "SD-022",
+      "claim_ids": [
+        "SD-022"
+      ],
+      "note": "Diagnostic: SD-022 stream separation validation."
     }
   ]
 }

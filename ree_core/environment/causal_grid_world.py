@@ -21,7 +21,7 @@ Observation structure (V3, use_proxy_fields=True — CausalGridWorldV2 mode):
                     → proximity gradient fields visible exteroceptively
 
   body_obs_dim  = 12
-  world_obs_dim = 250
+  world_obs_dim = 250 (300 when n_landmarks_a > 0 or n_landmarks_b > 0)
 
   Extra obs_dict keys (not in flat observation):
     harm_obs   [51]: SD-010 sensory-discriminative harm stream (Adelta-pathway analog).
@@ -121,6 +121,28 @@ class CausalGridWorld:
         # 0 = disabled (backward compat). When > 0, obs_dict includes
         # "harm_history" [harm_history_len] and "accumulated_harm" scalar.
         harm_history_len: int = 0,
+        # SD-022: directional limb damage.
+        # Each of 4 directional limbs accumulates tissue damage from hazard transits.
+        # Provides causal independence between z_harm_a (body state) and z_harm_s (world).
+        # Disabled by default for backward compatibility.
+        limb_damage_enabled: bool = False,
+        damage_increment: float = 0.15,
+        residual_pain_scale: float = 0.5,
+        failure_prob_scale: float = 0.3,
+        heal_rate: float = 0.002,
+        residual_pain_threshold: float = 0.05,
+        # SD-023: environmental gradient texture -- landmark objects.
+        # Landmark A ("pillar"): navigation anchor, placed randomly. Strong short-range gradient.
+        # Landmark B ("trace"): predictive resource cue, biased near resources. Weaker medium-range.
+        # Both default to 0 (disabled) for backward compatibility.
+        # world_obs_dim grows by 50 (25+25) when n_landmarks_a > 0 or n_landmarks_b > 0.
+        n_landmarks_a: int = 0,
+        n_landmarks_b: int = 0,
+        landmark_a_sigma: float = 1.5,
+        landmark_a_scale: float = 1.0,
+        landmark_b_sigma: float = 2.5,
+        landmark_b_scale: float = 0.6,
+        landmark_b_resource_bias: float = 0.7,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -153,6 +175,30 @@ class CausalGridWorld:
         self.proximity_approach_threshold = proximity_approach_threshold
         self.harm_history_len = harm_history_len
 
+        # SD-022: directional limb damage state
+        self.limb_damage_enabled = limb_damage_enabled
+        self.damage_increment = damage_increment
+        self.residual_pain_scale = residual_pain_scale
+        self.failure_prob_scale = failure_prob_scale
+        self.heal_rate = heal_rate
+        self.residual_pain_threshold = residual_pain_threshold
+        # [N=0, E=1, S=2, W=3] -- initialized here, reset in reset() when enabled.
+        self.limb_damage: np.ndarray = np.zeros(4, dtype=np.float32)
+
+        # SD-023: environmental gradient texture -- landmark objects.
+        self.n_landmarks_a = n_landmarks_a
+        self.n_landmarks_b = n_landmarks_b
+        self.landmark_a_sigma = landmark_a_sigma
+        self.landmark_a_scale = landmark_a_scale
+        self.landmark_b_sigma = landmark_b_sigma
+        self.landmark_b_scale = landmark_b_scale
+        self.landmark_b_resource_bias = landmark_b_resource_bias
+        # Fields and positions initialized in reset().
+        self.landmark_a_positions: List[Tuple[int, int]] = []
+        self.landmark_b_positions: List[Tuple[int, int]] = []
+        self._landmark_a_field: np.ndarray = np.zeros((size, size), dtype=np.float32)
+        self._landmark_b_field: np.ndarray = np.zeros((size, size), dtype=np.float32)
+
         self._rng = np.random.default_rng(seed)
         # SD-011: harm_obs_a_ema persists across episodes (homeostatic accumulator).
         # Initialized here, NOT in reset(), so accumulated threat state carries over.
@@ -177,6 +223,9 @@ class CausalGridWorld:
         # position_local (2) + health (1) + energy (1) + footprint_density (1)
         # + heading one-hot (4) + episode_progress (1) = 10
         # + harm_exposure (1) + benefit_exposure (1) = 12 (proxy mode)
+        # SD-022: + damage[4] + residual_pain (1) = 17 (proxy mode + limb_damage_enabled)
+        if self.use_proxy_fields and self.limb_damage_enabled:
+            return 17
         return 12 if self.use_proxy_fields else 10
 
     @property
@@ -188,7 +237,11 @@ class CausalGridWorld:
         if self.use_proxy_fields:
             hazard_field_dim = 5 * 5                     # 25
             resource_field_dim = 5 * 5                   # 25
-            return base + hazard_field_dim + resource_field_dim  # 250
+            proxy_base = base + hazard_field_dim + resource_field_dim  # 250
+            # SD-023: landmark gradient texture -- 25 dims per landmark type when enabled.
+            if self.n_landmarks_a > 0 or self.n_landmarks_b > 0:
+                return proxy_base + 25 + 25              # 300
+            return proxy_base                            # 250
         return base                                      # 200
 
     @property
@@ -272,9 +325,41 @@ class CausalGridWorld:
         self.benefit_exposure: float = 0.0
         self.hazard_field = np.zeros((self.size, self.size), dtype=np.float32)
         self.resource_field = np.zeros((self.size, self.size), dtype=np.float32)
+        # SD-022: reset limb damage state on episode boundary.
+        # Damage is episode-local: within-episode dissociation is sufficient for
+        # stream separation tests (agent can accumulate damage and retreat to safety
+        # within same episode, producing the A-delta/C-fiber dissociation).
+        if self.limb_damage_enabled:
+            self.limb_damage[:] = 0.0
         # harm_obs_a_ema is NOT reset here -- it persists across episodes (see __init__).
         if self.use_proxy_fields:
             self._compute_proximity_fields()
+
+        # SD-023: place landmark objects and precompute their static gradient fields.
+        # Landmarks are gradient-only (no grid entity type), so they can share cells
+        # with any object. Use the full interior cell list (not just remaining available).
+        if self.n_landmarks_a > 0 or self.n_landmarks_b > 0:
+            if self.toroidal:
+                _interior = [(i, j) for i in range(self.size) for j in range(self.size)]
+            else:
+                _interior = [
+                    (i, j) for i in range(1, self.size - 1) for j in range(1, self.size - 1)
+                ]
+            self.landmark_a_positions = self._place_random_landmarks(self.n_landmarks_a, _interior)
+            self.landmark_b_positions = self._place_biased_near_resources(
+                self.n_landmarks_b, self.landmark_b_resource_bias, radius=2, available=_interior
+            )
+            self._landmark_a_field = self._compute_landmark_field(
+                self.landmark_a_positions, self.landmark_a_sigma, self.landmark_a_scale
+            )
+            self._landmark_b_field = self._compute_landmark_field(
+                self.landmark_b_positions, self.landmark_b_sigma, self.landmark_b_scale
+            )
+        else:
+            self.landmark_a_positions = []
+            self.landmark_b_positions = []
+            self._landmark_a_field = np.zeros((self.size, self.size), dtype=np.float32)
+            self._landmark_b_field = np.zeros((self.size, self.size), dtype=np.float32)
 
         obs_dict = self._get_observation_dict()
         flat_obs = self._dict_to_flat(obs_dict)
@@ -315,6 +400,9 @@ class CausalGridWorld:
         transition_type = "none"
         contamination_delta = 0.0
         env_drift_occurred = False
+
+        # SD-022: save position before movement for potential limb-failure rollback.
+        prev_x, prev_y = self.agent_x, self.agent_y
 
         # Move agent if not wall (toroidal has no walls, so always move)
         if self.toroidal or self.grid[new_x, new_y] != self.ENTITY_TYPES["wall"]:
@@ -421,6 +509,28 @@ class CausalGridWorld:
             old_cont = self.contamination_grid[new_x, new_y]
             self.contamination_grid[new_x, new_y] += self.contamination_spread
             contamination_delta = self.contamination_grid[new_x, new_y] - old_cont
+
+            # SD-022: directional limb damage accumulation and movement failure.
+            # Map action index to limb index: N=0(action 0), E=1(action 3), S=2(action 1), W=3(action 2).
+            # Action 4 (stay) uses no limb (d=-1, no damage or failure).
+            _ACTION_TO_LIMB = {0: 0, 1: 2, 2: 3, 3: 1, 4: -1}
+            if self.limb_damage_enabled and action < 4:
+                d = _ACTION_TO_LIMB[action]
+                # Accumulate damage when harm signal is negative (hazard encounter).
+                if harm_signal < 0:
+                    harm_mag = abs(harm_signal)
+                    self.limb_damage[d] = min(1.0,
+                        self.limb_damage[d] + self.damage_increment * harm_mag)
+                # Heal all limbs each step.
+                self.limb_damage *= (1.0 - self.heal_rate)
+                # Movement failure: damaged limb may fail, reverting agent to prev position.
+                if self._rng.random() < float(self.limb_damage[d]) * self.failure_prob_scale:
+                    self.grid[self.agent_x, self.agent_y] = self.ENTITY_TYPES["empty"]
+                    self.agent_x, self.agent_y = prev_x, prev_y
+                    self.grid[prev_x, prev_y] = self.ENTITY_TYPES["agent"]
+            elif self.limb_damage_enabled:
+                # Stay action: still apply healing.
+                self.limb_damage *= (1.0 - self.heal_rate)
 
         # Energy decay
         self.agent_energy = max(0.0, self.agent_energy - self.energy_decay)
@@ -553,6 +663,16 @@ class CausalGridWorld:
         if self.use_proxy_fields:
             body[10] = float(np.clip(self.harm_exposure, 0.0, 1.0))
             body[11] = float(np.clip(self.benefit_exposure, 0.0, 1.0))
+            # SD-022: append directional limb damage state to body_state (12 -> 17 dims).
+            # [12]: damage[N], [13]: damage[E], [14]: damage[S], [15]: damage[W]
+            # [16]: residual_pain = sum(damage) * residual_pain_scale
+            if self.limb_damage_enabled:
+                residual_pain = float(np.sum(self.limb_damage) * self.residual_pain_scale)
+                body[12] = float(self.limb_damage[0])
+                body[13] = float(self.limb_damage[1])
+                body[14] = float(self.limb_damage[2])
+                body[15] = float(self.limb_damage[3])
+                body[16] = float(np.clip(residual_pain, 0.0, 1.0))
 
         # --- local_view (5×5×7) → world_state part 1 ---
         local_view = torch.zeros(5, 5, self.NUM_ENTITY_TYPES)
@@ -608,6 +728,29 @@ class CausalGridWorld:
             resource_field_flat = r_view.reshape(-1)  # [25]
             world_parts.extend([hazard_field_flat, resource_field_flat])
 
+        # SD-023: landmark gradient field views (only when use_proxy_fields=True and landmarks enabled).
+        landmark_a_flat = torch.zeros(25)
+        landmark_b_flat = torch.zeros(25)
+        if self.use_proxy_fields and (self.n_landmarks_a > 0 or self.n_landmarks_b > 0):
+            la_max = float(self._landmark_a_field.max()) + 1e-6
+            lb_max = float(self._landmark_b_field.max()) + 1e-6
+            la_view = torch.zeros(5, 5)
+            lb_view = torch.zeros(5, 5)
+            for di in range(-2, 3):
+                for dj in range(-2, 3):
+                    if self.toroidal:
+                        ni, nj = (ax + di) % self.size, (ay + dj) % self.size
+                        la_view[di + 2, dj + 2] = float(self._landmark_a_field[ni, nj]) / la_max
+                        lb_view[di + 2, dj + 2] = float(self._landmark_b_field[ni, nj]) / lb_max
+                    else:
+                        ni, nj = ax + di, ay + dj
+                        if 0 <= ni < self.size and 0 <= nj < self.size:
+                            la_view[di + 2, dj + 2] = float(self._landmark_a_field[ni, nj]) / la_max
+                            lb_view[di + 2, dj + 2] = float(self._landmark_b_field[ni, nj]) / lb_max
+            landmark_a_flat = la_view.reshape(-1)   # [25]
+            landmark_b_flat = lb_view.reshape(-1)   # [25]
+            world_parts.extend([landmark_a_flat, landmark_b_flat])
+
         world_state = torch.cat(world_parts)
 
         result = {
@@ -618,6 +761,10 @@ class CausalGridWorld:
         if self.use_proxy_fields:
             result["hazard_field_view"] = hazard_field_flat.float()
             result["resource_field_view"] = resource_field_flat.float()
+            # SD-023: landmark gradient field views (only when landmarks enabled).
+            if self.n_landmarks_a > 0 or self.n_landmarks_b > 0:
+                result["landmark_a_field_view"] = landmark_a_flat.float()
+                result["landmark_b_field_view"] = landmark_b_flat.float()
             # SD-010: dedicated harm_obs for HarmEncoder (nociceptive separation).
             # Sensory-discriminative stream (z_harm_s, Adelta-pathway analog):
             # Layout: hazard_field_view[25] + resource_field_view[25] + harm_exposure[1]
@@ -630,7 +777,24 @@ class CausalGridWorld:
             # C-fiber/paleospinothalamic analog). EMA of proximity fields at slower tau
             # (~20 steps vs ~10 for harm_exposure). Represents accumulated homeostatic
             # threat state, not immediate proximity. Does NOT need a forward model.
-            result["harm_obs_a"] = torch.from_numpy(self.harm_obs_a_ema.copy()).float()  # [50]
+            # SD-022: when limb_damage_enabled, re-source harm_obs_a from body damage state
+            # (7 dims: damage[4] + max_damage + mean_damage + residual_pain) instead of the
+            # 50-dim EMA. This provides causal independence: agent in safe area with
+            # accumulated damage has high harm_obs_a but near-zero harm_obs (world signal).
+            if self.limb_damage_enabled:
+                _residual_pain = float(np.sum(self.limb_damage) * self.residual_pain_scale)
+                harm_obs_a_body = np.array([
+                    float(self.limb_damage[0]),
+                    float(self.limb_damage[1]),
+                    float(self.limb_damage[2]),
+                    float(self.limb_damage[3]),
+                    float(np.max(self.limb_damage)),
+                    float(np.mean(self.limb_damage)),
+                    float(np.clip(_residual_pain, 0.0, 1.0)),
+                ], dtype=np.float32)
+                result["harm_obs_a"] = torch.from_numpy(harm_obs_a_body)  # [7]
+            else:
+                result["harm_obs_a"] = torch.from_numpy(self.harm_obs_a_ema.copy()).float()  # [50]
             # SD-011 second source: rolling harm history and accumulated harm target.
             if self.harm_history_len > 0:
                 # FIFO oldest-first: roll so oldest entry comes first.
@@ -648,6 +812,92 @@ class CausalGridWorld:
     # V2 backward-compat method
     def _get_observation(self) -> torch.Tensor:
         return self._dict_to_flat(self._get_observation_dict())
+
+    # ------------------------------------------------------------------ #
+    # SD-023: Landmark placement and gradient field computation           #
+    # ------------------------------------------------------------------ #
+
+    def _place_random_landmarks(
+        self, n: int, available: List[Tuple[int, int]]
+    ) -> List[Tuple[int, int]]:
+        """Place n landmarks at random positions from remaining available cells.
+
+        Does not remove from `available` (landmarks don't block other placement).
+        Returns list of (x, y) tuples.
+        """
+        if n <= 0 or not available:
+            return []
+        idxs = self._rng.choice(len(available), size=min(n, len(available)), replace=False)
+        return [available[i] for i in idxs]
+
+    def _place_biased_near_resources(
+        self,
+        n: int,
+        bias_prob: float,
+        radius: int,
+        available: List[Tuple[int, int]],
+    ) -> List[Tuple[int, int]]:
+        """Place n landmark-B objects with a bias toward resource proximity.
+
+        Each landmark is placed near a resource (within `radius` cells) with
+        probability `bias_prob`, otherwise placed randomly. Landmarks may
+        share cells with other objects (gradient only; no grid entity type).
+
+        Returns list of (x, y) tuples.
+        """
+        if n <= 0:
+            return []
+        positions: List[Tuple[int, int]] = []
+        for _ in range(n):
+            if self.resources and self._rng.random() < bias_prob:
+                # Pick a random resource and place near it.
+                res = self.resources[self._rng.integers(0, len(self.resources))]
+                rx, ry = int(res[0]), int(res[1])
+                candidates = []
+                for dx in range(-radius, radius + 1):
+                    for dy in range(-radius, radius + 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        cx, cy = rx + dx, ry + dy
+                        if 0 <= cx < self.size and 0 <= cy < self.size:
+                            candidates.append((cx, cy))
+                if candidates:
+                    idx = self._rng.integers(0, len(candidates))
+                    positions.append(candidates[idx])
+                    continue
+            # Fallback: place randomly in available cells.
+            if available:
+                idx = self._rng.integers(0, len(available))
+                positions.append(available[idx])
+            elif self.size > 2:
+                # If available is exhausted, pick any interior cell.
+                cx = int(self._rng.integers(1, self.size - 1))
+                cy = int(self._rng.integers(1, self.size - 1))
+                positions.append((cx, cy))
+        return positions
+
+    def _compute_landmark_field(
+        self,
+        positions: List[Tuple[int, int]],
+        sigma: float,
+        scale: float,
+    ) -> np.ndarray:
+        """Compute a Gaussian gradient field for a set of landmark positions.
+
+        field[x, y] = sum_i scale * exp(-d2_i / (2 * sigma^2))
+        where d2_i is squared Euclidean distance from (x,y) to landmark i.
+        Field is static per episode (landmarks do not move).
+        """
+        field = np.zeros((self.size, self.size), dtype=np.float32)
+        if not positions:
+            return field
+        two_sigma2 = 2.0 * sigma * sigma
+        for lx, ly in positions:
+            for x in range(self.size):
+                for y in range(self.size):
+                    d2 = float((x - lx) ** 2 + (y - ly) ** 2)
+                    field[x, y] += scale * float(np.exp(-d2 / two_sigma2))
+        return field
 
     # ------------------------------------------------------------------ #
     # Proxy-gradient field computation (ARC-024)                          #

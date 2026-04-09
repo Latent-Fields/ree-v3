@@ -542,6 +542,11 @@ class REEConfig:
         schema_wanting_gain: float = 0.5,
         # ARC-033: E2_harm_s forward model (sensory-discriminative harm stream predictor)
         use_e2_harm_s_forward: bool = False,
+        # SD-022: directional limb damage
+        limb_damage_enabled: bool = False,
+        damage_increment: float = 0.15,
+        failure_prob_scale: float = 0.3,
+        heal_rate: float = 0.002,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -682,6 +687,15 @@ class REEConfig:
 
         # ARC-033: E2_harm_s forward model
         config.latent.use_e2_harm_s_forward = use_e2_harm_s_forward
+
+        # SD-022: directional limb damage dim adjustments.
+        # When enabled: harm_obs_a_dim is re-sourced from body damage state (7 dims).
+        # body_obs_dim is passed by the caller reflecting the actual env dims
+        # (CausalGridWorldV2.body_obs_dim returns 17 when limb_damage_enabled=True).
+        # No body_obs_dim arithmetic needed here -- the env already reports the correct dim.
+        if limb_damage_enabled:
+            # Override harm_obs_a_dim to 7 (damage[4] + max_damage + mean_damage + residual_pain)
+            config.latent.harm_obs_a_dim = 7
 
         return config
 

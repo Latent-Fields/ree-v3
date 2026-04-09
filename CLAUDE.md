@@ -69,6 +69,22 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
       gating directly as motivational urgency (ARC-016 variance gating).
   E2_harm_s forward model (ARC-033) and SD-003 redesign to use z_harm_s for counterfactual
   attribution remain as next experiments (EXQ-195 queued). See ARC-033, SD-003 note.
+- SD-022: body.directional_limb_damage -- IMPLEMENTED 2026-04-09.
+  CausalGridWorldV2 (ree_core/environment/causal_grid_world.py): 4-directional limb_damage[4]
+  state; accumulates when moving through hazards; heals at heal_rate=0.002/step; movement
+  failure P(fail) = damage[d] * failure_prob_scale.
+  harm_obs_a re-sourced from body damage state (7 dims: damage[4]+max+mean+residual_pain)
+  when limb_damage_enabled=True, replacing 50-dim proximity EMA.
+  body_state extended 12->17 dims (+ damage[4] + residual_pain).
+  Config: REEConfig.from_dims() params: limb_damage_enabled (False default),
+  damage_increment (0.15), failure_prob_scale (0.3), heal_rate (0.002).
+  When enabled: body_obs_dim=17, harm_obs_a_dim=7.
+  Backward compatible: disabled by default; existing experiments unaffected.
+  Biological basis: A-delta/C-fiber distinction. Directional limb damage provides causal
+  independence (r2_s_to_a=0.996 ceiling confirmed structural by EXQ-241b).
+  MECH-094: not applicable (waking observation stream).
+  Validation experiment: V3-EXQ-318 queued.
+  See SD-011, SD-022, ARC-030, MECH-112, Q-034, ARC-052.
 - SD-008: encoder.z_world_alpha_correction — IMPLEMENTED in factory presets (alpha_world=0.9).
   LatentStackConfig default is 0.3 for backward compat; REEConfig.from_dims() default is
   0.9 (all experiment configs built via factory get the fix). Set alpha_world=0.9 or 1.0
