@@ -14,7 +14,7 @@
       "script": "experiments/v3_exq_288_q034_hazard_resource_threshold_sweep.py",
       "priority": 2,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 160,
       "episodes_per_run": 200,
       "seeds": 3,
@@ -24,7 +24,11 @@
         "Q-034"
       ],
       "backlog_id": "EXP-0095",
-      "note": "3x3 hazard_rate x resource_rate grid, HABIT vs PLANNED modes. Identifies threshold ratio. Smoke PASS."
+      "note": "3x3 hazard_rate x resource_rate grid, HABIT vs PLANNED modes. Identifies threshold ratio. Smoke PASS.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-09T19:56:52.018378+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-266",
