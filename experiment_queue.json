@@ -8,29 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-268",
-      "title": "INV-053 depression attractor replication (5 seeds)",
-      "experiment_type": "v3_exq_268_inv053_depression_attractor_replication",
-      "script": "experiments/v3_exq_268_inv053_depression_attractor_replication.py",
-      "priority": 2,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 175,
-      "episodes_per_run": 350,
-      "seeds": 5,
-      "conditions": 1,
-      "claim_id": "INV-053",
-      "claim_ids": [
-        "INV-053"
-      ],
-      "backlog_id": "EXP-0096",
-      "note": "Multi-seed replication of depression attractor. LONG_HORIZON condition. Smoke PASS.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-09T18:49:20.648431+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-278",
       "title": "INV-054 phase-transition recovery prediction (3 seeds)",
       "experiment_type": "v3_exq_278_inv054_depression_recovery_phase_transition",
@@ -134,7 +111,10 @@
       "queue_id": "V3-EXQ-263b",
       "title": "SD-023 validation: landmark gradient texture for MECH-216 anticipatory wanting",
       "script": "experiments/v3_exq_263b_sd023_mech216_landmark_wanting.py",
-      "claim_ids": ["SD-023", "MECH-216"],
+      "claim_ids": [
+        "SD-023",
+        "MECH-216"
+      ],
       "estimated_minutes": 90,
       "priority": 1,
       "machine_affinity": "DLAPTOP-4.local",
