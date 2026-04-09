@@ -13,9 +13,13 @@
       "script": "experiments/v3_onboard_smoke_ree_cloud_1.py",
       "priority": 1,
       "machine_affinity": "ree-cloud-1",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 20,
-      "note": "Pipeline verification + CPU throughput benchmark for Hetzner CX22 cloud worker (2 shared vCPU, no GPU). ENV-ONLY + CPU blocks only. Retry b -- original smoke errored (exit 1) in 1.3s on 2026-04-06, likely an import error or missing dependency at the time."
+      "note": "Pipeline verification + CPU throughput benchmark for Hetzner CX22 cloud worker (2 shared vCPU, no GPU). ENV-ONLY + CPU blocks only. Retry b -- original smoke errored (exit 1) in 1.3s on 2026-04-06, likely an import error or missing dependency at the time.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-09T08:17:16.276808+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-263a",
