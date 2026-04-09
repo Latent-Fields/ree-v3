@@ -28,7 +28,7 @@
       "script": "experiments/v3_exq_266_q020_valence_geometry_pair.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 150,
       "episodes_per_run": 350,
       "seeds": 2,
@@ -37,7 +37,11 @@
       "claim_ids": [
         "Q-020"
       ],
-      "backlog_id": "EVB-0047"
+      "backlog_id": "EVB-0047",
+      "claimed_by": {
+        "machine": "Daniel-PC",
+        "claimed_at": "2026-04-09T17:03:25.701451+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-267",
