@@ -357,8 +357,16 @@ or goal types:
       dominates for tiny networks. GPU becomes useful ONLY when world_dim >= 128 or
       networks are substantially deeper. Design experiments with larger networks to
       exploit the GPU when the architecture requires it (SD-004, SD-010).
+  - **ree-cloud-1** — Hetzner CX22, CPU-only (no GPU), 2 shared vCPU:
+    - ~0.23 min/ep at 200 steps/ep  (~2.3x slower than Mac)
+    - ~0.35 min/ep at 300 steps/ep
+    - Calibrated from onboarding smoke 2026-04-09: 14.2 steps/sec CPU, 1571.9 env steps/sec
+    - Suitable for env-heavy and standard experiments. Not for GPU-dependent runs.
+  - **EWIN-PC** — AMD Ryzen 7 8700F + RTX 5070 12GB (Eoin Golden's machine):
+    - Throughput not yet benchmarked (original smoke errored 2026-04-06, -b pending)
+    - Use `"EWIN-PC"` affinity string. GPU likely fast at larger world_dim.
   - Add ~20% overhead for scripts with stratified replay buffers or event classification
-- Set `machine_affinity` to match compute profile: `"DLAPTOP-4.local"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"any"` (indifferent)
+- Set `machine_affinity` to match compute profile: `"DLAPTOP-4.local"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"ree-cloud-1"` (CPU-only, standard/env-heavy), `"EWIN-PC"` (GPU-capable, Eoin's machine), `"any"` (indifferent)
   - **IMPORTANT:** The runner matches affinity against `socket.gethostname()` exactly. The macbook hostname is `DLAPTOP-4.local` — do NOT use `"macbook"` as the affinity string, it will not match.
 - Always queue experiments immediately after writing the script.
 - Always include `estimated_minutes` — the runner's auto-calibration refines it over time.
@@ -409,3 +417,65 @@ Note: `title` is optional per schema but the runner required it -- fixed 2026-03
 **git pull fails with `fatal: bad object refs/remotes/origin/main 2`**:
 Run `git remote prune origin` in ree-v3. This cleans up a spurious remote tracking ref.
 Verify with `git fetch` (should return silently).
+
+## ARC-033: E2_harm_s Forward Model (2026-04-09)
+- ARC-033: harm_stream.sensory_discriminative_forward_model -- IMPLEMENTED 2026-04-09.
+  E2HarmSForward in ree_core/predictors/e2_harm_s.py. f(z_harm_s_t, a_t) -> z_harm_s_pred_{t+1}.
+  Wraps ResidualHarmForward (ree_core/latent/stack.py) -- residual delta architecture
+  avoids identity collapse on autocorrelated z_harm_s signals (r~0.9).
+  Config: E2HarmSConfig (standalone dataclass in e2_harm_s.py):
+    use_e2_harm_s_forward (bool, default False), z_harm_dim (int, default 32),
+    action_dim (int, default 4), hidden_dim (int, default 128),
+    action_enc_dim (int, default 16), learning_rate (float, default 5e-4).
+  LatentStackConfig.use_e2_harm_s_forward (bool, default False) added to config.py.
+  REEConfig.from_dims() param: use_e2_harm_s_forward (default False).
+  Data flow: HarmEncoder(harm_obs) -> z_harm_s + action_onehot -> E2HarmSForward -> z_harm_s_pred.
+  SD-003 counterfactual pipeline:
+    z_harm_s_cf = harm_fwd.counterfactual_forward(z_harm_s_t, a_cf)
+    causal_sig  = E3.harm_eval_z_harm_head(z_harm_s_actual) - E3.harm_eval_z_harm_head(z_harm_s_cf)
+  Backward compatible: disabled by default; existing experiments unaffected.
+  Phased training required: YES (stop-gradient on z_harm_s inputs during P1).
+    P0: HarmEncoder warmup (harm proximity supervision).
+    P1: E2HarmSForward trains on frozen z_harm_s (z_b.detach(), z1_b.detach()).
+    P2: Evaluation (forward_r2, harm_s_cf_gap).
+  Biological basis: Keltner et al. (2006, J Neurosci) -- predictability suppresses
+    sensory-discriminative (S1/S2) but not affective (ACC) pain responses.
+    Forward model cancellation applies to z_harm_s (A-delta analog) not z_harm_a (C-fiber).
+  MECH-094: not applicable (waking observation stream, not replay content).
+  EXQ-195 evidence: harm_forward_r2=0.914 (forward model component working).
+  Validation experiment: V3-EXQ-264 queued.
+  Design doc: REE_assembly/docs/architecture/arc_033_e2_harm_s_forward_model.md
+  See ARC-033, SD-003, SD-010, SD-011.
+
+## SD-017: Minimal Sleep-Phase Infrastructure -- SWS/REM Passes (2026-04-09)
+- SD-017: sleep_phase.minimal_sleep_infrastructure_v3 -- SWS-ANALOG + REM-ANALOG IMPLEMENTED 2026-04-09.
+  Two new first-class methods added to REEAgent (ree_core/agent.py):
+  (1) run_sws_schema_pass(): SWS-analog schema installation (hippocampus-to-cortex direction).
+      Samples diverse z_world prototypes from _world_experience_buffer (stratified across
+      buffer history), constructs [z_self, z_world] E1 input, writes to ContextMemory
+      bypassing the offline gate (offline gate blocks waking obs; schema writes are
+      intentional offline content). Returns: sws_n_writes, sws_slot_diversity (mean pairwise
+      cosine distance of ContextMemory slots -- higher = more differentiated), sws_buffer_size.
+  (2) run_rem_attribution_pass(): REM-analog attribution replay (slot-filling, MECH-166).
+      Replays recent theta_buffer content via hippocampal.replay() (forward) and
+      hippocampal.diverse_replay(mode="reverse") (reverse/ARC-045 bidirectional proxy).
+      Evaluates residue terrain per trajectory without accumulating new residue
+      (hypothesis_tag=True per MECH-094). Returns: rem_n_rollouts, rem_mean_harm_terrain,
+      rem_terrain_variance, rem_n_reverse.
+  (3) run_sleep_cycle(): Convenience method running SWS then REM in sequence with correct
+      mode transitions (enter_sws_mode -> run_sws_schema_pass -> exit_sleep_mode ->
+      enter_rem_mode -> run_rem_attribution_pass -> exit_sleep_mode). Returns merged metrics.
+  Config (REEConfig, ree_core/utils/config.py):
+      sws_enabled (bool, default False), sws_consolidation_steps (int, default 5),
+      sws_schema_weight (float, default 0.1), rem_enabled (bool, default False),
+      rem_attribution_steps (int, default 10). All wired through REEConfig.from_dims().
+  Backward compatible: all switches default False; existing experiments unaffected.
+  No trainable parameters. No gradient flow in pass bodies. No phased training needed.
+  Prerequisites satisfied: MECH-092 (waking quiescent replay), MECH-120 SHY wiring
+  (enter_sws_mode calls shy_normalise), serotonin module (MECH-203/204), enter_offline_mode.
+  Distinguishes from EXQ-242: EXQ-242 used proxy hooks (standalone functions, non_contributory).
+  This implementation adds first-class REEAgent methods experiments can call directly.
+  MECH-094: hypothesis_tag=True in rem_attribution_pass (terrain scoring only; no residue writes).
+  Validation experiment: V3-EXQ-265 queued (SD-017 activation + slot differentiation ablation,
+  2 conditions x 3 seeds, ~45 min on Mac).
+  See SD-017, ARC-045, MECH-166, MECH-120 (SHY gated within enter_sws_mode).
