@@ -124,6 +124,26 @@
       "machine_affinity": "DLAPTOP-4.local",
       "supersedes": "V3-EXQ-263a",
       "status": "pending"
+    },
+    {
+      "queue_id": "V3-EXQ-319",
+      "title": "SD-022 harm stream dissociation: HIGH_DAMAGE vs FRESH matched-threat (5 seeds)",
+      "experiment_type": "v3_exq_319_sd022_harm_stream_dissociation",
+      "script": "experiments/v3_exq_319_sd022_harm_stream_dissociation.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 55,
+      "episodes_per_run": 100,
+      "seeds": 5,
+      "conditions": 1,
+      "claim_id": "SD-022",
+      "claim_ids": [
+        "SD-022",
+        "SD-011"
+      ],
+      "supersedes": "V3-EXQ-318",
+      "note": "Matched-threat, different damage-history dissociation test. HIGH_DAMAGE: 50 forced hazard transits then offset. FRESH: no prior damage. Tests z_harm_a elevation persistence post-offset. Requires limb_damage_enabled=True."
     }
   ]
 }
