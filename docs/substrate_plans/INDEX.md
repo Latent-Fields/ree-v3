@@ -1,7 +1,7 @@
 # Substrate Implementation Plans
 
 Generated: 2026-04-08 (substrate-gap-analysis session)
-Updated: 2026-04-08 (wanting-gradient-nav session -- SD-015 resolved, EXQ-259 queued)
+Updated: 2026-04-09 (SD-022 + SD-023 added -- body/world richness for stream separation)
 
 This directory contains implementation plans and gap notes for V3 substrate gaps --
 places where experiments returned non_contributory or inconclusive results specifically
@@ -17,14 +17,25 @@ specific experiment manifests (EXQ-245/246/248/251/253/258), WORKSPACE_STATE.md
 
 | Gap ID | Blocking Claims | Complexity | File |
 |--------|----------------|------------|------|
-| SD-011-second-source | SD-011, MECH-112, ARC-030, ARC-032, MECH-029, Q-034 | medium | [sd011_second_source_impl_plan.md](sd011_second_source_impl_plan.md) |
+| SD-022-limb-damage | SD-011, ARC-030, MECH-112, Q-034, ARC-052 | medium | [sd022_directional_limb_damage_impl_plan.md](sd022_directional_limb_damage_impl_plan.md) |
+| SD-023-env-gradient-texture | MECH-216, ARC-017, MECH-096, MECH-103 | medium | [sd023_environmental_gradient_texture_impl_plan.md](sd023_environmental_gradient_texture_impl_plan.md) |
+| SD-011-second-source | SD-011 (superseded by SD-022 -- see note) | — | [sd011_second_source_impl_plan.md](sd011_second_source_impl_plan.md) |
 | MECH-205-write | MECH-205, INV-052 (indirect) | small | [mech205_surprise_write_impl_plan.md](mech205_surprise_write_impl_plan.md) |
 | MECH-120-wiring | MECH-120, MECH-165 (indirect) | small | [mech120_shy_decay_impl_plan.md](mech120_shy_decay_impl_plan.md) |
 | MECH-165-reverse | MECH-165, MECH-092 (indirect) | medium | [mech165_reverse_replay_impl_plan.md](mech165_reverse_replay_impl_plan.md) |
 
-**Recommended implementation order:** MECH-120-wiring (small, unlocks MECH-165) ->
-MECH-205-write (small, independent) -> SD-011-second-source (medium, unlocks most
-downstream claims) -> MECH-165-reverse (medium, depends on MECH-120).
+**Note on SD-011-second-source vs SD-022:** The harm_history proxy extension (EXQ-241a/b)
+is superseded by SD-022 (directional limb damage). EXQ-241b confirmed r2_s_to_a=0.996
+even with history -- the problem is causal independence of information source, not
+temporal window length. SD-022 is the correct implementation of the SD-011 affective
+stream and replaces the second-source plan. Keep the old plan for historical context.
+
+**Recommended implementation order:**
+1. SD-022 (body extension, unlocks all harm-stream experiments)
+2. SD-023 (env texture, unlocks MECH-216 / ARC-017 / world-model claims) -- independent of SD-022
+3. MECH-120-wiring (small, independent)
+4. MECH-205-write (small, independent) -- EXQ-258b already queued as threshold fix
+5. MECH-165-reverse (depends on MECH-120)
 
 ---
 
