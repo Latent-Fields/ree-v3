@@ -1,7 +1,7 @@
 # Substrate Implementation Plans
 
 Generated: 2026-04-08 (substrate-gap-analysis session)
-Updated: 2026-04-09 (SD-022 + SD-023 added -- body/world richness for stream separation)
+Updated: 2026-04-09 (SD-022 + SD-023 added; ARC-033 agent-integration gap added)
 
 This directory contains implementation plans and gap notes for V3 substrate gaps --
 places where experiments returned non_contributory or inconclusive results specifically
@@ -19,6 +19,7 @@ specific experiment manifests (EXQ-245/246/248/251/253/258), WORKSPACE_STATE.md
 |--------|----------------|------------|------|
 | SD-022-limb-damage | SD-011, ARC-030, MECH-112, Q-034, ARC-052 | medium | [sd022_directional_limb_damage_impl_plan.md](sd022_directional_limb_damage_impl_plan.md) |
 | SD-023-env-gradient-texture | MECH-216, ARC-017, MECH-096, MECH-103 | medium | [sd023_environmental_gradient_texture_impl_plan.md](sd023_environmental_gradient_texture_impl_plan.md) |
+| ARC-033-agent-integration | ARC-033, SD-003 (full counterfactual pipeline) | medium | [arc033_e2_harm_s_agent_integration_plan.md](arc033_e2_harm_s_agent_integration_plan.md) |
 | SD-011-second-source | SD-011 (superseded by SD-022 -- see note) | — | [sd011_second_source_impl_plan.md](sd011_second_source_impl_plan.md) |
 | MECH-205-write | MECH-205, INV-052 (indirect) | small | [mech205_surprise_write_impl_plan.md](mech205_surprise_write_impl_plan.md) |
 | MECH-120-wiring | MECH-120, MECH-165 (indirect) | small | [mech120_shy_decay_impl_plan.md](mech120_shy_decay_impl_plan.md) |
@@ -94,3 +95,8 @@ Completing all four `ready_to_plan` items would unblock retesting of:
 **MECH-165-reverse:**
 - MECH-165 (replay diversity -- EXQ-244a)
 - MECH-092 (indirect -- replay carrying hypothesis tag)
+
+**ARC-033-agent-integration:**
+- ARC-033 (E2HarmSForward fully agent-integrated)
+- SD-003 (counterfactual causal_sig computable via agent.compute_harm_causal_signal())
+- MECH-135, MECH-150 (harm attribution downstream)
