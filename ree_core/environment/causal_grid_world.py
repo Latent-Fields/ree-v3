@@ -30,6 +30,8 @@ Observation structure (V3, use_proxy_fields=True — CausalGridWorldV2 mode):
     harm_obs_a [50]: SD-011 affective-motivational harm stream (C-fiber analog).
                      EMA of proximity fields at tau~20 steps. Accumulated homeostatic
                      deviation. NOT forward-predicted -- feeds E3 directly (ARC-033).
+    landmark_a_field_view [25]: SD-023 Landmark A gradient field view (when n_landmarks_a>0).
+    landmark_b_field_view [25]: SD-023 Landmark B gradient field view (when n_landmarks_b>0).
 
 Proxy-gradient rationale (ARC-024 / INV-025-029):
   Harm and benefit signals are proxies along gradients pointing toward asymptotic

@@ -129,6 +129,17 @@
         "SD-022"
       ],
       "note": "Diagnostic: SD-022 stream separation validation."
+    },
+    {
+      "queue_id": "V3-EXQ-263b",
+      "title": "SD-023 validation: landmark gradient texture for MECH-216 anticipatory wanting",
+      "script": "experiments/v3_exq_263b_sd023_mech216_landmark_wanting.py",
+      "claim_ids": ["SD-023", "MECH-216"],
+      "estimated_minutes": 90,
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "supersedes": "V3-EXQ-263a",
+      "status": "pending"
     }
   ]
 }
