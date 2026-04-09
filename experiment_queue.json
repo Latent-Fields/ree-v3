@@ -8,27 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-264",
-      "title": "ARC-033: E2_harm_s forward model validation",
-      "experiment_type": "v3_exq_264_arc033_e2_harm_s_forward",
-      "script": "experiments/v3_exq_264_arc033_e2_harm_s_forward.py",
-      "priority": 4,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 150,
-      "episodes_per_run": 200,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "ARC-033",
-      "claim_ids": [
-        "ARC-033"
-      ],
-      "claimed_by": {
-        "machine": "Daniel-PC",
-        "claimed_at": "2026-04-09T17:03:08.396889+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-265",
       "title": "SD-017 sleep phase methods validation (sws/rem pass activation)",
       "script": "experiments/v3_exq_265_sd017_sleep_phase_methods_validation.py",
