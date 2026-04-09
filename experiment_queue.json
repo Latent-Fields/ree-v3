@@ -43,13 +43,17 @@
       "script": "experiments/v3_exq_258b_mech205_surprise_gated_replay.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "supersedes": "V3-EXQ-258a",
       "claim_id": "MECH-205",
       "claim_ids": [
         "MECH-205"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-09T07:24:09.853755+00:00"
+      }
     }
   ]
 }
