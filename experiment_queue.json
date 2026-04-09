@@ -6,25 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-240a",
-      "title": "ARC-038 Waking Consolidation Mode Probe (substrate fix re-run)",
-      "script": "experiments/v3_exq_240a_arc038_waking_consolidation_probe.py",
-      "claim_ids": [
-        "ARC-038"
-      ],
-      "experiment_purpose": "diagnostic",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 300,
-      "machine_affinity": "any",
-      "supersedes": "V3-EXQ-240",
-      "notes": "Re-run after substrate fix: hippocampal.replay() z_self_zeros shape mismatch (world_dim instead of self_dim). Script unchanged; substrate bug resolved.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-09T06:19:36.240895+00:00"
-      }
-    }
-  ]
+  "items": []
 }
