@@ -30,24 +30,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-263b",
-      "title": "SD-023 validation: landmark gradient texture for MECH-216 anticipatory wanting",
-      "script": "experiments/v3_exq_263b_sd023_mech216_landmark_wanting.py",
-      "claim_ids": [
-        "SD-023",
-        "MECH-216"
-      ],
-      "estimated_minutes": 90,
-      "priority": 1,
-      "machine_affinity": "DLAPTOP-4.local",
-      "supersedes": "V3-EXQ-263a",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-10T04:33:46.607182+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-319",
       "title": "SD-022 harm stream dissociation: HIGH_DAMAGE vs FRESH matched-threat (5 seeds)",
       "experiment_type": "v3_exq_319_sd022_harm_stream_dissociation",
