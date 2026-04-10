@@ -30,28 +30,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-320",
-      "title": "SD-013: interventional vs observational E2_harm_s training",
-      "experiment_type": "v3_exq_320_sd013_interventional_training",
-      "script": "experiments/v3_exq_320_sd013_interventional_training.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 40,
-      "episodes_per_run": 80,
-      "seeds": 5,
-      "conditions": 2,
-      "claim_ids": [
-        "SD-013",
-        "SD-003"
-      ],
-      "notes": "Validation experiment for SD-013 interventional training implementation. Two conditions: INTERVENTIONAL (use_interventional=True) vs OBSERVATIONAL. Key metric: action_gap. Smoke test passes.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-10T15:57:50.998528+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-321",
       "title": "MECH-090: bistable gate vs legacy per-tick gate",
       "experiment_type": "v3_exq_321_mech090_bistable_gate",
