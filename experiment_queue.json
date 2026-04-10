@@ -8,29 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-324",
-      "title": "SD-020: harm surprise PE vs EMA target for z_harm_a",
-      "experiment_type": "v3_exq_324_sd020_harm_surprise_pe",
-      "script": "experiments/v3_exq_324_sd020_harm_surprise_pe.py",
-      "priority": 1,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 45,
-      "episodes_per_run": 60,
-      "seeds": 5,
-      "conditions": 2,
-      "claim_ids": [
-        "SD-020",
-        "SD-011",
-        "Q-036"
-      ],
-      "notes": "Validation experiment for SD-020 precision-weighted PE target for z_harm_a. Two conditions: PE_TARGET (harm_surprise_pe_enabled=True) vs EMA_TARGET. Key metric: z_harm_a_surprise_corr.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-10T22:02:15.740685+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-325",
       "title": "SD-021: descending pain modulation -- commitment-gated z_harm_s attenuation",
       "experiment_type": "v3_exq_325_sd021_descending_pain_modulation",
