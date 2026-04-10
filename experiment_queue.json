@@ -14,7 +14,7 @@
       "script": "experiments/v3_exq_322_sd015_resource_encoder_seeding.py",
       "priority": 1,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 55,
       "episodes_per_run": 110,
       "seeds": 5,
@@ -23,7 +23,11 @@
         "SD-015",
         "MECH-112"
       ],
-      "notes": "Validation experiment for SD-015 ResourceEncoder implementation. Two conditions: RESOURCE_SEED (use_resource_encoder=True) vs WORLD_SEED. Key metric: goal_resource_r and benefit_ratio."
+      "notes": "Validation experiment for SD-015 ResourceEncoder implementation. Two conditions: RESOURCE_SEED (use_resource_encoder=True) vs WORLD_SEED. Key metric: goal_resource_r and benefit_ratio.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-10T18:42:10.504968+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-324",
