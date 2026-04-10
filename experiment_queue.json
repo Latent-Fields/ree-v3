@@ -8,29 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-325",
-      "title": "SD-021: descending pain modulation -- commitment-gated z_harm_s attenuation",
-      "experiment_type": "v3_exq_325_sd021_descending_pain_modulation",
-      "script": "experiments/v3_exq_325_sd021_descending_pain_modulation.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 55,
-      "episodes_per_run": 110,
-      "seeds": 5,
-      "conditions": 2,
-      "claim_ids": [
-        "SD-021",
-        "MECH-090",
-        "SD-011"
-      ],
-      "notes": "Validation experiment for SD-021 descending pain modulation implementation. Two conditions: DESCENDING (harm_descending_mod_enabled=True) vs CONTROL. Key metrics: z_harm_s_ratio and z_harm_a_ratio during committed vs uncommitted episodes. Uses limb_damage_enabled=True.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-04-10T16:09:17.651401+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-326",
       "title": "Wanting-gradient navigation fix (EXQ-259 fix): SD-015, MECH-216, SD-012",
       "experiment_type": "v3_exq_326_wanting_gradient_nav_fix",
