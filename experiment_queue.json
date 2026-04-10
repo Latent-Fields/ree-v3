@@ -70,28 +70,6 @@
       "notes": "Validation experiment for SD-015 ResourceEncoder implementation. Two conditions: RESOURCE_SEED (use_resource_encoder=True) vs WORLD_SEED. Key metric: goal_resource_r and benefit_ratio."
     },
     {
-      "queue_id": "V3-EXQ-323",
-      "title": "SD-019: harm stream non-redundancy constraint",
-      "experiment_type": "v3_exq_323_sd019_harm_nonredundancy",
-      "script": "experiments/v3_exq_323_sd019_harm_nonredundancy.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 40,
-      "episodes_per_run": 60,
-      "seeds": 5,
-      "conditions": 2,
-      "claim_ids": [
-        "SD-019",
-        "SD-011"
-      ],
-      "notes": "Validation experiment for SD-019 cosine^2 non-redundancy penalty. Two conditions: NONREDUNDANT (weight=1.0) vs BASELINE (weight=0.0). Key metric: cosine_sq between z_harm_s and z_harm_a.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-04-10T16:08:54.908023+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-324",
       "title": "SD-020: harm surprise PE vs EMA target for z_harm_a",
       "experiment_type": "v3_exq_324_sd020_harm_surprise_pe",
