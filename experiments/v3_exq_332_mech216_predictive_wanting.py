@@ -67,7 +67,7 @@ EXPERIMENT DESIGN:
                             no useful leading indicator in world_state.
 
   3 seeds per condition (6 total runs)
-  grid_size=12, n_hazards=2, n_resources=2, resource_respawn=True
+  grid_size=12, n_hazards=1, hazard_harm=0.1, n_resources=2, resource_respawn=True
   FUTURE_WINDOW=10 steps (binary: any resource contact in t+1..t+10)
 
 Training phases:
@@ -204,6 +204,8 @@ def run_condition(condition_name, env_cfg, seed):
         size=GRID_SIZE,
         num_hazards=N_HAZARDS,
         num_resources=N_RESOURCES,
+        hazard_harm=0.1,      # low-hazard regime: keeps world interesting but
+                              # ensures adequate episode length even for unlucky seeds
         use_proxy_fields=True,
         resource_respawn_on_consume=True,
         seed=seed,
@@ -272,16 +274,19 @@ def run_condition(condition_name, env_cfg, seed):
             obs_harm  = obs_dict.get("harm_obs", None)
 
             if in_p1:
-                # P1 waking: inference only -- no computation graph needed.
-                # All heavy agent operations run under no_grad to avoid graph buildup
-                # across 300-step episodes (would cause severe memory/speed degradation).
+                # P1 waking: inference only -- no CEM trajectory generation needed.
+                # Schema head training only requires h_top (E1 hidden state) and
+                # future_target labels; the action taken doesn't affect readout loss.
+                # Skipping generate_trajectories eliminates ~96 E2 rollouts/step
+                # (3 CEM iters x 32 candidates) -- ~15-30x speedup over full planning.
+                # Random actions also equalise exploration between CUE_ON and ABLATED,
+                # removing the survival confound (E3 policy would favour CUE_ON which
+                # has better navigation cues, causing ABLATED to die faster).
                 with torch.no_grad():
                     latent = agent.sense(obs_body, obs_world, obs_harm=obs_harm)
                     ticks  = agent.clock.advance()
                     if ticks.get("e1_tick", False):
-                        e1_prior = agent._e1_tick(latent)
-                    else:
-                        e1_prior = torch.zeros(1, cfg.latent.world_dim, device=device)
+                        agent._e1_tick(latent)  # updates LSTM, sets _schema_salience
 
                     # Cache h_top for episode-end replay training.
                     if agent.e1._hidden_state is not None:
@@ -289,8 +294,8 @@ def run_condition(condition_name, env_cfg, seed):
                     else:
                         h_top = torch.zeros(1, cfg.e1.hidden_dim, device=device)
 
-                    candidates = agent.generate_trajectories(latent, e1_prior, ticks)
-                    action = agent.select_action(candidates, ticks)
+                    # Random action: unbiased exploration, no CEM overhead.
+                    action = torch.randint(0, ACTION_DIM, (1,))
 
             else:
                 # P0: compute graph needed for training

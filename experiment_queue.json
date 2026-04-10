@@ -234,7 +234,7 @@
       "priority": 2,
       "machine_affinity": "DLAPTOP-4.local",
       "status": "pending",
-      "estimated_minutes": 300,
+      "estimated_minutes": 120,
       "episodes_per_run": 240,
       "seeds": 3,
       "conditions": 2,
@@ -243,7 +243,7 @@
         "SD-023"
       ],
       "supersedes": "V3-EXQ-263b",
-      "notes": "Major redesign of EXQ-263b. EXQ-263b trained on CURRENT resource_proximity -- just reactive detection. This redesign: (1) supervision target = binary future_resource_encounter within next 10 steps (episode-level replay on cached E1 LSTM hidden states), (2) resource_obs_scale=0.3 attenuates direct resource gradient in observation only -- landmark B becomes dominant predictive cue, (3) acceptance criteria directly test predictive vs reactive: primary metric is corr(schema_salience, future_target) vs corr(schema_salience, current_resource_prox). Two conditions: PREDICTIVE_CUE_ON (n_landmarks_b=2, resource bias=0.8) vs PREDICTIVE_CUE_ABLATED (no landmarks). 12x12 grid, 1 hazard, 2 resources with respawn. PASS requires: C1 CUE_ON future_target_corr>0.10, C2 CUE_ON>ABLATED, C3 future_target_corr>resource_prox_corr (not reactive)."
+      "notes": "Major redesign of EXQ-263b. EXQ-263b trained on CURRENT resource_proximity -- just reactive detection. This redesign: (1) supervision target = binary future_resource_encounter within next 10 steps (episode-level replay on cached E1 LSTM hidden states), (2) resource_obs_scale=0.3 attenuates direct resource gradient in observation only -- landmark B becomes dominant predictive cue, (3) acceptance criteria directly test predictive vs reactive: primary metric is corr(schema_salience, future_target) vs corr(schema_salience, current_resource_prox). Two conditions: PREDICTIVE_CUE_ON (n_landmarks_b=2, resource bias=0.8) vs PREDICTIVE_CUE_ABLATED (no landmarks). 12x12 grid, 1 hazard (hazard_harm=0.1), 2 resources with respawn. P1 uses random actions (no CEM) to equalise condition survival and eliminate ~96 E2 rollouts/step overhead. PASS requires: C1 CUE_ON future_target_corr>0.10, C2 CUE_ON>ABLATED, C3 future_target_corr>resource_prox_corr (not reactive)."
     }
   ]
 }
