@@ -30,28 +30,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-318",
-      "title": "SD-022 limb damage stream separation validation (3 seeds)",
-      "experiment_type": "v3_exq_318_sd022_limb_damage_stream_separation",
-      "script": "experiments/v3_exq_318_sd022_limb_damage_stream_separation.py",
-      "priority": 1,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 30,
-      "episodes_per_run": 200,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "SD-022",
-      "claim_ids": [
-        "SD-022"
-      ],
-      "note": "Diagnostic: SD-022 stream separation validation.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-10T01:15:13.570937+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-263b",
       "title": "SD-023 validation: landmark gradient texture for MECH-216 anticipatory wanting",
       "script": "experiments/v3_exq_263b_sd023_mech216_landmark_wanting.py",
