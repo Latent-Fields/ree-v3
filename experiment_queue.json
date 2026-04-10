@@ -76,7 +76,7 @@
       "script": "experiments/v3_exq_323_sd019_harm_nonredundancy.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 40,
       "episodes_per_run": 60,
       "seeds": 5,
@@ -85,7 +85,11 @@
         "SD-019",
         "SD-011"
       ],
-      "notes": "Validation experiment for SD-019 cosine^2 non-redundancy penalty. Two conditions: NONREDUNDANT (weight=1.0) vs BASELINE (weight=0.0). Key metric: cosine_sq between z_harm_s and z_harm_a."
+      "notes": "Validation experiment for SD-019 cosine^2 non-redundancy penalty. Two conditions: NONREDUNDANT (weight=1.0) vs BASELINE (weight=0.0). Key metric: cosine_sq between z_harm_s and z_harm_a.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-10T16:08:54.908023+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-324",
