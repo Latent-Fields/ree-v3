@@ -187,6 +187,22 @@
       "notes": "Retests EXQ-138a with properly configured SD-012 goal seeding. JOINT (Go+NoGo) vs HARM_ONLY (NoGo only). num_hazards=2, hazard_harm=0.1 (standard config, not volatile)."
     },
     {
+      "queue_id": "V3-EXQ-266a",
+      "title": "Q-020 valence geometry discriminative pair (EXQ-266 ablation fix)",
+      "experiment_type": "v3_exq_266a_q020_valence_geometry_pair_fixed",
+      "script": "experiments/v3_exq_266a_q020_valence_geometry_pair_fixed.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 75,
+      "episodes_per_run": 350,
+      "seeds": 2,
+      "conditions": 2,
+      "claim_ids": ["Q-020"],
+      "supersedes": "V3-EXQ-266",
+      "notes": "Fixes EXQ-266 ablation bug: cfg.residue.valence_enabled=False only gates SD-014 valence vectors, NOT harm scalar accumulation. evaluate() was identical in both conditions. Fix: gate residue_field.accumulate() by terrain_shaped flag. TERRAIN_SHAPED accumulates harm residue; TERRAIN_FLAT does not. Dry-run confirms TERRAIN_FLAT residue_field_total=0.0."
+    },
+    {
       "queue_id": "V3-EXQ-332",
       "title": "MECH-216 genuinely predictive wanting: future-target supervision + resource visibility attenuation",
       "experiment_type": "v3_exq_332_mech216_predictive_wanting",
