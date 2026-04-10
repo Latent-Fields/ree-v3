@@ -36,7 +36,7 @@
       "script": "experiments/v3_exq_321_mech090_bistable_gate.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 35,
       "episodes_per_run": 70,
       "seeds": 5,
@@ -45,7 +45,11 @@
         "MECH-090",
         "ARC-028"
       ],
-      "notes": "Validation experiment for MECH-090 bistable latch implementation. Two conditions: BISTABLE (beta_gate_bistable=True) vs LEGACY. Key metric: hold_rate_committed."
+      "notes": "Validation experiment for MECH-090 bistable latch implementation. Two conditions: BISTABLE (beta_gate_bistable=True) vs LEGACY. Key metric: hold_rate_committed.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-10T15:59:01.080259+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-322",
