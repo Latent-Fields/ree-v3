@@ -41,7 +41,11 @@
       "priority": 1,
       "machine_affinity": "DLAPTOP-4.local",
       "supersedes": "V3-EXQ-263a",
-      "status": "pending"
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-10T04:33:46.607182+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-319",
