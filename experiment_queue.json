@@ -110,6 +110,121 @@
         "machine": "ree-cloud-1",
         "claimed_at": "2026-04-10T16:09:17.651401+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-326",
+      "title": "Wanting-gradient navigation fix (EXQ-259 fix): SD-015, MECH-216, SD-012",
+      "experiment_type": "v3_exq_326_wanting_gradient_nav_fix",
+      "script": "experiments/v3_exq_326_wanting_gradient_nav_fix.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "SD-015",
+      "claim_ids": [
+        "SD-015",
+        "MECH-216",
+        "SD-012"
+      ],
+      "notes": "Fixes EXQ-259 FAIL: enables schema_wanting_enabled=True, use_resource_proximity_head=True, drive_weight=2.0. Three-phase training (P0 warmup, P1 wanting active, P2 eval). Paper gate experiment."
+    },
+    {
+      "queue_id": "V3-EXQ-327",
+      "title": "MECH-163 hippocampal goal-conditioned navigation: paper gate",
+      "experiment_type": "v3_exq_327_mech163_goal_conditioned_nav",
+      "script": "experiments/v3_exq_327_mech163_goal_conditioned_nav.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-163",
+      "claim_ids": [
+        "MECH-163",
+        "SD-015"
+      ],
+      "notes": "Tests E3Config.goal_weight in score_trajectory() for goal-conditioned navigation. GOAL_CONDITIONED vs GOAL_ABLATED. Paper gate primary criterion: benefit_ratio >= 1.3x."
+    },
+    {
+      "queue_id": "V3-EXQ-328",
+      "title": "MECH-112 z_goal structured latent discriminative pair: SD-012 drive",
+      "experiment_type": "v3_exq_328_mech112_zgoal_structured_latent",
+      "script": "experiments/v3_exq_328_mech112_zgoal_structured_latent.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-112",
+      "claim_ids": [
+        "MECH-112",
+        "SD-012"
+      ],
+      "notes": "Tests z_goal_norm elevation post-resource-contact with drive_weight=2.0 vs 0.0. Measures decay at t=0, t=10, t=25, t=50 post-contact."
+    },
+    {
+      "queue_id": "V3-EXQ-329",
+      "title": "ARC-033 E2_harm_s counterfactual validation (EXQ-264 fix)",
+      "experiment_type": "v3_exq_329_arc033_e2_harm_s_counterfactual",
+      "script": "experiments/v3_exq_329_arc033_e2_harm_s_counterfactual.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "ARC-033",
+      "claim_ids": [
+        "ARC-033",
+        "SD-003"
+      ],
+      "notes": "Fixes EXQ-264 FAIL (wrong API call). Three conditions: ACTUAL_VS_CF, RANDOM_BASELINE, SHUFFLED. Tests forward_r2 >= 0.7 and counterfactual gap."
+    },
+    {
+      "queue_id": "V3-EXQ-330",
+      "title": "SD-013 contrastive counterfactual training: interventional vs observational",
+      "experiment_type": "v3_exq_330_sd013_contrastive_counterfactual",
+      "script": "experiments/v3_exq_330_sd013_contrastive_counterfactual.py",
+      "priority": 3,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "SD-013",
+      "claim_ids": [
+        "SD-013",
+        "SD-003",
+        "ARC-033"
+      ],
+      "notes": "Tests SD-013 compute_interventional_loss(). CONTRASTIVE vs OBSERVATIONAL. Per-claim direction tracking: SD-013, SD-003, ARC-033 may have different outcomes."
+    },
+    {
+      "queue_id": "V3-EXQ-331",
+      "title": "ARC-030 approach-avoidance balance with goal seeding",
+      "experiment_type": "v3_exq_331_arc030_approach_avoidance_balance",
+      "script": "experiments/v3_exq_331_arc030_approach_avoidance_balance.py",
+      "priority": 3,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "ARC-030",
+      "claim_ids": [
+        "ARC-030"
+      ],
+      "notes": "Retests EXQ-138a with properly configured SD-012 goal seeding. JOINT (Go+NoGo) vs HARM_ONLY (NoGo only). num_hazards=2, hazard_harm=0.1 (standard config, not volatile)."
     }
   ]
 }
