@@ -8,28 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-322",
-      "title": "SD-015: z_resource seeding vs z_world seeding of z_goal",
-      "experiment_type": "v3_exq_322_sd015_resource_encoder_seeding",
-      "script": "experiments/v3_exq_322_sd015_resource_encoder_seeding.py",
-      "priority": 1,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 55,
-      "episodes_per_run": 110,
-      "seeds": 5,
-      "conditions": 2,
-      "claim_ids": [
-        "SD-015",
-        "MECH-112"
-      ],
-      "notes": "Validation experiment for SD-015 ResourceEncoder implementation. Two conditions: RESOURCE_SEED (use_resource_encoder=True) vs WORLD_SEED. Key metric: goal_resource_r and benefit_ratio.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-10T18:42:10.504968+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-324",
       "title": "SD-020: harm surprise PE vs EMA target for z_harm_a",
       "experiment_type": "v3_exq_324_sd020_harm_surprise_pe",
@@ -198,7 +176,9 @@
       "episodes_per_run": 350,
       "seeds": 2,
       "conditions": 2,
-      "claim_ids": ["Q-020"],
+      "claim_ids": [
+        "Q-020"
+      ],
       "supersedes": "V3-EXQ-266",
       "notes": "Fixes EXQ-266 ablation bug: cfg.residue.valence_enabled=False only gates SD-014 valence vectors, NOT harm scalar accumulation. evaluate() was identical in both conditions. Fix: gate residue_field.accumulate() by terrain_shaped flag. TERRAIN_SHAPED accumulates harm residue; TERRAIN_FLAT does not. Dry-run confirms TERRAIN_FLAT residue_field_total=0.0."
     },
