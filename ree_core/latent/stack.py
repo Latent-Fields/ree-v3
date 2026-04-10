@@ -249,6 +249,70 @@ class AffectiveHarmEncoder(nn.Module):
         return z_harm_a, harm_accum_pred
 
 
+class ResourceEncoder(nn.Module):
+    """
+    SD-015 / MECH-112: Dedicated resource-type encoder for goal-directed navigation.
+
+    Encodes world_obs (raw exteroceptive observation) into z_resource -- an object-type
+    latent that captures what kind of resource is present, independent of spatial location.
+
+    Distinct from SplitEncoder's z_world (which encodes the full scene including position)
+    and SD-018 resource_proximity_head (a scalar head on z_world, position-confounded).
+    z_resource is seeded into GoalState instead of z_world at benefit contact, giving
+    the goal system a representation of "what to seek" rather than "where it was."
+
+    Architecture:
+        world_obs -> Linear(world_obs_dim, hidden_dim) -> ReLU -> Linear -> z_resource [z_resource_dim]
+        z_resource -> resource_prox_head -> resource_prox_pred_resource [1] (aux supervision)
+
+    Biological grounding:
+        Ventral visual stream (IT cortex): encodes object identity independent of spatial
+        position (DiCarlo & Cox 2007 -- untangled representation). Hippocampal place cells
+        bind context (where) with object identity (what). Goal-directed approach requires a
+        "what-to-seek" signal, not a "where-it-was" signal.
+
+    Phased training (recommended):
+        P0: Train ResourceEncoder on benefit_exposure supervision (aux head).
+        P1: Activate goal seeding from z_resource in update_z_goal().
+
+    MECH-094: not applicable (waking observation stream).
+    See CLAUDE.md: SD-015, MECH-112. See goal.py: GoalState.update().
+    """
+
+    def __init__(self, world_obs_dim: int = 250, z_resource_dim: int = 32,
+                 hidden_dim: int = 64):
+        super().__init__()
+        self.world_obs_dim = world_obs_dim
+        self.z_resource_dim = z_resource_dim
+        self.encoder = nn.Sequential(
+            nn.Linear(world_obs_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, z_resource_dim),
+        )
+        # Auxiliary head: predict max resource proximity from z_resource.
+        # Supervision signal: max(resource_field_view) in [0, 1] (same as SD-018).
+        # Forces z_resource to represent resource-type features, not spatial position.
+        self.resource_prox_head = nn.Sequential(
+            nn.Linear(z_resource_dim, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, world_obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Encode world observation into resource-type latent.
+
+        Args:
+            world_obs: [batch, world_obs_dim] -- raw exteroceptive observation
+
+        Returns:
+            z_resource: [batch, z_resource_dim] -- object-type latent
+            resource_prox_pred_r: [batch, 1] -- aux prediction for training supervision
+        """
+        z_resource = self.encoder(world_obs)
+        resource_prox_pred_r = self.resource_prox_head(z_resource)
+        return z_resource, resource_prox_pred_r
+
+
 # DEPRECATED 2026-04-02 -- use ResidualHarmForward (ARC-033). Identity collapse on autocorrelated signals.
 class HarmForwardModel(nn.Module):
     """
@@ -547,6 +611,8 @@ class LatentState:
     z_world_raw: Optional[torch.Tensor] = None   # SD-007 diagnostic [batch, world_dim]
     event_logits: Optional[torch.Tensor] = None  # SD-009 [batch, 3] for CE loss; None if not enabled
     resource_prox_pred: Optional[torch.Tensor] = None  # SD-018 [batch, 1] for MSE loss; None if not enabled
+    z_resource: Optional[torch.Tensor] = None  # SD-015/MECH-112 object-type latent [batch, z_resource_dim]
+    resource_prox_pred_r: Optional[torch.Tensor] = None  # SD-015 aux head [batch, 1]; None if disabled
 
     def to_tensor(self) -> torch.Tensor:
         """Concatenate all channels into a single tensor (excludes z_harm)."""
@@ -575,6 +641,8 @@ class LatentState:
             z_world_raw=self.z_world_raw.detach() if self.z_world_raw is not None else None,
             event_logits=self.event_logits.detach() if self.event_logits is not None else None,
             resource_prox_pred=self.resource_prox_pred.detach() if self.resource_prox_pred is not None else None,
+            z_resource=self.z_resource.detach() if self.z_resource is not None else None,
+            resource_prox_pred_r=self.resource_prox_pred_r.detach() if self.resource_prox_pred_r is not None else None,
         )
 
 
@@ -863,6 +931,19 @@ class LatentStack(nn.Module):
         else:
             self.affective_harm_encoder = None
 
+        # SD-015 / MECH-112: ResourceEncoder for object-type goal seeding.
+        # Encodes world_obs -> z_resource independently of z_world; provides
+        # "what to seek" signal for GoalState instead of position-confounded z_world.
+        # Disabled by default (backward compat).
+        if getattr(self.config, "use_resource_encoder", False):
+            self.resource_encoder: Optional[ResourceEncoder] = ResourceEncoder(
+                world_obs_dim=self.config.world_obs_dim,
+                z_resource_dim=getattr(self.config, "z_resource_dim", 32),
+                hidden_dim=hidden,
+            )
+        else:
+            self.resource_encoder = None
+
         # Top-down projections
         self.delta_to_theta = nn.Linear(self.config.delta_dim, self.config.topdown_dim)
         self.theta_to_beta = nn.Linear(self.config.theta_dim, self.config.topdown_dim)
@@ -1080,6 +1161,13 @@ class LatentStack(nn.Module):
                     hh = hh.unsqueeze(0).expand(batch_size, -1)
             z_harm_a, harm_accum_pred = self.affective_harm_encoder(hoa, hh)
 
+        # SD-015 / MECH-112: ResourceEncoder produces object-type latent from world_obs.
+        # world_obs already extracted above (from _split_observation); reuse it here.
+        z_resource = None
+        resource_prox_pred_r = None
+        if self.resource_encoder is not None:
+            z_resource, resource_prox_pred_r = self.resource_encoder(world_obs)
+
         return LatentState(
             z_self=z_self,
             z_world=z_world,
@@ -1097,6 +1185,8 @@ class LatentStack(nn.Module):
             z_world_raw=z_world_raw,  # SD-007 diagnostic (uncorrected z_world)
             event_logits=event_logits,  # SD-009: None if event classifier not enabled
             resource_prox_pred=resource_prox_pred,  # SD-018: None if resource head not enabled
+            z_resource=z_resource,  # SD-015: None if resource encoder not enabled
+            resource_prox_pred_r=resource_prox_pred_r,  # SD-015 aux head: None if disabled
         )
 
     def predict(self, state: LatentState) -> LatentState:

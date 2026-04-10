@@ -140,6 +140,16 @@ class LatentStackConfig:
     # See ree_core/predictors/e2_harm_s.py for the module and training protocol.
     use_e2_harm_s_forward: bool = False
 
+    # SD-015 / MECH-112: dedicated ResourceEncoder for goal-directed navigation.
+    # When True, LatentStack.encode() produces z_resource [batch, z_resource_dim]
+    # from raw world_obs -- an object-type latent independent of spatial position.
+    # GoalState.update() seeds from z_resource (not z_world) when this is enabled,
+    # giving the goal system "what to seek" rather than "where it was."
+    # Disabled by default -- backward compatible with all existing experiments.
+    # See ree_core/latent/stack.py: ResourceEncoder.
+    use_resource_encoder: bool = False
+    z_resource_dim: int = 32  # must match GoalConfig.goal_dim for direct seeding
+
     # Top-down conditioning
     topdown_dim: int = 16
 
@@ -379,6 +389,14 @@ class HeartbeatConfig:
     breath_sweep_amplitude: float = 0.25  # Fractional threshold reduction during sweep
     breath_sweep_duration: int = 5   # Duration of each sweep phase (steps)
 
+    # MECH-090: bistable beta gate committed->uncommitted dynamics (SD-021 prerequisite).
+    # False (default): legacy "for now" behavior -- elevate/release beta every E3 tick
+    #   based on current commitment state. Fully backward compatible.
+    # True (bistable): latch on commit entry; release only via hippocampal completion
+    #   signal (BetaGate.receive_hippocampal_completion()) or explicit uncommit.
+    #   Required for SD-021 (descending pain modulation) and proper MECH-090 dynamics.
+    beta_gate_bistable: bool = False
+
 
 @dataclass
 class EnvironmentConfig:
@@ -464,6 +482,36 @@ class REEConfig:
     # Master switch is E1Config.schema_wanting_enabled (default False).
     schema_wanting_threshold: float = 0.3
     schema_wanting_gain: float = 0.5
+
+    # SD-019: affective harm non-redundancy constraint.
+    # harm_nonredundancy_weight > 0 adds a cosine^2 penalty between z_harm_s and z_harm_a,
+    # enforcing that the two streams encode non-redundant information.
+    # 0.0 = disabled (default, backward compat). Typical range: 0.01 - 0.1.
+    # harm_nonredundancy_precision_scale > 0 scales the penalty by E3 current_precision
+    # (ARC-016 coupling: enforce non-redundancy more strongly when the agent is confident).
+    # 0.0 = unscaled (default, backward compat).
+    harm_nonredundancy_weight: float = 0.0
+    harm_nonredundancy_precision_scale: float = 0.0
+
+    # SD-020: precision-weighted prediction error target for z_harm_a training.
+    # When True, compute_harm_accum_loss() trains z_harm_a on the PE signal
+    # (|actual_harm - expected_harm| * precision_norm) rather than raw EMA harm.
+    # Chen 2023: AIC encodes unsigned intensity prediction errors, not raw magnitude.
+    # False = disabled (default, backward compat; keeps existing EMA target).
+    harm_surprise_pe_enabled: bool = False
+    # EMA smoothing alpha for expected-harm tracker (running average of harm_obs).
+    # Smaller = slower adaptation (longer effective window for "expected").
+    # Default 0.1 = ~10-step window.
+    harm_obs_ema_alpha: float = 0.1
+
+    # SD-021: descending pain modulation (commitment-gated z_harm attenuation).
+    # When True, agent.sense() attenuates z_harm by descending_attenuation_factor
+    # when beta_gate.is_elevated (E3 committed to a trajectory through expected harm).
+    # z_harm_a is NOT attenuated (affective load persists regardless of commitment).
+    # False = disabled (default, backward compat).
+    harm_descending_mod_enabled: bool = False
+    # Multiplier on z_harm when committed (0 < factor <= 1). 0.5 = 50% attenuation.
+    descending_attenuation_factor: float = 0.5
 
     @classmethod
     def from_dims(

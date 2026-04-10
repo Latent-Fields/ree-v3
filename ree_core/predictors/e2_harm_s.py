@@ -59,6 +59,13 @@ class E2HarmSConfig:
         P0: train HarmEncoder on proximity supervision (harm_obs -> z_harm_s MSE loss)
         P1: train E2HarmSForward on frozen z_harm_s targets (stop-gradient on z_harm_s)
         P2: evaluate forward_r2 and harm_s_cf_gap
+
+    SD-013 interventional training (use_interventional=True):
+        During P1, additionally compute a contrastive margin loss that pushes apart
+        E2HarmSForward predictions for a_actual vs a_cf. This forces the model to
+        produce action-sensitive (not action-invariant) harm predictions -- required
+        for causal_sig to be non-trivial in the SD-003 attribution pipeline.
+        Scholkopf et al. 2021: observational training -> P(z|a), not P(z|do(a)).
     """
     # Master switch -- disabled by default (backward compat)
     use_e2_harm_s_forward: bool = False
@@ -75,6 +82,15 @@ class E2HarmSConfig:
     learning_rate: float = 5e-4   # small LR: harm stream is low-variance vs z_world
     # Note: apply stop-gradient to z_harm_s inputs during P1 training:
     #     target = z_harm_s_next.detach()  # <-- critical for encoder stability
+
+    # SD-013: interventional contrastive training (disabled by default, backward compat)
+    use_interventional: bool = False
+    # Fraction of P1 training steps that apply the contrastive interventional loss
+    # alongside the standard MSE loss (range 0.0-1.0; 0.3 means 30% of steps).
+    interventional_fraction: float = 0.3
+    # L2 margin: push z_pred_actual and z_pred_cf at least this far apart.
+    # Small relative to typical z_harm_s scale; reconstruction still dominates.
+    interventional_margin: float = 0.1
 
 
 class E2HarmSForward(nn.Module):
@@ -184,3 +200,46 @@ class E2HarmSForward(nn.Module):
             z_harm_s_cf: [batch, z_harm_dim] -- counterfactual predicted harm latent
         """
         return self._residual_fwd(z_harm_s, counterfactual_action)
+
+    def compute_interventional_loss(
+        self,
+        z_harm_s: torch.Tensor,
+        a_actual: torch.Tensor,
+        a_cf: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        SD-013: Contrastive interventional loss for action-sensitive training.
+
+        Pushes E2HarmSForward predictions for a_actual and a_cf apart by at least
+        `interventional_margin` in L2 distance. This forces the forward model to
+        produce divergent harm predictions for different actions, making the SD-003
+        causal_sig non-trivial even in confounded environments.
+
+        Margin loss: max(0, margin - ||z_pred_actual - z_pred_cf||_2)
+        Gradient is zero when predictions are already >= margin apart.
+        When predictions are too similar, gradient pushes them apart.
+
+        IMPORTANT: z_harm_s MUST be detached from the HarmEncoder computation
+        graph before calling this (same P1 stop-gradient discipline as compute_loss).
+
+        Args:
+            z_harm_s: [batch, z_harm_dim] -- current sensory harm latent (detached)
+            a_actual:  [batch, action_dim] -- action actually taken (one-hot or continuous)
+            a_cf:      [batch, action_dim] -- counterfactual action (must differ from a_actual)
+
+        Returns:
+            loss: scalar contrastive margin loss (>= 0)
+
+        Biological grounding:
+            Scholkopf et al. 2021 (Science): causal identifiability requires interventional
+            data, not just observational. The margin loss acts as a soft interventional
+            constraint: the model must produce different predictions under different actions.
+        """
+        z_pred_actual = self._residual_fwd(z_harm_s, a_actual)
+        z_pred_cf = self._residual_fwd(z_harm_s, a_cf)
+        # L2 distance between actual and counterfactual predictions [batch]
+        l2_dist = (z_pred_actual - z_pred_cf).norm(dim=-1)
+        margin = self.config.interventional_margin
+        # Hinge: penalise when predictions are too similar
+        loss = F.relu(margin - l2_dist).mean()
+        return loss

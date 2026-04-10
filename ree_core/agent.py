@@ -163,6 +163,11 @@ class REEAgent(nn.Module):
         self._pe_ema_alpha: float = config.pe_ema_alpha  # from config (default 0.02)
         self._surprise_write_count: int = 0  # diagnostic counter
 
+        # SD-020: harm PE tracker for affective surprise target.
+        # Running EMA of observed harm (expected harm estimate).
+        # PE = |actual_harm_obs - _harm_obs_ema| used as z_harm_a training target.
+        self._harm_obs_ema: float = 0.0
+
         # MECH-165: episode trajectory recording for exploration buffer
         self._episode_world_states: List[torch.Tensor] = []
         self._episode_self_states: List[torch.Tensor] = []
@@ -340,9 +345,25 @@ class REEAgent(nn.Module):
             harm_history=obs_harm_history,  # SD-011 second source (None = disabled)
             volatility_signal=vol_signal,
         )
+        # SD-021: descending pain modulation (commitment-gated sensory harm attenuation).
+        # When beta_gate is elevated (E3 committed to a trajectory through expected harm),
+        # attenuate z_harm (sensory-discriminative stream) by descending_attenuation_factor.
+        # Biological basis: pgACC -> PAG -> RVM descending inhibitory pathway provides
+        # endogenous analgesia during committed escape/approach (Basbaum 1984, Keltner 2006).
+        # z_harm_a is NOT attenuated: affective load (C-fiber) persists regardless of
+        # commitment -- you can tolerate expected pain but it still matters motivationally.
+        # MECH-094: applies to waking observation stream (not replay content).
+        if (
+            getattr(self.config, "harm_descending_mod_enabled", False)
+            and self.beta_gate.is_elevated
+            and new_latent.z_harm is not None
+        ):
+            attn = getattr(self.config, "descending_attenuation_factor", 0.5)
+            new_latent.z_harm = new_latent.z_harm * attn
+
         # Detach before storing: prevents EMA from linking computational graphs
         # across time steps. Without detach, optimizer.step() modifies weights
-        # in-place, invalidating the old graph's version — causing RuntimeError
+        # in-place, invalidating the old graph's version -- causing RuntimeError
         # "modified by an inplace operation" on the next backward() call.
         self._current_latent = new_latent.detach()
         # MECH-165: record state for exploration trajectory
@@ -441,6 +462,15 @@ class REEAgent(nn.Module):
             action_bias=self._cue_action_bias,
         )
         self._committed_candidates = candidates
+
+        # ARC-028 / MECH-105: hippocampal completion signal -> BetaGate release.
+        # compute_completion_signal() scores all proposals; high-quality trajectory
+        # found -> dopamine analog -> beta drops -> gate opens (Lisman & Grace 2005).
+        # MECH-090 bistable: release triggered by completion, not by variance re-eval.
+        if self.config.heartbeat.beta_gate_bistable and self.beta_gate.is_elevated:
+            completion = self.hippocampal.compute_completion_signal(candidates)
+            self.beta_gate.receive_hippocampal_completion(completion)
+
         return candidates
 
     def generate_trajectories(
@@ -520,12 +550,23 @@ class REEAgent(nn.Module):
         )
         action = result.selected_action
 
-        # MECH-090: gate policy propagation based on beta state
-        # For now: if committed, elevate beta; if not, release
-        if result.committed:
-            self.beta_gate.elevate()
+        # MECH-090: gate policy propagation based on beta state.
+        bistable = self.config.heartbeat.beta_gate_bistable
+        if bistable:
+            # Bistable latch: only elevate on commit ENTRY (not every tick).
+            # Release is triggered by hippocampal completion signal in _e3_tick(),
+            # not by variance re-evaluation. This prevents flickering when variance
+            # hovers near the commit threshold.
+            if result.committed and not self.beta_gate.is_elevated:
+                self.beta_gate.elevate()
+            # If not committed and beta already released: no-op (already open).
+            # If committed and beta already elevated: no-op (stay latched).
         else:
-            self.beta_gate.release()
+            # Legacy behavior (backward compat): re-evaluate every E3 tick.
+            if result.committed:
+                self.beta_gate.elevate()
+            else:
+                self.beta_gate.release()
 
         propagated = self.beta_gate.propagate(action)
         if propagated is None:
@@ -929,6 +970,100 @@ class REEAgent(nn.Module):
         )
         return F.mse_loss(pred, target)
 
+    def compute_resource_encoder_loss(
+        self,
+        resource_proximity_target: float,
+        latent_state: "LatentState",
+    ) -> torch.Tensor:
+        """
+        SD-015 / MECH-112: auxiliary loss for ResourceEncoder object-type supervision.
+
+        Trains the ResourceEncoder's resource_prox_head to predict resource proximity
+        from z_resource. Same supervision signal as SD-018 (max(resource_field_view)),
+        but backpropagates through the separate ResourceEncoder rather than through
+        z_world. This forces z_resource to represent object-type features (what is
+        present) rather than spatial position.
+
+        Requires use_resource_encoder=True in LatentStackConfig. Returns zero
+        otherwise (backward-compatible with all prior experiments).
+
+        Args:
+            resource_proximity_target: scalar in [0, 1]; typically max(resource_field_view)
+                from the environment observation.
+            latent_state: current LatentState (from sense()); must contain resource_prox_pred_r.
+
+        Returns:
+            MSE loss scalar (zero when ResourceEncoder is disabled).
+        """
+        zero_loss = next(self.latent_stack.parameters()).sum() * 0.0
+        if not getattr(self.config.latent, "use_resource_encoder", False):
+            return zero_loss
+        if latent_state.resource_prox_pred_r is None:
+            return zero_loss
+        pred = latent_state.resource_prox_pred_r  # [batch, 1]
+        if pred.dim() == 1:
+            pred = pred.unsqueeze(0)
+        target = torch.tensor(
+            [[resource_proximity_target]],
+            dtype=torch.float32,
+            device=pred.device,
+        )
+        return F.mse_loss(pred, target)
+
+    def compute_harm_nonredundancy_loss(
+        self,
+        latent_state: "LatentState",
+    ) -> torch.Tensor:
+        """
+        SD-019: Affective harm non-redundancy constraint loss.
+
+        Penalises cosine alignment between z_harm_s and z_harm_a using a squared
+        cosine similarity penalty. This enforces that the two harm streams encode
+        non-redundant information, consistent with the A-delta/C-fiber distinction:
+        sensory-discriminative (z_harm_s) encodes immediate proximity/intensity,
+        affective-motivational (z_harm_a) encodes accumulated threat burden with
+        different temporal scope and persistence.
+
+        Penalty = cos_sim(z_harm_s, z_harm_a)^2
+        - Penalises both positive AND negative alignment (symmetric).
+        - Zero gradient when streams are orthogonal.
+        - Large gradient when streams are parallel (redundant).
+
+        ARC-016 coupling: when harm_nonredundancy_precision_scale > 0, the penalty
+        is scaled by normalised E3 precision, enforcing non-redundancy more strongly
+        in high-confidence (low-variance) states. Biological grounding: Barlow 1961
+        redundancy reduction; C-fiber/A-delta distinct temporal integration profiles.
+
+        Returns zero when harm_nonredundancy_weight=0.0 (default, backward compat)
+        or when either harm stream is absent from the current latent state.
+
+        Args:
+            latent_state: current LatentState (from sense()); must contain z_harm and z_harm_a.
+
+        Returns:
+            Penalty loss scalar (>= 0).
+        """
+        zero_loss = next(self.latent_stack.parameters()).sum() * 0.0
+        weight = getattr(self.config, "harm_nonredundancy_weight", 0.0)
+        if weight <= 0.0:
+            return zero_loss
+        if latent_state.z_harm is None or latent_state.z_harm_a is None:
+            return zero_loss
+        z_s = latent_state.z_harm    # [batch, harm_dim]
+        z_a = latent_state.z_harm_a  # [batch, z_harm_a_dim]
+        # Project to common dim if needed (use the smaller)
+        min_dim = min(z_s.shape[-1], z_a.shape[-1])
+        z_s_proj = z_s[..., :min_dim]
+        z_a_proj = z_a[..., :min_dim]
+        cos_sim = F.cosine_similarity(z_s_proj, z_a_proj, dim=-1).mean()
+        penalty = cos_sim.pow(2)
+        # ARC-016 coupling: scale by normalised precision when enabled
+        prec_scale = getattr(self.config, "harm_nonredundancy_precision_scale", 0.0)
+        if prec_scale > 0.0:
+            precision_norm = min(self.e3.current_precision / 500.0, 2.0)
+            penalty = penalty * (1.0 + prec_scale * precision_norm)
+        return weight * penalty
+
     def compute_harm_accum_loss(
         self,
         accumulated_harm_target: float,
@@ -966,8 +1101,28 @@ class REEAgent(nn.Module):
         pred = latent_state.harm_accum_pred  # [batch, 1]
         if pred.dim() == 1:
             pred = pred.unsqueeze(0)
+
+        # SD-020: optional precision-weighted PE target for z_harm_a training.
+        # When harm_surprise_pe_enabled=True, replace EMA accumulated_harm_target
+        # with |actual_harm - expected_harm| * precision_norm (affective surprise).
+        # Chen 2023: AIC encodes unsigned intensity prediction errors, not raw magnitude.
+        # precision_norm = min(E3.current_precision / 500, 3.0) provides ARC-016 coupling.
+        harm_surprise_pe_enabled = getattr(self.config, "harm_surprise_pe_enabled", False)
+        if harm_surprise_pe_enabled:
+            alpha = getattr(self.config, "harm_obs_ema_alpha", 0.1)
+            # Update running expected harm
+            self._harm_obs_ema = (1.0 - alpha) * self._harm_obs_ema + alpha * accumulated_harm_target
+            # PE = |actual - expected|
+            harm_pe = abs(accumulated_harm_target - self._harm_obs_ema)
+            # ARC-016: scale by normalised precision
+            precision_norm = min(self.e3.current_precision / 500.0, 3.0)
+            surprise_target = harm_pe * precision_norm
+            target_val = surprise_target
+        else:
+            target_val = accumulated_harm_target
+
         target = torch.tensor(
-            [[accumulated_harm_target]],
+            [[target_val]],
             dtype=torch.float32,
             device=pred.device,
         )
@@ -977,6 +1132,12 @@ class REEAgent(nn.Module):
     def update_z_goal(self, benefit_exposure: float, drive_level: float = 1.0) -> None:
         """Update z_goal from benefit signal (MECH-112 wanting update).
 
+        SD-015: when ResourceEncoder is enabled and z_resource is populated in the
+        current latent state, seeds z_goal from z_resource (object-type latent) rather
+        than z_world (full scene latent). z_resource encodes "what kind of resource is
+        present" independent of spatial position -- resources respawn at random locations,
+        so z_world at contact has no predictive value for future resource locations.
+
         Args:
             benefit_exposure: scalar benefit this step (obs_body[11] in proxy mode)
             drive_level: homeostatic drive 0=sated, 1=depleted (SD-012).
@@ -984,8 +1145,17 @@ class REEAgent(nn.Module):
         """
         if self.goal_state is None or self._current_latent is None:
             return
+        # SD-015: use z_resource if available (object-type seeding), else z_world
+        use_resource = (
+            getattr(self.config.latent, "use_resource_encoder", False)
+            and self._current_latent.z_resource is not None
+        )
+        seed_latent = (
+            self._current_latent.z_resource if use_resource
+            else self._current_latent.z_world
+        )
         self.goal_state.update(
-            self._current_latent.z_world,
+            seed_latent,
             benefit_exposure,
             drive_level=drive_level,
         )

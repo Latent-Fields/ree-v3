@@ -67,6 +67,141 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   Validation experiment: V3-EXQ-263b queued.
   See SD-023, MECH-216, ARC-017, MECH-096, MECH-103.
 
+## SD-013, MECH-090, SD-015, SD-019, SD-020, SD-021: Harm Stream + Gate Implementations (2026-04-10)
+- SD-013: self_attribution.e2_harm_s_interventional_training -- IMPLEMENTED 2026-04-10.
+  Module: ree_core/predictors/e2_harm_s.py (E2HarmSConfig, E2HarmSForward).
+  Config: E2HarmSConfig.use_interventional (bool, default False),
+  interventional_fraction (float, default 0.3), interventional_margin (float, default 0.1).
+  New method: E2HarmSForward.compute_interventional_loss(z_harm_s, a_actual, a_cf).
+  Implementation: samples a_cf != a_actual; runs _residual_fwd for both; applies ReLU margin
+  loss forcing ||z_pred_actual - z_pred_cf|| >= interventional_margin. Training applies the
+  loss to interventional_fraction of each batch. Gradient backprops through E2_harm_s weights.
+  Data flow: (z_harm_s, a_actual, a_cf) -> _residual_fwd x2 -> L2 dist -> margin loss.
+  Backward compatible: use_interventional=False (default); existing experiments unaffected.
+  Biological basis: Scholkopf et al. (2021) interventional distribution P(z | do(a)) vs
+  observational P(z | a). In confounded states, observational training compresses causal_sig.
+  Margin loss enforces identifiability: E2_harm_s must produce divergent outputs for different
+  actions from the same state, regardless of ambient correlations.
+  Phased training: P0 encoder warmup (use_interventional=False) -> P1 frozen-encoder head
+  training (use_interventional=True, interventional_fraction=0.3).
+  MECH-094: not applicable (waking forward model training, no simulation content).
+  Validation experiment: V3-EXQ-320 queued.
+  See SD-003, SD-011, ARC-033, SD-013.
+
+- MECH-090: control_plane.commitment_gated_policy_output -- bistable latch IMPLEMENTED 2026-04-10.
+  Module: ree_core/agent.py (REEAgent._e3_tick, REEAgent.select_action).
+  Config: HeartbeatConfig.beta_gate_bistable (bool, default False).
+  Previously: select_action() elevated beta on commit, released on no-commit (per-tick re-eval).
+  Now (bistable=True): gate elevates on ENTRY to committed state only. Hippocampal completion
+  signal is the primary release trigger. Wiring: _e3_tick() calls
+  beta_gate.receive_hippocampal_completion(hippocampal.compute_completion_signal(candidates))
+  when beta_gate_bistable=True and beta_gate.is_elevated.
+  select_action() guards: if bistable -> elevate only on transition (committed AND NOT elevated);
+  else -> legacy per-tick raise/release.
+  Backward compatible: beta_gate_bistable=False (default); existing experiments unaffected.
+  Biological basis: STN beta power is bistable during committed sequences -- it does not
+  re-evaluate commitment each striatal cycle. Release is triggered by hippocampal completion
+  signal (sequence end) or surprise interrupt (MECH-091).
+  MECH-094: not applicable (gate state is a continuous control variable, not simulation).
+  Validation experiment: V3-EXQ-321 queued.
+  See MECH-090, ARC-028, MECH-105, HeartbeatConfig.
+
+- SD-015: goal_representation.z_resource_encoder -- IMPLEMENTED 2026-04-10.
+  Modules: ree_core/latent/stack.py (ResourceEncoder, LatentState), ree_core/agent.py
+  (update_z_goal, compute_resource_encoder_loss).
+  Config: LatentStackConfig.use_resource_encoder (bool, default False),
+  LatentStackConfig.z_resource_dim (int, default 32 -- matches GoalConfig.goal_dim).
+  New class ResourceEncoder: world_obs -> [hidden_dim=64] -> z_resource [32], plus a
+  resource_prox_head (Linear -> Sigmoid) predicting resource proximity in [0,1].
+  LatentState: added z_resource (Optional[Tensor]), resource_prox_pred_r (Optional[Tensor]).
+  LatentState.detach() handles both new fields.
+  LatentStack.encode(): when use_resource_encoder=True, runs ResourceEncoder on world_obs;
+  z_resource and resource_prox_pred_r set in returned LatentState.
+  agent.update_z_goal(): seeds GoalState from z_resource (not z_world) when
+  use_resource_encoder=True and z_resource is not None.
+  agent.compute_resource_encoder_loss(resource_proximity_target, latent_state): MSE of
+  resource_prox_pred_r against proximity label; gradient flows through ResourceEncoder.
+  Data flow: world_obs -> ResourceEncoder -> z_resource -> GoalState.update(z_resource) ->
+  z_goal attractor. Auxiliary: resource_prox_pred_r -> MSE(target) -> backprop.
+  Backward compatible: use_resource_encoder=False (default); z_resource=None in LatentState.
+  Biological basis: MECH-112 (structured goal representation) requires a latent that encodes
+  object-type features (what a resource IS) separate from spatial position (where z_world
+  encodes the full scene). z_resource is location-invariant across resource respawns.
+  Phased training required: P0 train ResourceEncoder with proximity labels; P1 freeze encoder,
+  seed z_goal from z_resource, train E3 goal evaluation on the seeded representation.
+  MECH-094: not applicable (waking encoder, not simulation content).
+  Validation experiment: V3-EXQ-322 queued.
+  See SD-015, SD-012, MECH-112, INV-065.
+
+- SD-019: harm_stream.affective_nonredundancy_constraint -- IMPLEMENTED 2026-04-10.
+  Module: ree_core/agent.py (compute_harm_nonredundancy_loss).
+  Config: REEConfig.harm_nonredundancy_weight (float, default 0.0),
+  REEConfig.harm_nonredundancy_precision_scale (float, default 0.0).
+  New agent method: compute_harm_nonredundancy_loss(latent_state).
+  Implementation: projects z_harm_s and z_harm_a to a shared comparison dim via learned
+  Linear projections (harm_dim -> harm_dim); computes cosine_similarity(z_s_proj, z_a_proj);
+  penalty = cosine_sim^2. When harm_nonredundancy_precision_scale > 0.0, penalty is scaled
+  by (1 + scale * e3.current_precision / 500.0), capped at 2x. Sum: weight * penalty.
+  ARC-016 wiring: e3.current_precision (1/running_variance) used directly as a property.
+  Data flow: (z_harm_s, z_harm_a) -> proj_s, proj_a -> cosine_sim^2 -> precision_scale ->
+  loss_term -> add to total loss in training loop.
+  Backward compatible: harm_nonredundancy_weight=0.0 (default) -> no penalty applied.
+  Biological basis: C-fiber and A-delta projections have distinct laminar terminations and
+  functionally non-overlapping representations. A valid dual-stream encoder must not collapse
+  z_harm_a into a monotone transform of z_harm_s.
+  ARC-016 relevance: higher precision (lower variance) implies a committed, confident state
+  where the streams must encode genuinely distinct information.
+  Phased training: enable after P0 warmup; apply loss during P1/P2 when encoders are
+  discriminative enough for the penalty to be informative.
+  MECH-094: not applicable (waking encoder loss, not simulation content).
+  Validation experiment: V3-EXQ-323 queued.
+  See SD-019, SD-011, ARC-016, MECH-219.
+
+- SD-020: harm_stream.affective_surprise_pe -- IMPLEMENTED 2026-04-10.
+  Module: ree_core/agent.py (compute_harm_accum_loss, __init__ adds self._harm_obs_ema).
+  Config: REEConfig.harm_surprise_pe_enabled (bool, default False),
+  REEConfig.harm_obs_ema_alpha (float, default 0.1).
+  Implementation: when harm_surprise_pe_enabled=True, maintain EMA of observed
+  accumulated_harm_target; on each step, harm_PE = |accumulated_harm_target - ema|; update
+  ema <- (1-alpha)*ema + alpha*target; compute precision_norm = min(e3.current_precision/500, 3);
+  training target becomes surprise_target = harm_PE * precision_norm.
+  This replaces the raw accumulated_harm scalar as the aux loss target for AffectiveHarmEncoder.
+  z_harm_a then encodes how SURPRISING the threat level is (unexpected escalation), not how
+  high it is absolutely (Chen 2023, anterior insula as unsigned aversive PE detector).
+  Data flow: accumulated_harm_target -> EMA predictor -> harm_PE -> precision_norm ->
+  surprise_target -> MSE loss -> z_harm_a encoder.
+  Backward compatible: harm_surprise_pe_enabled=False (default); legacy EMA path unchanged.
+  Biological basis: anterior insula (AIC) encodes unsigned intensity prediction errors as a
+  modality-unspecific aversive surprise signal, NOT raw magnitude (Chen 2023; Hoskin 2023;
+  Geuter 2017; Horing 2022). SD-020 aligns z_harm_a with the AIC functional role.
+  Phased training: P0 encoder warmup with harm_surprise_pe_enabled=False (raw target);
+  P1 switch to harm_surprise_pe_enabled=True once EMA is calibrated (~50 episodes).
+  ARC-016 wiring: e3.current_precision scales the surprise target, so high-confidence states
+  produce stronger PE-weighted training signal.
+  MECH-094: not applicable (waking training loop, not simulation content).
+  Validation experiment: V3-EXQ-324 queued.
+  See SD-020, SD-011, SD-019, ARC-016, Q-036.
+
+- SD-021: harm_stream.descending_modulation -- IMPLEMENTED 2026-04-10.
+  Module: ree_core/agent.py (REEAgent.sense).
+  Config: REEConfig.harm_descending_mod_enabled (bool, default False),
+  REEConfig.descending_attenuation_factor (float, default 0.5).
+  Implementation: after LatentStack.encode(), if harm_descending_mod_enabled=True and
+  beta_gate.is_elevated and new_latent.z_harm is not None:
+    new_latent.z_harm = new_latent.z_harm * descending_attenuation_factor.
+  z_harm_a (new_latent.z_harm_a) is NOT modified -- affective load persists through commitment.
+  Data flow: encode() -> z_harm_s [, z_harm_a] -> [beta_gate elevated?] -> z_harm_s * factor
+  -> E3 harm_eval, E2_harm_s forward model.
+  Backward compatible: harm_descending_mod_enabled=False (default); existing experiments
+  unaffected. descending_attenuation_factor default 0.5 is no-op when mod is disabled.
+  Biological basis: pgACC -> PAG -> RVM descending inhibitory pathway. During volitional
+  action through expected harm, A-delta (z_harm_s) nociceptive input is precision-downweighted.
+  C-fiber (z_harm_a) affective load persists -- committed athletes feel motivational urgency
+  but sensory discrimination is gated. MECH-090 BetaGate elevation is the committed-state gate.
+  MECH-094: not applicable (waking sense path, not simulation content).
+  Validation experiment: V3-EXQ-325 queued.
+  See SD-021, SD-011, SD-020, MECH-090, ARC-016, MECH-220.
+
 ## SD Design Decisions Implemented (V3) — continued
 - SD-007: encoder.perspective_corrected_world_latent — IMPLEMENTED 2026-03-18, FIXED 2026-03-18.
   ReafferencePredictor in ree_core/latent/stack.py. Enabled via reafference_action_dim
