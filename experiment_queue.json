@@ -8,28 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-266",
-      "title": "Q-020: hippocampal valence geometry discriminative pair",
-      "experiment_type": "v3_exq_266_q020_valence_geometry_pair",
-      "script": "experiments/v3_exq_266_q020_valence_geometry_pair.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 150,
-      "episodes_per_run": 350,
-      "seeds": 2,
-      "conditions": 2,
-      "claim_id": "Q-020",
-      "claim_ids": [
-        "Q-020"
-      ],
-      "backlog_id": "EVB-0047",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-04-09T23:03:30.477723+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-267",
       "title": "ARC-038: waking consolidation discriminative evidence",
       "experiment_type": "v3_exq_267_arc038_waking_consolidation_discriminative",
