@@ -145,6 +145,11 @@ class CausalGridWorld:
         landmark_b_sigma: float = 2.5,
         landmark_b_scale: float = 0.6,
         landmark_b_resource_bias: float = 0.7,
+        # EXQ-332: resource observation visibility scale.
+        # Multiplies resource_field_view in world_state only (not benefit calculation).
+        # 1.0 = full visibility (default, backward compat); 0.3 = strongly attenuated.
+        # Forces agent to use landmark B rather than reactive resource gradient detection.
+        resource_obs_scale: float = 1.0,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -195,6 +200,7 @@ class CausalGridWorld:
         self.landmark_b_sigma = landmark_b_sigma
         self.landmark_b_scale = landmark_b_scale
         self.landmark_b_resource_bias = landmark_b_resource_bias
+        self.resource_obs_scale = resource_obs_scale
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
         self.landmark_b_positions: List[Tuple[int, int]] = []
@@ -720,12 +726,12 @@ class CausalGridWorld:
                     if self.toroidal:
                         ni, nj = (ax + di) % self.size, (ay + dj) % self.size
                         h_view[di + 2, dj + 2] = float(self.hazard_field[ni, nj]) / hazard_max
-                        r_view[di + 2, dj + 2] = float(self.resource_field[ni, nj]) / resource_max
+                        r_view[di + 2, dj + 2] = float(self.resource_field[ni, nj]) / resource_max * self.resource_obs_scale
                     else:
                         ni, nj = ax + di, ay + dj
                         if 0 <= ni < self.size and 0 <= nj < self.size:
                             h_view[di + 2, dj + 2] = float(self.hazard_field[ni, nj]) / hazard_max
-                            r_view[di + 2, dj + 2] = float(self.resource_field[ni, nj]) / resource_max
+                            r_view[di + 2, dj + 2] = float(self.resource_field[ni, nj]) / resource_max * self.resource_obs_scale
             hazard_field_flat = h_view.reshape(-1)    # [25]
             resource_field_flat = r_view.reshape(-1)  # [25]
             world_parts.extend([hazard_field_flat, resource_field_flat])

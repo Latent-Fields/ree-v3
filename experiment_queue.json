@@ -225,6 +225,25 @@
         "ARC-030"
       ],
       "notes": "Retests EXQ-138a with properly configured SD-012 goal seeding. JOINT (Go+NoGo) vs HARM_ONLY (NoGo only). num_hazards=2, hazard_harm=0.1 (standard config, not volatile)."
+    },
+    {
+      "queue_id": "V3-EXQ-332",
+      "title": "MECH-216 genuinely predictive wanting: future-target supervision + resource visibility attenuation",
+      "experiment_type": "v3_exq_332_mech216_predictive_wanting",
+      "script": "experiments/v3_exq_332_mech216_predictive_wanting.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 300,
+      "episodes_per_run": 240,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": [
+        "MECH-216",
+        "SD-023"
+      ],
+      "supersedes": "V3-EXQ-263b",
+      "notes": "Major redesign of EXQ-263b. EXQ-263b trained on CURRENT resource_proximity -- just reactive detection. This redesign: (1) supervision target = binary future_resource_encounter within next 10 steps (episode-level replay on cached E1 LSTM hidden states), (2) resource_obs_scale=0.3 attenuates direct resource gradient in observation only -- landmark B becomes dominant predictive cue, (3) acceptance criteria directly test predictive vs reactive: primary metric is corr(schema_salience, future_target) vs corr(schema_salience, current_resource_prox). Two conditions: PREDICTIVE_CUE_ON (n_landmarks_b=2, resource bias=0.8) vs PREDICTIVE_CUE_ABLATED (no landmarks). 12x12 grid, 1 hazard, 2 resources with respawn. PASS requires: C1 CUE_ON future_target_corr>0.10, C2 CUE_ON>ABLATED, C3 future_target_corr>resource_prox_corr (not reactive)."
     }
   ]
 }
