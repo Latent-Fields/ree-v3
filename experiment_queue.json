@@ -95,7 +95,7 @@
       "script": "experiments/v3_exq_325_sd021_descending_pain_modulation.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 55,
       "episodes_per_run": 110,
       "seeds": 5,
@@ -105,7 +105,11 @@
         "MECH-090",
         "SD-011"
       ],
-      "notes": "Validation experiment for SD-021 descending pain modulation implementation. Two conditions: DESCENDING (harm_descending_mod_enabled=True) vs CONTROL. Key metrics: z_harm_s_ratio and z_harm_a_ratio during committed vs uncommitted episodes. Uses limb_damage_enabled=True."
+      "notes": "Validation experiment for SD-021 descending pain modulation implementation. Two conditions: DESCENDING (harm_descending_mod_enabled=True) vs CONTROL. Key metrics: z_harm_s_ratio and z_harm_a_ratio during committed vs uncommitted episodes. Uses limb_damage_enabled=True.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-10T16:09:17.651401+00:00"
+      }
     }
   ]
 }
