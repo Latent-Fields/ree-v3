@@ -36,7 +36,7 @@
       "script": "experiments/v3_exq_319_sd022_harm_stream_dissociation.py",
       "priority": 1,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 55,
       "episodes_per_run": 100,
       "seeds": 5,
@@ -47,7 +47,11 @@
         "SD-011"
       ],
       "supersedes": "V3-EXQ-318",
-      "note": "Matched-threat, different damage-history dissociation test. HIGH_DAMAGE: 50 forced hazard transits then offset. FRESH: no prior damage. Tests z_harm_a elevation persistence post-offset. Requires limb_damage_enabled=True."
+      "note": "Matched-threat, different damage-history dissociation test. HIGH_DAMAGE: 50 forced hazard transits then offset. FRESH: no prior damage. Tests z_harm_a elevation persistence post-offset. Requires limb_damage_enabled=True.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-10T09:39:45.699186+00:00"
+      }
     }
   ]
 }
