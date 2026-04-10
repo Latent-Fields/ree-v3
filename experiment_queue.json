@@ -28,6 +28,120 @@
         "machine": "Daniel-PC",
         "claimed_at": "2026-04-10T02:33:03.520382+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-320",
+      "title": "SD-013: interventional vs observational E2_harm_s training",
+      "experiment_type": "v3_exq_320_sd013_interventional_training",
+      "script": "experiments/v3_exq_320_sd013_interventional_training.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 40,
+      "episodes_per_run": 80,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-013",
+        "SD-003"
+      ],
+      "notes": "Validation experiment for SD-013 interventional training implementation. Two conditions: INTERVENTIONAL (use_interventional=True) vs OBSERVATIONAL. Key metric: action_gap. Smoke test passes.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-10T15:57:50.998528+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-321",
+      "title": "MECH-090: bistable gate vs legacy per-tick gate",
+      "experiment_type": "v3_exq_321_mech090_bistable_gate",
+      "script": "experiments/v3_exq_321_mech090_bistable_gate.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 35,
+      "episodes_per_run": 70,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_ids": [
+        "MECH-090",
+        "ARC-028"
+      ],
+      "notes": "Validation experiment for MECH-090 bistable latch implementation. Two conditions: BISTABLE (beta_gate_bistable=True) vs LEGACY. Key metric: hold_rate_committed."
+    },
+    {
+      "queue_id": "V3-EXQ-322",
+      "title": "SD-015: z_resource seeding vs z_world seeding of z_goal",
+      "experiment_type": "v3_exq_322_sd015_resource_encoder_seeding",
+      "script": "experiments/v3_exq_322_sd015_resource_encoder_seeding.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 55,
+      "episodes_per_run": 110,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-015",
+        "MECH-112"
+      ],
+      "notes": "Validation experiment for SD-015 ResourceEncoder implementation. Two conditions: RESOURCE_SEED (use_resource_encoder=True) vs WORLD_SEED. Key metric: goal_resource_r and benefit_ratio."
+    },
+    {
+      "queue_id": "V3-EXQ-323",
+      "title": "SD-019: harm stream non-redundancy constraint",
+      "experiment_type": "v3_exq_323_sd019_harm_nonredundancy",
+      "script": "experiments/v3_exq_323_sd019_harm_nonredundancy.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 40,
+      "episodes_per_run": 60,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-019",
+        "SD-011"
+      ],
+      "notes": "Validation experiment for SD-019 cosine^2 non-redundancy penalty. Two conditions: NONREDUNDANT (weight=1.0) vs BASELINE (weight=0.0). Key metric: cosine_sq between z_harm_s and z_harm_a."
+    },
+    {
+      "queue_id": "V3-EXQ-324",
+      "title": "SD-020: harm surprise PE vs EMA target for z_harm_a",
+      "experiment_type": "v3_exq_324_sd020_harm_surprise_pe",
+      "script": "experiments/v3_exq_324_sd020_harm_surprise_pe.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 45,
+      "episodes_per_run": 60,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-020",
+        "SD-011",
+        "Q-036"
+      ],
+      "notes": "Validation experiment for SD-020 precision-weighted PE target for z_harm_a. Two conditions: PE_TARGET (harm_surprise_pe_enabled=True) vs EMA_TARGET. Key metric: z_harm_a_surprise_corr."
+    },
+    {
+      "queue_id": "V3-EXQ-325",
+      "title": "SD-021: descending pain modulation -- commitment-gated z_harm_s attenuation",
+      "experiment_type": "v3_exq_325_sd021_descending_pain_modulation",
+      "script": "experiments/v3_exq_325_sd021_descending_pain_modulation.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 55,
+      "episodes_per_run": 110,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-021",
+        "MECH-090",
+        "SD-011"
+      ],
+      "notes": "Validation experiment for SD-021 descending pain modulation implementation. Two conditions: DESCENDING (harm_descending_mod_enabled=True) vs CONTROL. Key metrics: z_harm_s_ratio and z_harm_a_ratio during committed vs uncommitted episodes. Uses limb_damage_enabled=True."
     }
   ]
 }
