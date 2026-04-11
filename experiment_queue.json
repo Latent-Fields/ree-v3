@@ -91,7 +91,7 @@
       "script": "experiments/v3_exq_330_sd013_contrastive_counterfactual.py",
       "priority": 3,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 250,
       "seeds": 3,
@@ -103,7 +103,10 @@
         "ARC-033"
       ],
       "notes": "Tests SD-013 compute_interventional_loss(). CONTRASTIVE vs OBSERVATIONAL. Per-claim direction tracking: SD-013, SD-003, ARC-033 may have different outcomes.",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-11T02:37:22.223468+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-331",
