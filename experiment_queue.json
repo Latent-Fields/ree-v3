@@ -133,7 +133,7 @@
       "script": "experiments/v3_exq_266a_q020_valence_geometry_pair_fixed.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 75,
       "episodes_per_run": 350,
       "seeds": 2,
@@ -142,7 +142,11 @@
         "Q-020"
       ],
       "supersedes": "V3-EXQ-266",
-      "notes": "Fixes EXQ-266 ablation bug: cfg.residue.valence_enabled=False only gates SD-014 valence vectors, NOT harm scalar accumulation. evaluate() was identical in both conditions. Fix: gate residue_field.accumulate() by terrain_shaped flag. TERRAIN_SHAPED accumulates harm residue; TERRAIN_FLAT does not. Dry-run confirms TERRAIN_FLAT residue_field_total=0.0."
+      "notes": "Fixes EXQ-266 ablation bug: cfg.residue.valence_enabled=False only gates SD-014 valence vectors, NOT harm scalar accumulation. evaluate() was identical in both conditions. Fix: gate residue_field.accumulate() by terrain_shaped flag. TERRAIN_SHAPED accumulates harm residue; TERRAIN_FLAT does not. Dry-run confirms TERRAIN_FLAT residue_field_total=0.0.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-11T05:07:53.579280+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-332",
