@@ -47,29 +47,6 @@
       "notes": "Tests E3Config.goal_weight in score_trajectory() for goal-conditioned navigation. GOAL_CONDITIONED vs GOAL_ABLATED. Paper gate primary criterion: benefit_ratio >= 1.3x."
     },
     {
-      "queue_id": "V3-EXQ-328",
-      "title": "MECH-112 z_goal structured latent discriminative pair: SD-012 drive",
-      "experiment_type": "v3_exq_328_mech112_zgoal_structured_latent",
-      "script": "experiments/v3_exq_328_mech112_zgoal_structured_latent.py",
-      "priority": 2,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 60,
-      "episodes_per_run": 250,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-112",
-      "claim_ids": [
-        "MECH-112",
-        "SD-012"
-      ],
-      "notes": "Tests z_goal_norm elevation post-resource-contact with drive_weight=2.0 vs 0.0. Measures decay at t=0, t=10, t=25, t=50 post-contact.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-11T13:47:33.906287+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-329",
       "title": "ARC-033 E2_harm_s counterfactual validation (EXQ-264 fix)",
       "experiment_type": "v3_exq_329_arc033_e2_harm_s_counterfactual",
