@@ -91,7 +91,7 @@
       "script": "experiments/v3_exq_331_arc030_approach_avoidance_balance.py",
       "priority": 3,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 250,
       "seeds": 3,
@@ -100,7 +100,11 @@
       "claim_ids": [
         "ARC-030"
       ],
-      "notes": "Retests EXQ-138a with properly configured SD-012 goal seeding. JOINT (Go+NoGo) vs HARM_ONLY (NoGo only). num_hazards=2, hazard_harm=0.1 (standard config, not volatile)."
+      "notes": "Retests EXQ-138a with properly configured SD-012 goal seeding. JOINT (Go+NoGo) vs HARM_ONLY (NoGo only). num_hazards=2, hazard_harm=0.1 (standard config, not volatile).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-11T08:53:52.645861+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-266a",
