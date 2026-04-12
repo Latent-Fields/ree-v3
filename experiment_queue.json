@@ -184,7 +184,7 @@
       "script": "experiments/v3_exq_354_mech112_wanting_liking_confirmation.py",
       "priority": 1,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 250,
       "seeds": 3,
@@ -192,7 +192,11 @@
       "claim_ids": [
         "MECH-112"
       ],
-      "notes": "Independent confirmation of EXQ-074f PASS (wanting/liking dissociation, 2026-04-04). EXQ-074f ran BEFORE SD-015 config-wiring bug was found: use_resource_encoder was passed via latent= kwarg to from_dims() which has no 'latent' parameter -- silently discarded, ResourceEncoder never active, z_goal seeded from z_world fallback. Fix: cfg.latent.use_resource_encoder=True set directly post-from_dims() (same as EXQ-322a). Also: harm_signal from env.step() used for seeding (not pre-step EMA), benefit_threshold WANTING=0.15/LIKING=0.60 (ablated). P0=150 eps ResourceEncoder proximity training, P1=100 eps frozen-encoder goal seeding. WANTING chases L1 post-relocation; LIKING follows L2. PASS: >= 2/3 seeds satisfy C1 (resource_rate>=0.05) + C2 (wanting_l1>=0.25) + C3 (dissociation>=0.10). Paper gate: MECH-112 promotion requires this confirmation. Smoke test: 3/3 seeds PASS, mean_dissociation=0.48."
+      "notes": "Independent confirmation of EXQ-074f PASS (wanting/liking dissociation, 2026-04-04). EXQ-074f ran BEFORE SD-015 config-wiring bug was found: use_resource_encoder was passed via latent= kwarg to from_dims() which has no 'latent' parameter -- silently discarded, ResourceEncoder never active, z_goal seeded from z_world fallback. Fix: cfg.latent.use_resource_encoder=True set directly post-from_dims() (same as EXQ-322a). Also: harm_signal from env.step() used for seeding (not pre-step EMA), benefit_threshold WANTING=0.15/LIKING=0.60 (ablated). P0=150 eps ResourceEncoder proximity training, P1=100 eps frozen-encoder goal seeding. WANTING chases L1 post-relocation; LIKING follows L2. PASS: >= 2/3 seeds satisfy C1 (resource_rate>=0.05) + C2 (wanting_l1>=0.25) + C3 (dissociation>=0.10). Paper gate: MECH-112 promotion requires this confirmation. Smoke test: 3/3 seeds PASS, mean_dissociation=0.48.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-12T16:21:01.205051+00:00"
+      }
     }
   ]
 }
