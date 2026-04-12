@@ -36,8 +36,19 @@ Pass criteria:
 
 PASS: C1 AND C3 across >= 2/3 seeds.
 
+Verification checklist diagnostics (non-pass, from goal_wanting_signal_chain.md sec 7):
+  goal_norm_peak       -- if 0.0, z_goal was never seeded (bootstrap deadlock)
+  n_seeding_events     -- steps where effective_benefit > benefit_threshold (contact count proxy)
+  schema_salience_mean -- if near 0, E1 schema readout not firing (MECH-216 path dead)
+  mech216_write_count  -- VALENCE_WANTING writes from schema pathway (0 = wanting terrain empty)
+
+If any of goal_norm_peak / n_seeding_events / mech216_write_count are zero in WITH_WANTING,
+the FAIL is non_contributory (same bootstrap deadlock as EXQ-322/328/331). Report as
+non_contributory, do not re-assign evidence_direction without this diagnosis.
+
 Supersedes: V3-EXQ-259
 Claims: SD-015, MECH-216, SD-012
+See: REE_assembly/docs/architecture/goal_wanting_signal_chain.md
 """
 
 import sys
@@ -185,6 +196,9 @@ def run_condition(
     p2_resources: List[float] = []
     p2_benefit:   List[float] = []
     wanting_visited: List[float] = []
+    schema_salience_samples: List[float] = []
+    n_seeding_events: int = 0
+    mech216_write_count: int = 0
     prev_ttype: str = "none"
 
     for ep in range(total_eps):
@@ -213,6 +227,7 @@ def run_condition(
                 if ticks.get("e1_tick", True)
                 else torch.zeros(1, 32, device=device)
             )
+            sal = float(getattr(agent, '_schema_salience', 0.0) or 0.0)
 
             candidates = agent.generate_trajectories(latent, e1_prior, ticks)
             action     = agent.select_action(candidates, ticks)
@@ -222,9 +237,19 @@ def run_condition(
                 if obs_dict.get("body_state") is not None else 0.0
             drive_level = REEAgent.compute_drive_level(obs_body)
 
+            if condition == "WITH_WANTING":
+                schema_salience_samples.append(sal)
+
             if condition == "WITH_WANTING" and phase != "P0":
                 agent.update_z_goal(benefit_raw, drive_level)
                 agent.update_schema_wanting(drive_level)
+
+                # Verification checklist diagnostics (goal_wanting_signal_chain.md sec 7)
+                eff_benefit = benefit_raw * (1.0 + DRIVE_WEIGHT * drive_level)
+                if eff_benefit > 0.1:  # benefit_threshold
+                    n_seeding_events += 1
+                if sal >= 0.3:  # schema_wanting_threshold
+                    mech216_write_count += 1
 
                 # C1: sample VALENCE_WANTING
                 if latent.z_world is not None:
@@ -286,20 +311,27 @@ def run_condition(
                 flush=True,
             )
 
-    resource_rate  = float(np.mean(p2_resources)) if p2_resources else 0.0
-    mean_benefit   = float(np.mean(p2_benefit))   if p2_benefit   else 0.0
-    wanting_mean   = float(np.mean(wanting_visited)) if wanting_visited else 0.0
+    resource_rate        = float(np.mean(p2_resources)) if p2_resources else 0.0
+    mean_benefit         = float(np.mean(p2_benefit))   if p2_benefit   else 0.0
+    wanting_mean         = float(np.mean(wanting_visited)) if wanting_visited else 0.0
+    schema_salience_mean = float(np.mean(schema_salience_samples)) if schema_salience_samples else 0.0
+    goal_norm_peak       = float(getattr(getattr(agent, 'goal_state', None), '_goal_norm_peak', 0.0))
 
-    passed = (condition == "WITH_WANTING" and resource_rate > 0 and mean_benefit > 0) or \
-             (condition == "ABLATED")
     print(f"  verdict: resource_rate={resource_rate:.3f} benefit={mean_benefit:.4f} "
-          f"wanting_mean={wanting_mean:.4f}")
+          f"wanting_mean={wanting_mean:.4f} goal_norm_peak={goal_norm_peak:.4f} "
+          f"n_seeding={n_seeding_events} sal_mean={schema_salience_mean:.4f} "
+          f"mech216_writes={mech216_write_count}")
     return {
         "seed": seed,
         "condition": condition,
         "resource_rate": resource_rate,
         "mean_benefit_exposure": mean_benefit,
         "valence_wanting_mean": wanting_mean,
+        # Verification checklist diagnostics (goal_wanting_signal_chain.md sec 7)
+        "goal_norm_peak": goal_norm_peak,
+        "n_seeding_events": n_seeding_events,
+        "schema_salience_mean": schema_salience_mean,
+        "mech216_write_count": mech216_write_count,
     }
 
 

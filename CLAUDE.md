@@ -132,6 +132,7 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   MECH-094: not applicable (waking encoder, not simulation content).
   Validation experiment: V3-EXQ-322 queued.
   See SD-015, SD-012, MECH-112, INV-065.
+  Signal chain provenance: REE_assembly/docs/architecture/goal_wanting_signal_chain.md
 
 - SD-019: harm_stream.affective_nonredundancy_constraint -- IMPLEMENTED 2026-04-10.
   Module: ree_core/agent.py (compute_harm_nonredundancy_loss).
@@ -349,6 +350,7 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   Gershman 2018 (successor representation), Garvert et al 2023 (spatio-predictive maps).
   Validation experiment: EXQ-263 queued (2-condition ablation, 3 seeds, ~100 min).
   See MECH-216, INV-065 (proxy goal necessity), ARC-051 (multi-level wanting hierarchy).
+  Signal chain provenance: REE_assembly/docs/architecture/goal_wanting_signal_chain.md
 
 ## SD-011/SD-012 E3 Integration (2026-04-05)
   z_harm_a now flows through the full agent loop into E3:
