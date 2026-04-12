@@ -64,6 +64,118 @@
       ],
       "supersedes": "V3-EXQ-263b",
       "notes": "Major redesign of EXQ-263b. EXQ-263b trained on CURRENT resource_proximity -- just reactive detection. This redesign: (1) supervision target = binary future_resource_encounter within next 10 steps (episode-level replay on cached E1 LSTM hidden states), (2) resource_obs_scale=0.3 attenuates direct resource gradient in observation only -- landmark B becomes dominant predictive cue, (3) acceptance criteria directly test predictive vs reactive: primary metric is corr(schema_salience, future_target) vs corr(schema_salience, current_resource_prox). Two conditions: PREDICTIVE_CUE_ON (n_landmarks_b=2, resource bias=0.8) vs PREDICTIVE_CUE_ABLATED (no landmarks). 12x12 grid, 1 hazard (hazard_harm=0.1), 2 resources with respawn. P1 uses random actions (no CEM) to equalise condition survival and eliminate ~96 E2 rollouts/step overhead. PASS requires: C1 CUE_ON future_target_corr>0.10, C2 CUE_ON>ABLATED, C3 future_target_corr>resource_prox_corr (not reactive)."
+    },
+    {
+      "queue_id": "V3-EXQ-330a",
+      "title": "SD-013 contrastive counterfactual retest: interventional_fraction=0.5 (EXQ-330 fix)",
+      "experiment_type": "v3_exq_330a_sd013_contrastive_counterfactual_frac05",
+      "script": "experiments/v3_exq_330a_sd013_contrastive_counterfactual_frac05.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-013",
+        "ARC-033"
+      ],
+      "supersedes": "V3-EXQ-330",
+      "notes": "EXQ-330 FAIL: cf_gap_ratio=1.29-1.49x (threshold 2.0). Fix: interventional_fraction raised from 0.3 to 0.5 (50% of P1 steps apply margin loss vs 30%). Stronger threshold C2=2.0 to confirm genuine improvement. Two conditions: CONTRASTIVE (interventional_fraction=0.5) vs OBSERVATIONAL. Same architecture and environment as EXQ-330. SD-013 primary; ARC-033 C1 integrity check."
+    },
+    {
+      "queue_id": "V3-EXQ-353",
+      "title": "ARC-033/SD-003/SD-013 interventional vs observational training comparison",
+      "experiment_type": "v3_exq_353_arc033_sd003_interventional_vs_observational",
+      "script": "experiments/v3_exq_353_arc033_sd003_interventional_vs_observational.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": [
+        "ARC-033",
+        "SD-003",
+        "SD-013"
+      ],
+      "notes": "SD-003/ARC-033 evidence_quality_note caveat: EXQ-329 used observational training only; interventional training (Scholkopf 2021) needed for unbiased causal_sig in confounded states. This experiment directly addresses that caveat. INTERVENTIONAL (use_interventional=True, frac=0.5) vs OBSERVATIONAL (MSE-only) on matched seeds. Compares cf_gap_ratio, forward_r2, attribution_sign_correct. C3 (lift>=1.2x) is SD-013 specific criterion. Per-claim: ARC-033=C1, SD-003=C2, SD-013=C3."
+    },
+    {
+      "queue_id": "V3-EXQ-322a",
+      "title": "SD-015 ResourceEncoder z_goal seeding fix: use_resource_encoder wiring corrected",
+      "experiment_type": "v3_exq_322a_sd015_resource_encoder_seeding",
+      "script": "experiments/v3_exq_322a_sd015_resource_encoder_seeding.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 80,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-015",
+        "MECH-112"
+      ],
+      "supersedes": "V3-EXQ-322",
+      "notes": "Bug fix from EXQ-322 (n_cosine_samples=0 in all seeds). Root cause: make_config() passed latent=<LatentStackConfig> to from_dims() which has no 'latent' parameter -- silently ignored via **kwargs. use_resource_encoder was never True. ResourceEncoder never built. z_resource always None. Fix: set cfg.latent.use_resource_encoder=True directly after from_dims(). Also fixed goal seeding to use harm_signal from env.step() (raw contact benefit) instead of pre-step EMA obs_body[11] (~0 at contact time). Measurement gate changed to is_active() check."
+    },
+    {
+      "queue_id": "V3-EXQ-328a",
+      "title": "MECH-112 z_goal structured latent fix: correct seeding signal + drive ablation threshold",
+      "experiment_type": "v3_exq_328a_mech112_zgoal_structured_latent",
+      "script": "experiments/v3_exq_328a_mech112_zgoal_structured_latent.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 80,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": [
+        "MECH-112",
+        "SD-012"
+      ],
+      "supersedes": "V3-EXQ-328",
+      "notes": "Two bugs fixed from EXQ-328. Bug 1: seeded z_goal from obs_body[11] (benefit_exposure EMA before env.step). EMA near 0 at contact time -> effective_benefit<threshold -> seeding never fired. Fix: use raw harm_signal from env.step() on resource contact (0.5+ >> threshold). Bug 2: with benefit_threshold=0.1 and resource_benefit=0.5, DRIVE_ABLATED (drive_weight=0) also seeds z_goal since 0.5>0.1, making C3 unmeasurable. Fix: DRIVE_ABLATED uses benefit_threshold=0.6, above raw contact benefit (0.5) but below amplified DRIVE_ACTIVE effective_benefit (~0.8+ at drive_level=0.3). Also added MIN_WINDOW_STEPS guard and increased DRY_RUN_STEPS."
+    },
+    {
+      "queue_id": "V3-EXQ-321a",
+      "title": "MECH-090 bistable gate retest: E2 world-forward training added (EXQ-321 fix)",
+      "experiment_type": "v3_exq_321a_mech090_bistable_gate",
+      "script": "experiments/v3_exq_321a_mech090_bistable_gate.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 320,
+      "episodes_per_run": 320,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_ids": [
+        "MECH-090"
+      ],
+      "supersedes": "V3-EXQ-321",
+      "notes": "EXQ-321 FAIL root cause: training loop never called E2 world_forward or update_running_variance(). running_variance frozen at 0.50, never dropped below commitment_threshold=0.40, committed=False throughout, total_committed_steps=0. Fix: added wf_buf (deque maxlen=2000) + wf_optimizer (E2.world_transition + world_action_encoder) + update_running_variance(wf_pred - zw1) per step; extended TRAIN_EPISODES 50->300. claim_ids reduced to [MECH-090] only -- ARC-028 tests gate release via hippocampal signal, not gate hold property. Both conditions use beta_gate_bistable=True (BISTABLE) vs False (LEGACY). C3: total_committed_steps > 0 is the prerequisite criterion."
+    },
+    {
+      "queue_id": "V3-EXQ-325a",
+      "title": "SD-021 descending pain modulation retest: E2 world-forward training added (EXQ-325 fix)",
+      "experiment_type": "v3_exq_325a_sd021_descending_pain_modulation",
+      "script": "experiments/v3_exq_325a_sd021_descending_pain_modulation.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 330,
+      "episodes_per_run": 330,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-021"
+      ],
+      "supersedes": "V3-EXQ-325",
+      "notes": "EXQ-325 FAIL root cause: same training loop bug as EXQ-321. No E2 world_forward training, running_variance=0.50 frozen, beta_gate never elevated, SD-021 descending modulation path never reached. Fix: added wf_buf + wf_optimizer + update_running_variance per step; extended TRAIN_EPISODES 80->300; added beta_gate_bistable=True to both conditions (needed for gate to hold once elevated). claim_ids reduced to [SD-021] only -- MECH-090 and SD-011 are prerequisites used as substrate, not the variable being tested. C3: n_committed_steps_descending >= 10. limb_damage_enabled=True (SD-022) required for causal independence between z_harm_s and z_harm_a."
     }
   ]
 }
