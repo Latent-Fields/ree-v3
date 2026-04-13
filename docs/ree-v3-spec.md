@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-04-06
+**Last updated:** 2026-04-13
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-04-06)
+## 0. Current V3 State (2026-04-13)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -27,11 +27,26 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-009 | Event-contrastive CE auxiliary loss for z_world encoder | Implemented (EXQ-020 PASS) |
 | SD-010 | Harm stream separated as dedicated pathway (z_harm) | Implemented (EXQ-056c/058b/059c PASS) |
 | SD-011 | Dual nociceptive streams: z_harm_s + z_harm_a | Implemented (2026-03-30; EXQ-178b PASS) |
+| SD-011 second source | Affective harm history input (AffectiveHarmEncoder extended with FIFO) | Implemented 2026-04-08 |
 | SD-012 | Homeostatic drive modulation for z_goal seeding | Implemented (2026-04-02) |
+| SD-013 | E2_harm_s interventional training (counterfactual margin loss) | Implemented 2026-04-10 |
 | SD-014 | Hippocampal valence vector node recording (4-component) | Implemented (2026-04-04) |
-| SD-015 | Resource indicator encoder | In progress / experimental (EXQ-085h--085o) |
+| SD-015 | Resource indicator encoder (ResourceEncoder, z_resource) | Implemented 2026-04-10 |
+| SD-017 | Minimal sleep-phase infrastructure: SWS + REM passes | Implemented 2026-04-09 |
+| SD-018 | Resource proximity supervision (aux head on z_world) | Implemented 2026-04-07 |
+| SD-019 | Harm stream affective nonredundancy constraint | Implemented 2026-04-10 |
+| SD-020 | Affective harm surprise prediction error (AIC analog) | Implemented 2026-04-10 |
+| SD-021 | Descending pain modulation (pgACC->PAG->RVM, commitment-gated z_harm_s attenuation) | Implemented 2026-04-10 |
+| SD-022 | Body directional limb damage (4-directional; C-fiber / A-delta independence) | Implemented 2026-04-09 |
+| SD-023 | Environmental gradient texture (Landmark A/B fields in CausalGridWorldV2) | Implemented 2026-04-09 |
 | ARC-028 + MECH-105 | HippocampalModule completion signal + BetaGate coupling | Implemented (2026-04-04) |
+| ARC-033 | E2_harm_s forward model (ResidualHarmForward counterfactual pipeline) | Implemented 2026-04-09 |
 | SD-011/SD-012 E3 Integration | z_harm_a urgency gating + affective amplification wired through full agent loop into E3 | Implemented (2026-04-05) |
+| MECH-090 | Bistable beta gate (latch on commit entry; hippocampal completion as release) | Implemented 2026-04-10 |
+| MECH-120 | SHY synaptic homeostasis wiring (enter_sws_mode -> shy_normalise) | Wired 2026-04-08 |
+| MECH-203 + MECH-204 | Serotonergic sleep substrate (SerotoninModule, tonic_5ht, REM zero-point) | Implemented 2026-04-07 |
+| MECH-205 | Surprise-gated replay write path (PE EMA -> VALENCE_SURPRISE, write count diagnostic) | Fixed 2026-04-09 |
+| MECH-216 | E1 predictive wanting / schema readout head (schema_salience -> VALENCE_WANTING) | Implemented 2026-04-09 |
 
 SD-003 (self-attribution counterfactual pipeline) was validated at EXQ-030b PASS
 (world_forward_r2=0.947, attribution_gap=0.035). Redesign now in progress to use z_harm_s
@@ -39,35 +54,32 @@ pipeline (post SD-011), since E3 now takes z_harm rather than z_world as primary
 
 ### Experiment Status
 
-- **~292 experiment scripts authored** (EXQ-001 through EXQ-223 series, including lettered
-  iterations), covering SD-003 through SD-015 validation, heartbeat architecture (SD-006),
-  reafference (SD-007), encoder fixes (SD-008/009), harm stream separation (SD-010), dual
-  nociceptive streams (SD-011), homeostatic drive (SD-012), valence vector recording (SD-014),
-  wanting/liking dissociation (MECH-112/117), goal conditioning (MECH-116/ARC-032), context
-  memory (MECH-153/ARC-042), breath oscillator / z_beta pathway fixes (EXQ-199--203), and
-  the EXQ-223 minimal vertebrate ablation milestone.
-- **Currently queued (2026-04-06):** V3-ONBOARD-smoke-EWIN-PC (Eoin onboarding, EWIN-PC),
-  EXQ-223 (minimal vertebrate ablation, claimed Daniel-PC), EXQ-230 (MECH-075 novelty
-  diagnostic, claimed DLAPTOP-4.local), EXQ-231 (MECH-106 BG hysteresis, claimed
-  DLAPTOP-4.local), EXQ-232 (ARC-026 approach/contact, claimed DLAPTOP-4.local),
-  EXQ-234 (MECH-117 wanting/liking replication, seeds [1,2,3]), EXQ-235 (MECH-112/ARC-030
-  clean goal gate, paper gate), EXQ-236 (ARC-018 rollout fidelity gate), EXQ-237a
-  (MECH-163 dual system discrimination, supersedes EXQ-237), EXQ-223a (toroidal minimal
-  vertebrate replication), EXQ-228a (ARC-032 theta-rate pathway behavioral, supersedes
-  EXQ-228), EXQ-125a (ARC-029 committed mode redesign, supersedes EXQ-125), EXQ-238
-  (SD-012 drive_weight ablation fix, supersedes EXQ-233), EXQ-240 (ARC-038 waking
-  consolidation probe), EXQ-239 (MECH-153 context memory sufficient signal), EXQ-241
-  (SD-011 dual nociceptive stream POC), EXQ-242 (SD-017 minimal sleep phase ablation),
-  EXQ-243 (INV-045 phase ordering necessity + MECH-123), EXQ-244 (MECH-165 reverse replay
-  diversity), EXQ-245 (MECH-120 SHY normalisation), EXQ-246 (MECH-122 spindle coordination
-  proxy), EXQ-247 (SD-011/SD-012 full integration validation, 4-arm ablation).
-  22 items total.
-- **Current bottleneck:** First-paper gate experiments. EXQ-223 PASS (2026-04-03) confirmed
-  the minimal E1+E2+hippocampus core loop works. Current focus: EXQ-074e/234 (wanting/liking),
-  EXQ-076e/235 (goal conditioning), EXQ-195 (SD-003 z_harm_s counterfactual), EXQ-247
-  (SD-011/SD-012 full integration validation, 4-arm ablation), and sleep-architecture
-  experiments (EXQ-242--246). SD-014 valence vector and ARC-028/MECH-105 hippocampal-BetaGate
-  coupling now implemented. SD-011/SD-012 E3 integration complete (2026-04-05).
+- **481 experiments completed** (EXQ-001 through EXQ-395 series, including lettered
+  iterations): 96 PASS, 235 FAIL, 51 ERROR, 99 UNKNOWN. Covering SD-003 through SD-023
+  validation, heartbeat architecture (SD-006), reafference (SD-007), encoder fixes (SD-008/009),
+  harm stream separation (SD-010), dual nociceptive streams (SD-011/SD-022), homeostatic drive
+  (SD-012), self-attribution counterfactuals (SD-013/ARC-033), valence vector recording (SD-014),
+  resource encoder (SD-015), sleep infrastructure (SD-017), surprise-gated replay (MECH-205),
+  E1 predictive wanting (MECH-216), wanting/liking dissociation (MECH-112/229/117), goal
+  conditioning (MECH-116/163/ARC-032), context memory (MECH-153/ARC-042), and the EXQ-223
+  minimal vertebrate ablation milestone.
+- **Currently queued (2026-04-13):** EXQ-326 (SD-015 wanting gradient nav), EXQ-327
+  (MECH-163 goal-conditioned nav, paper gate), EXQ-332 (MECH-216 predictive wanting redesign),
+  EXQ-330a (SD-013 contrastive counterfactual retest, interventional_fraction=0.5),
+  EXQ-353 (ARC-033/SD-003/SD-013 interventional vs observational), EXQ-322a (SD-015
+  ResourceEncoder wiring fix), EXQ-328a (MECH-112 z_goal structured latent fix),
+  EXQ-321a (MECH-090 bistable gate retest), EXQ-325a (SD-021 descending pain modulation
+  retest), EXQ-365 (MECH-104 surprise gate, 5-seed), EXQ-355 (ARC-038 schema assimilation),
+  EXQ-395 (MECH-220 harm hub behavioral probe), EXQ-375 (MECH-073 valence geometry),
+  EXQ-385 (INV-049 offline consolidation necessity / sleep ablation), EXQ-328b (MECH-230
+  z_goal latent structure full run), EXQ-326a (SD-015 nav + MECH-229 behavioral dissociation fix).
+  16 items total.
+- **Current bottleneck:** First-paper gate experiments. EXQ-354 PASS (2026-04-13) confirmed
+  MECH-229 (behavioral wanting/liking dissociation) with SD-015 wiring; MECH-112 split into
+  MECH-229 (active) and MECH-230 (candidate). Current focus: EXQ-327 (MECH-163 goal-conditioned
+  nav paper gate), EXQ-326a (SD-015 + MECH-229 nav fix), EXQ-353 (SD-003 interventional
+  counterfactual), EXQ-321a/325a (MECH-090 bistable gate and SD-021 descending modulation
+  retests with E2 world-forward training fix).
 
 ### V3 / V4 Scope Boundary
 
