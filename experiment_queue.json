@@ -264,6 +264,46 @@
         "INV-049"
       ],
       "notes": "WITH_OFFLINE vs WITHOUT_OFFLINE ablation pair. Tests whether periodic SWS+REM sleep cycles (SD-017) improve E1 ContextMemory slot_diversity and prediction quality vs waking-only training. PASS: C1 (slot_diversity WITH > WITHOUT >=2/3 seeds) AND C2 (late_pred_loss WITH < WITHOUT >=2/3 seeds). C3 (harm_rate) secondary."
+    },
+    {
+      "queue_id": "V3-EXQ-328b",
+      "title": "MECH-230 z_goal latent structure: homeostatic drive ablation (full run)",
+      "experiment_type": "v3_exq_328b_mech112_zgoal_structured_latent",
+      "script": "experiments/v3_exq_328b_mech112_zgoal_structured_latent.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-230",
+      "claim_ids": [
+        "MECH-230",
+        "SD-012"
+      ],
+      "supersedes": "V3-EXQ-328a",
+      "notes": "Full real run (not dry run). EXQ-328a confirmed correct: harm_signal seeding + benefit_threshold calibration. EXQ-328a dry runs had 0 contact events (3 eps x 120 steps too short). MECH-112 split: this tests latent z_goal structure (MECH-230), not behavioral dissociation (MECH-229)."
+    },
+    {
+      "queue_id": "V3-EXQ-326a",
+      "title": "SD-015 nav integration fix: z_resource encoder wiring + harm_signal seeding",
+      "experiment_type": "v3_exq_326a_wanting_gradient_nav_fix",
+      "script": "experiments/v3_exq_326a_wanting_gradient_nav_fix.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "SD-015",
+      "claim_ids": [
+        "SD-015",
+        "MECH-229"
+      ],
+      "supersedes": "V3-EXQ-326",
+      "notes": "Fixes EXQ-326: (1) SD-015 wiring fix applied (cfg.latent.use_resource_encoder=True after from_dims); (2) pre-step EMA seeding bug fixed (use harm_signal from env.step() on ttype==resource steps). EXQ-354 proved SD-015 and nav integration work when correctly applied. Tests SD-015 navigation aspect and MECH-229 behavioral dissociation in nav context."
     }
   ]
 }
