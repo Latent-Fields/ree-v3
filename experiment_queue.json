@@ -272,7 +272,7 @@
       "script": "experiments/v3_exq_328b_mech112_zgoal_structured_latent.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 250,
       "seeds": 3,
@@ -283,7 +283,11 @@
         "SD-012"
       ],
       "supersedes": "V3-EXQ-328a",
-      "notes": "Full real run (not dry run). EXQ-328a confirmed correct: harm_signal seeding + benefit_threshold calibration. EXQ-328a dry runs had 0 contact events (3 eps x 120 steps too short). MECH-112 split: this tests latent z_goal structure (MECH-230), not behavioral dissociation (MECH-229)."
+      "notes": "Full real run (not dry run). EXQ-328a confirmed correct: harm_signal seeding + benefit_threshold calibration. EXQ-328a dry runs had 0 contact events (3 eps x 120 steps too short). MECH-112 split: this tests latent z_goal structure (MECH-230), not behavioral dissociation (MECH-229).",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-13T08:26:04.753460+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-326a",
