@@ -324,6 +324,18 @@
       "claim_ids": ["INV-053"],
       "backlog_id": "EXP-0096",
       "notes": "5-seed systematic replication of the depression attractor observed in EXQ-237a seed=42. LONG_HORIZON (8x8, 3 hazards, 1 resource, hazard_harm=0.02, 150 steps/ep). HABIT vs PLANNED per seed. PASS: >=4/5 seeds show goal_norm<0.10 AND behavioral_equivalence<0.02. No new architecture; parameter extension of EXQ-237a. Run before MECH-186/187/188 experiments."
+    },
+    {
+      "queue_id": "V3-EXQ-407",
+      "title": "MECH-231 E2 short-horizon efference-copy discriminative pair",
+      "script": "experiments/v3_exq_407_mech231_e2_short_horizon.py",
+      "claim_ids": ["MECH-231"],
+      "priority": 85,
+      "estimated_minutes": 90,
+      "machine_affinity": "any",
+      "status": "pending",
+      "added_at": "2026-04-13T16:00:00Z",
+      "notes": "Corrected MECH-070 direction. Criteria inverted: E2 must degrade faster than E1 across horizons (short-horizon claim). C1 PASS expected (E2 better at h=1 action-conditioned), C2/C3 PASS expected (EXQ-212 showed slope_e2 << slope_e1 -- now a PASS criterion)."
     }
   ]
 }
