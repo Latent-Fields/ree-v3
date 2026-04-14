@@ -127,7 +127,7 @@
       "script": "experiments/v3_exq_365_mech104_surprise_gate_pair.py",
       "priority": 10,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 135,
       "episodes_per_run": 300,
       "seeds": 5,
@@ -136,7 +136,11 @@
       "claim_id": "MECH-104",
       "claim_ids": [
         "MECH-104"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-14T18:12:21.270332+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-355",
