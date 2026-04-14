@@ -8,6 +8,24 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-323a",
+      "title": "SD-019 harm nonredundancy on SD-022 substrate (EXQ-323 fix: SD-022 body damage + enc_a supervision)",
+      "experiment_type": "v3_exq_323a_sd019_harm_nonredundancy",
+      "script": "experiments/v3_exq_323a_sd019_harm_nonredundancy.py",
+      "priority": 6,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 1200,
+      "claim_ids": [
+        "SD-019",
+        "SD-011",
+        "SD-022"
+      ],
+      "supersedes": "V3-EXQ-323",
+      "notes": "EXQ-323 used 50-dim EMA harm_obs_a (structurally identical to harm_obs_s) and no enc_a training loss -- test was measuring random geometry, not learned independence. Fix: SD-022 substrate (limb_damage_enabled=True, heal_rate=0.001, 7-dim body damage) + MSE loss on mean_damage for enc_a. SD-022 causal independence confirmed by EXQ-319 PASS. Unblocks SD-020 (EXQ-324a) if PASS."
+    },
+    {
       "queue_id": "V3-EXQ-326",
       "title": "Wanting-gradient navigation fix (EXQ-259 fix): SD-015, MECH-216, SD-012",
       "experiment_type": "v3_exq_326_wanting_gradient_nav_fix",
@@ -26,25 +44,6 @@
         "SD-012"
       ],
       "notes": "Fixes EXQ-259 FAIL: enables schema_wanting_enabled=True, use_resource_proximity_head=True, drive_weight=2.0. Three-phase training (P0 warmup, P1 wanting active, P2 eval). Paper gate experiment."
-    },
-    {
-      "queue_id": "V3-EXQ-332",
-      "title": "MECH-216 genuinely predictive wanting: future-target supervision + resource visibility attenuation",
-      "experiment_type": "v3_exq_332_mech216_predictive_wanting",
-      "script": "experiments/v3_exq_332_mech216_predictive_wanting.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 120,
-      "episodes_per_run": 240,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "MECH-216",
-        "SD-023"
-      ],
-      "supersedes": "V3-EXQ-263b",
-      "notes": "Major redesign of EXQ-263b. EXQ-263b trained on CURRENT resource_proximity -- just reactive detection. This redesign: (1) supervision target = binary future_resource_encounter within next 10 steps (episode-level replay on cached E1 LSTM hidden states), (2) resource_obs_scale=0.3 attenuates direct resource gradient in observation only -- landmark B becomes dominant predictive cue, (3) acceptance criteria directly test predictive vs reactive: primary metric is corr(schema_salience, future_target) vs corr(schema_salience, current_resource_prox). Two conditions: PREDICTIVE_CUE_ON (n_landmarks_b=2, resource bias=0.8) vs PREDICTIVE_CUE_ABLATED (no landmarks). 12x12 grid, 1 hazard (hazard_harm=0.1), 2 resources with respawn. P1 uses random actions (no CEM) to equalise condition survival and eliminate ~96 E2 rollouts/step overhead. PASS requires: C1 CUE_ON future_target_corr>0.10, C2 CUE_ON>ABLATED, C3 future_target_corr>resource_prox_corr (not reactive)."
     },
     {
       "queue_id": "V3-EXQ-330a",
@@ -121,24 +120,6 @@
       "notes": "EXQ-325 FAIL root cause: same training loop bug as EXQ-321. No E2 world_forward training, running_variance=0.50 frozen, beta_gate never elevated, SD-021 descending modulation path never reached. Fix: added wf_buf + wf_optimizer + update_running_variance per step; extended TRAIN_EPISODES 80->300; added beta_gate_bistable=True to both conditions (needed for gate to hold once elevated). claim_ids reduced to [SD-021] only -- MECH-090 and SD-011 are prerequisites used as substrate, not the variable being tested. C3: n_committed_steps_descending >= 10. limb_damage_enabled=True (SD-022) required for causal independence between z_harm_s and z_harm_a."
     },
     {
-      "queue_id": "V3-EXQ-355",
-      "title": "ARC-038 schema assimilation: discriminative support vs ablation pair",
-      "experiment_type": "v3_exq_355_arc038_schema_assimilation_probe",
-      "script": "experiments/v3_exq_355_arc038_schema_assimilation_probe.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 120,
-      "episodes_per_run": 100,
-      "seeds": 3,
-      "conditions": 2,
-      "backlog_id": "EVB-0051",
-      "claim_id": "ARC-038",
-      "claim_ids": [
-        "ARC-038"
-      ]
-    },
-    {
       "queue_id": "V3-EXQ-395",
       "title": "MECH-220 harm hub: behavioral harm-avoidance probe (hub_enabled vs hub_ablated)",
       "experiment_type": "v3_exq_395_mech220_harm_hub",
@@ -170,25 +151,6 @@
       "conditions": 2,
       "backlog_id": "EVB-0057",
       "claim_id": "MECH-073"
-    },
-    {
-      "queue_id": "V3-EXQ-385",
-      "title": "INV-049 offline consolidation necessity: sleep ablation probe",
-      "experiment_type": "v3_exq_385_inv049_offline_consolidation_necessity",
-      "script": "experiments/v3_exq_385_inv049_offline_consolidation_necessity.py",
-      "priority": 7,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 150,
-      "episodes_per_run": 230,
-      "seeds": 3,
-      "conditions": 2,
-      "backlog_id": "EVB-0070",
-      "claim_id": "INV-049",
-      "claim_ids": [
-        "INV-049"
-      ],
-      "notes": "WITH_OFFLINE vs WITHOUT_OFFLINE ablation pair. Tests whether periodic SWS+REM sleep cycles (SD-017) improve E1 ContextMemory slot_diversity and prediction quality vs waking-only training. PASS: C1 (slot_diversity WITH > WITHOUT >=2/3 seeds) AND C2 (late_pred_loss WITH < WITHOUT >=2/3 seeds). C3 (harm_rate) secondary."
     },
     {
       "queue_id": "V3-EXQ-328b",
