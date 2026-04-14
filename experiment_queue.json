@@ -308,6 +308,38 @@
       "notes": "Corrected MECH-070 direction. Criteria inverted: E2 must degrade faster than E1 across horizons (short-horizon claim). C1 PASS expected (E2 better at h=1 action-conditioned), C2/C3 PASS expected (EXQ-212 showed slope_e2 << slope_e1 -- now a PASS criterion)."
     },
     {
+      "queue_id": "V3-EXQ-396",
+      "title": "ARC-016 precision threshold sweep: hazard_harm 5-level characterization (EXQ-038 staged fix)",
+      "experiment_type": "v3_exq_396_arc016_precision_sweep",
+      "script": "experiments/v3_exq_396_arc016_precision_sweep.py",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "episodes_per_run": 1700,
+      "seeds": 1,
+      "conditions": 1,
+      "claim_ids": ["ARC-016", "MECH-093"],
+      "supersedes": "V3-EXQ-038",
+      "notes": "Staged fix confirmed 2026-04-14. Original V3-EXQ-038 errored 2026-03-19 due to old substrate API incompatibility. Script verified on current substrate. Characterization sweep: precision variance vs hazard_harm at 5 levels. Evidence for ARC-016 (dynamic precision responds to stability) and MECH-093 (precision boundary scales with danger)."
+    },
+    {
+      "queue_id": "V3-EXQ-397",
+      "title": "ARC-007 path memory ablation: residue field zeroing degrades hippo proposals (EXQ-046b staged fix)",
+      "experiment_type": "v3_exq_397_arc007_path_memory_ablation",
+      "script": "experiments/v3_exq_397_arc007_path_memory_ablation.py",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 600,
+      "seeds": 1,
+      "conditions": 1,
+      "claim_ids": ["ARC-007"],
+      "supersedes": "V3-EXQ-046b",
+      "notes": "Staged fix confirmed 2026-04-14. Original V3-EXQ-046 and V3-EXQ-046b both errored 2026-03-20/22 due to old substrate API incompatibility. SD-004 removed from claim_ids (architectural prerequisite, not the variable under test). Script verified on current substrate. Full run: 600 warmup + 50 intact eval + ablation + 50 ablated eval + 30 restore eval."
+    },
+    {
       "queue_id": "V3-EXQ-418",
       "title": "SD-017 context-conditioned action: sleep + SD-016 integration (EXP-0106)",
       "experiment_type": "v3_exq_418_sd017_context_conditioned_action",

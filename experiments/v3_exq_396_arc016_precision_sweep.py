@@ -448,15 +448,17 @@ Criteria met: {n_met}/5 → **{status}**
 {failure_section}
 """
 
+    direction = "supports" if all_pass else ("mixed" if n_met >= 3 else "weakens")
     return {
         "status": status,
         "metrics": metrics,
         "summary_markdown": summary_markdown,
         "claim_ids": CLAIM_IDS,
-        "evidence_direction": (
-            "supports" if all_pass
-            else ("mixed" if n_met >= 3 else "weakens")
-        ),
+        "evidence_direction": direction,
+        "evidence_direction_per_claim": {
+            "ARC-016": direction,
+            "MECH-093": direction,
+        },
         "experiment_type": EXPERIMENT_TYPE,
         "fatal_error_count": fatal_total,
     }
