@@ -52,7 +52,7 @@
       "script": "experiments/v3_exq_330a_sd013_contrastive_counterfactual_frac05.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 250,
       "seeds": 3,
@@ -62,7 +62,11 @@
         "ARC-033"
       ],
       "supersedes": "V3-EXQ-330",
-      "notes": "EXQ-330 FAIL: cf_gap_ratio=1.29-1.49x (threshold 2.0). Fix: interventional_fraction raised from 0.3 to 0.5 (50% of P1 steps apply margin loss vs 30%). Stronger threshold C2=2.0 to confirm genuine improvement. Two conditions: CONTRASTIVE (interventional_fraction=0.5) vs OBSERVATIONAL. Same architecture and environment as EXQ-330. SD-013 primary; ARC-033 C1 integrity check."
+      "notes": "EXQ-330 FAIL: cf_gap_ratio=1.29-1.49x (threshold 2.0). Fix: interventional_fraction raised from 0.3 to 0.5 (50% of P1 steps apply margin loss vs 30%). Stronger threshold C2=2.0 to confirm genuine improvement. Two conditions: CONTRASTIVE (interventional_fraction=0.5) vs OBSERVATIONAL. Same architecture and environment as EXQ-330. SD-013 primary; ARC-033 C1 integrity check.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-14T23:42:16.677736+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-353",
