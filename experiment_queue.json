@@ -28,25 +28,6 @@
       "notes": "Fixes EXQ-259 FAIL: enables schema_wanting_enabled=True, use_resource_proximity_head=True, drive_weight=2.0. Three-phase training (P0 warmup, P1 wanting active, P2 eval). Paper gate experiment."
     },
     {
-      "queue_id": "V3-EXQ-327",
-      "title": "MECH-163 hippocampal goal-conditioned navigation: paper gate",
-      "experiment_type": "v3_exq_327_mech163_goal_conditioned_nav",
-      "script": "experiments/v3_exq_327_mech163_goal_conditioned_nav.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 150,
-      "episodes_per_run": 250,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-163",
-      "claim_ids": [
-        "MECH-163",
-        "SD-015"
-      ],
-      "notes": "Tests E3Config.goal_weight in score_trajectory() for goal-conditioned navigation. GOAL_CONDITIONED vs GOAL_ABLATED. Paper gate primary criterion: benefit_ratio >= 1.3x."
-    },
-    {
       "queue_id": "V3-EXQ-332",
       "title": "MECH-216 genuinely predictive wanting: future-target supervision + resource visibility attenuation",
       "experiment_type": "v3_exq_332_mech216_predictive_wanting",
@@ -321,7 +302,9 @@
       "episodes_per_run": 300,
       "seeds": 5,
       "conditions": 2,
-      "claim_ids": ["INV-053"],
+      "claim_ids": [
+        "INV-053"
+      ],
       "backlog_id": "EXP-0096",
       "notes": "5-seed systematic replication of the depression attractor observed in EXQ-237a seed=42. LONG_HORIZON (8x8, 3 hazards, 1 resource, hazard_harm=0.02, 150 steps/ep). HABIT vs PLANNED per seed. PASS: >=4/5 seeds show goal_norm<0.10 AND behavioral_equivalence<0.02. No new architecture; parameter extension of EXQ-237a. Run before MECH-186/187/188 experiments."
     },
@@ -329,7 +312,9 @@
       "queue_id": "V3-EXQ-407",
       "title": "MECH-231 E2 short-horizon efference-copy discriminative pair",
       "script": "experiments/v3_exq_407_mech231_e2_short_horizon.py",
-      "claim_ids": ["MECH-231"],
+      "claim_ids": [
+        "MECH-231"
+      ],
       "priority": 85,
       "estimated_minutes": 90,
       "machine_affinity": "any",
