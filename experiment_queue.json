@@ -91,7 +91,7 @@
       "script": "experiments/v3_exq_322a_sd015_resource_encoder_seeding.py",
       "priority": 10,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 80,
       "seeds": 5,
@@ -101,7 +101,11 @@
         "MECH-112"
       ],
       "supersedes": "V3-EXQ-322",
-      "notes": "Bug fix from EXQ-322 (n_cosine_samples=0 in all seeds). Root cause: make_config() passed latent=<LatentStackConfig> to from_dims() which has no 'latent' parameter -- silently ignored via **kwargs. use_resource_encoder was never True. ResourceEncoder never built. z_resource always None. Fix: set cfg.latent.use_resource_encoder=True directly after from_dims(). Also fixed goal seeding to use harm_signal from env.step() (raw contact benefit) instead of pre-step EMA obs_body[11] (~0 at contact time). Measurement gate changed to is_active() check."
+      "notes": "Bug fix from EXQ-322 (n_cosine_samples=0 in all seeds). Root cause: make_config() passed latent=<LatentStackConfig> to from_dims() which has no 'latent' parameter -- silently ignored via **kwargs. use_resource_encoder was never True. ResourceEncoder never built. z_resource always None. Fix: set cfg.latent.use_resource_encoder=True directly after from_dims(). Also fixed goal seeding to use harm_signal from env.step() (raw contact benefit) instead of pre-step EMA obs_body[11] (~0 at contact time). Measurement gate changed to is_active() check.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-14T10:56:29.011633+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-328a",
