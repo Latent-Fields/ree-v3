@@ -121,28 +121,6 @@
       "notes": "EXQ-325 FAIL root cause: same training loop bug as EXQ-321. No E2 world_forward training, running_variance=0.50 frozen, beta_gate never elevated, SD-021 descending modulation path never reached. Fix: added wf_buf + wf_optimizer + update_running_variance per step; extended TRAIN_EPISODES 80->300; added beta_gate_bistable=True to both conditions (needed for gate to hold once elevated). claim_ids reduced to [SD-021] only -- MECH-090 and SD-011 are prerequisites used as substrate, not the variable being tested. C3: n_committed_steps_descending >= 10. limb_damage_enabled=True (SD-022) required for causal independence between z_harm_s and z_harm_a."
     },
     {
-      "queue_id": "V3-EXQ-365",
-      "title": "MECH-104 surprise gate: discriminative support vs ablation pair (5-seed replication)",
-      "experiment_type": "v3_exq_365_mech104_surprise_gate_pair",
-      "script": "experiments/v3_exq_365_mech104_surprise_gate_pair.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 135,
-      "episodes_per_run": 300,
-      "seeds": 5,
-      "conditions": 2,
-      "backlog_id": "EVB-0056",
-      "claim_id": "MECH-104",
-      "claim_ids": [
-        "MECH-104"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-14T18:12:21.270332+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-355",
       "title": "ARC-038 schema assimilation: discriminative support vs ablation pair",
       "experiment_type": "v3_exq_355_arc038_schema_assimilation_probe",
@@ -287,6 +265,25 @@
       "status": "pending",
       "added_at": "2026-04-13T16:00:00Z",
       "notes": "Corrected MECH-070 direction. Criteria inverted: E2 must degrade faster than E1 across horizons (short-horizon claim). C1 PASS expected (E2 better at h=1 action-conditioned), C2/C3 PASS expected (EXQ-212 showed slope_e2 << slope_e1 -- now a PASS criterion)."
+    },
+    {
+      "queue_id": "V3-EXQ-396a",
+      "title": "ARC-016 precision sweep: dual-bug fix (rv update in training + no eval reset)",
+      "experiment_type": "v3_exq_396a_arc016_precision_sweep_rv_fix",
+      "script": "experiments/v3_exq_396a_arc016_precision_sweep_rv_fix.py",
+      "priority": 7,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 175,
+      "episodes_per_run": 1950,
+      "seeds": 1,
+      "conditions": 1,
+      "claim_ids": [
+        "ARC-016",
+        "MECH-093"
+      ],
+      "supersedes": "V3-EXQ-396",
+      "notes": "Fixes two bugs present in EXQ-038 and EXQ-396: (1) update_running_variance() was never called during training -- variance stayed frozen at precision_init=0.5 for all training episodes; (2) eval loop reset _running_variance = precision_init at each episode start, discarding any accumulated signal. Together: variance always started at 0.5, decayed to ~0.402 within each episode (just above commit_threshold=0.40), never committed. Fix 1: call update_running_variance(pred_error) every training step using step-by-step E2 world_forward error. Fix 2: carry post-training variance into eval without episode reset. Both stable and perturbed eval start from the same post-training variance for direct comparison. Expected: stable env -> variance stays low -> commit_rate~1; perturbed env -> hazard jumps raise prediction errors -> variance rises -> lower commit_rate."
     },
     {
       "queue_id": "V3-EXQ-396",
