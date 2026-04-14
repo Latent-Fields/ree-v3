@@ -306,6 +306,25 @@
       "status": "pending",
       "added_at": "2026-04-13T16:00:00Z",
       "notes": "Corrected MECH-070 direction. Criteria inverted: E2 must degrade faster than E1 across horizons (short-horizon claim). C1 PASS expected (E2 better at h=1 action-conditioned), C2/C3 PASS expected (EXQ-212 showed slope_e2 << slope_e1 -- now a PASS criterion)."
+    },
+    {
+      "queue_id": "V3-EXQ-418",
+      "title": "SD-017 context-conditioned action: sleep + SD-016 integration (EXP-0106)",
+      "experiment_type": "v3_exq_418_sd017_context_conditioned_action",
+      "script": "experiments/v3_exq_418_sd017_context_conditioned_action.py",
+      "priority": 7,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "SD-017",
+      "claim_ids": [
+        "SD-017"
+      ],
+      "backlog_id": "EXP-0106",
+      "notes": "EXQ-265 proved SD-017 SWS/REM methods differentiate ContextMemory slots. This experiment adds SD-016 (sd016_enabled=True) to both conditions and tests whether sleep-differentiated slots produce context-appropriate action biases (SAFE vs DANGEROUS divergence). WITH_SLEEP_SD016 vs WITHOUT_SLEEP_SD016. PASS requires C1 (action_bias_divergence>=0.05 in 2/3 seeds) AND C2 (WITH>WITHOUT divergence in 2/3 seeds). Addresses EXP-0106 proposal: agent does not use context knowledge without context->action pathway."
     }
   ]
 }
