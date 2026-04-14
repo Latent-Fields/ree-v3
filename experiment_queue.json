@@ -91,7 +91,7 @@
       "script": "experiments/v3_exq_328a_mech112_zgoal_structured_latent.py",
       "priority": 10,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 80,
       "episodes_per_run": 250,
       "seeds": 3,
@@ -101,7 +101,11 @@
         "SD-012"
       ],
       "supersedes": "V3-EXQ-328",
-      "notes": "Two bugs fixed from EXQ-328. Bug 1: seeded z_goal from obs_body[11] (benefit_exposure EMA before env.step). EMA near 0 at contact time -> effective_benefit<threshold -> seeding never fired. Fix: use raw harm_signal from env.step() on resource contact (0.5+ >> threshold). Bug 2: with benefit_threshold=0.1 and resource_benefit=0.5, DRIVE_ABLATED (drive_weight=0) also seeds z_goal since 0.5>0.1, making C3 unmeasurable. Fix: DRIVE_ABLATED uses benefit_threshold=0.6, above raw contact benefit (0.5) but below amplified DRIVE_ACTIVE effective_benefit (~0.8+ at drive_level=0.3). Also added MIN_WINDOW_STEPS guard and increased DRY_RUN_STEPS."
+      "notes": "Two bugs fixed from EXQ-328. Bug 1: seeded z_goal from obs_body[11] (benefit_exposure EMA before env.step). EMA near 0 at contact time -> effective_benefit<threshold -> seeding never fired. Fix: use raw harm_signal from env.step() on resource contact (0.5+ >> threshold). Bug 2: with benefit_threshold=0.1 and resource_benefit=0.5, DRIVE_ABLATED (drive_weight=0) also seeds z_goal since 0.5>0.1, making C3 unmeasurable. Fix: DRIVE_ABLATED uses benefit_threshold=0.6, above raw contact benefit (0.5) but below amplified DRIVE_ACTIVE effective_benefit (~0.8+ at drive_level=0.3). Also added MIN_WINDOW_STEPS guard and increased DRY_RUN_STEPS.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-14T13:50:41.517058+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-321a",
