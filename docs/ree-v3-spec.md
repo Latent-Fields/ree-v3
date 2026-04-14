@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-04-13
+**Last updated:** 2026-04-14
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-04-13)
+## 0. Current V3 State (2026-04-14)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -63,17 +63,17 @@ pipeline (post SD-011), since E3 now takes z_harm rather than z_world as primary
   E1 predictive wanting (MECH-216), wanting/liking dissociation (MECH-112/229/117), goal
   conditioning (MECH-116/163/ARC-032), context memory (MECH-153/ARC-042), and the EXQ-223
   minimal vertebrate ablation milestone.
-- **Currently queued (2026-04-13):** EXQ-326 (SD-015 wanting gradient nav), EXQ-327
-  (MECH-163 goal-conditioned nav, paper gate), EXQ-332 (MECH-216 predictive wanting redesign),
-  EXQ-330a (SD-013 contrastive counterfactual retest, interventional_fraction=0.5),
-  EXQ-353 (ARC-033/SD-003/SD-013 interventional vs observational), EXQ-322a (SD-015
-  ResourceEncoder wiring fix), EXQ-328a (MECH-112 z_goal structured latent fix),
-  EXQ-321a (MECH-090 bistable gate retest), EXQ-325a (SD-021 descending pain modulation
-  retest), EXQ-365 (MECH-104 surprise gate, 5-seed), EXQ-355 (ARC-038 schema assimilation),
-  EXQ-395 (MECH-220 harm hub behavioral probe), EXQ-375 (MECH-073 valence geometry),
-  EXQ-385 (INV-049 offline consolidation necessity / sleep ablation), EXQ-328b (MECH-230
-  z_goal latent structure full run), EXQ-326a (SD-015 nav + MECH-229 behavioral dissociation fix).
-  16 items total.
+- **Currently queued (2026-04-14):** EXQ-326 (SD-015 wanting gradient nav), EXQ-332
+  (MECH-216 predictive wanting redesign), EXQ-330a (SD-013 contrastive counterfactual retest,
+  interventional_fraction=0.5), EXQ-353 (ARC-033/SD-003/SD-013 interventional vs observational),
+  EXQ-322a (SD-015 ResourceEncoder wiring fix), EXQ-328a (MECH-112 z_goal structured latent fix),
+  EXQ-321a (MECH-090 bistable gate retest), EXQ-325a (SD-021 descending pain modulation retest),
+  EXQ-365 (MECH-104 surprise gate, 5-seed), EXQ-355 (ARC-038 schema assimilation), EXQ-395
+  (MECH-220 harm hub behavioral probe), EXQ-375 (MECH-073 valence geometry), EXQ-385 (INV-049
+  offline consolidation necessity / sleep ablation), EXQ-328b (MECH-230 z_goal latent structure
+  full run), EXQ-326a (SD-015 nav + MECH-229 behavioral dissociation fix), EXQ-406 (INV-053
+  depression attractor replication, 5-seed), EXQ-407 (MECH-231 E2 short-horizon discriminative
+  pair). 17 items total.
 - **Current bottleneck:** First-paper gate experiments. EXQ-354 PASS (2026-04-13) confirmed
   MECH-229 (behavioral wanting/liking dissociation) with SD-015 wiring; MECH-112 split into
   MECH-229 (active) and MECH-230 (candidate). Current focus: EXQ-327 (MECH-163 goal-conditioned

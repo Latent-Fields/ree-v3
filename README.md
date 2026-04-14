@@ -44,9 +44,9 @@ V2 experiments (EXQ-014–028) produced three architectural failures requiring n
 
 SD-004 and SD-005 are interdependent: action objects require z_world to exist; z_world's separation from z_self is what makes action-object attribution meaningful.
 
-## Current Status (2026-04-13)
+## Current Status (2026-04-14)
 
-481 experiments completed (96 PASS, 235 FAIL, 51 ERROR, 99 UNKNOWN). SD-004 through SD-023 implemented plus ARC-033, MECH-090, MECH-120, MECH-203/204, MECH-205, MECH-216. Key governance outcome (2026-04-13): EXQ-354 PASS confirmed MECH-229 (behavioral wanting/liking dissociation) with SD-015 wiring; MECH-112 split into MECH-229 (active) and MECH-230 (candidate). 16 experiments currently queued. Current first-paper gate focus: EXQ-327 (MECH-163 goal-conditioned nav), EXQ-326a (SD-015 + MECH-229 nav fix), EXQ-353 (SD-003 interventional counterfactual), EXQ-321a/325a (MECH-090/SD-021 retests with E2 world-forward training fix). 0 pending review.
+481 experiments completed (96 PASS, 235 FAIL, 51 ERROR, 99 UNKNOWN). SD-004 through SD-023 implemented plus ARC-033, MECH-090, MECH-120, MECH-203/204, MECH-205, MECH-216. Key governance outcomes (2026-04-13): EXQ-354 PASS confirmed MECH-229 (behavioral wanting/liking dissociation); SD-013 promoted to provisional (conf=0.788); EXT-001 through EXT-007 registered (external AI failure mode catalogue, claims.yaml: 454 total); MECH-231 registered + EXQ-407 queued; EXQ-406 queued (INV-053 depression attractor replication). 17 experiments currently queued. Current first-paper gate focus: EXQ-326a (SD-015 + MECH-229 nav fix), EXQ-353 (SD-003 interventional counterfactual), EXQ-321a/325a (MECH-090/SD-021 retests with E2 world-forward training fix). 2 pending review.
 
 Full specification with substrate status table: [`docs/ree-v3-spec.md`](docs/ree-v3-spec.md)
 
