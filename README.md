@@ -36,7 +36,8 @@ V2 experiments (EXQ-014–028) produced three architectural failures requiring n
 - **SD-023**: Environmental gradient texture — Landmark A/B Gaussian fields in CausalGridWorldV2 for predictive cue structure (implemented 2026-04-09).
 - **ARC-028 + MECH-105**: HippocampalModule completion signal + BetaGate coupling — implements Lisman & Grace 2005 subiculum->NAc->VP->VTA dopamine loop (implemented 2026-04-04).
 - **ARC-033**: E2_harm_s forward model (ResidualHarmForward) — counterfactual harm-stream pipeline for SD-003 self-attribution (implemented 2026-04-09).
-- **MECH-090**: Bistable beta gate — latches on commitment entry; hippocampal completion signal as release trigger (implemented 2026-04-10).
+- **MECH-090**: Bistable beta gate — latches on commitment entry; hippocampal completion signal as release trigger (implemented 2026-04-10). Layer 1: trajectory stepping through committed_trajectory.actions[idx] via _committed_step_idx counter (implemented 2026-04-15).
+- **MECH-091 Layer 2**: Urgency interrupt — when beta elevated and z_harm_a.norm() exceeds urgency_interrupt_threshold (E3Config, default 0.8), gate releases and step counter resets (implemented 2026-04-15).
 - **MECH-120**: SHY synaptic homeostasis wiring — enter_sws_mode() calls shy_normalise() when shy_enabled=True (wired 2026-04-08).
 - **MECH-203 + MECH-204**: Serotonergic sleep substrate — SerotoninModule with tonic_5ht state, benefit salience tagging, REM zero-point hook (implemented 2026-04-07).
 - **MECH-205**: Surprise-gated replay write path — PE EMA tracking with pe_ema_alpha config, write count diagnostic (fixed 2026-04-09).
@@ -44,9 +45,9 @@ V2 experiments (EXQ-014–028) produced three architectural failures requiring n
 
 SD-004 and SD-005 are interdependent: action objects require z_world to exist; z_world's separation from z_self is what makes action-object attribution meaningful.
 
-## Current Status (2026-04-14)
+## Current Status (2026-04-15)
 
-481 experiments completed (96 PASS, 235 FAIL, 51 ERROR, 99 UNKNOWN). SD-004 through SD-023 implemented plus ARC-033, MECH-090, MECH-120, MECH-203/204, MECH-205, MECH-216. Key governance outcomes (2026-04-13): EXQ-354 PASS confirmed MECH-229 (behavioral wanting/liking dissociation); SD-013 promoted to provisional (conf=0.788); EXT-001 through EXT-007 registered (external AI failure mode catalogue, claims.yaml: 454 total); MECH-231 registered + EXQ-407 queued; EXQ-406 queued (INV-053 depression attractor replication). 17 experiments currently queued. Current first-paper gate focus: EXQ-326a (SD-015 + MECH-229 nav fix), EXQ-353 (SD-003 interventional counterfactual), EXQ-321a/325a (MECH-090/SD-021 retests with E2 world-forward training fix). 2 pending review.
+494 experiments completed (100 PASS, 236 FAIL, 51 ERROR, 107 UNKNOWN). SD-004 through SD-023 implemented plus ARC-033, MECH-090, MECH-120, MECH-203/204, MECH-205, MECH-216. New today (2026-04-15): MECH-090 Layer 1 trajectory stepping + MECH-091 Layer 2 urgency interrupt implemented in agent.py + config.py. Key recent outcomes: EXQ-327 PASS (2026-04-14, MECH-163 goal-conditioned nav paper gate confirmed); EXQ-365 PASS (2026-04-14, MECH-104 surprise gate); EXQ-330a PASS (2026-04-15, SD-013 interventional counterfactual at interventional_fraction=0.5); MECH-231 promoted provisional. 16 experiments currently queued. Current first-paper gate focus: EXQ-321a/325a (MECH-090 bistable gate and SD-021 descending modulation retests), EXQ-353 (SD-003 interventional counterfactual full comparison), EXQ-323a (SD-019 nonredundancy on SD-022 substrate). 0 pending review.
 
 Full specification with substrate status table: [`docs/ree-v3-spec.md`](docs/ree-v3-spec.md)
 
