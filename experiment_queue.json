@@ -69,25 +69,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-353",
-      "title": "ARC-033/SD-003/SD-013 interventional vs observational training comparison",
-      "experiment_type": "v3_exq_353_arc033_sd003_interventional_vs_observational",
-      "script": "experiments/v3_exq_353_arc033_sd003_interventional_vs_observational.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 90,
-      "episodes_per_run": 250,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "ARC-033",
-        "SD-003",
-        "SD-013"
-      ],
-      "notes": "SD-003/ARC-033 evidence_quality_note caveat: EXQ-329 used observational training only; interventional training (Scholkopf 2021) needed for unbiased causal_sig in confounded states. This experiment directly addresses that caveat. INTERVENTIONAL (use_interventional=True, frac=0.5) vs OBSERVATIONAL (MSE-only) on matched seeds. Compares cf_gap_ratio, forward_r2, attribution_sign_correct. C3 (lift>=1.2x) is SD-013 specific criterion. Per-claim: ARC-033=C1, SD-003=C2, SD-013=C3."
-    },
-    {
       "queue_id": "V3-EXQ-321a",
       "title": "MECH-090 bistable gate retest: E2 world-forward training added (EXQ-321 fix)",
       "experiment_type": "v3_exq_321a_mech090_bistable_gate",
