@@ -147,6 +147,9 @@ class REEAgent(nn.Module):
         self._committed_candidates: Optional[List[Trajectory]] = None
         # Last selected action (held between E3 ticks)
         self._last_action: Optional[torch.Tensor] = None
+        # MECH-090: step index within committed trajectory (Layer 1 trajectory stepping).
+        # Incremented each committed step so a0->a1->a2->... is executed in sequence.
+        self._committed_step_idx: int = 0
 
         # SD-016: cached frontal cue signals (updated each E1 tick).
         # None when sd016_enabled=False (all existing experiments unaffected).
@@ -220,6 +223,7 @@ class REEAgent(nn.Module):
         self._harm_this_episode = 0.0
         self._committed_candidates = None
         self._last_action = None
+        self._committed_step_idx = 0
         self._cue_action_bias    = None
         self._cue_terrain_weight = None
         self.clock.reset()
@@ -515,11 +519,43 @@ class REEAgent(nn.Module):
         SELECT step: E3 selects trajectory; BetaGate controls propagation.
 
         If E3 hasn't ticked, return the held action (MECH-090).
+
+        Layer 1 (MECH-090 trajectory stepping): when committed, step through
+        a0->a1->a2->... using _committed_step_idx instead of repeating a0.
+
+        Layer 2 (MECH-091 urgency interrupt): when beta is elevated and z_harm_a
+        norm exceeds urgency_interrupt_threshold, abort commitment and re-select.
         """
+        # SD-011: extract z_harm_a for E3 urgency gating and ethical cost amplification.
+        z_harm_a = None
+        if self._current_latent is not None and self._current_latent.z_harm_a is not None:
+            z_harm_a = self._current_latent.z_harm_a
+
+        # MECH-091: urgency interrupt -- phase-reset commitment on high harm signal.
+        # When beta is elevated (committed) and affective harm load is extreme,
+        # abort the committed trajectory and fall through to fresh E3 selection.
+        if self.beta_gate.is_elevated and z_harm_a is not None:
+            urgency_threshold = getattr(
+                self.config.e3, "urgency_interrupt_threshold", 0.8
+            )
+            if float(z_harm_a.norm().item()) > urgency_threshold:
+                self.beta_gate.release()
+                self._committed_step_idx = 0
+
         if not ticks["e3_tick"] and self._last_action is not None:
-            # MECH-165: record held action for exploration trajectory (every step)
-            self._record_exploration_action(self._last_action)
-            return self._last_action
+            # Between E3 ticks: step through committed trajectory (Layer 1) or hold.
+            if self.beta_gate.is_elevated and self.e3._committed_trajectory is not None:
+                traj = self.e3._committed_trajectory
+                horizon = traj.actions.shape[1]
+                step_idx = min(self._committed_step_idx, horizon - 1)
+                action = traj.actions[:, step_idx, :]
+                self._committed_step_idx += 1
+            else:
+                action = self._last_action
+            # MECH-165: record held/stepped action for exploration trajectory (every step)
+            self._record_exploration_action(action)
+            self._last_action = action
+            return action
 
         # SD-016 (MECH-152): pass cached terrain_weight so harm/goal scoring
         # precision reflects current z_world cue context.
@@ -527,10 +563,6 @@ class REEAgent(nn.Module):
         # Creates periodic uncommitted windows even when running_variance has
         # converged below base commit_threshold after training.
         sweep_reduction = self.clock.sweep_amplitude if self.clock.sweep_active else 0.0
-        # SD-011: extract z_harm_a for E3 urgency gating and ethical cost amplification.
-        z_harm_a = None
-        if self._current_latent is not None and self._current_latent.z_harm_a is not None:
-            z_harm_a = self._current_latent.z_harm_a
         # MECH-188: PFC top-down z_goal injection (EXQ-253).
         # When z_goal_inject > 0, apply a constant norm floor to z_goal for
         # action selection ONLY. Does not modify the persistent attractor.
@@ -559,19 +591,30 @@ class REEAgent(nn.Module):
             # hovers near the commit threshold.
             if result.committed and not self.beta_gate.is_elevated:
                 self.beta_gate.elevate()
+                self._committed_step_idx = 0  # reset step counter on new commitment
             # If not committed and beta already released: no-op (already open).
             # If committed and beta already elevated: no-op (stay latched).
         else:
             # Legacy behavior (backward compat): re-evaluate every E3 tick.
             if result.committed:
+                if not self.beta_gate.is_elevated:
+                    self._committed_step_idx = 0  # reset on new commitment
                 self.beta_gate.elevate()
             else:
+                if self.beta_gate.is_elevated:
+                    self._committed_step_idx = 0  # reset when gate opens
                 self.beta_gate.release()
 
         propagated = self.beta_gate.propagate(action)
         if propagated is None:
-            # Beta elevated: hold previous action
-            if self._last_action is not None:
+            # Beta elevated: step through committed trajectory (Layer 1).
+            if self.e3._committed_trajectory is not None:
+                traj = self.e3._committed_trajectory
+                horizon = traj.actions.shape[1]
+                step_idx = min(self._committed_step_idx, horizon - 1)
+                action = traj.actions[:, step_idx, :]
+                self._committed_step_idx += 1
+            elif self._last_action is not None:
                 action = self._last_action
 
         self._last_action = action

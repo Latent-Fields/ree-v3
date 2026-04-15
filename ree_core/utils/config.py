@@ -299,6 +299,13 @@ class E3Config:
     # 0.0 disables (default, backward compat).
     affective_harm_scale: float = 0.0
 
+    # MECH-091: urgency interrupt threshold -- phase-reset commitment on high harm signal.
+    # When beta is elevated and z_harm_a.norm() exceeds this threshold, the commitment is
+    # aborted (beta_gate.release(), _committed_step_idx reset), and a fresh E3 selection
+    # is performed. This implements the salient-event phase-reset described in MECH-091.
+    # 0.8 default: fires only on strong affective harm signal; 1e9 effectively disables.
+    urgency_interrupt_threshold: float = 0.8
+
 
 @dataclass
 class HippocampalConfig:
