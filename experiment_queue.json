@@ -69,7 +69,7 @@
       "notes": "EXQ-321 FAIL root cause: training loop never called E2 world_forward or update_running_variance(). running_variance frozen at 0.50, never dropped below commitment_threshold=0.40, committed=False throughout, total_committed_steps=0. Fix: added wf_buf (deque maxlen=2000) + wf_optimizer (E2.world_transition + world_action_encoder) + update_running_variance(wf_pred - zw1) per step; extended TRAIN_EPISODES 50->300. claim_ids reduced to [MECH-090] only -- ARC-028 tests gate release via hippocampal signal, not gate hold property. Both conditions use beta_gate_bistable=True (BISTABLE) vs False (LEGACY). C3: total_committed_steps > 0 is the prerequisite criterion.",
       "claimed_by": {
         "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-15T13:24:52.338700+00:00"
+        "claimed_at": "2026-04-16T20:06:17.982433+00:00"
       }
     },
     {
