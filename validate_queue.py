@@ -65,6 +65,38 @@ def _type_name(t) -> str:
     return t.__name__
 
 
+def _validate_run_axis(prefix: str, field_name: str, value, elem_type) -> list[str]:
+    """Validate seeds/conditions fields which may be counts or explicit lists."""
+    errors: list[str] = []
+    if isinstance(value, bool):
+        return [f"{prefix}: '{field_name}' must be int or list, got bool"]
+    if isinstance(value, int):
+        if value <= 0:
+            errors.append(f"{prefix}: '{field_name}' must be > 0, got {value}")
+        return errors
+    if isinstance(value, list):
+        if not value:
+            errors.append(f"{prefix}: '{field_name}' list must not be empty")
+            return errors
+        for sub_idx, sub_val in enumerate(value):
+            if isinstance(sub_val, bool) or not isinstance(sub_val, elem_type):
+                errors.append(
+                    f"{prefix}: '{field_name}[{sub_idx}]' must be {elem_type.__name__}, "
+                    f"got {type(sub_val).__name__}"
+                )
+                continue
+            if elem_type is int and sub_val <= 0:
+                errors.append(
+                    f"{prefix}: '{field_name}[{sub_idx}]' must be > 0, got {sub_val}"
+                )
+            if elem_type is str and not sub_val.strip():
+                errors.append(
+                    f"{prefix}: '{field_name}[{sub_idx}]' must not be empty"
+                )
+        return errors
+    return [f"{prefix}: '{field_name}' must be int or list, got {type(value).__name__}"]
+
+
 def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
     """
     Validate the queue file.  Returns a list of error strings.
@@ -184,6 +216,11 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
             errors.append(
                 f"{prefix}: estimated_minutes must be > 0, got {est}"
             )
+
+        if "seeds" in item:
+            errors.extend(_validate_run_axis(prefix, "seeds", item["seeds"], int))
+        if "conditions" in item:
+            errors.extend(_validate_run_axis(prefix, "conditions", item["conditions"], str))
 
         # script field -- warn (not error) if the file does not exist
         script_val = item.get("script")

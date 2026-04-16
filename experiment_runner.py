@@ -669,8 +669,25 @@ def load_script_timing() -> dict:
     return {}
 
 
-def save_script_timing(script: str, actual_secs: float, seeds: int, conditions: int, episodes: int) -> None:
-    total_ep_cond = seeds * conditions * episodes
+def _run_axis_count(value, field_name: str) -> int:
+    """Return the number of runs implied by an int or explicit list field."""
+    if isinstance(value, bool):
+        raise TypeError(f"{field_name} must be an int or list, got bool")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, (list, tuple)):
+        return len(value)
+    raise TypeError(f"{field_name} must be an int or list, got {type(value).__name__}")
+
+
+def save_script_timing(script: str, actual_secs: float, seeds, conditions, episodes: int) -> None:
+    try:
+        seed_count = _run_axis_count(seeds, "seeds")
+        condition_count = _run_axis_count(conditions, "conditions")
+    except TypeError as exc:
+        print(f"[runner] Calibration skip: {exc}", flush=True)
+        return
+    total_ep_cond = seed_count * condition_count * episodes
     if total_ep_cond <= 0:
         return
     actual_ms_per = round((actual_secs * 1000) / total_ep_cond, 1)
@@ -681,15 +698,15 @@ def save_script_timing(script: str, actual_secs: float, seeds: int, conditions: 
 
 
 def estimate_minutes(item: dict, calibration: dict, script_timing: dict | None = None) -> float:
-    seeds = item.get("seeds", 1)
-    conditions = item.get("conditions", 1)
+    seed_count = _run_axis_count(item.get("seeds", 1), "seeds")
+    condition_count = _run_axis_count(item.get("conditions", 1), "conditions")
     episodes = item.get("episodes_per_run", 130)
     script = item.get("script", "")
     if script_timing and script in script_timing:
         ms_per = script_timing[script]
     else:
         ms_per = calibration.get("ms_per_episode_condition", 8000)
-    return (seeds * conditions * episodes * ms_per) / 60_000
+    return (seed_count * condition_count * episodes * ms_per) / 60_000
 
 
 def build_initial_status(queue_data: dict, script_timing: dict | None = None) -> dict:
@@ -734,9 +751,9 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         raw_args = shlex.split(raw_args)
     args = [sys.executable, "-u", str(script)] + raw_args
 
-    seeds = item.get("seeds", 1)
-    conditions = item.get("conditions", 1)
-    total_runs = max(1, seeds * conditions)
+    seed_count = _run_axis_count(item.get("seeds", 1), "seeds")
+    condition_count = _run_axis_count(item.get("conditions", 1), "conditions")
+    total_runs = max(1, seed_count * condition_count)
     episodes_per_run = item.get("episodes_per_run", 130)
 
     runs_done = 0
