@@ -261,7 +261,7 @@
       "script": "experiments/v3_exq_418_sd017_context_conditioned_action.py",
       "priority": 7,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "episodes_per_run": 200,
       "seeds": 3,
@@ -271,7 +271,11 @@
         "SD-017"
       ],
       "backlog_id": "EXP-0106",
-      "notes": "EXQ-265 proved SD-017 SWS/REM methods differentiate ContextMemory slots. This experiment adds SD-016 (sd016_enabled=True) to both conditions and tests whether sleep-differentiated slots produce context-appropriate action biases (SAFE vs DANGEROUS divergence). WITH_SLEEP_SD016 vs WITHOUT_SLEEP_SD016. PASS requires C1 (action_bias_divergence>=0.05 in 2/3 seeds) AND C2 (WITH>WITHOUT divergence in 2/3 seeds). Addresses EXP-0106 proposal: agent does not use context knowledge without context->action pathway."
+      "notes": "EXQ-265 proved SD-017 SWS/REM methods differentiate ContextMemory slots. This experiment adds SD-016 (sd016_enabled=True) to both conditions and tests whether sleep-differentiated slots produce context-appropriate action biases (SAFE vs DANGEROUS divergence). WITH_SLEEP_SD016 vs WITHOUT_SLEEP_SD016. PASS requires C1 (action_bias_divergence>=0.05 in 2/3 seeds) AND C2 (WITH>WITHOUT divergence in 2/3 seeds). Addresses EXP-0106 proposal: agent does not use context knowledge without context->action pathway.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-16T17:27:05.545637+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-429",
