@@ -58,7 +58,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.heartbeat.beta_gate import BetaGate
-from ree_core.utils.config import HeartbeatConfig, REEConfig
+from ree_core.utils.config import REEConfig
 
 # -------------------------------------------------------------------------
 # Constants
@@ -109,13 +109,16 @@ def make_eval_env(seed: int) -> CausalGridWorldV2:
 
 
 def make_config(bistable: bool) -> REEConfig:
-    hb = HeartbeatConfig(beta_gate_bistable=bistable)
-    return REEConfig.from_dims(
+    # NOTE: from_dims() does not accept a heartbeat parameter (captured in **kwargs
+    # and silently ignored). Set beta_gate_bistable directly on the config after
+    # construction to avoid the default HeartbeatConfig(beta_gate_bistable=False).
+    cfg = REEConfig.from_dims(
         body_obs_dim=12, world_obs_dim=250, action_dim=4,
         alpha_world=0.9,
         use_harm_stream=True,
-        heartbeat=hb,
     )
+    cfg.heartbeat.beta_gate_bistable = bistable
+    return cfg
 
 
 # -------------------------------------------------------------------------
@@ -291,14 +294,11 @@ def eval_gate_stability(agent: REEAgent, env: CausalGridWorldV2,
             # Between E3 ticks: keep rv at trained level (early-return path doesn't
             # evaluate committed, so spike injection here would have no effect).
 
-            bistable_cfg = agent.config.heartbeat.beta_gate_bistable
             e1_prior = (
                 agent._e1_tick(latent) if ticks.get("e1_tick")
                 else torch.zeros(1, agent.config.latent.world_dim, device=device)
             )
-            elevated_before_gen = agent.beta_gate.is_elevated
             candidates = agent.generate_trajectories(latent, e1_prior, ticks)
-            elevated_after_gen = agent.beta_gate.is_elevated
             action = agent.select_action(candidates, ticks)
             action_idx = int(action.argmax(dim=-1).item())
 
@@ -307,25 +307,6 @@ def eval_gate_stability(agent: REEAgent, env: CausalGridWorldV2,
                 agent.e3._running_variance = trained_rv_val
 
             elevated = agent.beta_gate.is_elevated
-
-            # Debug: print spike step details
-            if is_spike_step:
-                z_harm_a_val = (
-                    agent._current_latent.z_harm_a
-                    if agent._current_latent is not None else None
-                )
-                z_harm_a_norm = (
-                    float(z_harm_a_val.norm().item())
-                    if z_harm_a_val is not None else None
-                )
-                print(
-                    f"    [DEBUG spike] step={step} bistable={bistable_cfg} "
-                    f"was_elevated={was_elevated_before} "
-                    f"after_gen={elevated_after_gen} "
-                    f"after_select={elevated} "
-                    f"z_harm_a_norm={z_harm_a_norm}",
-                    flush=True,
-                )
 
             # Track spike-triggered release: gate was elevated before the spike
             # E3 tick and dropped as a result of the injected rv > threshold.
