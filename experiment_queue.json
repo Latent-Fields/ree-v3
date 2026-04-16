@@ -14,7 +14,7 @@
       "script": "experiments/v3_exq_323a_sd019_harm_nonredundancy.py",
       "priority": 6,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "episodes_per_run": 1200,
       "claim_ids": [
@@ -23,7 +23,11 @@
         "SD-022"
       ],
       "supersedes": "V3-EXQ-323",
-      "notes": "EXQ-323 used 50-dim EMA harm_obs_a (structurally identical to harm_obs_s) and no enc_a training loss -- test was measuring random geometry, not learned independence. Fix: SD-022 substrate (limb_damage_enabled=True, heal_rate=0.001, 7-dim body damage) + MSE loss on mean_damage for enc_a. SD-022 causal independence confirmed by EXQ-319 PASS. Unblocks SD-020 (EXQ-324a) if PASS."
+      "notes": "EXQ-323 used 50-dim EMA harm_obs_a (structurally identical to harm_obs_s) and no enc_a training loss -- test was measuring random geometry, not learned independence. Fix: SD-022 substrate (limb_damage_enabled=True, heal_rate=0.001, 7-dim body damage) + MSE loss on mean_damage for enc_a. SD-022 causal independence confirmed by EXQ-319 PASS. Unblocks SD-020 (EXQ-324a) if PASS.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-16T17:28:09.107154+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-326",
