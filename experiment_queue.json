@@ -224,7 +224,7 @@
       "script": "experiments/v3_exq_396a_arc016_precision_sweep_rv_fix.py",
       "priority": 7,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 175,
       "episodes_per_run": 1950,
       "seeds": 1,
@@ -234,7 +234,11 @@
         "MECH-093"
       ],
       "supersedes": "V3-EXQ-396",
-      "notes": "Fixes two bugs present in EXQ-038 and EXQ-396: (1) update_running_variance() was never called during training -- variance stayed frozen at precision_init=0.5 for all training episodes; (2) eval loop reset _running_variance = precision_init at each episode start, discarding any accumulated signal. Together: variance always started at 0.5, decayed to ~0.402 within each episode (just above commit_threshold=0.40), never committed. Fix 1: call update_running_variance(pred_error) every training step using step-by-step E2 world_forward error. Fix 2: carry post-training variance into eval without episode reset. Both stable and perturbed eval start from the same post-training variance for direct comparison. Expected: stable env -> variance stays low -> commit_rate~1; perturbed env -> hazard jumps raise prediction errors -> variance rises -> lower commit_rate."
+      "notes": "Fixes two bugs present in EXQ-038 and EXQ-396: (1) update_running_variance() was never called during training -- variance stayed frozen at precision_init=0.5 for all training episodes; (2) eval loop reset _running_variance = precision_init at each episode start, discarding any accumulated signal. Together: variance always started at 0.5, decayed to ~0.402 within each episode (just above commit_threshold=0.40), never committed. Fix 1: call update_running_variance(pred_error) every training step using step-by-step E2 world_forward error. Fix 2: carry post-training variance into eval without episode reset. Both stable and perturbed eval start from the same post-training variance for direct comparison. Expected: stable env -> variance stays low -> commit_rate~1; perturbed env -> hazard jumps raise prediction errors -> variance rises -> lower commit_rate.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-16T17:24:36.656945+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-396b",
@@ -248,7 +252,10 @@
       "episodes_per_run": 2300,
       "seeds": 1,
       "conditions": 5,
-      "claim_ids": ["ARC-016", "MECH-093"],
+      "claim_ids": [
+        "ARC-016",
+        "MECH-093"
+      ],
       "supersedes": "V3-EXQ-396a",
       "notes": "EXQ-396a FAIL root cause: fixed threshold (0.40) >> post-training variance (~0.07); both stable and perturbed eval produce variances << 0.40; agent always commits; C3/C4 always fail. Two fixes: (1) EXP-0094 auto-calibration -- after training, set threshold = 2.0 * mean(last-100-ep variance); analogous to SWS prediction-error baseline recalibration; EXQ-018b used same calibration_factor=2.0 and passed. (2) Truly static training env (drift_interval=100, drift_prob=0.0): E2 world_forward converges to near-zero prediction error (baseline ~0.001 vs ~0.07 in 396a). Perturbed eval uses drift_interval=1, drift_prob=0.9. Sweep: hazard_harm in [0.005, 0.01, 0.02, 0.05, 0.10]. ARC-016 tested by C3 (commit_stable > commit_perturbed + 0.05 in >= 3/5 levels) + C4 (calibration sanity). MECH-093 tested by C1/C2 (var_diff monotone and correlated with hazard_harm). Per-claim evidence_direction_per_claim used to split ARC-016 vs MECH-093 outcomes."
     },
@@ -347,7 +354,9 @@
       "episodes_per_run": 500,
       "seeds": 1,
       "conditions": 2,
-      "claim_ids": ["MECH-090"],
+      "claim_ids": [
+        "MECH-090"
+      ],
       "supersedes": "V3-EXQ-049",
       "notes": "Regression test of MECH-090 gate wiring against Layer 1+2 substrate (trajectory stepping + urgency interrupt, implemented 2026-04-15). EXQ-049e PASS (2026-03-21) proved gate wiring on old substrate (concordance=1.0 both conditions). This confirms those properties hold after the April 10/15 agent.py rewrites. Two-condition design: Condition A = trained agent (400 eps, running_variance collapses to ~0 -> committed), Condition B = fresh agent (variance=0.5 > commit_threshold -> uncommitted). No training convergence requirement -- avoids the EXQ-321a failure mode (total_committed_steps=0 when agent fails to converge)."
     },
