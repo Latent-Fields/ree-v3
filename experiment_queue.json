@@ -218,29 +218,6 @@
       "notes": "Corrected MECH-070 direction. Criteria inverted: E2 must degrade faster than E1 across horizons (short-horizon claim). C1 PASS expected (E2 better at h=1 action-conditioned), C2/C3 PASS expected (EXQ-212 showed slope_e2 << slope_e1 -- now a PASS criterion)."
     },
     {
-      "queue_id": "V3-EXQ-396a",
-      "title": "ARC-016 precision sweep: dual-bug fix (rv update in training + no eval reset)",
-      "experiment_type": "v3_exq_396a_arc016_precision_sweep_rv_fix",
-      "script": "experiments/v3_exq_396a_arc016_precision_sweep_rv_fix.py",
-      "priority": 7,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 175,
-      "episodes_per_run": 1950,
-      "seeds": 1,
-      "conditions": 1,
-      "claim_ids": [
-        "ARC-016",
-        "MECH-093"
-      ],
-      "supersedes": "V3-EXQ-396",
-      "notes": "Fixes two bugs present in EXQ-038 and EXQ-396: (1) update_running_variance() was never called during training -- variance stayed frozen at precision_init=0.5 for all training episodes; (2) eval loop reset _running_variance = precision_init at each episode start, discarding any accumulated signal. Together: variance always started at 0.5, decayed to ~0.402 within each episode (just above commit_threshold=0.40), never committed. Fix 1: call update_running_variance(pred_error) every training step using step-by-step E2 world_forward error. Fix 2: carry post-training variance into eval without episode reset. Both stable and perturbed eval start from the same post-training variance for direct comparison. Expected: stable env -> variance stays low -> commit_rate~1; perturbed env -> hazard jumps raise prediction errors -> variance rises -> lower commit_rate.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-16T17:24:36.656945+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-396b",
       "title": "ARC-016 precision sweep: EXP-0094 auto-calibration + static training env",
       "experiment_type": "v3_exq_396b_arc016_precision_sweep_calibrated",
