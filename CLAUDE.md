@@ -658,6 +658,27 @@ Verify with `git fetch` (should return silently).
   Design doc: REE_assembly/docs/architecture/arc_033_e2_harm_s_forward_model.md
   See ARC-033, SD-003, SD-010, SD-011.
 
+## SD-016: Frontal Cue-Indexed Integration (2026-04-16)
+- SD-016: e1.frontal_cue_indexed_integration -- IMPLEMENTED 2026-04-16.
+  Module: ree_core/predictors/e1_deep.py (E1DeepPredictor).
+  Three new projections gated by sd016_enabled=True:
+    world_query_proj: Linear(world_dim=32, hidden_dim=128) -- z_world-only ContextMemory query
+    cue_action_proj:  Linear(latent_dim=64, action_object_dim=16) -- affordance bias for E2
+    cue_terrain_proj: Linear(latent_dim=64, 2) -- (w_harm, w_goal) terrain precision weights for E3
+  Entry point: E1DeepPredictor.extract_cue_context(z_world) -> (action_bias, terrain_weight).
+  Config: E1Config.sd016_enabled (default False; backward compatible).
+  Data flow: z_world -> world_query_proj -> ContextMemory attention -> cue_action_proj (affordance)
+             and cue_terrain_proj (terrain precision). terrain_weight passed to E3; action_bias to E2.
+  Training for cue_terrain_proj: supervised terrain_loss using hazard_field_view proxy (lambda=0.1).
+    terrain_loss must be included in experiment E1 training loops to train this projection.
+    Pattern: see EXQ-182, EXQ-187a, EXQ-194. Omitting terrain_loss leaves cue_terrain_proj random.
+  Training for cue_action_proj: implicit via E3 trajectory selection gradient (no new loss).
+  Backward compatible: sd016_enabled=False by default; existing experiments unaffected.
+  MECH-094: not applicable (waking encoder query, not replay content).
+  Validation experiment: V3-EXQ-418a queued (SD-016+SD-017 combined retest with terrain_loss).
+  See MECH-150, MECH-151, MECH-152, ARC-041, INV-040.
+  Design doc: REE_assembly/docs/architecture/sd_016_frontal_cue_integration.md
+
 ## SD-017: Minimal Sleep-Phase Infrastructure -- SWS/REM Passes (2026-04-09)
 - SD-017: sleep_phase.minimal_sleep_infrastructure_v3 -- SWS-ANALOG + REM-ANALOG IMPLEMENTED 2026-04-09.
   Two new first-class methods added to REEAgent (ree_core/agent.py):
