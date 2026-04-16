@@ -237,6 +237,22 @@
       "notes": "Fixes two bugs present in EXQ-038 and EXQ-396: (1) update_running_variance() was never called during training -- variance stayed frozen at precision_init=0.5 for all training episodes; (2) eval loop reset _running_variance = precision_init at each episode start, discarding any accumulated signal. Together: variance always started at 0.5, decayed to ~0.402 within each episode (just above commit_threshold=0.40), never committed. Fix 1: call update_running_variance(pred_error) every training step using step-by-step E2 world_forward error. Fix 2: carry post-training variance into eval without episode reset. Both stable and perturbed eval start from the same post-training variance for direct comparison. Expected: stable env -> variance stays low -> commit_rate~1; perturbed env -> hazard jumps raise prediction errors -> variance rises -> lower commit_rate."
     },
     {
+      "queue_id": "V3-EXQ-396b",
+      "title": "ARC-016 precision sweep: EXP-0094 auto-calibration + static training env",
+      "experiment_type": "v3_exq_396b_arc016_precision_sweep_calibrated",
+      "script": "experiments/v3_exq_396b_arc016_precision_sweep_calibrated.py",
+      "priority": 7,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 230,
+      "episodes_per_run": 2300,
+      "seeds": 1,
+      "conditions": 5,
+      "claim_ids": ["ARC-016", "MECH-093"],
+      "supersedes": "V3-EXQ-396a",
+      "notes": "EXQ-396a FAIL root cause: fixed threshold (0.40) >> post-training variance (~0.07); both stable and perturbed eval produce variances << 0.40; agent always commits; C3/C4 always fail. Two fixes: (1) EXP-0094 auto-calibration -- after training, set threshold = 2.0 * mean(last-100-ep variance); analogous to SWS prediction-error baseline recalibration; EXQ-018b used same calibration_factor=2.0 and passed. (2) Truly static training env (drift_interval=100, drift_prob=0.0): E2 world_forward converges to near-zero prediction error (baseline ~0.001 vs ~0.07 in 396a). Perturbed eval uses drift_interval=1, drift_prob=0.9. Sweep: hazard_harm in [0.005, 0.01, 0.02, 0.05, 0.10]. ARC-016 tested by C3 (commit_stable > commit_perturbed + 0.05 in >= 3/5 levels) + C4 (calibration sanity). MECH-093 tested by C1/C2 (var_diff monotone and correlated with hazard_harm). Per-claim evidence_direction_per_claim used to split ARC-016 vs MECH-093 outcomes."
+    },
+    {
       "queue_id": "V3-EXQ-396",
       "title": "ARC-016 precision threshold sweep: hazard_harm 5-level characterization (EXQ-038 staged fix)",
       "experiment_type": "v3_exq_396_arc016_precision_sweep",
