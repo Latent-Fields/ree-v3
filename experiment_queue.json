@@ -270,7 +270,7 @@
       "script": "experiments/v3_exq_049a_mech090_bistable_concordance.py",
       "priority": 6,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 50,
       "episodes_per_run": 500,
       "seeds": 1,
@@ -279,7 +279,11 @@
         "MECH-090"
       ],
       "supersedes": "V3-EXQ-049",
-      "notes": "Regression test of MECH-090 gate wiring against Layer 1+2 substrate (trajectory stepping + urgency interrupt, implemented 2026-04-15). EXQ-049e PASS (2026-03-21) proved gate wiring on old substrate (concordance=1.0 both conditions). This confirms those properties hold after the April 10/15 agent.py rewrites. Two-condition design: Condition A = trained agent (400 eps, running_variance collapses to ~0 -> committed), Condition B = fresh agent (variance=0.5 > commit_threshold -> uncommitted). No training convergence requirement -- avoids the EXQ-321a failure mode (total_committed_steps=0 when agent fails to converge)."
+      "notes": "Regression test of MECH-090 gate wiring against Layer 1+2 substrate (trajectory stepping + urgency interrupt, implemented 2026-04-15). EXQ-049e PASS (2026-03-21) proved gate wiring on old substrate (concordance=1.0 both conditions). This confirms those properties hold after the April 10/15 agent.py rewrites. Two-condition design: Condition A = trained agent (400 eps, running_variance collapses to ~0 -> committed), Condition B = fresh agent (variance=0.5 > commit_threshold -> uncommitted). No training convergence requirement -- avoids the EXQ-321a failure mode (total_committed_steps=0 when agent fails to converge).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-16T17:28:30.867280+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-430",
