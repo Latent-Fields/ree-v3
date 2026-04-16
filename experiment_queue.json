@@ -336,6 +336,22 @@
       "notes": "Tests INV-044: prior construction (SWS slot-formation) must precede posterior inference (REM slot-filling). Three-arm probe: ORDERED (SWS then REM), REM_ONLY (posterior without prior), WAKING_ONLY (online baseline). Primary metric: sws_slot_diversity (ContextMemory differentiation). Substrate: SD-017 run_sws_schema_pass + run_rem_attribution_pass."
     },
     {
+      "queue_id": "V3-EXQ-049a",
+      "title": "MECH-090 gate wiring regression: two-condition design on Layer 1+2 substrate",
+      "experiment_type": "v3_exq_049a_mech090_bistable_concordance",
+      "script": "experiments/v3_exq_049a_mech090_bistable_concordance.py",
+      "priority": 6,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 50,
+      "episodes_per_run": 500,
+      "seeds": 1,
+      "conditions": 2,
+      "claim_ids": ["MECH-090"],
+      "supersedes": "V3-EXQ-049",
+      "notes": "Regression test of MECH-090 gate wiring against Layer 1+2 substrate (trajectory stepping + urgency interrupt, implemented 2026-04-15). EXQ-049e PASS (2026-03-21) proved gate wiring on old substrate (concordance=1.0 both conditions). This confirms those properties hold after the April 10/15 agent.py rewrites. Two-condition design: Condition A = trained agent (400 eps, running_variance collapses to ~0 -> committed), Condition B = fresh agent (variance=0.5 > commit_threshold -> uncommitted). No training convergence requirement -- avoids the EXQ-321a failure mode (total_committed_steps=0 when agent fails to converge)."
+    },
+    {
       "queue_id": "V3-EXQ-430",
       "title": "INV-010: Offline Integration Necessity (SLEEP vs NO_SLEEP behavioral comparison)",
       "experiment_type": "v3_exq_430_inv010_offline_integration_necessity",
@@ -359,6 +375,24 @@
       ],
       "backlog_id": "EVB-0071",
       "notes": "Tests INV-010: offline integration exists and is required. SLEEP condition (periodic sleep cycles every 10 eps during training) vs NO_SLEEP (pure online learning). Primary metric: SLEEP eval harm < NO_SLEEP eval harm in >= 2/3 seeds. Substrate: SD-017 run_sws_schema_pass + run_rem_attribution_pass. Proposal: EXP-0071 (EVB-0071)."
+    },
+    {
+      "queue_id": "V3-EXQ-324a",
+      "title": "SD-020 affective harm surprise PE retest: SD-022 substrate (7-dim body damage, 8 hazards)",
+      "experiment_type": "v3_exq_324a_sd020_harm_surprise_pe",
+      "script": "experiments/v3_exq_324a_sd020_harm_surprise_pe.py",
+      "priority": 7,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 210,
+      "episodes_per_run": 400,
+      "seeds": 5,
+      "conditions": 1,
+      "claim_ids": [
+        "SD-020"
+      ],
+      "supersedes": "V3-EXQ-324",
+      "notes": "EXQ-324 FAIL: two compounding confounds. (1) HARM_OBS_A_DIM=50 EMA proxy -- structurally identical to harm_obs_s, z_harm_a variance 0.0003-0.0007, PE signal drowned. (2) 10-20 harm events/seed (60 eps, 4 hazards) -- too few for stable correlation estimates. Fix: SD-022 substrate (limb_damage_enabled=True, 7-dim body damage, 8 hazards, 200 eps/condition). PE computed from mean_damage EMA (alpha=0.1). episodes_per_run=400 (200 PE + 200 EMA per seed, cumulative denominator, conditions=1). Scientific dependency: governance weighting should be deferred until EXQ-323a (SD-019) resolves -- SD-020 depends_on SD-019 in claims.yaml."
     }
   ]
 }
