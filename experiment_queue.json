@@ -323,28 +323,6 @@
       ],
       "backlog_id": "EVB-0071",
       "notes": "Tests INV-010: offline integration exists and is required. SLEEP condition (periodic sleep cycles every 10 eps during training) vs NO_SLEEP (pure online learning). Primary metric: SLEEP eval harm < NO_SLEEP eval harm in >= 2/3 seeds. Substrate: SD-017 run_sws_schema_pass + run_rem_attribution_pass. Proposal: EXP-0071 (EVB-0071)."
-    },
-    {
-      "queue_id": "V3-EXQ-324a",
-      "title": "SD-020 affective harm surprise PE retest: SD-022 substrate (7-dim body damage, 8 hazards)",
-      "experiment_type": "v3_exq_324a_sd020_harm_surprise_pe",
-      "script": "experiments/v3_exq_324a_sd020_harm_surprise_pe.py",
-      "priority": 7,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 210,
-      "episodes_per_run": 400,
-      "seeds": 5,
-      "conditions": 1,
-      "claim_ids": [
-        "SD-020"
-      ],
-      "supersedes": "V3-EXQ-324",
-      "notes": "EXQ-324 FAIL: two compounding confounds. (1) HARM_OBS_A_DIM=50 EMA proxy -- structurally identical to harm_obs_s, z_harm_a variance 0.0003-0.0007, PE signal drowned. (2) 10-20 harm events/seed (60 eps, 4 hazards) -- too few for stable correlation estimates. Fix: SD-022 substrate (limb_damage_enabled=True, 7-dim body damage, 8 hazards, 200 eps/condition). PE computed from mean_damage EMA (alpha=0.1). episodes_per_run=400 (200 PE + 200 EMA per seed, cumulative denominator, conditions=1). Scientific dependency: governance weighting should be deferred until EXQ-323a (SD-019) resolves -- SD-020 depends_on SD-019 in claims.yaml.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-16T17:27:45.255040+00:00"
-      }
     }
   ]
 }
