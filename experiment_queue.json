@@ -264,28 +264,6 @@
       "notes": "Tests INV-044: prior construction (SWS slot-formation) must precede posterior inference (REM slot-filling). Three-arm probe: ORDERED (SWS then REM), REM_ONLY (posterior without prior), WAKING_ONLY (online baseline). Primary metric: sws_slot_diversity (ContextMemory differentiation). Substrate: SD-017 run_sws_schema_pass + run_rem_attribution_pass."
     },
     {
-      "queue_id": "V3-EXQ-049a",
-      "title": "MECH-090 gate wiring regression: two-condition design on Layer 1+2 substrate",
-      "experiment_type": "v3_exq_049a_mech090_bistable_concordance",
-      "script": "experiments/v3_exq_049a_mech090_bistable_concordance.py",
-      "priority": 6,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 50,
-      "episodes_per_run": 500,
-      "seeds": 1,
-      "conditions": 2,
-      "claim_ids": [
-        "MECH-090"
-      ],
-      "supersedes": "V3-EXQ-049",
-      "notes": "Regression test of MECH-090 gate wiring against Layer 1+2 substrate (trajectory stepping + urgency interrupt, implemented 2026-04-15). EXQ-049e PASS (2026-03-21) proved gate wiring on old substrate (concordance=1.0 both conditions). This confirms those properties hold after the April 10/15 agent.py rewrites. Two-condition design: Condition A = trained agent (400 eps, running_variance collapses to ~0 -> committed), Condition B = fresh agent (variance=0.5 > commit_threshold -> uncommitted). No training convergence requirement -- avoids the EXQ-321a failure mode (total_committed_steps=0 when agent fails to converge).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-16T17:28:30.867280+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-430",
       "title": "INV-010: Offline Integration Necessity (SLEEP vs NO_SLEEP behavioral comparison)",
       "experiment_type": "v3_exq_430_inv010_offline_integration_necessity",
