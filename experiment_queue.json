@@ -145,8 +145,8 @@
       "supersedes": "V3-EXQ-332",
       "notes": "Adjudication run resolving SD-023 1:1 conflict (EXQ-263b supports vs EXQ-332 does_not_support). EXQ-332 implementation gap: future_target_mean=0.0006 across 162k P1 steps -- ~10 resource contacts total, schema_readout_head learns constant-zero output (MSE dominated by zero-class). Fixes: (1) 8x8 grid + 4 resources vs 12x12 + 2 (contact rate ~10x higher); (2) FUTURE_WINDOW 10->30 (3x more positive labels per contact); (3) P1 episodes 180->240. C3 quality gate (positive_label_rate > 0.10) guards against sparse-label artifact reoccurrence. Landmark A in BOTH conditions controls for generic texture benefit. Smoke test passed 2026-04-17.",
       "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-04-17T14:52:46.857474+00:00"
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-17T21:01:13.799935+00:00"
       }
     },
     {
@@ -159,7 +159,9 @@
       "status": "pending",
       "estimated_minutes": 90,
       "seeds": 3,
-      "claim_ids": ["MECH-090"],
+      "claim_ids": [
+        "MECH-090"
+      ],
       "supersedes": "V3-EXQ-321b",
       "notes": "V3-EXQ-321b errored on EWIN-PC (setup crash, 0.2s). Same script, re-queued on Mac."
     },
@@ -173,7 +175,9 @@
       "status": "pending",
       "estimated_minutes": 150,
       "seeds": 5,
-      "claim_ids": ["SD-020"],
+      "claim_ids": [
+        "SD-020"
+      ],
       "supersedes": "V3-EXQ-324b",
       "notes": "V3-EXQ-324b errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
     },
@@ -187,7 +191,9 @@
       "status": "pending",
       "estimated_minutes": 150,
       "seeds": 5,
-      "claim_ids": ["SD-021"],
+      "claim_ids": [
+        "SD-021"
+      ],
       "supersedes": "V3-EXQ-325a",
       "notes": "V3-EXQ-325a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
     },
@@ -202,7 +208,9 @@
       "estimated_minutes": 120,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": ["ARC-038"],
+      "claim_ids": [
+        "ARC-038"
+      ],
       "supersedes": "V3-EXQ-355a",
       "notes": "V3-EXQ-355a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
     },
@@ -217,7 +225,9 @@
       "estimated_minutes": 120,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": ["MECH-073"],
+      "claim_ids": [
+        "MECH-073"
+      ],
       "backlog_id": "EVB-0057",
       "supersedes": "V3-EXQ-375",
       "notes": "V3-EXQ-375 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
@@ -233,7 +243,9 @@
       "estimated_minutes": 120,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": ["INV-049"],
+      "claim_ids": [
+        "INV-049"
+      ],
       "supersedes": "V3-EXQ-385a",
       "notes": "V3-EXQ-385a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
     },
@@ -248,7 +260,9 @@
       "estimated_minutes": 120,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": ["MECH-220"],
+      "claim_ids": [
+        "MECH-220"
+      ],
       "backlog_id": "EVB-0114",
       "supersedes": "V3-EXQ-395",
       "notes": "V3-EXQ-395 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
@@ -264,7 +278,10 @@
       "estimated_minutes": 90,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": ["ARC-007", "SD-004"],
+      "claim_ids": [
+        "ARC-007",
+        "SD-004"
+      ],
       "supersedes": "V3-EXQ-397",
       "notes": "V3-EXQ-397 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
     },
@@ -278,7 +295,9 @@
       "status": "pending",
       "estimated_minutes": 200,
       "seeds": 5,
-      "claim_ids": ["INV-053"],
+      "claim_ids": [
+        "INV-053"
+      ],
       "supersedes": "V3-EXQ-406",
       "notes": "V3-EXQ-406 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
     },
@@ -293,7 +312,9 @@
       "estimated_minutes": 120,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": ["SD-017"],
+      "claim_ids": [
+        "SD-017"
+      ],
       "supersedes": "V3-EXQ-418a",
       "notes": "V3-EXQ-418a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
     },
@@ -308,7 +329,9 @@
       "estimated_minutes": 200,
       "seeds": 3,
       "conditions": 3,
-      "claim_ids": ["INV-044"],
+      "claim_ids": [
+        "INV-044"
+      ],
       "backlog_id": "EVB-0060",
       "supersedes": "V3-EXQ-429",
       "notes": "V3-EXQ-429 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
@@ -324,7 +347,9 @@
       "estimated_minutes": 120,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": ["INV-010"],
+      "claim_ids": [
+        "INV-010"
+      ],
       "backlog_id": "EVB-0071",
       "supersedes": "V3-EXQ-430",
       "notes": "V3-EXQ-430 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
@@ -340,7 +365,9 @@
       "estimated_minutes": 240,
       "seeds": 3,
       "conditions": 3,
-      "claim_ids": ["SD-014"],
+      "claim_ids": [
+        "SD-014"
+      ],
       "backlog_id": "EVB-0132",
       "notes": "3 conditions (A_SURPRISE d=[0,0,0,1], B_WANTING d=[1,0,0,0], C_ABLATION), 3 seeds. D1(100eps)+D2(50eps)+Test(20eps) per condition-seed. Tests Carey 2019 anti-preference replay: SURPRISE_WEIGHTED should select newly-devalued (stale) nodes after D1->D2 revaluation. P1: surprise@start[A]>surprise@start[B]+0.001. P2: wanting@start[B]>wanting@start[A]+0.001. P3: n_surprise_writes_d2>5."
     }
