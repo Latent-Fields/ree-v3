@@ -137,7 +137,7 @@
       "script": "experiments/v3_exq_418a_sd016_sd017_context_conditioned_action.py",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "episodes_per_run": 200,
       "seeds": 3,
@@ -147,7 +147,11 @@
         "SD-017"
       ],
       "supersedes": "V3-EXQ-418",
-      "note": "Two bugs fixed vs EXQ-418: (1) shy_enabled=False to prevent slot collapse (0.85^15=0.09 reversed diversity comparison); (2) terrain_loss added (lambda=0.1) so cue_terrain_proj trains via gradient -- EXQ-418 had random weights causing action_bias_divergence=0.0."
+      "note": "Two bugs fixed vs EXQ-418: (1) shy_enabled=False to prevent slot collapse (0.85^15=0.09 reversed diversity comparison); (2) terrain_loss added (lambda=0.1) so cue_terrain_proj trains via gradient -- EXQ-418 had random weights causing action_bias_divergence=0.0.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-17T14:58:12.507097+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-385a",
