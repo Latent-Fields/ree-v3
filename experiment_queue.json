@@ -123,7 +123,7 @@
       "script": "experiments/v3_exq_406_inv053_depression_attractor_replication.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 240,
       "episodes_per_run": 300,
       "seeds": 5,
@@ -132,7 +132,11 @@
         "INV-053"
       ],
       "backlog_id": "EXP-0096",
-      "notes": "5-seed systematic replication of the depression attractor observed in EXQ-237a seed=42. LONG_HORIZON (8x8, 3 hazards, 1 resource, hazard_harm=0.02, 150 steps/ep). HABIT vs PLANNED per seed. PASS: >=4/5 seeds show goal_norm<0.10 AND behavioral_equivalence<0.02. No new architecture; parameter extension of EXQ-237a. Run before MECH-186/187/188 experiments."
+      "notes": "5-seed systematic replication of the depression attractor observed in EXQ-237a seed=42. LONG_HORIZON (8x8, 3 hazards, 1 resource, hazard_harm=0.02, 150 steps/ep). HABIT vs PLANNED per seed. PASS: >=4/5 seeds show goal_norm<0.10 AND behavioral_equivalence<0.02. No new architecture; parameter extension of EXQ-237a. Run before MECH-186/187/188 experiments.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-17T14:57:53.177225+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-407",
