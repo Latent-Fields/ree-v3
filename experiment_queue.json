@@ -131,37 +131,6 @@
       "notes": "Corrected MECH-070 direction. Criteria inverted: E2 must degrade faster than E1 across horizons (short-horizon claim). C1 PASS expected (E2 better at h=1 action-conditioned), C2/C3 PASS expected (EXQ-212 showed slope_e2 << slope_e1 -- now a PASS criterion)."
     },
     {
-      "queue_id": "V3-EXQ-429",
-      "title": "INV-044: Bayesian Prior-Before-Posterior Necessity (SWS-ordered vs REM-only vs waking-only)",
-      "experiment_type": "v3_exq_429_inv044_bayesian_prior_before_posterior",
-      "script": "experiments/v3_exq_429_inv044_bayesian_prior_before_posterior.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 70,
-      "episodes_per_run": 90,
-      "seeds": [
-        42,
-        7,
-        13
-      ],
-      "conditions": [
-        "ORDERED",
-        "REM_ONLY",
-        "WAKING_ONLY"
-      ],
-      "backlog_id": "EVB-0060",
-      "claim_id": "INV-044",
-      "claim_ids": [
-        "INV-044"
-      ],
-      "notes": "Tests INV-044: prior construction (SWS slot-formation) must precede posterior inference (REM slot-filling). Three-arm probe: ORDERED (SWS then REM), REM_ONLY (posterior without prior), WAKING_ONLY (online baseline). Primary metric: sws_slot_diversity (ContextMemory differentiation). Substrate: SD-017 run_sws_schema_pass + run_rem_attribution_pass.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-17T14:58:02.784466+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-430",
       "title": "INV-010: Offline Integration Necessity (SLEEP vs NO_SLEEP behavioral comparison)",
       "experiment_type": "v3_exq_430_inv010_offline_integration_necessity",
