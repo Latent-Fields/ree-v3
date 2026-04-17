@@ -73,28 +73,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-395",
-      "title": "MECH-220 harm hub: behavioral harm-avoidance probe (hub_enabled vs hub_ablated)",
-      "experiment_type": "v3_exq_395_mech220_harm_hub",
-      "script": "experiments/v3_exq_395_mech220_harm_hub.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 216,
-      "episodes_per_run": 300,
-      "seeds": 3,
-      "conditions": 2,
-      "backlog_id": "EVB-0114",
-      "claim_id": "MECH-220",
-      "claim_ids": [
-        "MECH-220"
-      ],
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-17T14:57:46.624996+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-375",
       "title": "MECH-073 valence geometry: discriminative support vs ablation pair",
       "experiment_type": "v3_exq_375_mech073_valence_geometry_probe",
