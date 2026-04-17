@@ -69,28 +69,6 @@
       "notes": "EXQ-321a FAIL root cause chain: (1) separate per-condition training (convergence risk), fixed by shared training + deepcopy clones; (2) deepcopy failed on autograd tensors, fixed by state_dict transfer; (3) spikes fired at raw step multiples (20,40) never landing on E3 ticks (9,19,29...), so gate logic never saw spiked rv; fixed by spike injection on every 2nd E3 tick (e3_tick_count%2==0, skip tick#1); (4) bistable config silently dropped -- HeartbeatConfig passed via **kwargs in from_dims() but never applied; fixed by setting cfg.heartbeat.beta_gate_bistable directly post-construction. Dry run 3/3 seeds PASS: BISTABLE spike_releases=0, LEGACY=2-3 per seed."
     },
     {
-      "queue_id": "V3-EXQ-321a",
-      "title": "MECH-090 bistable gate retest: E2 world-forward training added (EXQ-321 fix)",
-      "experiment_type": "v3_exq_321a_mech090_bistable_gate",
-      "script": "experiments/v3_exq_321a_mech090_bistable_gate.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 320,
-      "episodes_per_run": 320,
-      "seeds": 5,
-      "conditions": 2,
-      "claim_ids": [
-        "MECH-090"
-      ],
-      "supersedes": "V3-EXQ-321",
-      "notes": "EXQ-321 FAIL root cause: training loop never called E2 world_forward or update_running_variance(). running_variance frozen at 0.50, never dropped below commitment_threshold=0.40, committed=False throughout, total_committed_steps=0. Fix: added wf_buf (deque maxlen=2000) + wf_optimizer (E2.world_transition + world_action_encoder) + update_running_variance(wf_pred - zw1) per step; extended TRAIN_EPISODES 50->300. claim_ids reduced to [MECH-090] only -- ARC-028 tests gate release via hippocampal signal, not gate hold property. Both conditions use beta_gate_bistable=True (BISTABLE) vs False (LEGACY). C3: total_committed_steps > 0 is the prerequisite criterion.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-16T20:06:17.982433+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-325a",
       "title": "SD-021 descending pain modulation retest: E2 world-forward training added (EXQ-325 fix)",
       "experiment_type": "v3_exq_325a_sd021_descending_pain_modulation",
@@ -319,7 +297,9 @@
       "seeds": 3,
       "conditions": 2,
       "claim_id": "SD-017",
-      "claim_ids": ["SD-017"],
+      "claim_ids": [
+        "SD-017"
+      ],
       "supersedes": "V3-EXQ-418",
       "note": "Two bugs fixed vs EXQ-418: (1) shy_enabled=False to prevent slot collapse (0.85^15=0.09 reversed diversity comparison); (2) terrain_loss added (lambda=0.1) so cue_terrain_proj trains via gradient -- EXQ-418 had random weights causing action_bias_divergence=0.0."
     },
@@ -336,7 +316,9 @@
       "seeds": 3,
       "conditions": 2,
       "claim_id": "INV-049",
-      "claim_ids": ["INV-049"],
+      "claim_ids": [
+        "INV-049"
+      ],
       "supersedes": "V3-EXQ-385",
       "note": "Single fix vs EXQ-385: shy_decay_rate changed from 0.85 to 0.98. With 15 sleep cycles, 0.85^15=0.09 caused slot collapse that reversed the WITH_OFFLINE vs WITHOUT_OFFLINE diversity comparison (C1 invalidated). 0.98^15=0.74 allows gentle homeostasis."
     },
@@ -353,7 +335,9 @@
       "seeds": 3,
       "conditions": 2,
       "claim_id": "ARC-038",
-      "claim_ids": ["ARC-038"],
+      "claim_ids": [
+        "ARC-038"
+      ],
       "supersedes": "V3-EXQ-355",
       "note": "Optimizer isolation fix vs EXQ-355: e3_online_opt now excludes harm_eval parameters; e3_consolidation_opt covers ONLY harm_eval_head. Previously both optimizers covered all e3.parameters(), allowing online training (many harm events/ep) to overwrite consolidation updates (3 replay steps/quiescent). Both conditions were functionally identical as a result."
     },
@@ -370,7 +354,9 @@
       "seeds": 5,
       "conditions": 1,
       "claim_id": "SD-020",
-      "claim_ids": ["SD-020"],
+      "claim_ids": [
+        "SD-020"
+      ],
       "supersedes": "V3-EXQ-324a",
       "note": "Single fix vs EXQ-324a: eval_surprise_tracking() `if done: break` replaced with `if done: env.reset()`. EXQ-324a exited the 400-step eval loop after ~6-10 steps (episode end when resources collected), making Pearson r noise-dominated. Fix allows full EVAL_STEPS=400 across multiple episodes. Confirmed n_eval_steps=400 in dry-run."
     }
