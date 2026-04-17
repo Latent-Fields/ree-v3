@@ -194,7 +194,7 @@
       "script": "experiments/v3_exq_324b_sd020_harm_surprise_pe.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 400,
       "seeds": 5,
@@ -204,7 +204,11 @@
         "SD-020"
       ],
       "supersedes": "V3-EXQ-324a",
-      "note": "Single fix vs EXQ-324a: eval_surprise_tracking() `if done: break` replaced with `if done: env.reset()`. EXQ-324a exited the 400-step eval loop after ~6-10 steps (episode end when resources collected), making Pearson r noise-dominated. Fix allows full EVAL_STEPS=400 across multiple episodes. Confirmed n_eval_steps=400 in dry-run."
+      "note": "Single fix vs EXQ-324a: eval_surprise_tracking() `if done: break` replaced with `if done: env.reset()`. EXQ-324a exited the 400-step eval loop after ~6-10 steps (episode end when resources collected), making Pearson r noise-dominated. Fix allows full EVAL_STEPS=400 across multiple episodes. Confirmed n_eval_steps=400 in dry-run.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-17T14:58:09.271999+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-332",
