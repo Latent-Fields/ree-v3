@@ -137,7 +137,7 @@
       "script": "experiments/v3_exq_385a_inv049_offline_consolidation_necessity.py",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "episodes_per_run": 200,
       "seeds": 3,
@@ -147,7 +147,11 @@
         "INV-049"
       ],
       "supersedes": "V3-EXQ-385",
-      "note": "Single fix vs EXQ-385: shy_decay_rate changed from 0.85 to 0.98. With 15 sleep cycles, 0.85^15=0.09 caused slot collapse that reversed the WITH_OFFLINE vs WITHOUT_OFFLINE diversity comparison (C1 invalidated). 0.98^15=0.74 allows gentle homeostasis."
+      "note": "Single fix vs EXQ-385: shy_decay_rate changed from 0.85 to 0.98. With 15 sleep cycles, 0.85^15=0.09 caused slot collapse that reversed the WITH_OFFLINE vs WITHOUT_OFFLINE diversity comparison (C1 invalidated). 0.98^15=0.74 allows gentle homeostasis.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-17T14:58:15.674126+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-355a",
