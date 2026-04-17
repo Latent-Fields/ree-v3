@@ -101,7 +101,7 @@
       "script": "experiments/v3_exq_431_sd003_causal_discrimination.py",
       "priority": 20,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 300,
       "seeds": 3,
@@ -110,7 +110,11 @@
         "SD-003",
         "SD-013"
       ],
-      "notes": "Tests genuine SD-003 causal attribution directionality via signed criterion: z_pred_act.norm() > z_pred_cf.norm() (actual action predicts MORE harm than counterfactual). Prior experiments EXQ-329/353 used unsigned L2 gap which is trivially non-zero due to residual architecture bias -- this is the first genuine directional test. TRAINED condition uses interventional training (SD-013, fraction=0.5). Criteria: C1 forward_r2>=0.7; C2 TRAINED sign_correct_env>=0.65 (above random 0.5 baseline); C3 TRAINED > RANDOM sign_correct_env by >=0.10; C4 n_env>=20 and n_approach>=20 per seed."
+      "notes": "Tests genuine SD-003 causal attribution directionality via signed criterion: z_pred_act.norm() > z_pred_cf.norm() (actual action predicts MORE harm than counterfactual). Prior experiments EXQ-329/353 used unsigned L2 gap which is trivially non-zero due to residual architecture bias -- this is the first genuine directional test. TRAINED condition uses interventional training (SD-013, fraction=0.5). Criteria: C1 forward_r2>=0.7; C2 TRAINED sign_correct_env>=0.65 (above random 0.5 baseline); C3 TRAINED > RANDOM sign_correct_env by >=0.10; C4 n_env>=20 and n_approach>=20 per seed.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-17T15:25:28.633751+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-407",
