@@ -137,7 +137,7 @@
       "script": "experiments/v3_exq_396_arc016_precision_sweep.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 150,
       "episodes_per_run": 1700,
       "seeds": 1,
@@ -147,7 +147,11 @@
         "MECH-093"
       ],
       "supersedes": "V3-EXQ-038",
-      "notes": "Staged fix confirmed 2026-04-14. Original V3-EXQ-038 errored 2026-03-19 due to old substrate API incompatibility. Script verified on current substrate. Characterization sweep: precision variance vs hazard_harm at 5 levels. Evidence for ARC-016 (dynamic precision responds to stability) and MECH-093 (precision boundary scales with danger)."
+      "notes": "Staged fix confirmed 2026-04-14. Original V3-EXQ-038 errored 2026-03-19 due to old substrate API incompatibility. Script verified on current substrate. Characterization sweep: precision variance vs hazard_harm at 5 levels. Evidence for ARC-016 (dynamic precision responds to stability) and MECH-093 (precision boundary scales with danger).",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-17T14:57:56.341987+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-397",
