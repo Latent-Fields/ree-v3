@@ -42,12 +42,13 @@ V2 experiments (EXQ-014–028) produced three architectural failures requiring n
 - **MECH-203 + MECH-204**: Serotonergic sleep substrate — SerotoninModule with tonic_5ht state, benefit salience tagging, REM zero-point hook (implemented 2026-04-07).
 - **MECH-205**: Surprise-gated replay write path — PE EMA tracking with pe_ema_alpha config, write count diagnostic (fixed 2026-04-09).
 - **MECH-216**: E1 predictive wanting / schema readout — schema_readout_head on LSTM hidden state; schema_salience -> VALENCE_WANTING write (implemented 2026-04-09).
+- **SD-016**: Frontal cue-indexed integration — E1 queries ContextMemory via z_world; cue_action_proj provides affordance bias for E2; cue_terrain_proj provides (w_harm, w_goal) terrain precision weights for E3 (implemented 2026-04-16).
 
 SD-004 and SD-005 are interdependent: action objects require z_world to exist; z_world's separation from z_self is what makes action-object attribution meaningful.
 
-## Current Status (2026-04-15)
+## Current Status (2026-04-17)
 
-494 experiments completed (100 PASS, 236 FAIL, 51 ERROR, 107 UNKNOWN). SD-004 through SD-023 implemented plus ARC-033, MECH-090, MECH-120, MECH-203/204, MECH-205, MECH-216. New today (2026-04-15): MECH-090 Layer 1 trajectory stepping + MECH-091 Layer 2 urgency interrupt implemented in agent.py + config.py. Key recent outcomes: EXQ-327 PASS (2026-04-14, MECH-163 goal-conditioned nav paper gate confirmed); EXQ-365 PASS (2026-04-14, MECH-104 surprise gate); EXQ-330a PASS (2026-04-15, SD-013 interventional counterfactual at interventional_fraction=0.5); MECH-231 promoted provisional. 16 experiments currently queued. Current first-paper gate focus: EXQ-321a/325a (MECH-090 bistable gate and SD-021 descending modulation retests), EXQ-353 (SD-003 interventional counterfactual full comparison), EXQ-323a (SD-019 nonredundancy on SD-022 substrate). 0 pending review.
+766 runs indexed (per morning digest 2026-04-17). SD-004 through SD-023 implemented plus SD-016 (frontal cue integration, 2026-04-16), ARC-033, MECH-090, MECH-120, MECH-203/204, MECH-205, MECH-216. Key recent outcomes: governance 2026-04-16 reviewed 16 experiments (5 PASS — EXQ-049a MECH-090 bistable, EXQ-365 MECH-104, EXQ-353 ARC-033/SD-003/SD-013, EXQ-323a SD-019/SD-011/SD-022, EXQ-328a MECH-090/SD-012); substrate gap audit led to 4 fix scripts (EXQ-418a, 385a, 355a, 324b). EXQ-321a FAIL (2026-04-17, MECH-090 bistable); EXQ-321b queued with 4-bug chain resolved. 18 experiments currently queued. 2 pending review (EXQ-321a). Current focus: first-paper gate, SD-021/SD-013 retests, sleep infrastructure experiments.
 
 Full specification with substrate status table: [`docs/ree-v3-spec.md`](docs/ree-v3-spec.md)
 
