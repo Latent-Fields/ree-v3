@@ -137,7 +137,7 @@
       "script": "experiments/v3_exq_355a_arc038_schema_assimilation_probe.py",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 45,
       "episodes_per_run": 100,
       "seeds": 3,
@@ -147,7 +147,11 @@
         "ARC-038"
       ],
       "supersedes": "V3-EXQ-355",
-      "note": "Optimizer isolation fix vs EXQ-355: e3_online_opt now excludes harm_eval parameters; e3_consolidation_opt covers ONLY harm_eval_head. Previously both optimizers covered all e3.parameters(), allowing online training (many harm events/ep) to overwrite consolidation updates (3 replay steps/quiescent). Both conditions were functionally identical as a result."
+      "note": "Optimizer isolation fix vs EXQ-355: e3_online_opt now excludes harm_eval parameters; e3_consolidation_opt covers ONLY harm_eval_head. Previously both optimizers covered all e3.parameters(), allowing online training (many harm events/ep) to overwrite consolidation updates (3 replay steps/quiescent). Both conditions were functionally identical as a result.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-17T14:58:18.934933+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-332",
