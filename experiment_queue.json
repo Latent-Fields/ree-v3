@@ -137,7 +137,7 @@
       "script": "experiments/v3_exq_430_inv010_offline_integration_necessity.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 55,
       "episodes_per_run": 90,
       "seeds": [
@@ -153,7 +153,11 @@
         "INV-010"
       ],
       "backlog_id": "EVB-0071",
-      "notes": "Tests INV-010: offline integration exists and is required. SLEEP condition (periodic sleep cycles every 10 eps during training) vs NO_SLEEP (pure online learning). Primary metric: SLEEP eval harm < NO_SLEEP eval harm in >= 2/3 seeds. Substrate: SD-017 run_sws_schema_pass + run_rem_attribution_pass. Proposal: EXP-0071 (EVB-0071)."
+      "notes": "Tests INV-010: offline integration exists and is required. SLEEP condition (periodic sleep cycles every 10 eps during training) vs NO_SLEEP (pure online learning). Primary metric: SLEEP eval harm < NO_SLEEP eval harm in >= 2/3 seeds. Substrate: SD-017 run_sws_schema_pass + run_rem_attribution_pass. Proposal: EXP-0071 (EVB-0071).",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-17T14:58:06.029204+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-418a",
