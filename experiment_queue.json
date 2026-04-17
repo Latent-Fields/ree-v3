@@ -73,25 +73,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-375",
-      "title": "MECH-073 valence geometry: discriminative support vs ablation pair",
-      "experiment_type": "v3_exq_375_mech073_valence_geometry_probe",
-      "script": "experiments/v3_exq_375_mech073_valence_geometry_probe.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 150,
-      "episodes_per_run": 200,
-      "seeds": 3,
-      "conditions": 2,
-      "backlog_id": "EVB-0057",
-      "claim_id": "MECH-073",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-17T14:57:49.917191+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-328b",
       "title": "MECH-230 z_goal latent structure: homeostatic drive ablation (full run)",
       "experiment_type": "v3_exq_328b_mech112_zgoal_structured_latent",
