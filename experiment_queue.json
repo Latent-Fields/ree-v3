@@ -131,35 +131,6 @@
       "notes": "Corrected MECH-070 direction. Criteria inverted: E2 must degrade faster than E1 across horizons (short-horizon claim). C1 PASS expected (E2 better at h=1 action-conditioned), C2/C3 PASS expected (EXQ-212 showed slope_e2 << slope_e1 -- now a PASS criterion)."
     },
     {
-      "queue_id": "V3-EXQ-430",
-      "title": "INV-010: Offline Integration Necessity (SLEEP vs NO_SLEEP behavioral comparison)",
-      "experiment_type": "v3_exq_430_inv010_offline_integration_necessity",
-      "script": "experiments/v3_exq_430_inv010_offline_integration_necessity.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 55,
-      "episodes_per_run": 90,
-      "seeds": [
-        42,
-        7,
-        13
-      ],
-      "conditions": [
-        "SLEEP",
-        "NO_SLEEP"
-      ],
-      "claim_ids": [
-        "INV-010"
-      ],
-      "backlog_id": "EVB-0071",
-      "notes": "Tests INV-010: offline integration exists and is required. SLEEP condition (periodic sleep cycles every 10 eps during training) vs NO_SLEEP (pure online learning). Primary metric: SLEEP eval harm < NO_SLEEP eval harm in >= 2/3 seeds. Substrate: SD-017 run_sws_schema_pass + run_rem_attribution_pass. Proposal: EXP-0071 (EVB-0071).",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-17T14:58:06.029204+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-418a",
       "title": "SD-016+SD-017 context-conditioned action: SHY fix + terrain_loss (EXQ-418 fix)",
       "experiment_type": "v3_exq_418a_sd016_sd017_context_conditioned_action",
