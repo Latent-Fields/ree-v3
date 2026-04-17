@@ -188,29 +188,6 @@
       "note": "Optimizer isolation fix vs EXQ-355: e3_online_opt now excludes harm_eval parameters; e3_consolidation_opt covers ONLY harm_eval_head. Previously both optimizers covered all e3.parameters(), allowing online training (many harm events/ep) to overwrite consolidation updates (3 replay steps/quiescent). Both conditions were functionally identical as a result."
     },
     {
-      "queue_id": "V3-EXQ-324b",
-      "title": "SD-020 harm surprise PE: multi-episode eval fix (EXQ-324a fix)",
-      "experiment_type": "v3_exq_324b_sd020_harm_surprise_pe",
-      "script": "experiments/v3_exq_324b_sd020_harm_surprise_pe.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "episodes_per_run": 400,
-      "seeds": 5,
-      "conditions": 1,
-      "claim_id": "SD-020",
-      "claim_ids": [
-        "SD-020"
-      ],
-      "supersedes": "V3-EXQ-324a",
-      "note": "Single fix vs EXQ-324a: eval_surprise_tracking() `if done: break` replaced with `if done: env.reset()`. EXQ-324a exited the 400-step eval loop after ~6-10 steps (episode end when resources collected), making Pearson r noise-dominated. Fix allows full EVAL_STEPS=400 across multiple episodes. Confirmed n_eval_steps=400 in dry-run.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-17T14:58:09.271999+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-332",
       "title": "MECH-216 genuinely predictive wanting: future-target supervision with attenuated resource gradient",
       "experiment_type": "v3_exq_332_mech216_predictive_wanting",
