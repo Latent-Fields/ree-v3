@@ -363,6 +363,24 @@
       ],
       "supersedes": "V3-EXQ-324a",
       "note": "Single fix vs EXQ-324a: eval_surprise_tracking() `if done: break` replaced with `if done: env.reset()`. EXQ-324a exited the 400-step eval loop after ~6-10 steps (episode end when resources collected), making Pearson r noise-dominated. Fix allows full EVAL_STEPS=400 across multiple episodes. Confirmed n_eval_steps=400 in dry-run."
+    },
+    {
+      "queue_id": "V3-EXQ-332",
+      "title": "MECH-216 genuinely predictive wanting: future-target supervision with attenuated resource gradient",
+      "experiment_type": "v3_exq_332_mech216_predictive_wanting",
+      "script": "experiments/v3_exq_332_mech216_predictive_wanting.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 220,
+      "episodes_per_run": 240,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": [
+        "MECH-216",
+        "SD-023"
+      ],
+      "notes": "Tests whether MECH-216 schema_salience can be genuinely predictive (fires on landmark cue before resource is visible) rather than reactive (detects current proximity). Key redesign vs EXQ-263b: (1) future-target supervision (binary: resource contact in next 10 steps) instead of current proximity; (2) resource_obs_scale=0.3 removes direct resource gradient shortcut; (3) landmark B as leading indicator. Conditions: PREDICTIVE_CUE_ON (n_landmarks_b=2, bias=0.8) vs PREDICTIVE_CUE_ABLATED (no landmarks). PASS requires: C1 CUE_ON future_target_corr > 0.10; C2 CUE_ON > ABLATED future_target_corr; C3 future_target_corr > resource_prox_corr. Smoke test passed 2026-04-17."
     }
   ]
 }
