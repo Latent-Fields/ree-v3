@@ -131,29 +131,6 @@
       "notes": "Corrected MECH-070 direction. Criteria inverted: E2 must degrade faster than E1 across horizons (short-horizon claim). C1 PASS expected (E2 better at h=1 action-conditioned), C2/C3 PASS expected (EXQ-212 showed slope_e2 << slope_e1 -- now a PASS criterion)."
     },
     {
-      "queue_id": "V3-EXQ-385a",
-      "title": "INV-049 offline consolidation necessity: SHY decay rate fix (EXQ-385 fix)",
-      "experiment_type": "v3_exq_385a_inv049_offline_consolidation_necessity",
-      "script": "experiments/v3_exq_385a_inv049_offline_consolidation_necessity.py",
-      "priority": 4,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 60,
-      "episodes_per_run": 200,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "INV-049",
-      "claim_ids": [
-        "INV-049"
-      ],
-      "supersedes": "V3-EXQ-385",
-      "note": "Single fix vs EXQ-385: shy_decay_rate changed from 0.85 to 0.98. With 15 sleep cycles, 0.85^15=0.09 caused slot collapse that reversed the WITH_OFFLINE vs WITHOUT_OFFLINE diversity comparison (C1 invalidated). 0.98^15=0.74 allows gentle homeostasis.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-17T14:58:15.674126+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-355a",
       "title": "ARC-038 schema assimilation probe: optimizer isolation fix (EXQ-355 fix)",
       "experiment_type": "v3_exq_355a_arc038_schema_assimilation_probe",
