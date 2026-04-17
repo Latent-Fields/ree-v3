@@ -519,6 +519,15 @@ class REEConfig:
     harm_descending_mod_enabled: bool = False
     # Multiplier on z_harm when committed (0 < factor <= 1). 0.5 = 50% attenuation.
     descending_attenuation_factor: float = 0.5
+    # SD-014 valence channel writes.
+    # valence_harm_enabled: write post-attenuation z_harm_s.norm() to VALENCE_HARM_DISCRIMINATIVE
+    #   on each sense() call. Uses post-SD-021 value so committed-state nodes get stale h.
+    # valence_liking_enabled: write benefit_exposure to VALENCE_LIKING at consummatory contact
+    #   (call update_liking() from experiment loop when resource is collected).
+    # Both default False (backward compat).
+    valence_harm_enabled: bool = False
+    valence_liking_enabled: bool = False
+    liking_threshold: float = 0.1
 
     @classmethod
     def from_dims(
@@ -602,6 +611,10 @@ class REEConfig:
         damage_increment: float = 0.15,
         failure_prob_scale: float = 0.3,
         heal_rate: float = 0.002,
+        # SD-014: valence channel writes
+        valence_harm_enabled: bool = False,
+        valence_liking_enabled: bool = False,
+        liking_threshold: float = 0.1,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -751,6 +764,11 @@ class REEConfig:
         if limb_damage_enabled:
             # Override harm_obs_a_dim to 7 (damage[4] + max_damage + mean_damage + residual_pain)
             config.latent.harm_obs_a_dim = 7
+
+        # SD-014: valence channel writes
+        config.valence_harm_enabled = valence_harm_enabled
+        config.valence_liking_enabled = valence_liking_enabled
+        config.liking_threshold = liking_threshold
 
         return config
 

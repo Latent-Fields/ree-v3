@@ -419,6 +419,22 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   at module level. ResidueConfig.valence_enabled (default True; set False for ablation).
   MECH-094 gate applies: hypothesis_tag=True blocks valence updates. Prerequisite for
   ARC-036 (multidimensional valence map) and replay prioritisation via drive state.
+  Write paths (2026-04-17):
+    VALENCE_WANTING (0): update_benefit_salience() [serotonin salience] and
+      update_schema_wanting() [E1 schema readout]. Both enabled when tonic_5ht_enabled or
+      schema_wanting_enabled respectively.
+    VALENCE_LIKING (1): update_liking(benefit_exposure) -- NEW 2026-04-17.
+      Call from experiment loop at resource contact (benefit_exposure >= liking_threshold).
+      Berridge hedonic impact at consummation (opioid-mediated). Enabled by
+      valence_liking_enabled=True in REEConfig.from_dims().
+    VALENCE_HARM_DISCRIMINATIVE (2): written automatically in sense() after SD-021
+      descending modulation -- NEW 2026-04-17. Post-attenuation z_harm.norm() written at
+      current z_world node. Committed-state nodes get stale (attenuated) h, creating the
+      analgesia-as-underestimated-h signature for SD-021/SD-014 cross-connection.
+      Enabled by valence_harm_enabled=True in REEConfig.from_dims().
+    VALENCE_SURPRISE (3): written in update_residue() when MECH-205 surprise_gated_replay
+      is active. PE-EMA delta written when magnitude exceeds pe_surprise_threshold.
+  All four components now have active write paths. Config flags all default False (backward compat).
 
 - MECH-203 + MECH-204: neuromodulation.serotonergic_sleep_substrate — IMPLEMENTED 2026-04-07.
   SerotoninModule (ree_core/neuromodulation/serotonin.py) with SerotoninConfig.

@@ -49,7 +49,12 @@ from ree_core.hippocampal.module import HippocampalModule
 from ree_core.heartbeat.clock import MultiRateClock
 from ree_core.heartbeat.beta_gate import BetaGate
 from ree_core.neuromodulation.serotonin import SerotoninModule
-from ree_core.residue.field import VALENCE_WANTING, VALENCE_SURPRISE
+from ree_core.residue.field import (
+    VALENCE_WANTING,
+    VALENCE_LIKING,
+    VALENCE_HARM_DISCRIMINATIVE,
+    VALENCE_SURPRISE,
+)
 
 
 @dataclass
@@ -364,6 +369,24 @@ class REEAgent(nn.Module):
         ):
             attn = getattr(self.config, "descending_attenuation_factor", 0.5)
             new_latent.z_harm = new_latent.z_harm * attn
+
+        # SD-014 h-component: write post-attenuation z_harm_s norm to VALENCE_HARM_DISCRIMINATIVE.
+        # Using the post-attenuation value means SD-021 commitment gating automatically produces
+        # a stale (attenuated) h at committed-state nodes -- exactly the analgesia-as-underestimated-h
+        # signature needed for the SD-021/SD-014 cross-connection (surprise spike post-execution).
+        if (
+            getattr(self.config, "valence_harm_enabled", False)
+            and new_latent.z_harm is not None
+            and new_latent.z_world is not None
+            and hasattr(self.residue_field, "update_valence")
+        ):
+            h_val = float(new_latent.z_harm.norm().item())
+            self.residue_field.update_valence(
+                new_latent.z_world,
+                component=VALENCE_HARM_DISCRIMINATIVE,
+                value=h_val,
+                hypothesis_tag=False,
+            )
 
         # Detach before storing: prevents EMA from linking computational graphs
         # across time steps. Without detach, optimizer.step() modifies weights
@@ -1250,6 +1273,30 @@ class REEAgent(nn.Module):
                 z_world,
                 component=VALENCE_WANTING,
                 value=salience,
+                hypothesis_tag=False,
+            )
+
+    def update_liking(self, benefit_exposure: float) -> None:
+        """SD-014 l-component: write consummatory benefit signal to VALENCE_LIKING.
+
+        Berridge liking = hedonic impact at resource contact (opioid-mediated).
+        Unlike wanting (anticipatory), liking fires on consummatory contact only.
+        Threshold gating prevents proximity gradients from contaminating the liking map.
+        No-op when valence_liking_enabled is False or no current latent state.
+        """
+        if not getattr(self.config, "valence_liking_enabled", False):
+            return
+        if self._current_latent is None:
+            return
+        threshold = getattr(self.config, "liking_threshold", 0.1)
+        if benefit_exposure < threshold:
+            return
+        z_world = self._current_latent.z_world
+        if hasattr(self.residue_field, "update_valence"):
+            self.residue_field.update_valence(
+                z_world,
+                component=VALENCE_LIKING,
+                value=benefit_exposure,
                 hypothesis_tag=False,
             )
 
