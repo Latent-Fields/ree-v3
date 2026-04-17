@@ -131,29 +131,6 @@
       "notes": "Corrected MECH-070 direction. Criteria inverted: E2 must degrade faster than E1 across horizons (short-horizon claim). C1 PASS expected (E2 better at h=1 action-conditioned), C2/C3 PASS expected (EXQ-212 showed slope_e2 << slope_e1 -- now a PASS criterion)."
     },
     {
-      "queue_id": "V3-EXQ-418a",
-      "title": "SD-016+SD-017 context-conditioned action: SHY fix + terrain_loss (EXQ-418 fix)",
-      "experiment_type": "v3_exq_418a_sd016_sd017_context_conditioned_action",
-      "script": "experiments/v3_exq_418a_sd016_sd017_context_conditioned_action.py",
-      "priority": 4,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 60,
-      "episodes_per_run": 200,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "SD-017",
-      "claim_ids": [
-        "SD-017"
-      ],
-      "supersedes": "V3-EXQ-418",
-      "note": "Two bugs fixed vs EXQ-418: (1) shy_enabled=False to prevent slot collapse (0.85^15=0.09 reversed diversity comparison); (2) terrain_loss added (lambda=0.1) so cue_terrain_proj trains via gradient -- EXQ-418 had random weights causing action_bias_divergence=0.0.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-17T14:58:12.507097+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-385a",
       "title": "INV-049 offline consolidation necessity: SHY decay rate fix (EXQ-385 fix)",
       "experiment_type": "v3_exq_385a_inv049_offline_consolidation_necessity",
