@@ -95,6 +95,24 @@
       "notes": "Fixes EXQ-326: (1) SD-015 wiring fix applied (cfg.latent.use_resource_encoder=True after from_dims); (2) pre-step EMA seeding bug fixed (use harm_signal from env.step() on ttype==resource steps). EXQ-354 proved SD-015 and nav integration work when correctly applied. Tests SD-015 navigation aspect and MECH-229 behavioral dissociation in nav context."
     },
     {
+      "queue_id": "V3-EXQ-431",
+      "title": "SD-003 causal attribution discrimination: signed directionality test (TRAINED vs RANDOM)",
+      "experiment_type": "v3_exq_431_sd003_causal_discrimination",
+      "script": "experiments/v3_exq_431_sd003_causal_discrimination.py",
+      "priority": 20,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 300,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-003",
+        "SD-013"
+      ],
+      "notes": "Tests genuine SD-003 causal attribution directionality via signed criterion: z_pred_act.norm() > z_pred_cf.norm() (actual action predicts MORE harm than counterfactual). Prior experiments EXQ-329/353 used unsigned L2 gap which is trivially non-zero due to residual architecture bias -- this is the first genuine directional test. TRAINED condition uses interventional training (SD-013, fraction=0.5). Criteria: C1 forward_r2>=0.7; C2 TRAINED sign_correct_env>=0.65 (above random 0.5 baseline); C3 TRAINED > RANDOM sign_correct_env by >=0.10; C4 n_env>=20 and n_approach>=20 per seed."
+    },
+    {
       "queue_id": "V3-EXQ-407",
       "title": "MECH-231 E2 short-horizon efference-copy discriminative pair",
       "script": "experiments/v3_exq_407_mech231_e2_short_horizon.py",
