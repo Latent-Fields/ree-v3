@@ -137,7 +137,7 @@
       "script": "experiments/v3_exq_397_arc007_path_memory_ablation.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 600,
       "seeds": 1,
@@ -146,7 +146,11 @@
         "ARC-007"
       ],
       "supersedes": "V3-EXQ-046b",
-      "notes": "Staged fix confirmed 2026-04-14. Original V3-EXQ-046 and V3-EXQ-046b both errored 2026-03-20/22 due to old substrate API incompatibility. SD-004 removed from claim_ids (architectural prerequisite, not the variable under test). Script verified on current substrate. Full run: 600 warmup + 50 intact eval + ablation + 50 ablated eval + 30 restore eval."
+      "notes": "Staged fix confirmed 2026-04-14. Original V3-EXQ-046 and V3-EXQ-046b both errored 2026-03-20/22 due to old substrate API incompatibility. SD-004 removed from claim_ids (architectural prerequisite, not the variable under test). Script verified on current substrate. Full run: 600 warmup + 50 intact eval + ablation + 50 ablated eval + 30 restore eval.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-17T14:57:59.646451+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-429",
