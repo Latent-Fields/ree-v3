@@ -57,7 +57,7 @@
       "script": "experiments/v3_exq_321b_mech090_bistable_holdrate.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "episodes_per_run": 50,
       "seeds": 3,
@@ -66,7 +66,11 @@
         "MECH-090"
       ],
       "supersedes": "V3-EXQ-321a",
-      "notes": "EXQ-321a FAIL root cause chain: (1) separate per-condition training (convergence risk), fixed by shared training + deepcopy clones; (2) deepcopy failed on autograd tensors, fixed by state_dict transfer; (3) spikes fired at raw step multiples (20,40) never landing on E3 ticks (9,19,29...), so gate logic never saw spiked rv; fixed by spike injection on every 2nd E3 tick (e3_tick_count%2==0, skip tick#1); (4) bistable config silently dropped -- HeartbeatConfig passed via **kwargs in from_dims() but never applied; fixed by setting cfg.heartbeat.beta_gate_bistable directly post-construction. Dry run 3/3 seeds PASS: BISTABLE spike_releases=0, LEGACY=2-3 per seed."
+      "notes": "EXQ-321a FAIL root cause chain: (1) separate per-condition training (convergence risk), fixed by shared training + deepcopy clones; (2) deepcopy failed on autograd tensors, fixed by state_dict transfer; (3) spikes fired at raw step multiples (20,40) never landing on E3 ticks (9,19,29...), so gate logic never saw spiked rv; fixed by spike injection on every 2nd E3 tick (e3_tick_count%2==0, skip tick#1); (4) bistable config silently dropped -- HeartbeatConfig passed via **kwargs in from_dims() but never applied; fixed by setting cfg.heartbeat.beta_gate_bistable directly post-construction. Dry run 3/3 seeds PASS: BISTABLE spike_releases=0, LEGACY=2-3 per seed.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-17T14:57:29.705927+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-325a",
