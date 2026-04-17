@@ -127,29 +127,6 @@
       "notes": "Tests whether MECH-216 schema_salience can be genuinely predictive (fires on landmark cue before resource is visible) rather than reactive (detects current proximity). Key redesign vs EXQ-263b: (1) future-target supervision (binary: resource contact in next 10 steps) instead of current proximity; (2) resource_obs_scale=0.3 removes direct resource gradient shortcut; (3) landmark B as leading indicator. Conditions: PREDICTIVE_CUE_ON (n_landmarks_b=2, bias=0.8) vs PREDICTIVE_CUE_ABLATED (no landmarks). PASS requires: C1 CUE_ON future_target_corr > 0.10; C2 CUE_ON > ABLATED future_target_corr; C3 future_target_corr > resource_prox_corr. Smoke test passed 2026-04-17."
     },
     {
-      "queue_id": "V3-EXQ-332a",
-      "title": "MECH-216 predictive wanting adjudication: dense environment fix (EXQ-332 sparse-label fix)",
-      "experiment_type": "v3_exq_332a_mech216_predictive_wanting_dense",
-      "script": "experiments/v3_exq_332a_mech216_predictive_wanting_dense.py",
-      "priority": 6,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 230,
-      "episodes_per_run": 300,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "MECH-216",
-        "SD-023"
-      ],
-      "supersedes": "V3-EXQ-332",
-      "notes": "Adjudication run resolving SD-023 1:1 conflict (EXQ-263b supports vs EXQ-332 does_not_support). EXQ-332 implementation gap: future_target_mean=0.0006 across 162k P1 steps -- ~10 resource contacts total, schema_readout_head learns constant-zero output (MSE dominated by zero-class). Fixes: (1) 8x8 grid + 4 resources vs 12x12 + 2 (contact rate ~10x higher); (2) FUTURE_WINDOW 10->30 (3x more positive labels per contact); (3) P1 episodes 180->240. C3 quality gate (positive_label_rate > 0.10) guards against sparse-label artifact reoccurrence. Landmark A in BOTH conditions controls for generic texture benefit. Smoke test passed 2026-04-17.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-17T21:01:13.799935+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-321c",
       "title": "MECH-090 bistable vs legacy gate hold rate: spike-aligned E3-tick test (EWIN-PC requeue)",
       "experiment_type": "v3_exq_321b_mech090_bistable_holdrate",
