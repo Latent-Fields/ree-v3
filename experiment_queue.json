@@ -212,7 +212,7 @@
       "script": "experiments/v3_exq_355a_arc038_schema_assimilation_probe.py",
       "priority": 20,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "seeds": 3,
       "conditions": 2,
@@ -220,7 +220,11 @@
         "ARC-038"
       ],
       "supersedes": "V3-EXQ-355a",
-      "notes": "V3-EXQ-355a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
+      "notes": "V3-EXQ-355a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac.",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-04-18T20:12:57.448707+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-375a",
