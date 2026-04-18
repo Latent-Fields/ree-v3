@@ -289,7 +289,7 @@
       "script": "experiments/v3_exq_432_sd014_replay_gate_prioritization.py",
       "priority": 30,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 240,
       "seeds": 3,
       "conditions": 3,
@@ -297,7 +297,11 @@
         "SD-014"
       ],
       "backlog_id": "EVB-0132",
-      "notes": "3 conditions (A_SURPRISE d=[0,0,0,1], B_WANTING d=[1,0,0,0], C_ABLATION), 3 seeds. D1(100eps)+D2(50eps)+Test(20eps) per condition-seed. Tests Carey 2019 anti-preference replay: SURPRISE_WEIGHTED should select newly-devalued (stale) nodes after D1->D2 revaluation. P1: surprise@start[A]>surprise@start[B]+0.001. P2: wanting@start[B]>wanting@start[A]+0.001. P3: n_surprise_writes_d2>5."
+      "notes": "3 conditions (A_SURPRISE d=[0,0,0,1], B_WANTING d=[1,0,0,0], C_ABLATION), 3 seeds. D1(100eps)+D2(50eps)+Test(20eps) per condition-seed. Tests Carey 2019 anti-preference replay: SURPRISE_WEIGHTED should select newly-devalued (stale) nodes after D1->D2 revaluation. P1: surprise@start[A]>surprise@start[B]+0.001. P2: wanting@start[B]>wanting@start[A]+0.001. P3: n_surprise_writes_d2>5.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-18T20:26:59.254148+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-434",
