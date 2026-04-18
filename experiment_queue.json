@@ -244,28 +244,6 @@
       "notes": "V3-EXQ-385a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
     },
     {
-      "queue_id": "V3-EXQ-397a",
-      "title": "ARC-007 path memory ablation: residue field zeroing degrades hippo proposals (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_397_arc007_path_memory_ablation",
-      "script": "experiments/v3_exq_397_arc007_path_memory_ablation.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "ARC-007",
-        "SD-004"
-      ],
-      "supersedes": "V3-EXQ-397",
-      "notes": "V3-EXQ-397 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-18T18:09:01.718951+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-418b",
       "title": "SD-016+SD-017 context-conditioned action: SHY fix + terrain_loss (EWIN-PC requeue)",
       "experiment_type": "v3_exq_418a_sd016_sd017_context_conditioned_action",
