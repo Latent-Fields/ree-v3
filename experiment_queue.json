@@ -14,10 +14,14 @@
       "script": "experiments/v3_onboard_smoke_ree_cloud_2.py",
       "machine_affinity": "ree-cloud-2",
       "priority": 100,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 15,
       "claim_ids": [],
-      "notes": "First-run pipeline verification for second Hetzner CX22 cloud worker. Mirrors V3-ONBOARD-smoke-ree-cloud-1 structure; different machine_affinity forces the new worker to claim it. Will be claimed automatically when ree-cloud-2 comes online."
+      "notes": "First-run pipeline verification for second Hetzner CX22 cloud worker. Mirrors V3-ONBOARD-smoke-ree-cloud-1 structure; different machine_affinity forces the new worker to claim it. Will be claimed automatically when ree-cloud-2 comes online.",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-04-18T23:00:22.479410+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-433",
