@@ -227,28 +227,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-375a",
-      "title": "MECH-073 valence geometry: discriminative support vs ablation pair (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_375_mech073_valence_geometry_probe",
-      "script": "experiments/v3_exq_375_mech073_valence_geometry_probe.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "MECH-073"
-      ],
-      "backlog_id": "EVB-0057",
-      "supersedes": "V3-EXQ-375",
-      "notes": "V3-EXQ-375 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-18T14:16:13.464466+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-385b",
       "title": "INV-049 offline consolidation necessity: SHY decay rate fix (EWIN-PC requeue)",
       "experiment_type": "v3_exq_385a_inv049_offline_consolidation_necessity",
