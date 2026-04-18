@@ -286,7 +286,7 @@
       "script": "experiments/v3_exq_429_inv044_bayesian_prior_before_posterior.py",
       "priority": 40,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "seeds": 3,
       "conditions": 3,
@@ -295,7 +295,11 @@
       ],
       "backlog_id": "EVB-0060",
       "supersedes": "V3-EXQ-429",
-      "notes": "V3-EXQ-429 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
+      "notes": "V3-EXQ-429 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-18T06:19:30.858361+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-430a",
