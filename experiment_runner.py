@@ -359,6 +359,37 @@ def git_push_results(ree_assembly_path: Path, result_files: list[str] | None = N
         print(f"[runner] auto-sync push error: {e}", flush=True)
 
 
+def git_push_status(ree_assembly_path: Path, status_path: Path, queue_id: str) -> None:
+    """Stage, commit, and push the per-machine runner_status file only.
+
+    Called per-completion to maintain the invariant that GitHub's status is at
+    least as fresh as the queue. Without this, the queue-removal commit lands
+    (via git_push_queue) while the corresponding status entry stays local --
+    other machines see "queue shrunk" with no record of what ran.
+
+    Warns on failure; never raises.
+    """
+    try:
+        rel = str(status_path.relative_to(ree_assembly_path))
+        subprocess.run(
+            ["git", "add", rel],
+            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
+        )
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=str(ree_assembly_path), timeout=5,
+        )
+        if diff.returncode == 0:
+            return  # nothing to push
+        subprocess.run(
+            ["git", "commit", "-m", f"runner_status: {queue_id} -> {status_path.stem}"],
+            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
+        )
+        _git_push_with_retry(str(ree_assembly_path), "master", f"status {queue_id} -> REE_assembly")
+    except Exception as e:
+        print(f"[runner] auto-sync status push error ({queue_id}): {e}", flush=True)
+
+
 # ── Multi-machine coordination ────────────────────────────────────────────────
 
 CLAIM_TTL_HOURS = 6  # claims older than this are treated as stale/abandoned
@@ -1182,6 +1213,8 @@ def main():
                     status["completed"].append(completed_entry)
                     status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] != queue_id]
                     write_status(status, status_path)
+                    if args.auto_sync and ree_assembly_path:
+                        git_push_status(ree_assembly_path, status_path, queue_id)
                     try:
                         qdata = json.loads(QUEUE_FILE.read_text())
                         qdata["items"] = [qi for qi in qdata.get("items", [])
@@ -1358,6 +1391,13 @@ def main():
             status["current"] = None
 
             write_status(status, status_path)
+
+            # Push status to REE_assembly BEFORE queue push. Invariant: GitHub's
+            # status is always at least as fresh as the queue. Otherwise a
+            # crash between queue-push and end-of-pass results-push loses the
+            # status entry permanently (406a/429a/430a on 2026-04-18).
+            if args.auto_sync and ree_assembly_path:
+                git_push_status(ree_assembly_path, status_path, queue_id)
 
             # Remove completed item from queue file -- runner_status.json is the
             # authoritative record of what has run; queue file should only contain
