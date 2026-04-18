@@ -126,7 +126,7 @@ Pop-Location
 
 # --- Step 5: validate queue before restart ---
 Write-Step "Step 5: Validate queue"
-& .venv\Scripts\python.exe validate_queue.py
+python validate_queue.py
 if ($LASTEXITCODE -ne 0) {
     Write-Warn "Queue validation failed. Fix experiment_queue.json before restarting runner."
     exit 1
