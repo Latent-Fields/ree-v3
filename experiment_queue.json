@@ -178,26 +178,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-324c",
-      "title": "SD-020 harm surprise PE: multi-episode eval fix (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_324b_sd020_harm_surprise_pe",
-      "script": "experiments/v3_exq_324b_sd020_harm_surprise_pe.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 150,
-      "seeds": 5,
-      "claim_ids": [
-        "SD-020"
-      ],
-      "supersedes": "V3-EXQ-324b",
-      "notes": "V3-EXQ-324b errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-18T21:28:43.131216+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-325b",
       "title": "SD-021 descending pain modulation retest: E2 world-forward training addon (EWIN-PC requeue)",
       "experiment_type": "v3_exq_325a_sd021_descending_pain_modulation",
@@ -311,6 +291,40 @@
       "backlog_id": "EXP-0106",
       "supersedes": "V3-EXQ-242",
       "notes": "EXP-0106 redesign (DR-6): add context->action pathway via context-conditioned harm threshold. Supersedes V3-EXQ-242 (slot differentiation worked but no behavioral path). Uses SD-017 first-class methods (run_sws_schema_pass, run_sleep_cycle). PASS = C1 slot differentiation AND C2 harm rate reduction in dangerous context (>=3/5 seeds)."
+    },
+    {
+      "queue_id": "V3-EXQ-406b",
+      "title": "INV-053 depression attractor replication: 5-seed LONG_HORIZON characterisation (406a status lost)",
+      "experiment_type": "v3_exq_406_inv053_depression_attractor_replication",
+      "script": "experiments/v3_exq_406_inv053_depression_attractor_replication.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 200,
+      "seeds": 5,
+      "claim_ids": [
+        "INV-053"
+      ],
+      "supersedes": "V3-EXQ-406a",
+      "notes": "V3-EXQ-406a consumed by EWIN-PC 2026-04-18T04:10Z; status push was lost to runner bug (fixed in f37cfbd). No evidence file recovered. Re-running as 406b."
+    },
+    {
+      "queue_id": "V3-EXQ-429b",
+      "title": "INV-044 Bayesian Prior-Before-Posterior: SWS-ordered vs REM-only vs waking-only (429a status lost)",
+      "experiment_type": "v3_exq_429_inv044_bayesian_prior_before_posterior",
+      "script": "experiments/v3_exq_429_inv044_bayesian_prior_before_posterior.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 200,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_ids": [
+        "INV-044"
+      ],
+      "backlog_id": "EVB-0060",
+      "supersedes": "V3-EXQ-429a",
+      "notes": "V3-EXQ-429a consumed by EWIN-PC 2026-04-18T06:19Z; status push was lost. NOTE: flat JSON 20260418T075824Z_v3.json exists in evidence dir with PASS/supports verdict -- may be from 429a run. Re-running as 429b for confirmation; governance can mark orphan file superseded if 429b confirms."
     }
   ]
 }
