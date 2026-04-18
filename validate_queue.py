@@ -23,7 +23,7 @@ QUEUE_FILE = Path(__file__).resolve().parent / "experiment_queue.json"
 # Valid values for enum fields
 # ------------------------------------------------------------------
 VALID_STATUSES = {"pending", "claimed", "failed"}
-VALID_AFFINITIES = {"any", "DLAPTOP-4.local", "Daniel-PC", "EWIN-PC", "ree-cloud-1"}
+VALID_AFFINITIES = {"any", "DLAPTOP-4.local", "Daniel-PC", "EWIN-PC", "ree-cloud-1", "ree-cloud-2"}
 
 # queue_id must match: V3-EXQ-<digits>[optional letter][optional -<letter>]
 # OR onboarding smoke tests: V3-ONBOARD-smoke-<machine-name>

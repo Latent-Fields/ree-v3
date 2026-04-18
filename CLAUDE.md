@@ -589,11 +589,16 @@ or goal types:
     - ~0.35 min/ep at 300 steps/ep
     - Calibrated from onboarding smoke 2026-04-09: 14.2 steps/sec CPU, 1571.9 env steps/sec
     - Suitable for env-heavy and standard experiments. Not for GPU-dependent runs.
+  - **ree-cloud-2** — Hetzner CX22, CPU-only (second, nominally identical to cloud-1):
+    - Throughput pending -- onboarding smoke V3-ONBOARD-smoke-ree-cloud-2 queued.
+    - Estimate as for cloud-1 until its smoke calibrates. Shared-vCPU neighbour noise
+      may produce small per-instance divergence; check the smoke result before tight
+      runtime estimates.
   - **EWIN-PC** — AMD Ryzen 7 8700F + RTX 5070 12GB (Eoin Golden's machine):
     - Throughput not yet benchmarked (original smoke errored 2026-04-06, -b pending)
     - Use `"EWIN-PC"` affinity string. GPU likely fast at larger world_dim.
   - Add ~20% overhead for scripts with stratified replay buffers or event classification
-- Set `machine_affinity` to match compute profile: `"DLAPTOP-4.local"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"ree-cloud-1"` (CPU-only, standard/env-heavy), `"EWIN-PC"` (GPU-capable, Eoin's machine), `"any"` (indifferent)
+- Set `machine_affinity` to match compute profile: `"DLAPTOP-4.local"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"ree-cloud-1"` / `"ree-cloud-2"` (CPU-only Hetzner CX22, standard/env-heavy), `"EWIN-PC"` (GPU-capable, Eoin's machine), `"any"` (indifferent -- any cloud worker that's already awake will typically claim first)
   - **IMPORTANT:** The runner matches affinity against `socket.gethostname()` exactly. The macbook hostname is `DLAPTOP-4.local` — do NOT use `"macbook"` as the affinity string, it will not match.
 - Always queue experiments immediately after writing the script.
 - Always include `estimated_minutes` — the runner's auto-calibration refines it over time.

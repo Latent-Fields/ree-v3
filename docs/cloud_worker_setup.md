@@ -444,3 +444,141 @@ signal. The runner's systemd service has a 10-minute timeout — if an experimen
 is mid-episode, it will finish the current episode before stopping.
 If you need to force it: `hcloud server poweroff ree-worker-1` (hard power off,
 experiment will be lost but the claim TTL will recover after 6 hours).
+
+---
+
+## Appendix: Adding a Second (or Nth) Cloud Worker
+
+Once `ree-cloud-1` is running, adding `ree-cloud-2` (or any subsequent worker)
+reuses almost everything: same Hetzner account, same API token, same SSH key,
+same GitHub PAT. Only the server name, hostname, machine_affinity string, and
+one line in the auto-scaler workflow change.
+
+### A1. Provision the second server (from your Mac)
+
+```bash
+hcloud server create \
+  --name ree-worker-2 \
+  --type cpx22 \
+  --image ubuntu-22.04 \
+  --ssh-key macbook \
+  --location fsn1
+```
+
+Write down the new IPv4 address from the output.
+
+### A2. Create the non-root user (same as cloud-1 Part 6b)
+
+```bash
+ssh root@<NEW_IP>
+
+adduser ree --disabled-password --gecos ""
+usermod -aG sudo ree
+echo "ree ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ree
+mkdir -p /home/ree/.ssh
+cp ~/.ssh/authorized_keys /home/ree/.ssh/
+chown -R ree:ree /home/ree/.ssh
+chmod 700 /home/ree/.ssh
+chmod 600 /home/ree/.ssh/authorized_keys
+
+# NEW FOR cloud-2: set hostname to match machine_affinity
+# The runner matches affinity against `socket.gethostname()` exactly.
+hostnamectl set-hostname ree-cloud-2
+
+exit
+ssh ree@<NEW_IP>
+# confirm:
+hostname   # must print: ree-cloud-2
+```
+
+### A3. Git credentials + clone (same PAT as cloud-1)
+
+```bash
+git config --global user.name "REE Cloud Worker"
+git config --global user.email "nooarche@users.noreply.github.com"
+git config --global credential.helper store
+
+mkdir -p ~/Documents/GitHub/REE_Working
+cd ~/Documents/GitHub/REE_Working
+
+# Paste your existing GitHub PAT when prompted for password
+git clone https://github.com/Latent-Fields/ree-v3.git
+git clone https://github.com/Latent-Fields/REE_assembly.git
+```
+
+### A4. Install Python + torch (minimal, CPU-only)
+
+```bash
+sudo apt-get update -qq
+sudo apt-get install -y git curl python3 python3-pip python3-venv python3-dev build-essential tmux
+
+python3 -m venv ~/.venv/ree
+source ~/.venv/ree/bin/activate
+pip install --upgrade pip --quiet
+pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
+pip install pyyaml numpy scipy --quiet
+
+# Verify
+python3 -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
+# Expect: torch 2.x.x cuda False
+```
+
+### A5. Install the systemd service with cloud-2 placeholders
+
+```bash
+cd ~/Documents/GitHub/REE_Working/ree-v3
+
+# Template now has both <user> and <machine> placeholders
+sed "s/<user>/ree/g; s/<machine>/ree-cloud-2/g" ree-runner.service \
+  | sudo tee /etc/systemd/system/ree-runner.service > /dev/null
+
+sudo systemctl daemon-reload
+sudo systemctl enable ree-runner
+sudo systemctl start ree-runner
+sudo systemctl status ree-runner   # expect: active (running)
+```
+
+### A6. Watch the smoke test claim itself
+
+The queue already contains `V3-ONBOARD-smoke-ree-cloud-2` with
+`machine_affinity: "ree-cloud-2"`, so the runner on this host will pick it up
+ahead of anything else.
+
+```bash
+journalctl -u ree-runner -f
+# expect lines about claiming V3-ONBOARD-smoke-ree-cloud-2
+```
+
+After ~10-15 minutes the smoke completes and the runner auto-syncs the result
+to REE_assembly. On your Mac:
+
+```bash
+git -C ~/REE_Working/REE_assembly pull origin master
+ls ~/REE_Working/REE_assembly/evidence/experiments/v3_onboard_smoke_ree_cloud_2/
+```
+
+### A7. Power off (saves money) — from your Mac
+
+```bash
+hcloud server shutdown ree-worker-2
+```
+
+The auto-scaler (updated to manage both `ree-worker-1` and `ree-worker-2`) will
+power it back on within 15 minutes whenever the queue gains an item whose
+`machine_affinity` is `any` or `ree-cloud-2`.
+
+### What's different from cloud-1
+
+| Step | cloud-1 | cloud-2 |
+|---|---|---|
+| Hetzner account | create | reuse |
+| API token | create | reuse (same `HCLOUD_TOKEN` secret) |
+| SSH key upload | create | reuse |
+| `hcloud` CLI context | create | reuse |
+| GitHub PAT | create | reuse |
+| Server name | `ree-worker-1` | `ree-worker-2` |
+| Hostname inside VM | (default cloud-init) | `hostnamectl set-hostname ree-cloud-2` |
+| systemd `--machine` flag | `ree-cloud-1` | `ree-cloud-2` |
+| Onboarding smoke | `V3-ONBOARD-smoke-ree-cloud-1` | `V3-ONBOARD-smoke-ree-cloud-2` |
+| Auto-scaler workflow | one-server script | two-server loop (this repo, already merged) |
+

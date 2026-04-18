@@ -1,10 +1,12 @@
 # REE Experiment Runner -- systemd service template for cloud workers
 #
 # Installation (on the cloud VM):
-#   1. Copy this file:
-#        sudo cp ree-runner.service /etc/systemd/system/ree-runner.service
-#   2. Edit the file to replace <user> with your username
-#   3. Enable and start:
+#   1. Copy this file, substituting BOTH placeholders:
+#        sed "s/<user>/ree/g; s/<machine>/ree-cloud-N/g" ree-runner.service \
+#          | sudo tee /etc/systemd/system/ree-runner.service > /dev/null
+#      (replace ree-cloud-N with the machine name matching
+#       REE_assembly/contributors/machines/ and the queue's machine_affinity)
+#   2. Enable and start:
 #        sudo systemctl daemon-reload
 #        sudo systemctl enable ree-runner
 #        sudo systemctl start ree-runner
@@ -24,7 +26,7 @@ Wants=network-online.target
 Type=simple
 User=<user>
 WorkingDirectory=/home/<user>/Documents/GitHub/REE_Working/ree-v3
-ExecStart=/home/<user>/.venv/ree/bin/python3 experiment_runner.py --auto-sync --loop --loop-interval 120 --machine ree-cloud-1
+ExecStart=/home/<user>/.venv/ree/bin/python3 experiment_runner.py --auto-sync --loop --loop-interval 120 --machine <machine>
 
 # Graceful drain: give 10 minutes for current experiment episode to finish
 TimeoutStopSec=600

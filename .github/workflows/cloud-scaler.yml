@@ -1,6 +1,11 @@
 name: Cloud Worker Scaler
-# Auto-starts Hetzner cloud worker when experiments are queued,
-# stops it when the queue is empty.
+# Auto-starts each Hetzner cloud worker when experiments matching its
+# machine_affinity are queued, stops it when no matching work remains.
+#
+# Routing rules (per worker):
+#   - "claimable" items = status==pending AND machine_affinity in {any, <server_affinity>}
+#   - server off + claimable > 0 -> poweron
+#   - server running + claimable == 0 -> shutdown (graceful, drains current run)
 
 on:
   schedule:
@@ -18,7 +23,7 @@ jobs:
         with:
           sparse-checkout: experiment_queue.json
 
-      - name: Check queue and scale cloud worker
+      - name: Check queue and scale cloud workers
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
         run: |
@@ -29,29 +34,47 @@ jobs:
           curl -sL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_VERSION}/hcloud-linux-amd64.tar.gz" \
             | tar xz -C /usr/local/bin hcloud
 
-          SERVER_NAME="ree-worker-1"
+          # server_name:affinity pairs -- add more workers by extending this list
+          WORKERS=(
+            "ree-worker-1:ree-cloud-1"
+            "ree-worker-2:ree-cloud-2"
+          )
 
-          # Count pending (unclaimed) queue items
-          PENDING=$(python3 -c "
-          import json
+          for entry in "${WORKERS[@]}"; do
+            SERVER_NAME="${entry%%:*}"
+            AFFINITY="${entry##*:}"
+
+            # Count pending items this worker could claim (its affinity or "any")
+            CLAIMABLE=$(AFFINITY="$AFFINITY" python3 -c "
+          import json, os
+          aff = os.environ['AFFINITY']
           q = json.load(open('experiment_queue.json'))
-          pending = [i for i in q.get('items', []) if i.get('status') == 'pending']
-          print(len(pending))
+          n = sum(
+              1 for i in q.get('items', [])
+              if i.get('status') == 'pending'
+              and i.get('machine_affinity') in ('any', aff)
+          )
+          print(n)
           ")
 
-          # Get current server status
-          STATUS=$(hcloud server describe "$SERVER_NAME" -o format='{{.Status}}' 2>/dev/null || echo "unknown")
+            # Get current server status (off, running, starting, stopping, unknown)
+            STATUS=$(hcloud server describe "$SERVER_NAME" -o format='{{.Status}}' 2>/dev/null || echo "unknown")
 
-          echo "Pending items: $PENDING"
-          echo "Server status: $STATUS"
+            echo "[$SERVER_NAME affinity=$AFFINITY] claimable=$CLAIMABLE status=$STATUS"
 
-          if [ "$PENDING" -gt 0 ] && [ "$STATUS" = "off" ]; then
-            echo "Queue has work -- starting cloud worker..."
-            hcloud server poweron "$SERVER_NAME"
-          elif [ "$PENDING" -eq 0 ] && [ "$STATUS" = "running" ]; then
-            echo "Queue empty -- stopping cloud worker..."
-            # Use shutdown (not poweroff) so systemd sends SIGTERM for graceful drain
-            hcloud server shutdown "$SERVER_NAME"
-          else
-            echo "No action needed."
-          fi
+            if [ "$STATUS" = "unknown" ]; then
+              echo "  -> server not provisioned yet, skipping"
+              continue
+            fi
+
+            if [ "$CLAIMABLE" -gt 0 ] && [ "$STATUS" = "off" ]; then
+              echo "  -> queue has work, starting $SERVER_NAME"
+              hcloud server poweron "$SERVER_NAME"
+            elif [ "$CLAIMABLE" -eq 0 ] && [ "$STATUS" = "running" ]; then
+              echo "  -> no matching work, shutting down $SERVER_NAME"
+              # shutdown (not poweroff) so systemd sends SIGTERM for graceful drain
+              hcloud server shutdown "$SERVER_NAME"
+            else
+              echo "  -> no action needed"
+            fi
+          done
