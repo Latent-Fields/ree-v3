@@ -46,9 +46,9 @@ V2 experiments (EXQ-014–028) produced three architectural failures requiring n
 
 SD-004 and SD-005 are interdependent: action objects require z_world to exist; z_world's separation from z_self is what makes action-object attribution meaningful.
 
-## Current Status (2026-04-17)
+## Current Status (2026-04-18)
 
-766 runs indexed (per morning digest 2026-04-17). SD-004 through SD-023 implemented plus SD-016 (frontal cue integration, 2026-04-16), ARC-033, MECH-090, MECH-120, MECH-203/204, MECH-205, MECH-216. Key recent outcomes: governance 2026-04-16 reviewed 16 experiments (5 PASS — EXQ-049a MECH-090 bistable, EXQ-365 MECH-104, EXQ-353 ARC-033/SD-003/SD-013, EXQ-323a SD-019/SD-011/SD-022, EXQ-328a MECH-090/SD-012); substrate gap audit led to 4 fix scripts (EXQ-418a, 385a, 355a, 324b). EXQ-321a FAIL (2026-04-17, MECH-090 bistable); EXQ-321b queued with 4-bug chain resolved. 18 experiments currently queued. 2 pending review (EXQ-321a). Current focus: first-paper gate, SD-021/SD-013 retests, sleep infrastructure experiments.
+772 runs indexed (post-indexer rebuild 2026-04-18). SD-004 through SD-023 implemented plus SD-016 (frontal cue integration, 2026-04-16), ARC-033, MECH-090 (bistable + Layer 1 stepping) + MECH-091 Layer 2 urgency interrupt, MECH-120, MECH-203/204, MECH-205, MECH-216. **SD-003 superseded 2026-04-18** by MECH-256 (general single-pass forward-model comparator) + SD-029 (concrete z_harm_s instantiation) + MECH-257 (dual-function single-substrate E2); per-stream successors SD-030/SD-031 deferred to V4. Governance cycle 2026-04-18 applied 2 `hold_pending_v3_substrate` decisions (SD-014, SD-023) and cleared the review queue to 0. 17 experiments currently queued — V3-EXQ-433 (SD-029 event-conditioned comparator test) is the next-up, decisive test of the new self-attribution architecture. Second Hetzner cloud worker (ree-cloud-2) onboarded the same day, claiming V3-EXQ-355b as its pipeline-verification run ahead of its dedicated onboarding smoke. Current focus: SD-003 successor validation, first-paper gate, SD-021/SD-013 retests, sleep infrastructure experiments.
 
 Full specification with substrate status table: [`docs/ree-v3-spec.md`](docs/ree-v3-spec.md)
 

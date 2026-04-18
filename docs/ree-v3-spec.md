@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-04-17
+**Last updated:** 2026-04-18
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-04-17)
+## 0. Current V3 State (2026-04-18)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -51,41 +51,59 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | MECH-205 | Surprise-gated replay write path (PE EMA -> VALENCE_SURPRISE, write count diagnostic) | Fixed 2026-04-09 |
 | MECH-216 | E1 predictive wanting / schema readout head (schema_salience -> VALENCE_WANTING) | Implemented 2026-04-09 |
 
-SD-003 (self-attribution counterfactual pipeline) was validated at EXQ-030b PASS
-(world_forward_r2=0.947, attribution_gap=0.035). Redesign now in progress to use z_harm_s
-pipeline (post SD-011), since E3 now takes z_harm rather than z_world as primary harm input.
+SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
+accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
+- **MECH-256** (general single-pass forward-model comparator, stream-agnostic; Frith/Shergill/
+  Haggard/Blakemore biology)
+- **SD-029** (concrete z_harm_s instantiation of MECH-256; event-conditioned test queued as
+  V3-EXQ-433, next-up priority)
+- **MECH-257** (dual-function single-substrate E2: comparator vs evaluator, controller-gated;
+  single-substrate-with-gated-readout favoured over dual-substrate per Diba/Buzsaki 2007 +
+  Dragoi/Tonegawa 2011)
+- **SD-030** (z_self per-stream comparator, V4-deferred) and **SD-031** (z_world, V4-deferred)
+
+EXQ-030b's original validation (world_forward_r2=0.947, attribution_gap=0.035) remains a valid
+world-pipeline result but does not transfer to the z_harm_s topology. Architecture doc:
+`REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
 
-- **766 runs indexed** (per morning digest 2026-04-17). Covers EXQ-001 through EXQ-430 series
-  (including lettered iterations and per-seed runs). Spanning SD-003 through SD-023 validation,
-  heartbeat architecture (SD-006), reafference (SD-007), encoder fixes (SD-008/009), harm stream
-  separation (SD-010), dual nociceptive streams (SD-011/SD-022), homeostatic drive (SD-012),
-  self-attribution counterfactuals (SD-013/ARC-033), valence vector recording (SD-014), resource
-  encoder (SD-015), frontal cue integration (SD-016), sleep infrastructure (SD-017),
+- **772 runs indexed** (post-indexer rebuild 2026-04-18). 517 queue-level completions in
+  `runner_status.json` (102 PASS / 238 FAIL / 63 ERROR / 114 UNKNOWN). Covers EXQ-001 through
+  EXQ-430-series (including lettered iterations and per-seed runs). Spanning SD-003 through SD-023
+  validation, heartbeat architecture (SD-006), reafference (SD-007), encoder fixes (SD-008/009),
+  harm stream separation (SD-010), dual nociceptive streams (SD-011/SD-022), homeostatic drive
+  (SD-012), self-attribution counterfactuals (SD-013/ARC-033), valence vector recording (SD-014),
+  resource encoder (SD-015), frontal cue integration (SD-016), sleep infrastructure (SD-017),
   surprise-gated replay (MECH-205), E1 predictive wanting (MECH-216), wanting/liking dissociation
   (MECH-112/229/117), goal conditioning (MECH-116/163/ARC-032), context memory (MECH-153/ARC-042),
   and the EXQ-223 minimal vertebrate ablation milestone.
-- **Currently queued (2026-04-17):** EXQ-326 (SD-015/MECH-216/SD-012 wanting gradient nav fix),
-  EXQ-330a (SD-013 contrastive counterfactual, claimed DLAPTOP-4.local), EXQ-321b (MECH-090
-  bistable vs legacy gate holdrate — supersedes EXQ-321a FAIL), EXQ-325a (SD-021 descending pain
-  modulation retest, claimed DLAPTOP-4.local), EXQ-395 (MECH-220 harm hub behavioral probe),
-  EXQ-375 (MECH-073 valence geometry), EXQ-328b (MECH-230 z_goal latent structure full run,
-  claimed ree-cloud-1), EXQ-326a (SD-015 nav + MECH-229 behavioral dissociation fix), EXQ-406
-  (INV-053 depression attractor replication, 5-seed), EXQ-407 (MECH-231 E2 short-horizon),
-  EXQ-396 (ARC-016 precision sweep staged fix, DLAPTOP-4.local), EXQ-397 (ARC-007 path memory
-  ablation staged fix, DLAPTOP-4.local), EXQ-429 (INV-044 Bayesian prior-before-posterior),
-  EXQ-430 (INV-010 offline integration necessity), EXQ-418a (SD-016+SD-017 context-conditioned
-  action fix — SHY collapse + terrain_loss fix), EXQ-385a (INV-049 offline consolidation SHY
-  decay rate fix), EXQ-355a (ARC-038 schema assimilation optimizer isolation fix), EXQ-324b
-  (SD-020 harm surprise PE multi-episode eval fix). 18 items total.
-- **Current bottleneck:** First-paper gate experiments. EXQ-321a FAIL (2026-04-17) revealed
-  MECH-090 bistable gate still needs fix (EXQ-321b queued with 4-bug chain resolved). SD-021
-  descending modulation retest (EXQ-325a) claimed and running. Governance (2026-04-16) reviewed
-  16 experiments: EXQ-049a PASS (MECH-090 bistable), EXQ-365 PASS (MECH-104), EXQ-353 PASS
-  (ARC-033/SD-003/SD-013), EXQ-323a PASS (SD-019/SD-011/SD-022), EXQ-328a PASS (MECH-090/SD-012).
-  SD-016 frontal cue integration implemented 2026-04-16. **2 pending review** (EXQ-321a FAIL +
-  UNKNOWN runner entry — discuss before next governance cycle).
+- **Currently queued (2026-04-18, 17 items):** V3-ONBOARD-smoke-ree-cloud-2 (second Hetzner
+  worker smoke, pinned to ree-cloud-2), V3-EXQ-433 (SD-029 event-conditioned single-pass
+  comparator — **SD-003 successor test, next-up priority=60**), V3-EXQ-326 / V3-EXQ-326a
+  (SD-015/MECH-216/SD-012 wanting-gradient nav fix + behavioral dissociation fix), V3-EXQ-330a
+  (SD-013 contrastive counterfactual retest), V3-EXQ-328b (MECH-230 z_goal latent structure),
+  V3-EXQ-407 (MECH-231 E2 short-horizon efference), V3-EXQ-332 (MECH-216 future-target
+  supervision), V3-EXQ-321c (MECH-090 bistable vs legacy gate hold rate, spike-aligned E3-tick
+  fix), V3-EXQ-325b (SD-021 descending pain modulation retest — E2 world-forward training fix),
+  V3-EXQ-355b (ARC-038 schema assimilation, optimizer isolation fix — **claimed as pipeline
+  verification by ree-cloud-2**), V3-EXQ-418b (SD-016+SD-017 context-conditioned action — SHY
+  collapse + terrain_loss fix), V3-EXQ-434 (INV-053 depression attractor 4th replication,
+  5-seed LONG_HORIZON), V3-EXQ-435 (INV-054 phase-transition recovery, sustained-crossing
+  criterion, supersedes EXQ-278), V3-EXQ-436 (SD-017 sleep phase ablation redesign with
+  context-conditioned harm threshold, supersedes EXQ-242), V3-EXQ-406b (INV-053 depression
+  attractor replication, 5-seed), V3-EXQ-429b (INV-044 Bayesian prior-before-posterior,
+  SWS-ordered vs REM-only).
+- **Current bottleneck:** SD-003 successor architecture validation and first-paper gate.
+  V3-EXQ-433 (SD-029 event-conditioned single-pass comparator on z_harm_s) is the decisive
+  test of the new self-attribution topology after SD-003 supersession; 4 seeds, event-density
+  controller extends up to 200 eps until >=20 env-caused and >=20 agent-caused hazards per seed
+  (fixes EXQ-431 sample starvation). **0 pending review** (cleared by governance-2026-04-18-15z).
+  Governance cycle that day applied 2 `pending_user` recommendations as `hold_pending_v3_substrate`
+  (SD-014, SD-023) and indexed V3-EXQ-332a non_contributory for SD-023 adjudication. The
+  second Hetzner cloud worker (ree-cloud-2) was onboarded the same day; it is claiming
+  V3-EXQ-355b as a de-facto pipeline verification because the runner's iteration order puts
+  the smoke behind any-affinity items (smoke will claim next).
 
 ### V3 / V4 Scope Boundary
 

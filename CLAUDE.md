@@ -459,8 +459,15 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   get_state() and reset() updated. Return type of propose_trajectories() unchanged.
 
 ## SD Design Decisions Validated (V3) — 2026-03-18
-- SD-003: self_attribution.counterfactual_e2_pipeline — VALIDATED EXQ-030b PASS
-  (on z_world pipeline). REDESIGN IN PROGRESS for z_harm_s pipeline (SD-011/ARC-033).
+- SD-003: self_attribution.counterfactual_e2_pipeline — **SUPERSEDED 2026-04-18** after
+  28 accumulated FAILs across the two-pass counterfactual architecture. Successor layer:
+  MECH-256 (general single-pass forward-model comparator, stream-agnostic) + SD-029
+  (concrete z_harm_s instantiation; event-conditioned test queued as V3-EXQ-433) + MECH-257
+  (dual-function single-substrate E2: comparator vs evaluator, controller-gated). Per-stream
+  successors SD-030 (z_self) and SD-031 (z_world) are V4-deferred. Architecture doc:
+  `REE_assembly/docs/architecture/self_attribution_per_stream.md`. The EXQ-030b world-pipeline
+  PASS (world_forward_r2=0.947, attribution_gap=0.035) is preserved as historical evidence but
+  does not transfer to the z_harm_s topology.
   EXQ-030b pipeline: z_world_actual = E2.world_forward(z_world, a_actual),
   z_world_cf = E2.world_forward(z_world, a_cf), causal_sig = E3(z_world_actual) - E3(z_world_cf).
   Results: world_forward_r2=0.947, attribution_gap=0.035, correct sign structure.
