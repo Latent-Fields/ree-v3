@@ -263,26 +263,6 @@
       "notes": "V3-EXQ-397 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
     },
     {
-      "queue_id": "V3-EXQ-406a",
-      "title": "INV-053 depression attractor replication: 5-seed LONG_HORIZON characterisation (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_406_inv053_depression_attractor_replication",
-      "script": "experiments/v3_exq_406_inv053_depression_attractor_replication.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 200,
-      "seeds": 5,
-      "claim_ids": [
-        "INV-053"
-      ],
-      "supersedes": "V3-EXQ-406",
-      "notes": "V3-EXQ-406 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-18T04:10:25.371927+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-418b",
       "title": "SD-016+SD-017 context-conditioned action: SHY fix + terrain_loss (EWIN-PC requeue)",
       "experiment_type": "v3_exq_418a_sd016_sd017_context_conditioned_action",
