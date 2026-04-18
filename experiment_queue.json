@@ -253,7 +253,7 @@
       "script": "experiments/v3_exq_436_sd017_context_cond_harm_thresh.py",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 600,
       "episodes_per_run": 200,
       "seeds": 5,
@@ -265,7 +265,11 @@
       ],
       "backlog_id": "EXP-0106",
       "supersedes": "V3-EXQ-242",
-      "notes": "EXP-0106 redesign (DR-6): add context->action pathway via context-conditioned harm threshold. Supersedes V3-EXQ-242 (slot differentiation worked but no behavioral path). Uses SD-017 first-class methods (run_sws_schema_pass, run_sleep_cycle). PASS = C1 slot differentiation AND C2 harm rate reduction in dangerous context (>=3/5 seeds)."
+      "notes": "EXP-0106 redesign (DR-6): add context->action pathway via context-conditioned harm threshold. Supersedes V3-EXQ-242 (slot differentiation worked but no behavioral path). Uses SD-017 first-class methods (run_sws_schema_pass, run_sleep_cycle). PASS = C1 slot differentiation AND C2 harm rate reduction in dangerous context (>=3/5 seeds).",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-04-18T23:02:11.654434+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-406b",
