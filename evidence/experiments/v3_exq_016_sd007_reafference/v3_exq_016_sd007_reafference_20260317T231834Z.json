@@ -30,12 +30,15 @@
     "MECH-098",
     "SD-003"
   ],
-  "evidence_direction": "mixed",
+  "evidence_direction": "superseded",
   "experiment_type": "v3_exq_016_sd007_reafference",
   "fatal_error_count": 0,
   "run_timestamp": "20260317T231834Z",
   "claim": "SD-007",
   "verdict": "FAIL",
   "run_id": "v3_exq_016_sd007_reafference_20260317T231834Z_v3",
-  "architecture_epoch": "ree_hybrid_guardrails_v1"
+  "architecture_epoch": "ree_hybrid_guardrails_v1",
+  "evidence_direction_note": "Superseded by MECH-101 reafference input fix: pre-SD-007 reafference used z_self as input instead of z_world_raw_prev. MECH-101 corrected the input signature, making the EXQ-016-s2 failure mode inaccessible. The SD-003 tag on this run is additionally covered by SD-011 supersession (harm stream separation). Original evidence_direction: mixed.",
+  "superseded_at": "2026-04-17T21:00:12Z",
+  "superseded_by": "MECH-101"
 }

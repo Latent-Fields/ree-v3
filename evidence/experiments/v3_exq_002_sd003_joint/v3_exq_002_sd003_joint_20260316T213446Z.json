@@ -24,10 +24,13 @@
   "claim_ids": [
     "SD-003"
   ],
-  "evidence_direction": "mixed",
+  "evidence_direction": "superseded",
   "experiment_type": "v3_exq_002_sd003_joint",
   "fatal_error_count": 0,
   "run_timestamp": "20260316T213446Z",
   "claim": "SD-003",
-  "verdict": "FAIL"
+  "verdict": "FAIL",
+  "evidence_direction_note": "Superseded by SD-011 (2026-03-30): SD-003 counterfactual attribution on unified z_world/z_gamma pipeline is architecturally infeasible. SD-010/SD-011 dual nociceptive streams redesign (HarmBridge(z_world->z_harm) bridge_r2=0) made the original hypothesis inaccessible; SD-003 requires z_harm_s stream via E2_harm_s forward model (ARC-033). Original evidence_direction: mixed.",
+  "superseded_at": "2026-04-17T21:00:12Z",
+  "superseded_by": "SD-011"
 }
