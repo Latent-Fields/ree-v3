@@ -164,14 +164,18 @@
       "script": "experiments/v3_exq_321b_mech090_bistable_holdrate.py",
       "priority": 10,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "seeds": 3,
       "claim_ids": [
         "MECH-090"
       ],
       "supersedes": "V3-EXQ-321b",
-      "notes": "V3-EXQ-321b errored on EWIN-PC (setup crash, 0.2s). Same script, re-queued on Mac."
+      "notes": "V3-EXQ-321b errored on EWIN-PC (setup crash, 0.2s). Same script, re-queued on Mac.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-18T21:21:49.651088+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-324c",
