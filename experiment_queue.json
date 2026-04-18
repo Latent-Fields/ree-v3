@@ -269,14 +269,18 @@
       "script": "experiments/v3_exq_406_inv053_depression_attractor_replication.py",
       "priority": 40,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "seeds": 5,
       "claim_ids": [
         "INV-053"
       ],
       "supersedes": "V3-EXQ-406",
-      "notes": "V3-EXQ-406 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
+      "notes": "V3-EXQ-406 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-18T04:10:25.371927+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-418b",
