@@ -1022,7 +1022,32 @@ def main():
         help="Machine identity for experiment claiming (default: hostname). "
              "Use 'any' to disable affinity filtering.",
     )
+    parser.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Skip the regression-suite preflight layer. Also honoured via "
+             "REE_SKIP_PREFLIGHT=1 (useful when a preflight test itself is broken).",
+    )
     args = parser.parse_args()
+
+    if not args.skip_preflight and os.environ.get("REE_SKIP_PREFLIGHT") != "1":
+        preflight_dir = REPO_ROOT / "tests" / "preflight"
+        if preflight_dir.exists():
+            print(f"[runner] Preflight: running {preflight_dir}", flush=True)
+            rc = subprocess.call(
+                [sys.executable, "-m", "pytest", "-q", "--tb=line", str(preflight_dir)],
+                cwd=str(REPO_ROOT),
+            )
+            if rc != 0:
+                print(
+                    "[runner] Preflight FAILED (exit {}). Fix failing tests or "
+                    "re-run with --skip-preflight to bypass.".format(rc),
+                    flush=True,
+                )
+                sys.exit(rc)
+            print("[runner] Preflight: OK", flush=True)
+        else:
+            print("[runner] Preflight: tests/preflight not found -- skipping.", flush=True)
 
     machine = _get_machine_name(args.machine)
     status_path = args.status_file or find_default_status_path(machine)
