@@ -7,15 +7,22 @@ Currently implements:
     (mode_ev, choice_difficulty, foraging_value, harm_interaction)
     computed from the precision-weighted affective-pain PE (MECH-258) and
     adds a recency/monostrategy suppression bias (MECH-260).
-  - DACCtoE3Adapter: STOPGAP adapter pending SD-032a (salience-network
-    coordinator). Maps the integration bundle onto a per-candidate score
-    bias for E3.select(). Marked for removal when SD-032a lands.
+  - DACCtoE3Adapter: STOPGAP adapter pending full SD-033 substrate landing.
+    Maps the integration bundle onto a per-candidate score bias for
+    E3.select(). With SD-032a now implemented, the coordinator can scale
+    this bias via its e3_policy gate, but the adapter itself remains as
+    the score_bias source until SD-033 substrates consume operating_mode
+    natively.
+  - SalienceCoordinator (SD-032a, MECH-259, MECH-261): network-level
+    coordinator that aggregates the dACC bundle and homeostatic / offline
+    signals into a soft operating-mode probability vector and a discrete
+    mode-switch trigger. Hosts the MECH-261 dict-keyed write-gate
+    registry. Reads slots for SD-032c/d/e signals (no-op until those land).
 
 Future SD-032 siblings (not implemented here):
-  SD-032a  vACC / salience-network coordinator
-  SD-032c  pgACC / sgACC emotional regulation
-  SD-032d  posterior cingulate / precuneus default-mode anchoring
-  SD-032e  retrosplenial scene-context integration
+  SD-032c  AIC-analog interoceptive-salience / urgency interrupt
+  SD-032d  PCC-analog attention partition / metastability
+  SD-032e  pACC-analog autonomic write-back to SD-012
 """
 
 from ree_core.cingulate.dacc import (
@@ -23,5 +30,19 @@ from ree_core.cingulate.dacc import (
     DACCConfig,
     DACCtoE3Adapter,
 )
+from ree_core.cingulate.salience_coordinator import (
+    DEFAULT_GATE_WEIGHTS,
+    DEFAULT_MODE_NAMES,
+    SalienceCoordinator,
+    SalienceCoordinatorConfig,
+)
 
-__all__ = ["DACCAdaptiveControl", "DACCConfig", "DACCtoE3Adapter"]
+__all__ = [
+    "DACCAdaptiveControl",
+    "DACCConfig",
+    "DACCtoE3Adapter",
+    "SalienceCoordinator",
+    "SalienceCoordinatorConfig",
+    "DEFAULT_GATE_WEIGHTS",
+    "DEFAULT_MODE_NAMES",
+]

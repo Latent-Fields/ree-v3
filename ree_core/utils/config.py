@@ -591,6 +591,37 @@ class REEConfig:
     # 0.0 = disabled (default, backward compat).
     dacc_drive_coupling: float = 0.0
 
+    # SD-032a: salience-network coordinator.
+    # Master switch -- when True, REEAgent instantiates a SalienceCoordinator
+    # that aggregates the dACC bundle + drive_level + offline-mode flag into a
+    # soft operating_mode probability vector and a discrete mode_switch_trigger
+    # (MECH-259). Hosts the MECH-261 dict-keyed write-gate registry. Reads slots
+    # for SD-032c/d/e signals (no-op until those land). False = disabled
+    # (default, backward compat).
+    use_salience_coordinator: bool = False
+    # MECH-259 base switch threshold. effective_threshold = switch_threshold *
+    # (1 + stability_scaling * pcc_stability). Trigger fires when salience
+    # aggregate > effective_threshold AND argmax(operating_mode) != current_mode.
+    salience_switch_threshold: float = 1.0
+    # SD-032d (PCC stability) modulation strength on switch threshold.
+    salience_stability_scaling: float = 1.0
+    # Softmax temperature for the operating_mode vector. Higher -> more uniform.
+    salience_softmax_temperature: float = 1.0
+    # Bias added to external_task logit before softmax. Ensures default mode is
+    # external_task when all inputs are zero (waking baseline).
+    salience_external_task_bias: float = 1.0
+    # Salience aggregate weights (urgency-relevant signals; separate from
+    # mode-affinity weights -- "how loud is the alarm" vs "which mode does this
+    # argue for"). dACC PE is the only live source in V3 (AIC salience is
+    # SD-032c, no-op until landed).
+    salience_dacc_pe_weight: float = 1.0
+    salience_dacc_foraging_weight: float = 0.5
+    # When True, the e3_policy write-gate value scales the dACC score_bias
+    # before E3.select() (so that during internal_replay, dACC influence on
+    # action selection is suppressed near zero). Default False = backward
+    # compatible (dACC bias unaffected).
+    salience_apply_to_dacc_bias: bool = False
+
     @classmethod
     def from_dims(
         cls,
@@ -693,6 +724,15 @@ class REEConfig:
         dacc_precision_scale: float = 500.0,
         dacc_effort_cost: float = 0.1,
         dacc_drive_coupling: float = 0.0,
+        # SD-032a: salience-network coordinator
+        use_salience_coordinator: bool = False,
+        salience_switch_threshold: float = 1.0,
+        salience_stability_scaling: float = 1.0,
+        salience_softmax_temperature: float = 1.0,
+        salience_external_task_bias: float = 1.0,
+        salience_dacc_pe_weight: float = 1.0,
+        salience_dacc_foraging_weight: float = 0.5,
+        salience_apply_to_dacc_bias: bool = False,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -865,6 +905,16 @@ class REEConfig:
         config.dacc_precision_scale = dacc_precision_scale
         config.dacc_effort_cost = dacc_effort_cost
         config.dacc_drive_coupling = dacc_drive_coupling
+
+        # SD-032a: salience-network coordinator
+        config.use_salience_coordinator = use_salience_coordinator
+        config.salience_switch_threshold = salience_switch_threshold
+        config.salience_stability_scaling = salience_stability_scaling
+        config.salience_softmax_temperature = salience_softmax_temperature
+        config.salience_external_task_bias = salience_external_task_bias
+        config.salience_dacc_pe_weight = salience_dacc_pe_weight
+        config.salience_dacc_foraging_weight = salience_dacc_foraging_weight
+        config.salience_apply_to_dacc_bias = salience_apply_to_dacc_bias
 
         return config
 

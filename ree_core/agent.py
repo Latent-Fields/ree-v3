@@ -54,6 +54,8 @@ from ree_core.cingulate import (
     DACCAdaptiveControl,
     DACCConfig,
     DACCtoE3Adapter,
+    SalienceCoordinator,
+    SalienceCoordinatorConfig,
 )
 from ree_core.latent.stack import HarmForwardTrunk
 from ree_core.residue.field import (
@@ -178,8 +180,31 @@ class REEAgent(nn.Module):
                 dacc_drive_coupling=config.dacc_drive_coupling,
             )
             self.dacc = DACCAdaptiveControl(dacc_cfg)
-            # STOPGAP adapter pending SD-032a salience-network coordinator.
+            # STOPGAP adapter -- still the score_bias source until SD-033
+            # substrates consume operating_mode natively. With SD-032a active,
+            # the adapter's bias may be scaled by the coordinator's e3_policy
+            # write-gate (see select_action; gated by salience_apply_to_dacc_bias).
             self.dacc_adapter = DACCtoE3Adapter(dacc_cfg)
+
+        # SD-032a: salience-network coordinator. Reads SD-032b dACC bundle +
+        # drive_level + offline-mode flag; emits operating_mode soft vector +
+        # mode_switch_trigger. Hosts MECH-261 write-gate registry.
+        self.salience: Optional[SalienceCoordinator] = None
+        if getattr(config, "use_salience_coordinator", False):
+            sal_cfg = SalienceCoordinatorConfig(
+                external_task_bias=config.salience_external_task_bias,
+                softmax_temperature=config.salience_softmax_temperature,
+                switch_threshold=config.salience_switch_threshold,
+                stability_scaling=config.salience_stability_scaling,
+            )
+            sal_cfg.salience_weights = {
+                "dacc_pe": config.salience_dacc_pe_weight,
+                "dacc_foraging": config.salience_dacc_foraging_weight,
+                "aic_salience": 1.0,
+            }
+            self.salience = SalienceCoordinator(sal_cfg)
+        # Cache of last coordinator tick output (for diagnostics / experiments).
+        self._salience_last_tick: Optional[Dict[str, object]] = None
 
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
@@ -305,6 +330,10 @@ class REEAgent(nn.Module):
         self._dacc_last_bias = None
         if self.dacc is not None:
             self.dacc.reset()
+        # SD-032a: reset salience coordinator on episode boundary.
+        if self.salience is not None:
+            self.salience.reset()
+        self._salience_last_tick = None
 
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
@@ -713,6 +742,33 @@ class REEAgent(nn.Module):
             self._dacc_last_bundle = bundle
             if self.dacc_adapter is not None:
                 dacc_score_bias = self.dacc_adapter(bundle)
+                self._dacc_last_bias = dacc_score_bias.detach().clone()
+
+        # SD-032a: tick the salience-network coordinator. Aggregates the dACC
+        # bundle (live), drive_level (live), and offline-mode flag (proxy for
+        # SD-032d stability) into the operating_mode soft vector and the
+        # MECH-259 mode_switch_trigger. SD-032c/d/e signal slots remain at zero
+        # until those subdivisions land.
+        if self.salience is not None:
+            sal_drive = float(
+                getattr(self.goal_state, "_last_drive_level", 0.0)
+            ) if self.goal_state is not None else 0.0
+            sal_offline = bool(getattr(self.e1, "_offline_mode", False))
+            sal_bundle = self._dacc_last_bundle  # may be None if dACC is off
+            self._salience_last_tick = self.salience.tick(
+                dacc_bundle=sal_bundle,
+                drive_level=sal_drive,
+                is_offline=sal_offline,
+            )
+            # Optional: scale dACC score_bias by the e3_policy write-gate, so
+            # that during internal_replay the dACC bias is suppressed near zero
+            # (per MECH-261 table). Default-off (backward compatible).
+            if (
+                self.config.salience_apply_to_dacc_bias
+                and dacc_score_bias is not None
+            ):
+                e3_gate = self.salience.write_gate("e3_policy")
+                dacc_score_bias = dacc_score_bias * float(e3_gate)
                 self._dacc_last_bias = dacc_score_bias.detach().clone()
 
         result = self.e3.select(

@@ -48,6 +48,24 @@
         "ARC-058"
       ],
       "notes": "Substrate validation for SD-032b dACC-analog (IMPLEMENTED 2026-04-19). Three-arm phased-training ablation: OFF (dACC disabled) / ON_INDEPENDENT (ARC-033 per-stream E2_harm_a) / ON_SHARED (ARC-058 shared HarmForwardTrunk). Phased P0 (50 eps encoder warmup) + P1 (100 eps frozen-encoder E2_harm_a training with .detach()ed targets) + P2 (30 eps eval). C1 MECH-258 both ON arms harm_a_forward_r2 >= 0.3 in >=2/3 seeds. C2 SD-032b dACC routing produces |entropy_on - entropy_off| >= 0.1 nats in either ON arm. C3 MECH-260 ON entropy >= OFF entropy in >=2/3 seeds (no diversity collapse). C4 DIAGNOSTIC: ARC-033 vs ARC-058 forward_r2 comparison informs governance arbitration but never fails run. experiment_purpose=diagnostic: substrate readiness gate, not yet governance evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-446",
+      "title": "SD-032a salience-network coordinator validation -- 2-arm ablation + synthetic injection + V4 extensibility",
+      "experiment_type": "v3_exq_446_sd032a_salience_coordinator",
+      "script": "experiments/v3_exq_446_sd032a_salience_coordinator.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 25,
+      "seeds": 2,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-032a",
+        "MECH-259",
+        "MECH-261"
+      ],
+      "notes": "Substrate validation for SD-032a salience-network coordinator (IMPLEMENTED 2026-04-19). 2-arm ablation (COORD_OFF / COORD_ON with salience_apply_to_dacc_bias=True) x 2 seeds (42, 7), 6 episodes x 80 steps each. Plus deterministic API-level unit checks. C1 ON-arm operating_mode entropy > 0.05 nats (coordinator emits non-degenerate distribution). C2 MECH-259 synthetic pe=10.0 injection fires mode_switch_trigger and shifts argmax to internal_planning. C3 MECH-261 all 8 default write-gates (sd_033a..d, hc_viability, sensory_buffer, autonomic, e3_policy) in [0, 1]. C4 V4 extensibility: register_target() accepts new mode key (parallel_goal_deliberation) without schema changes. C5 backward compat: |entropy_on - entropy_off| <= 0.2 nats with default coordinator weights. experiment_purpose=diagnostic: substrate readiness, not yet governance evidence. SD-032a stays v3_pending until SD-032c/d/e land."
     }
   ]
 }
