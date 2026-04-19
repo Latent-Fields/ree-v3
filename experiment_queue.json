@@ -207,30 +207,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-434",
-      "title": "INV-053 depression attractor 4th replication (5 seeds LONG_HORIZON)",
-      "experiment_type": "v3_exq_434_inv053_depression_attractor_replication",
-      "script": "experiments/v3_exq_434_inv053_depression_attractor_replication.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 230,
-      "episodes_per_run": 200,
-      "seeds": 5,
-      "conditions": 2,
-      "claim_ids": [
-        "INV-053"
-      ],
-      "claim_id": "INV-053",
-      "backlog_id": "EVB-0096",
-      "proposal_id": "EXP-0096",
-      "note": "Fourth independent 5-seed replication of INV-053 under LONG_HORIZON. Prior: EXQ-249 PASS, EXQ-268 PASS, EXQ-406 pending output.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-04-18T23:49:51.473391+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-406b",
       "title": "INV-053 depression attractor replication: 5-seed LONG_HORIZON characterisation (406a status lost)",
       "experiment_type": "v3_exq_406_inv053_depression_attractor_replication",
