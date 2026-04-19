@@ -529,6 +529,68 @@ class REEConfig:
     valence_liking_enabled: bool = False
     liking_threshold: float = 0.1
 
+    # MECH-258: E2_harm_a affective-pain forward model (prerequisite for SD-032b).
+    # When True, REEAgent instantiates an E2HarmAForward module predicting
+    # z_harm_a_{t+1} = f(z_harm_a_t, a_t). Enables runtime z_harm_a_PE signal
+    # (||z_harm_a_actual - pred||_2) for dACC consumption.
+    # Training is external (experiment-loop driven), same as ARC-033 E2_harm_s.
+    # False = disabled (default, backward compat).
+    use_e2_harm_a: bool = False
+    # Learning rate used when an experiment instantiates the E2_harm_a optimizer.
+    # Parallel to E2HarmSConfig default; low because z_harm_a is low-dim, noisy.
+    e2_harm_a_lr: float = 5e-4
+
+    # ARC-058: harm_stream.shared_forward_trunk hypothesis.
+    # Competing claim against the current ARC-033 implementation (which is a fully
+    # independent E2_harm_s forward model). When True, REEAgent builds a single
+    # HarmForwardTrunk instance and passes it to BOTH E2_harm_s and E2_harm_a so
+    # they share the hidden-representation substrate with stream-specific heads.
+    # False (default) = legacy ARC-033 independent-modules behaviour preserved.
+    # Biological basis (Horing & Buchel 2022 PLoS Biol): anterior insula shows
+    # modality-independent unsigned PE (shared trunk); dorsal posterior insula
+    # shows modality-specific signed PE (per-stream head). See lit-pull
+    # targeted_review_pain_predictive_coding_substrate (2026-04-19).
+    use_shared_harm_trunk: bool = False
+
+    # SD-032b: dACC/aMCC-analog adaptive control (minimum-viable cingulate substrate).
+    # When True, REEAgent instantiates DACCAdaptiveControl which reads z_harm_a_PE,
+    # z_conflict (top-vs-runner-up margin over E3 scores), and a control-demand
+    # estimate, and emits a Croxson-style integration bundle (mode_ev, choice
+    # difficulty, foraging value, harm interaction) that a stopgap adapter reduces
+    # to a per-candidate score_bias[K] consumed by e3.select().
+    # The stopgap adapter is explicitly a temporary wiring choice; SD-032a
+    # (salience-network coordinator, not yet implemented) is the architectural
+    # consumer of the bundle. Remove the adapter when SD-032a lands.
+    # False = disabled (default, backward compat).
+    use_dacc: bool = False
+    # dACC output weighting (all zero by default -- no behavioural effect until set).
+    # dacc_weight: scales -mode_ev[K] contribution to score_bias.
+    dacc_weight: float = 0.0
+    # dacc_interaction_weight: scales -harm_interaction[K] (Croxson 2009) contribution.
+    dacc_interaction_weight: float = 0.0
+    # dacc_foraging_weight: scales -foraging_value broadcast contribution
+    # (uniform shift when switching away from committed trajectory is warranted).
+    dacc_foraging_weight: float = 0.0
+    # dacc_suppression_weight: scales MECH-260 recency-similarity counter-bias.
+    dacc_suppression_weight: float = 0.0
+    # MECH-260: recency memory window length. Recent actions are stored in a FIFO
+    # deque; each candidate trajectory's first action is penalised by cosine
+    # similarity to the recency-vector average. Small window = local recency only.
+    dacc_suppression_memory: int = 8
+    # Precision normalisation scale (matches SD-020 pattern).
+    # precision_norm = min(e3.current_precision / dacc_precision_scale, 3.0).
+    # Higher scale -> more modest precision weighting.
+    dacc_precision_scale: float = 500.0
+    # Shenhav 2013 EVC: effort cost scalar (minimum-viable). Multiplies
+    # control_required(K) when computing mode_ev[K] = payoff - control*effort.
+    # Per-trajectory effort costs are a future refinement (Croxson, Kennerley 2006).
+    dacc_effort_cost: float = 0.1
+    # Scholl 2017: neuromodulator-tunable learning-rate gain. When
+    # dacc_drive_coupling > 0, dACC heads' effective learning rate is scaled by
+    # (1.0 + dacc_drive_coupling * drive_level) from SD-012 GoalState.drive_level.
+    # 0.0 = disabled (default, backward compat).
+    dacc_drive_coupling: float = 0.0
+
     @classmethod
     def from_dims(
         cls,
@@ -615,6 +677,22 @@ class REEConfig:
         valence_harm_enabled: bool = False,
         valence_liking_enabled: bool = False,
         liking_threshold: float = 0.1,
+        # MECH-258: E2_harm_a affective-pain forward model (SD-032b prerequisite)
+        use_e2_harm_a: bool = False,
+        e2_harm_a_lr: float = 5e-4,
+        # ARC-058: shared-trunk harm forward hypothesis (competes with ARC-033)
+
+        use_shared_harm_trunk: bool = False,
+        # SD-032b: dACC/aMCC-analog adaptive control
+        use_dacc: bool = False,
+        dacc_weight: float = 0.0,
+        dacc_interaction_weight: float = 0.0,
+        dacc_foraging_weight: float = 0.0,
+        dacc_suppression_weight: float = 0.0,
+        dacc_suppression_memory: int = 8,
+        dacc_precision_scale: float = 500.0,
+        dacc_effort_cost: float = 0.1,
+        dacc_drive_coupling: float = 0.0,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -769,6 +847,24 @@ class REEConfig:
         config.valence_harm_enabled = valence_harm_enabled
         config.valence_liking_enabled = valence_liking_enabled
         config.liking_threshold = liking_threshold
+
+        # MECH-258: E2_harm_a forward model (SD-032b prerequisite)
+        config.use_e2_harm_a = use_e2_harm_a
+        config.e2_harm_a_lr = e2_harm_a_lr
+
+        # ARC-058: shared-trunk harm forward hypothesis
+        config.use_shared_harm_trunk = use_shared_harm_trunk
+
+        # SD-032b: dACC/aMCC-analog adaptive control
+        config.use_dacc = use_dacc
+        config.dacc_weight = dacc_weight
+        config.dacc_interaction_weight = dacc_interaction_weight
+        config.dacc_foraging_weight = dacc_foraging_weight
+        config.dacc_suppression_weight = dacc_suppression_weight
+        config.dacc_suppression_memory = dacc_suppression_memory
+        config.dacc_precision_scale = dacc_precision_scale
+        config.dacc_effort_cost = dacc_effort_cost
+        config.dacc_drive_coupling = dacc_drive_coupling
 
         return config
 

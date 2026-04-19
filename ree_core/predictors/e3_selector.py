@@ -596,6 +596,7 @@ class E3TrajectorySelector(nn.Module):
         z_harm_a: Optional[torch.Tensor] = None,
         harm_forward_model: Optional["nn.Module"] = None,
         z_harm_s_current: Optional[torch.Tensor] = None,
+        score_bias: Optional[torch.Tensor] = None,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -622,6 +623,10 @@ class E3TrajectorySelector(nn.Module):
                                     for M(zeta) computation via step-by-step rollout.
             z_harm_s_current:       [batch, z_harm_dim] current sensory-discriminative harm
                                     latent. Required when harm_forward_model is provided.
+            score_bias:             SD-032b dACC bias, [K] tensor (one entry per candidate).
+                                    Added directly to per-candidate scores before softmax.
+                                    Sign convention: lower is better (favourable bias is
+                                    negative). None means no bias (backward compat default).
 
         Returns:
             SelectionResult
@@ -640,6 +645,17 @@ class E3TrajectorySelector(nn.Module):
             for t in candidates
         ])
         scores = scores.mean(dim=-1)
+
+        # SD-032b dACC bias: additive, same sign convention as raw scores.
+        # Applied before last_scores / softmax so downstream consumers see
+        # the biased values consistently.
+        if score_bias is not None:
+            if score_bias.shape != scores.shape:
+                raise ValueError(
+                    f"score_bias shape {tuple(score_bias.shape)} does not match "
+                    f"scores shape {tuple(scores.shape)}"
+                )
+            scores = scores + score_bias.to(dtype=scores.dtype, device=scores.device)
         self.last_scores = scores.detach()
 
         probs = F.softmax(-scores / temperature, dim=0)

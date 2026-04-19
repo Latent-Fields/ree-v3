@@ -49,6 +49,13 @@ from ree_core.hippocampal.module import HippocampalModule
 from ree_core.heartbeat.clock import MultiRateClock
 from ree_core.heartbeat.beta_gate import BetaGate
 from ree_core.neuromodulation.serotonin import SerotoninModule
+from ree_core.predictors.e2_harm_a import E2HarmAConfig, E2HarmAForward
+from ree_core.cingulate import (
+    DACCAdaptiveControl,
+    DACCConfig,
+    DACCtoE3Adapter,
+)
+from ree_core.latent.stack import HarmForwardTrunk
 from ree_core.residue.field import (
     VALENCE_WANTING,
     VALENCE_LIKING,
@@ -127,6 +134,53 @@ class REEAgent(nn.Module):
         # MECH-203/204: serotonergic neuromodulation (sleep + benefit-salience)
         self.serotonin = SerotoninModule(config.serotonin)
 
+        # MECH-258: E2_harm_a affective-pain forward model (SD-032b prerequisite).
+        # ARC-058 shared-trunk path: if use_shared_harm_trunk, construct a single
+        # HarmForwardTrunk and pass into E2HarmAForward. (E2HarmSForward in its
+        # current form owns its trunk internally; the competing-claim experiment
+        # builds E2HarmSForward via the same trunk at the experiment script level.)
+        self.harm_forward_trunk: Optional[HarmForwardTrunk] = None
+        self.e2_harm_a: Optional[E2HarmAForward] = None
+        if getattr(config, "use_e2_harm_a", False):
+            z_harm_a_dim = config.latent.z_harm_a_dim
+            action_dim = config.e2.action_dim
+            harm_a_cfg = E2HarmAConfig(
+                z_harm_a_dim=z_harm_a_dim,
+                action_dim=action_dim,
+                learning_rate=config.e2_harm_a_lr,
+            )
+            shared_trunk = None
+            if getattr(config, "use_shared_harm_trunk", False):
+                # ARC-058: construct shared trunk. Uses z_harm_a_dim; experiments
+                # that run the sensory stream through the same trunk must match
+                # this dim via projection heads (see experiment scripts).
+                self.harm_forward_trunk = HarmForwardTrunk(
+                    z_harm_dim=z_harm_a_dim,
+                    action_dim=action_dim,
+                    hidden_dim=harm_a_cfg.hidden_dim,
+                    action_enc_dim=harm_a_cfg.action_enc_dim,
+                )
+                shared_trunk = self.harm_forward_trunk
+            self.e2_harm_a = E2HarmAForward(harm_a_cfg, shared_trunk=shared_trunk)
+
+        # SD-032b: dACC/aMCC-analog adaptive control.
+        self.dacc: Optional[DACCAdaptiveControl] = None
+        self.dacc_adapter: Optional[DACCtoE3Adapter] = None
+        if getattr(config, "use_dacc", False):
+            dacc_cfg = DACCConfig(
+                dacc_weight=config.dacc_weight,
+                dacc_interaction_weight=config.dacc_interaction_weight,
+                dacc_foraging_weight=config.dacc_foraging_weight,
+                dacc_suppression_weight=config.dacc_suppression_weight,
+                dacc_suppression_memory=config.dacc_suppression_memory,
+                dacc_precision_scale=config.dacc_precision_scale,
+                dacc_effort_cost=config.dacc_effort_cost,
+                dacc_drive_coupling=config.dacc_drive_coupling,
+            )
+            self.dacc = DACCAdaptiveControl(dacc_cfg)
+            # STOPGAP adapter pending SD-032a salience-network coordinator.
+            self.dacc_adapter = DACCtoE3Adapter(dacc_cfg)
+
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
         self.body_obs_encoder = nn.Sequential(
@@ -175,6 +229,14 @@ class REEAgent(nn.Module):
         # Running EMA of observed harm (expected harm estimate).
         # PE = |actual_harm_obs - _harm_obs_ema| used as z_harm_a training target.
         self._harm_obs_ema: float = 0.0
+
+        # MECH-258 / SD-032b: previous-step z_harm_a for E2_harm_a rollout
+        # and previous-step predicted z_harm_a for dACC PE computation.
+        self._harm_a_prev: Optional[torch.Tensor] = None
+        self._harm_a_pred_prev: Optional[torch.Tensor] = None
+        # Diagnostic: last dACC bundle (for experiments).
+        self._dacc_last_bundle: Optional[Dict[str, Any]] = None
+        self._dacc_last_bias: Optional[torch.Tensor] = None
 
         # MECH-165: episode trajectory recording for exploration buffer
         self._episode_world_states: List[torch.Tensor] = []
@@ -236,6 +298,13 @@ class REEAgent(nn.Module):
         self.beta_gate.reset()
         self.serotonin.reset()
         self._pe_ema = 0.0
+        # SD-032b: clear dACC state + previous-step harm_a cache.
+        self._harm_a_prev = None
+        self._harm_a_pred_prev = None
+        self._dacc_last_bundle = None
+        self._dacc_last_bias = None
+        if self.dacc is not None:
+            self.dacc.reset()
 
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
@@ -395,6 +464,12 @@ class REEAgent(nn.Module):
         self._current_latent = new_latent.detach()
         # MECH-165: record state for exploration trajectory
         self._record_exploration_state()
+
+        # MECH-258 / SD-032b: cache current z_harm_a so the next step's dACC
+        # computation has access to both z_harm_a_prev (input to E2_harm_a) and
+        # z_harm_a_current (realised target). Detached to avoid graph retention.
+        if new_latent.z_harm_a is not None:
+            self._harm_a_prev = new_latent.z_harm_a.detach().clone()
         return new_latent
 
     def sense_flat(self, observation: torch.Tensor) -> LatentState:
@@ -596,12 +671,57 @@ class REEAgent(nn.Module):
         _goal_state_for_select = self.goal_state
         if _goal_inject > 0.0 and self.goal_state is not None:
             _goal_state_for_select = self.goal_state.with_injection(_goal_inject)
+
+        # SD-032b: compute dACC bundle + stopgap-adapter score bias before E3.select.
+        # The bundle reads the (precision-weighted) affective-pain PE from the last
+        # forward-model prediction, and mixes in per-candidate payoff/effort terms.
+        dacc_score_bias: Optional[torch.Tensor] = None
+        if self.dacc is not None and z_harm_a is not None:
+            # Per-candidate payoff proxy: negative of E3 running candidate score if
+            # available (lower score = better, so payoff = -score). Falls back to
+            # a zero payoff vector until E3 has run at least once.
+            K = len(candidates)
+            if self.e3.last_scores is not None and self.e3.last_scores.numel() == K:
+                payoffs = -self.e3.last_scores.detach().float()
+            else:
+                payoffs = torch.zeros(K, device=self.device)
+            # Per-candidate effort proxy: trajectory length / horizon. Future
+            # refinement (Croxson): harm-forward rollout cost.
+            effort = torch.tensor(
+                [float(c.actions.shape[1]) for c in candidates],
+                dtype=payoffs.dtype,
+                device=self.device,
+            )
+            # Action-class tags for MECH-260 suppression: argmax of first action.
+            action_classes = [
+                int(c.actions[0, 0].argmax().item()) for c in candidates
+            ]
+            # GoalState does not persist drive_level (it is passed per-update);
+            # for dACC coupling we read it off the last cached value or default 0.
+            drive_level = float(
+                getattr(self.goal_state, "_last_drive_level", 0.0)
+            ) if self.goal_state is not None else 0.0
+            bundle = self.dacc(
+                z_harm_a=z_harm_a.squeeze(0) if z_harm_a.dim() > 1 else z_harm_a,
+                z_harm_a_pred=self._harm_a_pred_prev,
+                candidate_payoffs=payoffs,
+                candidate_effort=effort,
+                candidate_action_classes=action_classes,
+                precision=float(self.e3.current_precision),
+                drive_level=drive_level,
+            )
+            self._dacc_last_bundle = bundle
+            if self.dacc_adapter is not None:
+                dacc_score_bias = self.dacc_adapter(bundle)
+                self._dacc_last_bias = dacc_score_bias.detach().clone()
+
         result = self.e3.select(
             candidates, temperature,
             goal_state=_goal_state_for_select,
             terrain_weight=self._cue_terrain_weight,
             sweep_threshold_reduction=sweep_reduction,
             z_harm_a=z_harm_a,
+            score_bias=dacc_score_bias,
         )
         action = result.selected_action
 
@@ -643,6 +763,32 @@ class REEAgent(nn.Module):
         self._last_action = action
         # MECH-165: record action for exploration trajectory
         self._record_exploration_action(action)
+
+        # MECH-258 / SD-032b: roll E2_harm_a forward for the chosen action, so
+        # the next step's dACC tick has a prediction to compute PE against.
+        if (
+            self.e2_harm_a is not None
+            and self._harm_a_prev is not None
+            and action is not None
+        ):
+            with torch.no_grad():
+                a_in = action if action.dim() > 1 else action.unsqueeze(0)
+                z_in = self._harm_a_prev
+                if z_in.dim() == 1:
+                    z_in = z_in.unsqueeze(0)
+                pred = self.e2_harm_a(z_in, a_in)
+                self._harm_a_pred_prev = pred.squeeze(0).detach().clone()
+
+        # MECH-260: record chosen action class in dACC recency history.
+        if self.dacc is not None and action is not None:
+            try:
+                a_row = action[0] if action.dim() > 1 else action
+                self.dacc.record_action(int(a_row.argmax().item()))
+            except Exception:
+                # One-hot discretisation fallback: hash raw action. Silent to
+                # preserve backward-compatible select_action control flow.
+                pass
+
         return action
 
     def act(

@@ -367,6 +367,98 @@ class HarmForwardModel(nn.Module):
         return self.forward_net(x)
 
 
+class HarmForwardTrunk(nn.Module):
+    """Shared hidden-representation substrate for harm forward models (ARC-058).
+
+    Implements the trunk half of the shared-trunk-plus-stream-specific-heads
+    architecture: takes (z_harm, action) -> hidden representation. One trunk
+    instance is shared between E2HarmSForward and E2HarmAForward when
+    REEConfig.use_shared_harm_trunk is True, so the same hidden substrate
+    serves both sensory-discriminative and affective streams.
+
+    Biological grounding (Horing & Buchel 2022 PLoS Biol): anterior insula
+    encodes a modality-independent unsigned prediction-error signal shared
+    across pain and non-pain aversive modalities; dorsal posterior insula
+    encodes modality-specific signed PE. The trunk models the shared
+    unsigned-PE substrate; stream-specific heads (HarmForwardHead) produce
+    the signed per-stream predictions. See
+    evidence/literature/targeted_review_pain_predictive_coding_substrate.
+
+    Architecturally identical to the first half of ResidualHarmForward. The
+    two cohabit in this module for backward compatibility: when the
+    shared-trunk flag is off, ResidualHarmForward runs unchanged.
+
+    Note: z_harm_dim here must match ALL streams' dimensions. When z_harm_s
+    and z_harm_a have different dims (they typically do -- 32 vs 16), the
+    shared-trunk path requires a common hidden dim. See experiment scripts
+    for the projection heads that reconcile mismatched stream dims.
+    """
+
+    def __init__(
+        self,
+        z_harm_dim: int = 32,
+        action_dim: int = 4,
+        hidden_dim: int = 128,
+        action_enc_dim: int = 16,
+    ):
+        super().__init__()
+        self.z_harm_dim = z_harm_dim
+        self.action_dim = action_dim
+        self.hidden_dim = hidden_dim
+        self.action_enc_dim = action_enc_dim
+        self.action_encoder = nn.Linear(action_dim, action_enc_dim)
+        # Single hidden layer, ReLU; produces the shared hidden representation.
+        self.hidden_net = nn.Sequential(
+            nn.Linear(z_harm_dim + action_enc_dim, hidden_dim),
+            nn.ReLU(),
+        )
+
+    def forward(self, z_harm: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        """Produce shared hidden representation.
+
+        Args:
+            z_harm: [batch, z_harm_dim] -- harm latent (sensory or affective)
+            action: [batch, action_dim] -- action taken
+
+        Returns:
+            hidden: [batch, hidden_dim] -- shared representation
+        """
+        action_enc = self.action_encoder(action)
+        return self.hidden_net(torch.cat([z_harm, action_enc], dim=-1))
+
+
+class HarmForwardHead(nn.Module):
+    """Stream-specific head for harm forward models (ARC-058).
+
+    Takes a shared hidden representation from HarmForwardTrunk and produces a
+    per-stream residual delta that is added to the input z_harm. Each stream
+    (sensory, affective) owns its own HarmForwardHead instance; the trunk is
+    shared when REEConfig.use_shared_harm_trunk is True.
+
+    Biological grounding: dorsal posterior insula / S1+S2 (sensory head) vs
+    ACC / pgACC (affective head) as modality-specific signed-PE consumers.
+    """
+
+    def __init__(self, hidden_dim: int = 128, z_harm_dim: int = 32):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.z_harm_dim = z_harm_dim
+        self.delta_net = nn.Linear(hidden_dim, z_harm_dim)
+
+    def forward(self, hidden: torch.Tensor, z_harm: torch.Tensor) -> torch.Tensor:
+        """Produce next-step prediction via residual delta.
+
+        Args:
+            hidden: [batch, hidden_dim] -- output of HarmForwardTrunk
+            z_harm: [batch, z_harm_dim] -- current z_harm (skip-connection input)
+
+        Returns:
+            z_harm_next: [batch, z_harm_dim] -- predicted next-step z_harm
+        """
+        delta = self.delta_net(hidden)
+        return z_harm + delta
+
+
 class ResidualHarmForward(nn.Module):
     """Residual forward model for z_harm_s (ARC-033 / SD-003).
     Predicts delta rather than absolute next state to avoid identity collapse
