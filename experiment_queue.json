@@ -59,7 +59,7 @@
       "script": "experiments/v3_exq_448_sd032e_pacc_autonomic.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 2,
       "seeds": 1,
       "conditions": 10,
@@ -67,7 +67,11 @@
         "SD-032e",
         "MECH-094"
       ],
-      "notes": "Substrate validation for SD-032e pACC-analog autonomic coupling (IMPLEMENTED 2026-04-19). SD-032e is non-trainable slow-EMA arithmetic, so validation is deterministic API + arithmetic checks plus a short agent rollout. C1 baseline_neutral: drive_bias within 1e-6 of 0 after 50 ticks at z_harm_a_norm=0. C2 sustained_drift_monotone: drive_bias strictly increasing across 100/500/2000 ticks at sustained z_harm_a_norm=0.8 (falsification-signature direct test -- Baliki 2012 chronic-pain accumulation). C3 gate_suppression: accumulation under write_gate=0.0 is <1% of accumulation under write_gate=1.0 (MECH-261 autonomic gate wiring). C4 hypothesis_tag_skip: MECH-094 hypothesis_tag=True blocks accumulation entirely (drive_bias unchanged after 500 tagged ticks). C5 cap_hold: drive_bias saturates at pacc_drive_bias_cap under extreme sustained input, never exceeds cap. C6 quiescence_reversibility: with z_harm_a_min=0.1 and sustained z_harm_a_norm=0.05, target=0 path exercised (drift stays near 0). C7 offline_decay_hook: note_offline_entry is no-op at offline_decay=0.0 (distinct-claim hook intact). C8 effective_drive_clipping: effective_drive(base) correctly clips to [0,1] under extreme drive_bias. C9 agent_integration: REEAgent select_action populates _pacc_last_tick AND goal_state._last_drive_level stores BASE drive (consumer-applies convention). C10 backward_compat: use_pacc_analog=False -> agent.pacc is None and all hooks no-op. PASS = all 10 checks. evidence_direction_per_claim: SD-032e tied to full pass; MECH-094 tied to C4 specifically. experiment_purpose=diagnostic."
+      "notes": "Substrate validation for SD-032e pACC-analog autonomic coupling (IMPLEMENTED 2026-04-19). SD-032e is non-trainable slow-EMA arithmetic, so validation is deterministic API + arithmetic checks plus a short agent rollout. C1 baseline_neutral: drive_bias within 1e-6 of 0 after 50 ticks at z_harm_a_norm=0. C2 sustained_drift_monotone: drive_bias strictly increasing across 100/500/2000 ticks at sustained z_harm_a_norm=0.8 (falsification-signature direct test -- Baliki 2012 chronic-pain accumulation). C3 gate_suppression: accumulation under write_gate=0.0 is <1% of accumulation under write_gate=1.0 (MECH-261 autonomic gate wiring). C4 hypothesis_tag_skip: MECH-094 hypothesis_tag=True blocks accumulation entirely (drive_bias unchanged after 500 tagged ticks). C5 cap_hold: drive_bias saturates at pacc_drive_bias_cap under extreme sustained input, never exceeds cap. C6 quiescence_reversibility: with z_harm_a_min=0.1 and sustained z_harm_a_norm=0.05, target=0 path exercised (drift stays near 0). C7 offline_decay_hook: note_offline_entry is no-op at offline_decay=0.0 (distinct-claim hook intact). C8 effective_drive_clipping: effective_drive(base) correctly clips to [0,1] under extreme drive_bias. C9 agent_integration: REEAgent select_action populates _pacc_last_tick AND goal_state._last_drive_level stores BASE drive (consumer-applies convention). C10 backward_compat: use_pacc_analog=False -> agent.pacc is None and all hooks no-op. PASS = all 10 checks. evidence_direction_per_claim: SD-032e tied to full pass; MECH-094 tied to C4 specifically. experiment_purpose=diagnostic.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-19T21:25:18.753611+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-325b",
