@@ -373,6 +373,82 @@ class CausalGridWorld:
         flat_obs = self._dict_to_flat(obs_dict)
         return flat_obs, obs_dict
 
+    def reset_to(
+        self,
+        agent_pos: Tuple[int, int],
+        hazard_positions: List[Tuple[int, int]],
+        resource_positions: Optional[List[Tuple[int, int]]] = None,
+    ) -> Tuple[torch.Tensor, Dict]:
+        """Deterministic reset for scripted-eval comparator harness (SD-029 / EXQ-433a).
+
+        Bypasses random placement; places agent/hazards/resources at provided coords.
+        Mirrors reset() state init except for placement. Landmarks (SD-023) are not
+        placed by this method (n_landmarks_a/b assumed 0 for scripted eval).
+        """
+        self.grid = np.zeros((self.size, self.size), dtype=np.int32)
+        if not self.toroidal:
+            self.grid[0, :] = self.ENTITY_TYPES["wall"]
+            self.grid[-1, :] = self.ENTITY_TYPES["wall"]
+            self.grid[:, 0] = self.ENTITY_TYPES["wall"]
+            self.grid[:, -1] = self.ENTITY_TYPES["wall"]
+
+        self.contamination_grid = np.zeros((self.size, self.size), dtype=np.float32)
+        self.footprint_grid = np.zeros((self.size, self.size), dtype=np.int32)
+
+        ax, ay = int(agent_pos[0]), int(agent_pos[1])
+        self.agent_x = ax
+        self.agent_y = ay
+        self.agent_health = 1.0
+        self.agent_energy = 1.0
+        self.grid[ax, ay] = self.ENTITY_TYPES["agent"]
+        self._last_action = 4
+
+        self.hazards = []
+        for hx, hy in hazard_positions:
+            hx, hy = int(hx), int(hy)
+            if (hx, hy) == (ax, ay):
+                continue
+            self.grid[hx, hy] = self.ENTITY_TYPES["hazard"]
+            self.hazards.append([hx, hy])
+
+        self.resources = []
+        if resource_positions:
+            for rx, ry in resource_positions:
+                rx, ry = int(rx), int(ry)
+                if self.grid[rx, ry] != self.ENTITY_TYPES["empty"]:
+                    continue
+                self.grid[rx, ry] = self.ENTITY_TYPES["resource"]
+                self.resources.append([rx, ry])
+
+        self.waypoints = []
+        self._next_waypoint_idx = 0
+        self._sequence_in_progress = False
+        self._sequence_step = 0
+        self._steps_since_waypoint = 0
+        self._sequences_completed = 0
+
+        self.steps = 0
+        self.total_harm = 0.0
+        self.total_benefit = 0.0
+
+        self.harm_exposure = 0.0
+        self.benefit_exposure = 0.0
+        self.hazard_field = np.zeros((self.size, self.size), dtype=np.float32)
+        self.resource_field = np.zeros((self.size, self.size), dtype=np.float32)
+        if self.limb_damage_enabled:
+            self.limb_damage[:] = 0.0
+        if self.use_proxy_fields:
+            self._compute_proximity_fields()
+
+        self.landmark_a_positions = []
+        self.landmark_b_positions = []
+        self._landmark_a_field = np.zeros((self.size, self.size), dtype=np.float32)
+        self._landmark_b_field = np.zeros((self.size, self.size), dtype=np.float32)
+
+        obs_dict = self._get_observation_dict()
+        flat_obs = self._dict_to_flat(obs_dict)
+        return flat_obs, obs_dict
+
     # ------------------------------------------------------------------ #
     # Step                                                                 #
     # ------------------------------------------------------------------ #
