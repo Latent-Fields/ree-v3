@@ -18,13 +18,18 @@ Currently implements:
     signals into a soft operating-mode probability vector and a discrete
     mode-switch trigger. Hosts the MECH-261 dict-keyed write-gate
     registry. Reads slots for SD-032c/d/e signals (no-op until those land).
+  - AICAnalog (SD-032c): anterior-insula-analog interoceptive-salience /
+    urgency-interrupt module. Emits aic_salience (fed to the coordinator
+    as the urgency-trigger source per MECH-259) and harm_s_gain (which
+    subsumes SD-021 descending pain modulation: z_harm_s attenuation now
+    gated on operating_mode + drive_level rather than raw beta_gate).
 
 Future SD-032 siblings (not implemented here):
-  SD-032c  AIC-analog interoceptive-salience / urgency interrupt
   SD-032d  PCC-analog attention partition / metastability
   SD-032e  pACC-analog autonomic write-back to SD-012
 """
 
+from ree_core.cingulate.aic_analog import AICAnalog, AICConfig
 from ree_core.cingulate.dacc import (
     DACCAdaptiveControl,
     DACCConfig,
@@ -38,6 +43,8 @@ from ree_core.cingulate.salience_coordinator import (
 )
 
 __all__ = [
+    "AICAnalog",
+    "AICConfig",
     "DACCAdaptiveControl",
     "DACCConfig",
     "DACCtoE3Adapter",

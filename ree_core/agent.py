@@ -51,6 +51,8 @@ from ree_core.heartbeat.beta_gate import BetaGate
 from ree_core.neuromodulation.serotonin import SerotoninModule
 from ree_core.predictors.e2_harm_a import E2HarmAConfig, E2HarmAForward
 from ree_core.cingulate import (
+    AICAnalog,
+    AICConfig,
     DACCAdaptiveControl,
     DACCConfig,
     DACCtoE3Adapter,
@@ -206,6 +208,26 @@ class REEAgent(nn.Module):
         # Cache of last coordinator tick output (for diagnostics / experiments).
         self._salience_last_tick: Optional[Dict[str, object]] = None
 
+        # SD-032c: AIC-analog interoceptive-salience / urgency module.
+        # Emits aic_salience -> salience coordinator and harm_s_gain ->
+        # descending z_harm_s attenuation path (subsumes SD-021 raw beta_gate
+        # check). Reads operating_mode from the coordinator's previous tick
+        # (one-step lag is biologically plausible; AIC->dACC->SAL is a circuit,
+        # not instantaneous).
+        self.aic: Optional[AICAnalog] = None
+        if getattr(config, "use_aic_analog", False):
+            aic_cfg = AICConfig(
+                baseline_alpha=config.aic_baseline_alpha,
+                drive_coupling=config.aic_drive_coupling,
+                urgency_threshold=config.aic_urgency_threshold,
+                base_attenuation=config.aic_base_attenuation,
+                drive_protect_weight=config.aic_drive_protect_weight,
+                extra_weight=config.aic_extra_weight,
+            )
+            self.aic = AICAnalog(aic_cfg)
+        # Cache of last AIC tick output (for diagnostics / experiments).
+        self._aic_last_tick: Optional[Dict[str, float]] = None
+
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
         self.body_obs_encoder = nn.Sequential(
@@ -335,6 +357,11 @@ class REEAgent(nn.Module):
             self.salience.reset()
         self._salience_last_tick = None
 
+        # SD-032c: reset AIC-analog interoceptive baseline.
+        if self.aic is not None:
+            self.aic.reset()
+        self._aic_last_tick = None
+
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
         if not self.config.replay_diversity_enabled:
@@ -452,21 +479,61 @@ class REEAgent(nn.Module):
             harm_history=obs_harm_history,  # SD-011 second source (None = disabled)
             volatility_signal=vol_signal,
         )
+        # SD-032c: tick the AIC-analog interoceptive-salience module.
+        # Reads z_harm_a_norm + drive_level + beta_gate_elevated + the
+        # coordinator's previous operating_mode readout. Produces aic_salience
+        # (fed to the coordinator below in select_action) and harm_s_gain
+        # (descending attenuation multiplier that subsumes the raw SD-021
+        # beta_gate check).
+        if self.aic is not None:
+            if new_latent.z_harm_a is not None:
+                aic_z_norm = float(new_latent.z_harm_a.norm().item())
+            else:
+                aic_z_norm = 0.0
+            aic_drive = 0.0
+            if self.goal_state is not None:
+                aic_drive = float(getattr(self.goal_state, "_last_drive_level", 0.0))
+            aic_op_mode = None
+            if self.salience is not None:
+                aic_op_mode = self.salience.operating_mode
+            self._aic_last_tick = self.aic.tick(
+                z_harm_a_norm=aic_z_norm,
+                drive_level=aic_drive,
+                beta_gate_elevated=self.beta_gate.is_elevated,
+                operating_mode=aic_op_mode,
+            )
+
         # SD-021: descending pain modulation (commitment-gated sensory harm attenuation).
-        # When beta_gate is elevated (E3 committed to a trajectory through expected harm),
-        # attenuate z_harm (sensory-discriminative stream) by descending_attenuation_factor.
-        # Biological basis: pgACC -> PAG -> RVM descending inhibitory pathway provides
-        # endogenous analgesia during committed escape/approach (Basbaum 1984, Keltner 2006).
-        # z_harm_a is NOT attenuated: affective load (C-fiber) persists regardless of
-        # commitment -- you can tolerate expected pain but it still matters motivationally.
+        # When harm_descending_mod_enabled=True, attenuate z_harm (sensory-discriminative
+        # stream) before it reaches E3 / E2_harm_s. z_harm_a is NOT attenuated: affective
+        # load (C-fiber) persists regardless of commitment -- you can tolerate expected
+        # pain but it still matters motivationally.
+        #
+        # Two gating paths (selected by use_aic_analog):
+        #   use_aic_analog=True  -- multiplier is self.aic.harm_s_gain (drive- and
+        #     operating-mode-gated). This is the SD-032c-subsumed path -- resolves the
+        #     EXQ-325a FAIL by making the descending branch a genuinely different
+        #     function of state (not a redundant beta_gate flag).
+        #   use_aic_analog=False -- legacy path: if beta_gate is elevated, multiplier is
+        #     config.descending_attenuation_factor; otherwise 1.0.
+        #
+        # Biological basis: pgACC / AIC -> PAG -> RVM descending inhibitory pathway
+        # provides endogenous analgesia during committed escape/approach (Basbaum 1984,
+        # Keltner 2006). The AIC-gated routing is the biologically correct one
+        # (Craig 2009 AIC as interoceptive-salience hub with descending efferents);
+        # the legacy raw-beta_gate routing is retained for backward compatibility.
         # MECH-094: applies to waking observation stream (not replay content).
         if (
             getattr(self.config, "harm_descending_mod_enabled", False)
-            and self.beta_gate.is_elevated
             and new_latent.z_harm is not None
         ):
-            attn = getattr(self.config, "descending_attenuation_factor", 0.5)
-            new_latent.z_harm = new_latent.z_harm * attn
+            if self.aic is not None:
+                attn = float(self.aic.harm_s_gain)
+                if attn < 1.0:
+                    new_latent.z_harm = new_latent.z_harm * attn
+            elif self.beta_gate.is_elevated:
+                attn = getattr(self.config, "descending_attenuation_factor", 0.5)
+                new_latent.z_harm = new_latent.z_harm * attn
 
         # SD-014 h-component: write post-attenuation z_harm_s norm to VALENCE_HARM_DISCRIMINATIVE.
         # Using the post-attenuation value means SD-021 commitment gating automatically produces
@@ -755,6 +822,12 @@ class REEAgent(nn.Module):
             ) if self.goal_state is not None else 0.0
             sal_offline = bool(getattr(self.e1, "_offline_mode", False))
             sal_bundle = self._dacc_last_bundle  # may be None if dACC is off
+            # SD-032c: inject AIC salience into the coordinator BEFORE tick so
+            # the MECH-259 urgency-trigger source is live on this cycle.
+            if self.aic is not None:
+                self.salience.update_signal(
+                    "aic_salience", float(self.aic.aic_salience)
+                )
             self._salience_last_tick = self.salience.tick(
                 dacc_bundle=sal_bundle,
                 drive_level=sal_drive,

@@ -622,6 +622,49 @@ class REEConfig:
     # compatible (dACC bias unaffected).
     salience_apply_to_dacc_bias: bool = False
 
+    # SD-032c: AIC-analog interoceptive-salience / urgency module.
+    # Master switch -- when True, REEAgent instantiates an AICAnalog that
+    # reads z_harm_a_norm + drive_level + beta_gate_elevated + operating_mode
+    # (from the SD-032a coordinator's previous tick) and emits:
+    #   aic_salience  -- fed to the coordinator via update_signal() as the
+    #                    MECH-259 urgency-trigger source.
+    #   harm_s_gain   -- drive- and mode-gated multiplier on z_harm_s that
+    #                    REPLACES the raw beta_gate.is_elevated check in the
+    #                    SD-021 descending pain-modulation path. This is the
+    #                    subsumption rerouting -- SD-021 continues to live
+    #                    behind harm_descending_mod_enabled but now routes
+    #                    through the AIC gain when use_aic_analog=True.
+    # False = disabled (default, backward compat).
+    use_aic_analog: bool = False
+    # EMA alpha for the interoceptive baseline on z_harm_a_norm. ~50-step
+    # window matches MECH-205 pe_ema_alpha convention.
+    aic_baseline_alpha: float = 0.02
+    # drive_coupling: how strongly SD-012 drive_level scales aic_salience.
+    # aic_salience = urgency_ratio * (1 + drive_coupling * drive_level)
+    # Non-zero is REQUIRED for the SD-032c falsification signature (same
+    # z_harm_a -> different mode-switch behaviour across drive regimes).
+    aic_drive_coupling: float = 1.0
+    # urgency_threshold: diagnostic threshold on aic_salience for the
+    # urgency_signal flag (reporting only; coordinator's switch_threshold
+    # is the authoritative MECH-259 trigger).
+    aic_urgency_threshold: float = 1.0
+    # base_attenuation: maximum descending attenuation of z_harm_s when the
+    # agent is in fully committed external_task with no drive protection.
+    # Matches the historical descending_attenuation_factor=0.5 default.
+    aic_base_attenuation: float = 0.5
+    # drive_protect_weight: alterable-configuration knob flagged in the
+    # SD-032c spec. drive_protect = max(0, 1 - drive_protect_weight * drive).
+    #  +1.0 (default): depleted agent -> no attenuation (preserve harm
+    #    signal for the struggling agent, so SD-032c can still trigger).
+    #   0.0: drive-independent attenuation (pure legacy SD-021 reading).
+    #  -1.0: depleted agent -> more attenuation (opposite-sign reading,
+    #    testable alternative).
+    aic_drive_protect_weight: float = 1.0
+    # Uniform weight on optional extra salient-event signals passed to
+    # AICAnalog.tick(extra_salient=...) -- unexpected z_goal drop, reward
+    # surprise, irreversibility. Zero = no-op (default).
+    aic_extra_weight: float = 0.0
+
     @classmethod
     def from_dims(
         cls,
@@ -733,6 +776,14 @@ class REEConfig:
         salience_dacc_pe_weight: float = 1.0,
         salience_dacc_foraging_weight: float = 0.5,
         salience_apply_to_dacc_bias: bool = False,
+        # SD-032c: AIC-analog interoceptive-salience / urgency
+        use_aic_analog: bool = False,
+        aic_baseline_alpha: float = 0.02,
+        aic_drive_coupling: float = 1.0,
+        aic_urgency_threshold: float = 1.0,
+        aic_base_attenuation: float = 0.5,
+        aic_drive_protect_weight: float = 1.0,
+        aic_extra_weight: float = 0.0,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -915,6 +966,15 @@ class REEConfig:
         config.salience_dacc_pe_weight = salience_dacc_pe_weight
         config.salience_dacc_foraging_weight = salience_dacc_foraging_weight
         config.salience_apply_to_dacc_bias = salience_apply_to_dacc_bias
+
+        # SD-032c: AIC-analog interoceptive-salience / urgency
+        config.use_aic_analog = use_aic_analog
+        config.aic_baseline_alpha = aic_baseline_alpha
+        config.aic_drive_coupling = aic_drive_coupling
+        config.aic_urgency_threshold = aic_urgency_threshold
+        config.aic_base_attenuation = aic_base_attenuation
+        config.aic_drive_protect_weight = aic_drive_protect_weight
+        config.aic_extra_weight = aic_extra_weight
 
         return config
 
