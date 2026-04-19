@@ -188,6 +188,28 @@
         "machine": "ree-cloud-2",
         "claimed_at": "2026-04-19T06:26:48.092782+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-433a",
+      "title": "SD-029 single-pass comparator -- scripted-eval protocol (fixes EXQ-433 event-distribution collapse)",
+      "experiment_type": "v3_exq_433a_sd029_eventcond_comparator_scripted",
+      "script": "experiments/v3_exq_433a_sd029_eventcond_comparator_scripted.py",
+      "priority": 45,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 120,
+      "seeds": 4,
+      "conditions": 1,
+      "claim_ids": [
+        "SD-029",
+        "MECH-256"
+      ],
+      "supersedes": "V3-EXQ-433",
+      "notes": "Decouples evaluation from behavioural sample frequency. P0+P1 training unchanged from EXQ-433 (SD-013 interventional fraction=0.5). P2 replaced with scripted trial harness using new CausalGridWorldV2.reset_to() deterministic placement: 30 forced-action trials per event type, guaranteed balance by construction. Addresses EXQ-433 non_contributory FAIL where policy-mode collapse (seed 91: 303 agent/0 env; seeds 13/42: ~91-114 env / 1-2 agent) made C2/C3 uninterpretable despite MECH-256 C1 forward_r2=0.983-0.9998 being clean.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-19T16:19:27.612133+00:00"
+      }
     }
   ]
 }
