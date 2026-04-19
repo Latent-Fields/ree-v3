@@ -185,8 +185,8 @@
       "supersedes": "V3-EXQ-325a",
       "notes": "V3-EXQ-325a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac.",
       "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-18T21:29:20.686690+00:00"
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-19T04:57:09.372755+00:00"
       }
     },
     {
