@@ -210,6 +210,26 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-04-19T16:19:27.612133+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-445",
+      "title": "SD-032b dACC-analog adaptive control validation -- 3-arm ablation (OFF / ON-independent / ON-shared-trunk)",
+      "experiment_type": "v3_exq_445_sd032b_dacc_analog",
+      "script": "experiments/v3_exq_445_sd032b_dacc_analog.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_ids": [
+        "SD-032b",
+        "MECH-258",
+        "MECH-260",
+        "ARC-033",
+        "ARC-058"
+      ],
+      "notes": "Substrate validation for SD-032b dACC-analog (IMPLEMENTED 2026-04-19). Three-arm phased-training ablation: OFF (dACC disabled) / ON_INDEPENDENT (ARC-033 per-stream E2_harm_a) / ON_SHARED (ARC-058 shared HarmForwardTrunk). Phased P0 (50 eps encoder warmup) + P1 (100 eps frozen-encoder E2_harm_a training with .detach()ed targets) + P2 (30 eps eval). C1 MECH-258 both ON arms harm_a_forward_r2 >= 0.3 in >=2/3 seeds. C2 SD-032b dACC routing produces |entropy_on - entropy_off| >= 0.1 nats in either ON arm. C3 MECH-260 ON entropy >= OFF entropy in >=2/3 seeds (no diversity collapse). C4 DIAGNOSTIC: ARC-033 vs ARC-058 forward_r2 comparison informs governance arbitration but never fails run. experiment_purpose=diagnostic: substrate readiness gate, not yet governance evidence."
     }
   ]
 }

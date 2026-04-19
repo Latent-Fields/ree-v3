@@ -52,7 +52,7 @@ SCRIPT_TIMING_FILE = REPO_ROOT / "script_timing.json"
 # Auto-detect REE_assembly runner_status directory (per-machine files)
 _REE_ASSEMBLY_STATUS_DIRS = [
     REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments" / "runner_status",
-    Path.home() / "Documents" / "GitHub" / "REE_Working" / "REE_assembly" / "evidence" / "experiments" / "runner_status",
+    Path.home() / "REE_Working" / "REE_assembly" / "evidence" / "experiments" / "runner_status",
 ]
 
 STATUS_WRITE_INTERVAL = 5
@@ -77,7 +77,7 @@ def find_ree_assembly_path() -> Path | None:
     """Locate the REE_assembly repo (for git auto-sync pushes)."""
     candidates = [
         REPO_ROOT.parent / "REE_assembly",
-        Path.home() / "Documents" / "GitHub" / "REE_Working" / "REE_assembly",
+        Path.home() / "REE_Working" / "REE_assembly",
     ]
     for c in candidates:
         if c.is_dir() and (c / "evidence" / "experiments").is_dir():
