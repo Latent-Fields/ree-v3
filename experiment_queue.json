@@ -190,28 +190,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-430b",
-      "title": "INV-010 offline integration necessity (EWIN-PC WinError 5 requeue)",
-      "experiment_type": "v3_exq_430_inv010_offline_integration_necessity",
-      "script": "experiments/v3_exq_430_inv010_offline_integration_necessity.py",
-      "priority": 20,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 45,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "INV-010"
-      ],
-      "backlog_id": "EVB-0071",
-      "supersedes": "V3-EXQ-430a",
-      "notes": "V3-EXQ-430a errored on EWIN-PC after 330s with [WinError 5] Access is denied on runner_status atomic rename (Windows file-lock). Experiment actually ran; status-write failed. Re-queued on Mac; script unchanged.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-19T11:48:32.565219+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-397b",
       "title": "ARC-007 path memory ablation (EWIN-PC Ctrl+C requeue)",
       "experiment_type": "v3_exq_397_arc007_path_memory_ablation",
