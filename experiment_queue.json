@@ -38,7 +38,7 @@
       "script": "experiments/v3_exq_446_sd032a_salience_coordinator.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 25,
       "seeds": 2,
       "conditions": 2,
@@ -47,7 +47,11 @@
         "MECH-259",
         "MECH-261"
       ],
-      "notes": "Substrate validation for SD-032a salience-network coordinator (IMPLEMENTED 2026-04-19). 2-arm ablation (COORD_OFF / COORD_ON with salience_apply_to_dacc_bias=True) x 2 seeds (42, 7), 6 episodes x 80 steps each. Plus deterministic API-level unit checks. C1 ON-arm operating_mode entropy > 0.05 nats (coordinator emits non-degenerate distribution). C2 MECH-259 synthetic pe=10.0 injection fires mode_switch_trigger and shifts argmax to internal_planning. C3 MECH-261 all 8 default write-gates (sd_033a..d, hc_viability, sensory_buffer, autonomic, e3_policy) in [0, 1]. C4 V4 extensibility: register_target() accepts new mode key (parallel_goal_deliberation) without schema changes. C5 backward compat: |entropy_on - entropy_off| <= 0.2 nats with default coordinator weights. experiment_purpose=diagnostic: substrate readiness, not yet governance evidence. SD-032a stays v3_pending until SD-032c/d/e land."
+      "notes": "Substrate validation for SD-032a salience-network coordinator (IMPLEMENTED 2026-04-19). 2-arm ablation (COORD_OFF / COORD_ON with salience_apply_to_dacc_bias=True) x 2 seeds (42, 7), 6 episodes x 80 steps each. Plus deterministic API-level unit checks. C1 ON-arm operating_mode entropy > 0.05 nats (coordinator emits non-degenerate distribution). C2 MECH-259 synthetic pe=10.0 injection fires mode_switch_trigger and shifts argmax to internal_planning. C3 MECH-261 all 8 default write-gates (sd_033a..d, hc_viability, sensory_buffer, autonomic, e3_policy) in [0, 1]. C4 V4 extensibility: register_target() accepts new mode key (parallel_goal_deliberation) without schema changes. C5 backward compat: |entropy_on - entropy_off| <= 0.2 nats with default coordinator weights. experiment_purpose=diagnostic: substrate readiness, not yet governance evidence. SD-032a stays v3_pending until SD-032c/d/e land.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-19T21:23:07.695315+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-447",
