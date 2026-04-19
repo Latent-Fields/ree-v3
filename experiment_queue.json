@@ -8,29 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-433",
-      "title": "SD-029 event-conditioned single-pass comparator (successor to SD-003)",
-      "experiment_type": "v3_exq_433_sd029_eventcond_comparator",
-      "script": "experiments/v3_exq_433_sd029_eventcond_comparator.py",
-      "priority": 60,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 160,
-      "episodes_per_run": 180,
-      "seeds": 4,
-      "conditions": 1,
-      "claim_ids": [
-        "SD-029",
-        "MECH-256"
-      ],
-      "backlog_id": "EXP-0146",
-      "notes": "First V3 test of SD-029 (single-pass z_harm_s comparator, successor to SD-003). residual = z_harm_s_observed - E2_harm_s(z_harm_s_{t-1}, a_actual); no counterfactual branch. P0(80)+P1(100) training; P2 base 100 eps with density-controlled extensions up to 200 eps until >=20 env_caused_hazard AND >=20 agent_caused_hazard per seed (fixes EXQ-431 sample starvation). SD-013 interventional training fraction=0.5. C1: forward_r2>=0.9. C2: self/ext residual ratio in [0.3,0.7] (Shergill partial-attenuation). C3: approach SNR>3.0. C4: density floor. PASS: all four in >=3/4 seeds. Smoke test passed on Mac 2026-04-18.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-04-19T01:35:22.165034+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-326",
       "title": "Wanting-gradient navigation fix (EXQ-259 fix): SD-015, MECH-216, SD-012",
       "experiment_type": "v3_exq_326_wanting_gradient_nav_fix",
