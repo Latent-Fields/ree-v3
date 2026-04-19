@@ -214,7 +214,7 @@
       "script": "experiments/v3_exq_429_inv044_bayesian_prior_before_posterior.py",
       "priority": 40,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "seeds": 3,
       "conditions": 3,
@@ -223,7 +223,11 @@
       ],
       "backlog_id": "EVB-0060",
       "supersedes": "V3-EXQ-429a",
-      "notes": "V3-EXQ-429a consumed by EWIN-PC 2026-04-18T06:19Z; status push was lost. NOTE: flat JSON 20260418T075824Z_v3.json exists in evidence dir with PASS/supports verdict -- may be from 429a run. Re-running as 429b for confirmation; governance can mark orphan file superseded if 429b confirms."
+      "notes": "V3-EXQ-429a consumed by EWIN-PC 2026-04-18T06:19Z; status push was lost. NOTE: flat JSON 20260418T075824Z_v3.json exists in evidence dir with PASS/supports verdict -- may be from 429a run. Re-running as 429b for confirmation; governance can mark orphan file superseded if 429b confirms.",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-04-19T06:26:48.092782+00:00"
+      }
     }
   ]
 }
