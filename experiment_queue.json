@@ -60,7 +60,7 @@
       "script": "experiments/v3_exq_447_sd032d_pcc_stability.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 2,
       "seeds": 1,
       "conditions": 8,
@@ -68,7 +68,11 @@
         "SD-032d",
         "MECH-259"
       ],
-      "notes": "Substrate validation for SD-032d PCC-analog (IMPLEMENTED 2026-04-19). SD-032d is non-trainable arithmetic, so primary validation is deterministic API + arithmetic checks. C1 baseline_neutral: stability within 0.01 of baseline=0.5 with all-neutral inputs. C2 fatigue_monotone: stability strictly decreasing across drive_level 0.0/0.5/1.0 (falsification-signature direct test). C3 offline_recency_monotone: stability decreasing as steps_since_offline grows 0/250/500/1000 (saturates at window). C4 offline_reset_hook: note_offline_entry resets counter + restores stability. C5 success_ema_convergence: ema > 0.95 after 200 outcomes at alpha=0.02. C6 threshold_modulation: SalienceCoordinator effective_threshold strictly increasing in pcc_stability across 0.1/0.5/0.9 (MECH-259 wiring confirmed). C7 agent_integration: REEAgent select_action populates _pcc_last_tick AND injects pcc_stability into coordinator before tick. C8 backward_compat: use_pcc_analog=False -> agent.pcc is None and convenience hooks no-op. PASS = all 8 checks. Behavioural falsification of rest-driven mode-switch-rate signature requires combined SD-032a+SD-032c+SD-032d 4-arm 2x2 follow-up once cluster fully landed. experiment_purpose=diagnostic."
+      "notes": "Substrate validation for SD-032d PCC-analog (IMPLEMENTED 2026-04-19). SD-032d is non-trainable arithmetic, so primary validation is deterministic API + arithmetic checks. C1 baseline_neutral: stability within 0.01 of baseline=0.5 with all-neutral inputs. C2 fatigue_monotone: stability strictly decreasing across drive_level 0.0/0.5/1.0 (falsification-signature direct test). C3 offline_recency_monotone: stability decreasing as steps_since_offline grows 0/250/500/1000 (saturates at window). C4 offline_reset_hook: note_offline_entry resets counter + restores stability. C5 success_ema_convergence: ema > 0.95 after 200 outcomes at alpha=0.02. C6 threshold_modulation: SalienceCoordinator effective_threshold strictly increasing in pcc_stability across 0.1/0.5/0.9 (MECH-259 wiring confirmed). C7 agent_integration: REEAgent select_action populates _pcc_last_tick AND injects pcc_stability into coordinator before tick. C8 backward_compat: use_pcc_analog=False -> agent.pcc is None and convenience hooks no-op. PASS = all 8 checks. Behavioural falsification of rest-driven mode-switch-rate signature requires combined SD-032a+SD-032c+SD-032d 4-arm 2x2 follow-up once cluster fully landed. experiment_purpose=diagnostic.",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-04-19T21:23:12.981276+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-325b",
