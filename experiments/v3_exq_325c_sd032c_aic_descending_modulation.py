@@ -1,6 +1,6 @@
 #!/opt/local/bin/python3
 """
-V3-EXQ-325b: SD-032c AIC-Analog -- Operating-Mode + Drive-Dependent Descending Modulation
+V3-EXQ-325c: SD-032c AIC-Analog -- Operating-Mode + Drive-Dependent Descending Modulation
 
 experiment_purpose: evidence
 
@@ -75,7 +75,7 @@ from ree_core.latent.stack import HarmEncoder, AffectiveHarmEncoder
 from ree_core.utils.config import REEConfig
 
 
-EXPERIMENT_TYPE = "v3_exq_325b_sd032c_aic_descending_modulation"
+EXPERIMENT_TYPE = "v3_exq_325c_sd032c_aic_descending_modulation"
 CLAIM_IDS = ["SD-032c", "SD-021"]
 
 C2_threshold = 0.3
@@ -415,10 +415,10 @@ def main():
 
     timestamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     run_id = (
-        "v3_exq_325b_sd032c_aic_descending_modulation_dry" if args.dry_run
-        else f"v3_exq_325b_sd032c_aic_descending_modulation_{timestamp}_v3"
+        "v3_exq_325c_sd032c_aic_descending_modulation_dry" if args.dry_run
+        else f"v3_exq_325c_sd032c_aic_descending_modulation_{timestamp}_v3"
     )
-    print(f"EXQ-325b start: {run_id}")
+    print(f"EXQ-325c start: {run_id}")
 
     seeds_to_run = SEEDS[:1] if args.dry_run else SEEDS
     per_seed = [run_seed(s, dry_run=args.dry_run) for s in seeds_to_run]
@@ -426,7 +426,7 @@ def main():
     experiment_passes = seeds_passing >= PASS_MIN_SEEDS
     outcome = "PASS" if experiment_passes else "FAIL"
 
-    print(f"\n=== EXQ-325b {outcome} ===")
+    print(f"\n=== EXQ-325c {outcome} ===")
     print(f"Seeds pass: {seeds_passing}/{len(seeds_to_run)}")
     for r in per_seed:
         s = "PASS" if r["seed_pass"] else "FAIL"

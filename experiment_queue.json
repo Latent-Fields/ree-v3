@@ -53,10 +53,10 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-325b",
-      "title": "SD-032c AIC-analog operating-mode + drive-dependent descending modulation -- 4-arm retest of EXQ-325a",
-      "experiment_type": "v3_exq_325b_sd032c_aic_descending_modulation",
-      "script": "experiments/v3_exq_325b_sd032c_aic_descending_modulation.py",
+      "queue_id": "V3-EXQ-325c",
+      "title": "SD-032c AIC-analog operating-mode + drive-dependent descending modulation -- 4-arm retest of EXQ-325a (renamed from 325b; 325b already used for SD-021 retest)",
+      "experiment_type": "v3_exq_325c_sd032c_aic_descending_modulation",
+      "script": "experiments/v3_exq_325c_sd032c_aic_descending_modulation.py",
       "priority": 55,
       "machine_affinity": "any",
       "status": "pending",
