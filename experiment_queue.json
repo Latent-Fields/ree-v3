@@ -147,26 +147,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-325b",
-      "title": "SD-021 descending pain modulation retest: E2 world-forward training addon (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_325a_sd021_descending_pain_modulation",
-      "script": "experiments/v3_exq_325a_sd021_descending_pain_modulation.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 150,
-      "seeds": 5,
-      "claim_ids": [
-        "SD-021"
-      ],
-      "supersedes": "V3-EXQ-325a",
-      "notes": "V3-EXQ-325a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-19T04:57:09.372755+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-355b",
       "title": "ARC-038 schema assimilation probe: optimizer isolation fix (EWIN-PC requeue)",
       "experiment_type": "v3_exq_355a_arc038_schema_assimilation_probe",
