@@ -218,7 +218,7 @@
       "script": "experiments/v3_exq_397_arc007_path_memory_ablation.py",
       "priority": 20,
       "machine_affinity": "ree-cloud-1",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "seeds": 3,
       "conditions": 3,
@@ -227,7 +227,11 @@
         "SD-004"
       ],
       "supersedes": "V3-EXQ-397a",
-      "notes": "V3-EXQ-397a terminated on EWIN-PC after ~3h with exit 3221225786 (STATUS_CONTROL_C_EXIT). Process killed (reboot / manual stop), not a code crash. Re-queued on ree-cloud-1 (avoid tying up Mac for a 3h run); script unchanged."
+      "notes": "V3-EXQ-397a terminated on EWIN-PC after ~3h with exit 3221225786 (STATUS_CONTROL_C_EXIT). Process killed (reboot / manual stop), not a code crash. Re-queued on ree-cloud-1 (avoid tying up Mac for a 3h run); script unchanged.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-19T11:49:50.874728+00:00"
+      }
     }
   ]
 }
