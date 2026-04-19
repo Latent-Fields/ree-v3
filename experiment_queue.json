@@ -217,14 +217,18 @@
       "script": "experiments/v3_exq_406_inv053_depression_attractor_replication.py",
       "priority": 40,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "seeds": 5,
       "claim_ids": [
         "INV-053"
       ],
       "supersedes": "V3-EXQ-406a",
-      "notes": "V3-EXQ-406a consumed by EWIN-PC 2026-04-18T04:10Z; status push was lost to runner bug (fixed in f37cfbd). No evidence file recovered. Re-running as 406b."
+      "notes": "V3-EXQ-406a consumed by EWIN-PC 2026-04-18T04:10Z; status push was lost to runner bug (fixed in f37cfbd). No evidence file recovered. Re-running as 406b.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-19T05:48:07.930782+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-429b",
