@@ -697,6 +697,40 @@ class REEConfig:
     # contributions zero, stability=0.5 (neutral metastability).
     pcc_stability_baseline: float = 0.5
 
+    # SD-032e: pACC-analog slow autonomic write-back.
+    # Master switch -- when True, REEAgent instantiates a PACCAnalog that
+    # accumulates tanh-normalised z_harm_a magnitude into a bounded
+    # drive_bias, gated by coordinator.write_gate("autonomic") (MECH-261
+    # mode-conditioned: active in external_task, attenuated in planning /
+    # replay / offline). drive_bias is then added to the base drive_level
+    # passed to GoalState.update(), SalienceCoordinator.tick(), AICAnalog,
+    # and PCCAnalog. Biological architectural path for chronic-pain-like
+    # sensitisation (Baliki 2012) compressed into the V3 drive_level proxy.
+    # False = disabled (default, backward compat).
+    use_pacc_analog: bool = False
+    # EMA alpha for the drive_bias accumulator. 0.002 ~ 347-step half-life,
+    # multi-episode accumulation per Guo 2018 days-timescale ACC mGluR5 LTP.
+    # Faster alphas (>=0.01) are "fast end of biological plausibility" per
+    # the SD-032e scoping lit-pull -- only use them for diagnostic probes.
+    pacc_drive_alpha: float = 0.002
+    # Scale on the tanh-normalised z_harm_a target before accumulation.
+    # 1.0 = full range; <1.0 attenuates the write magnitude.
+    pacc_drive_scale: float = 1.0
+    # Symmetric cap |drive_bias| <= this. Prevents runaway sensitisation.
+    # 0.5 = can shift drive_level by up to +/-0.5 when effective_drive is
+    # evaluated (then re-clipped to [0, 1]).
+    pacc_drive_bias_cap: float = 0.5
+    # Below this z_harm_a norm, the target is treated as zero (Guo 2018
+    # reversibility -- no write in the absence of sustained affective input).
+    pacc_z_harm_a_min: float = 0.0
+    # Fractional decay on drive_bias per note_offline_entry() call. Default
+    # 0.0 = NO offline decay (pACC accumulator is persistent across sleep).
+    # A non-zero value instantiates a DISTINCT sleep-recalibration claim
+    # that the SD-032e scoping lit-pull flagged as not yet grounded in
+    # separate literature -- leave 0.0 unless explicitly queuing that
+    # probe as its own experiment.
+    pacc_offline_decay: float = 0.0
+
     @classmethod
     def from_dims(
         cls,
@@ -824,6 +858,13 @@ class REEConfig:
         pcc_offline_recency_window: int = 500,
         pcc_offline_weight: float = 0.3,
         pcc_stability_baseline: float = 0.5,
+        # SD-032e: pACC-analog autonomic write-back
+        use_pacc_analog: bool = False,
+        pacc_drive_alpha: float = 0.002,
+        pacc_drive_scale: float = 1.0,
+        pacc_drive_bias_cap: float = 0.5,
+        pacc_z_harm_a_min: float = 0.0,
+        pacc_offline_decay: float = 0.0,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -1024,6 +1065,14 @@ class REEConfig:
         config.pcc_offline_recency_window = pcc_offline_recency_window
         config.pcc_offline_weight = pcc_offline_weight
         config.pcc_stability_baseline = pcc_stability_baseline
+
+        # SD-032e: pACC-analog autonomic write-back
+        config.use_pacc_analog = use_pacc_analog
+        config.pacc_drive_alpha = pacc_drive_alpha
+        config.pacc_drive_scale = pacc_drive_scale
+        config.pacc_drive_bias_cap = pacc_drive_bias_cap
+        config.pacc_z_harm_a_min = pacc_z_harm_a_min
+        config.pacc_offline_decay = pacc_offline_decay
 
         return config
 

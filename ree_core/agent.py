@@ -56,6 +56,8 @@ from ree_core.cingulate import (
     DACCAdaptiveControl,
     DACCConfig,
     DACCtoE3Adapter,
+    PACCAnalog,
+    PACCConfig,
     PCCAnalog,
     PCCConfig,
     SalienceCoordinator,
@@ -249,6 +251,27 @@ class REEAgent(nn.Module):
         # Cache of last PCC tick output (for diagnostics / experiments).
         self._pcc_last_tick: Optional[Dict[str, float]] = None
 
+        # SD-032e: pACC-analog slow autonomic write-back. Accumulates
+        # tanh-normalised z_harm_a magnitude into a bounded drive_bias that
+        # shifts the effective drive_level passed into GoalState.update(),
+        # SalienceCoordinator.tick(), SD-032c AIC, and SD-032d PCC. Gated by
+        # coordinator.write_gate("autonomic") so the write is mode-conditioned
+        # per MECH-261 (active in external_task, attenuated in planning /
+        # replay / offline). Architectural path for chronic-pain-like
+        # sensitisation (Baliki 2012). See scoping lit-pull synthesis.
+        self.pacc: Optional[PACCAnalog] = None
+        if getattr(config, "use_pacc_analog", False):
+            pacc_cfg = PACCConfig(
+                drive_alpha=config.pacc_drive_alpha,
+                drive_scale=config.pacc_drive_scale,
+                drive_bias_cap=config.pacc_drive_bias_cap,
+                z_harm_a_min=config.pacc_z_harm_a_min,
+                offline_decay=config.pacc_offline_decay,
+            )
+            self.pacc = PACCAnalog(pacc_cfg)
+        # Cache of last PACC tick output (for diagnostics / experiments).
+        self._pacc_last_tick: Optional[Dict[str, float]] = None
+
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
         self.body_obs_encoder = nn.Sequential(
@@ -390,6 +413,14 @@ class REEAgent(nn.Module):
             self.pcc.reset()
         self._pcc_last_tick = None
 
+        # SD-032e: reset PACC-analog diagnostics cache. Does NOT clear
+        # _drive_bias -- SD-032e's architectural purpose is cross-episode
+        # accumulation. Use non-zero pacc_offline_decay via offline entry
+        # (or reinstantiate the module) for a hard reset.
+        if self.pacc is not None:
+            self.pacc.reset()
+        self._pacc_last_tick = None
+
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
         if not self.config.replay_diversity_enabled:
@@ -521,6 +552,13 @@ class REEAgent(nn.Module):
             aic_drive = 0.0
             if self.goal_state is not None:
                 aic_drive = float(getattr(self.goal_state, "_last_drive_level", 0.0))
+            # SD-032e: if pACC is active, AIC sees the effective (sensitised)
+            # drive_level with one-step lag -- the pACC tick in select_action()
+            # produced drive_bias from the previous step's z_harm_a, which is
+            # the correct causal ordering (pACC accumulates first, then AIC
+            # reads the resulting baseline).
+            if self.pacc is not None:
+                aic_drive = self.pacc.effective_drive(aic_drive)
             aic_op_mode = None
             if self.salience is not None:
                 aic_op_mode = self.salience.operating_mode
@@ -796,6 +834,38 @@ class REEAgent(nn.Module):
         if _goal_inject > 0.0 and self.goal_state is not None:
             _goal_state_for_select = self.goal_state.with_injection(_goal_inject)
 
+        # SD-032e: tick pACC-analog before dACC / salience consumers so that
+        # effective_drive_level (base + drive_bias) is available for all SD-032
+        # downstream modules. Gate on coordinator's previous-tick "autonomic"
+        # write_gate (one-step lag; the pACC->autonomic->sensitisation circuit
+        # is slow enough that instantaneous coupling is not required). When
+        # salience is disabled the gate defaults to 1.0 so the drift remains
+        # observable under ablation. MECH-094: hypothesis_tag=False here
+        # (waking action selection); simulation/replay paths do not route
+        # through select_action().
+        if self.pacc is not None:
+            _zha_norm = 0.0
+            if z_harm_a is not None:
+                _zha_norm = float(z_harm_a.norm().item())
+            _auto_gate = 1.0
+            if self.salience is not None:
+                _auto_gate = float(self.salience.write_gate("autonomic"))
+            self._pacc_last_tick = self.pacc.tick(
+                z_harm_a_norm=_zha_norm,
+                write_gate=_auto_gate,
+                hypothesis_tag=False,
+            )
+
+        # SD-032e: resolve the effective drive_level once, used by dACC,
+        # salience coordinator, AIC, PCC. Falls back to base when pACC is off.
+        _base_drive_level = float(
+            getattr(self.goal_state, "_last_drive_level", 0.0)
+        ) if self.goal_state is not None else 0.0
+        if self.pacc is not None:
+            _effective_drive_level = self.pacc.effective_drive(_base_drive_level)
+        else:
+            _effective_drive_level = _base_drive_level
+
         # SD-032b: compute dACC bundle + stopgap-adapter score bias before E3.select.
         # The bundle reads the (precision-weighted) affective-pain PE from the last
         # forward-model prediction, and mixes in per-candidate payoff/effort terms.
@@ -821,10 +891,9 @@ class REEAgent(nn.Module):
                 int(c.actions[0, 0].argmax().item()) for c in candidates
             ]
             # GoalState does not persist drive_level (it is passed per-update);
-            # for dACC coupling we read it off the last cached value or default 0.
-            drive_level = float(
-                getattr(self.goal_state, "_last_drive_level", 0.0)
-            ) if self.goal_state is not None else 0.0
+            # SD-032e: use effective drive (base + pACC bias) so dACC sees the
+            # chronic-pain-sensitised drive regime.
+            drive_level = _effective_drive_level
             bundle = self.dacc(
                 z_harm_a=z_harm_a.squeeze(0) if z_harm_a.dim() > 1 else z_harm_a,
                 z_harm_a_pred=self._harm_a_pred_prev,
@@ -845,9 +914,9 @@ class REEAgent(nn.Module):
         # MECH-259 mode_switch_trigger. SD-032c/d/e signal slots remain at zero
         # until those subdivisions land.
         if self.salience is not None:
-            sal_drive = float(
-                getattr(self.goal_state, "_last_drive_level", 0.0)
-            ) if self.goal_state is not None else 0.0
+            # SD-032e: use effective drive (base + pACC bias) so salience,
+            # AIC, and PCC all see the sensitised drive regime coherently.
+            sal_drive = _effective_drive_level
             sal_offline = bool(getattr(self.e1, "_offline_mode", False))
             sal_bundle = self._dacc_last_bundle  # may be None if dACC is off
             # SD-032c: inject AIC salience into the coordinator BEFORE tick so
@@ -1532,10 +1601,22 @@ class REEAgent(nn.Module):
             self._current_latent.z_resource if use_resource
             else self._current_latent.z_world
         )
+        # SD-032: cache base drive_level on goal_state so AIC / PCC / pACC /
+        # salience consumers can read a live value via getattr. Convention:
+        # stored value is the BASE drive_level (no pACC bias); SD-032e
+        # consumers apply pacc.effective_drive() themselves to avoid double-
+        # counting.
+        self.goal_state._last_drive_level = float(drive_level)
+        # SD-032e: the wanting gain scaling inside GoalState.update() should
+        # see the SENSITISED drive regime. Sustained affective pain ->
+        # elevated drive_bias -> stronger wanting pull toward resources.
+        effective_drive = drive_level
+        if self.pacc is not None:
+            effective_drive = self.pacc.effective_drive(drive_level)
         self.goal_state.update(
             seed_latent,
             benefit_exposure,
-            drive_level=drive_level,
+            drive_level=effective_drive,
         )
 
     def serotonin_step(self, benefit_exposure: float) -> None:
@@ -1772,6 +1853,12 @@ class REEAgent(nn.Module):
         self.e1._offline_mode = True
         if self.pcc is not None:
             self.pcc.note_offline_entry()
+        # SD-032e: optional offline decay of drive_bias (default 0.0 = no-op).
+        # Non-zero decay would instantiate a distinct sleep-recalibration
+        # claim per the SD-032e scoping synthesis; default preserves the
+        # cross-session pACC accumulator untouched.
+        if self.pacc is not None:
+            self.pacc.note_offline_entry()
 
     def exit_offline_mode(self) -> None:
         """Resume normal waking context_memory writes (undo enter_offline_mode)."""

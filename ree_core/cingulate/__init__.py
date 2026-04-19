@@ -30,9 +30,13 @@ Currently implements:
     threshold (high stability -> harder to switch). Coordinates within-
     session (MECH-092) and cross-session (INV-049) offline phases via the
     enter_offline_mode integration point.
-
-Future SD-032 siblings (not implemented here):
-  SD-032e  pACC-analog autonomic write-back to SD-012
+  - PACCAnalog (SD-032e): perigenual / subgenual cingulate-analog slow-EMA
+    autonomic write-back. Accumulates multi-episode z_harm_a exposure into
+    a bounded drive_bias that shifts the effective drive_level passed into
+    GoalState.update(), SalienceCoordinator, and SD-032c/d consumers. The
+    MECH-261 "autonomic" coordinator gate makes the write mode-conditioned
+    (active in external_task, attenuated in planning/replay/offline).
+    Architectural path for chronic-pain-like sensitisation (Baliki 2012).
 """
 
 from ree_core.cingulate.aic_analog import AICAnalog, AICConfig
@@ -41,6 +45,7 @@ from ree_core.cingulate.dacc import (
     DACCConfig,
     DACCtoE3Adapter,
 )
+from ree_core.cingulate.pacc_analog import PACCAnalog, PACCConfig
 from ree_core.cingulate.pcc_analog import PCCAnalog, PCCConfig
 from ree_core.cingulate.salience_coordinator import (
     DEFAULT_GATE_WEIGHTS,
@@ -55,6 +60,8 @@ __all__ = [
     "DACCAdaptiveControl",
     "DACCConfig",
     "DACCtoE3Adapter",
+    "PACCAnalog",
+    "PACCConfig",
     "PCCAnalog",
     "PCCConfig",
     "SalienceCoordinator",
