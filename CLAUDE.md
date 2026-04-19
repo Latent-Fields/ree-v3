@@ -24,6 +24,38 @@ Run packs go to REE_assembly/evidence/experiments/.
 run_id must end _v3. architecture_epoch must be "ree_hybrid_guardrails_v1".
 After experiments complete: run sync_v3_results.py then build_experiment_indexes.py.
 
+## Regression Suite
+
+Three-layer test suite in `tests/`:
+
+- **preflight** (`tests/preflight/`) — cheap wiring checks run before the runner
+  starts machine work. Validates imports, queue integrity, and one-tick boot.
+  The runner invokes preflight automatically at startup (see
+  `experiment_runner.py`). Escape hatches: `--skip-preflight` flag or
+  `REE_SKIP_PREFLIGHT=1` env var. If preflight fails, the runner exits non-zero
+  and no experiment is started.
+
+- **contracts** (`tests/contracts/`) — interface-level guarantees that should
+  hold regardless of tuning. Includes: C1 agent boot, C2 feature-flag boot
+  matrix, C3 seed determinism, C4 BG gating (MECH-090 / MECH-091), C5
+  imagined/acted isolation (MECH-094), C6/C7/C8 SD-032 cluster wiring
+  (dACC / AIC / PCC / pACC). Run: `pytest tests/contracts -q`.
+
+- **(deferred) changed** — subsystem-targeted regression for edits touching
+  specific substrates. Wrapper stub at `scripts/run_regression_suite.py
+  --changed <subsystem>`.
+
+**When to run what:**
+- Every experiment run: preflight (automatic via runner).
+- Before committing changes to `ree_core/`: `pytest tests/contracts -q` from
+  `ree-v3/`. Typical runtime: ~14s on Mac.
+- Full suite (preflight + contracts): `python3 scripts/run_regression_suite.py`.
+
+**Contracts test contracts, not thresholds.** If a test starts asserting a
+specific magnitude or sign from an EXQ manifest, that belongs in an experiment
+script, not the regression suite. The regression suite is the thing that has to
+keep working when experiments and claim state evolve.
+
 ## Key Architecture Constraints
 - E2 trains on motor-sensory error (z_self). NOT harm/goal error.
 - E3 is the harm evaluator. harm_eval() belongs on E3Selector.

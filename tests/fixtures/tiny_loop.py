@@ -41,9 +41,21 @@ def step_once(
     Returns (action, action_idx, ticks, next_obs_dict).
     """
     body, world = _obs_tensors(obs_dict)
+    sense_kwargs = {"obs_body": body, "obs_world": world}
+    latent_cfg = agent.config.latent
+    obs_harm = obs_dict.get("harm_obs") if isinstance(obs_dict, dict) else None
+    if obs_harm is not None and getattr(latent_cfg, "use_harm_stream", False):
+        if obs_harm.dim() == 1:
+            obs_harm = obs_harm.unsqueeze(0)
+        sense_kwargs["obs_harm"] = obs_harm
+    obs_harm_a = obs_dict.get("harm_obs_a") if isinstance(obs_dict, dict) else None
+    if obs_harm_a is not None and getattr(latent_cfg, "use_affective_harm_stream", False):
+        if obs_harm_a.dim() == 1:
+            obs_harm_a = obs_harm_a.unsqueeze(0)
+        sense_kwargs["obs_harm_a"] = obs_harm_a
 
     with torch.no_grad():
-        latent = agent.sense(obs_body=body, obs_world=world)
+        latent = agent.sense(**sense_kwargs)
         ticks = agent.clock.advance()
         world_dim = agent.config.latent.world_dim
         if ticks.get("e1_tick", True):
