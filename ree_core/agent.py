@@ -56,6 +56,8 @@ from ree_core.cingulate import (
     DACCAdaptiveControl,
     DACCConfig,
     DACCtoE3Adapter,
+    PCCAnalog,
+    PCCConfig,
     SalienceCoordinator,
     SalienceCoordinatorConfig,
 )
@@ -228,6 +230,25 @@ class REEAgent(nn.Module):
         # Cache of last AIC tick output (for diagnostics / experiments).
         self._aic_last_tick: Optional[Dict[str, float]] = None
 
+        # SD-032d: PCC-analog metastability scalar. Emits pcc_stability ->
+        # SalienceCoordinator (multiplied into MECH-259 effective threshold).
+        # Non-trainable arithmetic over success EMA + drive_level + steps-
+        # since-last-offline-phase. Coordinates within-session (MECH-092) and
+        # cross-session (INV-049) offline phases via enter_offline_mode().
+        self.pcc: Optional[PCCAnalog] = None
+        if getattr(config, "use_pcc_analog", False):
+            pcc_cfg = PCCConfig(
+                success_alpha=config.pcc_success_alpha,
+                success_weight=config.pcc_success_weight,
+                fatigue_weight=config.pcc_fatigue_weight,
+                offline_recency_window=config.pcc_offline_recency_window,
+                offline_weight=config.pcc_offline_weight,
+                stability_baseline=config.pcc_stability_baseline,
+            )
+            self.pcc = PCCAnalog(pcc_cfg)
+        # Cache of last PCC tick output (for diagnostics / experiments).
+        self._pcc_last_tick: Optional[Dict[str, float]] = None
+
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
         self.body_obs_encoder = nn.Sequential(
@@ -361,6 +382,13 @@ class REEAgent(nn.Module):
         if self.aic is not None:
             self.aic.reset()
         self._aic_last_tick = None
+
+        # SD-032d: reset PCC-analog per-episode state. Note: does NOT reset
+        # _steps_since_offline (cross-episode counter; only note_offline_entry
+        # resets it -- a new episode starting does not constitute rest).
+        if self.pcc is not None:
+            self.pcc.reset()
+        self._pcc_last_tick = None
 
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
@@ -827,6 +855,15 @@ class REEAgent(nn.Module):
             if self.aic is not None:
                 self.salience.update_signal(
                     "aic_salience", float(self.aic.aic_salience)
+                )
+            # SD-032d: tick PCC-analog and inject pcc_stability into the
+            # coordinator BEFORE tick so MECH-259 effective_threshold is
+            # modulated on this cycle. High stability -> harder to switch;
+            # low stability (depleted / no recent rest / failing) -> easier.
+            if self.pcc is not None:
+                self._pcc_last_tick = self.pcc.tick(drive_level=sal_drive)
+                self.salience.update_signal(
+                    "pcc_stability", float(self.pcc.pcc_stability)
                 )
             self._salience_last_tick = self.salience.tick(
                 dacc_bundle=sal_bundle,
@@ -1726,12 +1763,31 @@ class REEAgent(nn.Module):
 
         Call before running SWS/REM-analog passes.
         Paired with exit_offline_mode() to resume normal waking writes.
+
+        SD-032d: also resets the PCC steps_since_offline counter so the
+        coordinator's effective_threshold relaxes after rest. Both MECH-092
+        within-session quiescence and INV-049 cross-session sleep paths
+        funnel through here, giving SD-032d a single integration point.
         """
         self.e1._offline_mode = True
+        if self.pcc is not None:
+            self.pcc.note_offline_entry()
 
     def exit_offline_mode(self) -> None:
         """Resume normal waking context_memory writes (undo enter_offline_mode)."""
         self.e1._offline_mode = False
+
+    def note_task_outcome(self, outcome: float) -> None:
+        """SD-032d: feed a per-step task-outcome scalar into the PCC success EMA.
+
+        Convenience pass-through to self.pcc.note_task_outcome(outcome). No-op
+        when use_pcc_analog=False. Experiment loops choose what counts as a
+        task outcome (e.g., 1.0 on benefit-collection, 0.0 on harm event,
+        0.5 otherwise). Without any calls, the PCC success channel stays
+        neutral and contributes zero to stability.
+        """
+        if self.pcc is not None:
+            self.pcc.note_task_outcome(outcome)
 
     # -- Sleep mode convenience methods (SD-017 + MECH-203/204) --
 

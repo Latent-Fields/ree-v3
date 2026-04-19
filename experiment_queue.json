@@ -68,6 +68,23 @@
       "notes": "Substrate validation for SD-032a salience-network coordinator (IMPLEMENTED 2026-04-19). 2-arm ablation (COORD_OFF / COORD_ON with salience_apply_to_dacc_bias=True) x 2 seeds (42, 7), 6 episodes x 80 steps each. Plus deterministic API-level unit checks. C1 ON-arm operating_mode entropy > 0.05 nats (coordinator emits non-degenerate distribution). C2 MECH-259 synthetic pe=10.0 injection fires mode_switch_trigger and shifts argmax to internal_planning. C3 MECH-261 all 8 default write-gates (sd_033a..d, hc_viability, sensory_buffer, autonomic, e3_policy) in [0, 1]. C4 V4 extensibility: register_target() accepts new mode key (parallel_goal_deliberation) without schema changes. C5 backward compat: |entropy_on - entropy_off| <= 0.2 nats with default coordinator weights. experiment_purpose=diagnostic: substrate readiness, not yet governance evidence. SD-032a stays v3_pending until SD-032c/d/e land."
     },
     {
+      "queue_id": "V3-EXQ-447",
+      "title": "SD-032d PCC-analog metastability scalar -- substrate validation (deterministic arithmetic + agent integration)",
+      "experiment_type": "v3_exq_447_sd032d_pcc_stability",
+      "script": "experiments/v3_exq_447_sd032d_pcc_stability.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 2,
+      "seeds": 1,
+      "conditions": 8,
+      "claim_ids": [
+        "SD-032d",
+        "MECH-259"
+      ],
+      "notes": "Substrate validation for SD-032d PCC-analog (IMPLEMENTED 2026-04-19). SD-032d is non-trainable arithmetic, so primary validation is deterministic API + arithmetic checks. C1 baseline_neutral: stability within 0.01 of baseline=0.5 with all-neutral inputs. C2 fatigue_monotone: stability strictly decreasing across drive_level 0.0/0.5/1.0 (falsification-signature direct test). C3 offline_recency_monotone: stability decreasing as steps_since_offline grows 0/250/500/1000 (saturates at window). C4 offline_reset_hook: note_offline_entry resets counter + restores stability. C5 success_ema_convergence: ema > 0.95 after 200 outcomes at alpha=0.02. C6 threshold_modulation: SalienceCoordinator effective_threshold strictly increasing in pcc_stability across 0.1/0.5/0.9 (MECH-259 wiring confirmed). C7 agent_integration: REEAgent select_action populates _pcc_last_tick AND injects pcc_stability into coordinator before tick. C8 backward_compat: use_pcc_analog=False -> agent.pcc is None and convenience hooks no-op. PASS = all 8 checks. Behavioural falsification of rest-driven mode-switch-rate signature requires combined SD-032a+SD-032c+SD-032d 4-arm 2x2 follow-up once cluster fully landed. experiment_purpose=diagnostic."
+    },
+    {
       "queue_id": "V3-EXQ-325b",
       "title": "SD-032c AIC-analog operating-mode + drive-dependent descending modulation -- 4-arm retest of EXQ-325a",
       "experiment_type": "v3_exq_325b_sd032c_aic_descending_modulation",

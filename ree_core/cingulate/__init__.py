@@ -23,9 +23,15 @@ Currently implements:
     as the urgency-trigger source per MECH-259) and harm_s_gain (which
     subsumes SD-021 descending pain modulation: z_harm_s attenuation now
     gated on operating_mode + drive_level rather than raw beta_gate).
+  - PCCAnalog (SD-032d): posterior-cingulate-analog metastability scalar.
+    Non-trainable arithmetic over a success-outcome EMA + drive_level +
+    steps-since-last-offline-phase. Emits pcc_stability in [0, 1] which
+    the SalienceCoordinator multiplies into its MECH-259 effective
+    threshold (high stability -> harder to switch). Coordinates within-
+    session (MECH-092) and cross-session (INV-049) offline phases via the
+    enter_offline_mode integration point.
 
 Future SD-032 siblings (not implemented here):
-  SD-032d  PCC-analog attention partition / metastability
   SD-032e  pACC-analog autonomic write-back to SD-012
 """
 
@@ -35,6 +41,7 @@ from ree_core.cingulate.dacc import (
     DACCConfig,
     DACCtoE3Adapter,
 )
+from ree_core.cingulate.pcc_analog import PCCAnalog, PCCConfig
 from ree_core.cingulate.salience_coordinator import (
     DEFAULT_GATE_WEIGHTS,
     DEFAULT_MODE_NAMES,
@@ -48,6 +55,8 @@ __all__ = [
     "DACCAdaptiveControl",
     "DACCConfig",
     "DACCtoE3Adapter",
+    "PCCAnalog",
+    "PCCConfig",
     "SalienceCoordinator",
     "SalienceCoordinatorConfig",
     "DEFAULT_GATE_WEIGHTS",

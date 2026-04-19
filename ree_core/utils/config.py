@@ -665,6 +665,38 @@ class REEConfig:
     # surprise, irreversibility. Zero = no-op (default).
     aic_extra_weight: float = 0.0
 
+    # SD-032d: PCC-analog (attention partition / metastability).
+    # Master switch -- when True, REEAgent instantiates a PCCAnalog that
+    # produces a scalar pcc_stability in [0, 1] from a task-success EMA,
+    # SD-012 drive_level (fatigue), and steps-since-last-offline-phase.
+    # The scalar is fed to the salience coordinator via
+    # update_signal("pcc_stability", ...) BEFORE coordinator.tick(), so the
+    # MECH-259 effective_threshold is scaled by (1 + stability_scaling *
+    # pcc_stability). High stability -> coordinator resists transitions;
+    # low stability -> transitions happen at lower salience (rest-driven
+    # relaxation when the agent is fatigued or has been held externally
+    # for a long time). False = disabled (default, backward compat).
+    use_pcc_analog: bool = False
+    # EMA alpha for the task-success signal. Smaller = slower adaptation.
+    # 0.02 matches the MECH-205 / SD-032c convention (~50-step window).
+    pcc_success_alpha: float = 0.02
+    # Centred contribution of (success_ema - 0.5) to stability. With
+    # success_ema in [0, 1] this contribution sits in [-w/2, +w/2].
+    pcc_success_weight: float = 0.5
+    # Subtractive contribution of drive_level to stability. With
+    # drive_level in [0, 1] this contribution sits in [-w, 0].
+    pcc_fatigue_weight: float = 0.5
+    # Steps over which steps-since-last-offline-phase saturates the
+    # offline_recency factor at 1.0. ~500 steps ~ V3 inter-quiescence
+    # interval from sleep experiments.
+    pcc_offline_recency_window: int = 500
+    # Subtractive contribution of offline_recency to stability. Drives
+    # the rest-driven relaxation signature.
+    pcc_offline_weight: float = 0.3
+    # Additive baseline before clipping. With baseline=0.5 and all other
+    # contributions zero, stability=0.5 (neutral metastability).
+    pcc_stability_baseline: float = 0.5
+
     @classmethod
     def from_dims(
         cls,
@@ -784,6 +816,14 @@ class REEConfig:
         aic_base_attenuation: float = 0.5,
         aic_drive_protect_weight: float = 1.0,
         aic_extra_weight: float = 0.0,
+        # SD-032d: PCC-analog metastability scalar
+        use_pcc_analog: bool = False,
+        pcc_success_alpha: float = 0.02,
+        pcc_success_weight: float = 0.5,
+        pcc_fatigue_weight: float = 0.5,
+        pcc_offline_recency_window: int = 500,
+        pcc_offline_weight: float = 0.3,
+        pcc_stability_baseline: float = 0.5,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -975,6 +1015,15 @@ class REEConfig:
         config.aic_base_attenuation = aic_base_attenuation
         config.aic_drive_protect_weight = aic_drive_protect_weight
         config.aic_extra_weight = aic_extra_weight
+
+        # SD-032d: PCC-analog metastability scalar
+        config.use_pcc_analog = use_pcc_analog
+        config.pcc_success_alpha = pcc_success_alpha
+        config.pcc_success_weight = pcc_success_weight
+        config.pcc_fatigue_weight = pcc_fatigue_weight
+        config.pcc_offline_recency_window = pcc_offline_recency_window
+        config.pcc_offline_weight = pcc_offline_weight
+        config.pcc_stability_baseline = pcc_stability_baseline
 
         return config
 
