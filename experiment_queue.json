@@ -119,7 +119,7 @@
       "script": "experiments/v3_exq_454_arc016_adaptive_commitment_threshold.py",
       "priority": 58,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 75,
       "episodes_per_run": 110,
       "seeds": 3,
@@ -127,7 +127,11 @@
       "claim_ids": [
         "ARC-016"
       ],
-      "notes": "ARC-016 precision-adaptive commitment_threshold validation. 3 arms: STATIC_LOW (commit_threshold=0.3), STATIC_HIGH (0.8), ADAPTIVE (k/sqrt(e3.running_variance) with k calibrated from P1 PE variance observations). No ree_core modification -- script-level monkey-patch of agent.e3.select writes config.commitment_threshold each tick, clipped [0.05, 2.0]. Phased P0=30/P1=50/P2=30 eps. Metrics: commit_rate, commit_survival, pe_variance_mean, commit_rate_by_pe_regime (low vs high rv quantiles), goal_reach_rate. Acceptance: C1 STATIC_LOW commit_rate > STATIC_HIGH in 2/3 seeds (sanity); C2 ADAPTIVE low_pe_commit - high_pe_commit >=0.05 in 2/3 seeds (regime sensitivity); C3 ADAPTIVE mean commit_rate in (0.1, 0.9) (non-degenerate); C4 ADAPTIVE goal_reach >= STATIC_LOW - 0.1 (diagnostic). PASS = C1 AND C2 AND C3. experiment_purpose=evidence."
+      "notes": "ARC-016 precision-adaptive commitment_threshold validation. 3 arms: STATIC_LOW (commit_threshold=0.3), STATIC_HIGH (0.8), ADAPTIVE (k/sqrt(e3.running_variance) with k calibrated from P1 PE variance observations). No ree_core modification -- script-level monkey-patch of agent.e3.select writes config.commitment_threshold each tick, clipped [0.05, 2.0]. Phased P0=30/P1=50/P2=30 eps. Metrics: commit_rate, commit_survival, pe_variance_mean, commit_rate_by_pe_regime (low vs high rv quantiles), goal_reach_rate. Acceptance: C1 STATIC_LOW commit_rate > STATIC_HIGH in 2/3 seeds (sanity); C2 ADAPTIVE low_pe_commit - high_pe_commit >=0.05 in 2/3 seeds (regime sensitivity); C3 ADAPTIVE mean commit_rate in (0.1, 0.9) (non-degenerate); C4 ADAPTIVE goal_reach >= STATIC_LOW - 0.1 (diagnostic). PASS = C1 AND C2 AND C3. experiment_purpose=evidence.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-20T14:40:15.281292+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-455",
