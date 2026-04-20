@@ -41,15 +41,22 @@ Three-layer test suite in `tests/`:
   imagined/acted isolation (MECH-094), C6/C7/C8 SD-032 cluster wiring
   (dACC / AIC / PCC / pACC). Run: `pytest tests/contracts -q`.
 
-- **(deferred) changed** — subsystem-targeted regression for edits touching
-  specific substrates. Wrapper stub at `scripts/run_regression_suite.py
-  --changed <subsystem>`.
+- **changed** — subsystem-targeted contract tests. Resolves a `ree_core/`
+  subdirectory name (or a path like `ree_core/residue/field.py`, or a
+  substring like `bg`) to the contract tests that could plausibly break.
+  `python3 scripts/run_regression_suite.py --changed residue` runs the
+  MECH-094 / residue-write contracts only. See `--list-subsystems` for
+  the map.
 
 **When to run what:**
 - Every experiment run: preflight (automatic via runner).
-- Before committing changes to `ree_core/`: `pytest tests/contracts -q` from
-  `ree-v3/`. Typical runtime: ~14s on Mac.
-- Full suite (preflight + contracts): `python3 scripts/run_regression_suite.py`.
+- Before committing a focused change to `ree_core/<subsystem>/`:
+  `python3 scripts/run_regression_suite.py --changed <subsystem>` (~1-4s).
+- Before committing a cross-cutting change: `pytest tests/contracts -q` or
+  `python3 scripts/run_regression_suite.py --contracts` (~14s).
+- Preflight + contracts together:
+  `python3 scripts/run_regression_suite.py --preflight && \
+   python3 scripts/run_regression_suite.py --contracts`.
 
 **Contracts test contracts, not thresholds.** If a test starts asserting a
 specific magnitude or sign from an EXQ manifest, that belongs in an experiment
