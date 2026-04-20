@@ -57,7 +57,7 @@
       "script": "experiments/v3_exq_453_mech261_write_gate_landing.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 15,
       "episodes_per_run": 6,
       "seeds": 2,
@@ -67,7 +67,11 @@
         "SD-032a",
         "SD-032e"
       ],
-      "notes": "Substrate validation for MECH-261 per-subdivision write_gate registry in SalienceCoordinator (SD-032a). Unit checks: UC1 default registry has all 8 targets (sd_033a-d, hc_viability, sensory_buffer, autonomic, e3_policy); UC2 gate values in [0,1] across 5 synthetic one-hot mode vectors; UC3 per-subdivision gate specificity mean_std>=0.1 (gates meaningfully mode-specific); UC4 register_target extensibility (V4 parallel_goal_deliberation hook); UC5 pACC autonomic write-gate LANDING (drive_bias accumulation differs when autonomic_gate=1.0 vs 0.1 under sustained z_harm_a, |delta|>=0.02). Per-seed/per-condition rollout: c6 coord_on mode_switch observed; c7 coord_off no-op. PASS = all UCs AND >=1/2 seeds across conditions. experiment_purpose=diagnostic. evidence_direction=diagnostic (substrate validation). Mirrors V3-EXQ-446 (SD-032a) structure."
+      "notes": "Substrate validation for MECH-261 per-subdivision write_gate registry in SalienceCoordinator (SD-032a). Unit checks: UC1 default registry has all 8 targets (sd_033a-d, hc_viability, sensory_buffer, autonomic, e3_policy); UC2 gate values in [0,1] across 5 synthetic one-hot mode vectors; UC3 per-subdivision gate specificity mean_std>=0.1 (gates meaningfully mode-specific); UC4 register_target extensibility (V4 parallel_goal_deliberation hook); UC5 pACC autonomic write-gate LANDING (drive_bias accumulation differs when autonomic_gate=1.0 vs 0.1 under sustained z_harm_a, |delta|>=0.02). Per-seed/per-condition rollout: c6 coord_on mode_switch observed; c7 coord_off no-op. PASS = all UCs AND >=1/2 seeds across conditions. experiment_purpose=diagnostic. evidence_direction=diagnostic (substrate validation). Mirrors V3-EXQ-446 (SD-032a) structure.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-20T22:30:47.834116+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-455",
