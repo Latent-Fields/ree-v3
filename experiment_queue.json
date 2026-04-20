@@ -27,6 +27,29 @@
         "machine": "ree-cloud-2",
         "claimed_at": "2026-04-19T21:23:12.981276+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-325d",
+      "title": "SD-032c AIC-analog descending modulation -- reduced-compute retest of EXQ-325c (DLAPTOP-4 pinned)",
+      "experiment_type": "v3_exq_325d_sd032c_aic_descending_modulation",
+      "script": "experiments/v3_exq_325d_sd032c_aic_descending_modulation.py",
+      "priority": 55,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "estimated_minutes": 360,
+      "episodes_per_run": 150,
+      "seeds": 3,
+      "conditions": 4,
+      "supersedes": "V3-EXQ-325c",
+      "claim_ids": [
+        "SD-032c",
+        "SD-021"
+      ],
+      "notes": "Fix for V3-EXQ-325c ERROR (exit -15 SIGTERM at 33 min on ree-cloud-1; external termination during governance window, not a code crash). Compute reduced: 3 seeds x 4 conditions x 150 train + 30 eval eps (was 5x4x300+30). PASS threshold >=2/3 seeds (was >=3/5). Mechanism under test and C1-C5 criteria unchanged from EXQ-325c. machine_affinity pinned to DLAPTOP-4.local to avoid shared-vCPU preemption. experiment_purpose=evidence. On PASS: supports SD-032c structural drive-dependence (C4 falsification signature) and SD-021 attenuation via the AIC-analog re-routed path.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-20T05:50:12.679539+00:00"
+      }
     }
   ]
 }
