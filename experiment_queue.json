@@ -272,6 +272,42 @@
         "MECH-262"
       ],
       "notes": "Substrate validation for SD-033a LateralPFCAnalog (IMPLEMENTED 2026-04-20). Primary consumer of MECH-261 write-gate registry on SD-032a SalienceCoordinator; instantiates MECH-262 rule-selective persistence. SD-033a is gate-modulated EMA + frozen-random zeroed-last-Linear bias head, so primary validation is deterministic API + arithmetic. 5 sub-tests: UC1 instantiation (REEAgent with use_lateral_pfc_analog=True exposes agent.lateral_pfc; rule_state buffer shape [1, rule_dim]). UC2 gate modulates update rate (gate=1 delta > 100x gate=0 delta; gate=0 freeze < 1e-6). UC3 bias zero at init (compute_bias returns exactly-zero [K] vector with non-zero rule_state; validates zeroed-last-Linear contract, not biological bias). UC4 backward compat (use_lateral_pfc_analog=False -> agent.lateral_pfc is None; SD-033a tick block skipped in select_action). UC5 reset clears rule_state (agent.reset() zeroes rule_state via lateral_pfc.reset path). PASS = all 5 UCs. experiment_purpose=diagnostic. Does NOT test biological SD-033a signatures (i/iii/iv); bias head is untrained (training-dependent emergence deferred until A2 alternative is considered -- see task_inbox lit-pull). Signature (ii) distractor-resistant persistence is exercised indirectly via gate=0 update-suppression check. evidence_direction=diagnostic."
+    },
+    {
+      "queue_id": "V3-EXQ-133",
+      "title": "MECH-091 salient-event phase-reset discriminative pair",
+      "experiment_type": "v3_exq_133_mech091_phase_reset_pair",
+      "script": "experiments/v3_exq_133_mech091_phase_reset_pair.py",
+      "priority": 58,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 95,
+      "episodes_per_run": 400,
+      "seeds": 2,
+      "conditions": 2,
+      "claim_ids": [
+        "MECH-091"
+      ],
+      "backlog_id": "EVB-0027",
+      "notes": "Discriminative pair: PHASE_RESET_ON (E3 heartbeat resets on harm contact) vs PHASE_RESET_ABLATED (continuous counter). Tests MECH-091: phase-reset of E3 heartbeat on salient events improves harm_eval discrimination quality by aligning harm signals with cycle boundaries. 2 seeds x 2 conditions, 400 warmup + 50 eval eps each. 5 pre-registered criteria: C1 gap_on>=0.04, C2 per-seed delta>=0.02, C3 gap_ablated>=0.0, C4 n_harm>=20, C5 n_resets>=10. experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-126",
+      "title": "MECH-104 volatility interrupt -- surprise-gate matched-seed discriminative pair",
+      "experiment_type": "v3_exq_126_mech104_surprise_gate_pair",
+      "script": "experiments/v3_exq_126_mech104_surprise_gate_pair.py",
+      "priority": 56,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 400,
+      "seeds": 2,
+      "conditions": 1,
+      "claim_ids": [
+        "MECH-104"
+      ],
+      "backlog_id": "EVB-0062",
+      "notes": "Matched-seed discriminative pair for MECH-104: SURPRISE_GATE_ON (running_variance spike fires on unexpected harm only) vs SURPRISE_GATE_ABLATED. Tests that unexpected harm events selectively raise commitment uncertainty enabling de-commitment. 2 seeds, 400 warmup + 50 eval, 6 pre-registered criteria. experiment_purpose=evidence."
     }
   ]
 }

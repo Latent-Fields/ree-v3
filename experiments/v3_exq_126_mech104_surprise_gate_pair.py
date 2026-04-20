@@ -527,6 +527,7 @@ def run(
 
     results_by_seed: List[Dict] = []
     for seed in seeds:
+        print(f"Seed {seed} Condition MATCHED_PAIR", flush=True)
         seed_result = _run_seed(
             seed=seed,
             warmup_episodes=warmup_episodes,
@@ -537,6 +538,8 @@ def run(
             alpha_world=alpha_world,
         )
         results_by_seed.append(seed_result)
+        seed_ok = seed_result["on"]["n_unexpected_harm"] > 0
+        print(f"verdict: {'PASS' if seed_ok else 'FAIL'}", flush=True)
 
     # -------------------------------------------------------------------------
     # Per-seed criterion evaluation
@@ -732,7 +735,7 @@ Criteria met: {criteria_met}/6 -> **{status}**
 """
 
     return {
-        "status": status,
+        "outcome": status,
         "metrics": metrics,
         "summary_markdown": summary_markdown,
         "claim_ids": CLAIM_IDS,
@@ -770,7 +773,7 @@ if __name__ == "__main__":
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     result["run_timestamp"] = ts
     result["claim"] = CLAIM_IDS[0]
-    result["verdict"] = result["status"]
+    result["verdict"] = result["outcome"]
     result["run_id"] = f"{EXPERIMENT_TYPE}_{ts}_v3"
     result["architecture_epoch"] = "ree_hybrid_guardrails_v1"
 
