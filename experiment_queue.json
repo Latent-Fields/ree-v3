@@ -113,27 +113,6 @@
       "notes": "Substrate validation for MECH-261 per-subdivision write_gate registry in SalienceCoordinator (SD-032a). Unit checks: UC1 default registry has all 8 targets (sd_033a-d, hc_viability, sensory_buffer, autonomic, e3_policy); UC2 gate values in [0,1] across 5 synthetic one-hot mode vectors; UC3 per-subdivision gate specificity mean_std>=0.1 (gates meaningfully mode-specific); UC4 register_target extensibility (V4 parallel_goal_deliberation hook); UC5 pACC autonomic write-gate LANDING (drive_bias accumulation differs when autonomic_gate=1.0 vs 0.1 under sustained z_harm_a, |delta|>=0.02). Per-seed/per-condition rollout: c6 coord_on mode_switch observed; c7 coord_off no-op. PASS = all UCs AND >=1/2 seeds across conditions. experiment_purpose=diagnostic. evidence_direction=diagnostic (substrate validation). Mirrors V3-EXQ-446 (SD-032a) structure."
     },
     {
-      "queue_id": "V3-EXQ-454",
-      "title": "ARC-016 adaptive commitment_threshold via E2 PE variance (script-level wrapper)",
-      "experiment_type": "v3_exq_454_arc016_adaptive_commitment_threshold",
-      "script": "experiments/v3_exq_454_arc016_adaptive_commitment_threshold.py",
-      "priority": 58,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 75,
-      "episodes_per_run": 110,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_ids": [
-        "ARC-016"
-      ],
-      "notes": "ARC-016 precision-adaptive commitment_threshold validation. 3 arms: STATIC_LOW (commit_threshold=0.3), STATIC_HIGH (0.8), ADAPTIVE (k/sqrt(e3.running_variance) with k calibrated from P1 PE variance observations). No ree_core modification -- script-level monkey-patch of agent.e3.select writes config.commitment_threshold each tick, clipped [0.05, 2.0]. Phased P0=30/P1=50/P2=30 eps. Metrics: commit_rate, commit_survival, pe_variance_mean, commit_rate_by_pe_regime (low vs high rv quantiles), goal_reach_rate. Acceptance: C1 STATIC_LOW commit_rate > STATIC_HIGH in 2/3 seeds (sanity); C2 ADAPTIVE low_pe_commit - high_pe_commit >=0.05 in 2/3 seeds (regime sensitivity); C3 ADAPTIVE mean commit_rate in (0.1, 0.9) (non-degenerate); C4 ADAPTIVE goal_reach >= STATIC_LOW - 0.1 (diagnostic). PASS = C1 AND C2 AND C3. experiment_purpose=evidence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-20T14:40:15.281292+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-455",
       "title": "SD-032a salience coordinator behavioral confirmation -- mode-switch trigger + write-gate diversity under natural PE",
       "experiment_type": "v3_exq_455_sd032a_salience_behavioral",
