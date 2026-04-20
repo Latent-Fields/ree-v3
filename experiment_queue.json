@@ -35,7 +35,7 @@
       "script": "experiments/v3_exq_450_sd032b_dacc_behavioural_retest.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 30,
       "episodes_per_run": 210,
       "seeds": 3,
@@ -46,7 +46,11 @@
         "MECH-258",
         "MECH-260"
       ],
-      "notes": "Retest of V3-EXQ-445 C2 FAIL (dACC behavioural effect: indep_wins=0, shared_wins=0 -- score_bias too weak to shift E3 argmax). Fix direction: dacc_weight 1.0->3.0, dacc_suppression_weight 0.5->1.5, dacc_interaction_weight 0.3->0.8, num_hazards 3->5 (more payoff heterogeneity), P2_EPS 30->60 (doubles eval sample), drop ON_SHARED arm to focus 3 seeds on OFF vs ON_INDEPENDENT. Acceptance: C1 forward_r2>=0.3 in 2/3 seeds (unchanged); C2 |entropy_ON - entropy_OFF|>=0.1 in 2/3 seeds (retests FAIL criterion); C3 score_bias_magnitude>0.05 in 2/3 seeds (new sanity). PASS = C1 AND C2 AND C3. experiment_purpose=evidence. evidence_direction_per_claim: PASS all supports; FAIL {SD-032b/MECH-260: weakens, MECH-258: mixed (C1 forward model valid regardless)}. supersedes V3-EXQ-445."
+      "notes": "Retest of V3-EXQ-445 C2 FAIL (dACC behavioural effect: indep_wins=0, shared_wins=0 -- score_bias too weak to shift E3 argmax). Fix direction: dacc_weight 1.0->3.0, dacc_suppression_weight 0.5->1.5, dacc_interaction_weight 0.3->0.8, num_hazards 3->5 (more payoff heterogeneity), P2_EPS 30->60 (doubles eval sample), drop ON_SHARED arm to focus 3 seeds on OFF vs ON_INDEPENDENT. Acceptance: C1 forward_r2>=0.3 in 2/3 seeds (unchanged); C2 |entropy_ON - entropy_OFF|>=0.1 in 2/3 seeds (retests FAIL criterion); C3 score_bias_magnitude>0.05 in 2/3 seeds (new sanity). PASS = C1 AND C2 AND C3. experiment_purpose=evidence. evidence_direction_per_claim: PASS all supports; FAIL {SD-032b/MECH-260: weakens, MECH-258: mixed (C1 forward model valid regardless)}. supersedes V3-EXQ-445.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-20T22:13:38.176897+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-451",
