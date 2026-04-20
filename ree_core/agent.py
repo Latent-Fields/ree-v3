@@ -66,6 +66,11 @@ from ree_core.cingulate import (
 from ree_core.latent.stack import HarmForwardTrunk
 from ree_core.pfc import LateralPFCAnalog
 from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
+from ree_core.governance import (
+    ClosureEvent,
+    ClosureOperator,
+    ClosureOperatorConfig,
+)
 from ree_core.residue.field import (
     VALENCE_WANTING,
     VALENCE_LIKING,
@@ -295,6 +300,51 @@ class REEAgent(nn.Module):
                 config=lpfc_cfg,
             )
 
+        # SD-034: governance.closure_operator (five-part "done" token)
+        # Coordinates release of BetaGate latch, targeted No-Go via dACC,
+        # rule-domain residue discharge, closure signal to SalienceCoordinator,
+        # and dACC pe buffer reset/cap. Master switch defaults False (backward
+        # compat). Requires lateral_pfc (MECH-262 rule_state is the completion
+        # source), dacc (MECH-260/268), residue_field, beta_gate. salience
+        # coordinator optional (falls back to direct fire when None).
+        self.closure_operator: Optional[ClosureOperator] = None
+        if getattr(config, "use_closure_operator", False):
+            if self.lateral_pfc is None:
+                raise ValueError(
+                    "use_closure_operator=True requires use_lateral_pfc_analog=True "
+                    "(SD-033a rule_state is the completion source)."
+                )
+            clo_cfg = ClosureOperatorConfig(
+                use_closure_operator=True,
+                completion_rule_delta_threshold=config.closure_rule_delta_threshold,
+                completion_stable_ticks=config.closure_stable_ticks,
+                require_beta_elevated=config.closure_require_beta_elevated,
+                min_sd033a_write_gate=config.closure_min_sd033a_gate,
+                nogo_injection_count=config.closure_nogo_injection_count,
+                residue_discharge_factor=config.closure_residue_discharge_factor,
+                residue_discharge_radius=config.closure_residue_discharge_radius,
+                closure_signal_value=config.closure_signal_value,
+                reset_pe_ema=config.closure_reset_pe_ema,
+                pe_cap_after_closure=config.closure_pe_cap_after,
+            )
+            self.closure_operator = ClosureOperator(
+                config=clo_cfg,
+                beta_gate=self.beta_gate,
+                dacc=self.dacc,
+                residue=self.residue_field,
+                salience=self.salience,
+                lateral_pfc=self.lateral_pfc,
+            )
+            if (
+                self.salience is not None
+                and config.closure_signal_affinity_internal_planning > 0.0
+            ):
+                self.closure_operator.register_on_coordinator(
+                    affinity_modes={
+                        "internal_planning": config.closure_signal_affinity_internal_planning,
+                    },
+                )
+
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
         self.body_obs_encoder = nn.Sequential(
@@ -449,6 +499,10 @@ class REEAgent(nn.Module):
         # a carried rule).
         if self.lateral_pfc is not None:
             self.lateral_pfc.reset()
+
+        # SD-034: reset closure-operator completion detector on episode boundary.
+        if self.closure_operator is not None:
+            self.closure_operator.reset()
 
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
@@ -1100,6 +1154,38 @@ class REEAgent(nn.Module):
             except Exception:
                 # One-hot discretisation fallback: hash raw action. Silent to
                 # preserve backward-compatible select_action control flow.
+                pass
+
+        # SD-034: run closure completion detector. Stability-based: fires when
+        # rule_state (MECH-262) has been flat for N consecutive ticks AND
+        # beta is elevated AND current mode is in allowed_closure_modes AND
+        # sd_033a write gate is above threshold. Falls through to the five-part
+        # fire sequence if all predicates hold.
+        if (
+            self.closure_operator is not None
+            and action is not None
+            and self._current_latent is not None
+        ):
+            try:
+                a_row = action[0] if action.dim() > 1 else action
+                action_class = int(a_row.argmax().item())
+                current_mode = (
+                    self.salience.current_mode if self.salience is not None else None
+                )
+                sd033a_gate = (
+                    float(self.salience.write_gate("sd_033a"))
+                    if self.salience is not None
+                    else None
+                )
+                self.closure_operator.tick(
+                    current_z_world=self._current_latent.z_world,
+                    current_action_class=action_class,
+                    current_mode=current_mode,
+                    sd033a_gate=sd033a_gate,
+                    hypothesis_tag=False,
+                )
+            except Exception:
+                # Closure detector failure must not break action selection.
                 pass
 
         return action

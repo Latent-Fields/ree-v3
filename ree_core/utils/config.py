@@ -12,7 +12,7 @@ V3 changes vs V2:
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Dict, Optional
 
 from ree_core.goal import GoalConfig
 from ree_core.neuromodulation.serotonin import SerotoninConfig
@@ -333,6 +333,21 @@ class HippocampalConfig:
     # Subtracted from terrain score (lower score = better in CEM).
     # Default 0.0 (backward compat). Set ~0.3-0.5 for goal-directed navigation.
     wanting_weight: float = 0.0
+    # MECH-267: mode-conditioned hippocampal proposals (Pfeiffer & Foster 2013).
+    # When enabled and an operating_mode dict is supplied to
+    # propose_trajectories(), the per-mode noise multiplier is applied to the
+    # CEM proposal std. Backwards compatible: disabled by default; when
+    # disabled or operating_mode is None, propose_trajectories() behaves as
+    # before. Mapping: external_task tight (exploitation), internal_planning
+    # broader (exploration-biased), internal_replay tighter (consolidative),
+    # offline_consolidation tightest (low-amplitude consolidation).
+    mode_conditioning_enabled: bool = False
+    mode_noise_scale: Dict[str, float] = field(default_factory=lambda: {
+        "external_task":         1.0,
+        "internal_planning":     1.3,
+        "internal_replay":       0.5,
+        "offline_consolidation": 0.3,
+    })
 
 
 @dataclass
@@ -753,6 +768,39 @@ class REEConfig:
     # Bias-head hidden-layer width.
     lateral_pfc_hidden_dim: int = 32
 
+    # ----------------------------------------------------------------
+    # SD-034: governance.closure_operator (five-part "done" token)
+    # ----------------------------------------------------------------
+    # Master switch. When True, REEAgent instantiates a ClosureOperator
+    # connecting BetaGate, DACCAdaptiveControl, ResidueField, SalienceCoordinator,
+    # and LateralPFCAnalog. False = disabled (default, backward compatible).
+    use_closure_operator: bool = False
+    # Automatic detector threshold on ||rule_state_t - rule_state_{t-1}||.
+    closure_rule_delta_threshold: float = 0.001
+    # Number of consecutive stable ticks before automatic closure fires.
+    closure_stable_ticks: int = 3
+    # If True, automatic closure only fires while beta is elevated.
+    closure_require_beta_elevated: bool = True
+    # Minimum sd_033a write_gate value for closure (mode-conditioning).
+    closure_min_sd033a_gate: float = 0.5
+    # Number of copies of the completed action class to push onto the
+    # MECH-260 suppression buffer when closure fires.
+    closure_nogo_injection_count: int = 3
+    # Multiplicative decay applied to RBF weights within the rule-domain
+    # neighbourhood. Must be in (0, 1]; 1.0 disables discharge.
+    closure_residue_discharge_factor: float = 0.5
+    # Domain radius in RBF-bandwidth units for residue discharge.
+    closure_residue_discharge_radius: float = 1.5
+    # Closure event signal magnitude written to SalienceCoordinator.
+    closure_signal_value: float = 1.0
+    # If True, _pe_ema on DACCAdaptiveControl is reset on closure.
+    closure_reset_pe_ema: bool = True
+    # If set, installs an absolute cap on dACC pe after closure (MECH-268).
+    closure_pe_cap_after: Optional[float] = None
+    # If nonzero, register closure_event affinity toward internal_planning
+    # on the SalienceCoordinator (biases mode relaxation post-closure).
+    closure_signal_affinity_internal_planning: float = 0.5
+
     @classmethod
     def from_dims(
         cls,
@@ -894,6 +942,19 @@ class REEConfig:
         lateral_pfc_world_pool_weight: float = 0.5,
         lateral_pfc_bias_scale: float = 0.1,
         lateral_pfc_hidden_dim: int = 32,
+        # SD-034: governance.closure_operator (five-part "done" token)
+        use_closure_operator: bool = False,
+        closure_rule_delta_threshold: float = 0.001,
+        closure_stable_ticks: int = 3,
+        closure_require_beta_elevated: bool = True,
+        closure_min_sd033a_gate: float = 0.5,
+        closure_nogo_injection_count: int = 3,
+        closure_residue_discharge_factor: float = 0.5,
+        closure_residue_discharge_radius: float = 1.5,
+        closure_signal_value: float = 1.0,
+        closure_reset_pe_ema: bool = True,
+        closure_pe_cap_after: Optional[float] = None,
+        closure_signal_affinity_internal_planning: float = 0.5,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -1110,6 +1171,20 @@ class REEConfig:
         config.lateral_pfc_world_pool_weight = lateral_pfc_world_pool_weight
         config.lateral_pfc_bias_scale = lateral_pfc_bias_scale
         config.lateral_pfc_hidden_dim = lateral_pfc_hidden_dim
+
+        # SD-034: governance.closure_operator
+        config.use_closure_operator = use_closure_operator
+        config.closure_rule_delta_threshold = closure_rule_delta_threshold
+        config.closure_stable_ticks = closure_stable_ticks
+        config.closure_require_beta_elevated = closure_require_beta_elevated
+        config.closure_min_sd033a_gate = closure_min_sd033a_gate
+        config.closure_nogo_injection_count = closure_nogo_injection_count
+        config.closure_residue_discharge_factor = closure_residue_discharge_factor
+        config.closure_residue_discharge_radius = closure_residue_discharge_radius
+        config.closure_signal_value = closure_signal_value
+        config.closure_reset_pe_ema = closure_reset_pe_ema
+        config.closure_pe_cap_after = closure_pe_cap_after
+        config.closure_signal_affinity_internal_planning = closure_signal_affinity_internal_planning
 
         return config
 

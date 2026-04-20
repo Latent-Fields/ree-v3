@@ -79,6 +79,14 @@ class DACCConfig:
     # 0.0 means drive_level has no effect on dACC coupling (backward compat).
     dacc_drive_coupling: float = 0.0
 
+    # MECH-268 / SD-034 hook: absolute cap on precision-weighted PE after
+    # closure events. None -> no cap (backward compat). When set (e.g. by
+    # ClosureOperator on fire), subsequent _affective_pe() outputs are
+    # clamped to this value, preventing the just-ended episode's residual
+    # PE from continuing to drive control demand. This is the "cap / reset
+    # MECH-268 pe buffer" component of SD-034's 5-part closure signal.
+    dacc_pe_cap: Optional[float] = None
+
 
 class DACCAdaptiveControl(nn.Module):
     """SD-032b dACC/aMCC-analog adaptive control.
@@ -125,7 +133,12 @@ class DACCAdaptiveControl(nn.Module):
         else:
             pe = float((z_harm_a - z_harm_a_pred).norm().item())
         prec_norm = min(precision / self.config.dacc_precision_scale, 3.0)
-        return pe * (1.0 + prec_norm)
+        pe_out = pe * (1.0 + prec_norm)
+        # MECH-268 / SD-034: post-closure precision-weighted PE cap.
+        cap = self.config.dacc_pe_cap
+        if cap is not None and pe_out > cap:
+            pe_out = float(cap)
+        return pe_out
 
     def _update_pe_ema(self, pe: float) -> float:
         """Running EMA of the precision-weighted PE; baseline for foraging signal."""
@@ -152,6 +165,43 @@ class DACCAdaptiveControl(nn.Module):
         self._action_history.append(int(action_class))
         if len(self._action_history) > self.config.dacc_suppression_memory:
             self._action_history.pop(0)
+
+    def inject_nogo(self, action_class: int, count: int) -> int:
+        """SD-034 targeted No-Go: push `action_class` onto history `count` times.
+
+        Used by the ClosureOperator when a rule-episode completes: biases
+        MECH-260 recency suppression strongly against re-selecting the
+        just-completed action class, implementing the "targeted No-Go on
+        the just-completed rule_state" component of SD-034's closure
+        signal. This is mechanistically identical to record_action() but
+        semantically marked: the count reflects governance intent, not
+        repeated execution.
+
+        Args:
+            action_class: int action-class tag to inject.
+            count: number of times to push (clipped by history memory).
+
+        Returns:
+            int: number of entries actually pushed (may be less than
+            count if history memory is smaller).
+        """
+        memory = self.config.dacc_suppression_memory
+        n = int(max(0, min(count, memory)))
+        for _ in range(n):
+            self._action_history.append(int(action_class))
+            if len(self._action_history) > memory:
+                self._action_history.pop(0)
+        return n
+
+    def reset_episode_pe(self) -> None:
+        """SD-034 MECH-268 hook: clear the PE EMA baseline after closure.
+
+        Rebaselines the precision-weighted affective-pain PE EMA. Distinct
+        from reset() which also clears _action_history (too destructive
+        for a closure event -- targeted No-Go needs the history to persist).
+        Call this from ClosureOperator._fire() when reset_pe_ema=True.
+        """
+        self._pe_ema = None
 
     def forward(
         self,

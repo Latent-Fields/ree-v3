@@ -439,6 +439,96 @@ class ResidueField(nn.Module):
         priority = (valence * d.unsqueeze(0)).sum(dim=-1) + epsilon  # [batch]
         return priority
 
+    def discharge_domain(
+        self,
+        z_world: torch.Tensor,
+        factor: float = 0.5,
+        radius: float = 1.5,
+    ) -> int:
+        """SD-034: domain-scoped residue discharge (rule-end closure signal).
+
+        Attenuates (multiplicatively) the RBF weights at active centers within
+        a rule-domain neighbourhood of z_world. This is NOT erasure -- the
+        ResidueField invariant "residue cannot be erased" is preserved because
+        weights decay multiplicatively toward (but never to) zero, and only
+        within a bounded domain scoped by radius. Interpreted as a controlled
+        sleep-style contextualisation of just-completed rule-episode residue:
+        the affective pressure that drove the committed sequence relaxes in
+        the region where resolution just occurred, without discarding the
+        trajectory record globally.
+
+        Args:
+            z_world: [batch, world_dim] or [world_dim]. The closure-firing
+                location (rule-domain centre). Batched input is averaged.
+            factor: Multiplicative decay applied to in-domain weights.
+                Must be in (0.0, 1.0]. 0.5 halves the weight; 1.0 is a no-op
+                (ablation). Default 0.5.
+            radius: Domain radius in RBF-bandwidth units. Centers within
+                (radius * bandwidth) of z_world are considered in-domain.
+                Default 1.5 (encompasses one RBF bandwidth plus a modest
+                tail). Unitless -- converted to a squared distance via
+                (radius * bandwidth)^2 at comparison time.
+
+        Returns:
+            int: number of active centers attenuated.
+
+        MECH-094: discharge is a waking-control signal. hypothesis_tag
+        semantics are enforced by the caller (ClosureOperator skips firing
+        during replay via mode-conditioning on operating_mode).
+
+        Invariant: valence_vecs are NOT modified -- closure discharges the
+        scalar residue weight (policy-relevance / approach-avoidance signal)
+        but the 4-component valence vector (wanting/liking/harm_discriminative/
+        surprise) is preserved so replay prioritisation remains faithful to
+        what actually happened.
+        """
+        if factor >= 1.0:
+            return 0
+        if factor <= 0.0:
+            # Clip to a small positive value; do NOT allow true zero
+            # (preserves the "cannot be erased" invariant).
+            factor = 1e-6
+
+        if not self.rbf_field.active_mask.any():
+            return 0
+
+        # Reduce batch to a single representative point.
+        if z_world.dim() == 2:
+            z_point = z_world.mean(dim=0)           # [world_dim]
+        else:
+            z_point = z_world
+
+        radius_sq = float(radius * self.rbf_field.bandwidth) ** 2
+        active_idxs = self.rbf_field.active_mask.nonzero(as_tuple=True)[0]
+        active_centers = self.rbf_field.centers[active_idxs]                 # [n_active, world_dim]
+        diffs = z_point.unsqueeze(0) - active_centers                        # [n_active, world_dim]
+        dists_sq = (diffs ** 2).sum(dim=-1)                                  # [n_active]
+        in_domain_local = (dists_sq <= radius_sq).nonzero(as_tuple=True)[0]
+        if in_domain_local.numel() == 0:
+            return 0
+        in_domain_global = active_idxs[in_domain_local]
+
+        # Hard floor to preserve the "residue cannot be erased" invariant.
+        # Positive weights clamp to >= +MIN_FLOOR; negative weights clamp to
+        # <= -MIN_FLOOR. Weights that were exactly zero stay zero.
+        MIN_FLOOR = 1e-6
+        with torch.no_grad():
+            w = self.rbf_field.weights.data[in_domain_global]
+            decayed = w * float(factor)
+            sign = torch.sign(w)
+            floored = torch.where(
+                sign > 0,
+                torch.clamp(decayed, min=MIN_FLOOR),
+                torch.where(
+                    sign < 0,
+                    torch.clamp(decayed, max=-MIN_FLOOR),
+                    decayed,
+                ),
+            )
+            self.rbf_field.weights.data[in_domain_global] = floored
+
+        return int(in_domain_global.numel())
+
     def integrate(self, num_steps: int = 10) -> Dict[str, float]:
         """
         Offline integration of residue (contextualisation, no erasure).
