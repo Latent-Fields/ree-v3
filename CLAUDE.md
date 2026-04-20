@@ -757,11 +757,28 @@ Verify with `git fetch` (should return silently).
   Training for cue_terrain_proj: supervised terrain_loss using hazard_field_view proxy (lambda=0.1).
     terrain_loss must be included in experiment E1 training loops to train this projection.
     Pattern: see EXQ-182, EXQ-187a, EXQ-194. Omitting terrain_loss leaves cue_terrain_proj random.
-  Training for cue_action_proj: implicit via E3 trajectory selection gradient (no new loss).
+  Training for cue_action_proj: UNRESOLVED (diagnostic open -- see EXP-0155). The original
+    claim "implicit via E3 trajectory selection gradient (no new loss)" is DEMONSTRABLY FALSE.
+    V3-EXQ-449 (diagnostic probe, 2026-04-20) confirmed cue_action_proj.weight receives
+    exactly 0.0 gradient under this path (C1 PASS, 2 seeds, ~1.7k steps) because the CEM
+    argmax in HippocampalModule is non-differentiable and agent.py:694 detaches action_bias
+    before rollouts. EXQ-449 C2 arm added a supervised MSE loss against
+    E2.action_object(z_world, a_executed).detach(): weights trained (grad ~0.013, delta
+    ~0.21) but action_bias_divergence stayed at exactly 0.0 in both seeds -- something
+    downstream of cue_action_proj zeroes the signal before it reaches E3.select. The simple
+    supervision fix is insufficient on its own. EXP-0155 queued to instrument the full
+    forward path (extract_cue_context -> cue_action_proj -> ... -> E3.select) and identify
+    the specific blocker before any EXQ-418b successor is written. Until EXP-0155
+    resolves, cue_action_proj must be treated as CURRENTLY UNGROUNDED: sd016_enabled=True
+    experiments should expect action_bias_divergence ~= 0.0 and should not rely on
+    cue_action_proj for behavioural effects. (cue_terrain_proj path remains valid --
+    trained via terrain_loss.)
   Backward compatible: sd016_enabled=False by default; existing experiments unaffected.
   MECH-094: not applicable (waking encoder query, not replay content).
   Validation experiment: V3-EXQ-418a queued (SD-016+SD-017 combined retest with terrain_loss).
-  See MECH-150, MECH-151, MECH-152, ARC-041, INV-040.
+    V3-EXQ-418/418a/418b have all FAILed with action_bias_divergence=0.0; the EXQ-418b
+    successor is GATED on EXP-0155 diagnostic resolution.
+  See MECH-150, MECH-151, MECH-152, ARC-041, INV-040, EXP-0155 (cue_action_proj diagnostic).
   Design doc: REE_assembly/docs/architecture/sd_016_frontal_cue_integration.md
 
 ## SD-017: Minimal Sleep-Phase Infrastructure -- SWS/REM Passes (2026-04-09)
