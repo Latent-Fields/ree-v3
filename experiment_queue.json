@@ -160,7 +160,7 @@
       "script": "experiments/v3_exq_433b_sd029_extended_interventional.py",
       "priority": 56,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "episodes_per_run": 400,
       "seeds": 4,
@@ -170,7 +170,11 @@
         "SD-029",
         "MECH-256"
       ],
-      "notes": "Extended interventional follow-up to EXQ-433a FAIL (attenuation_ratio near 1.0 = E2_harm_s cannot distinguish agent-caused vs env-caused harm). Stronger interventional parameters: fraction=0.7 (was 0.5), margin=0.2 (was 0.1). Longer training: P0=200 eps warmup, P1=200 eps interventional (was 100/100). 4 seeds (was 3). New diagnostic metrics: causal_sig_per_type (err_cf - err_actual per event type) and forward_r2_per_type. If causal_sig(agent_caused)>0 AND causal_sig(env_caused)~=0: the actual action explains agent-caused harm better than a counterfactual, confirming SD-029 mechanism. Acceptance criteria widened to attenuation_ratio in [0.2, 0.8] (was [0.3, 0.7]) to account for partial learning. experiment_purpose=evidence."
+      "notes": "Extended interventional follow-up to EXQ-433a FAIL (attenuation_ratio near 1.0 = E2_harm_s cannot distinguish agent-caused vs env-caused harm). Stronger interventional parameters: fraction=0.7 (was 0.5), margin=0.2 (was 0.1). Longer training: P0=200 eps warmup, P1=200 eps interventional (was 100/100). 4 seeds (was 3). New diagnostic metrics: causal_sig_per_type (err_cf - err_actual per event type) and forward_r2_per_type. If causal_sig(agent_caused)>0 AND causal_sig(env_caused)~=0: the actual action explains agent-caused harm better than a counterfactual, confirming SD-029 mechanism. Acceptance criteria widened to attenuation_ratio in [0.2, 0.8] (was [0.3, 0.7]) to account for partial learning. experiment_purpose=evidence.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-20T15:52:52.320593+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-445a",
