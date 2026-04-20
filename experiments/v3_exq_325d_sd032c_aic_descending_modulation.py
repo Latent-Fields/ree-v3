@@ -477,7 +477,7 @@ def main():
         out_path = out_dir / f"{run_id}.json"
         with open(out_path, "w") as f:
             json.dump(output, f, indent=2)
-        print(f"Results -> {out_path}", flush=True)
+        print(f"Result written to: {out_path}", flush=True)
     else:
         print(f"[dry-run] outcome={outcome} (no manifest written)", flush=True)
 
