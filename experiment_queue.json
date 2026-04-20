@@ -100,7 +100,7 @@
       "script": "experiments/v3_exq_452_mech257_dual_function_e2.py",
       "priority": 58,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 75,
       "episodes_per_run": 130,
       "seeds": 3,
@@ -110,7 +110,11 @@
         "SD-013",
         "ARC-033"
       ],
-      "notes": "Diagnostic testing whether a single E2_harm_s substrate can serve dual functions: (a) comparator for SD-003 counterfactual attribution, (b) evaluator producing PE that feeds MECH-258 dACC bundle. Standalone harness (HarmEncoder + AffectiveHarmEncoder + E2HarmSForward, no full REEAgent, use_dacc=False to isolate E2). 3 arms: DUAL_STD (L2 forward loss), DUAL_INTERVENTIONAL (SD-013 use_interventional=True, interventional_fraction=0.3, margin=0.1), DUAL_OFF_BASELINE (untrained projection). Phased P0=30/P1=80/P2=20 eps. Metrics: counterfactual_separation (||E2(z,a_actual)-E2(z,a_cf)||), pe_harm_surprise_corr (Pearson of per-step PE vs harm_surprise EMA), forward_r2. Acceptance: C1 comparator_valid (cf_sep>0.05 in 2/3 seeds for both trained arms); C2 evaluator_valid (pe_corr>0.15 in 2/3 seeds for both trained arms); C3 interventional improves comparator; C4 interventional does not harm evaluator. PASS = C1 AND C2. experiment_purpose=diagnostic. evidence_direction_per_claim per-arm outcome. DOES NOT weight claim confidence (diagnostic)."
+      "notes": "Diagnostic testing whether a single E2_harm_s substrate can serve dual functions: (a) comparator for SD-003 counterfactual attribution, (b) evaluator producing PE that feeds MECH-258 dACC bundle. Standalone harness (HarmEncoder + AffectiveHarmEncoder + E2HarmSForward, no full REEAgent, use_dacc=False to isolate E2). 3 arms: DUAL_STD (L2 forward loss), DUAL_INTERVENTIONAL (SD-013 use_interventional=True, interventional_fraction=0.3, margin=0.1), DUAL_OFF_BASELINE (untrained projection). Phased P0=30/P1=80/P2=20 eps. Metrics: counterfactual_separation (||E2(z,a_actual)-E2(z,a_cf)||), pe_harm_surprise_corr (Pearson of per-step PE vs harm_surprise EMA), forward_r2. Acceptance: C1 comparator_valid (cf_sep>0.05 in 2/3 seeds for both trained arms); C2 evaluator_valid (pe_corr>0.15 in 2/3 seeds for both trained arms); C3 interventional improves comparator; C4 interventional does not harm evaluator. PASS = C1 AND C2. experiment_purpose=diagnostic. evidence_direction_per_claim per-arm outcome. DOES NOT weight claim confidence (diagnostic).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-20T14:39:59.346037+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-453",
