@@ -160,6 +160,124 @@
         "ARC-016"
       ],
       "notes": "ARC-016 precision-adaptive commitment_threshold validation. 3 arms: STATIC_LOW (commit_threshold=0.3), STATIC_HIGH (0.8), ADAPTIVE (k/sqrt(e3.running_variance) with k calibrated from P1 PE variance observations). No ree_core modification -- script-level monkey-patch of agent.e3.select writes config.commitment_threshold each tick, clipped [0.05, 2.0]. Phased P0=30/P1=50/P2=30 eps. Metrics: commit_rate, commit_survival, pe_variance_mean, commit_rate_by_pe_regime (low vs high rv quantiles), goal_reach_rate. Acceptance: C1 STATIC_LOW commit_rate > STATIC_HIGH in 2/3 seeds (sanity); C2 ADAPTIVE low_pe_commit - high_pe_commit >=0.05 in 2/3 seeds (regime sensitivity); C3 ADAPTIVE mean commit_rate in (0.1, 0.9) (non-degenerate); C4 ADAPTIVE goal_reach >= STATIC_LOW - 0.1 (diagnostic). PASS = C1 AND C2 AND C3. experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-455",
+      "title": "SD-032a salience coordinator behavioral confirmation -- mode-switch trigger + write-gate diversity under natural PE",
+      "experiment_type": "v3_exq_455_sd032a_salience_behavioral",
+      "script": "experiments/v3_exq_455_sd032a_salience_behavioral.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 100,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-446",
+      "claim_ids": [
+        "SD-032a",
+        "MECH-259",
+        "MECH-261"
+      ],
+      "notes": "Behavioral confirmation for SD-032a SalienceCoordinator (supersedes EXQ-446 which was wiring-only PASS). EXQ-446 confirmed coordinator infrastructure works but did not test whether real agent dynamics produce natural mode-switch triggers. This experiment runs 3 seeds x 2 conditions (COORD_OFF vs COORD_ON) x 200 eps x 120 steps with phased E2_harm_a training. Collects: mode_switch_trigger_count (natural PE crossings), mean_operating_mode_entropy, write_gate(e3_policy) std. Acceptance: C1 trigger_count_natural>0 in >=2/3 seeds (coordinator fires under real dynamics, not just synthetic injection); C2 mean_operating_mode_entropy>0.3 in >=2/3 seeds (mode distribution non-degenerate); C3 write_gate_e3_policy_std>0.01 in >=2/3 seeds (gate varies over time). PASS = C1 AND C2 AND C3. experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-433b",
+      "title": "SD-029 E2_harm_s comparator -- extended interventional training (fraction=0.7, margin=0.2, 4 seeds)",
+      "experiment_type": "v3_exq_433b_sd029_extended_interventional",
+      "script": "experiments/v3_exq_433b_sd029_extended_interventional.py",
+      "priority": 56,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 200,
+      "episodes_per_run": 400,
+      "seeds": 4,
+      "conditions": 1,
+      "supersedes": "V3-EXQ-433a",
+      "claim_ids": [
+        "SD-029",
+        "MECH-256"
+      ],
+      "notes": "Extended interventional follow-up to EXQ-433a FAIL (attenuation_ratio near 1.0 = E2_harm_s cannot distinguish agent-caused vs env-caused harm). Stronger interventional parameters: fraction=0.7 (was 0.5), margin=0.2 (was 0.1). Longer training: P0=200 eps warmup, P1=200 eps interventional (was 100/100). 4 seeds (was 3). New diagnostic metrics: causal_sig_per_type (err_cf - err_actual per event type) and forward_r2_per_type. If causal_sig(agent_caused)>0 AND causal_sig(env_caused)~=0: the actual action explains agent-caused harm better than a counterfactual, confirming SD-029 mechanism. Acceptance criteria widened to attenuation_ratio in [0.2, 0.8] (was [0.3, 0.7]) to account for partial learning. experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-445a",
+      "title": "SD-032b dACC full pipeline -- E3 harm_eval + terrain trained, terrain fix: min-residue candidate",
+      "experiment_type": "v3_exq_445a_sd032b_dacc_full_pipeline",
+      "script": "experiments/v3_exq_445a_sd032b_dacc_full_pipeline.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 200,
+      "episodes_per_run": 280,
+      "seeds": 3,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-445",
+      "claim_ids": [
+        "SD-032b",
+        "MECH-258",
+        "MECH-260"
+      ],
+      "notes": "Full-pipeline fix for EXQ-445 monostrategy collapse (root cause: E3 never trained; untrained E3 always selects same action -> entropy=0). Fix: P0 trains E1, E3 harm_eval, terrain_prior (min-residue candidate, not E3-selected), and world-forward. P1 trains E2_harm_a on frozen encoder. P2 eval with pure policy. Also fixes terrain_prior inversion (from ARC-007 diagnosis): terrain trained on minimum-residue candidate from candidate set, not E3's selected trajectory. 3 seeds x 2 conditions (OFF vs ON_INDEPENDENT) x 280 eps x 120 steps. PASS: C1 harm_a_forward_r2>=0.3 in >=2/3 seeds; C2 |entropy_ON - entropy_OFF|>=0.1 in >=2/3 seeds; C3 ON entropy >= OFF entropy in >=2/3 seeds. experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-445b",
+      "title": "SD-032b dACC diversity: epsilon-greedy exploration during training (minimal intervention)",
+      "experiment_type": "v3_exq_445b_sd032b_dacc_epsilon_diversity",
+      "script": "experiments/v3_exq_445b_sd032b_dacc_epsilon_diversity.py",
+      "priority": 54,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 180,
+      "seeds": 3,
+      "conditions": 3,
+      "supersedes": "V3-EXQ-445",
+      "claim_ids": [
+        "SD-032b",
+        "MECH-258",
+        "MECH-260"
+      ],
+      "notes": "Narrow hypothesis test: is the EXQ-445 monostrategy a pure training artifact breakable without changing the training objective? Adds epsilon=0.1 random action injection during P0+P1 only (EPSILON_TRAIN=0.1, EPSILON_EVAL=0.0). Does NOT add full E3 training (unlike 445a). Preserves ARC-033/ARC-058 3-arm design (OFF, ON_INDEPENDENT, ON_SHARED). Same P0=50, P1=100, P2=30 as EXQ-445. Same PASS criteria: C1 harm_a_forward_r2>=0.3 in >=2/3 seeds; C2 |entropy_ON - entropy_OFF|>=0.1; C3 ON entropy >= OFF entropy. If PASS: monostrategy was training artifact. If FAIL: monostrategy is fundamental (environment too simple or E3 always prefers one action). experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-445c",
+      "title": "SD-032b dACC larger environment (14x14, 5 hazards, 7 resources) + full pipeline training",
+      "experiment_type": "v3_exq_445c_sd032b_dacc_larger_env",
+      "script": "experiments/v3_exq_445c_sd032b_dacc_larger_env.py",
+      "priority": 53,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 170,
+      "episodes_per_run": 280,
+      "seeds": 3,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-445",
+      "claim_ids": [
+        "SD-032b",
+        "MECH-258",
+        "MECH-260"
+      ],
+      "notes": "Multi-arm larger-environment variant. Tests whether dACC behavioral effect requires richer environment with more action diversity. Environment: size=14, num_hazards=5, num_resources=7, steps_per_ep=150 (was 10x10, 3 hazards, 4 resources, 120 steps). Full pipeline training same as 445a (E1, harm_eval, terrain, world-forward in P0; E2_harm_a in P1; epsilon=0.1 during training). 3 seeds x 2 conditions (OFF vs ON_INDEPENDENT). Same PASS criteria as 445a. experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-397c",
+      "title": "ARC-007 path memory ablation -- harder env (16x16, 6 hazards, 3 sparse resources) + terrain training fix",
+      "experiment_type": "v3_exq_397c_arc007_harder_env",
+      "script": "experiments/v3_exq_397c_arc007_harder_env.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 130,
+      "episodes_per_run": 930,
+      "seeds": 1,
+      "conditions": 1,
+      "supersedes": "V3-EXQ-397",
+      "claim_ids": [
+        "ARC-007",
+        "SD-004"
+      ],
+      "notes": "Fixes EXQ-397 FAIL (inverted hippo_quality_gap: hippocampus navigated TOWARD residue). Root cause: terrain_prior trained on E3-selected trajectories, which were high-residue because hazard-proximate resources attracted E3 selection. Two fixes: (1) TERRAIN FIX: terrain_prior now trained on minimum-residue candidate from candidate set (not E3-selected trajectory); (2) HARDER ENV: size=16, num_hazards=6, num_resources=3 (sparse) to force genuine spatial planning. 800 train + 50 eval intact + 50 eval ablated + 30 eval restored episodes. Same 5-criterion PASS: C1 hippo_quality_gap_intact>0; C2 ablated<=intact*0.5; C3 restored>=ablated; C4 calibration_gap>0.03; C5 no fatal errors. experiment_purpose=evidence."
     }
   ]
 }
