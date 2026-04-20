@@ -64,6 +64,8 @@ from ree_core.cingulate import (
     SalienceCoordinatorConfig,
 )
 from ree_core.latent.stack import HarmForwardTrunk
+from ree_core.pfc import LateralPFCAnalog
+from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
 from ree_core.residue.field import (
     VALENCE_WANTING,
     VALENCE_LIKING,
@@ -272,6 +274,27 @@ class REEAgent(nn.Module):
         # Cache of last PACC tick output (for diagnostics / experiments).
         self._pacc_last_tick: Optional[Dict[str, float]] = None
 
+        # SD-033a: Lateral-PFC-analog (rule/goal substrate, MECH-261 primary
+        # consumer). When use_lateral_pfc_analog=True, maintains a rule_state
+        # vector updated via gate-modulated EMA using write_gate("sd_033a")
+        # and emits a per-candidate score_bias composed with dACC bias before
+        # E3.select(). False = disabled (default, backward compat).
+        self.lateral_pfc: Optional[LateralPFCAnalog] = None
+        if getattr(config, "use_lateral_pfc_analog", False):
+            lpfc_cfg = LateralPFCConfig(
+                use_lateral_pfc_analog=True,
+                rule_dim=config.lateral_pfc_rule_dim,
+                update_eta=config.lateral_pfc_update_eta,
+                world_pool_weight=config.lateral_pfc_world_pool_weight,
+                bias_scale=config.lateral_pfc_bias_scale,
+                hidden_dim=config.lateral_pfc_hidden_dim,
+            )
+            self.lateral_pfc = LateralPFCAnalog(
+                delta_dim=config.latent.delta_dim,
+                world_dim=config.latent.world_dim,
+                config=lpfc_cfg,
+            )
+
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
         self.body_obs_encoder = nn.Sequential(
@@ -420,6 +443,12 @@ class REEAgent(nn.Module):
         if self.pacc is not None:
             self.pacc.reset()
         self._pacc_last_tick = None
+
+        # SD-033a: reset rule_state on episode boundary (SD-033a spec: rule
+        # persists across ticks within episode; fresh episode starts without
+        # a carried rule).
+        if self.lateral_pfc is not None:
+            self.lateral_pfc.reset()
 
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
@@ -949,6 +978,55 @@ class REEAgent(nn.Module):
                 e3_gate = self.salience.write_gate("e3_policy")
                 dacc_score_bias = dacc_score_bias * float(e3_gate)
                 self._dacc_last_bias = dacc_score_bias.detach().clone()
+
+        # SD-033a: Lateral-PFC-analog tick. Primary consumer of MECH-261
+        # write_gate("sd_033a"). Gate-modulated EMA update of rule_state,
+        # then per-candidate score_bias composed additively with dACC bias.
+        # Initial bias output is exactly zero (last Linear zeroed at init)
+        # so use_lateral_pfc_analog=True with an untrained head is
+        # backward-compatible until the head is deliberately trained.
+        # MECH-094: rule persistence is gated by the registry -- no separate
+        # hypothesis_tag check (the gate IS the tag via MECH-261).
+        if (
+            self.lateral_pfc is not None
+            and self._current_latent is not None
+        ):
+            if self.salience is not None:
+                lpfc_gate = float(self.salience.write_gate("sd_033a"))
+            else:
+                # Coordinator disabled -> full gate (lateral_pfc active under
+                # use_lateral_pfc_analog alone, so ablation is possible without
+                # requiring SD-032a to be on).
+                lpfc_gate = 1.0
+            # Update rule_state (in-place on buffer, no gradient flow).
+            self.lateral_pfc.update(
+                z_delta=self._current_latent.z_delta,
+                z_world=self._current_latent.z_world,
+                gate=lpfc_gate,
+            )
+            # Per-candidate z_world summary: first-step z_world of each
+            # trajectory (trajectory.world_states[:, 0, :]). Falls back to
+            # current z_world replicated across candidates if trajectories
+            # lack world_states.
+            K = len(candidates)
+            cand_world_list: List[torch.Tensor] = []
+            for c in candidates:
+                if c.world_states is not None:
+                    ws = c.get_world_state_sequence()  # [batch, horizon+1, world_dim]
+                    cand_world_list.append(ws[0, 0, :])  # first-step, first batch
+                else:
+                    cand_world_list.append(
+                        self._current_latent.z_world[0].detach()
+                    )
+            cand_world_summaries = torch.stack(cand_world_list, dim=0)  # [K, world_dim]
+            lpfc_bias = self.lateral_pfc.compute_bias(cand_world_summaries)
+            # Compose additively with dACC score_bias (lower-is-better in E3).
+            if dacc_score_bias is None:
+                dacc_score_bias = lpfc_bias
+            else:
+                dacc_score_bias = dacc_score_bias + lpfc_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
 
         result = self.e3.select(
             candidates, temperature,

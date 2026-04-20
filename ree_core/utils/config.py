@@ -731,6 +731,28 @@ class REEConfig:
     # probe as its own experiment.
     pacc_offline_decay: float = 0.0
 
+    # SD-033a: Lateral-PFC-analog (rule/goal substrate, MECH-261 primary consumer).
+    # Master switch -- when True, REEAgent instantiates a LateralPFCAnalog that
+    # maintains a rule_state vector updated via gate-modulated EMA using
+    # write_gate("sd_033a") as the effective-eta multiplier, and emits a
+    # per-candidate score_bias (initial output = 0 because the head's last
+    # Linear is zeroed at init -- backward-compatible).
+    # False = disabled (default).
+    use_lateral_pfc_analog: bool = False
+    # Rule-state vector dimensionality. Small by intent (rule summary, not
+    # a full working-memory buffer).
+    lateral_pfc_rule_dim: int = 16
+    # Base EMA rate; effective rate = lateral_pfc_update_eta * gate each
+    # tick. 0.05 gives ~20-step rise time under gate=1.0.
+    lateral_pfc_update_eta: float = 0.05
+    # Blend weight on mean(z_world) in the rule-update source: source =
+    # delta_proj(z_delta) + world_pool_weight * world_proj(z_world).
+    lateral_pfc_world_pool_weight: float = 0.5
+    # Clamp on |score_bias|; keeps rule-bias from dominating E3.
+    lateral_pfc_bias_scale: float = 0.1
+    # Bias-head hidden-layer width.
+    lateral_pfc_hidden_dim: int = 32
+
     @classmethod
     def from_dims(
         cls,
@@ -865,6 +887,13 @@ class REEConfig:
         pacc_drive_bias_cap: float = 0.5,
         pacc_z_harm_a_min: float = 0.0,
         pacc_offline_decay: float = 0.0,
+        # SD-033a: Lateral-PFC-analog (rule/goal substrate, MECH-261 consumer)
+        use_lateral_pfc_analog: bool = False,
+        lateral_pfc_rule_dim: int = 16,
+        lateral_pfc_update_eta: float = 0.05,
+        lateral_pfc_world_pool_weight: float = 0.5,
+        lateral_pfc_bias_scale: float = 0.1,
+        lateral_pfc_hidden_dim: int = 32,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -1073,6 +1102,14 @@ class REEConfig:
         config.pacc_drive_bias_cap = pacc_drive_bias_cap
         config.pacc_z_harm_a_min = pacc_z_harm_a_min
         config.pacc_offline_decay = pacc_offline_decay
+
+        # SD-033a: Lateral-PFC-analog
+        config.use_lateral_pfc_analog = use_lateral_pfc_analog
+        config.lateral_pfc_rule_dim = lateral_pfc_rule_dim
+        config.lateral_pfc_update_eta = lateral_pfc_update_eta
+        config.lateral_pfc_world_pool_weight = lateral_pfc_world_pool_weight
+        config.lateral_pfc_bias_scale = lateral_pfc_bias_scale
+        config.lateral_pfc_hidden_dim = lateral_pfc_hidden_dim
 
         return config
 

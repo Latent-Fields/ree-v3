@@ -250,6 +250,24 @@
         "SD-004"
       ],
       "notes": "Fixes EXQ-397 FAIL (inverted hippo_quality_gap: hippocampus navigated TOWARD residue). Root cause: terrain_prior trained on E3-selected trajectories, which were high-residue because hazard-proximate resources attracted E3 selection. Two fixes: (1) TERRAIN FIX: terrain_prior now trained on minimum-residue candidate from candidate set (not E3-selected trajectory); (2) HARDER ENV: size=16, num_hazards=6, num_resources=3 (sparse) to force genuine spatial planning. 800 train + 50 eval intact + 50 eval ablated + 30 eval restored episodes. Same 5-criterion PASS: C1 hippo_quality_gap_intact>0; C2 ablated<=intact*0.5; C3 restored>=ablated; C4 calibration_gap>0.03; C5 no fatal errors. experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-456",
+      "title": "SD-033a lateral-PFC-analog landing validation (diagnostic -- substrate wiring of MECH-261 primary consumer)",
+      "experiment_type": "v3_exq_456_sd033a_lateral_pfc_analog_landing",
+      "script": "experiments/v3_exq_456_sd033a_lateral_pfc_analog_landing.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 2,
+      "seeds": 1,
+      "conditions": 5,
+      "claim_ids": [
+        "SD-033a",
+        "MECH-261",
+        "MECH-262"
+      ],
+      "notes": "Substrate validation for SD-033a LateralPFCAnalog (IMPLEMENTED 2026-04-20). Primary consumer of MECH-261 write-gate registry on SD-032a SalienceCoordinator; instantiates MECH-262 rule-selective persistence. SD-033a is gate-modulated EMA + frozen-random zeroed-last-Linear bias head, so primary validation is deterministic API + arithmetic. 5 sub-tests: UC1 instantiation (REEAgent with use_lateral_pfc_analog=True exposes agent.lateral_pfc; rule_state buffer shape [1, rule_dim]). UC2 gate modulates update rate (gate=1 delta > 100x gate=0 delta; gate=0 freeze < 1e-6). UC3 bias zero at init (compute_bias returns exactly-zero [K] vector with non-zero rule_state; validates zeroed-last-Linear contract, not biological bias). UC4 backward compat (use_lateral_pfc_analog=False -> agent.lateral_pfc is None; SD-033a tick block skipped in select_action). UC5 reset clears rule_state (agent.reset() zeroes rule_state via lateral_pfc.reset path). PASS = all 5 UCs. experiment_purpose=diagnostic. Does NOT test biological SD-033a signatures (i/iii/iv); bias head is untrained (training-dependent emergence deferred until A2 alternative is considered -- see task_inbox lit-pull). Signature (ii) distractor-resistant persistence is exercised indirectly via gate=0 update-suppression check. evidence_direction=diagnostic."
     }
   ]
 }
