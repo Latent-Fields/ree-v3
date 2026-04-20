@@ -50,6 +50,23 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-04-20T05:50:12.679539+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-449",
+      "title": "SD-016 cue_action_proj wiring diagnostic -- BASELINE vs SUPERVISED (diagnostic probe)",
+      "experiment_type": "v3_exq_449_sd016_cue_action_proj_wiring_probe",
+      "script": "experiments/v3_exq_449_sd016_cue_action_proj_wiring_probe.py",
+      "priority": 60,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 75,
+      "seeds": 2,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-016"
+      ],
+      "notes": "Diagnostic probe testing the V3-EXQ-418a/418b wiring gap: action_bias_div=0.0000 despite sd016_enabled and terrain_loss. Hypothesis: cue_action_proj receives no gradient (detached action_bias + non-differentiable CEM argmax). Two arms: BASELINE mirrors EXQ-418a WITHOUT_SLEEP condition exactly; SUPERVISED adds auxiliary loss MSE(cue_action_proj(cue_context), E2.action_object(z_world, a_executed).detach()) with lambda=0.5. Gradient hook on cue_action_proj.weight records per-step grad norm. Acceptance: C1 BASELINE mean_grad_norm<1e-7 AND action_bias_div<0.01 in 2/2 seeds (diagnosis confirmed); C2 SUPERVISED mean_grad_norm>1e-5 AND action_bias_div>0.05 in 2/2 seeds (fix path viable); C3 drift_ratio SUPERVISED/BASELINE > 10x. PASS = C1 AND C2. Smoke-test (dry-run) already demonstrates BASELINE zero-grad and SUPERVISED grad~8e-3 with weight delta 0.21. experiment_purpose=diagnostic. evidence_direction=diagnostic (not evidence). Result DOES NOT weight SD-016 claim; informs whether fix via supervised cue_action_loss is viable or whether CEM must be replaced with a differentiable approximation."
     }
   ]
 }
