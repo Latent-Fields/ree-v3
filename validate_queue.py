@@ -30,6 +30,14 @@ VALID_AFFINITIES = {"any", "DLAPTOP-4.local", "Daniel-PC", "EWIN-PC", "ree-cloud
 # Examples: V3-EXQ-047, V3-EXQ-047j, V3-EXQ-001-a, V3-ONBOARD-smoke-EWIN-PC
 RE_QUEUE_ID = re.compile(r"^V3-EXQ-\d+[a-z]?(-[a-z])?$|^V3-ONBOARD-smoke-.+$")
 
+# Contract with experiment_runner.py RE_SAVED_TO (line 73).
+# If a script writes a manifest under evidence/experiments, it MUST print
+# 'Result written to: <path>' on stdout so the runner captures output_file.
+# Without this, runner_status.output_file stays empty and generate_pending_review
+# cannot derive the on-disk dir_name -- the manifest exists but appears undiscussed.
+# Historical incident: V3-EXQ-325b/325c (2026-04-18/19) used 'Results -> {path}'.
+RE_SAVED_TO_IN_SCRIPT = re.compile(r"Result (?:pack )?written to")
+
 # ------------------------------------------------------------------
 # Field specs: (field_name, required, expected_type_or_None_for_any)
 # ------------------------------------------------------------------
@@ -230,6 +238,23 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                 errors.append(
                     f"{prefix}: script file not found: {script_val}"
                 )
+            else:
+                # Manifest-writing scripts must print the runner-matching save line.
+                try:
+                    source = script_path.read_text(encoding="utf-8", errors="ignore")
+                except OSError:
+                    source = ""
+                writes_manifest = (
+                    "json.dump(" in source and "evidence/experiments" in source
+                )
+                if writes_manifest and not RE_SAVED_TO_IN_SCRIPT.search(source):
+                    errors.append(
+                        f"{prefix}: script {script_val} writes a JSON manifest "
+                        f"under evidence/experiments but does not print "
+                        f"'Result written to: <path>' -- experiment_runner.py "
+                        f"RE_SAVED_TO will not capture output_file. "
+                        f"Add: print(f\"Result written to: {{out_path}}\", flush=True)"
+                    )
 
         # claimed_by structure check
         claimed_by = item.get("claimed_by")

@@ -230,7 +230,7 @@ def main() -> None:
     print(f"result: {manifest['result']}")
     for k, v in manifest["metrics"].items():
         print(f"  {k}: pass={v['pass']}")
-    print(f"manifest written: {out_path}")
+    print(f"Result written to: {out_path}", flush=True)
 
 
 if __name__ == "__main__":
