@@ -67,6 +67,99 @@
         "SD-016"
       ],
       "notes": "Diagnostic probe testing the V3-EXQ-418a/418b wiring gap: action_bias_div=0.0000 despite sd016_enabled and terrain_loss. Hypothesis: cue_action_proj receives no gradient (detached action_bias + non-differentiable CEM argmax). Two arms: BASELINE mirrors EXQ-418a WITHOUT_SLEEP condition exactly; SUPERVISED adds auxiliary loss MSE(cue_action_proj(cue_context), E2.action_object(z_world, a_executed).detach()) with lambda=0.5. Gradient hook on cue_action_proj.weight records per-step grad norm. Acceptance: C1 BASELINE mean_grad_norm<1e-7 AND action_bias_div<0.01 in 2/2 seeds (diagnosis confirmed); C2 SUPERVISED mean_grad_norm>1e-5 AND action_bias_div>0.05 in 2/2 seeds (fix path viable); C3 drift_ratio SUPERVISED/BASELINE > 10x. PASS = C1 AND C2. Smoke-test (dry-run) already demonstrates BASELINE zero-grad and SUPERVISED grad~8e-3 with weight delta 0.21. experiment_purpose=diagnostic. evidence_direction=diagnostic (not evidence). Result DOES NOT weight SD-016 claim; informs whether fix via supervised cue_action_loss is viable or whether CEM must be replaced with a differentiable approximation."
+    },
+    {
+      "queue_id": "V3-EXQ-450",
+      "title": "SD-032b dACC-analog behavioural retest -- stronger gains + 2-arm focused eval (supersedes V3-EXQ-445)",
+      "experiment_type": "v3_exq_450_sd032b_dacc_behavioural_retest",
+      "script": "experiments/v3_exq_450_sd032b_dacc_behavioural_retest.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 30,
+      "episodes_per_run": 210,
+      "seeds": 3,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-445",
+      "claim_ids": [
+        "SD-032b",
+        "MECH-258",
+        "MECH-260"
+      ],
+      "notes": "Retest of V3-EXQ-445 C2 FAIL (dACC behavioural effect: indep_wins=0, shared_wins=0 -- score_bias too weak to shift E3 argmax). Fix direction: dacc_weight 1.0->3.0, dacc_suppression_weight 0.5->1.5, dacc_interaction_weight 0.3->0.8, num_hazards 3->5 (more payoff heterogeneity), P2_EPS 30->60 (doubles eval sample), drop ON_SHARED arm to focus 3 seeds on OFF vs ON_INDEPENDENT. Acceptance: C1 forward_r2>=0.3 in 2/3 seeds (unchanged); C2 |entropy_ON - entropy_OFF|>=0.1 in 2/3 seeds (retests FAIL criterion); C3 score_bias_magnitude>0.05 in 2/3 seeds (new sanity). PASS = C1 AND C2 AND C3. experiment_purpose=evidence. evidence_direction_per_claim: PASS all supports; FAIL {SD-032b/MECH-260: weakens, MECH-258: mixed (C1 forward model valid regardless)}. supersedes V3-EXQ-445."
+    },
+    {
+      "queue_id": "V3-EXQ-451",
+      "title": "Q-034 hazard/resource threshold retest (supersedes V3-EXQ-288 criteria_null)",
+      "experiment_type": "v3_exq_451_q034_hazard_resource_threshold_retest",
+      "script": "experiments/v3_exq_451_q034_hazard_resource_threshold_retest.py",
+      "priority": 60,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 215,
+      "episodes_per_run": 60,
+      "seeds": 2,
+      "conditions": 15,
+      "supersedes": "V3-EXQ-288",
+      "claim_ids": [
+        "Q-034"
+      ],
+      "notes": "Retest of V3-EXQ-288 (criteria_null). Tightened design with direct goal_reach/harm_exposure/entropy per grid point. 5x3 grid: hazard_density in {0.05,0.10,0.15,0.20,0.25} x resource_density in {0.04,0.08,0.12} = 15 points x 2 seeds = 30 runs, 30 warmup + 30 eval eps each at 200 steps. Uses SD-018 resource_proximity_head and SD-012 drive_weight=2.0 (post-288 substrate). Acceptance: C1 goal_reach monotonically decreasing in hazard_density within >=2/3 resource-density columns; C2 at least one grid point where goal_reach crosses 0.5; C3 all 15 points complete with non-null metrics (the criteria_null fix); C4 avoidance signature at high-hazard/low-resource (diagnostic). PASS = C1 AND C2 AND C3. experiment_purpose=evidence. supersedes V3-EXQ-288."
+    },
+    {
+      "queue_id": "V3-EXQ-452",
+      "title": "MECH-257 dual-function E2_harm_s diagnostic -- comparator vs evaluator compatibility",
+      "experiment_type": "v3_exq_452_mech257_dual_function_e2",
+      "script": "experiments/v3_exq_452_mech257_dual_function_e2.py",
+      "priority": 58,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 75,
+      "episodes_per_run": 130,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_ids": [
+        "MECH-257",
+        "SD-013",
+        "ARC-033"
+      ],
+      "notes": "Diagnostic testing whether a single E2_harm_s substrate can serve dual functions: (a) comparator for SD-003 counterfactual attribution, (b) evaluator producing PE that feeds MECH-258 dACC bundle. Standalone harness (HarmEncoder + AffectiveHarmEncoder + E2HarmSForward, no full REEAgent, use_dacc=False to isolate E2). 3 arms: DUAL_STD (L2 forward loss), DUAL_INTERVENTIONAL (SD-013 use_interventional=True, interventional_fraction=0.3, margin=0.1), DUAL_OFF_BASELINE (untrained projection). Phased P0=30/P1=80/P2=20 eps. Metrics: counterfactual_separation (||E2(z,a_actual)-E2(z,a_cf)||), pe_harm_surprise_corr (Pearson of per-step PE vs harm_surprise EMA), forward_r2. Acceptance: C1 comparator_valid (cf_sep>0.05 in 2/3 seeds for both trained arms); C2 evaluator_valid (pe_corr>0.15 in 2/3 seeds for both trained arms); C3 interventional improves comparator; C4 interventional does not harm evaluator. PASS = C1 AND C2. experiment_purpose=diagnostic. evidence_direction_per_claim per-arm outcome. DOES NOT weight claim confidence (diagnostic)."
+    },
+    {
+      "queue_id": "V3-EXQ-453",
+      "title": "MECH-261 per-subdivision write-gate landing validation (diagnostic probe)",
+      "experiment_type": "v3_exq_453_mech261_write_gate_landing",
+      "script": "experiments/v3_exq_453_mech261_write_gate_landing.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 15,
+      "episodes_per_run": 6,
+      "seeds": 2,
+      "conditions": 2,
+      "claim_ids": [
+        "MECH-261",
+        "SD-032a",
+        "SD-032e"
+      ],
+      "notes": "Substrate validation for MECH-261 per-subdivision write_gate registry in SalienceCoordinator (SD-032a). Unit checks: UC1 default registry has all 8 targets (sd_033a-d, hc_viability, sensory_buffer, autonomic, e3_policy); UC2 gate values in [0,1] across 5 synthetic one-hot mode vectors; UC3 per-subdivision gate specificity mean_std>=0.1 (gates meaningfully mode-specific); UC4 register_target extensibility (V4 parallel_goal_deliberation hook); UC5 pACC autonomic write-gate LANDING (drive_bias accumulation differs when autonomic_gate=1.0 vs 0.1 under sustained z_harm_a, |delta|>=0.02). Per-seed/per-condition rollout: c6 coord_on mode_switch observed; c7 coord_off no-op. PASS = all UCs AND >=1/2 seeds across conditions. experiment_purpose=diagnostic. evidence_direction=diagnostic (substrate validation). Mirrors V3-EXQ-446 (SD-032a) structure."
+    },
+    {
+      "queue_id": "V3-EXQ-454",
+      "title": "ARC-016 adaptive commitment_threshold via E2 PE variance (script-level wrapper)",
+      "experiment_type": "v3_exq_454_arc016_adaptive_commitment_threshold",
+      "script": "experiments/v3_exq_454_arc016_adaptive_commitment_threshold.py",
+      "priority": 58,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 75,
+      "episodes_per_run": 110,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_ids": [
+        "ARC-016"
+      ],
+      "notes": "ARC-016 precision-adaptive commitment_threshold validation. 3 arms: STATIC_LOW (commit_threshold=0.3), STATIC_HIGH (0.8), ADAPTIVE (k/sqrt(e3.running_variance) with k calibrated from P1 PE variance observations). No ree_core modification -- script-level monkey-patch of agent.e3.select writes config.commitment_threshold each tick, clipped [0.05, 2.0]. Phased P0=30/P1=50/P2=30 eps. Metrics: commit_rate, commit_survival, pe_variance_mean, commit_rate_by_pe_regime (low vs high rv quantiles), goal_reach_rate. Acceptance: C1 STATIC_LOW commit_rate > STATIC_HIGH in 2/3 seeds (sanity); C2 ADAPTIVE low_pe_commit - high_pe_commit >=0.05 in 2/3 seeds (regime sensitivity); C3 ADAPTIVE mean commit_rate in (0.1, 0.9) (non-degenerate); C4 ADAPTIVE goal_reach >= STATIC_LOW - 0.1 (diagnostic). PASS = C1 AND C2 AND C3. experiment_purpose=evidence."
     }
   ]
 }
