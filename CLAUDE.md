@@ -548,13 +548,31 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
 - Master switch: tonic_5ht_enabled=False (default). All existing experiments unaffected.
 - Location: ree_core/neuromodulation/serotonin.py
 
-**V4 scope (full sleep mechanisms — not V3):**
+(All further sleep substrates — SD-017 sleep passes, SD-032 cingulate cluster,
+MECH-261 mode-conditioned write gating — are likewise V3. See the unified
+"V3 scope (full sleep mechanisms)" block below.)
+
+**V3 scope (full sleep mechanisms — rescoped from V4 2026-04-20):**
+All sleep-related substrates are V3. V4 is reserved for social extensions
+(see below). The following items are therefore V3 in-scope, not deferred:
 - Full SWR consolidation pipeline (MECH-121 complete implementation)
 - Slow-wave sleep prediction error baseline reset
 - Sleep-dependent recalibration of commit thresholds (full SR-3/SR-4)
 - Theta-gamma coupling during offline replay for memory formation
-- Lansink et al. (2009) hippocampus-leads-striatum replay is V4 evidence
+- Lansink et al. (2009) hippocampus-leads-striatum replay — V3 evidence
 - Phase boundary triggers (SR-4: sws_consolidation_complete -> REM transition)
+- MECH-261 predicate enrichment on the SD-032a registry (carrier-rhythm
+  *function* -> multi-factor admission conjunction; see
+  REE_assembly/evidence/literature/targeted_review_mech261_mode_gating/
+  synthesis.md for the biology-to-REE mapping)
+- Per-mode write-gate weight refinement as new mode-gating literature lands
+
+**V4 scope (social systems — rescoped 2026-04-20):**
+V4 is now reserved for social systems ("sharing joys and sorrows"): representing
+other agents, their z_self / z_harm_a, and trajectories that affect another
+agent's state over time. This remains structurally inaccessible to 1-step greedy
+planning, which is why V3 full completion gate (MECH-163 hippocampal multi-step
+trajectory planning) is a prerequisite for V4 entry.
 
 **V4 scope (self-model integration — INV-064/MECH-214/MECH-215 audit, 2026-04-07):**
 
