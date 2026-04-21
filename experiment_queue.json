@@ -122,7 +122,7 @@
       "script": "experiments/v3_exq_464_mech266_competing_goals.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 1,
       "seeds": 1,
       "conditions": 5,
@@ -131,7 +131,11 @@
         "SD-032a",
         "MECH-259"
       ],
-      "notes": "MECH-266 asymmetric per-mode hysteresis landing diagnostic (ocd4 row 'competing goals', EXP-0160). Five sub-tests (all arithmetic + API) exercising the new per-mode enter_thresholds / exit_thresholds rails on SD-032a SalienceCoordinator: UC1 backward compat (empty dicts -> enter_threshold==switch_threshold, exit_threshold==1.0 sentinel, legacy MECH-259 trigger pattern); UC2 ARM A symmetric baseline (exit=1.0 all modes -> reproduces legacy switch count on fixed synthetic competing-goals signal sequence); UC3 ARM B moderate Schmitt (exit=0.3 all modes -> strictly fewer switches than baseline -- Schmitt blocks marginal R2->R3 flip where planning-prob ~0.33); UC4 ARM C severe over-binding (exit=0.05 all modes -> stuck-in-external_task, n_switches <= 1, fraction_in_external_task >= 0.8 -- OCD axis stuck signature); UC5 per-mode asymmetry (exit keyed per mode -> condition-X sticky-external-task, condition-Y leaves external readily and sticks in internal_planning; confirms per-mode keying of the Schmitt rail). PASS = all 5. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'competing goals'. experiment_purpose=diagnostic. Full behavioural test (switch-cost asymmetry on env-driven dual-cue tasks, unresolved goal-oscillation episode rate) deferred to EXQ-464b -- requires CausalGridWorldV2 dual simultaneously active resource-cue extension not yet on any roadmap item."
+      "notes": "MECH-266 asymmetric per-mode hysteresis landing diagnostic (ocd4 row 'competing goals', EXP-0160). Five sub-tests (all arithmetic + API) exercising the new per-mode enter_thresholds / exit_thresholds rails on SD-032a SalienceCoordinator: UC1 backward compat (empty dicts -> enter_threshold==switch_threshold, exit_threshold==1.0 sentinel, legacy MECH-259 trigger pattern); UC2 ARM A symmetric baseline (exit=1.0 all modes -> reproduces legacy switch count on fixed synthetic competing-goals signal sequence); UC3 ARM B moderate Schmitt (exit=0.3 all modes -> strictly fewer switches than baseline -- Schmitt blocks marginal R2->R3 flip where planning-prob ~0.33); UC4 ARM C severe over-binding (exit=0.05 all modes -> stuck-in-external_task, n_switches <= 1, fraction_in_external_task >= 0.8 -- OCD axis stuck signature); UC5 per-mode asymmetry (exit keyed per mode -> condition-X sticky-external-task, condition-Y leaves external readily and sticks in internal_planning; confirms per-mode keying of the Schmitt rail). PASS = all 5. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'competing goals'. experiment_purpose=diagnostic. Full behavioural test (switch-cost asymmetry on env-driven dual-cue tasks, unresolved goal-oscillation episode rate) deferred to EXQ-464b -- requires CausalGridWorldV2 dual simultaneously active resource-cue extension not yet on any roadmap item.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-21T18:09:34.147039+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-467",
