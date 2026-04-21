@@ -8,6 +8,42 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-473",
+      "title": "SD-035 CeA mode-prior substrate-readiness (MECH-046)",
+      "experiment_type": "v3_exq_473_sd035_cea_mode_prior",
+      "script": "experiments/v3_exq_473_sd035_cea_mode_prior.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-035",
+        "MECH-046",
+        "MECH-074c"
+      ],
+      "notes": "Substrate-readiness diagnostic for SD-035 CeAAnalog (IMPLEMENTED 2026-04-21). Non-trainable arithmetic; 5 acceptance criteria modelled on EXQ-446 template. Condition arms CEA_OFF_QUIET / CEA_ON_QUIET confirm backward-compat (C1: action-class entropy delta <= 0.2 nats in >= 2/3 seeds). Unit-level checks cover: C2 synthetic z_harm_a threat fires CeA and signals reach SalienceCoordinator via update_signal; C3 mode_prior respects mode_prior_log_odds_max cap over sweep; C4 MECH-094 simulation_mode=True returns zeroed output and skips state update; C5 fast_prime decay dynamics (tau=4 steps, override window=8) -- decays below half without cortical_confirmation; holds above half with cortical_confirmation=1.0. Deliberately scoped at substrate-readiness not behavioural-effect (EXQ-445 lesson: tight-tolerance behavioural criteria FAIL when upstream consumers untrained). experiment_purpose=diagnostic."
+    },
+    {
+      "queue_id": "V3-EXQ-474",
+      "title": "SD-035 BLA encoding-gain + remap substrate-readiness (MECH-074a, MECH-074d)",
+      "experiment_type": "v3_exq_474_sd035_bla_encoding_remap",
+      "script": "experiments/v3_exq_474_sd035_bla_encoding_remap.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-035",
+        "MECH-074a",
+        "MECH-074d"
+      ],
+      "notes": "Substrate-readiness diagnostic for SD-035 BLAAnalog (IMPLEMENTED 2026-04-21). Non-trainable arithmetic; 5 acceptance criteria. Condition arms BLA_OFF_QUIET / BLA_ON_QUIET confirm backward-compat (C1). Unit-level checks: C2 inverted-U arousal->encoding_gain curve (Roozendaal 2011) -- rest arousal gives gain=1.0, arousal between on_threshold=0.4 and window-tail peaks to encoding_gain_max=2.5; all sweep points <= max. Fresh BLAAnalog per arousal point avoids window-accumulation confound. C3 Moita 2004 attribution gate -- remap_signal non-empty only when candidate_code_contributions supplied at PE spike; empty otherwise. C4 window decay dynamics -- window_steps_remaining monotone non-increasing over 25 post-encoding ticks past window_steps=20; gain returns to ~1.0 baseline. C5 BLA.tick signature has NO silent simulation_mode arg (BLA defers MECH-094 gating to consumer side via MECH-261 write-gate registry, unlike CeA). HippocampalModule consumer wiring for retrieval_bias / remap_signal propagation is DEFERRED -- this experiment validates the substrate emits the signals, not the downstream behavioural effect. experiment_purpose=diagnostic."
+    },
+    {
       "queue_id": "V3-EXQ-471",
       "title": "Best-available V3 agent -- fishtank showcase (populates fishtank_viz.html)",
       "experiment_type": "v3_exq_471_best_agent_fishtank_showcase",
