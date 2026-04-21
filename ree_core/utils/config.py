@@ -592,6 +592,17 @@ class REEConfig:
     # deque; each candidate trajectory's first action is penalised by cosine
     # similarity to the recency-vector average. Small window = local recency only.
     dacc_suppression_memory: int = 8
+    # MECH-268: pe saturation under repeated identical outcomes (habituation).
+    # Distinct from dacc_pe_cap (absolute clamp) -- saturation is history-
+    # conditioned: pe_saturated = pe_after_cap / (1 + strength * max(0, n_rec - grace))
+    # where n_rec is the count of the current outcome class within the
+    # last `dacc_saturation_window` outcomes. Enables the dACC conflict-
+    # saturation falsification target (EXP-0159) and the closure-vs-
+    # contradiction interaction (EXP-0164).
+    dacc_saturation_enabled: bool = False
+    dacc_saturation_window: int = 8
+    dacc_saturation_strength: float = 0.3
+    dacc_saturation_grace: int = 2
     # Precision normalisation scale (matches SD-020 pattern).
     # precision_norm = min(e3.current_precision / dacc_precision_scale, 3.0).
     # Higher scale -> more modest precision weighting.
@@ -797,6 +808,11 @@ class REEConfig:
     closure_reset_pe_ema: bool = True
     # If set, installs an absolute cap on dACC pe after closure (MECH-268).
     closure_pe_cap_after: Optional[float] = None
+    # MECH-268: if True, ClosureOperator clears the dACC outcome-history
+    # FIFO on fire so the next rule-state starts with no habituation
+    # accrued from the previous one. Independently ablatable from
+    # closure_reset_pe_ema.
+    closure_reset_outcome_history: bool = True
     # If nonzero, register closure_event affinity toward internal_planning
     # on the SalienceCoordinator (biases mode relaxation post-closure).
     closure_signal_affinity_internal_planning: float = 0.5
@@ -903,6 +919,11 @@ class REEConfig:
         dacc_precision_scale: float = 500.0,
         dacc_effort_cost: float = 0.1,
         dacc_drive_coupling: float = 0.0,
+        # MECH-268: history-conditioned PE saturation
+        dacc_saturation_enabled: bool = False,
+        dacc_saturation_window: int = 8,
+        dacc_saturation_strength: float = 0.3,
+        dacc_saturation_grace: int = 2,
         # SD-032a: salience-network coordinator
         use_salience_coordinator: bool = False,
         salience_switch_threshold: float = 1.0,
@@ -954,6 +975,7 @@ class REEConfig:
         closure_signal_value: float = 1.0,
         closure_reset_pe_ema: bool = True,
         closure_pe_cap_after: Optional[float] = None,
+        closure_reset_outcome_history: bool = True,
         closure_signal_affinity_internal_planning: float = 0.5,
         **kwargs,
     ) -> "REEConfig":
@@ -1128,6 +1150,12 @@ class REEConfig:
         config.dacc_effort_cost = dacc_effort_cost
         config.dacc_drive_coupling = dacc_drive_coupling
 
+        # MECH-268: dACC conflict saturation (pe_saturated = f_sat(pe_raw, outcome_history))
+        config.dacc_saturation_enabled = dacc_saturation_enabled
+        config.dacc_saturation_window = dacc_saturation_window
+        config.dacc_saturation_strength = dacc_saturation_strength
+        config.dacc_saturation_grace = dacc_saturation_grace
+
         # SD-032a: salience-network coordinator
         config.use_salience_coordinator = use_salience_coordinator
         config.salience_switch_threshold = salience_switch_threshold
@@ -1184,6 +1212,7 @@ class REEConfig:
         config.closure_signal_value = closure_signal_value
         config.closure_reset_pe_ema = closure_reset_pe_ema
         config.closure_pe_cap_after = closure_pe_cap_after
+        config.closure_reset_outcome_history = closure_reset_outcome_history
         config.closure_signal_affinity_internal_planning = closure_signal_affinity_internal_planning
 
         return config

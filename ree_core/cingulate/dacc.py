@@ -87,6 +87,29 @@ class DACCConfig:
     # MECH-268 pe buffer" component of SD-034's 5-part closure signal.
     dacc_pe_cap: Optional[float] = None
 
+    # MECH-268: history-conditioned PE saturation (habituation under repeated
+    # identical outcomes). Distinct from dacc_pe_cap (absolute clamp): this
+    # attenuates the precision-weighted PE as a function of how often the
+    # current outcome class recurs in a recent window. Closure events
+    # (SD-034) reset the buffer so a new rule-state starts fresh.
+    #
+    # Saturation function:
+    #     n_rec        = count(current_outcome_class in last saturation_window outcomes)
+    #     excess       = max(0, n_rec - saturation_grace)
+    #     sat_factor   = 1.0 / (1.0 + saturation_strength * excess)
+    #     pe_saturated = pe_after_cap * sat_factor
+    #
+    # Defaults preserve backward compat: dacc_saturation_enabled=False ->
+    # pe_saturated == pe_after_cap (no attenuation). When enabled with
+    # default knobs (window=8, strength=0.3, grace=2), the bundle's pe
+    # field smoothly decays toward zero as a single outcome class
+    # dominates the recent window -- the rumination habituation route
+    # identified in the 2026-04-20 GAP MEMO.
+    dacc_saturation_enabled: bool = False
+    dacc_saturation_window: int = 8
+    dacc_saturation_strength: float = 0.3
+    dacc_saturation_grace: int = 2
+
 
 class DACCAdaptiveControl(nn.Module):
     """SD-032b dACC/aMCC-analog adaptive control.
@@ -107,6 +130,15 @@ class DACCAdaptiveControl(nn.Module):
         self._pe_ema: Optional[float] = None
         self._pe_ema_alpha: float = 0.05
         self._action_history: List[int] = []
+        # MECH-268: outcome-class FIFO for the saturation function. Distinct
+        # from _action_history (MECH-260) -- outcomes are what happened
+        # after the action (e.g. harm-vs-no-harm class), not the chosen
+        # action class itself. Most recent at the tail.
+        self._outcome_history: List[int] = []
+        # MECH-268 last-cycle diagnostics (set by _affective_pe / forward).
+        self._last_pe_unsaturated: Optional[float] = None
+        self._last_saturation_factor: float = 1.0
+        self._last_outcome_recurrence: int = 0
         # Stable diagnostic counters for experiment scripts.
         self._n_forward_calls: int = 0
 
@@ -114,19 +146,37 @@ class DACCAdaptiveControl(nn.Module):
         """Clear per-episode state. Call on env.reset()."""
         self._pe_ema = None
         self._action_history.clear()
+        self._outcome_history.clear()
+        self._last_pe_unsaturated = None
+        self._last_saturation_factor = 1.0
+        self._last_outcome_recurrence = 0
 
     def _affective_pe(
         self,
         z_harm_a: torch.Tensor,
         z_harm_a_pred: Optional[torch.Tensor],
         precision: float,
+        current_outcome_class: Optional[int] = None,
     ) -> float:
-        """MECH-258: precision-weighted affective-pain PE magnitude.
+        """MECH-258 + SD-034 cap + MECH-268 saturation -> control PE.
 
-        Returns a scalar float. When z_harm_a_pred is None (first step of an
-        episode, before any E2HarmAForward rollout has been stored), returns
-        the raw z_harm_a norm scaled by precision -- degrades gracefully to
-        the urgency-style signal the system used pre-SD-032b.
+        Pipeline:
+            pe_unweighted = ||z_harm_a - z_harm_a_pred||  (or norm if no pred)
+            pe_weighted   = pe_unweighted * (1 + precision_norm)   # MECH-258
+            pe_capped     = min(pe_weighted, dacc_pe_cap)          # SD-034 abs clamp
+            pe_saturated  = pe_capped * sat_factor(history, class) # MECH-268
+
+        sat_factor is computed against the outcome-history FIFO at the time
+        of this call. When current_outcome_class is None (caller did not
+        tag the outcome yet, e.g. first tick of an episode), saturation
+        falls back to using the most-recent buffered class; if the buffer
+        is empty saturation is 1.0 (no attenuation).
+
+        Diagnostic side effects: self._last_pe_unsaturated stores the
+        post-cap value; self._last_saturation_factor stores the factor
+        applied; self._last_outcome_recurrence stores the recurrence
+        count used. These let experiment scripts assert the saturation
+        actually fired without re-deriving from inputs.
         """
         if z_harm_a_pred is None:
             pe = float(z_harm_a.norm().item())
@@ -134,11 +184,71 @@ class DACCAdaptiveControl(nn.Module):
             pe = float((z_harm_a - z_harm_a_pred).norm().item())
         prec_norm = min(precision / self.config.dacc_precision_scale, 3.0)
         pe_out = pe * (1.0 + prec_norm)
-        # MECH-268 / SD-034: post-closure precision-weighted PE cap.
+        # MECH-268 / SD-034: absolute post-closure precision-weighted PE cap.
         cap = self.config.dacc_pe_cap
         if cap is not None and pe_out > cap:
             pe_out = float(cap)
-        return pe_out
+        self._last_pe_unsaturated = pe_out
+
+        # MECH-268: history-conditioned saturation.
+        sat_factor, n_rec = self._saturation_factor(current_outcome_class)
+        self._last_saturation_factor = sat_factor
+        self._last_outcome_recurrence = n_rec
+        return pe_out * sat_factor
+
+    def _saturation_factor(
+        self, current_outcome_class: Optional[int]
+    ) -> tuple:
+        """MECH-268 f_sat: returns (sat_factor in (0, 1], n_recurrences).
+
+        Returns 1.0 when saturation is disabled, when no class can be
+        determined, or when n_recurrences is below the grace count.
+        """
+        if not self.config.dacc_saturation_enabled:
+            return 1.0, 0
+        cls = current_outcome_class
+        if cls is None:
+            if not self._outcome_history:
+                return 1.0, 0
+            cls = self._outcome_history[-1]
+        cls = int(cls)
+        window = max(1, int(self.config.dacc_saturation_window))
+        recent = self._outcome_history[-window:]
+        n_rec = sum(1 for o in recent if o == cls)
+        excess = max(0, n_rec - int(self.config.dacc_saturation_grace))
+        if excess <= 0:
+            return 1.0, n_rec
+        strength = float(self.config.dacc_saturation_strength)
+        sat_factor = 1.0 / (1.0 + strength * excess)
+        return sat_factor, n_rec
+
+    def record_outcome(self, outcome_class: int) -> None:
+        """MECH-268: push an outcome class onto the saturation FIFO.
+
+        Caller decides what counts as an outcome class -- typical choices
+        are harm-vs-no-harm (binary), reward-class id, or rule-state
+        completion tag. The buffer is bounded by dacc_saturation_window;
+        ClosureOperator clears it on rule-completion firing.
+        """
+        self._outcome_history.append(int(outcome_class))
+        window = max(1, int(self.config.dacc_saturation_window))
+        # Keep one extra slot of slack so window+1 oldest entries are
+        # discarded; the saturation read is sliced to last `window` only.
+        max_keep = window * 2
+        if len(self._outcome_history) > max_keep:
+            self._outcome_history = self._outcome_history[-max_keep:]
+
+    def reset_outcome_history(self) -> None:
+        """SD-034 closure hook: clear the MECH-268 outcome FIFO.
+
+        Called from ClosureOperator._fire() so that a freshly-completed
+        rule-state starts the next cycle with no habituation accrued
+        from the previous one. Distinct from reset() which also clears
+        action history and PE EMA -- closure is more targeted.
+        """
+        self._outcome_history.clear()
+        self._last_saturation_factor = 1.0
+        self._last_outcome_recurrence = 0
 
     def _update_pe_ema(self, pe: float) -> float:
         """Running EMA of the precision-weighted PE; baseline for foraging signal."""
@@ -212,6 +322,7 @@ class DACCAdaptiveControl(nn.Module):
         candidate_action_classes: List[int],
         precision: float,
         drive_level: float = 0.0,
+        current_outcome_class: Optional[int] = None,
     ) -> dict:
         """Compute the Croxson integration bundle for the current step.
 
@@ -242,7 +353,10 @@ class DACCAdaptiveControl(nn.Module):
         """
         self._n_forward_calls += 1
 
-        pe = self._affective_pe(z_harm_a, z_harm_a_pred, precision)
+        pe = self._affective_pe(
+            z_harm_a, z_harm_a_pred, precision,
+            current_outcome_class=current_outcome_class,
+        )
         pe_baseline = self._update_pe_ema(pe)
 
         # Shenhav 2013 EVC: payoff minus control-required * cost.
@@ -290,6 +404,15 @@ class DACCAdaptiveControl(nn.Module):
             "suppression": suppression,
             "pe": pe,
             "drive_gain": drive_gain,
+            # MECH-268 diagnostics: pe is the post-saturation value used by
+            # downstream consumers; pe_unsaturated is post-cap pre-saturation;
+            # saturation_factor and outcome_recurrence let scripts assert
+            # the saturation actually fired.
+            "pe_unsaturated": float(self._last_pe_unsaturated)
+                if self._last_pe_unsaturated is not None
+                else float(pe),
+            "saturation_factor": float(self._last_saturation_factor),
+            "outcome_recurrence": int(self._last_outcome_recurrence),
         }
 
 

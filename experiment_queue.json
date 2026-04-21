@@ -264,6 +264,43 @@
         "MECH-094"
       ],
       "notes": "SD-034 closure-operator satisficing / residue-discharge landing diagnostic (ocd4 row 'satisficing / No-Go thresholding'). Five sub-tests (all arithmetic + API): UC1 nearby_attenuation (ResidueField.discharge_domain halves in-domain weight within radius*bandwidth); UC2 far_centers_spared (domain scoping preserves distant weights); UC3 invariant_preserved (multiplicative decay clamped at 1e-6 floor -- 'residue cannot be erased' holds after 200 halvings); UC4 closure_fire_triggers_discharge (end-to-end through ClosureOperator._fire, residue_centers_discharged >= 1, ratio ~0.5); UC5 closure_fire_distant_spares_residue (z_world far from residue -> unchanged). PASS = all 5. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md 'satisficing / No-Go thresholding'. experiment_purpose=diagnostic. Behavioral variant (tolerance-band completion env -- bimodal vs smooth satisficing contrast) deferred: requires new env variant not yet on any roadmap item."
+    },
+    {
+      "queue_id": "V3-EXQ-463",
+      "title": "MECH-268 dACC conflict-saturation landing -- conflict saturation (EXP-0159 / ocd4)",
+      "experiment_type": "v3_exq_463_mech268_dacc_conflict_saturation",
+      "script": "experiments/v3_exq_463_mech268_dacc_conflict_saturation.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 2,
+      "seeds": 1,
+      "conditions": 7,
+      "claim_ids": [
+        "MECH-268",
+        "SD-032b",
+        "MECH-258",
+        "SD-034"
+      ],
+      "notes": "MECH-268 dACC conflict-saturation landing diagnostic (ocd4 row 'conflict saturation'). Seven sub-tests (all arithmetic + API): UC1 backward compat (saturation OFF -> sat_factor==1.0 even with sustained outcomes); UC2 grace honoured (n_rec <= grace -> sat_factor==1.0); UC3 activates past grace (sat_factor < 1.0 once n_rec > grace); UC4 monotone in recurrences (sat_factor strictly decreases with each additional identical outcome); UC5 mixed outcomes spare saturation (alternating classes -> per-class recurrence below activation); UC6 ClosureOperator._fire() resets _outcome_history (post-closure sat_factor==1.0); UC7 dACC.forward() bundle exposes pe_unsaturated + saturation_factor + outcome_recurrence diagnostics with bundle['pe'] == pe_unsaturated * saturation_factor. PASS = all 7. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'conflict saturation'. experiment_purpose=diagnostic. Behavioural arm (500+ step sustained-outcome task with mode-switch trigger rate) deferred -- requires phased rule_state training and an env variant not yet on any roadmap item. evidence_direction_per_claim splits SD-034 (UC6 only) from MECH-268 / SD-032b; MECH-258 tagged as non_contributory (composes with the saturation pipeline but landing does not directly assert the precision-weighting path)."
+    },
+    {
+      "queue_id": "V3-EXQ-468",
+      "title": "SD-034 x MECH-268 four-arm landing -- commitment vs contradiction (EXP-0164 / ocd4)",
+      "experiment_type": "v3_exq_468_sd034_mech268_commitment_vs_contradiction",
+      "script": "experiments/v3_exq_468_sd034_mech268_commitment_vs_contradiction.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 2,
+      "seeds": 1,
+      "conditions": 6,
+      "claim_ids": [
+        "SD-034",
+        "MECH-268",
+        "MECH-090"
+      ],
+      "notes": "SD-034 x MECH-268 four-arm landing diagnostic (ocd4 row 'commitment vs contradiction'). Six sub-tests (all arithmetic + API) covering the four arms of the EXP-0164 spec: UC1 Arm D (both OFF -> baseline, no closure firing, no saturation); UC2 Arm A (both ON -> closure releases beta + No-Go injected + pe EMA reset + outcome history reset; sat_factor returns to 1.0 post-closure); UC3 Arm B (SD-034 ON, MECH-268 OFF -> closure fires + releases without needing saturation; bundle pe == pe_unsaturated); UC4 Arm C (SD-034 OFF, MECH-268 ON -> closure 'skipped:disabled', beta stays elevated; saturation still attenuates pe); UC5 mode-conditioning blocks closure but not saturation (falsifiability predicate: SD-034 mode-gating does NOT gate MECH-268); UC6 closure-after-saturation interaction (closure cycle uses still-attenuated pe but next cycle starts unsaturated -- forward-looking, not retroactive). PASS = all 6. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'commitment vs contradiction'. experiment_purpose=diagnostic. Behavioural arm (env counter-evidence injection + release-type distribution / time-to-release / post-release residue patterning across all four arms) deferred -- requires env extension not on roadmap. evidence_direction_per_claim splits SD-034 (UC2/UC3/UC5/UC6), MECH-268 (UC2/UC4/UC5/UC6), MECH-090 (UC2/UC3/UC4 -- beta release / latch checks)."
     }
   ]
 }

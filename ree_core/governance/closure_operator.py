@@ -146,6 +146,13 @@ class ClosureOperatorConfig:
     closure_signal_value: float = 1.0
     reset_pe_ema: bool = True
     pe_cap_after_closure: Optional[float] = None
+    # MECH-268 hook: clear the dACC outcome-history FIFO on closure so a
+    # new rule-state starts with no habituation accrued from the previous
+    # cycle. Distinct from reset_pe_ema (which clears the precision-
+    # weighted PE baseline). Default True: closure events naturally
+    # demarcate outcome epochs. Set False to ablate the closure ->
+    # outcome reset coupling independently of the pe_ema reset.
+    reset_outcome_history: bool = True
     diagnostic_logging: bool = True
 
 
@@ -171,6 +178,7 @@ class ClosureEvent:
     salience_signal_written: bool = False
     pe_ema_reset: bool = False
     pe_cap_applied: Optional[float] = None
+    outcome_history_reset: bool = False
 
 
 class ClosureOperator:
@@ -469,6 +477,7 @@ class ClosureOperator:
         salience_written = False
         pe_ema_reset = False
         pe_cap_applied: Optional[float] = None
+        outcome_history_reset = False
 
         # (a) MECH-090 BetaGate release
         if self.beta_gate is not None and beta_was_elevated:
@@ -508,7 +517,7 @@ class ClosureOperator:
             )
             salience_written = True
 
-        # (e) MECH-268 dACC pe cap / rebaseline
+        # (e) MECH-268 dACC pe cap / rebaseline + outcome-history reset
         if self.dacc is not None:
             if self.config.reset_pe_ema and hasattr(self.dacc, "reset_episode_pe"):
                 self.dacc.reset_episode_pe()
@@ -519,6 +528,11 @@ class ClosureOperator:
                     self.dacc.config.dacc_pe_cap = self.config.pe_cap_after_closure
                     pe_cap_applied = self.config.pe_cap_after_closure
                     self._active_pe_cap = pe_cap_applied
+            if self.config.reset_outcome_history and hasattr(
+                self.dacc, "reset_outcome_history"
+            ):
+                self.dacc.reset_outcome_history()
+                outcome_history_reset = True
 
         event = ClosureEvent(
             fired=True,
@@ -534,6 +548,7 @@ class ClosureOperator:
             salience_signal_written=salience_written,
             pe_ema_reset=pe_ema_reset,
             pe_cap_applied=pe_cap_applied,
+            outcome_history_reset=outcome_history_reset,
         )
 
         if self.config.diagnostic_logging:
