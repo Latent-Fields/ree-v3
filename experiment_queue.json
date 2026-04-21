@@ -122,7 +122,7 @@
       "script": "experiments/v3_exq_468_sd034_mech268_commitment_vs_contradiction.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 2,
       "seeds": 1,
       "conditions": 6,
@@ -131,7 +131,11 @@
         "MECH-268",
         "MECH-090"
       ],
-      "notes": "SD-034 x MECH-268 four-arm landing diagnostic (ocd4 row 'commitment vs contradiction'). Six sub-tests (all arithmetic + API) covering the four arms of the EXP-0164 spec: UC1 Arm D (both OFF -> baseline, no closure firing, no saturation); UC2 Arm A (both ON -> closure releases beta + No-Go injected + pe EMA reset + outcome history reset; sat_factor returns to 1.0 post-closure); UC3 Arm B (SD-034 ON, MECH-268 OFF -> closure fires + releases without needing saturation; bundle pe == pe_unsaturated); UC4 Arm C (SD-034 OFF, MECH-268 ON -> closure 'skipped:disabled', beta stays elevated; saturation still attenuates pe); UC5 mode-conditioning blocks closure but not saturation (falsifiability predicate: SD-034 mode-gating does NOT gate MECH-268); UC6 closure-after-saturation interaction (closure cycle uses still-attenuated pe but next cycle starts unsaturated -- forward-looking, not retroactive). PASS = all 6. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'commitment vs contradiction'. experiment_purpose=diagnostic. Behavioural arm (env counter-evidence injection + release-type distribution / time-to-release / post-release residue patterning across all four arms) deferred -- requires env extension not on roadmap. evidence_direction_per_claim splits SD-034 (UC2/UC3/UC5/UC6), MECH-268 (UC2/UC4/UC5/UC6), MECH-090 (UC2/UC3/UC4 -- beta release / latch checks)."
+      "notes": "SD-034 x MECH-268 four-arm landing diagnostic (ocd4 row 'commitment vs contradiction'). Six sub-tests (all arithmetic + API) covering the four arms of the EXP-0164 spec: UC1 Arm D (both OFF -> baseline, no closure firing, no saturation); UC2 Arm A (both ON -> closure releases beta + No-Go injected + pe EMA reset + outcome history reset; sat_factor returns to 1.0 post-closure); UC3 Arm B (SD-034 ON, MECH-268 OFF -> closure fires + releases without needing saturation; bundle pe == pe_unsaturated); UC4 Arm C (SD-034 OFF, MECH-268 ON -> closure 'skipped:disabled', beta stays elevated; saturation still attenuates pe); UC5 mode-conditioning blocks closure but not saturation (falsifiability predicate: SD-034 mode-gating does NOT gate MECH-268); UC6 closure-after-saturation interaction (closure cycle uses still-attenuated pe but next cycle starts unsaturated -- forward-looking, not retroactive). PASS = all 6. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'commitment vs contradiction'. experiment_purpose=diagnostic. Behavioural arm (env counter-evidence injection + release-type distribution / time-to-release / post-release residue patterning across all four arms) deferred -- requires env extension not on roadmap. evidence_direction_per_claim splits SD-034 (UC2/UC3/UC5/UC6), MECH-268 (UC2/UC4/UC5/UC6), MECH-090 (UC2/UC3/UC4 -- beta release / latch checks).",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-21T18:09:23.322075+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-464",
