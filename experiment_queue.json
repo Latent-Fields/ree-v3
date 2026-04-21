@@ -51,30 +51,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-455",
-      "title": "SD-032a salience coordinator behavioral confirmation -- mode-switch trigger + write-gate diversity under natural PE",
-      "experiment_type": "v3_exq_455_sd032a_salience_behavioral",
-      "script": "experiments/v3_exq_455_sd032a_salience_behavioral.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 100,
-      "episodes_per_run": 200,
-      "seeds": 3,
-      "conditions": 2,
-      "supersedes": "V3-EXQ-446",
-      "claim_ids": [
-        "SD-032a",
-        "MECH-259",
-        "MECH-261"
-      ],
-      "notes": "Behavioral confirmation for SD-032a SalienceCoordinator (supersedes EXQ-446 which was wiring-only PASS). EXQ-446 confirmed coordinator infrastructure works but did not test whether real agent dynamics produce natural mode-switch triggers. This experiment runs 3 seeds x 2 conditions (COORD_OFF vs COORD_ON) x 200 eps x 120 steps with phased E2_harm_a training. Collects: mode_switch_trigger_count (natural PE crossings), mean_operating_mode_entropy, write_gate(e3_policy) std. Acceptance: C1 trigger_count_natural>0 in >=2/3 seeds (coordinator fires under real dynamics, not just synthetic injection); C2 mean_operating_mode_entropy>0.3 in >=2/3 seeds (mode distribution non-degenerate); C3 write_gate_e3_policy_std>0.01 in >=2/3 seeds (gate varies over time). PASS = C1 AND C2 AND C3. experiment_purpose=evidence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-20T22:30:53.940255+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-445a",
       "title": "SD-032b dACC full pipeline -- E3 harm_eval + terrain trained, terrain fix: min-residue candidate",
       "experiment_type": "v3_exq_445a_sd032b_dacc_full_pipeline",
