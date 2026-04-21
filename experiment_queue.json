@@ -14,14 +14,18 @@
       "script": "experiments/v3_exq_470_sd029_balanced_curriculum.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 2,
       "seeds": 4,
       "conditions": 2,
       "claim_ids": [
         "SD-029"
       ],
-      "notes": "Substrate validation for SD-029 balanced hazard-event curriculum (CausalGridWorldV2 scheduled_external_hazard_* params, IMPLEMENTED 2026-04-21). Pure env-level sanity probe; no agent training. 2 conditions (BASELINE scheduled=False vs SCHEDULED interval=25 prob=1.0 adjacent_only=True) x 4 seeds [42,7,13,91], 3 episodes x 200 steps each. Random action policy. Acceptance: C_back BASELINE external_hazard_event_count == 0 in all seeds; C_fire SCHEDULED external_hazard_event_count >= 20 in >=3/4 seeds; C_plausible SCHEDULED total_harm > 0 across seeds (self-caused harm still produced alongside injected); C_info info['external_hazard_injected'] (bool) and info['external_hazard_event_count'] (int) present every step in both conditions. PASS = all 4. Validates the curriculum substrate that unblocks C3/C4 for the SD-029 evidence experiment (n_ext>=20 per seed was the EXQ-433 blocker). experiment_purpose=diagnostic."
+      "notes": "Substrate validation for SD-029 balanced hazard-event curriculum (CausalGridWorldV2 scheduled_external_hazard_* params, IMPLEMENTED 2026-04-21). Pure env-level sanity probe; no agent training. 2 conditions (BASELINE scheduled=False vs SCHEDULED interval=25 prob=1.0 adjacent_only=True) x 4 seeds [42,7,13,91], 3 episodes x 200 steps each. Random action policy. Acceptance: C_back BASELINE external_hazard_event_count == 0 in all seeds; C_fire SCHEDULED external_hazard_event_count >= 20 in >=3/4 seeds; C_plausible SCHEDULED total_harm > 0 across seeds (self-caused harm still produced alongside injected); C_info info['external_hazard_injected'] (bool) and info['external_hazard_event_count'] (int) present every step in both conditions. PASS = all 4. Validates the curriculum substrate that unblocks C3/C4 for the SD-029 evidence experiment (n_ext>=20 per seed was the EXQ-433 blocker). experiment_purpose=diagnostic.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-21T18:08:33.399181+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-447",
