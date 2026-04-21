@@ -29,7 +29,7 @@ MECH-092 (replay):
   hypothesis_tag=True — replay cannot produce residue (MECH-094).
 """
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 import random
 
 import torch
@@ -98,6 +98,12 @@ class HippocampalModule(nn.Module):
         self._exploration_buffer_maxlen: int = getattr(config, "exploration_buffer_len", 50)
         self._reverse_fraction: float = getattr(config, "reverse_replay_fraction", 0.3)
         self._random_fraction: float = getattr(config, "random_replay_fraction", 0.2)
+
+        # MECH-267 diagnostics: last operating_mode passed in and the noise
+        # scale that was applied. Both None when mode conditioning is disabled
+        # or operating_mode is not supplied.
+        self._last_operating_mode: Optional[Dict[str, float]] = None
+        self._last_mode_noise_scale: Optional[float] = None
 
     def _get_terrain_action_object_mean(
         self,
@@ -190,6 +196,28 @@ class HippocampalModule(nn.Module):
         states = trajectory.get_state_sequence()
         return self.residue_field.evaluate_trajectory(states).sum()
 
+    def _compute_mode_noise_scale(
+        self,
+        operating_mode: Optional[Dict[str, float]],
+    ) -> Optional[float]:
+        """MECH-267: weighted CEM noise multiplier from a mode probability vector.
+
+        Returns None when conditioning is disabled or operating_mode is None
+        (caller leaves ao_std untouched). Otherwise returns
+        sum_{m} operating_mode[m] * config.mode_noise_scale.get(m, 1.0).
+        Modes present in operating_mode but absent from the noise-scale map
+        contribute their probability with multiplier 1.0 (no shift).
+        """
+        if not getattr(self.config, "mode_conditioning_enabled", False):
+            return None
+        if operating_mode is None or len(operating_mode) == 0:
+            return None
+        scale_map = getattr(self.config, "mode_noise_scale", None) or {}
+        scale = 0.0
+        for mode_name, prob in operating_mode.items():
+            scale += float(prob) * float(scale_map.get(mode_name, 1.0))
+        return scale
+
     def propose_trajectories(
         self,
         z_world: torch.Tensor,
@@ -197,6 +225,7 @@ class HippocampalModule(nn.Module):
         num_candidates: Optional[int] = None,
         e1_prior: Optional[torch.Tensor] = None,
         action_bias: Optional[torch.Tensor] = None,
+        operating_mode: Optional[Dict[str, float]] = None,
     ) -> List[Trajectory]:
         """
         Propose candidate trajectories via terrain-guided CEM in action-object space.
@@ -218,12 +247,20 @@ class HippocampalModule(nn.Module):
         is shifted by the cue-indexed contextual bias. When None (all existing
         callers), behaviour is unchanged.
 
+        MECH-267: optional operating_mode dict[str, float] (probability vector
+        from SD-032a SalienceCoordinator). When config.mode_conditioning_enabled
+        is True AND operating_mode is supplied, the CEM proposal std is scaled
+        by the per-mode weighted average from config.mode_noise_scale. When
+        either condition is False, behaviour is unchanged (operating_mode is
+        recorded for diagnostics but not applied).
+
         Args:
             z_world:        Current z_world [batch, world_dim]
             z_self:         Current z_self [batch, self_dim] (for E2 rollouts)
             num_candidates: Number of candidates per CEM iteration
             e1_prior:       E1 world-domain prior [batch, world_dim] (SD-002)
             action_bias:    [batch, action_object_dim] or None (SD-016)
+            operating_mode: Dict[str, float] (mode -> prob) or None (MECH-267)
 
         Returns:
             List of Trajectory objects
@@ -240,6 +277,15 @@ class HippocampalModule(nn.Module):
         # Initialise in action-object space (SD-004)
         ao_mean = self._get_terrain_action_object_mean(z_world, e1_prior=e1_prior)
         ao_std  = torch.ones_like(ao_mean)
+
+        # MECH-267: mode-conditioned CEM noise scale.
+        self._last_operating_mode = (
+            dict(operating_mode) if operating_mode is not None else None
+        )
+        mode_scale = self._compute_mode_noise_scale(operating_mode)
+        self._last_mode_noise_scale = mode_scale
+        if mode_scale is not None:
+            ao_std = ao_std * mode_scale
 
         all_trajectories: List[Trajectory] = []
 
@@ -532,9 +578,11 @@ class HippocampalModule(nn.Module):
         num_candidates: Optional[int] = None,
         e1_prior: Optional[torch.Tensor] = None,
         action_bias: Optional[torch.Tensor] = None,
+        operating_mode: Optional[Dict[str, float]] = None,
     ) -> List[Trajectory]:
         """Forward pass: propose trajectories from z_world."""
         return self.propose_trajectories(
             z_world, z_self=z_self, num_candidates=num_candidates,
             e1_prior=e1_prior, action_bias=action_bias,
+            operating_mode=operating_mode,
         )
