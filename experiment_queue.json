@@ -116,28 +116,6 @@
       "notes": "Diagnostic forward-path probe for SD-016 cue_action_proj. EXQ-449 confirmed weights train under supervised arm but action_bias_divergence stays at 0.0 -- something downstream zeroes the signal before it reaches E3.select. EXQ-449a instruments the full forward path (extract_cue_context -> ContextMemory attention -> cue_action_proj -> hippocampal.propose_trajectories -> E3.select) under three eval regimes to localise the blocker. Regimes: g1 supervised-active W_std, g2 frozen W_std, g3 frozen W_no_detach (monkeypatched _e1_tick bypasses detach of action_bias, terrain_weight, and z_world input). Single seed 42, P0=25 encoder warmup + P1=50 supervised finetune per variant. Two training variants (W_std, W_no_detach) -> 1 seed x 2 conditions. Instrumentation: action_bias norm / per-channel std, terrain_weight norm, ao_target norm, attention entropy, ContextMemory slot diversity. Acceptance: C1 diagnosis_localised (>=1 offender tensor below threshold in g2), C2 detach_isolated bonus (g3 div > 0.05), C3 context_memory_pre_zero (>=80 percent g2 coverage > 1e-3), C4 supervised_target_sanity (>=80 percent P1 coverage > 1e-3). primary_pass = C1 AND C3 AND C4 (localises blocker). experiment_purpose=diagnostic (excluded from governance scoring). Unblocks EXQ-418b successor once specific forward-path offender identified."
     },
     {
-      "queue_id": "V3-EXQ-468",
-      "title": "SD-034 x MECH-268 four-arm landing -- commitment vs contradiction (EXP-0164 / ocd4)",
-      "experiment_type": "v3_exq_468_sd034_mech268_commitment_vs_contradiction",
-      "script": "experiments/v3_exq_468_sd034_mech268_commitment_vs_contradiction.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 2,
-      "seeds": 1,
-      "conditions": 6,
-      "claim_ids": [
-        "SD-034",
-        "MECH-268",
-        "MECH-090"
-      ],
-      "notes": "SD-034 x MECH-268 four-arm landing diagnostic (ocd4 row 'commitment vs contradiction'). Six sub-tests (all arithmetic + API) covering the four arms of the EXP-0164 spec: UC1 Arm D (both OFF -> baseline, no closure firing, no saturation); UC2 Arm A (both ON -> closure releases beta + No-Go injected + pe EMA reset + outcome history reset; sat_factor returns to 1.0 post-closure); UC3 Arm B (SD-034 ON, MECH-268 OFF -> closure fires + releases without needing saturation; bundle pe == pe_unsaturated); UC4 Arm C (SD-034 OFF, MECH-268 ON -> closure 'skipped:disabled', beta stays elevated; saturation still attenuates pe); UC5 mode-conditioning blocks closure but not saturation (falsifiability predicate: SD-034 mode-gating does NOT gate MECH-268); UC6 closure-after-saturation interaction (closure cycle uses still-attenuated pe but next cycle starts unsaturated -- forward-looking, not retroactive). PASS = all 6. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'commitment vs contradiction'. experiment_purpose=diagnostic. Behavioural arm (env counter-evidence injection + release-type distribution / time-to-release / post-release residue patterning across all four arms) deferred -- requires env extension not on roadmap. evidence_direction_per_claim splits SD-034 (UC2/UC3/UC5/UC6), MECH-268 (UC2/UC4/UC5/UC6), MECH-090 (UC2/UC3/UC4 -- beta release / latch checks).",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-21T18:09:23.322075+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-464",
       "title": "MECH-266 asymmetric per-mode hysteresis landing -- competing goals (EXP-0160 / ocd4)",
       "experiment_type": "v3_exq_464_mech266_competing_goals",
