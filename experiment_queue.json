@@ -115,29 +115,6 @@
       "notes": "Multi-arm larger-environment variant. Tests whether dACC behavioral effect requires richer environment with more action diversity. Environment: size=14, num_hazards=5, num_resources=7, steps_per_ep=150 (was 10x10, 3 hazards, 4 resources, 120 steps). Full pipeline training same as 445a (E1, harm_eval, terrain, world-forward in P0; E2_harm_a in P1; epsilon=0.1 during training). 3 seeds x 2 conditions (OFF vs ON_INDEPENDENT). Same PASS criteria as 445a. experiment_purpose=evidence."
     },
     {
-      "queue_id": "V3-EXQ-397c",
-      "title": "ARC-007 path memory ablation -- harder env (16x16, 6 hazards, 3 sparse resources) + terrain training fix",
-      "experiment_type": "v3_exq_397c_arc007_harder_env",
-      "script": "experiments/v3_exq_397c_arc007_harder_env.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 130,
-      "episodes_per_run": 930,
-      "seeds": 1,
-      "conditions": 1,
-      "supersedes": "V3-EXQ-397",
-      "claim_ids": [
-        "ARC-007",
-        "SD-004"
-      ],
-      "notes": "Fixes EXQ-397 FAIL (inverted hippo_quality_gap: hippocampus navigated TOWARD residue). Root cause: terrain_prior trained on E3-selected trajectories, which were high-residue because hazard-proximate resources attracted E3 selection. Two fixes: (1) TERRAIN FIX: terrain_prior now trained on minimum-residue candidate from candidate set (not E3-selected trajectory); (2) HARDER ENV: size=16, num_hazards=6, num_resources=3 (sparse) to force genuine spatial planning. 800 train + 50 eval intact + 50 eval ablated + 30 eval restored episodes. Same 5-criterion PASS: C1 hippo_quality_gap_intact>0; C2 ablated<=intact*0.5; C3 restored>=ablated; C4 calibration_gap>0.03; C5 no fatal errors. experiment_purpose=evidence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-21T00:28:04.378439+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-456",
       "title": "SD-033a lateral-PFC-analog landing validation (diagnostic -- substrate wiring of MECH-261 primary consumer)",
       "experiment_type": "v3_exq_456_sd033a_lateral_pfc_analog_landing",
