@@ -99,7 +99,7 @@
       "script": "experiments/v3_exq_126_mech104_surprise_gate_pair.py",
       "priority": 56,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 400,
       "seeds": 2,
@@ -108,7 +108,11 @@
         "MECH-104"
       ],
       "backlog_id": "EVB-0062",
-      "notes": "Matched-seed discriminative pair for MECH-104: SURPRISE_GATE_ON (running_variance spike fires on unexpected harm only) vs SURPRISE_GATE_ABLATED. Tests that unexpected harm events selectively raise commitment uncertainty enabling de-commitment. 2 seeds, 400 warmup + 50 eval, 6 pre-registered criteria. experiment_purpose=evidence."
+      "notes": "Matched-seed discriminative pair for MECH-104: SURPRISE_GATE_ON (running_variance spike fires on unexpected harm only) vs SURPRISE_GATE_ABLATED. Tests that unexpected harm events selectively raise commitment uncertainty enabling de-commitment. 2 seeds, 400 warmup + 50 eval, 6 pre-registered criteria. experiment_purpose=evidence.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-21T05:16:45.823501+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-449a",
