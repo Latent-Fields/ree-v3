@@ -122,7 +122,7 @@
       "script": "experiments/v3_exq_465_mech267_intrusive_simulation_filtering.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 2,
       "seeds": 1,
       "conditions": 5,
@@ -131,7 +131,11 @@
         "MECH-094",
         "MECH-261"
       ],
-      "notes": "MECH-267 x MECH-094 intrusive-simulation filtering landing diagnostic (ocd4 'intrusive simulation filtering' row, EXP-0161). Five sub-tests (deterministic module API + residue-write semantics): UC1 signature accepts operating_mode under replay semantics (internal_replay pin); UC2 disabled-by-default backward compat (mode_conditioning_enabled=False -> no ao_std modulation under replay); UC3 internal_replay < external_task noise scale (replay 0.5 vs task 1.0, ratio <= 0.6 consistent with tightened rehearsal distribution); UC4 MECH-094 residue-write gate under simulated intrusion (hypothesis_tag=True blocks RBF weight delta; hypothesis_tag=False produces positive delta -- asymmetric first-line filter); UC5 ARM structural contrast (ARM A MECH-094 ON + MECH-267 ON composes both filters; ARM B MECH-094 OFF allows residue contamination despite mode-appropriate proposal; ARM C MECH-267 OFF protects residue but mode-insensitive proposal). PASS = all 5. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'intrusive simulation filtering'. experiment_purpose=diagnostic. Behavioural 3-arm EXP-0161 test deferred -- requires forced-replay injection hook into E3/hippocampal tick not yet on any roadmap item."
+      "notes": "MECH-267 x MECH-094 intrusive-simulation filtering landing diagnostic (ocd4 'intrusive simulation filtering' row, EXP-0161). Five sub-tests (deterministic module API + residue-write semantics): UC1 signature accepts operating_mode under replay semantics (internal_replay pin); UC2 disabled-by-default backward compat (mode_conditioning_enabled=False -> no ao_std modulation under replay); UC3 internal_replay < external_task noise scale (replay 0.5 vs task 1.0, ratio <= 0.6 consistent with tightened rehearsal distribution); UC4 MECH-094 residue-write gate under simulated intrusion (hypothesis_tag=True blocks RBF weight delta; hypothesis_tag=False produces positive delta -- asymmetric first-line filter); UC5 ARM structural contrast (ARM A MECH-094 ON + MECH-267 ON composes both filters; ARM B MECH-094 OFF allows residue contamination despite mode-appropriate proposal; ARM C MECH-267 OFF protects residue but mode-insensitive proposal). PASS = all 5. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'intrusive simulation filtering'. experiment_purpose=diagnostic. Behavioural 3-arm EXP-0161 test deferred -- requires forced-replay injection hook into E3/hippocampal tick not yet on any roadmap item.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-21T18:10:03.767988+00:00"
+      }
     }
   ]
 }
