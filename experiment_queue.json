@@ -122,7 +122,7 @@
       "script": "experiments/v3_exq_460_sd034_verified_but_not_released.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 2,
       "seeds": 1,
       "conditions": 6,
@@ -131,7 +131,11 @@
         "MECH-260",
         "MECH-261"
       ],
-      "notes": "SD-034 closure-operator landing diagnostic (ocd4 row 'verified-but-not-released'). Six sub-tests (all arithmetic + API): UC1 backward compat (use_closure_operator=False -> agent.closure_operator is None); UC2 wiring (closure_event affinity registered on SalienceCoordinator with internal_planning weight > 0); UC3 beta release on fire (bypass_mode_conditioning + beta elevated -> beta_gate released, event fired); UC4 targeted No-Go installed (MECH-260 _action_history gets nogo_injection_count copies of the completed action class); UC5 dACC pe reset (_pe_ema=None post-fire); UC6 mode-conditioning blocks fire (current_mode not in allowed_closure_modes -> NOT fired, beta stays up). PASS = all 6. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md 'verified-but-not-released'. experiment_purpose=diagnostic (excluded from governance scoring via manifest experiment_purpose field). Behavioral variant with full E3 task loop deferred -- requires phased rule_state training + task variant with observable completion signature."
+      "notes": "SD-034 closure-operator landing diagnostic (ocd4 row 'verified-but-not-released'). Six sub-tests (all arithmetic + API): UC1 backward compat (use_closure_operator=False -> agent.closure_operator is None); UC2 wiring (closure_event affinity registered on SalienceCoordinator with internal_planning weight > 0); UC3 beta release on fire (bypass_mode_conditioning + beta elevated -> beta_gate released, event fired); UC4 targeted No-Go installed (MECH-260 _action_history gets nogo_injection_count copies of the completed action class); UC5 dACC pe reset (_pe_ema=None post-fire); UC6 mode-conditioning blocks fire (current_mode not in allowed_closure_modes -> NOT fired, beta stays up). PASS = all 6. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md 'verified-but-not-released'. experiment_purpose=diagnostic (excluded from governance scoring via manifest experiment_purpose field). Behavioral variant with full E3 task loop deferred -- requires phased rule_state training + task variant with observable completion signature.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-21T18:08:53.512864+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-466",
