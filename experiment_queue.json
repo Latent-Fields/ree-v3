@@ -81,7 +81,7 @@
       "script": "experiments/v3_exq_456_sd033a_lateral_pfc_analog_landing.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 2,
       "seeds": 1,
       "conditions": 5,
@@ -90,7 +90,11 @@
         "MECH-261",
         "MECH-262"
       ],
-      "notes": "Substrate validation for SD-033a LateralPFCAnalog (IMPLEMENTED 2026-04-20). Primary consumer of MECH-261 write-gate registry on SD-032a SalienceCoordinator; instantiates MECH-262 rule-selective persistence. SD-033a is gate-modulated EMA + frozen-random zeroed-last-Linear bias head, so primary validation is deterministic API + arithmetic. 5 sub-tests: UC1 instantiation (REEAgent with use_lateral_pfc_analog=True exposes agent.lateral_pfc; rule_state buffer shape [1, rule_dim]). UC2 gate modulates update rate (gate=1 delta > 100x gate=0 delta; gate=0 freeze < 1e-6). UC3 bias zero at init (compute_bias returns exactly-zero [K] vector with non-zero rule_state; validates zeroed-last-Linear contract, not biological bias). UC4 backward compat (use_lateral_pfc_analog=False -> agent.lateral_pfc is None; SD-033a tick block skipped in select_action). UC5 reset clears rule_state (agent.reset() zeroes rule_state via lateral_pfc.reset path). PASS = all 5 UCs. experiment_purpose=diagnostic. Does NOT test biological SD-033a signatures (i/iii/iv); bias head is untrained (training-dependent emergence deferred until A2 alternative is considered -- see task_inbox lit-pull). Signature (ii) distractor-resistant persistence is exercised indirectly via gate=0 update-suppression check. evidence_direction=diagnostic."
+      "notes": "Substrate validation for SD-033a LateralPFCAnalog (IMPLEMENTED 2026-04-20). Primary consumer of MECH-261 write-gate registry on SD-032a SalienceCoordinator; instantiates MECH-262 rule-selective persistence. SD-033a is gate-modulated EMA + frozen-random zeroed-last-Linear bias head, so primary validation is deterministic API + arithmetic. 5 sub-tests: UC1 instantiation (REEAgent with use_lateral_pfc_analog=True exposes agent.lateral_pfc; rule_state buffer shape [1, rule_dim]). UC2 gate modulates update rate (gate=1 delta > 100x gate=0 delta; gate=0 freeze < 1e-6). UC3 bias zero at init (compute_bias returns exactly-zero [K] vector with non-zero rule_state; validates zeroed-last-Linear contract, not biological bias). UC4 backward compat (use_lateral_pfc_analog=False -> agent.lateral_pfc is None; SD-033a tick block skipped in select_action). UC5 reset clears rule_state (agent.reset() zeroes rule_state via lateral_pfc.reset path). PASS = all 5 UCs. experiment_purpose=diagnostic. Does NOT test biological SD-033a signatures (i/iii/iv); bias head is untrained (training-dependent emergence deferred until A2 alternative is considered -- see task_inbox lit-pull). Signature (ii) distractor-resistant persistence is exercised indirectly via gate=0 update-suppression check. evidence_direction=diagnostic.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-21T18:08:43.776815+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-126",
