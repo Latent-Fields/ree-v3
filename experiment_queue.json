@@ -75,30 +75,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-445b",
-      "title": "SD-032b dACC diversity: epsilon-greedy exploration during training (minimal intervention)",
-      "experiment_type": "v3_exq_445b_sd032b_dacc_epsilon_diversity",
-      "script": "experiments/v3_exq_445b_sd032b_dacc_epsilon_diversity.py",
-      "priority": 54,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "episodes_per_run": 180,
-      "seeds": 3,
-      "conditions": 3,
-      "supersedes": "V3-EXQ-445",
-      "claim_ids": [
-        "SD-032b",
-        "MECH-258",
-        "MECH-260"
-      ],
-      "notes": "Narrow hypothesis test: is the EXQ-445 monostrategy a pure training artifact breakable without changing the training objective? Adds epsilon=0.1 random action injection during P0+P1 only (EPSILON_TRAIN=0.1, EPSILON_EVAL=0.0). Does NOT add full E3 training (unlike 445a). Preserves ARC-033/ARC-058 3-arm design (OFF, ON_INDEPENDENT, ON_SHARED). Same P0=50, P1=100, P2=30 as EXQ-445. Same PASS criteria: C1 harm_a_forward_r2>=0.3 in >=2/3 seeds; C2 |entropy_ON - entropy_OFF|>=0.1; C3 ON entropy >= OFF entropy. If PASS: monostrategy was training artifact. If FAIL: monostrategy is fundamental (environment too simple or E3 always prefers one action). experiment_purpose=evidence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-21T02:50:39.688621+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-445c",
       "title": "SD-032b dACC larger environment (14x14, 5 hazards, 7 resources) + full pipeline training",
       "experiment_type": "v3_exq_445c_sd032b_dacc_larger_env",
