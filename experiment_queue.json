@@ -121,7 +121,7 @@
       "script": "experiments/v3_exq_397c_arc007_harder_env.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 130,
       "episodes_per_run": 930,
       "seeds": 1,
@@ -131,7 +131,11 @@
         "ARC-007",
         "SD-004"
       ],
-      "notes": "Fixes EXQ-397 FAIL (inverted hippo_quality_gap: hippocampus navigated TOWARD residue). Root cause: terrain_prior trained on E3-selected trajectories, which were high-residue because hazard-proximate resources attracted E3 selection. Two fixes: (1) TERRAIN FIX: terrain_prior now trained on minimum-residue candidate from candidate set (not E3-selected trajectory); (2) HARDER ENV: size=16, num_hazards=6, num_resources=3 (sparse) to force genuine spatial planning. 800 train + 50 eval intact + 50 eval ablated + 30 eval restored episodes. Same 5-criterion PASS: C1 hippo_quality_gap_intact>0; C2 ablated<=intact*0.5; C3 restored>=ablated; C4 calibration_gap>0.03; C5 no fatal errors. experiment_purpose=evidence."
+      "notes": "Fixes EXQ-397 FAIL (inverted hippo_quality_gap: hippocampus navigated TOWARD residue). Root cause: terrain_prior trained on E3-selected trajectories, which were high-residue because hazard-proximate resources attracted E3 selection. Two fixes: (1) TERRAIN FIX: terrain_prior now trained on minimum-residue candidate from candidate set (not E3-selected trajectory); (2) HARDER ENV: size=16, num_hazards=6, num_resources=3 (sparse) to force genuine spatial planning. 800 train + 50 eval intact + 50 eval ablated + 30 eval restored episodes. Same 5-criterion PASS: C1 hippo_quality_gap_intact>0; C2 ablated<=intact*0.5; C3 restored>=ablated; C4 calibration_gap>0.03; C5 no fatal errors. experiment_purpose=evidence.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-21T00:28:04.378439+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-456",
