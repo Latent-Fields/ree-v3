@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-04-20
+**Last updated:** 2026-04-21
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-04-20)
+## 0. Current V3 State (2026-04-21)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -55,6 +55,10 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-032c | AIC-analog interoceptive salience / urgency-interrupt (subsumes SD-021 descending modulation; harm_s_gain is drive-aware + mode-aware) | Implemented 2026-04-19 |
 | SD-032d | PCC-analog metastability scalar (modulates MECH-259 effective_threshold by drive_level, success EMA, time-since-offline) | Implemented 2026-04-19 |
 | SD-032e | pACC-analog autonomic coupling (slow-EMA drive_bias write-back from z_harm_a, MECH-094 hypothesis_tag gated) | Implemented 2026-04-19 |
+| SD-033a | Lateral-PFC-analog (MECH-261 primary consumer; gate-modulated EMA rule_state + zeroed-last-Linear bias head) | Implemented 2026-04-20 |
+| SD-034 | Governance closure operator (5-part "done" token: MECH-090 release + MECH-260 No-Go + residue discharge + closure_event + MECH-268 pe reset) | Implemented 2026-04-20 |
+| MECH-267 | Mode-conditioned hippocampal proposals (operating_mode threads through HippocampalModule; per-mode CEM-noise multipliers) | Implemented 2026-04-20 |
+| MECH-268 | dACC conflict saturation (outcome-history FIFO + f_sat attenuation; closure_event resets buffer) | Implemented 2026-04-21 |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -73,43 +77,56 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **~704 runs indexed** (630 run dirs + 74 flat manifests, post-indexer rebuild
-  2026-04-20T06:26Z). **831 queue-level completions across all machines** (252 PASS /
-  480 FAIL / 88 ERROR / 11 UNKNOWN). Covers EXQ-001 through EXQ-448 (plus lettered
-  iterations and per-seed runs). Spanning SD-003 through SD-023 validation, heartbeat
-  architecture (SD-006), reafference (SD-007), encoder fixes (SD-008/009), harm stream
-  separation (SD-010), dual nociceptive streams (SD-011/SD-022), homeostatic drive
-  (SD-012), self-attribution counterfactuals (SD-013/ARC-033), valence vector recording
-  (SD-014), resource encoder (SD-015), frontal cue integration (SD-016), sleep
-  infrastructure (SD-017), surprise-gated replay (MECH-205), E1 predictive wanting
-  (MECH-216), wanting/liking dissociation (MECH-112/229/117), goal conditioning
-  (MECH-116/163/ARC-032), context memory (MECH-153/ARC-042), EXQ-223 minimal vertebrate
-  ablation milestone, and the SD-032 cingulate cluster (a/b/c/d/e) validated inline
-  2026-04-19.
-- **Currently queued (2026-04-20, 2 items — both claimed):** V3-EXQ-445 (SD-032b dACC-analog
-  adaptive control 3-arm ablation: OFF / ON-independent / ON-shared-trunk; ARC-033 vs
-  ARC-058 arbitration as C4 diagnostic; claimed by DLAPTOP-4.local), V3-EXQ-447 (SD-032d
-  PCC-analog metastability substrate validation, 8 deterministic acceptance checks; claimed
-  by ree-cloud-2). The post-governance-2026-04-19T21 session discovered the natural top-5
-  candidates were either already consumed (V3-EXQ-446 / V3-EXQ-448 validated inline during
-  SD-032a / SD-032e substrate-implementation) or already claimed (V3-EXQ-445 / V3-EXQ-447),
-  or required new script authoring beyond simple queue append; /queue-experiment closed with
-  zero new queue writes.
-- **Current bottleneck:** SD-032 cluster substrate validation (V3-EXQ-445 behavioural proof
-  is the next decisive test — SD-032b is the first cingulate subdivision to face a real
-  behavioural gate) together with the SD-003 successor track — V3-EXQ-433a (scripted-eval
-  MECH-256/SD-029 comparator, supersedes EXQ-433 after its event-distribution collapse
-  reclassification) and V3-EXQ-397 (ARC-007/SD-004 path-memory ablation) remain pending
-  review. Governance cycle 2026-04-19T21 promoted MECH-094 candidate->provisional (first
-  concrete write-gate wiring via V3-EXQ-448 pACC hypothesis_tag skip), applied 12
-  `hold_pending_v3_substrate` batch decisions for the SD-032 cluster and its dependents
-  (MECH-256/258/259/260/261/264/265, SD-029/032a/b/d/e), reclassified 3 FAIL manifests as
-  non_contributory (EXQ-395 MECH-220, EXQ-418a SD-017, EXQ-430 INV-010 — all substrate-gap
-  symptoms now addressable by the SD-032 cluster), and marked 7 pending experiments reviewed.
-  **3 pending review** (2 FAIL deferred: EXQ-397 ARC-007/SD-004, EXQ-433a MECH-256/SD-029;
-  1 ERROR: V3-EXQ-325c). The three-layer regression suite (preflight / contracts / deferred
-  changed) landed in PRs 1-3 the same day and is wired into the runner startup path, with
-  an `/api/regression/preflight` endpoint live on serve.py.
+- **~715 V3 runs indexed** (post indexer rebuild 2026-04-20T19:49Z: 630 V3 run dirs + 77
+  flat V3 manifests; ~9 further V3 manifests landed since rebuild — SD-033a / SD-034
+  landings, MECH-267 rule binding + intrusive simulation filtering, MECH-257 diagnostic,
+  ARC-016 adaptive commitment_threshold, SD-016 cue_action_proj wiring probe, SD-032a
+  behavioural follow-up, MECH-261 write-gate landing, SD-032c AIC-descending retest).
+  Covers EXQ-001 through EXQ-468 (plus lettered iterations and per-seed runs). Spanning
+  SD-003 through SD-023 validation, heartbeat architecture (SD-006), reafference (SD-007),
+  encoder fixes (SD-008/009), harm stream separation (SD-010), dual nociceptive streams
+  (SD-011/SD-022), homeostatic drive (SD-012), self-attribution counterfactuals
+  (SD-013/ARC-033), valence vector recording (SD-014), resource encoder (SD-015), frontal
+  cue integration (SD-016), sleep infrastructure (SD-017), surprise-gated replay
+  (MECH-205), E1 predictive wanting (MECH-216), wanting/liking dissociation
+  (MECH-112/229/117), goal conditioning (MECH-116/163/ARC-032), context memory
+  (MECH-153/ARC-042), EXQ-223 minimal vertebrate ablation milestone, the SD-032 cingulate
+  cluster (a/b/c/d/e) validated inline 2026-04-19, SD-033a lateral-PFC-analog landing
+  (V3-EXQ-456 PASS 2026-04-20), and the SD-034 governance closure operator + MECH-267 +
+  MECH-268 landing smoke PASSes on 2026-04-20/21.
+- **Currently queued (2026-04-21, 14 items — 4 claimed):** V3-EXQ-447 (SD-032d deterministic
+  validation, claimed ree-cloud-2); V3-EXQ-451 (Q-034 hazard/resource threshold retest,
+  supersedes V3-EXQ-288, claimed EWIN-PC); V3-EXQ-445a (SD-032b dACC full-pipeline fix for
+  EXQ-445 monostrategy collapse + terrain-prior inversion, claimed EWIN-PC); V3-EXQ-397c
+  (ARC-007 path-memory ablation with harder env + terrain fix, claimed DLAPTOP-4.local).
+  Pending: V3-EXQ-445b (epsilon-greedy exploration variant), V3-EXQ-445c (14x14 env
+  variant), V3-EXQ-456 (SD-033a landing five-sub-test diagnostic), V3-EXQ-449a (SD-016
+  forward-path probe superseding V3-EXQ-449), V3-EXQ-133 (MECH-091 phase-reset
+  discriminative pair), V3-EXQ-126 (MECH-104 surprise-gate discriminative pair),
+  V3-EXQ-460 (SD-034 verified-but-not-released landing), V3-EXQ-463 (MECH-268 dACC
+  conflict-saturation landing), V3-EXQ-466 (SD-034 satisficing / residue-discharge landing),
+  V3-EXQ-468 (SD-034 x MECH-268 commitment-vs-contradiction 4-arm landing). Four SD-034 /
+  MECH-268 landing entries are 2-minute deterministic smoke variants pending runner claim.
+- **Current bottleneck:** SD-032 cluster behavioural follow-through (V3-EXQ-445a full-
+  pipeline fix is the decisive test after V3-EXQ-445 FAILed with monostrategy collapse
+  tied to untrained E3 + terrain-prior inversion; V3-EXQ-325d FAILed with zero between-arm
+  gradient -> SD-032c descending-modulation effect not visible under current task;
+  V3-EXQ-454 FAILed with ARC-016 adaptive commitment_threshold unable to match static
+  baselines under the 2026-04-20 harness) together with the SD-003 successor track
+  (V3-EXQ-433a MECH-256/SD-029 scripted-eval FAIL, V3-EXQ-452 MECH-257 dual-function E2
+  diagnostic) and the ARC-007 path-memory track (V3-EXQ-397 FAIL, V3-EXQ-397c claimed).
+  SD-033a substrate landed 2026-04-20 (V3-EXQ-456 PASS on all five sub-tests); SD-034
+  governance closure-operator landed 2026-04-20/21 with MECH-267 mode-conditioned
+  hippocampal + MECH-268 dACC conflict-saturation on the same anchor plan
+  (REE_assembly/evidence/planning/sd033_governance_plan.md). SD-016 cue_action_proj
+  diagnosed 2026-04-20 via V3-EXQ-449: weights train under the supervised arm but
+  action_bias_divergence stays at 0.0 -- V3-EXQ-449a forward-path probe pending to
+  localise which tensor zeroes the signal before E3.select. The three-layer regression
+  suite (preflight / contracts / deferred changed) with contracts C1-C8 covering the
+  SD-032 cluster remains green at 24/24 after the SD-033a / SD-034 / MECH-267 / MECH-268
+  additions; explorer preflight badge + pre-commit contracts hook (PR 5) live since
+  2026-04-20. **Pending review queue was last generated 2026-04-20T05:50Z (6 items then);
+  a fresh rebuild is pending after this cycle's wave of results.**
 
 ### V3 / V4 Scope Boundary
 
