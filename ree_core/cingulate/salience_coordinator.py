@@ -177,6 +177,27 @@ class SalienceCoordinatorConfig:
     # threshold -> harder to flip mode.
     stability_scaling: float = 1.0
 
+    # MECH-266 asymmetric per-mode hysteresis. Two optional overrides on the
+    # symmetric switch_threshold path:
+    #   enter_thresholds[target_mode]: salience_aggregate required to enter
+    #     `target_mode`. When unset, falls back to switch_threshold.
+    #   exit_thresholds[current_mode]: operating_mode[current_mode] must fall
+    #     strictly below this value before a switch OUT of current_mode is
+    #     permitted. Acts as a Schmitt-trigger lower rail on the current
+    #     mode's probability. When unset, defaults to 1.0 (always satisfied
+    #     -> no exit hysteresis, preserves legacy MECH-259 behaviour).
+    # Asymmetric hysteresis signature (ocd4 / EXP-0160 / EXP-0163):
+    #   exit_thresholds[m] near 0 -> over-binding / OCD axis (current mode
+    #     must collapse to near-zero probability before leaving).
+    #   exit_thresholds[m] == 1.0 -> symmetric baseline.
+    #   exit_thresholds[m] > 1.0 -> under-binding / depression axis (exit
+    #     check trivially satisfied, mode switches aggressively on every
+    #     argmax flip).
+    # When both dicts are empty, tick() uses the legacy symmetric behaviour
+    # with switch_threshold on enter and no exit check.
+    enter_thresholds: Dict[str, float] = field(default_factory=dict)
+    exit_thresholds: Dict[str, float] = field(default_factory=dict)
+
     # Salience-aggregate weights -- which signals contribute to the salience
     # magnitude compared against the threshold. Separate from affinity_weights
     # because salience is "how loud is the alarm", whereas affinity is "which
@@ -258,6 +279,33 @@ class SalienceCoordinator:
         """
         self._gate_weights[name] = dict(weights)
 
+    # -- MECH-266 asymmetric hysteresis setters --
+
+    def set_enter_threshold(self, mode: str, value: float) -> None:
+        """Set the MECH-266 enter threshold for a single mode.
+
+        Overrides the symmetric switch_threshold for transitions INTO `mode`.
+        """
+        self.config.enter_thresholds[mode] = float(value)
+
+    def set_exit_threshold(self, mode: str, value: float) -> None:
+        """Set the MECH-266 exit threshold for a single mode.
+
+        When `mode` is the current mode, a switch out of it is permitted
+        only while operating_mode[mode] < value. Lower values are stickier.
+        """
+        self.config.exit_thresholds[mode] = float(value)
+
+    def set_hysteresis_ratio(self, ratio: float) -> None:
+        """Convenience: set exit_thresholds[m] = ratio for every mode.
+
+        Pairs with the implicit enter_threshold = switch_threshold baseline.
+        Used by EXP-0163 parametric sweep (ratio 0.1 -> 2.0) to vary the
+        over-binding / under-binding axis uniformly across modes.
+        """
+        for mode in self.mode_names:
+            self.config.exit_thresholds[mode] = float(ratio)
+
     # -- Tick: main per-step computation --
 
     def tick(
@@ -324,17 +372,28 @@ class SalienceCoordinator:
         for signal_name, weight in self.config.salience_weights.items():
             salience_aggregate += weight * self._input_signals.get(signal_name, 0.0)
 
-        # SD-032d stability modulation of threshold.
+        # SD-032d stability modulation applies to enter-side thresholds.
         pcc_stability = self._input_signals.get("pcc_stability", 0.0)
-        effective_threshold = self.config.switch_threshold * (
-            1.0 + self.config.stability_scaling * pcc_stability
-        )
+        stability_mult = 1.0 + self.config.stability_scaling * pcc_stability
 
-        # MECH-259 switch trigger: salience exceeds threshold AND the soft
-        # vector's argmax differs from the currently committed discrete mode.
+        # MECH-259 + MECH-266 switch trigger: salience exceeds the
+        # target-mode's enter threshold AND the current mode's probability
+        # has decayed below its exit threshold AND the soft vector's argmax
+        # differs from the currently committed discrete mode.
         soft_argmax = max(operating_mode.items(), key=lambda kv: kv[1])[0]
+
+        enter_base = self.config.enter_thresholds.get(
+            soft_argmax, self.config.switch_threshold
+        )
+        enter_threshold = enter_base * stability_mult
+        # Exit default 1.0: legacy behaviour -- operating_mode[current_mode]
+        # < 1.0 is always true for a proper distribution, so no-op.
+        exit_threshold = self.config.exit_thresholds.get(self._current_mode, 1.0)
+        current_mode_prob = operating_mode.get(self._current_mode, 0.0)
+
         trigger = bool(
-            salience_aggregate > effective_threshold
+            salience_aggregate > enter_threshold
+            and current_mode_prob < exit_threshold
             and soft_argmax != self._current_mode
         )
         if trigger:
@@ -347,7 +406,14 @@ class SalienceCoordinator:
             "current_mode": self._current_mode,
             "mode_switch_trigger": trigger,
             "salience_aggregate": float(salience_aggregate),
-            "effective_threshold": float(effective_threshold),
+            # effective_threshold retained for backward-compat diagnostics:
+            # equal to enter_threshold (the MECH-259 rail that still governs
+            # entry). New consumers should prefer enter_threshold /
+            # exit_threshold / current_mode_prob.
+            "effective_threshold": float(enter_threshold),
+            "enter_threshold": float(enter_threshold),
+            "exit_threshold": float(exit_threshold),
+            "current_mode_prob": float(current_mode_prob),
         }
 
     # -- MECH-261 write-gating --
