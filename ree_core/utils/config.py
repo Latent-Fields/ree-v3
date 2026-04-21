@@ -817,6 +817,84 @@ class REEConfig:
     # on the SalienceCoordinator (biases mode relaxation post-closure).
     closure_signal_affinity_internal_planning: float = 0.5
 
+    # ----------------------------------------------------------------
+    # SD-035: Amygdala analogue (BLAAnalog + CeAAnalog peer modules)
+    # ----------------------------------------------------------------
+    # Master switch. When True, REEAgent instantiates BOTH BLAAnalog and
+    # CeAAnalog unless the per-module switches below are set False. When
+    # False (default), the amygdala layer is a no-op -- no instantiation,
+    # no wiring, bit-identical to legacy behaviour.
+    use_amygdala_analog: bool = False
+    # Per-module switches. Gated by use_amygdala_analog (master switch
+    # False overrides these). Default True once the master switch is on
+    # -- both peer modules are expected to run together since each owns
+    # different MECH-074 sub-behaviours.
+    use_bla_analog: bool = True
+    use_cea_analog: bool = True
+
+    # -- BLAAnalog (SD-035 / MECH-074a / MECH-074b / MECH-074d) --
+    # Inverted-U encoding-gain parameters (Roozendaal & McGaugh 2011).
+    bla_encoding_gain_max: float = 2.5
+    bla_encoding_gain_floor: float = 1.0
+    bla_arousal_threshold_on: float = 0.4
+    bla_arousal_peak: float = 0.7
+    # Post-event decay window on the encoding gain. 18000 steps ~= 30 min
+    # biological @ 100 ms per step; half-life 3600 steps ~= 6 min.
+    bla_window_steps: int = 18000
+    bla_window_half_life_steps: int = 3600
+    # Retrieval bias (content-selective per-trace weight vector, NOT
+    # scalar). w_i = 1 + alpha * arousal_tag_i; LaBar & Cabeza 2006
+    # 0.3-1.0 range (midpoint default).
+    bla_retrieval_bias_alpha: float = 0.6
+    # Optional zero-sum compensation for untagged traces (0.0 default;
+    # enable 0.1-0.3 for full zero-sum form).
+    bla_retrieval_bias_compensation: float = 0.0
+    # LaBar 2006 mandate: tag at encoding, not reconstructed at retrieval.
+    # Set False only for the named-failure-signature ablation.
+    bla_retrieval_tag_at_encoding: bool = True
+    # Remap signal (MECH-074d). PE-zscore threshold over running std,
+    # EMA alpha matches MECH-205 pe_ema_alpha convention, initial std
+    # seeds a short burn-in window.
+    bla_remap_pe_sigma_threshold: float = 1.0
+    bla_remap_pe_ema_alpha: float = 0.02
+    bla_remap_pe_std_init: float = 0.1
+    # Moita 2004: ~30-35% of predictor-candidate codes perturbed.
+    bla_remap_code_fraction: float = 0.33
+    # Moita 2004 attribution-gate hard requirement. Set False only for
+    # deliberate broadcast-remap ablation (named failure signature).
+    bla_remap_requires_attribution: bool = True
+
+    # -- CeAAnalog (SD-035 / MECH-046 / MECH-074c) --
+    # Fast-route threshold on the low-frequency magnitude projection of
+    # z_harm_a. Below this, no fast-route fire (mode_prior=0, fast_prime
+    # decays from whatever residual remains).
+    cea_fast_route_threshold: float = 0.5
+    # Use L1 mean-magnitude of z_harm_a as the low-frequency summary
+    # (default True; set False for L2 norm on caller-supplied scalar
+    # ablation).
+    cea_fast_route_input_is_lowfreq: bool = True
+    # Maximum absolute value of the pre-softmax additive log-odds bias
+    # emitted as mode_prior. MUST be <= AIC/dACC log-odds ceiling so CeA
+    # never over-rules cortex (synthesis.md).
+    cea_mode_prior_log_odds_max: float = 0.8
+    # Scale factor on the above cap at threshold-crossing.
+    cea_mode_prior_gain: float = 1.0
+    # Gating placement flag: pre-softmax additive vs post-softmax
+    # multiplicative. True = correct biological reading per synthesis;
+    # False reproduces the named failure signature.
+    cea_pre_softmax_additive: bool = True
+    # Fast-prime pulse peak amplitude; bounded by log_odds_max.
+    cea_fast_prime_amplitude: float = 0.6
+    # Decay half-life of the fast_prime pulse in sim steps.
+    cea_fast_prime_decay_tau_steps: int = 4
+    # Override window: cortical signals have this many steps to confirm
+    # / extend the pulse.
+    cea_fast_prime_override_window_steps: int = 8
+    # Weight on cortical_confirmation during override window. 1.0 =
+    # full cortical confirmation holds pulse; 0.0 = cortex cannot
+    # sustain (pure fast-route timing).
+    cea_cortical_confirmation_weight: float = 1.0
+
     @classmethod
     def from_dims(
         cls,
@@ -977,6 +1055,35 @@ class REEConfig:
         closure_pe_cap_after: Optional[float] = None,
         closure_reset_outcome_history: bool = True,
         closure_signal_affinity_internal_planning: float = 0.5,
+        # SD-035: amygdala analogue (BLAAnalog + CeAAnalog peer modules)
+        use_amygdala_analog: bool = False,
+        use_bla_analog: bool = True,
+        use_cea_analog: bool = True,
+        # BLAAnalog (MECH-074a/b/d)
+        bla_encoding_gain_max: float = 2.5,
+        bla_encoding_gain_floor: float = 1.0,
+        bla_arousal_threshold_on: float = 0.4,
+        bla_arousal_peak: float = 0.7,
+        bla_window_steps: int = 18000,
+        bla_window_half_life_steps: int = 3600,
+        bla_retrieval_bias_alpha: float = 0.6,
+        bla_retrieval_bias_compensation: float = 0.0,
+        bla_retrieval_tag_at_encoding: bool = True,
+        bla_remap_pe_sigma_threshold: float = 1.0,
+        bla_remap_pe_ema_alpha: float = 0.02,
+        bla_remap_pe_std_init: float = 0.1,
+        bla_remap_code_fraction: float = 0.33,
+        bla_remap_requires_attribution: bool = True,
+        # CeAAnalog (MECH-046 / MECH-074c)
+        cea_fast_route_threshold: float = 0.5,
+        cea_fast_route_input_is_lowfreq: bool = True,
+        cea_mode_prior_log_odds_max: float = 0.8,
+        cea_mode_prior_gain: float = 1.0,
+        cea_pre_softmax_additive: bool = True,
+        cea_fast_prime_amplitude: float = 0.6,
+        cea_fast_prime_decay_tau_steps: int = 4,
+        cea_fast_prime_override_window_steps: int = 8,
+        cea_cortical_confirmation_weight: float = 1.0,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -1214,6 +1321,34 @@ class REEConfig:
         config.closure_pe_cap_after = closure_pe_cap_after
         config.closure_reset_outcome_history = closure_reset_outcome_history
         config.closure_signal_affinity_internal_planning = closure_signal_affinity_internal_planning
+
+        # SD-035: amygdala analogue (BLAAnalog + CeAAnalog peer modules)
+        config.use_amygdala_analog = use_amygdala_analog
+        config.use_bla_analog = use_bla_analog
+        config.use_cea_analog = use_cea_analog
+        config.bla_encoding_gain_max = bla_encoding_gain_max
+        config.bla_encoding_gain_floor = bla_encoding_gain_floor
+        config.bla_arousal_threshold_on = bla_arousal_threshold_on
+        config.bla_arousal_peak = bla_arousal_peak
+        config.bla_window_steps = bla_window_steps
+        config.bla_window_half_life_steps = bla_window_half_life_steps
+        config.bla_retrieval_bias_alpha = bla_retrieval_bias_alpha
+        config.bla_retrieval_bias_compensation = bla_retrieval_bias_compensation
+        config.bla_retrieval_tag_at_encoding = bla_retrieval_tag_at_encoding
+        config.bla_remap_pe_sigma_threshold = bla_remap_pe_sigma_threshold
+        config.bla_remap_pe_ema_alpha = bla_remap_pe_ema_alpha
+        config.bla_remap_pe_std_init = bla_remap_pe_std_init
+        config.bla_remap_code_fraction = bla_remap_code_fraction
+        config.bla_remap_requires_attribution = bla_remap_requires_attribution
+        config.cea_fast_route_threshold = cea_fast_route_threshold
+        config.cea_fast_route_input_is_lowfreq = cea_fast_route_input_is_lowfreq
+        config.cea_mode_prior_log_odds_max = cea_mode_prior_log_odds_max
+        config.cea_mode_prior_gain = cea_mode_prior_gain
+        config.cea_pre_softmax_additive = cea_pre_softmax_additive
+        config.cea_fast_prime_amplitude = cea_fast_prime_amplitude
+        config.cea_fast_prime_decay_tau_steps = cea_fast_prime_decay_tau_steps
+        config.cea_fast_prime_override_window_steps = cea_fast_prime_override_window_steps
+        config.cea_cortical_confirmation_weight = cea_cortical_confirmation_weight
 
         return config
 

@@ -71,6 +71,14 @@ from ree_core.governance import (
     ClosureOperator,
     ClosureOperatorConfig,
 )
+from ree_core.amygdala import (
+    BLAAnalog,
+    BLAConfig,
+    BLAOutput,
+    CeAAnalog,
+    CeAConfig,
+    CeAOutput,
+)
 from ree_core.residue.field import (
     VALENCE_WANTING,
     VALENCE_LIKING,
@@ -345,6 +353,68 @@ class REEAgent(nn.Module):
                     },
                 )
 
+        # SD-035: Amygdala analogue (BLAAnalog + CeAAnalog peer modules).
+        # Master switch use_amygdala_analog gates both modules; per-module
+        # switches use_bla_analog / use_cea_analog give granular control.
+        # Both modules are non-trainable arithmetic; they read z_harm_a
+        # (SD-011) and write to different downstream consumers:
+        #   BLAAnalog -> encoding_gain / retrieval_bias / remap_signal
+        #                (MECH-074a/b/d; hippocampal consumer wiring is a
+        #                follow-up pass -- see TODO markers below and in
+        #                select_action).
+        #   CeAAnalog -> cea_mode_prior / cea_fast_prime
+        #                (MECH-046 / MECH-074c; injected into
+        #                SalienceCoordinator via update_signal below).
+        self.bla: Optional[BLAAnalog] = None
+        self.cea: Optional[CeAAnalog] = None
+        if getattr(config, "use_amygdala_analog", False):
+            if getattr(config, "use_bla_analog", True):
+                bla_cfg = BLAConfig(
+                    encoding_gain_max=config.bla_encoding_gain_max,
+                    encoding_gain_floor=config.bla_encoding_gain_floor,
+                    arousal_threshold_on=config.bla_arousal_threshold_on,
+                    arousal_peak=config.bla_arousal_peak,
+                    window_steps=config.bla_window_steps,
+                    window_half_life_steps=config.bla_window_half_life_steps,
+                    retrieval_bias_alpha=config.bla_retrieval_bias_alpha,
+                    retrieval_bias_compensation=config.bla_retrieval_bias_compensation,
+                    retrieval_tag_at_encoding=config.bla_retrieval_tag_at_encoding,
+                    remap_pe_sigma_threshold=config.bla_remap_pe_sigma_threshold,
+                    remap_pe_ema_alpha=config.bla_remap_pe_ema_alpha,
+                    remap_pe_std_init=config.bla_remap_pe_std_init,
+                    remap_code_fraction=config.bla_remap_code_fraction,
+                    remap_requires_attribution=config.bla_remap_requires_attribution,
+                )
+                self.bla = BLAAnalog(bla_cfg)
+            if getattr(config, "use_cea_analog", True):
+                cea_cfg = CeAConfig(
+                    fast_route_threshold=config.cea_fast_route_threshold,
+                    fast_route_input_is_lowfreq=config.cea_fast_route_input_is_lowfreq,
+                    mode_prior_log_odds_max=config.cea_mode_prior_log_odds_max,
+                    mode_prior_gain=config.cea_mode_prior_gain,
+                    pre_softmax_additive=config.cea_pre_softmax_additive,
+                    fast_prime_amplitude=config.cea_fast_prime_amplitude,
+                    fast_prime_decay_tau_steps=config.cea_fast_prime_decay_tau_steps,
+                    fast_prime_override_window_steps=config.cea_fast_prime_override_window_steps,
+                    cortical_confirmation_weight=config.cea_cortical_confirmation_weight,
+                )
+                self.cea = CeAAnalog(cea_cfg)
+            # Register CeA signals as salience/affinity sources on the
+            # coordinator if one exists. cea_mode_prior is an affinity
+            # signal (biases the operating-mode distribution toward harm-
+            # relevant modes). cea_fast_prime is a salience signal (a
+            # salience-aggregate contribution for the MECH-259 trigger).
+            # Weights are conservative defaults; experiments can tune
+            # via direct SalienceCoordinatorConfig edits.
+            if self.salience is not None and self.cea is not None:
+                self.salience.config.affinity_weights["cea_mode_prior"] = {
+                    "external_task": 1.0,
+                }
+                self.salience.config.salience_weights["cea_fast_prime"] = 0.5
+        # Cache of last amygdala tick outputs (for diagnostics/experiments).
+        self._bla_last_output: Optional[BLAOutput] = None
+        self._cea_last_output: Optional[CeAOutput] = None
+
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
         self.body_obs_encoder = nn.Sequential(
@@ -504,6 +574,16 @@ class REEAgent(nn.Module):
         if self.closure_operator is not None:
             self.closure_operator.reset()
 
+        # SD-035: reset amygdala analogues (BLA PE EMA + window onset; CeA
+        # fast-route counters). Both modules are stateful within an
+        # episode; cross-episode state not retained.
+        if self.bla is not None:
+            self.bla.reset()
+        if self.cea is not None:
+            self.cea.reset()
+        self._bla_last_output = None
+        self._cea_last_output = None
+
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
         if not self.config.replay_diversity_enabled:
@@ -651,6 +731,54 @@ class REEAgent(nn.Module):
                 beta_gate_elevated=self.beta_gate.is_elevated,
                 operating_mode=aic_op_mode,
             )
+
+        # SD-035: Amygdala analogue peer ticks (BLAAnalog + CeAAnalog).
+        # Both modules read z_harm_a (produced by SD-011 AffectiveHarmEncoder
+        # above) and run in sense() so downstream consumers in
+        # select_action() (SalienceCoordinator for CeA, cached BLA outputs
+        # for future hippocampal consumer wiring) see the current-tick
+        # outputs without a one-step lag beyond the natural one from
+        # z_harm_a_pred (which uses the previous step's E2_harm_a output).
+        if (self.bla is not None or self.cea is not None):
+            z_harm_a_cur = new_latent.z_harm_a
+            if z_harm_a_cur is not None:
+                if self.bla is not None:
+                    # z_harm_a_pred_prev is produced in select_action() by the
+                    # E2_harm_a forward pass using the previous step's
+                    # z_harm_a and action. None on the first step of an
+                    # episode -- BLA handles None by skipping remap_signal
+                    # (no PE available).
+                    z_harm_a_pred = self._harm_a_pred_prev
+                    # Attribution candidates: hook reserved for a future
+                    # attribution head wired through the E2_harm_a forward
+                    # model. None in the current pass so remap_signal stays
+                    # empty unless callers supply candidates explicitly --
+                    # conservative Moita 2004 default per the BLAConfig
+                    # remap_requires_attribution flag.
+                    self._bla_last_output = self.bla.tick(
+                        z_harm_a=z_harm_a_cur.detach(),
+                        z_harm_a_pred=(
+                            z_harm_a_pred.detach()
+                            if z_harm_a_pred is not None
+                            else None
+                        ),
+                        candidate_code_contributions=None,
+                        arousal_tags_in_context=None,
+                        step_index=self._step_count,
+                        simulation_mode=False,
+                    )
+                if self.cea is not None:
+                    # cortical_confirmation is reserved for a future cortical
+                    # gate wired off the AIC / dACC fast-signal path.
+                    # Passing None here lets the fast_prime pulse decay
+                    # naturally per its time constant.
+                    self._cea_last_output = self.cea.tick(
+                        z_harm_a=z_harm_a_cur.detach(),
+                        cue_features=None,
+                        cortical_confirmation=None,
+                        escapability_hint=None,
+                        simulation_mode=False,
+                    )
 
         # SD-021: descending pain modulation (commitment-gated sensory harm attenuation).
         # When harm_descending_mod_enabled=True, attenuate z_harm (sensory-discriminative
@@ -1016,6 +1144,24 @@ class REEAgent(nn.Module):
                 self._pcc_last_tick = self.pcc.tick(drive_level=sal_drive)
                 self.salience.update_signal(
                     "pcc_stability", float(self.pcc.pcc_stability)
+                )
+            # SD-035 / MECH-046 / MECH-074c: inject CeA mode_prior and
+            # fast_prime into the coordinator BEFORE tick so the fast
+            # subcortical route biases this cycle's mode affinity and
+            # salience aggregate. mode_prior is a pre-softmax additive
+            # log-odds bias (registered on affinity_weights["cea_mode_prior"]
+            # = {"external_task": 1.0} at __init__); fast_prime is a scalar
+            # salience pulse (registered on salience_weights["cea_fast_prime"]
+            # = 0.5 at __init__). Both zero at rest -> no-op when CeA is off
+            # or below threshold.
+            if self.cea is not None and self._cea_last_output is not None:
+                self.salience.update_signal(
+                    "cea_mode_prior",
+                    float(self._cea_last_output.mode_prior),
+                )
+                self.salience.update_signal(
+                    "cea_fast_prime",
+                    float(self._cea_last_output.fast_prime),
                 )
             self._salience_last_tick = self.salience.tick(
                 dacc_bundle=sal_bundle,
