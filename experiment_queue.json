@@ -8,6 +8,20 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-471",
+      "title": "Best-available V3 agent -- fishtank showcase (populates fishtank_viz.html)",
+      "experiment_type": "v3_exq_471_best_agent_fishtank_showcase",
+      "script": "experiments/v3_exq_471_best_agent_fishtank_showcase.py",
+      "priority": 45,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 20,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_ids": [],
+      "notes": "Diagnostic showcase derived from EXQ-223a scaffold but the minimal-vertebrate ablation is LIFTED. Enables best-available smoke-passed substrate: SD-007 (reafference), SD-008 (alpha_world=0.9), SD-010 (sensory harm stream), SD-011 (affective harm stream + harm_history_len=10), SD-012 (z_goal_enabled, drive_weight=2.0, goal_weight=0.5), SD-018 (resource_proximity_head + weight=0.5, aux loss active in warmup), SD-021 (harm_descending_mod_enabled + attenuation=0.5), SD-022 (limb_damage_enabled), SD-023 (n_landmarks_b=2 resource-predictive cue), MECH-090 (beta_gate_bistable + commitment_threshold=0.5). Phased-training-required substrates (SD-013 interventional, SD-019 non-redundancy, SD-020 surprise-PE, ARC-033 E2_harm_s forward, schema_wanting, tonic_5ht, SWS/REM passes) + still-validating cingulate / PFC cluster (SD-032a-e, SD-033a, SD-034, MECH-266/267/268) LEFT OFF. 3 seeds x (60 warmup + 5 eval) eps x 200 steps. Each eval episode writes a fishtank-compatible step log. Output pack: evidence/experiments/v3_exq_471_best_agent_fishtank_showcase/<type>_<ts>.json + <type>_<ts>_episode_log.json. The *_episode_log.json is what fishtank_viz.html /api/fishtank/logs auto-discovers. experiment_purpose=diagnostic, claim_ids=[] (not evidence-weighted). Estimated ~20 min on Mac CPU (0.10 min/ep * 195 eps ~= 20 min). Re-queued 2026-04-21T18:45Z after clobber by cowork-2026-04-21-exp0090 V3-EXQ-472 write."
+    },
+    {
       "queue_id": "V3-EXQ-447",
       "title": "SD-032d PCC-analog metastability scalar -- substrate validation (deterministic arithmetic + agent integration)",
       "experiment_type": "v3_exq_447_sd032d_pcc_stability",
