@@ -116,28 +116,6 @@
       "notes": "Diagnostic forward-path probe for SD-016 cue_action_proj. EXQ-449 confirmed weights train under supervised arm but action_bias_divergence stays at 0.0 -- something downstream zeroes the signal before it reaches E3.select. EXQ-449a instruments the full forward path (extract_cue_context -> ContextMemory attention -> cue_action_proj -> hippocampal.propose_trajectories -> E3.select) under three eval regimes to localise the blocker. Regimes: g1 supervised-active W_std, g2 frozen W_std, g3 frozen W_no_detach (monkeypatched _e1_tick bypasses detach of action_bias, terrain_weight, and z_world input). Single seed 42, P0=25 encoder warmup + P1=50 supervised finetune per variant. Two training variants (W_std, W_no_detach) -> 1 seed x 2 conditions. Instrumentation: action_bias norm / per-channel std, terrain_weight norm, ao_target norm, attention entropy, ContextMemory slot diversity. Acceptance: C1 diagnosis_localised (>=1 offender tensor below threshold in g2), C2 detach_isolated bonus (g3 div > 0.05), C3 context_memory_pre_zero (>=80 percent g2 coverage > 1e-3), C4 supervised_target_sanity (>=80 percent P1 coverage > 1e-3). primary_pass = C1 AND C3 AND C4 (localises blocker). experiment_purpose=diagnostic (excluded from governance scoring). Unblocks EXQ-418b successor once specific forward-path offender identified."
     },
     {
-      "queue_id": "V3-EXQ-464",
-      "title": "MECH-266 asymmetric per-mode hysteresis landing -- competing goals (EXP-0160 / ocd4)",
-      "experiment_type": "v3_exq_464_mech266_competing_goals",
-      "script": "experiments/v3_exq_464_mech266_competing_goals.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 1,
-      "seeds": 1,
-      "conditions": 5,
-      "claim_ids": [
-        "MECH-266",
-        "SD-032a",
-        "MECH-259"
-      ],
-      "notes": "MECH-266 asymmetric per-mode hysteresis landing diagnostic (ocd4 row 'competing goals', EXP-0160). Five sub-tests (all arithmetic + API) exercising the new per-mode enter_thresholds / exit_thresholds rails on SD-032a SalienceCoordinator: UC1 backward compat (empty dicts -> enter_threshold==switch_threshold, exit_threshold==1.0 sentinel, legacy MECH-259 trigger pattern); UC2 ARM A symmetric baseline (exit=1.0 all modes -> reproduces legacy switch count on fixed synthetic competing-goals signal sequence); UC3 ARM B moderate Schmitt (exit=0.3 all modes -> strictly fewer switches than baseline -- Schmitt blocks marginal R2->R3 flip where planning-prob ~0.33); UC4 ARM C severe over-binding (exit=0.05 all modes -> stuck-in-external_task, n_switches <= 1, fraction_in_external_task >= 0.8 -- OCD axis stuck signature); UC5 per-mode asymmetry (exit keyed per mode -> condition-X sticky-external-task, condition-Y leaves external readily and sticks in internal_planning; confirms per-mode keying of the Schmitt rail). PASS = all 5. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'competing goals'. experiment_purpose=diagnostic. Full behavioural test (switch-cost asymmetry on env-driven dual-cue tasks, unresolved goal-oscillation episode rate) deferred to EXQ-464b -- requires CausalGridWorldV2 dual simultaneously active resource-cue extension not yet on any roadmap item.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-21T18:09:34.147039+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-467",
       "title": "MECH-266 asymmetric per-mode hysteresis landing -- mode stickiness / hold decay (EXP-0163 / ocd4)",
       "experiment_type": "v3_exq_467_mech266_mode_stickiness",
