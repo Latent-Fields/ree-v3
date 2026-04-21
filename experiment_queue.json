@@ -122,7 +122,7 @@
       "script": "experiments/v3_exq_467_mech266_mode_stickiness.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 1,
       "seeds": 1,
       "conditions": 5,
@@ -130,7 +130,11 @@
         "MECH-266",
         "SD-032a"
       ],
-      "notes": "MECH-266 parametric dose-response landing diagnostic (ocd4 row 'mode stickiness / hold decay', EXP-0163). Five-arm parametric sweep of the MECH-266 exit/enter ratio on SD-032a SalienceCoordinator: A1 r=0.10 over-binding severe (OCD axis), A2 r=0.50 over-binding moderate, A3 r=1.00 symmetric baseline (legacy MECH-259 match), A4 r=1.50 under-binding mild, A5 r=2.00 under-binding severe (aggressive-switching / depression axis). Ratio encoding: r<=1 tightens exit; r>1 lowers enter=1/r while leaving exit at legacy no-op. Five sub-tests on a fixed synthetic three-regime competing-goals signal sequence with an intra-R2 doubt tick: UC1 n_switches monotone non-decreasing A1..A5; UC2 longest_run_in_mode monotone non-increasing A1..A5; UC3 A1 stuck signature (n_switches<=1 AND max_mode_share>=0.8); UC4 A3 matches legacy empty-dicts trigger count; UC5 U-shape around ideal -- |n_switches - ideal| minimised at A3, strictly larger at BOTH A1 and A5. PASS = all 5. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'mode stickiness / hold decay'. experiment_purpose=diagnostic. Behavioural dose-response (goal-completion curve, residue-accumulation curve, behavioural monostrategy index, mean-time-in-mode per operating mode) deferred to EXQ-467b -- requires CausalGridWorldV2 scheduled-distractor extension not yet on any roadmap item."
+      "notes": "MECH-266 parametric dose-response landing diagnostic (ocd4 row 'mode stickiness / hold decay', EXP-0163). Five-arm parametric sweep of the MECH-266 exit/enter ratio on SD-032a SalienceCoordinator: A1 r=0.10 over-binding severe (OCD axis), A2 r=0.50 over-binding moderate, A3 r=1.00 symmetric baseline (legacy MECH-259 match), A4 r=1.50 under-binding mild, A5 r=2.00 under-binding severe (aggressive-switching / depression axis). Ratio encoding: r<=1 tightens exit; r>1 lowers enter=1/r while leaving exit at legacy no-op. Five sub-tests on a fixed synthetic three-regime competing-goals signal sequence with an intra-R2 doubt tick: UC1 n_switches monotone non-decreasing A1..A5; UC2 longest_run_in_mode monotone non-increasing A1..A5; UC3 A1 stuck signature (n_switches<=1 AND max_mode_share>=0.8); UC4 A3 matches legacy empty-dicts trigger count; UC5 U-shape around ideal -- |n_switches - ideal| minimised at A3, strictly larger at BOTH A1 and A5. PASS = all 5. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'mode stickiness / hold decay'. experiment_purpose=diagnostic. Behavioural dose-response (goal-completion curve, residue-accumulation curve, behavioural monostrategy index, mean-time-in-mode per operating mode) deferred to EXQ-467b -- requires CausalGridWorldV2 scheduled-distractor extension not yet on any roadmap item.",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-21T18:09:44.093565+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-462",
