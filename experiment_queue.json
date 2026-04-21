@@ -87,28 +87,6 @@
         "machine": "EWIN-PC",
         "claimed_at": "2026-04-20T23:29:31.054817+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-126",
-      "title": "MECH-104 volatility interrupt -- surprise-gate matched-seed discriminative pair",
-      "experiment_type": "v3_exq_126_mech104_surprise_gate_pair",
-      "script": "experiments/v3_exq_126_mech104_surprise_gate_pair.py",
-      "priority": 56,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "episodes_per_run": 400,
-      "seeds": 2,
-      "conditions": 1,
-      "claim_ids": [
-        "MECH-104"
-      ],
-      "backlog_id": "EVB-0062",
-      "notes": "Matched-seed discriminative pair for MECH-104: SURPRISE_GATE_ON (running_variance spike fires on unexpected harm only) vs SURPRISE_GATE_ABLATED. Tests that unexpected harm events selectively raise commitment uncertainty enabling de-commitment. 2 seeds, 400 warmup + 50 eval, 6 pre-registered criteria. experiment_purpose=evidence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-21T17:06:12.833531+00:00"
-      }
     }
   ]
 }
