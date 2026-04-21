@@ -14,7 +14,7 @@
       "script": "experiments/v3_exq_472_sd011_platform_stability_pilot.py",
       "priority": 50,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 40,
       "episodes_per_run": 300,
       "seeds": 2,
@@ -22,7 +22,11 @@
       "claim_ids": [
         "SD-011"
       ],
-      "notes": "SD-011 platform-stability diagnostic pilot. NOT an evidence run -- measures natural range of recovery_ratio (post-perturbation / pre-perturbation dissociation_score) under fixed DUAL-stream substrate across 2 hazard layouts (L3=3 hazards, L5=5 hazards) x 2 seeds [42, 7] = 4 runs. Per-run phased pipeline: P0 warmup (120 eps, full REE agent training + DUAL encoders + harm_history_len=10 + z_harm_a_aux_loss_weight=0.1) -> P1 frozen-encoder head (80 eps rollout-collect + 10-epoch x batch=128 forward-head train on .detach()ed z_harm_s; identity-collapse guard) -> P2 pre eval (40 eps, no updates; measure dissociation_score_pre, harm_fwd_r2_pre, stream_corr_pre, z_harm_s_hazard_corr_pre, autocorr_gap_pre) -> swap hazard layout (L3->L5 or L5->L3; encoder weights, forward head, optimizer state, harm_history carry through) -> P3 recovery training (30 eps) -> P3 post eval (30 eps; *_post metrics). Summary: median/min/max recovery_ratio across 4 runs; median dissociation_score_pre and dissociation_score_post. 4 verdict: PASS lines (runner progress only -- diagnostic, not scored). Outputs anchor C7 perturbation-recovery threshold and C5 dual_advantage multiplier for the EXP-0090 main evidence script (main script authored in follow-up session after pilot recovery_ratio observed). Reference substrate: EXQ-198 (DUAL vs FUSED measurement code), EXQ-241a (harm_history + aux loss wiring). ~40 min on Mac CPU (4 runs x 300 eps x 200 steps, approx 10 min/run). drive_weight=2.0. experiment_purpose=diagnostic (excluded from governance scoring). evidence_direction=diagnostic. Smoke-PASS (--dry-run; full pipeline end-to-end, all 4 runs complete, verdict lines emitted, summary printed)."
+      "notes": "SD-011 platform-stability diagnostic pilot. NOT an evidence run -- measures natural range of recovery_ratio (post-perturbation / pre-perturbation dissociation_score) under fixed DUAL-stream substrate across 2 hazard layouts (L3=3 hazards, L5=5 hazards) x 2 seeds [42, 7] = 4 runs. Per-run phased pipeline: P0 warmup (120 eps, full REE agent training + DUAL encoders + harm_history_len=10 + z_harm_a_aux_loss_weight=0.1) -> P1 frozen-encoder head (80 eps rollout-collect + 10-epoch x batch=128 forward-head train on .detach()ed z_harm_s; identity-collapse guard) -> P2 pre eval (40 eps, no updates; measure dissociation_score_pre, harm_fwd_r2_pre, stream_corr_pre, z_harm_s_hazard_corr_pre, autocorr_gap_pre) -> swap hazard layout (L3->L5 or L5->L3; encoder weights, forward head, optimizer state, harm_history carry through) -> P3 recovery training (30 eps) -> P3 post eval (30 eps; *_post metrics). Summary: median/min/max recovery_ratio across 4 runs; median dissociation_score_pre and dissociation_score_post. 4 verdict: PASS lines (runner progress only -- diagnostic, not scored). Outputs anchor C7 perturbation-recovery threshold and C5 dual_advantage multiplier for the EXP-0090 main evidence script (main script authored in follow-up session after pilot recovery_ratio observed). Reference substrate: EXQ-198 (DUAL vs FUSED measurement code), EXQ-241a (harm_history + aux loss wiring). ~40 min on Mac CPU (4 runs x 300 eps x 200 steps, approx 10 min/run). drive_weight=2.0. experiment_purpose=diagnostic (excluded from governance scoring). evidence_direction=diagnostic. Smoke-PASS (--dry-run; full pipeline end-to-end, all 4 runs complete, verdict lines emitted, summary printed).",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-21T18:35:14.663638+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-447",
