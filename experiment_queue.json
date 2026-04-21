@@ -99,7 +99,7 @@
       "script": "experiments/v3_exq_133_mech091_phase_reset_pair.py",
       "priority": 58,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 95,
       "episodes_per_run": 400,
       "seeds": 2,
@@ -108,7 +108,11 @@
         "MECH-091"
       ],
       "backlog_id": "EVB-0027",
-      "notes": "Discriminative pair: PHASE_RESET_ON (E3 heartbeat resets on harm contact) vs PHASE_RESET_ABLATED (continuous counter). Tests MECH-091: phase-reset of E3 heartbeat on salient events improves harm_eval discrimination quality by aligning harm signals with cycle boundaries. 2 seeds x 2 conditions, 400 warmup + 50 eval eps each. 5 pre-registered criteria: C1 gap_on>=0.04, C2 per-seed delta>=0.02, C3 gap_ablated>=0.0, C4 n_harm>=20, C5 n_resets>=10. experiment_purpose=evidence."
+      "notes": "Discriminative pair: PHASE_RESET_ON (E3 heartbeat resets on harm contact) vs PHASE_RESET_ABLATED (continuous counter). Tests MECH-091: phase-reset of E3 heartbeat on salient events improves harm_eval discrimination quality by aligning harm signals with cycle boundaries. 2 seeds x 2 conditions, 400 warmup + 50 eval eps each. 5 pre-registered criteria: C1 gap_on>=0.04, C2 per-seed delta>=0.02, C3 gap_ablated>=0.0, C4 n_harm>=20, C5 n_resets>=10. experiment_purpose=evidence.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-21T05:15:28.654523+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-126",
