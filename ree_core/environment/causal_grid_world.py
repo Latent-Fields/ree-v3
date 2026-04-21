@@ -150,6 +150,17 @@ class CausalGridWorld:
         # 1.0 = full visibility (default, backward compat); 0.3 = strongly attenuated.
         # Forces agent to use landmark B rather than reactive resource gradient detection.
         resource_obs_scale: float = 1.0,
+        # SD-029: balanced-hazard-event curriculum.
+        # When enabled, scheduled "external hazard injection" events spawn a
+        # hazard at a cell adjacent to the agent every scheduled_external_hazard_interval
+        # steps (with probability scheduled_external_hazard_prob). Purpose: guarantee
+        # both self-caused and externally-caused hazard events per seed for event-
+        # conditioned comparator SNR (SD-029 C3/C4). Curriculum-level fix; not a
+        # substrate change to agent or latents. Disabled by default (backward compat).
+        scheduled_external_hazard_enabled: bool = False,
+        scheduled_external_hazard_interval: int = 50,
+        scheduled_external_hazard_prob: float = 0.5,
+        scheduled_external_hazard_adjacent_only: bool = True,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -201,6 +212,13 @@ class CausalGridWorld:
         self.landmark_b_scale = landmark_b_scale
         self.landmark_b_resource_bias = landmark_b_resource_bias
         self.resource_obs_scale = resource_obs_scale
+        # SD-029: balanced-hazard-event curriculum state
+        self.scheduled_external_hazard_enabled = scheduled_external_hazard_enabled
+        self.scheduled_external_hazard_interval = scheduled_external_hazard_interval
+        self.scheduled_external_hazard_prob = scheduled_external_hazard_prob
+        self.scheduled_external_hazard_adjacent_only = scheduled_external_hazard_adjacent_only
+        self._external_hazard_event_count: int = 0
+        self._last_external_hazard_step: int = -1
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
         self.landmark_b_positions: List[Tuple[int, int]] = []
@@ -327,6 +345,9 @@ class CausalGridWorld:
         self.steps = 0
         self.total_harm = 0.0
         self.total_benefit = 0.0
+        # SD-029: per-episode external hazard counter.
+        self._external_hazard_event_count = 0
+        self._last_external_hazard_step = -1
 
         # Proxy-gradient state
         self.harm_exposure: float = 0.0
@@ -430,6 +451,9 @@ class CausalGridWorld:
         self.steps = 0
         self.total_harm = 0.0
         self.total_benefit = 0.0
+        # SD-029: per-episode external hazard counter.
+        self._external_hazard_event_count = 0
+        self._last_external_hazard_step = -1
 
         self.harm_exposure = 0.0
         self.benefit_exposure = 0.0
@@ -653,6 +677,26 @@ class CausalGridWorld:
                 self._accumulated_harm_exposure += float(np.clip(self.harm_exposure, 0.0, 1.0))
                 self._accumulated_harm_steps += 1
 
+        # SD-029: scheduled external-hazard injection (balanced curriculum).
+        # Deterministically scheduled "externally-caused" hazard events that are
+        # independent of the agent's action. When enabled, every
+        # scheduled_external_hazard_interval steps, with probability
+        # scheduled_external_hazard_prob, move a hazard adjacent to the agent
+        # (or to any empty cell if adjacent_only=False and no adjacency is empty).
+        external_hazard_injected = False
+        if (
+            self.scheduled_external_hazard_enabled
+            and self.steps > 0
+            and (self.steps % self.scheduled_external_hazard_interval == 0)
+            and self._rng.random() < self.scheduled_external_hazard_prob
+        ):
+            external_hazard_injected = self._inject_external_hazard()
+            if external_hazard_injected:
+                self._external_hazard_event_count += 1
+                self._last_external_hazard_step = self.steps
+                if self.use_proxy_fields:
+                    self._compute_proximity_fields()
+
         # Env-caused drift
         if self.steps % self.env_drift_interval == 0 and self.steps > 0:
             self._drift_hazards()
@@ -685,6 +729,9 @@ class CausalGridWorld:
             "total_benefit": self.total_benefit,
             "sequence_in_progress": self._sequence_in_progress,
             "sequence_step": self._sequence_step,
+            # SD-029 balanced curriculum tags (always present; 0 when disabled).
+            "external_hazard_injected": bool(external_hazard_injected),
+            "external_hazard_event_count": int(self._external_hazard_event_count),
         }
         if self.use_proxy_fields:
             info["hazard_field_at_agent"] = float(
@@ -1013,6 +1060,77 @@ class CausalGridWorld:
     # ------------------------------------------------------------------ #
     # Internal helpers (unchanged from V2)                                #
     # ------------------------------------------------------------------ #
+
+    def _inject_external_hazard(self) -> bool:
+        """
+        SD-029 balanced-hazard-event curriculum: inject an externally-caused
+        hazard event adjacent to the agent (or at any empty cell if
+        adjacent_only=False and no adjacency is empty).
+
+        Mechanism: pick an existing hazard and move it to a target cell;
+        if no hazards exist but a target is available, spawn one there.
+        The event is externally-caused because the agent did not initiate
+        the transition into proximity.
+
+        Returns True if a hazard was placed, False if no suitable target
+        was found (e.g., agent in a corner with all neighbours occupied).
+        """
+        ax, ay = self.agent_x, self.agent_y
+        # Candidate target cells.
+        candidates: List[Tuple[int, int]] = []
+        neigh = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        for dx, dy in neigh:
+            if self.toroidal:
+                nx = (ax + dx) % self.size
+                ny = (ay + dy) % self.size
+            else:
+                nx, ny = ax + dx, ay + dy
+                if not (0 < nx < self.size - 1 and 0 < ny < self.size - 1):
+                    continue
+            if self.grid[nx, ny] == self.ENTITY_TYPES["empty"]:
+                candidates.append((nx, ny))
+
+        if not candidates and not self.scheduled_external_hazard_adjacent_only:
+            # Fall back to any empty cell.
+            if self.toroidal:
+                all_cells = [
+                    (i, j)
+                    for i in range(self.size)
+                    for j in range(self.size)
+                    if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+                ]
+            else:
+                all_cells = [
+                    (i, j)
+                    for i in range(1, self.size - 1)
+                    for j in range(1, self.size - 1)
+                    if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+                ]
+            candidates = all_cells
+
+        if not candidates:
+            return False
+
+        self._rng.shuffle(candidates)
+        tx, ty = candidates[0]
+
+        # Prefer to MOVE an existing hazard (keeps num_hazards invariant).
+        if self.hazards:
+            # Pick a hazard that is not already adjacent to the agent.
+            movable = [
+                h for h in self.hazards
+                if not (abs(h[0] - ax) + abs(h[1] - ay) == 1)
+            ]
+            src = movable[0] if movable else self.hazards[0]
+            sx, sy = src[0], src[1]
+            self.grid[sx, sy] = self.ENTITY_TYPES["empty"]
+            src[0], src[1] = tx, ty
+            self.grid[tx, ty] = self.ENTITY_TYPES["hazard"]
+        else:
+            # No hazards exist; spawn a new one.
+            self.grid[tx, ty] = self.ENTITY_TYPES["hazard"]
+            self.hazards.append([tx, ty])
+        return True
 
     def _drift_hazards(self) -> None:
         """Drift environment-caused hazards randomly."""
