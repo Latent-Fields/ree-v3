@@ -116,27 +116,6 @@
       "notes": "Diagnostic forward-path probe for SD-016 cue_action_proj. EXQ-449 confirmed weights train under supervised arm but action_bias_divergence stays at 0.0 -- something downstream zeroes the signal before it reaches E3.select. EXQ-449a instruments the full forward path (extract_cue_context -> ContextMemory attention -> cue_action_proj -> hippocampal.propose_trajectories -> E3.select) under three eval regimes to localise the blocker. Regimes: g1 supervised-active W_std, g2 frozen W_std, g3 frozen W_no_detach (monkeypatched _e1_tick bypasses detach of action_bias, terrain_weight, and z_world input). Single seed 42, P0=25 encoder warmup + P1=50 supervised finetune per variant. Two training variants (W_std, W_no_detach) -> 1 seed x 2 conditions. Instrumentation: action_bias norm / per-channel std, terrain_weight norm, ao_target norm, attention entropy, ContextMemory slot diversity. Acceptance: C1 diagnosis_localised (>=1 offender tensor below threshold in g2), C2 detach_isolated bonus (g3 div > 0.05), C3 context_memory_pre_zero (>=80 percent g2 coverage > 1e-3), C4 supervised_target_sanity (>=80 percent P1 coverage > 1e-3). primary_pass = C1 AND C3 AND C4 (localises blocker). experiment_purpose=diagnostic (excluded from governance scoring). Unblocks EXQ-418b successor once specific forward-path offender identified."
     },
     {
-      "queue_id": "V3-EXQ-466",
-      "title": "SD-034 closure-operator landing -- satisficing / residue discharge (EXP-0162 / ocd4)",
-      "experiment_type": "v3_exq_466_sd034_satisficing_residue_discharge",
-      "script": "experiments/v3_exq_466_sd034_satisficing_residue_discharge.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 2,
-      "seeds": 1,
-      "conditions": 5,
-      "claim_ids": [
-        "SD-034",
-        "MECH-094"
-      ],
-      "notes": "SD-034 closure-operator satisficing / residue-discharge landing diagnostic (ocd4 row 'satisficing / No-Go thresholding'). Five sub-tests (all arithmetic + API): UC1 nearby_attenuation (ResidueField.discharge_domain halves in-domain weight within radius*bandwidth); UC2 far_centers_spared (domain scoping preserves distant weights); UC3 invariant_preserved (multiplicative decay clamped at 1e-6 floor -- 'residue cannot be erased' holds after 200 halvings); UC4 closure_fire_triggers_discharge (end-to-end through ClosureOperator._fire, residue_centers_discharged >= 1, ratio ~0.5); UC5 closure_fire_distant_spares_residue (z_world far from residue -> unchanged). PASS = all 5. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md 'satisficing / No-Go thresholding'. experiment_purpose=diagnostic. Behavioral variant (tolerance-band completion env -- bimodal vs smooth satisficing contrast) deferred: requires new env variant not yet on any roadmap item.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-21T18:09:03.364573+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-463",
       "title": "MECH-268 dACC conflict-saturation landing -- conflict saturation (EXP-0159 / ocd4)",
       "experiment_type": "v3_exq_463_mech268_dacc_conflict_saturation",
