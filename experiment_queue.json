@@ -127,7 +127,7 @@
       "notes": "Matched-seed discriminative pair for MECH-104: SURPRISE_GATE_ON (running_variance spike fires on unexpected harm only) vs SURPRISE_GATE_ABLATED. Tests that unexpected harm events selectively raise commitment uncertainty enabling de-commitment. 2 seeds, 400 warmup + 50 eval, 6 pre-registered criteria. experiment_purpose=evidence.",
       "claimed_by": {
         "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-21T05:16:45.823501+00:00"
+        "claimed_at": "2026-04-21T17:06:12.833531+00:00"
       }
     },
     {
