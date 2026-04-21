@@ -122,7 +122,7 @@
       "script": "experiments/v3_exq_463_mech268_dacc_conflict_saturation.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 2,
       "seeds": 1,
       "conditions": 7,
@@ -132,7 +132,11 @@
         "MECH-258",
         "SD-034"
       ],
-      "notes": "MECH-268 dACC conflict-saturation landing diagnostic (ocd4 row 'conflict saturation'). Seven sub-tests (all arithmetic + API): UC1 backward compat (saturation OFF -> sat_factor==1.0 even with sustained outcomes); UC2 grace honoured (n_rec <= grace -> sat_factor==1.0); UC3 activates past grace (sat_factor < 1.0 once n_rec > grace); UC4 monotone in recurrences (sat_factor strictly decreases with each additional identical outcome); UC5 mixed outcomes spare saturation (alternating classes -> per-class recurrence below activation); UC6 ClosureOperator._fire() resets _outcome_history (post-closure sat_factor==1.0); UC7 dACC.forward() bundle exposes pe_unsaturated + saturation_factor + outcome_recurrence diagnostics with bundle['pe'] == pe_unsaturated * saturation_factor. PASS = all 7. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'conflict saturation'. experiment_purpose=diagnostic. Behavioural arm (500+ step sustained-outcome task with mode-switch trigger rate) deferred -- requires phased rule_state training and an env variant not yet on any roadmap item. evidence_direction_per_claim splits SD-034 (UC6 only) from MECH-268 / SD-032b; MECH-258 tagged as non_contributory (composes with the saturation pipeline but landing does not directly assert the precision-weighting path)."
+      "notes": "MECH-268 dACC conflict-saturation landing diagnostic (ocd4 row 'conflict saturation'). Seven sub-tests (all arithmetic + API): UC1 backward compat (saturation OFF -> sat_factor==1.0 even with sustained outcomes); UC2 grace honoured (n_rec <= grace -> sat_factor==1.0); UC3 activates past grace (sat_factor < 1.0 once n_rec > grace); UC4 monotone in recurrences (sat_factor strictly decreases with each additional identical outcome); UC5 mixed outcomes spare saturation (alternating classes -> per-class recurrence below activation); UC6 ClosureOperator._fire() resets _outcome_history (post-closure sat_factor==1.0); UC7 dACC.forward() bundle exposes pe_unsaturated + saturation_factor + outcome_recurrence diagnostics with bundle['pe'] == pe_unsaturated * saturation_factor. PASS = all 7. Anchor plan: REE_assembly/evidence/planning/sd033_governance_plan.md. Source: docs/thoughts/2026-04-20_ocd4.md row 'conflict saturation'. experiment_purpose=diagnostic. Behavioural arm (500+ step sustained-outcome task with mode-switch trigger rate) deferred -- requires phased rule_state training and an env variant not yet on any roadmap item. evidence_direction_per_claim splits SD-034 (UC6 only) from MECH-268 / SD-032b; MECH-258 tagged as non_contributory (composes with the saturation pipeline but landing does not directly assert the precision-weighting path).",
+      "claimed_by": {
+        "machine": "EWIN-PC",
+        "claimed_at": "2026-04-21T18:09:13.340157+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-468",
