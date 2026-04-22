@@ -413,6 +413,53 @@ class InvalidationTriggerConfig:
 
 
 @dataclass
+class AnchorSetConfig:
+    """MECH-269 Phase 2 (ii) anchor-set configuration.
+
+    Scale-tagged anchor keys (scale, segment_id, stream_mixture) where
+    stream_mixture is a Phase 2 stand-in: the tuple of per-stream V_s keys
+    active at anchor-creation tick. Learned attribution head is deferred
+    to Phase 3.
+
+    Anchor reset policy (dual-trace, Bouton 2004): on reset_region the
+    existing anchor is marked inactive (NOT erased); a parallel active
+    anchor is installed for the new segment_id. Hysteresis: an anchor
+    only resets once its V_s_anchor (V_s minus staleness proxy) has been
+    below reset_threshold for hysteresis_k consecutive HippocampalModule
+    ticks (Wills 2005 hard-switch + Colgin 2008 soft-reweight dual
+    support, per V_s foundation lit-pull).
+
+    Phase 2 (ii) stand-ins (flagged in claim notes; will evolve in Phase 3):
+      stream_mixture: tuple(sorted(per_stream_vs.keys())) at write-time.
+      Staleness: local tick-delta since last get_anchor / write; MECH-284
+        staleness accumulator replaces this in Phase 3.
+      Subscription source: drains MECH-288 BoundaryEvent queue. MECH-287
+        BroadcastEvent consumption wires in when T3 lands.
+
+    Fields:
+      scales:            tuple of scale names this anchor set indexes (must
+                         match EventSegmenterScaleConfig.name entries).
+      reset_threshold:   V_s_anchor strict-less-than this -> reset-eligible.
+      hysteresis_k:      consecutive below-threshold ticks required to fire
+                         mark_inactive + new-active install.
+      staleness_rate:    per-tick increase in the Phase 2 staleness proxy
+                         subtracted from V_s to form V_s_anchor.
+      staleness_clip:    maximum staleness contribution (prevents runaway).
+      max_anchors_per_scale: soft cap per scale (FIFO on active anchors
+                         when exceeded; inactive anchors retained).
+      subscribe_to_boundary_events: drain MECH-288 BoundaryEvents on tick
+                         (Phase 2 path).
+    """
+    scales: tuple = ("fast", "slow")
+    reset_threshold: float = 0.3
+    hysteresis_k: int = 5
+    staleness_rate: float = 0.005
+    staleness_clip: float = 1.0
+    max_anchors_per_scale: int = 128
+    subscribe_to_boundary_events: bool = True
+
+
+@dataclass
 class HippocampalConfig:
     """Configuration for HippocampalModule.
 
@@ -487,6 +534,13 @@ class HippocampalConfig:
     invalidation_trigger: InvalidationTriggerConfig = field(
         default_factory=InvalidationTriggerConfig
     )
+    # MECH-269 Phase 2 (ii): scale-tagged anchor sets with dual-trace
+    # preservation (mark_inactive, NOT erase) on remap. Keys:
+    # (scale, segment_id, stream_mixture). Subscribes to MECH-288
+    # BoundaryEvents. Backward compatible: disabled by default; when off,
+    # anchor_set is None and no ticks/drains occur.
+    use_anchor_sets: bool = False
+    anchor_set: AnchorSetConfig = field(default_factory=AnchorSetConfig)
 
 
 @dataclass

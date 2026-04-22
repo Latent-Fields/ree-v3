@@ -683,6 +683,14 @@ class REEAgent(nn.Module):
         ):
             self.hippocampal.reset_invalidation_trigger()
 
+        # MECH-269 Phase 2 (ii): reset anchor set on episode boundary
+        # (active + inactive anchors, tick counter). No-op when
+        # use_anchor_sets is False.
+        if self.hippocampal is not None and getattr(
+            self.hippocampal.config, "use_anchor_sets", False
+        ):
+            self.hippocampal.reset_anchor_set()
+
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
         if not self.config.replay_diversity_enabled:
@@ -1043,6 +1051,20 @@ class REEAgent(nn.Module):
             self.hippocampal.update_per_stream_vs(
                 new_latent, goal_state=self.goal_state
             )
+
+        # MECH-269 Phase 2 (ii): scale-tagged anchor set. Installs / remaps
+        # anchors for each BoundaryEvent emitted this tick (from the local
+        # events list, same pattern as MECH-287) and advances hysteresis
+        # counters against the per_stream_vs scores just updated. Runs AFTER
+        # update_per_stream_vs so hysteresis reads the current-tick V_s.
+        # No-op when use_anchor_sets is False.
+        if (
+            self.hippocampal is not None
+            and getattr(self.hippocampal.config, "use_anchor_sets", False)
+            and self.hippocampal.anchor_set is not None
+        ):
+            anchor_events = events if "events" in locals() else []
+            self.hippocampal.tick_anchor_set(new_latent, anchor_events)
         return new_latent
 
     def sense_flat(self, observation: torch.Tensor) -> LatentState:

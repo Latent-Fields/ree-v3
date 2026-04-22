@@ -47,6 +47,7 @@ from ree_core.regulators.invalidation_trigger import (
     BroadcastEvent,
     InvalidationTrigger,
 )
+from ree_core.hippocampal.anchor_set import AnchorSet
 
 
 class HippocampalModule(nn.Module):
@@ -183,6 +184,22 @@ class HippocampalModule(nn.Module):
                     "invalidation_trigger config is None"
                 )
             self.invalidation_trigger = InvalidationTrigger(trig_cfg)
+
+        # MECH-269 Phase 2 (ii): scale-tagged anchor set. Consumes MECH-288
+        # BoundaryEvents (drained via drain_boundary_events()) and installs
+        # / remaps anchors with dual-trace preservation (Bouton 2004) and
+        # k-consecutive hysteresis on V_s_anchor crossings. Phase 2 stand-in
+        # stream_mixture = tuple(sorted(per_stream_vs.keys())) at write-time;
+        # learned attribution head deferred to Phase 3.
+        self.anchor_set: Optional[AnchorSet] = None
+        if getattr(config, "use_anchor_sets", False):
+            anchor_cfg = getattr(config, "anchor_set", None)
+            if anchor_cfg is None:
+                raise ValueError(
+                    "HippocampalConfig.use_anchor_sets=True but "
+                    "anchor_set config is None"
+                )
+            self.anchor_set = AnchorSet(anchor_cfg)
 
     def drain_boundary_events(self) -> List[BoundaryEvent]:
         """Return and clear all queued boundary events from MECH-288.
@@ -772,6 +789,36 @@ class HippocampalModule(nn.Module):
         if self.event_segmenter is not None:
             self.event_segmenter.reset()
         self._boundary_event_queue.clear()
+
+    def tick_anchor_set(self, latent_state, events: List[BoundaryEvent]) -> None:
+        """MECH-269 Phase 2 (ii): consume BoundaryEvents and advance hysteresis.
+
+        Installs / remaps anchors for each BoundaryEvent using the current
+        z_world snapshot and a stream_mixture derived from the live
+        per_stream_vs keys. Advances per-tick hysteresis counters on all
+        active anchors against the current per_stream_vs scores. No-op
+        when use_anchor_sets is False.
+
+        Intended caller: REEAgent.sense(), invoked after the event segmenter
+        queues BoundaryEvents and after update_per_stream_vs has populated
+        per_stream_vs for the current tick.
+        """
+        if self.anchor_set is None:
+            return
+        z_world = getattr(latent_state, "z_world", None)
+        mixture = tuple(sorted(self.per_stream_vs.keys()))
+        if events:
+            self.anchor_set.consume_boundary_events(
+                events=events,
+                z_world=z_world,
+                stream_mixture=mixture,
+            )
+        self.anchor_set.tick_hysteresis(self.per_stream_vs)
+
+    def reset_anchor_set(self) -> None:
+        """Per-episode reset of the MECH-269 anchor set. No-op when disabled."""
+        if self.anchor_set is not None:
+            self.anchor_set.reset()
 
     def forward(
         self,
