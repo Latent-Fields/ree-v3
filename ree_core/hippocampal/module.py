@@ -38,6 +38,11 @@ import torch.nn as nn
 from ree_core.utils.config import HippocampalConfig
 from ree_core.predictors.e2_fast import E2FastPredictor, Trajectory
 from ree_core.residue.field import ResidueField, VALENCE_WANTING
+from ree_core.hippocampal.event_segmenter import (
+    BoundaryEvent,
+    EventSegmenter,
+    Scale as EventSegmenterScale,
+)
 
 
 class HippocampalModule(nn.Module):
@@ -115,6 +120,54 @@ class HippocampalModule(nn.Module):
         # signal-quality refinement is a Phase 2 concern.
         self.per_stream_vs: Dict[str, float] = {}
         self._prev_stream_values: Dict[str, torch.Tensor] = {}
+
+        # MECH-288 (Phase 2 of V_s invalidation runtime): hierarchical event
+        # segmenter. Instantiated when config.use_event_segmenter is True.
+        # BoundaryEvents emitted per tick are appended to
+        # self._boundary_event_queue and consumers (MECH-287 broadcast trigger,
+        # MECH-269 anchor-reset) drain via drain_boundary_events().
+        self.event_segmenter: Optional[EventSegmenter] = None
+        self._boundary_event_queue: List[BoundaryEvent] = []
+        if getattr(config, "use_event_segmenter", False):
+            seg_cfg = getattr(config, "event_segmenter", None)
+            if seg_cfg is None:
+                raise ValueError(
+                    "HippocampalConfig.use_event_segmenter=True but "
+                    "event_segmenter config is None"
+                )
+            scales = [
+                EventSegmenterScale(
+                    name=sc.name,
+                    streams=tuple(sc.streams),
+                    algorithm=sc.algorithm,
+                    tau=sc.tau,
+                    min_segment_length=sc.min_segment_length,
+                    pe_threshold=sc.pe_threshold,
+                    window_length=sc.pe_window_length,
+                    hazard=sc.hazard,
+                    posterior_threshold=sc.posterior_threshold,
+                    top_k=sc.bocpd_top_k,
+                    prior_var=sc.bocpd_prior_var,
+                )
+                for sc in seg_cfg.scales
+            ]
+            self.event_segmenter = EventSegmenter(
+                scales=scales,
+                emit_to=list(seg_cfg.emit_to),
+                scale_id_format=seg_cfg.scale_id_format,
+                slow_scale_name=seg_cfg.slow_scale_name,
+            )
+
+    def drain_boundary_events(self) -> List[BoundaryEvent]:
+        """Return and clear all queued boundary events from MECH-288.
+
+        Downstream consumers (MECH-287 broadcast trigger, MECH-269 anchor-reset)
+        call this once per tick to consume events that the segmenter emitted
+        during agent.sense().
+        """
+        events = list(self._boundary_event_queue)
+        self._boundary_event_queue.clear()
+        return events
 
     def _get_terrain_action_object_mean(
         self,
@@ -660,6 +713,17 @@ class HippocampalModule(nn.Module):
         """
         self.per_stream_vs.clear()
         self._prev_stream_values.clear()
+
+    def reset_event_segmenter(self) -> None:
+        """Reset MECH-288 event segmenter state (call on episode boundaries).
+
+        Clears per-scale detector state, segment counters (outer.inner back to
+        0.0), and drains any pending boundary events. No-op when the segmenter
+        is disabled.
+        """
+        if self.event_segmenter is not None:
+            self.event_segmenter.reset()
+        self._boundary_event_queue.clear()
 
     def forward(
         self,

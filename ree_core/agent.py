@@ -667,6 +667,14 @@ class REEAgent(nn.Module):
         ):
             self.hippocampal.reset_per_stream_vs()
 
+        # MECH-288: reset event segmenter state on episode boundary
+        # (detector buffers, run-length posterior, outer.inner counters,
+        # pending BoundaryEvent queue). No-op when use_event_segmenter is False.
+        if self.hippocampal is not None and getattr(
+            self.hippocampal.config, "use_event_segmenter", False
+        ):
+            self.hippocampal.reset_event_segmenter()
+
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
         if not self.config.replay_diversity_enabled:
@@ -945,6 +953,39 @@ class REEAgent(nn.Module):
         # z_harm_a_current (realised target). Detached to avoid graph retention.
         if new_latent.z_harm_a is not None:
             self._harm_a_prev = new_latent.z_harm_a.detach().clone()
+
+        # MECH-288 (Phase 2 of V_s invalidation runtime): tick the hierarchical
+        # event segmenter on the waking observation stream. Boundary events are
+        # queued on HippocampalModule for downstream MECH-287 broadcast /
+        # MECH-269 anchor-reset consumers. No-op when use_event_segmenter is
+        # False. Runs AFTER latent encoding and BEFORE per-stream V_s update
+        # so the Phase 3 V_s-anchor-reset path can consume both signals on the
+        # same tick without a one-step lag.
+        # MECH-094: this call is on the waking sense path. Replay / simulation
+        # routes that need segment IDs use force_boundary() with an explicit
+        # reason; the segmenter does not silently advance IDs from hypothesised
+        # content.
+        if self.hippocampal is not None and getattr(
+            self.hippocampal.config, "use_event_segmenter", False
+        ) and self.hippocampal.event_segmenter is not None:
+            latent_dict = {
+                "z_world": new_latent.z_world,
+                "z_self": new_latent.z_self,
+                "z_harm": new_latent.z_harm,
+                "z_harm_s": new_latent.z_harm,
+                "z_harm_a": new_latent.z_harm_a,
+                "z_beta": new_latent.z_beta,
+                "z_goal": (
+                    self.goal_state.z_goal if self.goal_state is not None else None
+                ),
+            }
+            events = self.hippocampal.event_segmenter.step(
+                latent_dict=latent_dict,
+                pe_dict=None,
+                t=int(self._step_count),
+            )
+            if events:
+                self.hippocampal._boundary_event_queue.extend(events)
 
         # MECH-269 base substrate (Phase 1, 2026-04-22): per-stream
         # verisimilitude V_s update. Identity-prediction proxy across

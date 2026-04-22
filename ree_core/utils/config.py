@@ -308,6 +308,77 @@ class E3Config:
 
 
 @dataclass
+class EventSegmenterScaleConfig:
+    """Per-scale configuration for MECH-288 EventSegmenter.
+
+    A scale defines a single boundary detector operating on a chosen set of
+    latent streams with a chosen algorithm. Two scales (fast + slow) form the
+    canonical hierarchical segmenter.
+    """
+    name: str = "fast"
+    # Streams this scale watches; boundary decision is computed over the
+    # concatenated / pooled signal from these stream names.
+    streams: tuple = ("z_world", "z_self")
+    # Algorithm: "pe_threshold" or "bocpd_gaussian".
+    algorithm: str = "pe_threshold"
+    # Minimum segment length (in ticks) before the detector is allowed to
+    # fire again. Prevents one-tick boundary bursts.
+    min_segment_length: int = 2
+    # tau is an algorithm-hint (e.g. characteristic timescale for the scale);
+    # present for API uniformity across detectors.
+    tau: int = 2
+    # PE-threshold params (unused by bocpd_gaussian).
+    pe_threshold: float = 0.65
+    pe_window_length: int = 200
+    # BOCPD-Gaussian params (unused by pe_threshold).
+    hazard: float = 1.0 / 40.0
+    posterior_threshold: float = 0.5
+    bocpd_top_k: int = 20
+    bocpd_prior_var: float = 1.0
+
+
+@dataclass
+class EventSegmenterConfig:
+    """MECH-288 hierarchical event-segmenter configuration.
+
+    Canonical default is a two-level segmenter:
+      fast: pe_threshold over (z_world, z_self) at tau=2, min_segment_length=2
+      slow: bocpd_gaussian over (z_goal,) at hazard=1/40, posterior_threshold=0.5,
+            min_segment_length=15
+    Segment IDs are hierarchical ("{outer}.{inner}"): slow fire increments the
+    outer index and forces an inner reset to 0; fast fire increments the inner
+    index.
+
+    Backward compatible: consumer code must gate on HippocampalConfig.use_event_segmenter.
+    """
+    scales: list = field(default_factory=lambda: [
+        EventSegmenterScaleConfig(
+            name="fast",
+            streams=("z_world", "z_self"),
+            algorithm="pe_threshold",
+            min_segment_length=2,
+            tau=2,
+            pe_threshold=0.65,
+            pe_window_length=200,
+        ),
+        EventSegmenterScaleConfig(
+            name="slow",
+            streams=("z_goal",),
+            algorithm="bocpd_gaussian",
+            min_segment_length=15,
+            tau=40,
+            hazard=1.0 / 40.0,
+            posterior_threshold=0.5,
+            bocpd_top_k=20,
+            bocpd_prior_var=1.0,
+        ),
+    ])
+    emit_to: tuple = ("mech_287_broadcast", "mech_269_anchor_set")
+    scale_id_format: str = "{outer}.{inner}"
+    slow_scale_name: str = "slow"
+
+
+@dataclass
 class HippocampalConfig:
     """Configuration for HippocampalModule.
 
@@ -364,6 +435,13 @@ class HippocampalConfig:
     per_stream_vs_streams: tuple = (
         "z_world", "z_self", "z_harm_s", "z_harm_a", "z_goal", "z_beta",
     )
+    # MECH-288: hierarchical event segmenter (Phase 2 of V_s invalidation runtime).
+    # When enabled, a two-scale EventSegmenter ticks in agent.sense() after latent
+    # encoding and before per-stream V_s update; BoundaryEvent objects are queued on
+    # HippocampalModule for downstream MECH-287 broadcast / MECH-269 anchor-reset
+    # consumers. Backward compatible: disabled by default (no queue writes, no ticks).
+    use_event_segmenter: bool = False
+    event_segmenter: EventSegmenterConfig = field(default_factory=EventSegmenterConfig)
 
 
 @dataclass
