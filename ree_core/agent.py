@@ -1065,6 +1065,32 @@ class REEAgent(nn.Module):
         ):
             anchor_events = events if "events" in locals() else []
             self.hippocampal.tick_anchor_set(new_latent, anchor_events)
+
+        # MECH-269 Phase 2 (iii, T4): per-region per-stream V_s update.
+        # Step (a): apply any MECH-287 broadcast-driven resets. Broadcasts
+        # on (scale, segment_id_old) drop the matching per_region_vs entry
+        # and mark_inactive the matching anchor (T3 hysteresis-shortcut
+        # reset path). We peek the broadcast queue without draining so
+        # Phase 3 consumers (MECH-284 staleness accumulator) still see
+        # the events. Tick_anchor_set's consume_boundary_events has
+        # already applied the dual-trace remap for boundary events; this
+        # broadcast path is the explicit safety net keyed on source_scale
+        # and source_segment_id_old.
+        # Step (b): iterate active anchors and compute per-region V_s.
+        # No-op when use_per_region_vs is False.
+        if self.hippocampal is not None and getattr(
+            self.hippocampal.config, "use_per_region_vs", False
+        ):
+            broadcasts_for_regions = list(
+                getattr(self.hippocampal, "_broadcast_event_queue", [])
+            )
+            if broadcasts_for_regions:
+                self.hippocampal.apply_invalidation_broadcasts_to_regions(
+                    broadcasts_for_regions
+                )
+            self.hippocampal.update_per_region_vs(
+                new_latent, goal_state=self.goal_state
+            )
         return new_latent
 
     def sense_flat(self, observation: torch.Tensor) -> LatentState:

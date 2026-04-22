@@ -541,6 +541,20 @@ class HippocampalConfig:
     # anchor_set is None and no ticks/drains occur.
     use_anchor_sets: bool = False
     anchor_set: AnchorSetConfig = field(default_factory=AnchorSetConfig)
+    # MECH-269 Phase 2 (iii, T4): per-region per-stream V_s readout.
+    # Promotes the flat per_stream_vs dict to per_region_vs[(scale,
+    # segment_id)][stream] -> float, keyed on AnchorSet active-anchor
+    # keys (T3). V_s foundation lit-pull verdict 3: per-stream V_s is
+    # the projection-readout of the integrated mixed-selectivity code;
+    # per-region keying provides the partition. Orthogonal to
+    # use_per_stream_vs -- per-region is a refinement, not a
+    # replacement; both can be on simultaneously. When on without
+    # use_anchor_sets, update is a no-op (per_region_vs stays empty).
+    # MECH-287 broadcast events on (scale, segment_id) reset that
+    # region's per_region_vs entries and mark_inactive the matching
+    # anchor with k=5 hysteresis semantics (T3 logic). Backward
+    # compatible: disabled by default.
+    use_per_region_vs: bool = False
 
 
 @dataclass

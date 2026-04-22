@@ -29,7 +29,7 @@ MECH-092 (replay):
   hypothesis_tag=True — replay cannot produce residue (MECH-094).
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import random
 
 import torch
@@ -125,6 +125,20 @@ class HippocampalModule(nn.Module):
         # signal-quality refinement is a Phase 2 concern.
         self.per_stream_vs: Dict[str, float] = {}
         self._prev_stream_values: Dict[str, torch.Tensor] = {}
+
+        # MECH-269 Phase 2 (iii, T4, 2026-04-22): per-region per-stream V_s.
+        # Keyed on (scale, segment_id) drawn from AnchorSet active_anchors().
+        # Each region maintains its own prev-value cache so identity proxy
+        # state evolves independently per region (C3 cross-region
+        # isolation). Regions whose active anchor disappears (hysteresis
+        # mark_inactive or MECH-287 broadcast reset) are pruned from both
+        # dicts. Orthogonal to per_stream_vs: both can be populated
+        # simultaneously when use_per_stream_vs and use_per_region_vs are
+        # both True.
+        self.per_region_vs: Dict[Tuple[str, str], Dict[str, float]] = {}
+        self._prev_region_stream_values: Dict[
+            Tuple[str, str], Dict[str, torch.Tensor]
+        ] = {}
 
         # MECH-288 (Phase 2 of V_s invalidation runtime): hierarchical event
         # segmenter. Instantiated when config.use_event_segmenter is True.
@@ -774,10 +788,133 @@ class HippocampalModule(nn.Module):
         """Reset per-stream V_s state (call on episode boundaries).
 
         Clears both the cached previous stream values and the V_s scores.
+        Also clears the per-region V_s state (T4, Phase 2 iii) since
+        regions become meaningless across episode boundaries.
         Subsequent updates re-initialise from the next observation.
         """
         self.per_stream_vs.clear()
         self._prev_stream_values.clear()
+        self.per_region_vs.clear()
+        self._prev_region_stream_values.clear()
+
+    def update_per_region_vs(
+        self,
+        latent_state,
+        goal_state=None,
+    ) -> None:
+        """MECH-269 Phase 2 (iii, T4): per-region per-stream verisimilitude.
+
+        For each active anchor in the AnchorSet, compute per-stream V_s
+        using the same identity-prediction proxy as Phase 1, scoped to
+        that region's independent prev-value cache. The region key is
+        (scale, segment_id) projected from the AnchorKey; stream_mixture
+        is dropped for readout simplicity (a single (scale, segment_id)
+        region may be reached by multiple stream_mixture families; last
+        one written wins on the readout).
+
+        No-op when use_per_region_vs is False, when use_anchor_sets is
+        False (no anchor_set to query), or when the anchor_set has no
+        active anchors this tick.
+
+        Regions whose active anchor has disappeared since the previous
+        update are pruned from per_region_vs and _prev_region_stream_values.
+
+        Phase 1 identity-proxy parity: V_s = 1 - norm(z_curr - z_prev)
+        / (norm(z_curr) + eps), clipped to [0, 1], EMA-smoothed with
+        config.per_stream_vs_tau. On a region's first tick (cache miss),
+        V_s is seeded to 1.0 and z_curr is cached.
+        """
+        if not getattr(self.config, "use_per_region_vs", False):
+            return
+        if self.anchor_set is None:
+            return
+        active = self.anchor_set.active_anchors()
+        if not active:
+            # No active regions. Prune any stale state.
+            if self.per_region_vs:
+                self.per_region_vs.clear()
+                self._prev_region_stream_values.clear()
+            return
+
+        tau = float(getattr(self.config, "per_stream_vs_tau", 0.1))
+        streams = getattr(self.config, "per_stream_vs_streams", ())
+        eps = 1e-6
+
+        active_keys = set()
+        for anchor in active:
+            scale, segment_id = anchor.key[0], anchor.key[1]
+            region_key = (scale, segment_id)
+            active_keys.add(region_key)
+            region_vs = self.per_region_vs.setdefault(region_key, {})
+            region_prev = self._prev_region_stream_values.setdefault(
+                region_key, {}
+            )
+            for stream_name in streams:
+                z_curr = self._stream_value(stream_name, latent_state, goal_state)
+                if z_curr is None:
+                    continue
+                z_curr_d = z_curr.detach()
+                z_prev = region_prev.get(stream_name)
+                if z_prev is None:
+                    region_vs[stream_name] = 1.0
+                    region_prev[stream_name] = z_curr_d
+                    continue
+                denom = float(z_curr_d.norm().item()) + eps
+                err = float((z_curr_d - z_prev).norm().item()) / denom
+                score = max(0.0, min(1.0, 1.0 - err))
+                prev_vs = region_vs.get(stream_name, score)
+                region_vs[stream_name] = (1.0 - tau) * prev_vs + tau * score
+                region_prev[stream_name] = z_curr_d
+
+        # Prune regions whose anchor is no longer active (hysteresis
+        # mark_inactive via tick_hysteresis, FIFO cap eviction, or an
+        # earlier apply_invalidation_broadcasts_to_regions call this tick).
+        stale = [k for k in self.per_region_vs.keys() if k not in active_keys]
+        for k in stale:
+            self.per_region_vs.pop(k, None)
+            self._prev_region_stream_values.pop(k, None)
+
+    def apply_invalidation_broadcasts_to_regions(
+        self,
+        broadcasts: List[BroadcastEvent],
+    ) -> List[Tuple[str, str]]:
+        """MECH-287 reset path: drop per_region_vs entries for broadcast-targeted
+        regions and mark the matching active anchor inactive.
+
+        For each BroadcastEvent, the region keyed on
+        (source_scale, source_segment_id_old) is the outgoing region.
+        We drop its per_region_vs / _prev_region_stream_values entry and
+        mark_inactive any active AnchorSet anchor on that (scale,
+        segment_id_old) -- this is the T3 hysteresis-shortcut reset path
+        described in the design doc (k=5 hysteresis is the passive path;
+        broadcasts are the explicit-reset path).
+
+        No-op when use_per_region_vs is False. Returns the list of
+        region keys actually reset.
+        """
+        if not getattr(self.config, "use_per_region_vs", False):
+            return []
+        if not broadcasts:
+            return []
+        reset_keys: List[Tuple[str, str]] = []
+        for bcast in broadcasts:
+            region_key = (bcast.source_scale, bcast.source_segment_id_old)
+            popped_vs = self.per_region_vs.pop(region_key, None)
+            self._prev_region_stream_values.pop(region_key, None)
+            if popped_vs is not None:
+                reset_keys.append(region_key)
+            # Mark_inactive any active anchor on (scale, segment_id_old),
+            # independent of stream_mixture. AnchorSet.mark_inactive is
+            # keyed on (scale, stream_mixture) so we scan active anchors
+            # for matching (scale, segment_id).
+            if self.anchor_set is not None:
+                for anchor in list(self.anchor_set.active_anchors(scale=bcast.source_scale)):
+                    if anchor.key[1] == bcast.source_segment_id_old:
+                        self.anchor_set.mark_inactive(
+                            scale=anchor.key[0],
+                            stream_mixture=anchor.key[2],
+                        )
+        return reset_keys
 
     def reset_event_segmenter(self) -> None:
         """Reset MECH-288 event segmenter state (call on episode boundaries).
