@@ -379,6 +379,40 @@ class EventSegmenterConfig:
 
 
 @dataclass
+class InvalidationTriggerConfig:
+    """MECH-287 broadcast invalidation trigger configuration (Phase 2 iv).
+
+    Verdict-3 architectural commitment: the trigger is a BoundaryEvent
+    subscriber (no independent comparator). Consumer of MECH-288's
+    boundary queue; emits BroadcastEvent objects consumed by downstream
+    MECH-269 anchor-reset (T3) and MECH-284 staleness accumulator (Phase
+    3) wiring.
+
+    Fields:
+      gain:            multiplier applied to each BoundaryEvent posterior
+                       (broadcast_strength = posterior * gain). No binary
+                       thresholding on strength; gate is whole-broadcast
+                       via the tonic guardrail.
+      targets:         list of symbolic target names the broadcast is
+                       addressed to. Default ("mech_269_anchor_set",) is
+                       the planned T3 consumer subscription point.
+      tonic_threshold: if the rolling-mean tonic estimate (measured BEFORE
+                       the current tick) exceeds this value, the whole
+                       tick's phasic broadcast is suppressed.
+      tonic_window:    number of past ticks used for the rolling mean. A
+                       longer window makes the tonic estimate slower-moving
+                       and more tolerant of transient bursts.
+
+    Backward compatible: consumer code must gate on
+    HippocampalConfig.use_invalidation_trigger.
+    """
+    gain: float = 1.0
+    targets: tuple = ("mech_269_anchor_set",)
+    tonic_threshold: float = 0.5
+    tonic_window: int = 50
+
+
+@dataclass
 class HippocampalConfig:
     """Configuration for HippocampalModule.
 
@@ -442,6 +476,17 @@ class HippocampalConfig:
     # consumers. Backward compatible: disabled by default (no queue writes, no ticks).
     use_event_segmenter: bool = False
     event_segmenter: EventSegmenterConfig = field(default_factory=EventSegmenterConfig)
+    # MECH-287: broadcast invalidation trigger (Phase 2 iv of V_s invalidation runtime).
+    # When enabled, subscribes to MECH-288 BoundaryEvents emitted in agent.sense()
+    # and re-emits BroadcastEvent objects (strength = posterior * gain) onto
+    # HippocampalModule._broadcast_event_queue for downstream MECH-269 anchor-reset
+    # (T3) / MECH-284 staleness accumulator consumers. Phasic/tonic guardrail:
+    # high tonic boundary activity suppresses the next phasic broadcast. Backward
+    # compatible: disabled by default (no trigger ticks, no broadcast queue writes).
+    use_invalidation_trigger: bool = False
+    invalidation_trigger: InvalidationTriggerConfig = field(
+        default_factory=InvalidationTriggerConfig
+    )
 
 
 @dataclass

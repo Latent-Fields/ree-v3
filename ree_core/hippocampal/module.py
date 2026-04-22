@@ -43,6 +43,10 @@ from ree_core.hippocampal.event_segmenter import (
     EventSegmenter,
     Scale as EventSegmenterScale,
 )
+from ree_core.regulators.invalidation_trigger import (
+    BroadcastEvent,
+    InvalidationTrigger,
+)
 
 
 class HippocampalModule(nn.Module):
@@ -158,6 +162,28 @@ class HippocampalModule(nn.Module):
                 slow_scale_name=seg_cfg.slow_scale_name,
             )
 
+        # MECH-287 (Phase 2 iv of V_s invalidation runtime): broadcast
+        # invalidation trigger. Subscribes to the MECH-288 BoundaryEvents
+        # emitted during the same agent.sense() tick and re-emits them as
+        # graded BroadcastEvent objects (strength = posterior * gain). The
+        # broadcast queue is drained by downstream MECH-269 anchor-reset
+        # (T3) / MECH-284 staleness accumulator consumers.
+        #
+        # Verdict-3 architectural commitment: no independent comparator
+        # inside the trigger. If use_event_segmenter is False (no
+        # BoundaryEvents produced), the trigger will tick silently even
+        # when enabled -- this is the dissociation test (C5).
+        self.invalidation_trigger: Optional[InvalidationTrigger] = None
+        self._broadcast_event_queue: List[BroadcastEvent] = []
+        if getattr(config, "use_invalidation_trigger", False):
+            trig_cfg = getattr(config, "invalidation_trigger", None)
+            if trig_cfg is None:
+                raise ValueError(
+                    "HippocampalConfig.use_invalidation_trigger=True but "
+                    "invalidation_trigger config is None"
+                )
+            self.invalidation_trigger = InvalidationTrigger(trig_cfg)
+
     def drain_boundary_events(self) -> List[BoundaryEvent]:
         """Return and clear all queued boundary events from MECH-288.
 
@@ -168,6 +194,28 @@ class HippocampalModule(nn.Module):
         events = list(self._boundary_event_queue)
         self._boundary_event_queue.clear()
         return events
+
+    def drain_broadcast_events(self) -> List[BroadcastEvent]:
+        """Return and clear all queued broadcast events from MECH-287.
+
+        Downstream consumers (MECH-269 anchor-reset T3, MECH-284 staleness
+        accumulator Phase 3) call this once per tick to consume events
+        that the invalidation trigger emitted during agent.sense(). No-op
+        when use_invalidation_trigger is False.
+        """
+        events = list(self._broadcast_event_queue)
+        self._broadcast_event_queue.clear()
+        return events
+
+    def reset_invalidation_trigger(self) -> None:
+        """Per-episode reset of the MECH-287 invalidation trigger.
+
+        Clears tonic history, diagnostic counters, and the broadcast
+        queue. No-op when use_invalidation_trigger is False.
+        """
+        if self.invalidation_trigger is not None:
+            self.invalidation_trigger.reset()
+        self._broadcast_event_queue.clear()
 
     def _get_terrain_action_object_mean(
         self,

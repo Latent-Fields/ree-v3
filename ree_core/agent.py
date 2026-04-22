@@ -675,6 +675,14 @@ class REEAgent(nn.Module):
         ):
             self.hippocampal.reset_event_segmenter()
 
+        # MECH-287: reset invalidation trigger on episode boundary (tonic
+        # history, diagnostic counters, pending broadcast queue). No-op when
+        # use_invalidation_trigger is False.
+        if self.hippocampal is not None and getattr(
+            self.hippocampal.config, "use_invalidation_trigger", False
+        ):
+            self.hippocampal.reset_invalidation_trigger()
+
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
         if not self.config.replay_diversity_enabled:
@@ -986,6 +994,42 @@ class REEAgent(nn.Module):
             )
             if events:
                 self.hippocampal._boundary_event_queue.extend(events)
+
+            # MECH-287 (Phase 2 iv of V_s invalidation runtime): broadcast
+            # invalidation trigger. Subscribes to the BoundaryEvents just
+            # emitted by MECH-288 and re-emits them as graded BroadcastEvent
+            # objects. Graded output: broadcast_strength = posterior * gain
+            # (NO binary thresholding of strength). Phasic/tonic guardrail:
+            # a rolling tonic-noise estimate suppresses the whole tick's
+            # broadcast when it exceeds threshold (Aston-Jones & Cohen 2005;
+            # Clewett 2025 failure signature 2).
+            #
+            # Verdict-3 dissociation: the trigger has no independent
+            # comparator -- it is a BoundaryEvent subscriber. When
+            # use_event_segmenter is False (no BoundaryEvents produced),
+            # the trigger is silent regardless of any internal state.
+            # Tick the trigger AFTER the segmenter so this tick's boundaries
+            # are visible.
+            if (
+                getattr(self.hippocampal.config, "use_invalidation_trigger", False)
+                and self.hippocampal.invalidation_trigger is not None
+            ):
+                broadcasts = self.hippocampal.invalidation_trigger.step(
+                    boundary_events=events,
+                    t=int(self._step_count),
+                )
+                if broadcasts:
+                    self.hippocampal._broadcast_event_queue.extend(broadcasts)
+        elif self.hippocampal is not None and getattr(
+            self.hippocampal.config, "use_invalidation_trigger", False
+        ) and self.hippocampal.invalidation_trigger is not None:
+            # Segmenter disabled but trigger enabled: tick the trigger with
+            # an empty boundary list so its tonic history advances in step
+            # with the simulation clock. No broadcasts can fire (verdict-3
+            # dissociation).
+            self.hippocampal.invalidation_trigger.step(
+                boundary_events=[], t=int(self._step_count)
+            )
 
         # MECH-269 base substrate (Phase 1, 2026-04-22): per-stream
         # verisimilitude V_s update. Identity-prediction proxy across
