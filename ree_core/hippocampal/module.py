@@ -105,6 +105,17 @@ class HippocampalModule(nn.Module):
         self._last_operating_mode: Optional[Dict[str, float]] = None
         self._last_mode_noise_scale: Optional[float] = None
 
+        # MECH-269 base substrate (Phase 1, 2026-04-22): per-stream
+        # verisimilitude V_s scores. Populated when config.use_per_stream_vs
+        # is True. Phase 1 uses identity-prediction proxy across all streams
+        # (V_s = 1 - norm(Delta z_s) / scale, EMA-smoothed). Phase 2 will
+        # route z_world through ReafferencePredictor (SD-007) and z_harm_s
+        # through HarmForwardModel (SD-011). Phase 1 populates the dict as
+        # an OBSERVABLE for downstream MECH-287 / MECH-284 wiring; the
+        # signal-quality refinement is a Phase 2 concern.
+        self.per_stream_vs: Dict[str, float] = {}
+        self._prev_stream_values: Dict[str, torch.Tensor] = {}
+
     def _get_terrain_action_object_mean(
         self,
         z_world: torch.Tensor,
@@ -570,6 +581,85 @@ class HippocampalModule(nn.Module):
         signal = float(torch.sigmoid(torch.tensor(-best_score * 0.5)).item())
         self._last_completion_signal = signal
         return signal
+
+    # ------------------------------------------------------------------ #
+    # MECH-269 base: per-stream verisimilitude (Phase 1, 2026-04-22)      #
+    # ------------------------------------------------------------------ #
+
+    def _stream_value(
+        self,
+        stream_name: str,
+        latent_state,
+        goal_state=None,
+    ) -> Optional[torch.Tensor]:
+        """Resolve a stream name to its current tensor value.
+
+        z_harm_s maps to LatentState.z_harm (sensory-discriminative harm,
+        SD-010 / SD-011 naming convention). z_goal lives on GoalState, not
+        LatentState. All other streams are direct attributes on LatentState.
+        Returns None when the stream is disabled in this configuration.
+        """
+        if stream_name == "z_harm_s":
+            return getattr(latent_state, "z_harm", None)
+        if stream_name == "z_goal":
+            if goal_state is None:
+                return None
+            return getattr(goal_state, "z_goal", None)
+        return getattr(latent_state, stream_name, None)
+
+    def update_per_stream_vs(
+        self,
+        latent_state,
+        goal_state=None,
+    ) -> None:
+        """MECH-269 base substrate: per-stream verisimilitude scores.
+
+        For each registered stream, compute an identity-prediction proxy
+        V_s = 1 - norm(z_curr - z_prev) / (norm(z_curr) + eps), clipped
+        to [0, 1] and EMA-smoothed with config.per_stream_vs_tau. On the
+        first tick of an episode (or when a stream first appears), the
+        previous value is cached and the score is initialised to 1.0
+        (perfect verisimilitude assumed).
+
+        No-op when config.use_per_stream_vs is False (backward compat).
+        Streams absent from latent_state / goal_state are silently skipped.
+
+        Phase 1 contract: populates self.per_stream_vs as an OBSERVABLE.
+        Downstream MECH-287 trigger and MECH-284 staleness accumulator
+        (Phase 2/3) will consume these scores. Forward-predictor routing
+        (ReafferencePredictor / HarmForwardModel) is deferred to Phase 2.
+        """
+        if not getattr(self.config, "use_per_stream_vs", False):
+            return
+        tau = float(getattr(self.config, "per_stream_vs_tau", 0.1))
+        streams = getattr(self.config, "per_stream_vs_streams", ())
+        eps = 1e-6
+        for stream_name in streams:
+            z_curr = self._stream_value(stream_name, latent_state, goal_state)
+            if z_curr is None:
+                continue
+            z_curr_d = z_curr.detach()
+            z_prev = self._prev_stream_values.get(stream_name)
+            if z_prev is None:
+                # First observation: assume perfect verisimilitude, cache.
+                self.per_stream_vs[stream_name] = 1.0
+                self._prev_stream_values[stream_name] = z_curr_d
+                continue
+            denom = float(z_curr_d.norm().item()) + eps
+            err = float((z_curr_d - z_prev).norm().item()) / denom
+            score = max(0.0, min(1.0, 1.0 - err))
+            prev_vs = self.per_stream_vs.get(stream_name, score)
+            self.per_stream_vs[stream_name] = (1.0 - tau) * prev_vs + tau * score
+            self._prev_stream_values[stream_name] = z_curr_d
+
+    def reset_per_stream_vs(self) -> None:
+        """Reset per-stream V_s state (call on episode boundaries).
+
+        Clears both the cached previous stream values and the V_s scores.
+        Subsequent updates re-initialise from the next observation.
+        """
+        self.per_stream_vs.clear()
+        self._prev_stream_values.clear()
 
     def forward(
         self,

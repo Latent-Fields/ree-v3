@@ -348,6 +348,22 @@ class HippocampalConfig:
         "internal_replay":       0.5,
         "offline_consolidation": 0.3,
     })
+    # MECH-269 base substrate (Phase 1, 2026-04-22): per-stream verisimilitude
+    # V_s scores tracked on the HippocampalModule. For each registered stream,
+    # V_s = 1 - norm(z_hat - z_curr) / (norm(z_curr) + eps), EMA-smoothed with
+    # per_stream_vs_tau. Provides the observable signal that the MECH-287
+    # broadcast trigger and MECH-284 staleness accumulator will consume in
+    # Phase 2/3. Backward compatible: disabled by default; when off,
+    # update_per_stream_vs() is a no-op and per_stream_vs stays empty.
+    # Forward-predictor routing (Phase 1 implementation):
+    #   z_world  -> ReafferencePredictor (SD-007 / MECH-101) when available
+    #   z_harm_s -> HarmForwardModel (SD-011) when available
+    #   others   -> identity-prediction proxy (z_hat = z_prev)
+    use_per_stream_vs: bool = False
+    per_stream_vs_tau: float = 0.1
+    per_stream_vs_streams: tuple = (
+        "z_world", "z_self", "z_harm_s", "z_harm_a", "z_goal", "z_beta",
+    )
 
 
 @dataclass

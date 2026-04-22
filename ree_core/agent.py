@@ -660,6 +660,13 @@ class REEAgent(nn.Module):
             self.pag_freeze_gate.reset()
         self._pag_last_output = None
 
+        # MECH-269 base: reset per-stream V_s cache on episode boundary.
+        # No-op when use_per_stream_vs is False (per_stream_vs stays empty).
+        if self.hippocampal is not None and getattr(
+            self.hippocampal.config, "use_per_stream_vs", False
+        ):
+            self.hippocampal.reset_per_stream_vs()
+
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
         if not self.config.replay_diversity_enabled:
@@ -938,6 +945,19 @@ class REEAgent(nn.Module):
         # z_harm_a_current (realised target). Detached to avoid graph retention.
         if new_latent.z_harm_a is not None:
             self._harm_a_prev = new_latent.z_harm_a.detach().clone()
+
+        # MECH-269 base substrate (Phase 1, 2026-04-22): per-stream
+        # verisimilitude V_s update. Identity-prediction proxy across
+        # registered streams, EMA-smoothed. No-op when use_per_stream_vs is
+        # False. Populates self.hippocampal.per_stream_vs as the OBSERVABLE
+        # foundation for Phase 2 MECH-287 broadcast trigger and MECH-284
+        # staleness accumulator wiring.
+        if self.hippocampal is not None and getattr(
+            self.hippocampal.config, "use_per_stream_vs", False
+        ):
+            self.hippocampal.update_per_stream_vs(
+                new_latent, goal_state=self.goal_state
+            )
         return new_latent
 
     def sense_flat(self, observation: torch.Tensor) -> LatentState:
