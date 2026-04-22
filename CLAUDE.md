@@ -1572,3 +1572,106 @@ Verify with `git fetch` (should return silently).
     follow-up pass.
   See SD-035, MECH-046, MECH-074, MECH-074a, MECH-074b, MECH-074c,
   MECH-074d, SD-011, SD-032a, SD-032c, Q-036.
+
+## SD-036 + MECH-279: GABAergic Cross-Stream Decay + PAG Freeze-Gate (2026-04-22)
+- SD-036: regulators.gabaergic_cross_stream_decay -- IMPLEMENTED 2026-04-22.
+  Module: ree_core/regulators/gabaergic_decay.py (GABAergicDecayRegulator,
+  GABAergicDecayConfig, StreamRegistration). Regulator-layer substrate
+  (NOT per-stream update rule): a single broadly-projecting tonic GABAergic
+  decay applied across multiple registered latent streams in parallel.
+  Decay formula:
+    z_s(t+1) = z_s(t) * exp(-tau_s * gaba_tone(t))
+  with per-stream baseline tau and a global gaba_tone multiplier in
+  [0, 2] (default 1.0). gaba_tone > 1.0 = benzo-analog (faster decay,
+  easier exit from committed states); gaba_tone < 1.0 = withdrawal /
+  chronic-stress analog (slower decay); gaba_tone = 0.0 = decay
+  suspended.
+  Default coverage (tau values from design doc):
+    z_harm   tau=0.05  (~20-step half-life)  -- SD-010 sensory harm
+    z_harm_a tau=0.02  (~50-step half-life)  -- SD-011 affective harm
+    z_beta   tau=0.03  (~30-step half-life)  -- MECH-090 precision/affective
+  Drive accumulator (SD-012) intentionally NOT covered -- the homeostatic
+  override mechanism (separate, V4-or-late-V3) provides drive dynamics.
+  Suspend-on-input gate: per-stream input_threshold; when |z(t)-z(t-1)|
+  exceeds threshold, decay is skipped for that tick (the input drives
+  the update). Default 0.0 = always decay.
+  Decay is OUT-OF-PLACE (detach + scalar multiply + setattr): an in-place
+  mul_() on encoder outputs breaks autograd version tracking when those
+  outputs are concurrently consumed by SD-018 resource_proximity_head /
+  SD-011 harm_accum_head aux losses. Out-of-place is required for the
+  EXQ-471 training pipeline.
+  Config: REEConfig.use_gabaergic_decay (bool, default False). 14 sub-
+  knobs in REEConfig.from_dims: gaba_tone (1.0), gaba_tone_min (0.0),
+  gaba_tone_max (2.0), per-stream tau (gaba_tau_z_harm_s/a/beta),
+  per-stream coverage flags (gaba_decay_z_harm_s/a/beta), per-stream
+  input thresholds (gaba_input_threshold_z_harm_s/a/beta).
+  Agent wiring: instantiated in REEAgent.__init__ when master switch is
+  on; register_default_streams() called immediately. tick() invoked in
+  agent.sense() right after LatentStack.encode() and BEFORE AIC, BLA/CeA,
+  salience coordinator, etc. -- so all downstream consumers see the
+  decayed latent state on the same tick (no one-step lag). reset() called
+  from REEAgent.reset() per-episode.
+  Backward compatible: use_gabaergic_decay=False by default; agent.gabaergic_decay
+  is None and tick wiring is a no-op. Existing experiments unaffected.
+  No trainable parameters. No phased training needed.
+  Biological basis: GABAergic system as broadly-projecting tonic
+  inhibitory neuromodulator (Vogt 2005, Sohal & Rubenstein 2019).
+  Decay-as-regulator-layer (not per-stream update) is the architectural
+  commitment: a single GABA tonic value modulates many cortical and
+  subcortical sites in parallel. SD-036 implements this commitment.
+  MECH-094: simulation_mode=True path returns input unchanged and does
+  not advance counters (replay / DMN content not subject to waking decay).
+  Validation experiment: V3-EXQ-475 queued (matched re-run of EXQ-471
+  with use_gabaergic_decay=True + use_pag_freeze_gate=True; not a
+  supersede; EXQ-471 retained as no-decay baseline).
+  Design doc: REE_assembly/docs/architecture/sd_036_gabaergic_decay_regulator.md
+  See SD-036, MECH-279, MECH-094, SD-010, SD-011, MECH-090, SD-012.
+
+- MECH-279: pag.freeze_gate -- IMPLEMENTED 2026-04-22.
+  Module: ree_core/pag/freeze_gate.py (PAGFreezeGate, PAGFreezeGateConfig,
+  PAGFreezeGateOutput). Periaqueductal-gray-analog committed-freeze gate.
+  Freeze is a *committed* behavioural state -- sustained motor immobility
+  plus elevated autonomic arousal -- with its own duration and exit
+  criterion. Biologically PAG-gated; freeze-promoting cells are themselves
+  GABAergic (so SD-036 gates BOTH entry and exit).
+  Logic:
+    duration_above_threshold(t) -- ticks since z_harm_a first crossed
+      duration_input_threshold (defaults 0.4); resets when z drops below
+      that threshold OR on release. Increments only while gate inactive
+      (per-cycle "fresh accumulation" semantic; each commit requires a
+      new run-up).
+    freeze_commit(t) = (z_harm_a(t) * duration_above_threshold(t))
+                       > theta_freeze (default 2.0); strict-greater so
+      e.g. z=1.0 sustained at duration=2 (product=2.0) does NOT commit.
+    exit_threshold(t) = theta_freeze * gaba_tone(t)
+    freeze_release    = active AND z < exit_threshold AND
+                        ticks_in_freeze >= min_freeze_duration; OR
+                        ticks_in_freeze >= max_freeze_duration (cap).
+  Action constraint: when freeze_active, REEAgent.select_action()
+  replaces the chosen action with a no-op one-hot (action class
+  noop_class=0 by convention; matches action shape/dtype/device).
+  Tick wired AFTER beta_gate.propagate() and BEFORE _last_action assignment
+  so subsequent record_transition / E2_harm_a forward steps see the no-op.
+  Config: REEConfig.use_pag_freeze_gate (bool, default False). 4 sub-
+  knobs: pag_theta_freeze (2.0), pag_duration_input_threshold (0.4),
+  pag_min_freeze_duration (0 -- no minimum), pag_max_freeze_duration
+  (0 -- no cap; set positive for forced-release safety in smoke tests).
+  Backward compatible: use_pag_freeze_gate=False by default; agent.pag_freeze_gate
+  is None. Existing experiments unaffected.
+  No trainable parameters. Pure arithmetic over scalars + small counters.
+  No phased training needed.
+  Biological basis: descending inputs from amygdala / hypothalamus /
+  medial PFC converge on PAG freeze-promoting cells; freeze termination
+  requires GABAergic inhibition to wane. Same neurotransmitter system
+  gates BOTH entry (PAG freeze-cell commitment) and exit (SD-036 decay
+  returning z_harm_a below exit_threshold). Architectural prediction:
+  GABA agonists treat freeze catatonia (clinical observation as
+  architectural consequence, not empirical add-on).
+  MECH-094: simulation_mode=True path returns zeroed PAGFreezeGateOutput
+  without updating internal state (replay / DMN content must not commit
+  the agent into behavioural freeze).
+  Validation experiment: V3-EXQ-475 (combined SD-036 + MECH-279
+  diagnostic; under default theta_freeze=2.0 the gate is expected to be
+  silent on EXQ-471 dynamics, but is wired so the substrate is exercised
+  end-to-end).
+  See MECH-279, SD-036, SD-011, MECH-090, MECH-094.

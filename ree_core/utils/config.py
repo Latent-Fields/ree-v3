@@ -895,6 +895,52 @@ class REEConfig:
     # sustain (pure fast-route timing).
     cea_cortical_confirmation_weight: float = 1.0
 
+    # ----------------------------------------------------------------
+    # SD-036: GABAergic cross-stream decay regulator + MECH-279 PAG freeze gate
+    # ----------------------------------------------------------------
+    # Master switch. When True, REEAgent instantiates a GABAergicDecayRegulator
+    # that ticks each step (after LatentStack.encode and before mode arbitration)
+    # and applies per-stream exponential decay to z_harm_s, z_harm_a, z_beta
+    # (z_s(t+1) = z_s(t) * exp(-tau_s * gaba_tone)). Also gates instantiation of
+    # the MECH-279 PAG freeze-gate. False = disabled (default, backward compat).
+    use_gabaergic_decay: bool = False
+    # Global GABAergic tonic multiplier in [gaba_tone_min, gaba_tone_max].
+    # 1.0 = baseline; >1.0 benzo-analog faster decay; <1.0 withdrawal-analog
+    # slower decay.
+    gaba_tone: float = 1.0
+    gaba_tone_min: float = 0.0
+    gaba_tone_max: float = 2.0
+    # Per-stream baseline decay rates.
+    gaba_tau_z_harm_s: float = 0.05  # ~20-step half-life
+    gaba_tau_z_harm_a: float = 0.02  # ~50-step half-life
+    gaba_tau_z_beta: float = 0.03    # ~30-step half-life
+    # Per-stream coverage flags (gated by master switch). All True by default
+    # once master is on -- ablate per-stream by setting these False.
+    gaba_decay_z_harm_s: bool = True
+    gaba_decay_z_harm_a: bool = True
+    gaba_decay_z_beta: bool = True
+    # Per-stream input thresholds. Default 0.0 = always decay. Non-zero
+    # suspends decay for the tick when the stream's magnitude change exceeds
+    # the threshold (salient input drove the update).
+    gaba_input_threshold_z_harm_s: float = 0.0
+    gaba_input_threshold_z_harm_a: float = 0.0
+    gaba_input_threshold_z_beta: float = 0.0
+
+    # MECH-279: PAG freeze-gate. Master switch defaults False; when True, the
+    # gate ticks each select_action() and constrains the action selector to
+    # no-op / minimal-movement actions while freeze_active. The gate consumes
+    # gaba_tone above to compute exit_threshold = theta_freeze * gaba_tone.
+    use_pag_freeze_gate: bool = False
+    pag_theta_freeze: float = 2.0
+    pag_duration_input_threshold: float = 0.4
+    pag_min_freeze_duration: int = 0
+    pag_max_freeze_duration: int = 0
+    # When freeze is active, the action selector emits a no-op action. The
+    # no-op action class index defaults to 0 (typically a stay-in-place action
+    # in CausalGridWorldV2). Override per env if the no-op action sits at a
+    # different index.
+    pag_freeze_noop_action_class: int = 0
+
     @classmethod
     def from_dims(
         cls,
@@ -1084,6 +1130,26 @@ class REEConfig:
         cea_fast_prime_decay_tau_steps: int = 4,
         cea_fast_prime_override_window_steps: int = 8,
         cea_cortical_confirmation_weight: float = 1.0,
+        # SD-036: GABAergic cross-stream decay regulator + MECH-279 freeze gate
+        use_gabaergic_decay: bool = False,
+        gaba_tone: float = 1.0,
+        gaba_tone_min: float = 0.0,
+        gaba_tone_max: float = 2.0,
+        gaba_tau_z_harm_s: float = 0.05,
+        gaba_tau_z_harm_a: float = 0.02,
+        gaba_tau_z_beta: float = 0.03,
+        gaba_decay_z_harm_s: bool = True,
+        gaba_decay_z_harm_a: bool = True,
+        gaba_decay_z_beta: bool = True,
+        gaba_input_threshold_z_harm_s: float = 0.0,
+        gaba_input_threshold_z_harm_a: float = 0.0,
+        gaba_input_threshold_z_beta: float = 0.0,
+        use_pag_freeze_gate: bool = False,
+        pag_theta_freeze: float = 2.0,
+        pag_duration_input_threshold: float = 0.4,
+        pag_min_freeze_duration: int = 0,
+        pag_max_freeze_duration: int = 0,
+        pag_freeze_noop_action_class: int = 0,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -1349,6 +1415,27 @@ class REEConfig:
         config.cea_fast_prime_decay_tau_steps = cea_fast_prime_decay_tau_steps
         config.cea_fast_prime_override_window_steps = cea_fast_prime_override_window_steps
         config.cea_cortical_confirmation_weight = cea_cortical_confirmation_weight
+
+        # SD-036: GABAergic cross-stream decay regulator + MECH-279 freeze gate
+        config.use_gabaergic_decay = use_gabaergic_decay
+        config.gaba_tone = gaba_tone
+        config.gaba_tone_min = gaba_tone_min
+        config.gaba_tone_max = gaba_tone_max
+        config.gaba_tau_z_harm_s = gaba_tau_z_harm_s
+        config.gaba_tau_z_harm_a = gaba_tau_z_harm_a
+        config.gaba_tau_z_beta = gaba_tau_z_beta
+        config.gaba_decay_z_harm_s = gaba_decay_z_harm_s
+        config.gaba_decay_z_harm_a = gaba_decay_z_harm_a
+        config.gaba_decay_z_beta = gaba_decay_z_beta
+        config.gaba_input_threshold_z_harm_s = gaba_input_threshold_z_harm_s
+        config.gaba_input_threshold_z_harm_a = gaba_input_threshold_z_harm_a
+        config.gaba_input_threshold_z_beta = gaba_input_threshold_z_beta
+        config.use_pag_freeze_gate = use_pag_freeze_gate
+        config.pag_theta_freeze = pag_theta_freeze
+        config.pag_duration_input_threshold = pag_duration_input_threshold
+        config.pag_min_freeze_duration = pag_min_freeze_duration
+        config.pag_max_freeze_duration = pag_max_freeze_duration
+        config.pag_freeze_noop_action_class = pag_freeze_noop_action_class
 
         return config
 

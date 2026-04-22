@@ -79,6 +79,15 @@ from ree_core.amygdala import (
     CeAConfig,
     CeAOutput,
 )
+from ree_core.regulators import (
+    GABAergicDecayConfig,
+    GABAergicDecayRegulator,
+)
+from ree_core.pag import (
+    PAGFreezeGate,
+    PAGFreezeGateConfig,
+    PAGFreezeGateOutput,
+)
 from ree_core.residue.field import (
     VALENCE_WANTING,
     VALENCE_LIKING,
@@ -415,6 +424,62 @@ class REEAgent(nn.Module):
         self._bla_last_output: Optional[BLAOutput] = None
         self._cea_last_output: Optional[CeAOutput] = None
 
+        # SD-036: GABAergic cross-stream decay regulator.
+        # When use_gabaergic_decay=True, instantiate a regulator with the three
+        # default streams (z_harm, z_harm_a, z_beta) registered. Ticks once per
+        # sense() after LatentStack.encode() and before mode-arbitration
+        # consumers read the latent state. Backward-compatible no-op when the
+        # master switch is off.
+        self.gabaergic_decay: Optional[GABAergicDecayRegulator] = None
+        if getattr(config, "use_gabaergic_decay", False):
+            gaba_cfg = GABAergicDecayConfig(
+                enabled=True,
+                gaba_tone=float(getattr(config, "gaba_tone", 1.0)),
+                gaba_tone_min=float(getattr(config, "gaba_tone_min", 0.0)),
+                gaba_tone_max=float(getattr(config, "gaba_tone_max", 2.0)),
+                tau_z_harm_s=float(getattr(config, "gaba_tau_z_harm_s", 0.05)),
+                tau_z_harm_a=float(getattr(config, "gaba_tau_z_harm_a", 0.02)),
+                tau_z_beta=float(getattr(config, "gaba_tau_z_beta", 0.03)),
+                decay_z_harm_s=bool(getattr(config, "gaba_decay_z_harm_s", True)),
+                decay_z_harm_a=bool(getattr(config, "gaba_decay_z_harm_a", True)),
+                decay_z_beta=bool(getattr(config, "gaba_decay_z_beta", True)),
+                input_threshold_z_harm_s=float(
+                    getattr(config, "gaba_input_threshold_z_harm_s", 0.0)
+                ),
+                input_threshold_z_harm_a=float(
+                    getattr(config, "gaba_input_threshold_z_harm_a", 0.0)
+                ),
+                input_threshold_z_beta=float(
+                    getattr(config, "gaba_input_threshold_z_beta", 0.0)
+                ),
+            )
+            self.gabaergic_decay = GABAergicDecayRegulator(gaba_cfg)
+            self.gabaergic_decay.register_default_streams(gaba_cfg)
+
+        # MECH-279: PAG freeze-gate. When use_pag_freeze_gate=True, the gate
+        # ticks each select_action() and constrains the action selector to a
+        # no-op action class while freeze_active. Exit threshold uses the
+        # SD-036 gaba_tone (theta_freeze * gaba_tone). Backward-compatible
+        # no-op when the master switch is off.
+        self.pag_freeze_gate: Optional[PAGFreezeGate] = None
+        if getattr(config, "use_pag_freeze_gate", False):
+            pag_cfg = PAGFreezeGateConfig(
+                enabled=True,
+                theta_freeze=float(getattr(config, "pag_theta_freeze", 2.0)),
+                duration_input_threshold=float(
+                    getattr(config, "pag_duration_input_threshold", 0.4)
+                ),
+                min_freeze_duration=int(
+                    getattr(config, "pag_min_freeze_duration", 0)
+                ),
+                max_freeze_duration=int(
+                    getattr(config, "pag_max_freeze_duration", 0)
+                ),
+            )
+            self.pag_freeze_gate = PAGFreezeGate(pag_cfg)
+        # Cache of last PAG freeze-gate output (diagnostics).
+        self._pag_last_output: Optional[PAGFreezeGateOutput] = None
+
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
         self.body_obs_encoder = nn.Sequential(
@@ -584,6 +649,17 @@ class REEAgent(nn.Module):
         self._bla_last_output = None
         self._cea_last_output = None
 
+        # SD-036: reset GABAergic decay regulator per-episode state (last-norms
+        # cache for the suspend-on-input gate; diagnostics counters). Stream
+        # registrations and gaba_tone are preserved across reset.
+        if self.gabaergic_decay is not None:
+            self.gabaergic_decay.reset()
+
+        # MECH-279: reset PAG freeze gate per-episode state.
+        if self.pag_freeze_gate is not None:
+            self.pag_freeze_gate.reset()
+        self._pag_last_output = None
+
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
         if not self.config.replay_diversity_enabled:
@@ -701,6 +777,25 @@ class REEAgent(nn.Module):
             harm_history=obs_harm_history,  # SD-011 second source (None = disabled)
             volatility_signal=vol_signal,
         )
+
+        # SD-036: tick the GABAergic cross-stream decay regulator. Applies
+        # z_s(t+1) = z_s(t) * exp(-tau_s * gaba_tone) to registered streams
+        # (z_harm, z_harm_a, z_beta) BEFORE downstream mode-arbitration
+        # consumers (AIC, BLA, CeA, salience coordinator) read the latent
+        # state. This is the architectural fix for V3-EXQ-471 catatonic lock:
+        # without decay, a single hazard contact pinned z_harm_norm at ~0.7
+        # for 199 steps; with the regulator, z_harm decays with ~20-step
+        # half-life and mode arbitration can flip back to goal-seeking. The
+        # regulator is a no-op when use_gabaergic_decay=False.
+        # MECH-094: hypothesis_tag from the LatentState gates simulation/
+        # replay content -- the regulator does not touch decay state for those
+        # ticks.
+        if self.gabaergic_decay is not None:
+            self.gabaergic_decay.tick(
+                new_latent,
+                simulation_mode=bool(getattr(new_latent, "hypothesis_tag", False)),
+            )
+
         # SD-032c: tick the AIC-analog interoceptive-salience module.
         # Reads z_harm_a_norm + drive_level + beta_gate_elevated + the
         # coordinator's previous operating_mode readout. Produces aic_salience
@@ -1272,6 +1367,48 @@ class REEAgent(nn.Module):
                 self._committed_step_idx += 1
             elif self._last_action is not None:
                 action = self._last_action
+
+        # MECH-279: PAG freeze-gate. When freeze_active, the action selector
+        # is constrained to a no-op (minimal-movement) action. Entry condition:
+        # z_harm_a_norm * duration_above_threshold > theta_freeze. Exit
+        # condition: z_harm_a_norm < theta_freeze * gaba_tone (so a higher
+        # gaba_tone -- benzo agonist -- raises exit_threshold and accelerates
+        # termination, matching the clinical observation that GABA agonists
+        # treat freeze catatonia). Backward-compatible no-op when
+        # use_pag_freeze_gate=False.
+        # MECH-094: simulation_mode=True from hypothesis_tag returns a zeroed
+        # output without updating internal counters. select_action() runs on
+        # the waking path so hypothesis_tag is False here.
+        if self.pag_freeze_gate is not None:
+            if z_harm_a is not None:
+                pag_z_norm = float(z_harm_a.detach().norm().item())
+            else:
+                pag_z_norm = 0.0
+            pag_tone = (
+                float(self.gabaergic_decay.gaba_tone)
+                if self.gabaergic_decay is not None
+                else 1.0
+            )
+            self._pag_last_output = self.pag_freeze_gate.tick(
+                z_harm_a_norm=pag_z_norm,
+                gaba_tone=pag_tone,
+                simulation_mode=False,
+            )
+            if self._pag_last_output.freeze_active and action is not None:
+                # Constrain action to a no-op one-hot vector. Match the
+                # action's shape, dtype, and device. The no-op class index
+                # defaults to 0 (configurable via pag_freeze_noop_action_class).
+                noop_class = int(
+                    getattr(self.config, "pag_freeze_noop_action_class", 0)
+                )
+                noop = torch.zeros_like(action)
+                if noop.dim() == 2:
+                    noop_class = max(0, min(noop_class, noop.shape[1] - 1))
+                    noop[0, noop_class] = 1.0
+                else:
+                    noop_class = max(0, min(noop_class, noop.shape[0] - 1))
+                    noop[noop_class] = 1.0
+                action = noop
 
         self._last_action = action
         # MECH-165: record action for exploration trajectory
