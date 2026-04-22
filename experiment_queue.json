@@ -73,28 +73,6 @@
         "machine": "EWIN-PC",
         "claimed_at": "2026-04-20T23:29:31.054817+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-475",
-      "title": "SD-036 GABAergic decay + MECH-279 PAG freeze-gate -- EXQ-471 unlocking diagnostic",
-      "experiment_type": "v3_exq_475_sd036_decay_unlocks_exq471",
-      "script": "experiments/v3_exq_475_sd036_decay_unlocks_exq471.py",
-      "priority": 55,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 22,
-      "episodes_per_run": 65,
-      "seeds": 3,
-      "conditions": 1,
-      "claim_ids": [
-        "SD-036",
-        "MECH-279"
-      ],
-      "notes": "Diagnostic re-run of V3-EXQ-471 (best-available V3 agent fishtank showcase) with SD-036 GABAergic cross-stream decay regulator and MECH-279 PAG freeze-gate enabled. Hypothesis (per REE_assembly/docs/architecture/sd_036_gabaergic_decay_regulator.md): tonic decay on z_harm_s/z_harm_a/z_beta unlocks the EXQ-471 monostrategy lock-in by providing a relaxation mechanism that lets the salience coordinator / dACC bundle re-enter alternative operating modes. Predicted observable: mode flip ~t=50 once accumulated affective load decays below the commitment / mode-switch thresholds. MECH-279 PAG freeze-gate is wired so the new substrate is exercised end-to-end; expected to be silent under the default theta_freeze=2.0 in normal operation. 3 seeds x [60 warmup + 5 eval] eps x 200 steps/ep. Reference: V3-EXQ-471 (does NOT supersede -- EXQ-471 stands as the no-decay baseline; EXQ-475 is the matched diagnostic with SD-036 ON). Smoke-tested 2026-04-22 (--dry-run, seed 0): agent boots, runs 3 warmup + 2 eval eps with use_gabaergic_decay=True and use_pag_freeze_gate=True, regulator decay_n_ticks counter advances, PAG freeze-gate commits/releases observed (untrained-agent noise, not load-bearing). 53/53 contract tests PASS including new SD-036 + MECH-279 contracts. experiment_purpose=diagnostic.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-22T16:49:20.446257+00:00"
-      }
     }
   ]
 }
