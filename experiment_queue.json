@@ -73,6 +73,29 @@
         "machine": "EWIN-PC",
         "claimed_at": "2026-04-20T23:29:31.054817+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-397d",
+      "title": "ARC-007 path-memory ablation: matched-endpoint metric redesign (supersedes V3-EXQ-397c)",
+      "experiment_type": "v3_exq_397d_arc007_matched_endpoint",
+      "script": "experiments/v3_exq_397d_arc007_matched_endpoint.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 120,
+      "episodes_per_run": 930,
+      "seeds": 1,
+      "conditions": 3,
+      "supersedes": "v3_exq_397c_arc007_harder_env",
+      "claim_ids": [
+        "ARC-007",
+        "SD-004"
+      ],
+      "notes": "Metric-redesign successor to V3-EXQ-397c (FAILed 2x with hippo_quality_gap ~ -1.64 at bit-identical determinism). Diagnostic 2026-04-23 confirmed: (a) terrain-training fix IS wired into backprop (F.mse_loss(ao_mean_pred, best_ao.detach()).backward() on terrain_prior + action_object_decoder); (b) input distributions match between training and inference (both theta_buffer.summary()); (c) terrain_loss 0.34 -> 3e-6 is self-referential distribution collapse (training target drawn from CEM pool seeded by terrain_prior itself); (d) the negative quality_gap is a METRIC CONFOUND, not an architectural bug. In resource-hazard-colocated envs, residue RBFs accumulate at cells visited during harm (goal-adjacent by env design), so hippo trajectories correctly projecting toward goals TRAVERSE residue-dense regions while random E2 rollouts stay near the current (residue-sparse) z_world. Previous metric (unpaired mean trajectory residue) conflates destination-choice with path-choice. EXQ-397d replaces the eval: at each E3 tick, collect K hippo + K random candidates from the SAME initial (z_self, z_world); for each hippo candidate, pair it with the random candidate whose terminal z_world is closest by L2; compare mean per-step residue along paired paths. matched_gap = matched_random_residue - matched_hippo_residue (positive = hippo chooses lower-residue path to same destination). Training infrastructure inherits EXQ-397c fixes (min-residue candidate terrain target, 16x16 hazard=6 resource=3 sparse env, 800 warmup). PASS: C1 matched_gap_intact > 0, C2 matched_gap_ablated <= 0.5*intact, C3 matched_gap_restored >= ablated, C4 calibration_gap_approach > 0.03, C5 no fatal errors. ARC-007 behavioural evidence via EXQ-114 (99.2% harm reduction MAP_NAV vs MAP_ABLATED) is unaffected by this metric-redesign pass. experiment_purpose=evidence.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-23T17:40:11.072432+00:00"
+      }
     }
   ]
 }
