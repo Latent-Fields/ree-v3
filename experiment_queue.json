@@ -26,30 +26,6 @@
       "notes": "Gate for V_s-gated cascade (EXQ-445d / EXQ-449c / EXQ-455a). Baseline agent + V_s flags ON vs OFF. Measure action_class_entropy. PASS = ON entropy > OFF entropy by >=0.1 in >=2/2 seeds. FAIL/INCONCLUSIVE = MECH-284 Phase 3 consumer must land before downstream cascade can be run. experiment_purpose=diagnostic."
     },
     {
-      "queue_id": "V3-EXQ-445d",
-      "title": "SD-032b dACC full pipeline -- V_s-enabled re-run with OFF-entropy precondition",
-      "experiment_type": "v3_exq_445d_sd032b_dacc_with_vs",
-      "script": "experiments/v3_exq_445d_sd032b_dacc_with_vs.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 220,
-      "seeds": 3,
-      "conditions": 2,
-      "supersedes": "V3-EXQ-445c",
-      "depends_on": "V3-EXQ-476",
-      "claim_ids": [
-        "SD-032b",
-        "MECH-258",
-        "MECH-260"
-      ],
-      "notes": "Gated on MECH-269 V_s validation (V3-EXQ-476); do not run until that passes. Clone of EXQ-445a with use_per_stream_vs/use_per_region_vs/use_event_segmenter/use_invalidation_trigger/use_anchor_sets=True plus an OFF-entropy precondition check: if OFF-arm action_class_entropy stays 0 in >=2/3 seeds, manifest records INCONCLUSIVE (V_s did not break monostrategy lock) rather than FAIL. Otherwise standard SD-032b acceptance: C1 harm_a_forward_r2>=0.3 in >=2/3 seeds; C2 |entropy_ON - entropy_OFF|>=0.1 in >=2/3 seeds; C3 ON entropy >= OFF entropy in >=2/3 seeds. experiment_purpose=evidence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-23T23:23:42.499601+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-449c",
       "title": "MECH-074b BLA retrieval bias on action selection -- V_s-gated",
       "experiment_type": "v3_exq_449c_mech074b_bla_retrieval_bias",
