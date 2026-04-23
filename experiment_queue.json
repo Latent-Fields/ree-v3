@@ -49,7 +49,7 @@
       "script": "experiments/v3_exq_455a_sd032a_salience_with_vs.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "seeds": 3,
       "conditions": 2,
@@ -60,7 +60,11 @@
         "MECH-259",
         "MECH-261"
       ],
-      "notes": "Gated on V3-EXQ-476 PASS. Clone of EXQ-455 with V_s invalidation runtime flags ON (use_per_stream_vs, use_per_region_vs, use_event_segmenter, use_invalidation_trigger, use_anchor_sets). PASS: C1 action_class_entropy >= 0.5 in COORD_ON arm in >=2/3 seeds; C2 COORD_ON entropy > COORD_OFF entropy in >=2/3 seeds. experiment_purpose=evidence."
+      "notes": "Gated on V3-EXQ-476 PASS. Clone of EXQ-455 with V_s invalidation runtime flags ON (use_per_stream_vs, use_per_region_vs, use_event_segmenter, use_invalidation_trigger, use_anchor_sets). PASS: C1 action_class_entropy >= 0.5 in COORD_ON arm in >=2/3 seeds; C2 COORD_ON entropy > COORD_OFF entropy in >=2/3 seeds. experiment_purpose=evidence.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-23T23:23:45.560305+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-433c",
