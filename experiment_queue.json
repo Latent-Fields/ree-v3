@@ -208,6 +208,42 @@
         "MECH-256"
       ],
       "notes": "Supersedes V3-EXQ-433b (agent_caused_hazard r2=0.0 across all 4 seeds). Diagnosis: r2=0 is not a MECH-256 architectural failure -- trials_collected['agent_caused_hazard'] was 0 in every seed (eval relied on organic agent-caused events; agent never chose to step onto a hazard), so _safe_r2_from_pairs returned 0 on an empty list. Fix: (1) enable SD-029 curriculum in P0, P1, and eval (scheduled_external_hazard_enabled=True, interval=25, prob=1.0, adjacent_only=False); (2) scripted agent-caused elicitation in eval -- when agent_caused trials short of target AND a hazard is adjacent, script a deterministic move onto it (_find_adjacent_hazard_action); (3) C0 sufficiency gate -- both agent_caused_trials and env_caused_trials must be >=20 in >=3/4 seeds. If C0 fails, outcome=FAIL but per-claim evidence_direction='inconclusive_insufficient_events' (not 'weakens') so governance scores are not corrupted by a trials-shortage run. mean_r2 only averages event types with n>=5 trials. Acceptance: C0 sufficient trials >=3/4 seeds; C1 mean_r2 >= 0.5; C2 attenuation_ratio >=0.5 (agent-caused residual < env-caused); SNR (mean_r2 - r2_none_baseline) positive. experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-449b",
+      "title": "SD-016 cue_action_proj consumer fix verification -- z_world residual concat (supersedes V3-EXQ-449a)",
+      "experiment_type": "v3_exq_449b_sd016_cue_action_proj_consumer_fix",
+      "script": "experiments/v3_exq_449b_sd016_cue_action_proj_consumer_fix.py",
+      "priority": 52,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 30,
+      "episodes_per_run": 75,
+      "seeds": 1,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-449a",
+      "claim_ids": [
+        "SD-016"
+      ],
+      "notes": "Verification of the SD-016 cue_action_proj consumer fix. EXQ-449a localised the collapse to a uniform-attention bottleneck inside extract_cue_context: ContextMemory slots init at randn*0.01 so key_proj's bias dominates, all keys look identical, softmax = uniform (entropy=ln(num_slots)=2.7726), bmm(uniform, v) = mean(v) is constant across batch -> cue_context constant -> cue_action_proj output had per-channel std ~2.7e-8 in g2. Fix (predictors/e1_deep.py): cue_action_proj input changed from cue_context (latent_dim=64) to [cue_context, z_world] (concat, latent_dim+world_dim=64+32=96). Guarantees non-collapsed input path even when attention degenerates. cue_terrain_proj left unchanged (terrain_loss already trains it; not the bottleneck). Same three-regime protocol as 449a (g1 supervised-active, g2 frozen, g3 detach-bypassed). Acceptance pivots from 'find the offender' to 'verify the offender is gone': PRIMARY P1 g2 action_bias_per_channel_std > 1e-3 (was 2.7e-8); SECONDARY S1 g2 action_bias_norm_mean > 1e-3, S2 supervised target sanity >=80% coverage, S3 (bonus) g2 action_bias_div > 0.05. PASS = P1 AND S1 AND S2. Smoke-test 2026-04-23 dry-run (P0=2 P1=3 eval=4 ep): g2 per-channel std 2.957e-3, primary_pass=True. experiment_purpose=diagnostic (excluded from governance scoring). Unblocks EXQ-418b downstream."
+    },
+    {
+      "queue_id": "V3-EXQ-418b",
+      "title": "SD-016+SD-017 context-conditioned action with cue_action_proj consumer fix (supersedes V3-EXQ-418a)",
+      "experiment_type": "v3_exq_418a_sd016_sd017_context_conditioned_action",
+      "script": "experiments/v3_exq_418a_sd016_sd017_context_conditioned_action.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-418a",
+      "claim_ids": [
+        "SD-017"
+      ],
+      "notes": "Re-run of EXQ-418a now that the SD-016 cue_action_proj consumer fix has landed (predictors/e1_deep.py: cue_action_proj consumes [cue_context, z_world] instead of cue_context alone -- breaks the uniform-attention collapse identified by EXQ-449a and verified gone by EXQ-449b). EXQ-418/418a previously FAILed three times with action_bias_divergence=0.0; the consumer collapse is now removed at the substrate. This re-run uses the SAME script as 418a (no script changes required -- the fix is upstream in e1_deep.py and is enabled when sd016_enabled=True, which 418a already sets). Expectation: action_bias now carries per-input variation (verified in 449b smoke at per-channel std 2.957e-3) so the SD-017 context-conditioned-action gate has a non-collapsed input to act on. PASS criteria inherited from 418a. If this still FAILs, the blocker is downstream of cue_action_proj (in hippocampal proposal scoring or E2 action_object consumption), not in the SD-016 substrate itself."
     }
   ]
 }

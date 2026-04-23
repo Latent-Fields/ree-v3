@@ -160,7 +160,12 @@ class E1DeepPredictor(nn.Module):
             cue_context_dim = self.config.self_dim + self.config.world_dim  # = latent_dim = 64
             action_object_dim = getattr(config, 'action_object_dim', 16)
             self.world_query_proj = nn.Linear(self.config.world_dim, self.config.hidden_dim)
-            self.cue_action_proj  = nn.Linear(cue_context_dim, action_object_dim)
+            # EXQ-449a fix: cue_action_proj now consumes [cue_context, z_world]. The
+            # ContextMemory attention path collapses to uniform softmax (entropy = ln(num_slots))
+            # because key_proj's bias dominates over the small-init memory slots, so cue_context
+            # is constant across batch and cue_action_proj output had per-channel std ~2.7e-8.
+            # Concatenating z_world guarantees per-input variation in action_bias.
+            self.cue_action_proj  = nn.Linear(cue_context_dim + self.config.world_dim, action_object_dim)
             self.cue_terrain_proj = nn.Linear(cue_context_dim, 2)
 
     def reset_hidden_state(self) -> None:
@@ -287,7 +292,9 @@ class E1DeepPredictor(nn.Module):
 
         cue_context = self.context_memory.output_proj(context)  # [batch, latent_dim=64]
 
-        action_bias    = self.cue_action_proj(cue_context)                    # [batch, action_object_dim]
+        # EXQ-449a fix: feed z_world directly alongside cue_context so the action_bias
+        # has a non-collapsed input path (cue_context is constant under uniform attention).
+        action_bias    = self.cue_action_proj(torch.cat([cue_context, z_world], dim=-1))
         terrain_weight = torch.sigmoid(self.cue_terrain_proj(cue_context))    # [batch, 2] in (0,1)
         return action_bias, terrain_weight
 
