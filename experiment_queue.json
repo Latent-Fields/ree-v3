@@ -43,30 +43,6 @@
       "notes": "Gated on V3-EXQ-445d PASS. Measures whether BLAAnalog retrieval-bias ON vs OFF increases action_class_entropy by >=0.1 and reduces harm_rate in >=2/3 seeds. BLA retrieval_bias is the content-selective per-trace weighting (LaBar & Cabeza 2006); needs upstream V_s cascade to have broken monostrategy before bias effects are observable. experiment_purpose=evidence."
     },
     {
-      "queue_id": "V3-EXQ-455a",
-      "title": "SD-032a salience coordinator behavioural -- V_s-enabled re-run",
-      "experiment_type": "v3_exq_455a_sd032a_salience_with_vs",
-      "script": "experiments/v3_exq_455a_sd032a_salience_with_vs.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 180,
-      "seeds": 3,
-      "conditions": 2,
-      "supersedes": "V3-EXQ-455",
-      "depends_on": "V3-EXQ-476",
-      "claim_ids": [
-        "SD-032a",
-        "MECH-259",
-        "MECH-261"
-      ],
-      "notes": "Gated on V3-EXQ-476 PASS. Clone of EXQ-455 with V_s invalidation runtime flags ON (use_per_stream_vs, use_per_region_vs, use_event_segmenter, use_invalidation_trigger, use_anchor_sets). PASS: C1 action_class_entropy >= 0.5 in COORD_ON arm in >=2/3 seeds; C2 COORD_ON entropy > COORD_OFF entropy in >=2/3 seeds. experiment_purpose=evidence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-23T23:23:45.560305+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-433c",
       "title": "SD-029 event-conditioned MECH-256 comparator -- curriculum ON + scripted agent-caused elicitation (supersedes V3-EXQ-433b)",
       "experiment_type": "v3_exq_433c_sd029_eventcond_comparator",
