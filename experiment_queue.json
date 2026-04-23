@@ -86,7 +86,7 @@
       "episodes_per_run": 930,
       "seeds": 1,
       "conditions": 3,
-      "supersedes": "v3_exq_397c_arc007_harder_env",
+      "supersedes": "V3-EXQ-397c",
       "claim_ids": [
         "ARC-007",
         "SD-004"
