@@ -31,7 +31,7 @@
       "script": "experiments/v3_exq_451_q034_hazard_resource_threshold_retest.py",
       "priority": 60,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 215,
       "episodes_per_run": 60,
       "seeds": 2,
@@ -40,7 +40,11 @@
       "claim_ids": [
         "Q-034"
       ],
-      "notes": "[Renamed from V3-EXQ-451 2026-04-23 per silent-re-queue guard; script was updated, prior run ID re-used inadvertently] Retest of V3-EXQ-288 (criteria_null). Tightened design with direct goal_reach/harm_exposure/entropy per grid point. 5x3 grid: hazard_density in {0.05,0.10,0.15,0.20,0.25} x resource_density in {0.04,0.08,0.12} = 15 points x 2 seeds = 30 runs, 30 warmup + 30 eval eps each at 200 steps. Uses SD-018 resource_proximity_head and SD-012 drive_weight=2.0 (post-288 substrate). Acceptance: C1 goal_reach monotonically decreasing in hazard_density within >=2/3 resource-density columns; C2 at least one grid point where goal_reach crosses 0.5; C3 all 15 points complete with non-null metrics (the criteria_null fix); C4 avoidance signature at high-hazard/low-resource (diagnostic). PASS = C1 AND C2 AND C3. experiment_purpose=evidence. supersedes V3-EXQ-288."
+      "notes": "[Renamed from V3-EXQ-451 2026-04-23 per silent-re-queue guard; script was updated, prior run ID re-used inadvertently] Retest of V3-EXQ-288 (criteria_null). Tightened design with direct goal_reach/harm_exposure/entropy per grid point. 5x3 grid: hazard_density in {0.05,0.10,0.15,0.20,0.25} x resource_density in {0.04,0.08,0.12} = 15 points x 2 seeds = 30 runs, 30 warmup + 30 eval eps each at 200 steps. Uses SD-018 resource_proximity_head and SD-012 drive_weight=2.0 (post-288 substrate). Acceptance: C1 goal_reach monotonically decreasing in hazard_density within >=2/3 resource-density columns; C2 at least one grid point where goal_reach crosses 0.5; C3 all 15 points complete with non-null metrics (the criteria_null fix); C4 avoidance signature at high-hazard/low-resource (diagnostic). PASS = C1 AND C2 AND C3. experiment_purpose=evidence. supersedes V3-EXQ-288.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-23T20:23:20.404353+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-445e",
