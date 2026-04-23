@@ -88,10 +88,9 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **525 total completions** (runner_status.json last_updated 2026-04-22T01:11Z; count
-  will refresh after the next indexer rebuild to cover SD-036 / MECH-279 / MECH-269
-  Phase 1 / MECH-288 / MECH-287 / MECH-269 Phase 2 ii / MECH-269 Phase 2 iii T4
-  landing work): 108 PASS / 234 FAIL / 62 ERROR / 121 UNKNOWN across EXQ-001 through
+- **844 total completions** (indexer rebuilt 2026-04-23 after PM lit-pull session; covers
+  SD-036 / MECH-279 / MECH-269 Phase 1/2 ii/2 iii T4 / MECH-288 / MECH-287 landing
+  diagnostics now indexed): across EXQ-001 through
   EXQ-474 plus lettered iterations and per-seed runs. Spanning SD-003 through SD-023
   validation, heartbeat architecture (SD-006), reafference (SD-007), encoder fixes
   (SD-008/009), harm stream separation (SD-010), dual nociceptive streams
