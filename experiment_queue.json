@@ -126,7 +126,7 @@
       "script": "experiments/v3_exq_470a_sd029_balanced_curriculum.py",
       "priority": 60,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 5,
       "episodes_per_run": 3,
       "seeds": 4,
@@ -135,7 +135,11 @@
       "claim_ids": [
         "SD-029"
       ],
-      "notes": "Supersedes V3-EXQ-470 (BASELINE/SCHEDULED bit-identical across all 4 seeds because hazard_harm=0.3 killed episodes before step 25, so the curriculum injection condition never fired -- diagnosed via n_steps_total 15-34 in 470 results vs interval=25). Fix: lower hazard_harm 0.3->0.05 so episodes survive; add per-injection log (ep, step, cumulative) to the manifest; add BASELINE-vs-SCHEDULED n_steps divergence criterion (C_differ) to confirm the curriculum code path actually changes dynamics. Criteria: C_back BASELINE ext_events==0 in all 4 seeds; C_fire SCHEDULED ext_events>=3 per seed; C_differ >=1 seed with n_steps_total divergence; C_info info keys present on every step. PASS = all four. experiment_purpose=diagnostic. Substrate validation only (no downstream claim evidence)."
+      "notes": "Supersedes V3-EXQ-470 (BASELINE/SCHEDULED bit-identical across all 4 seeds because hazard_harm=0.3 killed episodes before step 25, so the curriculum injection condition never fired -- diagnosed via n_steps_total 15-34 in 470 results vs interval=25). Fix: lower hazard_harm 0.3->0.05 so episodes survive; add per-injection log (ep, step, cumulative) to the manifest; add BASELINE-vs-SCHEDULED n_steps divergence criterion (C_differ) to confirm the curriculum code path actually changes dynamics. Criteria: C_back BASELINE ext_events==0 in all 4 seeds; C_fire SCHEDULED ext_events>=3 per seed; C_differ >=1 seed with n_steps_total divergence; C_info info keys present on every step. PASS = all four. experiment_purpose=diagnostic. Substrate validation only (no downstream claim evidence).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-23T20:46:24.227174+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-433c",
