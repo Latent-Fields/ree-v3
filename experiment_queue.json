@@ -96,6 +96,118 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-04-23T17:40:11.072432+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-476",
+      "title": "MECH-269 V_s validation entropy probe -- cascade gate",
+      "experiment_type": "v3_exq_476_mech269_vs_validation_probe",
+      "script": "experiments/v3_exq_476_mech269_vs_validation_probe.py",
+      "priority": 70,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 30,
+      "seeds": 2,
+      "conditions": 2,
+      "claim_ids": [
+        "MECH-269",
+        "MECH-287",
+        "MECH-288"
+      ],
+      "notes": "Gate for V_s-gated cascade (EXQ-445d / EXQ-449c / EXQ-455a). Baseline agent + V_s flags ON vs OFF. Measure action_class_entropy. PASS = ON entropy > OFF entropy by >=0.1 in >=2/2 seeds. FAIL/INCONCLUSIVE = MECH-284 Phase 3 consumer must land before downstream cascade can be run. experiment_purpose=diagnostic."
+    },
+    {
+      "queue_id": "V3-EXQ-445d",
+      "title": "SD-032b dACC full pipeline -- V_s-enabled re-run with OFF-entropy precondition",
+      "experiment_type": "v3_exq_445d_sd032b_dacc_with_vs",
+      "script": "experiments/v3_exq_445d_sd032b_dacc_with_vs.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 220,
+      "seeds": 3,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-445c",
+      "depends_on": "V3-EXQ-476",
+      "claim_ids": [
+        "SD-032b",
+        "MECH-258",
+        "MECH-260"
+      ],
+      "notes": "Gated on MECH-269 V_s validation (V3-EXQ-476); do not run until that passes. Clone of EXQ-445a with use_per_stream_vs/use_per_region_vs/use_event_segmenter/use_invalidation_trigger/use_anchor_sets=True plus an OFF-entropy precondition check: if OFF-arm action_class_entropy stays 0 in >=2/3 seeds, manifest records INCONCLUSIVE (V_s did not break monostrategy lock) rather than FAIL. Otherwise standard SD-032b acceptance: C1 harm_a_forward_r2>=0.3 in >=2/3 seeds; C2 |entropy_ON - entropy_OFF|>=0.1 in >=2/3 seeds; C3 ON entropy >= OFF entropy in >=2/3 seeds. experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-449c",
+      "title": "MECH-074b BLA retrieval bias on action selection -- V_s-gated",
+      "experiment_type": "v3_exq_449c_mech074b_bla_retrieval_bias",
+      "script": "experiments/v3_exq_449c_mech074b_bla_retrieval_bias.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "seeds": 3,
+      "conditions": 2,
+      "depends_on": "V3-EXQ-445d",
+      "claim_ids": [
+        "MECH-074b"
+      ],
+      "notes": "Gated on V3-EXQ-445d PASS. Measures whether BLAAnalog retrieval-bias ON vs OFF increases action_class_entropy by >=0.1 and reduces harm_rate in >=2/3 seeds. BLA retrieval_bias is the content-selective per-trace weighting (LaBar & Cabeza 2006); needs upstream V_s cascade to have broken monostrategy before bias effects are observable. experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-455a",
+      "title": "SD-032a salience coordinator behavioural -- V_s-enabled re-run",
+      "experiment_type": "v3_exq_455a_sd032a_salience_with_vs",
+      "script": "experiments/v3_exq_455a_sd032a_salience_with_vs.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180,
+      "seeds": 3,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-455",
+      "depends_on": "V3-EXQ-476",
+      "claim_ids": [
+        "SD-032a",
+        "MECH-259",
+        "MECH-261"
+      ],
+      "notes": "Gated on V3-EXQ-476 PASS. Clone of EXQ-455 with V_s invalidation runtime flags ON (use_per_stream_vs, use_per_region_vs, use_event_segmenter, use_invalidation_trigger, use_anchor_sets). PASS: C1 action_class_entropy >= 0.5 in COORD_ON arm in >=2/3 seeds; C2 COORD_ON entropy > COORD_OFF entropy in >=2/3 seeds. experiment_purpose=evidence."
+    },
+    {
+      "queue_id": "V3-EXQ-470a",
+      "title": "SD-029 balanced hazard-event curriculum -- substrate validation (fix, supersedes V3-EXQ-470)",
+      "experiment_type": "v3_exq_470a_sd029_balanced_curriculum",
+      "script": "experiments/v3_exq_470a_sd029_balanced_curriculum.py",
+      "priority": 60,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "episodes_per_run": 3,
+      "seeds": 4,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-470",
+      "claim_ids": [
+        "SD-029"
+      ],
+      "notes": "Supersedes V3-EXQ-470 (BASELINE/SCHEDULED bit-identical across all 4 seeds because hazard_harm=0.3 killed episodes before step 25, so the curriculum injection condition never fired -- diagnosed via n_steps_total 15-34 in 470 results vs interval=25). Fix: lower hazard_harm 0.3->0.05 so episodes survive; add per-injection log (ep, step, cumulative) to the manifest; add BASELINE-vs-SCHEDULED n_steps divergence criterion (C_differ) to confirm the curriculum code path actually changes dynamics. Criteria: C_back BASELINE ext_events==0 in all 4 seeds; C_fire SCHEDULED ext_events>=3 per seed; C_differ >=1 seed with n_steps_total divergence; C_info info keys present on every step. PASS = all four. experiment_purpose=diagnostic. Substrate validation only (no downstream claim evidence)."
+    },
+    {
+      "queue_id": "V3-EXQ-433c",
+      "title": "SD-029 event-conditioned MECH-256 comparator -- curriculum ON + scripted agent-caused elicitation (supersedes V3-EXQ-433b)",
+      "experiment_type": "v3_exq_433c_sd029_eventcond_comparator",
+      "script": "experiments/v3_exq_433c_sd029_eventcond_comparator.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 400,
+      "seeds": 4,
+      "conditions": 1,
+      "supersedes": "V3-EXQ-433b",
+      "claim_ids": [
+        "SD-029",
+        "MECH-256"
+      ],
+      "notes": "Supersedes V3-EXQ-433b (agent_caused_hazard r2=0.0 across all 4 seeds). Diagnosis: r2=0 is not a MECH-256 architectural failure -- trials_collected['agent_caused_hazard'] was 0 in every seed (eval relied on organic agent-caused events; agent never chose to step onto a hazard), so _safe_r2_from_pairs returned 0 on an empty list. Fix: (1) enable SD-029 curriculum in P0, P1, and eval (scheduled_external_hazard_enabled=True, interval=25, prob=1.0, adjacent_only=False); (2) scripted agent-caused elicitation in eval -- when agent_caused trials short of target AND a hazard is adjacent, script a deterministic move onto it (_find_adjacent_hazard_action); (3) C0 sufficiency gate -- both agent_caused_trials and env_caused_trials must be >=20 in >=3/4 seeds. If C0 fails, outcome=FAIL but per-claim evidence_direction='inconclusive_insufficient_events' (not 'weakens') so governance scores are not corrupted by a trials-shortage run. mean_r2 only averages event types with n>=5 trials. Acceptance: C0 sufficient trials >=3/4 seeds; C1 mean_r2 >= 0.5; C2 attenuation_ratio >=0.5 (agent-caused residual < env-caused); SNR (mean_r2 - r2_none_baseline) positive. experiment_purpose=evidence."
     }
   ]
 }
