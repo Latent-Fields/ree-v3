@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-04-22
+**Last updated:** 2026-04-23
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-04-22)
+## 0. Current V3 State (2026-04-23)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -63,6 +63,13 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-029 | Curriculum-level balanced hazard-event support (CausalGridWorldV2 scheduled_external_hazard_* injection; enables per-seed n_ext >= 20 for C3/C4 comparator tests) | Implemented 2026-04-21 |
 | SD-035 | Amygdala analogue -- BLA + CeA peer modules: MECH-046 CeA mode-prior + MECH-074a/b/c/d BLA encoding gain, retrieval bias, fast prime, PE-spike remap (non-trainable arithmetic; hippocampal consumer wiring for BLA retrieval/remap deferred) | Implemented 2026-04-21 |
 | SD-033e stub | Frontopolar-analog V4-reserved stub in ree_core/pfc/ (FrontopolarConfig + FrontopolarAnalog skeleton with MECH-264 counterfactual-value + MECH-265 relative-importance heads; raises NotImplementedError when enabled until design doc lands) | Stub landed 2026-04-21 |
+| SD-036 | GABAergic cross-stream decay regulator (broadly-projecting tonic decay across registered latent streams; out-of-place exp decay; benzo/withdrawal gaba_tone knob; simulation_mode gated) | Implemented 2026-04-22 |
+| MECH-279 | PAG freeze-gate (committed-freeze substrate; duration*magnitude entry, exit threshold = theta * gaba_tone, action-class no-op injection; simulation-gated) | Implemented 2026-04-22 |
+| MECH-269 base (Phase 1) | Per-stream verisimilitude V_s (HippocampalModule.update_per_stream_vs; identity-proxy EMA over registered streams; foundation for Phase 2/3 invalidation runtime) | Implemented 2026-04-22 |
+| MECH-288 | Event segmenter Phase 2 (two-scale: pe_threshold fast + BOCPD-Gaussian slow; emits BoundaryEvents with outer.inner segment IDs; force_boundary API for scripted injection) | Implemented 2026-04-22 |
+| MECH-287 | Invalidation trigger Phase 2 iv (BoundaryEvent subscriber -> BroadcastEvent emitter; graded posterior*gain; phasic/tonic guardrail over rolling window; verdict-3 option-c subscriber collapse) | Implemented 2026-04-22 |
+| MECH-269 AnchorSet (Phase 2 ii) | Scale-tagged hippocampal anchor store with dual-trace preservation (Bouton 2004) + k=5 consecutive-below hysteresis on V_s_anchor; BoundaryEvent consumer; FIFO soft-cap per scale | Implemented 2026-04-22 |
+| MECH-269 per-region V_s (Phase 2 iii T4) | Per-region V_s readout keyed on active AnchorSet regions (scale, segment_id); MECH-287 broadcast reset path (drop + mark_inactive); dual consumption via tick_anchor_set + apply_invalidation_broadcasts_to_regions | Implemented 2026-04-22 |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -81,31 +88,42 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **525 total completions** (runner_status.json last_updated 2026-04-22T01:11Z): 108 PASS /
-  234 FAIL / 62 ERROR / 121 UNKNOWN across EXQ-001 through EXQ-474 plus lettered
-  iterations and per-seed runs. Spanning SD-003 through SD-023 validation, heartbeat
-  architecture (SD-006), reafference (SD-007), encoder fixes (SD-008/009), harm stream
-  separation (SD-010), dual nociceptive streams (SD-011/SD-022), homeostatic drive
-  (SD-012), self-attribution counterfactuals (SD-013/ARC-033), valence vector recording
-  (SD-014), resource encoder (SD-015), frontal cue integration (SD-016), sleep
-  infrastructure (SD-017), surprise-gated replay (MECH-205), E1 predictive wanting
-  (MECH-216), wanting/liking dissociation (MECH-112/229/117), goal conditioning
-  (MECH-116/163/ARC-032), context memory (MECH-153/ARC-042), EXQ-223 minimal vertebrate
-  ablation milestone, the SD-032 cingulate cluster (a/b/c/d/e) validated inline
-  2026-04-19, SD-033a lateral-PFC-analog landing (V3-EXQ-456 PASS), SD-034 governance
-  closure operator + MECH-267 + MECH-268 landing smokes, and the SD-035 amygdala-analog
-  landings (V3-EXQ-473 SD-035 CeA mode-prior PASS, V3-EXQ-474 SD-035 BLA encoding+remap
-  PASS) plus V3-EXQ-455 SD-032a behavioural coordinator PASS. A fresh indexer rebuild is
-  pending after this cycle's wave of results.
-- **Currently queued (2026-04-22, 3 items -- all claimed):** V3-EXQ-447 (SD-032d
+- **525 total completions** (runner_status.json last_updated 2026-04-22T01:11Z; count
+  will refresh after the next indexer rebuild to cover SD-036 / MECH-279 / MECH-269
+  Phase 1 / MECH-288 / MECH-287 / MECH-269 Phase 2 ii / MECH-269 Phase 2 iii T4
+  landing work): 108 PASS / 234 FAIL / 62 ERROR / 121 UNKNOWN across EXQ-001 through
+  EXQ-474 plus lettered iterations and per-seed runs. Spanning SD-003 through SD-023
+  validation, heartbeat architecture (SD-006), reafference (SD-007), encoder fixes
+  (SD-008/009), harm stream separation (SD-010), dual nociceptive streams
+  (SD-011/SD-022), homeostatic drive (SD-012), self-attribution counterfactuals
+  (SD-013/ARC-033), valence vector recording (SD-014), resource encoder (SD-015),
+  frontal cue integration (SD-016), sleep infrastructure (SD-017), surprise-gated
+  replay (MECH-205), E1 predictive wanting (MECH-216), wanting/liking dissociation
+  (MECH-112/229/117), goal conditioning (MECH-116/163/ARC-032), context memory
+  (MECH-153/ARC-042), EXQ-223 minimal vertebrate ablation milestone, the SD-032
+  cingulate cluster (a/b/c/d/e) validated inline 2026-04-19, SD-033a lateral-PFC-analog
+  landing (V3-EXQ-456 PASS), SD-034 governance closure operator + MECH-267 + MECH-268
+  landing smokes, the SD-035 amygdala-analog landings (V3-EXQ-473 SD-035 CeA mode-prior
+  PASS, V3-EXQ-474 SD-035 BLA encoding+remap PASS) plus V3-EXQ-455 SD-032a behavioural
+  coordinator PASS, and the 2026-04-22 V_s invalidation runtime substrate wave
+  (SD-036 GABAergic cross-stream decay + MECH-279 PAG freeze gate; MECH-269 Phase 1
+  per-stream V_s; MECH-288 event segmenter; MECH-287 invalidation trigger;
+  MECH-269 Phase 2 ii AnchorSet; MECH-269 Phase 2 iii T4 per-region V_s) all
+  landing-diagnostic PASS via contract tests (85/85) and activation smokes. A fresh
+  indexer rebuild is pending after this cycle's wave of results.
+- **Currently queued (2026-04-23, 3 items -- all claimed):** V3-EXQ-447 (SD-032d
   deterministic validation, claimed ree-cloud-2 2026-04-19); V3-EXQ-451 (Q-034
   hazard/resource threshold retest, supersedes V3-EXQ-288, claimed EWIN-PC 2026-04-20);
   V3-EXQ-445a (SD-032b dACC full-pipeline fix for EXQ-445 monostrategy collapse +
-  terrain-prior inversion, claimed EWIN-PC 2026-04-20). The heavy queue drain since the
-  2026-04-21 snapshot reflects resolution of the SD-034 / MECH-267 / MECH-268 landing
-  smokes, V3-EXQ-456 (SD-033a landing), SD-035 EXQ-473/474, and several SD-032 cluster
-  variants (V3-EXQ-445b/c, V3-EXQ-449a, V3-EXQ-452/453/454, V3-EXQ-325d) landing as
-  PASS/FAIL entries in runner_status.json.
+  terrain-prior inversion, claimed EWIN-PC 2026-04-20). The 2026-04-22 V_s invalidation
+  runtime wave (SD-036, MECH-279, MECH-269 Phase 1/2 ii/2 iii T4, MECH-288, MECH-287)
+  landed via contract tests + activation smokes only; the combined-cluster end-to-end
+  validation (V3-EXQ-476 -- full circuit re-run of EXQ-475) is planned but not yet
+  queued. The heavy queue drain since the 2026-04-21 snapshot reflects resolution of
+  the SD-034 / MECH-267 / MECH-268 landing smokes, V3-EXQ-456 (SD-033a landing),
+  SD-035 EXQ-473/474, and several SD-032 cluster variants (V3-EXQ-445b/c,
+  V3-EXQ-449a, V3-EXQ-452/453/454, V3-EXQ-325d) landing as PASS/FAIL entries in
+  runner_status.json.
 - **Current bottleneck:** SD-032 cluster behavioural follow-through remains the primary
   first-paper-gate blocker -- V3-EXQ-445a (full-pipeline fix for the monostrategy +
   terrain-prior inversion observed in V3-EXQ-445) is the decisive test still in flight
@@ -130,10 +148,17 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   blocker remains diagnosed but not resolved -- V3-EXQ-449a is pending. The three-layer
   regression suite (preflight / contracts / deferred changed) with contracts C1-C8
   covering the SD-032 cluster was at 31/31 PASS after the SD-033e stub contract
-  additions (2026-04-21); explorer preflight badge + pre-commit contracts hook (PR 5)
-  remain live. **Pending review queue was last generated 2026-04-21T19:54Z and lists
-  46 items (8 PASS / 19 FAIL / 19 ERROR-UNKNOWN-smoke); a governance-cycle pass is
-  pending for the SD-032 behavioural FAILs and the new SD-035 / MECH-266 landings.**
+  additions (2026-04-21) and grew to 85/85 after the V_s invalidation runtime
+  wave added contracts for MECH-269 Phase 1 (5 tests), MECH-288 event segmenter
+  (7 tests), MECH-287 invalidation trigger (5 tests), MECH-269 AnchorSet Phase 2 ii
+  (9 tests incl. 2 integration smokes), and MECH-269 per-region V_s Phase 2 iii T4
+  (6 tests incl. 1 integration smoke) all passing 2026-04-22; explorer preflight
+  badge + pre-commit contracts hook (PR 5) remain live. **Pending review queue was
+  last generated 2026-04-22T23:12:38Z and lists 10 items (all 10 UNKNOWN due to
+  stale index; next indexer rebuild resolves). Governance-cycle pass is pending for
+  the SD-032 behavioural FAILs, the SD-035 / MECH-266 landings, and the V_s
+  invalidation runtime substrate landings whose behavioural end-to-end validation
+  (V3-EXQ-476) has not yet run.**
 
 ### V3 / V4 Scope Boundary
 
