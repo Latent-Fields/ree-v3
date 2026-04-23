@@ -49,7 +49,7 @@
       "script": "experiments/v3_exq_433c_sd029_eventcond_comparator.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 400,
       "seeds": 4,
@@ -59,7 +59,11 @@
         "SD-029",
         "MECH-256"
       ],
-      "notes": "Supersedes V3-EXQ-433b (agent_caused_hazard r2=0.0 across all 4 seeds). Diagnosis: r2=0 is not a MECH-256 architectural failure -- trials_collected['agent_caused_hazard'] was 0 in every seed (eval relied on organic agent-caused events; agent never chose to step onto a hazard), so _safe_r2_from_pairs returned 0 on an empty list. Fix: (1) enable SD-029 curriculum in P0, P1, and eval (scheduled_external_hazard_enabled=True, interval=25, prob=1.0, adjacent_only=False); (2) scripted agent-caused elicitation in eval -- when agent_caused trials short of target AND a hazard is adjacent, script a deterministic move onto it (_find_adjacent_hazard_action); (3) C0 sufficiency gate -- both agent_caused_trials and env_caused_trials must be >=20 in >=3/4 seeds. If C0 fails, outcome=FAIL but per-claim evidence_direction='inconclusive_insufficient_events' (not 'weakens') so governance scores are not corrupted by a trials-shortage run. mean_r2 only averages event types with n>=5 trials. Acceptance: C0 sufficient trials >=3/4 seeds; C1 mean_r2 >= 0.5; C2 attenuation_ratio >=0.5 (agent-caused residual < env-caused); SNR (mean_r2 - r2_none_baseline) positive. experiment_purpose=evidence."
+      "notes": "Supersedes V3-EXQ-433b (agent_caused_hazard r2=0.0 across all 4 seeds). Diagnosis: r2=0 is not a MECH-256 architectural failure -- trials_collected['agent_caused_hazard'] was 0 in every seed (eval relied on organic agent-caused events; agent never chose to step onto a hazard), so _safe_r2_from_pairs returned 0 on an empty list. Fix: (1) enable SD-029 curriculum in P0, P1, and eval (scheduled_external_hazard_enabled=True, interval=25, prob=1.0, adjacent_only=False); (2) scripted agent-caused elicitation in eval -- when agent_caused trials short of target AND a hazard is adjacent, script a deterministic move onto it (_find_adjacent_hazard_action); (3) C0 sufficiency gate -- both agent_caused_trials and env_caused_trials must be >=20 in >=3/4 seeds. If C0 fails, outcome=FAIL but per-claim evidence_direction='inconclusive_insufficient_events' (not 'weakens') so governance scores are not corrupted by a trials-shortage run. mean_r2 only averages event types with n>=5 trials. Acceptance: C0 sufficient trials >=3/4 seeds; C1 mean_r2 >= 0.5; C2 attenuation_ratio >=0.5 (agent-caused residual < env-caused); SNR (mean_r2 - r2_none_baseline) positive. experiment_purpose=evidence.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-23T23:23:48.457890+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-449b",
