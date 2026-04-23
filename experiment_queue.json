@@ -8,13 +8,13 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-447",
+      "queue_id": "V3-EXQ-447a",
       "title": "SD-032d PCC-analog metastability scalar -- substrate validation (deterministic arithmetic + agent integration)",
       "experiment_type": "v3_exq_447_sd032d_pcc_stability",
       "script": "experiments/v3_exq_447_sd032d_pcc_stability.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "claimed",
+      "status": "pending",
       "estimated_minutes": 2,
       "seeds": 1,
       "conditions": 8,
@@ -22,80 +22,45 @@
         "SD-032d",
         "MECH-259"
       ],
-      "notes": "Substrate validation for SD-032d PCC-analog (IMPLEMENTED 2026-04-19). SD-032d is non-trainable arithmetic, so primary validation is deterministic API + arithmetic checks. C1 baseline_neutral: stability within 0.01 of baseline=0.5 with all-neutral inputs. C2 fatigue_monotone: stability strictly decreasing across drive_level 0.0/0.5/1.0 (falsification-signature direct test). C3 offline_recency_monotone: stability decreasing as steps_since_offline grows 0/250/500/1000 (saturates at window). C4 offline_reset_hook: note_offline_entry resets counter + restores stability. C5 success_ema_convergence: ema > 0.95 after 200 outcomes at alpha=0.02. C6 threshold_modulation: SalienceCoordinator effective_threshold strictly increasing in pcc_stability across 0.1/0.5/0.9 (MECH-259 wiring confirmed). C7 agent_integration: REEAgent select_action populates _pcc_last_tick AND injects pcc_stability into coordinator before tick. C8 backward_compat: use_pcc_analog=False -> agent.pcc is None and convenience hooks no-op. PASS = all 8 checks. Behavioural falsification of rest-driven mode-switch-rate signature requires combined SD-032a+SD-032c+SD-032d 4-arm 2x2 follow-up once cluster fully landed. experiment_purpose=diagnostic.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-04-19T21:23:12.981276+00:00"
-      }
+      "notes": "[Renamed from V3-EXQ-447 2026-04-23 per silent-re-queue guard; script was updated, prior run ID re-used inadvertently] Substrate validation for SD-032d PCC-analog (IMPLEMENTED 2026-04-19). SD-032d is non-trainable arithmetic, so primary validation is deterministic API + arithmetic checks. C1 baseline_neutral: stability within 0.01 of baseline=0.5 with all-neutral inputs. C2 fatigue_monotone: stability strictly decreasing across drive_level 0.0/0.5/1.0 (falsification-signature direct test). C3 offline_recency_monotone: stability decreasing as steps_since_offline grows 0/250/500/1000 (saturates at window). C4 offline_reset_hook: note_offline_entry resets counter + restores stability. C5 success_ema_convergence: ema > 0.95 after 200 outcomes at alpha=0.02. C6 threshold_modulation: SalienceCoordinator effective_threshold strictly increasing in pcc_stability across 0.1/0.5/0.9 (MECH-259 wiring confirmed). C7 agent_integration: REEAgent select_action populates _pcc_last_tick AND injects pcc_stability into coordinator before tick. C8 backward_compat: use_pcc_analog=False -> agent.pcc is None and convenience hooks no-op. PASS = all 8 checks. Behavioural falsification of rest-driven mode-switch-rate signature requires combined SD-032a+SD-032c+SD-032d 4-arm 2x2 follow-up once cluster fully landed. experiment_purpose=diagnostic."
     },
     {
-      "queue_id": "V3-EXQ-451",
+      "queue_id": "V3-EXQ-451a",
       "title": "Q-034 hazard/resource threshold retest (supersedes V3-EXQ-288 criteria_null)",
       "experiment_type": "v3_exq_451_q034_hazard_resource_threshold_retest",
       "script": "experiments/v3_exq_451_q034_hazard_resource_threshold_retest.py",
       "priority": 60,
       "machine_affinity": "any",
-      "status": "claimed",
+      "status": "pending",
       "estimated_minutes": 215,
       "episodes_per_run": 60,
       "seeds": 2,
       "conditions": 15,
-      "supersedes": "V3-EXQ-288",
+      "supersedes": "V3-EXQ-451",
       "claim_ids": [
         "Q-034"
       ],
-      "notes": "Retest of V3-EXQ-288 (criteria_null). Tightened design with direct goal_reach/harm_exposure/entropy per grid point. 5x3 grid: hazard_density in {0.05,0.10,0.15,0.20,0.25} x resource_density in {0.04,0.08,0.12} = 15 points x 2 seeds = 30 runs, 30 warmup + 30 eval eps each at 200 steps. Uses SD-018 resource_proximity_head and SD-012 drive_weight=2.0 (post-288 substrate). Acceptance: C1 goal_reach monotonically decreasing in hazard_density within >=2/3 resource-density columns; C2 at least one grid point where goal_reach crosses 0.5; C3 all 15 points complete with non-null metrics (the criteria_null fix); C4 avoidance signature at high-hazard/low-resource (diagnostic). PASS = C1 AND C2 AND C3. experiment_purpose=evidence. supersedes V3-EXQ-288.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-20T14:39:52.365792+00:00"
-      }
+      "notes": "[Renamed from V3-EXQ-451 2026-04-23 per silent-re-queue guard; script was updated, prior run ID re-used inadvertently] Retest of V3-EXQ-288 (criteria_null). Tightened design with direct goal_reach/harm_exposure/entropy per grid point. 5x3 grid: hazard_density in {0.05,0.10,0.15,0.20,0.25} x resource_density in {0.04,0.08,0.12} = 15 points x 2 seeds = 30 runs, 30 warmup + 30 eval eps each at 200 steps. Uses SD-018 resource_proximity_head and SD-012 drive_weight=2.0 (post-288 substrate). Acceptance: C1 goal_reach monotonically decreasing in hazard_density within >=2/3 resource-density columns; C2 at least one grid point where goal_reach crosses 0.5; C3 all 15 points complete with non-null metrics (the criteria_null fix); C4 avoidance signature at high-hazard/low-resource (diagnostic). PASS = C1 AND C2 AND C3. experiment_purpose=evidence. supersedes V3-EXQ-288."
     },
     {
-      "queue_id": "V3-EXQ-445a",
+      "queue_id": "V3-EXQ-445e",
       "title": "SD-032b dACC full pipeline -- E3 harm_eval + terrain trained, terrain fix: min-residue candidate",
       "experiment_type": "v3_exq_445a_sd032b_dacc_full_pipeline",
       "script": "experiments/v3_exq_445a_sd032b_dacc_full_pipeline.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "claimed",
+      "status": "pending",
       "estimated_minutes": 200,
       "episodes_per_run": 280,
       "seeds": 3,
       "conditions": 2,
-      "supersedes": "V3-EXQ-445",
+      "supersedes": "V3-EXQ-445a",
       "claim_ids": [
         "SD-032b",
         "MECH-258",
         "MECH-260"
       ],
-      "notes": "Full-pipeline fix for EXQ-445 monostrategy collapse (root cause: E3 never trained; untrained E3 always selects same action -> entropy=0). Fix: P0 trains E1, E3 harm_eval, terrain_prior (min-residue candidate, not E3-selected), and world-forward. P1 trains E2_harm_a on frozen encoder. P2 eval with pure policy. Also fixes terrain_prior inversion (from ARC-007 diagnosis): terrain trained on minimum-residue candidate from candidate set, not E3's selected trajectory. 3 seeds x 2 conditions (OFF vs ON_INDEPENDENT) x 280 eps x 120 steps. PASS: C1 harm_a_forward_r2>=0.3 in >=2/3 seeds; C2 |entropy_ON - entropy_OFF|>=0.1 in >=2/3 seeds; C3 ON entropy >= OFF entropy in >=2/3 seeds. experiment_purpose=evidence.",
-      "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-20T23:29:31.054817+00:00"
-      }
-    },
-    {
-      "queue_id": "V3-EXQ-397d",
-      "title": "ARC-007 path-memory ablation: matched-endpoint metric redesign (supersedes V3-EXQ-397c)",
-      "experiment_type": "v3_exq_397d_arc007_matched_endpoint",
-      "script": "experiments/v3_exq_397d_arc007_matched_endpoint.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "episodes_per_run": 930,
-      "seeds": 1,
-      "conditions": 3,
-      "supersedes": "V3-EXQ-397c",
-      "claim_ids": [
-        "ARC-007",
-        "SD-004"
-      ],
-      "notes": "Metric-redesign successor to V3-EXQ-397c (FAILed 2x with hippo_quality_gap ~ -1.64 at bit-identical determinism). Diagnostic 2026-04-23 confirmed: (a) terrain-training fix IS wired into backprop (F.mse_loss(ao_mean_pred, best_ao.detach()).backward() on terrain_prior + action_object_decoder); (b) input distributions match between training and inference (both theta_buffer.summary()); (c) terrain_loss 0.34 -> 3e-6 is self-referential distribution collapse (training target drawn from CEM pool seeded by terrain_prior itself); (d) the negative quality_gap is a METRIC CONFOUND, not an architectural bug. In resource-hazard-colocated envs, residue RBFs accumulate at cells visited during harm (goal-adjacent by env design), so hippo trajectories correctly projecting toward goals TRAVERSE residue-dense regions while random E2 rollouts stay near the current (residue-sparse) z_world. Previous metric (unpaired mean trajectory residue) conflates destination-choice with path-choice. EXQ-397d replaces the eval: at each E3 tick, collect K hippo + K random candidates from the SAME initial (z_self, z_world); for each hippo candidate, pair it with the random candidate whose terminal z_world is closest by L2; compare mean per-step residue along paired paths. matched_gap = matched_random_residue - matched_hippo_residue (positive = hippo chooses lower-residue path to same destination). Training infrastructure inherits EXQ-397c fixes (min-residue candidate terrain target, 16x16 hazard=6 resource=3 sparse env, 800 warmup). PASS: C1 matched_gap_intact > 0, C2 matched_gap_ablated <= 0.5*intact, C3 matched_gap_restored >= ablated, C4 calibration_gap_approach > 0.03, C5 no fatal errors. ARC-007 behavioural evidence via EXQ-114 (99.2% harm reduction MAP_NAV vs MAP_ABLATED) is unaffected by this metric-redesign pass. experiment_purpose=evidence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-23T17:40:11.072432+00:00"
-      }
+      "notes": "[Renamed from V3-EXQ-445a 2026-04-23 per silent-re-queue guard; script was updated, prior run ID re-used inadvertently] Full-pipeline fix for EXQ-445 monostrategy collapse (root cause: E3 never trained; untrained E3 always selects same action -> entropy=0). Fix: P0 trains E1, E3 harm_eval, terrain_prior (min-residue candidate, not E3-selected), and world-forward. P1 trains E2_harm_a on frozen encoder. P2 eval with pure policy. Also fixes terrain_prior inversion (from ARC-007 diagnosis): terrain trained on minimum-residue candidate from candidate set, not E3's selected trajectory. 3 seeds x 2 conditions (OFF vs ON_INDEPENDENT) x 280 eps x 120 steps. PASS: C1 harm_a_forward_r2>=0.3 in >=2/3 seeds; C2 |entropy_ON - entropy_OFF|>=0.1 in >=2/3 seeds; C3 ON entropy >= OFF entropy in >=2/3 seeds. experiment_purpose=evidence."
     },
     {
       "queue_id": "V3-EXQ-476",
@@ -228,7 +193,7 @@
       "notes": "Verification of the SD-016 cue_action_proj consumer fix. EXQ-449a localised the collapse to a uniform-attention bottleneck inside extract_cue_context: ContextMemory slots init at randn*0.01 so key_proj's bias dominates, all keys look identical, softmax = uniform (entropy=ln(num_slots)=2.7726), bmm(uniform, v) = mean(v) is constant across batch -> cue_context constant -> cue_action_proj output had per-channel std ~2.7e-8 in g2. Fix (predictors/e1_deep.py): cue_action_proj input changed from cue_context (latent_dim=64) to [cue_context, z_world] (concat, latent_dim+world_dim=64+32=96). Guarantees non-collapsed input path even when attention degenerates. cue_terrain_proj left unchanged (terrain_loss already trains it; not the bottleneck). Same three-regime protocol as 449a (g1 supervised-active, g2 frozen, g3 detach-bypassed). Acceptance pivots from 'find the offender' to 'verify the offender is gone': PRIMARY P1 g2 action_bias_per_channel_std > 1e-3 (was 2.7e-8); SECONDARY S1 g2 action_bias_norm_mean > 1e-3, S2 supervised target sanity >=80% coverage, S3 (bonus) g2 action_bias_div > 0.05. PASS = P1 AND S1 AND S2. Smoke-test 2026-04-23 dry-run (P0=2 P1=3 eval=4 ep): g2 per-channel std 2.957e-3, primary_pass=True. experiment_purpose=diagnostic (excluded from governance scoring). Unblocks EXQ-418b downstream."
     },
     {
-      "queue_id": "V3-EXQ-418b",
+      "queue_id": "V3-EXQ-418c",
       "title": "SD-016+SD-017 context-conditioned action with cue_action_proj consumer fix (supersedes V3-EXQ-418a)",
       "experiment_type": "v3_exq_418a_sd016_sd017_context_conditioned_action",
       "script": "experiments/v3_exq_418a_sd016_sd017_context_conditioned_action.py",
@@ -239,11 +204,11 @@
       "episodes_per_run": 200,
       "seeds": 3,
       "conditions": 2,
-      "supersedes": "V3-EXQ-418a",
+      "supersedes": "V3-EXQ-418b",
       "claim_ids": [
         "SD-017"
       ],
-      "notes": "Re-run of EXQ-418a now that the SD-016 cue_action_proj consumer fix has landed (predictors/e1_deep.py: cue_action_proj consumes [cue_context, z_world] instead of cue_context alone -- breaks the uniform-attention collapse identified by EXQ-449a and verified gone by EXQ-449b). EXQ-418/418a previously FAILed three times with action_bias_divergence=0.0; the consumer collapse is now removed at the substrate. This re-run uses the SAME script as 418a (no script changes required -- the fix is upstream in e1_deep.py and is enabled when sd016_enabled=True, which 418a already sets). Expectation: action_bias now carries per-input variation (verified in 449b smoke at per-channel std 2.957e-3) so the SD-017 context-conditioned-action gate has a non-collapsed input to act on. PASS criteria inherited from 418a. If this still FAILs, the blocker is downstream of cue_action_proj (in hippocampal proposal scoring or E2 action_object consumption), not in the SD-016 substrate itself."
+      "notes": "[Renamed from V3-EXQ-418b 2026-04-23 per silent-re-queue guard; script was updated, prior run ID re-used inadvertently] Re-run of EXQ-418a now that the SD-016 cue_action_proj consumer fix has landed (predictors/e1_deep.py: cue_action_proj consumes [cue_context, z_world] instead of cue_context alone -- breaks the uniform-attention collapse identified by EXQ-449a and verified gone by EXQ-449b). EXQ-418/418a previously FAILed three times with action_bias_divergence=0.0; the consumer collapse is now removed at the substrate. This re-run uses the SAME script as 418a (no script changes required -- the fix is upstream in e1_deep.py and is enabled when sd016_enabled=True, which 418a already sets). Expectation: action_bias now carries per-input variation (verified in 449b smoke at per-channel std 2.957e-3) so the SD-017 context-conditioned-action gate has a non-collapsed input to act on. PASS criteria inherited from 418a. If this still FAILs, the blocker is downstream of cue_action_proj (in hippocampal proposal scoring or E2 action_object consumption), not in the SD-016 substrate itself."
     }
   ]
 }
