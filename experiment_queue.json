@@ -8,30 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-445e",
-      "title": "SD-032b dACC full pipeline -- E3 harm_eval + terrain trained, terrain fix: min-residue candidate",
-      "experiment_type": "v3_exq_445a_sd032b_dacc_full_pipeline",
-      "script": "experiments/v3_exq_445a_sd032b_dacc_full_pipeline.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 200,
-      "episodes_per_run": 280,
-      "seeds": 3,
-      "conditions": 2,
-      "supersedes": "V3-EXQ-445a",
-      "claim_ids": [
-        "SD-032b",
-        "MECH-258",
-        "MECH-260"
-      ],
-      "notes": "[Renamed from V3-EXQ-445a 2026-04-23 per silent-re-queue guard; script was updated, prior run ID re-used inadvertently] Full-pipeline fix for EXQ-445 monostrategy collapse (root cause: E3 never trained; untrained E3 always selects same action -> entropy=0). Fix: P0 trains E1, E3 harm_eval, terrain_prior (min-residue candidate, not E3-selected), and world-forward. P1 trains E2_harm_a on frozen encoder. P2 eval with pure policy. Also fixes terrain_prior inversion (from ARC-007 diagnosis): terrain trained on minimum-residue candidate from candidate set, not E3's selected trajectory. 3 seeds x 2 conditions (OFF vs ON_INDEPENDENT) x 280 eps x 120 steps. PASS: C1 harm_a_forward_r2>=0.3 in >=2/3 seeds; C2 |entropy_ON - entropy_OFF|>=0.1 in >=2/3 seeds; C3 ON entropy >= OFF entropy in >=2/3 seeds. experiment_purpose=evidence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-23T20:46:36.191134+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-476",
       "title": "MECH-269 V_s validation entropy probe -- cascade gate",
       "experiment_type": "v3_exq_476_mech269_vs_validation_probe",
