@@ -26,28 +26,6 @@
       "notes": "Gate for V_s-gated cascade (EXQ-445d / EXQ-449c / EXQ-455a). Baseline agent + V_s flags ON vs OFF. Measure action_class_entropy. PASS = ON entropy > OFF entropy by >=0.1 in >=2/2 seeds. FAIL/INCONCLUSIVE = MECH-284 Phase 3 consumer must land before downstream cascade can be run. experiment_purpose=diagnostic."
     },
     {
-      "queue_id": "V3-EXQ-418c",
-      "title": "SD-016+SD-017 context-conditioned action with cue_action_proj consumer fix (supersedes V3-EXQ-418a)",
-      "experiment_type": "v3_exq_418a_sd016_sd017_context_conditioned_action",
-      "script": "experiments/v3_exq_418a_sd016_sd017_context_conditioned_action.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 60,
-      "episodes_per_run": 200,
-      "seeds": 3,
-      "conditions": 2,
-      "supersedes": "V3-EXQ-418b",
-      "claim_ids": [
-        "SD-017"
-      ],
-      "notes": "[Renamed from V3-EXQ-418b 2026-04-23 per silent-re-queue guard; script was updated, prior run ID re-used inadvertently] Re-run of EXQ-418a now that the SD-016 cue_action_proj consumer fix has landed (predictors/e1_deep.py: cue_action_proj consumes [cue_context, z_world] instead of cue_context alone -- breaks the uniform-attention collapse identified by EXQ-449a and verified gone by EXQ-449b). EXQ-418/418a previously FAILed three times with action_bias_divergence=0.0; the consumer collapse is now removed at the substrate. This re-run uses the SAME script as 418a (no script changes required -- the fix is upstream in e1_deep.py and is enabled when sd016_enabled=True, which 418a already sets). Expectation: action_bias now carries per-input variation (verified in 449b smoke at per-channel std 2.957e-3) so the SD-017 context-conditioned-action gate has a non-collapsed input to act on. PASS criteria inherited from 418a. If this still FAILs, the blocker is downstream of cue_action_proj (in hippocampal proposal scoring or E2 action_object consumption), not in the SD-016 substrate itself.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-24T02:18:03.853547+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-137",
       "title": "MECH-097 PPS Commit Locus: PPS_LOCUS_ON vs ABLATED (2 seeds)",
       "experiment_type": "v3_exq_137_mech097_pps_commit_locus_pair",
