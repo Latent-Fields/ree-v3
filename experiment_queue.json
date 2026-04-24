@@ -32,7 +32,7 @@
       "script": "experiments/v3_exq_449c_mech074b_bla_retrieval_bias.py",
       "priority": 50,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 150,
       "seeds": 3,
       "conditions": 2,
@@ -40,7 +40,11 @@
       "claim_ids": [
         "MECH-074b"
       ],
-      "notes": "Gated on V3-EXQ-445d PASS. Measures whether BLAAnalog retrieval-bias ON vs OFF increases action_class_entropy by >=0.1 and reduces harm_rate in >=2/3 seeds. BLA retrieval_bias is the content-selective per-trace weighting (LaBar & Cabeza 2006); needs upstream V_s cascade to have broken monostrategy before bias effects are observable. experiment_purpose=evidence."
+      "notes": "Gated on V3-EXQ-445d PASS. Measures whether BLAAnalog retrieval-bias ON vs OFF increases action_class_entropy by >=0.1 and reduces harm_rate in >=2/3 seeds. BLA retrieval_bias is the content-selective per-trace weighting (LaBar & Cabeza 2006); needs upstream V_s cascade to have broken monostrategy before bias effects are observable. experiment_purpose=evidence.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-24T02:18:00.789411+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-418c",
