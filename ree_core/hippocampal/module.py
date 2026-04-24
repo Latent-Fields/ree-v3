@@ -48,6 +48,7 @@ from ree_core.regulators.invalidation_trigger import (
     InvalidationTrigger,
 )
 from ree_core.hippocampal.anchor_set import AnchorSet
+from ree_core.hippocampal.staleness_accumulator import StalenessAccumulator
 
 
 class HippocampalModule(nn.Module):
@@ -222,6 +223,24 @@ class HippocampalModule(nn.Module):
                     "anchor_set config is None"
                 )
             self.anchor_set = AnchorSet(anchor_cfg)
+
+        # MECH-284 Phase 3: region-indexed V_s residual staleness accumulator.
+        # Consumes MECH-287 BroadcastEvents and credits them across the
+        # currently-active anchor set with an attribution_weight. Keyed on
+        # (scale, segment_id) to match the per_region_vs readout partition.
+        # When use_mech284_hysteresis is additionally True, AnchorSet
+        # tick_hysteresis() is given a staleness_lookup callable that reads
+        # from this accumulator instead of the internal
+        # (tick - last_accessed) * staleness_rate proxy.
+        self.staleness_accumulator: Optional[StalenessAccumulator] = None
+        if getattr(config, "use_staleness_accumulator", False):
+            sa_cfg = getattr(config, "staleness_accumulator", None)
+            if sa_cfg is None:
+                raise ValueError(
+                    "HippocampalConfig.use_staleness_accumulator=True but "
+                    "staleness_accumulator config is None"
+                )
+            self.staleness_accumulator = StalenessAccumulator(sa_cfg)
 
     def drain_boundary_events(self) -> List[BoundaryEvent]:
         """Return and clear all queued boundary events from MECH-288.
@@ -1069,6 +1088,18 @@ class HippocampalModule(nn.Module):
         active anchors against the current per_stream_vs scores. No-op
         when use_anchor_sets is False.
 
+        MECH-284 Phase 3 integration (when use_staleness_accumulator is
+        True): between consume_boundary_events and tick_hysteresis,
+        integrate this tick's queued MECH-287 BroadcastEvents across the
+        post-consume active anchor set and apply the per-tick leak. When
+        use_mech284_hysteresis is additionally True, tick_hysteresis is
+        given a staleness_lookup callable reading from the accumulator
+        (projection: AnchorKey -> RegionKey -> staleness). With only
+        use_staleness_accumulator on, the accumulator is populated as a
+        diagnostic but hysteresis stays on the internal proxy. This
+        ordering (consume -> integrate -> hysteresis) means this-tick
+        broadcasts affect this-tick V_s_anchor checks.
+
         Intended caller: REEAgent.sense(), invoked after the event segmenter
         queues BoundaryEvents and after update_per_stream_vs has populated
         per_stream_vs for the current tick.
@@ -1083,12 +1114,60 @@ class HippocampalModule(nn.Module):
                 z_world=z_world,
                 stream_mixture=mixture,
             )
-        self.anchor_set.tick_hysteresis(self.per_stream_vs)
+
+        if self.staleness_accumulator is not None:
+            broadcasts = list(self._broadcast_event_queue)
+            active = self.anchor_set.active_anchors()
+            if broadcasts and active:
+                self.staleness_accumulator.integrate(broadcasts, active)
+            self.staleness_accumulator.tick_leak()
+
+        staleness_lookup = None
+        if (
+            getattr(self.config, "use_mech284_hysteresis", False)
+            and self.staleness_accumulator is not None
+        ):
+            staleness_lookup = self.staleness_accumulator.lookup_by_anchor_key
+        self.anchor_set.tick_hysteresis(
+            self.per_stream_vs, staleness_lookup=staleness_lookup
+        )
 
     def reset_anchor_set(self) -> None:
         """Per-episode reset of the MECH-269 anchor set. No-op when disabled."""
         if self.anchor_set is not None:
             self.anchor_set.reset()
+
+    def integrate_staleness(
+        self,
+        broadcasts: List[BroadcastEvent],
+    ) -> None:
+        """MECH-284 Phase 3: credit broadcasts across the active anchor set.
+
+        Called from REEAgent.sense() after the MECH-287 trigger has
+        queued BroadcastEvents for this tick and after
+        update_per_stream_vs / tick_anchor_set have populated the current
+        active anchor set. The accumulator:
+          - credits each broadcast's strength across active anchors via
+            the configured attribution_weight ("equal" or "stream_overlap")
+          - applies a per-tick leak to all region entries
+        No-op when use_staleness_accumulator is False. When the
+        AnchorSet is disabled the integration becomes a leak-only tick.
+        """
+        if self.staleness_accumulator is None:
+            return
+        active = (
+            self.anchor_set.active_anchors()
+            if self.anchor_set is not None
+            else []
+        )
+        if broadcasts and active:
+            self.staleness_accumulator.integrate(broadcasts, active)
+        self.staleness_accumulator.tick_leak()
+
+    def reset_staleness_accumulator(self) -> None:
+        """Per-episode reset of the MECH-284 staleness accumulator. No-op when disabled."""
+        if self.staleness_accumulator is not None:
+            self.staleness_accumulator.reset()
 
     def forward(
         self,

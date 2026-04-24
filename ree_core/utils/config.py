@@ -460,6 +460,39 @@ class AnchorSetConfig:
 
 
 @dataclass
+class StalenessAccumulatorConfig:
+    """MECH-284 Phase 3 staleness-accumulator configuration.
+
+    Region-indexed scalar accumulator. Integrates MECH-287 BroadcastEvents
+    with an attribution_weight credit assignment over the active anchor set
+    and leaks per tick. Read as the staleness term in MECH-269's
+    V_s_anchor = V_s(r) - staleness[r] hysteresis check (online read-out).
+    The MECH-285 offline sleep-priority read-out is deferred.
+
+    Fields:
+      leak_factor:       per-tick multiplicative decay applied to all
+                         region entries. 0.995 ~= 200-tick half-life.
+      attribution_mode:  "equal" (default) divides strength uniformly
+                         across the active anchor set; "stream_overlap"
+                         weights each anchor by |set(source_sources) &
+                         set(stream_mixture)| / max(|source_sources|, 1)
+                         -- a cheap cosine-similarity surrogate over
+                         stream-name sets.
+      staleness_clip:    maximum per-region staleness. Matches AnchorSet
+                         proxy range so V_s_anchor math stays in [-1, 1].
+      drop_epsilon:      entries below this after leak_factor are removed
+                         from the map to keep snapshot() bounded.
+
+    Backward compatible: consumer code gates on
+    HippocampalConfig.use_staleness_accumulator.
+    """
+    leak_factor: float = 0.995
+    attribution_mode: str = "equal"   # "equal" | "stream_overlap"
+    staleness_clip: float = 1.0
+    drop_epsilon: float = 1e-6
+
+
+@dataclass
 class HippocampalConfig:
     """Configuration for HippocampalModule.
 
@@ -555,6 +588,24 @@ class HippocampalConfig:
     # anchor with k=5 hysteresis semantics (T3 logic). Backward
     # compatible: disabled by default.
     use_per_region_vs: bool = False
+
+    # MECH-284 Phase 3: region-indexed staleness accumulator. Integrates
+    # MECH-287 BroadcastEvents against the active anchor set, leaks per
+    # tick, and is read by MECH-269 online anchor-reset hysteresis (when
+    # use_mech284_hysteresis is also True). Backward compatible: disabled
+    # by default; when off, StalenessAccumulator is None and hysteresis
+    # uses the Phase 2 internal tick-delta proxy unchanged.
+    use_staleness_accumulator: bool = False
+    staleness_accumulator: StalenessAccumulatorConfig = field(
+        default_factory=StalenessAccumulatorConfig
+    )
+    # MECH-269 Phase 3: switch AnchorSet.tick_hysteresis to consume the
+    # MECH-284 staleness accumulator instead of its internal
+    # (tick - last_accessed) * staleness_rate proxy. Only meaningful when
+    # use_staleness_accumulator is also True; otherwise the hysteresis
+    # lookup sees a zero-staleness accumulator and behaves identically to
+    # the flag being off (V_s_anchor = V_s - 0).
+    use_mech284_hysteresis: bool = False
 
     # MECH-290: backward trajectory credit sweep at goal arrival.
     # Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay
@@ -1382,6 +1433,8 @@ class REEConfig:
         use_invalidation_trigger: bool = False,
         use_anchor_sets: bool = False,
         use_per_region_vs: bool = False,
+        use_staleness_accumulator: bool = False,
+        use_mech284_hysteresis: bool = False,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -1679,6 +1732,8 @@ class REEConfig:
         config.hippocampal.use_invalidation_trigger = use_invalidation_trigger
         config.hippocampal.use_anchor_sets = use_anchor_sets
         config.hippocampal.use_per_region_vs = use_per_region_vs
+        config.hippocampal.use_staleness_accumulator = use_staleness_accumulator
+        config.hippocampal.use_mech284_hysteresis = use_mech284_hysteresis
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep

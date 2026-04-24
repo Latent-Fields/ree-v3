@@ -691,6 +691,14 @@ class REEAgent(nn.Module):
         ):
             self.hippocampal.reset_anchor_set()
 
+        # MECH-284 Phase 3: reset staleness accumulator on episode boundary
+        # (region map, diagnostic counters). No-op when
+        # use_staleness_accumulator is False.
+        if self.hippocampal is not None and getattr(
+            self.hippocampal.config, "use_staleness_accumulator", False
+        ):
+            self.hippocampal.reset_staleness_accumulator()
+
         # MECH-290: clear committed trajectory buffer on episode boundary so a
         # stale trajectory from the previous episode cannot be swept on the
         # first completion of the new one. No-op when use_backward_credit_sweep

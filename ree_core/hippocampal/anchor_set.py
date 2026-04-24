@@ -44,7 +44,7 @@ MECH-094 gate:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
 
@@ -189,7 +189,11 @@ class AnchorSet:
     # ------------------------------------------------------------------ #
     # Per-tick hysteresis                                                #
     # ------------------------------------------------------------------ #
-    def tick_hysteresis(self, per_stream_vs: Dict[str, float]) -> List[Anchor]:
+    def tick_hysteresis(
+        self,
+        per_stream_vs: Dict[str, float],
+        staleness_lookup: Optional[Callable[[AnchorKey], float]] = None,
+    ) -> List[Anchor]:
         """Advance staleness + hysteresis counters on all active anchors.
 
         For each active anchor:
@@ -199,6 +203,13 @@ class AnchorSet:
         else reset it to 0. When the streak reaches hysteresis_k, the
         anchor is marked inactive and returned (caller installs the new
         active anchor via the boundary-event path).
+
+        When staleness_lookup is provided (MECH-284 Phase 3 wiring), the
+        per-anchor staleness is read from the supplied callable instead of
+        the internal (tick - last_accessed) * staleness_rate proxy. The
+        callable receives the anchor's full AnchorKey and returns a
+        float in [0, staleness_clip]; values above staleness_clip are
+        clamped for parity with the internal-proxy path.
 
         Returns: list of anchors that crossed the hysteresis threshold
         this tick (freshly marked inactive).
@@ -214,10 +225,16 @@ class AnchorSet:
                 anchor.below_threshold_streak = 0
                 continue
             avg_v_s = sum(v_s_vals) / len(v_s_vals)
-            staleness = min(
-                cfg.staleness_clip,
-                (self._tick - anchor.last_accessed) * cfg.staleness_rate,
-            )
+            if staleness_lookup is not None:
+                staleness = min(
+                    cfg.staleness_clip,
+                    float(staleness_lookup(anchor.key)),
+                )
+            else:
+                staleness = min(
+                    cfg.staleness_clip,
+                    (self._tick - anchor.last_accessed) * cfg.staleness_rate,
+                )
             v_s_anchor = avg_v_s - staleness
             if v_s_anchor < cfg.reset_threshold:
                 anchor.below_threshold_streak += 1
