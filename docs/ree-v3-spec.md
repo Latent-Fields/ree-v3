@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-04-23
+**Last updated:** 2026-04-24
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-04-23)
+## 0. Current V3 State (2026-04-24)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -110,29 +110,75 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   MECH-269 Phase 2 ii AnchorSet; MECH-269 Phase 2 iii T4 per-region V_s) all
   landing-diagnostic PASS via contract tests (85/85) and activation smokes. A fresh
   indexer rebuild is pending after this cycle's wave of results.
-- **Currently queued (2026-04-23, 3 items -- all claimed):** V3-EXQ-447 (SD-032d
-  deterministic validation, claimed ree-cloud-2 2026-04-19); V3-EXQ-451 (Q-034
-  hazard/resource threshold retest, supersedes V3-EXQ-288, claimed EWIN-PC 2026-04-20);
-  V3-EXQ-445a (SD-032b dACC full-pipeline fix for EXQ-445 monostrategy collapse +
-  terrain-prior inversion, claimed EWIN-PC 2026-04-20). The 2026-04-22 V_s invalidation
-  runtime wave (SD-036, MECH-279, MECH-269 Phase 1/2 ii/2 iii T4, MECH-288, MECH-287)
-  landed via contract tests + activation smokes only; the combined-cluster end-to-end
-  validation (V3-EXQ-476 -- full circuit re-run of EXQ-475) is planned but not yet
-  queued. The heavy queue drain since the 2026-04-21 snapshot reflects resolution of
-  the SD-034 / MECH-267 / MECH-268 landing smokes, V3-EXQ-456 (SD-033a landing),
-  SD-035 EXQ-473/474, and several SD-032 cluster variants (V3-EXQ-445b/c,
-  V3-EXQ-449a, V3-EXQ-452/453/454, V3-EXQ-325d) landing as PASS/FAIL entries in
-  runner_status.json.
-- **Current bottleneck:** SD-032 cluster behavioural follow-through remains the primary
-  first-paper-gate blocker -- V3-EXQ-445a (full-pipeline fix for the monostrategy +
-  terrain-prior inversion observed in V3-EXQ-445) is the decisive test still in flight
-  on EWIN-PC, and V3-EXQ-445b (epsilon-greedy exploration variant) / V3-EXQ-445c
-  (14x14 env variant) have both since FAILed. V3-EXQ-325d FAILed with zero between-arm
-  gradient, leaving the SD-032c AIC-analog descending-modulation falsification signature
-  open. V3-EXQ-454 FAILed on ARC-016 adaptive commitment_threshold under the 2026-04-20
-  harness. The SD-003 successor track (V3-EXQ-433a MECH-256/SD-029 FAIL, V3-EXQ-452
-  MECH-257 dual-function E2 diagnostic FAIL) and ARC-007 path-memory track (V3-EXQ-397c
-  ARC-007 harder-env + terrain fix still claimed on DLAPTOP-4.local) are both alive.
+- **Currently queued (2026-04-24, 6 items -- 1 claimed, 5 pending):**
+  - **V3-EXQ-476** (pending, priority 70, MECH-269 V_s validation entropy probe --
+    cascade gate; baseline agent + V_s flags ON vs OFF, action_class_entropy measure;
+    PASS = ON entropy > OFF entropy by >=0.1 in >=2/2 seeds; 30 min; `diagnostic`).
+    This is the cascade gate for the V_s-gated cascade track (EXQ-445d / EXQ-449c /
+    EXQ-455a); FAIL/INCONCLUSIVE means MECH-284 Phase 3 consumer must land before
+    downstream cascade can run. Queued 2026-04-24 -- previously listed as "planned
+    but not yet queued" in the 2026-04-23 snapshot.
+  - **V3-EXQ-449c** (pending, priority 50, `depends_on: V3-EXQ-445d`, MECH-074b
+    BLA retrieval bias V_s-gated; BLAAnalog retrieval-bias ON vs OFF; PASS =
+    action_class_entropy ON - OFF >= 0.1 AND harm_rate reduced in >=2/3 seeds;
+    `evidence`; 150 min).
+  - **V3-EXQ-433c** (**claimed DLAPTOP-4.local 2026-04-23T23:23:48Z**, priority 55,
+    SD-029 event-conditioned MECH-256 comparator with curriculum ON + scripted
+    agent-caused elicitation; supersedes V3-EXQ-433b). Fix to the agent_caused_hazard
+    trials-collected shortage: SD-029 curriculum enabled in P0 / P1 / eval;
+    deterministic move onto adjacent hazard when agent-caused trial count short;
+    C0 sufficiency gate (n_agent / n_env >= 20 in >=3/4 seeds) -- if C0 fails,
+    outcome=FAIL but per-claim `evidence_direction='inconclusive_insufficient_events'`
+    (not 'weakens') so governance scores are not corrupted by a trials-shortage
+    run. 4 seeds x 400 eps; `evidence`; 90 min.
+  - **V3-EXQ-449b** (pending, priority 52, SD-016 cue_action_proj consumer fix
+    verification; supersedes V3-EXQ-449a). Verifies the SD-016 cue_action_proj
+    consumer fix (predictors/e1_deep.py: cue_action_proj input changed from
+    cue_context alone to `[cue_context, z_world]` concat to break the
+    uniform-attention collapse localised by EXQ-449a). Three-regime protocol
+    (g1 supervised-active, g2 frozen, g3 detach-bypassed); primary P1 =
+    g2 action_bias_per_channel_std > 1e-3 (was 2.7e-8). Smoke-test 2026-04-23
+    dry-run g2 per-channel std = 2.957e-3, primary_pass=True. 1 seed,
+    75 eps/run; `diagnostic` (excluded from governance scoring); 30 min.
+    Unblocks V3-EXQ-418c.
+  - **V3-EXQ-418c** (pending, priority 50, SD-016+SD-017 context-conditioned
+    action with cue_action_proj consumer fix; supersedes V3-EXQ-418b).
+    Re-run of EXQ-418a now that the SD-016 cue_action_proj consumer fix has
+    landed -- the substrate is enabled via `sd016_enabled=True` (which 418a
+    already sets), so the same script is reused with the upstream fix active.
+    3 seeds x 200 eps; `evidence`; 60 min.
+  - **V3-EXQ-137** (pending, priority 40, MECH-097 PPS commit locus:
+    PPS_LOCUS_ON vs ABLATED). Backlog-queue item EVB-0137; instrumentation
+    fixed 2026-04-24 (verdict print, outcome field, timestamp_utc,
+    EXPERIMENT_PURPOSE); smoke-test PASS. 1 seed x 400 eps; `evidence`;
+    180 min.
+  The 2026-04-22 V_s invalidation runtime wave (SD-036, MECH-279, MECH-269
+  Phase 1/2 ii/2 iii T4, MECH-288, MECH-287) landed via contract tests +
+  activation smokes only; V3-EXQ-476 is the combined-cluster end-to-end
+  validation and is now queued. The heavy queue drain since the 2026-04-21
+  snapshot reflects resolution of the SD-034 / MECH-267 / MECH-268 landing
+  smokes, V3-EXQ-456 (SD-033a landing), SD-035 EXQ-473/474, and several
+  SD-032 cluster variants (V3-EXQ-445b/c, V3-EXQ-449a, V3-EXQ-452/453/454,
+  V3-EXQ-325d) landing as PASS/FAIL entries in runner_status.json. The
+  three claimed experiments in the 2026-04-23 snapshot (V3-EXQ-447 /
+  V3-EXQ-451 / V3-EXQ-445a) have all since completed or been cleared and
+  no longer appear in the queue.
+- **Current bottleneck:** V_s invalidation runtime end-to-end validation is now
+  the next gate -- V3-EXQ-476 (cascade-gate entropy probe) has been queued 2026-04-24
+  at priority 70; PASS unlocks V3-EXQ-449c and the downstream V_s-gated cascade
+  (EXQ-445d / 455a) track. SD-032 cluster behavioural follow-through remains the
+  primary first-paper-gate blocker for the cingulate track -- V3-EXQ-445a
+  (full-pipeline fix for the monostrategy + terrain-prior inversion observed in
+  V3-EXQ-445), V3-EXQ-445b (epsilon-greedy exploration variant), and V3-EXQ-445c
+  (14x14 env variant) have all since FAILed. V3-EXQ-325d FAILed with zero
+  between-arm gradient, leaving the SD-032c AIC-analog descending-modulation
+  falsification signature open. V3-EXQ-454 FAILed on ARC-016 adaptive
+  commitment_threshold under the 2026-04-20 harness. The SD-003 successor track
+  is re-opened by V3-EXQ-433c (claimed DLAPTOP-4.local 2026-04-23T23:23:48Z,
+  curriculum-ON + scripted agent-caused elicitation, supersedes V3-EXQ-433b
+  after the agent_caused_hazard r2=0.0 trials-shortage failure was diagnosed
+  as a sufficiency issue rather than a MECH-256 architectural failure). ARC-007
+  path-memory track has cleared its most recent claim.
   SD-033a substrate landed 2026-04-20 (V3-EXQ-456 PASS on all five sub-tests); SD-034
   governance closure-operator / MECH-267 mode-conditioned hippocampal / MECH-268 dACC
   conflict-saturation all landed 2026-04-20/21 with landing-diagnostic smokes PASS
@@ -143,8 +189,16 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   / MECH-270 / MECH-271 / MECH-272 / MECH-273 / MECH-274 and MECH-275 / MECH-276 /
   MECH-277 / MECH-278 / ARC-059 registered 2026-04-21 (anchor-vs-probe +
   sleep/waking state-gated routing + scientist-agent developmental ordering cluster);
-  all v3_pending, substrate work not yet started. SD-016 cue_action_proj forward-path
-  blocker remains diagnosed but not resolved -- V3-EXQ-449a is pending. The three-layer
+  all v3_pending, substrate work not yet started. SD-016 cue_action_proj
+  forward-path blocker is diagnosed and a verification run is now queued:
+  V3-EXQ-449a localised the collapse to a uniform-attention bottleneck inside
+  extract_cue_context (g2 action_bias_per_channel_std ~= 2.7e-8 with ContextMemory
+  frozen); the fix routes cue_action_proj input from `cue_context` alone (latent_dim=64)
+  to `[cue_context, z_world]` concat (latent_dim+world_dim=96), and the 2026-04-23
+  dry-run shows g2 per-channel std = 2.957e-3 (primary_pass=True). V3-EXQ-449b is
+  queued as the verification (supersedes V3-EXQ-449a); V3-EXQ-418c is queued as the
+  downstream SD-016+SD-017 context-conditioned action re-run that had FAILed three
+  times on action_bias_divergence=0.0 under the broken substrate. The three-layer
   regression suite (preflight / contracts / deferred changed) with contracts C1-C8
   covering the SD-032 cluster was at 31/31 PASS after the SD-033e stub contract
   additions (2026-04-21) and grew to 85/85 after the V_s invalidation runtime
@@ -153,11 +207,13 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   (9 tests incl. 2 integration smokes), and MECH-269 per-region V_s Phase 2 iii T4
   (6 tests incl. 1 integration smoke) all passing 2026-04-22; explorer preflight
   badge + pre-commit contracts hook (PR 5) remain live. **Pending review queue was
-  last generated 2026-04-22T23:12:38Z and lists 10 items (all 10 UNKNOWN due to
-  stale index; next indexer rebuild resolves). Governance-cycle pass is pending for
-  the SD-032 behavioural FAILs, the SD-035 / MECH-266 landings, and the V_s
-  invalidation runtime substrate landings whose behavioural end-to-end validation
-  (V3-EXQ-476) has not yet run.**
+  last generated 2026-04-23T17:49:07Z and lists 25 items (24 PASS, 0 FAIL, 1 UNKNOWN
+  for V3-EXQ-471; next indexer rebuild clears the UNKNOWN). PASS queue is dominated
+  by the SD-033 cluster landings (EXQ-456, 460, 462-468) across multiple timestamps.
+  Governance-cycle pass is pending for the SD-032 behavioural FAILs, the SD-035 /
+  MECH-266 landings, and the V_s invalidation runtime substrate landings -- the
+  behavioural end-to-end validation (V3-EXQ-476 cascade-gate entropy probe) is
+  now queued and is the next-up decision point.**
 
 ### V3 / V4 Scope Boundary
 
