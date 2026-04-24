@@ -49,7 +49,7 @@
       "script": "experiments/v3_exq_449b_sd016_cue_action_proj_consumer_fix.py",
       "priority": 52,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 30,
       "episodes_per_run": 75,
       "seeds": 1,
@@ -58,7 +58,11 @@
       "claim_ids": [
         "SD-016"
       ],
-      "notes": "Verification of the SD-016 cue_action_proj consumer fix. EXQ-449a localised the collapse to a uniform-attention bottleneck inside extract_cue_context: ContextMemory slots init at randn*0.01 so key_proj's bias dominates, all keys look identical, softmax = uniform (entropy=ln(num_slots)=2.7726), bmm(uniform, v) = mean(v) is constant across batch -> cue_context constant -> cue_action_proj output had per-channel std ~2.7e-8 in g2. Fix (predictors/e1_deep.py): cue_action_proj input changed from cue_context (latent_dim=64) to [cue_context, z_world] (concat, latent_dim+world_dim=64+32=96). Guarantees non-collapsed input path even when attention degenerates. cue_terrain_proj left unchanged (terrain_loss already trains it; not the bottleneck). Same three-regime protocol as 449a (g1 supervised-active, g2 frozen, g3 detach-bypassed). Acceptance pivots from 'find the offender' to 'verify the offender is gone': PRIMARY P1 g2 action_bias_per_channel_std > 1e-3 (was 2.7e-8); SECONDARY S1 g2 action_bias_norm_mean > 1e-3, S2 supervised target sanity >=80% coverage, S3 (bonus) g2 action_bias_div > 0.05. PASS = P1 AND S1 AND S2. Smoke-test 2026-04-23 dry-run (P0=2 P1=3 eval=4 ep): g2 per-channel std 2.957e-3, primary_pass=True. experiment_purpose=diagnostic (excluded from governance scoring). Unblocks EXQ-418b downstream."
+      "notes": "Verification of the SD-016 cue_action_proj consumer fix. EXQ-449a localised the collapse to a uniform-attention bottleneck inside extract_cue_context: ContextMemory slots init at randn*0.01 so key_proj's bias dominates, all keys look identical, softmax = uniform (entropy=ln(num_slots)=2.7726), bmm(uniform, v) = mean(v) is constant across batch -> cue_context constant -> cue_action_proj output had per-channel std ~2.7e-8 in g2. Fix (predictors/e1_deep.py): cue_action_proj input changed from cue_context (latent_dim=64) to [cue_context, z_world] (concat, latent_dim+world_dim=64+32=96). Guarantees non-collapsed input path even when attention degenerates. cue_terrain_proj left unchanged (terrain_loss already trains it; not the bottleneck). Same three-regime protocol as 449a (g1 supervised-active, g2 frozen, g3 detach-bypassed). Acceptance pivots from 'find the offender' to 'verify the offender is gone': PRIMARY P1 g2 action_bias_per_channel_std > 1e-3 (was 2.7e-8); SECONDARY S1 g2 action_bias_norm_mean > 1e-3, S2 supervised target sanity >=80% coverage, S3 (bonus) g2 action_bias_div > 0.05. PASS = P1 AND S1 AND S2. Smoke-test 2026-04-23 dry-run (P0=2 P1=3 eval=4 ep): g2 per-channel std 2.957e-3, primary_pass=True. experiment_purpose=diagnostic (excluded from governance scoring). Unblocks EXQ-418b downstream.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-24T02:17:41.781832+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-418c",
