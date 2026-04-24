@@ -6,5 +6,19 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-476b",
+      "status": "pending",
+      "title": "MECH-269 V_s validation entropy probe (cascade gate, instrumentation-fixed)",
+      "script": "experiments/v3_exq_476b_mech269_vs_validation_probe.py",
+      "claim_ids": ["MECH-269", "MECH-287", "MECH-288"],
+      "experiment_purpose": "diagnostic",
+      "priority": 70,
+      "machine_affinity": "any",
+      "estimated_minutes": 20,
+      "supersedes": "V3-EXQ-476a",
+      "notes": "Fix of EXQ-476a env.step unpacking bug (truncated was actually info dict -> break fired every step 0). Same hypothesis: does Phase-1+2 V_s runtime alone break monostrategy action-class lock, or is MECH-284 Phase-3 required? PASS = ON-OFF entropy delta >= 0.1 in 2/2 seeds."
+    }
+  ]
 }
