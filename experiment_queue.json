@@ -43,29 +43,6 @@
       "notes": "Gated on V3-EXQ-445d PASS. Measures whether BLAAnalog retrieval-bias ON vs OFF increases action_class_entropy by >=0.1 and reduces harm_rate in >=2/3 seeds. BLA retrieval_bias is the content-selective per-trace weighting (LaBar & Cabeza 2006); needs upstream V_s cascade to have broken monostrategy before bias effects are observable. experiment_purpose=evidence."
     },
     {
-      "queue_id": "V3-EXQ-433c",
-      "title": "SD-029 event-conditioned MECH-256 comparator -- curriculum ON + scripted agent-caused elicitation (supersedes V3-EXQ-433b)",
-      "experiment_type": "v3_exq_433c_sd029_eventcond_comparator",
-      "script": "experiments/v3_exq_433c_sd029_eventcond_comparator.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "episodes_per_run": 400,
-      "seeds": 4,
-      "conditions": 1,
-      "supersedes": "V3-EXQ-433b",
-      "claim_ids": [
-        "SD-029",
-        "MECH-256"
-      ],
-      "notes": "Supersedes V3-EXQ-433b (agent_caused_hazard r2=0.0 across all 4 seeds). Diagnosis: r2=0 is not a MECH-256 architectural failure -- trials_collected['agent_caused_hazard'] was 0 in every seed (eval relied on organic agent-caused events; agent never chose to step onto a hazard), so _safe_r2_from_pairs returned 0 on an empty list. Fix: (1) enable SD-029 curriculum in P0, P1, and eval (scheduled_external_hazard_enabled=True, interval=25, prob=1.0, adjacent_only=False); (2) scripted agent-caused elicitation in eval -- when agent_caused trials short of target AND a hazard is adjacent, script a deterministic move onto it (_find_adjacent_hazard_action); (3) C0 sufficiency gate -- both agent_caused_trials and env_caused_trials must be >=20 in >=3/4 seeds. If C0 fails, outcome=FAIL but per-claim evidence_direction='inconclusive_insufficient_events' (not 'weakens') so governance scores are not corrupted by a trials-shortage run. mean_r2 only averages event types with n>=5 trials. Acceptance: C0 sufficient trials >=3/4 seeds; C1 mean_r2 >= 0.5; C2 attenuation_ratio >=0.5 (agent-caused residual < env-caused); SNR (mean_r2 - r2_none_baseline) positive. experiment_purpose=evidence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-23T23:23:48.457890+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-449b",
       "title": "SD-016 cue_action_proj consumer fix verification -- z_world residual concat (supersedes V3-EXQ-449a)",
       "experiment_type": "v3_exq_449b_sd016_cue_action_proj_consumer_fix",
