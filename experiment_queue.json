@@ -14,14 +14,18 @@
       "script": "experiments/v3_exq_137_mech097_pps_commit_locus_pair.py",
       "priority": 40,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "episodes_per_run": 400,
       "seeds": 1,
       "conditions": 2,
       "claim_id": "MECH-097",
       "backlog_id": "EVB-0137",
-      "note": "MECH-097 PPS spatial grounding of commit locus. EVB-0137. Instrumentation fixed 2026-04-24: verdict print, outcome field, timestamp_utc, EXPERIMENT_PURPOSE. Smoke-test PASS."
+      "note": "MECH-097 PPS spatial grounding of commit locus. EVB-0137. Instrumentation fixed 2026-04-24: verdict print, outcome field, timestamp_utc, EXPERIMENT_PURPOSE. Smoke-test PASS.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-24T02:20:41.913255+00:00"
+      }
     }
   ]
 }
