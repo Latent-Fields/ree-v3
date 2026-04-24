@@ -6,29 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-476a",
-      "title": "MECH-269 V_s validation entropy probe -- cascade gate (supersedes EXQ-476)",
-      "experiment_type": "v3_exq_476a_mech269_vs_validation_probe",
-      "script": "experiments/v3_exq_476a_mech269_vs_validation_probe.py",
-      "priority": 70,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 20,
-      "seeds": 2,
-      "conditions": 2,
-      "claim_ids": [
-        "MECH-269",
-        "MECH-287",
-        "MECH-288"
-      ],
-      "supersedes": "V3-EXQ-476",
-      "notes": "Real implementation of the EXQ-476 cascade gate. EXQ-476 was a stub (NotImplementedError on real run) pending V_s runtime-flag plumbing in REEConfig.from_dims() and clarity on whether Phase-2 alone suffices. Plumbing landed 2026-04-24; this body runs the 2-seed x 2-arm action_class_entropy comparison (OFF vs Phase-1+Phase-2 V_s flags ON). PASS = ON - OFF >= 0.1 in >=2/2 seeds -> V3-EXQ-445d / 449c / 455a unblock. FAIL/INCONCLUSIVE -> MECH-284 Phase-3 staleness-accumulator consumer must land before cascade. experiment_purpose=diagnostic.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-24T06:42:12.826994+00:00"
-      }
-    }
-  ]
+  "items": []
 }
