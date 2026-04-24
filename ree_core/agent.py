@@ -979,6 +979,23 @@ class REEAgent(nn.Module):
         if new_latent.z_harm_a is not None:
             self._harm_a_prev = new_latent.z_harm_a.detach().clone()
 
+        # Tick-boundary queue flush (MECH-288 / MECH-287): drain any V_s events
+        # left from the previous tick before generating this tick's events.
+        # Phase 3 consumers (MECH-284 staleness accumulator, MECH-269 anchor-reset
+        # T3) will call drain_boundary_events() / drain_broadcast_events() in
+        # select_action() once they are implemented. Until Phase 3 lands nothing
+        # in select_action() drains the queues, so they grow without bound within
+        # an episode (confirmed telemetry artefact in EXQ-476b: queue length read
+        # each tick inflated counts ~N/2x). Running the flush at the START of
+        # each sense() call -- before new events are generated -- keeps the queues
+        # bounded to at-most-one-tick's events and gives Phase 3 the correct
+        # per-tick event set when it lands. No-op if the flags are off.
+        if self.hippocampal is not None:
+            if getattr(self.hippocampal.config, "use_event_segmenter", False):
+                self.hippocampal.drain_boundary_events()
+            if getattr(self.hippocampal.config, "use_invalidation_trigger", False):
+                self.hippocampal.drain_broadcast_events()
+
         # MECH-288 (Phase 2 of V_s invalidation runtime): tick the hierarchical
         # event segmenter on the waking observation stream. Boundary events are
         # queued on HippocampalModule for downstream MECH-287 broadcast /
