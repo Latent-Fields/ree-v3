@@ -8,28 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-476",
-      "title": "MECH-269 V_s validation entropy probe -- cascade gate",
-      "experiment_type": "v3_exq_476_mech269_vs_validation_probe",
-      "script": "experiments/v3_exq_476_mech269_vs_validation_probe.py",
-      "priority": 70,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 30,
-      "seeds": 2,
-      "conditions": 2,
-      "claim_ids": [
-        "MECH-269",
-        "MECH-287",
-        "MECH-288"
-      ],
-      "notes": "Gate for V_s-gated cascade (EXQ-445d / EXQ-449c / EXQ-455a). Baseline agent + V_s flags ON vs OFF. Measure action_class_entropy. PASS = ON entropy > OFF entropy by >=0.1 in >=2/2 seeds. FAIL/INCONCLUSIVE = MECH-284 Phase 3 consumer must land before downstream cascade can be run. experiment_purpose=diagnostic.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-24T02:20:38.891664+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-137",
       "title": "MECH-097 PPS Commit Locus: PPS_LOCUS_ON vs ABLATED (2 seeds)",
       "experiment_type": "v3_exq_137_mech097_pps_commit_locus_pair",
