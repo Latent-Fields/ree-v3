@@ -6,25 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-477",
-      "title": "SD-016 ContextMemory slot-store / attention-uniformity diagnostic",
-      "experiment_type": "v3_exq_477_sd016_context_memory_slot_store_diagnostic",
-      "script": "experiments/v3_exq_477_sd016_context_memory_slot_store_diagnostic.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 40,
-      "episodes_per_run": 75,
-      "seeds": 1,
-      "conditions": 1,
-      "claim_id": "SD-016",
-      "note": "Diagnostic probe (EXP-0155 scope per ree-v3/CLAUDE.md SD-016 section). Instruments full forward path -- slot-store writes, key_proj.bias dominance, write_gate saturation, world_query_proj batch-constancy -- to discriminate root cause of attn_entropy=ln(16) uniform-attention bug before any EXQ-418b successor. Evidence class: diagnostic_probe (excluded from governance scoring).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-24T08:06:39.422175+00:00"
-      }
-    }
-  ]
+  "items": []
 }
