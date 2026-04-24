@@ -1357,6 +1357,12 @@ class REEConfig:
         pag_min_freeze_duration: int = 0,
         pag_max_freeze_duration: int = 0,
         pag_freeze_noop_action_class: int = 0,
+        # MECH-269 / MECH-287 / MECH-288: V_s invalidation runtime (Phase 1 + 2)
+        use_per_stream_vs: bool = False,
+        use_event_segmenter: bool = False,
+        use_invalidation_trigger: bool = False,
+        use_anchor_sets: bool = False,
+        use_per_region_vs: bool = False,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -1643,6 +1649,13 @@ class REEConfig:
         config.pag_min_freeze_duration = pag_min_freeze_duration
         config.pag_max_freeze_duration = pag_max_freeze_duration
         config.pag_freeze_noop_action_class = pag_freeze_noop_action_class
+
+        # MECH-269 / MECH-287 / MECH-288: V_s invalidation runtime Phase 1 + 2 flags
+        config.hippocampal.use_per_stream_vs = use_per_stream_vs
+        config.hippocampal.use_event_segmenter = use_event_segmenter
+        config.hippocampal.use_invalidation_trigger = use_invalidation_trigger
+        config.hippocampal.use_anchor_sets = use_anchor_sets
+        config.hippocampal.use_per_region_vs = use_per_region_vs
 
         return config
 
