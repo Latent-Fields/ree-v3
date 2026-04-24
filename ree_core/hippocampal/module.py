@@ -103,6 +103,14 @@ class HippocampalModule(nn.Module):
         # ARC-028 / MECH-105: last completion signal cache
         self._last_completion_signal: float = 0.0
 
+        # MECH-290: backward trajectory credit sweep (Foster & Wilson 2006).
+        # Stores the most recently committed trajectory for backward_credit_sweep().
+        # Set by record_committed_trajectory() at BetaGate elevation (commit entry)
+        # and cleared by reset_committed_trajectory() on episode boundaries.
+        # Distinct from _exploration_buffer (MECH-165 quiescent replay source):
+        # this stores what was EXECUTED, not what was considered by CEM.
+        self._committed_trajectory_buffer: Optional[Trajectory] = None
+
         # MECH-165: exploration trajectory buffer for diverse replay
         self._exploration_buffer: List[Trajectory] = []
         self._exploration_buffer_maxlen: int = getattr(config, "exploration_buffer_len", 50)
@@ -713,6 +721,131 @@ class HippocampalModule(nn.Module):
         signal = float(torch.sigmoid(torch.tensor(-best_score * 0.5)).item())
         self._last_completion_signal = signal
         return signal
+
+    # ------------------------------------------------------------------ #
+    # MECH-290: backward trajectory credit sweep (2026-04-24)             #
+    # ------------------------------------------------------------------ #
+
+    def record_committed_trajectory(self, trajectory: Trajectory) -> None:
+        """MECH-290: record the committed trajectory for backward credit sweep.
+
+        Called at BetaGate elevation (commit entry) in agent.select_action().
+        Detaches all tensors to avoid holding computation graphs.
+
+        Distinct from record_exploration_trajectory() (MECH-165 quiescent
+        replay source): this stores the EXECUTED committed trajectory, not a
+        CEM proposal candidate.
+
+        No-op when use_backward_credit_sweep is False (backward compat).
+        """
+        if not getattr(self.config, "use_backward_credit_sweep", False):
+            return
+        detached_states = [s.detach() for s in trajectory.states]
+        detached_actions = trajectory.actions.detach()
+        detached_world = None
+        if trajectory.world_states is not None:
+            detached_world = [w.detach() for w in trajectory.world_states]
+        detached_ao = None
+        if trajectory.action_objects is not None:
+            detached_ao = [ao.detach() for ao in trajectory.action_objects]
+        self._committed_trajectory_buffer = Trajectory(
+            states=detached_states,
+            actions=detached_actions,
+            world_states=detached_world,
+            action_objects=detached_ao,
+            is_reverse=False,
+        )
+
+    def backward_credit_sweep(self, outcome_quality: float) -> dict:
+        """MECH-290: backward temporal credit sweep at trajectory completion.
+
+        Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay fires
+        at reward endpoint during waking, concurrent with dopamine. Credit
+        propagates backward from goal to trajectory start (hippocampal
+        theta-burst to SWR transition; see also ARC-028 / MECH-105).
+
+        Called when BetaGate releases via hippocampal completion signal
+        (ARC-028 / receive_hippocampal_completion). Sweeps the committed
+        trajectory in reverse temporal order, updating VALENCE_WANTING at
+        each z_world state proportional to:
+            credit_t = outcome_quality * gamma^(T - t)
+        where T = trajectory length, t = step index (0 = start, T-1 = end).
+        The endpoint (T-1) receives the full outcome_quality; earlier steps
+        are discounted by gamma^(steps_from_end).
+
+        No SD-006 dependency: fires synchronously on waking path at
+        BetaGate release. MECH-094: waking path, hypothesis_tag=False --
+        credit is assigned from the real executed trajectory, not simulation.
+
+        No-op when:
+          - use_backward_credit_sweep is False (backward compat)
+          - outcome_quality < backward_sweep_min_quality (low-quality completions
+            do not deserve retroactive reward assignment)
+          - _committed_trajectory_buffer is None (no committed trajectory stored)
+          - trajectory has no world_states (cannot map to z_world nodes)
+
+        Silently skips valence write if ResidueConfig.valence_enabled=False.
+
+        Args:
+            outcome_quality: float in [0, 1] -- completion signal value.
+                Typically hippocampal._last_completion_signal.
+
+        Returns:
+            dict: n_steps_swept (int), mean_credit (float),
+                  outcome_quality (float). Empty dict when first no-op guard.
+        """
+        if not getattr(self.config, "use_backward_credit_sweep", False):
+            return {}
+        min_quality = float(getattr(self.config, "backward_sweep_min_quality", 0.6))
+        if outcome_quality < min_quality:
+            return {
+                "n_steps_swept": 0,
+                "mean_credit": 0.0,
+                "outcome_quality": outcome_quality,
+            }
+        if self._committed_trajectory_buffer is None:
+            return {
+                "n_steps_swept": 0,
+                "mean_credit": 0.0,
+                "outcome_quality": outcome_quality,
+            }
+        traj = self._committed_trajectory_buffer
+        world_states = traj.world_states
+        if world_states is None or len(world_states) == 0:
+            return {
+                "n_steps_swept": 0,
+                "mean_credit": 0.0,
+                "outcome_quality": outcome_quality,
+            }
+
+        gamma = float(getattr(self.config, "backward_sweep_gamma", 0.9))
+        T = len(world_states)
+        total_credit = 0.0
+        n_steps = 0
+        for t in range(T - 1, -1, -1):
+            steps_from_end = T - 1 - t
+            credit = outcome_quality * (gamma ** steps_from_end)
+            total_credit += credit
+            n_steps += 1
+            z_w = world_states[t]  # [batch, world_dim]
+            if hasattr(self.residue_field, "update_valence"):
+                self.residue_field.update_valence(z_w, VALENCE_WANTING, credit)
+
+        mean_credit = total_credit / n_steps if n_steps > 0 else 0.0
+        return {
+            "n_steps_swept": n_steps,
+            "mean_credit": mean_credit,
+            "outcome_quality": outcome_quality,
+        }
+
+    def reset_committed_trajectory(self) -> None:
+        """Per-episode reset of the MECH-290 committed trajectory buffer.
+
+        Called from REEAgent.reset() when use_backward_credit_sweep is True.
+        Clears the stored committed trajectory so a stale trajectory from the
+        previous episode cannot be swept on the first completion of the new one.
+        """
+        self._committed_trajectory_buffer = None
 
     # ------------------------------------------------------------------ #
     # MECH-269 base: per-stream verisimilitude (Phase 1, 2026-04-22)      #

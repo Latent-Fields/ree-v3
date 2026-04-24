@@ -556,6 +556,25 @@ class HippocampalConfig:
     # compatible: disabled by default.
     use_per_region_vs: bool = False
 
+    # MECH-290: backward trajectory credit sweep at goal arrival.
+    # Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay
+    # fires at reward endpoint during waking, concurrent with dopamine.
+    # Credit propagates backward from goal to trajectory start.
+    # When enabled, HippocampalModule.backward_credit_sweep() is called
+    # each time BetaGate releases via hippocampal completion signal
+    # (ARC-028). The committed trajectory (stored by
+    # record_committed_trajectory() at commit entry) is swept backward;
+    # VALENCE_WANTING is updated at each z_world state proportional to:
+    #   credit_t = outcome_quality * gamma^(T - t)
+    # where T = trajectory length, t = step index.
+    # No SD-006 dependency: fires synchronously on waking path.
+    # Requires ResidueConfig.valence_enabled=True to write
+    # VALENCE_WANTING; silently skips valence write if disabled.
+    # Backward compatible: disabled by default.
+    use_backward_credit_sweep: bool = False
+    backward_sweep_gamma: float = 0.9        # temporal discount per step back
+    backward_sweep_min_quality: float = 0.6  # only sweep on high-quality completions
+
 
 @dataclass
 class ResidueConfig:
@@ -1363,6 +1382,10 @@ class REEConfig:
         use_invalidation_trigger: bool = False,
         use_anchor_sets: bool = False,
         use_per_region_vs: bool = False,
+        # MECH-290: backward trajectory credit sweep
+        use_backward_credit_sweep: bool = False,
+        backward_sweep_gamma: float = 0.9,
+        backward_sweep_min_quality: float = 0.6,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -1656,6 +1679,11 @@ class REEConfig:
         config.hippocampal.use_invalidation_trigger = use_invalidation_trigger
         config.hippocampal.use_anchor_sets = use_anchor_sets
         config.hippocampal.use_per_region_vs = use_per_region_vs
+
+        # MECH-290: backward trajectory credit sweep
+        config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep
+        config.hippocampal.backward_sweep_gamma = backward_sweep_gamma
+        config.hippocampal.backward_sweep_min_quality = backward_sweep_min_quality
 
         return config
 

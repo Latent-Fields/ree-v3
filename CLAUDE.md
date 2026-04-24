@@ -497,6 +497,44 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   quality -> dopamine signal -> beta drops -> E3 state propagates to action selection.
   get_state() and reset() updated. Return type of propose_trajectories() unchanged.
 
+- MECH-290: hippocampal.backward_trajectory_credit_sweep -- IMPLEMENTED 2026-04-24.
+  Module: ree_core/hippocampal/module.py (HippocampalModule.record_committed_trajectory,
+  HippocampalModule.backward_credit_sweep, HippocampalModule.reset_committed_trajectory).
+  Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay fires at reward
+  endpoint during waking, concurrent with dopamine. Credit propagates backward from goal
+  to trajectory start.
+  Two new methods:
+    record_committed_trajectory(trajectory): called at BetaGate elevation (commit entry
+      in select_action()), stores a detached copy of the committed trajectory in
+      _committed_trajectory_buffer. Distinct from _exploration_buffer (MECH-165
+      quiescent replay source): this stores EXECUTED trajectory, not CEM proposals.
+    backward_credit_sweep(outcome_quality): called when BetaGate releases via
+      receive_hippocampal_completion() in _e3_tick(). Sweeps committed trajectory
+      backward; at each z_world state t: credit = outcome_quality * gamma^(T-1-t);
+      ResidueField.update_valence(z_world_t, VALENCE_WANTING, credit) called.
+      Returns dict: n_steps_swept, mean_credit, outcome_quality.
+      No-op when outcome_quality < backward_sweep_min_quality (default 0.6).
+    reset_committed_trajectory(): called from agent.reset() on episode boundary.
+  Config: HippocampalConfig.use_backward_credit_sweep (bool, default False),
+    backward_sweep_gamma (float, default 0.9), backward_sweep_min_quality (float, 0.6).
+    All wired through REEConfig.from_dims().
+  Agent wiring:
+    _e3_tick(): receive_hippocampal_completion() return value captured as `released`;
+      when True and flag is on, hippocampal.backward_credit_sweep(
+      hippocampal._last_completion_signal) is called.
+    select_action(): at bistable commit entry AND legacy non-bistable new-commit:
+      hippocampal.record_committed_trajectory(e3._committed_trajectory) called.
+    reset(): hippocampal.reset_committed_trajectory() called when flag on.
+  No SD-006 dependency: fires synchronously on waking path.
+  MECH-094: waking path (hypothesis_tag=False) -- credit from real executed trajectory.
+  Requires ResidueConfig.valence_enabled=True to write VALENCE_WANTING; silently skips
+  valence write if disabled (backward compat).
+  Backward compatible: use_backward_credit_sweep=False by default; all methods are no-ops.
+  Smoke: C1-C7 PASS (buffer management, sweep arithmetic, flag OFF no-op, valence write).
+  End-to-end: agent boot + direct wiring test PASS 2026-04-24.
+  Validation experiment: to be queued post-476a (SD-038 anti-recency sequenced after).
+  See MECH-290, ARC-028, MECH-105, SD-014 (VALENCE_WANTING write paths), MECH-165.
+
 ## SD Design Decisions Validated (V3) — 2026-03-18
 - SD-003: self_attribution.counterfactual_e2_pipeline — **SUPERSEDED 2026-04-18** after
   28 accumulated FAILs across the two-pass counterfactual architecture. Successor layer:

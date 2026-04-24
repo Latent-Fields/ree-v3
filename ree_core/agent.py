@@ -691,6 +691,15 @@ class REEAgent(nn.Module):
         ):
             self.hippocampal.reset_anchor_set()
 
+        # MECH-290: clear committed trajectory buffer on episode boundary so a
+        # stale trajectory from the previous episode cannot be swept on the
+        # first completion of the new one. No-op when use_backward_credit_sweep
+        # is False.
+        if self.hippocampal is not None and getattr(
+            self.hippocampal.config, "use_backward_credit_sweep", False
+        ):
+            self.hippocampal.reset_committed_trajectory()
+
     def _record_exploration_state(self) -> None:
         """MECH-165: record current latent state for exploration trajectory."""
         if not self.config.replay_diversity_enabled:
@@ -1192,7 +1201,18 @@ class REEAgent(nn.Module):
         # MECH-090 bistable: release triggered by completion, not by variance re-eval.
         if self.config.heartbeat.beta_gate_bistable and self.beta_gate.is_elevated:
             completion = self.hippocampal.compute_completion_signal(candidates)
-            self.beta_gate.receive_hippocampal_completion(completion)
+            released = self.beta_gate.receive_hippocampal_completion(completion)
+            # MECH-290: backward credit sweep on goal arrival (Foster & Wilson 2006).
+            # Fires synchronously on waking path when BetaGate releases via
+            # hippocampal completion signal. Sweeps committed trajectory backward,
+            # updating VALENCE_WANTING proportional to outcome_quality * gamma^t.
+            # No-op when use_backward_credit_sweep is False (backward compat).
+            if released and getattr(
+                self.hippocampal.config, "use_backward_credit_sweep", False
+            ):
+                self.hippocampal.backward_credit_sweep(
+                    self.hippocampal._last_completion_signal
+                )
 
         return candidates
 
@@ -1496,6 +1516,18 @@ class REEAgent(nn.Module):
             if result.committed and not self.beta_gate.is_elevated:
                 self.beta_gate.elevate()
                 self._committed_step_idx = 0  # reset step counter on new commitment
+                # MECH-290: record committed trajectory at commit entry so that
+                # backward_credit_sweep() has it when BetaGate releases.
+                # No-op when use_backward_credit_sweep is False (backward compat).
+                if (
+                    self.e3._committed_trajectory is not None
+                    and getattr(
+                        self.hippocampal.config, "use_backward_credit_sweep", False
+                    )
+                ):
+                    self.hippocampal.record_committed_trajectory(
+                        self.e3._committed_trajectory
+                    )
             # If not committed and beta already released: no-op (already open).
             # If committed and beta already elevated: no-op (stay latched).
         else:
@@ -1503,6 +1535,19 @@ class REEAgent(nn.Module):
             if result.committed:
                 if not self.beta_gate.is_elevated:
                     self._committed_step_idx = 0  # reset on new commitment
+                    # MECH-290: record committed trajectory at new commit entry.
+                    # No-op when use_backward_credit_sweep is False (backward compat).
+                    if (
+                        self.e3._committed_trajectory is not None
+                        and getattr(
+                            self.hippocampal.config,
+                            "use_backward_credit_sweep",
+                            False,
+                        )
+                    ):
+                        self.hippocampal.record_committed_trajectory(
+                            self.e3._committed_trajectory
+                        )
                 self.beta_gate.elevate()
             else:
                 if self.beta_gate.is_elevated:
