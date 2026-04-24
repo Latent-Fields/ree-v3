@@ -6,22 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-479",
-      "title": "SD-029 balanced hazard-event curriculum -- substrate validation (fix2, supersedes V3-EXQ-470a)",
-      "script": "experiments/v3_exq_479_sd029_balanced_curriculum_fix.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 5,
-      "supersedes": "V3-EXQ-470a",
-      "claim_id": "SD-029",
-      "note": "Fix for EXQ-470a: episodes still died before curriculum_interval=25 tick under hazard_harm=0.05/num_hazards=4. Compound fix: num_hazards 4->2, hazard_harm 0.05->0.02, curriculum_interval 25->10. Substrate-readiness diagnostic only; no claim_ids beyond SD-029 curriculum-level substrate.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-24T17:35:05.369316+00:00"
-      }
-    }
-  ]
+  "items": []
 }
