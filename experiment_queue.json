@@ -6,27 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-453a",
-      "status": "claimed",
-      "title": "MECH-261 write-gate landing (env.step unpacking fix)",
-      "script": "experiments/v3_exq_453a_mech261_write_gate_landing.py",
-      "claim_ids": [
-        "MECH-261",
-        "SD-032a",
-        "SD-032e"
-      ],
-      "experiment_purpose": "diagnostic",
-      "priority": 60,
-      "machine_affinity": "any",
-      "estimated_minutes": 15,
-      "supersedes": "V3-EXQ-453",
-      "notes": "Fix of EXQ-453 env.step unpacking bug (truncated was actually info dict -> break fired every step 0). C6 (coord_on_tick_live) FAILed in 0/2 COORD_ON seeds because only 6 total steps ran per seed. UC1-UC5 and C7 already PASS on the superseded run and are independent of the env loop. Dry-run confirms fix yields 20+ steps/ep.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-24T07:37:32.885530+00:00"
-      }
-    }
-  ]
+  "items": []
 }
