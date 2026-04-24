@@ -8,27 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-476b",
-      "status": "claimed",
-      "title": "MECH-269 V_s validation entropy probe (cascade gate, instrumentation-fixed)",
-      "script": "experiments/v3_exq_476b_mech269_vs_validation_probe.py",
-      "claim_ids": [
-        "MECH-269",
-        "MECH-287",
-        "MECH-288"
-      ],
-      "experiment_purpose": "diagnostic",
-      "priority": 70,
-      "machine_affinity": "any",
-      "estimated_minutes": 20,
-      "supersedes": "V3-EXQ-476a",
-      "notes": "Fix of EXQ-476a env.step unpacking bug (truncated was actually info dict -> break fired every step 0). Same hypothesis: does Phase-1+2 V_s runtime alone break monostrategy action-class lock, or is MECH-284 Phase-3 required? PASS = ON-OFF entropy delta >= 0.1 in 2/2 seeds.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-24T07:32:37.175518+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-453a",
       "status": "pending",
       "title": "MECH-261 write-gate landing (env.step unpacking fix)",
