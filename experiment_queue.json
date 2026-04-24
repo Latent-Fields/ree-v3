@@ -6,21 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-478",
-      "title": "MECH-284 Phase 3 staleness accumulator diagnostic (online arm + MECH-269 hysteresis swap)",
-      "script": "experiments/v3_exq_478_mech284_phase3_diagnostic.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 5,
-      "claim_id": "MECH-284",
-      "note": "Phase 3 substrate-readiness diagnostic. OFF vs ON (full V_s circuit Phase 1+2+3 online arm) x 2 seeds x 6 episodes x 200 steps. Metrics: freeze_recommit_count, anchor_reset_count, mean_staleness_peak, action_class_entropy. PASS = anchor_reset_count(ON) >= 2 AND freeze_recommit_count(ON) < OFF in 2/2 seeds. Substrate validation only; four-arm MECH-287 x MECH-284 dissociation is V3-EXQ-476.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-24T13:14:52.145237+00:00"
-      }
-    }
-  ]
+  "items": []
 }
