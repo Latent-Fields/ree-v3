@@ -17,5 +17,11 @@ from ree_core.sleep.phase_manager import (
     SleepLoopManager,
     SleepPhase,
 )
+from ree_core.sleep.replay_sampler import SleepReplaySampler
 
-__all__ = ["SleepCycleState", "SleepLoopManager", "SleepPhase"]
+__all__ = [
+    "SleepCycleState",
+    "SleepLoopManager",
+    "SleepPhase",
+    "SleepReplaySampler",
+]

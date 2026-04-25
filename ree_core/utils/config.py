@@ -1317,6 +1317,31 @@ class REEConfig:
     # state machine without the SD-017 passes.
     sleep_loop_require_passes: bool = True
 
+    # Phase B (MECH-285): SleepReplaySampler offline arm. When True (and
+    # use_sleep_loop is True), the SleepLoopManager freezes a
+    # StalenessAccumulator snapshot at SLEEP_ENTRY and instantiates a
+    # SleepReplaySampler that draws seeds from the broad AnchorSet pool
+    # (active + inactive, dual-trace preserved) with priority
+    # softmax(staleness[r] / temperature). Draws are recorded in
+    # SleepCycleState.last_metrics for diagnostic inspection. No downstream
+    # consumers wire in this phase -- routing gate (Phase C), Bayesian
+    # aggregator (D), and self-model writeback (E) extend this manager
+    # via additional master flags.
+    use_mech285_sampler: bool = False
+    # Number of draws per sleep cycle. Each draw is O(|seed_pool|) for the
+    # softmax + one numpy.random.choice; default 50 keeps wallclock under
+    # ~1ms per cycle for typical anchor counts.
+    mech285_draws_per_cycle: int = 50
+    # Softmax temperature. Lower concentrates replay on most-staled
+    # regions; higher spreads. Default 1.0 per design doc verdict 2.
+    mech285_temperature: float = 1.0
+    # When True and the agent has no StalenessAccumulator attached, the
+    # sampler falls back to a uniform distribution over the broad pool
+    # (still broad-pool per MECH-285 verdict 1, just no staleness signal).
+    # Set False to refuse sampling without the accumulator (raises
+    # RuntimeError at draw time).
+    mech285_allow_uniform_fallback: bool = True
+
     @classmethod
     def from_dims(
         cls,
@@ -1561,6 +1586,11 @@ class REEConfig:
         use_sleep_loop: bool = False,
         sleep_loop_episodes_K: int = 1,
         sleep_loop_require_passes: bool = True,
+        # Phase B: MECH-285 SleepReplaySampler
+        use_mech285_sampler: bool = False,
+        mech285_draws_per_cycle: int = 50,
+        mech285_temperature: float = 1.0,
+        mech285_allow_uniform_fallback: bool = True,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -1892,6 +1922,12 @@ class REEConfig:
         config.use_sleep_loop = use_sleep_loop
         config.sleep_loop_episodes_K = sleep_loop_episodes_K
         config.sleep_loop_require_passes = sleep_loop_require_passes
+
+        # Sleep-aggregation cluster Phase B (MECH-285)
+        config.use_mech285_sampler = use_mech285_sampler
+        config.mech285_draws_per_cycle = mech285_draws_per_cycle
+        config.mech285_temperature = mech285_temperature
+        config.mech285_allow_uniform_fallback = mech285_allow_uniform_fallback
 
         return config
 

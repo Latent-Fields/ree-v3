@@ -546,7 +546,31 @@ class REEAgent(nn.Module):
         # aggregator, self-model writeback) extend this manager via additional
         # master flags. Backward-compatible no-op when use_sleep_loop=False.
         self.sleep_loop: Optional[SleepLoopManager] = None
+        self.sleep_replay_sampler = None  # Phase B (MECH-285)
         if getattr(config, "use_sleep_loop", False):
+            # Phase B: when use_mech285_sampler is on AND anchor_set exists,
+            # construct SleepReplaySampler over the broad pool. Falls back
+            # to None silently when anchor_set is absent (Phase B requires
+            # MECH-269 Phase 2 ii to be wired). StalenessAccumulator is
+            # optional -- the sampler runs in uniform-fallback mode when
+            # absent (controlled by mech285_allow_uniform_fallback).
+            if (
+                getattr(config, "use_mech285_sampler", False)
+                and getattr(self.hippocampal, "anchor_set", None) is not None
+            ):
+                from ree_core.sleep.replay_sampler import SleepReplaySampler
+                self.sleep_replay_sampler = SleepReplaySampler(
+                    anchor_set=self.hippocampal.anchor_set,
+                    staleness_accumulator=getattr(
+                        self.hippocampal, "staleness_accumulator", None
+                    ),
+                    temperature=float(
+                        getattr(config, "mech285_temperature", 1.0)
+                    ),
+                    allow_uniform_fallback=bool(
+                        getattr(config, "mech285_allow_uniform_fallback", True)
+                    ),
+                )
             self.sleep_loop = SleepLoopManager(
                 cycle_every_k_episodes=int(
                     getattr(config, "sleep_loop_episodes_K", 1)
@@ -554,6 +578,10 @@ class REEAgent(nn.Module):
                 require_sleep_passes_enabled=bool(
                     getattr(config, "sleep_loop_require_passes", True)
                 ),
+                replay_sampler=self.sleep_replay_sampler,
+                draws_per_cycle=int(
+                    getattr(config, "mech285_draws_per_cycle", 0)
+                ) if self.sleep_replay_sampler is not None else 0,
             )
 
         # Observation encoders (maps raw body/world obs to latent input)

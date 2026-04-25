@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 if TYPE_CHECKING:  # pragma: no cover -- typing only
     from ree_core.agent import REEAgent
+    from ree_core.sleep.replay_sampler import SleepReplaySampler
 
 
 class SleepPhase(Enum):
@@ -89,14 +90,23 @@ class SleepLoopManager:
         self,
         cycle_every_k_episodes: int = 1,
         require_sleep_passes_enabled: bool = True,
+        replay_sampler: Optional["SleepReplaySampler"] = None,
+        draws_per_cycle: int = 0,
     ) -> None:
         if cycle_every_k_episodes < 1:
             raise ValueError(
                 "cycle_every_k_episodes must be >= 1; "
                 f"got {cycle_every_k_episodes}"
             )
+        if draws_per_cycle < 0:
+            raise ValueError(
+                "draws_per_cycle must be >= 0; "
+                f"got {draws_per_cycle}"
+            )
         self.cycle_every_k_episodes = int(cycle_every_k_episodes)
         self.require_sleep_passes_enabled = bool(require_sleep_passes_enabled)
+        self.replay_sampler = replay_sampler
+        self.draws_per_cycle = int(draws_per_cycle)
         self.state = SleepCycleState()
         self._cycle_history: List[Dict[str, float]] = []
 
@@ -147,6 +157,19 @@ class SleepLoopManager:
 
         self.state.reset_for_new_cycle(self.state.cycle_index + 1)
 
+        # Phase B: SLEEP_ENTRY -- freeze the staleness snapshot ONCE per
+        # cycle and perform the configured N draws. Diagnostic only:
+        # no downstream consumer (routing / aggregator / writeback) sees
+        # the draws yet -- they land in last_metrics for inspection.
+        if self.replay_sampler is not None:
+            self.state.phase = SleepPhase.SLEEP_ENTRY
+            self.replay_sampler.freeze_snapshot()
+            for _ in range(self.draws_per_cycle):
+                self.replay_sampler.draw()
+            sampler_metrics = self.replay_sampler.get_metrics()
+        else:
+            sampler_metrics = {}
+
         if getattr(agent.config, "sws_enabled", False):
             self.state.phase = SleepPhase.SWS_ANALOG
         elif getattr(agent.config, "rem_enabled", False):
@@ -156,8 +179,11 @@ class SleepLoopManager:
         # the SWS -> REM ordering, mode entry/exit, and metric merging.
         metrics = agent.run_sleep_cycle()
 
+        merged = dict(metrics)
+        merged.update(sampler_metrics)
+
         self.state.phase = SleepPhase.WAKING
         self.state.episodes_since_sleep = 0
-        self.state.last_metrics = dict(metrics)
-        self._cycle_history.append(dict(metrics))
-        return metrics
+        self.state.last_metrics = merged
+        self._cycle_history.append(dict(merged))
+        return merged

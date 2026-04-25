@@ -300,6 +300,16 @@ class AnchorSet:
             return list(self._all.values())
         return [a for a in self._all.values() if a.key[0] == scale]
 
+    def all_with_dual_trace(self, scale: Optional[str] = None) -> List[Anchor]:
+        """Broad seed pool for MECH-285 sleep replay (Phase B).
+
+        Returns active + inactive anchors with the Bouton 2004 dual-trace
+        preserved -- the offline replay sampler treats inactive (mark_inactive
+        but-not-erased) anchors as legitimate seeds. Alias of all_anchors()
+        named for the design-doc API on sleep_aggregation_cluster.md.
+        """
+        return self.all_anchors(scale=scale)
+
     def reset(self) -> None:
         """Per-episode reset. Clears active + inactive anchors + tick."""
         self._active.clear()
