@@ -607,6 +607,21 @@ class HippocampalConfig:
     # the flag being off (V_s_anchor = V_s - 0).
     use_mech284_hysteresis: bool = False
 
+    # MECH-269 / MECH-090 read-side hook: V_s -> commit release.
+    # When True, REEAgent.select_action() snapshots the active AnchorSet
+    # keys at commit entry (all three commit-entry paths). On each subsequent
+    # tick while beta is elevated, if any snapshot key is no longer in the
+    # current active_anchors() set, beta_gate.release() is called and
+    # _committed_step_idx is reset (mirroring the MECH-091 urgency-interrupt
+    # template). This is the read-side closure of the V_s invalidation
+    # runtime: anchor invalidation events authored by MECH-287/MECH-288/
+    # MECH-284 (write-side) become observable behavioural changes
+    # (commitment release) only when this flag is on. Backward compatible:
+    # disabled by default; with flag off, EXQ-478/480 wired-but-inert
+    # behaviour reproduces. Requires use_anchor_sets=True to do anything
+    # (no-op without an active anchor set to snapshot).
+    use_vs_commit_release: bool = False
+
     # MECH-290: backward trajectory credit sweep at goal arrival.
     # Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay
     # fires at reward endpoint during waking, concurrent with dopamine.
@@ -1435,6 +1450,7 @@ class REEConfig:
         use_per_region_vs: bool = False,
         use_staleness_accumulator: bool = False,
         use_mech284_hysteresis: bool = False,
+        use_vs_commit_release: bool = False,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -1734,6 +1750,7 @@ class REEConfig:
         config.hippocampal.use_per_region_vs = use_per_region_vs
         config.hippocampal.use_staleness_accumulator = use_staleness_accumulator
         config.hippocampal.use_mech284_hysteresis = use_mech284_hysteresis
+        config.hippocampal.use_vs_commit_release = use_vs_commit_release
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep

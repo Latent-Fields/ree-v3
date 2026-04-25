@@ -509,6 +509,14 @@ class REEAgent(nn.Module):
         # Incremented each committed step so a0->a1->a2->... is executed in sequence.
         self._committed_step_idx: int = 0
 
+        # MECH-269 / MECH-090 read-side hook: V_s -> commit release.
+        # Snapshot of AnchorSet active_anchor keys at commit entry. None when
+        # uncommitted or when use_vs_commit_release is False. Cleared on
+        # release. Used by select_action() to detect anchor invalidation:
+        # if any snapshot key has dropped out of the current active set, the
+        # commitment is released.
+        self._committed_anchor_keys: Optional[set] = None
+
         # SD-016: cached frontal cue signals (updated each E1 tick).
         # None when sd016_enabled=False (all existing experiments unaffected).
         self._cue_action_bias:    Optional[torch.Tensor] = None
@@ -590,6 +598,8 @@ class REEAgent(nn.Module):
         self._committed_candidates = None
         self._last_action = None
         self._committed_step_idx = 0
+        # MECH-269 / MECH-090 read-side hook: clear V_s -> commit release snapshot.
+        self._committed_anchor_keys = None
         self._cue_action_bias    = None
         self._cue_terrain_weight = None
         self.clock.reset()
@@ -1227,6 +1237,11 @@ class REEAgent(nn.Module):
         if self.config.heartbeat.beta_gate_bistable and self.beta_gate.is_elevated:
             completion = self.hippocampal.compute_completion_signal(candidates)
             released = self.beta_gate.receive_hippocampal_completion(completion)
+            # MECH-269 / MECH-090: clear V_s -> commit release snapshot when
+            # beta releases via hippocampal completion signal so the snapshot
+            # does not leak across commitment boundaries.
+            if released:
+                self._committed_anchor_keys = None
             # MECH-290: backward credit sweep on goal arrival (Foster & Wilson 2006).
             # Fires synchronously on waking path when BetaGate releases via
             # hippocampal completion signal. Sweeps committed trajectory backward,
@@ -1305,6 +1320,32 @@ class REEAgent(nn.Module):
             if float(z_harm_a.norm().item()) > urgency_threshold:
                 self.beta_gate.release()
                 self._committed_step_idx = 0
+                self._committed_anchor_keys = None
+
+        # MECH-269 / MECH-090 read-side hook: V_s -> commit release.
+        # If any anchor key snapshotted at commit entry has dropped out of the
+        # active anchor set since then, the schema region the commitment was
+        # anchored to has been invalidated -- release beta and fall through to
+        # fresh E3 selection. Mirrors the MECH-091 urgency-interrupt template.
+        # No-op when the flag is off, when beta is not elevated, or when no
+        # snapshot exists. Diagnostic counter incremented each time the
+        # release fires (read by V3-EXQ-481 as commit_release_via_vs_count).
+        if (
+            getattr(self.hippocampal.config, "use_vs_commit_release", False)
+            and self.beta_gate.is_elevated
+            and self._committed_anchor_keys is not None
+            and self.hippocampal.anchor_set is not None
+        ):
+            current_keys = {
+                a.key for a in self.hippocampal.anchor_set.active_anchors()
+            }
+            if not self._committed_anchor_keys.issubset(current_keys):
+                self.beta_gate.release()
+                self._committed_step_idx = 0
+                self._committed_anchor_keys = None
+                self._vs_commit_release_count = (
+                    getattr(self, "_vs_commit_release_count", 0) + 1
+                )
 
         if not ticks["e3_tick"] and self._last_action is not None:
             # Between E3 ticks: step through committed trajectory (Layer 1) or hold.
@@ -1541,6 +1582,18 @@ class REEAgent(nn.Module):
             if result.committed and not self.beta_gate.is_elevated:
                 self.beta_gate.elevate()
                 self._committed_step_idx = 0  # reset step counter on new commitment
+                # MECH-269 / MECH-090: snapshot active anchor keys at commit entry.
+                # Read by select_action()'s V_s -> commit release block on
+                # subsequent ticks. No-op when use_vs_commit_release is False.
+                if (
+                    getattr(
+                        self.hippocampal.config, "use_vs_commit_release", False
+                    )
+                    and self.hippocampal.anchor_set is not None
+                ):
+                    self._committed_anchor_keys = {
+                        a.key for a in self.hippocampal.anchor_set.active_anchors()
+                    }
                 # MECH-290: record committed trajectory at commit entry so that
                 # backward_credit_sweep() has it when BetaGate releases.
                 # No-op when use_backward_credit_sweep is False (backward compat).
@@ -1560,6 +1613,20 @@ class REEAgent(nn.Module):
             if result.committed:
                 if not self.beta_gate.is_elevated:
                     self._committed_step_idx = 0  # reset on new commitment
+                    # MECH-269 / MECH-090: snapshot active anchor keys at
+                    # commit entry. No-op when use_vs_commit_release is False.
+                    if (
+                        getattr(
+                            self.hippocampal.config,
+                            "use_vs_commit_release",
+                            False,
+                        )
+                        and self.hippocampal.anchor_set is not None
+                    ):
+                        self._committed_anchor_keys = {
+                            a.key
+                            for a in self.hippocampal.anchor_set.active_anchors()
+                        }
                     # MECH-290: record committed trajectory at new commit entry.
                     # No-op when use_backward_credit_sweep is False (backward compat).
                     if (
@@ -1577,6 +1644,7 @@ class REEAgent(nn.Module):
             else:
                 if self.beta_gate.is_elevated:
                     self._committed_step_idx = 0  # reset when gate opens
+                    self._committed_anchor_keys = None
                 self.beta_gate.release()
 
         propagated = self.beta_gate.propagate(action)

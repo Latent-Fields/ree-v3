@@ -6,5 +6,28 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-481",
+      "title": "V_s -> commit release substrate validation (MECH-269 read-side hook to MECH-090)",
+      "script": "experiments/v3_exq_481_vs_commit_release.py",
+      "priority": 70,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "claim_ids": ["MECH-269", "MECH-090"],
+      "note": "Validation of V_s -> commit release Path 1 (use_vs_commit_release flag): hooks anchor inactivation into beta_gate.release(). Both arms have full V_s circuit ON (per_stream/event_segmenter/invalidation_trigger/anchor_sets/per_region_vs/staleness_accumulator/mech284_hysteresis); only OFF vs ON differs on the new release hook. PASS = vs_commit_release_count(ON) > 0 AND freeze_recommit_count(ON) < freeze_recommit_count(OFF) in 2/2 seeds. Addresses EXQ-478/480 wired-but-inert finding (anchor_resets fire, freeze_recommit_count bit-identical at 1=1 across arms). experiment_purpose=diagnostic."
+    },
+    {
+      "queue_id": "V3-EXQ-482",
+      "title": "SD-029 baseline monostrategy diagnostic (plain agent, hazard-event curriculum on/off)",
+      "script": "experiments/v3_exq_482_sd029_baseline_monostrategy_diagnostic.py",
+      "priority": 70,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "claim_ids": ["SD-029"],
+      "note": "Diagnostic: does the SD-029 balanced hazard-event curriculum alone lift action_class_entropy in a plain baseline agent (no V_s circuit, no MECH-284 hysteresis, no AIC/dACC/etc.)? Toggles scheduled_external_hazard_enabled in CausalGridWorldV2; OFF vs ON; 2 seeds x 6 episodes x 200 steps. PASS = entropy(SD-029=ON) > entropy(SD-029=OFF) + 0.1 in 2/2 seeds. experiment_purpose=diagnostic."
+    }
+  ]
 }
