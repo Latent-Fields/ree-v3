@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-483",
+      "title": "SD-037 Broadcast Override Regulator -- 4-arm validation",
+      "script": "experiments/v3_exq_483_sd037_broadcast_override_4arm.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 200,
+      "claim_id": "SD-037",
+      "note": "4-arm factorial {SD-036, SD-037} x {OFF, ON} with PAG always on. Validates orexin-analog broadcast override regulator: PWS-hyperphagia signature (ON_ON >= 2x ON_OFF approach-commit) and narcolepsy/cataplexy signature (OFF_OFF < 30% ON_OFF). Defaults seeded by orexin kinetics lit-pull synthesis (Mileykovskiy 2005, Lee 2005, Karnani 2020, Johnson 2012). Also targets V3-EXQ-471 catatonic lock-in resolution (SD-036 decay + SD-037 override jointly release sustained freeze).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-25T17:18:15.994481+00:00"
+      }
+    }
+  ]
 }
