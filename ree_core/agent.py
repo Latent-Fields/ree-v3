@@ -983,6 +983,30 @@ class REEAgent(nn.Module):
                 hypothesis_tag=False,
             )
 
+        # SD-016 Part B2 (2026-04-25, EXQ-477 follow-up):
+        # Per-tick ContextMemory write hook. When sd016_writepath_mode is
+        # "sense_only" or "both", concatenate (z_self, z_world) and write to
+        # ContextMemory via context_memory.write(). The MECH-120 SHY offline
+        # gate is checked HERE at the call site -- ContextMemory.write itself
+        # is NOT internally _offline_mode-gated (only update_from_observation
+        # is), so the explicit guard is required to keep waking writes from
+        # overwriting fresh schema slots installed during SWS.
+        # Detach to keep the write outside the autograd graph; the write
+        # itself is wrapped in torch.no_grad() inside ContextMemory.write.
+        # See REE_assembly/docs/architecture/context_memory_writepath_fix.md.
+        _wp_mode = getattr(self.e1.config, "sd016_writepath_mode", "off")
+        if (
+            _wp_mode in ("sense_only", "both")
+            and not self.e1._offline_mode
+            and new_latent.z_self is not None
+            and new_latent.z_world is not None
+        ):
+            obs_state = torch.cat(
+                [new_latent.z_self.detach(), new_latent.z_world.detach()],
+                dim=-1,
+            )
+            self.e1.context_memory.write(obs_state)
+
         # Detach before storing: prevents EMA from linking computational graphs
         # across time steps. Without detach, optimizer.step() modifies weights
         # in-place, invalidating the old graph's version -- causing RuntimeError
@@ -2014,6 +2038,21 @@ class REEAgent(nn.Module):
         predictions = self.e1.predict_long_horizon(initial, horizon=horizon_len)
         targets = sequence[:, 1:, :]
         loss = F.mse_loss(predictions[:, :targets.shape[1], :], targets)
+
+        # SD-016 Part B1 (2026-04-25, EXQ-477 follow-up):
+        # Training-time ContextMemory write hook. When sd016_writepath_mode is
+        # "train_only" or "both", the (initial-obs, prediction-error) pair is
+        # routed to E1.update_from_observation(), which writes through to
+        # ContextMemory.write under the _offline_mode guard. Detached so this
+        # cannot push gradient back into the encoders or the LSTM.
+        # Gated on E1Config.sd016_writepath_mode -- default "off" preserves
+        # bit-identical legacy behaviour.
+        # See REE_assembly/docs/architecture/context_memory_writepath_fix.md.
+        _wp_mode = getattr(self.e1.config, "sd016_writepath_mode", "off")
+        if _wp_mode in ("train_only", "both"):
+            obs_state = initial.detach()
+            pred_err = (predictions[:, :targets.shape[1], :] - targets).detach()
+            self.e1.update_from_observation(obs_state, pred_err)
 
         self.e1._hidden_state = saved_hidden
         return loss

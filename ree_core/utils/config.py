@@ -186,6 +186,22 @@ class E1Config:
     sd016_enabled: bool = False
     action_object_dim: int = 16    # must match E2Config.action_object_dim
 
+    # SD-016 ContextMemory write-path mode (2026-04-25, EXQ-477 follow-up).
+    # Controls whether observation-conditioned writes are made to the
+    # ContextMemory slots. Values:
+    #   "off"         - no writes (Part A only; legacy behaviour pre-write-path)
+    #   "train_only"  - write inside REEAgent.compute_prediction_loss
+    #                   (training-time hook, after E1 prediction error computed)
+    #   "sense_only"  - write inside REEAgent.sense() (per-tick hook, gated
+    #                   on _offline_mode at the call site)
+    #   "both"        - both hooks active
+    # Validation: V3-EXQ-418d (4-arm comparison; smallest slot_diversity
+    # collapse + largest action_class_entropy ablation delta wins as default).
+    # Default "off" preserves bit-identical observable behaviour for any
+    # non-SD-016 experiment that does not opt in.
+    # See REE_assembly/docs/architecture/context_memory_writepath_fix.md.
+    sd016_writepath_mode: str = "off"
+
     # MECH-216: E1 predictive wanting (schema readout head).
     # When enabled, a Linear(hidden_dim, 1)+Sigmoid head reads E1's LSTM hidden state
     # and produces a scalar schema_salience in [0, 1]. High salience at positions where
@@ -1261,6 +1277,9 @@ class REEConfig:
         z_harm_a_aux_loss_weight: float = 0.1,
         # SD-016: frontal cue-indexed integration
         sd016_enabled: bool = False,
+        # SD-016 ContextMemory write-path mode (EXQ-477 follow-up):
+        # "off" | "train_only" | "sense_only" | "both"
+        sd016_writepath_mode: str = "off",
         # ARC-030 / MECH-111 / MECH-112 / MECH-113
         benefit_eval_enabled: bool = False,
         benefit_weight: float = 1.0,
@@ -1458,6 +1477,13 @@ class REEConfig:
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
+        # SD-016 write-path mode validation (defensive; no silent typo->'off' fallback)
+        _valid_sd016_modes = ("off", "train_only", "sense_only", "both")
+        if sd016_writepath_mode not in _valid_sd016_modes:
+            raise ValueError(
+                f"sd016_writepath_mode must be one of {_valid_sd016_modes}; "
+                f"got {sd016_writepath_mode!r}"
+            )
         config = cls()
 
         # Observation dims
@@ -1501,6 +1527,7 @@ class REEConfig:
         config.e1.world_dim = world_dim
         config.e1.latent_dim = self_dim + world_dim
         config.e1.sd016_enabled = sd016_enabled
+        config.e1.sd016_writepath_mode = sd016_writepath_mode
         config.e1.action_object_dim = action_object_dim
         config.e1.schema_wanting_enabled = schema_wanting_enabled
 

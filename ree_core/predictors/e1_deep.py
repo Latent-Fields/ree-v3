@@ -43,7 +43,18 @@ class ContextMemory(nn.Module):
 
         self.memory = nn.Parameter(torch.randn(num_slots, memory_dim) * 0.01)
         self.query_proj = nn.Linear(latent_dim, memory_dim)
-        self.key_proj = nn.Linear(memory_dim, memory_dim)
+        # SD-016 Part A (2026-04-25): key_proj bias removed.
+        # With memory init scale 0.01 and a default-init bias on Linear, the bias
+        # term dominates over W_K @ memory_s for every slot, collapsing all keys
+        # to ~b_K and softmax to uniform attention (entropy = ln(num_slots)).
+        # EXQ-477 EXP-0155 measured this directly:
+        #   bias_over_content_ratio = 9.88 (pre-train), 3.41 (post-P0)
+        #   attn_entropy_mean = 2.773 (uniform reference 2.7726)
+        #   cue_context_per_channel_std = 2.86e-08 (cue_context constant across batch)
+        # bias=False is structural -- there is no bias parameter for the optimiser
+        # to drift back, and key projection is a pure linear map of slot content.
+        # See REE_assembly/docs/architecture/context_memory_writepath_fix.md.
+        self.key_proj = nn.Linear(memory_dim, memory_dim, bias=False)
         self.value_proj = nn.Linear(memory_dim, memory_dim)
         self.output_proj = nn.Linear(memory_dim, latent_dim)
         self.write_gate = nn.Sequential(
