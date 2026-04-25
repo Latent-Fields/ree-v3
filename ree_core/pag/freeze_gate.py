@@ -77,6 +77,15 @@ class PAGFreezeGateConfig:
     # SD-036 decay should reliably bring z_harm_a below exit_threshold.
     max_freeze_duration: int = 0
 
+    # SD-037: scaling on theta_freeze for the broadcast override regulator.
+    # When override_signal is supplied to tick(),
+    #   exit_threshold = theta_freeze * (1 + alpha_override * override_signal)
+    #                                 * gaba_tone
+    # so a recruited override (orexin-analog) raises the effective exit
+    # threshold and shortens the committed-freeze state. Default 0.0 is a
+    # no-op (override has no effect).
+    alpha_override: float = 0.0
+
 
 @dataclass
 class PAGFreezeGateOutput:
@@ -151,6 +160,7 @@ class PAGFreezeGate:
         z_harm_a_norm: float,
         gaba_tone: float = 1.0,
         simulation_mode: bool = False,
+        override_signal: float = 0.0,
     ) -> PAGFreezeGateOutput:
         """Compute the freeze gate state for this step.
 
@@ -219,7 +229,11 @@ class PAGFreezeGate:
                 self._duration_above_threshold = 0
 
         # 2. Compute exit threshold for this tick.
-        exit_threshold = float(self.config.theta_freeze) * tone
+        # SD-037: an active broadcast override raises the exit threshold via
+        # alpha_override (no-op when alpha_override=0.0 or override_signal=0.0).
+        override = max(0.0, min(1.0, float(override_signal)))
+        override_factor = 1.0 + float(self.config.alpha_override) * override
+        exit_threshold = float(self.config.theta_freeze) * override_factor * tone
 
         # 3. Edge detection.
         commit_this_tick = False

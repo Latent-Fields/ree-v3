@@ -1261,6 +1261,43 @@ class REEConfig:
     # different index.
     pag_freeze_noop_action_class: int = 0
 
+    # ----------------------------------------------------------------
+    # SD-037: Broadcast Override Regulator (orexin-analog)
+    # ----------------------------------------------------------------
+    # Master switch. When True, REEAgent instantiates a BroadcastOverrideRegulator
+    # that ticks each sense() step. The regulator integrates drive_level (SD-012)
+    # and a sustained-threat magnitude window over z_harm into a scalar
+    # override_signal in [0, 1], EMA-smoothed. The signal is consumed at three
+    # sites: PAG freeze-gate (theta_freeze scaling), SalienceCoordinator
+    # (operating-mode reweight), and GoalState (drive -> z_goal seeding gate).
+    # False = disabled (default, backward compat).
+    use_broadcast_override: bool = False
+    # Sigmoid recruitment threshold: override_raw = sigmoid(drive_w*drive +
+    # harm_w*sustained_threat - threshold). At default 0.5, with both inputs
+    # at ~0.5 and unit weights, the signal lifts off baseline.
+    override_recruitment_threshold: float = 0.5
+    # PAG freeze-gate scaling. exit_threshold_eff = theta_freeze *
+    # (1 + alpha_override * override_signal) * gaba_tone. Only consumed when
+    # use_pag_freeze_gate is also True.
+    override_alpha_pag: float = 0.5
+    # SalienceCoordinator reweight magnitude. Only consumed when
+    # use_salience_coordinator is also True.
+    override_salience_reweight_alpha: float = 0.3
+    # Linear coefficients on the two driving signals before the sigmoid.
+    override_drive_weight: float = 1.0
+    override_harm_weight: float = 1.0
+    # Sustained-threat magnitude window: rolling mean of z_harm.norm() over
+    # the last sustained_threat_window ticks; normalised by
+    # sustained_threat_threshold so values >= threshold map to ~1.0 input.
+    override_sustained_threat_window: int = 12
+    override_sustained_threat_threshold: float = 0.4
+    # EMA decay rate on override_signal output (~20-tick smoothing at 0.05).
+    override_decay_rate: float = 0.05
+    # GoalState gate: drive -> z_goal seeding is amplified by this factor when
+    # override_signal >= recruitment_threshold. 1.0 = legacy SD-012 path
+    # unchanged; >1.0 = orexin-recruited drive seeding.
+    override_goal_seeding_gain: float = 2.0
+
     @classmethod
     def from_dims(
         cls,
@@ -1477,6 +1514,17 @@ class REEConfig:
         pag_min_freeze_duration: int = 0,
         pag_max_freeze_duration: int = 0,
         pag_freeze_noop_action_class: int = 0,
+        # SD-037: Broadcast Override Regulator (orexin-analog)
+        use_broadcast_override: bool = False,
+        override_recruitment_threshold: float = 0.5,
+        override_alpha_pag: float = 0.5,
+        override_salience_reweight_alpha: float = 0.3,
+        override_drive_weight: float = 1.0,
+        override_harm_weight: float = 1.0,
+        override_sustained_threat_window: int = 12,
+        override_sustained_threat_threshold: float = 0.4,
+        override_decay_rate: float = 0.05,
+        override_goal_seeding_gain: float = 2.0,
         # MECH-269 / MECH-287 / MECH-288: V_s invalidation runtime (Phase 1 + 2)
         use_per_stream_vs: bool = False,
         use_event_segmenter: bool = False,
@@ -1789,6 +1837,18 @@ class REEConfig:
         config.pag_min_freeze_duration = pag_min_freeze_duration
         config.pag_max_freeze_duration = pag_max_freeze_duration
         config.pag_freeze_noop_action_class = pag_freeze_noop_action_class
+
+        # SD-037: Broadcast Override Regulator (orexin-analog)
+        config.use_broadcast_override = use_broadcast_override
+        config.override_recruitment_threshold = override_recruitment_threshold
+        config.override_alpha_pag = override_alpha_pag
+        config.override_salience_reweight_alpha = override_salience_reweight_alpha
+        config.override_drive_weight = override_drive_weight
+        config.override_harm_weight = override_harm_weight
+        config.override_sustained_threat_window = override_sustained_threat_window
+        config.override_sustained_threat_threshold = override_sustained_threat_threshold
+        config.override_decay_rate = override_decay_rate
+        config.override_goal_seeding_gain = override_goal_seeding_gain
 
         # MECH-269 / MECH-287 / MECH-288: V_s invalidation runtime Phase 1 + 2 flags
         config.hippocampal.use_per_stream_vs = use_per_stream_vs

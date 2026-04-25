@@ -83,6 +83,8 @@ from ree_core.comparator.tpj_comparator import TPJComparator
 from ree_core.regulators import (
     GABAergicDecayConfig,
     GABAergicDecayRegulator,
+    BroadcastOverrideConfig,
+    BroadcastOverrideRegulator,
 )
 from ree_core.pag import (
     PAGFreezeGate,
@@ -488,10 +490,54 @@ class REEAgent(nn.Module):
                 max_freeze_duration=int(
                     getattr(config, "pag_max_freeze_duration", 0)
                 ),
+                # SD-037: broadcast-override scaling on theta_freeze. Only takes
+                # effect when use_broadcast_override is also True (override_signal
+                # stays at 0.0 otherwise).
+                alpha_override=float(getattr(config, "override_alpha_pag", 0.5))
+                if getattr(config, "use_broadcast_override", False)
+                else 0.0,
             )
             self.pag_freeze_gate = PAGFreezeGate(pag_cfg)
         # Cache of last PAG freeze-gate output (diagnostics).
         self._pag_last_output: Optional[PAGFreezeGateOutput] = None
+
+        # SD-037: Broadcast Override Regulator (orexin-analog). Drives a scalar
+        # override_signal in [0, 1] from drive_level + sustained-threat magnitude
+        # over z_harm. Consumed by PAG freeze-gate (theta_freeze scaling),
+        # SalienceCoordinator (operating-mode reweight), and GoalState (drive ->
+        # z_goal seeding gate). Backward-compatible no-op when master switch off.
+        self.broadcast_override: Optional[BroadcastOverrideRegulator] = None
+        if getattr(config, "use_broadcast_override", False):
+            override_cfg = BroadcastOverrideConfig(
+                enabled=True,
+                recruitment_threshold=float(
+                    getattr(config, "override_recruitment_threshold", 0.5)
+                ),
+                alpha_override=float(getattr(config, "override_alpha_pag", 0.5)),
+                salience_reweight_alpha=float(
+                    getattr(config, "override_salience_reweight_alpha", 0.3)
+                ),
+                drive_weight=float(getattr(config, "override_drive_weight", 1.0)),
+                harm_weight=float(getattr(config, "override_harm_weight", 1.0)),
+                sustained_threat_window=int(
+                    getattr(config, "override_sustained_threat_window", 12)
+                ),
+                sustained_threat_threshold=float(
+                    getattr(config, "override_sustained_threat_threshold", 0.4)
+                ),
+                decay_rate=float(getattr(config, "override_decay_rate", 0.05)),
+            )
+            self.broadcast_override = BroadcastOverrideRegulator(override_cfg)
+            # Register SD-037 override_signal as a SalienceCoordinator signal
+            # source. Recruited override biases the operating-mode aggregate
+            # toward external_task (engaged action). Backward-compatible no-op
+            # when salience is None or the alpha is 0.
+            if self.salience is not None:
+                self.salience.config.affinity_weights["override_signal"] = {
+                    "external_task": float(
+                        getattr(config, "override_salience_reweight_alpha", 0.3)
+                    ),
+                }
 
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
@@ -693,6 +739,11 @@ class REEAgent(nn.Module):
         if self.pag_freeze_gate is not None:
             self.pag_freeze_gate.reset()
         self._pag_last_output = None
+
+        # SD-037: reset broadcast override regulator per-episode state (threat
+        # window, EMA, diagnostics). Master flag is preserved across reset.
+        if self.broadcast_override is not None:
+            self.broadcast_override.reset()
 
         # MECH-269 base: reset per-stream V_s cache on episode boundary.
         # No-op when use_per_stream_vs is False (per_stream_vs stays empty).
@@ -973,6 +1024,30 @@ class REEAgent(nn.Module):
         if self.gabaergic_decay is not None:
             self.gabaergic_decay.tick(
                 new_latent,
+                simulation_mode=bool(getattr(new_latent, "hypothesis_tag", False)),
+            )
+
+        # SD-037: tick the broadcast override regulator (orexin-analog).
+        # Combines drive_level (SD-012) and a sustained-threat magnitude window
+        # over z_harm into a scalar override_signal in [0, 1]. The signal is
+        # consumed downstream at PAG (theta_freeze scaling), SalienceCoordinator
+        # (operating-mode reweight), and GoalState (drive -> z_goal seeding gate).
+        # No-op when use_broadcast_override=False.
+        # MECH-094: simulation/replay content does not recruit the override
+        # system -- the regulator's internal threat window and EMA are frozen
+        # for hypothesis-tagged ticks.
+        if self.broadcast_override is not None:
+            override_drive = 0.0
+            if self.goal_state is not None:
+                override_drive = float(
+                    getattr(self.goal_state, "_last_drive_level", 0.0)
+                )
+            override_z_harm = 0.0
+            if new_latent.z_harm is not None:
+                override_z_harm = float(new_latent.z_harm.norm().item())
+            self.broadcast_override.tick(
+                drive_level=override_drive,
+                z_harm_norm=override_z_harm,
                 simulation_mode=bool(getattr(new_latent, "hypothesis_tag", False)),
             )
 
@@ -1663,6 +1738,14 @@ class REEAgent(nn.Module):
                     "cea_fast_prime",
                     float(self._cea_last_output.fast_prime),
                 )
+            # SD-037: inject broadcast override_signal as an affinity contribution
+            # toward external_task. Biases mode SELECTION (not switch threshold);
+            # zero at rest -> no-op when override is below recruitment threshold.
+            if self.broadcast_override is not None:
+                self.salience.update_signal(
+                    "override_signal",
+                    float(self.broadcast_override.override_signal),
+                )
             self._salience_last_tick = self.salience.tick(
                 dacc_bundle=sal_bundle,
                 drive_level=sal_drive,
@@ -1858,10 +1941,16 @@ class REEAgent(nn.Module):
                 if self.gabaergic_decay is not None
                 else 1.0
             )
+            pag_override = (
+                float(self.broadcast_override.override_signal)
+                if self.broadcast_override is not None
+                else 0.0
+            )
             self._pag_last_output = self.pag_freeze_gate.tick(
                 z_harm_a_norm=pag_z_norm,
                 gaba_tone=pag_tone,
                 simulation_mode=False,
+                override_signal=pag_override,
             )
             if self._pag_last_output.freeze_active and action is not None:
                 # Constrain action to a no-op one-hot vector. Match the
@@ -2554,6 +2643,19 @@ class REEAgent(nn.Module):
         effective_drive = drive_level
         if self.pacc is not None:
             effective_drive = self.pacc.effective_drive(drive_level)
+        # SD-037: broadcast-override gate on drive -> z_goal seeding. When the
+        # override regulator is recruited (override_signal in [0, 1]), amplify
+        # the effective drive by up to override_goal_seeding_gain at full
+        # recruitment. override=0 -> no amplification (legacy SD-012 path).
+        # override=1 -> drive is multiplied by override_goal_seeding_gain.
+        # Result is clipped to [0, 1] (drive_level domain).
+        if self.broadcast_override is not None:
+            override_signal = float(self.broadcast_override.override_signal)
+            seeding_gain = float(
+                getattr(self.config, "override_goal_seeding_gain", 2.0)
+            )
+            multiplier = 1.0 + (seeding_gain - 1.0) * override_signal
+            effective_drive = max(0.0, min(1.0, effective_drive * multiplier))
         self.goal_state.update(
             seed_latent,
             benefit_exposure,
