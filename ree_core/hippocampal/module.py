@@ -625,6 +625,8 @@ class HippocampalModule(nn.Module):
             world_states=detached_world,
             action_objects=detached_ao,
             is_reverse=False,
+            memory_strength=float(getattr(trajectory, "memory_strength", 1.0)),
+            arousal_tag=float(getattr(trajectory, "arousal_tag", 0.0)),
         )
         self._exploration_buffer.append(detached)
         if len(self._exploration_buffer) > self._exploration_buffer_maxlen:
@@ -655,7 +657,46 @@ class HippocampalModule(nn.Module):
             world_states=reversed_world,
             action_objects=reversed_ao,
             is_reverse=True,
+            memory_strength=float(getattr(trajectory, "memory_strength", 1.0)),
+            arousal_tag=float(getattr(trajectory, "arousal_tag", 0.0)),
         )
+
+    def get_exploration_arousal_tags(self) -> Optional[torch.Tensor]:
+        """Return the BLA arousal tags stored on exploration traces, if any."""
+        if len(self._exploration_buffer) == 0:
+            return None
+        return torch.tensor(
+            [
+                float(getattr(traj, "arousal_tag", 0.0))
+                for traj in self._exploration_buffer
+            ],
+            dtype=torch.float32,
+        )
+
+    def _sample_exploration_trajectory(
+        self,
+        retrieval_bias: Optional[torch.Tensor] = None,
+    ) -> Optional[Trajectory]:
+        """Sample a stored exploration trace, optionally weighted by BLA bias."""
+        if len(self._exploration_buffer) == 0:
+            return None
+
+        weights = torch.tensor(
+            [
+                max(1e-6, float(getattr(traj, "memory_strength", 1.0)))
+                for traj in self._exploration_buffer
+            ],
+            dtype=torch.float32,
+        )
+        if retrieval_bias is not None and retrieval_bias.numel() == len(self._exploration_buffer):
+            bias = retrieval_bias.detach().to(torch.float32).cpu().clamp_min(0.0)
+            weights = weights * bias
+
+        if float(weights.sum().item()) <= 0.0:
+            return random.choice(self._exploration_buffer)
+
+        idx = int(torch.multinomial(weights, num_samples=1, replacement=True).item())
+        return self._exploration_buffer[idx]
 
     def diverse_replay(
         self,
@@ -663,6 +704,7 @@ class HippocampalModule(nn.Module):
         num_replay_steps: int = 5,
         drive_state: Optional[torch.Tensor] = None,
         mode: str = "auto",
+        retrieval_bias: Optional[torch.Tensor] = None,
     ) -> List[Trajectory]:
         """MECH-165: diversity-scheduled replay.
 
@@ -677,6 +719,9 @@ class HippocampalModule(nn.Module):
             num_replay_steps: number of replay trajectories to generate
             drive_state: optional [4] drive weights (MECH-203)
             mode: replay mode selection
+            retrieval_bias: optional per-trace BLA weight vector aligned to the
+                exploration buffer. When provided, reverse replay samples are
+                weighted by memory_strength * retrieval_bias instead of uniform.
 
         Returns:
             List of Trajectory objects
@@ -695,8 +740,11 @@ class HippocampalModule(nn.Module):
                     step_mode = "forward"
 
             if step_mode == "reverse" and len(self._exploration_buffer) > 0:
-                source = random.choice(self._exploration_buffer)
-                trajectories.append(self.reverse_replay(source))
+                source = self._sample_exploration_trajectory(
+                    retrieval_bias=retrieval_bias
+                )
+                if source is not None:
+                    trajectories.append(self.reverse_replay(source))
             else:
                 # forward or random: delegate to existing replay()
                 step_trajs = self.replay(
@@ -773,6 +821,8 @@ class HippocampalModule(nn.Module):
             world_states=detached_world,
             action_objects=detached_ao,
             is_reverse=False,
+            memory_strength=float(getattr(trajectory, "memory_strength", 1.0)),
+            arousal_tag=float(getattr(trajectory, "arousal_tag", 0.0)),
         )
 
     def backward_credit_sweep(self, outcome_quality: float) -> dict:

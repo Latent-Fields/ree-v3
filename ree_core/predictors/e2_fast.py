@@ -52,6 +52,8 @@ class Trajectory:
     world_states: Optional[List[torch.Tensor]] = None  # z_world: for SD-003 attribution
     action_objects: Optional[List[torch.Tensor]] = None  # o_t: for HippocampalModule
     is_reverse: bool = False             # MECH-165: True when trajectory is reverse-replayed
+    memory_strength: float = 1.0         # BLA write-strength proxy for replay sampling
+    arousal_tag: float = 0.0             # BLA retrieval tag written at encoding time
 
     @property
     def total_length(self) -> int:

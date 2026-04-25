@@ -37,6 +37,13 @@ FLAG_MATRIX = [
      {"use_dacc": True, "use_salience_coordinator": True}),
     ("aic_pcc_pacc",
      {"use_aic_analog": True, "use_pcc_analog": True, "use_pacc_analog": True}),
+    ("tpj_and_amygdala",
+     {
+         "use_tpj_comparator": True,
+         "use_amygdala_analog": True,
+         "use_affective_harm_stream": True,
+         "replay_diversity_enabled": True,
+     }),
 ]
 
 

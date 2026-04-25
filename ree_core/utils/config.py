@@ -1065,6 +1065,15 @@ class REEConfig:
     # probe as its own experiment.
     pacc_offline_decay: float = 0.0
 
+    # MECH-095: TPJ agency comparator (self/other attribution on z_self).
+    # When True, REEAgent stores an E2 efference-copy prediction at action
+    # selection and compares it against the next observed z_self during sense().
+    # This is a diagnostic/runtime ownership signal only; no automatic residue
+    # gating is imposed by default because many experiment loops still call
+    # update_residue() before the next observation has been sensed.
+    use_tpj_comparator: bool = False
+    tpj_agency_threshold: float = 0.5
+
     # SD-033a: Lateral-PFC-analog (rule/goal substrate, MECH-261 primary consumer).
     # Master switch -- when True, REEAgent instantiates a LateralPFCAnalog that
     # maintains a rule_state vector updated via gate-modulated EMA using
@@ -1171,6 +1180,9 @@ class REEConfig:
     # Moita 2004 attribution-gate hard requirement. Set False only for
     # deliberate broadcast-remap ablation (named failure signature).
     bla_remap_requires_attribution: bool = True
+    # ContextMemory slot blend applied when remap_signal targets a slot.
+    # 0.5 = keep half the old slot code, half current observation-conditioned code.
+    bla_context_remap_blend: float = 0.5
 
     # -- CeAAnalog (SD-035 / MECH-046 / MECH-074c) --
     # Fast-route threshold on the low-frequency magnitude projection of
@@ -1391,6 +1403,9 @@ class REEConfig:
         pacc_drive_bias_cap: float = 0.5,
         pacc_z_harm_a_min: float = 0.0,
         pacc_offline_decay: float = 0.0,
+        # MECH-095: TPJ comparator
+        use_tpj_comparator: bool = False,
+        tpj_agency_threshold: float = 0.5,
         # SD-033a: Lateral-PFC-analog (rule/goal substrate, MECH-261 consumer)
         use_lateral_pfc_analog: bool = False,
         lateral_pfc_rule_dim: int = 16,
@@ -1431,6 +1446,7 @@ class REEConfig:
         bla_remap_pe_std_init: float = 0.1,
         bla_remap_code_fraction: float = 0.33,
         bla_remap_requires_attribution: bool = True,
+        bla_context_remap_blend: float = 0.5,
         # CeAAnalog (MECH-046 / MECH-074c)
         cea_fast_route_threshold: float = 0.5,
         cea_fast_route_input_is_lowfreq: bool = True,
@@ -1697,6 +1713,10 @@ class REEConfig:
         config.pacc_z_harm_a_min = pacc_z_harm_a_min
         config.pacc_offline_decay = pacc_offline_decay
 
+        # MECH-095: TPJ comparator
+        config.use_tpj_comparator = use_tpj_comparator
+        config.tpj_agency_threshold = tpj_agency_threshold
+
         # SD-033a: Lateral-PFC-analog
         config.use_lateral_pfc_analog = use_lateral_pfc_analog
         config.lateral_pfc_rule_dim = lateral_pfc_rule_dim
@@ -1738,6 +1758,7 @@ class REEConfig:
         config.bla_remap_pe_std_init = bla_remap_pe_std_init
         config.bla_remap_code_fraction = bla_remap_code_fraction
         config.bla_remap_requires_attribution = bla_remap_requires_attribution
+        config.bla_context_remap_blend = bla_context_remap_blend
         config.cea_fast_route_threshold = cea_fast_route_threshold
         config.cea_fast_route_input_is_lowfreq = cea_fast_route_input_is_lowfreq
         config.cea_mode_prior_log_odds_max = cea_mode_prior_log_odds_max

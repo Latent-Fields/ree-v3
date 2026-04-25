@@ -79,6 +79,7 @@ from ree_core.amygdala import (
     CeAConfig,
     CeAOutput,
 )
+from ree_core.comparator.tpj_comparator import TPJComparator
 from ree_core.regulators import (
     GABAergicDecayConfig,
     GABAergicDecayRegulator,
@@ -295,6 +296,18 @@ class REEAgent(nn.Module):
             self.pacc = PACCAnalog(pacc_cfg)
         # Cache of last PACC tick output (for diagnostics / experiments).
         self._pacc_last_tick: Optional[Dict[str, float]] = None
+
+        # MECH-095: TPJ agency comparator. Stores an E2 efference-copy
+        # prediction for the selected action, then compares it against the
+        # next sensed z_self. Runtime output is cached for diagnostics and any
+        # experiment loop that wants an ownership signal on resolved
+        # transitions.
+        self.tpj: Optional[TPJComparator] = None
+        if getattr(config, "use_tpj_comparator", False):
+            self.tpj = TPJComparator(
+                self_dim=config.latent.self_dim,
+                agency_threshold=config.tpj_agency_threshold,
+            )
 
         # SD-033a: Lateral-PFC-analog (rule/goal substrate, MECH-261 primary
         # consumer). When use_lateral_pfc_analog=True, maintains a rule_state
@@ -545,10 +558,18 @@ class REEAgent(nn.Module):
         self._dacc_last_bundle: Optional[Dict[str, Any]] = None
         self._dacc_last_bias: Optional[torch.Tensor] = None
 
+        # MECH-095: pending TPJ efference-copy prediction and resolved agency
+        # readout for the most recently observed transition.
+        self._tpj_predicted_z_self: Optional[torch.Tensor] = None
+        self._tpj_last_agency_signal: Optional[torch.Tensor] = None
+        self._tpj_last_is_self_caused: Optional[torch.Tensor] = None
+
         # MECH-165: episode trajectory recording for exploration buffer
         self._episode_world_states: List[torch.Tensor] = []
         self._episode_self_states: List[torch.Tensor] = []
         self._episode_actions: List[torch.Tensor] = []
+        self._episode_bla_peak_tag: float = 0.0
+        self._episode_bla_peak_encoding_gain: float = 1.0
 
         # MECH-165: pass config to hippocampal for buffer sizing
         if self.config.replay_diversity_enabled:
@@ -612,6 +633,9 @@ class REEAgent(nn.Module):
         self._harm_a_pred_prev = None
         self._dacc_last_bundle = None
         self._dacc_last_bias = None
+        self._tpj_predicted_z_self = None
+        self._tpj_last_agency_signal = None
+        self._tpj_last_is_self_caused = None
         if self.dacc is not None:
             self.dacc.reset()
         # SD-032a: reset salience coordinator on episode boundary.
@@ -752,6 +776,8 @@ class REEAgent(nn.Module):
             self._episode_world_states.clear()
             self._episode_self_states.clear()
             self._episode_actions.clear()
+            self._episode_bla_peak_tag = 0.0
+            self._episode_bla_peak_encoding_gain = 1.0
             return
 
         # Align: states[0..N], actions[0..N-1]
@@ -769,12 +795,103 @@ class REEAgent(nn.Module):
             actions=actions_tensor,
             world_states=world_states,
             is_reverse=False,
+            memory_strength=float(self._episode_bla_peak_encoding_gain),
+            arousal_tag=float(self._episode_bla_peak_tag),
         )
         self.hippocampal.record_exploration_trajectory(traj)
 
         self._episode_world_states.clear()
         self._episode_self_states.clear()
         self._episode_actions.clear()
+        self._episode_bla_peak_tag = 0.0
+        self._episode_bla_peak_encoding_gain = 1.0
+
+    def _cache_tpj_prediction_for_action(self, action: Optional[torch.Tensor]) -> None:
+        """Store the efference-copy z_self prediction for the chosen action."""
+        if (
+            self.tpj is None
+            or action is None
+            or self._current_latent is None
+            or self._current_latent.z_self is None
+        ):
+            self._tpj_predicted_z_self = None
+            return
+
+        with torch.no_grad():
+            z_self = self._current_latent.z_self.detach()
+            a_in = action.detach()
+            if z_self.dim() == 1:
+                z_self = z_self.unsqueeze(0)
+            if a_in.dim() == 1:
+                a_in = a_in.unsqueeze(0)
+            self._tpj_predicted_z_self = self.e2.predict_next_self(z_self, a_in).detach().clone()
+
+    def _update_tpj_comparator(self, new_latent: LatentState) -> None:
+        """Resolve the most recent TPJ agency comparison on the waking path."""
+        if self.tpj is None or self._tpj_predicted_z_self is None or new_latent.z_self is None:
+            self._tpj_last_agency_signal = None
+            self._tpj_last_is_self_caused = None
+            return
+
+        with torch.no_grad():
+            z_obs = new_latent.z_self.detach()
+            if z_obs.dim() == 1:
+                z_obs = z_obs.unsqueeze(0)
+            agency_signal, is_self_caused = self.tpj.compare(
+                self._tpj_predicted_z_self,
+                z_obs,
+            )
+            self._tpj_last_agency_signal = agency_signal.detach().clone()
+            self._tpj_last_is_self_caused = is_self_caused.detach().clone()
+        self._tpj_predicted_z_self = None
+
+    def _get_context_memory_code_contributions(
+        self,
+        z_self: torch.Tensor,
+        z_world: torch.Tensor,
+    ) -> Optional[Dict[int, float]]:
+        """Approximate active code contributions from ContextMemory slot attention."""
+        if not hasattr(self.e1, "context_memory"):
+            return None
+
+        cm = self.e1.context_memory
+        with torch.no_grad():
+            state = torch.cat([z_self.detach(), z_world.detach()], dim=-1)
+            query = cm.query_proj(state)
+            scores = torch.mm(query, cm.memory.detach().t())
+            weights = torch.softmax(scores, dim=-1).mean(dim=0)
+
+        return {
+            int(idx): float(weights[idx].item())
+            for idx in range(weights.numel())
+            if float(weights[idx].item()) > 0.0
+        }
+
+    def _apply_bla_context_remap(
+        self,
+        remap_signal: Dict[int, float],
+        z_self: torch.Tensor,
+        z_world: torch.Tensor,
+    ) -> None:
+        """Apply BLA remap to the targeted ContextMemory slots in place."""
+        if not remap_signal or not hasattr(self.e1, "context_memory"):
+            return
+
+        cm = self.e1.context_memory
+        blend_base = float(getattr(self.config, "bla_context_remap_blend", 0.5))
+        with torch.no_grad():
+            state = torch.cat([z_self.detach(), z_world.detach()], dim=-1)
+            write_signal = cm.write_gate(state).mean(dim=0)
+            n_slots = cm.memory.shape[0]
+            for code_idx, amplitude in remap_signal.items():
+                idx = int(code_idx)
+                if idx < 0 or idx >= n_slots:
+                    continue
+                blend = max(0.0, min(1.0, blend_base * float(amplitude)))
+                cm.memory.data[idx] = (
+                    (1.0 - blend) * cm.memory.data[idx]
+                    + blend * write_signal
+                )
 
     def sense(
         self,
@@ -835,6 +952,11 @@ class REEAgent(nn.Module):
             harm_history=obs_harm_history,  # SD-011 second source (None = disabled)
             volatility_signal=vol_signal,
         )
+
+        # MECH-095: resolve the TPJ efference-copy comparison for the most
+        # recently executed action. Runs immediately after encoding so the
+        # comparator sees the freshly observed z_self.
+        self._update_tpj_comparator(new_latent)
 
         # SD-036: tick the GABAergic cross-stream decay regulator. Applies
         # z_s(t+1) = z_s(t) * exp(-tau_s * gaba_tone) to registered streams
@@ -902,12 +1024,18 @@ class REEAgent(nn.Module):
                     # episode -- BLA handles None by skipping remap_signal
                     # (no PE available).
                     z_harm_a_pred = self._harm_a_pred_prev
-                    # Attribution candidates: hook reserved for a future
-                    # attribution head wired through the E2_harm_a forward
-                    # model. None in the current pass so remap_signal stays
-                    # empty unless callers supply candidates explicitly --
-                    # conservative Moita 2004 default per the BLAConfig
-                    # remap_requires_attribution flag.
+                    # Read path: use stored exploration-trace arousal tags as
+                    # the hippocampal context for retrieval_bias.
+                    arousal_tags_in_context = None
+                    if self.hippocampal is not None:
+                        arousal_tags_in_context = self.hippocampal.get_exploration_arousal_tags()
+                    # Conservative attribution proxy: slot-attention over
+                    # ContextMemory supplies per-code contributions until a
+                    # dedicated harm-forward attribution head lands.
+                    candidate_code_contributions = self._get_context_memory_code_contributions(
+                        new_latent.z_self,
+                        new_latent.z_world,
+                    )
                     self._bla_last_output = self.bla.tick(
                         z_harm_a=z_harm_a_cur.detach(),
                         z_harm_a_pred=(
@@ -915,11 +1043,25 @@ class REEAgent(nn.Module):
                             if z_harm_a_pred is not None
                             else None
                         ),
-                        candidate_code_contributions=None,
-                        arousal_tags_in_context=None,
+                        candidate_code_contributions=candidate_code_contributions,
+                        arousal_tags_in_context=arousal_tags_in_context,
                         step_index=self._step_count,
                         simulation_mode=False,
                     )
+                    self._episode_bla_peak_tag = max(
+                        self._episode_bla_peak_tag,
+                        float(self._bla_last_output.arousal_tag),
+                    )
+                    self._episode_bla_peak_encoding_gain = max(
+                        self._episode_bla_peak_encoding_gain,
+                        float(self._bla_last_output.encoding_gain),
+                    )
+                    if self._bla_last_output.remap_signal:
+                        self._apply_bla_context_remap(
+                            self._bla_last_output.remap_signal,
+                            new_latent.z_self,
+                            new_latent.z_world,
+                        )
                 if self.cea is not None:
                     # cortical_confirmation is reserved for a future cortical
                     # gate wired off the AIC / dACC fast-signal path.
@@ -1627,6 +1769,12 @@ class REEAgent(nn.Module):
                         self.hippocampal.config, "use_backward_credit_sweep", False
                     )
                 ):
+                    self.e3._committed_trajectory.memory_strength = float(
+                        self._bla_last_output.encoding_gain
+                    ) if self._bla_last_output is not None else 1.0
+                    self.e3._committed_trajectory.arousal_tag = float(
+                        self._bla_last_output.arousal_tag
+                    ) if self._bla_last_output is not None else 0.0
                     self.hippocampal.record_committed_trajectory(
                         self.e3._committed_trajectory
                     )
@@ -1661,6 +1809,12 @@ class REEAgent(nn.Module):
                             False,
                         )
                     ):
+                        self.e3._committed_trajectory.memory_strength = float(
+                            self._bla_last_output.encoding_gain
+                        ) if self._bla_last_output is not None else 1.0
+                        self.e3._committed_trajectory.arousal_tag = float(
+                            self._bla_last_output.arousal_tag
+                        ) if self._bla_last_output is not None else 0.0
                         self.hippocampal.record_committed_trajectory(
                             self.e3._committed_trajectory
                         )
@@ -1725,6 +1879,7 @@ class REEAgent(nn.Module):
                     noop[noop_class] = 1.0
                 action = noop
 
+        self._cache_tpj_prediction_for_action(action)
         self._last_action = action
         # MECH-165: record action for exploration trajectory
         self._record_exploration_action(action)
@@ -1871,6 +2026,7 @@ class REEAgent(nn.Module):
         if self._current_latent is not None and self._current_latent.z_harm_a is not None:
             z_harm_a = self._current_latent.z_harm_a
         result = self.e3.select(candidates, temperature, z_harm_a=z_harm_a)
+        self._cache_tpj_prediction_for_action(result.selected_action)
         self._last_action = result.selected_action
         # MECH-165: record action for exploration trajectory
         self._record_exploration_action(result.selected_action)
@@ -1903,8 +2059,16 @@ class REEAgent(nn.Module):
             )
         # MECH-165: use diverse replay scheduler when enabled
         if self.config.replay_diversity_enabled:
+            retrieval_bias = (
+                self._bla_last_output.retrieval_bias
+                if self._bla_last_output is not None
+                else None
+            )
             replay_trajs = self.hippocampal.diverse_replay(
-                recent, drive_state=drive_state, mode="auto",
+                recent,
+                drive_state=drive_state,
+                mode="auto",
+                retrieval_bias=retrieval_bias,
             )
         else:
             replay_trajs = self.hippocampal.replay(recent, drive_state=drive_state)
@@ -2850,6 +3014,11 @@ class REEAgent(nn.Module):
         n_steps = self.config.rem_attribution_steps
         terrain_scores: List[float] = []
         n_reverse = 0
+        retrieval_bias = (
+            self._bla_last_output.retrieval_bias
+            if self._bla_last_output is not None
+            else None
+        )
 
         # Forward replay pass: hypothesis_tag=True (read-only, no residue writes)
         forward_trajs = self.hippocampal.replay(
@@ -2871,6 +3040,7 @@ class REEAgent(nn.Module):
                 num_replay_steps=n_reverse_steps,
                 drive_state=None,
                 mode="reverse",
+                retrieval_bias=retrieval_bias,
             )
             for traj in reverse_trajs:
                 score = self.hippocampal._score_trajectory(traj)
