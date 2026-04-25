@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 if TYPE_CHECKING:  # pragma: no cover -- typing only
     from ree_core.agent import REEAgent
+    from ree_core.sleep.bayesian_aggregator import BayesianAggregator
     from ree_core.sleep.replay_sampler import SleepReplaySampler
     from ree_core.sleep.routing_gate import RoutingGate
 
@@ -94,6 +95,8 @@ class SleepLoopManager:
         replay_sampler: Optional["SleepReplaySampler"] = None,
         draws_per_cycle: int = 0,
         routing_gate: Optional["RoutingGate"] = None,
+        bayesian_aggregator: Optional["BayesianAggregator"] = None,
+        aggregator_domain: str = "place",
     ) -> None:
         if cycle_every_k_episodes < 1:
             raise ValueError(
@@ -110,6 +113,8 @@ class SleepLoopManager:
         self.replay_sampler = replay_sampler
         self.draws_per_cycle = int(draws_per_cycle)
         self.routing_gate = routing_gate
+        self.bayesian_aggregator = bayesian_aggregator
+        self.aggregator_domain = str(aggregator_domain)
         self.state = SleepCycleState()
         self._cycle_history: List[Dict[str, float]] = []
 
@@ -163,20 +168,32 @@ class SleepLoopManager:
         # Phase B: SLEEP_ENTRY -- freeze the staleness snapshot ONCE per
         # cycle and perform the configured N draws. Phase C: at SLEEP_ENTRY
         # the routing gate flips to the SWS row; each draw is routed
-        # immediately (downstream consumers do not exist yet -- routed
-        # events land as diagnostics on last_metrics).
+        # immediately. Phase D: each routed draw is consumed by the
+        # Bayesian aggregator (probe-channel-gated). Place-domain evidence
+        # = staleness scalar at the routed anchor's region, looked up
+        # against a frozen-at-SLEEP_ENTRY copy of the staleness snapshot.
         sws_routed_draws: List = []
+        evidence_snapshot: Dict = {}
         if self.replay_sampler is not None:
             self.state.phase = SleepPhase.SLEEP_ENTRY
             if self.routing_gate is not None:
                 self.routing_gate.set_phase(SleepPhase.SWS_ANALOG)
             self.replay_sampler.freeze_snapshot()
+            if self.bayesian_aggregator is not None:
+                evidence_snapshot = self._build_evidence_snapshot(agent)
             for _ in range(self.draws_per_cycle):
                 anchor = self.replay_sampler.draw()
                 if anchor is None:
                     continue
                 if self.routing_gate is not None:
-                    sws_routed_draws.append(self.routing_gate.route(anchor))
+                    routed = self.routing_gate.route(anchor)
+                    sws_routed_draws.append(routed)
+                    if self.bayesian_aggregator is not None:
+                        self.bayesian_aggregator.update(
+                            routed,
+                            self._lookup_evidence(routed, evidence_snapshot),
+                            domain=self.aggregator_domain,
+                        )
             sampler_metrics = self.replay_sampler.get_metrics()
         else:
             sampler_metrics = {}
@@ -190,7 +207,10 @@ class SleepLoopManager:
         # the REM row and re-route the same draws as REM destinations.
         # The replay sampler does NOT redraw (the snapshot is frozen for
         # the cycle); the routing gate provides the SWS->REM channel
-        # weight transition.
+        # weight transition. Phase D: the aggregator snapshots the
+        # SWS-only posterior at PHASE_SWITCH (Phase E writeback consumes
+        # this snapshot); subsequent REM-pass updates land on the live
+        # posterior.
         rem_routed_draws: List = []
         if (
             self.routing_gate is not None
@@ -198,9 +218,18 @@ class SleepLoopManager:
             and sws_routed_draws
         ):
             self.state.phase = SleepPhase.PHASE_SWITCH
+            if self.bayesian_aggregator is not None:
+                self.bayesian_aggregator.snapshot()
             self.routing_gate.set_phase(SleepPhase.REM_ANALOG)
             for routed in sws_routed_draws:
-                rem_routed_draws.append(self.routing_gate.route(routed.event))
+                rem_routed = self.routing_gate.route(routed.event)
+                rem_routed_draws.append(rem_routed)
+                if self.bayesian_aggregator is not None:
+                    self.bayesian_aggregator.update(
+                        rem_routed,
+                        self._lookup_evidence(rem_routed, evidence_snapshot),
+                        domain=self.aggregator_domain,
+                    )
 
         # Delegate to the existing SD-017 surface. run_sleep_cycle handles
         # the SWS -> REM ordering, mode entry/exit, and metric merging.
@@ -211,9 +240,53 @@ class SleepLoopManager:
         if self.routing_gate is not None:
             merged.update(self.routing_gate.get_metrics())
             self.routing_gate.set_phase(SleepPhase.WAKING)
+        if self.bayesian_aggregator is not None:
+            merged.update(self.bayesian_aggregator.get_metrics())
 
         self.state.phase = SleepPhase.WAKING
         self.state.episodes_since_sleep = 0
         self.state.last_metrics = merged
         self._cycle_history.append(dict(merged))
         return merged
+
+    # -- evidence lookup helpers (Phase D) --
+
+    @staticmethod
+    def _build_evidence_snapshot(agent: "REEAgent") -> Dict:
+        """Snapshot the per-region staleness map at SLEEP_ENTRY.
+
+        Phase D place-domain evidence is the staleness scalar at the
+        replay anchor's region. Read from the agent's StalenessAccumulator
+        when available; otherwise return an empty dict (lookups fall
+        back to 0.0 evidence, so the posterior pulls toward the prior).
+        """
+        hippocampal = getattr(agent, "hippocampal", None)
+        staleness = getattr(hippocampal, "staleness_accumulator", None)
+        if staleness is None:
+            return {}
+        try:
+            snap = staleness.snapshot()
+        except Exception:  # pragma: no cover -- defensive
+            return {}
+        return dict(snap)
+
+    @staticmethod
+    def _lookup_evidence(routed, snapshot: Dict) -> float:
+        """Look up the evidence scalar for a routed event's region key."""
+        event = routed.event
+        key_attr = getattr(event, "key", None)
+        if (
+            isinstance(key_attr, tuple)
+            and len(key_attr) >= 2
+            and isinstance(key_attr[0], str)
+            and isinstance(key_attr[1], str)
+        ):
+            return float(snapshot.get((key_attr[0], key_attr[1]), 0.0))
+        if (
+            isinstance(event, tuple)
+            and len(event) >= 2
+            and isinstance(event[0], str)
+            and isinstance(event[1], str)
+        ):
+            return float(snapshot.get((event[0], event[1]), 0.0))
+        return 0.0

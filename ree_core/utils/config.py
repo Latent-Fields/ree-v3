@@ -1363,6 +1363,37 @@ class REEConfig:
     mech272_rem_anchor_weight: float = 0.2
     mech272_rem_probe_weight: float = 0.8
 
+    # Phase D (MECH-275): general Bayesian aggregator. When True (and
+    # use_sleep_loop is True), the SleepLoopManager constructs a
+    # BayesianAggregator that maintains per-domain per-region Gaussian
+    # posteriors over residuals. Updates are gated on probe_channel from
+    # MECH-272 RoutedEvents in the SWS pass and the REM re-route; a
+    # snapshot is captured at PHASE_SWITCH so downstream Phase E
+    # writeback (MECH-273) can read the SWS-only posterior. Phase D is a
+    # NO-OP CONSUMER: posterior deltas land as diagnostics on
+    # SleepCycleState.last_metrics. The "place" domain is the only
+    # default domain in V3 (Bayesian upgrade of MECH-284's leaky
+    # integrator); "self" domain is the MECH-273 specialisation in
+    # Phase E. "object" / "other" are V4-deferred.
+    use_mech275_aggregator: bool = False
+    # Comma-separated tuple of domain names. Default is ("place",); V3
+    # supports "place" and "self" (Phase E specialisation). Unknown
+    # domain names are accepted as opaque keys.
+    mech275_domains: tuple = ("place",)
+    # Conjugate Gaussian posterior knobs (per-domain per-region).
+    # Standard mean-and-variance update with Gaussian likelihood.
+    mech275_prior_mean: float = 0.0
+    mech275_prior_variance: float = 1.0
+    mech275_likelihood_variance: float = 1.0
+    # Per-cycle multiplicative decay applied to posterior precision
+    # (1/variance) at PHASE_SWITCH. 1.0 = no decay. Lower values let
+    # newer evidence overcome stale posteriors faster.
+    mech275_decay_factor: float = 1.0
+    # Probe-channel weight multiplier applied to each posterior update.
+    # Update weight = probe_channel * mech275_probe_gain. When 0.0, the
+    # aggregator runs but never updates -- diagnostic-only mode.
+    mech275_probe_gain: float = 1.0
+
     @classmethod
     def from_dims(
         cls,
@@ -1620,6 +1651,14 @@ class REEConfig:
         mech272_sws_probe_weight: float = 0.4,
         mech272_rem_anchor_weight: float = 0.2,
         mech272_rem_probe_weight: float = 0.8,
+        # Phase D: MECH-275 Bayesian aggregator
+        use_mech275_aggregator: bool = False,
+        mech275_domains: tuple = ("place",),
+        mech275_prior_mean: float = 0.0,
+        mech275_prior_variance: float = 1.0,
+        mech275_likelihood_variance: float = 1.0,
+        mech275_decay_factor: float = 1.0,
+        mech275_probe_gain: float = 1.0,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -1966,6 +2005,15 @@ class REEConfig:
         config.mech272_sws_probe_weight = mech272_sws_probe_weight
         config.mech272_rem_anchor_weight = mech272_rem_anchor_weight
         config.mech272_rem_probe_weight = mech272_rem_probe_weight
+
+        # Sleep-aggregation cluster Phase D (MECH-275)
+        config.use_mech275_aggregator = use_mech275_aggregator
+        config.mech275_domains = tuple(mech275_domains)
+        config.mech275_prior_mean = mech275_prior_mean
+        config.mech275_prior_variance = mech275_prior_variance
+        config.mech275_likelihood_variance = mech275_likelihood_variance
+        config.mech275_decay_factor = mech275_decay_factor
+        config.mech275_probe_gain = mech275_probe_gain
 
         return config
 

@@ -12,6 +12,12 @@ See REE_assembly/docs/architecture/sleep_aggregation_cluster.md for the
 umbrella design and the master-flag matrix.
 """
 
+from ree_core.sleep.bayesian_aggregator import (
+    BayesianAggregator,
+    BayesianAggregatorConfig,
+    GaussianPosterior,
+    PosteriorUpdate,
+)
 from ree_core.sleep.phase_manager import (
     SleepCycleState,
     SleepLoopManager,
@@ -25,6 +31,10 @@ from ree_core.sleep.routing_gate import (
 )
 
 __all__ = [
+    "BayesianAggregator",
+    "BayesianAggregatorConfig",
+    "GaussianPosterior",
+    "PosteriorUpdate",
     "SleepCycleState",
     "SleepLoopManager",
     "SleepPhase",

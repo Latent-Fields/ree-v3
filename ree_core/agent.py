@@ -548,6 +548,7 @@ class REEAgent(nn.Module):
         self.sleep_loop: Optional[SleepLoopManager] = None
         self.sleep_replay_sampler = None  # Phase B (MECH-285)
         self.sleep_routing_gate = None  # Phase C (MECH-272)
+        self.sleep_bayesian_aggregator = None  # Phase D (MECH-275)
         if getattr(config, "use_sleep_loop", False):
             # Phase B: when use_mech285_sampler is on AND anchor_set exists,
             # construct SleepReplaySampler over the broad pool. Falls back
@@ -604,6 +605,38 @@ class REEAgent(nn.Module):
                         ),
                     )
                 )
+            # Phase D: when use_mech275_aggregator is on, construct the
+            # general Bayesian aggregator. Posterior updates are gated on
+            # the routing-gate probe channel (so the gate must also be on
+            # for the aggregator to fire). Bit-identical OFF when
+            # use_mech275_aggregator=False (aggregator is None).
+            if getattr(config, "use_mech275_aggregator", False):
+                from ree_core.sleep.bayesian_aggregator import (
+                    BayesianAggregator,
+                    BayesianAggregatorConfig,
+                )
+                self.sleep_bayesian_aggregator = BayesianAggregator(
+                    BayesianAggregatorConfig(
+                        domains=tuple(
+                            getattr(config, "mech275_domains", ("place",))
+                        ),
+                        prior_mean=float(
+                            getattr(config, "mech275_prior_mean", 0.0)
+                        ),
+                        prior_variance=float(
+                            getattr(config, "mech275_prior_variance", 1.0)
+                        ),
+                        likelihood_variance=float(
+                            getattr(config, "mech275_likelihood_variance", 1.0)
+                        ),
+                        decay_factor=float(
+                            getattr(config, "mech275_decay_factor", 1.0)
+                        ),
+                        probe_gain=float(
+                            getattr(config, "mech275_probe_gain", 1.0)
+                        ),
+                    )
+                )
             self.sleep_loop = SleepLoopManager(
                 cycle_every_k_episodes=int(
                     getattr(config, "sleep_loop_episodes_K", 1)
@@ -616,6 +649,10 @@ class REEAgent(nn.Module):
                     getattr(config, "mech285_draws_per_cycle", 0)
                 ) if self.sleep_replay_sampler is not None else 0,
                 routing_gate=self.sleep_routing_gate,
+                bayesian_aggregator=self.sleep_bayesian_aggregator,
+                aggregator_domain=str(
+                    getattr(config, "mech275_aggregator_domain", "place")
+                ),
             )
 
         # Observation encoders (maps raw body/world obs to latent input)
