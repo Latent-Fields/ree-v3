@@ -14,9 +14,13 @@
       "claim_id": "SD-016",
       "supersedes": "V3-EXQ-418c",
       "priority": 5,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 70,
-      "machine_affinity": "DLAPTOP-4.local"
+      "machine_affinity": "DLAPTOP-4.local",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-25T14:14:39.401374+00:00"
+      }
     }
   ]
 }
