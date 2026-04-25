@@ -35,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover -- typing only
     from ree_core.sleep.bayesian_aggregator import BayesianAggregator
     from ree_core.sleep.replay_sampler import SleepReplaySampler
     from ree_core.sleep.routing_gate import RoutingGate
+    from ree_core.sleep.self_model_aggregator import SelfModelAggregator
 
 
 class SleepPhase(Enum):
@@ -97,6 +98,10 @@ class SleepLoopManager:
         routing_gate: Optional["RoutingGate"] = None,
         bayesian_aggregator: Optional["BayesianAggregator"] = None,
         aggregator_domain: str = "place",
+        self_model_aggregator: Optional["SelfModelAggregator"] = None,
+        self_model_offline_n_steps: int = 100,
+        self_model_partial_decay_factor: float = 0.5,
+        self_model_domain: str = "self",
     ) -> None:
         if cycle_every_k_episodes < 1:
             raise ValueError(
@@ -115,6 +120,15 @@ class SleepLoopManager:
         self.routing_gate = routing_gate
         self.bayesian_aggregator = bayesian_aggregator
         self.aggregator_domain = str(aggregator_domain)
+        self.self_model_aggregator = self_model_aggregator
+        self.self_model_offline_n_steps = int(self_model_offline_n_steps)
+        if not 0.0 <= float(self_model_partial_decay_factor) <= 1.0:
+            raise ValueError(
+                "self_model_partial_decay_factor must be in [0, 1]; "
+                f"got {self_model_partial_decay_factor}"
+            )
+        self.self_model_partial_decay_factor = float(self_model_partial_decay_factor)
+        self.self_model_domain = str(self_model_domain)
         self.state = SleepCycleState()
         self._cycle_history: List[Dict[str, float]] = []
 
@@ -174,6 +188,7 @@ class SleepLoopManager:
         # against a frozen-at-SLEEP_ENTRY copy of the staleness snapshot.
         sws_routed_draws: List = []
         evidence_snapshot: Dict = {}
+        replayed_regions: "set" = set()
         if self.replay_sampler is not None:
             self.state.phase = SleepPhase.SLEEP_ENTRY
             if self.routing_gate is not None:
@@ -188,6 +203,9 @@ class SleepLoopManager:
                 if self.routing_gate is not None:
                     routed = self.routing_gate.route(anchor)
                     sws_routed_draws.append(routed)
+                    region_key = self._extract_region_key(routed)
+                    if region_key is not None:
+                        replayed_regions.add(region_key)
                     if self.bayesian_aggregator is not None:
                         self.bayesian_aggregator.update(
                             routed,
@@ -224,6 +242,9 @@ class SleepLoopManager:
             for routed in sws_routed_draws:
                 rem_routed = self.routing_gate.route(routed.event)
                 rem_routed_draws.append(rem_routed)
+                region_key = self._extract_region_key(rem_routed)
+                if region_key is not None:
+                    replayed_regions.add(region_key)
                 if self.bayesian_aggregator is not None:
                     self.bayesian_aggregator.update(
                         rem_routed,
@@ -235,6 +256,40 @@ class SleepLoopManager:
         # the SWS -> REM ordering, mode entry/exit, and metric merging.
         metrics = agent.run_sleep_cycle()
 
+        # Phase E: WRITEBACK -- self-model offline gradient pass on
+        # E2_harm_s using aggregator-corrected residuals as targets, plus
+        # MECH-284 partial decay on replayed regions (the schemas they
+        # encode have just been refreshed by the offline pass). MECH-094
+        # simulation_mode tag is the EXPLICIT EXCEPTION here: parameter
+        # update is gated to E2_harm_s ONLY (the optimiser is constructed
+        # locally inside offline_gradient_pass over e2_harm_s.parameters()).
+        writeback_metrics: Dict[str, float] = {}
+        if (
+            self.self_model_aggregator is not None
+            and getattr(agent, "e2_harm_s", None) is not None
+        ):
+            self.state.phase = SleepPhase.WRITEBACK
+            writeback_metrics = self.self_model_aggregator.offline_gradient_pass(
+                e2_harm_s=agent.e2_harm_s,
+                replayed_regions=replayed_regions,
+                n_steps=self.self_model_offline_n_steps,
+                domain=self.self_model_domain,
+                use_snapshot=True,
+            )
+            hippocampal = getattr(agent, "hippocampal", None)
+            staleness = getattr(hippocampal, "staleness_accumulator", None)
+            if staleness is not None and replayed_regions:
+                n_decayed = staleness.partial_decay(
+                    replayed_regions,
+                    decay_factor=self.self_model_partial_decay_factor,
+                )
+                writeback_metrics["mech273_partial_decay_n_regions"] = float(
+                    n_decayed
+                )
+                writeback_metrics["mech273_partial_decay_factor"] = float(
+                    self.self_model_partial_decay_factor
+                )
+
         merged = dict(metrics)
         merged.update(sampler_metrics)
         if self.routing_gate is not None:
@@ -242,6 +297,10 @@ class SleepLoopManager:
             self.routing_gate.set_phase(SleepPhase.WAKING)
         if self.bayesian_aggregator is not None:
             merged.update(self.bayesian_aggregator.get_metrics())
+        if self.self_model_aggregator is not None:
+            merged.update(self.self_model_aggregator.get_metrics())
+        if writeback_metrics:
+            merged.update(writeback_metrics)
 
         self.state.phase = SleepPhase.WAKING
         self.state.episodes_since_sleep = 0
@@ -269,6 +328,27 @@ class SleepLoopManager:
         except Exception:  # pragma: no cover -- defensive
             return {}
         return dict(snap)
+
+    @staticmethod
+    def _extract_region_key(routed) -> Optional[tuple]:
+        """Return (scale, segment_id) for a routed event, or None."""
+        event = getattr(routed, "event", routed)
+        key_attr = getattr(event, "key", None)
+        if (
+            isinstance(key_attr, tuple)
+            and len(key_attr) >= 2
+            and isinstance(key_attr[0], str)
+            and isinstance(key_attr[1], str)
+        ):
+            return (key_attr[0], key_attr[1])
+        if (
+            isinstance(event, tuple)
+            and len(event) >= 2
+            and isinstance(event[0], str)
+            and isinstance(event[1], str)
+        ):
+            return (event[0], event[1])
+        return None
 
     @staticmethod
     def _lookup_evidence(routed, snapshot: Dict) -> float:

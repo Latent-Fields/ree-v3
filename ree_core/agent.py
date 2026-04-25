@@ -50,6 +50,7 @@ from ree_core.heartbeat.clock import MultiRateClock
 from ree_core.heartbeat.beta_gate import BetaGate
 from ree_core.neuromodulation.serotonin import SerotoninModule
 from ree_core.predictors.e2_harm_a import E2HarmAConfig, E2HarmAForward
+from ree_core.predictors.e2_harm_s import E2HarmSConfig, E2HarmSForward
 from ree_core.cingulate import (
     AICAnalog,
     AICConfig,
@@ -198,6 +199,19 @@ class REEAgent(nn.Module):
                 )
                 shared_trunk = self.harm_forward_trunk
             self.e2_harm_a = E2HarmAForward(harm_a_cfg, shared_trunk=shared_trunk)
+
+        # ARC-033: E2_harm_s sensory-discriminative harm forward model.
+        # Constructed at the agent level when use_e2_harm_s_forward is on
+        # (LatentStackConfig). Required by Phase E (MECH-273) self-model
+        # writeback. Backward compatible: None when the flag is off.
+        self.e2_harm_s: Optional[E2HarmSForward] = None
+        if getattr(config.latent, "use_e2_harm_s_forward", False):
+            harm_s_cfg = E2HarmSConfig(
+                use_e2_harm_s_forward=True,
+                z_harm_dim=config.latent.z_harm_dim,
+                action_dim=config.e2.action_dim,
+            )
+            self.e2_harm_s = E2HarmSForward(harm_s_cfg)
 
         # SD-032b: dACC/aMCC-analog adaptive control.
         self.dacc: Optional[DACCAdaptiveControl] = None
@@ -549,6 +563,7 @@ class REEAgent(nn.Module):
         self.sleep_replay_sampler = None  # Phase B (MECH-285)
         self.sleep_routing_gate = None  # Phase C (MECH-272)
         self.sleep_bayesian_aggregator = None  # Phase D (MECH-275)
+        self.sleep_self_model_aggregator = None  # Phase E (MECH-273)
         if getattr(config, "use_sleep_loop", False):
             # Phase B: when use_mech285_sampler is on AND anchor_set exists,
             # construct SleepReplaySampler over the broad pool. Falls back
@@ -637,6 +652,45 @@ class REEAgent(nn.Module):
                         ),
                     )
                 )
+            # Phase E: when use_mech273_self_model is on, construct the
+            # SelfModelAggregator (subclass of BayesianAggregator specialised
+            # on the SD-003 causal_sig posterior). Requires e2_harm_s on the
+            # agent (ARC-033). Bit-identical OFF when use_mech273_self_model
+            # is False (aggregator is None; SleepLoopManager skips WRITEBACK).
+            if (
+                getattr(config, "use_mech273_self_model", False)
+                and getattr(self, "e2_harm_s", None) is not None
+            ):
+                from ree_core.sleep.self_model_aggregator import (
+                    SelfModelAggregator,
+                    SelfModelAggregatorConfig,
+                )
+                self.sleep_self_model_aggregator = SelfModelAggregator(
+                    SelfModelAggregatorConfig(
+                        domains=("self",),
+                        prior_mean=float(
+                            getattr(config, "mech275_prior_mean", 0.0)
+                        ),
+                        prior_variance=float(
+                            getattr(config, "mech275_prior_variance", 1.0)
+                        ),
+                        likelihood_variance=float(
+                            getattr(config, "mech275_likelihood_variance", 1.0)
+                        ),
+                        decay_factor=float(
+                            getattr(config, "mech275_decay_factor", 1.0)
+                        ),
+                        probe_gain=float(
+                            getattr(config, "mech275_probe_gain", 1.0)
+                        ),
+                        offline_lr_scale=float(
+                            getattr(config, "mech273_offline_lr_scale", 0.1)
+                        ),
+                        offline_n_steps=int(
+                            getattr(config, "mech273_offline_n_steps", 100)
+                        ),
+                    )
+                )
             self.sleep_loop = SleepLoopManager(
                 cycle_every_k_episodes=int(
                     getattr(config, "sleep_loop_episodes_K", 1)
@@ -653,6 +707,14 @@ class REEAgent(nn.Module):
                 aggregator_domain=str(
                     getattr(config, "mech275_aggregator_domain", "place")
                 ),
+                self_model_aggregator=self.sleep_self_model_aggregator,
+                self_model_offline_n_steps=int(
+                    getattr(config, "mech273_offline_n_steps", 100)
+                ),
+                self_model_partial_decay_factor=float(
+                    getattr(config, "mech273_partial_decay_factor", 0.5)
+                ),
+                self_model_domain="self",
             )
 
         # Observation encoders (maps raw body/world obs to latent input)

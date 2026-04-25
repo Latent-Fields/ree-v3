@@ -186,6 +186,59 @@ class StalenessAccumulator:
         }
 
     # ------------------------------------------------------------------ #
+    # Phase E targeted decay (MECH-273)                                  #
+    # ------------------------------------------------------------------ #
+    def partial_decay(
+        self,
+        replayed_regions: Iterable[RegionKey],
+        decay_factor: float = 0.5,
+    ) -> int:
+        """Multiplicative decay applied only to the supplied regions.
+
+        Distinct from tick_leak (which decays every region uniformly each
+        waking tick): partial_decay implements the MECH-273 WRITEBACK-phase
+        contract -- replayed regions had their schemas refreshed by the
+        offline gradient pass, so their staleness is partially discharged.
+        Regions absent from the supplied set are untouched.
+
+        Args:
+          replayed_regions: Iterable of (scale, segment_id) keys that the
+                            sleep cycle replayed.
+          decay_factor:     Multiplier in [0, 1] applied to staleness on
+                            those regions. 0.5 = halve. Out-of-range values
+                            are clamped to [0, 1].
+
+        Returns:
+          Number of region entries actually mutated (skipped if absent).
+        """
+        if decay_factor < 0.0:
+            decay_factor = 0.0
+        elif decay_factor > 1.0:
+            decay_factor = 1.0
+        if not self._staleness:
+            return 0
+        eps = float(getattr(self.config, "drop_epsilon", 1e-6))
+        n_decayed = 0
+        drop: List[RegionKey] = []
+        seen: set = set()
+        for region_key in replayed_regions:
+            if region_key in seen:
+                continue
+            seen.add(region_key)
+            curr = self._staleness.get(region_key)
+            if curr is None:
+                continue
+            nxt = curr * decay_factor
+            if nxt < eps:
+                drop.append(region_key)
+            else:
+                self._staleness[region_key] = nxt
+            n_decayed += 1
+        for k in drop:
+            del self._staleness[k]
+        return n_decayed
+
+    # ------------------------------------------------------------------ #
     # Lifecycle                                                          #
     # ------------------------------------------------------------------ #
     def reset(self) -> None:

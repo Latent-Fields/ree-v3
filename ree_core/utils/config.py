@@ -1394,6 +1394,31 @@ class REEConfig:
     # aggregator runs but never updates -- diagnostic-only mode.
     mech275_probe_gain: float = 1.0
 
+    # MECH-273: Phase E -- self-model writeback / specialisation.
+    # SelfModelAggregator (subclass of BayesianAggregator specialised on
+    # the SD-003 causal_sig posterior in the "self" domain) consumes the
+    # SWS+REM posterior at WRITEBACK and runs a bounded offline gradient
+    # pass on E2_harm_s using aggregator-corrected residuals as training
+    # targets. MECH-094 simulation_mode tag is set throughout; the
+    # E2_harm_s parameter update is the SINGLE EXPLICIT EXCEPTION,
+    # gated to the writeback path. After the gradient pass,
+    # StalenessAccumulator.partial_decay applies a multiplicative decay
+    # to the staleness scalars at the regions touched by replay during
+    # the cycle. SHY normalisation (MECH-120) is NOT consumed here --
+    # explicitly out of V3 scope. Bit-identical OFF preserved.
+    use_mech273_self_model: bool = False
+    # Offline learning-rate scale relative to the waking E2_harm_s LR.
+    # Default 0.1 per the C6 architectural commitment.
+    mech273_offline_lr_scale: float = 0.1
+    # Bounded number of offline gradient steps per sleep cycle. Default
+    # 100 per the C6 commitment. Set <= 0 to disable the pass while
+    # leaving the aggregator wired (diagnostic mode).
+    mech273_offline_n_steps: int = 100
+    # Multiplicative staleness decay applied at WRITEBACK to the regions
+    # touched by replay during the cycle. 1.0 = no decay; 0.5 = halve
+    # staleness on replayed regions; 0.0 = clear them entirely.
+    mech273_partial_decay_factor: float = 0.5
+
     @classmethod
     def from_dims(
         cls,
@@ -1659,6 +1684,10 @@ class REEConfig:
         mech275_likelihood_variance: float = 1.0,
         mech275_decay_factor: float = 1.0,
         mech275_probe_gain: float = 1.0,
+        use_mech273_self_model: bool = False,
+        mech273_offline_lr_scale: float = 0.1,
+        mech273_offline_n_steps: int = 100,
+        mech273_partial_decay_factor: float = 0.5,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -2014,6 +2043,12 @@ class REEConfig:
         config.mech275_likelihood_variance = mech275_likelihood_variance
         config.mech275_decay_factor = mech275_decay_factor
         config.mech275_probe_gain = mech275_probe_gain
+
+        # Sleep-aggregation cluster Phase E (MECH-273)
+        config.use_mech273_self_model = use_mech273_self_model
+        config.mech273_offline_lr_scale = mech273_offline_lr_scale
+        config.mech273_offline_n_steps = mech273_offline_n_steps
+        config.mech273_partial_decay_factor = mech273_partial_decay_factor
 
         return config
 

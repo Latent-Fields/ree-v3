@@ -29,6 +29,10 @@ from ree_core.sleep.routing_gate import (
     RoutingGate,
     RoutingGateConfig,
 )
+from ree_core.sleep.self_model_aggregator import (
+    SelfModelAggregator,
+    SelfModelAggregatorConfig,
+)
 
 __all__ = [
     "BayesianAggregator",
@@ -42,4 +46,6 @@ __all__ = [
     "RoutingGate",
     "RoutingGateConfig",
     "RoutedEvent",
+    "SelfModelAggregator",
+    "SelfModelAggregatorConfig",
 ]
