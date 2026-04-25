@@ -6,21 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-480",
-      "script": "experiments/v3_exq_480_mech284_phase3_param_sweep.py",
-      "title": "MECH-284 Phase 3 param-sweep diagnostic after EXQ-478 FAIL",
-      "priority": 70,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 50,
-      "claim_id": "MECH-284",
-      "note": "Phase 3 param-sweep diagnostic after EXQ-478 FAIL (wired-but-inert). 5 arms x 2 seeds; SD-029 curriculum ON for all arms to escape OFF-arm monostrategy confound. Gates B.2 stub buildout for V3-EXQ-445d/449c/455a.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-25T01:45:55.723278+00:00"
-      }
-    }
-  ]
+  "items": []
 }
