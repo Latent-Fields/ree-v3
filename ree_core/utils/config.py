@@ -1342,6 +1342,27 @@ class REEConfig:
     # RuntimeError at draw time).
     mech285_allow_uniform_fallback: bool = True
 
+    # Phase C (MECH-272): state-conditioned RoutingGate. When True (and
+    # use_sleep_loop is True), the SleepLoopManager constructs a RoutingGate
+    # whose anchor / probe channel weights flip across phases per the
+    # design-doc table:
+    #   WAKING       -> (anchor=1.0, probe=0.0)
+    #   SWS_ANALOG   -> (anchor=0.6, probe=0.4)
+    #   REM_ANALOG   -> (anchor=0.2, probe=0.8)
+    # The gate emits RoutedEvent(anchor_channel, probe_channel) per replay
+    # event. Phase C is a no-op consumer: downstream Phase D Bayesian
+    # aggregator and the future E1 ContextMemory consolidation consumer
+    # multiply their write strength by the channel weights, but neither
+    # exists yet -- routed events land as diagnostics on
+    # SleepCycleState.last_metrics.
+    use_mech272_routing: bool = False
+    mech272_waking_anchor_weight: float = 1.0
+    mech272_waking_probe_weight: float = 0.0
+    mech272_sws_anchor_weight: float = 0.6
+    mech272_sws_probe_weight: float = 0.4
+    mech272_rem_anchor_weight: float = 0.2
+    mech272_rem_probe_weight: float = 0.8
+
     @classmethod
     def from_dims(
         cls,
@@ -1591,6 +1612,14 @@ class REEConfig:
         mech285_draws_per_cycle: int = 50,
         mech285_temperature: float = 1.0,
         mech285_allow_uniform_fallback: bool = True,
+        # Phase C: MECH-272 RoutingGate
+        use_mech272_routing: bool = False,
+        mech272_waking_anchor_weight: float = 1.0,
+        mech272_waking_probe_weight: float = 0.0,
+        mech272_sws_anchor_weight: float = 0.6,
+        mech272_sws_probe_weight: float = 0.4,
+        mech272_rem_anchor_weight: float = 0.2,
+        mech272_rem_probe_weight: float = 0.8,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -1928,6 +1957,15 @@ class REEConfig:
         config.mech285_draws_per_cycle = mech285_draws_per_cycle
         config.mech285_temperature = mech285_temperature
         config.mech285_allow_uniform_fallback = mech285_allow_uniform_fallback
+
+        # Sleep-aggregation cluster Phase C (MECH-272)
+        config.use_mech272_routing = use_mech272_routing
+        config.mech272_waking_anchor_weight = mech272_waking_anchor_weight
+        config.mech272_waking_probe_weight = mech272_waking_probe_weight
+        config.mech272_sws_anchor_weight = mech272_sws_anchor_weight
+        config.mech272_sws_probe_weight = mech272_sws_probe_weight
+        config.mech272_rem_anchor_weight = mech272_rem_anchor_weight
+        config.mech272_rem_probe_weight = mech272_rem_probe_weight
 
         return config
 

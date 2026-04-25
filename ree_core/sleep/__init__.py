@@ -18,10 +18,18 @@ from ree_core.sleep.phase_manager import (
     SleepPhase,
 )
 from ree_core.sleep.replay_sampler import SleepReplaySampler
+from ree_core.sleep.routing_gate import (
+    RoutedEvent,
+    RoutingGate,
+    RoutingGateConfig,
+)
 
 __all__ = [
     "SleepCycleState",
     "SleepLoopManager",
     "SleepPhase",
     "SleepReplaySampler",
+    "RoutingGate",
+    "RoutingGateConfig",
+    "RoutedEvent",
 ]

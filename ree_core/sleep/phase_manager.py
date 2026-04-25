@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 if TYPE_CHECKING:  # pragma: no cover -- typing only
     from ree_core.agent import REEAgent
     from ree_core.sleep.replay_sampler import SleepReplaySampler
+    from ree_core.sleep.routing_gate import RoutingGate
 
 
 class SleepPhase(Enum):
@@ -92,6 +93,7 @@ class SleepLoopManager:
         require_sleep_passes_enabled: bool = True,
         replay_sampler: Optional["SleepReplaySampler"] = None,
         draws_per_cycle: int = 0,
+        routing_gate: Optional["RoutingGate"] = None,
     ) -> None:
         if cycle_every_k_episodes < 1:
             raise ValueError(
@@ -107,6 +109,7 @@ class SleepLoopManager:
         self.require_sleep_passes_enabled = bool(require_sleep_passes_enabled)
         self.replay_sampler = replay_sampler
         self.draws_per_cycle = int(draws_per_cycle)
+        self.routing_gate = routing_gate
         self.state = SleepCycleState()
         self._cycle_history: List[Dict[str, float]] = []
 
@@ -158,14 +161,22 @@ class SleepLoopManager:
         self.state.reset_for_new_cycle(self.state.cycle_index + 1)
 
         # Phase B: SLEEP_ENTRY -- freeze the staleness snapshot ONCE per
-        # cycle and perform the configured N draws. Diagnostic only:
-        # no downstream consumer (routing / aggregator / writeback) sees
-        # the draws yet -- they land in last_metrics for inspection.
+        # cycle and perform the configured N draws. Phase C: at SLEEP_ENTRY
+        # the routing gate flips to the SWS row; each draw is routed
+        # immediately (downstream consumers do not exist yet -- routed
+        # events land as diagnostics on last_metrics).
+        sws_routed_draws: List = []
         if self.replay_sampler is not None:
             self.state.phase = SleepPhase.SLEEP_ENTRY
+            if self.routing_gate is not None:
+                self.routing_gate.set_phase(SleepPhase.SWS_ANALOG)
             self.replay_sampler.freeze_snapshot()
             for _ in range(self.draws_per_cycle):
-                self.replay_sampler.draw()
+                anchor = self.replay_sampler.draw()
+                if anchor is None:
+                    continue
+                if self.routing_gate is not None:
+                    sws_routed_draws.append(self.routing_gate.route(anchor))
             sampler_metrics = self.replay_sampler.get_metrics()
         else:
             sampler_metrics = {}
@@ -175,12 +186,31 @@ class SleepLoopManager:
         elif getattr(agent.config, "rem_enabled", False):
             self.state.phase = SleepPhase.REM_ANALOG
 
+        # Phase C: PHASE_SWITCH between SWS and REM -- flip the gate to
+        # the REM row and re-route the same draws as REM destinations.
+        # The replay sampler does NOT redraw (the snapshot is frozen for
+        # the cycle); the routing gate provides the SWS->REM channel
+        # weight transition.
+        rem_routed_draws: List = []
+        if (
+            self.routing_gate is not None
+            and getattr(agent.config, "rem_enabled", False)
+            and sws_routed_draws
+        ):
+            self.state.phase = SleepPhase.PHASE_SWITCH
+            self.routing_gate.set_phase(SleepPhase.REM_ANALOG)
+            for routed in sws_routed_draws:
+                rem_routed_draws.append(self.routing_gate.route(routed.event))
+
         # Delegate to the existing SD-017 surface. run_sleep_cycle handles
         # the SWS -> REM ordering, mode entry/exit, and metric merging.
         metrics = agent.run_sleep_cycle()
 
         merged = dict(metrics)
         merged.update(sampler_metrics)
+        if self.routing_gate is not None:
+            merged.update(self.routing_gate.get_metrics())
+            self.routing_gate.set_phase(SleepPhase.WAKING)
 
         self.state.phase = SleepPhase.WAKING
         self.state.episodes_since_sleep = 0

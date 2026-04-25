@@ -547,6 +547,7 @@ class REEAgent(nn.Module):
         # master flags. Backward-compatible no-op when use_sleep_loop=False.
         self.sleep_loop: Optional[SleepLoopManager] = None
         self.sleep_replay_sampler = None  # Phase B (MECH-285)
+        self.sleep_routing_gate = None  # Phase C (MECH-272)
         if getattr(config, "use_sleep_loop", False):
             # Phase B: when use_mech285_sampler is on AND anchor_set exists,
             # construct SleepReplaySampler over the broad pool. Falls back
@@ -571,6 +572,38 @@ class REEAgent(nn.Module):
                         getattr(config, "mech285_allow_uniform_fallback", True)
                     ),
                 )
+            # Phase C: when use_mech272_routing is on, construct RoutingGate
+            # with per-phase weights from config. The gate is wired into
+            # SleepLoopManager so SLEEP_ENTRY -> SWS row and PHASE_SWITCH ->
+            # REM row are flipped automatically; route() is called per draw.
+            # Bit-identical OFF when use_mech272_routing=False (gate is None).
+            if getattr(config, "use_mech272_routing", False):
+                from ree_core.sleep.routing_gate import (
+                    RoutingGate,
+                    RoutingGateConfig,
+                )
+                self.sleep_routing_gate = RoutingGate(
+                    RoutingGateConfig(
+                        waking_anchor_weight=float(
+                            getattr(config, "mech272_waking_anchor_weight", 1.0)
+                        ),
+                        waking_probe_weight=float(
+                            getattr(config, "mech272_waking_probe_weight", 0.0)
+                        ),
+                        sws_anchor_weight=float(
+                            getattr(config, "mech272_sws_anchor_weight", 0.6)
+                        ),
+                        sws_probe_weight=float(
+                            getattr(config, "mech272_sws_probe_weight", 0.4)
+                        ),
+                        rem_anchor_weight=float(
+                            getattr(config, "mech272_rem_anchor_weight", 0.2)
+                        ),
+                        rem_probe_weight=float(
+                            getattr(config, "mech272_rem_probe_weight", 0.8)
+                        ),
+                    )
+                )
             self.sleep_loop = SleepLoopManager(
                 cycle_every_k_episodes=int(
                     getattr(config, "sleep_loop_episodes_K", 1)
@@ -582,6 +615,7 @@ class REEAgent(nn.Module):
                 draws_per_cycle=int(
                     getattr(config, "mech285_draws_per_cycle", 0)
                 ) if self.sleep_replay_sampler is not None else 0,
+                routing_gate=self.sleep_routing_gate,
             )
 
         # Observation encoders (maps raw body/world obs to latent input)
