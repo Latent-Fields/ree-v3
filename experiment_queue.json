@@ -6,21 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-418d",
-      "title": "SD-016 ContextMemory v2 -- 4-arm write-path mode comparison",
-      "script": "experiments/v3_exq_418d_sd016_writepath_modes_comparison.py",
-      "claim_id": "SD-016",
-      "supersedes": "V3-EXQ-418c",
-      "priority": 5,
-      "status": "claimed",
-      "estimated_minutes": 70,
-      "machine_affinity": "DLAPTOP-4.local",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-25T14:14:39.401374+00:00"
-      }
-    }
-  ]
+  "items": []
 }
