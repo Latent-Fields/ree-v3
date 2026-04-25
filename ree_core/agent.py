@@ -91,6 +91,7 @@ from ree_core.pag import (
     PAGFreezeGateConfig,
     PAGFreezeGateOutput,
 )
+from ree_core.sleep import SleepLoopManager
 from ree_core.residue.field import (
     VALENCE_WANTING,
     VALENCE_LIKING,
@@ -539,6 +540,22 @@ class REEAgent(nn.Module):
                     ),
                 }
 
+        # Sleep-aggregation cluster Phase A: deterministic K-episode driver
+        # for the existing SD-017 surface (run_sleep_cycle). Wraps, does not
+        # replace. Phases B-E (replay sampler, routing gate, Bayesian
+        # aggregator, self-model writeback) extend this manager via additional
+        # master flags. Backward-compatible no-op when use_sleep_loop=False.
+        self.sleep_loop: Optional[SleepLoopManager] = None
+        if getattr(config, "use_sleep_loop", False):
+            self.sleep_loop = SleepLoopManager(
+                cycle_every_k_episodes=int(
+                    getattr(config, "sleep_loop_episodes_K", 1)
+                ),
+                require_sleep_passes_enabled=bool(
+                    getattr(config, "sleep_loop_require_passes", True)
+                ),
+            )
+
         # Observation encoders (maps raw body/world obs to latent input)
         # Body encoder: body_obs_dim → latent input for LatentStack
         self.body_obs_encoder = nn.Sequential(
@@ -655,6 +672,15 @@ class REEAgent(nn.Module):
         """Reset agent for a new episode. Does NOT reset residue (invariant)."""
         # MECH-165: flush waking trajectory to exploration buffer before reset
         self._flush_exploration_episode()
+
+        # Sleep-aggregation cluster Phase A: notify the SleepLoopManager that
+        # an episode has just ended. The manager fires a sleep cycle every
+        # K episodes through the existing SD-017 surface. Runs BEFORE the
+        # per-episode resets below so sleep operates on the final waking
+        # state of the episode that just completed (theta_buffer / experience
+        # buffers still populated). No-op when use_sleep_loop=False.
+        if self.sleep_loop is not None:
+            self.sleep_loop.notify_episode_end(self)
 
         self._current_latent = self.latent_stack.init_state(
             batch_size=1, device=self.device

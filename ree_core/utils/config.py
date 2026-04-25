@@ -1298,6 +1298,25 @@ class REEConfig:
     # unchanged; >1.0 = orexin-recruited drive seeding.
     override_goal_seeding_gain: float = 2.0
 
+    # ----------------------------------------------------------------
+    # Sleep-aggregation cluster (MECH-272 / MECH-273 / MECH-275 / MECH-285)
+    # ----------------------------------------------------------------
+    # Phase A master flag. When True, REEAgent instantiates a SleepLoopManager
+    # that drives a deterministic K-episode sleep cycle through the existing
+    # SD-017 surface (run_sleep_cycle). Bit-identical OFF: the agent does not
+    # construct the manager and reset() does not call notify_episode_end().
+    # Phases B-E (replay sampler, routing gate, Bayesian aggregator,
+    # self-model writeback) layer additional master flags on top of this one.
+    use_sleep_loop: bool = False
+    # Cycle period: sleep fires once per K completed episodes. Default 1 keeps
+    # the smoke / contract surface simple; experiments override.
+    sleep_loop_episodes_K: int = 1
+    # When True, the SleepLoopManager refuses to fire if neither sws_enabled
+    # nor rem_enabled is True on the agent config (no substrate to drive).
+    # Set False only for diagnostic harness runs that exercise the manager
+    # state machine without the SD-017 passes.
+    sleep_loop_require_passes: bool = True
+
     @classmethod
     def from_dims(
         cls,
@@ -1538,6 +1557,10 @@ class REEConfig:
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
         backward_sweep_min_quality: float = 0.6,
+        # Sleep-aggregation cluster Phase A master flag
+        use_sleep_loop: bool = False,
+        sleep_loop_episodes_K: int = 1,
+        sleep_loop_require_passes: bool = True,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -1864,6 +1887,11 @@ class REEConfig:
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep
         config.hippocampal.backward_sweep_gamma = backward_sweep_gamma
         config.hippocampal.backward_sweep_min_quality = backward_sweep_min_quality
+
+        # Sleep-aggregation cluster Phase A
+        config.use_sleep_loop = use_sleep_loop
+        config.sleep_loop_episodes_K = sleep_loop_episodes_K
+        config.sleep_loop_require_passes = sleep_loop_require_passes
 
         return config
 
