@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-483a",
-      "title": "SD-037 broadcast-override 4-arm (warmup=200, substrate-fallback acceptance)",
-      "script": "experiments/v3_exq_483a_sd037_broadcast_override_4arm.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 280,
-      "claim_id": "SD-037",
-      "supersedes": "V3-EXQ-483",
-      "note": "Successor to V3-EXQ-483 (4-arm SD-036 x SD-037 factorial). EXQ-483 confirmed substrate-readiness (override 0.0 -> 0.56 mean / 0.62 max in ON arms; PAG releases 5.3 -> 9.0-9.3) but behavioural metrics were uninterpretable because approach_commit=0.0 in ALL arms including the SD-036-only baseline (ON_OFF). Two changes: (1) WARMUP_EPISODES 60 -> 200 to give baseline arm enough exposure to potentially produce non-zero approach behaviour; (2) acceptance logic adds a substrate-readiness fallback path used only when the baseline arm yields no behavioural signal (override_mean > 0.30 AND PAG release ratio ON_ON/ON_OFF > 1.30). Behavioural path remains preferred when baseline is non-zero.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-25T23:29:09.255612+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-433d",
       "title": "SD-029 / MECH-256 event-conditioned comparator (EXQ-479 calibrated curriculum)",
       "script": "experiments/v3_exq_433d_sd029_eventcond_comparator.py",
