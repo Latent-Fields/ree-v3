@@ -2405,3 +2405,151 @@ Verify with `git fetch` (should return silently).
   Design doc: REE_assembly/docs/architecture/sd_037_broadcast_override_regulator.md
   Lit-pull: REE_assembly/evidence/literature/targeted_review_orexin_kinetics/
   See SD-037, SD-036, MECH-279, SD-012, SD-032a, MECH-261, MECH-094.
+
+## Sleep Aggregation Cluster Phase A: Scaffolding (2026-04-25)
+- Sleep cluster Phase A: scaffold ree_core/sleep/ package -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/sleep/__init__.py, ree_core/sleep/phase_manager.py.
+  New SleepPhase enum (6 phases: WAKING/SLEEP_ENTRY/SWS_ANALOG/PHASE_SWITCH/REM_ANALOG/
+  WRITEBACK; only WAKING/SWS_ANALOG/REM_ANALOG visited in Phase A), SleepCycleState
+  dataclass, and SleepLoopManager that wraps the existing SD-017 surface
+  (REEAgent.run_sleep_cycle / enter_sws_mode / run_sws_schema_pass / enter_rem_mode /
+  run_rem_attribution_pass / exit_sleep_mode -- pre-existing per SD-017).
+  Master flag use_sleep_loop (default False) + sleep_loop_episodes_K (default 1) +
+  sleep_loop_require_passes (default True) wired through REEConfig + REEConfig.from_dims().
+  Manager instantiated in REEAgent.__init__ when flag is on; notify_episode_end() called
+  at the start of REEAgent.reset() BEFORE per-episode resets so sleep operates on the
+  final waking state.
+  Validation: 8/8 new contract tests PASS (test_sleep_phase_a_scaffolding.py covering
+  import, default backward-compat, master-OFF no instantiation, K=1 cycle drive,
+  K=3 fires-on-third, no-substrate refusal, force_cycle, phase returns to WAKING).
+  Full suite: 103/103 contracts + 7/7 preflight PASS -- bit-identical OFF guarantee
+  holds. Phase A is no-op-consumer scaffolding only; Phases B-E layer additional
+  master flags on top.
+  See SD-017, MECH-272, MECH-273, MECH-275, MECH-285.
+  Design doc: REE_assembly/docs/architecture/sleep_aggregation_cluster.md
+
+## Sleep Aggregation Cluster Phase B: MECH-285 SleepReplaySampler (2026-04-25)
+- MECH-285: sleep.replay_sampler -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/sleep/replay_sampler.py (SleepReplaySampler).
+  At SLEEP_ENTRY freezes StalenessAccumulator.snapshot(), then draws N seeds from
+  AnchorSet.all_with_dual_trace() (active + inactive, Bouton 2004 dual-trace
+  preserved) with softmax(staleness/temperature) priority. Stateless within cycle;
+  uniform-fallback when no accumulator (mech285_allow_uniform_fallback=True default).
+  Config: REEConfig.use_mech285_sampler (master, default False),
+    mech285_draws_per_cycle (50), mech285_temperature (1.0),
+    mech285_allow_uniform_fallback (True). All wired through from_dims.
+  Agent wiring: REEAgent constructs sampler when master ON AND hippocampal.anchor_set
+  exists (Phase B requires MECH-269 Phase 2 ii); accumulator optional.
+  SleepLoopManager extended with replay_sampler + draws_per_cycle ctor args; _run_cycle
+  enters SLEEP_ENTRY phase, freezes snapshot, runs draws, merges mech285_* diagnostics
+  into SleepCycleState.last_metrics. Phase B is NO-OP CONSUMER -- draws land in metrics
+  only (Phases C-E wire routing/aggregator/writeback).
+  Added AnchorSet.all_with_dual_trace() alias.
+  Validation: 10/10 new contract tests + 113/113 contracts + 7/7 preflight all PASS.
+  Bit-identical OFF guarantee holds.
+  See MECH-285, MECH-269, MECH-272, MECH-275, MECH-273.
+
+## Sleep Aggregation Cluster Phase C: MECH-272 RoutingGate (2026-04-25)
+- MECH-272: sleep.routing_gate -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/sleep/routing_gate.py (RoutingGate, RoutedEvent).
+  State-conditioned channel weights {anchor_channel, probe_channel} that flip across
+  SWS_ANALOG / REM_ANALOG / WAKING rows per the design-doc table.
+  Config: REEConfig.use_mech272_routing (master, default False) + 6 sub-knobs:
+    sws_anchor_weight, sws_probe_weight, rem_anchor_weight, rem_probe_weight,
+    waking_anchor_weight, waking_probe_weight.
+  Wired into SleepLoopManager: set weights at SLEEP_ENTRY (SWS row), at PHASE_SWITCH
+  (REM row); call route() on each replay draw and surface routed counts as mech272_*
+  diagnostics on SleepCycleState.last_metrics.
+  Wired flag through REEAgent constructor. No downstream consumer wiring yet
+  (HippocampalRouter / E1 ContextMemory consumer / aggregator land in Phases D-E).
+  Validation: bit-identical waking with all flags OFF; weights flip across phases when
+  ON; backward-compat with use_mech285_sampler ON + use_mech272_routing OFF preserved.
+  Result: 10/10 Phase C contracts PASS, 7/7 preflight PASS, 123/123 full contracts PASS.
+  See MECH-272, MECH-285, MECH-275, MECH-273, MECH-094 (mode-conditioning generalisation).
+
+## Sleep Aggregation Cluster Phase D: MECH-275 BayesianAggregator (2026-04-25)
+- MECH-275: sleep.bayesian_aggregator -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/sleep/bayesian_aggregator.py (BayesianAggregator,
+  GaussianPosterior, PosteriorUpdate, BayesianAggregatorConfig).
+  Per-domain per-region Gaussian posteriors over residuals; conjugate mean-and-variance
+  update gated by RoutedEvent.probe_channel * probe_gain (probe<=0 skipped, counted as
+  mech275_n_skipped_zero_probe); snapshot+decay contract (snapshot deep-copies live
+  posteriors, decay_factor multiplies live variance per cycle); place-domain default
+  with (scale, segment_id) region key matching MECH-284.
+  Config: REEConfig.use_mech275_aggregator (master, default False) + 6 sub-knobs:
+    mech275_domains, mech275_prior_mean, mech275_prior_variance,
+    mech275_likelihood_variance, mech275_decay_factor, mech275_probe_gain.
+  Wired into SleepLoopManager._run_cycle: SLEEP_ENTRY freezes evidence_snapshot from
+  agent.hippocampal.staleness_accumulator.snapshot() (place-domain evidence = staleness
+  scalar at routed anchor's region, falls back to 0.0 if absent); each routed draw in
+  SWS pass calls bayesian_aggregator.update(routed, evidence, domain=aggregator_domain);
+  at PHASE_SWITCH snapshot() fires BEFORE routing_gate.set_phase(REM_ANALOG) so the
+  snapshot captures SWS-only posteriors (Phase E reads this); REM re-route loop applies
+  same probe-channel-gated update; mech275_* metrics merged into
+  SleepCycleState.last_metrics.
+  REEAgent.__init__ extended with Phase D conditional construction block;
+  SleepLoopManager extended with bayesian_aggregator+aggregator_domain ctor args.
+  NO downstream writeback (Phase E / MECH-273 deferred until next pass).
+  Validation: 10/10 new contract tests + 38/38 sleep phases A-D + 133/133 contracts +
+  7/7 preflight all PASS. Bit-identical OFF guarantee holds. MECH-094 enforced via
+  call-site scoping (aggregator only invoked from _run_cycle, never from waking path).
+  See MECH-275, MECH-272, MECH-285, MECH-284, MECH-094.
+
+## Sleep Aggregation Cluster Phase E: MECH-273 SelfModelAggregator (2026-04-25)
+- MECH-273: sleep.self_model_writeback -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/sleep/self_model_aggregator.py (SelfModelAggregator,
+  SelfModelAggregatorConfig). Subclass of MECH-275 BayesianAggregator specialised on
+  SD-003 causal_sig posterior. offline_gradient_pass(e2_harm_s, replayed_regions,
+  n_steps, domain='self', use_snapshot=True) reads posterior means from last_snapshot
+  (SWS-only frozen copy at PHASE_SWITCH) when available; constructs synthetic
+  (z_harm_s zeros, action one-hot round-robin) batch at E2_harm_s input dims; trains
+  via Adam at waking_lr * offline_lr_scale for n_steps bounded MSE steps.
+  MECH-094 exception scoped: optimiser constructed locally over e2_harm_s.parameters()
+  only -- no other module's params touched. n_steps<=0 short-circuits to no-op; empty
+  replayed_regions returns zero-loss diagnostics. Cumulative diagnostics
+  (mech273_n_offline_passes/steps/sum_loss/last_offline_loss/n_offline_regions_consumed)
+  and per-call (mech273_writeback_regions/n_steps/sum_loss/mean_loss).
+  NEW API: StalenessAccumulator.partial_decay(replayed_regions, decay_factor=0.5) ->
+  int multiplicatively decays only the supplied region keys (clamped [0,1], drops
+  below drop_epsilon, dedupes input via 'seen' set).
+  Config: REEConfig.use_mech273_self_model (master, default False) + 3 sub-knobs:
+    mech273_offline_lr_scale (0.1), mech273_offline_n_steps (100),
+    mech273_partial_decay_factor (0.5). All wired through from_dims.
+  REEAgent.__init__: agent-level e2_harm_s construction (parallel to e2_harm_a) when
+  config.latent.use_e2_harm_s_forward; sleep_self_model_aggregator instantiated when
+  use_mech273_self_model AND e2_harm_s exist; passed to SleepLoopManager via 4 new
+  ctor args (self_model_aggregator, self_model_offline_n_steps,
+  self_model_partial_decay_factor, self_model_domain).
+  SleepLoopManager._run_cycle: replayed_regions set accumulated during SWS+REM update
+  loops via _extract_region_key helper (handles RoutedEvent.event.key tuple form and
+  direct tuple form); AFTER agent.run_sleep_cycle() set phase WRITEBACK ->
+  offline_gradient_pass(use_snapshot=True) -> staleness.partial_decay(replayed_regions,
+  decay_factor=self_model_partial_decay_factor); writeback_metrics merged into
+  SleepCycleState.last_metrics including mech273_partial_decay_n_regions and
+  mech273_partial_decay_factor.
+  SHY normalisation (MECH-120) explicitly out of V3 scope.
+  Validation: 10/10 Phase E contracts + 150/150 (143 contracts + 7 preflight) all PASS.
+  Bit-identical OFF guarantee holds.
+  See MECH-273, MECH-275, MECH-272, MECH-285, MECH-284, MECH-094, SD-003, ARC-033.
+
+## SD-016 Path 1: ContextMemory Diversification Loss (2026-04-25)
+- SD-016 Path 1: e1.context_memory_diversification_loss -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/predictors/e1_deep.py (ContextMemory.compute_diversification_loss),
+  ree_core/agent.py (REEAgent.compute_prediction_loss), ree_core/utils/config.py.
+  EXQ-418d FAILed across all 4 write-path arms with attn_entropy_mean ~2.76 (uniform
+  reference 2.7726) and bimodal seed pattern (seed 42 ~0.46 div, seeds 43/44 collapse
+  <1e-4). Diagnosis: no gradient pressure for slot diversification -- read-side
+  gradient through cue_terrain_loss + cue_action_loss alone cannot differentiate
+  slots, and writes-only path is luck-dependent on init symmetry breaking.
+  Path 1 substrate: explicit auxiliary diversification loss on ContextMemory.memory:
+  mean squared off-diagonal cosine similarity over normalized slot vectors.
+  ContextMemory.compute_diversification_loss() method added; weighted loss term added
+  in REEAgent.compute_prediction_loss.
+  Config: new sd016_diversification_weight float wired through E1Config + REEConfig
+  + REEConfig.from_dims (default 0.0; backward compatible).
+  Validation: V3-EXQ-418e 4-arm ablation queued (A0_off baseline, A1_writes_only
+  replicates 418d, A2_div_only tests div alone, A3_writes_plus_div tests bootstrap;
+  supersedes V3-EXQ-418d). Smoke verified: slot_div climbs 0.2->0.5->1.0 across arms;
+  wiring confirmed.
+  See SD-016, MECH-150, MECH-151, MECH-152, ARC-041, EXP-0155.
+  Design doc: REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md
