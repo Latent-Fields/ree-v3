@@ -2494,6 +2494,19 @@ class REEAgent(nn.Module):
             pred_err = (predictions[:, :targets.shape[1], :] - targets).detach()
             self.e1.update_from_observation(obs_state, pred_err)
 
+        # SD-016 Path 1 (2026-04-25, V3-EXQ-418e):
+        # Auxiliary diversification loss on ContextMemory slots. Adds gradient
+        # pressure that pushes slot vectors toward mutual orthogonality on the
+        # unit sphere. EXQ-418d showed v2 read+write gradients alone cannot
+        # break slot symmetry (entropy=ln(16) regardless of write mode); this
+        # loss term is the smallest substrate change that introduces explicit
+        # symmetry-breaking pressure. Gated on weight > 0 AND sd016_enabled;
+        # default 0.0 preserves bit-identical legacy behaviour.
+        # See REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md.
+        _div_w = getattr(self.config, "sd016_diversification_weight", 0.0)
+        if _div_w > 0.0 and getattr(self.e1.config, "sd016_enabled", False):
+            loss = loss + _div_w * self.e1.context_memory.compute_diversification_loss()
+
         self.e1._hidden_state = saved_hidden
         return loss
 

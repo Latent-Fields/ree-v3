@@ -83,6 +83,17 @@ class ContextMemory(nn.Module):
                 0.9 * self.memory.data[min_idx] + 0.1 * write_signal.mean(0)
             )
 
+    def compute_diversification_loss(self) -> torch.Tensor:
+        # SD-016 Path 1 (2026-04-25): mean squared off-diagonal cosine similarity
+        # of slot vectors. Pushes slots toward mutual orthogonality on the unit
+        # sphere. Returns a scalar tensor; gradient flows into self.memory.
+        # See REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md.
+        slot_norm = F.normalize(self.memory, dim=-1)
+        sim = slot_norm @ slot_norm.T
+        n = self.num_slots
+        mask = 1.0 - torch.eye(n, device=sim.device, dtype=sim.dtype)
+        return (sim * mask).pow(2).sum() / (n * (n - 1))
+
 
 class E1DeepPredictor(nn.Module):
     """

@@ -813,6 +813,13 @@ class REEConfig:
     schema_wanting_threshold: float = 0.3
     schema_wanting_gain: float = 0.5
 
+    # SD-016 Path 1 (V3-EXQ-418e): auxiliary diversification loss weight on
+    # ContextMemory slots. When > 0 and E1Config.sd016_enabled=True, adds
+    # `weight * context_memory.compute_diversification_loss()` to
+    # REEAgent.compute_prediction_loss after the existing E1 loss. 0.0 = no-op.
+    # See REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md.
+    sd016_diversification_weight: float = 0.0
+
     # SD-019: affective harm non-redundancy constraint.
     # harm_nonredundancy_weight > 0 adds a cosine^2 penalty between z_harm_s and z_harm_a,
     # enforcing that the two streams encode non-redundant information.
@@ -1450,6 +1457,11 @@ class REEConfig:
         # SD-016 ContextMemory write-path mode (EXQ-477 follow-up):
         # "off" | "train_only" | "sense_only" | "both"
         sd016_writepath_mode: str = "off",
+        # SD-016 Path 1 (V3-EXQ-418e): auxiliary diversification loss weight
+        # on ContextMemory slots. 0.0 = no-op (legacy substrate). Recommended
+        # 0.5 when sd016_enabled=True (mirrors LAMBDA_CUE_ACTION).
+        # See REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md.
+        sd016_diversification_weight: float = 0.0,
         # ARC-030 / MECH-111 / MECH-112 / MECH-113
         benefit_eval_enabled: bool = False,
         benefit_weight: float = 1.0,
