@@ -65,8 +65,9 @@ from ree_core.cingulate import (
     SalienceCoordinatorConfig,
 )
 from ree_core.latent.stack import HarmForwardTrunk
-from ree_core.pfc import LateralPFCAnalog
+from ree_core.pfc import LateralPFCAnalog, OFCAnalog
 from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
+from ree_core.pfc.ofc_analog import OFCConfig
 from ree_core.governance import (
     ClosureEvent,
     ClosureOperator,
@@ -345,6 +346,32 @@ class REEAgent(nn.Module):
                 delta_dim=config.latent.delta_dim,
                 world_dim=config.latent.world_dim,
                 config=lpfc_cfg,
+            )
+
+        # SD-033b: OFC-analog (specific-outcome / task-structure substrate,
+        # MECH-261 second consumer). When use_ofc_analog=True, maintains a
+        # state_code vector updated via gate-modulated EMA using
+        # write_gate("sd_033b") and emits a per-candidate score_bias composed
+        # additively with dACC + lateral_pfc bias before E3.select(). Initial
+        # bias output is exactly zero (last Linear zeroed) so use_ofc_analog
+        # =True with an untrained head is bit-identical to OFF.
+        # MECH-094: state-structure persistence is gated by the registry --
+        # MECH-261 generalises the hypothesis_tag (sd_033b weight=0.05 under
+        # internal_replay).
+        self.ofc: Optional[OFCAnalog] = None
+        if getattr(config, "use_ofc_analog", False):
+            ofc_cfg = OFCConfig(
+                use_ofc_analog=True,
+                state_dim=config.ofc_state_dim,
+                update_eta=config.ofc_update_eta,
+                outcome_pool_weight=config.ofc_outcome_pool_weight,
+                bias_scale=config.ofc_bias_scale,
+                hidden_dim=config.ofc_hidden_dim,
+                harm_dim=config.ofc_harm_dim,
+            )
+            self.ofc = OFCAnalog(
+                world_dim=config.latent.world_dim,
+                config=ofc_cfg,
             )
 
         # SD-034: governance.closure_operator (five-part "done" token)
@@ -901,6 +928,10 @@ class REEAgent(nn.Module):
         # a carried rule).
         if self.lateral_pfc is not None:
             self.lateral_pfc.reset()
+
+        # SD-033b: reset state_code on episode boundary.
+        if self.ofc is not None:
+            self.ofc.reset()
 
         # SD-034: reset closure-operator completion detector on episode boundary.
         if self.closure_operator is not None:
@@ -1995,6 +2026,56 @@ class REEAgent(nn.Module):
                 dacc_score_bias = lpfc_bias
             else:
                 dacc_score_bias = dacc_score_bias + lpfc_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
+
+        # SD-033b: OFC-analog tick. Second consumer of MECH-261
+        # write_gate("sd_033b"). Gate-modulated EMA update of state_code
+        # using z_world plus optional pooled z_harm (outcome-context),
+        # then per-candidate score_bias composed additively with dACC +
+        # lateral_pfc bias. Initial bias output is exactly zero (last
+        # Linear zeroed at init) so use_ofc_analog=True with an untrained
+        # head is bit-identical to OFF until the head is deliberately
+        # trained.
+        if (
+            self.ofc is not None
+            and self._current_latent is not None
+        ):
+            if self.salience is not None:
+                ofc_gate = float(self.salience.write_gate("sd_033b"))
+            else:
+                ofc_gate = 1.0
+            ofc_z_harm = (
+                self._current_latent.z_harm
+                if self.ofc.config.harm_dim > 0
+                else None
+            )
+            self.ofc.update(
+                z_world=self._current_latent.z_world,
+                z_harm=ofc_z_harm,
+                gate=ofc_gate,
+            )
+            # Reuse the per-candidate z_world summaries built above when
+            # lateral_pfc is on; otherwise build them here.
+            if self.lateral_pfc is not None:
+                ofc_summaries = cand_world_summaries
+            else:
+                K = len(candidates)
+                _ofc_list: List[torch.Tensor] = []
+                for c in candidates:
+                    if c.world_states is not None:
+                        ws = c.get_world_state_sequence()
+                        _ofc_list.append(ws[0, 0, :])
+                    else:
+                        _ofc_list.append(
+                            self._current_latent.z_world[0].detach()
+                        )
+                ofc_summaries = torch.stack(_ofc_list, dim=0)
+            ofc_bias = self.ofc.compute_bias(ofc_summaries)
+            if dacc_score_bias is None:
+                dacc_score_bias = ofc_bias
+            else:
+                dacc_score_bias = dacc_score_bias + ofc_bias.to(
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 

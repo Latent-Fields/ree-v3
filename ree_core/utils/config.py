@@ -1103,6 +1103,30 @@ class REEConfig:
     # Bias-head hidden-layer width.
     lateral_pfc_hidden_dim: int = 32
 
+    # SD-033b: OFC-analog (specific-outcome / task-structure substrate,
+    # MECH-261 second consumer; MECH-263 falsification target). When True,
+    # REEAgent instantiates an OFCAnalog that maintains a state_code vector
+    # updated via gate-modulated EMA using write_gate("sd_033b") and emits
+    # a per-candidate score_bias (initial output = 0 because the head's
+    # last Linear is zeroed at init -- backward-compatible).
+    use_ofc_analog: bool = False
+    # state_code dimensionality. Small by intent (task-structure summary).
+    ofc_state_dim: int = 16
+    # Base EMA rate; effective rate = ofc_update_eta * gate each tick.
+    ofc_update_eta: float = 0.05
+    # Blend weight on mean(z_harm) in the state-update source: source =
+    # world_proj(z_world) + outcome_pool_weight * outcome_proj(z_harm).
+    # Set 0.0 to ablate the outcome-context contribution.
+    ofc_outcome_pool_weight: float = 0.5
+    # Clamp on |score_bias|.
+    ofc_bias_scale: float = 0.1
+    # Bias-head hidden-layer width.
+    ofc_hidden_dim: int = 32
+    # Dimensionality of z_harm consumed for the outcome-context source.
+    # 0 disables the outcome projection entirely (state_code = world only).
+    # When >0 must match LatentStackConfig.z_harm_dim.
+    ofc_harm_dim: int = 0
+
     # ----------------------------------------------------------------
     # SD-034: governance.closure_operator (five-part "done" token)
     # ----------------------------------------------------------------
@@ -1583,6 +1607,14 @@ class REEConfig:
         lateral_pfc_world_pool_weight: float = 0.5,
         lateral_pfc_bias_scale: float = 0.1,
         lateral_pfc_hidden_dim: int = 32,
+        # SD-033b: OFC-analog (specific-outcome / task-structure substrate)
+        use_ofc_analog: bool = False,
+        ofc_state_dim: int = 16,
+        ofc_update_eta: float = 0.05,
+        ofc_outcome_pool_weight: float = 0.5,
+        ofc_bias_scale: float = 0.1,
+        ofc_hidden_dim: int = 32,
+        ofc_harm_dim: int = 0,
         # SD-034: governance.closure_operator (five-part "done" token)
         use_closure_operator: bool = False,
         closure_rule_delta_threshold: float = 0.001,
@@ -1934,6 +1966,15 @@ class REEConfig:
         config.lateral_pfc_world_pool_weight = lateral_pfc_world_pool_weight
         config.lateral_pfc_bias_scale = lateral_pfc_bias_scale
         config.lateral_pfc_hidden_dim = lateral_pfc_hidden_dim
+
+        # SD-033b: OFC-analog
+        config.use_ofc_analog = use_ofc_analog
+        config.ofc_state_dim = ofc_state_dim
+        config.ofc_update_eta = ofc_update_eta
+        config.ofc_outcome_pool_weight = ofc_outcome_pool_weight
+        config.ofc_bias_scale = ofc_bias_scale
+        config.ofc_hidden_dim = ofc_hidden_dim
+        config.ofc_harm_dim = ofc_harm_dim
 
         # SD-034: governance.closure_operator
         config.use_closure_operator = use_closure_operator

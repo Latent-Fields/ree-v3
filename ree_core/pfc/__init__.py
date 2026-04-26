@@ -4,7 +4,8 @@ Subdivisions:
 - SD-033a (lateral PFC analog): rule/goal persistence, top-down bias into E3.
   Instantiates MECH-262 (rule-selective persistence) and is the primary consumer
   of MECH-261's write-gate registry (SalienceCoordinator). IMPLEMENTED.
-- SD-033b (vmPFC analog): pending.
+- SD-033b (OFC analog): specific-outcome / task-structure substrate, MECH-261
+  second consumer; MECH-263 falsification target. IMPLEMENTED.
 - SD-033c (dlPFC analog, working-memory): pending.
 - SD-033e (frontopolar analog, BA 10): V4-scope STUB. Interface-only; enabling
   use_frontopolar_analog=True raises NotImplementedError until Prong D
@@ -14,11 +15,14 @@ Subdivisions:
 """
 
 from ree_core.pfc.lateral_pfc_analog import LateralPFCAnalog, LateralPFCConfig
+from ree_core.pfc.ofc_analog import OFCAnalog, OFCConfig
 from ree_core.pfc.frontopolar_analog import FrontopolarAnalog, FrontopolarConfig
 
 __all__ = [
     "LateralPFCAnalog",
     "LateralPFCConfig",
+    "OFCAnalog",
+    "OFCConfig",
     "FrontopolarAnalog",
     "FrontopolarConfig",
 ]

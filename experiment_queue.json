@@ -57,6 +57,17 @@
       "estimated_minutes": 1,
       "claim_id": "SD-033a",
       "note": "Behavioural test of MECH-262 signature (ii) rule-selective persistence. Three deterministic arms (no agent loop -- test is at the SalienceCoordinator + LateralPFCAnalog interface): ARM-A external_task (gate~1.0, expect drift), ARM-B internal_replay (gate~0.05, expect freeze), ARM-C internal_planning (gate~1.0, sanity check that replay-protection is mode-specific not generic low-gate effect). Closes the loop on EXQ-456 (substrate-wiring diagnostic with synthetic gate=0/1) by exercising the REAL MECH-261 registry-emitted write_gate('sd_033a'). Acceptance C1 task_drift>1e-3 (informative), C2 replay/task ratio<0.20, C3 planning_drift>1e-3 (mode-specific check), C4 gates within 0.02 of registry defaults (1.0/0.05/1.0). Smoke PASS 2026-04-26: task=0.567 replay=0.050 planning=0.567, ratio=0.088, all gates exact. N_DISTRACTOR_TICKS=30 chosen to stay in non-saturating regime where 20x gate ratio dominates."
+    },
+    {
+      "queue_id": "V3-EXQ-485",
+      "title": "SD-033b OFC-analog landing diagnostic (5 sub-tests)",
+      "script": "experiments/v3_exq_485_sd033b_ofc_analog_landing.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 1,
+      "claim_id": "SD-033b",
+      "note": "Substrate-landing diagnostic for SD-033b OFC-analog (Track 2 of the SD-033 PFC-subdivision V3 landing). Five sub-tests parallel to EXQ-456: UC1 instantiation + state_code shape; UC2 gate=1 vs gate=0 update modulation (replay-mode freeze); UC3 bias zero at init (last Linear zeroed -> use_ofc_analog=True bit-identical to OFF until head trained); UC4 backward compat (use_ofc_analog=False -> agent.ofc is None); UC5 reset() clears state_code. MECH-263 behavioural signatures (devaluation sensitivity, same-sensory / different-task-role discrimination) deferred to behavioural EXQs requiring environment work. Smoke PASS 2026-04-26: 5/5 sub-tests PASS, gate=1 delta ~0.27 vs gate=0 delta=0.0, initial bias max-abs=0.0."
     }
   ]
 }
