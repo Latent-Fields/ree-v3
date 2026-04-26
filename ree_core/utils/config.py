@@ -473,6 +473,16 @@ class AnchorSetConfig:
     staleness_clip: float = 1.0
     max_anchors_per_scale: int = 128
     subscribe_to_boundary_events: bool = True
+    # SD-039 dual-trace anchor goal-snapshot payload (default OFF).
+    # When True, write_anchor / mark_inactive / reset_region accept a
+    # non-None goal_payload and attach it to the anchor; module-level
+    # callers populate the payload from GoalState / VALENCE_WANTING /
+    # amygdala arousal tags. With flag OFF, callers pass goal_payload
+    # =None and behaviour is bit-identical to pre-SD-039. The flag is
+    # carried on AnchorSetConfig (rather than HippocampalConfig)
+    # because the substrate-side dataclass + query helper live on
+    # AnchorSet; module-level write-site wiring is a follow-on session.
+    use_sd039_anchor_payload: bool = False
 
 
 @dataclass
