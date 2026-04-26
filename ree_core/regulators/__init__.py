@@ -22,6 +22,11 @@ from ree_core.regulators.broadcast_override import (
     BroadcastOverrideConfig,
     BroadcastOverrideRegulator,
 )
+from ree_core.regulators.mech295_liking_bridge import (
+    MECH295LikingBridge,
+    MECH295LikingBridgeConfig,
+    MECH295LikingBridgeOutput,
+)
 
 __all__ = [
     "GABAergicDecayConfig",
@@ -31,4 +36,7 @@ __all__ = [
     "InvalidationTrigger",
     "BroadcastOverrideConfig",
     "BroadcastOverrideRegulator",
+    "MECH295LikingBridge",
+    "MECH295LikingBridgeConfig",
+    "MECH295LikingBridgeOutput",
 ]

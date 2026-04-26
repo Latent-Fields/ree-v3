@@ -67,6 +67,17 @@
       "estimated_minutes": 320,
       "claim_id": "MECH-269b",
       "note": "Q-040 factorial: substrate-readiness diagnostic for MECH-269b cortical-side V_s gate (read-side consumer of MECH-269 Phase 1 per_stream_vs at the E1 sensory predictor and E2_harm_a per-tick forward call sites). Two arms (ON_OFF / ON_ON) hold use_broadcast_override + use_dacc + drive_weight=2.0 + full V_s invalidation circuit + use_vs_commit_release ON; the only manipulated variable is use_vs_rollout_gating. Acceptance: C1 (ON gate fires > 0 holds across e1+e2 streams; OFF reports 0), C2 (ON approach_commit_count > 0 in >= 2/3 seeds; OFF reproduces EXQ-483 zero baseline), C3 (ON dacc_score_bias_mean > 0; OFF approximately zero). PASS = C1 AND C2 AND C3. FAIL on C2/C3 with C1 PASSing -> Q-040 FAIL branch points evidence at MECH-295 liking-bridge as dominant blocker. experiment_purpose=diagnostic. 80 warmup x 5 eval x 200 steps x 3 seeds x 2 arms; ~50-55 min/arm with full V_s circuit overhead. Smoke verified bit-identical OFF and gate fires under forced low V_s (substrate landing 2026-04-26). See REE_assembly/docs/architecture/mech_269b_vs_rollout_gating.md."
+    },
+    {
+      "queue_id": "V3-EXQ-493",
+      "title": "MECH-295 drive -> liking -> approach_cue bridge validation (6 sub-tests)",
+      "script": "experiments/v3_exq_493_mech295_liking_bridge_validation.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 1,
+      "claim_id": "MECH-295",
+      "note": "Substrate-landing diagnostic for MECH-295 weak-reading bridge. Six sub-tests: UC1 module-importable; UC2 master-OFF agent.mech295_bridge is None (bit-identical OFF); UC3 30-tick env loop with forced drive=0.8 + benefit=0.4 -> n_write_fires > 0; UC4 cue-side compute returns negative monotone bias under elevated drive (more proximity -> more negative); UC5 SEVERED-BRIDGE COLLAPSE: cue gain=0 produces exactly-zero bias even with drive=0.9 + write side intact (the falsifiable signature for the weak-necessity reading -- without an intact link, drive amplification cannot reach approach); UC6 MECH-094 simulation_mode=True returns zero on both sides and counters do not advance. PASS = all 6 UCs PASS. Behavioural EXQ-483-style approach_commit recovery (4-arm with the orexin substrate ON plus this bridge in arms 2-3) is deferred to a successor once V3-EXQ-490 (MECH-269b) lands. experiment_purpose=diagnostic. claim_ids tags MECH-295 as primary; SD-012 / SD-014 / SD-015 / MECH-117 are architectural prerequisites only (per-claim direction non_contributory). Smoke verified all 6 sub-tests PASS via --dry-run 2026-04-26. See REE_assembly/docs/architecture/mech_295_drive_liking_approach_bridge.md."
     }
   ]
 }

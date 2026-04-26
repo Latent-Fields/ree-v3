@@ -1477,6 +1477,42 @@ class REEConfig:
     # staleness on replayed regions; 0.0 = clear them entirely.
     mech273_partial_decay_factor: float = 0.5
 
+    # ----------------------------------------------------------------
+    # MECH-295: drive -> liking-stream -> approach_cue bridge (weak reading)
+    # ----------------------------------------------------------------
+    # Master switch. When True, REEAgent activates the MECH-295 bridge:
+    #   (a) update_z_goal() writes an anticipatory liking pulse to
+    #       VALENCE_LIKING at the goal location, scaled by
+    #       drive_level * z_goal_norm * mech295_drive_to_liking_gain.
+    #   (b) select_action() computes a per-candidate liking signal
+    #       (drive * goal_proximity_to_candidate) and converts it to a
+    #       per-candidate negative score_bias (E3 lower-is-better) so the
+    #       liking-stream supplies the cue-side approach pull.
+    # Weak reading (per claims.yaml MECH-295 functional_restatement):
+    # baseline liking-stream activation is sufficient; what matters is
+    # that the bridge wiring is intact -- if severed, drive amplification
+    # produces no approach regardless of drive magnitude.
+    # False = disabled (default, backward compat).
+    use_mech295_liking_bridge: bool = False
+    # (a) Multiplier on drive_level * z_goal_norm for the anticipatory
+    # liking write at the goal location. Setting to 0 disables the
+    # write side without touching the cue side.
+    mech295_drive_to_liking_gain: float = 1.0
+    # (b) Multiplier converting the per-candidate liking signal into the
+    # additive approach-side score_bias. Lower-is-better in E3, so the
+    # bias is negated internally; this gain controls the magnitude of
+    # the approach pull. Setting to 0 disables the cue side without
+    # touching the write side -- this is the "severed bridge" arm of
+    # the MECH-295 weak-necessity test.
+    mech295_liking_to_approach_cue_gain: float = 0.5
+    # Drive floor below which the bridge is silent (avoids noisy writes
+    # when sated). At default 0.1 the bridge fires only when the agent
+    # is at least mildly depleted.
+    mech295_min_drive_to_fire: float = 0.1
+    # Goal-norm floor below which the bridge does not fire (no goal
+    # seeded; nothing to be congruent with).
+    mech295_min_z_goal_norm_to_fire: float = 0.05
+
     @classmethod
     def from_dims(
         cls,
@@ -1768,6 +1804,12 @@ class REEConfig:
         mech273_offline_lr_scale: float = 0.1,
         mech273_offline_n_steps: int = 100,
         mech273_partial_decay_factor: float = 0.5,
+        # MECH-295: drive -> liking-stream -> approach_cue bridge
+        use_mech295_liking_bridge: bool = False,
+        mech295_drive_to_liking_gain: float = 1.0,
+        mech295_liking_to_approach_cue_gain: float = 0.5,
+        mech295_min_drive_to_fire: float = 0.1,
+        mech295_min_z_goal_norm_to_fire: float = 0.05,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -2146,6 +2188,13 @@ class REEConfig:
         config.mech273_offline_lr_scale = mech273_offline_lr_scale
         config.mech273_offline_n_steps = mech273_offline_n_steps
         config.mech273_partial_decay_factor = mech273_partial_decay_factor
+
+        # MECH-295: drive -> liking-stream -> approach_cue bridge
+        config.use_mech295_liking_bridge = use_mech295_liking_bridge
+        config.mech295_drive_to_liking_gain = mech295_drive_to_liking_gain
+        config.mech295_liking_to_approach_cue_gain = mech295_liking_to_approach_cue_gain
+        config.mech295_min_drive_to_fire = mech295_min_drive_to_fire
+        config.mech295_min_z_goal_norm_to_fire = mech295_min_z_goal_norm_to_fire
 
         return config
 

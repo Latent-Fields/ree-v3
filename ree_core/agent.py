@@ -87,6 +87,8 @@ from ree_core.regulators import (
     GABAergicDecayRegulator,
     BroadcastOverrideConfig,
     BroadcastOverrideRegulator,
+    MECH295LikingBridge,
+    MECH295LikingBridgeConfig,
 )
 from ree_core.pag import (
     PAGFreezeGate,
@@ -581,6 +583,34 @@ class REEAgent(nn.Module):
                     ),
                 }
 
+        # MECH-295: drive -> liking-stream -> approach_cue bridge (weak reading).
+        # The bridge wires SD-012 drive amplification through the liking-stream
+        # (anticipatory write at the goal location, gated by drive * z_goal_norm)
+        # and into action selection (per-candidate approach_cue_signal supplied
+        # to E3 as a negative score_bias). Without this bridge, drive amplification
+        # produces a passive z_goal latent without behavioural consequence -- the
+        # EXQ-483 catatonic-lock signature (override fires, PAG releases up,
+        # approach_commit = 0.0 across all arms).
+        # See REE_assembly/docs/architecture/mech_295_drive_liking_approach_bridge.md.
+        # Backward-compatible no-op when master switch off.
+        self.mech295_bridge: Optional[MECH295LikingBridge] = None
+        if getattr(config, "use_mech295_liking_bridge", False):
+            bridge_cfg = MECH295LikingBridgeConfig(
+                drive_to_liking_gain=float(
+                    getattr(config, "mech295_drive_to_liking_gain", 1.0)
+                ),
+                liking_to_approach_cue_gain=float(
+                    getattr(config, "mech295_liking_to_approach_cue_gain", 0.5)
+                ),
+                min_drive_to_fire=float(
+                    getattr(config, "mech295_min_drive_to_fire", 0.1)
+                ),
+                min_z_goal_norm_to_fire=float(
+                    getattr(config, "mech295_min_z_goal_norm_to_fire", 0.05)
+                ),
+            )
+            self.mech295_bridge = MECH295LikingBridge(bridge_cfg)
+
         # MECH-269b: Symmetric V_s gating on E1/E2 cortical rollouts.
         # Read-side consumer of MECH-269 Phase 1 per_stream_vs. Snapshots per-
         # stream latent values when V_s is at or above
@@ -1012,6 +1042,12 @@ class REEAgent(nn.Module):
         # window, EMA, diagnostics). Master flag is preserved across reset.
         if self.broadcast_override is not None:
             self.broadcast_override.reset()
+
+        # MECH-295: reset bridge per-tick diagnostic cache. Fire counters
+        # persist across reset so end-of-run reporting reflects the full
+        # session.
+        if self.mech295_bridge is not None:
+            self.mech295_bridge.reset()
 
         # MECH-269 base: reset per-stream V_s cache on episode boundary.
         # No-op when use_per_stream_vs is False (per_stream_vs stays empty).
@@ -2177,6 +2213,63 @@ class REEAgent(nn.Module):
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 
+        # MECH-295: drive -> liking-stream -> approach_cue at action selection.
+        # Per-candidate liking signal: drive * goal_proximity (each
+        # candidate's first-step z_world). Negated so it favours approach
+        # under E3's lower-is-better convention. Composed additively with
+        # the existing dACC / lateral_pfc / ofc score_bias.
+        # Weak-reading: with mech295_liking_to_approach_cue_gain=0.0 the
+        # bias is exactly zero (severed bridge arm).
+        if (
+            self.mech295_bridge is not None
+            and self.goal_state is not None
+            and self.goal_state.is_active()
+            and self._current_latent is not None
+        ):
+            # Build per-candidate first-step z_world summaries. Reuse the
+            # cand_world_summaries from the lateral_pfc / ofc blocks if
+            # available; otherwise build them here from the candidates list.
+            try:
+                m295_summaries = cand_world_summaries  # type: ignore[name-defined]
+            except NameError:
+                K = len(candidates)
+                _m295_list: List[torch.Tensor] = []
+                for c in candidates:
+                    if c.world_states is not None:
+                        ws = c.get_world_state_sequence()
+                        _m295_list.append(ws[0, 0, :])
+                    else:
+                        _m295_list.append(
+                            self._current_latent.z_world[0].detach()
+                        )
+                m295_summaries = torch.stack(_m295_list, dim=0)
+            # Per-candidate goal proximity in [0, 1]: GoalState.goal_proximity
+            # returns 1 / (1 + dist) -- shape [K] when input is [K, world_dim].
+            with torch.no_grad():
+                cand_proximities = self.goal_state.goal_proximity(
+                    m295_summaries
+                ).detach()
+                base_drive = float(
+                    getattr(self.goal_state, "_last_drive_level", 0.0)
+                )
+                # Apply pACC sensitisation if present so the cue side sees
+                # the same effective drive that the write side used.
+                if self.pacc is not None:
+                    eff_drive_m295 = self.pacc.effective_drive(base_drive)
+                else:
+                    eff_drive_m295 = base_drive
+                m295_bias = self.mech295_bridge.compute_approach_cue_score_bias(
+                    drive_level=eff_drive_m295,
+                    candidate_proximities=cand_proximities,
+                    simulation_mode=False,
+                )
+            if dacc_score_bias is None:
+                dacc_score_bias = m295_bias
+            else:
+                dacc_score_bias = dacc_score_bias + m295_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
+
         result = self.e3.select(
             candidates, temperature,
             goal_state=_goal_state_for_select,
@@ -3052,6 +3145,40 @@ class REEAgent(nn.Module):
             benefit_exposure,
             drive_level=effective_drive,
         )
+
+        # MECH-295: anticipatory liking-stream write at the goal location.
+        # Bridge fires after GoalState.update() so z_goal reflects this
+        # tick's seeding. Write magnitude = drive_to_liking_gain *
+        # effective_drive * z_goal_norm; gated by min_drive_to_fire and
+        # min_z_goal_norm_to_fire. Write target is the current goal latent
+        # (z_goal), not the agent's current location -- this is the
+        # anticipatory cue-side pulse, distinct from the consummatory
+        # write in update_liking().
+        # MECH-094: hypothesis_tag=False (waking write); the bridge's
+        # internal simulation_mode argument keeps consistency with the
+        # MECH-094 substrate-write convention used by the residue field.
+        if (
+            self.mech295_bridge is not None
+            and self.goal_state is not None
+            and self.goal_state.is_active()
+            and hasattr(self.residue_field, "update_valence")
+        ):
+            z_goal_norm = self.goal_state.goal_norm()
+            write_value = self.mech295_bridge.compute_anticipatory_liking_write(
+                drive_level=effective_drive,
+                z_goal_norm=z_goal_norm,
+                simulation_mode=False,
+            )
+            if write_value > 0.0:
+                # Write at the goal location (z_goal latent), not the agent's
+                # current z_world. update_valence accepts a [batch, world_dim]
+                # tensor; goal_state.z_goal already has shape [1, world_dim].
+                self.residue_field.update_valence(
+                    self.goal_state.z_goal,
+                    component=VALENCE_LIKING,
+                    value=write_value,
+                    hypothesis_tag=False,
+                )
 
     def serotonin_step(self, benefit_exposure: float) -> None:
         """
