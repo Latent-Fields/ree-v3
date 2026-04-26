@@ -1028,7 +1028,22 @@ def main():
         help="Skip the regression-suite preflight layer. Also honoured via "
              "REE_SKIP_PREFLIGHT=1 (useful when a preflight test itself is broken).",
     )
+    parser.add_argument(
+        "--remote-control",
+        action="store_true",
+        help="Write per-machine heartbeat to REE_assembly each loop tick "
+             "(REE_assembly/evidence/experiments/runner_heartbeats/<hostname>.json). "
+             "Phase 1 of the multi-machine dashboard; off by default.",
+    )
     args = parser.parse_args()
+
+    try:
+        import runner_remote_control as _rrc
+    except Exception as _rrc_exc:
+        _rrc = None
+        if args.remote_control:
+            print(f"[runner] --remote-control requested but module import failed: "
+                  f"{_rrc_exc}. Heartbeats disabled.", flush=True)
 
     if not args.skip_preflight and os.environ.get("REE_SKIP_PREFLIGHT") != "1":
         preflight_dir = REPO_ROOT / "tests" / "preflight"
@@ -1055,6 +1070,16 @@ def main():
     print(f"[runner] Status file: {status_path}", flush=True)
     print(f"[runner] Queue file:  {QUEUE_FILE}", flush=True)
     print(f"[runner] Machine identity: {machine}", flush=True)
+    if args.remote_control and _rrc is not None and ree_assembly_path:
+        print(f"[runner] Remote-control: ON (heartbeats -> "
+              f"{ree_assembly_path}/evidence/experiments/runner_heartbeats/)", flush=True)
+        _rrc.write_heartbeat(
+            ree_assembly_path, machine, state="starting",
+            runner_pid=os.getpid(),
+        )
+    elif args.remote_control and not ree_assembly_path:
+        print("[runner] --remote-control requested but REE_assembly not found; "
+              "heartbeats disabled.", flush=True)
     if args.auto_sync:
         if ree_assembly_path:
             print(f"[runner] Auto-sync: ON (REE_assembly: {ree_assembly_path})", flush=True)
@@ -1077,6 +1102,8 @@ def main():
     # _current_proc holds the active experiment subprocess so the second signal can kill it.
     _drain_flag: list[bool] = []           # non-empty -> drain requested
     _current_proc: list[subprocess.Popen] = []  # 0 or 1 elements
+    _pause_flag: list[bool] = []           # non-empty -> remote pause requested
+    _force_stop_flag: list[bool] = []      # non-empty -> remote force_stop requested
 
     def _do_immediate_exit() -> None:
         """Final cleanup steps shared by both force-exit and post-drain exit."""
@@ -1207,7 +1234,30 @@ def main():
     while True:
         ran_any = False
 
+        # Drain any pending remote-control commands at the top of each pass
+        # (before claiming the next experiment). Commands like 'stop', 'pause',
+        # 'kick', 'release_claim' need to take effect before the inner loop
+        # picks up its next item.
+        if args.remote_control and _rrc is not None and ree_assembly_path:
+            _rrc.process_pending_commands(
+                ree_assembly_path, machine, QUEUE_FILE,
+                drain_flag=_drain_flag,
+                pause_flag=_pause_flag,
+                force_stop_flag=_force_stop_flag,
+                current_proc=_current_proc,
+                auto_sync=args.auto_sync,
+            )
+            if _force_stop_flag:
+                print("[runner] Remote force_stop received -- exiting.", flush=True)
+                break
+            if _pause_flag:
+                # Skip the inner experiment loop entirely while paused.
+                # Heartbeat update at the bottom will record state=paused.
+                pass
+
         for item in items:
+            if _pause_flag:
+                break  # paused: don't pick up new experiments this pass
             queue_id = item["queue_id"]
 
             if queue_id in completed_ids:
@@ -1461,6 +1511,33 @@ def main():
             print(f"[runner] Pass complete. Waiting {args.loop_interval}s ...", flush=True)
         else:
             print(f"[runner] No new items. Waiting {args.loop_interval}s ...", flush=True)
+
+        if args.remote_control and _rrc is not None and ree_assembly_path:
+            queue_pending = [
+                qi for qi in status.get("queue", [])
+                if qi.get("queue_id") not in completed_ids
+            ]
+            head_id = queue_pending[0]["queue_id"] if queue_pending else None
+            recent = status.get("completed", [])[-5:]
+            hb_state = "paused" if _pause_flag else (
+                "draining" if _drain_flag else "idle"
+            )
+            hb_path = _rrc.write_heartbeat(
+                ree_assembly_path, machine, state=hb_state,
+                queue_depth=len(queue_pending),
+                queue_id_at_head=head_id,
+                recent_completed=[
+                    {
+                        "queue_id": c.get("queue_id"),
+                        "result": c.get("result"),
+                        "completed_at": c.get("completed_at"),
+                    }
+                    for c in recent
+                ],
+                runner_pid=os.getpid(),
+            )
+            if args.auto_sync and hb_path is not None:
+                _rrc.push_heartbeat(ree_assembly_path, hb_path)
 
         time.sleep(args.loop_interval)
 
