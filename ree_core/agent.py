@@ -581,6 +581,56 @@ class REEAgent(nn.Module):
                     ),
                 }
 
+        # MECH-269b: Symmetric V_s gating on E1/E2 cortical rollouts.
+        # Read-side consumer of MECH-269 Phase 1 per_stream_vs. Snapshots per-
+        # stream latent values when V_s is at or above
+        # vs_gate_snapshot_refresh_threshold and substitutes the held snapshot
+        # at E1 / E2_harm_a forward call sites when V_s falls below the per-
+        # side threshold. Prevents cortical predictors from rolling forward
+        # off stale-but-confident-looking inputs (the EXQ-483 wired-but-inert
+        # failure mode).
+        self.vs_rollout_gate = None
+        if getattr(self.hippocampal.config, "use_vs_rollout_gating", False):
+            if not getattr(self.hippocampal.config, "use_per_stream_vs", False):
+                raise ValueError(
+                    "use_vs_rollout_gating=True requires use_per_stream_vs=True "
+                    "(the gate consumes hippocampal.per_stream_vs)."
+                )
+            from ree_core.regulators.vs_rollout_gate import (
+                VsRolloutGate, VsRolloutGateConfig,
+            )
+            gate_cfg = VsRolloutGateConfig(
+                streams=tuple(
+                    getattr(
+                        self.hippocampal.config,
+                        "vs_gate_streams",
+                        ("z_world", "z_self", "z_harm_s",
+                         "z_harm_a", "z_goal", "z_beta"),
+                    )
+                ),
+                snapshot_refresh_threshold=float(
+                    getattr(
+                        self.hippocampal.config,
+                        "vs_gate_snapshot_refresh_threshold",
+                        0.5,
+                    )
+                ),
+                e1_threshold=float(
+                    getattr(self.hippocampal.config, "vs_gate_e1_threshold", 0.4)
+                ),
+                e2_threshold=float(
+                    getattr(self.hippocampal.config, "vs_gate_e2_threshold", 0.4)
+                ),
+                unknown_stream_passes=bool(
+                    getattr(
+                        self.hippocampal.config,
+                        "vs_gate_unknown_stream_passes",
+                        True,
+                    )
+                ),
+            )
+            self.vs_rollout_gate = VsRolloutGate(gate_cfg)
+
         # Sleep-aggregation cluster Phase A: deterministic K-episode driver
         # for the existing SD-017 surface (run_sleep_cycle). Wraps, does not
         # replace. Phases B-E (replay sampler, routing gate, Bayesian
@@ -969,6 +1019,14 @@ class REEAgent(nn.Module):
             self.hippocampal.config, "use_per_stream_vs", False
         ):
             self.hippocampal.reset_per_stream_vs()
+
+        # MECH-269b: reset V_s rollout gate snapshots + diagnostic counters
+        # on episode boundary. Snapshots and held counts are per-episode
+        # (the fresh-episode latents have not yet had time to accumulate
+        # any V_s history; held substitution from a prior episode would be
+        # the wrong reference).
+        if self.vs_rollout_gate is not None:
+            self.vs_rollout_gate.reset()
 
         # MECH-288: reset event segmenter state on episode boundary
         # (detector buffers, run-length posterior, outer.inner counters,
@@ -1594,6 +1652,17 @@ class REEAgent(nn.Module):
             self.hippocampal.update_per_region_vs(
                 new_latent, goal_state=self.goal_state
             )
+
+        # MECH-269b: refresh per-stream snapshots from current latent when
+        # V_s[s] >= vs_gate_snapshot_refresh_threshold. Runs AFTER
+        # update_per_stream_vs / update_per_region_vs so the snapshot reflects
+        # the current-tick V_s reading. No-op when the gate is None.
+        if self.vs_rollout_gate is not None:
+            self.vs_rollout_gate.update_snapshots(
+                new_latent,
+                self.hippocampal.per_stream_vs,
+                goal_state=self.goal_state,
+            )
         return new_latent
 
     def sense_flat(self, observation: torch.Tensor) -> LatentState:
@@ -1616,16 +1685,36 @@ class REEAgent(nn.Module):
 
         Returns E1 world-domain prior for HippocampalModule (SD-002).
         """
-        total_state = torch.cat([latent_state.z_self, latent_state.z_world], dim=-1)
+        # MECH-269b: gate the latent for E1 forward consumption. Streams whose
+        # V_s falls below vs_gate_e1_threshold are substituted with held
+        # snapshots; aligned streams pass through. No-op (gated_for_e1 is
+        # latent_state) when vs_rollout_gate is None.
+        if self.vs_rollout_gate is not None:
+            gated_for_e1 = self.vs_rollout_gate.gate(
+                latent_state,
+                self.hippocampal.per_stream_vs,
+                side="e1",
+                goal_state=self.goal_state,
+            )
+        else:
+            gated_for_e1 = latent_state
 
-        # Store in experience buffers
+        total_state = torch.cat(
+            [gated_for_e1.z_self, gated_for_e1.z_world], dim=-1
+        )
+
+        # Store in experience buffers (canonical un-gated values: experience
+        # buffers feed training / replay, not forward-prediction inputs).
         self._self_experience_buffer.append(latent_state.z_self.detach().clone())
         self._world_experience_buffer.append(latent_state.z_world.detach().clone())
         for buf in [self._self_experience_buffer, self._world_experience_buffer]:
             if len(buf) > 1000:
                 del buf[:-1000]
 
-        # Run E1 for prior generation
+        # Run E1 for prior generation. z_goal is also under MECH-269b gating
+        # because GoalState.z_goal is one of the streams MECH-269 Phase 1
+        # tracks; gate_stream returns the held snapshot when V_s_z_goal drops
+        # below the E1 threshold.
         _z_goal_input = None
         _goal_cfg = getattr(self.config, "goal", None)
         if (self.goal_state is not None
@@ -1633,6 +1722,13 @@ class REEAgent(nn.Module):
                 and _goal_cfg.e1_goal_conditioned
                 and self.goal_state.is_active()):
             _z_goal_input = self.goal_state.z_goal
+            if self.vs_rollout_gate is not None:
+                _z_goal_input = self.vs_rollout_gate.gate_stream(
+                    "z_goal",
+                    _z_goal_input,
+                    self.hippocampal.per_stream_vs,
+                    side="e1",
+                )
         _, e1_prior = self.e1(total_state, z_goal=_z_goal_input)
 
         # MECH-089: push z_self, z_world estimates to ThetaBuffer
@@ -1649,9 +1745,11 @@ class REEAgent(nn.Module):
         # Extract action_bias and terrain_weight from z_world-only ContextMemory query.
         # Detached: cue signals are modulation inputs, not part of current-step gradient graph.
         # Cached until next E1 tick (same theta-cycle rate as generate_prior).
+        # MECH-269b: feed gated_for_e1.z_world (already substituted by snapshot
+        # if V_s_z_world is below E1 threshold).
         if hasattr(self.e1, 'world_query_proj'):
             action_bias, terrain_weight = self.e1.extract_cue_context(
-                latent_state.z_world.detach()
+                gated_for_e1.z_world.detach()
             )
             self._cue_action_bias    = action_bias.detach()
             self._cue_terrain_weight = terrain_weight.detach()
@@ -2243,6 +2341,11 @@ class REEAgent(nn.Module):
 
         # MECH-258 / SD-032b: roll E2_harm_a forward for the chosen action, so
         # the next step's dACC tick has a prediction to compute PE against.
+        # MECH-269b: gate the z_harm_a input to the forward model. If
+        # V_s_z_harm_a falls below the E2 threshold, the forward model
+        # consumes the held snapshot of z_harm_a instead of the current
+        # _harm_a_prev cache. Held substitution prevents E2_harm_a from
+        # rolling forward off a stale-but-confident-looking affective stream.
         if (
             self.e2_harm_a is not None
             and self._harm_a_prev is not None
@@ -2251,6 +2354,13 @@ class REEAgent(nn.Module):
             with torch.no_grad():
                 a_in = action if action.dim() > 1 else action.unsqueeze(0)
                 z_in = self._harm_a_prev
+                if self.vs_rollout_gate is not None:
+                    z_in = self.vs_rollout_gate.gate_stream(
+                        "z_harm_a",
+                        z_in,
+                        self.hippocampal.per_stream_vs,
+                        side="e2",
+                    )
                 if z_in.dim() == 1:
                     z_in = z_in.unsqueeze(0)
                 pred = self.e2_harm_a(z_in, a_in)

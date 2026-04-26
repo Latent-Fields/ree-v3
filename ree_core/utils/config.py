@@ -638,6 +638,33 @@ class HippocampalConfig:
     # (no-op without an active anchor set to snapshot).
     use_vs_commit_release: bool = False
 
+    # MECH-269b: Symmetric V_s gating on E1/E2 cortical rollouts (read-side
+    # consumer of MECH-269 Phase 1 per_stream_vs).
+    # When True, agent constructs a VsRolloutGate that snapshots per-stream
+    # latent values when V_s[s] >= snapshot_refresh_threshold and substitutes
+    # the snapshot for the current value when V_s[s] < per-side threshold at
+    # the E1 sensory predictor and E2_harm_a per-tick forward call sites. Held
+    # snapshots prevent cortical forward predictors from rolling forward off
+    # stale-but-confident-looking inputs (the wired-but-inert failure mode of
+    # EXQ-483 / EXQ-483a).
+    # Requires use_per_stream_vs=True at agent build time (the gate has nothing
+    # to read otherwise; agent.__init__ raises ValueError on that mismatch).
+    # Backward compatible: disabled by default. With flag on but V_s seeded
+    # at 1.0 the gate fires zero times until per-stream alignment drifts.
+    # Per-stream override dicts (e1_threshold_per_stream / e2_threshold_per_stream)
+    # are kept at the gate-config level (see VsRolloutGateConfig) and wired
+    # only via the agent constructor; from_dims exposes the global side
+    # thresholds, the master switch, the streams tuple, and the snapshot
+    # refresh threshold.
+    use_vs_rollout_gating: bool = False
+    vs_gate_streams: tuple = (
+        "z_world", "z_self", "z_harm_s", "z_harm_a", "z_goal", "z_beta",
+    )
+    vs_gate_snapshot_refresh_threshold: float = 0.5
+    vs_gate_e1_threshold: float = 0.4
+    vs_gate_e2_threshold: float = 0.4
+    vs_gate_unknown_stream_passes: bool = True
+
     # MECH-290: backward trajectory credit sweep at goal arrival.
     # Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay
     # fires at reward endpoint during waking, concurrent with dopamine.
@@ -1699,6 +1726,15 @@ class REEConfig:
         use_staleness_accumulator: bool = False,
         use_mech284_hysteresis: bool = False,
         use_vs_commit_release: bool = False,
+        # MECH-269b: V_s rollout gating on E1/E2 forward predictions
+        use_vs_rollout_gating: bool = False,
+        vs_gate_snapshot_refresh_threshold: float = 0.5,
+        vs_gate_e1_threshold: float = 0.4,
+        vs_gate_e2_threshold: float = 0.4,
+        vs_gate_streams: tuple = (
+            "z_world", "z_self", "z_harm_s", "z_harm_a", "z_goal", "z_beta",
+        ),
+        vs_gate_unknown_stream_passes: bool = True,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -2062,6 +2098,14 @@ class REEConfig:
         config.hippocampal.use_staleness_accumulator = use_staleness_accumulator
         config.hippocampal.use_mech284_hysteresis = use_mech284_hysteresis
         config.hippocampal.use_vs_commit_release = use_vs_commit_release
+
+        # MECH-269b: V_s rollout gating on E1/E2 forward predictions
+        config.hippocampal.use_vs_rollout_gating = use_vs_rollout_gating
+        config.hippocampal.vs_gate_snapshot_refresh_threshold = vs_gate_snapshot_refresh_threshold
+        config.hippocampal.vs_gate_e1_threshold = vs_gate_e1_threshold
+        config.hippocampal.vs_gate_e2_threshold = vs_gate_e2_threshold
+        config.hippocampal.vs_gate_streams = vs_gate_streams
+        config.hippocampal.vs_gate_unknown_stream_passes = vs_gate_unknown_stream_passes
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep

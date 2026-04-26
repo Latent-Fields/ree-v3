@@ -56,6 +56,17 @@
       "estimated_minutes": 1,
       "claim_id": "SD-033b",
       "note": "Substrate-landing diagnostic for SD-033b OFC-analog (Track 2 of the SD-033 PFC-subdivision V3 landing). Five sub-tests parallel to EXQ-456: UC1 instantiation + state_code shape; UC2 gate=1 vs gate=0 update modulation (replay-mode freeze); UC3 bias zero at init (last Linear zeroed -> use_ofc_analog=True bit-identical to OFF until head trained); UC4 backward compat (use_ofc_analog=False -> agent.ofc is None); UC5 reset() clears state_code. MECH-263 behavioural signatures (devaluation sensitivity, same-sensory / different-task-role discrimination) deferred to behavioural EXQs requiring environment work. Smoke PASS 2026-04-26: 5/5 sub-tests PASS, gate=1 delta ~0.27 vs gate=0 delta=0.0, initial bias max-abs=0.0."
+    },
+    {
+      "queue_id": "V3-EXQ-490",
+      "title": "MECH-269b symmetric V_s gating on E1/E2 cortical rollouts (Q-040 factorial)",
+      "script": "experiments/v3_exq_490_mech269b_vs_rollout_gating.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 320,
+      "claim_id": "MECH-269b",
+      "note": "Q-040 factorial: substrate-readiness diagnostic for MECH-269b cortical-side V_s gate (read-side consumer of MECH-269 Phase 1 per_stream_vs at the E1 sensory predictor and E2_harm_a per-tick forward call sites). Two arms (ON_OFF / ON_ON) hold use_broadcast_override + use_dacc + drive_weight=2.0 + full V_s invalidation circuit + use_vs_commit_release ON; the only manipulated variable is use_vs_rollout_gating. Acceptance: C1 (ON gate fires > 0 holds across e1+e2 streams; OFF reports 0), C2 (ON approach_commit_count > 0 in >= 2/3 seeds; OFF reproduces EXQ-483 zero baseline), C3 (ON dacc_score_bias_mean > 0; OFF approximately zero). PASS = C1 AND C2 AND C3. FAIL on C2/C3 with C1 PASSing -> Q-040 FAIL branch points evidence at MECH-295 liking-bridge as dominant blocker. experiment_purpose=diagnostic. 80 warmup x 5 eval x 200 steps x 3 seeds x 2 arms; ~50-55 min/arm with full V_s circuit overhead. Smoke verified bit-identical OFF and gate fires under forced low V_s (substrate landing 2026-04-26). See REE_assembly/docs/architecture/mech_269b_vs_rollout_gating.md."
     }
   ]
 }
