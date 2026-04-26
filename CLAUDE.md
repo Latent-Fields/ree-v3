@@ -718,6 +718,16 @@ V3 experiments: V3-EXQ-001 onward.
 
 **Queue validation:** `validate_queue.py` is called automatically at runner startup. Run it manually after any queue edit: `/opt/local/bin/python3 validate_queue.py`
 
+## Remote Control (--remote-control flag)
+
+When started with `--remote-control`, the runner emits a per-machine heartbeat each loop tick to `REE_assembly/evidence/experiments/runner_heartbeats/<hostname>.json` and processes pending commands from `runner_commands/<hostname>.json`. Default-off; bit-identical when omitted. Helper module: `runner_remote_control.py` (sibling of `experiment_runner.py`).
+
+Six command kinds: `stop` (graceful drain), `force_stop` (SIGKILL current proc + exit), `pause` / `resume` (skip new experiments), `kick:<EXQ>` (move to head of queue), `release_claim:<EXQ>` (clear stuck `claimed_by`). `start` is intentionally not in this channel (a stopped runner cannot read its own command file) — use `/api/runner/v3/start` locally or SSH for remote.
+
+When developing the runner: command processing happens at the **top of each pass** in the main `while True:` loop (before the experiment-picking `for item in items:` loop) so `pause` / `stop` / `kick` / `release_claim` take effect before the next claim attempt. Heartbeat write happens at the **bottom**, just before `time.sleep(args.loop_interval)`, with state in `{starting, idle, paused, draining}`.
+
+Multi-machine dashboard: `/machines` in serve.py. POST `/api/machines/<host>/command {kind, args}` to enqueue commands. Trust model: GitHub push access = command-issue access.
+
 ## Troubleshooting Runner
 
 **Runner log location**: `REE_assembly/runner.log` (NOT `ree-v3/runner.log`).
