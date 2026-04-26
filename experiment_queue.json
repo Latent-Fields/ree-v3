@@ -24,6 +24,18 @@
       }
     },
     {
+      "queue_id": "V3-EXQ-433d",
+      "title": "SD-029 / MECH-256 event-conditioned comparator (EXQ-479 calibrated curriculum)",
+      "script": "experiments/v3_exq_433d_sd029_eventcond_comparator.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 360,
+      "claim_id": "SD-029",
+      "supersedes": "V3-EXQ-433c",
+      "note": "Successor to V3-EXQ-433c (FAIL inconclusive_insufficient_events: agent_caused_hazard trials=0 in all 4 seeds; C0 protective gate fired). Root cause: 433c's uncalibrated curriculum params (interval=25, num_hazards=3, hazard_harm=0.04, adjacent_only=False) predated EXQ-479 substrate validation -- non-adjacent injections rarely created adjacency for the scripted walker, and high hazard_harm killed the agent before the curriculum tick fired. EXQ-479 (substrate validation, 2026-04-24) demonstrated PASS at hazard-event granularity with calibrated params (interval=10, num_hazards=2, hazard_harm=0.02, adjacent_only=True). EXQ-433d adopts EXQ-479's calibrated curriculum + 433c's three-phase pipeline (P0 encoder warmup, P1 interventional E2_harm_s training, balanced eval) verbatim. STEPS_PER_EP bumped 120 -> 200 to match 479. Acceptance: C0 trials_sufficient_gate (>=3/4 seeds with both agent_caused AND env_caused trials >=20), C1 forward_r2 mean >=0.9 (3/4 seeds), C2 attenuation_ratio in [0.2,0.8] (3/4 seeds), C3 approach_snr >5.0 (3/4 seeds). C0 protective gate preserved -- inconclusive_insufficient_events on FAIL prevents spurious downgrade of SD-029 / MECH-256."
+    },
+    {
       "queue_id": "V3-EXQ-418e",
       "title": "SD-016 Path 1 diversification loss 4-arm (auxiliary symmetry-breaking pressure)",
       "script": "experiments/v3_exq_418e_sd016_diversification_loss.py",
@@ -34,6 +46,17 @@
       "claim_id": "SD-016",
       "supersedes": "V3-EXQ-418d",
       "note": "Successor to V3-EXQ-418d (4-arm writepath modes). 418d FAILed: attn_entropy=ln(16) regardless of write mode (off/train_only/sense_only/both); read+write gradients alone cannot break ContextMemory slot symmetry. Path 1 substrate change: auxiliary mean-squared-off-diagonal-cosine diversification loss on slot vectors. 4 arms: A0_off (baseline), A1_writes_only (replicates 418d A2 sanity), A2_div_only (loss alone), A3_writes_plus_div (full bootstrap). Acceptance C1 attn_entropy<2.65 AND C2 div>0.10 ALL 3 SEEDS AND C3 behavioural delta>=0.20 AND C4 A1 replicates 418d FAIL. C2 raised from 2/3 to 3/3 because 418d showed bimodal seed pattern -- substrate-level fix must escape collapse on every seed. Smoke verified: slot_div climbs 0.2->0.5->1.0 across arms; wiring confirmed. See REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md."
+    },
+    {
+      "queue_id": "V3-EXQ-484",
+      "title": "SD-033a distractor-resistance under MECH-261 internal_replay gate (3-arm)",
+      "script": "experiments/v3_exq_484_sd033a_distractor_resistance.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 1,
+      "claim_id": "SD-033a",
+      "note": "Behavioural test of MECH-262 signature (ii) rule-selective persistence. Three deterministic arms (no agent loop -- test is at the SalienceCoordinator + LateralPFCAnalog interface): ARM-A external_task (gate~1.0, expect drift), ARM-B internal_replay (gate~0.05, expect freeze), ARM-C internal_planning (gate~1.0, sanity check that replay-protection is mode-specific not generic low-gate effect). Closes the loop on EXQ-456 (substrate-wiring diagnostic with synthetic gate=0/1) by exercising the REAL MECH-261 registry-emitted write_gate('sd_033a'). Acceptance C1 task_drift>1e-3 (informative), C2 replay/task ratio<0.20, C3 planning_drift>1e-3 (mode-specific check), C4 gates within 0.02 of registry defaults (1.0/0.05/1.0). Smoke PASS 2026-04-26: task=0.567 replay=0.050 planning=0.567, ratio=0.088, all gates exact. N_DISTRACTOR_TICKS=30 chosen to stay in non-saturating regime where 20x gate ratio dominates."
     }
   ]
 }
