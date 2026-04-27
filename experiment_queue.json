@@ -40,21 +40,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-485",
-      "title": "SD-033b OFC-analog landing diagnostic (5 sub-tests)",
-      "script": "experiments/v3_exq_485_sd033b_ofc_analog_landing.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 1,
-      "claim_id": "SD-033b",
-      "note": "Substrate-landing diagnostic for SD-033b OFC-analog (Track 2 of the SD-033 PFC-subdivision V3 landing). Five sub-tests parallel to EXQ-456: UC1 instantiation + state_code shape; UC2 gate=1 vs gate=0 update modulation (replay-mode freeze); UC3 bias zero at init (last Linear zeroed -> use_ofc_analog=True bit-identical to OFF until head trained); UC4 backward compat (use_ofc_analog=False -> agent.ofc is None); UC5 reset() clears state_code. MECH-263 behavioural signatures (devaluation sensitivity, same-sensory / different-task-role discrimination) deferred to behavioural EXQs requiring environment work. Smoke PASS 2026-04-26: 5/5 sub-tests PASS, gate=1 delta ~0.27 vs gate=0 delta=0.0, initial bias max-abs=0.0.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-04-27T01:49:04.868752+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-490",
       "title": "MECH-269b symmetric V_s gating on E1/E2 cortical rollouts (Q-040 factorial)",
       "script": "experiments/v3_exq_490_mech269b_vs_rollout_gating.py",
