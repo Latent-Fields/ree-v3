@@ -140,6 +140,26 @@ PHASED TRAINING:
 SEEDS: 7 seeds (per the >= 4/7 acceptance criterion). Override via
        --seeds for smoke / sweep work.
 
+FISHTANK VISUALISATION (added 2026-04-27):
+  Per-step recording during P2 eval is enabled for the first
+  FISHTANK_EPISODES_PER_CELL=3 episodes of every (condition, paradigm)
+  cell, but only on FISHTANK_RECORD_SEED=42 (the first seed). Six cells
+  total (HABIT / PLANNED / ABLATED x A_DETOUR / B_NOVEL_CONTEXT) get
+  recorded; the other 6 seeds skip recording entirely (zero overhead).
+  A sibling `*_episode_log.json` is written next to the manifest;
+  fishtank_viz.html /api/fishtank/logs auto-discovers it.
+
+  This is the single most behaviourally legible V3 result -- in
+  paradigm A detour the PLANNED arm should visibly route around the
+  blockage to reach the resource while the HABIT arm stalls against
+  it. The C2 benefit-gap scalar communicates the dual-systems split
+  poorly compared to watching the two fish behave differently.
+
+  Per-step record extends the V3-EXQ-471 schema with `ghost_admitted`
+  (MECH-293 ghost-branch firing per-tick) and `is_blocked_step` (the
+  paradigm-A blockage injection moment) so the viewer can mark the
+  before / after of the detour cleanly.
+
 claim_ids: ['MECH-163']  (single-claim evidence; SD-015 / SD-039 / MECH-292
 / MECH-293 are upstream dependencies the gate consumes but does not
 directly test -- the gate's PASS/FAIL signal is interpretable only for
@@ -220,6 +240,17 @@ DRY_RUN_SEEDS    = [42]
 DRY_RUN_EPISODES = 3
 DRY_RUN_STEPS    = 10
 
+# Fishtank visualisation: per-step recording during P2 eval, restricted to
+# the first seed only (FISHTANK_RECORD_SEED) and the first
+# FISHTANK_EPISODES_PER_CELL P2 episodes per (condition, paradigm) cell.
+# Six cells (3 conditions x 2 paradigms) x N episodes x STEPS_PER_EP gives
+# a payload comparable to V3-EXQ-471 / V3-EXQ-475's existing fishtank logs.
+# The PLANNED-vs-HABIT detour viz is the entire point of doing this --
+# embodied animation makes the C2 benefit-gap result legible to a non-
+# technical reader. Off in dry-run (no manifest write either).
+FISHTANK_RECORD_SEED        = 42
+FISHTANK_EPISODES_PER_CELL  = 3
+
 
 # ---------------------------------------------------------------------------
 # Factories
@@ -295,6 +326,18 @@ def _onehot(idx: int, n: int, device) -> torch.Tensor:
     return v
 
 
+def _classify_mode(z_harm_norm: float, world_change_norm: float, harm_signal: float) -> str:
+    """Coarse behavioural-mode label for fishtank-viz colouring. Mirrors the
+    V3-EXQ-471 classifier so the viewer's existing colour map applies."""
+    if harm_signal < 0:
+        return "harm"
+    if z_harm_norm > 0.5:
+        return "alarm"
+    if world_change_norm < 0.05:
+        return "stalled"
+    return "explore"
+
+
 # ---------------------------------------------------------------------------
 # Paradigm A blockage helper
 # ---------------------------------------------------------------------------
@@ -337,6 +380,7 @@ def run_condition_paradigm(
     condition: str,
     paradigm: str,
     dry_run: bool = False,
+    record_fishtank: bool = False,
 ) -> Dict[str, Any]:
     total_p0   = DRY_RUN_EPISODES if dry_run else P0_EPISODES
     total_p1   = DRY_RUN_EPISODES if dry_run else P1_EPISODES
@@ -365,6 +409,11 @@ def run_condition_paradigm(
     ghost_admitted_per_tick:  List[int]   = []
     first_step_action_dists:  List[List[float]] = []
 
+    # Fishtank per-step recording: only on the first FISHTANK_EPISODES_PER_CELL
+    # P2 episodes when record_fishtank=True. Each episode dict mirrors the
+    # V3-EXQ-471 schema so fishtank_viz.html consumes it without changes.
+    fishtank_episodes: List[Dict[str, Any]] = []
+
     env = env_train
 
     for ep in range(total_eps):
@@ -386,7 +435,23 @@ def run_condition_paradigm(
 
         ep_resources_pre, ep_benefit_pre   = 0, 0.0
         ep_resources_post, ep_benefit_post = 0, 0.0
+        ep_resources_standard, ep_benefit_standard = 0, 0.0
         ep_harm = 0.0
+
+        # Fishtank recording for this episode (eval only, first N P2 eps).
+        recording_this_ep = (
+            record_fishtank
+            and in_eval
+            and len(fishtank_episodes) < FISHTANK_EPISODES_PER_CELL
+        )
+        ep_steps: List[Dict[str, Any]] = []
+        ep_initial_hazards   = (
+            [list(h) for h in env.hazards] if recording_this_ep else []
+        )
+        ep_initial_resources = (
+            [list(r) for r in env.resources] if recording_this_ep else []
+        )
+        z_world_prev: Optional[torch.Tensor] = None
 
         for step_i in range(steps_per):
             obs_body  = obs_dict["body_state"].to(device)
@@ -451,9 +516,63 @@ def run_condition_paradigm(
                         ep_resources_post += rx
                         ep_benefit_post   += bx
                 else:
-                    ep_resources_standard += rx if "ep_resources_standard" not in dir() else 0
+                    ep_resources_standard += rx
+                    ep_benefit_standard   += bx
                     p2_resources_standard.append(rx)
                     p2_benefit_standard.append(bx)
+
+            # Fishtank per-step record (P2 eval only, first N episodes per cell).
+            if recording_this_ep:
+                z_harm_norm = (
+                    float(latent.z_harm.norm().item())
+                    if getattr(latent, "z_harm", None) is not None else 0.0
+                )
+                z_world_norm = (
+                    float(latent.z_world.norm().item())
+                    if getattr(latent, "z_world", None) is not None else 0.0
+                )
+                z_beta_val = (
+                    float(latent.z_beta.mean().item())
+                    if getattr(latent, "z_beta", None) is not None else 0.0
+                )
+                world_change_norm = (
+                    float((latent.z_world.detach() - z_world_prev).norm().item())
+                    if (z_world_prev is not None and getattr(latent, "z_world", None) is not None)
+                    else 0.0
+                )
+                mode = _classify_mode(z_harm_norm, world_change_norm, float(harm_signal))
+                ghost_admitted = int(
+                    (
+                        getattr(agent.hippocampal, "_last_propose_diagnostics", {})
+                        or {}
+                    ).get("mech293_n_ghost_admitted", 0)
+                )
+                ep_steps.append({
+                    "t":                step_i,
+                    "pos":              [int(env.agent_x), int(env.agent_y)],
+                    "action":           action_idx,
+                    "harm_signal":      float(harm_signal),
+                    "z_harm_norm":      z_harm_norm,
+                    "z_world_norm":     z_world_norm,
+                    "z_beta_val":       z_beta_val,
+                    "world_change_norm": world_change_norm,
+                    "mode":             mode,
+                    "transition_type":  info.get("transition_type", "none"),
+                    "health":           float(info.get("health", 1.0)),
+                    "energy":           float(info.get("energy", 1.0)),
+                    "harm_event":       float(harm_signal) < 0,
+                    "n_cands":          (
+                        len(candidates) if hasattr(candidates, "__len__") else 0
+                    ),
+                    "hazards":          [list(h) for h in env.hazards],
+                    "resources":        [list(r) for r in env.resources],
+                    "ghost_admitted":   ghost_admitted,
+                    "is_blocked_step":  bool(block_step is not None and step_i == block_step),
+                })
+                z_world_prev = (
+                    latent.z_world.detach()
+                    if getattr(latent, "z_world", None) is not None else None
+                )
 
             obs_dict = obs_dict_next
             if done:
@@ -465,6 +584,16 @@ def run_condition_paradigm(
             p2_resources_post_block.append(ep_resources_post)
             p2_benefit_post_block.append(ep_benefit_post)
             p2_harm_total.append(ep_harm)
+
+        # Close out fishtank episode record.
+        if recording_this_ep:
+            fishtank_episodes.append({
+                "ep":                len(fishtank_episodes),
+                "initial_hazards":   ep_initial_hazards,
+                "initial_resources": ep_initial_resources,
+                "block_step":        block_step if block_step is not None else -1,
+                "steps":             ep_steps,
+            })
 
         # P0 / P1 training steps: backprop encoder + proximity head losses.
         if phase != "P2":
@@ -513,6 +642,7 @@ def run_condition_paradigm(
         "prox_r2":            prox_r2_value,
         "ghost_admitted_mean_per_tick": ghost_mean,
         "first_step_action_dists":      first_step_action_dists,
+        "fishtank_episodes":            fishtank_episodes,
     }
 
 
@@ -544,8 +674,13 @@ def evaluate_acceptance(per_seed: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Compute C1-C5 against per-seed condition x paradigm results."""
 
     def by(seed: int, cond: str, par: str) -> Optional[Dict[str, Any]]:
+        """Return the result dict for (seed, cond, par); None when missing
+        OR when the run errored (error-results have no benefit/harm fields
+        and would crash downstream metric reads)."""
         for r in per_seed:
             if r["seed"] == seed and r["condition"] == cond and r["paradigm"] == par:
+                if "error" in r:
+                    return None
                 return r
         return None
 
@@ -664,8 +799,20 @@ def main(seeds: List[int], dry_run: bool) -> int:
         for paradigm in PARADIGMS:
             for condition in CONDITIONS:
                 print(f"[v3_exq_495] seed={seed} paradigm={paradigm} condition={condition}")
+                # Fishtank recording: only on the representative seed and
+                # only when not dry-running. Six (condition, paradigm)
+                # cells get recorded for that one seed; other seeds skip
+                # recording entirely so per-seed runtime overhead is zero.
+                record_fishtank = (
+                    not dry_run
+                    and seed == FISHTANK_RECORD_SEED
+                )
                 try:
-                    result = run_condition_paradigm(seed, condition, paradigm, dry_run=dry_run)
+                    result = run_condition_paradigm(
+                        seed, condition, paradigm,
+                        dry_run=dry_run,
+                        record_fishtank=record_fishtank,
+                    )
                 except Exception as exc:
                     print(f"  [error] {exc!r}")
                     result = {
@@ -730,6 +877,58 @@ def main(seeds: List[int], dry_run: bool) -> int:
         with open(out_file, "w") as fh:
             json.dump(manifest, fh, indent=2)
         print(f"[v3_exq_495] wrote manifest -> {out_file}")
+
+        # Fishtank-viz sibling: serve.py /api/fishtank/logs auto-discovers
+        # *_episode_log.json next to the manifest. Each "seed" entry tags
+        # condition + paradigm so the viewer can filter / colour the six
+        # recorded cells (PLANNED / HABIT / ABLATED x A_DETOUR / B_NOVEL_CONTEXT)
+        # of the representative seed (FISHTANK_RECORD_SEED). Embodied viz
+        # of PLANNED vs HABIT in detour episodes is the entire reason this
+        # block exists -- the C2 benefit-gap scalar communicates the
+        # dual-systems result poorly compared to watching one fish route
+        # around the blockage and the other stall.
+        seed_entries = []
+        for r in per_seed:
+            ft_eps = r.get("fishtank_episodes") or []
+            if not ft_eps:
+                continue
+            seed_entries.append({
+                "seed":      r["seed"],
+                "condition": r["condition"],
+                "paradigm":  r["paradigm"],
+                "episodes":  ft_eps,
+            })
+        if seed_entries:
+            episode_log = {
+                "experiment_type": EXPERIMENT_TYPE,
+                "run_id":          run_id,
+                "phase":           "p2_eval",
+                "fishtank_record_seed":      FISHTANK_RECORD_SEED,
+                "fishtank_episodes_per_cell": FISHTANK_EPISODES_PER_CELL,
+                "conditions": CONDITIONS,
+                "paradigms":  PARADIGMS,
+                "env_config": {
+                    "size":          GRID_SIZE,
+                    "num_resources": NUM_RESOURCES,
+                    "num_hazards":   NUM_HAZARDS,
+                    "hazard_harm":   HAZARD_HARM,
+                    "env_a_seed":    ENV_A_SEED,
+                    "env_b_seed":    ENV_B_SEED,
+                    "t_block_frac":  T_BLOCK_FRAC,
+                },
+                "seeds": seed_entries,
+            }
+            log_path = out_dir / f"{EXPERIMENT_TYPE}_{ts}_episode_log.json"
+            log_path.write_text(
+                json.dumps(episode_log, indent=2) + "\n", encoding="utf-8"
+            )
+            print(
+                f"[v3_exq_495] wrote fishtank episode log -> {log_path} "
+                f"({len(seed_entries)} cells)"
+            )
+        else:
+            print("[v3_exq_495] no fishtank episodes recorded "
+                  "(expected when FISHTANK_RECORD_SEED not in --seeds)")
     print(f"[v3_exq_495] overall: {'PASS' if all_pass else 'FAIL'} ({elapsed:.1f}s)")
     return 0 if all_pass else 1
 
