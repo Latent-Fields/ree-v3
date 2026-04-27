@@ -13,14 +13,18 @@
       "script": "experiments/v3_exq_496_mech292_ghost_goal_bank_validation.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 5,
       "claim_id": "MECH-292",
       "experiment_purpose": "diagnostic",
       "claim_ids": [
         "MECH-292"
       ],
-      "note": "Diagnostic validation of MECH-292 ranked ghost-goal bank landed 2026-04-27. Pure-arithmetic derived view over the SD-039 dual-trace anchor pool; no trainable parameters. Five sub-tests UC1-UC5: UC1 module / config / method exposure (GhostGoalBank, GhostGoalBankConfig, GhostGoalBankEntry; HippocampalConfig.use_mech292_ghost_bank + ghost_goal_bank_config; HippocampalModule.rank_ghost_goals + reset_ghost_goal_bank), UC2 master OFF bit-identical (ghost_goal_bank is None, rank_ghost_goals returns []), UC3 ranking_fires (ON + SD-039 + active goal -> non-empty bank with strictly non-increasing ghost_priority over inactive-trace pool with populated payloads), UC4 goal_irrelevant_excluded (Phase A no-goal anchors excluded by goal_match_floor; Phase B anchors admitted with goal_match dominant on top entry), UC5 component_breakdown_consistent (per-entry components dict sums to ghost_priority within float tolerance). Behavioural validation (faster recovery from blocked-goal conditions vs random-probe baseline) lives in V3-EXQ-495 once MECH-293 wires propose_trajectories() to consume the bank. Mac smoke 2026-04-27: 5/5 PASS (39s)."
+      "note": "Diagnostic validation of MECH-292 ranked ghost-goal bank landed 2026-04-27. Pure-arithmetic derived view over the SD-039 dual-trace anchor pool; no trainable parameters. Five sub-tests UC1-UC5: UC1 module / config / method exposure (GhostGoalBank, GhostGoalBankConfig, GhostGoalBankEntry; HippocampalConfig.use_mech292_ghost_bank + ghost_goal_bank_config; HippocampalModule.rank_ghost_goals + reset_ghost_goal_bank), UC2 master OFF bit-identical (ghost_goal_bank is None, rank_ghost_goals returns []), UC3 ranking_fires (ON + SD-039 + active goal -> non-empty bank with strictly non-increasing ghost_priority over inactive-trace pool with populated payloads), UC4 goal_irrelevant_excluded (Phase A no-goal anchors excluded by goal_match_floor; Phase B anchors admitted with goal_match dominant on top entry), UC5 component_breakdown_consistent (per-entry components dict sums to ghost_priority within float tolerance). Behavioural validation (faster recovery from blocked-goal conditions vs random-probe baseline) lives in V3-EXQ-495 once MECH-293 wires propose_trajectories() to consume the bank. Mac smoke 2026-04-27: 5/5 PASS (39s).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-27T09:43:30.274362+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-497",
