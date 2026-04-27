@@ -1649,6 +1649,29 @@ class REEAgent(nn.Module):
                 new_latent, goal_state=self.goal_state
             )
 
+        # SD-039 population layer (2026-04-27): build the AnchorGoalPayload
+        # once per tick from the current waking-stream signals (z_goal from
+        # GoalState, VALENCE_WANTING readout from ResidueField at z_world,
+        # arousal_tag from BLA, last_vs as cross-stream mean of per_stream_vs,
+        # staleness_at_write from MECH-284 accumulator snapshot). Returns
+        # None when the AnchorSet substrate is disabled or the master flag
+        # use_sd039_anchor_payload is False -- in which case all downstream
+        # call sites are bit-identical to pre-SD-039. simulation_mode=False
+        # because sense() is the waking observation stream (MECH-094 gate).
+        sd039_payload = None
+        if (
+            self.hippocampal is not None
+            and self.hippocampal.anchor_set is not None
+        ):
+            sd039_payload = self.hippocampal.build_goal_payload(
+                latent_state=new_latent,
+                goal_state=self.goal_state,
+                residue_field=self.residue_field,
+                bla_output=self._bla_last_output,
+                current_step=int(self._step_count),
+                simulation_mode=False,
+            )
+
         # MECH-269 Phase 2 (ii): scale-tagged anchor set. Installs / remaps
         # anchors for each BoundaryEvent emitted this tick (from the local
         # events list, same pattern as MECH-287) and advances hysteresis
@@ -1661,7 +1684,9 @@ class REEAgent(nn.Module):
             and self.hippocampal.anchor_set is not None
         ):
             anchor_events = events if "events" in locals() else []
-            self.hippocampal.tick_anchor_set(new_latent, anchor_events)
+            self.hippocampal.tick_anchor_set(
+                new_latent, anchor_events, goal_payload=sd039_payload
+            )
 
         # MECH-269 Phase 2 (iii, T4): per-region per-stream V_s update.
         # Step (a): apply any MECH-287 broadcast-driven resets. Broadcasts
@@ -1683,7 +1708,8 @@ class REEAgent(nn.Module):
             )
             if broadcasts_for_regions:
                 self.hippocampal.apply_invalidation_broadcasts_to_regions(
-                    broadcasts_for_regions
+                    broadcasts_for_regions,
+                    goal_payload=sd039_payload,
                 )
             self.hippocampal.update_per_region_vs(
                 new_latent, goal_state=self.goal_state

@@ -1772,6 +1772,11 @@ class REEConfig:
         use_staleness_accumulator: bool = False,
         use_mech284_hysteresis: bool = False,
         use_vs_commit_release: bool = False,
+        # SD-039: dual-trace anchor goal-snapshot payload (substrate flag
+        # carried on AnchorSetConfig). Default False = bit-identical to
+        # pre-SD-039; ON enables module-level write-site population in
+        # REEAgent.sense() / HippocampalModule.build_goal_payload.
+        use_sd039_anchor_payload: bool = False,
         # MECH-269b: V_s rollout gating on E1/E2 forward predictions
         use_vs_rollout_gating: bool = False,
         vs_gate_snapshot_refresh_threshold: float = 0.5,
@@ -2150,6 +2155,10 @@ class REEConfig:
         config.hippocampal.use_staleness_accumulator = use_staleness_accumulator
         config.hippocampal.use_mech284_hysteresis = use_mech284_hysteresis
         config.hippocampal.use_vs_commit_release = use_vs_commit_release
+        # SD-039: master flag lives on AnchorSetConfig (cf. AnchorSetConfig
+        # docstring). Propagate the from_dims kwarg to the nested config so
+        # the anchor set's payload semantics fire when the substrate is on.
+        config.hippocampal.anchor_set.use_sd039_anchor_payload = use_sd039_anchor_payload
 
         # MECH-269b: V_s rollout gating on E1/E2 forward predictions
         config.hippocampal.use_vs_rollout_gating = use_vs_rollout_gating

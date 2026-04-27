@@ -178,11 +178,22 @@ def _step_episode(
     *,
     force_drive: Optional[float] = None,
     force_benefit: Optional[float] = None,
+    force_boundary_every: Optional[int] = 8,
 ) -> None:
-    """Run n_ticks of the standard env loop, optionally forcing drive / benefit."""
+    """Run n_ticks of the standard env loop, optionally forcing drive / benefit.
+
+    The MECH-288 event segmenter is configured for stationary noise and rarely
+    fires BoundaryEvents over a few-dozen-tick window. To exercise the SD-039
+    population layer without depending on stochastic boundary firing, we
+    explicitly force a fast-scale boundary every `force_boundary_every` ticks
+    (default 8). This drives the MECH-269 anchor-set write path through
+    consume_boundary_events with the current waking-stream payload, which is
+    exactly the integration site SD-039 populates. Set force_boundary_every=None
+    to disable forced boundaries (legacy behaviour).
+    """
     flat_obs, obs_dict = env.reset()
     agent.reset()
-    for _ in range(n_ticks):
+    for tick_idx in range(n_ticks):
         obs_body = obs_dict["body_state"]
         obs_world = obs_dict["world_state"]
         latent = agent.sense(obs_body, obs_world)
@@ -197,6 +208,30 @@ def _step_episode(
                 benefit_exposure=force_benefit if force_benefit is not None else 0.0,
                 drive_level=force_drive if force_drive is not None else 0.0,
             )
+        # Force a boundary -> direct anchor-set tick with the current payload.
+        # Bypasses the natural event_segmenter cadence (which may not fire
+        # within the test window) without bypassing the SD-039 contract.
+        if (
+            force_boundary_every is not None
+            and force_boundary_every > 0
+            and tick_idx > 0
+            and (tick_idx % force_boundary_every) == 0
+            and agent.hippocampal is not None
+            and agent.hippocampal.event_segmenter is not None
+            and agent.hippocampal.anchor_set is not None
+        ):
+            ev = agent.hippocampal.event_segmenter.force_boundary(
+                "fast", reason=f"v3_exq_494_t{tick_idx}",
+            )
+            payload = agent.hippocampal.build_goal_payload(
+                latent_state=latent,
+                goal_state=agent.goal_state,
+                residue_field=agent.residue_field,
+                bla_output=agent._bla_last_output,
+                current_step=int(agent._step_count),
+                simulation_mode=False,
+            )
+            agent.hippocampal.tick_anchor_set(latent, [ev], goal_payload=payload)
         action = agent.select_action(candidates, ticks, temperature=1.0)
         if action is None:
             action = torch.zeros(1, env.action_dim)
@@ -204,7 +239,9 @@ def _step_episode(
             agent._last_action = action
         flat_obs, harm_signal, done, info, obs_dict = env.step(action)
         if done:
-            agent.reset()
+            # NOTE: only env is reset, NOT agent. agent.reset() would clear
+            # anchor_set._all (per-episode reset semantic), wiping inactive
+            # traces UC4 / UC5 need to observe within the test window.
             flat_obs, obs_dict = env.reset()
 
 
@@ -524,7 +561,7 @@ def main(dry_run: bool = False) -> int:
         out_file = out_dir / f"{run_id}.json"
         with open(out_file, "w") as fh:
             json.dump(manifest, fh, indent=2)
-        print(f"[v3_exq_494] wrote manifest -> {out_file}")
+        print(f"Result written to: {out_file}", flush=True)
     return 0 if all_pass else 1
 
 

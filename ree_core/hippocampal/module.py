@@ -47,7 +47,7 @@ from ree_core.regulators.invalidation_trigger import (
     BroadcastEvent,
     InvalidationTrigger,
 )
-from ree_core.hippocampal.anchor_set import AnchorSet
+from ree_core.hippocampal.anchor_set import AnchorGoalPayload, AnchorSet
 from ree_core.hippocampal.staleness_accumulator import StalenessAccumulator
 
 
@@ -1079,6 +1079,7 @@ class HippocampalModule(nn.Module):
     def apply_invalidation_broadcasts_to_regions(
         self,
         broadcasts: List[BroadcastEvent],
+        goal_payload: Optional[AnchorGoalPayload] = None,
     ) -> List[Tuple[str, str]]:
         """MECH-287 reset path: drop per_region_vs entries for broadcast-targeted
         regions and mark the matching active anchor inactive.
@@ -1090,6 +1091,13 @@ class HippocampalModule(nn.Module):
         segment_id_old) -- this is the T3 hysteresis-shortcut reset path
         described in the design doc (k=5 hysteresis is the passive path;
         broadcasts are the explicit-reset path).
+
+        SD-039 population layer: when goal_payload is supplied, it is
+        forwarded to AnchorSet.mark_inactive so the broadcast-driven
+        invalidation refreshes the outgoing anchor's payload to the
+        current motivational state at the moment of invalidation. The
+        existing payload is replaced; nothing is cleared (dual-trace
+        preservation per the SD-039 design).
 
         No-op when use_per_region_vs is False. Returns the list of
         region keys actually reset.
@@ -1115,6 +1123,7 @@ class HippocampalModule(nn.Module):
                         self.anchor_set.mark_inactive(
                             scale=anchor.key[0],
                             stream_mixture=anchor.key[2],
+                            goal_payload=goal_payload,
                         )
         return reset_keys
 
@@ -1129,7 +1138,129 @@ class HippocampalModule(nn.Module):
             self.event_segmenter.reset()
         self._boundary_event_queue.clear()
 
-    def tick_anchor_set(self, latent_state, events: List[BoundaryEvent]) -> None:
+    def build_goal_payload(
+        self,
+        latent_state,
+        goal_state=None,
+        residue_field: Optional[ResidueField] = None,
+        bla_output=None,
+        current_step: Optional[int] = None,
+        simulation_mode: bool = False,
+    ) -> Optional[AnchorGoalPayload]:
+        """SD-039 population layer: construct an AnchorGoalPayload from the
+        current waking-stream signals.
+
+        Returns None when:
+          - the anchor set substrate is disabled (no consumer),
+          - AnchorSetConfig.use_sd039_anchor_payload is False (master flag OFF),
+          - simulation_mode is True (MECH-094 gate -- replay / DMN paths must
+            NOT populate payloads from waking signals).
+
+        Field sourcing:
+          z_goal_snapshot:    GoalState.z_goal.detach().clone() when goal_state
+                              is active and z_goal exists; None otherwise.
+          wanting_strength:   ResidueField.evaluate_valence(z_world) read on the
+                              VALENCE_WANTING channel, taken at the current
+                              z_world location. 0.0 when residue / valence is
+                              disabled, no z_world is available, or no centers
+                              are active.
+          arousal_tag:        bla_output.arousal_tag when supplied; 0.0 otherwise.
+          last_vs:            Mean of self.per_stream_vs.values() at write time
+                              (Phase 2 ii proxy -- the parent (scale,
+                              stream_mixture) family identity is established at
+                              the per-anchor write_anchor call site by
+                              consume_boundary_events; the payload is shared
+                              across all anchors written in this tick so we
+                              record the cross-stream mean as a representative
+                              scalar). None when per_stream_vs is empty.
+          staleness_at_write: max staleness from self.staleness_accumulator.snapshot()
+                              when the accumulator is enabled and non-empty;
+                              None otherwise. Region-keyed, but the payload is
+                              shared across all anchors written this tick, so
+                              the maximum across regions is the most
+                              informative scalar (downstream MECH-292 ranking
+                              cares about whether *any* preserved trace was
+                              already heavily stale at write time).
+          payload_written_step: current_step when supplied; else falls back to
+                              the AnchorSet's internal monotonic _tick. Phase 2
+                              stand-in for trace age.
+
+        Intended caller: REEAgent.sense() (waking observation stream). The
+        simulation_mode argument is the MECH-094 gate honoured by the caller;
+        REEAgent.sense() always passes simulation_mode=False. Replay paths
+        that ever begin to consume this helper must pass simulation_mode=True.
+        """
+        if self.anchor_set is None:
+            return None
+        cfg = getattr(self.anchor_set, "config", None)
+        if cfg is None or not getattr(cfg, "use_sd039_anchor_payload", False):
+            return None
+        if simulation_mode:
+            return None
+
+        z_goal_snap = None
+        if goal_state is not None:
+            z_goal = getattr(goal_state, "z_goal", None)
+            try:
+                active = bool(goal_state.is_active())
+            except Exception:
+                active = z_goal is not None
+            if active and z_goal is not None:
+                z_goal_snap = z_goal.detach().clone()
+
+        wanting_strength = 0.0
+        z_world = getattr(latent_state, "z_world", None)
+        if (
+            residue_field is not None
+            and z_world is not None
+            and getattr(residue_field, "evaluate_valence", None) is not None
+        ):
+            try:
+                valence = residue_field.evaluate_valence(z_world)
+                if valence is not None and valence.numel() > 0:
+                    wanting_strength = float(
+                        valence[..., VALENCE_WANTING].mean().item()
+                    )
+            except Exception:
+                wanting_strength = 0.0
+
+        arousal_tag = 0.0
+        if bla_output is not None:
+            arousal_tag = float(getattr(bla_output, "arousal_tag", 0.0))
+
+        last_vs: Optional[float] = None
+        if self.per_stream_vs:
+            vals = list(self.per_stream_vs.values())
+            if vals:
+                last_vs = float(sum(vals) / len(vals))
+
+        staleness_at_write: Optional[float] = None
+        if self.staleness_accumulator is not None:
+            try:
+                snap = self.staleness_accumulator.snapshot()
+                if snap:
+                    staleness_at_write = float(max(snap.values()))
+            except Exception:
+                staleness_at_write = None
+
+        if current_step is None:
+            current_step = int(getattr(self.anchor_set, "_tick", 0))
+
+        return AnchorGoalPayload(
+            z_goal_snapshot=z_goal_snap,
+            wanting_strength=wanting_strength,
+            arousal_tag=arousal_tag,
+            last_vs=last_vs,
+            staleness_at_write=staleness_at_write,
+            payload_written_step=int(current_step),
+        )
+
+    def tick_anchor_set(
+        self,
+        latent_state,
+        events: List[BoundaryEvent],
+        goal_payload: Optional[AnchorGoalPayload] = None,
+    ) -> None:
         """MECH-269 Phase 2 (ii): consume BoundaryEvents and advance hysteresis.
 
         Installs / remaps anchors for each BoundaryEvent using the current
@@ -1150,6 +1281,13 @@ class HippocampalModule(nn.Module):
         ordering (consume -> integrate -> hysteresis) means this-tick
         broadcasts affect this-tick V_s_anchor checks.
 
+        SD-039 population layer: when goal_payload is supplied, it is
+        forwarded to consume_boundary_events so newly-installed and
+        dual-trace-remapped anchors carry the current motivational
+        snapshot. Hysteresis-fired mark_inactive does NOT refresh the
+        payload (preserves the prior payload as the "cause-of-blockage"
+        trace per dual-trace semantics).
+
         Intended caller: REEAgent.sense(), invoked after the event segmenter
         queues BoundaryEvents and after update_per_stream_vs has populated
         per_stream_vs for the current tick.
@@ -1163,6 +1301,7 @@ class HippocampalModule(nn.Module):
                 events=events,
                 z_world=z_world,
                 stream_mixture=mixture,
+                goal_payload=goal_payload,
             )
 
         if self.staleness_accumulator is not None:
