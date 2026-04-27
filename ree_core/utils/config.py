@@ -519,6 +519,83 @@ class StalenessAccumulatorConfig:
 
 
 @dataclass
+class GhostGoalBankConfig:
+    """MECH-292 ranked ghost-goal bank configuration.
+
+    Derived view over the SD-039 dual-trace anchor pool. Per the MECH-292
+    spec the bank carries no separate persistent store: each rank() call
+    walks the existing anchor pool, scores each anchor on a four-term
+    composite, and returns a sorted view. The anchor pool itself remains
+    the source of truth.
+
+    Ranking formula (per anchor a clearing goal_match_floor):
+
+        wanting        = a.goal_payload.wanting_strength
+        goal_match     = a.goal_match(current_z_goal)             [SD-039 cosine]
+        staleness      = staleness_accumulator.lookup(region_key)
+                         when accumulator present, else
+                         (current_tick - a.last_accessed) * staleness_proxy_rate
+        recoverability = clip_[0,1](a.goal_payload.last_vs)
+                         when last_vs is not None, else
+                         default_recoverability_when_unknown
+
+        ghost_priority = ( wanting_weight       * wanting
+                         + goal_match_weight    * goal_match
+                         + staleness_weight     * staleness
+                         + recoverability_weight * recoverability )
+
+    All weights clamped to non-negative; absolute magnitude is irrelevant
+    -- only ordering is consumed downstream. The goal_match_floor is the
+    architectural commitment that pure rumination is excluded: anchors
+    with no payload OR with goal_match < floor are invisible to the bank.
+
+    Fields:
+      wanting_weight:                 w_w on wanting term.
+      goal_match_weight:              w_m on cosine(z_goal_snapshot, current).
+      staleness_weight:               w_s on region staleness.
+      recoverability_weight:          w_r on V_s-derived recoverability.
+      goal_match_floor:               anchors with goal_match below this
+                                      are excluded from the bank entirely
+                                      (the rumination guard).
+      top_k:                          cap on bank size returned per call.
+                                      None -> no cap.
+      default_recoverability_when_unknown:
+                                      recoverability for anchors whose
+                                      goal_payload.last_vs is None
+                                      (e.g. MECH-269 phase 1/2 disabled).
+                                      1.0 = treat as recoverable.
+      include_inactive:               include the inactive (dual-trace
+                                      preserved) half of the anchor pool.
+                                      MECH-293 ghost-goal probes work
+                                      primarily over inactive traces.
+      include_active:                 include the currently-active half.
+                                      Diagnostic / replay-prioritisation
+                                      consumers may want this on.
+      scale:                          optional scale filter ("fast",
+                                      "slow"). None = all scales.
+      staleness_proxy_rate:           when no staleness_accumulator is
+                                      passed in, the per-tick fallback
+                                      rate used to convert tick-delta
+                                      since last_accessed into a [0,1]
+                                      staleness scalar (clipped at 1.0).
+
+    Backward compatible: consumer code gates on
+    HippocampalConfig.use_mech292_ghost_bank.
+    """
+    wanting_weight: float = 1.0
+    goal_match_weight: float = 1.0
+    staleness_weight: float = 0.5
+    recoverability_weight: float = 0.5
+    goal_match_floor: float = 0.05
+    top_k: Optional[int] = 32
+    default_recoverability_when_unknown: float = 1.0
+    include_inactive: bool = True
+    include_active: bool = False
+    scale: Optional[str] = None
+    staleness_proxy_rate: float = 0.005
+
+
+@dataclass
 class HippocampalConfig:
     """Configuration for HippocampalModule.
 
@@ -674,6 +751,22 @@ class HippocampalConfig:
     vs_gate_e1_threshold: float = 0.4
     vs_gate_e2_threshold: float = 0.4
     vs_gate_unknown_stream_passes: bool = True
+
+    # MECH-292: ranked ghost-goal bank (derived view over the SD-039
+    # dual-trace anchor pool). When enabled, HippocampalModule
+    # instantiates a GhostGoalBank and exposes rank_ghost_goals().
+    # Pure-arithmetic, non-trainable. Requires use_anchor_sets=True AND
+    # AnchorSetConfig.use_sd039_anchor_payload=True (the bank reads
+    # payloads written by the SD-039 population layer); HippocampalModule
+    # __init__ raises ValueError on either mismatch. Backward compatible:
+    # disabled by default; with flag OFF, ghost_goal_bank is None and
+    # rank_ghost_goals() returns []. MECH-293 (waking ghost-goal probe
+    # search) is the first behavioural consumer; this substrate is the
+    # prerequisite for that wiring.
+    use_mech292_ghost_bank: bool = False
+    ghost_goal_bank_config: GhostGoalBankConfig = field(
+        default_factory=GhostGoalBankConfig
+    )
 
     # MECH-290: backward trajectory credit sweep at goal arrival.
     # Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay
@@ -1786,6 +1879,16 @@ class REEConfig:
             "z_world", "z_self", "z_harm_s", "z_harm_a", "z_goal", "z_beta",
         ),
         vs_gate_unknown_stream_passes: bool = True,
+        # MECH-292: ranked ghost-goal bank (derived view over SD-039
+        # dual-trace anchor pool). Requires use_anchor_sets=True AND
+        # use_sd039_anchor_payload=True at agent build time.
+        use_mech292_ghost_bank: bool = False,
+        mech292_wanting_weight: float = 1.0,
+        mech292_goal_match_weight: float = 1.0,
+        mech292_staleness_weight: float = 0.5,
+        mech292_recoverability_weight: float = 0.5,
+        mech292_goal_match_floor: float = 0.05,
+        mech292_top_k: Optional[int] = 32,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -2167,6 +2270,15 @@ class REEConfig:
         config.hippocampal.vs_gate_e2_threshold = vs_gate_e2_threshold
         config.hippocampal.vs_gate_streams = vs_gate_streams
         config.hippocampal.vs_gate_unknown_stream_passes = vs_gate_unknown_stream_passes
+
+        # MECH-292: ranked ghost-goal bank (derived view over SD-039 anchor pool)
+        config.hippocampal.use_mech292_ghost_bank = use_mech292_ghost_bank
+        config.hippocampal.ghost_goal_bank_config.wanting_weight = mech292_wanting_weight
+        config.hippocampal.ghost_goal_bank_config.goal_match_weight = mech292_goal_match_weight
+        config.hippocampal.ghost_goal_bank_config.staleness_weight = mech292_staleness_weight
+        config.hippocampal.ghost_goal_bank_config.recoverability_weight = mech292_recoverability_weight
+        config.hippocampal.ghost_goal_bank_config.goal_match_floor = mech292_goal_match_floor
+        config.hippocampal.ghost_goal_bank_config.top_k = mech292_top_k
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep

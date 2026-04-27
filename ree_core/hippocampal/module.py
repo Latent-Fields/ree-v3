@@ -48,6 +48,10 @@ from ree_core.regulators.invalidation_trigger import (
     InvalidationTrigger,
 )
 from ree_core.hippocampal.anchor_set import AnchorGoalPayload, AnchorSet
+from ree_core.hippocampal.ghost_goal_bank import (
+    GhostGoalBank,
+    GhostGoalBankEntry,
+)
 from ree_core.hippocampal.staleness_accumulator import StalenessAccumulator
 
 
@@ -241,6 +245,43 @@ class HippocampalModule(nn.Module):
                     "staleness_accumulator config is None"
                 )
             self.staleness_accumulator = StalenessAccumulator(sa_cfg)
+
+        # MECH-292: ranked ghost-goal bank (derived view over the SD-039
+        # dual-trace anchor pool). Pure-arithmetic, non-trainable;
+        # consumes payloads written by the SD-039 population layer.
+        # Preconditions: anchor_set exists AND AnchorSetConfig has
+        # use_sd039_anchor_payload=True (otherwise every anchor scores
+        # goal_match=0.0 and the bank degenerates to empty -- raise
+        # rather than silently produce a dead view).
+        self.ghost_goal_bank: Optional[GhostGoalBank] = None
+        if getattr(config, "use_mech292_ghost_bank", False):
+            if self.anchor_set is None:
+                raise ValueError(
+                    "HippocampalConfig.use_mech292_ghost_bank=True but "
+                    "use_anchor_sets=False; MECH-292 requires the MECH-269 "
+                    "Phase 2 (ii) anchor substrate to read from."
+                )
+            anchor_cfg = getattr(config, "anchor_set", None)
+            if anchor_cfg is None or not getattr(
+                anchor_cfg, "use_sd039_anchor_payload", False
+            ):
+                raise ValueError(
+                    "HippocampalConfig.use_mech292_ghost_bank=True but "
+                    "AnchorSetConfig.use_sd039_anchor_payload=False; "
+                    "MECH-292 requires SD-039 payload population to score "
+                    "goal_match (otherwise every anchor scores 0.0)."
+                )
+            bank_cfg = getattr(config, "ghost_goal_bank_config", None)
+            if bank_cfg is None:
+                raise ValueError(
+                    "HippocampalConfig.use_mech292_ghost_bank=True but "
+                    "ghost_goal_bank_config is None"
+                )
+            self.ghost_goal_bank = GhostGoalBank(
+                config=bank_cfg,
+                anchor_set=self.anchor_set,
+                staleness_accumulator=self.staleness_accumulator,
+            )
 
     def drain_boundary_events(self) -> List[BoundaryEvent]:
         """Return and clear all queued boundary events from MECH-288.
@@ -1357,6 +1398,37 @@ class HippocampalModule(nn.Module):
         """Per-episode reset of the MECH-284 staleness accumulator. No-op when disabled."""
         if self.staleness_accumulator is not None:
             self.staleness_accumulator.reset()
+
+    def rank_ghost_goals(
+        self,
+        current_z_goal: Optional[torch.Tensor],
+    ) -> List[GhostGoalBankEntry]:
+        """MECH-292: return the ranked ghost-goal bank for the current z_goal.
+
+        Read-only derived view over the SD-039 dual-trace anchor pool.
+        Returns [] when use_mech292_ghost_bank is False, when
+        current_z_goal is None, or when no anchor clears the
+        goal_match_floor. See ree_core/hippocampal/ghost_goal_bank.py
+        for the ranking formula.
+
+        Consumers: MECH-293 (waking ghost-goal probe search) is the
+        first behavioural consumer; diagnostic / replay-prioritisation
+        consumers may call it directly.
+        """
+        if self.ghost_goal_bank is None:
+            return []
+        return self.ghost_goal_bank.rank(current_z_goal)
+
+    def reset_ghost_goal_bank(self) -> None:
+        """Per-episode reset of the MECH-292 ghost-goal bank diagnostics.
+
+        No-op when use_mech292_ghost_bank is False. The bank is otherwise
+        stateless across calls -- the source-of-truth anchor pool lives
+        in AnchorSet, and AnchorSet.reset() is called separately by
+        reset_anchor_set() on the episode boundary.
+        """
+        if self.ghost_goal_bank is not None:
+            self.ghost_goal_bank.reset()
 
     def forward(
         self,

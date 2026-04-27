@@ -1096,6 +1096,14 @@ class REEAgent(nn.Module):
         ):
             self.hippocampal.reset_staleness_accumulator()
 
+        # MECH-292: reset ghost-goal bank diagnostics on episode boundary.
+        # No-op when use_mech292_ghost_bank is False. The anchor pool
+        # itself is reset by reset_anchor_set() above.
+        if self.hippocampal is not None and getattr(
+            self.hippocampal.config, "use_mech292_ghost_bank", False
+        ):
+            self.hippocampal.reset_ghost_goal_bank()
+
         # MECH-290: clear committed trajectory buffer on episode boundary so a
         # stale trajectory from the previous episode cannot be swept on the
         # first completion of the new one. No-op when use_backward_credit_sweep
