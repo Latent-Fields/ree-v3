@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-433d",
-      "title": "SD-029 / MECH-256 event-conditioned comparator (EXQ-479 calibrated curriculum)",
-      "script": "experiments/v3_exq_433d_sd029_eventcond_comparator.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 360,
-      "claim_id": "SD-029",
-      "supersedes": "V3-EXQ-433c",
-      "note": "Successor to V3-EXQ-433c (FAIL inconclusive_insufficient_events: agent_caused_hazard trials=0 in all 4 seeds; C0 protective gate fired). Root cause: 433c's uncalibrated curriculum params (interval=25, num_hazards=3, hazard_harm=0.04, adjacent_only=False) predated EXQ-479 substrate validation -- non-adjacent injections rarely created adjacency for the scripted walker, and high hazard_harm killed the agent before the curriculum tick fired. EXQ-479 (substrate validation, 2026-04-24) demonstrated PASS at hazard-event granularity with calibrated params (interval=10, num_hazards=2, hazard_harm=0.02, adjacent_only=True). EXQ-433d adopts EXQ-479's calibrated curriculum + 433c's three-phase pipeline (P0 encoder warmup, P1 interventional E2_harm_s training, balanced eval) verbatim. STEPS_PER_EP bumped 120 -> 200 to match 479. Acceptance: C0 trials_sufficient_gate (>=3/4 seeds with both agent_caused AND env_caused trials >=20), C1 forward_r2 mean >=0.9 (3/4 seeds), C2 attenuation_ratio in [0.2,0.8] (3/4 seeds), C3 approach_snr >5.0 (3/4 seeds). C0 protective gate preserved -- inconclusive_insufficient_events on FAIL prevents spurious downgrade of SD-029 / MECH-256.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-27T01:21:39.321724+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-490a",
       "title": "MECH-269b symmetric V_s gating on E1/E2 cortical rollouts (Q-040 factorial) -- re-queue after external SIGTERM",
       "script": "experiments/v3_exq_490_mech269b_vs_rollout_gating.py",
