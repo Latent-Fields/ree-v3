@@ -64,7 +64,65 @@ ITEM_OPTIONAL = [
     ("supersedes", False, str),
     ("claimed_by", False, (dict, type(None))),
     ("machine_affinity_note", False, str),
+    ("force_rerun", False, bool),
 ]
+
+
+# ------------------------------------------------------------------
+# Per-machine runner_status scan (silent re-queue guard)
+# ------------------------------------------------------------------
+# Historical incidents (canonical: EXQ-126 on 2026-04-20/21) showed that a
+# previously-run queue_id can be re-added to the queue and silently re-executed
+# when its original completion record is not present in the local per-machine
+# status file -- e.g. the completion was recorded under a prior hostname
+# (Mac -> DLAPTOP-4.local), or on a different machine whose status file is
+# offline. The runner only checks the local per-machine file + any peer files
+# it can see at startup. If none of those contain the queue_id, dedup silently
+# passes and the experiment runs again.
+#
+# This guard scans every per-machine runner_status file in REE_assembly and
+# raises a validation error on any queue_id that already has a completion
+# record, unless the queue item carries force_rerun: true. New letter/number
+# suffix IDs (EXQ-126a, EXQ-127) are the normal path; force_rerun is the
+# explicit escape hatch for the rare case where re-using the same ID is
+# intentional (e.g. the prior record is from a superseded contamination epoch).
+
+_REE_ASSEMBLY_STATUS_DIR_CANDIDATES = [
+    QUEUE_FILE.parent.parent / "REE_assembly" / "evidence" / "experiments" / "runner_status",
+    Path.home() / "REE_Working" / "REE_assembly" / "evidence" / "experiments" / "runner_status",
+]
+
+
+def _find_status_dir() -> Path | None:
+    for cand in _REE_ASSEMBLY_STATUS_DIR_CANDIDATES:
+        if cand.is_dir():
+            return cand
+    return None
+
+
+def _scan_completed_queue_ids() -> dict[str, list[tuple[str, str, str]]]:
+    """Scan per-machine runner_status files for completed queue_ids.
+
+    Returns a dict mapping queue_id -> list of (machine_file, result, completed_at).
+    Returns an empty dict (fail-soft) if the status dir is missing or unreadable.
+    """
+    status_dir = _find_status_dir()
+    if status_dir is None:
+        return {}
+    out: dict[str, list[tuple[str, str, str]]] = {}
+    for f in sorted(status_dir.glob("*.json")):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for entry in data.get("completed", []) or []:
+            qid = entry.get("queue_id", "")
+            if not qid:
+                continue
+            out.setdefault(qid, []).append(
+                (f.name, entry.get("result", "?"), entry.get("completed_at", ""))
+            )
+    return out
 
 
 def _type_name(t) -> str:
@@ -153,6 +211,7 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
 
     # --- 3. Per-item validation ---
     seen_ids: dict[str, int] = {}
+    completed_scan = _scan_completed_queue_ids()
 
     for idx, item in enumerate(items):
         prefix = f"items[{idx}]"
@@ -255,6 +314,22 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                         f"RE_SAVED_TO will not capture output_file. "
                         f"Add: print(f\"Result written to: {{out_path}}\", flush=True)"
                     )
+
+        # Silent re-queue guard: queue_id must not already have a completion
+        # record in any per-machine runner_status file, unless force_rerun=true.
+        if isinstance(queue_id, str) and queue_id in completed_scan:
+            if item.get("force_rerun") is not True:
+                records = completed_scan[queue_id]
+                rec_strs = "; ".join(
+                    f"{mfile} ({result} at {cat})" for mfile, result, cat in records
+                )
+                errors.append(
+                    f"{prefix}: queue_id already has a completion record in "
+                    f"{rec_strs}. The runner WILL silently skip or re-run under a "
+                    f"lost-completion edge case. Use a new letter/number suffix "
+                    f"(EXQ-126a, EXQ-127, ...), or set 'force_rerun': true to "
+                    f"intentionally re-run under the same ID."
+                )
 
         # claimed_by structure check
         claimed_by = item.get("claimed_by")
