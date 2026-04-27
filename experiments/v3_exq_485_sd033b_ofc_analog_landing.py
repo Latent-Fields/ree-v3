@@ -181,12 +181,12 @@ def main() -> None:
     all_pass = all(r["pass"] for r in [uc1, uc2, uc3, uc4, uc5])
     elapsed = time.time() - t0
 
-    run_id = "v3_exq_485_sd033b_ofc_analog_landing_v3"
+    experiment_type = "v3_exq_485_sd033b_ofc_analog_landing"
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     manifest = {
         "schema_version": "v1",
-        "run_id": f"{run_id}_{ts}",
-        "experiment_type": "v3_exq_485_sd033b_ofc_analog_landing",
+        "run_id": f"{experiment_type}_{ts}_v3",
+        "experiment_type": experiment_type,
         "architecture_epoch": "ree_hybrid_guardrails_v1",
         "timestamp_utc": datetime.utcnow().isoformat() + "Z",
         "experiment_purpose": "diagnostic",

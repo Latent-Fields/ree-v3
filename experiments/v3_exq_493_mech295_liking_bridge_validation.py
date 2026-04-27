@@ -274,12 +274,12 @@ def main(dry_run: bool = False) -> None:
     all_pass = all(m["pass"] for m in metrics.values())
     elapsed = time.time() - t0
 
-    run_id = "v3_exq_493_mech295_liking_bridge_validation_v3"
+    experiment_type = "v3_exq_493_mech295_liking_bridge_validation"
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     manifest = {
         "schema_version": "v1",
-        "run_id": f"{run_id}_{ts}",
-        "experiment_type": "v3_exq_493_mech295_liking_bridge_validation",
+        "run_id": f"{experiment_type}_{ts}_v3",
+        "experiment_type": experiment_type,
         "architecture_epoch": "ree_hybrid_guardrails_v1",
         "timestamp_utc": datetime.utcnow().isoformat() + "Z",
         "experiment_purpose": "diagnostic",
