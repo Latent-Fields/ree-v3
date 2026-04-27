@@ -29,7 +29,7 @@ MECH-092 (replay):
   hypothesis_tag=True — replay cannot produce residue (MECH-094).
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import random
 
 import torch
@@ -283,6 +283,23 @@ class HippocampalModule(nn.Module):
                 staleness_accumulator=self.staleness_accumulator,
             )
 
+        # MECH-293: waking ghost-goal probe search precondition. Consumes
+        # the MECH-292 bank (rank_ghost_goals); fails loud if the bank
+        # isn't wired. The MECH-292 block above transitively guarantees
+        # use_anchor_sets and AnchorSetConfig.use_sd039_anchor_payload,
+        # so we only need to assert the bank flag here.
+        if getattr(config, "use_mech293_ghost_probes", False):
+            if self.ghost_goal_bank is None:
+                raise ValueError(
+                    "HippocampalConfig.use_mech293_ghost_probes=True but "
+                    "use_mech292_ghost_bank=False; MECH-293 requires the "
+                    "MECH-292 ranked ghost-goal bank as its proposal source."
+                )
+        # Per-tick MECH-293 diagnostics from propose_trajectories(). Cleared
+        # at the start of each propose_trajectories() call. Empty dict when
+        # MECH-293 is off or the ghost branch did not fire this tick.
+        self._last_propose_diagnostics: Dict[str, Any] = {}
+
     def drain_boundary_events(self) -> List[BoundaryEvent]:
         """Return and clear all queued boundary events from MECH-288.
 
@@ -437,6 +454,7 @@ class HippocampalModule(nn.Module):
         e1_prior: Optional[torch.Tensor] = None,
         action_bias: Optional[torch.Tensor] = None,
         operating_mode: Optional[Dict[str, float]] = None,
+        current_z_goal: Optional[torch.Tensor] = None,
     ) -> List[Trajectory]:
         """
         Propose candidate trajectories via terrain-guided CEM in action-object space.
@@ -465,6 +483,18 @@ class HippocampalModule(nn.Module):
         either condition is False, behaviour is unchanged (operating_mode is
         recorded for diagnostics but not applied).
 
+        MECH-293: optional current_z_goal [batch, goal_dim]. When
+        use_mech293_ghost_probes is True AND current_z_goal is not None AND
+        the MECH-292 bank returns >=1 entry clearing goal_match_floor, a
+        minority budget of CEM probes is seeded around the highest-priority
+        bank entries' anchor.z_world (instead of the agent's current
+        z_world). Each ghost trajectory carries hypothesis_tag=True and a
+        metadata dict tagging the source anchor. mech293_replace_lowest_ranked
+        controls whether ghosts replace the highest-cost value-flat
+        candidates (default; total count preserved) or are appended (raises
+        total). When current_z_goal is None or the bank is empty, the ghost
+        branch is silent and behaviour is identical to the value-flat path.
+
         Args:
             z_world:        Current z_world [batch, world_dim]
             z_self:         Current z_self [batch, self_dim] (for E2 rollouts)
@@ -472,10 +502,15 @@ class HippocampalModule(nn.Module):
             e1_prior:       E1 world-domain prior [batch, world_dim] (SD-002)
             action_bias:    [batch, action_object_dim] or None (SD-016)
             operating_mode: Dict[str, float] (mode -> prob) or None (MECH-267)
+            current_z_goal: [batch, goal_dim] or None (MECH-293; consumed by
+                            MECH-292 ghost-goal bank ranking)
 
         Returns:
             List of Trajectory objects
         """
+        # Clear MECH-293 diagnostics from prior tick. Repopulated below
+        # only when the ghost branch actually fires.
+        self._last_propose_diagnostics = {}
         n = num_candidates or self.config.num_candidates
         num_elite = max(1, int(n * self.config.elite_fraction))
         batch_size = z_world.shape[0]
@@ -540,7 +575,214 @@ class HippocampalModule(nn.Module):
 
             all_trajectories = trajectories
 
+        # MECH-293: minority ghost-seeded probe budget. Reads the MECH-292
+        # ranked bank (goal-match-floor filtered, no rumination) and seeds
+        # CEM probes around the top-ranked anchors' z_world rather than the
+        # agent's current z_world. Each ghost trajectory carries
+        # hypothesis_tag=True + provenance metadata for downstream
+        # diagnostics. When the bank is empty (no goal active, or no
+        # anchor clears goal_match_floor), this branch is silent.
+        if (
+            getattr(self.config, "use_mech293_ghost_probes", False)
+            and self.ghost_goal_bank is not None
+        ):
+            ghost_candidates = self._propose_ghost_seeded(
+                current_z_goal=current_z_goal,
+                n_total=n,
+                z_self=z_self,
+                e1_prior=e1_prior,
+                action_bias=action_bias,
+            )
+            if ghost_candidates:
+                all_trajectories = self._mix_value_flat_with_ghost(
+                    value_flat=all_trajectories,
+                    ghost=ghost_candidates,
+                    replace_lowest=bool(
+                        getattr(self.config, "mech293_replace_lowest_ranked", True)
+                    ),
+                )
+
         return all_trajectories
+
+    # ------------------------------------------------------------------ #
+    # MECH-293: waking ghost-goal probe search                            #
+    # ------------------------------------------------------------------ #
+
+    def _propose_ghost_seeded(
+        self,
+        current_z_goal: Optional[torch.Tensor],
+        n_total: int,
+        z_self: torch.Tensor,
+        e1_prior: Optional[torch.Tensor] = None,
+        action_bias: Optional[torch.Tensor] = None,
+    ) -> List[Trajectory]:
+        """MECH-293: generate ghost-seeded probe trajectories from the
+        MECH-292 bank.
+
+        Each probe seeds the CEM init from a top-ranked bank entry's
+        anchor.z_world rather than the agent's current z_world. The
+        terrain prior + a single noise draw produce the action-object
+        sequence; e2.rollout_with_world rolls it forward; the resulting
+        trajectory is tagged hypothesis_tag=True and stamped with
+        provenance metadata.
+
+        Single noise draw per probe (no inner CEM refit) keeps the
+        ghost-probe cost <= a single value-flat sample.
+
+        Returns [] when:
+          - current_z_goal is None,
+          - the bank is empty / all anchors below goal_match_floor,
+          - the resolved n_ghost is zero (e.g. min/max clamps to 0).
+        """
+        if current_z_goal is None:
+            self._last_propose_diagnostics = {
+                "mech293_n_ghost_proposed": 0,
+                "mech293_n_ghost_admitted": 0,
+                "mech293_max_ghost_priority": 0.0,
+                "mech293_mean_goal_match_at_seed": 0.0,
+                "mech293_reason": "no_z_goal",
+            }
+            return []
+
+        entries = self.ghost_goal_bank.rank(current_z_goal)
+        if not entries:
+            self._last_propose_diagnostics = {
+                "mech293_n_ghost_proposed": 0,
+                "mech293_n_ghost_admitted": 0,
+                "mech293_max_ghost_priority": 0.0,
+                "mech293_mean_goal_match_at_seed": 0.0,
+                "mech293_reason": "empty_bank",
+            }
+            return []
+
+        fraction = float(getattr(self.config, "mech293_ghost_fraction", 0.2))
+        min_ghost = int(getattr(self.config, "mech293_min_ghost_candidates", 1))
+        max_ghost = int(getattr(self.config, "mech293_max_ghost_candidates", 8))
+        # Clamp to non-negative; sentinel of 0 disables.
+        min_ghost = max(0, min_ghost)
+        max_ghost = max(min_ghost, max_ghost)
+        # round() ties-to-even; for a fraction of 0.2 and n=16 -> 3.
+        n_ghost = int(round(n_total * max(0.0, fraction)))
+        n_ghost = max(min_ghost, min(n_ghost, max_ghost))
+        n_ghost = min(n_ghost, len(entries))
+        if n_ghost <= 0:
+            self._last_propose_diagnostics = {
+                "mech293_n_ghost_proposed": 0,
+                "mech293_n_ghost_admitted": 0,
+                "mech293_max_ghost_priority": float(entries[0].ghost_priority),
+                "mech293_mean_goal_match_at_seed": 0.0,
+                "mech293_reason": "n_ghost_zero",
+            }
+            return []
+
+        batch_size = z_self.shape[0]
+        device = z_self.device
+        ghost_trajectories: List[Trajectory] = []
+        seed_goal_matches: List[float] = []
+        max_priority = 0.0
+
+        for entry in entries[:n_ghost]:
+            anchor = entry.anchor
+            # Anchor z_world is stored as a detached clone; broadcast /
+            # repeat to the current batch shape so e2 rollouts run with
+            # the same batch dimension as the value-flat path.
+            anchor_z = anchor.z_world.detach()
+            if anchor_z.dim() == 1:
+                anchor_z = anchor_z.unsqueeze(0)
+            if anchor_z.shape[0] != batch_size:
+                anchor_z = anchor_z.expand(batch_size, -1).contiguous()
+            anchor_z = anchor_z.to(device)
+
+            # Seed action-object distribution at the anchor's z_world (NOT
+            # current). Single noise draw -- ghost probes are exploratory,
+            # not optimised plans.
+            ao_mean = self._get_terrain_action_object_mean(
+                anchor_z, e1_prior=e1_prior
+            )
+            ao_std = torch.ones_like(ao_mean)
+            noise = torch.randn_like(ao_mean)
+            action_objects_sample = ao_mean + ao_std * noise
+            actions = self._decode_action_objects(action_objects_sample)
+
+            traj = self.e2.rollout_with_world(
+                z_self,
+                anchor_z,
+                actions,
+                compute_action_objects=True,
+                action_bias=action_bias,
+            )
+            traj.hypothesis_tag = True
+            traj.metadata = {
+                "source": "mech293_ghost_probe",
+                "anchor_key": anchor.key,
+                "ghost_priority": float(entry.ghost_priority),
+                "goal_match": float(entry.components.get("goal_match", 0.0)),
+            }
+            ghost_trajectories.append(traj)
+            seed_goal_matches.append(float(entry.components.get("goal_match", 0.0)))
+            if float(entry.ghost_priority) > max_priority:
+                max_priority = float(entry.ghost_priority)
+
+        mean_match = (
+            sum(seed_goal_matches) / len(seed_goal_matches)
+            if seed_goal_matches else 0.0
+        )
+        self._last_propose_diagnostics = {
+            "mech293_n_ghost_proposed": int(n_ghost),
+            "mech293_n_ghost_admitted": int(len(ghost_trajectories)),
+            "mech293_max_ghost_priority": float(max_priority),
+            "mech293_mean_goal_match_at_seed": float(mean_match),
+            "mech293_reason": "ok",
+        }
+        return ghost_trajectories
+
+    def _mix_value_flat_with_ghost(
+        self,
+        value_flat: List[Trajectory],
+        ghost: List[Trajectory],
+        replace_lowest: bool = True,
+    ) -> List[Trajectory]:
+        """MECH-293: combine value-flat and ghost candidate pools.
+
+        replace_lowest=True (default): drop the highest-cost value-flat
+        candidates so total count = len(value_flat). CEM is lower-is-better,
+        so "highest cost" means worst score, which is what we evict.
+        Preserves downstream E3 selection cost.
+
+        replace_lowest=False: append ghost on top of the value-flat pool
+        (raises total count). Diagnostic-only path; used to disambiguate
+        budget effects from seed effects.
+
+        When n_ghost >= len(value_flat) under replace_lowest=True, returns
+        the ghost pool alone (degenerate; means the ghost budget swallowed
+        the entire value-flat pool, which would only happen with an
+        extreme fraction setting -- left observable rather than clipped
+        silently).
+        """
+        if not ghost:
+            return value_flat
+        if not replace_lowest:
+            return list(value_flat) + list(ghost)
+        n_ghost = len(ghost)
+        if n_ghost >= len(value_flat):
+            return list(ghost)
+        # Score value-flat trajectories; lower = better, so we evict the
+        # n_ghost trajectories with the HIGHEST scores (worst).
+        scored = [
+            (i, float(self._score_trajectory(t).item()
+                      if isinstance(self._score_trajectory(t), torch.Tensor)
+                      else self._score_trajectory(t)))
+            for i, t in enumerate(value_flat)
+        ]
+        scored.sort(key=lambda iv: iv[1])  # ascending: best first
+        keep_indices = {i for i, _ in scored[: len(value_flat) - n_ghost]}
+        kept = [t for i, t in enumerate(value_flat) if i in keep_indices]
+        return kept + list(ghost)
+
+    def get_last_propose_diagnostics(self) -> Dict[str, Any]:
+        """Last propose_trajectories() MECH-293 diagnostics. Returns {}
+        when MECH-293 is off or the ghost branch has not fired."""
+        return dict(self._last_propose_diagnostics)
 
     def replay(
         self,
@@ -864,6 +1106,13 @@ class HippocampalModule(nn.Module):
             is_reverse=False,
             memory_strength=float(getattr(trajectory, "memory_strength", 1.0)),
             arousal_tag=float(getattr(trajectory, "arousal_tag", 0.0)),
+            # MECH-293 / MECH-094: the executed trajectory IS real,
+            # regardless of whether the source proposal was a ghost
+            # probe. Strip the hypothesis tag and metadata so downstream
+            # write-paths (backward credit sweep, residue, etc.) treat
+            # this as waking content.
+            hypothesis_tag=False,
+            metadata=None,
         )
 
     def backward_credit_sweep(self, outcome_quality: float) -> dict:
@@ -1438,10 +1687,12 @@ class HippocampalModule(nn.Module):
         e1_prior: Optional[torch.Tensor] = None,
         action_bias: Optional[torch.Tensor] = None,
         operating_mode: Optional[Dict[str, float]] = None,
+        current_z_goal: Optional[torch.Tensor] = None,
     ) -> List[Trajectory]:
         """Forward pass: propose trajectories from z_world."""
         return self.propose_trajectories(
             z_world, z_self=z_self, num_candidates=num_candidates,
             e1_prior=e1_prior, action_bias=action_bias,
             operating_mode=operating_mode,
+            current_z_goal=current_z_goal,
         )

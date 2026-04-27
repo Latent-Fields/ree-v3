@@ -768,6 +768,27 @@ class HippocampalConfig:
         default_factory=GhostGoalBankConfig
     )
 
+    # MECH-293: waking ghost-goal probe search (read-side consumer of
+    # MECH-292 ranked ghost-goal bank). When enabled, propose_trajectories()
+    # adds a minority budget of CEM probes seeded around the highest-priority
+    # bank entries' anchor.z_world rather than the agent's current z_world.
+    # Each ghost trajectory carries hypothesis_tag=True and a metadata dict
+    # tagging its source anchor + ghost_priority for downstream provenance.
+    # Requires use_mech292_ghost_bank=True; HippocampalModule __init__ raises
+    # ValueError on the mismatch (use_mech292 transitively guarantees
+    # use_anchor_sets and use_sd039_anchor_payload). Backward compatible:
+    # disabled by default; with flag OFF, the ghost branch is never entered.
+    # mech293_replace_lowest_ranked=True (default) keeps the total candidate
+    # count constant by dropping the highest-cost value-flat candidates
+    # (CEM is lower-is-better). Setting False appends ghosts on top of the
+    # value-flat pool (raises total) and is intended for diagnostic /
+    # ablation use only.
+    use_mech293_ghost_probes: bool = False
+    mech293_ghost_fraction: float = 0.2
+    mech293_min_ghost_candidates: int = 1
+    mech293_max_ghost_candidates: int = 8
+    mech293_replace_lowest_ranked: bool = True
+
     # MECH-290: backward trajectory credit sweep at goal arrival.
     # Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay
     # fires at reward endpoint during waking, concurrent with dopamine.
@@ -1889,6 +1910,13 @@ class REEConfig:
         mech292_recoverability_weight: float = 0.5,
         mech292_goal_match_floor: float = 0.05,
         mech292_top_k: Optional[int] = 32,
+        # MECH-293: waking ghost-goal probe search (consumer of MECH-292
+        # bank). Requires use_mech292_ghost_bank=True at agent build time.
+        use_mech293_ghost_probes: bool = False,
+        mech293_ghost_fraction: float = 0.2,
+        mech293_min_ghost_candidates: int = 1,
+        mech293_max_ghost_candidates: int = 8,
+        mech293_replace_lowest_ranked: bool = True,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -2279,6 +2307,13 @@ class REEConfig:
         config.hippocampal.ghost_goal_bank_config.recoverability_weight = mech292_recoverability_weight
         config.hippocampal.ghost_goal_bank_config.goal_match_floor = mech292_goal_match_floor
         config.hippocampal.ghost_goal_bank_config.top_k = mech292_top_k
+
+        # MECH-293: waking ghost-goal probe search (consumer of MECH-292 bank)
+        config.hippocampal.use_mech293_ghost_probes = use_mech293_ghost_probes
+        config.hippocampal.mech293_ghost_fraction = mech293_ghost_fraction
+        config.hippocampal.mech293_min_ghost_candidates = mech293_min_ghost_candidates
+        config.hippocampal.mech293_max_ghost_candidates = mech293_max_ghost_candidates
+        config.hippocampal.mech293_replace_lowest_ranked = mech293_replace_lowest_ranked
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep

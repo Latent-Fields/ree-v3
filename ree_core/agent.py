@@ -1848,12 +1848,22 @@ class REEAgent(nn.Module):
         # HippocampalModule proposes in action-object space (SD-004).
         # SD-016 (MECH-151): pass cached action_bias so each action_object()
         # call in the CEM loop is contextually biased by z_world cue retrieval.
+        # MECH-293: thread the current goal through to propose_trajectories
+        # so the MECH-292 ghost-goal bank can rank anchors by goal_match.
+        # When goal_state is absent / inactive, current_z_goal=None -> the
+        # ghost branch is silent (bank.rank() returns []).
+        _current_z_goal = (
+            self.goal_state.z_goal
+            if (self.goal_state is not None and self.goal_state.is_active())
+            else None
+        )
         candidates = self.hippocampal.propose_trajectories(
             z_world=z_world_for_e3,
             z_self=latent_state.z_self,
             num_candidates=num_candidates,
             e1_prior=e1_prior,
             action_bias=self._cue_action_bias,
+            current_z_goal=_current_z_goal,
         )
         self._committed_candidates = candidates
 
