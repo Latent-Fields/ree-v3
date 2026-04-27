@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-490a",
-      "title": "MECH-269b symmetric V_s gating on E1/E2 cortical rollouts (Q-040 factorial) -- re-queue after external SIGTERM",
-      "script": "experiments/v3_exq_490_mech269b_vs_rollout_gating.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 320,
-      "claim_id": "MECH-269b",
-      "supersedes": "V3-EXQ-490",
-      "note": "Re-queue of V3-EXQ-490 after external SIGTERM (exit code -15) on ree-cloud-2 at 109/320 min on 2026-04-27T03:38:27Z. Not a code crash: runner subprocess was killed externally (no traceback, no output file, runner stayed alive and ran V3-EXQ-493 two seconds later; no force_stop entry in runner_commands/ree-cloud-2.json). Most likely cause: shared-vCPU CX22 OOM neighbour pressure or transient cloud scheduler kill. Script unchanged from V3-EXQ-490 -- no fix needed; this entry just retries. Same Q-040 factorial diagnostic (ON_OFF vs ON_ON arms, only manipulated variable is use_vs_rollout_gating; C1 gate fires > 0 holds, C2 ON approach_commit_count > 0 in >= 2/3 seeds, C3 ON dacc_score_bias_mean > 0). claim_ids unchanged from predecessor (MECH-269b primary; Q-040 the open question this factorial answers). machine_affinity any per user instruction.",
-      "claim_ids": [
-        "MECH-269b",
-        "Q-040"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-27T08:04:11.087365+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-494",
       "title": "SD-039 anchor goal-snapshot payload population layer validation (6 sub-tests)",
       "script": "experiments/v3_exq_494_sd039_anchor_payload_validation.py",
