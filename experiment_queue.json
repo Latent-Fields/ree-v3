@@ -29,11 +29,15 @@
       "script": "experiments/v3_exq_418e_sd016_diversification_loss.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 75,
       "claim_id": "SD-016",
       "supersedes": "V3-EXQ-418d",
-      "note": "Successor to V3-EXQ-418d (4-arm writepath modes). 418d FAILed: attn_entropy=ln(16) regardless of write mode (off/train_only/sense_only/both); read+write gradients alone cannot break ContextMemory slot symmetry. Path 1 substrate change: auxiliary mean-squared-off-diagonal-cosine diversification loss on slot vectors. 4 arms: A0_off (baseline), A1_writes_only (replicates 418d A2 sanity), A2_div_only (loss alone), A3_writes_plus_div (full bootstrap). Acceptance C1 attn_entropy<2.65 AND C2 div>0.10 ALL 3 SEEDS AND C3 behavioural delta>=0.20 AND C4 A1 replicates 418d FAIL. C2 raised from 2/3 to 3/3 because 418d showed bimodal seed pattern -- substrate-level fix must escape collapse on every seed. Smoke verified: slot_div climbs 0.2->0.5->1.0 across arms; wiring confirmed. See REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md."
+      "note": "Successor to V3-EXQ-418d (4-arm writepath modes). 418d FAILed: attn_entropy=ln(16) regardless of write mode (off/train_only/sense_only/both); read+write gradients alone cannot break ContextMemory slot symmetry. Path 1 substrate change: auxiliary mean-squared-off-diagonal-cosine diversification loss on slot vectors. 4 arms: A0_off (baseline), A1_writes_only (replicates 418d A2 sanity), A2_div_only (loss alone), A3_writes_plus_div (full bootstrap). Acceptance C1 attn_entropy<2.65 AND C2 div>0.10 ALL 3 SEEDS AND C3 behavioural delta>=0.20 AND C4 A1 replicates 418d FAIL. C2 raised from 2/3 to 3/3 because 418d showed bimodal seed pattern -- substrate-level fix must escape collapse on every seed. Smoke verified: slot_div climbs 0.2->0.5->1.0 across arms; wiring confirmed. See REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-27T01:48:54.479412+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-484",
