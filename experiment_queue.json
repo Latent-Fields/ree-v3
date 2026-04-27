@@ -19,12 +19,9 @@
       "machine_affinity": "any",
       "priority": 5,
       "estimated_minutes": 1500,
-      "status": "claimed",
+      "status": "pending",
       "note": "V3 FULL-COMPLETION GATE for MECH-163 dual goal-directed systems. THE discriminative test for the VTA / hippocampally-planned arm of MECH-163. Substrate prerequisites all landed 2026-04-27: SD-039 anchor goal-snapshot payload (V3-EXQ-494 6/6 PASS), MECH-292 ranked ghost-goal bank (V3-EXQ-496 5/5 PASS), MECH-293 waking ghost-goal probe search (V3-EXQ-497 5/5 PASS). EXQ-327 was reclassified to ['SD-015'] only on 2026-04-27 (R1 governance fix); the dual-system distinction itself remained untested until this run. Design: 3 conditions (HABIT value-flat proposals; PLANNED ghost-seeded proposals via MECH-293; ABLATED no goal anywhere) x 2 paradigms (A_DETOUR mid-episode blockage at T_block=60% on the cached short corridor; B_NOVEL_CONTEXT cross-episode env swap from train seed to seed=137) x 7 seeds. P0 100 ep encoder warmup + P1 100 ep full pipeline + P2 50 ep evaluation, 200 steps/ep. Acceptance C1-C5: C1 PLANNED.ghost_branch_fires (mech293_n_ghost_admitted > 0 in both paradigms); **C2 PLANNED.benefit_post_block - HABIT.benefit_post_block >= 0.30 in detour, >= 4/7 seeds -- THE V3 full-completion criterion**; C3 HABIT >= ABLATED in standard episodes (within-experiment regression); C4 PLANNED.prox_r2 >= 0.7 (encoder unbroken); C5 PLANNED.harm within 10% of HABIT (no harm regression). KL_PLANNED_HABIT first-step-action-distribution divergence recorded as diagnostic. FISHTANK VIZ: per-step recording during P2 eval on FISHTANK_RECORD_SEED=42 only, FISHTANK_EPISODES_PER_CELL=3 first episodes per (condition, paradigm) cell -- 6 cells total -- writes sibling *_episode_log.json that fishtank_viz.html /api/fishtank/logs auto-discovers. Per-step record carries ghost_admitted (MECH-293 tick firing) and is_blocked_step (paradigm-A detour injection moment) so the viewer surfaces the PLANNED-vs-HABIT routing contrast directly. RUNTIME ESTIMATE: 42 cells x 250 episodes x 200 steps. Mac calibrated at ~0.10 min/ep -> ~17h single-machine; ree-cloud-1 calibrated at ~0.23 min/ep -> ~40h. machine_affinity=any to let the first idle worker claim it; estimated_minutes=1500 (~25h) as defensive midpoint -- runner auto-calibrates from actual elapsed. Diagnostics, fishtank log, and acceptance evaluation all run synchronously inside main() at end-of-run. Successor experiment if FAIL: see KL_PLANNED_HABIT diagnostic (KL ~ 0 + C2 fail = paradigm not requiring multi-step planning; KL > 0 + C2 fail = candidates differ but E3 scoring washes them out).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-27T09:43:56.867629+00:00"
-      }
+      "claimed_by": null
     }
   ]
 }
