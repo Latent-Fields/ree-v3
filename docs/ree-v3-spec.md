@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-04-26
+**Last updated:** 2026-04-27
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-04-26)
+## 0. Current V3 State (2026-04-27)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -80,6 +80,12 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | MECH-275 (Sleep Phase D) | BayesianAggregator: per-domain per-region conjugate Gaussian posteriors; probe-channel-gated update on each routed draw; snapshot+decay contract (snapshot fires at PHASE_SWITCH BEFORE REM phase set so SWS-only posteriors are captured for Phase E consumption); place-domain default with (scale, segment_id) region key matching MECH-284 | Implemented 2026-04-25 |
 | MECH-273 (Sleep Phase E) | SelfModelAggregator (subclass of MECH-275 specialised on SD-003 causal_sig posterior); offline_gradient_pass on E2_harm_s reading SWS-only snapshot; StalenessAccumulator.partial_decay(replayed_regions) for region-scoped decay; full sleep cluster contracts at 150/150 (143 contracts + 7 preflight) all PASS with all flags OFF | Implemented 2026-04-25 |
 | SD-016 Path 1 | ContextMemory.compute_diversification_loss (mean squared off-diagonal cosine similarity over normalized slot vectors) wired into REEAgent.compute_prediction_loss with sd016_diversification_weight config; explicit gradient pressure for slot diversification after EXQ-418d FAILed across all 4 write-path arms (read/write gradients alone cannot break ContextMemory slot symmetry) | Implemented 2026-04-25 |
+| SD-033b | OFC-analog (MECH-261 second consumer; gate-modulated EMA state_code [1, state_dim] with eff_eta = update_eta * write_gate("sd_033b"); zeroed-last-Linear bias head -> initial bias exactly zero; per-mode gate weights external_task=1.0 / internal_planning=0.5 / internal_replay=0.05 / offline_consolidation=0.3; MECH-263 functional signatures via env-extension EXQs deferred) | Implemented 2026-04-26 |
+| MECH-269b | Symmetric V_s gating on E1/E2 cortical rollouts (read-side consumer of MECH-269 Phase 1 per_stream_vs at the E1 _e1_tick site and the per-tick E2_harm_a forward call site; held substitution swaps current latent for snapshot when V_s[s] < per-side threshold; 0.4-0.5 dead-band lightweight Schmitt-trigger hysteresis; precondition use_per_stream_vs=True) | Implemented 2026-04-26 |
+| MECH-295 weak-reading bridge | drive -> liking-stream -> approach_cue substrate (anticipatory liking-stream pulse at z_goal location via update_z_goal -> ResidueField.update_valence VALENCE_LIKING; per-candidate negative score_bias via select_action; severed-bridge falsification arm at cue gain=0; weak-necessity reading committed provisionally per the lit-pull synthesis) | Implemented 2026-04-26 |
+| SD-039 substrate | Dual-trace anchor goal-snapshot payload (AnchorGoalPayload dataclass: z_goal_snapshot + wanting_strength + arousal_tag + last_vs + staleness_at_write + payload_written_step; refresh-on-invalidate semantic preserves payload across mark_inactive; Anchor.goal_match cosine helper + AnchorSet.query_by_goal_match active+inactive dual-trace getter for MECH-292 consumer; module-level write-site population from GoalState / VALENCE_WANTING / amygdala arousal tags deferred) | Substrate landed 2026-04-26 |
+| ARC-054 V3 form | D_V trajectory selection promoted v4 -> v3 in synaptic-EMA form (rollout-horizon synaptic EMA over V_s readout; no TCL substrate dependency at V3); V4 form (phase-coherent V(t) integration via ARC-053 + MECH-225/226/228) remains v4-by-design; V3-EXQ-491 validation queued | V3 form promoted 2026-04-26 |
+| MECH-271 V3 substrate plan | Hypothesis tag as downstream routing committed for V3 in synaptic form (discrete routing table + audit hook for confabulation-vs-psychosis dissociation); V4 ephaptic-field-strength routing remains v4-by-design; V3-EXQ-492 routing 4-arm queued behind MECH-269b lock release | Plan committed 2026-04-26 |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -98,8 +104,8 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **550 runner-side completions** (per `runner_status.json` 2026-04-26 read: 108 PASS /
-  241 FAIL / 66 ERROR / 135 UNKNOWN; v3 subset: 521 entries -- 92 PASS / 228 FAIL /
+- **551 runner-side completions** (per `runner_status.json` 2026-04-26 read: 109 PASS /
+  241 FAIL / 66 ERROR / 135 UNKNOWN; v3 subset: 522 entries -- 93 PASS / 228 FAIL /
   66 ERROR / 135 UNKNOWN). The indexer-vs-runner gap is the historical pre-runner_status
   archive plus the per-seed manifests the runner records as a single queue entry.
   Spanning SD-003 through SD-023 validation, heartbeat architecture (SD-006),
@@ -126,41 +132,60 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   scaffolding + MECH-285 SleepReplaySampler + MECH-272 RoutingGate + MECH-275
   BayesianAggregator + MECH-273 SelfModelAggregator + StalenessAccumulator.partial_decay
   + SD-016 Path 1 ContextMemory diversification loss) extends the contract suite to
-  **150/150 PASS (143 contracts + 7 preflight)** with all flags OFF (bit-identical-when-OFF
-  guarantee preserved). A further indexer rebuild is pending once V3-EXQ-483a and
-  V3-EXQ-418e return.
-- **Currently queued (2026-04-26):** two items in flight or pending:
-  - **V3-EXQ-483a** (SD-037 broadcast-override 4-arm; warmup=200, substrate-fallback
-    acceptance) is **in flight** -- auto-claimed by DLAPTOP-4.local 2026-04-25T23:29Z;
-    supersedes V3-EXQ-483 after EXQ-483 confirmed substrate-readiness (override 0.0
-    -> 0.56 mean / 0.62 max in ON arms; PAG releases 5.3 -> 9.0-9.3) but behavioural
-    metrics were uninterpretable because approach_commit=0.0 in ALL arms including
-    the SD-036-only baseline. Two changes: WARMUP_EPISODES 60 -> 200 and a
-    substrate-readiness fallback in acceptance logic (override_mean > 0.30 AND
-    PAG release ratio ON_ON/ON_OFF > 1.30) used only when the baseline arm yields
-    no behavioural signal. Behavioural path remains preferred when baseline is
-    non-zero. PASS unlocks SD-037 promotion review.
-  - **V3-EXQ-418e** (SD-016 Path 1 diversification 4-arm) is **pending** --
-    supersedes V3-EXQ-418d which FAILed across all 4 write-path arms with
-    attn_entropy=ln(16) and bimodal seed pattern (read+write gradients alone
-    cannot break ContextMemory slot symmetry). 4 arms: A0_off (baseline),
-    A1_writes_only (replicates 418d sanity), A2_div_only (loss alone),
-    A3_writes_plus_div (full bootstrap). Acceptance: C1 attn_entropy<2.65 AND
-    C2 div>0.10 ALL 3 SEEDS AND C3 behavioural delta>=0.20 AND C4 A1 replicates
-    418d FAIL. PASS unlocks SD-016 cue_action_proj forward-path re-validation.
-  - V3-EXQ-478 (MECH-284 Phase 3 validation diagnostic) was the prior bottleneck
-    and resolved before this cycle; the V_s cascade (V3-EXQ-445d / 449c / 455a /
-    476) is no longer Phase-3-gated.
-- **Current bottleneck:** V3-EXQ-483a (SD-037 broadcast-override 4-arm validation,
-  in flight on DLAPTOP-4.local since 2026-04-25T23:29Z) and V3-EXQ-418e
-  (SD-016 Path 1 diversification 4-arm, pending) jointly gate the next governance
-  pass. EXQ-483a PASS unlocks SD-037 promotion review (orexin-analog as the
-  third regulatory layer alongside 5-HT goal-pipeline gain and SD-036 GABAergic
-  decay); FAIL forces a regulator redesign before the V3-EXQ-471 catatonic-lock
-  re-run can proceed. EXQ-418e PASS unlocks SD-016 cue_action_proj forward-path
-  re-validation (V3-EXQ-418c remains needs_user_review pending Path 1 outcome);
-  FAIL forces an additional design pass beyond the auxiliary diversification
-  loss. SD-032 cluster behavioural
+  150/150 PASS (143 contracts + 7 preflight) with all flags OFF on the 2026-04-25
+  read; the 2026-04-26 wave (SD-039 substrate + SD-033b OFC-analog + MECH-269b
+  symmetric V_s gating + MECH-295 weak-reading liking bridge) extends the suite
+  further to **164/164 contracts + 7/7 preflight PASS** with all flags OFF,
+  preserving the bit-identical-when-OFF guarantee.
+- **Currently queued (2026-04-27): six items**, one in flight and five pending:
+  - **V3-EXQ-433d** (SD-029 / MECH-256 event-conditioned comparator with the
+    EXQ-479 calibrated curriculum) is **in flight** -- auto-claimed by
+    DLAPTOP-4.local 2026-04-26T15:01Z; supersedes V3-EXQ-433c. Adopts EXQ-479's
+    calibrated curriculum (interval=10, num_hazards=2, hazard_harm=0.02,
+    adjacent_only=True) plus 433c's three-phase pipeline; STEPS_PER_EP bumped
+    120 -> 200. Acceptance: C0 trials_sufficient_gate (>=3/4 seeds with both
+    agent_caused AND env_caused trials >=20), C1 forward_r2 mean >=0.9 (3/4),
+    C2 attenuation_ratio in [0.2, 0.8] (3/4), C3 approach_snr >5.0 (3/4).
+  - **V3-EXQ-418e** (SD-016 Path 1 diversification 4-arm A0_off / A1_writes_only
+    / A2_div_only / A3_writes_plus_div ablation; supersedes V3-EXQ-418d) is
+    **pending**.
+  - **V3-EXQ-484** (SD-033a distractor-resistance under MECH-261 internal_replay
+    gate; 3-arm deterministic at the SalienceCoordinator + LateralPFCAnalog
+    interface; smoke PASS 2026-04-26) is **pending**.
+  - **V3-EXQ-485** (SD-033b OFC-analog landing diagnostic; five sub-tests
+    paralleling EXQ-456: instantiation, gate=1 vs gate=0 update modulation,
+    initial bias zero contract, backward compat, reset clears state_code; smoke
+    PASS 2026-04-26) is **pending**.
+  - **V3-EXQ-490** (MECH-269b symmetric V_s gating substrate-readiness
+    diagnostic; Q-040 factorial ON_OFF vs ON_ON arms with use_broadcast_override
+    + use_dacc + drive_weight=2.0 + full V_s invalidation circuit +
+    use_vs_commit_release ON; only manipulated variable is
+    use_vs_rollout_gating; ~50-55 min/arm) is **pending**.
+  - **V3-EXQ-493** (MECH-295 weak-reading bridge validation; six sub-tests
+    including UC5 SEVERED-BRIDGE COLLAPSE falsifiable signature; smoke PASS
+    2026-04-26) is **pending**.
+  - V3-EXQ-483a (SD-037 broadcast-override 4-arm successor) was reviewed in the
+    2026-04-26T15:39 governance cycle and reclassified `supports ->
+    non_contributory` per-claim (SD-037 / MECH-280 / MECH-281 remain
+    `hold_pending_v3_substrate`) -- substrate-confirmed-wired
+    (override_signal mean 0.563, PAG release ratio ON_ON/ON_OFF=1.69) but
+    behaviourally inconclusive (approach_commit still 0.0 across all four arms
+    even at 200-ep warmup), same wired-but-inert pattern as the V3-EXQ-471 /
+    478 / 480 cluster.
+- **Current bottleneck:** V3-EXQ-490 (MECH-269b factorial) and V3-EXQ-493
+  (MECH-295 bridge validation) jointly dissect the EXQ-483 wired-but-inert
+  pattern. The Q-040 factorial is the dispatcher: V3-EXQ-490 PASS (gate fires
+  AND approach_commit recovery AND non-zero dacc_score_bias) -> cortical-side
+  V_s gating is the dominant cause and SD-037 reopens; V3-EXQ-490 FAIL on
+  C2/C3 with C1 PASS -> evidence redirects to MECH-295 as the dominant blocker;
+  V3-EXQ-493 separately validates the liking-bridge mechanism and the
+  severed-bridge collapse falsification. Both PASS -> joint contribution and a
+  combined-cluster behavioural EXQ follows. V3-EXQ-433d (SD-029 in flight) gates
+  the SD-003 successor track. V3-EXQ-418e (SD-016 Path 1) gates the SD-016
+  cue_action_proj forward-path re-validation. Open promotion blockers
+  documented in claims.yaml: MECH-294 within-cycle-vs-cross-cycle binding
+  (Kay 2020 challenge); MECH-295 strong-vs-weak liking-bridge necessity (weak
+  reading committed provisionally). SD-032 cluster behavioural
   follow-through remains the
   primary first-paper-gate blocker for the cingulate track -- V3-EXQ-445a
   (full-pipeline fix for the monostrategy + terrain-prior inversion observed in
@@ -201,15 +226,18 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   wave added contracts for SD-037, Sleep Phase A scaffolding (8 tests),
   MECH-285 SleepReplaySampler Phase B (10 tests), MECH-272 RoutingGate Phase C
   (10 tests), MECH-275 BayesianAggregator Phase D (10 tests), and MECH-273
-  SelfModelAggregator Phase E (10 tests). Bit-identical-when-OFF guarantee
+  SelfModelAggregator Phase E (10 tests). The 2026-04-26 wave (SD-039 substrate
+  + SD-033b OFC + MECH-269b + MECH-295) extended the contracts to **164/164 +
+  7/7 preflight PASS** with all flags OFF -- bit-identical-when-OFF guarantee
   preserved across the entire wave. Explorer preflight badge + pre-commit
   contracts hook (PR 5) remain live. **Pending review queue (per
-  pending_review.md regenerated 2026-04-26T00:44:10Z) lists 1 item -- the
-  superseded V3-EXQ-483 FAIL whose successor V3-EXQ-483a is in flight.
-  Governance-cycle pass is pending for the SD-032 behavioural FAILs, the
-  V_s invalidation runtime substrate landings, the 2026-04-24 Phase 3 wave,
-  and (when validation completes) the 2026-04-25 SD-037 / Sleep Cluster /
-  SD-016 Path 1 wave.**
+  pending_review.md regenerated 2026-04-26T16:19:34Z) lists 0 items -- the
+  2026-04-26T15:39 governance cycle reclassified V3-EXQ-483a manifest
+  `supports -> non_contributory` per-claim, applied 9 `hold_pending_v3_substrate`
+  decisions (ARC-051, ARC-060, MECH-269b, MECH-291, MECH-292, MECH-293, MECH-294,
+  MECH-295, SD-039), and refreshed the substrate_queue with SD-039 as a new
+  ready entry plus an SD-037 cross-pointer to MECH-295 as likely root cause.
+  Next governance cycle gates on V3-EXQ-490 + V3-EXQ-493 outcomes.**
 
 ### V3 / V4 Scope Boundary
 
