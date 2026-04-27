@@ -13,11 +13,15 @@
       "script": "experiments/v3_exq_494_sd039_anchor_payload_validation.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 5,
       "claim_id": "SD-039",
       "experiment_purpose": "diagnostic",
-      "note": "Diagnostic validation of the SD-039 module-level write-site population layer landed 2026-04-27. Six sub-tests UC1-UC6: UC1 substrate classes accessible, UC2 master OFF bit-identical (no payload, empty query), UC3 population fires under master ON + active goal regime (anchors carry populated payload, query returns non-zero goal_match), UC4 dual-trace preservation across mark_inactive (inactive anchors retain payload), UC5 falsifiable signature -- goal-active vs goal-inactive phase mean goal_match dissociation (Phase A < 0.05 vs Phase B > 0.3), UC6 MECH-094 simulation gate (replay-path writes do NOT populate payload). Forces MECH-288 fast-scale boundary every 8 ticks via event_segmenter.force_boundary so the SD-039 contract is exercised without depending on stochastic boundary firing. Behavioural ghost-goal validation (does goal-match-aware querying improve recovery from blocked goals?) lives in MECH-292 / MECH-293 successor experiments. Mac smoke 2026-04-27: 6/6 PASS (~23s)."
+      "note": "Diagnostic validation of the SD-039 module-level write-site population layer landed 2026-04-27. Six sub-tests UC1-UC6: UC1 substrate classes accessible, UC2 master OFF bit-identical (no payload, empty query), UC3 population fires under master ON + active goal regime (anchors carry populated payload, query returns non-zero goal_match), UC4 dual-trace preservation across mark_inactive (inactive anchors retain payload), UC5 falsifiable signature -- goal-active vs goal-inactive phase mean goal_match dissociation (Phase A < 0.05 vs Phase B > 0.3), UC6 MECH-094 simulation gate (replay-path writes do NOT populate payload). Forces MECH-288 fast-scale boundary every 8 ticks via event_segmenter.force_boundary so the SD-039 contract is exercised without depending on stochastic boundary firing. Behavioural ghost-goal validation (does goal-match-aware querying improve recovery from blocked goals?) lives in MECH-292 / MECH-293 successor experiments. Mac smoke 2026-04-27: 6/6 PASS (~23s).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-27T09:43:15.770900+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-496",
