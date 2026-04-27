@@ -53,21 +53,6 @@
         "machine": "ree-cloud-2",
         "claimed_at": "2026-04-27T01:49:09.931154+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-493",
-      "title": "MECH-295 drive -> liking -> approach_cue bridge validation (6 sub-tests)",
-      "script": "experiments/v3_exq_493_mech295_liking_bridge_validation.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 1,
-      "claim_id": "MECH-295",
-      "note": "Substrate-landing diagnostic for MECH-295 weak-reading bridge. Six sub-tests: UC1 module-importable; UC2 master-OFF agent.mech295_bridge is None (bit-identical OFF); UC3 30-tick env loop with forced drive=0.8 + benefit=0.4 -> n_write_fires > 0; UC4 cue-side compute returns negative monotone bias under elevated drive (more proximity -> more negative); UC5 SEVERED-BRIDGE COLLAPSE: cue gain=0 produces exactly-zero bias even with drive=0.9 + write side intact (the falsifiable signature for the weak-necessity reading -- without an intact link, drive amplification cannot reach approach); UC6 MECH-094 simulation_mode=True returns zero on both sides and counters do not advance. PASS = all 6 UCs PASS. Behavioural EXQ-483-style approach_commit recovery (4-arm with the orexin substrate ON plus this bridge in arms 2-3) is deferred to a successor once V3-EXQ-490 (MECH-269b) lands. experiment_purpose=diagnostic. claim_ids tags MECH-295 as primary; SD-012 / SD-014 / SD-015 / MECH-117 are architectural prerequisites only (per-claim direction non_contributory). Smoke verified all 6 sub-tests PASS via --dry-run 2026-04-26. See REE_assembly/docs/architecture/mech_295_drive_liking_approach_bridge.md.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-04-27T02:00:05.875227+00:00"
-      }
     }
   ]
 }
