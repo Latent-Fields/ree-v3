@@ -24,35 +24,20 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-418e",
-      "title": "SD-016 Path 1 diversification loss 4-arm (auxiliary symmetry-breaking pressure)",
-      "script": "experiments/v3_exq_418e_sd016_diversification_loss.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 75,
-      "claim_id": "SD-016",
-      "supersedes": "V3-EXQ-418d",
-      "note": "Successor to V3-EXQ-418d (4-arm writepath modes). 418d FAILed: attn_entropy=ln(16) regardless of write mode (off/train_only/sense_only/both); read+write gradients alone cannot break ContextMemory slot symmetry. Path 1 substrate change: auxiliary mean-squared-off-diagonal-cosine diversification loss on slot vectors. 4 arms: A0_off (baseline), A1_writes_only (replicates 418d A2 sanity), A2_div_only (loss alone), A3_writes_plus_div (full bootstrap). Acceptance C1 attn_entropy<2.65 AND C2 div>0.10 ALL 3 SEEDS AND C3 behavioural delta>=0.20 AND C4 A1 replicates 418d FAIL. C2 raised from 2/3 to 3/3 because 418d showed bimodal seed pattern -- substrate-level fix must escape collapse on every seed. Smoke verified: slot_div climbs 0.2->0.5->1.0 across arms; wiring confirmed. See REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-04-27T01:48:54.479412+00:00"
-      }
-    },
-    {
-      "queue_id": "V3-EXQ-490",
-      "title": "MECH-269b symmetric V_s gating on E1/E2 cortical rollouts (Q-040 factorial)",
+      "queue_id": "V3-EXQ-490a",
+      "title": "MECH-269b symmetric V_s gating on E1/E2 cortical rollouts (Q-040 factorial) -- re-queue after external SIGTERM",
       "script": "experiments/v3_exq_490_mech269b_vs_rollout_gating.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "claimed",
+      "status": "pending",
       "estimated_minutes": 320,
       "claim_id": "MECH-269b",
-      "note": "Q-040 factorial: substrate-readiness diagnostic for MECH-269b cortical-side V_s gate (read-side consumer of MECH-269 Phase 1 per_stream_vs at the E1 sensory predictor and E2_harm_a per-tick forward call sites). Two arms (ON_OFF / ON_ON) hold use_broadcast_override + use_dacc + drive_weight=2.0 + full V_s invalidation circuit + use_vs_commit_release ON; the only manipulated variable is use_vs_rollout_gating. Acceptance: C1 (ON gate fires > 0 holds across e1+e2 streams; OFF reports 0), C2 (ON approach_commit_count > 0 in >= 2/3 seeds; OFF reproduces EXQ-483 zero baseline), C3 (ON dacc_score_bias_mean > 0; OFF approximately zero). PASS = C1 AND C2 AND C3. FAIL on C2/C3 with C1 PASSing -> Q-040 FAIL branch points evidence at MECH-295 liking-bridge as dominant blocker. experiment_purpose=diagnostic. 80 warmup x 5 eval x 200 steps x 3 seeds x 2 arms; ~50-55 min/arm with full V_s circuit overhead. Smoke verified bit-identical OFF and gate fires under forced low V_s (substrate landing 2026-04-26). See REE_assembly/docs/architecture/mech_269b_vs_rollout_gating.md.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-04-27T01:49:09.931154+00:00"
-      }
+      "supersedes": "V3-EXQ-490",
+      "note": "Re-queue of V3-EXQ-490 after external SIGTERM (exit code -15) on ree-cloud-2 at 109/320 min on 2026-04-27T03:38:27Z. Not a code crash: runner subprocess was killed externally (no traceback, no output file, runner stayed alive and ran V3-EXQ-493 two seconds later; no force_stop entry in runner_commands/ree-cloud-2.json). Most likely cause: shared-vCPU CX22 OOM neighbour pressure or transient cloud scheduler kill. Script unchanged from V3-EXQ-490 -- no fix needed; this entry just retries. Same Q-040 factorial diagnostic (ON_OFF vs ON_ON arms, only manipulated variable is use_vs_rollout_gating; C1 gate fires > 0 holds, C2 ON approach_commit_count > 0 in >= 2/3 seeds, C3 ON dacc_score_bias_mean > 0). claim_ids unchanged from predecessor (MECH-269b primary; Q-040 the open question this factorial answers). machine_affinity any per user instruction.",
+      "claim_ids": [
+        "MECH-269b",
+        "Q-040"
+      ]
     },
     {
       "queue_id": "V3-EXQ-494",
