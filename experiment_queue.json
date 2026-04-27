@@ -13,7 +13,7 @@
       "script": "experiments/v3_exq_490_mech269b_vs_rollout_gating.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 320,
       "claim_id": "MECH-269b",
       "supersedes": "V3-EXQ-490",
@@ -21,7 +21,11 @@
       "claim_ids": [
         "MECH-269b",
         "Q-040"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-27T08:04:11.087365+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-494",
