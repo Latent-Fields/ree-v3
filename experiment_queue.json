@@ -38,10 +38,13 @@
       "machine_affinity": "any",
       "priority": 5,
       "estimated_minutes": 320,
-      "status": "pending",
+      "status": "claimed",
       "supersedes": "V3-EXQ-490a",
       "note": "Smoke-only substrate-readiness probe. /diagnose-errors 2026-04-27 root-cause: V3-EXQ-490 + 490a both FAILed c1 (vs_gate_total_held = 0 across both arms in all 3 seeds) because the gate's hold trigger (V_s < 0.4) is unreachable under typical Phase 1 V_s dynamics. Phase 1 V_s is an identity-prediction proxy (1 - normalized_delta) that stays near 0.9-1.0 under aligned latents; reaching 0.4 needs ~9 consecutive ticks of fully misaligned latent. V3-EXQ-490b raises vs_gate_e1_threshold + vs_gate_e2_threshold to 0.85 and vs_gate_snapshot_refresh_threshold to 0.95 so the gate fires under typical Phase 1 V_s dynamics. PASS confirms substrate wiring (Q-040a precondition) but does NOT test MECH-269b's stale-stream-discrimination hypothesis (Q-040b) -- at smoke thresholds, even healthy streams with mild velocity get held. claim_ids = ['Q-040'] only per /diagnose-errors claim_ids accuracy review (MECH-269b dropped because experiment does not produce interpretable signal for its mechanism claim). Q-040b remains gated on Phase 2 forward-predictor V_s OR a substrate change wiring staleness_accumulator into VsRolloutGate.gate() before threshold comparison. supersedes V3-EXQ-490a.",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-04-28T17:14:27.323531+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-498",
