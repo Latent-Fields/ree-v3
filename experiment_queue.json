@@ -47,25 +47,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-498",
-      "claim_id": "SD-034",
-      "claim_ids": [
-        "SD-034"
-      ],
-      "title": "OCD Layer 1: closure-threshold sweep on V3 monostrategy (SD-034 parameter diagnostic)",
-      "script": "experiments/v3_exq_498_ocd_layer1_closure_threshold_sweep.py",
-      "experiment_purpose": "diagnostic",
-      "machine_affinity": "any",
-      "priority": 5,
-      "estimated_minutes": 60,
-      "status": "claimed",
-      "note": "OCD three-layer architectural model (REE_assembly/docs/architecture/psychiatric_failure_modes.md 2026-04-28 OCD section) Layer 1 hypothesis test: does sweeping closure_rule_delta_threshold attenuate baseline V3 monostrategy? 4-arm sweep {TIGHT 0.0001, DEFAULT 0.001, LOOSE 0.005, VERY_LOOSE 0.05} x 3 seeds (42, 7, 13). Base agent SD-034 active (use_closure_operator + use_lateral_pfc_analog + use_dacc all True), all V_s circuit OFF, all abstraction substrates OFF -- isolates SD-034 closure threshold as single manipulated variable. Env: CausalGridWorldV2 mirroring EXQ-482 baseline-monostrategy diagnostic with SD-029 curriculum ON. Metric: action_class_entropy (primary, mirrors EXQ-482), n_closure_fires (sanity), action_class_counts. PASS = at AT LEAST ONE of {LOOSE, VERY_LOOSE}, entropy(arm) > entropy(DEFAULT) + 0.1 in >= 2/3 seeds; supports closure-threshold-tuning as Layer-1 contributor. FAIL = monostrategy invariant across thresholds; rules out Layer 1 and licenses Layer 2 (MECH-290 ablation diagnostic) or Layer 3 (SD-046 multi-slot GoalState pull-forward). NOT governance evidence on SD-034 correctness (substrate validated by EXQ-460/466). Independent of EXQ-490/490b V_s pathway -- V_s OFF in this experiment. claim_ids=['SD-034'] only per claim_ids accuracy rule (parameter sweep on SD-034 substrate; PASS=supports threshold tuning, FAIL=non_contributory not weakens because substrate not under test).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-28T20:19:01.255851+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-418f",
       "claim_id": "SD-016",
       "claim_ids": [
