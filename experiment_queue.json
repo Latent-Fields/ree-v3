@@ -45,26 +45,6 @@
         "machine": "ree-cloud-2",
         "claimed_at": "2026-04-28T17:14:27.323531+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-418h",
-      "claim_id": "SD-016",
-      "claim_ids": [
-        "SD-016"
-      ],
-      "title": "SD-016 env-entropy precondition probe (SD-023 landmarks ON vs OFF)",
-      "script": "experiments/v3_exq_418h_sd016_env_entropy_precondition.py",
-      "experiment_purpose": "diagnostic",
-      "machine_affinity": "any",
-      "priority": 5,
-      "estimated_minutes": 30,
-      "status": "claimed",
-      "supersedes": "V3-EXQ-418g",
-      "note": "Env-readiness gate probe for the now-parked SD-016 substrate. EXQ-418f + EXQ-418g (2026-04-28) together demonstrated that the SD-016 substrate works as designed (B1/B3 attn_entropy=0.000, B2/B3 slot_diversity=1.000) but action_class_entropy stays at 1.105e-10 IDENTICALLY across all 4 arms because z_world produces near-identical queries (cos~0.998 across batch). User diagnosis: 'the world is too simple. not enough entropy in every single configuration to support as much information extraction.' SD-016 status changed to parked_pending_env_entropy_precondition; substrate_queue.json updated 2026-04-28T20:51Z. EXQ-418h tests whether the existing-but-unused SD-023 landmarks (n_landmarks_a=3, n_landmarks_b=3 vs default 0/0) supply enough cross-context z_world variation. 2-arm 2-seed factorial: H0_landmarks_off (current default, replicates 418f regime), H1_landmarks_on (SD-023 enabled; world_obs_dim grows 250->300). Eval batches drawn from BOTH safe (1 hazard) and dangerous (5 hazards) envs, 16 samples each per arm-seed. Acceptance E1+E2+E3: E1 H1 cos_cross < 0.95 in BOTH seeds (substrate-readiness gate); E2 separation_gap(H1) > separation_gap(H0) + 0.02 (landmarks contribute cross-context variance, not noise); E3 H0 cos_cross >= 0.95 mean (sanity check, reproduces EXQ-418f/g failure regime). PASS unblocks SD-016 retest in H1 env config (queue EXQ-418i 4-arm reusing 418g substrate matrix on the SD-023-enabled env). FAIL routes to broader env enrichment scoping (SD-016 stays parked; open thought-doc on multi-context env design). NOT governance evidence on SD-016 correctness; experiment_purpose=diagnostic, evidence_class=diagnostic_probe -- updates env-readiness gate state, not claim confidence. claim_ids=['SD-016'] only per claim_ids accuracy rule.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-28T20:57:35.998709+00:00"
-      }
     }
   ]
 }
