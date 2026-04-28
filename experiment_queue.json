@@ -102,14 +102,17 @@
       "machine_affinity": "any",
       "priority": 6,
       "estimated_minutes": 3,
-      "status": "pending",
+      "status": "claimed",
       "supersedes": "V3-EXQ-106",
       "backlog_id": "EVB-0061",
       "note": "Auto-queued by /queue-experiment 2026-04-28T1417Z (afternoon scheduled task) for EXP-0061 (SD-011 active_conflict). Original V3-EXQ-106 ran 3xFAIL on 2026-03-28 against the pre-SD-008/SD-011-second-source substrate. SD-011 has since been promoted candidate -> provisional (2026-04-18, EXQ-178b harm_fwd_r2=0.742 + EXQ-323a body-damage substrate PASS) and the env API has evolved (limb_damage_enabled / harm_history_len / SD-018 resource_proximity_head all landed). Smoke test 2026-04-28 with seed 42 + 50 steps now PASSES all four criteria (C1 grid scaling 1.77 vs 0.59; C3 raw density 1.85 vs 0.57; C4 autocorr_lag10 = 0.4453 above 0.30 threshold; C5 no errors). Full re-run with seeds [42-46] x 300 steps as a fresh evidence point on the current substrate; supersedes the 3 pre-substrate-evolution FAILs. Minor instrumentation fixes applied 2026-04-28: added EXPERIMENT_PURPOSE='evidence', timestamp_utc field, outcome alias of status, evidence_direction (supports/weakens), and 'verdict: PASS/FAIL' line for runner ETA tracking. claim_ids=['SD-011'] only.",
       "episodes_per_run": 1,
       "seeds": 1,
       "conditions": 1,
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-04-28T17:14:05.498665+00:00"
+      }
     }
   ]
 }
