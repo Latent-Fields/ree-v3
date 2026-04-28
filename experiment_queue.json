@@ -89,30 +89,6 @@
       "supersedes": "V3-EXQ-418e",
       "note": "SD-016 Path 4 hypothesis: query selectivity (not slot content) is the EXQ-418d/418e bottleneck. New substrate hooks landed 2026-04-28: E1Config.sd016_temperature_learnable (replaces fixed sqrt(memory_dim) divisor with exp(log_tau); init at log(sqrt(128)) so step-0 is bit-identical) + E1.compute_attention_entropy_loss(z_world) (gradient pressure on world_query_proj+key_proj+log_tau toward peaky attention). 4-arm 3-seed factorial: B0_off baseline (replicates EXQ-418e A0_off); B1_sel_only (temp+ent_loss only, no div); B2_div_only (replicates EXQ-418e A2_div_only as null); B3_sel_plus_div (full hypothesis). All arms sd016_writepath_mode='off' to isolate read path from luck-of-init writes. Acceptance C1-C5: C1 selectivity arms (B1, B3) clear attn_entropy<2.65 in all 3 seeds; C2 no-sel arms (B0, B2) stay above 2.65; C3 div arms (B2, B3) achieve slot_diversity>0.10 all seeds; C4 action_class_entropy(B1)-action_class_entropy(B0)>=0.10 -- selectivity ALONE produces behavioural delta (resolves the EXQ-418e open question 'does cue_context need to be informative?'); C5 action_class_entropy(B3)-action_class_entropy(B2)>=0.10 -- selectivity adds on top of diversification. PASS=C1+C2+C3+C4+C5. FAIL on C4 with C1 PASS = attention sharpens but cue_context still inert -- bottleneck downstream of ContextMemory and Path 4 insufficient (pivot to band-aid removal EXQ-418h or VQ codebook EXQ-418i). LAMBDA_ATTN_ENTROPY=0.05 is the initial weight; FAIL on C1 alone -> follow-up 1-arm sweep. claim_ids=['SD-016'] only.",
       "claimed_by": null
-    },
-    {
-      "queue_id": "V3-EXQ-106a",
-      "claim_id": "SD-011",
-      "claim_ids": [
-        "SD-011"
-      ],
-      "title": "SD-011 harm_obs_a temporal persistence re-validation on current substrate",
-      "script": "experiments/v3_exq_106_harm_obs_a_temporal_persistence.py",
-      "experiment_purpose": "evidence",
-      "machine_affinity": "any",
-      "priority": 6,
-      "estimated_minutes": 3,
-      "status": "claimed",
-      "supersedes": "V3-EXQ-106",
-      "backlog_id": "EVB-0061",
-      "note": "Auto-queued by /queue-experiment 2026-04-28T1417Z (afternoon scheduled task) for EXP-0061 (SD-011 active_conflict). Original V3-EXQ-106 ran 3xFAIL on 2026-03-28 against the pre-SD-008/SD-011-second-source substrate. SD-011 has since been promoted candidate -> provisional (2026-04-18, EXQ-178b harm_fwd_r2=0.742 + EXQ-323a body-damage substrate PASS) and the env API has evolved (limb_damage_enabled / harm_history_len / SD-018 resource_proximity_head all landed). Smoke test 2026-04-28 with seed 42 + 50 steps now PASSES all four criteria (C1 grid scaling 1.77 vs 0.59; C3 raw density 1.85 vs 0.57; C4 autocorr_lag10 = 0.4453 above 0.30 threshold; C5 no errors). Full re-run with seeds [42-46] x 300 steps as a fresh evidence point on the current substrate; supersedes the 3 pre-substrate-evolution FAILs. Minor instrumentation fixes applied 2026-04-28: added EXPERIMENT_PURPOSE='evidence', timestamp_utc field, outcome alias of status, evidence_direction (supports/weakens), and 'verdict: PASS/FAIL' line for runner ETA tracking. claim_ids=['SD-011'] only.",
-      "episodes_per_run": 1,
-      "seeds": 1,
-      "conditions": 1,
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-04-28T17:14:05.498665+00:00"
-      }
     }
   ]
 }
