@@ -25,8 +25,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=<user>
-WorkingDirectory=/home/<user>/Documents/GitHub/REE_Working/ree-v3
-ExecStart=/home/<user>/.venv/ree/bin/python3 experiment_runner.py --auto-sync --loop --loop-interval 120 --machine <machine>
+WorkingDirectory=/home/<user>/REE_Working/ree-v3
+ExecStart=/home/<user>/.venv/ree/bin/python3 experiment_runner.py --auto-sync --loop --loop-interval 120 --remote-control --machine <machine>
 
 # Graceful drain: give 10 minutes for current experiment episode to finish
 TimeoutStopSec=600
