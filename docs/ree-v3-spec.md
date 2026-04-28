@@ -146,7 +146,7 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   MECH-293 waking ghost-goal probe search) extends the suite further to
   **183/183 contracts + 7/7 preflight PASS** with all flags OFF, preserving
   the bit-identical-when-OFF guarantee.
-- **Currently queued (2026-04-28): two items pending**, both unclaimed.
+- **Currently queued (2026-04-28): five items pending**, all unclaimed.
   - **V3-EXQ-495** (MECH-163 V3 full-completion gate -- VTA / hippocampally-
     planned arm) is **pending**. THE discriminative test for the planned arm
     of MECH-163 dual goal-directed systems. All substrate prerequisites
@@ -170,6 +170,39 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
     stale-stream-discrimination hypothesis (Q-040b -- gated on Phase 2
     forward-predictor V_s OR a substrate change wiring staleness_accumulator
     into VsRolloutGate.gate()). claim_ids=['Q-040'] only.
+  - **V3-EXQ-498** (OCD Layer 1: closure-threshold sweep on V3 monostrategy --
+    SD-034 parameter diagnostic; queued 2026-04-28T06:10Z). 4-arm sweep
+    {TIGHT 0.0001, DEFAULT 0.001, LOOSE 0.005, VERY_LOOSE 0.05} x 3 seeds
+    (42, 7, 13). Tests the OCD three-layer architectural model Layer 1
+    hypothesis (psychiatric_failure_modes.md): does sweeping
+    closure_rule_delta_threshold attenuate V3 baseline monostrategy?
+    Base agent SD-034 active, all V_s circuit OFF, all abstraction
+    substrates OFF -- isolates SD-034 closure threshold as single
+    manipulated variable. PASS = at AT LEAST ONE of {LOOSE, VERY_LOOSE},
+    entropy(arm) > entropy(DEFAULT) + 0.1 in >= 2/3 seeds. FAIL rules out
+    Layer 1 and licenses Layer 2 (MECH-290 ablation diagnostic) or Layer 3
+    (SD-046 multi-slot GoalState pull-forward). claim_ids=['SD-034'] only;
+    independent of EXQ-490/490b V_s pathway. ~60 min single-machine.
+  - **V3-EXQ-418f** (SD-016 attention-uniformity diagnostic probe;
+    EXQ-418e follow-up; queued 2026-04-28T06:54Z). Single-seed probe
+    instrumenting the EXQ-418d/418e attn_entropy_mean=ln(16) uniform-rail
+    failure mode. After training, samples 64 z_world states from a random-
+    policy rollout and dumps per-batch q/k norm stats, raw and scaled
+    dot-product distributions, slot argmax histogram, attention entropy
+    stats. Diagnostic-only PASS criteria; localises whether bottleneck is
+    query magnitude, key magnitude, or scale before EXQ-418g selectivity-
+    first ablation commits. ~15 min.
+  - **V3-EXQ-418g** (SD-016 Path 4 query-selectivity-first 4-arm; queued
+    2026-04-28T06:54Z). Tests SD-016 Path 4 hypothesis: query selectivity
+    (not slot content) is the EXQ-418d/418e bottleneck. New substrate
+    hooks landed 2026-04-28: E1Config.sd016_temperature_learnable
+    (replaces fixed sqrt(memory_dim) divisor with exp(log_tau)) +
+    E1.compute_attention_entropy_loss(z_world). 4-arm 3-seed factorial:
+    B0_off baseline, B1_sel_only, B2_div_only (replicates EXQ-418e
+    A2_div_only as null), B3_sel_plus_div (full hypothesis). Acceptance
+    C1-C5 including C4 (selectivity ALONE produces behavioural delta vs
+    B0). FAIL on C4 with C1 PASS routes to EXQ-418h band-aid removal or
+    EXQ-418i VQ codebook fallback. claim_ids=['SD-016'] only. ~90 min.
 - **Current bottleneck:** V3-EXQ-495 (V3 full-completion gate / MECH-163
   hippocampally-planned arm) is the headline run -- all three substrate
   prerequisites cleared 2026-04-27, leaving only the runtime budget decision
@@ -230,10 +263,13 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   7/7 preflight PASS** with all flags OFF -- bit-identical-when-OFF guarantee
   preserved across the entire wave. Explorer preflight badge + pre-commit
   contracts hook (PR 5) remain live. **Pending review queue (per
-  pending_review.md regenerated 2026-04-27T14:47:47Z) lists 6 items -- 3 PASS
-  (V3-EXQ-484 / 485 / 493 indexed after the 2026-04-27T14:55 /diagnose-errors
-  run_id naming-bug fix) and 3 runner-only ERROR/UNKNOWN/smoke entries for the
-  same queue IDs. The 2026-04-27T14:11 governance cycle walked 9 indexed
+  pending_review.md regenerated 2026-04-28T04:18:29Z) lists 15 items -- 12 PASS
+  (V3-EXQ-484 / 485 / 493 across multiple machine/timestamp runs indexed after
+  the 2026-04-27T14:55 /diagnose-errors run_id naming-bug fix) and 3 runner-only
+  UNKNOWN entries for the same three queue IDs awaiting next governance walk
+  (the queue grew from 6 at the 2026-04-27T14:47:47Z regen because each
+  per-machine/per-timestamp PASS now indexes as a distinct run; the same three
+  queue IDs sit underneath). The 2026-04-27T14:11 governance cycle walked 9 indexed
   pending + 4 runner-only and applied: SD-039 / MECH-292 / MECH-293
   substrate-readiness PASS clusters preserved as `hold_pending_v3_substrate`
   pending behavioural validation; V3-EXQ-433d SD-029 / MECH-256 reclassified
