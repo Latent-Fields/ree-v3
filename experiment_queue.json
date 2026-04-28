@@ -39,6 +39,22 @@
       "supersedes": "V3-EXQ-490a",
       "note": "Smoke-only substrate-readiness probe. /diagnose-errors 2026-04-27 root-cause: V3-EXQ-490 + 490a both FAILed c1 (vs_gate_total_held = 0 across both arms in all 3 seeds) because the gate's hold trigger (V_s < 0.4) is unreachable under typical Phase 1 V_s dynamics. Phase 1 V_s is an identity-prediction proxy (1 - normalized_delta) that stays near 0.9-1.0 under aligned latents; reaching 0.4 needs ~9 consecutive ticks of fully misaligned latent. V3-EXQ-490b raises vs_gate_e1_threshold + vs_gate_e2_threshold to 0.85 and vs_gate_snapshot_refresh_threshold to 0.95 so the gate fires under typical Phase 1 V_s dynamics. PASS confirms substrate wiring (Q-040a precondition) but does NOT test MECH-269b's stale-stream-discrimination hypothesis (Q-040b) -- at smoke thresholds, even healthy streams with mild velocity get held. claim_ids = ['Q-040'] only per /diagnose-errors claim_ids accuracy review (MECH-269b dropped because experiment does not produce interpretable signal for its mechanism claim). Q-040b remains gated on Phase 2 forward-predictor V_s OR a substrate change wiring staleness_accumulator into VsRolloutGate.gate() before threshold comparison. supersedes V3-EXQ-490a.",
       "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-498",
+      "claim_id": "SD-034",
+      "claim_ids": [
+        "SD-034"
+      ],
+      "title": "OCD Layer 1: closure-threshold sweep on V3 monostrategy (SD-034 parameter diagnostic)",
+      "script": "experiments/v3_exq_498_ocd_layer1_closure_threshold_sweep.py",
+      "experiment_purpose": "diagnostic",
+      "machine_affinity": "any",
+      "priority": 5,
+      "estimated_minutes": 60,
+      "status": "pending",
+      "note": "OCD three-layer architectural model (REE_assembly/docs/architecture/psychiatric_failure_modes.md 2026-04-28 OCD section) Layer 1 hypothesis test: does sweeping closure_rule_delta_threshold attenuate baseline V3 monostrategy? 4-arm sweep {TIGHT 0.0001, DEFAULT 0.001, LOOSE 0.005, VERY_LOOSE 0.05} x 3 seeds (42, 7, 13). Base agent SD-034 active (use_closure_operator + use_lateral_pfc_analog + use_dacc all True), all V_s circuit OFF, all abstraction substrates OFF -- isolates SD-034 closure threshold as single manipulated variable. Env: CausalGridWorldV2 mirroring EXQ-482 baseline-monostrategy diagnostic with SD-029 curriculum ON. Metric: action_class_entropy (primary, mirrors EXQ-482), n_closure_fires (sanity), action_class_counts. PASS = at AT LEAST ONE of {LOOSE, VERY_LOOSE}, entropy(arm) > entropy(DEFAULT) + 0.1 in >= 2/3 seeds; supports closure-threshold-tuning as Layer-1 contributor. FAIL = monostrategy invariant across thresholds; rules out Layer 1 and licenses Layer 2 (MECH-290 ablation diagnostic) or Layer 3 (SD-046 multi-slot GoalState pull-forward). NOT governance evidence on SD-034 correctness (substrate validated by EXQ-460/466). Independent of EXQ-490/490b V_s pathway -- V_s OFF in this experiment. claim_ids=['SD-034'] only per claim_ids accuracy rule (parameter sweep on SD-034 substrate; PASS=supports threshold tuning, FAIL=non_contributory not weakens because substrate not under test).",
+      "claimed_by": null
     }
   ]
 }
