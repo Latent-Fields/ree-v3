@@ -44,6 +44,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 
 EXPERIMENT_TYPE = "v3_exq_106_harm_obs_a_temporal_persistence"
 CLAIM_IDS = ["SD-011"]
+EXPERIMENT_PURPOSE = "evidence"
 
 
 def _run_seed(
@@ -226,9 +227,15 @@ if __name__ == "__main__":
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     result["run_timestamp"] = ts
+    result["timestamp_utc"] = ts
     result["run_id"] = f"{EXPERIMENT_TYPE}_{ts}_v3"
     result["architecture_epoch"] = "ree_hybrid_guardrails_v1"
+    result["experiment_type"] = EXPERIMENT_TYPE
+    result["claim_ids"] = CLAIM_IDS
+    result["experiment_purpose"] = EXPERIMENT_PURPOSE
+    result["outcome"] = result["status"]
     result["verdict"] = result["status"]
+    result["evidence_direction"] = "supports" if result["status"] == "PASS" else "weakens"
 
     out_dir = (
         Path(__file__).resolve().parents[2]
@@ -240,6 +247,7 @@ if __name__ == "__main__":
 
     print(f"\nResult written to: {out_path}", flush=True)
     print(f"Status: {result['status']}", flush=True)
+    print(f"verdict: {result['status']}", flush=True)
 
     if args.smoke_test:
         print("[V3-EXQ-106] SMOKE TEST COMPLETE", flush=True)
