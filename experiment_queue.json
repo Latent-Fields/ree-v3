@@ -58,10 +58,13 @@
       "machine_affinity": "any",
       "priority": 5,
       "estimated_minutes": 15,
-      "status": "pending",
+      "status": "claimed",
       "supersedes": "V3-EXQ-418e",
       "note": "Diagnostic probe localising the EXQ-418d/418e attn_entropy_mean=ln(16) uniform-rail failure mode. Single seed (42), 30 episodes total (P0=10 P1=20), single config matching EXQ-418e A1_writes_only (sd016_enabled=True, sd016_writepath_mode='sense_only', alpha_world=0.9, div_weight=0.0). After training, samples 64 z_world states from a random-policy rollout in the safe env and recomputes the SD-016 attention path manually, dumping per-batch q/k norm stats, raw and scaled dot-product distributions, slot argmax histogram, attention entropy stats, and the scale that would produce target mean entropy 1.5 nats. Acceptance D1-D4 (n_samples>=16; entropy in [0, ln(num_slots)]; raw dotprod std>1e-6; q/k norms>1e-4) -- diagnostic-only PASS criteria meaning the probe ran. MUST NOT update SD-016 claim confidence (evidence_class=diagnostic_probe). Outcome localises whether the bottleneck is query magnitude, key magnitude, or scale, before committing to the EXQ-418g selectivity-first fix. claim_ids=['SD-016'] only per claim_ids accuracy rule (probe instrumenting SD-016 substrate; PASS=instrumentation worked, no scientific verdict).",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-28T20:29:58.529069+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-418g",
