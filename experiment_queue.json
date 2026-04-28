@@ -55,6 +55,40 @@
       "status": "pending",
       "note": "OCD three-layer architectural model (REE_assembly/docs/architecture/psychiatric_failure_modes.md 2026-04-28 OCD section) Layer 1 hypothesis test: does sweeping closure_rule_delta_threshold attenuate baseline V3 monostrategy? 4-arm sweep {TIGHT 0.0001, DEFAULT 0.001, LOOSE 0.005, VERY_LOOSE 0.05} x 3 seeds (42, 7, 13). Base agent SD-034 active (use_closure_operator + use_lateral_pfc_analog + use_dacc all True), all V_s circuit OFF, all abstraction substrates OFF -- isolates SD-034 closure threshold as single manipulated variable. Env: CausalGridWorldV2 mirroring EXQ-482 baseline-monostrategy diagnostic with SD-029 curriculum ON. Metric: action_class_entropy (primary, mirrors EXQ-482), n_closure_fires (sanity), action_class_counts. PASS = at AT LEAST ONE of {LOOSE, VERY_LOOSE}, entropy(arm) > entropy(DEFAULT) + 0.1 in >= 2/3 seeds; supports closure-threshold-tuning as Layer-1 contributor. FAIL = monostrategy invariant across thresholds; rules out Layer 1 and licenses Layer 2 (MECH-290 ablation diagnostic) or Layer 3 (SD-046 multi-slot GoalState pull-forward). NOT governance evidence on SD-034 correctness (substrate validated by EXQ-460/466). Independent of EXQ-490/490b V_s pathway -- V_s OFF in this experiment. claim_ids=['SD-034'] only per claim_ids accuracy rule (parameter sweep on SD-034 substrate; PASS=supports threshold tuning, FAIL=non_contributory not weakens because substrate not under test).",
       "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-418f",
+      "claim_id": "SD-016",
+      "claim_ids": [
+        "SD-016"
+      ],
+      "title": "SD-016 attention-uniformity diagnostic probe (EXQ-418e follow-up)",
+      "script": "experiments/v3_exq_418f_sd016_attention_uniformity_probe.py",
+      "experiment_purpose": "diagnostic",
+      "machine_affinity": "any",
+      "priority": 5,
+      "estimated_minutes": 15,
+      "status": "pending",
+      "supersedes": "V3-EXQ-418e",
+      "note": "Diagnostic probe localising the EXQ-418d/418e attn_entropy_mean=ln(16) uniform-rail failure mode. Single seed (42), 30 episodes total (P0=10 P1=20), single config matching EXQ-418e A1_writes_only (sd016_enabled=True, sd016_writepath_mode='sense_only', alpha_world=0.9, div_weight=0.0). After training, samples 64 z_world states from a random-policy rollout in the safe env and recomputes the SD-016 attention path manually, dumping per-batch q/k norm stats, raw and scaled dot-product distributions, slot argmax histogram, attention entropy stats, and the scale that would produce target mean entropy 1.5 nats. Acceptance D1-D4 (n_samples>=16; entropy in [0, ln(num_slots)]; raw dotprod std>1e-6; q/k norms>1e-4) -- diagnostic-only PASS criteria meaning the probe ran. MUST NOT update SD-016 claim confidence (evidence_class=diagnostic_probe). Outcome localises whether the bottleneck is query magnitude, key magnitude, or scale, before committing to the EXQ-418g selectivity-first fix. claim_ids=['SD-016'] only per claim_ids accuracy rule (probe instrumenting SD-016 substrate; PASS=instrumentation worked, no scientific verdict).",
+      "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-418g",
+      "claim_id": "SD-016",
+      "claim_ids": [
+        "SD-016"
+      ],
+      "title": "SD-016 Path 4 query-selectivity-first 4-arm (learned temperature + attention-entropy loss)",
+      "script": "experiments/v3_exq_418g_sd016_selectivity_first_4arm.py",
+      "experiment_purpose": "evidence",
+      "machine_affinity": "any",
+      "priority": 5,
+      "estimated_minutes": 90,
+      "status": "pending",
+      "supersedes": "V3-EXQ-418e",
+      "note": "SD-016 Path 4 hypothesis: query selectivity (not slot content) is the EXQ-418d/418e bottleneck. New substrate hooks landed 2026-04-28: E1Config.sd016_temperature_learnable (replaces fixed sqrt(memory_dim) divisor with exp(log_tau); init at log(sqrt(128)) so step-0 is bit-identical) + E1.compute_attention_entropy_loss(z_world) (gradient pressure on world_query_proj+key_proj+log_tau toward peaky attention). 4-arm 3-seed factorial: B0_off baseline (replicates EXQ-418e A0_off); B1_sel_only (temp+ent_loss only, no div); B2_div_only (replicates EXQ-418e A2_div_only as null); B3_sel_plus_div (full hypothesis). All arms sd016_writepath_mode='off' to isolate read path from luck-of-init writes. Acceptance C1-C5: C1 selectivity arms (B1, B3) clear attn_entropy<2.65 in all 3 seeds; C2 no-sel arms (B0, B2) stay above 2.65; C3 div arms (B2, B3) achieve slot_diversity>0.10 all seeds; C4 action_class_entropy(B1)-action_class_entropy(B0)>=0.10 -- selectivity ALONE produces behavioural delta (resolves the EXQ-418e open question 'does cue_context need to be informative?'); C5 action_class_entropy(B3)-action_class_entropy(B2)>=0.10 -- selectivity adds on top of diversification. PASS=C1+C2+C3+C4+C5. FAIL on C4 with C1 PASS = attention sharpens but cue_context still inert -- bottleneck downstream of ContextMemory and Path 4 insufficient (pivot to band-aid removal EXQ-418h or VQ codebook EXQ-418i). LAMBDA_ATTN_ENTROPY=0.05 is the initial weight; FAIL on C1 alone -> follow-up 1-arm sweep. claim_ids=['SD-016'] only.",
+      "claimed_by": null
     }
   ]
 }

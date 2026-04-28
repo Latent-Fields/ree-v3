@@ -202,6 +202,18 @@ class E1Config:
     # See REE_assembly/docs/architecture/context_memory_writepath_fix.md.
     sd016_writepath_mode: str = "off"
 
+    # SD-016 Path 4 (V3-EXQ-418g): learnable attention temperature on the
+    # z_world-only ContextMemory query inside extract_cue_context().
+    # When True, exp(log_tau) replaces the fixed sqrt(memory_dim) divisor and
+    # the parameter is exposed via self.sd016_log_temperature. Pair with
+    # E1.compute_attention_entropy_loss() to apply gradient pressure toward
+    # peaky attention (the EXQ-418e diagnosis: slot-side diversification
+    # alone cannot move attention off the uniform rail because
+    # world_query_proj has no gradient signal demanding selectivity).
+    # Initialised at log(sqrt(memory_dim)) so step-0 behaviour matches the
+    # fixed-temperature baseline. Default False = bit-identical to legacy.
+    sd016_temperature_learnable: bool = False
+
     # MECH-216: E1 predictive wanting (schema readout head).
     # When enabled, a Linear(hidden_dim, 1)+Sigmoid head reads E1's LSTM hidden state
     # and produces a scalar schema_salience in [0, 1]. High salience at positions where
@@ -1673,6 +1685,12 @@ class REEConfig:
         # 0.5 when sd016_enabled=True (mirrors LAMBDA_CUE_ACTION).
         # See REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md.
         sd016_diversification_weight: float = 0.0,
+        # SD-016 Path 4 (V3-EXQ-418g): learnable attention temperature on the
+        # z_world-only ContextMemory query inside extract_cue_context. Pair with
+        # an attention-entropy minimisation loss term in the experiment script
+        # (agent.e1.compute_attention_entropy_loss(z_world)). Default False =
+        # bit-identical to legacy fixed sqrt(memory_dim) scale.
+        sd016_temperature_learnable: bool = False,
         # ARC-030 / MECH-111 / MECH-112 / MECH-113
         benefit_eval_enabled: bool = False,
         benefit_weight: float = 1.0,
@@ -2010,6 +2028,7 @@ class REEConfig:
         config.e1.latent_dim = self_dim + world_dim
         config.e1.sd016_enabled = sd016_enabled
         config.e1.sd016_writepath_mode = sd016_writepath_mode
+        config.e1.sd016_temperature_learnable = sd016_temperature_learnable
         config.e1.action_object_dim = action_object_dim
         config.e1.schema_wanting_enabled = schema_wanting_enabled
 
