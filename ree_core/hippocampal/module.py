@@ -1289,6 +1289,53 @@ class HippocampalModule(nn.Module):
         self.per_region_vs.clear()
         self._prev_region_stream_values.clear()
 
+    def compute_per_stream_staleness(self) -> Dict[str, float]:
+        """Aggregate region-keyed MECH-284 staleness into per-stream scalars
+        for the MECH-269b VsRolloutGate (Q-040b strong reading).
+
+        For each stream s currently tracked in per_stream_vs:
+            staleness[s] = max over active anchors a where s in a.stream_mixture
+                           of staleness_accumulator.lookup_by_anchor_key(a.key)
+        with 0.0 returned when no qualifying anchor exists.
+
+        Why max-over-anchors: a stream's V_s is a global readout but the
+        underlying staleness lives per (scale, segment_id) region; if any
+        region the stream participates in is stale, the gate should
+        treat the stream as stale. Mean would dilute under multi-region
+        coverage; max captures the worst staleness the stream is
+        currently exposed to.
+
+        Returns an empty dict when MECH-269 Phase 1 is off, when the
+        staleness accumulator is absent, or when the anchor set is
+        absent or has no active anchors. Callers (the gate) must accept
+        an empty / partial dict and fall back to the raw-V_s path for
+        unrepresented streams (.get(stream, 0.0) semantics).
+
+        Pure arithmetic (max + dict membership). MECH-094: substrate-side
+        readout; replay / simulation paths must not call this method.
+        """
+        if not self.per_stream_vs:
+            return {}
+        if self.staleness_accumulator is None or self.anchor_set is None:
+            return {}
+        active = self.anchor_set.active_anchors()
+        if not active:
+            return {}
+        out: Dict[str, float] = {}
+        for stream in self.per_stream_vs.keys():
+            best = 0.0
+            for anchor in active:
+                mixture = anchor.key[2]
+                if stream not in mixture:
+                    continue
+                s_val = float(
+                    self.staleness_accumulator.lookup_by_anchor_key(anchor.key)
+                )
+                if s_val > best:
+                    best = s_val
+            out[stream] = best
+        return out
+
     def update_per_region_vs(
         self,
         latent_state,

@@ -763,6 +763,19 @@ class HippocampalConfig:
     vs_gate_e1_threshold: float = 0.4
     vs_gate_e2_threshold: float = 0.4
     vs_gate_unknown_stream_passes: bool = True
+    # MECH-269b + MECH-284 wiring (Q-040b strong reading). When True, the
+    # VsRolloutGate subtracts MECH-284 region staleness (aggregated to
+    # per-stream by HippocampalModule.compute_per_stream_staleness via
+    # max-over-active-anchors-whose-stream_mixture-includes-stream) from raw
+    # V_s before the threshold comparison: effective_vs = raw_vs -
+    # per_stream_staleness[s]. This makes the gate's stale-stream
+    # discrimination testable at realistic V_s values without smoke-level
+    # threshold overrides. Requires use_per_stream_vs=True (already
+    # required by use_vs_rollout_gating) AND use_staleness_accumulator=True
+    # AND use_anchor_sets=True; agent.__init__ raises ValueError on any
+    # missing precondition. Backward compatible: default False; flag-OFF
+    # gate behaviour is bit-identical to the legacy raw-V_s path.
+    use_vs_gate_staleness_lookup: bool = False
 
     # MECH-292: ranked ghost-goal bank (derived view over the SD-039
     # dual-trace anchor pool). When enabled, HippocampalModule
@@ -1918,6 +1931,7 @@ class REEConfig:
             "z_world", "z_self", "z_harm_s", "z_harm_a", "z_goal", "z_beta",
         ),
         vs_gate_unknown_stream_passes: bool = True,
+        use_vs_gate_staleness_lookup: bool = False,
         # MECH-292: ranked ghost-goal bank (derived view over SD-039
         # dual-trace anchor pool). Requires use_anchor_sets=True AND
         # use_sd039_anchor_payload=True at agent build time.
@@ -2317,6 +2331,7 @@ class REEConfig:
         config.hippocampal.vs_gate_e2_threshold = vs_gate_e2_threshold
         config.hippocampal.vs_gate_streams = vs_gate_streams
         config.hippocampal.vs_gate_unknown_stream_passes = vs_gate_unknown_stream_passes
+        config.hippocampal.use_vs_gate_staleness_lookup = use_vs_gate_staleness_lookup
 
         # MECH-292: ranked ghost-goal bank (derived view over SD-039 anchor pool)
         config.hippocampal.use_mech292_ghost_bank = use_mech292_ghost_bank

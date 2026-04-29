@@ -37,6 +37,17 @@ class VsRolloutGateConfig:
     so a stream straddling the gate threshold oscillates within a refresh-vs-hold
     dead band (lightweight Schmitt-trigger-style hysteresis without a streak
     counter).
+
+    use_staleness_lookup wires the MECH-284 region staleness accumulator into
+    the gate's threshold comparison. When True, callers supply a per-stream
+    staleness dict (aggregated by HippocampalModule from
+    staleness_accumulator + active anchors) and the gate computes
+        effective_vs = raw_vs - per_stream_staleness[s]
+    before the threshold check. This is the Q-040b strong-reading wiring:
+    stale streams fall below threshold even when raw V_s remains high
+    (the realistic regime), so the hold path becomes exercisable without
+    smoke-level threshold overrides. Default False preserves the legacy
+    raw-V_s-only path used by EXQ-490 / EXQ-490b / EXQ-490c.
     """
 
     streams: Tuple[str, ...] = (
@@ -52,6 +63,12 @@ class VsRolloutGateConfig:
     # rather than substituting None / zeros. Prevents agent loop from ever
     # consuming a None latent.
     unknown_stream_passes: bool = True
+    # MECH-284 staleness wiring (Q-040b strong reading). When True, the gate
+    # reads per_stream_staleness from gate() / gate_stream() callers and
+    # subtracts it from raw V_s before comparing to the threshold. Backward
+    # compatible: when False (default) or when caller supplies no staleness
+    # dict, behaviour is bit-identical to the legacy raw-V_s path.
+    use_staleness_lookup: bool = False
 
 
 class VsRolloutGate:
@@ -114,6 +131,14 @@ class VsRolloutGate:
         self._held_count_e2: Dict[str, int] = {s: 0 for s in self.config.streams}
         self._last_held_e1: Dict[str, bool] = {s: False for s in self.config.streams}
         self._last_held_e2: Dict[str, bool] = {s: False for s in self.config.streams}
+        # MECH-284 staleness diagnostics: tracks the max per-stream staleness
+        # the gate has been asked to subtract this episode (use_staleness_lookup
+        # path only). Stays at 0.0 when staleness lookup is disabled or no
+        # caller ever supplies a per_stream_staleness dict.
+        self._max_staleness_seen: Dict[str, float] = {
+            s: 0.0 for s in self.config.streams
+        }
+        self._staleness_lookup_calls: int = 0
 
     # ------------------------------------------------------------------
     # snapshot maintenance
@@ -151,6 +176,7 @@ class VsRolloutGate:
         per_stream_vs: Dict[str, float],
         side: str,
         goal_state: Optional[Any] = None,
+        per_stream_staleness: Optional[Dict[str, float]] = None,
     ) -> Any:
         """Return a gated copy of LatentState for E1 / E2 consumers.
 
@@ -162,6 +188,13 @@ class VsRolloutGate:
         The returned LatentState is constructed via dataclasses.replace so all
         non-gated fields (precision dict, hypothesis_tag, aux predictions,
         etc.) are preserved unchanged.
+
+        MECH-284 staleness wiring (Q-040b strong reading): when
+        config.use_staleness_lookup is True AND per_stream_staleness is
+        supplied, the threshold comparison runs on
+            effective_vs = raw_vs - per_stream_staleness[s]
+        instead of raw_vs. With either condition off the gate falls back to
+        the raw-V_s path (bit-identical to the legacy gate semantics).
         """
         if side not in ("e1", "e2"):
             raise ValueError(
@@ -193,7 +226,8 @@ class VsRolloutGate:
             if current_value is None:
                 continue
             held_value, held = self._gate_value(
-                stream, current_value, per_stream_vs, side
+                stream, current_value, per_stream_vs, side,
+                per_stream_staleness=per_stream_staleness,
             )
             if held:
                 substitutions[field_name] = held_value
@@ -210,6 +244,7 @@ class VsRolloutGate:
         current_value: Optional[torch.Tensor],
         per_stream_vs: Dict[str, float],
         side: str,
+        per_stream_staleness: Optional[Dict[str, float]] = None,
     ) -> Optional[torch.Tensor]:
         """Single-stream variant for callers operating on a bare tensor (e.g.
         the per-tick E2_harm_a forward call in agent.select_action, or the
@@ -218,6 +253,9 @@ class VsRolloutGate:
         Returns the held snapshot when V_s is below the side threshold and a
         snapshot exists; otherwise returns current_value unchanged. None
         propagates as None (no snapshot to substitute).
+
+        per_stream_staleness participates in the threshold comparison the same
+        way as in gate() (MECH-284 wiring).
         """
         if side not in ("e1", "e2"):
             raise ValueError(
@@ -226,7 +264,8 @@ class VsRolloutGate:
         if current_value is None:
             return None
         held_value, held = self._gate_value(
-            stream_name, current_value, per_stream_vs, side
+            stream_name, current_value, per_stream_vs, side,
+            per_stream_staleness=per_stream_staleness,
         )
         per_side_held = (
             self._last_held_e1 if side == "e1" else self._last_held_e2
@@ -255,6 +294,17 @@ class VsRolloutGate:
         out["vs_gate_n_snapshots"] = int(len(self._snapshots))
         out["vs_gate_total_held_e1"] = int(sum(self._held_count_e1.values()))
         out["vs_gate_total_held_e2"] = int(sum(self._held_count_e2.values()))
+        # MECH-284 staleness diagnostics.
+        out["vs_gate_use_staleness_lookup"] = bool(
+            self.config.use_staleness_lookup
+        )
+        out["vs_gate_staleness_lookup_calls"] = int(
+            self._staleness_lookup_calls
+        )
+        for stream in self.config.streams:
+            out[f"vs_gate_max_staleness_{stream}"] = float(
+                self._max_staleness_seen.get(stream, 0.0)
+            )
         return out
 
     def reset(self) -> None:
@@ -269,6 +319,9 @@ class VsRolloutGate:
         for d in (self._last_held_e1, self._last_held_e2):
             for k in d:
                 d[k] = False
+        for k in self._max_staleness_seen:
+            self._max_staleness_seen[k] = 0.0
+        self._staleness_lookup_calls = 0
 
     # ------------------------------------------------------------------
     # internal helpers
@@ -279,14 +332,38 @@ class VsRolloutGate:
         current_value: torch.Tensor,
         per_stream_vs: Dict[str, float],
         side: str,
+        per_stream_staleness: Optional[Dict[str, float]] = None,
     ) -> Tuple[torch.Tensor, bool]:
         """Return (value_to_use, held_flag). held=True means snapshot
-        substituted; held=False means current value passes through."""
+        substituted; held=False means current value passes through.
+
+        MECH-284 staleness wiring: when use_staleness_lookup AND a
+        per_stream_staleness dict is supplied, effective_vs = raw_vs -
+        staleness[stream] (clipped at -1.0 floor for numerical stability;
+        the gate's threshold check tolerates negative values, so the
+        clip is purely diagnostic). With either condition off the
+        comparison runs on raw_vs unchanged.
+        """
         threshold = self._side_threshold(stream, side)
         vs = per_stream_vs.get(stream)
         # No V_s reading -> passthrough (gate has nothing to act on yet).
         if vs is None:
             return current_value, False
+        # MECH-284: subtract per-stream staleness from V_s before threshold.
+        if (
+            self.config.use_staleness_lookup
+            and per_stream_staleness is not None
+        ):
+            self._staleness_lookup_calls += 1
+            staleness = float(per_stream_staleness.get(stream, 0.0))
+            if staleness < 0.0:
+                staleness = 0.0
+            if staleness > self._max_staleness_seen.get(stream, 0.0):
+                self._max_staleness_seen[stream] = staleness
+            effective_vs = float(vs) - staleness
+            if effective_vs < -1.0:
+                effective_vs = -1.0
+            vs = effective_vs
         if vs >= threshold:
             return current_value, False
         snapshot = self._snapshots.get(stream)

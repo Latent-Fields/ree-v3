@@ -658,8 +658,43 @@ class REEAgent(nn.Module):
                         True,
                     )
                 ),
+                use_staleness_lookup=bool(
+                    getattr(
+                        self.hippocampal.config,
+                        "use_vs_gate_staleness_lookup",
+                        False,
+                    )
+                ),
             )
+            # Q-040b strong reading: when use_vs_gate_staleness_lookup is on,
+            # the gate consumes per-stream staleness aggregated by
+            # HippocampalModule.compute_per_stream_staleness, which itself
+            # requires use_staleness_accumulator AND use_anchor_sets. Loud
+            # failure on the missing precondition keeps experiment configs
+            # honest -- no silent passthrough into the legacy raw-V_s path.
+            if gate_cfg.use_staleness_lookup:
+                if not getattr(
+                    self.hippocampal.config, "use_staleness_accumulator", False
+                ):
+                    raise ValueError(
+                        "use_vs_gate_staleness_lookup=True requires "
+                        "use_staleness_accumulator=True (the gate consumes "
+                        "MECH-284 region staleness)."
+                    )
+                if not getattr(
+                    self.hippocampal.config, "use_anchor_sets", False
+                ):
+                    raise ValueError(
+                        "use_vs_gate_staleness_lookup=True requires "
+                        "use_anchor_sets=True (the per-stream aggregator "
+                        "walks active anchors)."
+                    )
             self.vs_rollout_gate = VsRolloutGate(gate_cfg)
+            # Cache for the per-tick aggregator output. Populated by
+            # _refresh_vs_gate_staleness() before every gate / gate_stream
+            # call. Empty dict means raw-V_s path (no staleness available
+            # this tick).
+            self._vs_gate_staleness_cache: Dict[str, float] = {}
 
         # Sleep-aggregation cluster Phase A: deterministic K-episode driver
         # for the existing SD-017 surface (run_sleep_cycle). Wraps, does not
@@ -1063,6 +1098,7 @@ class REEAgent(nn.Module):
         # the wrong reference).
         if self.vs_rollout_gate is not None:
             self.vs_rollout_gate.reset()
+            self._vs_gate_staleness_cache = {}
 
         # MECH-288: reset event segmenter state on episode boundary
         # (detector buffers, run-length posterior, outer.inner counters,
@@ -1749,12 +1785,35 @@ class REEAgent(nn.Module):
         obs_world = observation[:, body_dim:]
         return self.sense(obs_body, obs_world)
 
+    def _refresh_vs_gate_staleness(self) -> None:
+        """Refresh self._vs_gate_staleness_cache from the per-stream
+        aggregator on HippocampalModule (Q-040b strong reading).
+
+        No-op when the gate is absent or staleness lookup is disabled --
+        the cache stays empty and gate() / gate_stream() fall back to the
+        legacy raw-V_s threshold path. Called once per waking tick at the
+        top of _e1_tick; the cached dict is reused for both the E1 gate
+        call and the later E2_harm_a gate call in select_action.
+        """
+        if self.vs_rollout_gate is None:
+            return
+        if not self.vs_rollout_gate.config.use_staleness_lookup:
+            self._vs_gate_staleness_cache = {}
+            return
+        self._vs_gate_staleness_cache = (
+            self.hippocampal.compute_per_stream_staleness()
+        )
+
     def _e1_tick(self, latent_state: LatentState) -> torch.Tensor:
         """
         E1 tick: run E1 prediction and push to ThetaBuffer (MECH-089).
 
         Returns E1 world-domain prior for HippocampalModule (SD-002).
         """
+        # Q-040b strong reading: refresh per-stream staleness from
+        # MECH-284 once per tick. Cache is consumed by all gate / gate_stream
+        # calls in this tick. No-op when staleness lookup is disabled.
+        self._refresh_vs_gate_staleness()
         # MECH-269b: gate the latent for E1 forward consumption. Streams whose
         # V_s falls below vs_gate_e1_threshold are substituted with held
         # snapshots; aligned streams pass through. No-op (gated_for_e1 is
@@ -1765,6 +1824,9 @@ class REEAgent(nn.Module):
                 self.hippocampal.per_stream_vs,
                 side="e1",
                 goal_state=self.goal_state,
+                per_stream_staleness=(
+                    self._vs_gate_staleness_cache or None
+                ),
             )
         else:
             gated_for_e1 = latent_state
@@ -1798,6 +1860,9 @@ class REEAgent(nn.Module):
                     _z_goal_input,
                     self.hippocampal.per_stream_vs,
                     side="e1",
+                    per_stream_staleness=(
+                        self._vs_gate_staleness_cache or None
+                    ),
                 )
         _, e1_prior = self.e1(total_state, z_goal=_z_goal_input)
 
@@ -2497,6 +2562,9 @@ class REEAgent(nn.Module):
                         z_in,
                         self.hippocampal.per_stream_vs,
                         side="e2",
+                        per_stream_staleness=(
+                            self._vs_gate_staleness_cache or None
+                        ),
                     )
                 if z_in.dim() == 1:
                     z_in = z_in.unsqueeze(0)
