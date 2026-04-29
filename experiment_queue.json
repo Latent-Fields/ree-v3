@@ -14,13 +14,17 @@
       "script": "experiments/v3_exq_500_sd017_sleep_phase_readiness.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "episodes_per_run": 3,
       "seeds": 3,
       "conditions": 1,
       "claim_id": "SD-017",
-      "note": "EXP-0171 diagnostic readiness probe. Dry-run PASS 2026-04-29; progress denominator ep N/3; verdict lines = 3 seeds x 1 condition."
+      "note": "EXP-0171 diagnostic readiness probe. Dry-run PASS 2026-04-29; progress denominator ep N/3; verdict lines = 3 seeds x 1 condition.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-29T19:27:38.529565+00:00"
+      }
     }
   ]
 }
