@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-04-28
+**Last updated:** 2026-04-29
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-04-28)
+## 0. Current V3 State (2026-04-29)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -107,12 +107,18 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **561 runner-side completions** (per `runner_status.json` 2026-04-27T08:04Z read: 109 PASS /
-  242 FAIL / 66 ERROR / 144 UNKNOWN; v3 subset still dominates the post-2026-02-27 epoch).
-  +10 vs the 2026-04-26 read covering the 2026-04-27 substrate wave (V3-EXQ-494 SD-039
-  population layer 6/6 PASS; V3-EXQ-496 MECH-292 ranked ghost-goal bank 5/5 PASS;
-  V3-EXQ-497 MECH-293 waking ghost-goal probe search 5/5 PASS; V3-EXQ-484/485/493 PASS
-  recovery after the run_id naming-bug fix). The indexer-vs-runner gap is the historical pre-runner_status
+- **567 runner-side completions** (per `runner_status.json` 2026-04-28T21:12Z read: 111 PASS /
+  244 FAIL / 66 ERROR / 146 UNKNOWN; v3 subset still dominates the post-2026-02-27 epoch).
+  +6 vs the 2026-04-27 read covering the 2026-04-28 diagnostic wave (V3-EXQ-498 OCD Layer 1
+  closure-threshold sweep -- FAIL/non_contributory in governance, escalates to Layer 2/3;
+  V3-EXQ-418f SD-016 attention-uniformity probe -- diagnostic; V3-EXQ-418g SD-016 selectivity-first
+  4-arm -- C1+C2+C3 PASS but C4+C5 FAIL with action_class_entropy~1.1e-10 across all four arms,
+  reclassified non_contributory in 2026-04-28 governance after env-entropy precondition gap
+  diagnosed; V3-EXQ-418h env-entropy precondition probe -- FAIL, routes to broader
+  env-enrichment scoping; V3-EXQ-490b MECH-269b VsRolloutGate substrate-readiness probe
+  -- FAIL outcome under UNKNOWN result code, governance-classified inconclusive,
+  Q-040b points at MECH-295 bridge as remaining blocker now that the bridge has landed).
+  The indexer-vs-runner gap is the historical pre-runner_status
   archive plus the per-seed manifests the runner records as a single queue entry.
   Spanning SD-003 through SD-023 validation, heartbeat architecture (SD-006),
   reafference (SD-007), encoder fixes (SD-008/009), harm stream separation (SD-010),
@@ -146,75 +152,79 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   MECH-293 waking ghost-goal probe search) extends the suite further to
   **183/183 contracts + 7/7 preflight PASS** with all flags OFF, preserving
   the bit-identical-when-OFF guarantee.
-- **Currently queued (2026-04-28): five items pending**, all unclaimed.
+- **Currently queued (2026-04-29): one item, claimed by ree-cloud-2.**
+  Post-governance state: the 2026-04-28T23:04Z governance walk applied 10
+  decisions (4 promotions MECH-266/267/268/SD-034 candidate->provisional,
+  SD-033b v3_pending true->false on the V3-EXQ-485 substrate-landing PASS,
+  2 holds preserved on MECH-057b/MECH-263, 6 narrow-open Q-claim
+  evidence_quality_note refreshes Q-025/26/27/28/31/40, V3-EXQ-485 (4)
+  manifests with MECH-263 supports->non_contributory per claim_ids accuracy
+  rule, replica supersession across EXQ-484/485/493 to avoid 5x/4x/3x
+  over-weighting). Current queue:
+  - **V3-EXQ-490b** (MECH-269b VsRolloutGate substrate-readiness probe;
+    Q-040a precondition; supersedes V3-EXQ-490a) is **claimed by
+    ree-cloud-2 2026-04-28T17:14Z and completed 2026-04-28T21:09Z** with
+    UNKNOWN result code (Outcome: FAIL). Governance 2026-04-28T23:04Z
+    classified the run inconclusive: Q-040a effectively PASS at the
+    threshold-overridden smoke; Q-040b FAIL points at MECH-295
+    drive->liking->approach bridge as the remaining blocker -- MECH-295
+    landed 2026-04-26 (V3-EXQ-493 PASS), so the successor combines
+    MECH-269b VsRolloutGate ON with MECH-295 bridge ON in a single
+    factorial. Successor EXQ pending design.
   - **V3-EXQ-495** (MECH-163 V3 full-completion gate -- VTA / hippocampally-
-    planned arm) is **pending**. THE discriminative test for the planned arm
-    of MECH-163 dual goal-directed systems. All substrate prerequisites
-    landed 2026-04-27: SD-039 anchor goal-snapshot payload (V3-EXQ-494 PASS),
-    MECH-292 ranked ghost-goal bank (V3-EXQ-496 PASS), MECH-293 waking
-    ghost-goal probe search (V3-EXQ-497 PASS). 3 conditions (HABIT value-flat
-    proposals; PLANNED ghost-seeded proposals via MECH-293; ABLATED no goal
-    anywhere) x 2 paradigms (A_DETOUR mid-episode blockage; B_NOVEL_CONTEXT
+    planned arm) **drafted but not yet queued**. THE discriminative test
+    for the planned arm of MECH-163 dual goal-directed systems. All
+    substrate prerequisites landed 2026-04-27: SD-039 anchor goal-snapshot
+    payload (V3-EXQ-494 PASS), MECH-292 ranked ghost-goal bank
+    (V3-EXQ-496 PASS), MECH-293 waking ghost-goal probe search
+    (V3-EXQ-497 PASS). 3 conditions (HABIT value-flat proposals;
+    PLANNED ghost-seeded proposals via MECH-293; ABLATED no goal anywhere)
+    x 2 paradigms (A_DETOUR mid-episode blockage; B_NOVEL_CONTEXT
     cross-episode env swap) x 7 seeds. Acceptance C2 = PLANNED-HABIT
     benefit-post-block gap >= 0.30 in detour, >= 4/7 seeds. Estimated
-    25h on Mac / 40h on ree-cloud-1; machine_affinity=any.
-  - **V3-EXQ-490b** (MECH-269b VsRolloutGate substrate-readiness probe;
-    Q-040a precondition; supersedes V3-EXQ-490a) is **pending**. /diagnose-
-    errors 2026-04-27 root-cause: V3-EXQ-490 + 490a both FAILed c1
-    (vs_gate_total_held=0 across both arms in all 3 seeds) because Phase 1
-    V_s identity-prediction proxy stays near 0.9-1.0 under aligned latents
-    so the V_s<0.4 hold trigger is unreachable at smoke scale. V3-EXQ-490b
-    raises vs_gate_e1/e2_threshold to 0.85 and snapshot_refresh to 0.95 so
-    the gate fires under typical Phase 1 V_s dynamics. PASS confirms
-    substrate wiring (Q-040a precondition) but does NOT test MECH-269b's
-    stale-stream-discrimination hypothesis (Q-040b -- gated on Phase 2
-    forward-predictor V_s OR a substrate change wiring staleness_accumulator
-    into VsRolloutGate.gate()). claim_ids=['Q-040'] only.
-  - **V3-EXQ-498** (OCD Layer 1: closure-threshold sweep on V3 monostrategy --
-    SD-034 parameter diagnostic; queued 2026-04-28T06:10Z). 4-arm sweep
-    {TIGHT 0.0001, DEFAULT 0.001, LOOSE 0.005, VERY_LOOSE 0.05} x 3 seeds
-    (42, 7, 13). Tests the OCD three-layer architectural model Layer 1
-    hypothesis (psychiatric_failure_modes.md): does sweeping
-    closure_rule_delta_threshold attenuate V3 baseline monostrategy?
-    Base agent SD-034 active, all V_s circuit OFF, all abstraction
-    substrates OFF -- isolates SD-034 closure threshold as single
-    manipulated variable. PASS = at AT LEAST ONE of {LOOSE, VERY_LOOSE},
-    entropy(arm) > entropy(DEFAULT) + 0.1 in >= 2/3 seeds. FAIL rules out
-    Layer 1 and licenses Layer 2 (MECH-290 ablation diagnostic) or Layer 3
-    (SD-046 multi-slot GoalState pull-forward). claim_ids=['SD-034'] only;
-    independent of EXQ-490/490b V_s pathway. ~60 min single-machine.
-  - **V3-EXQ-418f** (SD-016 attention-uniformity diagnostic probe;
-    EXQ-418e follow-up; queued 2026-04-28T06:54Z). Single-seed probe
-    instrumenting the EXQ-418d/418e attn_entropy_mean=ln(16) uniform-rail
-    failure mode. After training, samples 64 z_world states from a random-
-    policy rollout and dumps per-batch q/k norm stats, raw and scaled
-    dot-product distributions, slot argmax histogram, attention entropy
-    stats. Diagnostic-only PASS criteria; localises whether bottleneck is
-    query magnitude, key magnitude, or scale before EXQ-418g selectivity-
-    first ablation commits. ~15 min.
-  - **V3-EXQ-418g** (SD-016 Path 4 query-selectivity-first 4-arm; queued
-    2026-04-28T06:54Z). Tests SD-016 Path 4 hypothesis: query selectivity
-    (not slot content) is the EXQ-418d/418e bottleneck. New substrate
-    hooks landed 2026-04-28: E1Config.sd016_temperature_learnable
-    (replaces fixed sqrt(memory_dim) divisor with exp(log_tau)) +
-    E1.compute_attention_entropy_loss(z_world). 4-arm 3-seed factorial:
-    B0_off baseline, B1_sel_only, B2_div_only (replicates EXQ-418e
-    A2_div_only as null), B3_sel_plus_div (full hypothesis). Acceptance
-    C1-C5 including C4 (selectivity ALONE produces behavioural delta vs
-    B0). FAIL on C4 with C1 PASS routes to EXQ-418h band-aid removal or
-    EXQ-418i VQ codebook fallback. claim_ids=['SD-016'] only. ~90 min.
-- **Current bottleneck:** V3-EXQ-495 (V3 full-completion gate / MECH-163
-  hippocampally-planned arm) is the headline run -- all three substrate
-  prerequisites cleared 2026-04-27, leaving only the runtime budget decision
-  (~25h on Mac, ~40h on ree-cloud-1). C2 PLANNED-HABIT benefit-post-block
-  gap is the V3-full-completion gate metric. V3-EXQ-490b is the smaller
-  upstream factorial for Q-040a (MECH-269b substrate-wiring precondition
-  only; Q-040b stays gated on Phase 2 V_s). The EXQ-483 wired-but-inert
-  pattern remains an open thread for the SD-037 / MECH-269b / MECH-295
-  cluster: V3-EXQ-484/485/493 all cleared as substrate-readiness PASSes
-  on 2026-04-27 (post run_id naming-bug fix), validating SD-033a / SD-033b
-  / MECH-295 substrate landings; behavioural recovery of approach_commit
-  awaits the combined-cluster successor EXQ. Open promotion blockers
+    25h on Mac / 40h on ree-cloud-1; machine_affinity=any. Queueing
+    decision pending; the 2026-04-28 governance cycle deferred queueing
+    until the EXQ-490b/MECH-295 successor lands.
+  Recently completed and out of queue:
+  - **V3-EXQ-498** (OCD Layer 1 closure-threshold sweep) -- FAIL outcome
+    under UNKNOWN result code 2026-04-28T20:29Z, governance reclassified
+    non_contributory; rules out Layer 1, licenses Layer 2 (MECH-290
+    ablation) or Layer 3 (SD-046 multi-slot GoalState pull-forward).
+  - **V3-EXQ-418f / 418g / 418h** -- SD-016 diagnostic probe + selectivity-
+    first 4-arm + env-entropy precondition probe. 418f localised the
+    failure to query selectivity (not slot content); 418g substrate-side
+    fixes (learnable temperature + entropy regulariser) work as designed
+    (C1+C2+C3 PASS), but C4+C5 FAIL with action_class_entropy~1.1e-10
+    IDENTICALLY across all four arms because z_world is near-constant
+    across the batch (cos~0.998 in 418f). 418h env-entropy probe
+    confirmed: SD-023 landmarks-on alone does NOT supply enough
+    cross-context z_world variance under the current env. SD-016
+    parked pending env-enrichment precondition (substrate_queue.json
+    status parked_pending_env_entropy_precondition); validation_experiment
+    rerouted to EXQ-418h family pending broader env scoping.
+- **Current bottleneck:** the EXQ-490b/MECH-295 combined successor is the
+  next-up substrate-validation run -- post-2026-04-28-governance, EXQ-490b
+  alone is inconclusive (Q-040a substrate-wiring effective PASS at the
+  threshold-overridden smoke; Q-040b stale-stream-discrimination FAIL points
+  at MECH-295 drive->liking->approach bridge as the still-open dependency,
+  now landed on 2026-04-26 via V3-EXQ-493 PASS so the successor combines
+  both knobs ON in a single factorial). V3-EXQ-495 (V3 full-completion gate
+  / MECH-163 hippocampally-planned arm) remains the headline first-paper-gate
+  run -- all three substrate prerequisites cleared 2026-04-27, but queueing
+  decision deferred until the EXQ-490b/MECH-295 successor lands. C2
+  PLANNED-HABIT benefit-post-block gap is the V3-full-completion gate metric.
+  The EXQ-483 wired-but-inert pattern remains the open behavioural-recovery
+  thread for the SD-037 / MECH-269b / MECH-295 cluster: V3-EXQ-484/485/493
+  all cleared as substrate-readiness PASSes (post run_id naming-bug fix),
+  validating SD-033a / SD-033b / MECH-295 substrate landings; behavioural
+  recovery of approach_commit awaits the combined-cluster successor EXQ.
+  SD-016 is parked pending env-entropy precondition (EXQ-418f/g/h
+  established the cue-context machinery works as designed but the env
+  doesn't supply cross-context z_world variance; substrate_queue.json
+  status parked_pending_env_entropy_precondition). OCD Layer 1
+  hypothesis disconfirmed (V3-EXQ-498 FAIL reclassified non_contributory
+  in 2026-04-28 governance), escalating to Layer 2 (MECH-290 ablation
+  diagnostic) or Layer 3 (SD-046 multi-slot GoalState pull-forward). Open promotion blockers
   documented in claims.yaml: MECH-294 within-cycle-vs-cross-cycle binding
   (Kay 2020 challenge); MECH-295 strong-vs-weak liking-bridge necessity (weak
   reading committed provisionally). SD-032 cluster behavioural
@@ -263,23 +273,27 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   7/7 preflight PASS** with all flags OFF -- bit-identical-when-OFF guarantee
   preserved across the entire wave. Explorer preflight badge + pre-commit
   contracts hook (PR 5) remain live. **Pending review queue (per
-  pending_review.md regenerated 2026-04-28T04:18:29Z) lists 15 items -- 12 PASS
-  (V3-EXQ-484 / 485 / 493 across multiple machine/timestamp runs indexed after
-  the 2026-04-27T14:55 /diagnose-errors run_id naming-bug fix) and 3 runner-only
-  UNKNOWN entries for the same three queue IDs awaiting next governance walk
-  (the queue grew from 6 at the 2026-04-27T14:47:47Z regen because each
-  per-machine/per-timestamp PASS now indexes as a distinct run; the same three
-  queue IDs sit underneath). The 2026-04-27T14:11 governance cycle walked 9 indexed
-  pending + 4 runner-only and applied: SD-039 / MECH-292 / MECH-293
-  substrate-readiness PASS clusters preserved as `hold_pending_v3_substrate`
-  pending behavioural validation; V3-EXQ-433d SD-029 / MECH-256 reclassified
-  `non_contributory` (same monomodal phenotype as 433/433a/433b/470, hold
-  pending MECH-269/MECH-269b V_s landing); V3-EXQ-418e SD-016 keeps
-  `does_not_support` on path-1 div_weight=0.5 with EXQ-418f weight-sweep
-  follow-up flagged; V3-EXQ-490 MECH-269b/Q-040 (x2 runs) reclassified
-  `non_contributory` (sub-diagnostic c1 gate-firing precondition FAILed --
-  flagged for /diagnose-errors and resolved with V3-EXQ-490b smoke-threshold
-  override). Next governance cycle gates on V3-EXQ-490b + V3-EXQ-495 outcomes.**
+  pending_review.md regenerated 2026-04-28T23:11Z) lists 0 items -- the
+  2026-04-28T23:04Z governance cycle walked 20 pending (13 PASS + 4 FAIL +
+  3 UNKNOWN dupes) and applied 10 user-approved decisions (4 promotions
+  MECH-266/267/268/SD-034 candidate->provisional; SD-033b v3_pending true->false
+  on V3-EXQ-485 substrate-landing PASS UC1-UC5; 2 holds preserved on MECH-057b
+  + MECH-263; 6 narrow-open Q-claim evidence_quality_note refreshes for
+  Q-025/26/27/28/31/40 capturing the 2026-04-28 lit-pull cluster + 5th-
+  consecutive aggregator-floor caveat). Manifest edits: V3-EXQ-485 (4)
+  MECH-263 supports->non_contributory per claim_ids accuracy rule
+  (MECH-263 functional signatures (a)/(b) explicitly DEFERRED in manifest
+  notes; experiment tests SD-033b substrate wiring only); replica
+  supersession kept canonical EXQ-484/485/493 (one timestamp each) and
+  marked 4+3+2 deterministic re-runs evidence_direction='superseded';
+  V3-EXQ-418g SD-016 does_not_support->non_contributory (env-entropy gap).
+  V3-EXQ-498 OCD Layer 1 reclassified non_contributory; Layer 1 disconfirmed.
+  V3-EXQ-490b inconclusive; combined EXQ-490b/MECH-295 successor pending.
+  Pipeline: validate_claims --strict OK 68 invariants; claims.json rebuilt
+  571; index 915 runs / 482 types; pending_review 0+0. Substrate queue 52
+  items (32 implemented + 2 IBFV + 1 parked + 17 pending). 10 proposals
+  flipped to executed. Next governance cycle gates on the EXQ-490b/MECH-295
+  successor + V3-EXQ-495 outcomes.**
 
 ### V3 / V4 Scope Boundary
 
