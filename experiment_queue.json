@@ -8,24 +8,22 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-490b",
+      "queue_id": "V3-EXQ-490c",
       "claim_id": "Q-040",
       "claim_ids": [
         "Q-040"
       ],
-      "title": "MECH-269b VsRolloutGate substrate-readiness probe (Q-040a precondition)",
-      "script": "experiments/v3_exq_490b_mech269b_vs_rollout_gating.py",
-      "experiment_purpose": "diagnostic",
+      "title": "MECH-269b V_s gating + MECH-295 liking-bridge factorial (Q-040b behavioural sufficiency)",
+      "script": "experiments/v3_exq_490c_mech269b_with_liking_bridge.py",
+      "experiment_purpose": "evidence",
       "machine_affinity": "any",
-      "priority": 5,
+      "priority": 4,
       "estimated_minutes": 320,
-      "status": "claimed",
-      "supersedes": "V3-EXQ-490a",
-      "note": "Smoke-only substrate-readiness probe. /diagnose-errors 2026-04-27 root-cause: V3-EXQ-490 + 490a both FAILed c1 (vs_gate_total_held = 0 across both arms in all 3 seeds) because the gate's hold trigger (V_s < 0.4) is unreachable under typical Phase 1 V_s dynamics. Phase 1 V_s is an identity-prediction proxy (1 - normalized_delta) that stays near 0.9-1.0 under aligned latents; reaching 0.4 needs ~9 consecutive ticks of fully misaligned latent. V3-EXQ-490b raises vs_gate_e1_threshold + vs_gate_e2_threshold to 0.85 and vs_gate_snapshot_refresh_threshold to 0.95 so the gate fires under typical Phase 1 V_s dynamics. PASS confirms substrate wiring (Q-040a precondition) but does NOT test MECH-269b's stale-stream-discrimination hypothesis (Q-040b) -- at smoke thresholds, even healthy streams with mild velocity get held. claim_ids = ['Q-040'] only per /diagnose-errors claim_ids accuracy review (MECH-269b dropped because experiment does not produce interpretable signal for its mechanism claim). Q-040b remains gated on Phase 2 forward-predictor V_s OR a substrate change wiring staleness_accumulator into VsRolloutGate.gate() before threshold comparison. supersedes V3-EXQ-490a.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-04-28T17:14:27.323531+00:00"
-      }
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 2,
+      "status": "pending",
+      "note": "Successor (NOT supersede) of V3-EXQ-490b. 490b PASSed C1 (gate fires) but FAILed C2/C3 (zero approach_commit + zero dACC bias) -- governance walk 2026-04-28T22Z routes evidence to MECH-295 liking-bridge as the dominant remaining blocker. Bridge substrate landed 2026-04-26 (V3-EXQ-493 UC1-UC6 PASS). 490c holds use_vs_rollout_gating=True in BOTH arms (with the same smoke threshold override 0.85/0.85/0.95 carried from 490b -- Q-040a is already answered PASS so we re-verify via C1 only) and toggles use_mech295_liking_bridge OFF/ON. PASS = C1 (gate fires both arms) AND C2 (ON_ON approach > ON_OFF AND ON_ON approach > 0 in >=2/3 seeds) AND C3 (ON_ON dACC bias > ON_OFF AND > 0) AND C4 (severance: bridge cue_fires == 0 in ON_OFF AND > 0 in ON_ON). PASS supports Q-040b architectural reading (V_s + liking bridge jointly unblock the EXQ-483 wired-but-inert phenotype). FAIL on C2/C3 with C1+C4 PASSing routes evidence further upstream (VALENCE_LIKING write geometry, GoalState seeding from z_resource, downstream BG/E3 score_bias composition). Tagged Q-040 only per claim_ids accuracy rule. experiment_purpose=evidence (bridge OFF/ON is the falsifiable severed-bridge signature for MECH-295 weak reading at the behavioural level)."
     }
   ]
 }
