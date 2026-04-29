@@ -6,5 +6,55 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-500",
+      "title": "EXP-0171 SD-017 sleep-phase substrate-readiness probe",
+      "experiment_type": "v3_exq_500_sd017_sleep_phase_readiness",
+      "script": "experiments/v3_exq_500_sd017_sleep_phase_readiness.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 3,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "SD-017",
+      "note": "EXP-0171 diagnostic readiness probe. Dry-run PASS 2026-04-29; progress denominator ep N/3; verdict lines = 3 seeds x 1 condition."
+    },
+    {
+      "queue_id": "V3-EXQ-501",
+      "title": "EXP-0172 SD-035 amygdala analog vs binary valence",
+      "experiment_type": "v3_exq_501_sd035_amygdala_analog_vs_binary",
+      "script": "experiments/v3_exq_501_sd035_amygdala_analog_vs_binary.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 75,
+      "episodes_per_run": 24,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "SD-035",
+      "note": "EXP-0172 evidence-grade discriminative pair. Dry-run PASS 2026-04-29; progress denominator ep N/24; verdict lines = 3 seeds x 2 conditions.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-29T19:27:27.459712+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-502",
+      "title": "EXP-0173 MECH-062 tri-loop gate coordination",
+      "experiment_type": "v3_exq_502_mech062_tri_loop_gate_coordination",
+      "script": "experiments/v3_exq_502_mech062_tri_loop_gate_coordination.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 70,
+      "episodes_per_run": 120,
+      "seeds": 3,
+      "conditions": 4,
+      "claim_id": "MECH-062",
+      "note": "EXP-0173 standalone mechanism experiment because REEAgent does not expose separate tri-loop gate objects. Dry-run PASS 2026-04-29; progress denominator ep N/120; verdict lines = 3 seeds x 4 conditions."
+    }
+  ]
 }
