@@ -6,5 +6,28 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-499",
+      "claim_id": "MECH-094",
+      "claim_ids": [
+        "MECH-094"
+      ],
+      "title": "MECH-094 hypothesis-tag write-gate discriminative pair (EXP-0170)",
+      "script": "experiments/v3_exq_499_mech094_hypothesis_tag_writegate_discriminative.py",
+      "experiment_purpose": "evidence",
+      "machine_affinity": "any",
+      "priority": 1,
+      "estimated_minutes": 15,
+      "episodes_per_run": 0,
+      "seeds": 3,
+      "conditions": 2,
+      "status": "claimed",
+      "note": "Phase 2 of Option E (lit/exp decoupling): EXP-0170 lands the first of four experiments for the genuinely-untested standard-gating cohort exposed by the shadow report. Substrate-level discriminative pair on ResidueField -- ARM_A passes hypothesis_tag=True for sim events (gate active per MECH-094); ARM_B passes False (gate inactive -- the predicted tag-loss / write-channel disinhibition pathology underwriting confabulation/PTSD). Avoids the V3-EXQ-140 non_contributory failure mode by forced-injection design (N_REAL=50 + N_SIM=50 deterministic events at disjoint z_world locations) -- no env-loop noise floor. Three pre-registered metrics: M1 write_channel_contamination_index (sim-vs-real RBF weight delta ratio), M2 confabulation_rate (sim signatures judged as real), M3 routing_separation (MI between tag and write_occurred in nats). PASS = C1 (ARM_A contam<0.05 AND ARM_B contam>0.50 AND delta>0.40 in 2/3 seeds) AND C2 (ARM_A confab<=0.05 AND ARM_B confab>=0.30 in 2/3 seeds) AND C3 (ARM_A MI>=0.50 AND ARM_B MI<=0.05 in 2/3 seeds). PASS supports MECH-094 load-bearing status; FAIL with C1 alone passing routes evidence to a downstream consumer gap; FAIL with C1 also failing routes to substrate regression (run /diagnose-errors). Smoke 2026-04-29 (3 seeds, ~5s wall): all 3 criteria PASS in 3/3 seeds with ARM_A contam=0.000, confab=0.000, MI=0.693 (perfect log(2)) and ARM_B contam=1.000, confab=0.640, MI=0.000. Estimated runtime <5 min on Mac, padded to 15 min for safety. Tagged MECH-094 only per claim_ids accuracy rule.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-04-29T18:47:26.984803+00:00"
+      }
+    }
+  ]
 }
