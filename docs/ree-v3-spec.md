@@ -107,9 +107,12 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **567 runner-side completions** (per `runner_status.json` 2026-04-28T21:12Z read: 111 PASS /
-  244 FAIL / 66 ERROR / 146 UNKNOWN; v3 subset still dominates the post-2026-02-27 epoch).
-  +6 vs the 2026-04-27 read covering the 2026-04-28 diagnostic wave (V3-EXQ-498 OCD Layer 1
+- **568 runner-side completions** (per `runner_status.json` 2026-04-29T11:34Z read: 111 PASS /
+  245 FAIL / 66 ERROR / 146 UNKNOWN; v3 subset still dominates the post-2026-02-27 epoch).
+  +1 vs the 2026-04-29T01:10Z read covering V3-EXQ-490c completion (FAIL on Mac
+  2026-04-29T08:34Z; MECH-269b V_s gating + MECH-295 liking-bridge factorial; Q-040b
+  behavioural sufficiency arm; pending discussion as of this read). +6 vs the 2026-04-27
+  read covering the 2026-04-28 diagnostic wave (V3-EXQ-498 OCD Layer 1
   closure-threshold sweep -- FAIL/non_contributory in governance, escalates to Layer 2/3;
   V3-EXQ-418f SD-016 attention-uniformity probe -- diagnostic; V3-EXQ-418g SD-016 selectivity-first
   4-arm -- C1+C2+C3 PASS but C4+C5 FAIL with action_class_entropy~1.1e-10 across all four arms,
@@ -152,25 +155,33 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   MECH-293 waking ghost-goal probe search) extends the suite further to
   **183/183 contracts + 7/7 preflight PASS** with all flags OFF, preserving
   the bit-identical-when-OFF guarantee.
-- **Currently queued (2026-04-29): one item, claimed by ree-cloud-2.**
-  Post-governance state: the 2026-04-28T23:04Z governance walk applied 10
-  decisions (4 promotions MECH-266/267/268/SD-034 candidate->provisional,
+- **Currently queued (2026-04-29T11:34Z): zero items.** The queue is empty
+  pending design of the V3-EXQ-490c successor (V3-EXQ-490d). Post-governance
+  state: the 2026-04-28T23:04Z governance walk applied 10 decisions
+  (4 promotions MECH-266/267/268/SD-034 candidate->provisional,
   SD-033b v3_pending true->false on the V3-EXQ-485 substrate-landing PASS,
   2 holds preserved on MECH-057b/MECH-263, 6 narrow-open Q-claim
   evidence_quality_note refreshes Q-025/26/27/28/31/40, V3-EXQ-485 (4)
   manifests with MECH-263 supports->non_contributory per claim_ids accuracy
   rule, replica supersession across EXQ-484/485/493 to avoid 5x/4x/3x
-  over-weighting). Current queue:
+  over-weighting). Recently completed and out of queue:
+  - **V3-EXQ-490c** (MECH-269b V_s gating + MECH-295 liking-bridge factorial;
+    Q-040b behavioural sufficiency arm; supersedes V3-EXQ-490b's blocker
+    diagnosis) **completed FAIL on Mac 2026-04-29T08:34Z (~2.6h)**, pending
+    discussion as of this read. PRELIMINARY READING: the Q-040b strong
+    reading (MECH-269b V_s gating ON + MECH-295 bridge ON jointly recover
+    approach_commit) is NOT supported under matched smoke-threshold
+    overrides. Successor V3-EXQ-490d planned to drop the smoke-threshold
+    override and exercise the 2026-04-29T11:00Z MECH-284 staleness-into-gate
+    wiring (use_vs_gate_staleness_lookup ON vs OFF at matched 0.4 thresholds)
+    as the falsifiable test of the strong reading. Successor design
+    in-progress; not yet queued.
   - **V3-EXQ-490b** (MECH-269b VsRolloutGate substrate-readiness probe;
-    Q-040a precondition; supersedes V3-EXQ-490a) is **claimed by
-    ree-cloud-2 2026-04-28T17:14Z and completed 2026-04-28T21:09Z** with
-    UNKNOWN result code (Outcome: FAIL). Governance 2026-04-28T23:04Z
-    classified the run inconclusive: Q-040a effectively PASS at the
-    threshold-overridden smoke; Q-040b FAIL points at MECH-295
-    drive->liking->approach bridge as the remaining blocker -- MECH-295
-    landed 2026-04-26 (V3-EXQ-493 PASS), so the successor combines
-    MECH-269b VsRolloutGate ON with MECH-295 bridge ON in a single
-    factorial. Successor EXQ pending design.
+    Q-040a precondition; supersedes V3-EXQ-490a) completed
+    2026-04-28T21:09Z UNKNOWN/FAIL; governance 2026-04-28T23:04Z classified
+    the run inconclusive (Q-040a effectively PASS at smoke; Q-040b FAIL
+    points at MECH-295 bridge as remaining blocker -- which is now refuted
+    or weakened by the V3-EXQ-490c FAIL).
   - **V3-EXQ-495** (MECH-163 V3 full-completion gate -- VTA / hippocampally-
     planned arm) **drafted but not yet queued**. THE discriminative test
     for the planned arm of MECH-163 dual goal-directed systems. All
