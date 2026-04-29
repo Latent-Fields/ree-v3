@@ -21,25 +21,6 @@
       "conditions": 1,
       "claim_id": "SD-017",
       "note": "EXP-0171 diagnostic readiness probe. Dry-run PASS 2026-04-29; progress denominator ep N/3; verdict lines = 3 seeds x 1 condition."
-    },
-    {
-      "queue_id": "V3-EXQ-502",
-      "title": "EXP-0173 MECH-062 tri-loop gate coordination",
-      "experiment_type": "v3_exq_502_mech062_tri_loop_gate_coordination",
-      "script": "experiments/v3_exq_502_mech062_tri_loop_gate_coordination.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 70,
-      "episodes_per_run": 120,
-      "seeds": 3,
-      "conditions": 4,
-      "claim_id": "MECH-062",
-      "note": "EXP-0173 standalone mechanism experiment because REEAgent does not expose separate tri-loop gate objects. Dry-run PASS 2026-04-29; progress denominator ep N/120; verdict lines = 3 seeds x 4 conditions.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-29T19:27:34.926654+00:00"
-      }
     }
   ]
 }
