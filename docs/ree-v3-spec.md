@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-04-29
+**Last updated:** 2026-04-30
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-04-29)
+## 0. Current V3 State (2026-04-30)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -107,12 +107,21 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **568 runner-side completions** (per `runner_status.json` 2026-04-29T11:34Z read: 111 PASS /
-  245 FAIL / 66 ERROR / 146 UNKNOWN; v3 subset still dominates the post-2026-02-27 epoch).
-  +1 vs the 2026-04-29T01:10Z read covering V3-EXQ-490c completion (FAIL on Mac
-  2026-04-29T08:34Z; MECH-269b V_s gating + MECH-295 liking-bridge factorial; Q-040b
-  behavioural sufficiency arm; pending discussion as of this read). +6 vs the 2026-04-27
-  read covering the 2026-04-28 diagnostic wave (V3-EXQ-498 OCD Layer 1
+- **572 runner-side completions** (per `runner_status.json` 2026-04-29T20:12Z read: 113 PASS /
+  246 FAIL / 66 ERROR / 147 UNKNOWN; v3 subset still dominates the post-2026-02-27 epoch).
+  +4 vs the 2026-04-29T11:34Z read covering the 2026-04-29 PM Phase 2 claim-type-gating
+  cohort: V3-EXQ-499 MECH-094 hypothesis-tag write-gate discriminative pair PASS
+  (3/3 seeds, MECH-094 quadrant flipped plausible_unproven -> confirmed_established;
+  exp_conf 0.000 -> 0.775); V3-EXQ-500 SD-017 sleep-phase substrate-readiness diagnostic PASS;
+  V3-EXQ-501 SD-035 amygdala analog vs binary PASS; V3-EXQ-502 MECH-062 tri-loop coordination PASS.
+  All four executed within minutes of queueing on DLAPTOP-4.local (the local runner picked up
+  EXP-0170/0171/0172/0173 immediately after Phase 2 reckoning landed earlier the same day:
+  claim-type evidence gating distinguishes substrate_coherence / answer_state / standard
+  gating; impl_no_exp 15 -> 4 after gating, four genuinely-testable MECH/SD claims surfaced
+  + queued + executed inside one session). +1 vs the 2026-04-29T01:10Z read covering
+  V3-EXQ-490c completion (FAIL on Mac 2026-04-29T08:34Z; MECH-269b V_s gating + MECH-295
+  liking-bridge factorial; Q-040b behavioural sufficiency arm; pending discussion as of
+  this read). +6 vs the 2026-04-27 read covering the 2026-04-28 diagnostic wave (V3-EXQ-498 OCD Layer 1
   closure-threshold sweep -- FAIL/non_contributory in governance, escalates to Layer 2/3;
   V3-EXQ-418f SD-016 attention-uniformity probe -- diagnostic; V3-EXQ-418g SD-016 selectivity-first
   4-arm -- C1+C2+C3 PASS but C4+C5 FAIL with action_class_entropy~1.1e-10 across all four arms,
@@ -155,8 +164,11 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   MECH-293 waking ghost-goal probe search) extends the suite further to
   **183/183 contracts + 7/7 preflight PASS** with all flags OFF, preserving
   the bit-identical-when-OFF guarantee.
-- **Currently queued (2026-04-29T11:34Z): zero items.** The queue is empty
-  pending design of the V3-EXQ-490c successor (V3-EXQ-490d). Post-governance
+- **Currently queued (2026-04-30T01:30Z): zero items.** The queue is empty
+  pending design of the V3-EXQ-490c successor (V3-EXQ-490d) and the
+  queueing decision on V3-EXQ-495 (V3 full-completion gate / MECH-163
+  hippocampally-planned arm); the four Phase 2 cohort runs (V3-EXQ-499/500/
+  501/502) cleared the queue on the 2026-04-29 PM execution wave. Post-governance
   state: the 2026-04-28T23:04Z governance walk applied 10 decisions
   (4 promotions MECH-266/267/268/SD-034 candidate->provisional,
   SD-033b v3_pending true->false on the V3-EXQ-485 substrate-landing PASS,
@@ -197,6 +209,26 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
     decision pending; the 2026-04-28 governance cycle deferred queueing
     until the EXQ-490b/MECH-295 successor lands.
   Recently completed and out of queue:
+  - **V3-EXQ-499** (MECH-094 hypothesis-tag write-gate discriminative pair --
+    EXP-0170 from Phase 2 claim-type gating cohort) **PASS 3/3 seeds on Mac
+    2026-04-29T18:47Z (~0.08s)**, pending discussion. ARM_A:
+    contam=0.000, confab=0.000, MI=0.693 (perfect log(2)). ARM_B:
+    contam=1.000, confab=0.640, MI=0.000. First standard-gating
+    experimental evidence for MECH-094 -- prior 9 entries excluded
+    (V3-EXQ-465 family diagnostic_probe; V3-EXQ-140 non_contributory).
+    MECH-094 quadrant flipped plausible_unproven -> confirmed_established.
+  - **V3-EXQ-500** (SD-017 sleep-phase substrate-readiness diagnostic --
+    EXP-0171) **PASS on Mac 2026-04-29T19:27Z**, pending discussion.
+    Substrate-readiness probe; nine prior FAIL/non_contributory entries
+    on SD-017 led to a fresh substrate-readiness gate before any
+    behavioural retest.
+  - **V3-EXQ-501** (SD-035 amygdala analog vs binary -- EXP-0172) **PASS
+    on Mac 2026-04-29T19:27Z**, pending discussion. Discriminates
+    SD-035's amygdala-analog substrate from a degenerate binary toggle.
+  - **V3-EXQ-502** (MECH-062 tri-loop gate coordination -- EXP-0173)
+    **PASS on Mac 2026-04-29T19:27Z**, pending discussion. Truly
+    fresh-start MECH-062 evidence (zero priors); first tri-loop
+    coordination test on the V3 substrate.
   - **V3-EXQ-498** (OCD Layer 1 closure-threshold sweep) -- FAIL outcome
     under UNKNOWN result code 2026-04-28T20:29Z, governance reclassified
     non_contributory; rules out Layer 1, licenses Layer 2 (MECH-290
@@ -281,12 +313,24 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   (10 tests), MECH-275 BayesianAggregator Phase D (10 tests), and MECH-273
   SelfModelAggregator Phase E (10 tests). The 2026-04-26 wave (SD-039 substrate
   + SD-033b OFC + MECH-269b + MECH-295) extended the contracts to **164/164 +
-  7/7 preflight PASS** with all flags OFF -- bit-identical-when-OFF guarantee
+  7/7 preflight PASS** with all flags OFF; the 2026-04-27 wave (SD-039 module-
+  level write-site population layer + MECH-292 ranked ghost-goal bank +
+  MECH-293 waking ghost-goal probe search) extended the suite further to
+  **183/183 contracts + 7/7 preflight PASS**; and the 2026-04-29 MECH-269b +
+  MECH-284 staleness-into-gate wiring added 8 new contracts for
+  use_vs_gate_staleness_lookup, bringing the suite to **191/191 preflight +
+  contracts PASS** with all flags OFF -- bit-identical-when-OFF guarantee
   preserved across the entire wave. Explorer preflight badge + pre-commit
   contracts hook (PR 5) remain live. **Pending review queue (per
-  pending_review.md regenerated 2026-04-28T23:11Z) lists 0 items -- the
-  2026-04-28T23:04Z governance cycle walked 20 pending (13 PASS + 4 FAIL +
-  3 UNKNOWN dupes) and applied 10 user-approved decisions (4 promotions
+  pending_review.md regenerated 2026-04-29T19:32Z) lists 5 items --
+  4 PASS (V3-EXQ-499 MECH-094 / V3-EXQ-500 SD-017 / V3-EXQ-501 SD-035 /
+  V3-EXQ-502 MECH-062) + 1 FAIL (V3-EXQ-490c MECH-269b+MECH-295
+  factorial). The four Phase 2 cohort PASSes are the first
+  experimental signals for the four standard-gating MECH/SD claims
+  surfaced by the 2026-04-29 PM Phase 2 reckoning; governance walk
+  pending. The 2026-04-28T23:04Z governance cycle walked 20 pending
+  (13 PASS + 4 FAIL + 3 UNKNOWN dupes) and applied 10 user-approved
+  decisions (4 promotions
   MECH-266/267/268/SD-034 candidate->provisional; SD-033b v3_pending true->false
   on V3-EXQ-485 substrate-landing PASS UC1-UC5; 2 holds preserved on MECH-057b
   + MECH-263; 6 narrow-open Q-claim evidence_quality_note refreshes for
