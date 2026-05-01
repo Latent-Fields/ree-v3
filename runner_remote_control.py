@@ -152,13 +152,46 @@ def write_heartbeat(
     return path
 
 
+def _active_claim_on_evidence_dir(ree_assembly_path: Path) -> bool:
+    """Return True if TASK_CLAIMS.json has an active claim covering evidence/experiments/.
+
+    Used by push_heartbeat / push_commands to skip the per-minute pull-rebase-
+    autostash dance whenever a Claude session is mid-edit on evidence files.
+    The autostash mechanism is mostly safe but can lose uncommitted edits in
+    rare interleavings (e.g. autostash-pop conflict that the loop then talks
+    over with subsequent commits). Best-effort -- returns False on any error.
+    """
+    try:
+        claims_path = ree_assembly_path.parent / "TASK_CLAIMS.json"
+        if not claims_path.exists():
+            return False
+        data = json.loads(claims_path.read_text(encoding="utf-8"))
+        for entry in data.get("claims", []):
+            if entry.get("status") != "active":
+                continue
+            for res in entry.get("resources", []):
+                if "evidence/experiments/" in res:
+                    return True
+        return False
+    except Exception:
+        return False
+
+
 def push_heartbeat(ree_assembly_path: Path, path: Path) -> None:
     """Stage + commit + push a single heartbeat file. Best-effort, never raises.
 
     Used when --auto-sync is on. Failure (e.g. concurrent push) is logged but
     does not interrupt the runner -- the next tick will rewrite + retry.
+
+    If an active TASK_CLAIMS entry covers evidence/experiments/, the entire
+    push is skipped for this tick to avoid disturbing concurrent Claude
+    sessions' uncommitted edits via the pull-rebase-autostash interaction.
+    Heartbeats are best-effort and resume on the next tick once the claim
+    closes.
     """
     if not path or not path.exists():
+        return
+    if _active_claim_on_evidence_dir(ree_assembly_path):
         return
     try:
         rel = path.relative_to(ree_assembly_path)
@@ -254,8 +287,15 @@ def write_commands_file(ree_assembly_path: Path, machine: str, data: dict) -> Pa
 
 
 def push_commands(ree_assembly_path: Path, path: Path, label: str = "commands") -> None:
-    """Stage + commit + push a commands file (best-effort, never raises)."""
+    """Stage + commit + push a commands file (best-effort, never raises).
+
+    Same active-TASK_CLAIMS protection as push_heartbeat -- skip the entire
+    push if a Claude session is mid-edit on evidence/experiments/, to avoid
+    autostash interactions destabilising uncommitted edits.
+    """
     if not path or not path.exists():
+        return
+    if _active_claim_on_evidence_dir(ree_assembly_path):
         return
     try:
         rel = path.relative_to(ree_assembly_path)
