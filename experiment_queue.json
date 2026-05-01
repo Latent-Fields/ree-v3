@@ -6,28 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-503",
-      "claim_id": "SD-017",
-      "claim_ids": [
-        "SD-017"
-      ],
-      "title": "SD-017 sleep-phase discriminative pair (EXP-0171a)",
-      "script": "experiments/v3_exq_503_sd017_sleep_phase_discriminative.py",
-      "experiment_purpose": "evidence",
-      "machine_affinity": "any",
-      "priority": 1,
-      "estimated_minutes": 15,
-      "episodes_per_run": 0,
-      "seeds": 3,
-      "conditions": 2,
-      "status": "claimed",
-      "note": "Phase 2.6 of Option E: EXP-0171a follow-up to V3-EXQ-500 substrate-readiness probe (PASS but diagnostic_probe -> excluded from scoring). Same forced-injection template as V3-EXQ-499/501/502 -- identical N=20 deterministic prototype z_world/z_self pre-loads in both arms via _world_experience_buffer / _self_experience_buffer / theta_buffer.update(). ARM_A (FULL_4_PHASE_ON, sws_enabled=True + rem_enabled=True): K=3 sleep cycles via agent.run_sleep_cycle(); SWS schema pass writes prototypes; REM attribution rolls out against theta_buffer.recent. ARM_B (NO_SLEEP_BASELINE, both flags off): same 3 cycles call run_sleep_cycle() but the method short-circuits returning zeros. Three pre-registered metrics: M1 cumulative_sws_writes (ARM_A>=N_CYCLES, ARM_B==0), M2 ctxmem_state_change Frobenius norm (ARM_A>=0.10, ARM_B<=1e-6 -- magnitude probe agnostic to slot diversity direction), M3 cumulative_rem_rollouts (ARM_A>=N_CYCLES, ARM_B==0). PASS = all three criteria in 2/3 seeds. PASS supports SD-017 (sleep substrate produces measurable work that doesn't happen without it); FAIL with C1 alone routes to a downstream consumer gap; FAIL with C1 also failing routes to a substrate gap V3-EXQ-500 readiness probe missed. Smoke 2026-05-01: PASS in 3/3 seeds (ARM_A: sws_writes=24, ctxmem_delta~4.6-5.0, rem_rollouts=18 across all seeds; ARM_B: zeros). regression --changed sleep 48/48 PASS. estimated_minutes 15 (smoke run was ~1s wall, padded for safety). Tagged SD-017 only per claim_ids accuracy rule.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-01T20:15:14.331223+00:00"
-      }
-    }
-  ]
+  "items": []
 }
