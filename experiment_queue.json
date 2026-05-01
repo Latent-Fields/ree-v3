@@ -6,28 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-490e",
-      "claim_id": "Q-040",
-      "claim_ids": [
-        "Q-040"
-      ],
-      "title": "MECH-295 liking-bridge GoalState seeding strengthening (490c-FAIL successor: upstream-gate branch)",
-      "script": "experiments/v3_exq_490e_mech295_seeding_strengthening.py",
-      "experiment_purpose": "evidence",
-      "machine_affinity": "any",
-      "priority": 5,
-      "estimated_minutes": 240,
-      "episodes_per_run": 80,
-      "seeds": 3,
-      "conditions": 2,
-      "status": "claimed",
-      "note": "Successor to V3-EXQ-490c FAIL on C2 with bridge_n_cue_fires_total ~0 (upstream gate blocking the bridge). Lowers mech295_min_drive_to_fire and mech295_min_z_goal_norm_to_fire and raises drive_to_liking_gain to verify whether activation floors were silencing the bridge. claim_ids = ['Q-040'] only -- the relaxation is a config probe, not a standalone test of MECH-295's weak reading. experiment_purpose=evidence for architectural Q-040b.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-04-30T22:02:29.140175+00:00"
-      }
-    }
-  ]
+  "items": []
 }
