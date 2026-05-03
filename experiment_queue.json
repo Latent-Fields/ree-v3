@@ -6,21 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-509",
-      "title": "SD-047 multi-source environmental dynamics substrate readiness",
-      "claim_id": "SD-047",
-      "script": "experiments/v3_exq_509_sd047_multi_source_substrate_readiness.py",
-      "priority": 1,
-      "status": "claimed",
-      "machine_affinity": "any",
-      "estimated_minutes": 4,
-      "note": "Substrate-readiness diagnostic for SD-047. Sweeps multi_source_intensity_scale across the four pre-registered arms (OFF / 0.25x / 1.0x / 4.0x) under random-policy rollout. Acceptance: ARM_0 bit-identical OFF (C0); ARM_1 weather + env events fire (C1a/b); ARM_2 calibration ratio in [0.5, 2.5] (C2a, target 1:1-2:1 from SD doc; tolerance for Poisson noise across 200 ticks x 3 seeds), all three sources firing (C2b), monotone above ARM_1 (C2c); ARM_3 at-or-above ARM_2 (C3a, saturation permitted at high noise per the SD doc). PASS = SD-047 calibrated and ready for V3-EXQ-510 comparator-gap behavioural test (separate follow-up experiment, not queued in this pass).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-03T10:32:37.288821+00:00"
-      }
-    }
-  ]
+  "items": []
 }
