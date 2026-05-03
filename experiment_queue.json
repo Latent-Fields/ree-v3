@@ -6,5 +6,27 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-511",
+      "title": "SD-048 substrate readiness: 4-arm interoceptive-noise sweep",
+      "experiment_type": "v3_exq_511_sd048_interoceptive_noise_substrate_readiness",
+      "script": "experiments/v3_exq_511_sd048_interoceptive_noise_substrate_readiness.py",
+      "claim_ids": [
+        "SD-048"
+      ],
+      "experiment_purpose": "diagnostic",
+      "priority": 1,
+      "status": "claimed",
+      "estimated_minutes": 2,
+      "machine_affinity": "any",
+      "added_utc": "2026-05-03T11:34:00Z",
+      "added_session": "implement-substrate-sd048-2026-05-03T1110Z",
+      "note": "SD-048 substrate-readiness diagnostic mirroring V3-EXQ-509 (SD-047) at the body-state layer. 4-arm interoceptive-noise sweep {OFF / 0.25x / 1.0x / 4.0x} on CausalGridWorldV2 with limb_damage_enabled=True. Sparse random policy (80% stay) on 12x12 / 1 hazard / 1 resource so the agent has quiet steps where body noise can register independent of contact. 7 pre-registered acceptance criteria (C0 OFF bit-identical, C1a/C1b ARM_1 sources firing + body_noise positive, C2a ARM_2 calibration band [0.5, 5.0], C2b autonomic + sensitisation both fire, C2c monotone ARM_1 -> ARM_2, C3a ARM_3 at-or-above ARM_2). Local-machine simulation (3 seeds x 400 ticks) confirms all 7 checks PASS with ratios ARM_1=0.80, ARM_2=2.69, ARM_3=2.94. PASS routes to V3-EXQ-512 ARC-058 / ARC-033 comparator-gap behavioural test queueing decision; FAIL on C2a routes to recalibration successor V3-EXQ-511a per SD doc interpretation grid.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-03T11:38:32.999875+00:00"
+      }
+    }
+  ]
 }
