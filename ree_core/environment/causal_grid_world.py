@@ -192,6 +192,44 @@ class CausalGridWorld:
         background_drift_enabled: bool = False,
         n_drift_sources: int = 1,
         drift_policy: str = "random_walk",
+        # SD-048: interoceptive noise dynamics. Three concurrent agent-independent
+        # stochastic body-state noise sources applied to harm_obs_a so the Level 2
+        # interoceptive forward-model comparator (ARC-058 / ARC-033 path) has a
+        # body-noise calibration background to discriminate from agent-caused
+        # body-state change. Mirrors SD-047 architecturally at the body-state
+        # readout layer. Bit-identical OFF when interoceptive_noise_enabled=False
+        # (default); per-source switches allow independent ablation.
+        #
+        #   Source 1 (autonomic noise): per-step i.i.d. Gaussian additive noise on
+        #     harm_obs_a. Fast, continuous, low-amplitude (HRV / sympathetic-
+        #     fluctuation analog).
+        #   Source 2 (sensitisation spikes): Poisson onset of transient
+        #     multiplicative amplification on harm_obs_a, exponentially decaying
+        #     (inflammatory sensitisation analog).
+        #   Source 3 (fatigue drift): slow AR(1) latent fatigue state additively
+        #     contributing to harm_obs_a across the episode (allostatic-load
+        #     analog). Resets per episode.
+        #
+        # interoceptive_noise_scale is the 4-arm sweep lever per the SD-048
+        # validation protocol (Asai 2016 non-monotonic comparator competence):
+        # scales autonomic_noise_scale, sensitisation_rate, and
+        # fatigue_noise_scale uniformly so a single knob produces ARM_0/1/2/3.
+        # interoceptive_change_threshold defines the |delta_harm_obs_a| floor
+        # used to count body-noise-caused vs agent-caused harm-state-change
+        # events (the SD doc 1:1-2:1 calibration target).
+        interoceptive_noise_enabled: bool = False,
+        interoceptive_noise_scale: float = 1.0,
+        autonomic_noise_enabled: bool = True,
+        autonomic_noise_scale: float = 0.02,
+        sensitisation_enabled: bool = True,
+        sensitisation_rate: float = 0.008,
+        sensitisation_magnitude: float = 1.8,
+        sensitisation_halflife: int = 15,
+        fatigue_enabled: bool = True,
+        fatigue_ar_coeff: float = 0.995,
+        fatigue_noise_scale: float = 0.005,
+        fatigue_contribution_weight: float = 0.15,
+        interoceptive_change_threshold: float = 0.01,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -278,6 +316,39 @@ class CausalGridWorld:
         # Reset every step in step(); incremented inside step paths.
         self._multi_source_n_env_events: int = 0
         self._multi_source_n_agent_events: int = 0
+
+        # SD-048: interoceptive noise dynamics state.
+        self.interoceptive_noise_enabled = interoceptive_noise_enabled
+        self.interoceptive_noise_scale = float(interoceptive_noise_scale)
+        self.autonomic_noise_enabled = autonomic_noise_enabled
+        self.autonomic_noise_scale = float(autonomic_noise_scale)
+        self.sensitisation_enabled = sensitisation_enabled
+        self.sensitisation_rate = float(sensitisation_rate)
+        self.sensitisation_magnitude = float(sensitisation_magnitude)
+        self.sensitisation_halflife = int(max(1, sensitisation_halflife))
+        self.fatigue_enabled = fatigue_enabled
+        self.fatigue_ar_coeff = float(np.clip(fatigue_ar_coeff, 0.0, 0.99999))
+        self.fatigue_noise_scale = float(fatigue_noise_scale)
+        self.fatigue_contribution_weight = float(fatigue_contribution_weight)
+        self.interoceptive_change_threshold = float(interoceptive_change_threshold)
+        # Cached transition_type from step() so _apply_interoceptive_noise can
+        # classify agent-caused vs body-noise-caused delta events. "none" before
+        # the first step() of an episode (no agent action observed yet).
+        self._last_transition_type: str = "none"
+        # AR(1) latent fatigue (resets per episode, see reset()).
+        self._fatigue_state: float = 0.0
+        # Active multiplicative amplification from sensitisation events
+        # (sum of exponentially-decaying contributions; resets per episode).
+        self._sensitisation_amplification: float = 0.0
+        # Previous-tick harm_obs_a snapshot for delta-event detection
+        # (resets per episode; first tick of an episode counts no events).
+        self._prev_harm_obs_a: Optional[np.ndarray] = None
+        # Per-tick diagnostic counters (incremented inside _apply_interoceptive_noise).
+        self._interoceptive_n_autonomic_events: int = 0
+        self._interoceptive_n_sensitisation_events: int = 0
+        self._interoceptive_n_fatigue_events: int = 0
+        self._interoceptive_n_body_noise_events: int = 0
+        self._interoceptive_n_agent_caused_harm_events: int = 0
 
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
@@ -413,6 +484,22 @@ class CausalGridWorld:
         self._multi_source_n_agent_events = 0
         if self.multi_source_dynamics_enabled:
             self._init_multi_source_state()
+        # SD-048: per-episode interoceptive-noise state reset.
+        # _fatigue_state and _sensitisation_amplification are episode-local per the
+        # SD doc (allostatic load / inflammatory flares dissipate by next episode).
+        # _prev_harm_obs_a is cleared so the first tick of each episode counts no
+        # body-noise / agent-caused delta events (no anchor to compare against).
+        # Per-tick counters are zeroed by _apply_interoceptive_noise on each call;
+        # zeroing them here as well keeps reset() output deterministic for diag readers.
+        self._fatigue_state = 0.0
+        self._sensitisation_amplification = 0.0
+        self._prev_harm_obs_a = None
+        self._last_transition_type = "none"
+        self._interoceptive_n_autonomic_events = 0
+        self._interoceptive_n_sensitisation_events = 0
+        self._interoceptive_n_fatigue_events = 0
+        self._interoceptive_n_body_noise_events = 0
+        self._interoceptive_n_agent_caused_harm_events = 0
 
         # Proxy-gradient state
         self.harm_exposure: float = 0.0
@@ -524,6 +611,18 @@ class CausalGridWorld:
         # bypass multi-source dynamics for clean self-vs-externally-caused tagging.
         self._multi_source_n_env_events = 0
         self._multi_source_n_agent_events = 0
+        # SD-048: scripted-eval reset path also clears interoceptive-noise state.
+        # Same reasoning as SD-047 above: comparator-harness experiments need clean
+        # tagging, so per-episode body-noise state starts at zero.
+        self._fatigue_state = 0.0
+        self._sensitisation_amplification = 0.0
+        self._prev_harm_obs_a = None
+        self._last_transition_type = "none"
+        self._interoceptive_n_autonomic_events = 0
+        self._interoceptive_n_sensitisation_events = 0
+        self._interoceptive_n_fatigue_events = 0
+        self._interoceptive_n_body_noise_events = 0
+        self._interoceptive_n_agent_caused_harm_events = 0
 
         self.harm_exposure = 0.0
         self.benefit_exposure = 0.0
@@ -832,6 +931,10 @@ class CausalGridWorld:
         self.steps += 1
         done = self.agent_health <= 0.0 or self.steps >= 500
 
+        # SD-048: cache transition_type so _apply_interoceptive_noise can classify
+        # agent-caused vs body-noise-caused harm-state-change events when computed
+        # inside _get_observation_dict.
+        self._last_transition_type = transition_type
         obs_dict = self._get_observation_dict()
         flat_obs = self._dict_to_flat(obs_dict)
 
@@ -861,6 +964,16 @@ class CausalGridWorld:
             "multi_source_n_drift_active": int(len(self._drift_sources)),
             "multi_source_n_env_events": int(self._multi_source_n_env_events),
             "multi_source_n_agent_events": int(self._multi_source_n_agent_events),
+            # SD-048 interoceptive-noise tags (always present; 0 / False when disabled).
+            "interoceptive_noise_enabled": bool(self.interoceptive_noise_enabled),
+            "interoceptive_noise_scale": float(self.interoceptive_noise_scale),
+            "interoceptive_n_autonomic_events": int(self._interoceptive_n_autonomic_events),
+            "interoceptive_n_sensitisation_events": int(self._interoceptive_n_sensitisation_events),
+            "interoceptive_n_fatigue_events": int(self._interoceptive_n_fatigue_events),
+            "interoceptive_n_body_noise_events": int(self._interoceptive_n_body_noise_events),
+            "interoceptive_n_agent_caused_harm_events": int(self._interoceptive_n_agent_caused_harm_events),
+            "interoceptive_fatigue_state": float(self._fatigue_state),
+            "interoceptive_sensitisation_amplification": float(self._sensitisation_amplification),
         }
         if self.use_proxy_fields:
             info["hazard_field_at_agent"] = float(
@@ -1052,9 +1165,15 @@ class CausalGridWorld:
                     float(np.mean(self.limb_damage)),
                     float(np.clip(_residual_pain, 0.0, 1.0)),
                 ], dtype=np.float32)
+                # SD-048: apply interoceptive-noise perturbations to harm_obs_a
+                # readout (no-op when interoceptive_noise_enabled=False).
+                harm_obs_a_body = self._apply_interoceptive_noise(harm_obs_a_body)
                 result["harm_obs_a"] = torch.from_numpy(harm_obs_a_body)  # [7]
             else:
-                result["harm_obs_a"] = torch.from_numpy(self.harm_obs_a_ema.copy()).float()  # [50]
+                harm_obs_a_legacy = self.harm_obs_a_ema.copy()
+                # SD-048: same readout-side perturbation on the legacy 50-dim path.
+                harm_obs_a_legacy = self._apply_interoceptive_noise(harm_obs_a_legacy)
+                result["harm_obs_a"] = torch.from_numpy(harm_obs_a_legacy).float()  # [50]
             # SD-011 second source: rolling harm history and accumulated harm target.
             if self.harm_history_len > 0:
                 # FIFO oldest-first: roll so oldest entry comes first.
@@ -1416,6 +1535,134 @@ class CausalGridWorld:
                 entry[2], entry[3] = int(dx), int(dy)
             n_moved += 1
         return n_moved
+
+    # ------------------------------------------------------------------ #
+    # SD-048: Interoceptive noise dynamics                                 #
+    # ------------------------------------------------------------------ #
+
+    def _apply_interoceptive_noise(self, harm_obs_a: np.ndarray) -> np.ndarray:
+        """
+        Apply SD-048 interoceptive-noise perturbations to a harm_obs_a array.
+
+        Three concurrent agent-independent body-state noise sources are layered
+        on the readout:
+          (1) Fatigue drift   -- AR(1) latent fatigue, additive contribution.
+          (2) Sensitisation   -- Poisson onset, multiplicative amplification,
+                                 exponential decay.
+          (3) Autonomic noise -- per-element i.i.d. Gaussian additive noise.
+
+        The order is biologically motivated: fatigue and sensitisation modulate
+        the underlying gain / baseline of the interoceptive readout, then
+        autonomic noise is added on top. This keeps autonomic noise a true
+        readout-noise floor rather than amplifying it through the multiplier.
+
+        Bit-identical OFF: when interoceptive_noise_enabled=False, returns the
+        input unchanged with no RNG draws, no state advance, and zeroed
+        per-tick diagnostic counters.
+
+        Per-source bit-identical OFF: when master switch is on but a per-source
+        switch is False, that source's RNG draws / state updates are skipped.
+
+        Calibration counter: |delta_harm_obs_a| events vs the previous tick's
+        harm_obs_a are classified as agent-caused (transition_type indicates
+        the agent caused the change) or body-noise-caused (otherwise). Both
+        counts use the same threshold (interoceptive_change_threshold).
+        """
+        # Reset per-tick counters before any updates.
+        self._interoceptive_n_autonomic_events = 0
+        self._interoceptive_n_sensitisation_events = 0
+        self._interoceptive_n_fatigue_events = 0
+        self._interoceptive_n_body_noise_events = 0
+        self._interoceptive_n_agent_caused_harm_events = 0
+
+        if not self.interoceptive_noise_enabled:
+            # No-op path: do not advance state, do not consume RNG, do not
+            # populate _prev_harm_obs_a. Behaviour is bit-identical to legacy.
+            return harm_obs_a
+
+        scale = float(max(0.0, self.interoceptive_noise_scale))
+        prev = self._prev_harm_obs_a
+        # Snapshot input for delta-event detection BEFORE perturbation.
+        baseline = harm_obs_a.astype(np.float32, copy=True)
+        out = baseline.copy()
+
+        # Source 3 (fatigue drift): AR(1) latent state, additive contribution.
+        fatigue_delta_norm = 0.0
+        if self.fatigue_enabled:
+            sigma_f = self.fatigue_noise_scale * scale
+            innovation = float(self._rng.standard_normal()) * sigma_f
+            new_fatigue = self.fatigue_ar_coeff * self._fatigue_state + innovation
+            fatigue_delta = new_fatigue - self._fatigue_state
+            self._fatigue_state = float(new_fatigue)
+            additive = self.fatigue_contribution_weight * self._fatigue_state
+            out = out + np.float32(additive)
+            fatigue_delta_norm = abs(self.fatigue_contribution_weight * fatigue_delta)
+            if fatigue_delta_norm > self.interoceptive_change_threshold:
+                self._interoceptive_n_fatigue_events += 1
+
+        # Source 2 (sensitisation spikes): Poisson onset, multiplicative
+        # amplification, exponential decay.
+        sensitisation_delta_norm = 0.0
+        if self.sensitisation_enabled:
+            decay = float(np.exp(-np.log(2.0) / float(self.sensitisation_halflife)))
+            self._sensitisation_amplification = float(
+                max(0.0, self._sensitisation_amplification * decay)
+            )
+            p_event = float(np.clip(self.sensitisation_rate * scale, 0.0, 1.0))
+            if p_event > 0.0 and self._rng.random() < p_event:
+                # New transient sensitisation event: increment the active
+                # multiplicative bias by (magnitude - 1) so e.g. magnitude=1.8
+                # contributes 0.8x amplification on top of baseline. Cap the
+                # cumulative amplification at 5.0x so long Poisson tails do
+                # not blow up the readout.
+                self._sensitisation_amplification = float(
+                    min(5.0, self._sensitisation_amplification + (self.sensitisation_magnitude - 1.0))
+                )
+                self._interoceptive_n_sensitisation_events += 1
+            if self._sensitisation_amplification > 0.0:
+                amplified = out * np.float32(1.0 + self._sensitisation_amplification)
+                sensitisation_delta_norm = float(
+                    np.mean(np.abs(amplified - out))
+                )
+                out = amplified
+
+        # Source 1 (autonomic noise): per-element i.i.d. Gaussian additive.
+        autonomic_delta_norm = 0.0
+        if self.autonomic_noise_enabled:
+            sigma_a = self.autonomic_noise_scale * scale
+            if sigma_a > 0.0:
+                noise = self._rng.standard_normal(size=out.shape).astype(np.float32) * np.float32(sigma_a)
+                autonomic_delta_norm = float(np.mean(np.abs(noise)))
+                out = out + noise
+                if autonomic_delta_norm > self.interoceptive_change_threshold:
+                    self._interoceptive_n_autonomic_events += 1
+
+        # Calibration-target classification: count steps where the readout
+        # changed by more than the threshold compared to the previous tick.
+        # Classify as agent-caused only if the agent's THIS-tick action drove
+        # new body damage -- per SD-048 doc: "I moved N through a hazard ->
+        # limb N is more damaged". Narrow to transition_type ==
+        # "agent_caused_hazard" (the only transition that actually increments
+        # limb_damage in step()). Passive proximity readouts (hazard_approach,
+        # resource, benefit_approach) and waypoint events are not agent-caused
+        # body damage and are excluded; they fall through to body-noise-caused
+        # along with all "none" transitions. First tick of each episode
+        # (prev is None) counts no event.
+        if prev is not None and prev.shape == out.shape:
+            delta_l1 = float(np.mean(np.abs(out - prev)))
+            if delta_l1 > self.interoceptive_change_threshold:
+                if self._last_transition_type == "agent_caused_hazard":
+                    self._interoceptive_n_agent_caused_harm_events += 1
+                else:
+                    self._interoceptive_n_body_noise_events += 1
+
+        # Cache perturbed readout (NOT baseline) for the next tick's delta
+        # computation -- the agent / encoder sees the perturbed value, so
+        # the "previous observation" the next tick should compare against is
+        # also the perturbed value.
+        self._prev_harm_obs_a = out.copy()
+
+        return out
 
     # ------------------------------------------------------------------ #
     # Internal helpers (unchanged from V2)                                #
