@@ -8,28 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-504",
-      "claim_id": "MECH-153",
-      "claim_ids": [
-        "MECH-153"
-      ],
-      "title": "MECH-153 supervised context labeling 3-arm extension",
-      "script": "experiments/v3_exq_504_mech153_supervised_context_labeling_3arm.py",
-      "experiment_purpose": "evidence",
-      "machine_affinity": "any",
-      "priority": 1,
-      "estimated_minutes": 75,
-      "episodes_per_run": 600,
-      "seeds": 5,
-      "conditions": 3,
-      "status": "claimed",
-      "note": "Three-arm extension of EXQ-239 (no_loss vs hard_CE). Adds soft-contrastive arm targeting cue similarity = exp(-|haz_dist|/T) over a detached memory bank (avoids cross-tick in-place autograd issue). 5 seeds x 3 arms x 500 warmup eps + 100 collect eps. PASS criteria: C1 ARM_A cosine>=0.95 (no-loss collapses), C2 ARM_B cosine<0.80 (hard-CE differentiates), C3 ARM_C cosine<0.80 (soft-contrastive differentiates), C4 ARM_C harm_r2>=0.40 (continuous hazard signal), C5 ARM_C harm_r2 >= ARM_B - 0.05. PASS supports MECH-153 strong reading; partial PASS narrows the claim. Smoke 2026-05-03T01:32Z: --dry-run runs cleanly (NaN cosine_sim is expected with only 2 collect eps; full run fine).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-03T01:47:46.627528+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-505",
       "claim_id": "MECH-093",
       "claim_ids": [
