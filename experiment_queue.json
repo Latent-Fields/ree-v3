@@ -22,8 +22,12 @@
       "episodes_per_run": 0,
       "seeds": 3,
       "conditions": 4,
-      "status": "pending",
-      "note": "Substrate-level 2x2 factorial (z_beta_norm in {0.1, 1.5} x mark_salience in {False, True}) driving MultiRateClock directly via update_e3_rate_from_beta + mark_salient. 500 advance() calls per arm; counts e3 ticks. PASS: C1 beta-main-effect rel_gap>=50% (high beta produces >=1.5x ticks), C2 salience-main-effect <=10%, C3 no-interaction <=10%. Resolves the EXQ-097 negative rate-gap puzzle by separating substrate function from in-env z_beta-vs-harm correlation. Smoke 2026-05-03T01:34Z: PASS in 0.03s (high beta 12 ticks, low beta 3 ticks, salience invariant)."
+      "status": "claimed",
+      "note": "Substrate-level 2x2 factorial (z_beta_norm in {0.1, 1.5} x mark_salience in {False, True}) driving MultiRateClock directly via update_e3_rate_from_beta + mark_salient. 500 advance() calls per arm; counts e3 ticks. PASS: C1 beta-main-effect rel_gap>=50% (high beta produces >=1.5x ticks), C2 salience-main-effect <=10%, C3 no-interaction <=10%. Resolves the EXQ-097 negative rate-gap puzzle by separating substrate function from in-env z_beta-vs-harm correlation. Smoke 2026-05-03T01:34Z: PASS in 0.03s (high beta 12 ticks, low beta 3 ticks, salience invariant).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-03T02:17:07.132551+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-506",
