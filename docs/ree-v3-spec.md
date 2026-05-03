@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-02
+**Last updated:** 2026-05-03
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-02)
+## 0. Current V3 State (2026-05-03)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -107,9 +107,13 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **574 runner-side completions** (per `runner_status.json` 2026-05-02T08:52Z read: 113 PASS /
-  247 FAIL / 66 ERROR / 148 UNKNOWN; v3 subset still dominates the post-2026-02-27 epoch).
-  +2 vs the 2026-04-30T01:30Z read: V3-EXQ-490e MECH-295 seeding-strengthening successor
+- **574 runner-side completions** (per `runner_status.json` 2026-05-03T01:09Z read: 113 PASS /
+  247 FAIL / 66 ERROR / 148 UNKNOWN; v3 subset still dominates the post-2026-02-27 epoch;
+  totals unchanged vs 2026-05-02 nightly read -- no new runner-driven completions in the
+  last cycle, the 2026-05-02 work was governance / lit / schema work landing on top of
+  the existing run set, plus three substrate-validation runs V3-EXQ-494 / 496 / 497
+  PASSed inline as part of SD-039 / MECH-292 / MECH-293 substrate landings on 2026-04-27).
+  Most recent runner completions remain V3-EXQ-490e MECH-295 seeding-strengthening successor
   (Q-040b SD-039/MECH-295 floor-relaxation arm) **FAIL on Mac 2026-05-01T03:19Z**, and
   V3-EXQ-503 / EXP-0171a SD-017 sleep-phase **discriminative pair** PASS 3/3 seeds on
   Mac 2026-05-01T20:15Z (~0.32s; runner result code UNKNOWN but manifest verdict PASS).
@@ -178,16 +182,28 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   MECH-293 waking ghost-goal probe search) extends the suite further to
   **183/183 contracts + 7/7 preflight PASS** with all flags OFF, preserving
   the bit-identical-when-OFF guarantee.
-- **Currently queued (2026-05-02T08:52Z): zero items.** The queue is empty
+- **Currently queued (2026-05-03T01:09Z): zero items.** The queue is empty
   pending the next-up V3-EXQ-490e/V3-EXQ-490d combined Q-040b successor design
   (post-V3-EXQ-490e FAIL the floor-relaxation arm has been ruled out) and the
   queueing decision on V3-EXQ-495 (V3 full-completion gate / MECH-163
   hippocampally-planned arm); V3-EXQ-503 / EXP-0171a SD-017 discriminative
   pair cleared the queue on the 2026-05-01 PM execution wave. **Post-governance
-  state (2026-04-30T20:54Z governance walk):** all four Phase 2 cohort PASSes
-  (V3-EXQ-499/500/501/502) plus the V3-EXQ-490c FAIL marked reviewed; pending_review
-  cleared to 0+0; review_tracker.json reviewed_run_ids 1934 -> 1938 with
-  per-run discussion notes captured for each. The 2026-04-28T23:04Z governance walk
+  state (2026-05-02 walk on top of the 2026-04-30T20:54Z baseline):**
+  SD-011 (`harm_stream.dual_nociceptive_streams`) promoted **provisional ->
+  stable** (exp_conf=0.871, lit_conf=0.871, 7 exp + 23 lit, conflict_ratio=0.148
+  under the 0.20 stable gate; 25 supports / 2 weakens / 3 mixed). SD-012
+  (`environment.homeostatic_drive`) promoted **candidate -> provisional**
+  (exp_conf=0.714, lit_conf=0.874, 5 exp + 16 lit, conflict_ratio=0.20;
+  18 supports / 2 weakens / 1 mixed; substrate already implemented since
+  2026-04-02 -- promotion is the registry catching up). Pre-fix indexer
+  recommendations function had been counting scoring_excluded entries
+  (diagnostic_probe / non_contributory / superseded) into the gate's exp_conf
+  computation; bug fix committed 81de5101c yesterday surfaced spurious
+  promotion recommendations for 5 claims with exp_conf=0 in the matrix.
+  Post-fix + 2 promotions: pending_user 17 -> 15 -> 13. The four Phase 2
+  cohort PASSes (V3-EXQ-499/500/501/502) plus V3-EXQ-490c FAIL remain
+  reviewed (review_tracker.json reviewed_run_ids 1934 -> 1939 across the
+  full 2026-04-30 / 2026-05-01 / 2026-05-02 review pulses). The 2026-04-28T23:04Z governance walk
   remains the prior anchor (10 decisions: 4 promotions MECH-266/267/268/SD-034
   candidate->provisional, SD-033b v3_pending true->false on the V3-EXQ-485
   substrate-landing PASS, 2 holds preserved on MECH-057b/MECH-263, 6 narrow-open
@@ -287,7 +303,41 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   jointly do not recover approach_commit) and **V3-EXQ-490e FAILed the
   activation-floor-relaxation arm (MECH-295 floor + drive_to_liking_gain
   knobs alone do not recover behaviour with MECH-295 bridge ON in both
-  arms)**. The next-up falsification of the Q-040b strong reading is the
+  arms)**. **Phase 3 wave 2 governance schema landed 2026-05-02:** the
+  `epistemic_category` field is now formalised on `claims.yaml` with 7
+  canonical values (`standard`, `substrate_coherence`, `answer_state`,
+  `substrate_ceiling`, `substrate_conditional`, `derivational`, `out_of_domain`);
+  resolver in `build_experiment_indexes.py` (`_resolve_epistemic_category`)
+  with explicit-wins-over-inferred semantics; `_recommendation_for_claim`
+  dispatches via the resolver so only `standard` runs exp_conf gates and
+  `narrow_open_question` fires only for `answer_state`; warn-only validator
+  in `scripts/validate_claims.py`. 13 annotated claims backfilled with
+  explicit categories (MECH-095 / MECH-102 -> substrate_ceiling; Q-025/26/27
+  -> derivational; Q-028/029 -> substrate_ceiling; Q-030 -> standard;
+  Q-031/032 -> out_of_domain; Q-037/038/039 -> substrate_conditional);
+  pending decision queue dropped 16 -> 4 items (the remaining 4 are
+  pre-existing V3-pending holds + SD-023 conflict alert). Two new
+  planning artifacts landed alongside: `docs/architecture/substrate_roadmap.md`
+  (10 in-flight V3 enrichments + 7 outstanding -- 3 H-priority: foreclosure
+  primitives, multi-resource heterogeneity, long-horizon dynamics; 2
+  M-priority; 2 L-priority -- mapped to the claims each would unblock and
+  the SD candidate that would register it) and `docs/architecture/v4_spec.md`
+  (4 V4 primitive additions V4-1 multi-agent ecology, V4-2 self-model
+  integration DR-10..DR-14, V4-3 long-horizon + persistent identity, V4-4
+  richer action repertoire; ~12 V4-bound claims mapped; Phase A draft only,
+  Phase B onwards gated on V3 full completion (MECH-163 PASS) + governance
+  authorization). The 2026-05-02 weekend lit-pull added 9 PubMed-sourced
+  entries across Q-037 (psychosis substrate dissociability between
+  MECH-094 / MECH-222 / MECH-065+223; lit_conf 0.0 -> 0.823), Q-038 (D_V
+  temporal-depth representational status; lit_conf 0.0 -> 0.795), Q-039
+  (neuromodulators / control-plane vars regulating TCL integration window;
+  lit_conf 0.0 -> 0.84) -- literature_entries 1113 -> 1122. The
+  2026-05-02T18:06Z `/diagnose-errors` walk cleared 3 obsolete unaddressed-
+  error entries (V3-EXQ-008 obsolete March SD-003 era, V3-ONBOARD-smoke-
+  EWIN-PC + V3-ONBOARD-smoke-ree-cloud-1 contributor onboarding for
+  inactive machines), confirming the remaining 2 NotImplementedError
+  sentinels (V3-EXQ-455a and V3-EXQ-449c) are intentional cascade-gate
+  waits and not bugs. The next-up falsification of the Q-040b strong reading is the
   staleness-into-gate test (use_vs_gate_staleness_lookup OFF vs ON at
   matched 0.4 thresholds via the 2026-04-29T11:00Z MECH-284 wiring) --
   V3-EXQ-490d remains drafted but unqueued pending design refinement
