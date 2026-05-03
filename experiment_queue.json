@@ -6,28 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-508",
-      "claim_id": "ARC-033",
-      "claim_ids": [
-        "ARC-033"
-      ],
-      "title": "ARC-033 E2_harm_s ablation on SD-022 body-damage substrate",
-      "script": "experiments/v3_exq_508_arc033_e2_harm_s_body_damage_ablation.py",
-      "experiment_purpose": "evidence",
-      "machine_affinity": "any",
-      "priority": 1,
-      "estimated_minutes": 60,
-      "episodes_per_run": 150,
-      "seeds": 3,
-      "conditions": 2,
-      "status": "claimed",
-      "note": "Direct ablation of E2_harm_s on the SD-022 body-damage substrate (limb_damage_enabled=True; z_harm_s and z_harm_a structurally independent per EXQ-241b). ARM_A: use_e2_harm_s_forward=True with SD-013 interventional loss. ARM_B: world-stream E2 counterfactual stand-in (architectural prediction is collapse on harm-driven events under SD-010 perpendicularity). Metric: attribution_snr = cf_gap_event / cf_gap_quiet (event = delta_harm>=0.05 step). PASS: C1 ARM_A snr>=1.5, C2 ARM_B snr<=1.2, C3 ratio>=1.5. Tests the strong-reading 'E2_harm_s necessary' subset. Recent ARC-058 lit (Wager 2013, Hofbauer 2001) is weakening the claim via somatic/affective dissociation; this experiment provides the falsifiable substrate test. Smoke 2026-05-03T01:43Z: --dry-run runs in 3s; ARM_A snr=1.43, ARM_B snr=1.18 even at 2 warmup eps -- promising substrate signal.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-03T02:17:34.492825+00:00"
-      }
-    }
-  ]
+  "items": []
 }
