@@ -8,28 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-506",
-      "claim_id": "MECH-095",
-      "claim_ids": [
-        "MECH-095"
-      ],
-      "title": "MECH-095 agency-detection comparator substrate test",
-      "script": "experiments/v3_exq_506_mech095_agency_comparator_substrate.py",
-      "experiment_purpose": "evidence",
-      "machine_affinity": "any",
-      "priority": 1,
-      "estimated_minutes": 5,
-      "episodes_per_run": 0,
-      "seeds": 3,
-      "conditions": 4,
-      "status": "claimed",
-      "note": "Substrate-level test of E2_harm_s as MECH-095's agency-detection comparator (V3 instantiation via ARC-033). Trains fresh E2HarmSForward on synthetic action-controlled transitions with SD-013 interventional loss; measures counterfactual_forward gap on 4 held-out conditions (agent-caused, env-caused, agent-collateral, env-correlated). 800 train steps x 256-batch eval. PASS: C1 agent/env >= 1.5, C2 agent/collateral >= 1.5, C3 agent/correlated >= 1.5, C4 abs gap_agent >= 0.1. C4 alone PASSing while C1-C3 fail is the substrate-ceiling signature in the recent MECH-095 EQN. Smoke 2026-05-03T01:39Z: --dry-run runs in 2s; FAIL expected at 50 train steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-03T02:17:15.542927+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-508",
       "claim_id": "ARC-033",
       "claim_ids": [
