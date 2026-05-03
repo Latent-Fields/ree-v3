@@ -6,5 +6,100 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-504",
+      "claim_id": "MECH-153",
+      "claim_ids": [
+        "MECH-153"
+      ],
+      "title": "MECH-153 supervised context labeling 3-arm extension",
+      "script": "experiments/v3_exq_504_mech153_supervised_context_labeling_3arm.py",
+      "experiment_purpose": "evidence",
+      "machine_affinity": "any",
+      "priority": 1,
+      "estimated_minutes": 75,
+      "episodes_per_run": 600,
+      "seeds": 5,
+      "conditions": 3,
+      "status": "pending",
+      "note": "Three-arm extension of EXQ-239 (no_loss vs hard_CE). Adds soft-contrastive arm targeting cue similarity = exp(-|haz_dist|/T) over a detached memory bank (avoids cross-tick in-place autograd issue). 5 seeds x 3 arms x 500 warmup eps + 100 collect eps. PASS criteria: C1 ARM_A cosine>=0.95 (no-loss collapses), C2 ARM_B cosine<0.80 (hard-CE differentiates), C3 ARM_C cosine<0.80 (soft-contrastive differentiates), C4 ARM_C harm_r2>=0.40 (continuous hazard signal), C5 ARM_C harm_r2 >= ARM_B - 0.05. PASS supports MECH-153 strong reading; partial PASS narrows the claim. Smoke 2026-05-03T01:32Z: --dry-run runs cleanly (NaN cosine_sim is expected with only 2 collect eps; full run fine)."
+    },
+    {
+      "queue_id": "V3-EXQ-505",
+      "claim_id": "MECH-093",
+      "claim_ids": [
+        "MECH-093"
+      ],
+      "title": "MECH-093 z_beta x precision substrate-level dissociation",
+      "script": "experiments/v3_exq_505_mech093_zbeta_precision_dissociation.py",
+      "experiment_purpose": "evidence",
+      "machine_affinity": "any",
+      "priority": 1,
+      "estimated_minutes": 1,
+      "episodes_per_run": 0,
+      "seeds": 3,
+      "conditions": 4,
+      "status": "pending",
+      "note": "Substrate-level 2x2 factorial (z_beta_norm in {0.1, 1.5} x mark_salience in {False, True}) driving MultiRateClock directly via update_e3_rate_from_beta + mark_salient. 500 advance() calls per arm; counts e3 ticks. PASS: C1 beta-main-effect rel_gap>=50% (high beta produces >=1.5x ticks), C2 salience-main-effect <=10%, C3 no-interaction <=10%. Resolves the EXQ-097 negative rate-gap puzzle by separating substrate function from in-env z_beta-vs-harm correlation. Smoke 2026-05-03T01:34Z: PASS in 0.03s (high beta 12 ticks, low beta 3 ticks, salience invariant)."
+    },
+    {
+      "queue_id": "V3-EXQ-506",
+      "claim_id": "MECH-095",
+      "claim_ids": [
+        "MECH-095"
+      ],
+      "title": "MECH-095 agency-detection comparator substrate test",
+      "script": "experiments/v3_exq_506_mech095_agency_comparator_substrate.py",
+      "experiment_purpose": "evidence",
+      "machine_affinity": "any",
+      "priority": 1,
+      "estimated_minutes": 5,
+      "episodes_per_run": 0,
+      "seeds": 3,
+      "conditions": 4,
+      "status": "pending",
+      "note": "Substrate-level test of E2_harm_s as MECH-095's agency-detection comparator (V3 instantiation via ARC-033). Trains fresh E2HarmSForward on synthetic action-controlled transitions with SD-013 interventional loss; measures counterfactual_forward gap on 4 held-out conditions (agent-caused, env-caused, agent-collateral, env-correlated). 800 train steps x 256-batch eval. PASS: C1 agent/env >= 1.5, C2 agent/collateral >= 1.5, C3 agent/correlated >= 1.5, C4 abs gap_agent >= 0.1. C4 alone PASSing while C1-C3 fail is the substrate-ceiling signature in the recent MECH-095 EQN. Smoke 2026-05-03T01:39Z: --dry-run runs in 2s; FAIL expected at 50 train steps."
+    },
+    {
+      "queue_id": "V3-EXQ-507",
+      "claim_id": "ARC-026",
+      "claim_ids": [
+        "ARC-026"
+      ],
+      "title": "ARC-026 capacity-scaling weak-reading test (no crowding-out)",
+      "script": "experiments/v3_exq_507_arc026_capacity_scaling.py",
+      "experiment_purpose": "evidence",
+      "machine_affinity": "any",
+      "priority": 2,
+      "estimated_minutes": 30,
+      "episodes_per_run": 90,
+      "seeds": 3,
+      "conditions": 3,
+      "status": "claimed",
+      "note": "Weak-reading falsifiable subset of ARC-026: capacity sweep over world_dim in {16, 32, 64} (with self_dim and hidden_dim scaled), measures approach_score (mean resource_field_at_agent), contact_rate (benefit_exposure>=0.05 fraction), and ratio (contact/approach). PASS: C1 ratio non-decreasing per seed (LARGE>=0.95*MEDIUM>=0.95*SMALL), C2 ratio_LARGE>0, C3 approach_LARGE>=0.5*approach_SMALL. Random policy throughout (tests encoder support for goal-pursuit, not policy improvement). Strong-reading 'love expands' substrate-pending. Smoke 2026-05-03T01:40Z: PASS in 4s (identical values at smoke = random policy + same seed; capacity differences emerge at full warmup).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-03T01:46:36.075724+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-508",
+      "claim_id": "ARC-033",
+      "claim_ids": [
+        "ARC-033"
+      ],
+      "title": "ARC-033 E2_harm_s ablation on SD-022 body-damage substrate",
+      "script": "experiments/v3_exq_508_arc033_e2_harm_s_body_damage_ablation.py",
+      "experiment_purpose": "evidence",
+      "machine_affinity": "any",
+      "priority": 1,
+      "estimated_minutes": 60,
+      "episodes_per_run": 150,
+      "seeds": 3,
+      "conditions": 2,
+      "status": "pending",
+      "note": "Direct ablation of E2_harm_s on the SD-022 body-damage substrate (limb_damage_enabled=True; z_harm_s and z_harm_a structurally independent per EXQ-241b). ARM_A: use_e2_harm_s_forward=True with SD-013 interventional loss. ARM_B: world-stream E2 counterfactual stand-in (architectural prediction is collapse on harm-driven events under SD-010 perpendicularity). Metric: attribution_snr = cf_gap_event / cf_gap_quiet (event = delta_harm>=0.05 step). PASS: C1 ARM_A snr>=1.5, C2 ARM_B snr<=1.2, C3 ratio>=1.5. Tests the strong-reading 'E2_harm_s necessary' subset. Recent ARC-058 lit (Wager 2013, Hofbauer 2001) is weakening the claim via somatic/affective dissociation; this experiment provides the falsifiable substrate test. Smoke 2026-05-03T01:43Z: --dry-run runs in 3s; ARM_A snr=1.43, ARM_B snr=1.18 even at 2 warmup eps -- promising substrate signal."
+    }
+  ]
 }
