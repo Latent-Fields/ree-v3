@@ -230,6 +230,45 @@ class CausalGridWorld:
         fatigue_noise_scale: float = 0.005,
         fatigue_contribution_weight: float = 0.15,
         interoceptive_change_threshold: float = 0.01,
+        # SD-049: multi-resource heterogeneity. Three additions to the env, layered
+        # on top of SD-012's homeostatic drive (the substrate that GoalState consumes).
+        # Master switch: multi_resource_heterogeneity_enabled=False -> bit-identical
+        # to legacy single-anonymous-resource behaviour. When enabled:
+        #   (1) num_resources cells split across n_resource_types qualitatively
+        #       distinct types (default 3: food / water / novelty). Each cell
+        #       carries an identity tag; per-type proximity field views appended
+        #       to world_obs (world_obs_dim grows by n_resource_types * 25).
+        #   (2) Per-axis homeostatic drive vector (per_axis_drive[n_axes]) tracked
+        #       alongside legacy agent_energy. agent_energy collapses to
+        #       1.0 - max(per_axis_drive) when per_axis_drive_enabled so all
+        #       legacy SD-032 consumers (AIC / PCC / pACC / dACC / salience /
+        #       override) continue to read obs_body[3] without modification.
+        #       New observable: obs_dict["per_axis_drive"] for new experiments.
+        #   (3) resource_introduction_schedule controls per-type spawn availability
+        #       by global step count. Defaults to None -> all types available
+        #       from step 0 (existing-experiment-equivalent behaviour even when
+        #       master switch is on).
+        # Per-resource-type bit-identical OFF: setting an entry to 0.0 in
+        # resource_type_distribution drops that type without code change
+        # (recovers ARM_1 from ARM_2 in the validation 4-arm sweep).
+        # Lit-pull provenance: REE_assembly/evidence/literature/targeted_review_sd_049/
+        multi_resource_heterogeneity_enabled: bool = False,
+        n_resource_types: int = 3,
+        resource_type_names: tuple = ("food", "water", "novelty"),
+        resource_type_drive_axes: tuple = ("hunger", "thirst", "curiosity"),
+        resource_type_benefit_curves: tuple = (
+            "sigmoidal_saturating",
+            "sharp_saturation",
+            "novelty_decay",
+        ),
+        resource_type_distribution: Optional[tuple] = None,
+        resource_type_benefit_amplitudes: Optional[tuple] = None,
+        per_axis_drive_enabled: bool = False,
+        per_axis_drive_decay: tuple = (0.001, 0.0015, 0.0005),
+        per_axis_drive_combiner: str = "max",
+        novelty_familiarity_increment: float = 0.2,
+        novelty_familiarity_recovery: float = 0.0,
+        resource_introduction_schedule: Optional[Dict[str, int]] = None,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -350,6 +389,100 @@ class CausalGridWorld:
         self._interoceptive_n_body_noise_events: int = 0
         self._interoceptive_n_agent_caused_harm_events: int = 0
 
+        # SD-049: multi-resource heterogeneity state. Validated and normalised
+        # at construction so reset() / step() can rely on consistent shapes.
+        self.multi_resource_heterogeneity_enabled = bool(multi_resource_heterogeneity_enabled)
+        self.n_resource_types = int(max(1, n_resource_types))
+        # Truncate / pad name + axis + curve tuples to n_resource_types.
+        # Defaults cover types 0..2; types 3+ get generic "type_<i>" / "axis_<i>"
+        # / "sigmoidal_saturating" entries (used by ARM_3 5-type overshoot).
+        def _padded(seq, default_factory):
+            seq = list(seq)
+            while len(seq) < self.n_resource_types:
+                seq.append(default_factory(len(seq)))
+            return tuple(seq[: self.n_resource_types])
+        self.resource_type_names = _padded(
+            resource_type_names, lambda i: f"type_{i}"
+        )
+        self.resource_type_drive_axes = _padded(
+            resource_type_drive_axes, lambda i: f"axis_{i}"
+        )
+        self.resource_type_benefit_curves = _padded(
+            resource_type_benefit_curves, lambda i: "sigmoidal_saturating"
+        )
+        # Distribution: defaults to uniform when None. Negative entries clipped to 0.
+        # All-zero distribution falls back to uniform to avoid spawn-zero pathology
+        # (an all-zero distribution disables SD-049 in spirit; use master switch instead).
+        if resource_type_distribution is None:
+            dist = [1.0] * self.n_resource_types
+        else:
+            dist = list(resource_type_distribution)
+            while len(dist) < self.n_resource_types:
+                dist.append(0.0)
+            dist = [max(0.0, float(d)) for d in dist[: self.n_resource_types]]
+        if sum(dist) <= 0.0:
+            dist = [1.0] * self.n_resource_types
+        self.resource_type_distribution = tuple(dist)
+        # Per-type benefit amplitudes scale the contact-side restoration on the
+        # matching drive axis (uniform 1.0 default; allows tuning without changing
+        # the curve choice).
+        if resource_type_benefit_amplitudes is None:
+            amps = [1.0] * self.n_resource_types
+        else:
+            amps = list(resource_type_benefit_amplitudes)
+            while len(amps) < self.n_resource_types:
+                amps.append(1.0)
+            amps = [float(a) for a in amps[: self.n_resource_types]]
+        self.resource_type_benefit_amplitudes = tuple(amps)
+        # Per-axis drive vector + decay rates (per axis index 0..n_resource_types-1).
+        self.per_axis_drive_enabled = bool(per_axis_drive_enabled)
+        decay = list(per_axis_drive_decay)
+        while len(decay) < self.n_resource_types:
+            decay.append(decay[-1] if decay else 0.001)
+        self.per_axis_drive_decay = tuple(
+            float(max(0.0, d)) for d in decay[: self.n_resource_types]
+        )
+        if per_axis_drive_combiner not in ("max", "mean", "sum"):
+            per_axis_drive_combiner = "max"
+        self.per_axis_drive_combiner = per_axis_drive_combiner
+        # Novelty per-cell familiarity dynamics (used only when
+        # any benefit curve is "novelty_decay"; harmless arithmetic otherwise).
+        self.novelty_familiarity_increment = float(novelty_familiarity_increment)
+        self.novelty_familiarity_recovery = float(max(0.0, novelty_familiarity_recovery))
+        # Curriculum hook: dict mapping resource_type_name -> step at which type
+        # becomes available. Types not listed are available from step 0.
+        # Step counter is _global_step (cross-episode), see init below.
+        self.resource_introduction_schedule = dict(resource_introduction_schedule or {})
+        # Per-type state (allocated even when master switch off so type checks
+        # never crash on missing attrs; stays empty / zero when disabled).
+        # Per-type resource positions: list of [x, y] for each type.
+        self._resources_by_type: List[List[List[int]]] = [[] for _ in range(self.n_resource_types)]
+        # Per-cell type index grid (0 = no resource; type_idx + 1 elsewhere) for fast lookup.
+        # Allocated in reset() with correct shape.
+        self._resource_type_grid: np.ndarray = np.zeros((size, size), dtype=np.int8)
+        # Per-type proximity fields (parallel to legacy resource_field).
+        self._resource_field_by_type: np.ndarray = np.zeros(
+            (self.n_resource_types, size, size), dtype=np.float32
+        )
+        # Per-axis homeostatic drive vector. Drive axis i corresponds to resource
+        # type i (1:1 mapping at this stage; future MECH may decouple via a
+        # learned mapping). per_axis_drive[i] = depletion in [0, 1]; 0 = sated,
+        # 1 = fully depleted. Reset per-episode (homeostatic state is episode-local
+        # in V3 -- cross-episode allostatic load is V4 work).
+        self._per_axis_drive: np.ndarray = np.zeros(self.n_resource_types, dtype=np.float32)
+        # Per-cell novelty familiarity counter (used only when novelty_decay curve
+        # is active). Bounded [0, 1] via clip on increment.
+        self._novelty_familiarity: np.ndarray = np.zeros((size, size), dtype=np.float32)
+        # Cross-episode global step counter for curriculum hook. Persists across
+        # reset() so resource_introduction_schedule references are interpretable.
+        self._global_step: int = 0
+        # Per-tick diagnostic counters reset every step in step(); incremented inside
+        # the SD-049 paths.
+        self._sd049_n_resource_contacts_by_type: np.ndarray = np.zeros(
+            self.n_resource_types, dtype=np.int32
+        )
+        self._sd049_n_axis_depletion_steps: int = 0
+
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
         self.landmark_b_positions: List[Tuple[int, int]] = []
@@ -397,8 +530,12 @@ class CausalGridWorld:
             proxy_base = base + hazard_field_dim + resource_field_dim  # 250
             # SD-023: landmark gradient texture -- 25 dims per landmark type when enabled.
             if self.n_landmarks_a > 0 or self.n_landmarks_b > 0:
-                return proxy_base + 25 + 25              # 300
-            return proxy_base                            # 250
+                proxy_base = proxy_base + 25 + 25        # 300
+            # SD-049: per-resource-type proximity field views appended when
+            # multi_resource_heterogeneity is on. Adds n_resource_types * 25 dims.
+            if self.multi_resource_heterogeneity_enabled:
+                proxy_base = proxy_base + self.n_resource_types * 25
+            return proxy_base
         return base                                      # 200
 
     @property
@@ -455,10 +592,56 @@ class CausalGridWorld:
             self.hazards.append([hx, hy])
 
         self.resources: List[List[int]] = []
-        for _ in range(min(self.num_resources, len(available))):
-            rx, ry = available.pop()
-            self.grid[rx, ry] = self.ENTITY_TYPES["resource"]
-            self.resources.append([rx, ry])
+        # SD-049: per-type spawn (default OFF -> single anonymous pool, identical
+        # to legacy). When enabled, distribute num_resources across types per
+        # resource_type_distribution, respecting the curriculum hook.
+        # Reset SD-049 per-episode state (preserves cross-episode _global_step
+        # and _novelty_familiarity for curriculum + cross-episode novelty decay).
+        for tlist in self._resources_by_type:
+            tlist.clear()
+        self._resource_type_grid = np.zeros((self.size, self.size), dtype=np.int8)
+        self._resource_field_by_type = np.zeros(
+            (self.n_resource_types, self.size, self.size), dtype=np.float32
+        )
+        self._per_axis_drive = np.zeros(self.n_resource_types, dtype=np.float32)
+        self._sd049_n_resource_contacts_by_type = np.zeros(
+            self.n_resource_types, dtype=np.int32
+        )
+        self._sd049_n_axis_depletion_steps = 0
+        if self.multi_resource_heterogeneity_enabled:
+            # Determine which types are currently introduced via the curriculum.
+            active_types = [
+                i for i in range(self.n_resource_types)
+                if self._global_step >= int(
+                    self.resource_introduction_schedule.get(self.resource_type_names[i], 0)
+                )
+            ]
+            # Build per-cell type assignment via weighted draw over active types
+            # with non-zero distribution mass. Falls back to active-uniform if
+            # all distribution masses on active types are zero.
+            active_weights = [self.resource_type_distribution[i] for i in active_types]
+            if active_types and sum(active_weights) > 0.0:
+                weights = np.array(active_weights, dtype=np.float64)
+                weights = weights / weights.sum()
+                n_to_spawn = min(self.num_resources, len(available))
+                for _ in range(n_to_spawn):
+                    rx, ry = available.pop()
+                    type_idx = int(active_types[
+                        int(self._rng.choice(len(active_types), p=weights))
+                    ])
+                    self.grid[rx, ry] = self.ENTITY_TYPES["resource"]
+                    self.resources.append([rx, ry])
+                    self._resources_by_type[type_idx].append([rx, ry])
+                    # Type tag stored with +1 offset so 0 = no-resource.
+                    self._resource_type_grid[rx, ry] = type_idx + 1
+            # If no active types (edge case: all behind a curriculum gate), no
+            # resources spawn this episode -- the agent has no appetitive
+            # signal until the curriculum advances. Intentional.
+        else:
+            for _ in range(min(self.num_resources, len(available))):
+                rx, ry = available.pop()
+                self.grid[rx, ry] = self.ENTITY_TYPES["resource"]
+                self.resources.append([rx, ry])
 
         self.waypoints: List[List[int]] = []
         self._next_waypoint_idx: int = 0
@@ -713,7 +896,32 @@ class CausalGridWorld:
                 self.total_harm += self.contaminated_harm
 
             elif target_type == self.ENTITY_TYPES["resource"]:
-                contact_benefit = self.resource_benefit
+                # SD-049: identify resource type at the consumed cell. type_tag
+                # is 0 (no SD-049) or type_idx+1 (per the spawn convention).
+                type_tag = (
+                    int(self._resource_type_grid[new_x, new_y])
+                    if self.multi_resource_heterogeneity_enabled
+                    else 0
+                )
+                contact_type_idx = type_tag - 1 if type_tag > 0 else -1
+                # Per-type benefit amplitude scales the contact restoration. Default
+                # 1.0 recovers legacy contact_benefit semantics.
+                amp = 1.0
+                if contact_type_idx >= 0:
+                    amp = float(self.resource_type_benefit_amplitudes[contact_type_idx])
+                contact_benefit = self.resource_benefit * amp
+                # SD-049 novelty curve: scale benefit by (1 - cell_familiarity).
+                # First-visit cells give full benefit; re-visits give attenuated
+                # benefit reflecting non-homeostatic familiarity decay.
+                if (
+                    contact_type_idx >= 0
+                    and self.resource_type_benefit_curves[contact_type_idx]
+                    == "novelty_decay"
+                ):
+                    cell_fam = float(
+                        np.clip(self._novelty_familiarity[new_x, new_y], 0.0, 1.0)
+                    )
+                    contact_benefit = contact_benefit * (1.0 - cell_fam)
                 if self.use_proxy_fields:
                     proximity_benefit = self.proximity_benefit_scale * float(
                         self.resource_field[new_x, new_y]
@@ -728,6 +936,50 @@ class CausalGridWorld:
                 self.resources = [
                     r for r in self.resources if not (r[0] == new_x and r[1] == new_y)
                 ]
+                # SD-049: also remove from per-type list and clear cell tag.
+                if self.multi_resource_heterogeneity_enabled and contact_type_idx >= 0:
+                    self._resources_by_type[contact_type_idx] = [
+                        r for r in self._resources_by_type[contact_type_idx]
+                        if not (r[0] == new_x and r[1] == new_y)
+                    ]
+                    self._resource_type_grid[new_x, new_y] = 0
+                    self._sd049_n_resource_contacts_by_type[contact_type_idx] += 1
+                    # Restoration on the matching drive axis. Curve choice maps
+                    # to magnitude / saturation profile; all curves saturate at
+                    # full restoration (drive=0). novelty_decay treats axis as
+                    # exploratory tone -- contact returns full restoration
+                    # gated by per-cell familiarity above.
+                    curve = self.resource_type_benefit_curves[contact_type_idx]
+                    cur_drive = float(self._per_axis_drive[contact_type_idx])
+                    if curve == "sigmoidal_saturating":
+                        # Restoration proportional to how depleted the axis was.
+                        # Full deficit -> full restoration; near-sated -> small.
+                        restore = cur_drive * 1.0
+                    elif curve == "sharp_saturation":
+                        # Sharper: any contact restores most of the deficit.
+                        restore = cur_drive * 0.8
+                    elif curve == "novelty_decay":
+                        # Familiarity-gated; cell_fam already applied to
+                        # contact_benefit above. Axis restoration mirrors the
+                        # sigmoidal shape but on the curiosity axis.
+                        restore = cur_drive * 1.0
+                    else:
+                        restore = cur_drive * 1.0
+                    self._per_axis_drive[contact_type_idx] = float(
+                        np.clip(cur_drive - restore, 0.0, 1.0)
+                    )
+                    # Per-cell novelty familiarity increment (whether or not the
+                    # contact was on a novelty-curve resource: every visit teaches
+                    # the agent something about that cell -- the per-type curve
+                    # determines whether that familiarity is used in scoring).
+                    self._novelty_familiarity[new_x, new_y] = float(
+                        np.clip(
+                            self._novelty_familiarity[new_x, new_y]
+                            + self.novelty_familiarity_increment,
+                            0.0,
+                            1.0,
+                        )
+                    )
                 # SD-012: optional resource respawn for repeated drive-reduction cycles
                 if self.resource_respawn_on_consume:
                     self._respawn_resource()
@@ -811,6 +1063,45 @@ class CausalGridWorld:
 
         # Energy decay
         self.agent_energy = max(0.0, self.agent_energy - self.energy_decay)
+
+        # SD-049: per-axis drive depletion + legacy agent_energy collapse.
+        # Per-axis drive[i] increases each step by per_axis_drive_decay[i]
+        # (depletion analog -- fatigue accumulates in the axis between contacts).
+        # Novelty per-cell familiarity recovery (slow recovery means novelty
+        # benefit comes back over time when configured).
+        # When per_axis_drive_enabled, agent_energy is overridden by
+        # 1.0 - combined_drive so legacy SD-032 consumers (AIC / PCC / pACC /
+        # dACC / salience / override / MECH-295) continue to read obs_body[3]
+        # without modification. The per-axis vector is also surfaced in
+        # obs_dict["per_axis_drive"] for new experiments / future encoder upgrade.
+        if self.multi_resource_heterogeneity_enabled and self.per_axis_drive_enabled:
+            for i in range(self.n_resource_types):
+                cur = float(self._per_axis_drive[i])
+                self._per_axis_drive[i] = float(
+                    np.clip(cur + self.per_axis_drive_decay[i], 0.0, 1.0)
+                )
+            self._sd049_n_axis_depletion_steps += 1
+            if self.per_axis_drive_combiner == "max":
+                combined_drive = float(np.max(self._per_axis_drive))
+            elif self.per_axis_drive_combiner == "mean":
+                combined_drive = float(np.mean(self._per_axis_drive))
+            else:  # "sum"
+                combined_drive = float(np.clip(np.sum(self._per_axis_drive), 0.0, 1.0))
+            self.agent_energy = float(np.clip(1.0 - combined_drive, 0.0, 1.0))
+        # Per-cell novelty familiarity slow recovery (when configured).
+        if (
+            self.multi_resource_heterogeneity_enabled
+            and self.novelty_familiarity_recovery > 0.0
+        ):
+            self._novelty_familiarity = np.maximum(
+                0.0,
+                self._novelty_familiarity - self.novelty_familiarity_recovery,
+            ).astype(np.float32)
+        # SD-049: advance the cross-episode global step counter (for curriculum
+        # introduction). Done here (per env tick) so the counter increments
+        # whether or not the agent contacted anything, and survives reset().
+        if self.multi_resource_heterogeneity_enabled:
+            self._global_step += 1
 
         # Update interoceptive EMA channels
         if self.use_proxy_fields:
@@ -974,6 +1265,34 @@ class CausalGridWorld:
             "interoceptive_n_agent_caused_harm_events": int(self._interoceptive_n_agent_caused_harm_events),
             "interoceptive_fatigue_state": float(self._fatigue_state),
             "interoceptive_sensitisation_amplification": float(self._sensitisation_amplification),
+            # SD-049 multi-resource heterogeneity tags (always present; 0 / False when disabled).
+            "multi_resource_heterogeneity_enabled": bool(self.multi_resource_heterogeneity_enabled),
+            "sd049_n_resource_types": int(self.n_resource_types),
+            "sd049_per_axis_drive_enabled": bool(self.per_axis_drive_enabled),
+            "sd049_per_axis_drive_max": (
+                float(np.max(self._per_axis_drive))
+                if self.multi_resource_heterogeneity_enabled
+                else 0.0
+            ),
+            "sd049_per_axis_drive_mean": (
+                float(np.mean(self._per_axis_drive))
+                if self.multi_resource_heterogeneity_enabled
+                else 0.0
+            ),
+            "sd049_n_resource_contacts_total": int(
+                np.sum(self._sd049_n_resource_contacts_by_type)
+            ),
+            "sd049_n_active_resources_by_type": (
+                [len(t) for t in self._resources_by_type]
+                if self.multi_resource_heterogeneity_enabled
+                else [0] * self.n_resource_types
+            ),
+            "sd049_global_step": int(self._global_step),
+            "sd049_resource_type_at_agent": (
+                int(self._resource_type_grid[self.agent_x, self.agent_y])
+                if self.multi_resource_heterogeneity_enabled
+                else 0
+            ),
         }
         if self.use_proxy_fields:
             info["hazard_field_at_agent"] = float(
@@ -1124,6 +1443,30 @@ class CausalGridWorld:
             landmark_b_flat = lb_view.reshape(-1)   # [25]
             world_parts.extend([landmark_a_flat, landmark_b_flat])
 
+        # SD-049: per-resource-type proximity field views (only when
+        # multi_resource_heterogeneity_enabled AND use_proxy_fields). One 5x5
+        # patch per type, normalised by per-type field max so the encoder sees
+        # type-distinct gradients with comparable magnitudes regardless of
+        # absolute spawn density. Stored for obs_dict surfacing below.
+        per_type_field_flats: List[torch.Tensor] = []
+        if self.use_proxy_fields and self.multi_resource_heterogeneity_enabled:
+            for type_idx in range(self.n_resource_types):
+                t_field = self._resource_field_by_type[type_idx]
+                t_max = float(t_field.max()) + 1e-6
+                t_view = torch.zeros(5, 5)
+                for di in range(-2, 3):
+                    for dj in range(-2, 3):
+                        if self.toroidal:
+                            ni, nj = (ax + di) % self.size, (ay + dj) % self.size
+                            t_view[di + 2, dj + 2] = float(t_field[ni, nj]) / t_max
+                        else:
+                            ni, nj = ax + di, ay + dj
+                            if 0 <= ni < self.size and 0 <= nj < self.size:
+                                t_view[di + 2, dj + 2] = float(t_field[ni, nj]) / t_max
+                t_flat = t_view.reshape(-1).float()  # [25]
+                per_type_field_flats.append(t_flat)
+                world_parts.append(t_flat)
+
         world_state = torch.cat(world_parts)
 
         result = {
@@ -1138,6 +1481,22 @@ class CausalGridWorld:
             if self.n_landmarks_a > 0 or self.n_landmarks_b > 0:
                 result["landmark_a_field_view"] = landmark_a_flat.float()
                 result["landmark_b_field_view"] = landmark_b_flat.float()
+            # SD-049: per-resource-type field views + per-axis drive vector + the
+            # at-agent type tag for the consumed cell (0 = no resource at agent
+            # cell, type_idx + 1 otherwise -- a one-step proxy for the identity
+            # signal the SD-015 + downstream Phase 2 encoder upgrade will consume).
+            if self.multi_resource_heterogeneity_enabled:
+                for i, t_flat in enumerate(per_type_field_flats):
+                    name = self.resource_type_names[i]
+                    result[f"resource_field_view_{name}"] = t_flat
+                # Always emit the per-axis drive vector and resource_type_at_agent
+                # tag when SD-049 is on (zero values when types are gated out).
+                result["per_axis_drive"] = torch.from_numpy(
+                    self._per_axis_drive.copy()
+                ).float()
+                result["resource_type_at_agent"] = torch.tensor(
+                    [int(self._resource_type_grid[ax, ay])], dtype=torch.int64
+                )
             # SD-010: dedicated harm_obs for HarmEncoder (nociceptive separation).
             # Sensory-discriminative stream (z_harm_s, Adelta-pathway analog):
             # Layout: hazard_field_view[25] + resource_field_view[25] + harm_exposure[1]
@@ -1327,6 +1686,22 @@ class CausalGridWorld:
                 for j in range(self.size):
                     dist = abs(i - rx) + abs(j - ry)
                     self.resource_field[i, j] += 1.0 / (1.0 + dist * self.resource_field_decay)
+
+        # SD-049: per-resource-type proximity fields (parallel to legacy
+        # resource_field). Computed only when master switch is on; otherwise
+        # the per-type array stays zero and is not surfaced through obs_dict.
+        if self.multi_resource_heterogeneity_enabled:
+            self._resource_field_by_type = np.zeros(
+                (self.n_resource_types, self.size, self.size), dtype=np.float32
+            )
+            for type_idx, type_resources in enumerate(self._resources_by_type):
+                for rx, ry in type_resources:
+                    for i in range(self.size):
+                        for j in range(self.size):
+                            dist = abs(i - rx) + abs(j - ry)
+                            self._resource_field_by_type[type_idx, i, j] += (
+                                1.0 / (1.0 + dist * self.resource_field_decay)
+                            )
 
     # ------------------------------------------------------------------ #
     # SD-047: Multi-source environmental dynamics                         #

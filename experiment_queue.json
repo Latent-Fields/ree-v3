@@ -6,5 +6,18 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-513",
+      "title": "SD-049 multi-resource heterogeneity substrate readiness diagnostic",
+      "script": "experiments/v3_exq_513_sd049_multi_resource_heterogeneity_substrate_readiness.py",
+      "claim_ids": ["SD-049"],
+      "experiment_purpose": "diagnostic",
+      "priority": 1,
+      "status": "pending",
+      "estimated_minutes": 5,
+      "machine_affinity": "any",
+      "notes": "4-arm sweep ARM_0/ARM_1/ARM_2/ARM_3 (OFF / 2-type / 3-type / 5-type overshoot) + curriculum-hook check. Substrate-readiness diagnostic only -- the behavioural goal_resource_r lift + identity-recovery probe lives in the Phase 2 successor V3-EXQ-514, queued after the z_resource encoder identity expansion + SD-032 consumer cascade lands. Pre-registered acceptance: C0 bit-identical OFF, C1a-b ARM_1 novelty-gated + food/water spawn, C2a-f ARM_2 substrate signatures, C3a-b ARM_3 obs-dim and 4-of-5 type spawn, CC1-2 curriculum gates water at step 0 and releases at step 1000."
+    }
+  ]
 }
