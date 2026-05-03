@@ -161,6 +161,37 @@ class CausalGridWorld:
         scheduled_external_hazard_interval: int = 50,
         scheduled_external_hazard_prob: float = 0.5,
         scheduled_external_hazard_adjacent_only: bool = True,
+        # SD-047: multi-source environmental dynamics.
+        # Three concurrent stochastic event sources at distinct spatial / temporal scales,
+        # each agent-independent. Provides the textured causal background that
+        # agency-detection comparators (MECH-095) and reafference cancellation
+        # (MECH-098) require for honest substrate-level testing. Bit-identical OFF
+        # when multi_source_dynamics_enabled=False (default); per-source switches
+        # allow independent ablation.
+        #
+        #   Source 1 (weather field): AR(1) coarse-grid additive perturbation on
+        #     hazard_field. Continuous, smooth, autocorrelated, agent-independent.
+        #   Source 2 (transient events): Poisson appear / disappear of transient
+        #     hazard cells (tracked separately from self.hazards so they auto-decay).
+        #   Source 3 (background drift): n_drift_sources mobile single-cell hazard-
+        #     analog objects with independent random-walk / drift / Levy dynamics.
+        #
+        # multi_source_intensity_scale is the 4-arm noise-sweep lever per the SD-047
+        # validation protocol (Asai 2016 non-monotonic): scales sigma, p_appear,
+        # and drift step rate uniformly so a single knob produces ARM_0/1/2/3.
+        multi_source_dynamics_enabled: bool = False,
+        multi_source_intensity_scale: float = 1.0,
+        weather_field_enabled: bool = False,
+        weather_super_cells: int = 4,
+        weather_alpha_ar1: float = 0.95,
+        weather_sigma: float = 0.05,
+        transient_events_enabled: bool = False,
+        transient_p_appear: float = 1e-3,
+        transient_p_disappear: float = 0.1,
+        transient_intensity: float = 1.0,
+        background_drift_enabled: bool = False,
+        n_drift_sources: int = 1,
+        drift_policy: str = "random_walk",
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -219,6 +250,35 @@ class CausalGridWorld:
         self.scheduled_external_hazard_adjacent_only = scheduled_external_hazard_adjacent_only
         self._external_hazard_event_count: int = 0
         self._last_external_hazard_step: int = -1
+
+        # SD-047: multi-source environmental dynamics state.
+        self.multi_source_dynamics_enabled = multi_source_dynamics_enabled
+        self.multi_source_intensity_scale = float(multi_source_intensity_scale)
+        self.weather_field_enabled = weather_field_enabled
+        self.weather_super_cells = int(max(1, weather_super_cells))
+        self.weather_alpha_ar1 = float(weather_alpha_ar1)
+        self.weather_sigma = float(weather_sigma)
+        self.transient_events_enabled = transient_events_enabled
+        self.transient_p_appear = float(transient_p_appear)
+        self.transient_p_disappear = float(transient_p_disappear)
+        self.transient_intensity = float(transient_intensity)
+        self.background_drift_enabled = background_drift_enabled
+        self.n_drift_sources = int(max(0, n_drift_sources))
+        self.drift_policy = str(drift_policy)
+        # Coarse AR(1) state and full-grid additive perturbation; populated in reset().
+        self._weather_super_field: np.ndarray = np.zeros(
+            (self.weather_super_cells, self.weather_super_cells), dtype=np.float32
+        )
+        self._weather_perturbation: np.ndarray = np.zeros((size, size), dtype=np.float32)
+        # Transient hazards: List[List[int]] of [x, y, age]. Distinct from self.hazards.
+        self._transient_hazards: List[List[int]] = []
+        # Drift sources: List[List[int]] of [x, y, vx, vy, age]. vx/vy used by linear/Levy.
+        self._drift_sources: List[List[int]] = []
+        # Per-step diagnostic counters (env-caused vs agent-caused change events).
+        # Reset every step in step(); incremented inside step paths.
+        self._multi_source_n_env_events: int = 0
+        self._multi_source_n_agent_events: int = 0
+
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
         self.landmark_b_positions: List[Tuple[int, int]] = []
@@ -348,6 +408,11 @@ class CausalGridWorld:
         # SD-029: per-episode external hazard counter.
         self._external_hazard_event_count = 0
         self._last_external_hazard_step = -1
+        # SD-047: per-episode multi-source counters reset.
+        self._multi_source_n_env_events = 0
+        self._multi_source_n_agent_events = 0
+        if self.multi_source_dynamics_enabled:
+            self._init_multi_source_state()
 
         # Proxy-gradient state
         self.harm_exposure: float = 0.0
@@ -454,6 +519,11 @@ class CausalGridWorld:
         # SD-029: per-episode external hazard counter.
         self._external_hazard_event_count = 0
         self._last_external_hazard_step = -1
+        # SD-047: scripted-eval reset path leaves multi-source state OFF; experiments
+        # using reset_to() are SD-029 / EXQ-433a comparator harnesses that intentionally
+        # bypass multi-source dynamics for clean self-vs-externally-caused tagging.
+        self._multi_source_n_env_events = 0
+        self._multi_source_n_agent_events = 0
 
         self.harm_exposure = 0.0
         self.benefit_exposure = 0.0
@@ -677,6 +747,54 @@ class CausalGridWorld:
                 self._accumulated_harm_exposure += float(np.clip(self.harm_exposure, 0.0, 1.0))
                 self._accumulated_harm_steps += 1
 
+        # SD-047: per-step diagnostic counters reset; agent-caused events are tagged
+        # by the existing transition_type machinery above (env_caused_hazard /
+        # agent_caused_hazard / hazard_approach / resource / etc).
+        self._multi_source_n_agent_events = 0
+        self._multi_source_n_env_events = 0
+        if transition_type in (
+            "agent_caused_hazard",
+            "hazard_approach",
+            "resource",
+            "benefit_approach",
+            "waypoint",
+            "sequence_complete",
+        ):
+            self._multi_source_n_agent_events += 1
+        if transition_type == "env_caused_hazard":
+            self._multi_source_n_env_events += 1
+
+        # SD-047: multi-source environmental dynamics. Three concurrent stochastic
+        # event sources, each agent-independent, gated by master switch + per-source
+        # switches. RNG draws guarded inside the master if so seed sequences for
+        # existing experiments are bit-identical when disabled.
+        weather_step_delta = 0.0
+        n_transient_appear = 0
+        n_transient_disappear = 0
+        n_drift_moved = 0
+        if self.multi_source_dynamics_enabled:
+            if self.weather_field_enabled:
+                weather_step_delta = self._step_weather_field()
+            if self.transient_events_enabled:
+                n_transient_appear, n_transient_disappear = self._step_transient_events()
+            if self.background_drift_enabled:
+                n_drift_moved = self._step_background_drift()
+            # Multi-source contributions to env-event count: weather is continuous (not
+            # counted as discrete events); transients add appearances and disappearances;
+            # drift moves count as env events because each is an unscheduled hazard
+            # relocation visible to the agent's perception.
+            self._multi_source_n_env_events += int(n_transient_appear)
+            self._multi_source_n_env_events += int(n_transient_disappear)
+            self._multi_source_n_env_events += int(n_drift_moved)
+            # Recompute proximity fields if any source perturbed hazard layout / weather.
+            if self.use_proxy_fields and (
+                self.weather_field_enabled
+                or n_transient_appear > 0
+                or n_transient_disappear > 0
+                or n_drift_moved > 0
+            ):
+                self._compute_proximity_fields()
+
         # SD-029: scheduled external-hazard injection (balanced curriculum).
         # Deterministically scheduled "externally-caused" hazard events that are
         # independent of the agent's action. When enabled, every
@@ -732,6 +850,17 @@ class CausalGridWorld:
             # SD-029 balanced curriculum tags (always present; 0 when disabled).
             "external_hazard_injected": bool(external_hazard_injected),
             "external_hazard_event_count": int(self._external_hazard_event_count),
+            # SD-047 multi-source tags (always present; 0 / False when disabled).
+            "multi_source_dynamics_enabled": bool(self.multi_source_dynamics_enabled),
+            "multi_source_intensity_scale": float(self.multi_source_intensity_scale),
+            "multi_source_weather_step_delta": float(weather_step_delta),
+            "multi_source_n_transient_appear": int(n_transient_appear),
+            "multi_source_n_transient_disappear": int(n_transient_disappear),
+            "multi_source_n_transient_active": int(len(self._transient_hazards)),
+            "multi_source_n_drift_moved": int(n_drift_moved),
+            "multi_source_n_drift_active": int(len(self._drift_sources)),
+            "multi_source_n_env_events": int(self._multi_source_n_env_events),
+            "multi_source_n_agent_events": int(self._multi_source_n_agent_events),
         }
         if self.use_proxy_fields:
             info["hazard_field_at_agent"] = float(
@@ -1042,13 +1171,36 @@ class CausalGridWorld:
         Uses Manhattan distance. Peaks at 1.0 at source cell (dist=0).
 
         Called after placement, after drift (hazards), after consumption (resources).
+
+        SD-047: when multi_source_dynamics is on, transient hazards and drift sources
+        contribute to hazard_field alongside self.hazards (they are real hazards on
+        the grid; the per-source lists exist for bookkeeping). The weather field is
+        added as an additive coarse-grid perturbation at the end -- agent-independent
+        continuous noise on the agent's hazard percept.
         """
         self.hazard_field = np.zeros((self.size, self.size), dtype=np.float32)
+        # SD-047: aggregate hazard sources. self.hazards already holds the entries
+        # for transient and drift hazards (added when each spawns); _transient_hazards
+        # and _drift_sources are the per-source bookkeeping lists, NOT separate
+        # contributors to the field.
         for hx, hy in self.hazards:
             for i in range(self.size):
                 for j in range(self.size):
                     dist = abs(i - hx) + abs(j - hy)
                     self.hazard_field[i, j] += 1.0 / (1.0 + dist * self.hazard_field_decay)
+
+        # SD-047: add weather perturbation (additive, can be negative). Clipped at 0
+        # to preserve the field's non-negative semantics expected by downstream
+        # consumers (proximity_harm = scale * field; resource and harm encoders
+        # expect non-negative inputs).
+        if (
+            self.multi_source_dynamics_enabled
+            and self.weather_field_enabled
+            and self._weather_perturbation.shape == self.hazard_field.shape
+        ):
+            self.hazard_field = np.maximum(
+                0.0, self.hazard_field + self._weather_perturbation
+            ).astype(np.float32)
 
         self.resource_field = np.zeros((self.size, self.size), dtype=np.float32)
         for rx, ry in self.resources:
@@ -1056,6 +1208,214 @@ class CausalGridWorld:
                 for j in range(self.size):
                     dist = abs(i - rx) + abs(j - ry)
                     self.resource_field[i, j] += 1.0 / (1.0 + dist * self.resource_field_decay)
+
+    # ------------------------------------------------------------------ #
+    # SD-047: Multi-source environmental dynamics                         #
+    # ------------------------------------------------------------------ #
+
+    def _init_multi_source_state(self) -> None:
+        """
+        Reset SD-047 multi-source state on episode boundary.
+
+        Weather super_field reseeds at zero (stationary AR(1) starts at the
+        unconditional mean). Transient hazards and drift sources are emptied;
+        drift sources are then placed at random interior cells when the
+        per-source switch is on. Drift cells are added to self.hazards so
+        proximity-field computation includes them.
+        """
+        # Weather coarse field: zero-init each episode (stationary mean of AR(1)).
+        self._weather_super_field = np.zeros(
+            (self.weather_super_cells, self.weather_super_cells), dtype=np.float32
+        )
+        self._weather_perturbation = np.zeros((self.size, self.size), dtype=np.float32)
+        # Transient hazards: empty at episode start; populated stochastically by
+        # _step_transient_events.
+        self._transient_hazards = []
+        # Drift sources: place at random interior cells when enabled. Each drift
+        # source is also entered into self.hazards so it shows up in the grid
+        # (entity type "hazard") and contributes to hazard_field.
+        self._drift_sources = []
+        if self.background_drift_enabled and self.n_drift_sources > 0:
+            if self.toroidal:
+                pool = [
+                    (i, j)
+                    for i in range(self.size)
+                    for j in range(self.size)
+                    if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+                ]
+            else:
+                pool = [
+                    (i, j)
+                    for i in range(1, self.size - 1)
+                    for j in range(1, self.size - 1)
+                    if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+                ]
+            self._rng.shuffle(pool)
+            n = min(self.n_drift_sources, len(pool))
+            for _ in range(n):
+                if not pool:
+                    break
+                cx, cy = pool.pop()
+                # Random initial velocity for linear/Levy policies (random_walk ignores it).
+                vx, vy = 0, 0
+                if self.drift_policy in ("linear_drift", "levy_walk"):
+                    vchoices = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                    vx, vy = vchoices[int(self._rng.integers(0, len(vchoices)))]
+                self._drift_sources.append([int(cx), int(cy), int(vx), int(vy), 0])
+                self.grid[cx, cy] = self.ENTITY_TYPES["hazard"]
+                self.hazards.append([int(cx), int(cy)])
+
+    def _step_weather_field(self) -> float:
+        """
+        AR(1) update on the coarse weather super-field; bilinear-interpolate to
+        per-cell additive perturbation.
+
+        Stationary AR(1) form: x_{t+1} = alpha*x_t + sqrt(1-alpha^2) * sigma * N(0, 1).
+        Variance stays bounded at sigma^2 (no blowup over long episodes).
+
+        Returns the mean absolute change in the super-field this tick (diagnostic).
+        """
+        alpha = float(np.clip(self.weather_alpha_ar1, 0.0, 0.999))
+        sigma = float(self.weather_sigma) * float(self.multi_source_intensity_scale)
+        # noise scale preserves stationary variance sigma^2 across alpha values.
+        noise_scale = float(np.sqrt(max(0.0, 1.0 - alpha * alpha))) * sigma
+        prev = self._weather_super_field.copy()
+        noise = self._rng.standard_normal(self._weather_super_field.shape).astype(np.float32)
+        self._weather_super_field = (alpha * self._weather_super_field + noise_scale * noise).astype(np.float32)
+        # Map super-field to full grid via nearest-neighbour block expansion.
+        block_h = max(1, self.size // self.weather_super_cells)
+        block_w = max(1, self.size // self.weather_super_cells)
+        pert = np.zeros((self.size, self.size), dtype=np.float32)
+        for si in range(self.weather_super_cells):
+            for sj in range(self.weather_super_cells):
+                lo_i = si * block_h
+                hi_i = min(self.size, (si + 1) * block_h) if si < self.weather_super_cells - 1 else self.size
+                lo_j = sj * block_w
+                hi_j = min(self.size, (sj + 1) * block_w) if sj < self.weather_super_cells - 1 else self.size
+                pert[lo_i:hi_i, lo_j:hi_j] = self._weather_super_field[si, sj]
+        self._weather_perturbation = pert
+        return float(np.mean(np.abs(self._weather_super_field - prev)))
+
+    def _step_transient_events(self) -> Tuple[int, int]:
+        """
+        Poisson appear / disappear of transient hazard cells.
+
+        Each cell independently has p_appear * intensity_scale chance per tick of
+        spawning a transient hazard (only on currently empty cells; never on the
+        agent). Each existing transient has p_disappear chance per tick of removing.
+
+        Returns (n_appeared, n_disappeared) counts for this tick.
+        """
+        scale = float(self.multi_source_intensity_scale)
+        p_appear = float(np.clip(self.transient_p_appear * scale, 0.0, 1.0))
+        p_disappear = float(np.clip(self.transient_p_disappear, 0.0, 1.0))
+        n_appeared = 0
+        n_disappeared = 0
+        # Disappearances first (compress survivors, free their grid cells if not
+        # otherwise occupied).
+        survivors: List[List[int]] = []
+        for entry in self._transient_hazards:
+            tx, ty, age = int(entry[0]), int(entry[1]), int(entry[2])
+            if self._rng.random() < p_disappear:
+                if self.grid[tx, ty] == self.ENTITY_TYPES["hazard"]:
+                    self.grid[tx, ty] = self.ENTITY_TYPES["empty"]
+                self.hazards = [h for h in self.hazards if not (h[0] == tx and h[1] == ty)]
+                n_disappeared += 1
+            else:
+                survivors.append([tx, ty, age + 1])
+        self._transient_hazards = survivors
+        # Appearances: independent per-cell Bernoulli on empty cells (excluding agent).
+        if p_appear > 0.0:
+            if self.toroidal:
+                cells = [
+                    (i, j)
+                    for i in range(self.size)
+                    for j in range(self.size)
+                    if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+                ]
+            else:
+                cells = [
+                    (i, j)
+                    for i in range(1, self.size - 1)
+                    for j in range(1, self.size - 1)
+                    if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+                ]
+            for (i, j) in cells:
+                if self._rng.random() < p_appear:
+                    self.grid[i, j] = self.ENTITY_TYPES["hazard"]
+                    self.hazards.append([int(i), int(j)])
+                    self._transient_hazards.append([int(i), int(j), 0])
+                    n_appeared += 1
+        return n_appeared, n_disappeared
+
+    def _step_background_drift(self) -> int:
+        """
+        Update positions of drift sources per drift_policy.
+
+        random_walk:   sample new direction each tick, move if target empty.
+        linear_drift:  keep current velocity, bounce off walls / occupied cells.
+        levy_walk:     long-step occasional with low probability (~5% per tick),
+                       short steps otherwise; resample velocity each move.
+
+        Returns count of drift sources that actually moved this tick.
+        """
+        scale = float(self.multi_source_intensity_scale)
+        # Move-probability scaling: at scale=1.0 every drift source attempts a move
+        # per tick. At scale<1.0 some ticks skip; at scale>1.0 the upper bound is
+        # one move per source per tick (capped — this is a movement rate, not a
+        # multi-step jump).
+        p_move = float(np.clip(scale, 0.0, 1.0))
+        n_moved = 0
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        for entry in self._drift_sources:
+            cx, cy = int(entry[0]), int(entry[1])
+            vx, vy = int(entry[2]), int(entry[3])
+            if self._rng.random() > p_move:
+                continue
+            # Pick movement direction per policy.
+            if self.drift_policy == "linear_drift":
+                dx, dy = vx, vy
+                if (dx, dy) == (0, 0):
+                    dx, dy = directions[int(self._rng.integers(0, len(directions)))]
+            elif self.drift_policy == "levy_walk":
+                # 5% chance of a 2-step Levy hop; otherwise a 1-step move.
+                hop = 2 if self._rng.random() < 0.05 else 1
+                ddx, ddy = directions[int(self._rng.integers(0, len(directions)))]
+                dx, dy = ddx * hop, ddy * hop
+            else:  # random_walk
+                dx, dy = directions[int(self._rng.integers(0, len(directions)))]
+            # Compute target.
+            if self.toroidal:
+                nx = (cx + dx) % self.size
+                ny = (cy + dy) % self.size
+            else:
+                nx, ny = cx + dx, cy + dy
+                if not (0 < nx < self.size - 1 and 0 < ny < self.size - 1):
+                    # Wall bounce for linear_drift; skip for others.
+                    if self.drift_policy == "linear_drift":
+                        entry[2] = -vx
+                        entry[3] = -vy
+                    continue
+            if self.grid[nx, ny] != self.ENTITY_TYPES["empty"]:
+                # Target occupied: bounce velocity for linear, otherwise skip.
+                if self.drift_policy == "linear_drift":
+                    entry[2] = -vx
+                    entry[3] = -vy
+                continue
+            # Apply move: clear old grid cell, mark new, update self.hazards entry.
+            self.grid[cx, cy] = self.ENTITY_TYPES["empty"]
+            self.grid[nx, ny] = self.ENTITY_TYPES["hazard"]
+            for h in self.hazards:
+                if h[0] == cx and h[1] == cy:
+                    h[0], h[1] = int(nx), int(ny)
+                    break
+            entry[0], entry[1] = int(nx), int(ny)
+            entry[4] = int(entry[4]) + 1  # age increment
+            # For linear_drift, store the velocity used (so future ticks continue).
+            if self.drift_policy == "linear_drift":
+                entry[2], entry[3] = int(dx), int(dy)
+            n_moved += 1
+        return n_moved
 
     # ------------------------------------------------------------------ #
     # Internal helpers (unchanged from V2)                                #
