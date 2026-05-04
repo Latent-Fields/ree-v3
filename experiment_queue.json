@@ -44,27 +44,6 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-04T07:53:46.901760+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-512a",
-      "title": "SD-048 interoceptive-noise comparator-gap behavioural recalibrated (scale=3.0)",
-      "experiment_type": "v3_exq_512a_sd048_comparator_gap_recalibrated",
-      "script": "experiments/v3_exq_512a_sd048_comparator_gap_recalibrated.py",
-      "claim_id": "SD-048",
-      "experiment_purpose": "evidence",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "episodes_per_run": 140,
-      "seeds": 3,
-      "conditions": 2,
-      "supersedes": "v3_exq_512_sd048_arc058_arc033_comparator_gap_behavioural_20260504T005756Z_v3",
-      "note": "Recalibrated successor to EXQ-512. Raises interoceptive_noise_scale to 3.0 (was 1.0 default). EXQ-512 failed C3 because autonomic sigma=0.02 at scale=1.0 is below the forward model natural prediction-error floor (~0.025-0.035 in both arms). Scale=3.0 is a mechanism proof; v3_pending holds pending a default-scale calibration sweep. Pre-registered thresholds: C1_MIN_GAP_ARM_A=0.0, C2_MIN_R2_ARM_B=0.5, C3_MIN_QUIET_GAP=0.005. PASS lifts SD-048 v3_pending gate.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-04T09:38:45.867557+00:00"
-      }
     }
   ]
 }
