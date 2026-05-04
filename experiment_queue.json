@@ -67,9 +67,13 @@
       "experiment_purpose": "diagnostic",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 3,
-      "note": "SD-051 substrate readiness diagnostic: 4-arm check (ARM_A both-on, ARM_B store-on-no-mech302, ARM_C store-off, ARM_D both-off). 9 acceptance criteria C1-C9. Unit tests (C1-C5) PASS dry-run 2026-05-04; integration wiring confirmed clean (no exceptions)."
+      "note": "SD-051 substrate readiness diagnostic: 4-arm check (ARM_A both-on, ARM_B store-on-no-mech302, ARM_C store-off, ARM_D both-off). 9 acceptance criteria C1-C9. Unit tests (C1-C5) PASS dry-run 2026-05-04; integration wiring confirmed clean (no exceptions).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-04T15:03:16.659453+00:00"
+      }
     }
   ]
 }
