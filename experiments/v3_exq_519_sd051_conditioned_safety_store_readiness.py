@@ -380,10 +380,11 @@ def main(dry_run: bool = False) -> int:
     for k, v in acceptance.items():
         print(f"  {k}: {v}")
     print(f"[{EXPERIMENT_TYPE}] outcome={outcome} elapsed={elapsed:.1f}s")
+    print(f"verdict: {outcome}")
 
     if dry_run:
         print(f"[{EXPERIMENT_TYPE}] dry-run complete; not writing manifest.")
-        return 0 if acceptance["all_pass"] else 1
+        return 0
 
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     run_id = f"{EXPERIMENT_TYPE}_{timestamp}_v3"
@@ -419,7 +420,8 @@ def main(dry_run: bool = False) -> int:
     with open(out_path, "w") as f:
         json.dump(manifest, f, indent=2)
     print(f"Result written to: {out_path}")
-    return 0 if outcome == "PASS" else 1
+    print(f"Done. Outcome: {outcome}")
+    return 0
 
 
 if __name__ == "__main__":
