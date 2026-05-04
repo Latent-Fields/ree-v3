@@ -16,11 +16,15 @@
       ],
       "experiment_purpose": "evidence",
       "priority": 1,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 15,
       "machine_affinity": "any",
       "supersedes": "V3-EXQ-517",
-      "notes": "EXQ-517 produced 0 events across all 3 seeds: 5-step window / 0.05 threshold cannot resolve 0.002/step limb-healing dynamics. Recalibrated: window 5->30, threshold 0.05->0.005, min_norm 0.02->0.01. Gate (c) for MECH-304 conditioned-inhibition experiment."
+      "notes": "EXQ-517 produced 0 events across all 3 seeds: 5-step window / 0.05 threshold cannot resolve 0.002/step limb-healing dynamics. Recalibrated: window 5->30, threshold 0.05->0.005, min_norm 0.02->0.01. Gate (c) for MECH-304 conditioned-inhibition experiment.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-04T22:20:29.751036+00:00"
+      }
     }
   ]
 }
