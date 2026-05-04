@@ -6,25 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-517a",
-      "title": "MECH-302 relief-completion discriminative pair -- recalibrated comparator (window=30, threshold=0.005)",
-      "script": "experiments/v3_exq_517a_mech302_relief_completion_discriminative_pair.py",
-      "claim_ids": [
-        "MECH-302"
-      ],
-      "experiment_purpose": "evidence",
-      "priority": 1,
-      "status": "claimed",
-      "estimated_minutes": 15,
-      "machine_affinity": "any",
-      "supersedes": "V3-EXQ-517",
-      "notes": "EXQ-517 produced 0 events across all 3 seeds: 5-step window / 0.05 threshold cannot resolve 0.002/step limb-healing dynamics. Recalibrated: window 5->30, threshold 0.05->0.005, min_norm 0.02->0.01. Gate (c) for MECH-304 conditioned-inhibition experiment.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-04T22:20:29.751036+00:00"
-      }
-    }
-  ]
+  "items": []
 }
