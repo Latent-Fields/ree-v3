@@ -6,5 +6,27 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-514",
+      "title": "SD-049 Phase 2 hybrid encoder behavioural validation",
+      "script": "experiments/v3_exq_514_sd049_phase_2_behavioural_validation.py",
+      "claim_ids": [
+        "SD-049",
+        "SD-015",
+        "MECH-229",
+        "MECH-230"
+      ],
+      "experiment_purpose": "evidence",
+      "priority": 1,
+      "status": "claimed",
+      "estimated_minutes": 90,
+      "machine_affinity": "any",
+      "notes": "4-arm sweep ARM_0/ARM_1/ARM_2/ARM_3 with phased training (P0 joint trunk + classifier + prox -> P1 freeze classifier head -> P2 evaluate). 10 acceptance criteria: C0 ARM_0 baseline replicates V3-EXQ-322a 0.06 floor; C1a/b ARM_1 obs_dim 325 + classifier trains; C2a-e ARM_2 obs_dim 325 + goal_resource_r >= 0.5 (target lift from 0.066 baseline) + lift over ARM_0 >= 0.2 + identity-recovery linear-probe accuracy > 0.6 + per-axis drive evolves; C3a/b ARM_3 obs_dim 375 + classifier did fire (no crash on 5-type). PASS = SD-049 Phase 2 validated; SD-015 promotable; SD-049 v3_pending may be cleared. FAIL routes to verdict.md 6-row interpretation grid; row 6 is the Woo/Spelke-style substrate-ceiling falsifier. Lit-pull provenance in evidence/literature/targeted_review_sd_049_encoder_identity_expansion/verdict.md (Option C hybrid, confidence 0.78).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-04T07:53:46.901760+00:00"
+      }
+    }
+  ]
 }
