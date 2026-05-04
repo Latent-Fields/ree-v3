@@ -6,5 +6,22 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-521",
+      "title": "Reef Enrichment Substrate Readiness (SD-050 behavioral-diversity env)",
+      "script": "experiments/v3_exq_521_reef_enrichment_substrate_readiness.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 20,
+      "claim_ids": [],
+      "experiment_purpose": "diagnostic",
+      "status": "claimed",
+      "notes": "Env-only 4-arm diagnostic. No trained agent. Validates reef safe zones + food-attracted hazards substrate before V3-EXQ-522 monostrategy-breaking experiment.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-04T22:38:22.455105+00:00"
+      }
+    }
+  ]
 }
