@@ -55,7 +55,7 @@
       "status": "pending",
       "estimated_minutes": 120,
       "machine_affinity": "any",
-      "supersedes": "v3_exq_514_sd049_phase_2_behavioural_validation_20260504T100649Z_v3",
+      "supersedes": "V3-EXQ-514",
       "notes": "V3-EXQ-514 successor with three fixes for the FAIL-on-instrumentation outcome: (A) higher contact rate via env tuning (size=8, num_resources=15, num_hazards=0, longer episodes 300, resource_respawn_on_consume=True) targeting >= 1% contact rate vs V3-EXQ-514's 0.07%; (B) dense neighborhood-dominant-type probe (sampled at every step, labeled by argmax over per-type field views) replacing the consumption-only probe that suffered from <2-unique-classes silent zeroing; (C) classifier_loss_weight=0.1 keeping the verdict's Option C trunk-shaping commitment but calibrating against the much-larger E1/E3/prox losses to prevent joint-training divergence. 9 acceptance criteria; PASS lifts SD-049 Phase 2 + SD-015 promotable. FAIL on probe_acc_neighborhood + sufficient samples = architectural Phase 2 issue (verdict.md row 2/3); FAIL on C1b only = lower classifier_loss_weight in 514b; FAIL across ARM_2 AND ARM_3 = substrate-ceiling falsifier (verdict.md row 6, V4-1 routing)."
     },
     {
@@ -67,9 +67,13 @@
       "experiment_purpose": "diagnostic",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 2,
-      "note": "SD-019a substrate readiness diagnostic: 4-arm check (backward compat, EMA seeding + shape, alpha modulation + AIC redirect, controllability parity / SD-021 non-attenuation). 9 acceptance criteria UC0a-b/UC1a-d/UC2a-b/UC3. Dry-run PASS 2026-05-04."
+      "note": "SD-019a substrate readiness diagnostic: 4-arm check (backward compat, EMA seeding + shape, alpha modulation + AIC redirect, controllability parity / SD-021 non-attenuation). 9 acceptance criteria UC0a-b/UC1a-d/UC2a-b/UC3. Dry-run PASS 2026-05-04.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-04T15:02:53.000006+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-519",
