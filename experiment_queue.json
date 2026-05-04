@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-517",
-      "title": "MECH-302 relief-completion behavioural discriminative pair",
-      "experiment_type": "v3_exq_517_mech302_relief_completion_discriminative_pair",
-      "script": "experiments/v3_exq_517_mech302_relief_completion_discriminative_pair.py",
-      "claim_id": "MECH-302",
-      "experiment_purpose": "evidence",
-      "priority": 1,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 40,
-      "episodes_per_run": 70,
-      "seeds": 3,
-      "conditions": 2,
-      "note": "Behavioural discriminative pair: ARM_A (MECH-302 ON) vs ARM_B (OFF). Uses limb_damage_enabled=True (SD-022) for natural z_harm_a rise/fall dynamics. Gate (c) for MECH-304 conditioned-inhibition experiment. Smoke PASS (dry-run, 2026-05-04).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-04T15:03:38.360258+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-514a",
       "title": "SD-049 Phase 2 hybrid encoder behavioural validation (V3-EXQ-514 successor)",
       "script": "experiments/v3_exq_514a_sd049_phase_2_behavioural_validation.py",
