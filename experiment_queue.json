@@ -18,11 +18,15 @@
       ],
       "experiment_purpose": "diagnostic",
       "priority": 1,
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 1,
       "machine_affinity": "DLAPTOP-4.local",
       "supersedes": "V3-EXQ-485",
-      "notes": "6-sub-test landing diagnostic extending V3-EXQ-485. UC1-UC5 carried over (instantiation, gate modulates update, bias zero at init, backward compat, reset clears state_code). UC6 NEW: oracle round-trip -- (A) query_outcome() output bit-identical to e2_harm_s.forward() (max diff < 1e-6); (B) AssertionError when oracle disabled; (C) reset() clears _last_outcome_prediction + _ofc_oracle_predictions; (D) oracle_is_ready=False by default; (E) get_state() exposes oracle_enabled=True and last_oracle_pred_norm > 0 after a query. Validates MECH-263 specific-outcome oracle path (OFCConfig.use_outcome_oracle). Pure deterministic arithmetic; no env steps."
+      "notes": "6-sub-test landing diagnostic extending V3-EXQ-485. UC1-UC5 carried over (instantiation, gate modulates update, bias zero at init, backward compat, reset clears state_code). UC6 NEW: oracle round-trip -- (A) query_outcome() output bit-identical to e2_harm_s.forward() (max diff < 1e-6); (B) AssertionError when oracle disabled; (C) reset() clears _last_outcome_prediction + _ofc_oracle_predictions; (D) oracle_is_ready=False by default; (E) get_state() exposes oracle_enabled=True and last_oracle_pred_norm > 0 after a query. Validates MECH-263 specific-outcome oracle path (OFCConfig.use_outcome_oracle). Pure deterministic arithmetic; no env steps.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-04T15:03:29.666299+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-517",
