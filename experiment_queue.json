@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-512",
+      "title": "SD-048 ARC-058/ARC-033 comparator-gap behavioural test",
+      "experiment_type": "v3_exq_512_sd048_arc058_arc033_comparator_gap_behavioural",
+      "script": "experiments/v3_exq_512_sd048_arc058_arc033_comparator_gap_behavioural.py",
+      "claim_ids": ["SD-048"],
+      "experiment_purpose": "evidence",
+      "priority": 1,
+      "status": "pending",
+      "estimated_minutes": 60,
+      "machine_affinity": "any",
+      "added_utc": "2026-05-04T00:35:00Z",
+      "added_session": "queue-v3-exq-512-sd048-behavioural-2026-05-04T0035Z",
+      "note": "SD-048 ARC-058/ARC-033 comparator-gap behavioural successor to V3-EXQ-511 substrate-readiness diagnostic (governance 2026-05-03T2356Z explicitly deferred this slot pending behavioural validation; lifting it now per user request 2026-05-04). Discriminative pair on SD-022 limb_damage substrate: ARM_A SD-048 ON at default calibration (interoceptive_noise_scale=1.0) vs ARM_B SD-048 OFF baseline. Both arms train E2_harm_a forward model (ARC-033 path, independent per-stream) under canonical phased training: P0 60 eps encoder warmup, P1 80 eps frozen-encoder forward-model training on .detach()ed targets, P2 40 eps eval. Sparse policy (80% stay) on 12x12 / 1 hazard for body-noise observability matching V3-EXQ-511. 3 seeds. C1: ARM_A residual_body_noise > residual_agent (selectivity_gap > 0). C2: ARM_B forward_r2 >= 0.5 (sanity that forward model can learn deterministic SD-022 dynamics). C3: ARM_A residual_body_noise - residual_quiet >= 0.005 (anchors body_noise residual against quiet baseline; closes ambiguity that C1 might reflect agent_caused being unusually predictable rather than body_noise being unpredictable). Smoke 3/3 PASS on dry-run (selectivity_gap=+0.022, forward_r2=0.95, quiet_gap=+0.084). PASS lifts SD-048 v3_pending gate; FAIL with C2 only routes ARC-058/ARC-033 to substrate_conditional with V4 dependency on richer body-state substrate. ARC-058 vs ARC-033 trunk-vs-independent arbitration intentionally out of scope (V3-EXQ-445 already executed that test); V3-EXQ-512 uses ARC-033 path so substrate-discrimination measurement is not entangled with the trunk choice."
+    }
+  ]
 }
