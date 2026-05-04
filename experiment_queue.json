@@ -14,7 +14,7 @@
       "script": "experiments/v3_exq_514b_sd049_phase_2_behavioural_validation.py",
       "priority": 1,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "supersedes": "V3-EXQ-514a",
       "claim_id": "SD-049",
@@ -23,7 +23,11 @@
         "SD-015",
         "MECH-229",
         "MECH-230"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-04T22:40:06.511391+00:00"
+      }
     }
   ]
 }
