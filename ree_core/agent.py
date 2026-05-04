@@ -93,6 +93,7 @@ from ree_core.regulators import (
 from ree_core.comparator.suffering_derivative_comparator import (
     SufferingDerivativeComparator,
 )
+from ree_core.safety import ConditionedSafetyStore
 from ree_core.pag import (
     PAGFreezeGate,
     PAGFreezeGateConfig,
@@ -334,6 +335,24 @@ class REEAgent(nn.Module):
             )
         # Event flag: set by sense(), consumed and cleared by select_action().
         self._relief_completion_event: bool = False
+
+        # SD-051 / MECH-304: conditioned safety store.
+        # Non-trainable EMA prototype of z_world at MECH-302 event ticks.
+        # Cosine similarity to current z_world yields safety_prediction.
+        # When safety_prediction > threshold and beta_gate elevated: release commitment.
+        # Encoding pathway (dorsal striatum / dlPFC analog): EMA prototype.
+        # Expression pathway (IL->CeA analog): similarity -> beta_gate.release().
+        self.conditioned_safety_store: Optional[ConditionedSafetyStore] = None
+        if getattr(config, "use_conditioned_safety_store", False):
+            self.conditioned_safety_store = ConditionedSafetyStore(
+                world_dim=config.latent.world_dim,
+                ema_alpha=getattr(config, "safety_store_ema_alpha", 0.1),
+                decay_rate=getattr(config, "safety_store_decay_rate", 0.001),
+                min_norm=getattr(config, "safety_store_min_norm", 0.1),
+                threshold=getattr(config, "safety_store_threshold", 0.5),
+            )
+        # Safety prediction: computed by sense(), consumed and cleared by select_action().
+        self._conditioned_safety_signal: float = 0.0
 
         # MECH-095: TPJ agency comparator. Stores an E2 efference-copy
         # prediction for the selected action, then compares it against the
@@ -1072,6 +1091,11 @@ class REEAgent(nn.Module):
         if self.suffering_comparator is not None:
             self.suffering_comparator.reset()
         self._relief_completion_event = False
+
+        # SD-051 / MECH-304: reset safety store prototype on episode boundary.
+        if self.conditioned_safety_store is not None:
+            self.conditioned_safety_store.reset()
+        self._conditioned_safety_signal = 0.0
 
         # SD-033a: reset rule_state on episode boundary (SD-033a spec: rule
         # persists across ticks within episode; fresh episode starts without
@@ -1844,6 +1868,18 @@ class REEAgent(nn.Module):
                 sdc_norm, sim_mode
             )
 
+        # SD-051 / MECH-304: tick the conditioned safety store.
+        # Updates EMA prototype when MECH-302 event fired this tick, then
+        # returns cosine similarity to current z_world. Simulation mode
+        # (hypothesis_tag) returns 0.0 without advancing the prototype (MECH-094).
+        if self.conditioned_safety_store is not None:
+            sim_mode = bool(getattr(new_latent, "hypothesis_tag", False))
+            self._conditioned_safety_signal = self.conditioned_safety_store.update(
+                new_latent.z_world,
+                event_fired=self._relief_completion_event,
+                sim_mode=sim_mode,
+            )
+
         return new_latent
 
     def sense_flat(self, observation: torch.Tensor) -> LatentState:
@@ -2175,6 +2211,37 @@ class REEAgent(nn.Module):
                     hypothesis_tag=False,
                 )
             self._relief_completion_event = False
+
+        # SD-051 / MECH-304: conditioned safety gate (IL->CeA expression pathway).
+        # When the EMA prototype recognises a safety cue in current z_world and
+        # beta_gate is elevated, release the avoidance commitment.
+        # MECH-094: _conditioned_safety_signal is 0.0 during simulation ticks
+        # (set by conditioned_safety_store.update() with sim_mode=True in sense()).
+        if (
+            self.conditioned_safety_store is not None
+            and self._conditioned_safety_signal
+            > getattr(self.config, "safety_store_threshold", 0.5)
+            and self.beta_gate.is_elevated
+        ):
+            self.beta_gate.release()
+            self._committed_step_idx = 0
+            self._committed_anchor_keys = None
+            if (
+                self._current_latent is not None
+                and self._current_latent.z_world is not None
+                and getattr(self.config, "valence_liking_enabled", False)
+                and hasattr(self.residue_field, "update_valence")
+            ):
+                safety_val = float(
+                    getattr(self.config, "safety_store_commitment_weight", 1.0)
+                )
+                self.residue_field.update_valence(
+                    self._current_latent.z_world,
+                    component=VALENCE_LIKING,
+                    value=safety_val,
+                    hypothesis_tag=False,
+                )
+        self._conditioned_safety_signal = 0.0
 
         if not ticks["e3_tick"] and self._last_action is not None:
             # Between E3 ticks: step through committed trajectory (Layer 1) or hold.

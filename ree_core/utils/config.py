@@ -1296,6 +1296,26 @@ class REEConfig:
     # the relief_completion_event fires (MECH-094 categorical tag write).
     relief_completion_weight: float = 1.0
 
+    # SD-051 / MECH-304: cue-specific conditioned safety prediction store.
+    # ConditionedSafetyStore maintains an EMA prototype of z_world at MECH-302
+    # relief-completion event ticks. Cosine similarity to current z_world yields
+    # safety_prediction; when above threshold + beta_gate elevated: release commitment.
+    # Encoding pathway: EMA prototype (dorsal striatum / dlPFC analog).
+    # Expression pathway: similarity gate -> beta_gate.release() (IL->CeA analog).
+    # MECH-094 gating: update() returns 0.0 when hypothesis_tag set (waking only).
+    # False = disabled (default, backward compat; bit-identical to pre-SD-051).
+    use_conditioned_safety_store: bool = False
+    # EMA update rate per MECH-302 event tick (0, 1].
+    safety_store_ema_alpha: float = 0.1
+    # Per-step prototype decay toward zero (forgetting without reinforcement).
+    safety_store_decay_rate: float = 0.001
+    # Prototype L2 norm below which query returns 0.0 (store not yet loaded).
+    safety_store_min_norm: float = 0.1
+    # Cosine similarity threshold for commitment release gate.
+    safety_store_threshold: float = 0.5
+    # Magnitude written to VALENCE_LIKING when safety gate releases commitment.
+    safety_store_commitment_weight: float = 1.0
+
     # MECH-095: TPJ agency comparator (self/other attribution on z_self).
     # When True, REEAgent stores an E2 efference-copy prediction at action
     # selection and compares it against the next observed z_self during sense().
@@ -2048,6 +2068,12 @@ class REEConfig:
         suffering_drop_threshold: float = 0.10,
         suffering_min_initial_norm: float = 0.05,
         relief_completion_weight: float = 1.0,
+        use_conditioned_safety_store: bool = False,
+        safety_store_ema_alpha: float = 0.1,
+        safety_store_decay_rate: float = 0.001,
+        safety_store_min_norm: float = 0.1,
+        safety_store_threshold: float = 0.5,
+        safety_store_commitment_weight: float = 1.0,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -2463,6 +2489,14 @@ class REEConfig:
         config.suffering_drop_threshold = suffering_drop_threshold
         config.suffering_min_initial_norm = suffering_min_initial_norm
         config.relief_completion_weight = relief_completion_weight
+
+        # SD-051 / MECH-304: conditioned safety store
+        config.use_conditioned_safety_store = use_conditioned_safety_store
+        config.safety_store_ema_alpha = safety_store_ema_alpha
+        config.safety_store_decay_rate = safety_store_decay_rate
+        config.safety_store_min_norm = safety_store_min_norm
+        config.safety_store_threshold = safety_store_threshold
+        config.safety_store_commitment_weight = safety_store_commitment_weight
 
         return config
 
