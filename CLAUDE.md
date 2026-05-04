@@ -3657,8 +3657,10 @@ Verify with `git fetch` (should return silently).
   Backward compatible: disabled by default; existing experiments unaffected;
     bit-identical OFF (no RNG draws; pure arithmetic).
   Phased training: not applicable (non-trainable).
-  Validation experiment: V3-EXQ-515 queued (4-arm sweep: OFF vs window/threshold
-    parameter combinations).
+  Validation experiments: V3-EXQ-515 PASS 2026-05-04 (comparator logic: 4-arm
+    synthetic-norm unit diagnostic). V3-EXQ-516 queued (agent-loop integration:
+    ARM_0 OFF backward-compat, ARM_1 event fires, ARM_2 valence write, ARM_3
+    flat signal no false fires).
   See MECH-302, MECH-057a (commitment release pipeline reused), MECH-091
     (urgency block -- adjacent, opposite polarity), MECH-094 (simulation gate),
     SD-011 (z_harm_a source stream).
