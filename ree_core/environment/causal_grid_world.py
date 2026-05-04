@@ -608,6 +608,12 @@ class CausalGridWorld:
             self.n_resource_types, dtype=np.int32
         )
         self._sd049_n_axis_depletion_steps = 0
+        # SD-049 Phase 2: per-tick cached consumed-type tag (type_idx + 1, or 0
+        # if no consumption this tick). Surfaced as
+        # info["sd049_consumed_type_tag_this_tick"] for the V3-EXQ-514
+        # identity-classifier supervision target after the cell tag has been
+        # cleared in the resource-consumption branch.
+        self._consumed_type_tag_this_tick = 0
         if self.multi_resource_heterogeneity_enabled:
             # Determine which types are currently introduced via the curriculum.
             active_types = [
@@ -848,6 +854,11 @@ class CausalGridWorld:
         action = int(action) % len(self.ACTIONS)
         self._last_action = action
 
+        # SD-049 Phase 2: reset per-tick consumed-type cache before any
+        # consumption logic runs. The flag is set inside the resource branch
+        # below and read by the info dict surfacing at the bottom of step().
+        self._consumed_type_tag_this_tick = 0
+
         dx, dy = self.ACTIONS[action]
         if self.toroidal:
             new_x = (self.agent_x + dx) % self.size
@@ -904,6 +915,12 @@ class CausalGridWorld:
                     else 0
                 )
                 contact_type_idx = type_tag - 1 if type_tag > 0 else -1
+                # SD-049 Phase 2: cache the consumed-this-tick type so the
+                # info dict can report it after the cell tag is cleared.
+                # This is the identity-classifier supervision target for
+                # V3-EXQ-514 (z_resource -> identity_logits cross-entropy).
+                # Reset to 0 at the top of every step() (see _consumed_type_tag_this_tick init).
+                self._consumed_type_tag_this_tick = type_tag
                 # Per-type benefit amplitude scales the contact restoration. Default
                 # 1.0 recovers legacy contact_benefit semantics.
                 amp = 1.0
@@ -1293,6 +1310,12 @@ class CausalGridWorld:
                 if self.multi_resource_heterogeneity_enabled
                 else 0
             ),
+            # SD-049 Phase 2: type_idx + 1 (1..n_types) of the resource consumed
+            # THIS TICK (cleared from grid by consumption logic; cached before
+            # clearing). 0 if no consumption this tick. This is the supervision
+            # target for the V3-EXQ-514 identity classifier (z_resource ->
+            # identity_logits cross-entropy). Always present (0 when SD-049 OFF).
+            "sd049_consumed_type_tag_this_tick": int(self._consumed_type_tag_this_tick),
         }
         if self.use_proxy_fields:
             info["hazard_field_at_agent"] = float(

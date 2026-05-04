@@ -150,6 +150,23 @@ class LatentStackConfig:
     use_resource_encoder: bool = False
     z_resource_dim: int = 32  # must match GoalConfig.goal_dim for direct seeding
 
+    # SD-049 Phase 2 hybrid identity classifier (Option C per verdict.md).
+    # When True AND use_resource_encoder=True, ResourceEncoder gains an
+    # identity_head: Linear(z_resource_dim, n_resource_types) supervised by
+    # cross-entropy on obs_dict["resource_type_at_agent"] from the SD-049
+    # multi_resource_heterogeneity substrate. The classifier head pulls on
+    # the trunk during P0 supervised training (anti-collapse mitigation per
+    # Levi 2021 + biology anchored to Ballesta-Padoa-Schioppa 2019 +
+    # Quiroga 2005 + Schapiro 2017 hybrid CLS). z_resource shape unchanged
+    # (still z_resource_dim); identity_logits exposed as separate
+    # LatentState field for the loss computation. Disabled by default --
+    # backward compatible.
+    # Phased training: P0 enable + joint loss; P1 freeze identity_head
+    # parameters; P2 evaluate identity-recovery + wanting!=liking + per-axis
+    # drive ANOVA on z_goal cluster IDs (V3-EXQ-514 acceptance).
+    use_identity_classifier: bool = False
+    identity_classifier_n_types: int = 3  # default matches SD-049 default
+
     # Top-down conditioning
     topdown_dim: int = 16
 

@@ -3145,6 +3145,74 @@ class REEAgent(nn.Module):
         )
         return F.mse_loss(pred, target)
 
+    def compute_resource_identity_loss(
+        self,
+        resource_type_target: int,
+        latent_state: "LatentState",
+    ) -> torch.Tensor:
+        """
+        SD-049 Phase 2 hybrid identity-classifier auxiliary loss (Option C).
+
+        Trains the ResourceEncoder identity_head to predict the resource type
+        at the agent's current cell from z_resource via cross-entropy. Target
+        is obs_dict["resource_type_at_agent"] from the SD-049 multi-resource
+        substrate (0 = no-resource-at-agent / no-supervision; type_idx + 1 for
+        type slot 0..n_resource_types-1).
+
+        Backprop through identity_head + trunk encoder during P0 phased
+        training; freeze identity_head.requires_grad_(False) at P1 to allow
+        the trunk to develop similarity structure beyond what classifier
+        supervision alone provides (Schapiro 2016/2017 distributed substrate
+        per the lit-pull verdict).
+
+        Lit-pull provenance: REE_assembly/evidence/literature/
+        targeted_review_sd_049_encoder_identity_expansion/verdict.md
+        (Option C hybrid, confidence 0.78).
+
+        Requires use_resource_encoder=True AND use_identity_classifier=True
+        in LatentStackConfig. Returns zero otherwise (backward-compatible).
+        Returns zero when target is 0 (no-resource-at-agent; no supervision).
+
+        Args:
+            resource_type_target: int in [0, n_resource_types]; 0 means
+                no-resource-at-agent (skip supervision); type_idx+1 for valid
+                contact. This matches the obs_dict["resource_type_at_agent"]
+                emission convention from causal_grid_world.py.
+            latent_state: current LatentState (from sense()); must contain
+                identity_logits.
+
+        Returns:
+            Cross-entropy loss scalar (zero when classifier disabled, when
+            identity_logits is None, or when target is 0 / no-resource).
+        """
+        zero_loss = next(self.latent_stack.parameters()).sum() * 0.0
+        if not getattr(self.config.latent, "use_identity_classifier", False):
+            return zero_loss
+        if latent_state.identity_logits is None:
+            return zero_loss
+        # Target convention: obs_dict["resource_type_at_agent"] is type_idx+1
+        # (1..n_types) when agent is on a resource cell, 0 otherwise. Skip
+        # supervision on the 0 case -- there is no ground-truth identity to
+        # supervise on when the agent is on an empty cell.
+        target_int = int(resource_type_target)
+        if target_int <= 0:
+            return zero_loss
+        # Convert to 0-indexed type id for cross-entropy.
+        type_idx = target_int - 1
+        logits = latent_state.identity_logits  # [batch, n_resource_types]
+        if logits.dim() == 1:
+            logits = logits.unsqueeze(0)
+        n_types = logits.shape[-1]
+        if type_idx < 0 or type_idx >= n_types:
+            # Out-of-range target -- skip silently (defensive against
+            # n_resource_types config mismatch with env).
+            return zero_loss
+        target = torch.tensor([type_idx], dtype=torch.long, device=logits.device)
+        # Expand target if logits has batch > 1.
+        if logits.shape[0] > 1:
+            target = target.expand(logits.shape[0])
+        return F.cross_entropy(logits, target)
+
     def compute_harm_nonredundancy_loss(
         self,
         latent_state: "LatentState",
