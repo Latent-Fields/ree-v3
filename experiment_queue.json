@@ -25,25 +25,37 @@
       "notes": "6-sub-test landing diagnostic extending V3-EXQ-485. UC1-UC5 carried over (instantiation, gate modulates update, bias zero at init, backward compat, reset clears state_code). UC6 NEW: oracle round-trip -- (A) query_outcome() output bit-identical to e2_harm_s.forward() (max diff < 1e-6); (B) AssertionError when oracle disabled; (C) reset() clears _last_outcome_prediction + _ofc_oracle_predictions; (D) oracle_is_ready=False by default; (E) get_state() exposes oracle_enabled=True and last_oracle_pred_norm > 0 after a query. Validates MECH-263 specific-outcome oracle path (OFCConfig.use_outcome_oracle). Pure deterministic arithmetic; no env steps."
     },
     {
-      "queue_id": "V3-EXQ-514",
-      "title": "SD-049 Phase 2 hybrid encoder behavioural validation",
-      "script": "experiments/v3_exq_514_sd049_phase_2_behavioural_validation.py",
-      "claim_ids": [
-        "SD-049",
-        "SD-015",
-        "MECH-229",
-        "MECH-230"
-      ],
+      "queue_id": "V3-EXQ-512a",
+      "title": "SD-048 interoceptive-noise comparator-gap behavioural recalibrated (scale=3.0)",
+      "experiment_type": "v3_exq_512a_sd048_comparator_gap_recalibrated",
+      "script": "experiments/v3_exq_512a_sd048_comparator_gap_recalibrated.py",
+      "claim_id": "SD-048",
+      "experiment_purpose": "evidence",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 140,
+      "seeds": 3,
+      "conditions": 2,
+      "supersedes": "v3_exq_512_sd048_arc058_arc033_comparator_gap_behavioural_20260504T005756Z_v3",
+      "note": "Recalibrated successor to EXQ-512. Raises interoceptive_noise_scale to 3.0 (was 1.0 default). EXQ-512 failed C3 because autonomic sigma=0.02 at scale=1.0 is below the forward model natural prediction-error floor (~0.025-0.035 in both arms). Scale=3.0 is a mechanism proof; v3_pending holds pending a default-scale calibration sweep. Pre-registered thresholds: C1_MIN_GAP_ARM_A=0.0, C2_MIN_R2_ARM_B=0.5, C3_MIN_QUIET_GAP=0.005. PASS lifts SD-048 v3_pending gate."
+    },
+    {
+      "queue_id": "V3-EXQ-517",
+      "title": "MECH-302 relief-completion behavioural discriminative pair",
+      "experiment_type": "v3_exq_517_mech302_relief_completion_discriminative_pair",
+      "script": "experiments/v3_exq_517_mech302_relief_completion_discriminative_pair.py",
+      "claim_id": "MECH-302",
       "experiment_purpose": "evidence",
       "priority": 1,
-      "status": "claimed",
-      "estimated_minutes": 90,
       "machine_affinity": "any",
-      "notes": "4-arm sweep ARM_0/ARM_1/ARM_2/ARM_3 with phased training (P0 joint trunk + classifier + prox -> P1 freeze classifier head -> P2 evaluate). 10 acceptance criteria: C0 ARM_0 baseline replicates V3-EXQ-322a 0.06 floor; C1a/b ARM_1 obs_dim 325 + classifier trains; C2a-e ARM_2 obs_dim 325 + goal_resource_r >= 0.5 (target lift from 0.066 baseline) + lift over ARM_0 >= 0.2 + identity-recovery linear-probe accuracy > 0.6 + per-axis drive evolves; C3a/b ARM_3 obs_dim 375 + classifier did fire (no crash on 5-type). PASS = SD-049 Phase 2 validated; SD-015 promotable; SD-049 v3_pending may be cleared. FAIL routes to verdict.md 6-row interpretation grid; row 6 is the Woo/Spelke-style substrate-ceiling falsifier. Lit-pull provenance in evidence/literature/targeted_review_sd_049_encoder_identity_expansion/verdict.md (Option C hybrid, confidence 0.78).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-04T07:53:46.901760+00:00"
-      }
+      "status": "pending",
+      "estimated_minutes": 40,
+      "episodes_per_run": 70,
+      "seeds": 3,
+      "conditions": 2,
+      "note": "Behavioural discriminative pair: ARM_A (MECH-302 ON) vs ARM_B (OFF). Uses limb_damage_enabled=True (SD-022) for natural z_harm_a rise/fall dynamics. Gate (c) for MECH-304 conditioned-inhibition experiment. Smoke PASS (dry-run, 2026-05-04)."
     }
   ]
 }
