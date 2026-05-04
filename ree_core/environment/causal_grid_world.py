@@ -269,6 +269,17 @@ class CausalGridWorld:
         novelty_familiarity_increment: float = 0.2,
         novelty_familiarity_recovery: float = 0.0,
         resource_introduction_schedule: Optional[Dict[str, int]] = None,
+        # Behavioral diversity substrate: reef safe zones + food-attracted hazards.
+        # reef_enabled: hazards excluded from reef cells; reef cells excluded from
+        # hazard/resource spawn; agent takes zero harm while in a reef cell.
+        # hazard_food_attraction: per-drift-tick probability that a hazard biases its
+        # random walk toward the nearest food cell instead of pure random shuffle.
+        # reef_scent_sigma: Manhattan-distance decay scale for reef gradient field.
+        reef_enabled: bool = False,
+        n_reef_patches: int = 3,
+        reef_patch_radius: int = 2,
+        reef_scent_sigma: float = 2.5,
+        hazard_food_attraction: float = 0.0,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -483,6 +494,16 @@ class CausalGridWorld:
         )
         self._sd049_n_axis_depletion_steps: int = 0
 
+        # Behavioral diversity substrate: reef safe zones + food-attracted hazards.
+        self.reef_enabled = bool(reef_enabled)
+        self.n_reef_patches = int(max(0, n_reef_patches))
+        self.reef_patch_radius = int(max(1, reef_patch_radius))
+        self.reef_scent_sigma = float(max(0.1, reef_scent_sigma))
+        self.hazard_food_attraction = float(np.clip(hazard_food_attraction, 0.0, 1.0))
+        # Populated by _place_reef_patches() each reset(); empty set / zero field when OFF.
+        self._reef_cells: set = set()
+        self._reef_field: np.ndarray = np.zeros((size, size), dtype=np.float32)
+
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
         self.landmark_b_positions: List[Tuple[int, int]] = []
@@ -535,6 +556,9 @@ class CausalGridWorld:
             # multi_resource_heterogeneity is on. Adds n_resource_types * 25 dims.
             if self.multi_resource_heterogeneity_enabled:
                 proxy_base = proxy_base + self.n_resource_types * 25
+            # Behavioral diversity: reef scent gradient field view (+25 dims when enabled).
+            if self.reef_enabled:
+                proxy_base = proxy_base + 25
             return proxy_base
         return base                                      # 200
 
@@ -576,6 +600,14 @@ class CausalGridWorld:
                 for j in range(1, self.size - 1)
             ]
         self._rng.shuffle(available)
+
+        # Behavioral diversity: place reef patches before any entity placement so
+        # reef cells are excluded from agent/hazard/resource spawn pools.
+        if self.reef_enabled:
+            self._place_reef_patches(available)
+        else:
+            self._reef_cells = set()
+            self._reef_field = np.zeros((self.size, self.size), dtype=np.float32)
 
         ax, ay = available.pop()
         self.agent_x = ax
@@ -896,9 +928,14 @@ class CausalGridWorld:
                     harm_signal = -(contact_harm + proximity_harm)
                 else:
                     harm_signal = -contact_harm
-                self.agent_health = max(0.0, self.agent_health - abs(harm_signal))
+                # Behavioral diversity: reef cells suppress all contact harm
+                # (hazards should not enter reef cells, but guard here for safety).
+                if self.reef_enabled and (new_x, new_y) in self._reef_cells:
+                    harm_signal = 0.0
+                else:
+                    self.agent_health = max(0.0, self.agent_health - abs(harm_signal))
+                    self.total_harm += abs(harm_signal)
                 transition_type = "env_caused_hazard"
-                self.total_harm += abs(harm_signal)
 
             elif target_type == self.ENTITY_TYPES["contaminated"]:
                 harm_signal = -self.contaminated_harm
@@ -1490,6 +1527,23 @@ class CausalGridWorld:
                 per_type_field_flats.append(t_flat)
                 world_parts.append(t_flat)
 
+        # Behavioral diversity: reef scent gradient field view (25 dims when reef_enabled).
+        reef_field_flat = torch.zeros(25)
+        if self.use_proxy_fields and self.reef_enabled and self._reef_cells:
+            reef_max = float(self._reef_field.max()) + 1e-6
+            rf_view = torch.zeros(5, 5)
+            for di in range(-2, 3):
+                for dj in range(-2, 3):
+                    if self.toroidal:
+                        ni, nj = (ax + di) % self.size, (ay + dj) % self.size
+                        rf_view[di + 2, dj + 2] = float(self._reef_field[ni, nj]) / reef_max
+                    else:
+                        ni, nj = ax + di, ay + dj
+                        if 0 <= ni < self.size and 0 <= nj < self.size:
+                            rf_view[di + 2, dj + 2] = float(self._reef_field[ni, nj]) / reef_max
+            reef_field_flat = rf_view.reshape(-1)   # [25]
+            world_parts.append(reef_field_flat)
+
         world_state = torch.cat(world_parts)
 
         result = {
@@ -1520,6 +1574,9 @@ class CausalGridWorld:
                 result["resource_type_at_agent"] = torch.tensor(
                     [int(self._resource_type_grid[ax, ay])], dtype=torch.int64
                 )
+            # Behavioral diversity: reef scent gradient field view.
+            if self.reef_enabled:
+                result["reef_field_view"] = reef_field_flat.float()
             # SD-010: dedicated harm_obs for HarmEncoder (nociceptive separation).
             # Sensory-discriminative stream (z_harm_s, Adelta-pathway analog):
             # Layout: hazard_field_view[25] + resource_field_view[25] + harm_exposure[1]
@@ -1659,6 +1716,61 @@ class CausalGridWorld:
                     d2 = float((x - lx) ** 2 + (y - ly) ** 2)
                     field[x, y] += scale * float(np.exp(-d2 / two_sigma2))
         return field
+
+    # ------------------------------------------------------------------ #
+    # Behavioral diversity: reef safe zones                               #
+    # ------------------------------------------------------------------ #
+
+    def _place_reef_patches(self, available: list) -> None:
+        """Place reef safe zones at fixed corner areas and remove from spawn pool.
+
+        Reef cells are positioned at grid corners using Manhattan-radius patches so
+        their location is predictable and stable across episodes. Hazards cannot
+        enter reef cells (_drift_hazards exclusion) and agents take no harm there
+        (step() guard). The reef scent gradient field is precomputed here and
+        remains static for the episode (same as SD-023 landmark fields).
+
+        Modifies `available` in-place to remove reef cell positions.
+        """
+        sz = self.size
+        self._reef_cells = set()
+        if self.n_reef_patches <= 0 or sz < 5:
+            self._reef_field = np.zeros((sz, sz), dtype=np.float32)
+            return
+
+        # Fixed corner centres (interior cells at distance 2 from each corner wall).
+        # Order: top-left, top-right, bottom-left, bottom-right, then mid-edges.
+        corner_centres = [
+            (2, 2),
+            (2, sz - 3),
+            (sz - 3, 2),
+            (sz - 3, sz - 3),
+            (2, sz // 2),
+            (sz - 3, sz // 2),
+        ]
+        centres = corner_centres[: self.n_reef_patches]
+
+        for cx, cy in centres:
+            for i in range(1, sz - 1):
+                for j in range(1, sz - 1):
+                    if abs(i - cx) + abs(j - cy) <= self.reef_patch_radius:
+                        self._reef_cells.add((i, j))
+
+        # Compute static reef scent field: sum of Manhattan-decay kernels.
+        field = np.zeros((sz, sz), dtype=np.float32)
+        for rx, ry in self._reef_cells:
+            for i in range(sz):
+                for j in range(sz):
+                    dist = abs(i - rx) + abs(j - ry)
+                    field[i, j] += float(np.exp(-dist / self.reef_scent_sigma))
+        max_val = float(field.max())
+        if max_val > 0.0:
+            field /= max_val
+        self._reef_field = field
+
+        # Remove reef cells from the spawn pool so hazards and resources never start there.
+        if self._reef_cells:
+            available[:] = [(x, y) for (x, y) in available if (x, y) not in self._reef_cells]
 
     # ------------------------------------------------------------------ #
     # Proxy-gradient field computation (ARC-024)                          #
@@ -2138,17 +2250,42 @@ class CausalGridWorld:
         return True
 
     def _drift_hazards(self) -> None:
-        """Drift environment-caused hazards randomly."""
+        """Drift environment-caused hazards randomly.
+
+        Behavioral diversity extensions (reef_enabled):
+          - Reef exclusion: hazards cannot move into reef cells.
+          - Food attraction: with probability hazard_food_attraction, a drifting
+            hazard sorts candidate directions toward the nearest food cell instead
+            of a pure random shuffle, making foraging inherently more dangerous.
+        """
         available_dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]
         drifted = False
         for hazard in self.hazards:
             if self._rng.random() < self.env_drift_prob:
-                self._rng.shuffle(available_dirs)
-                for dx, dy in available_dirs:
+                # Food-attraction bias (reef substrate): sort dirs toward nearest food.
+                if (self.reef_enabled and self.hazard_food_attraction > 0.0
+                        and self.resources
+                        and self._rng.random() < self.hazard_food_attraction):
+                    hx, hy = hazard[0], hazard[1]
+                    nearest = min(
+                        self.resources,
+                        key=lambda r: abs(r[0] - hx) + abs(r[1] - hy)
+                    )
+                    fx, fy = nearest[0], nearest[1]
+                    dirs_ordered = sorted(
+                        available_dirs,
+                        key=lambda d: abs(hx + d[0] - fx) + abs(hy + d[1] - fy)
+                    )
+                else:
+                    dirs_ordered = list(available_dirs)
+                    self._rng.shuffle(dirs_ordered)
+
+                for dx, dy in dirs_ordered:
                     if self.toroidal:
                         nx = (hazard[0] + dx) % self.size
                         ny = (hazard[1] + dy) % self.size
-                        if self.grid[nx, ny] == self.ENTITY_TYPES["empty"]:
+                        if (self.grid[nx, ny] == self.ENTITY_TYPES["empty"]
+                                and (nx, ny) not in self._reef_cells):
                             self.grid[hazard[0], hazard[1]] = self.ENTITY_TYPES["empty"]
                             hazard[0], hazard[1] = nx, ny
                             self.grid[nx, ny] = self.ENTITY_TYPES["hazard"]
@@ -2156,8 +2293,9 @@ class CausalGridWorld:
                             break
                     else:
                         nx, ny = hazard[0] + dx, hazard[1] + dy
-                        if (0 < nx < self.size - 1 and 0 < ny < self.size - 1 and
-                                self.grid[nx, ny] == self.ENTITY_TYPES["empty"]):
+                        if (0 < nx < self.size - 1 and 0 < ny < self.size - 1
+                                and self.grid[nx, ny] == self.ENTITY_TYPES["empty"]
+                                and (nx, ny) not in self._reef_cells):
                             self.grid[hazard[0], hazard[1]] = self.ENTITY_TYPES["empty"]
                             hazard[0], hazard[1] = nx, ny
                             self.grid[nx, ny] = self.ENTITY_TYPES["hazard"]
