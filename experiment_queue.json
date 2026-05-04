@@ -6,24 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-520",
-      "title": "SD-052 / MECH-303 contextual passive safety terrain substrate readiness (4-arm diagnostic)",
-      "script": "experiments/v3_exq_520_sd052_contextual_safety_terrain_readiness.py",
-      "claim_ids": [
-        "MECH-303"
-      ],
-      "experiment_purpose": "diagnostic",
-      "priority": 2,
-      "status": "claimed",
-      "estimated_minutes": 8,
-      "machine_affinity": "any",
-      "notes": "4-arm substrate readiness diagnostic for SD-052 (contextual passive safety terrain). ARM_0=OFF baseline (bit-identical), ARM_1=write-only (release_threshold=999, terrain accumulates but gate cannot fire), ARM_2=full MECH-303 (release_threshold=1.0, gate fires when evaluate_safety>=threshold), ARM_3=gate-only (accum_weight=0, terrain empty). 10 acceptance criteria C1-C10. Dry-run PASS 10/10 (2026-05-04). PASS unlocks context-conditioned-vs-cue-conditioned safety extinction discriminative-pair experiment (MECH-303 vs MECH-304 ablation comparison).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-04T21:20:19.789584+00:00"
-      }
-    }
-  ]
+  "items": []
 }
