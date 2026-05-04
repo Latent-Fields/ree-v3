@@ -92,6 +92,14 @@ class LatentStackConfig:
     # Only active when harm_history_len > 0. Default 0.1.
     z_harm_a_aux_loss_weight: float = 0.1
 
+    # SD-019a: harm_unpleasantness_channel
+    # Non-trainable EMA of z_harm_s (medium timescale ~5-step rise).
+    # NOT modulated by controllability (Loffler 2018 three-way dissociation).
+    # Serves as input to MECH-219 hysteretic integrator (SD-019b) and redirects
+    # AIC urgency + E3 short-horizon urgency_weight away from z_harm_a.
+    use_harm_un: bool = False
+    harm_un_ema_alpha: float = 0.2   # medium: ~5-step rise to z_harm_s=1.0
+
     # SD-007: ReafferencePredictor — perspective-shift correction for z_world.
     # Set reafference_action_dim = action_dim (e.g. 4) to enable.
     # 0 = disabled (default; backward compatible with EXQ-001-025).

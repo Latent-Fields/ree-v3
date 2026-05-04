@@ -938,6 +938,11 @@ class REEAgent(nn.Module):
         # PE = |actual_harm_obs - _harm_obs_ema| used as z_harm_a training target.
         self._harm_obs_ema: float = 0.0
 
+        # SD-019a: harm_unpleasantness_channel EMA buffer.
+        # Non-trainable stateful EMA of z_harm_s; same dim as z_harm_s.
+        # Reset per-episode (None = no history yet this episode).
+        self._harm_un_ema: Optional[torch.Tensor] = None
+
         # MECH-258 / SD-032b: previous-step z_harm_a for E2_harm_a rollout
         # and previous-step predicted z_harm_a for dACC PE computation.
         self._harm_a_prev: Optional[torch.Tensor] = None
@@ -1025,6 +1030,8 @@ class REEAgent(nn.Module):
         self.beta_gate.reset()
         self.serotonin.reset()
         self._pe_ema = 0.0
+        # SD-019a: reset harm_unpleasantness EMA on episode boundary.
+        self._harm_un_ema = None
         # SD-032b: clear dACC state + previous-step harm_a cache.
         self._harm_a_prev = None
         self._harm_a_pred_prev = None
@@ -1412,6 +1419,27 @@ class REEAgent(nn.Module):
                 simulation_mode=bool(getattr(new_latent, "hypothesis_tag", False)),
             )
 
+        # SD-019a: harm_unpleasantness_channel EMA.
+        # Maintains a medium-timescale EMA of z_harm_s (alpha=0.2, ~5-step rise).
+        # NOT modulated by controllability (Loffler 2018 three-way dissociation).
+        # MECH-094: only updated in waking sense() calls (hypothesis_tag=False).
+        # Populates new_latent.z_harm_un for downstream AIC + E3 consumers.
+        if (
+            self.config.latent.use_harm_un
+            and new_latent.z_harm is not None
+            and not bool(getattr(new_latent, "hypothesis_tag", False))
+        ):
+            alpha_un = self.config.latent.harm_un_ema_alpha
+            with torch.no_grad():
+                if self._harm_un_ema is None:
+                    self._harm_un_ema = new_latent.z_harm.detach().clone()
+                else:
+                    self._harm_un_ema = (
+                        (1.0 - alpha_un) * self._harm_un_ema
+                        + alpha_un * new_latent.z_harm.detach()
+                    )
+            new_latent.z_harm_un = self._harm_un_ema.clone()
+
         # SD-037: tick the broadcast override regulator (orexin-analog).
         # Combines drive_level (SD-012) and a sustained-threat magnitude window
         # over z_harm into a scalar override_signal in [0, 1]. The signal is
@@ -1443,7 +1471,13 @@ class REEAgent(nn.Module):
         # (descending attenuation multiplier that subsumes the raw SD-021
         # beta_gate check).
         if self.aic is not None:
-            if new_latent.z_harm_a is not None:
+            # SD-019a: when harm_unpleasantness_channel is active, AIC urgency
+            # reads z_harm_un (medium-timescale EMA of z_harm_s) instead of
+            # z_harm_a (slow accumulator). z_harm_un reflects the per-Loffler
+            # 2018 unpleasantness dimension, which is the correct AIC input.
+            if self.config.latent.use_harm_un and new_latent.z_harm_un is not None:
+                aic_z_norm = float(new_latent.z_harm_un.norm().item())
+            elif new_latent.z_harm_a is not None:
                 aic_z_norm = float(new_latent.z_harm_a.norm().item())
             else:
                 aic_z_norm = 0.0
@@ -2053,14 +2087,40 @@ class REEAgent(nn.Module):
         if self._current_latent is not None and self._current_latent.z_harm_a is not None:
             z_harm_a = self._current_latent.z_harm_a
 
+        # SD-019a: redirect E3 short-horizon urgency signal to z_harm_un
+        # (medium EMA of z_harm_s) when harm_unpleasantness_channel is active.
+        # z_harm_un encodes the unpleasantness dimension (NOT modulated by
+        # controllability per Loffler 2018), making it the correct urgency_weight
+        # input to E3.select() for short-horizon avoidance scoring.
+        # z_harm_a (slow accumulator) is still consumed by dACC (SD-032b) and
+        # pACC (SD-032e) via their own read paths; only E3 select + MECH-091
+        # interrupt are redirected here.
+        if (
+            self.config.latent.use_harm_un
+            and self._current_latent is not None
+            and self._current_latent.z_harm_un is not None
+        ):
+            z_harm_a = self._current_latent.z_harm_un
+
         # MECH-091: urgency interrupt -- phase-reset commitment on high harm signal.
         # When beta is elevated (committed) and affective harm load is extreme,
         # abort the committed trajectory and fall through to fresh E3 selection.
+        # SD-019a: when harm_unpleasantness_channel is active, urgency reads
+        # z_harm_un (medium EMA of z_harm_s) as the interrupt signal instead of
+        # z_harm_a (slow accumulator). z_harm_un provides faster-rising urgency
+        # proportional to current unpleasantness, not accumulated suffering.
         if self.beta_gate.is_elevated and z_harm_a is not None:
             urgency_threshold = getattr(
                 self.config.e3, "urgency_interrupt_threshold", 0.8
             )
-            if float(z_harm_a.norm().item()) > urgency_threshold:
+            _urgency_signal = z_harm_a
+            if (
+                self.config.latent.use_harm_un
+                and self._current_latent is not None
+                and self._current_latent.z_harm_un is not None
+            ):
+                _urgency_signal = self._current_latent.z_harm_un
+            if float(_urgency_signal.norm().item()) > urgency_threshold:
                 self.beta_gate.release()
                 self._committed_step_idx = 0
                 self._committed_anchor_keys = None

@@ -56,6 +56,19 @@
       "seeds": 3,
       "conditions": 2,
       "note": "Behavioural discriminative pair: ARM_A (MECH-302 ON) vs ARM_B (OFF). Uses limb_damage_enabled=True (SD-022) for natural z_harm_a rise/fall dynamics. Gate (c) for MECH-304 conditioned-inhibition experiment. Smoke PASS (dry-run, 2026-05-04)."
+    },
+    {
+      "queue_id": "V3-EXQ-518",
+      "title": "SD-019a harm_unpleasantness_channel substrate readiness",
+      "experiment_type": "v3_exq_518_sd019a_harm_unpleasantness_substrate_readiness",
+      "script": "experiments/v3_exq_518_sd019a_harm_unpleasantness_substrate_readiness.py",
+      "claim_id": "SD-019a",
+      "experiment_purpose": "diagnostic",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 2,
+      "note": "SD-019a substrate readiness diagnostic: 4-arm check (backward compat, EMA seeding + shape, alpha modulation + AIC redirect, controllability parity / SD-021 non-attenuation). 9 acceptance criteria UC0a-b/UC1a-d/UC2a-b/UC3. Dry-run PASS 2026-05-04."
     }
   ]
 }
