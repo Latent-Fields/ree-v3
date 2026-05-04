@@ -6,5 +6,19 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-418i",
+      "title": "SD-016 Path 1 div_weight sweep 0.0/1.0/2.0/5.0 (writepath=off, 4 arms x 3 seeds)",
+      "script": "experiments/v3_exq_418i_sd016_divweight_sweep.py",
+      "claim_ids": ["SD-016"],
+      "experiment_purpose": "evidence",
+      "priority": 2,
+      "status": "pending",
+      "estimated_minutes": 60,
+      "machine_affinity": "any",
+      "notes": "Sweep of diversification weight at 1.0/2.0/5.0 (plus 0.0 baseline). All arms: writepath_mode=off, sd016_temperature_learnable=False. Tests whether stronger gradient pressure on key_proj/memory eventually breaks the attn_entropy uniform rail that EXQ-418e (div_weight=0.5) could not. C1 PASS requires at least one arm to break uniform rail in ALL seeds. supersedes EXQ-418e (weight-sweep follow-up). EXQ-418f=attention_probe, 418g=selectivity_4arm, 418h=env_entropy_precondition are all prior to this; 418i is the next letter.",
+      "supersedes": "V3-EXQ-418e"
+    }
+  ]
 }
