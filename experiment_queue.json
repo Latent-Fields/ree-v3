@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-515",
+      "script": "experiments/v3_exq_515_mech302_suffering_derivative_comparator_substrate_readiness.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 2,
+      "title": "MECH-302 suffering-derivative comparator substrate readiness (4-arm)",
+      "claim_id": "MECH-302",
+      "note": "Substrate readiness diagnostic: unit tests (synthetic sequences) + integration smoke. Validates SufferingDerivativeComparator fires, bit-identical OFF, sim-mode gate (MECH-094), min_initial_norm gate. 4 arms: OFF / window=3,t=0.05 / window=5,t=0.10 / window=10,t=0.20.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-04T01:04:13.857718+00:00"
+      }
+    }
+  ]
 }
