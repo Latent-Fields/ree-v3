@@ -6,5 +6,23 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-510",
+      "title": "MECH-095 + SD-047 comparator-gap behavioural test on live multi-source env (V3-EXQ-506 successor)",
+      "claim_id": "MECH-095",
+      "script": "experiments/v3_exq_510_sd047_mech095_live_env_comparator_gap.py",
+      "priority": 1,
+      "status": "claimed",
+      "experiment_purpose": "evidence",
+      "estimated_minutes": 15,
+      "machine_affinity": "any",
+      "added_utc": "2026-05-04T07:32:14Z",
+      "note": "V3-EXQ-506 successor with the same E2_harm_s + SD-013 interventional pipeline but data drawn from the live CausalGridWorldV2 across the four pre-registered SD-047 arms (OFF / 0.25x / 1.0x / 4.0x). Per-arm: collect 2000 ticks of uniform-random rollout; tag each transition (agent_caused / env_caused / agent_collateral / env_correlated); train E2_harm_s on agent_caused with interventional loss (frozen-random HarmEncoder); measure C1-C4 counterfactual gaps per condition. Per-arm 2/3 seeds PASS each criterion. SD doc 5-row interpretation grid maps the 4-arm signature to a distinct architectural conclusion: VALIDATED / INVERTED_U (substrate-ceiling lifted; SD-047 supports MECH-095) / WOO_SPELKE (flat all-FAIL; route MECH-095 to substrate_conditional V4) / MISCALIBRATED (recalibrate per-source intensities) / OPPOSITE_ARTEFACT (revisit V3-EXQ-506 for non-substrate confound) / INDETERMINATE. PASS = VALIDATED or INVERTED_U. Dry-run smoke 2026-05-04 PASS end-to-end (under-trained; FAIL outcome expected at N_train=60; full run uses N_train=800). Multi-claim evidence: MECH-095 (primary, substrate-ceiling lift) + SD-047 (behavioural validation). evidence_direction_per_claim populated by classification branch.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-04T07:45:42.214940+00:00"
+      }
+    }
+  ]
 }
