@@ -90,6 +90,9 @@ from ree_core.regulators import (
     MECH295LikingBridge,
     MECH295LikingBridgeConfig,
 )
+from ree_core.comparator.suffering_derivative_comparator import (
+    SufferingDerivativeComparator,
+)
 from ree_core.pag import (
     PAGFreezeGate,
     PAGFreezeGateConfig,
@@ -316,6 +319,21 @@ class REEAgent(nn.Module):
             self.pacc = PACCAnalog(pacc_cfg)
         # Cache of last PACC tick output (for diagnostics / experiments).
         self._pacc_last_tick: Optional[Dict[str, float]] = None
+
+        # MECH-302: suffering-derivative comparator substrate.
+        # Non-trainable rolling-window descent detector on z_harm_a norm.
+        # Fires relief_completion_event, which reuses the MECH-057a commitment
+        # release + MECH-094 categorical tag write (VALENCE_LIKING) pipeline.
+        # Architecturally adjacent to the MECH-091 urgency block; opposite polarity.
+        self.suffering_comparator: Optional[SufferingDerivativeComparator] = None
+        if getattr(config, "use_suffering_derivative_comparator", False):
+            self.suffering_comparator = SufferingDerivativeComparator(
+                window_length=getattr(config, "suffering_window_length", 5),
+                drop_threshold=getattr(config, "suffering_drop_threshold", 0.10),
+                min_initial_norm=getattr(config, "suffering_min_initial_norm", 0.05),
+            )
+        # Event flag: set by sense(), consumed and cleared by select_action().
+        self._relief_completion_event: bool = False
 
         # MECH-095: TPJ agency comparator. Stores an E2 efference-copy
         # prediction for the selected action, then compares it against the
@@ -1037,6 +1055,12 @@ class REEAgent(nn.Module):
         if self.pacc is not None:
             self.pacc.reset()
         self._pacc_last_tick = None
+
+        # MECH-302: reset rolling norm buffer and clear pending event flag
+        # on episode boundary.
+        if self.suffering_comparator is not None:
+            self.suffering_comparator.reset()
+        self._relief_completion_event = False
 
         # SD-033a: reset rule_state on episode boundary (SD-033a spec: rule
         # persists across ticks within episode; fresh episode starts without
@@ -1769,6 +1793,18 @@ class REEAgent(nn.Module):
                 self.hippocampal.per_stream_vs,
                 goal_state=self.goal_state,
             )
+
+        # MECH-302: tick the suffering-derivative comparator on the waking
+        # observation stream only. Simulation mode (hypothesis_tag) prevents
+        # buffer advance (MECH-094). The resulting flag is consumed and cleared
+        # in select_action() adjacent to the MECH-091 urgency block.
+        if self.suffering_comparator is not None and new_latent.z_harm_a is not None:
+            sdc_norm = float(new_latent.z_harm_a.norm().item())
+            sim_mode = bool(getattr(new_latent, "hypothesis_tag", False))
+            self._relief_completion_event = self.suffering_comparator.tick(
+                sdc_norm, sim_mode
+            )
+
         return new_latent
 
     def sense_flat(self, observation: torch.Tensor) -> LatentState:
@@ -2048,6 +2084,32 @@ class REEAgent(nn.Module):
                 self._vs_commit_release_count = (
                     getattr(self, "_vs_commit_release_count", 0) + 1
                 )
+
+        # MECH-302: relief-completion event -- release commitment on sustained
+        # suffering drop. Polarity set at input (suffering-derivative-crossing
+        # vs goal-attainment). Reuses MECH-057a commitment release + MECH-094
+        # categorical tag write (VALENCE_LIKING at current z_world).
+        # Architecturally adjacent to the MECH-091 urgency block above;
+        # opposite polarity. DO NOT modify the MECH-091 block.
+        if self.suffering_comparator is not None and self._relief_completion_event:
+            if self.beta_gate.is_elevated:
+                self.beta_gate.release()
+                self._committed_step_idx = 0
+                self._committed_anchor_keys = None
+            if (
+                self._current_latent is not None
+                and self._current_latent.z_world is not None
+                and getattr(self.config, "valence_liking_enabled", False)
+                and hasattr(self.residue_field, "update_valence")
+            ):
+                relief_val = float(getattr(self.config, "relief_completion_weight", 1.0))
+                self.residue_field.update_valence(
+                    self._current_latent.z_world,
+                    component=VALENCE_LIKING,
+                    value=relief_val,
+                    hypothesis_tag=False,
+                )
+            self._relief_completion_event = False
 
         if not ticks["e3_tick"] and self._last_action is not None:
             # Between E3 ticks: step through committed trajectory (Layer 1) or hold.

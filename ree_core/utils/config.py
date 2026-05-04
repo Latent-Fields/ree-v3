@@ -1248,6 +1248,29 @@ class REEConfig:
     # probe as its own experiment.
     pacc_offline_decay: float = 0.0
 
+    # MECH-302 substrate: suffering-derivative comparator.
+    # Non-trainable rolling-window descent detector on the z_harm_a norm stream.
+    # Fires a relief_completion_event when the window shows a sustained drop
+    # >= suffering_drop_threshold, provided the initial norm is above
+    # suffering_min_initial_norm (prevents spurious fires on a quiet stream).
+    # Event reuses the MECH-057a / MECH-091 pipeline: beta_gate.release() +
+    # MECH-094 categorical tag write (VALENCE_LIKING) at the current z_world.
+    # Simulation gating: tick() returns False when hypothesis_tag is set
+    # (waking-stream signal only, per MECH-094).
+    # False = disabled (default, backward compat; bit-identical to pre-MECH-302).
+    use_suffering_derivative_comparator: bool = False
+    # Rolling window length (ticks). Initial norm = norm_buffer[0]; total drop
+    # = norm_buffer[0] - norm_buffer[-1] must reach drop_threshold to fire.
+    suffering_window_length: int = 5
+    # Required total norm drop across the window for event to fire.
+    suffering_drop_threshold: float = 0.10
+    # Minimum initial z_harm_a norm required for the window to be scored.
+    # Below this the stream is already quiet; the event is suppressed.
+    suffering_min_initial_norm: float = 0.05
+    # Magnitude written to VALENCE_LIKING at the current z_world location when
+    # the relief_completion_event fires (MECH-094 categorical tag write).
+    relief_completion_weight: float = 1.0
+
     # MECH-095: TPJ agency comparator (self/other attribution on z_self).
     # When True, REEAgent stores an E2 efference-copy prediction at action
     # selection and compares it against the next observed z_self during sense().
@@ -1988,6 +2011,12 @@ class REEConfig:
         mech295_liking_to_approach_cue_gain: float = 0.5,
         mech295_min_drive_to_fire: float = 0.1,
         mech295_min_z_goal_norm_to_fire: float = 0.05,
+        # MECH-302: suffering-derivative comparator substrate
+        use_suffering_derivative_comparator: bool = False,
+        suffering_window_length: int = 5,
+        suffering_drop_threshold: float = 0.10,
+        suffering_min_initial_norm: float = 0.05,
+        relief_completion_weight: float = 1.0,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -2395,6 +2424,13 @@ class REEConfig:
         config.mech295_liking_to_approach_cue_gain = mech295_liking_to_approach_cue_gain
         config.mech295_min_drive_to_fire = mech295_min_drive_to_fire
         config.mech295_min_z_goal_norm_to_fire = mech295_min_z_goal_norm_to_fire
+
+        # MECH-302: suffering-derivative comparator substrate
+        config.use_suffering_derivative_comparator = use_suffering_derivative_comparator
+        config.suffering_window_length = suffering_window_length
+        config.suffering_drop_threshold = suffering_drop_threshold
+        config.suffering_min_initial_norm = suffering_min_initial_norm
+        config.relief_completion_weight = relief_completion_weight
 
         return config
 
