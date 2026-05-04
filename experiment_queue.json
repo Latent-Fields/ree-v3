@@ -28,6 +28,25 @@
         "machine": "ree-cloud-1",
         "claimed_at": "2026-05-04T15:24:00.818163+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-519a",
+      "title": "SD-051 conditioned safety store readiness with synthetic harm injection (V3-EXQ-519 successor)",
+      "script": "experiments/v3_exq_519a_sd051_conditioned_safety_store_readiness.py",
+      "claim_ids": [
+        "MECH-304"
+      ],
+      "experiment_purpose": "diagnostic",
+      "priority": 2,
+      "status": "claimed",
+      "estimated_minutes": 3,
+      "machine_affinity": "any",
+      "supersedes": "V3-EXQ-519",
+      "notes": "V3-EXQ-519 C6 FAIL root cause: deterministic cycling actions + untrained AffectiveHarmEncoder produces z_harm_a.norm near-constant at encoder-bias floor (~0.41); SufferingDerivativeComparator drop_threshold=0.08 never met (delta<0.001). Fix: ARM_A injects synthetic harm_obs_a (ones*0.6 ticks 0-19, zeros tick 20+) to test MECH-302->ConditionedSafetyStore wiring without depending on behavioral dynamics. ARM_B uses constant-high injection (no drop -> no event, verifying the drop condition is required). Also lowers suffering_drop_threshold to 0.05 and suffering_min_initial_norm to 0.02. Dry-run PASS 2026-05-04: 4 relief events, peak_signal=0.982, all C1-C9 pass.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-04T21:09:08.957640+00:00"
+      }
     }
   ]
 }
