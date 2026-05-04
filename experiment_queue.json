@@ -6,23 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-516",
-      "script": "experiments/v3_exq_516_mech302_suffering_derivative_integration.py",
-      "title": "MECH-302 suffering-derivative comparator agent-loop integration diagnostic",
-      "claim_id": "MECH-302",
-      "priority": 2,
-      "status": "claimed",
-      "experiment_purpose": "diagnostic",
-      "estimated_minutes": 1,
-      "machine_affinity": "any",
-      "added_utc": "2026-05-04T01:06:01Z",
-      "note": "4-arm agent-loop integration diagnostic. ARM_0=comparator OFF backward-compat, ARM_1=event fires via pre-triggered buffer, ARM_2=valence write fires, ARM_3=flat signal no false fires. Companion to V3-EXQ-515 (comparator logic, PASS 2026-05-04). Non-trainable; ~1 min. Dry-run 8/8 PASS 2026-05-04.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-04T04:11:20.128347+00:00"
-      }
-    }
-  ]
+  "items": []
 }
