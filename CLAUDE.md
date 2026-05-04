@@ -1700,11 +1700,25 @@ Verify with `git fetch` (should return silently).
     ~0.27 on single tick; gate=0.0 state_code delta exactly 0.0 (freeze);
     initial bias vector max-abs exactly zero; reset() zeroes state_code.
     EXQ-485 5/5 sub-tests PASS.
+  Oracle path (MECH-263, 2026-05-04): OFCConfig.use_outcome_oracle (bool,
+    default False). When True, OFCAnalog.query_outcome(z_harm_s, action,
+    e2_harm_s) delegates to E2HarmSForward.forward() with no_grad + detach;
+    raises AssertionError when oracle is disabled. REEAgent stores
+    _ofc_oracle_predictions (per-candidate oracle list, cleared on reset).
+    REEConfig.use_ofc_outcome_oracle (default False) wired through from_dims().
+    Bit-identical OFF: the oracle block in select_action() is entirely gated
+    by oracle_is_ready (False when use_outcome_oracle=False) so all existing
+    experiments are unaffected. 7/7 preflight + 184/184 contracts PASS with
+    oracle OFF.
   Validation experiment: V3-EXQ-485 queued (diagnostic -- five sub-tests:
     instantiation + state_code shape, gate=1 vs gate=0 update modulation,
     bias zero at init, backward compat, reset clears state_code). Smoke
-    PASS 2026-04-26. Behavioural validation (MECH-263 devaluation +
-    task-role discrimination) deferred to env-extension EXQs.
+    PASS 2026-04-26. V3-EXQ-485a queued (6-sub-test oracle round-trip
+    extension; UC6 new: A query_outcome() matches e2_harm_s.forward() <1e-6
+    diff; B AssertionError when oracle disabled; C reset() clears prediction
+    caches; D oracle_is_ready=False by default; E get_state() exposes oracle
+    diagnostics). Behavioural validation (MECH-263 devaluation + task-role
+    discrimination) deferred to env-extension EXQs.
   Phased training: deferred along with MECH-263 behavioural signatures.
   Design doc: REE_assembly/docs/architecture/sd_033b_ofc_analog.md
   See SD-033, SD-033a (sibling consumer; additive E3 bias composition),

@@ -134,6 +134,12 @@ class OFCConfig:
     bias_scale: float = 0.1
     hidden_dim: int = 32
     harm_dim: int = 0
+    # When True, OFCAnalog.query_outcome() is active and delegates to the
+    # E2HarmSForward on REEAgent for specific-outcome prediction (MECH-263
+    # oracle path). Requires use_e2_harm_s_forward=True on the agent config.
+    # Default False = oracle disabled; query_outcome() raises AssertionError
+    # if called when False.
+    use_outcome_oracle: bool = False
 
 
 class OFCAnalog(nn.Module):
@@ -182,6 +188,7 @@ class OFCAnalog(nn.Module):
         self._last_gate: float = 0.0
         self._last_effective_eta: float = 0.0
         self._last_bias_abs_mean: float = 0.0
+        self._last_outcome_prediction: Optional[torch.Tensor] = None
 
     def update(
         self,
@@ -265,6 +272,42 @@ class OFCAnalog(nn.Module):
 
         return bias
 
+    @property
+    def oracle_is_ready(self) -> bool:
+        """True when the specific-outcome oracle path is enabled (MECH-263)."""
+        return self.config.use_outcome_oracle
+
+    def query_outcome(
+        self,
+        z_harm_s: torch.Tensor,
+        action: torch.Tensor,
+        e2_harm_s: "E2HarmSForward",  # noqa: F821 -- forward ref, avoid circular import
+    ) -> torch.Tensor:
+        """Predict next z_harm_s via the E2HarmSForward specific-outcome oracle.
+
+        Named interface: OFC is the explicit query point for specific-outcome
+        prediction. Delegates to e2_harm_s.forward() without new parameters.
+        No gradient flow (no_grad wrapper + detach on output).
+
+        Args:
+            z_harm_s: [batch, harm_dim] sensory-discriminative harm latent.
+            action:   [batch, action_dim] action to query.
+            e2_harm_s: E2HarmSForward instance from REEAgent.
+
+        Returns:
+            z_harm_s_pred: [batch, harm_dim] predicted next harm latent.
+
+        Raises:
+            AssertionError when config.use_outcome_oracle is False.
+        """
+        assert self.config.use_outcome_oracle, (
+            "query_outcome() called but OFCConfig.use_outcome_oracle is False"
+        )
+        with torch.no_grad():
+            pred = e2_harm_s.forward(z_harm_s.detach(), action.detach())
+        self._last_outcome_prediction = pred.detach()
+        return pred.detach()
+
     def reset(self) -> None:
         """Zero state_code. Called on episode boundary via REEAgent.reset()."""
         with torch.no_grad():
@@ -272,12 +315,19 @@ class OFCAnalog(nn.Module):
         self._last_gate = 0.0
         self._last_effective_eta = 0.0
         self._last_bias_abs_mean = 0.0
+        self._last_outcome_prediction = None
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
-        return {
+        result = {
             "state_code_norm": float(self.state_code.norm().item()),
             "last_gate": self._last_gate,
             "last_effective_eta": self._last_effective_eta,
             "last_bias_abs_mean": self._last_bias_abs_mean,
+            "oracle_enabled": self.config.use_outcome_oracle,
         }
+        if self._last_outcome_prediction is not None:
+            result["last_oracle_pred_norm"] = float(
+                self._last_outcome_prediction.norm().item()
+            )
+        return result

@@ -1342,6 +1342,11 @@ class REEConfig:
     # 0 disables the outcome projection entirely (state_code = world only).
     # When >0 must match LatentStackConfig.z_harm_dim.
     ofc_harm_dim: int = 0
+    # When True, enables OFCAnalog.query_outcome() -- the MECH-263
+    # specific-outcome oracle path. Delegates to E2HarmSForward on the
+    # agent for prospective outcome prediction per candidate action.
+    # Requires use_e2_harm_s_forward=True. Default False (backward compat).
+    use_ofc_outcome_oracle: bool = False
 
     # ----------------------------------------------------------------
     # SD-034: governance.closure_operator (five-part "done" token)
@@ -1873,6 +1878,7 @@ class REEConfig:
         ofc_bias_scale: float = 0.1,
         ofc_hidden_dim: int = 32,
         ofc_harm_dim: int = 0,
+        use_ofc_outcome_oracle: bool = False,
         # SD-034: governance.closure_operator (five-part "done" token)
         use_closure_operator: bool = False,
         closure_rule_delta_threshold: float = 0.001,
@@ -2278,6 +2284,7 @@ class REEConfig:
         config.ofc_bias_scale = ofc_bias_scale
         config.ofc_hidden_dim = ofc_hidden_dim
         config.ofc_harm_dim = ofc_harm_dim
+        config.use_ofc_outcome_oracle = use_ofc_outcome_oracle
 
         # SD-034: governance.closure_operator
         config.use_closure_operator = use_closure_operator

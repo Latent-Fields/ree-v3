@@ -388,11 +388,15 @@ class REEAgent(nn.Module):
                 bias_scale=config.ofc_bias_scale,
                 hidden_dim=config.ofc_hidden_dim,
                 harm_dim=config.ofc_harm_dim,
+                use_outcome_oracle=getattr(config, "use_ofc_outcome_oracle", False),
             )
             self.ofc = OFCAnalog(
                 world_dim=config.latent.world_dim,
                 config=ofc_cfg,
             )
+        # Per-candidate oracle predictions cache (List[Tensor] or None).
+        # Populated each tick when ofc.oracle_is_ready and e2_harm_s are on.
+        self._ofc_oracle_predictions: Optional[List[torch.Tensor]] = None
 
         # SD-034: governance.closure_operator (five-part "done" token)
         # Coordinates release of BetaGate latch, targeted No-Go via dACC,
@@ -1068,9 +1072,10 @@ class REEAgent(nn.Module):
         if self.lateral_pfc is not None:
             self.lateral_pfc.reset()
 
-        # SD-033b: reset state_code on episode boundary.
+        # SD-033b: reset state_code + oracle cache on episode boundary.
         if self.ofc is not None:
             self.ofc.reset()
+        self._ofc_oracle_predictions = None
 
         # SD-034: reset closure-operator completion detector on episode boundary.
         if self.closure_operator is not None:
@@ -2383,6 +2388,29 @@ class REEAgent(nn.Module):
                 dacc_score_bias = dacc_score_bias + ofc_bias.to(
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
+
+            # MECH-263 specific-outcome oracle: per-candidate z_harm_s
+            # prediction via E2HarmSForward. Queries OFCAnalog.query_outcome()
+            # for each candidate's first action and caches predictions for
+            # diagnostic access and future score modulation. No effect on
+            # E3 scores until a non-zero oracle_score_weight is added in a
+            # later training pass.
+            if (
+                self.ofc.oracle_is_ready
+                and self.e2_harm_s is not None
+                and self._current_latent is not None
+                and self._current_latent.z_harm is not None
+            ):
+                z_harm_s_curr = self._current_latent.z_harm.detach()
+                _oracle_list: List[torch.Tensor] = []
+                for _c in candidates:
+                    _a = _c.actions[:, 0, :]
+                    _oracle_list.append(
+                        self.ofc.query_outcome(z_harm_s_curr, _a, self.e2_harm_s)
+                    )
+                self._ofc_oracle_predictions = _oracle_list
+            else:
+                self._ofc_oracle_predictions = None
 
         # MECH-295: drive -> liking-stream -> approach_cue at action selection.
         # Per-candidate liking signal: drive * goal_proximity (each
