@@ -8,27 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-485a",
-      "title": "SD-033b OFC-analog oracle landing (UC6 round-trip)",
-      "script": "experiments/v3_exq_485a_sd033b_ofc_oracle_landing.py",
-      "claim_ids": [
-        "SD-033b",
-        "MECH-261",
-        "MECH-263"
-      ],
-      "experiment_purpose": "diagnostic",
-      "priority": 1,
-      "status": "claimed",
-      "estimated_minutes": 1,
-      "machine_affinity": "DLAPTOP-4.local",
-      "supersedes": "V3-EXQ-485",
-      "notes": "6-sub-test landing diagnostic extending V3-EXQ-485. UC1-UC5 carried over (instantiation, gate modulates update, bias zero at init, backward compat, reset clears state_code). UC6 NEW: oracle round-trip -- (A) query_outcome() output bit-identical to e2_harm_s.forward() (max diff < 1e-6); (B) AssertionError when oracle disabled; (C) reset() clears _last_outcome_prediction + _ofc_oracle_predictions; (D) oracle_is_ready=False by default; (E) get_state() exposes oracle_enabled=True and last_oracle_pred_norm > 0 after a query. Validates MECH-263 specific-outcome oracle path (OFCConfig.use_outcome_oracle). Pure deterministic arithmetic; no env steps.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-04T15:03:29.666299+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-517",
       "title": "MECH-302 relief-completion behavioural discriminative pair",
       "experiment_type": "v3_exq_517_mech302_relief_completion_discriminative_pair",
