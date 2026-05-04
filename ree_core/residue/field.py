@@ -225,6 +225,21 @@ class ResidueField(nn.Module):
             self.register_buffer("total_benefit", torch.tensor(0.0))
             self.register_buffer("num_benefit_events", torch.tensor(0))
 
+        # MECH-303: contextual passive safety terrain (vmPFC/hippocampal analog).
+        # Accumulates harm-absence signal per step; separate from benefit_terrain
+        # and VALENCE_LIKING. Disabled by default (bit-identical OFF).
+        self.safety_terrain_enabled: bool = getattr(
+            self.config, "safety_terrain_enabled", False
+        )
+        if self.safety_terrain_enabled:
+            self.safety_terrain_rbf_field = RBFLayer(
+                world_dim=self.config.world_dim,
+                num_centers=self.config.num_basis_functions,
+                bandwidth=self.config.kernel_bandwidth,
+            )
+            self.register_buffer("total_safety", torch.tensor(0.0))
+            self.register_buffer("num_safety_steps", torch.tensor(0))
+
     def evaluate(self, z_world: torch.Tensor) -> torch.Tensor:
         """
         Evaluate φ(z_world) at a point.
@@ -342,6 +357,50 @@ class ResidueField(nn.Module):
             self.benefit_rbf_field.add_residue(loc, float(benefit_magnitude))
             self.total_benefit = self.total_benefit + benefit_magnitude
             self.num_benefit_events = self.num_benefit_events + 1
+
+    # ------------------------------------------------------------------
+    # MECH-303: contextual passive safety terrain API
+    # ------------------------------------------------------------------
+
+    def evaluate_safety(self, z_world: torch.Tensor) -> torch.Tensor:
+        """
+        Evaluate contextual safety terrain at z_world (MECH-303).
+
+        Returns safety prediction scalar [batch]. Higher = more accumulated
+        harm-absence exposure at this z_world region. Returns zeros if
+        safety terrain disabled.
+        """
+        if not self.safety_terrain_enabled:
+            return torch.zeros(z_world.shape[0], device=z_world.device)
+        return self.safety_terrain_rbf_field(z_world)
+
+    def accumulate_safety(
+        self,
+        z_world: torch.Tensor,
+        safety_magnitude: float = 0.01,
+        hypothesis_tag: bool = False,
+    ) -> None:
+        """
+        Accumulate safety attractor at a z_world location (MECH-303).
+
+        Called per step when z_harm_a.norm() is below the quiescent threshold.
+        Small per-step increments model diffuse/passive contextual learning.
+
+        MECH-094: hypothesis_tag=True blocks accumulation. Contextual safety
+        can only be learned from waking experience, not replay or simulation.
+
+        Args:
+            z_world:          Location in z_world space [batch, world_dim]
+            safety_magnitude: Per-step increment (small by design, default 0.01)
+            hypothesis_tag:   MECH-094 gate -- if True, no accumulation
+        """
+        if not self.safety_terrain_enabled or hypothesis_tag:
+            return
+        loc = z_world.mean(dim=0) if z_world.dim() == 2 else z_world
+        with torch.no_grad():
+            self.safety_terrain_rbf_field.add_residue(loc, float(safety_magnitude))
+            self.total_safety = self.total_safety + safety_magnitude
+            self.num_safety_steps = self.num_safety_steps + 1
 
     # ------------------------------------------------------------------
     # SD-014 / ARC-036: 4-component valence vector API

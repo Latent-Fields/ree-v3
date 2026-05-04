@@ -880,6 +880,10 @@ class ResidueConfig:
     integration_rate: float = 0.01
     # ARC-030 / MECH-117: benefit terrain (liking -- separate from z_goal wanting)
     benefit_terrain_enabled: bool = False
+    # MECH-303: contextual passive safety terrain (separate from benefit_terrain and VALENCE_LIKING).
+    # Accumulates harm-absence signal per step at current z_world; read in select_action()
+    # to lower background avoidance commitment. Disabled by default (bit-identical OFF).
+    safety_terrain_enabled: bool = False
     # SD-014: 4-component valence vector [wanting, liking, harm_discriminative, surprise].
     # When False, evaluate_valence() returns zeros and update_valence() is a no-op.
     # Used to ablate valence tracking in experiments that do not need replay prioritisation.
@@ -1315,6 +1319,23 @@ class REEConfig:
     safety_store_threshold: float = 0.5
     # Magnitude written to VALENCE_LIKING when safety gate releases commitment.
     safety_store_commitment_weight: float = 1.0
+
+    # MECH-303: contextual passive safety terrain.
+    # Accumulates harm-absence signal per-step at current z_world (sense()).
+    # Evaluated in select_action() to release beta_gate when accumulated safety
+    # exceeds contextual_safety_release_threshold in the current context.
+    # Anatomical analog: vmPFC + vHipp-to-PL contextual safety store (Laing 2022,
+    # Kreutzmann 2020, Meyer 2019). Separate from MECH-304 cue-specific store.
+    # False = disabled (default, backward compat; bit-identical to pre-MECH-303).
+    use_contextual_safety_terrain: bool = False
+    # Increment added to safety terrain per harm-absent step. Small by design --
+    # contextual safety builds slowly over repeated exposure (diffuse/passive update).
+    contextual_safety_accum_weight: float = 0.01
+    # z_harm_a norm below this threshold counts as "harm absent" for accumulation.
+    contextual_safety_harm_threshold: float = 0.05
+    # Safety terrain scalar at current z_world must exceed this threshold
+    # (with beta_gate elevated) to trigger commitment release.
+    contextual_safety_release_threshold: float = 1.0
 
     # MECH-095: TPJ agency comparator (self/other attribution on z_self).
     # When True, REEAgent stores an E2 efference-copy prediction at action
@@ -2074,6 +2095,11 @@ class REEConfig:
         safety_store_min_norm: float = 0.1,
         safety_store_threshold: float = 0.5,
         safety_store_commitment_weight: float = 1.0,
+        # MECH-303: contextual passive safety terrain
+        use_contextual_safety_terrain: bool = False,
+        contextual_safety_accum_weight: float = 0.01,
+        contextual_safety_harm_threshold: float = 0.05,
+        contextual_safety_release_threshold: float = 1.0,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -2497,6 +2523,14 @@ class REEConfig:
         config.safety_store_min_norm = safety_store_min_norm
         config.safety_store_threshold = safety_store_threshold
         config.safety_store_commitment_weight = safety_store_commitment_weight
+
+        # MECH-303: contextual passive safety terrain
+        config.use_contextual_safety_terrain = use_contextual_safety_terrain
+        config.contextual_safety_accum_weight = contextual_safety_accum_weight
+        config.contextual_safety_harm_threshold = contextual_safety_harm_threshold
+        config.contextual_safety_release_threshold = contextual_safety_release_threshold
+        if use_contextual_safety_terrain:
+            config.residue.safety_terrain_enabled = True
 
         return config
 

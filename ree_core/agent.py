@@ -1880,6 +1880,27 @@ class REEAgent(nn.Module):
                 sim_mode=sim_mode,
             )
 
+        # MECH-303: contextual passive safety terrain accumulation.
+        # Each waking step where z_harm_a norm is below the quiescent threshold,
+        # write a small increment to the safety terrain at current z_world.
+        # Hypothesis_tag=True blocks accumulation (MECH-094: waking path only).
+        if (
+            getattr(self.config, "use_contextual_safety_terrain", False)
+            and new_latent.z_harm_a is not None
+            and new_latent.z_world is not None
+            and hasattr(self.residue_field, "accumulate_safety")
+        ):
+            harm_norm = float(new_latent.z_harm_a.norm().item())
+            harm_thresh = float(getattr(self.config, "contextual_safety_harm_threshold", 0.05))
+            if harm_norm < harm_thresh:
+                accum_w = float(getattr(self.config, "contextual_safety_accum_weight", 0.01))
+                hyp_tag = bool(getattr(new_latent, "hypothesis_tag", False))
+                self.residue_field.accumulate_safety(
+                    new_latent.z_world,
+                    safety_magnitude=accum_w,
+                    hypothesis_tag=hyp_tag,
+                )
+
         return new_latent
 
     def sense_flat(self, observation: torch.Tensor) -> LatentState:
@@ -2242,6 +2263,29 @@ class REEAgent(nn.Module):
                     hypothesis_tag=False,
                 )
         self._conditioned_safety_signal = 0.0
+
+        # MECH-303: contextual passive safety gate (background vigilance reduction).
+        # When accumulated safety terrain at current z_world exceeds the release
+        # threshold and beta_gate is elevated, release the avoidance commitment.
+        # Distinct from MECH-304 (event-driven cue) -- this fires from accumulated
+        # passive exposure to harmless context, not from a specific safety cue.
+        if (
+            getattr(self.config, "use_contextual_safety_terrain", False)
+            and self.beta_gate.is_elevated
+            and self._current_latent is not None
+            and self._current_latent.z_world is not None
+            and hasattr(self.residue_field, "evaluate_safety")
+        ):
+            safety_pred = self.residue_field.evaluate_safety(
+                self._current_latent.z_world.detach()
+            )
+            release_thresh = float(
+                getattr(self.config, "contextual_safety_release_threshold", 1.0)
+            )
+            if float(safety_pred.mean()) >= release_thresh:
+                self.beta_gate.release()
+                self._committed_step_idx = 0
+                self._committed_anchor_keys = None
 
         if not ticks["e3_tick"] and self._last_action is not None:
             # Between E3 ticks: step through committed trajectory (Layer 1) or hold.
