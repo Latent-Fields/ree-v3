@@ -1051,6 +1051,11 @@ def main():
             print(f"[runner] --remote-control requested but module import failed: "
                   f"{_rrc_exc}. Heartbeats disabled.", flush=True)
 
+    # Pull ree-v3 before preflight so a stale local queue doesn't block startup.
+    # (The full auto-sync pull of REE_assembly happens after preflight as before.)
+    if args.auto_sync:
+        git_pull(REPO_ROOT, "ree-v3")
+
     if not args.skip_preflight and os.environ.get("REE_SKIP_PREFLIGHT") != "1":
         preflight_dir = REPO_ROOT / "tests" / "preflight"
         if preflight_dir.exists():
