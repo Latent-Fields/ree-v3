@@ -28,10 +28,14 @@
       "script": "experiments/v3_exq_452a_mech257_dual_function_e2_reef.py",
       "priority": 10,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 80,
       "supersedes": "V3-EXQ-452",
-      "note": "SD-050 reef breaks monostrategy on 10x10 grid; random policy, diagnostic experiment"
+      "note": "SD-050 reef breaks monostrategy on 10x10 grid; random policy, diagnostic experiment",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-05T18:46:37.515177+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-454a",
