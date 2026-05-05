@@ -141,6 +141,22 @@
       "claim_id": "SD-003",
       "supersedes": "V3-EXQ-205",
       "note": "EXQ-205 (April 2 PASS) had outcome:None (old format field). SD-019/020/021 landed April 10 after that run. Fresh run with current harm stream + correct output schema."
+    },
+    {
+      "queue_id": "V3-EXQ-526",
+      "title": "Q-034 reef-enabled threshold sweep -- monostrategy fix for EXQ-451",
+      "experiment_type": "v3_exq_526_q034_reef_threshold_sweep",
+      "script": "experiments/v3_exq_526_q034_reef_threshold_sweep.py",
+      "priority": 6,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 200,
+      "episodes_per_run": 60,
+      "seeds": 2,
+      "conditions": 15,
+      "claim_id": "Q-034",
+      "supersedes": "V3-EXQ-451",
+      "note": "EXQ-451 FAIL on C1/C2: monostrategy (action_entropy=0.0) prevented dose-response. Fix: reef substrate (reef_enabled=True, n_reef_patches=3, reef_patch_radius=2, hazard_food_attraction=0.7) creates two behavioral attractors (flee-to-reef vs forage). Grid 8x8->10x10. Also fixes: ISO timestamp in run_id, verdict PASS/FAIL based on actual outcome, global ep counter across warmup+eval phases."
     }
   ]
 }
