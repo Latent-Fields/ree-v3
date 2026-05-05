@@ -56,20 +56,6 @@
       "note": "SD-050 reef breaks monostrategy on 10x10 grid; unblocks C2 regime sensitivity measurement"
     },
     {
-      "queue_id": "V3-EXQ-523",
-      "title": "SD-029/MECH-256 reef-unblocked self-attribution comparator",
-      "script": "experiments/v3_exq_523_sd029_reef_comparator.py",
-      "priority": 9,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 25,
-      "note": "Reef substrate (EXQ-521/522 PASS) unblocks C0 trial-sufficiency; first real SD-029 evidence attempt",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-05T18:07:32.759535+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-418j",
       "title": "SD-016 context memory reef fix: 2x2 factorial {SD-016, reef}",
       "script": "experiments/v3_exq_418j_sd016_context_memory_reef.py",
