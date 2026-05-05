@@ -8,21 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-433e",
-      "title": "SD-029/MECH-256 event-conditioned comparator -- reef (monostrategy fix)",
-      "script": "experiments/v3_exq_433e_sd029_eventcond_comparator_reef.py",
-      "priority": 10,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 180,
-      "supersedes": "V3-EXQ-433d",
-      "note": "SD-050 reef breaks monostrategy on 8x8 grid; unblocks C3/C4 balanced event distribution measurement",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-05T07:27:47.304317+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-445f",
       "title": "SD-032b/MECH-258/MECH-260 dACC adaptive control -- reef (monostrategy fix)",
       "script": "experiments/v3_exq_445f_sd032b_dacc_reef.py",
@@ -80,7 +65,9 @@
       "queue_id": "V3-EXQ-418j",
       "title": "SD-016 context memory reef fix: 2x2 factorial {SD-016, reef}",
       "script": "experiments/v3_exq_418j_sd016_context_memory_reef.py",
-      "claim_ids": ["SD-016"],
+      "claim_ids": [
+        "SD-016"
+      ],
       "priority": 9,
       "machine_affinity": "DLAPTOP-4.local",
       "status": "pending",
@@ -92,7 +79,12 @@
       "queue_id": "V3-EXQ-514c",
       "title": "SD-049 Phase 2 reef-environment behavioural validation (monostrategy fix for 514b)",
       "script": "experiments/v3_exq_514c_sd049_phase_2_reef_behavioural_validation.py",
-      "claim_ids": ["SD-049", "SD-015", "MECH-229", "MECH-230"],
+      "claim_ids": [
+        "SD-049",
+        "SD-015",
+        "MECH-229",
+        "MECH-230"
+      ],
       "priority": 8,
       "machine_affinity": "DLAPTOP-4.local",
       "status": "pending",
