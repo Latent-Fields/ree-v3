@@ -38,6 +38,16 @@
       }
     },
     {
+      "queue_id": "V3-EXQ-524",
+      "title": "Reef fishtank showcase -- reef zone viz + shelter mode episode log",
+      "script": "experiments/v3_exq_524_reef_fishtank_showcase.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 50,
+      "note": "Generates reef-aware _episode_log.json for fishtank_viz.html: reef_cells per episode, in_reef per step, shelter mode, reef_entry/exit transitions. ARM_1_reef_food config from EXQ-522 (hazard_food_attraction=0.7)."
+    },
+    {
       "queue_id": "V3-EXQ-418k",
       "title": "SD-016 context memory reef fix: 2x2 factorial {SD-016, reef} (torch.cat bugfix)",
       "script": "experiments/v3_exq_418k_sd016_context_memory_reef.py",
