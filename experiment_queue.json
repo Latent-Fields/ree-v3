@@ -6,5 +6,18 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-522",
+      "title": "Reef Monostrategy Break -- Behavioral Diversity Validation",
+      "script": "experiments/v3_exq_522_reef_monostrategy_break.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "claim_ids": [],
+      "experiment_purpose": "diagnostic",
+      "status": "pending",
+      "notes": "Heuristic-policy behavioral probe. Three-arm: baseline vs reef+food-attracted vs reef-only. C1/C2/C3 must PASS before V3-EXQ-523 (SD-029 C2/C3 with trained agent). Gated on V3-EXQ-521 PASS 2026-05-04."
+    }
+  ]
 }
