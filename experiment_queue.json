@@ -6,5 +6,65 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-433e",
+      "title": "SD-029/MECH-256 event-conditioned comparator -- reef (monostrategy fix)",
+      "script": "experiments/v3_exq_433e_sd029_eventcond_comparator_reef.py",
+      "priority": 10,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "estimated_minutes": 180,
+      "supersedes": "V3-EXQ-433d",
+      "note": "SD-050 reef breaks monostrategy on 8x8 grid; unblocks C3/C4 balanced event distribution measurement",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-05T07:27:47.304317+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-445f",
+      "title": "SD-032b/MECH-258/MECH-260 dACC adaptive control -- reef (monostrategy fix)",
+      "script": "experiments/v3_exq_445f_sd032b_dacc_reef.py",
+      "priority": 10,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 160,
+      "supersedes": "V3-EXQ-445c",
+      "note": "SD-050 reef breaks monostrategy on 14x14 grid; 445e was already completed (UNKNOWN)"
+    },
+    {
+      "queue_id": "V3-EXQ-325f",
+      "title": "SD-032c AIC descending modulation -- reef (monostrategy fix)",
+      "script": "experiments/v3_exq_325f_sd032c_aic_descending_reef.py",
+      "priority": 10,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 220,
+      "supersedes": "V3-EXQ-325d",
+      "note": "SD-050 reef breaks monostrategy on 10x10 grid; also fixes hardcoded world_obs_dim=250 bug"
+    },
+    {
+      "queue_id": "V3-EXQ-452a",
+      "title": "MECH-257/SD-013/ARC-033 dual-function E2 comparator -- reef (monostrategy fix)",
+      "script": "experiments/v3_exq_452a_mech257_dual_function_e2_reef.py",
+      "priority": 10,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 80,
+      "supersedes": "V3-EXQ-452",
+      "note": "SD-050 reef breaks monostrategy on 10x10 grid; random policy, diagnostic experiment"
+    },
+    {
+      "queue_id": "V3-EXQ-454a",
+      "title": "ARC-016 adaptive commit_threshold via E2 PE variance -- reef (monostrategy fix)",
+      "script": "experiments/v3_exq_454a_arc016_adaptive_commitment_reef.py",
+      "priority": 10,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "supersedes": "V3-EXQ-454",
+      "note": "SD-050 reef breaks monostrategy on 10x10 grid; unblocks C2 regime sensitivity measurement"
+    }
+  ]
 }
