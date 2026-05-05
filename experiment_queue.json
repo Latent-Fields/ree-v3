@@ -88,10 +88,14 @@
       ],
       "priority": 8,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 250,
       "supersedes": "V3-EXQ-445f",
-      "note": "445f FAIL: action_class_entropy=0.0 in all seeds -- monostrategy survived reef env. Root cause: DACCAdaptiveControl.forward() clips score_bias to dacc_bias_max_abs (default 1.0) but E3 scores are O(17): bias saturated at max_abs=1.0 well below score range. Fix: DACCConfig.dacc_bias_max_abs raised to 2.0 in ree_core/cingulate/dacc.py. Smoke PASS: bias=2.00 confirmed. 2 conditions x 3 seeds x 280 eps at 150 steps/ep on 14x14 grid with reef."
+      "note": "445f FAIL: action_class_entropy=0.0 in all seeds -- monostrategy survived reef env. Root cause: DACCAdaptiveControl.forward() clips score_bias to dacc_bias_max_abs (default 1.0) but E3 scores are O(17): bias saturated at max_abs=1.0 well below score range. Fix: DACCConfig.dacc_bias_max_abs raised to 2.0 in ree_core/cingulate/dacc.py. Smoke PASS: bias=2.00 confirmed. 2 conditions x 3 seeds x 280 eps at 150 steps/ep on 14x14 grid with reef.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-05T22:38:41.393134+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-523a",
