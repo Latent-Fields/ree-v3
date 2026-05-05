@@ -8,36 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-325f",
-      "title": "SD-032c AIC descending modulation -- reef (monostrategy fix)",
-      "script": "experiments/v3_exq_325f_sd032c_aic_descending_reef.py",
-      "priority": 10,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 220,
-      "supersedes": "V3-EXQ-325d",
-      "note": "SD-050 reef breaks monostrategy on 10x10 grid; also fixes hardcoded world_obs_dim=250 bug",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-05T18:22:44.426589+00:00"
-      }
-    },
-    {
-      "queue_id": "V3-EXQ-454a",
-      "title": "ARC-016 adaptive commit_threshold via E2 PE variance -- reef (monostrategy fix)",
-      "script": "experiments/v3_exq_454a_arc016_adaptive_commitment_reef.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "supersedes": "V3-EXQ-454",
-      "note": "SD-050 reef breaks monostrategy on 10x10 grid; unblocks C2 regime sensitivity measurement",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-05T18:47:01.305768+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-524",
       "title": "Reef fishtank showcase -- reef zone viz + shelter mode episode log",
       "script": "experiments/v3_exq_524_reef_fishtank_showcase.py",
@@ -120,6 +90,22 @@
       "estimated_minutes": 300,
       "supersedes": "V3-EXQ-514d",
       "note": "514d smoke confirmed rv_final=0.5000 all 3 seeds, gate never commits under random resource placement. ARM_A=random (no landmarks, world_obs_dim=325), ARM_B=seaweed (n_landmarks_b=2, landmark_b_resource_bias=1.0, world_obs_dim=375). PASS: committed_frac_last_third_b > 0.05 AND rv_final_b < 0.40 AND > arm_a + 0.02. If PASS: E1-learnable spatial schema enables BG gate commitment; MECH-216 (E1 schema readout) is the architectural lever. Dry-run PASS 2026-05-05: all 6 arm-seed combos completed cleanly, world_obs_dims correct."
+    },
+    {
+      "queue_id": "V3-EXQ-525",
+      "title": "SD-003 harm attribution anchor -- corrected format superseding EXQ-205 (post-SD-011 substrate)",
+      "experiment_type": "v3_exq_525_sd003_attribution_anchor",
+      "script": "experiments/v3_exq_525_sd003_attribution_anchor.py",
+      "priority": 6,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 300,
+      "seeds": 4,
+      "conditions": 1,
+      "claim_id": "SD-003",
+      "supersedes": "V3-EXQ-205",
+      "note": "EXQ-205 (April 2 PASS) had outcome:None (old format field). SD-019/020/021 landed April 10 after that run. Fresh run with current harm stream + correct output schema."
     }
   ]
 }
