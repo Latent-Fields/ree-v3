@@ -8,21 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-445f",
-      "title": "SD-032b/MECH-258/MECH-260 dACC adaptive control -- reef (monostrategy fix)",
-      "script": "experiments/v3_exq_445f_sd032b_dacc_reef.py",
-      "priority": 10,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 160,
-      "supersedes": "V3-EXQ-445c",
-      "note": "SD-050 reef breaks monostrategy on 14x14 grid; 445e was already completed (UNKNOWN)",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-05T17:44:44.947308+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-325f",
       "title": "SD-032c AIC descending modulation -- reef (monostrategy fix)",
       "script": "experiments/v3_exq_325f_sd032c_aic_descending_reef.py",
