@@ -773,7 +773,9 @@ def build_initial_status(queue_data: dict, script_timing: dict | None = None) ->
 
 def run_experiment(item: dict, status: dict, status_path: Path, calibration: dict,
                    script_timing: dict | None = None,
-                   proc_ref: list | None = None) -> dict:
+                   proc_ref: list | None = None,
+                   auto_sync: bool = False,
+                   ree_assembly_path: Path | None = None) -> dict:
     """Run a single experiment script as a subprocess.
 
     proc_ref: if provided, the active Popen object is stored as proc_ref[0] immediately
@@ -896,6 +898,21 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                 update_status_current()
         _hb_thread = threading.Thread(target=_heartbeat, daemon=True)
         _hb_thread.start()
+
+        if auto_sync:
+            def _background_sync():
+                while not _hb_stop.wait(timeout=60):
+                    try:
+                        git_pull(REPO_ROOT, "ree-v3")
+                    except Exception:
+                        pass
+                    if ree_assembly_path:
+                        try:
+                            git_pull(ree_assembly_path, "REE_assembly")
+                        except Exception:
+                            pass
+            _sync_thread = threading.Thread(target=_background_sync, daemon=True)
+            _sync_thread.start()
 
         for line in proc.stdout:
             line = line.rstrip()
@@ -1354,7 +1371,9 @@ def main():
 
             try:
                 result = run_experiment(item, status, status_path, calibration, script_timing,
-                                        proc_ref=_current_proc)
+                                        proc_ref=_current_proc,
+                                        auto_sync=args.auto_sync,
+                                        ree_assembly_path=ree_assembly_path)
             except Exception as _run_exc:
                 # Unexpected exception escaping run_experiment -- treat as ERROR and continue
                 print(f"[runner] UNEXPECTED ERROR in {queue_id}: {_run_exc}", flush=True)
