@@ -13,10 +13,14 @@
       "script": "experiments/v3_exq_445f_sd032b_dacc_reef.py",
       "priority": 10,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 160,
       "supersedes": "V3-EXQ-445c",
-      "note": "SD-050 reef breaks monostrategy on 14x14 grid; 445e was already completed (UNKNOWN)"
+      "note": "SD-050 reef breaks monostrategy on 14x14 grid; 445e was already completed (UNKNOWN)",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-05T17:44:44.947308+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-325f",
