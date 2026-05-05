@@ -46,10 +46,14 @@
       ],
       "priority": 9,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 80,
       "supersedes": "V3-EXQ-418i",
-      "note": "418i FAILed with action_class_entropy ~1e-10 (monostrategy). SD-050 reef (EXQ-522 PASS, zone_transitions=48.9) provides env-entropy precondition needed for SD-016 ContextMemory to produce context-dependent outputs."
+      "note": "418i FAILed with action_class_entropy ~1e-10 (monostrategy). SD-050 reef (EXQ-522 PASS, zone_transitions=48.9) provides env-entropy precondition needed for SD-016 ContextMemory to produce context-dependent outputs.",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-05T18:47:08.582729+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-514c",
