@@ -143,6 +143,21 @@
       "claim_id": "Q-034",
       "supersedes": "V3-EXQ-451",
       "note": "EXQ-451 FAIL on C1/C2: monostrategy (action_entropy=0.0) prevented dose-response. Fix: reef substrate (reef_enabled=True, n_reef_patches=3, reef_patch_radius=2, hazard_food_attraction=0.7) creates two behavioral attractors (flee-to-reef vs forage). Grid 8x8->10x10. Also fixes: ISO timestamp in run_id, verdict PASS/FAIL based on actual outcome, global ep counter across warmup+eval phases."
+    },
+    {
+      "queue_id": "V3-EXQ-527",
+      "title": "MECH-112 goal-directed behavior -- identity encoder + reef (fresh angle over EXQ-189)",
+      "experiment_type": "v3_exq_527_mech112_identity_goal_reef",
+      "script": "experiments/v3_exq_527_mech112_identity_goal_reef.py",
+      "priority": 6,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180,
+      "episodes_per_run": 300,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": ["MECH-112"],
+      "note": "Fresh MECH-112 test with reef (SD-050) + SD-049 Phase 2 identity encoder. GOAL_PRESENT: identity_classifier trained on food/water types, z_goal seeded from z_resource. GOAL_ABSENT: no goal system, same env. 10x10 grid, 3 hazards, 8 resources (4 food + 4 water), reef_enabled=True. Phased: P0=100 warmup, P1=150 freeze+train, eval=50. world_obs_dim=325."
     }
   ]
 }
