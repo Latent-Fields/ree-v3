@@ -13,10 +13,14 @@
       "script": "experiments/v3_exq_325f_sd032c_aic_descending_reef.py",
       "priority": 10,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 220,
       "supersedes": "V3-EXQ-325d",
-      "note": "SD-050 reef breaks monostrategy on 10x10 grid; also fixes hardcoded world_obs_dim=250 bug"
+      "note": "SD-050 reef breaks monostrategy on 10x10 grid; also fixes hardcoded world_obs_dim=250 bug",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-05T18:22:44.426589+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-452a",
