@@ -92,6 +92,30 @@
       "note": "514d smoke confirmed rv_final=0.5000 all 3 seeds, gate never commits under random resource placement. ARM_A=random (no landmarks, world_obs_dim=325), ARM_B=seaweed (n_landmarks_b=2, landmark_b_resource_bias=1.0, world_obs_dim=375). PASS: committed_frac_last_third_b > 0.05 AND rv_final_b < 0.40 AND > arm_a + 0.02. If PASS: E1-learnable spatial schema enables BG gate commitment; MECH-216 (E1 schema readout) is the architectural lever. Dry-run PASS 2026-05-05: all 6 arm-seed combos completed cleanly, world_obs_dims correct."
     },
     {
+      "queue_id": "V3-EXQ-445g",
+      "title": "SD-032b dACC reef -- dacc_bias_max_abs=2.0 architectural fix",
+      "script": "experiments/v3_exq_445g_sd032b_dacc_reef.py",
+      "claim_ids": ["SD-032b", "MECH-258", "MECH-260"],
+      "priority": 8,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 250,
+      "supersedes": "V3-EXQ-445f",
+      "note": "445f FAIL: action_class_entropy=0.0 in all seeds -- monostrategy survived reef env. Root cause: DACCAdaptiveControl.forward() clips score_bias to dacc_bias_max_abs (default 1.0) but E3 scores are O(17): bias saturated at max_abs=1.0 well below score range. Fix: DACCConfig.dacc_bias_max_abs raised to 2.0 in ree_core/cingulate/dacc.py. Smoke PASS: bias=2.00 confirmed. 2 conditions x 3 seeds x 280 eps at 150 steps/ep on 14x14 grid with reef."
+    },
+    {
+      "queue_id": "V3-EXQ-523a",
+      "title": "SD-029 reef comparator with graduation gate + degraded measurement policy",
+      "script": "experiments/v3_exq_523a_sd029_reef_comparator.py",
+      "claim_ids": ["SD-029", "MECH-256"],
+      "priority": 7,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 70,
+      "supersedes": "V3-EXQ-523",
+      "note": "523 undertrained (n_train_steps=2000 fixed, r2=0.57) and hardcoded evidence_direction='supports'. Fix: (1) adaptive graduation gate (rolling r2>=0.85 for 5 consecutive windows of 200 steps, max 8000 steps); (2) epsilon=0.4 exploration + aggressive external injection (interval=5, prob=1.0) to break monostrategy and generate balanced self-vs-ext events; (3) INCONCLUSIVE_UNDERTRAINED outcome when graduation fails; (4) per-claim evidence_direction_per_claim for SD-029 and MECH-256 independently."
+    },
+    {
       "queue_id": "V3-EXQ-525",
       "title": "SD-003 harm attribution anchor -- corrected format superseding EXQ-205 (post-SD-011 substrate)",
       "experiment_type": "v3_exq_525_sd003_attribution_anchor",
