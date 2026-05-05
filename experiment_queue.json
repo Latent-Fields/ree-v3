@@ -43,10 +43,14 @@
       "script": "experiments/v3_exq_454a_arc016_adaptive_commitment_reef.py",
       "priority": 10,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "supersedes": "V3-EXQ-454",
-      "note": "SD-050 reef breaks monostrategy on 10x10 grid; unblocks C2 regime sensitivity measurement"
+      "note": "SD-050 reef breaks monostrategy on 10x10 grid; unblocks C2 regime sensitivity measurement",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-05T18:47:01.305768+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-418j",
