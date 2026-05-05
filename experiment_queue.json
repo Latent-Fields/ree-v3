@@ -23,21 +23,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-452a",
-      "title": "MECH-257/SD-013/ARC-033 dual-function E2 comparator -- reef (monostrategy fix)",
-      "script": "experiments/v3_exq_452a_mech257_dual_function_e2_reef.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 80,
-      "supersedes": "V3-EXQ-452",
-      "note": "SD-050 reef breaks monostrategy on 10x10 grid; random policy, diagnostic experiment",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-05T18:46:37.515177+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-454a",
       "title": "ARC-016 adaptive commit_threshold via E2 PE variance -- reef (monostrategy fix)",
       "script": "experiments/v3_exq_454a_arc016_adaptive_commitment_reef.py",
