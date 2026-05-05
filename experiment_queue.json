@@ -16,8 +16,12 @@
       "estimated_minutes": 5,
       "claim_ids": [],
       "experiment_purpose": "diagnostic",
-      "status": "pending",
-      "notes": "Heuristic-policy behavioral probe. Three-arm: baseline vs reef+food-attracted vs reef-only. C1/C2/C3 must PASS before V3-EXQ-523 (SD-029 C2/C3 with trained agent). Gated on V3-EXQ-521 PASS 2026-05-04."
+      "status": "claimed",
+      "notes": "Heuristic-policy behavioral probe. Three-arm: baseline vs reef+food-attracted vs reef-only. C1/C2/C3 must PASS before V3-EXQ-523 (SD-029 C2/C3 with trained agent). Gated on V3-EXQ-521 PASS 2026-05-04.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-05T06:45:41.661704+00:00"
+      }
     }
   ]
 }
