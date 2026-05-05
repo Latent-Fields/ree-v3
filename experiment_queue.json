@@ -51,7 +51,9 @@
       "queue_id": "V3-EXQ-418k",
       "title": "SD-016 context memory reef fix: 2x2 factorial {SD-016, reef} (torch.cat bugfix)",
       "script": "experiments/v3_exq_418k_sd016_context_memory_reef.py",
-      "claim_ids": ["SD-016"],
+      "claim_ids": [
+        "SD-016"
+      ],
       "priority": 9,
       "machine_affinity": "any",
       "status": "pending",
