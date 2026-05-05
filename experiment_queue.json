@@ -77,6 +77,18 @@
       "note": "Reef substrate (EXQ-521/522 PASS) unblocks C0 trial-sufficiency; first real SD-029 evidence attempt"
     },
     {
+      "queue_id": "V3-EXQ-418j",
+      "title": "SD-016 context memory reef fix: 2x2 factorial {SD-016, reef}",
+      "script": "experiments/v3_exq_418j_sd016_context_memory_reef.py",
+      "claim_ids": ["SD-016"],
+      "priority": 9,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 80,
+      "supersedes": "V3-EXQ-418i",
+      "note": "418i FAILed with action_class_entropy ~1e-10 (monostrategy). SD-050 reef (EXQ-522 PASS, zone_transitions=48.9) provides env-entropy precondition needed for SD-016 ContextMemory to produce context-dependent outputs."
+    },
+    {
       "queue_id": "V3-EXQ-514c",
       "title": "SD-049 Phase 2 reef-environment behavioural validation (monostrategy fix for 514b)",
       "script": "experiments/v3_exq_514c_sd049_phase_2_reef_behavioural_validation.py",
