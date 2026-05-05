@@ -26,10 +26,14 @@
       ],
       "priority": 9,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 80,
       "supersedes": "V3-EXQ-418j",
-      "note": "418j ERRORed: torch.cat([reef_z, food_z]) crashed when reef_on=False returns reef_z=empty(0,1) but food_z has shape [n,32]. Fixed by filtering zero-row tensors before cat."
+      "note": "418j ERRORed: torch.cat([reef_z, food_z]) crashed when reef_on=False returns reef_z=empty(0,1) but food_z has shape [n,32]. Fixed by filtering zero-row tensors before cat.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-05T22:20:35.111212+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-514c",
@@ -95,7 +99,11 @@
       "queue_id": "V3-EXQ-445g",
       "title": "SD-032b dACC reef -- dacc_bias_max_abs=2.0 architectural fix",
       "script": "experiments/v3_exq_445g_sd032b_dacc_reef.py",
-      "claim_ids": ["SD-032b", "MECH-258", "MECH-260"],
+      "claim_ids": [
+        "SD-032b",
+        "MECH-258",
+        "MECH-260"
+      ],
       "priority": 8,
       "machine_affinity": "DLAPTOP-4.local",
       "status": "pending",
@@ -107,7 +115,10 @@
       "queue_id": "V3-EXQ-523a",
       "title": "SD-029 reef comparator with graduation gate + degraded measurement policy",
       "script": "experiments/v3_exq_523a_sd029_reef_comparator.py",
-      "claim_ids": ["SD-029", "MECH-256"],
+      "claim_ids": [
+        "SD-029",
+        "MECH-256"
+      ],
       "priority": 7,
       "machine_affinity": "any",
       "status": "pending",
