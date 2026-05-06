@@ -6,5 +6,55 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-528",
+      "title": "SD-029 Comparator with Extended Training Budget",
+      "experiment_type": "v3_exq_528_sd029_comparator_trained",
+      "script": "experiments/v3_exq_528_sd029_comparator_trained.py",
+      "priority": 8,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "supersedes": "V3-EXQ-523a",
+      "claim_id": "SD-029",
+      "backlog_id": "EVB-0155"
+    },
+    {
+      "queue_id": "V3-EXQ-531",
+      "title": "SD-015 ResourceEncoder Ablation",
+      "experiment_type": "v3_exq_531_sd015_resource_encoder_ablation",
+      "script": "experiments/v3_exq_531_sd015_resource_encoder_ablation.py",
+      "priority": 7,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 30,
+      "claim_id": "SD-015",
+      "backlog_id": "EVB-0158"
+    },
+    {
+      "queue_id": "V3-EXQ-533",
+      "title": "MECH-102 Harm Stream Voluntary Harm Ablation",
+      "experiment_type": "v3_exq_533_mech102_harm_stream_ablation",
+      "script": "experiments/v3_exq_533_mech102_harm_stream_ablation.py",
+      "priority": 7,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 25,
+      "claim_id": "MECH-102",
+      "backlog_id": "EVB-0160"
+    },
+    {
+      "queue_id": "V3-EXQ-534",
+      "title": "SD-016 Frontal Cue Terrain Training",
+      "experiment_type": "v3_exq_534_sd016_cue_terrain_training",
+      "script": "experiments/v3_exq_534_sd016_cue_terrain_training.py",
+      "priority": 7,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 25,
+      "claim_id": "SD-016",
+      "backlog_id": "EVB-0161"
+    }
+  ]
 }
