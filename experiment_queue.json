@@ -40,27 +40,6 @@
         "machine": "ree-cloud-1",
         "claimed_at": "2026-05-06T07:59:47.707205+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-527",
-      "title": "MECH-112 goal-directed behavior -- identity encoder + reef (fresh angle over EXQ-189)",
-      "experiment_type": "v3_exq_527_mech112_identity_goal_reef",
-      "script": "experiments/v3_exq_527_mech112_identity_goal_reef.py",
-      "priority": 6,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 180,
-      "episodes_per_run": 300,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "MECH-112"
-      ],
-      "note": "Fresh MECH-112 test with reef (SD-050) + SD-049 Phase 2 identity encoder. GOAL_PRESENT: identity_classifier trained on food/water types, z_goal seeded from z_resource. GOAL_ABSENT: no goal system, same env. 10x10 grid, 3 hazards, 8 resources (4 food + 4 water), reef_enabled=True. Phased: P0=100 warmup, P1=150 freeze+train, eval=50. world_obs_dim=325.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-06T07:59:49.934602+00:00"
-      }
     }
   ]
 }
