@@ -39,23 +39,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-514e",
-      "title": "SD-049 BG gating seaweed diagnostic -- schema predictability + BG gate commitment",
-      "script": "experiments/v3_exq_514e_bg_gating_seaweed_diagnostic.py",
-      "claim_ids": [],
-      "experiment_purpose": "diagnostic",
-      "priority": 7,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 300,
-      "supersedes": "V3-EXQ-514d",
-      "note": "514d smoke confirmed rv_final=0.5000 all 3 seeds, gate never commits under random resource placement. ARM_A=random (no landmarks, world_obs_dim=325), ARM_B=seaweed (n_landmarks_b=2, landmark_b_resource_bias=1.0, world_obs_dim=375). PASS: committed_frac_last_third_b > 0.05 AND rv_final_b < 0.40 AND > arm_a + 0.02. If PASS: E1-learnable spatial schema enables BG gate commitment; MECH-216 (E1 schema readout) is the architectural lever. Dry-run PASS 2026-05-05: all 6 arm-seed combos completed cleanly, world_obs_dims correct.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-06T02:36:31.536388+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-523a",
       "title": "SD-029 reef comparator with graduation gate + degraded measurement policy",
       "script": "experiments/v3_exq_523a_sd029_reef_comparator.py",
