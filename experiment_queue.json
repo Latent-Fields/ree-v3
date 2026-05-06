@@ -13,9 +13,13 @@
       "script": "experiments/v3_exq_524_reef_fishtank_showcase.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 50,
-      "note": "Generates reef-aware _episode_log.json for fishtank_viz.html: reef_cells per episode, in_reef per step, shelter mode, reef_entry/exit transitions. ARM_1_reef_food config from EXQ-522 (hazard_food_attraction=0.7)."
+      "note": "Generates reef-aware _episode_log.json for fishtank_viz.html: reef_cells per episode, in_reef per step, shelter mode, reef_entry/exit transitions. ARM_1_reef_food config from EXQ-522 (hazard_food_attraction=0.7).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-06T06:51:07.465487+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-514c",
