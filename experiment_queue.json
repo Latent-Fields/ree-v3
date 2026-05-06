@@ -39,24 +39,6 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-06T06:51:07.465487+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-530",
-      "title": "ARC-016 precision-to-commitment circuit: dACC precision_commit_ratio",
-      "experiment_type": "v3_exq_530_arc016_precision_commit",
-      "script": "experiments/v3_exq_530_arc016_precision_commit.py",
-      "priority": 6,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 180,
-      "claim_ids": [
-        "ARC-016"
-      ],
-      "note": "Two arms (ARM_0: use_dacc=False, ARM_1: use_dacc=True), both reef-enabled. Metric: precision_commit_ratio = high_precision_commit_rate / (low_precision_commit_rate + 1e-8). PASS = C1: ARM_1 ratio > ARM_0 ratio AND C2: ARM_1 ratio > 1.0 AND C3: ARM_1 commit_rate > 0.01. 30 train + 20 eval eps, 3 seeds, grid_size=12. Smoke PASS 2026-05-06.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-06T09:18:47.340524+00:00"
-      }
     }
   ]
 }
