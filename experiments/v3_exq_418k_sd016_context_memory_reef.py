@@ -580,12 +580,13 @@ def main():
         print(f"  {k}: {v}", flush=True)
 
     # Write result manifest
-    run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ") + "_v3"
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    run_id = f"{EXPERIMENT_TYPE}_{ts}_v3"
     output_dir = Path(args.output_dir) if args.output_dir else (
         Path(__file__).resolve().parents[2] / "REE_assembly" / "evidence" / "experiments"
     )
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{EXPERIMENT_TYPE}_{run_id}.json"
+    filename = f"{run_id}.json"
     manifest = {
         "experiment_type":    EXPERIMENT_TYPE,
         "run_id":             run_id,
