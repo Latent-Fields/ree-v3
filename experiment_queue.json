@@ -14,11 +14,15 @@
       "script": "experiments/v3_exq_528_sd029_comparator_trained.py",
       "priority": 8,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "supersedes": "V3-EXQ-523a",
       "claim_id": "SD-029",
-      "backlog_id": "EVB-0155"
+      "backlog_id": "EVB-0155",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-06T09:37:29.360869+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-531",
