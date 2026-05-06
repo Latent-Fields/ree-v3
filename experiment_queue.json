@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-244a",
-      "title": "MECH-165 reverse replay diversity scheduler validation (redesign of EXQ-244)",
-      "experiment_type": "v3_exq_244a_mech165_replay_diversity_validation",
-      "script": "experiments/v3_exq_244a_mech165_replay_diversity_validation.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "claim_ids": [
-        "MECH-165"
-      ],
-      "supersedes": "V3-EXQ-244",
-      "note": "EXQ-244 non_contributory (proxy substrate, no exploration source material). Fix: Phase 1 warmup with epsilon=0.5 exploration provides diverse trajectories into buffer. 3 conditions (NO_REPLAY/FORWARD_REPLAY/BALANCED_REPLAY) x 5 seeds. PASS if BALANCED entropy retention > FORWARD in >=3/5 seeds.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-06T08:08:42.888789+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-524",
       "title": "Reef fishtank showcase -- reef zone viz + shelter mode episode log",
       "script": "experiments/v3_exq_524_reef_fishtank_showcase.py",
