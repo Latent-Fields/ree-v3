@@ -47,10 +47,14 @@
       ],
       "priority": 7,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 65,
       "supersedes": "V3-EXQ-517a",
-      "note": "517a root cause: steps_per_episode=150 geometrically too short for heal_rate=0.002/step (max 0.3 total healing, comparator window=30 needs sustained drop to 0.005). Mean events=0.33/seed structurally insufficient. Fix: steps_per_episode 150->300. heal_rate and comparator thresholds unchanged (conservative fix preserving scientific validity)."
+      "note": "517a root cause: steps_per_episode=150 geometrically too short for heal_rate=0.002/step (max 0.3 total healing, comparator window=30 needs sustained drop to 0.005). Mean events=0.33/seed structurally insufficient. Fix: steps_per_episode 150->300. heal_rate and comparator thresholds unchanged (conservative fix preserving scientific validity).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-06T01:35:12.245255+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-514e",
