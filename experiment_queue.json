@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-531",
-      "title": "SD-015 ResourceEncoder Ablation",
-      "experiment_type": "v3_exq_531_sd015_resource_encoder_ablation",
-      "script": "experiments/v3_exq_531_sd015_resource_encoder_ablation.py",
-      "priority": 7,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 30,
-      "claim_id": "SD-015",
-      "backlog_id": "EVB-0158",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-06T09:40:37.144521+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-533",
       "title": "MECH-102 Harm Stream Voluntary Harm Ablation",
       "experiment_type": "v3_exq_533_mech102_harm_stream_ablation",
