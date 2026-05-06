@@ -27,25 +27,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-532",
-      "title": "SD-005 latent domain selectivity -- z_self/z_world domain probe",
-      "experiment_type": "v3_exq_532_sd005_latent_domain_selectivity",
-      "script": "experiments/v3_exq_532_sd005_latent_domain_selectivity.py",
-      "claim_id": "SD-005",
-      "priority": 7,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 10,
-      "episodes_per_run": 30,
-      "seeds": 3,
-      "conditions": 1,
-      "note": "Probe-only (no training). Measures whether z_self norm-delta correlates more with body_obs changes than z_world does, and vice versa. Acceptance: C1 corr_z_self_body > corr_z_world_body, C2 corr_z_world_world_obs > corr_z_self_world_obs, C3 self_body_advantage > 0.02.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-06T09:06:02.417869+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-524",
       "title": "Reef fishtank showcase -- reef zone viz + shelter mode episode log",
       "script": "experiments/v3_exq_524_reef_fishtank_showcase.py",
