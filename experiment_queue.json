@@ -39,6 +39,21 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-06T06:51:07.465487+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-529",
+      "title": "MECH-098 reafference cancellation selectivity -- SD-047 multi-source dynamics",
+      "experiment_type": "v3_exq_529_mech098_reafference_selectivity",
+      "script": "experiments/v3_exq_529_mech098_reafference_selectivity.py",
+      "claim_id": "MECH-098",
+      "priority": 7,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 35,
+      "episodes_per_run": 30,
+      "seeds": 3,
+      "conditions": 3,
+      "note": "3-arm: ARM_0 (no SD-047, no reafference), ARM_1 (SD-047, no reafference), ARM_2 (SD-047, reafference ON). Structured alternating noop/move eval. C1: ARM_2 move_delta < ARM_1 * 0.9; C2: ARM_2 noop_delta >= ARM_1 * 0.7; C3: ARM_2 selectivity > ARM_1. PASS = C1 AND C2 AND C3. Dry-run PASS."
     }
   ]
 }
