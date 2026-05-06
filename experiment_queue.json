@@ -45,14 +45,18 @@
       "script": "experiments/v3_exq_525_sd003_attribution_anchor.py",
       "priority": 6,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 300,
       "seeds": 4,
       "conditions": 1,
       "claim_id": "SD-003",
       "supersedes": "V3-EXQ-205",
-      "note": "EXQ-205 (April 2 PASS) had outcome:None (old format field). SD-019/020/021 landed April 10 after that run. Fresh run with current harm stream + correct output schema."
+      "note": "EXQ-205 (April 2 PASS) had outcome:None (old format field). SD-019/020/021 landed April 10 after that run. Fresh run with current harm stream + correct output schema.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-06T06:49:44.196589+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-526",
