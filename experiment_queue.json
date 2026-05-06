@@ -22,27 +22,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-514c",
-      "title": "SD-049 Phase 2 reef-environment behavioural validation (monostrategy fix for 514b)",
-      "script": "experiments/v3_exq_514c_sd049_phase_2_reef_behavioural_validation.py",
-      "claim_ids": [
-        "SD-049",
-        "SD-015",
-        "MECH-229",
-        "MECH-230"
-      ],
-      "priority": 8,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "supersedes": "V3-EXQ-514b",
-      "note": "514b C2b FAIL (probe_acc_neighborhood=0.483 < 0.6): monostrategy in 8x8/0-hazard env gave weak contrastive z_resource signal. Reef (EXQ-522 PASS, 2 behavioral attractors, zone_transitions=48.9) provides per-type neighborhood diversity needed for identity encoder training.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-05T18:48:10.692170+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-526",
       "title": "Q-034 reef-enabled threshold sweep -- monostrategy fix for EXQ-451",
       "experiment_type": "v3_exq_526_q034_reef_threshold_sweep",
