@@ -79,6 +79,12 @@ class DACCConfig:
     # 0.0 means drive_level has no effect on dACC coupling (backward compat).
     dacc_drive_coupling: float = 0.0
 
+    # Absolute cap on the total score bias emitted by DACCtoE3Adapter.
+    # Prevents score_bias from dominating E3 inter-candidate variation
+    # (which is typically O(0.5-2.0)) when harm_eval_head raw scores are
+    # large (O(10-40)). 0.0 = no cap (backward compat). Recommended: 2.0.
+    dacc_bias_max_abs: float = 0.0
+
     # MECH-268 / SD-034 hook: absolute cap on precision-weighted PE after
     # closure events. None -> no cap (backward compat). When set (e.g. by
     # ClosureOperator on fire), subsequent _affective_pe() outputs are
@@ -485,4 +491,8 @@ class DACCtoE3Adapter(nn.Module):
         if self.config.dacc_suppression_weight != 0.0:
             bias = bias + self.config.dacc_suppression_weight * bundle["suppression"]
 
-        return weight * bias
+        scaled = weight * bias
+        max_abs = self.config.dacc_bias_max_abs
+        if max_abs > 0.0:
+            scaled = scaled.clamp(-max_abs, max_abs)
+        return scaled

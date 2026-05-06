@@ -1136,6 +1136,10 @@ class REEConfig:
     # (1.0 + dacc_drive_coupling * drive_level) from SD-012 GoalState.drive_level.
     # 0.0 = disabled (default, backward compat).
     dacc_drive_coupling: float = 0.0
+    # Absolute cap on total score_bias from DACCtoE3Adapter. 0.0 = no cap
+    # (backward compat). Set 2.0 to prevent mode_ev dominating inter-candidate
+    # variation when harm_eval_head raw scores are O(10-40).
+    dacc_bias_max_abs: float = 0.0
 
     # SD-032a: salience-network coordinator.
     # Master switch -- when True, REEAgent instantiates a SalienceCoordinator
@@ -1872,6 +1876,7 @@ class REEConfig:
         dacc_precision_scale: float = 500.0,
         dacc_effort_cost: float = 0.1,
         dacc_drive_coupling: float = 0.0,
+        dacc_bias_max_abs: float = 0.0,
         # MECH-268: history-conditioned PE saturation
         dacc_saturation_enabled: bool = False,
         dacc_saturation_window: int = 8,
@@ -2281,6 +2286,7 @@ class REEConfig:
         config.dacc_precision_scale = dacc_precision_scale
         config.dacc_effort_cost = dacc_effort_cost
         config.dacc_drive_coupling = dacc_drive_coupling
+        config.dacc_bias_max_abs = dacc_bias_max_abs
 
         # MECH-268: dACC conflict saturation (pe_saturated = f_sat(pe_raw, outcome_history))
         config.dacc_saturation_enabled = dacc_saturation_enabled

@@ -233,6 +233,7 @@ class REEAgent(nn.Module):
                 dacc_precision_scale=config.dacc_precision_scale,
                 dacc_effort_cost=config.dacc_effort_cost,
                 dacc_drive_coupling=config.dacc_drive_coupling,
+                dacc_bias_max_abs=getattr(config, "dacc_bias_max_abs", 0.0),
             )
             self.dacc = DACCAdaptiveControl(dacc_cfg)
             # STOPGAP adapter -- still the score_bias source until SD-033
