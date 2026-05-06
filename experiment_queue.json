@@ -39,22 +39,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-514d",
-      "title": "SD-049 BG gating diagnostic -- does running_variance ever drop below commit_threshold?",
-      "script": "experiments/v3_exq_514d_sd049_bg_gating_diagnostic.py",
-      "claim_ids": [],
-      "experiment_purpose": "diagnostic",
-      "priority": 7,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 45,
-      "note": "Diagnostic motivated by 514b C2b FAIL: user concern that beta gate (MECH-090) may never commit with default 514b config (no bistable, no dACC, no urgency_weight), so agent does fixed initial behaviour then idles. Tracks rv_final + committed_frac_last_third per seed per episode. Smoke test confirms: rv_final=0.5000 all 3 seeds, never committed. Full run will show whether 90-episode training ever closes the variance gap.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-05T23:34:34.223763+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-517b",
       "title": "MECH-302 relief-completion discriminative pair -- longer episodes (300 steps)",
       "script": "experiments/v3_exq_517b_mech302_relief_completion_discriminative_pair.py",
