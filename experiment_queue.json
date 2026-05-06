@@ -48,10 +48,14 @@
       ],
       "priority": 7,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 70,
       "supersedes": "V3-EXQ-523",
-      "note": "523 undertrained (n_train_steps=2000 fixed, r2=0.57) and hardcoded evidence_direction='supports'. Fix: (1) adaptive graduation gate (rolling r2>=0.85 for 5 consecutive windows of 200 steps, max 8000 steps); (2) epsilon=0.4 exploration + aggressive external injection (interval=5, prob=1.0) to break monostrategy and generate balanced self-vs-ext events; (3) INCONCLUSIVE_UNDERTRAINED outcome when graduation fails; (4) per-claim evidence_direction_per_claim for SD-029 and MECH-256 independently."
+      "note": "523 undertrained (n_train_steps=2000 fixed, r2=0.57) and hardcoded evidence_direction='supports'. Fix: (1) adaptive graduation gate (rolling r2>=0.85 for 5 consecutive windows of 200 steps, max 8000 steps); (2) epsilon=0.4 exploration + aggressive external injection (interval=5, prob=1.0) to break monostrategy and generate balanced self-vs-ext events; (3) INCONCLUSIVE_UNDERTRAINED outcome when graduation fails; (4) per-claim evidence_direction_per_claim for SD-029 and MECH-256 independently.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-06T06:48:48.081163+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-525",
