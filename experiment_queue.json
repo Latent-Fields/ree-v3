@@ -28,14 +28,18 @@
       "script": "experiments/v3_exq_526_q034_reef_threshold_sweep.py",
       "priority": 6,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "episodes_per_run": 60,
       "seeds": 2,
       "conditions": 15,
       "claim_id": "Q-034",
       "supersedes": "V3-EXQ-451",
-      "note": "EXQ-451 FAIL on C1/C2: monostrategy (action_entropy=0.0) prevented dose-response. Fix: reef substrate (reef_enabled=True, n_reef_patches=3, reef_patch_radius=2, hazard_food_attraction=0.7) creates two behavioral attractors (flee-to-reef vs forage). Grid 8x8->10x10. Also fixes: ISO timestamp in run_id, verdict PASS/FAIL based on actual outcome, global ep counter across warmup+eval phases."
+      "note": "EXQ-451 FAIL on C1/C2: monostrategy (action_entropy=0.0) prevented dose-response. Fix: reef substrate (reef_enabled=True, n_reef_patches=3, reef_patch_radius=2, hazard_food_attraction=0.7) creates two behavioral attractors (flee-to-reef vs forage). Grid 8x8->10x10. Also fixes: ISO timestamp in run_id, verdict PASS/FAIL based on actual outcome, global ep counter across warmup+eval phases.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-06T07:59:47.707205+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-527",
