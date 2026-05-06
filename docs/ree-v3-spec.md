@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-04
+**Last updated:** 2026-05-06
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-04)
+## 0. Current V3 State (2026-05-06)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -93,6 +93,10 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-048 | Body interoceptive noise dynamics (3 concurrent agent-independent body-state noise sources on harm_obs_a readout: autonomic Gaussian + sensitisation Poisson + fatigue AR(1); Level 2 counterpart to SD-047 at body-state layer; substrate-ceiling unblock for ARC-058 / ARC-033 arbitration; bit-identical OFF + per-source ablation) | Implemented 2026-05-03 (V3-EXQ-511 6/7 with C1b sub-threshold at scale=0.25; per SD-doc interpretation grid the partial-PASS is calibration-off-but-architecture-holds; governance reclassified non_contributory; SD-048 stays candidate / v3_pending pending V3-EXQ-512 ARC-058 behavioural successor) |
 | SD-049 Phase 1 | Multi-resource heterogeneity environment (3 qualitatively distinct resource types incl non-homeostatic novelty channel + per-axis homeostatic drive vector parallel to legacy agent_energy + curriculum-introduction hook keyed on cross-episode _global_step; world_obs_dim 250 -> 325 default 3-type; benefit profiles sigmoidal_saturating / sharp_saturation / novelty_decay; substrate-roadmap H-priority #2; lit-anchored sd_049 lit_conf=0.898 across 5 PubMed entries; Phase 2 encoder + V3-EXQ-514 behavioural validation deferred) | Implemented 2026-05-03 (V3-EXQ-513 PASS 13/13 incl curriculum gates); v3_pending stays true pending Phase 2 |
 | SD-050 / MECH-302 | Suffering-derivative comparator (z_harm_a downward-derivative threshold-crossing fires same downstream pipeline as goal-completion: MECH-057a beta-gate release + MECH-094 categorical VALENCE_LIKING tag write; polarity set at input, not parallel circuitry; non-trainable; sense() ticks comparator + select_action() consumes event flag; bit-identical OFF; MECH-094 simulation_mode gate) | Implemented 2026-05-04 (V3-EXQ-515 PASS 7/7 comparator logic; V3-EXQ-516 agent-loop integration diagnostic queued); MECH-302 / MECH-303 registered candidate / v3_pending |
+| SD-019a | harm_unpleasantness_channel (third-tier z_harm_un EMA between fast z_harm_s and slow z_harm_a; 5-step rise at alpha=0.2; AIC + E3 short-horizon urgency redirect when use_harm_un; SD-021 descending modulation deliberately does NOT attenuate z_harm_un so controllability parity matches Loffler 2018; non-trainable EMA; bit-identical OFF) | Implemented 2026-05-04 (V3-EXQ-518 dry-run PASS; queued as 4-arm diagnostic with 9 acceptance criteria UC0a-b/UC1a-d/UC2a-b/UC3) |
+| SD-051 / MECH-304 | Conditioned safety store (cue-specific predictive substrate: ConditionedSafetyStore non-trainable EMA prototype of z_world at MECH-302 event ticks + per-step decay forgetting; cosine similarity -> sigmoid -> commitment-release gate when beta elevated; pure arithmetic; new ree_core/safety/ package; V4-deferred items: approach attractor + contrastive cue-specific learning) | Implemented 2026-05-04 (V3-EXQ-519 substrate-readiness queued; integration C6 surfaced upstream MECH-302 event-source dependency now under test in V3-EXQ-517a/b) |
+| SD-052 / MECH-303 | Contextual passive safety terrain (slow vmPFC/hippocampal-analog: ResidueField extended with safety_terrain_rbf_field + accumulate_safety + evaluate_safety; per-step accumulation when z_harm_a.norm() < harm_threshold AND not hypothesis_tag; commitment release when mean evaluate_safety >= release_threshold; same RBF pattern as ARC-030/MECH-117 benefit_terrain but separate field; bit-identical OFF; MECH-094 simulation gate) | Implemented 2026-05-04 (V3-EXQ-520 4-arm substrate-readiness diagnostic dry-run PASS 10/10) |
+| SD-050 reef substrate | Reef enrichment / monostrategy-breaking behavioral diversity substrate in CausalGridWorldV2: corner-adjacent Manhattan-radius reef safe zones (hazards excluded; 5x5 reef_field_view scent gradient appended to world_state, world_obs_dim 250->275) + food-attracted hazard drift bias (probability hazard_food_attraction). Two behavioral attractors -- "flee to reef" vs "forage" -- to break the single fixed route. NB: shares the SD-050 ID with the suffering-derivative comparator above; in CLAUDE.md these appear as two separate sections; reconcile in a future cleanup. | Implemented 2026-05-04 (V3-EXQ-521 substrate-readiness PASS 7/7; V3-EXQ-522 monostrategy-breaking behavioral diversity test PASS, zone_transitions=48.9; downstream reef-enabled supersession EXQs queued for SD-016 / SD-029 / SD-032b / SD-032c / MECH-257 / ARC-016 / Q-034 / MECH-112 / SD-049 Phase 2 monostrategy-blocked predecessors) |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -111,9 +115,37 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **585 runner-side completions** (per `runner_status.json` 2026-05-04T01:10Z read: 113 PASS /
-  248 FAIL / 67 ERROR / 157 UNKNOWN; v3 subset still dominates the post-2026-02-27 epoch;
-  +11 vs the 2026-05-03 nightly read -- the SD-047 / SD-048 / SD-049-Phase-1 substrate
+- **608 runner-side completions** (per `runner_status.json` 2026-05-06T01:10Z read:
+  117 PASS / 253 FAIL / 70 ERROR / 168 UNKNOWN; v3 subset still dominates the
+  post-2026-02-27 epoch; +23 vs the 2026-05-04 nightly read covering the
+  2026-05-04/05/06 reef-enrichment substrate wave (SD-050 reef substrate landed in
+  CausalGridWorldV2 with V3-EXQ-521 PASS 7/7 + V3-EXQ-522 PASS zone_transitions=48.9),
+  the SD-019a / SD-051 / SD-052 substrate landings (V3-EXQ-518/519/520 dry-run PASS;
+  V3-EXQ-518 / V3-EXQ-520 in flight), the V3-EXQ-485a SD-033b multi-mode landing PASS,
+  the V3-EXQ-503 SD-017 sleep-phase discriminative pair PASS carry-over from 2026-05-01,
+  and a wave of reef-superseding EXQs that re-test monostrategy-blocked predecessors
+  (V3-EXQ-433e / 445e/f/g / 325f / 452a / 454a / 514c / 526 / 527 against SD-029,
+  SD-032b, SD-032c, MECH-257, ARC-016, Q-034, MECH-112, SD-049 Phase 2). The
+  reef-enabled supersession was the strategic lever decided 2026-05-05 after the
+  monostrategy-audit-2026-05-05T0712Z full-scan: rather than attempt env-tuning per
+  EXQ, swap in the reef substrate as the env-entropy precondition under all
+  affected predecessors. Pending review queue (per pending_review.md regenerated
+  2026-05-05T22:12Z) is **4 items** (3 FAIL + 1 ERROR): V3-EXQ-454a (ARC-016
+  adaptive commitment under reef), V3-EXQ-452a (ARC-033 / MECH-257 / SD-013 dual-
+  function E2 under reef), V3-EXQ-525 (SD-003 attribution anchor on post-SD-011
+  substrate), and V3-EXQ-418j ERROR (SD-016 reef env-entropy fix; runner-only).
+  Build-indexer fix landed 2026-05-05: backlog literature-evidence epoch filter
+  brought into parity with the matrix builder (one-line change at
+  `build_experiment_indexes.py:3002` to mirror the matrix's `Literature entries
+  are not epoch-filtered` policy); MECH-057 lit_count 0->7 / lit_conf 0.0->0.827;
+  MECH-062 dropped from backlog (confirmed_established); missing_literature_evidence
+  reasons across backlog 3 -> 1 (only EVB-0131 onboarding phantom remains).
+  Lit-pull supplements 2026-05-05: INV-054 depressive maintenance loop +3 entries
+  (lit_conf 0.762 -> 0.858 -- Jacobson 1996 BA RCT, van de Leemput 2014 PNAS
+  bistable mood, Tang 1999 sudden gains). 2026-05-04T22:01Z governance walk:
+  pending_review cleared after walking ARC-026 / MECH-093 promotions and the
+  V3-EXQ-485a multi-mode SD-033b PASS. **2026-05-04 narrative continues, retained
+  for context:** +11 vs the 2026-05-03 nightly read -- the SD-047 / SD-048 / SD-049-Phase-1 substrate
   validation runs (V3-EXQ-509 / 511 / 513) executed on Mac 2026-05-03, plus the MECH-302
   comparator-logic substrate validation run V3-EXQ-515 PASS 7/7 on Mac 2026-05-04, plus
   V3-EXQ-495 ERROR on ree-cloud-1 (SIGTERM at 4h of ~40h MECH-163 run -- infrastructure
@@ -190,14 +222,60 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   MECH-293 waking ghost-goal probe search) extends the suite further to
   **183/183 contracts + 7/7 preflight PASS** with all flags OFF, preserving
   the bit-identical-when-OFF guarantee.
-- **Currently queued (2026-05-04T01:10Z): 1 item -- V3-EXQ-516** (MECH-302
-  suffering-derivative comparator agent-loop integration diagnostic; 4-arm:
-  ARM_0 OFF backward-compat / ARM_1 event fires via pre-triggered buffer /
-  ARM_2 valence write fires / ARM_3 flat signal no false fires; companion to
-  V3-EXQ-515 comparator logic PASS; non-trainable, ~1 min). The queue cleared
-  after the SD-047 / SD-048 / SD-049-Phase-1 substrate-readiness sweep
-  (V3-EXQ-509/511/513 on 2026-05-03) and the MECH-302 comparator landing
-  (V3-EXQ-515 PASS 7/7 on 2026-05-04); next-up substrate work is the SD-049
+- **Currently queued (2026-05-06T01:10Z): 9 items.**
+  - **V3-EXQ-524** (priority=5, any) -- reef fishtank showcase reef-aware
+    episode log for fishtank_viz reef rendering (reef_cells, in_reef per step,
+    shelter mode, reef_entry/exit transitions; ARM_1_reef_food config from
+    V3-EXQ-522).
+  - **V3-EXQ-514c** (priority=8, claimed by ree-cloud-2 2026-05-05T18:48Z) --
+    SD-049 Phase 2 reef-environment behavioural validation (supersedes 514b,
+    monostrategy fix; reef_enabled=True + hazard_food_attraction=0.7 +
+    10x10 grid + 3 hazards on reef arms; targets C2b probe_acc_neighborhood
+    >= 0.6 that 514b's 8x8/0-hazard env failed at 0.483).
+  - **V3-EXQ-514d** (priority=7, claimed by DLAPTOP-4.local 2026-05-05T23:34Z)
+    -- SD-049 BG gating diagnostic; tracks rv_final + committed_frac_last_third
+    per seed per episode under default 514b config (no bistable, no dACC, no
+    urgency_weight). Smoke confirmed rv_final=0.5 all 3 seeds under random
+    placement; full 90-episode training will show whether the variance gap
+    ever closes.
+  - **V3-EXQ-514e** (priority=7, DLAPTOP-4.local) -- SD-049 BG gating seaweed
+    diagnostic; ARM_A=random vs ARM_B=seaweed (2 landmarks, landmark_b_resource_bias=1.0,
+    world_obs_dim=375); supersedes 514d; PASS condition committed_frac_last_third_b
+    > 0.05 AND rv_final_b < 0.40 AND > arm_a + 0.02 (E1-learnable spatial schema
+    enables BG gate commitment; MECH-216 schema-readout is the architectural lever).
+  - **V3-EXQ-517b** (priority=7, any) -- MECH-302 relief-completion discriminative
+    pair with longer episodes (steps_per_episode 150 -> 300; supersedes 517a,
+    which produced mean_events=0.33/seed because 150 steps was geometrically
+    too short for heal_rate=0.002/step). Conservative scientific-validity-
+    preserving fix.
+  - **V3-EXQ-523a** (priority=7, any) -- SD-029 reef comparator with adaptive
+    graduation gate (rolling r2>=0.85 for 5 consecutive 200-step windows up to
+    8000 steps) + degraded-measurement INCONCLUSIVE_UNDERTRAINED outcome path
+    + per-claim evidence_direction overrides. Supersedes 523, which was
+    undertrained at fixed 2000 steps (r2=0.57) and hardcoded
+    evidence_direction='supports'.
+  - **V3-EXQ-525** (priority=6, any) -- SD-003 attribution anchor (corrected
+    output schema superseding EXQ-205, which had outcome:None pre-format-shift).
+    Fresh run with current harm stream (post-SD-019/020/021 landings) + 4 seeds
+    x 1 cond x 300 episodes. *(Note: completed FAIL 2026-05-05T22:04Z and is
+    on the pending_review queue; still showing in the queue file as `pending`
+    pending the runner-status sweep.)*
+  - **V3-EXQ-526** (priority=6, any) -- Q-034 reef-enabled threshold sweep
+    (supersedes 451, which FAILed C1/C2 on monostrategy action_entropy=0.0).
+    Reef substrate creates two behavioral attractors (flee-to-reef vs forage);
+    grid 8x8 -> 10x10; ISO timestamp + verdict-from-outcome + global episode
+    counter all corrected; 2 seeds x 15 conditions x 60 episodes.
+  - **V3-EXQ-527** (priority=6, any) -- MECH-112 goal-directed reef + SD-049
+    Phase 2 identity encoder (fresh angle over EXQ-189; identity_classifier
+    on food/water types + z_goal seeded from z_resource; GOAL_PRESENT vs
+    GOAL_ABSENT 2 conds x 3 seeds x phased P0 100 warmup + P1 150
+    freeze+train + 50 eval; 10x10 grid + 3 hazards + 8 resources +
+    reef_enabled=True; world_obs_dim=325).
+
+  The queue cleared after the SD-047 / SD-048 / SD-049-Phase-1 substrate-
+  readiness sweep (V3-EXQ-509/511/513 on 2026-05-03) and the MECH-302
+  comparator landing (V3-EXQ-515 PASS 7/7 on 2026-05-04), and was repopulated
+  2026-05-05 with the reef-enrichment supersession wave. *(2026-05-04 narrative continues:)* next-up substrate work is the SD-049
   Phase 2 follow-on (z_resource encoder identity expansion + SD-032 consumer
   cascade + V3-EXQ-514 behavioural validation; tracked in
   `evidence/planning/substrate_queue.json` as SD-049-PHASE-2, ready=True,
@@ -314,7 +392,23 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
     parked pending env-enrichment precondition (substrate_queue.json
     status parked_pending_env_entropy_precondition); validation_experiment
     rerouted to EXQ-418h family pending broader env scoping.
-- **Current bottleneck:** the Q-040b combined-cluster successor design remains
+- **Current bottleneck (2026-05-06):** **monostrategy** is the dominant active
+  blocker across the SD-029 / SD-032b / SD-032c / SD-049-Phase-2 / Q-034 /
+  MECH-112 / MECH-257 / ARC-016 / SD-016 cluster -- under monomodal policy in
+  legacy 8x8/0-hazard env, behavioural acceptance criteria that depend on
+  diverse self-vs-env event distributions cannot be measured. The
+  **2026-05-04 reef enrichment substrate (SD-050 reef)** is the first-line
+  unblocker: corner-adjacent safe zones + food-attracted hazard drift create
+  two behavioral attractors (flee-to-reef vs forage), restoring env-entropy
+  precondition. V3-EXQ-522 PASS confirmed zone_transitions=48.9 between
+  attractors. Reef-superseding versions of every monostrategy-blocked
+  predecessor have been queued (V3-EXQ-433e / 445e/f/g / 325f / 452a / 454a /
+  514c / 526 / 527); the next governance walks gate on whether reef recovers
+  the affected behavioural acceptance criteria. Three FAILs already on
+  pending_review (V3-EXQ-454a ARC-016 reef, V3-EXQ-452a ARC-033/MECH-257 reef,
+  V3-EXQ-525 SD-003 attribution anchor) -- whether reef is sufficient or
+  whether downstream calibration is required is the active question. The
+  Q-040b combined-cluster successor design remains
   the open thread on the substrate-recovery side (V3-EXQ-490c + V3-EXQ-490e
   FAILs ruled out the matched-smoke-threshold and floor-relaxation paths;
   V3-EXQ-490d staleness-into-gate factorial drafted but unqueued pending
@@ -911,11 +1005,16 @@ class LatentState:
     timestamp: Optional[int] = None
     hypothesis_tag: bool = False  # MECH-094: True = replay/simulation, blocks residue accumulation
 
-    # Harm streams (optional — present when SD-010/011 enabled)
+    # Harm streams (optional — present when SD-010/011/019a enabled)
     z_harm: Optional[torch.Tensor] = None     # SD-010: sensory-discriminative harm [batch, harm_dim]
                                                #   HarmEncoder(harm_obs) — Adelta-pathway analog
     z_harm_a: Optional[torch.Tensor] = None   # SD-011: affective-motivational harm [batch, z_harm_a_dim]
                                                #   AffectiveHarmEncoder(harm_obs_a) — C-fiber analog
+    z_harm_un: Optional[torch.Tensor] = None  # SD-019a: harm_unpleasantness_channel [batch, harm_dim]
+                                               #   EMA(z_harm_s) at alpha=0.2; ~5-step rise; medium timescale
+                                               #   AIC + E3 short-horizon urgency redirect when use_harm_un
+                                               #   NOT attenuated by SD-021 descending modulation
+                                               #   (controllability parity per Loffler 2018)
 
     # Diagnostic fields (optional)
     z_world_raw: Optional[torch.Tensor] = None   # SD-007: raw z_world before reafference correction
