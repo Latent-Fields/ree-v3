@@ -18,6 +18,21 @@
       "estimated_minutes": 60,
       "notes": "Requeued 2026-05-07 after SIGTERM (exit code -15) on ree-cloud-1 2026-05-06T09:28Z. Tests E3-derived precision modulating commit threshold via dACC precision_commit_ratio.",
       "force_rerun": true
+    },
+    {
+      "queue_id": "V3-EXQ-536",
+      "experiment_type": "v3_exq_536_goal_seeding_lift_ablation",
+      "script": "experiments/v3_exq_536_goal_seeding_lift_ablation.py",
+      "title": "Goal seeding lift ablation: SD-018 + z_goal + benefit_eval + MECH-295 vs baseline",
+      "status": "claimed",
+      "priority": 6,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "notes": "Tests full goal seeding pipeline end-to-end. 2-arm ablation (ARM_0=baseline, ARM_1=full pipeline). Pass=goal_lift>=1.5 in 2/3 seeds. Also fixes from_dims wiring bug: cfg.e3.goal_weight must be set manually. Claims: ARC-030/MECH-112/SD-018/SD-012/MECH-295.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-07T20:12:54.781787+00:00"
+      }
     }
   ]
 }
