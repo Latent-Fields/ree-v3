@@ -44,12 +44,16 @@
       "experiment_type": "v3_exq_476c_mech269_vs_validation_probe",
       "script": "experiments/v3_exq_476c_mech269_vs_validation_probe.py",
       "title": "MECH-269 V_s entropy probe: cascade gate (Bug 1+2 + API fix)",
-      "status": "pending",
+      "status": "claimed",
       "priority": 5,
       "machine_affinity": "any",
       "estimated_minutes": 5,
       "supersedes": "V3-EXQ-476b",
-      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled, Bug 2 _committed_step_idx saturation, plus agent.act() API replaced with sense()/select_action() pattern."
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled, Bug 2 _committed_step_idx saturation, plus agent.act() API replaced with sense()/select_action() pattern.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-07T21:43:56.856011+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-490f",
