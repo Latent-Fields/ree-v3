@@ -2696,8 +2696,14 @@ class REEAgent(nn.Module):
         else:
             # Legacy behavior (backward compat): re-evaluate every E3 tick.
             if result.committed:
+                # Fix: reset on EVERY E3 commit, not only on uncommitted->committed
+                # transition. In non-bistable mode E3 re-selects a trajectory on every
+                # E3 tick, so the counter must restart from 0 each time -- otherwise it
+                # saturates at rollout_horizon-1 and replays the last action forever.
+                # MECH-269 anchor snapshot and MECH-290 record_committed_trajectory
+                # remain inside the inner guard: they are new-commit-only events.
+                self._committed_step_idx = 0
                 if not self.beta_gate.is_elevated:
-                    self._committed_step_idx = 0  # reset on new commitment
                     # MECH-269 / MECH-090: snapshot active anchor keys at
                     # commit entry. No-op when use_vs_commit_release is False.
                     if (
