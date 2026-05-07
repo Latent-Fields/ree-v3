@@ -44,11 +44,15 @@
       "experiment_type": "v3_exq_490f_mech295_seeding_strengthening",
       "script": "experiments/v3_exq_490f_mech295_seeding_strengthening.py",
       "title": "MECH-295 seeding-strengthening: bistable (Bug 1 fix)",
-      "status": "pending",
+      "status": "claimed",
       "priority": 5,
       "machine_affinity": "any",
       "estimated_minutes": 55,
-      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0). Bug 2 does not apply (bistable path). No supersedes (490e was a successor, not supersession)."
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0). Bug 2 does not apply (bistable path). No supersedes (490e was a successor, not supersession).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-07T21:48:52.510874+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-445h",
