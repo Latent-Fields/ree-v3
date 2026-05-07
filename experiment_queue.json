@@ -8,21 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-530b",
-      "experiment_type": "v3_exq_530_arc016_precision_commit",
-      "script": "experiments/v3_exq_530_arc016_precision_commit.py",
-      "title": "ARC-016 precision-to-commitment circuit: dACC precision_commit_ratio",
-      "status": "claimed",
-      "priority": 7,
-      "machine_affinity": "any",
-      "estimated_minutes": 60,
-      "notes": "Renamed V3-EXQ-530 -> V3-EXQ-530b to bypass runner completed-record skip. V3-EXQ-530 had an ERROR completion record (SIGTERM on ree-cloud-1 2026-05-06T09:28Z); force_rerun flag is not honored by experiment_runner.py which checks runner_status.json independently. Fresh ID bypasses the skip entirely.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-07T20:52:40.163744+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-433f",
       "experiment_type": "v3_exq_433f_sd029_eventcond_comparator_reef",
       "script": "experiments/v3_exq_433f_sd029_eventcond_comparator_reef.py",
