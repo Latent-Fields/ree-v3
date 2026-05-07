@@ -8,6 +8,19 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-535a",
+      "experiment_type": "v3_exq_535a_sd029_p3_eval_fix",
+      "script": "experiments/v3_exq_535a_sd029_p3_eval_fix.py",
+      "title": "SD-029 self-attribution: dedicated P3 eval phase for n_ext >= 20",
+      "status": "pending",
+      "priority": 9,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "claim_ids": ["SD-029", "MECH-256"],
+      "supersedes": "V3-EXQ-535",
+      "notes": "Fix for EXQ-535 C1 FAIL (n_ext~10 < 20). Root cause: P3 eval reused P0 episodes where agent dies in ~3 steps under interval=20 injection. Fix: dedicated post-training P3 eval with interval=5/prob=1.0/auto-reset on done, targeting 50+ ext events/seed. P0/P1/P2 and criteria C0-C4 unchanged."
+    },
+    {
       "queue_id": "V3-EXQ-530",
       "experiment_type": "v3_exq_530_arc016_precision_commit",
       "script": "experiments/v3_exq_530_arc016_precision_commit.py",
