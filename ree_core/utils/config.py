@@ -2105,6 +2105,13 @@ class REEConfig:
         contextual_safety_accum_weight: float = 0.01,
         contextual_safety_harm_threshold: float = 0.05,
         contextual_safety_release_threshold: float = 1.0,
+        # MECH-108: BreathOscillator -- periodic uncommitted windows.
+        # breath_period=0 disables (legacy default). Set 50 to enable.
+        # Biological basis: exhalation-phase respiratory coupling cyclically
+        # modulates hippocampal/PFC gain (Zelano 2016, Karalis & Bhatt 2020).
+        breath_period: int = 50,
+        breath_sweep_amplitude: float = 0.25,
+        breath_sweep_duration: int = 5,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -2537,6 +2544,12 @@ class REEConfig:
         config.contextual_safety_release_threshold = contextual_safety_release_threshold
         if use_contextual_safety_terrain:
             config.residue.safety_terrain_enabled = True
+
+        # MECH-108: BreathOscillator -- wire heartbeat params from from_dims().
+        # breath_period=0 disables; default 50 enables periodic uncommitted windows.
+        config.heartbeat.breath_period = breath_period
+        config.heartbeat.breath_sweep_amplitude = breath_sweep_amplitude
+        config.heartbeat.breath_sweep_duration = breath_sweep_duration
 
         return config
 

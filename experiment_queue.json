@@ -6,5 +6,18 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-530",
+      "experiment_type": "v3_exq_530_arc016_precision_commit",
+      "script": "experiments/v3_exq_530_arc016_precision_commit.py",
+      "title": "ARC-016 precision-to-commitment circuit: dACC precision_commit_ratio",
+      "status": "pending",
+      "priority": 7,
+      "machine_affinity": "any",
+      "estimated_minutes": 60,
+      "notes": "Requeued 2026-05-07 after SIGTERM (exit code -15) on ree-cloud-1 2026-05-06T09:28Z. Tests E3-derived precision modulating commit threshold via dACC precision_commit_ratio.",
+      "force_rerun": true
+    }
+  ]
 }
