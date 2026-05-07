@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-06
+**Last updated:** 2026-05-07
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-06)
+## 0. Current V3 State (2026-05-07)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -115,9 +115,20 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **608 runner-side completions** (per `runner_status.json` 2026-05-06T01:10Z read:
-  117 PASS / 253 FAIL / 70 ERROR / 168 UNKNOWN; v3 subset still dominates the
-  post-2026-02-27 epoch; +23 vs the 2026-05-04 nightly read covering the
+- **628 runner-side completions** (per `runner_status.json` 2026-05-07T01:12Z read:
+  120 PASS / 255 FAIL / 72 ERROR / 181 UNKNOWN; v3 subset still dominates the
+  post-2026-02-27 epoch; +20 vs the 2026-05-06T01:10Z nightly read covering the
+  2026-05-06 in-flight wave: V3-EXQ-244a / 525 / 526 / 527 / 528 / 529 / 530 /
+  531 / 532 / 533 / 534 / 535 + the EXQ-418k canonical run_id restoration +
+  the EXQ-433/452a manifest cleanups + the Q-019 disconfirming-balance lit pull
+  (4 weakens entries pulled the corpus from 11s/5m/0w to 11s/5m/4w; lit_conf
+  0.884 -> 0.776). The runner queue is now **empty** (`items: []` 2026-05-07T01:12Z)
+  -- the 9 items in flight at the previous nightly snapshot have all completed
+  through the day, and the active governance cycle (claim
+  governance-2026-05-06T2156Z) is now walking the 32-item pending_review
+  accumulation (see "Currently queued" section below for the empty-queue note
+  and the pending_review breakdown). Earlier 2026-05-04/05/06 reef-enrichment
+  substrate wave context preserved below for continuity. +23 vs the 2026-05-04 nightly read covering the
   2026-05-04/05/06 reef-enrichment substrate wave (SD-050 reef substrate landed in
   CausalGridWorldV2 with V3-EXQ-521 PASS 7/7 + V3-EXQ-522 PASS zone_transitions=48.9),
   the SD-019a / SD-051 / SD-052 substrate landings (V3-EXQ-518/519/520 dry-run PASS;
@@ -222,7 +233,30 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   MECH-293 waking ghost-goal probe search) extends the suite further to
   **183/183 contracts + 7/7 preflight PASS** with all flags OFF, preserving
   the bit-identical-when-OFF guarantee.
-- **Currently queued (2026-05-06T01:10Z): 9 items.**
+- **Currently queued (2026-05-07T01:12Z): 0 items (queue empty `items: []`).**
+  All in-flight items from the 2026-05-06T01:10Z snapshot completed through
+  the day. The 2026-05-06 wave that flowed into the queue and back out:
+  V3-EXQ-244a (MECH-165 replay diversity, ERROR -- SIGTERM cloud kill),
+  V3-EXQ-525 (SD-003 attribution anchor, FAIL then PASS on a re-run),
+  V3-EXQ-526 (Q-034 reef threshold sweep, FAIL),
+  V3-EXQ-527 (MECH-112 goal-directed reef + identity encoder, FAIL twice),
+  V3-EXQ-528 (SD-029 comparator trained, PASS),
+  V3-EXQ-529 (MECH-098 reafference selectivity, FAIL),
+  V3-EXQ-530 (ARC-016 precision-commit circuit, ERROR -- SIGTERM cloud kill),
+  V3-EXQ-531 (SD-015 ResourceEncoder ablation, FAIL),
+  V3-EXQ-532 (SD-005 latent domain selectivity, FAIL),
+  V3-EXQ-533 (MECH-102 harm-stream ablation, PASS),
+  V3-EXQ-534 (SD-016 cue terrain training, PASS),
+  V3-EXQ-535 (SD-029 P1 target fix; max(hazard_field_view) instead of harm_signal,
+  ceiling 0.798 > lowered gate 0.65; runner claimed immediately on
+  DLAPTOP-4.local at 21:48Z, FAIL).
+  Pending review queue regenerated 2026-05-06T21:57Z is **32 items** (7 PASS / 14 FAIL / 11 runner-only ERROR/UNKNOWN/smoke);
+  the active governance cycle (claim governance-2026-05-06T2156Z) is walking
+  the queue. The 2026-05-06T11:31Z afternoon-snapshot context for the
+  reef-enrichment supersession wave was preserved above; the actionable
+  decisions from this nightly are downstream of the governance walk.
+
+  Historical-context (2026-05-06T01:10Z snapshot): the queue at that read was 9 items.
   - **V3-EXQ-524** (priority=5, any) -- reef fishtank showcase reef-aware
     episode log for fishtank_viz reef rendering (reef_cells, in_reef per step,
     shelter mode, reef_entry/exit transitions; ARM_1_reef_food config from
@@ -392,7 +426,25 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
     parked pending env-enrichment precondition (substrate_queue.json
     status parked_pending_env_entropy_precondition); validation_experiment
     rerouted to EXQ-418h family pending broader env scoping.
-- **Current bottleneck (2026-05-06):** **monostrategy** is the dominant active
+- **Current bottleneck (2026-05-07):** the **32-item pending_review accumulation
+  + active governance walk** is the immediate gate -- the 2026-05-06 in-flight
+  wave (V3-EXQ-244a/525/526/527/528-535) completed faster than the prior cycle
+  could review, and the active governance cycle (claim
+  governance-2026-05-06T2156Z, ~3h old at this nightly read) holds the
+  REE_assembly governance files. Until the walk lands its decisions on
+  claims.yaml + review_tracker.json, the registry view of the recent
+  experimental wave is fluid. Underneath that, the **monostrategy / reef-
+  recovery thread** remains the dominant scientific bottleneck -- whether
+  reef substrate alone is sufficient to recover behavioural acceptance under
+  the SD-029 / SD-032b / SD-032c / Q-034 / MECH-112 / ARC-016 / MECH-257 /
+  SD-049 Phase 2 cluster, or whether downstream calibration is also required.
+  The 2026-05-06 wave produced two PASSes that probably flip MECH-102 and
+  SD-016 cue_terrain quadrants and resolve a chunk of the SD-029 retry
+  ladder, plus several FAILs that point recovery effort at SD-005 / SD-015 /
+  Q-034 / MECH-112 / MECH-098 specifically; final accounting waits on the
+  walk.
+
+  **Historical 2026-05-06 narrative:** **monostrategy** was the dominant active
   blocker across the SD-029 / SD-032b / SD-032c / SD-049-Phase-2 / Q-034 /
   MECH-112 / MECH-257 / ARC-016 / SD-016 cluster -- under monomodal policy in
   legacy 8x8/0-hazard env, behavioural acceptance criteria that depend on
