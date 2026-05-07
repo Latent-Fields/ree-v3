@@ -89,6 +89,18 @@
       "estimated_minutes": 60,
       "supersedes": "V3-EXQ-523a",
       "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0), Bug 2 _committed_step_idx saturation in non-bistable path."
+    },
+    {
+      "queue_id": "V3-EXQ-537",
+      "experiment_type": "v3_exq_537_sd029_single_pass_residual",
+      "script": "experiments/v3_exq_537_sd029_single_pass_residual.py",
+      "title": "SD-029/MECH-256 single-pass comparator residual (replaces 535a two-pass)",
+      "status": "pending",
+      "priority": 5,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "supersedes": "V3-EXQ-535a",
+      "notes": "Replaces the EXQ-535a two-pass cf_gap with the SD-029/MECH-256 spec single-pass residual ||z_obs - E2(z_prev, a_actual)||. ARM_0 baseline dropped (no ext events). ARM_1 intact + ARM_2 action-scrambled falsification. P2 graduation raised to 0.85 with interventional training (SD-013) enabled. C1 forward_r2 threshold relaxed to 0.85 to accommodate reef_food_ext-induced noise on R^2."
     }
   ]
 }
