@@ -21,6 +21,89 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-07T20:52:40.163744+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-433f",
+      "experiment_type": "v3_exq_433f_sd029_eventcond_comparator_reef",
+      "script": "experiments/v3_exq_433f_sd029_eventcond_comparator_reef.py",
+      "title": "SD-029 event-conditioned comparator: reef substrate (Bug 1+2 fix)",
+      "status": "pending",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 250,
+      "supersedes": "V3-EXQ-433e",
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0), Bug 2 _committed_step_idx saturation in non-bistable path. Both bugs now fixed in ree_core."
+    },
+    {
+      "queue_id": "V3-EXQ-483b",
+      "experiment_type": "v3_exq_483b_sd037_broadcast_override_4arm",
+      "script": "experiments/v3_exq_483b_sd037_broadcast_override_4arm.py",
+      "title": "SD-037 broadcast override 4-arm: bistable (Bug 1 fix)",
+      "status": "pending",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 250,
+      "supersedes": "V3-EXQ-483a",
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0). Bug 2 does not apply (bistable path)."
+    },
+    {
+      "queue_id": "V3-EXQ-476c",
+      "experiment_type": "v3_exq_476c_mech269_vs_validation_probe",
+      "script": "experiments/v3_exq_476c_mech269_vs_validation_probe.py",
+      "title": "MECH-269 V_s entropy probe: cascade gate (Bug 1+2 + API fix)",
+      "status": "pending",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 5,
+      "supersedes": "V3-EXQ-476b",
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled, Bug 2 _committed_step_idx saturation, plus agent.act() API replaced with sense()/select_action() pattern."
+    },
+    {
+      "queue_id": "V3-EXQ-490f",
+      "experiment_type": "v3_exq_490f_mech295_seeding_strengthening",
+      "script": "experiments/v3_exq_490f_mech295_seeding_strengthening.py",
+      "title": "MECH-295 seeding-strengthening: bistable (Bug 1 fix)",
+      "status": "pending",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 55,
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0). Bug 2 does not apply (bistable path). No supersedes (490e was a successor, not supersession)."
+    },
+    {
+      "queue_id": "V3-EXQ-445h",
+      "experiment_type": "v3_exq_445h_sd032b_dacc_reef",
+      "script": "experiments/v3_exq_445h_sd032b_dacc_reef.py",
+      "title": "SD-032b dACC reef substrate (Bug 1+2 fix)",
+      "status": "pending",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 130,
+      "supersedes": "V3-EXQ-445g",
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0), Bug 2 _committed_step_idx saturation in non-bistable path."
+    },
+    {
+      "queue_id": "V3-EXQ-514f",
+      "experiment_type": "v3_exq_514f_sd049_phase_2_reef_behavioural_validation",
+      "script": "experiments/v3_exq_514f_sd049_phase_2_reef_behavioural_validation.py",
+      "title": "SD-049 Phase 2 reef behavioural validation (Bug 1+2 fix)",
+      "status": "pending",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 100,
+      "supersedes": "V3-EXQ-514c",
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0), Bug 2 _committed_step_idx saturation in non-bistable path."
+    },
+    {
+      "queue_id": "V3-EXQ-523b",
+      "experiment_type": "v3_exq_523b_sd029_reef_comparator",
+      "script": "experiments/v3_exq_523b_sd029_reef_comparator.py",
+      "title": "SD-029 reef-unblocked comparator graduation test (Bug 1+2 fix)",
+      "status": "pending",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 60,
+      "supersedes": "V3-EXQ-523a",
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0), Bug 2 _committed_step_idx saturation in non-bistable path."
     }
   ]
 }
