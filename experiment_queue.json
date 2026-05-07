@@ -43,12 +43,16 @@
       "experiment_type": "v3_exq_483b_sd037_broadcast_override_4arm",
       "script": "experiments/v3_exq_483b_sd037_broadcast_override_4arm.py",
       "title": "SD-037 broadcast override 4-arm: bistable (Bug 1 fix)",
-      "status": "pending",
+      "status": "claimed",
       "priority": 5,
       "machine_affinity": "any",
       "estimated_minutes": 250,
       "supersedes": "V3-EXQ-483a",
-      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0). Bug 2 does not apply (bistable path)."
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0). Bug 2 does not apply (bistable path).",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-07T21:39:56.351752+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-476c",
