@@ -6,21 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-539",
-      "experiment_type": "v3_exq_539_mech307_commit_gating_check",
-      "script": "experiments/v3_exq_539_mech307_commit_gating_check.py",
-      "title": "MECH-307 anticipatory affect conjunction commit-gating discriminative ablation",
-      "status": "claimed",
-      "priority": 5,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "notes": "2 arms x 3 seeds discriminative ablation paired to EXQ-536b's 'downstream chain inert even with active z_goal' finding. ARM_OFF (all use_mech307_* flags False, replicates 536b inert pattern) vs ARM_ON (all four flags True: signed VALENCE_SURPRISE + MECH-216 multi-channel write + z_beta arousal pulse + write-at-predicted-z_world). Pre-registered acceptance: C1 ARM_ON anticipatory VALENCE_LIKING writes >= 1/seed (ARM_OFF == 0); C2 ARM_ON z_beta excursion >= 0.05 (ARM_OFF == 0); C3 ARM_ON has >= 1 RBF center with negative VALENCE_SURPRISE (Gap 1 signature; ARM_OFF == 0); C4 ARM_ON MECH-216 writes at e1_prior >= 1/seed; C5 ARM_ON approach_commit_rate - ARM_OFF >= 0.10 across at least 2/3 seeds. PASS = MECH-307 conjunction architecture validated; PARTIAL PASS (C1-C4 only) routes to SD-014 6-channel amendment as fallback. 199/199 contracts PASS including 7 new MECH-307 contract tests (test_mech307_conjunction_contract.py). Dry-run confirmed all four substrate-readiness gates fire as designed. Priority 5: below 537a/141b's 8 so they run first; their results provide context but do not gate this experiment.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-08T14:56:41.334321+00:00"
-      }
-    }
-  ]
+  "items": []
 }
