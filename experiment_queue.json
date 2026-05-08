@@ -16,12 +16,16 @@
       "supersedes": "V3-EXQ-530b",
       "priority": 9,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 30,
       "seeds": 3,
       "conditions": 2,
-      "note": "Tier-1 StepHarness retest. V3-EXQ-530b ran rv-pinned (update_residue never called) and was reclassified non_contributory 2026-05-07T23:12Z. StepHarness invariant 3 + Q-042 regression contract guarantee rv is live. Acceptance gate C0 fails fast if substrate is not live."
+      "note": "Tier-1 StepHarness retest. V3-EXQ-530b ran rv-pinned (update_residue never called) and was reclassified non_contributory 2026-05-07T23:12Z. StepHarness invariant 3 + Q-042 regression contract guarantee rv is live. Acceptance gate C0 fails fast if substrate is not live.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-08T17:23:55.349946+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-514g",
