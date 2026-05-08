@@ -19,8 +19,8 @@
       "supersedes": "V3-EXQ-483a",
       "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0). Bug 2 does not apply (bistable path).",
       "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-08T04:52:37.302772+00:00"
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-08T12:54:30.208547+00:00"
       }
     }
   ]
