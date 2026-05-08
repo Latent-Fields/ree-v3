@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-537a",
-      "experiment_type": "v3_exq_537_sd029_single_pass_residual",
-      "script": "experiments/v3_exq_537_sd029_single_pass_residual.py",
-      "title": "SD-029/MECH-256 single-pass comparator residual (537 silent-fail requeue)",
-      "status": "claimed",
-      "priority": 8,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "supersedes": "V3-EXQ-537",
-      "notes": "Straight requeue of V3-EXQ-537 (script reuse, same evidence/experiments dir). 537 was claimed by ree-cloud-1 at 2026-05-08T12:27:50Z, removed from queue 2 minutes later by the 'remove completed/failed items' sweep, but produced no manifest in evidence/experiments/v3_exq_537* and no entry in runner_status.json completed list -- same UNKNOWN-no-manifest failure pattern as V3-EXQ-433f and V3-EXQ-538 today (three cloud-1 silent failures 2026-05-08). FLAG: cloud-1 may drop this run silently too. Mac (DLAPTOP-4.local) is producing manifests correctly; consider repinning to macbook affinity if cloud-1 issue isn't resolved by the time this gets claimed. Cloud-runner investigation queued separately. SD-029/MECH-256 single-pass residual is the load-bearing comparator behavioural test gating ~10 V_s/anchor-cluster claims.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-08T13:55:38.053980+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-141b",
       "experiment_type": "v3_exq_141b_mech111_novelty_drive_corrected_substrate",
       "script": "experiments/v3_exq_141b_mech111_novelty_drive_corrected_substrate.py",
