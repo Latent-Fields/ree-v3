@@ -28,12 +28,16 @@
       "experiment_type": "v3_exq_536b_goal_seeding_inject_forcearm",
       "script": "experiments/v3_exq_536b_goal_seeding_inject_forcearm.py",
       "title": "EXQ-536 goal seeding diagnostic: z_goal_inject force-arm (commit chain probe)",
-      "status": "pending",
+      "status": "claimed",
       "priority": 6,
       "machine_affinity": "any",
       "estimated_minutes": 130,
       "experiment_purpose": "diagnostic",
-      "notes": "Diagnostic follow-on to EXQ-536. 2 arms x 3 seeds. ARM_0 cfg.goal.z_goal_inject=0.0 (replicates EXQ-536 ARM_1); ARM_1 cfg.goal.z_goal_inject=0.3 (MECH-188 action-time z_goal norm floor) bypasses persistent-state seeding. Isolates whether the EXQ-536 approach_commit_rate=0.0 collapse is upstream (z_goal seeding) or downstream (commit chain inert even with active z_goal). evidence_direction=non_contributory."
+      "notes": "Diagnostic follow-on to EXQ-536. 2 arms x 3 seeds. ARM_0 cfg.goal.z_goal_inject=0.0 (replicates EXQ-536 ARM_1); ARM_1 cfg.goal.z_goal_inject=0.3 (MECH-188 action-time z_goal norm floor) bypasses persistent-state seeding. Isolates whether the EXQ-536 approach_commit_rate=0.0 collapse is upstream (z_goal seeding) or downstream (commit chain inert even with active z_goal). evidence_direction=non_contributory.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-08T04:37:02.843692+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-537",
