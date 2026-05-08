@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # precommit_contracts.sh -- run ree-v3/tests/contracts when staged changes
-# touch ree_core/**.
+# touch ree_core/**, AND run validate_experiments.py --strict on staged
+# experiments/v3_exq_*.py paths. Both checks self-gate: if no relevant
+# paths are staged, the corresponding block is a no-op.
 #
 # Called from the PreToolUse hook in REE_Working/.claude/settings.json on
 # any `git commit` bash invocation. Self-gates: if no ree_core/** paths are
@@ -40,12 +42,6 @@ if [ ! -d "$REPO/ree_core" ] || [ ! -d "$REPO/tests/contracts" ]; then
     exit 0
 fi
 
-# Check the staged diff in ree-v3 for any ree_core/** path.
-STAGED=$(git -C "$REPO" diff --cached --name-only 2>/dev/null || true)
-if ! echo "$STAGED" | grep -q '^ree_core/'; then
-    exit 0
-fi
-
 # Pick a python with torch. /opt/local/bin/python3 is the project default;
 # fall back to PATH.
 PY="/opt/local/bin/python3"
@@ -55,6 +51,34 @@ fi
 if [ -z "$PY" ]; then
     echo "[precommit_contracts] python3 not found; skipping contracts" >&2
     exit 3
+fi
+
+STAGED=$(git -C "$REPO" diff --cached --name-only 2>/dev/null || true)
+
+# Block 1: experiments/v3_exq_*.py conformance (ratchet -- only enforces on
+# new/modified scripts). Catches scripts that don't import experiment_protocol
+# or don't call emit_outcome in __main__. Backward-compatible: legacy
+# untouched scripts continue to work via the runner's stdout fallback. New
+# and edited scripts must conform on commit.
+STAGED_EXPERIMENTS=$(echo "$STAGED" | grep -E '^experiments/v3_exq_.*\.py$' || true)
+if [ -n "$STAGED_EXPERIMENTS" ] && [ -f "$REPO/validate_experiments.py" ]; then
+    echo "[precommit_contracts] staged experiment script(s) -- running validate_experiments.py --strict" >&2
+    # shellcheck disable=SC2086
+    if ! (cd "$REPO" && "$PY" validate_experiments.py --strict --quiet --paths $STAGED_EXPERIMENTS) >&2; then
+        echo "[precommit_contracts] non-conforming experiment script(s) -- blocking commit" >&2
+        echo "[precommit_contracts] each staged experiment must import experiment_protocol and call emit_outcome(...) in __main__" >&2
+        echo "[precommit_contracts] retrofit with: /opt/local/bin/python3 scripts/retrofit_experiments.py --apply --paths <script>" >&2
+        if [ "$NO_BLOCK" = "1" ]; then
+            :
+        else
+            exit 2
+        fi
+    fi
+fi
+
+# Block 2: ree_core/** -> contracts test suite.
+if ! echo "$STAGED" | grep -q '^ree_core/'; then
+    exit 0
 fi
 
 echo "[precommit_contracts] ree_core/ change staged -- running contracts" >&2
