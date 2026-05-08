@@ -6,5 +6,43 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-141d",
+      "title": "MECH-111 novelty drive: RNG desync between arms (supersedes 141c)",
+      "experiment_type": "v3_exq_141d_mech111_novelty_drive_rng_desync",
+      "script": "experiments/v3_exq_141d_mech111_novelty_drive_rng_desync.py",
+      "claim_id": "MECH-111",
+      "supersedes": "V3-EXQ-141c",
+      "priority": 6,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 2,
+      "backlog_id": "EVB-0061",
+      "note": "141c C0 sanity check fired correctly: per_seed_action_divergence=[0,0,0] arms bit-identical despite novelty_bonus_weight=100, one-hot nav_bias, raised nav_bias=0.5. Root cause: random.seed(seed) at start of _run_single resets identical RNG stream in both arms; nav_bias decisions and override actions desync only via paired-RNG. 141d: random.seed(seed if novelty_enabled else seed+7777). Env still _make_env(seed) so paired comparison preserved at env level. Smoke confirms divergence=0.53 (vs 141c's 0.0)."
+    },
+    {
+      "queue_id": "V3-EXQ-537d",
+      "title": "SD-029/MECH-256 single-pass: drop interventional margin loss + add stdout fallback",
+      "experiment_type": "v3_exq_537d_sd029_no_interventional",
+      "script": "experiments/v3_exq_537d_sd029_no_interventional.py",
+      "claim_id": "SD-029",
+      "supersedes": "V3-EXQ-537c",
+      "priority": 8,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "estimated_minutes": 120,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 2,
+      "note": "537c hidden_dim 128->256 lift didn't recover R^2 ceiling (p2_grad=False all seeds, fwd_r2 0.66-0.68). Width is not the bottleneck. 537d drops USE_INTERVENTIONAL to test whether the SD-013 margin loss (30% of batches) is fighting raw MSE fit and capping training R^2. EXQ-195 reached 0.914 baseline without interventional; the gap may be the loss term, not substrate complexity. Keeps hidden_dim=256, decoupled curricula, emit_outcome hook. Adds [experiment_type] outcome= stdout fallback line so the runner-side stdout-regex fallback classifies correctly even if REE_QUEUE_ID env var doesn't propagate (separate runner-side bug; 537c silent UNKNOWN root cause).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-08T21:46:53.048302+00:00"
+      }
+    }
+  ]
 }
