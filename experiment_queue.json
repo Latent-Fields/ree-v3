@@ -24,22 +24,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-536a",
-      "experiment_type": "v3_exq_536a_goal_seeding_instrumentation",
-      "script": "experiments/v3_exq_536a_goal_seeding_instrumentation.py",
-      "title": "EXQ-536 goal seeding diagnostic: per-step instrumentation (H_a/H_b/H_c dispatch)",
-      "status": "claimed",
-      "priority": 6,
-      "machine_affinity": "any",
-      "estimated_minutes": 30,
-      "experiment_purpose": "diagnostic",
-      "notes": "Diagnostic follow-on to EXQ-536 (z_goal_active_fraction=0.0). Single seed, training-light, instrumented eval logs benefit / drive / effective_benefit / z_goal.norm() per step. Dispatches three candidate root causes: H_a drive-collapse-on-contact, H_b threshold never crossed, H_c update fires but z_goal does not grow. evidence_direction=non_contributory.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-08T04:34:16.561842+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-536b",
       "experiment_type": "v3_exq_536b_goal_seeding_inject_forcearm",
       "script": "experiments/v3_exq_536b_goal_seeding_inject_forcearm.py",
