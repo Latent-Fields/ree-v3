@@ -1712,6 +1712,21 @@ class REEConfig:
     # the cycle. SHY normalisation (MECH-120) is NOT consumed here --
     # explicitly out of V3 scope. Bit-identical OFF preserved.
     use_mech273_self_model: bool = False
+    # MECH-204 Option A: precision recalibration consumer in WRITEBACK phase.
+    # When True (and use_sleep_loop is True and serotonin tonic_5ht_enabled is
+    # True and rem_enabled is True), the SleepLoopManager reads the zero-point
+    # precision target captured by SerotoninModule at REM entry
+    # (serotonin._precision_at_rem_entry) and nudges E3._running_variance
+    # toward 1.0/target by mech204_recalibration_step. Sibling step in
+    # WRITEBACK alongside MECH-273 self-model gradient + partial decay; runs
+    # independently of MECH-273 (writeback fires for either reason). Per
+    # Q-042 verdict, the broadcast read-site (Option B) is deferred to
+    # Phase 7. Bit-identical OFF preserved.
+    use_rem_precision_recalibration: bool = False
+    # Step size for the linear interpolation toward target_variance:
+    #   new_rv = (1 - step) * rv + step * (1.0 / target_precision)
+    # Default 0.1 per Q1 of sleep_substrate_plan.md. Tunable per experiment.
+    rem_precision_recalibration_step: float = 0.1
     # Offline learning-rate scale relative to the waking E2_harm_s LR.
     # Default 0.1 per the C6 architectural commitment.
     mech273_offline_lr_scale: float = 0.1
@@ -2138,6 +2153,9 @@ class REEConfig:
         mech275_decay_factor: float = 1.0,
         mech275_probe_gain: float = 1.0,
         use_mech273_self_model: bool = False,
+        # MECH-204 Option A: precision recalibration consumer in WRITEBACK
+        use_rem_precision_recalibration: bool = False,
+        rem_precision_recalibration_step: float = 0.1,
         mech273_offline_lr_scale: float = 0.1,
         mech273_offline_n_steps: int = 100,
         mech273_partial_decay_factor: float = 0.5,
@@ -2570,6 +2588,9 @@ class REEConfig:
 
         # Sleep-aggregation cluster Phase E (MECH-273)
         config.use_mech273_self_model = use_mech273_self_model
+        # MECH-204 Option A: precision recalibration consumer
+        config.use_rem_precision_recalibration = use_rem_precision_recalibration
+        config.rem_precision_recalibration_step = rem_precision_recalibration_step
         config.mech273_offline_lr_scale = mech273_offline_lr_scale
         config.mech273_offline_n_steps = mech273_offline_n_steps
         config.mech273_partial_decay_factor = mech273_partial_decay_factor

@@ -101,6 +101,20 @@ class SerotoninModule:
         """SR-3: precision snapshot captured when entering REM."""
         return self._precision_at_rem_entry
 
+    def compute_recalibration_target(self) -> float:
+        """
+        MECH-204 Option A target: the zero-point precision reference captured
+        at REM entry. Consumed by E3Selector.recalibrate_precision_to() at
+        the WRITEBACK phase of the sleep cycle.
+
+        Returns 0.0 when the module is disabled or when no REM phase has
+        been entered yet (caller should treat 0.0 as "no target available"
+        and skip recalibration).
+        """
+        if not self.config.tonic_5ht_enabled:
+            return 0.0
+        return float(self._precision_at_rem_entry)
+
     # -- Waking dynamics (SR-1) --
 
     def serotonin_step(

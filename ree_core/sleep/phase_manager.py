@@ -102,6 +102,8 @@ class SleepLoopManager:
         self_model_offline_n_steps: int = 100,
         self_model_partial_decay_factor: float = 0.5,
         self_model_domain: str = "self",
+        use_rem_precision_recalibration: bool = False,
+        rem_precision_recalibration_step: float = 0.1,
     ) -> None:
         if cycle_every_k_episodes < 1:
             raise ValueError(
@@ -129,6 +131,13 @@ class SleepLoopManager:
             )
         self.self_model_partial_decay_factor = float(self_model_partial_decay_factor)
         self.self_model_domain = str(self_model_domain)
+        self.use_rem_precision_recalibration = bool(use_rem_precision_recalibration)
+        if not 0.0 <= float(rem_precision_recalibration_step) <= 1.0:
+            raise ValueError(
+                "rem_precision_recalibration_step must be in [0, 1]; "
+                f"got {rem_precision_recalibration_step}"
+            )
+        self.rem_precision_recalibration_step = float(rem_precision_recalibration_step)
         self.state = SleepCycleState()
         self._cycle_history: List[Dict[str, float]] = []
 
@@ -289,6 +298,42 @@ class SleepLoopManager:
                 writeback_metrics["mech273_partial_decay_factor"] = float(
                     self.self_model_partial_decay_factor
                 )
+
+        # MECH-204 Option A: precision recalibration consumer (sibling step in
+        # WRITEBACK). Reads SerotoninModule.compute_recalibration_target()
+        # (the captured precision_at_rem_entry zero-point reference) and
+        # nudges E3._running_variance toward 1.0/target by the configured
+        # step. Runs independently of MECH-273 so the WRITEBACK phase fires
+        # for either reason. Only fires when REM was actually entered this
+        # cycle (rem_enabled gate) and serotonin is enabled (so the captured
+        # target is meaningful) and the master flag is on.
+        if (
+            self.use_rem_precision_recalibration
+            and getattr(agent.config, "rem_enabled", False)
+            and getattr(agent, "serotonin", None) is not None
+            and agent.serotonin.enabled
+            and getattr(agent, "e3", None) is not None
+        ):
+            self.state.phase = SleepPhase.WRITEBACK
+            target = float(agent.serotonin.compute_recalibration_target())
+            if target > 0.0:
+                rv_before, rv_after = agent.e3.recalibrate_precision_to(
+                    target,
+                    step=self.rem_precision_recalibration_step,
+                )
+                writeback_metrics["mech204_recalibration_target"] = target
+                writeback_metrics["mech204_running_variance_before"] = float(
+                    rv_before
+                )
+                writeback_metrics["mech204_running_variance_after"] = float(
+                    rv_after
+                )
+                writeback_metrics["mech204_recalibration_step"] = float(
+                    self.rem_precision_recalibration_step
+                )
+                writeback_metrics["mech204_recalibration_fired"] = 1.0
+            else:
+                writeback_metrics["mech204_recalibration_fired"] = 0.0
 
         merged = dict(metrics)
         merged.update(sampler_metrics)

@@ -933,6 +933,12 @@ class REEAgent(nn.Module):
                     getattr(config, "mech273_partial_decay_factor", 0.5)
                 ),
                 self_model_domain="self",
+                use_rem_precision_recalibration=bool(
+                    getattr(config, "use_rem_precision_recalibration", False)
+                ),
+                rem_precision_recalibration_step=float(
+                    getattr(config, "rem_precision_recalibration_step", 0.1)
+                ),
             )
 
         # Observation encoders (maps raw body/world obs to latent input)

@@ -24,7 +24,7 @@ hypothesis — see ARCHITECTURE NOTE below. All weights are placeholder.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 
 import torch
 import torch.nn as nn
@@ -234,6 +234,36 @@ class E3TrajectorySelector(nn.Module):
             self._volatility_estimate = sum((v - mean) ** 2 for v in vals) / len(vals)
         else:
             self._volatility_estimate = 0.0
+
+    def recalibrate_precision_to(self, target_precision: float, step: float = 0.1) -> Tuple[float, float]:
+        """
+        MECH-204 Option A: nudge ``_running_variance`` toward the variance
+        implied by ``target_precision``, by a tunable step in [0, 1].
+
+        target_precision is a precision scalar (inverse variance). Implementation
+        converts it to a variance and applies a one-shot linear interpolation:
+
+            new_variance = (1 - step) * current_variance + step * target_variance
+
+        Returns (running_variance_before, running_variance_after) for diagnostics.
+
+        Caller (SleepLoopManager WRITEBACK phase) is responsible for gating
+        on the master flag and on whether REM was actually entered. This
+        method does not check enablement, but it is a no-op when
+        target_precision <= 0.0 (the "no target captured" sentinel from
+        SerotoninModule.compute_recalibration_target()).
+        """
+        rv_before = float(self._running_variance)
+        if target_precision <= 0.0:
+            return rv_before, rv_before
+        if step <= 0.0:
+            return rv_before, rv_before
+        step_clamped = min(1.0, float(step))
+        target_variance = 1.0 / (float(target_precision) + 1e-6)
+        self._running_variance = (
+            (1.0 - step_clamped) * rv_before + step_clamped * target_variance
+        )
+        return rv_before, float(self._running_variance)
 
     def record_benefit_sample(self, n: int = 1) -> None:
         """Record that n benefit training samples have been added to the buffer.
