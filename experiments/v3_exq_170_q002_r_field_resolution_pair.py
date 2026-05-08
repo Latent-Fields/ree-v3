@@ -76,6 +76,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
+from experiment_protocol import emit_outcome
 
 
 EXPERIMENT_TYPE = "v3_exq_170_q002_r_field_resolution_pair"
@@ -570,3 +571,10 @@ if __name__ == "__main__":
     dry_run = "--dry-run" in sys.argv
     result = run_experiment(dry_run=dry_run)
     print(f"Done. Outcome: {result['outcome']}", flush=True)
+
+    # --- runner-conformance sentinel (added by retrofit_experiments.py) ---
+    _outcome_raw = str(result.get("outcome", "FAIL")).upper()
+    emit_outcome(
+        outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+        manifest_path=None,
+    )

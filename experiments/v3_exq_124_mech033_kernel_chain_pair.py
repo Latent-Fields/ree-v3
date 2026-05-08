@@ -120,6 +120,7 @@ import torch.optim as optim
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiment_protocol import emit_outcome
 
 
 EXPERIMENT_TYPE = "v3_exq_124_mech033_kernel_chain_pair"
@@ -978,3 +979,10 @@ if __name__ == "__main__":
 
     print(f"\n[V3-EXQ-124] Result written to {out_path}", flush=True)
     print(f"[V3-EXQ-124] status={result['status']}", flush=True)
+
+    # --- runner-conformance sentinel (added by retrofit_experiments.py) ---
+    _outcome_raw = str(result.get("status", "FAIL")).upper()
+    emit_outcome(
+        outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+        manifest_path=out_path,
+    )

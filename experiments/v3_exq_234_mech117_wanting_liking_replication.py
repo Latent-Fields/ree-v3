@@ -68,6 +68,7 @@ import torch.nn.functional as F
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiment_protocol import emit_outcome
 
 
 EXPERIMENT_TYPE = "v3_exq_234_mech117_wanting_liking_replication"
@@ -626,3 +627,10 @@ if __name__ == "__main__":
             print(f"  {k}: {v:.4f}", flush=True)
         else:
             print(f"  {k}: {v}", flush=True)
+
+    # --- runner-conformance sentinel (added by retrofit_experiments.py) ---
+    _outcome_raw = str(result.get("status", "FAIL")).upper()
+    emit_outcome(
+        outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+        manifest_path=out_path,
+    )

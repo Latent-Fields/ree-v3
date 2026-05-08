@@ -53,19 +53,32 @@ EXPERIMENTS_DIR = REPO_ROOT / "experiments"
 PROTOCOL_MODULE = "experiment_protocol"
 EMIT_NAME = "emit_outcome"
 
-# Outcome-binding variable names we recognize at the END of __main__.
-# Order matters: earlier names take precedence.
+# Outcome-binding variable names we recognize. Order matters: earlier names
+# take precedence. (var, attr) means the script binds `var` somewhere and
+# reads `var["attr"]` or `var.attr` for the PASS/FAIL outcome. (var, "")
+# means `var` itself is a string outcome (e.g. `outcome = "PASS"`).
 OUTCOME_VAR_CANDIDATES = (
-    ("result", "outcome"),
-    ("result", "status"),
-    ("result", "verdict"),
-    ("pack", "outcome"),
-    ("pack", "status"),
-    ("pack", "verdict"),
-    ("res", "outcome"),
-    ("res", "status"),
+    ("result",   "outcome"),
+    ("result",   "status"),
+    ("result",   "verdict"),
+    ("result",   "result"),
+    ("manifest", "result"),
+    ("manifest", "outcome"),
+    ("manifest", "status"),
+    ("manifest", "verdict"),
+    ("output",   "outcome"),
+    ("output",   "status"),
+    ("output",   "verdict"),
+    ("pack",     "outcome"),
+    ("pack",     "status"),
+    ("pack",     "verdict"),
+    ("res",      "outcome"),
+    ("res",      "status"),
+    ("outcome",  ""),
+    ("verdict",  ""),
+    ("status",   ""),
 )
-MANIFEST_VAR_CANDIDATES = ("out_path", "manifest_path", "result_path", "pack_path")
+MANIFEST_VAR_CANDIDATES = ("out_path", "out_file", "manifest_path", "result_path", "pack_path", "out_json", "output_path")
 
 
 def _find_main_block(tree: ast.Module) -> Optional[ast.If]:
@@ -117,11 +130,10 @@ def _detect_outcome_pattern(main_block: ast.If, src_lines: Sequence[str]) -> Tup
 
     outcome_expr: Optional[str] = None
     for var, attr in OUTCOME_VAR_CANDIDATES:
-        # Match assignment of the var anywhere in body, AND a usage of var[attr]/var.attr
-        pat_assign = re.compile(rf"\b{re.escape(var)}\s*=\s*\w", re.MULTILINE)
+        pat_assign = re.compile(rf"\b{re.escape(var)}\s*=\s*\S", re.MULTILINE)
         if not pat_assign.search(body_src):
             continue
-        if isinstance(attr, str) and attr:
+        if attr:
             # Subscript form first (dict)
             sub_pat = re.compile(rf"\b{re.escape(var)}\[['\"]({re.escape(attr)})['\"]\]")
             if sub_pat.search(body_src):
@@ -131,6 +143,14 @@ def _detect_outcome_pattern(main_block: ast.If, src_lines: Sequence[str]) -> Tup
             attr_pat = re.compile(rf"\b{re.escape(var)}\.{re.escape(attr)}\b")
             if attr_pat.search(body_src):
                 outcome_expr = f'str(getattr({var}, "{attr}", "FAIL")).upper()'
+                break
+        else:
+            # Bare variable form: `outcome = "PASS"|"FAIL"`. Confirm it's
+            # used as a string by checking that "PASS" or "FAIL" literals
+            # appear in the body (cheap heuristic to filter false matches
+            # like a `status` config dict).
+            if '"PASS"' in body_src or "'PASS'" in body_src:
+                outcome_expr = f'str({var}).upper()'
                 break
     if outcome_expr is None:
         # Fallback: presence of "Done. Outcome:" print -> try result["outcome"]
@@ -203,9 +223,11 @@ def retrofit_one(path: Path) -> Tuple[bool, str, Optional[str]]:
 
     emit_block = (
         f'\n{indent}# --- runner-conformance sentinel (added by retrofit_experiments.py) ---\n'
-        f'{indent}_outcome = {outcome_expr} if {outcome_expr} in ("PASS", "FAIL") else "FAIL"\n'
-        f'{indent}emit_outcome(outcome=_outcome, manifest_path='
-        f'{manifest_expr if manifest_expr else "None"})\n'
+        f'{indent}_outcome_raw = {outcome_expr}\n'
+        f'{indent}emit_outcome(\n'
+        f'{indent}    outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",\n'
+        f'{indent}    manifest_path={manifest_expr if manifest_expr else "None"},\n'
+        f'{indent})\n'
     )
     if not new_lines[-1].endswith("\n"):
         new_lines[-1] = new_lines[-1] + "\n"

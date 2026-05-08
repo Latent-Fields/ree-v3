@@ -61,6 +61,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.agent import REEAgent
 from ree_core.utils.config import REEConfig
+from experiment_protocol import emit_outcome
 
 EXPERIMENT_TYPE = "v3_exq_535a_sd029_p3_eval_fix"
 QUEUE_ID = "V3-EXQ-535a"
@@ -784,3 +785,10 @@ if __name__ == "__main__":
         ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         run_id = f"{EXPERIMENT_TYPE}_{ts}_v3"
         write_result(result, run_id)
+
+    # --- runner-conformance sentinel (added by retrofit_experiments.py) ---
+    _outcome_raw = str(result.get("outcome", "FAIL")).upper()
+    emit_outcome(
+        outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+        manifest_path=None,
+    )

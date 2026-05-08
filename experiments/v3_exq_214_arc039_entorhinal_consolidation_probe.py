@@ -100,6 +100,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorld
 from ree_core.utils.config import E2Config, ResidueConfig
 from ree_core.predictors.e2_fast import E2FastPredictor
 from ree_core.residue.field import ResidueField
+from experiment_protocol import emit_outcome
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -603,3 +604,10 @@ if __name__ == "__main__":
     dry_run = "--dry-run" in sys.argv
     result = run_experiment(dry_run=dry_run)
     print(f"[EXQ-214] Done. outcome={result['outcome']}", flush=True)
+
+    # --- runner-conformance sentinel (added by retrofit_experiments.py) ---
+    _outcome_raw = str(result.get("outcome", "FAIL")).upper()
+    emit_outcome(
+        outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+        manifest_path=None,
+    )
