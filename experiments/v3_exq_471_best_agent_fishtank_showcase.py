@@ -322,14 +322,10 @@ def _warmup_train(
             # crosses threshold (update_z_goal internally handles the gating).
             drive_level = REEAgent.compute_drive_level(obs_body)
             benefit_exposure = max(0.0, float(obs_dict.get("benefit_exposure", 0.0)))
-            try:
-                agent.update_z_goal(
-                    latent,
-                    benefit_exposure=benefit_exposure,
-                    drive_level=drive_level,
-                )
-            except Exception:
-                pass  # update_z_goal signature tolerant; skip if the runtime shape mismatches
+            agent.update_z_goal(
+                benefit_exposure=benefit_exposure,
+                drive_level=drive_level,
+            )
 
             action = agent.select_action(candidates, ticks, temperature=1.0)
             if action is None:
@@ -493,14 +489,10 @@ def _eval_agent(
 
                 drive_level = REEAgent.compute_drive_level(obs_body)
                 benefit_exposure = max(0.0, float(obs_dict.get("benefit_exposure", 0.0)))
-                try:
-                    agent.update_z_goal(
-                        latent,
-                        benefit_exposure=benefit_exposure,
-                        drive_level=drive_level,
-                    )
-                except Exception:
-                    pass
+                agent.update_z_goal(
+                    benefit_exposure=benefit_exposure,
+                    drive_level=drive_level,
+                )
 
                 if ticks.get("e3_tick", True):
                     n_cands_log.append(len(candidates))

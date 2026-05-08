@@ -406,14 +406,10 @@ def _warmup_train(agent, env, num_episodes, steps_per_episode) -> Dict:
 
             drive_level = REEAgent.compute_drive_level(obs_body)
             benefit_exposure = max(0.0, float(obs_dict.get("benefit_exposure", 0.0)))
-            try:
-                agent.update_z_goal(
-                    latent,
-                    benefit_exposure=benefit_exposure,
-                    drive_level=drive_level,
-                )
-            except Exception:
-                pass
+            agent.update_z_goal(
+                benefit_exposure=benefit_exposure,
+                drive_level=drive_level,
+            )
 
             action = agent.select_action(candidates, ticks, temperature=1.0)
             if action is None:
@@ -544,14 +540,10 @@ def _eval_agent(agent, env, num_episodes, steps_per_episode) -> Dict:
 
                 drive_level = REEAgent.compute_drive_level(obs_body)
                 benefit_exposure = max(0.0, float(obs_dict.get("benefit_exposure", 0.0)))
-                try:
-                    agent.update_z_goal(
-                        latent,
-                        benefit_exposure=benefit_exposure,
-                        drive_level=drive_level,
-                    )
-                except Exception:
-                    pass
+                agent.update_z_goal(
+                    benefit_exposure=benefit_exposure,
+                    drive_level=drive_level,
+                )
 
                 action = agent.select_action(candidates, ticks, temperature=1.0)
                 if action is None:
