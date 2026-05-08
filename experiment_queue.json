@@ -16,12 +16,16 @@
       "supersedes": "V3-EXQ-537b",
       "priority": 8,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 200,
       "seeds": 3,
       "conditions": 2,
-      "note": "537b ran on Mac 2026-05-08T18:02Z and produced FAIL non_contributory (UNKNOWN-classified due to missing emit_outcome): p2_grad=False on all 3 seeds at p2_steps=48000 (max windows fully exhausted), p2_r2 ceiling 0.65-0.76, harm_forward_r2 0.59-0.66. Decouple-curricula did not recover EXQ-195's 0.91. 537c lifts forward-model hidden_dim 128->256 to address the capacity ceiling. Other config unchanged (training curriculum stays decoupled; P3 eval curriculum ON). Also adds the emit_outcome runner-conformance hook that 537b was missing."
+      "note": "537b ran on Mac 2026-05-08T18:02Z and produced FAIL non_contributory (UNKNOWN-classified due to missing emit_outcome): p2_grad=False on all 3 seeds at p2_steps=48000 (max windows fully exhausted), p2_r2 ceiling 0.65-0.76, harm_forward_r2 0.59-0.66. Decouple-curricula did not recover EXQ-195's 0.91. 537c lifts forward-model hidden_dim 128->256 to address the capacity ceiling. Other config unchanged (training curriculum stays decoupled; P3 eval curriculum ON). Also adds the emit_outcome runner-conformance hook that 537b was missing.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-08T20:58:30.820627+00:00"
+      }
     }
   ]
 }
