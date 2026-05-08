@@ -54,6 +54,7 @@ import torch.optim as optim
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorld
 from ree_core.utils.config import REEConfig
+from experiment_protocol import emit_outcome
 
 
 EXPERIMENT_TYPE = "v3_exq_004_arc021_incommensurability"
@@ -547,3 +548,7 @@ if __name__ == "__main__":
     print(f"Status: {result['status']}", flush=True)
     for k, v in result["metrics"].items():
         print(f"  {k}: {v}", flush=True)
+
+    # --- runner-conformance sentinel (added by retrofit_experiments.py) ---
+    _outcome = str(result.get("status", "FAIL")).upper() if str(result.get("status", "FAIL")).upper() in ("PASS", "FAIL") else "FAIL"
+    emit_outcome(outcome=_outcome, manifest_path=out_path)

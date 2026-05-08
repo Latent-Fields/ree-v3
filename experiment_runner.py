@@ -49,6 +49,11 @@ PID_FILE = REPO_ROOT / "runner.pid"
 EVIDENCE_DIR = REPO_ROOT / "evidence" / "experiments"
 SCRIPT_TIMING_FILE = REPO_ROOT / "script_timing.json"
 
+# Runner-conformance sentinel directory. Each experiment subprocess writes
+# <SIGNAL_DIR>/<queue_id>.json via experiment_protocol.emit_outcome(); the
+# runner reads it after subprocess exit. See ree-v3/experiment_protocol.py.
+RUNNER_SIGNAL_SUBPATH = Path("evidence") / "experiments" / "_runner_signals"
+
 # Auto-detect REE_assembly runner_status directory (per-machine files)
 _REE_ASSEMBLY_STATUS_DIRS = [
     REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments" / "runner_status",
@@ -771,6 +776,32 @@ def build_initial_status(queue_data: dict, script_timing: dict | None = None) ->
     }
 
 
+def _resolve_signal_dir(ree_assembly_path: Path | None) -> Path | None:
+    """Return REE_assembly/evidence/experiments/_runner_signals/, or None."""
+    if ree_assembly_path is None:
+        return None
+    d = ree_assembly_path / RUNNER_SIGNAL_SUBPATH
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    return d
+
+
+def _read_sentinel(signal_dir: Path | None, queue_id: str) -> dict | None:
+    """Read <signal_dir>/<queue_id>.json. Return parsed dict or None."""
+    if signal_dir is None or not queue_id:
+        return None
+    sig_path = signal_dir / f"{queue_id}.json"
+    if not sig_path.is_file():
+        return None
+    try:
+        return json.loads(sig_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[runner] WARN: sentinel {sig_path} unreadable: {exc}", flush=True)
+        return None
+
+
 def run_experiment(item: dict, status: dict, status_path: Path, calibration: dict,
                    script_timing: dict | None = None,
                    proc_ref: list | None = None,
@@ -787,6 +818,19 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     if isinstance(raw_args, str):
         raw_args = shlex.split(raw_args)
     args = [sys.executable, "-u", str(script)] + raw_args
+
+    signal_dir = _resolve_signal_dir(ree_assembly_path)
+    queue_id = item.get("queue_id", "")
+    # Pre-clean any stale sentinel from a previous attempt of the same queue_id
+    # (e.g. requeued after manual edit). Avoids spurious "PASS" reads.
+    if signal_dir is not None and queue_id:
+        stale = signal_dir / f"{queue_id}.json"
+        if stale.exists():
+            try:
+                stale.unlink()
+            except OSError as _exc:
+                print(f"[runner] WARN: could not unlink stale sentinel {stale}: {_exc}",
+                      flush=True)
 
     seed_count = _run_axis_count(item.get("seeds", 1), "seeds")
     condition_count = _run_axis_count(item.get("conditions", 1), "conditions")
@@ -881,12 +925,18 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     }
 
     try:
+        env = os.environ.copy()
+        if queue_id:
+            env["REE_QUEUE_ID"] = queue_id
+        if signal_dir is not None:
+            env["REE_RUNNER_SIGNAL_DIR"] = str(signal_dir)
         proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=env,
         )
         if proc_ref is not None:
             proc_ref.clear()
@@ -992,9 +1042,65 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         proc.wait()
         exit_code = proc.returncode
 
+        # Sentinel file authoritatively determines outcome (replaces fragile
+        # stdout-regex scraping that caused 2026-05-08 silent drops). The
+        # stdout-derived result_info["result"] is kept as a diagnostic
+        # cross-check but the sentinel wins when present.
+        sentinel = _read_sentinel(signal_dir, queue_id)
+        if sentinel is not None:
+            sent_outcome = sentinel.get("outcome")
+            sent_manifest = sentinel.get("manifest_path")
+            if sent_outcome in ("PASS", "FAIL"):
+                if (result_info["result"] in ("PASS", "FAIL")
+                        and result_info["result"] != sent_outcome):
+                    print(f"[runner] WARN: stdout said {result_info['result']} but "
+                          f"sentinel says {sent_outcome}; trusting sentinel.", flush=True)
+                result_info["result"] = sent_outcome
+                if sent_manifest:
+                    result_info["output_file"] = sent_manifest
+                exit_reason = sentinel.get("exit_reason", "ok")
+                if not result_info["result_summary"] and exit_reason and exit_reason != "ok":
+                    result_info["result_summary"] = f"sentinel exit_reason={exit_reason}"
+            else:
+                print(f"[runner] WARN: sentinel for {queue_id} has invalid "
+                      f"outcome={sent_outcome!r}; classifying ERROR", flush=True)
+                result_info["result"] = "ERROR"
+                result_info["result_summary"] = f"sentinel invalid outcome: {sent_outcome!r}"
+        else:
+            # Sentinel missing -- script did not call emit_outcome, OR was
+            # killed before reaching the call, OR ran on a stale binary
+            # without the protocol module. Classify ERROR (NOT UNKNOWN);
+            # downstream branches keep the queue item in place if the
+            # script is not yet retrofitted (legacy stdout result still
+            # surfaces in result_summary).
+            if result_info["result"] in ("PASS", "FAIL"):
+                # Legacy stdout-only path: trust the regex result but flag
+                # the missing sentinel so the user can retrofit the script.
+                print(f"[runner] NOTE: no sentinel for {queue_id}; using "
+                      f"legacy stdout-derived result {result_info['result']} "
+                      f"(retrofit experiment_protocol.emit_outcome to silence)",
+                      flush=True)
+            else:
+                # No sentinel and no PASS/FAIL on stdout -> ERROR.
+                result_info["result"] = "ERROR"
+                if exit_code != 0:
+                    result_info["result_summary"] = (
+                        f"Non-zero exit code {exit_code}; no runner sentinel "
+                        f"and no stdout verdict"
+                    )
+                else:
+                    result_info["result_summary"] = (
+                        f"No runner sentinel emitted and no PASS/FAIL on stdout "
+                        f"(exit={exit_code}; secs={round(time.monotonic() - started_at, 1)})"
+                    )
+
+        # Belt-and-braces: a true non-zero exit with no positive verdict from
+        # either source is always ERROR.
         if exit_code != 0 and result_info["result"] == "UNKNOWN":
             result_info["result"] = "ERROR"
-            result_info["result_summary"] = f"Non-zero exit code {exit_code}"
+            result_info["result_summary"] = (
+                result_info["result_summary"] or f"Non-zero exit code {exit_code}"
+            )
 
     except Exception as exc:
         result_info["result"] = "ERROR"
@@ -1475,6 +1581,43 @@ def main():
                       flush=True)
                 continue
 
+            # UNKNOWN result MUST NOT reach the success branch. Without a
+            # PASS/FAIL/ERROR classification we cannot safely remove the
+            # queue item. Release the claim, leave the entry in the queue,
+            # and surface loudly. Pre-2026-05-08 the fall-through on
+            # line 1394 let UNKNOWN reach the queue-removal block here,
+            # silently dropping V3-EXQ-433f / 537 / 538 on cloud-1.
+            if result["result"] == "UNKNOWN":
+                print(f"[runner] UNKNOWN result for {queue_id} (no sentinel and "
+                      f"no stdout verdict); leaving in queue, releasing claim. "
+                      f"actual_secs={result.get('actual_secs')}, "
+                      f"output_file={result.get('output_file')!r}",
+                      flush=True)
+                if args.auto_sync:
+                    release_claim(QUEUE_FILE, queue_id, machine)
+                completed_ids.add(queue_id)  # don't re-pick this pass
+                status["current"] = None
+                write_status(status, status_path)
+                continue
+
+            # Verify the manifest exists before declaring done. A PASS/FAIL
+            # outcome with a missing manifest is a contract violation; do
+            # not remove the queue entry. (sentinel.manifest_path was
+            # already validated for str-shape; check existence here.)
+            manifest_str = result.get("output_file") or ""
+            manifest_ok = (not manifest_str) or Path(manifest_str).is_file()
+            if not manifest_ok:
+                print(f"[runner] WARN: {queue_id} reports {result['result']} "
+                      f"but manifest {manifest_str!r} is missing on disk. "
+                      f"Leaving in queue; investigate before requeueing.",
+                      flush=True)
+                if args.auto_sync:
+                    release_claim(QUEUE_FILE, queue_id, machine)
+                completed_ids.add(queue_id)
+                status["current"] = None
+                write_status(status, status_path)
+                continue
+
             completed_entry = {
                 "queue_id": queue_id,
                 "backlog_id": item.get("backlog_id", ""),
@@ -1503,6 +1646,17 @@ def main():
             # status entry permanently (406a/429a/430a on 2026-04-18).
             if args.auto_sync and ree_assembly_path:
                 git_push_status(ree_assembly_path, status_path, queue_id)
+
+            # Push results BEFORE queue removal. Otherwise a Hetzner-style
+            # mid-pass shutdown between queue-push and end-of-pass results-push
+            # strands the manifest on the dying VM (the V3-EXQ-483b SIGTERM
+            # signature on 2026-05-08). Same invariant as status above.
+            if args.auto_sync and ree_assembly_path and result.get("output_file"):
+                try:
+                    git_push_results(ree_assembly_path, [result["output_file"]])
+                except Exception as _re:
+                    print(f"[runner] warn: per-experiment results push "
+                          f"failed for {queue_id}: {_re}", flush=True)
 
             # Remove completed item from queue file -- runner_status.json is the
             # authoritative record of what has run; queue file should only contain
