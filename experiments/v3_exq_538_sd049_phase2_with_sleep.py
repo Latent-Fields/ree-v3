@@ -1,6 +1,42 @@
 #!/opt/local/bin/python3
 """V3-EXQ-538 -- SD-049 Phase 2 reef behavioural validation, sleep-on ablation.
 
+----------------------------------------------------------------------
+HOLD STATUS (2026-05-08): DO NOT REQUEUE WITHOUT CHECKING THIS LIST.
+----------------------------------------------------------------------
+First attempt 2026-05-08T12:54Z: SIGTERM exit -15 on ree-cloud-1 (24 min in,
+no manifest landed). NOT a script bug -- cloud VM killed under it. The
+sentinel-file conformance contract that landed 2026-05-08T13:35Z addresses
+the silent-drop pattern, but the substrate-level hold below is the binding
+gate.
+
+Held pending (per Friday PM governance cycle 2026-05-08T17:03Z):
+  [ ] Tier-1: V3-EXQ-530b (ARC-016 under StepHarness) lands and clears.
+        State 2026-05-08: ran 2026-05-07T21:42Z, classified UNKNOWN (Outcome
+        FAIL); needs review under StepHarness post-Q-042 contracts.
+  [ ] Tier-1: V3-EXQ-514g (SD-049 wider seed sweep under StepHarness)
+        authored, queued, and PASSed.
+        State 2026-05-08: NOT YET QUEUED. Awaiting /queue-experiment hand-off
+        per the Tier-1 retest plan.
+  [ ] MECH-307 substrate validated.
+        State 2026-05-08: V3-EXQ-539 commit-gating ran today and FAILed
+        (substrate fires -- ARM_ON liking=2711, z_beta_exc=0.157, harm
+        surprise centers=232 -- but commit-chain stays inert). MECH-307
+        alone does not unblock the SD-049 cohort.
+  [ ] Sleep-substrate audit complete.
+        State 2026-05-08: approved as next concrete step in Friday governance;
+        pre-requisite to staking SD-017 as load-bearing for SD-049 evidence
+        acceptance per this experiment's own PASS reading.
+
+When all four boxes are checked: this experiment becomes the canonical
+Tier-3 follow-on for the 514f cohort (post-MECH-307 + post-sleep-audit).
+Re-evaluate claim_ids and acceptance criteria at requeue time -- the
+substrate state will likely have moved.
+
+Provenance: marked discussed in review_tracker.json
+2026-05-08T17:30Z under session diagnose-errors-244a-538-433f.
+----------------------------------------------------------------------
+
 Supersedes test of: V3-EXQ-514f (FAIL 2026-05-08T04:32Z, C1b classifier_converges
 False, C2b probe_acc_neighborhood < 0.6 across all reef arms).
 
