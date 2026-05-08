@@ -1760,6 +1760,43 @@ class REEConfig:
     # seeded; nothing to be congruent with).
     mech295_min_z_goal_norm_to_fire: float = 0.05
 
+    # MECH-307 Anticipatory Affect Conjunction Architecture (registered 2026-05-08).
+    # Four-gap substrate fix that makes excitement and dread emerge as derived
+    # conjunction-states from the existing 4 valence channels rather than adding
+    # new channels. All flags default False for bit-identical backward
+    # compatibility with the pre-2026-05-08 substrate.
+    #
+    # Gap 1: signed VALENCE_SURPRISE write. The existing MECH-205 path stores
+    #   only |PE| (max(0, pe_mag - pe_ema)). Biology stores signed RPE; harm-
+    #   paired surprise (negative PE) and benefit/novel-cue surprise (positive
+    #   PE) get collapsed identically into the residue field. With this flag,
+    #   the write site stores -surprise when concurrent harm_signal < 0 and
+    #   +surprise otherwise -- consumers reading sign get differential
+    #   information, consumers reading magnitude get current behaviour.
+    use_mech307_signed_pe: bool = False
+    # Gap 2 + Gap 3: MECH-216 schema readout writes to multiple channels. The
+    #   existing path writes to VALENCE_WANTING only. With this flag, MECH-216
+    #   ALSO writes proportional anticipatory VALENCE_LIKING and adds a
+    #   salience-proportional pulse to z_beta (arousal). This implements the
+    #   anatomical convergence at NAcc-anticipation that biology shows: cue-
+    #   stage activation drives wanting + partial hedonic + ANS arousal jointly,
+    #   not in isolation.
+    use_mech307_schema_multichannel: bool = False
+    # Gap 4: MECH-216 writes at predicted z_world (e1_prior), not at current
+    #   z_world. With this flag, the schema-readout write target is the E1
+    #   forward prediction cached during _e1_tick, falling back to current
+    #   z_world if no cached prediction is available. This mirrors hippocampal
+    #   place-cell preplay marking the predicted goal location, not the agent's
+    #   current location.
+    use_mech307_predicted_location_write: bool = False
+    # Gain knobs (active only when the corresponding flag is True).
+    # Multiplier on schema_salience x drive_level for the anticipatory
+    # VALENCE_LIKING write under Gap 2.
+    mech307_anticipatory_liking_gain: float = 0.5
+    # Multiplier converting schema_salience into the z_beta arousal pulse
+    # under Gap 2/3. Pulse is added to z_beta[..., 0] in-place.
+    mech307_z_beta_schema_gain: float = 0.3
+
     @classmethod
     def from_dims(
         cls,

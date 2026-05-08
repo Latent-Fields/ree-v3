@@ -45,7 +45,18 @@
       "machine_affinity": "any",
       "estimated_minutes": 90,
       "supersedes": "V3-EXQ-141",
-      "notes": "Retests MECH-111 on the post-2026-04-15 commit-chain-corrected substrate (BreathOscillator + _committed_step_idx + Q-042 running_variance fixes all landed since EXQ-141 ran 2026-03-29). Tests whether the original FAIL/weakens verdict was a substrate-confounded artifact (clear PASS or partial-PASS = reclassify 141 as substrate-confounded; MECH-111 remains live) or a genuine architectural falsification (still FAILs = MECH-307 conjunction-fix substrate becomes the next architectural lever). 3 seeds [42,43,44] x 2 conditions (NOVELTY_DRIVE_ON vs NOVELTY_DRIVE_ABLATED) x 200 warmup + 50 eval episodes. NOTE: does not yet test MECH-307 conjunction architecture (signed VALENCE_SURPRISE etc.); MECH-307 fixes not yet implemented. FLAG: same cloud-1 silent-fail risk as 537a; consider macbook affinity if cloud-1 is the only available machine. Lit anchor: targeted_review_excitement_5th_valence_channel/ + MECH-111 evidence_quality_note."
+      "notes": "Retests MECH-111 on the post-2026-04-15 commit-chain-corrected substrate (BreathOscillator + _committed_step_idx + Q-042 running_variance fixes all landed since EXQ-141 ran 2026-03-29). Tests whether the original FAIL/weakens verdict was a substrate-confounded artifact (clear PASS or partial-PASS = reclassify 141 as substrate-confounded; MECH-111 remains live) or a genuine architectural falsification (still FAILs = MECH-307 conjunction-fix substrate becomes the next architectural lever). 3 seeds [42,43,44] x 2 conditions (NOVELTY_DRIVE_ON vs NOVELTY_DRIVE_ABLATED) x 200 warmup + 50 eval episodes. NOTE: does not yet test MECH-307 conjunction architecture (signed VALENCE_SURPRISE etc.); MECH-307 fixes are now implemented behind use_mech307_* flags (default OFF) but 141b inherits OFF defaults so this remains a clean commit-chain-only retest. FLAG: same cloud-1 silent-fail risk as 537a; consider macbook affinity if cloud-1 is the only available machine. Lit anchor: targeted_review_excitement_5th_valence_channel/ + MECH-111 evidence_quality_note."
+    },
+    {
+      "queue_id": "V3-EXQ-539",
+      "experiment_type": "v3_exq_539_mech307_commit_gating_check",
+      "script": "experiments/v3_exq_539_mech307_commit_gating_check.py",
+      "title": "MECH-307 anticipatory affect conjunction commit-gating discriminative ablation",
+      "status": "pending",
+      "priority": 5,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "notes": "2 arms x 3 seeds discriminative ablation paired to EXQ-536b's 'downstream chain inert even with active z_goal' finding. ARM_OFF (all use_mech307_* flags False, replicates 536b inert pattern) vs ARM_ON (all four flags True: signed VALENCE_SURPRISE + MECH-216 multi-channel write + z_beta arousal pulse + write-at-predicted-z_world). Pre-registered acceptance: C1 ARM_ON anticipatory VALENCE_LIKING writes >= 1/seed (ARM_OFF == 0); C2 ARM_ON z_beta excursion >= 0.05 (ARM_OFF == 0); C3 ARM_ON has >= 1 RBF center with negative VALENCE_SURPRISE (Gap 1 signature; ARM_OFF == 0); C4 ARM_ON MECH-216 writes at e1_prior >= 1/seed; C5 ARM_ON approach_commit_rate - ARM_OFF >= 0.10 across at least 2/3 seeds. PASS = MECH-307 conjunction architecture validated; PARTIAL PASS (C1-C4 only) routes to SD-014 6-channel amendment as fallback. 199/199 contracts PASS including 7 new MECH-307 contract tests (test_mech307_conjunction_contract.py). Dry-run confirmed all four substrate-readiness gates fire as designed. Priority 5: below 537a/141b's 8 so they run first; their results provide context but do not gate this experiment."
     }
   ]
 }

@@ -966,6 +966,12 @@ class REEAgent(nn.Module):
         # MECH-216: cached schema salience from E1 readout head
         self._schema_salience: Optional[torch.Tensor] = None
 
+        # MECH-307 Gap 4: cached E1 forward prediction (z_world predicted) used
+        # as write target for schema-readout VALENCE_WANTING / LIKING writes
+        # when use_mech307_predicted_location_write=True. Set in _e1_tick after
+        # e1_prior is computed; falls back to current z_world when None.
+        self._cached_e1_prior: Optional[torch.Tensor] = None
+
         # MECH-205: surprise-gated replay PE tracking
         self._pe_ema: float = 0.0  # EMA of prediction error magnitude
         self._pe_ema_alpha: float = config.pe_ema_alpha  # from config (default 0.02)
@@ -1068,6 +1074,8 @@ class REEAgent(nn.Module):
         self.beta_gate.reset()
         self.serotonin.reset()
         self._pe_ema = 0.0
+        # MECH-307 Gap 4: clear cached E1 prior on episode boundary.
+        self._cached_e1_prior = None
         # SD-019a: reset harm_unpleasantness EMA on episode boundary.
         self._harm_un_ema = None
         # SD-032b: clear dACC state + previous-step harm_a cache.
@@ -2026,6 +2034,12 @@ class REEAgent(nn.Module):
         # MECH-216: cache schema salience from E1 readout head.
         schema_sal = self.e1.get_schema_salience()
         self._schema_salience = schema_sal.detach() if schema_sal is not None else None
+
+        # MECH-307 Gap 4: cache the E1 forward prediction so that
+        # update_schema_wanting can write at the predicted z_world location
+        # rather than the agent's current z_world. Detached so the schema-
+        # readout write site does not propagate gradients into E1.
+        self._cached_e1_prior = e1_prior.detach() if e1_prior is not None else None
 
         # SD-016 (MECH-150/151/152): frontal cue-indexed integration.
         # Extract action_bias and terrain_weight from z_world-only ContextMemory query.
@@ -3077,8 +3091,20 @@ class REEAgent(nn.Module):
                     surprise = max(0.0, pe_mag - self._pe_ema)
                     # Gate: only write genuine surprises above threshold
                     if surprise > self.config.pe_surprise_threshold:
+                        # MECH-307 Gap 1: signed VALENCE_SURPRISE write. Sign is
+                        # derived from concurrent harm signal -- harm-paired
+                        # surprise gets stored as negative (dread-correlate),
+                        # non-harm surprise as positive (excitement-correlate).
+                        # Backward compat: when the flag is False, store the
+                        # unsigned magnitude as before so consumers reading
+                        # |VALENCE_SURPRISE| are bit-identical.
+                        if getattr(self.config, "use_mech307_signed_pe", False):
+                            signed_surprise = -surprise if harm_signal < 0 else surprise
+                        else:
+                            signed_surprise = surprise
                         self.residue_field.update_valence(
-                            z_world, VALENCE_SURPRISE, surprise, hypothesis_tag=False
+                            z_world, VALENCE_SURPRISE, signed_surprise,
+                            hypothesis_tag=False,
                         )
                         self._surprise_write_count += 1
                     metrics["mech205_pe_mag"] = pe_mag
@@ -3738,6 +3764,16 @@ class REEAgent(nn.Module):
 
         Zhang/Berridge: W_m = kappa (drive_level) x V_hat (schema_salience).
         Only writes when schema_salience >= threshold and schema_wanting is enabled.
+
+        MECH-307 amendments (registered 2026-05-08, all default OFF):
+          Gap 2: when use_mech307_schema_multichannel=True, also writes
+            anticipatory VALENCE_LIKING and pulses z_beta arousal. This
+            implements the cue-stage NAcc-anticipation conjunction biology
+            shows is dissociable from VALENCE_WANTING amplitude alone.
+          Gap 4: when use_mech307_predicted_location_write=True, the write
+            target is the cached E1 forward prediction (self._cached_e1_prior)
+            rather than the agent's current z_world. This mirrors hippocampal
+            place-cell preplay marking the predicted goal location.
         """
         if self._schema_salience is None or self._current_latent is None:
             return
@@ -3749,12 +3785,59 @@ class REEAgent(nn.Module):
             return
         gain = getattr(self.config, 'schema_wanting_gain', 0.5)
         wanting_value = sal_val * gain * max(drive_level, 0.1)
-        z_world = self._current_latent.z_world
+
+        # MECH-307 Gap 4: write target is e1_prior (predicted z_world) when the
+        # flag is set and a cached prediction exists; otherwise current z_world
+        # (legacy behaviour, bit-identical when flag is False).
+        if (
+            getattr(self.config, "use_mech307_predicted_location_write", False)
+            and self._cached_e1_prior is not None
+        ):
+            write_target = self._cached_e1_prior
+        else:
+            write_target = self._current_latent.z_world
+
         if hasattr(self.residue_field, 'update_valence'):
             self.residue_field.update_valence(
-                z_world, component=VALENCE_WANTING,
+                write_target, component=VALENCE_WANTING,
                 value=wanting_value, hypothesis_tag=False,
             )
+
+        # MECH-307 Gap 2 + Gap 3: multi-channel schema readout. Adds an
+        # anticipatory VALENCE_LIKING write at the same target plus a salience-
+        # proportional pulse to z_beta arousal. Bit-identical when flag is
+        # False (no extra writes, no z_beta modification).
+        if getattr(self.config, "use_mech307_schema_multichannel", False):
+            liking_gain = getattr(
+                self.config, "mech307_anticipatory_liking_gain", 0.5
+            )
+            liking_value = sal_val * liking_gain * max(drive_level, 0.1)
+            if hasattr(self.residue_field, 'update_valence'):
+                self.residue_field.update_valence(
+                    write_target, component=VALENCE_LIKING,
+                    value=liking_value, hypothesis_tag=False,
+                )
+
+            # Gap 3: z_beta arousal pulse. Adds a salience-proportional value
+            # to the first dimension of z_beta in-place. Subsequent encoder
+            # passes will integrate / decay this through the existing
+            # alpha_shared blend in LatentStack.encode (line ~1294). The
+            # pulse is small (gain * salience) so it does not overwhelm the
+            # encoder's natural z_beta dynamics; it acts as a cue-time
+            # anticipatory bump that MECH-093 reads to elevate E3 rate.
+            z_beta_gain = getattr(
+                self.config, "mech307_z_beta_schema_gain", 0.3
+            )
+            pulse_magnitude = sal_val * z_beta_gain
+            if (
+                pulse_magnitude > 0.0
+                and self._current_latent.z_beta is not None
+                and self._current_latent.z_beta.numel() > 0
+            ):
+                with torch.no_grad():
+                    self._current_latent.z_beta[..., 0] = (
+                        self._current_latent.z_beta[..., 0] + pulse_magnitude
+                    )
 
     def compute_schema_readout_loss(
         self, resource_proximity_target: float
