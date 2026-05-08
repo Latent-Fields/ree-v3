@@ -22,6 +22,30 @@
         "machine": "ree-cloud-1",
         "claimed_at": "2026-05-08T12:54:30.208547+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-537a",
+      "experiment_type": "v3_exq_537_sd029_single_pass_residual",
+      "script": "experiments/v3_exq_537_sd029_single_pass_residual.py",
+      "title": "SD-029/MECH-256 single-pass comparator residual (537 silent-fail requeue)",
+      "status": "pending",
+      "priority": 8,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "supersedes": "V3-EXQ-537",
+      "notes": "Straight requeue of V3-EXQ-537 (script reuse, same evidence/experiments dir). 537 was claimed by ree-cloud-1 at 2026-05-08T12:27:50Z, removed from queue 2 minutes later by the 'remove completed/failed items' sweep, but produced no manifest in evidence/experiments/v3_exq_537* and no entry in runner_status.json completed list -- same UNKNOWN-no-manifest failure pattern as V3-EXQ-433f and V3-EXQ-538 today (three cloud-1 silent failures 2026-05-08). FLAG: cloud-1 may drop this run silently too. Mac (DLAPTOP-4.local) is producing manifests correctly; consider repinning to macbook affinity if cloud-1 issue isn't resolved by the time this gets claimed. Cloud-runner investigation queued separately. SD-029/MECH-256 single-pass residual is the load-bearing comparator behavioural test gating ~10 V_s/anchor-cluster claims."
+    },
+    {
+      "queue_id": "V3-EXQ-141b",
+      "experiment_type": "v3_exq_141b_mech111_novelty_drive_corrected_substrate",
+      "script": "experiments/v3_exq_141b_mech111_novelty_drive_corrected_substrate.py",
+      "title": "MECH-111 novelty drive: corrected-substrate retest (paired discriminative)",
+      "status": "pending",
+      "priority": 8,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "supersedes": "V3-EXQ-141",
+      "notes": "Retests MECH-111 on the post-2026-04-15 commit-chain-corrected substrate (BreathOscillator + _committed_step_idx + Q-042 running_variance fixes all landed since EXQ-141 ran 2026-03-29). Tests whether the original FAIL/weakens verdict was a substrate-confounded artifact (clear PASS or partial-PASS = reclassify 141 as substrate-confounded; MECH-111 remains live) or a genuine architectural falsification (still FAILs = MECH-307 conjunction-fix substrate becomes the next architectural lever). 3 seeds [42,43,44] x 2 conditions (NOVELTY_DRIVE_ON vs NOVELTY_DRIVE_ABLATED) x 200 warmup + 50 eval episodes. NOTE: does not yet test MECH-307 conjunction architecture (signed VALENCE_SURPRISE etc.); MECH-307 fixes not yet implemented. FLAG: same cloud-1 silent-fail risk as 537a; consider macbook affinity if cloud-1 is the only available machine. Lit anchor: targeted_review_excitement_5th_valence_channel/ + MECH-111 evidence_quality_note."
     }
   ]
 }
