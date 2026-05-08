@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-07
+**Last updated:** 2026-05-08
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-07)
+## 0. Current V3 State (2026-05-08)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -115,9 +115,15 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **628 runner-side completions** (per `runner_status.json` 2026-05-07T01:12Z read:
-  120 PASS / 255 FAIL / 72 ERROR / 181 UNKNOWN; v3 subset still dominates the
-  post-2026-02-27 epoch; +20 vs the 2026-05-06T01:10Z nightly read covering the
+- **631 runner-side completions** (per `runner_status.json` 2026-05-08T01:11Z read:
+  120 PASS / 255 FAIL / 72 ERROR / 184 UNKNOWN; v3 subset still dominates the
+  post-2026-02-27 epoch; +3 vs the 2026-05-07T01:12Z nightly read -- a quiet day
+  on the runner side (Mac claimed V3-EXQ-535a SD-029 P1 eval-fix, ree-cloud-1
+  claimed V3-EXQ-433f, ree-cloud-2 claimed V3-EXQ-483b, plus V3-EXQ-530b
+  rename-rerun -- all three new completions surface as UNKNOWN result codes
+  pending the next governance walk; the heavy activity was in /diagnose-errors
+  + /governance + multi-sense audit + bug-fix retest queue construction, not
+  runner throughput). +20 vs the 2026-05-06T01:10Z nightly read covering the
   2026-05-06 in-flight wave: V3-EXQ-244a / 525 / 526 / 527 / 528 / 529 / 530 /
   531 / 532 / 533 / 534 / 535 + the EXQ-418k canonical run_id restoration +
   the EXQ-433/452a manifest cleanups + the Q-019 disconfirming-balance lit pull
@@ -233,9 +239,54 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   MECH-293 waking ghost-goal probe search) extends the suite further to
   **183/183 contracts + 7/7 preflight PASS** with all flags OFF, preserving
   the bit-identical-when-OFF guarantee.
-- **Currently queued (2026-05-07T01:12Z): 0 items (queue empty `items: []`).**
-  All in-flight items from the 2026-05-06T01:10Z snapshot completed through
-  the day. The 2026-05-06 wave that flowed into the queue and back out:
+- **Currently queued (2026-05-08T01:11Z): 7 items.** The queue went from
+  `items: []` at the previous nightly to a small but full slate: the
+  `bugfix-requeue-433f-483b-476c-490f-445h-514f-523b` 2026-05-07T21:30Z session
+  wrote and queued seven lettered-iteration corrected scripts fixing two
+  ree_core bugs (Bug 1 BreathOscillator disabled with breath_period=0 in all
+  prior runs; Bug 2 `_committed_step_idx` saturation at H-1=29 never resetting
+  between E3 commits in the non-bistable path); 476c also required an
+  agent.act() -> sense()/select_action() API migration. Three of the seven
+  are claimed and running (V3-EXQ-433f SD-029 reef comparator on ree-cloud-1
+  since 2026-05-07T21:39Z; V3-EXQ-483b SD-037 broadcast override 4-arm on
+  ree-cloud-2 since 2026-05-07T21:39Z; V3-EXQ-514f SD-049 Phase 2 reef
+  behavioural validation on DLAPTOP-4.local since 2026-05-08T01:04Z).
+  V3-EXQ-523b (SD-029 reef-unblocked comparator graduation test, Bug 1+2 fix)
+  is pending. Two MECH-295 follow-ons from the
+  `goal-seeding-diagnostic-followup-2026-05-07T2255Z` session are pending:
+  V3-EXQ-536a (per-step instrumentation diagnostic dispatching three candidate
+  root causes for EXQ-536's z_goal_active_fraction=0.0 -- H_a drive-collapse
+  on contact, H_b benefit threshold never crossed, H_c update fires but
+  z_goal does not grow) and V3-EXQ-536b (z_goal_inject force-arm bypassing
+  persistent-state seeding via MECH-188 hook to isolate upstream-vs-downstream
+  blocker). V3-EXQ-537 (SD-029/MECH-256 single-pass comparator residual)
+  is pending and supersedes V3-EXQ-535a after the
+  `triage-7-weighting-multi-sense-2026-05-08T0015Z` audit reclassified
+  EXQ-535a non_contributory for both SD-029 and MECH-256 (the script
+  computes a two-pass cf_gap, not the single-pass residual the SD-029 /
+  MECH-256 spec requires). 2026-05-07 morning preceded all of this with the
+  `register-threshold-supervisor-2026-05-07T2225Z` session registering Q-041
+  (unified meta-level threshold supervisor research direction; default-toward-Q
+  approach with EXP-0170 exploratory probe gated on V_s-monostrategy substrate
+  clearing) and the `fix-update-z-goal-bug-2026-05-07T2330Z` /
+  `fix-update-z-goal-bug-phase0-2026-05-07T2335Z` two-step substrate +
+  manifest-supersession pass that landed `ree-v3/experiments/_harness.py`
+  StepHarness (canonical sense/update_z_goal/update_residue sequence;
+  kwargs-only call shape; no bare-except wrappers) + `_metrics.py` canonical
+  extractors, marked 4 manifests superseded (483b/490c/490b/483a) and 7
+  trace-only across the update_z_goal positional/kwarg TypeError + bare-except
+  silent-swallow cohort, and added evidence_quality_note to 8 affected claims
+  (Q-040, MECH-269b, MECH-295, SD-037, MECH-280, MECH-281, SD-036, MECH-279).
+
+  Pending review queue regenerated 2026-05-08T00:43Z is **0 items** -- the
+  active 2026-05-06T21:56Z governance cycle finished walking the 32-item
+  accumulation overnight (decisions land downstream of this nightly; the
+  cycle's claim entry lists `status: "done"` per WORKSPACE_STATE.md
+  Recent Work; the multi-sense audit on top of that cleared an additional 7
+  weighting scripts via supersede-only / supersede+requeue / quality_note).
+
+  Historical-context (2026-05-07T01:12Z snapshot): the queue was empty;
+  pending_review was at **32 items**. The 2026-05-06 wave that flowed into the queue and back out:
   V3-EXQ-244a (MECH-165 replay diversity, ERROR -- SIGTERM cloud kill),
   V3-EXQ-525 (SD-003 attribution anchor, FAIL then PASS on a re-run),
   V3-EXQ-526 (Q-034 reef threshold sweep, FAIL),
@@ -443,6 +494,24 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   ladder, plus several FAILs that point recovery effort at SD-005 / SD-015 /
   Q-034 / MECH-112 / MECH-098 specifically; final accounting waits on the
   walk.
+
+- **Current bottleneck (2026-05-08):** the **bug-fix retest cohort + MECH-295
+  goal-seeding diagnostic** is the immediate gate. Three reef-superseding
+  bug-fix retests (V3-EXQ-433f / 483b / 514f) are running concurrently
+  across Mac / ree-cloud-1 / ree-cloud-2; whether the BreathOscillator +
+  saturating-step-idx fix recovers behavioural acceptance under SD-029 /
+  SD-037 / SD-049 Phase 2 is the live question. Underneath that, the
+  EXQ-536 z_goal_active_fraction=0.0 finding ("goal seeding is
+  upstream-blocked OR commit chain is inert even with seeded z_goal") is
+  the load-bearing diagnostic queued ahead -- V3-EXQ-536a / 536b will
+  dispatch root cause as soon as a runner picks them up. The
+  V3-EXQ-535a SD-029 P3 eval-fix attempt was reclassified non_contributory
+  in the 2026-05-08T00:15Z multi-sense audit (computes two-pass cf_gap,
+  not the single-pass residual the SD-029 / MECH-256 spec requires);
+  V3-EXQ-537 single-pass-residual successor is queued. The pending_review
+  queue closed at 0 items going into the next governance cycle. The
+  monostrategy / reef-recovery thread remains the dominant underlying
+  scientific bottleneck.
 
   **Historical 2026-05-06 narrative:** **monostrategy** was the dominant active
   blocker across the SD-029 / SD-032b / SD-032c / SD-049-Phase-2 / Q-034 /
