@@ -28,12 +28,16 @@
       "experiment_type": "v3_exq_523b_sd029_reef_comparator",
       "script": "experiments/v3_exq_523b_sd029_reef_comparator.py",
       "title": "SD-029 reef-unblocked comparator graduation test (Bug 1+2 fix)",
-      "status": "pending",
+      "status": "claimed",
       "priority": 5,
       "machine_affinity": "any",
       "estimated_minutes": 60,
       "supersedes": "V3-EXQ-523a",
-      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0), Bug 2 _committed_step_idx saturation in non-bistable path."
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0), Bug 2 _committed_step_idx saturation in non-bistable path.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-08T04:32:49.772473+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-536a",
