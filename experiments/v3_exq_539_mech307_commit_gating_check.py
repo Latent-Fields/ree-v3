@@ -109,6 +109,7 @@ from ree_core.utils.config import REEConfig  # noqa: E402
 from ree_core.residue.field import (  # noqa: E402
     VALENCE_WANTING, VALENCE_LIKING, VALENCE_SURPRISE,
 )
+from experiment_protocol import emit_outcome  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_539_mech307_commit_gating_check"
@@ -441,7 +442,7 @@ def _evaluate_acceptance(agg: Dict[str, Dict]) -> Dict:
     }
 
 
-def main(dry_run: bool = False) -> int:
+def main(dry_run: bool = False):
     print(f"[{EXPERIMENT_TYPE}] starting (dry_run={dry_run})")
     seeds = (SEEDS[0],) if dry_run else SEEDS
     n_warmup = 4 if dry_run else P0_EPISODES
@@ -561,12 +562,20 @@ def main(dry_run: bool = False) -> int:
     out_path = out_dir / f"{run_id}.json"
     with open(out_path, "w") as f:
         json.dump(manifest, f, indent=2)
-    print(f"Result written to: {out_path}")
-    return 0
+    print(f"Result written to: {out_path}", flush=True)
+    return outcome, out_path
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="Smoke run, no manifest.")
     args = parser.parse_args()
-    sys.exit(main(dry_run=args.dry_run))
+    result = main(dry_run=args.dry_run)
+    if args.dry_run or result == 0:
+        sys.exit(0)
+    _outcome, _out_path = result
+    emit_outcome(
+        outcome=_outcome if _outcome in ("PASS", "FAIL") else "FAIL",
+        manifest_path=_out_path,
+    )
+    sys.exit(0)
