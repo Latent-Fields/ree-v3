@@ -788,6 +788,21 @@ def _resolve_signal_dir(ree_assembly_path: Path | None) -> Path | None:
     return d
 
 
+def _build_subprocess_env(queue_id: str, signal_dir: Path | None) -> dict:
+    """Build the env dict for an experiment subprocess.
+
+    Both REE_QUEUE_ID and REE_RUNNER_SIGNAL_DIR are ALWAYS written -- with
+    empty-string fallbacks -- so the child never inherits a stale value
+    from the runner's own shell env. A stale REE_QUEUE_ID would route the
+    sentinel emit_outcome() writes to the wrong file under the wrong
+    signal dir, masking real-run sentinels with phantom ones.
+    """
+    env = os.environ.copy()
+    env["REE_QUEUE_ID"] = queue_id or ""
+    env["REE_RUNNER_SIGNAL_DIR"] = str(signal_dir) if signal_dir is not None else ""
+    return env
+
+
 def _read_sentinel(signal_dir: Path | None, queue_id: str) -> dict | None:
     """Read <signal_dir>/<queue_id>.json. Return parsed dict or None."""
     if signal_dir is None or not queue_id:
@@ -925,11 +940,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     }
 
     try:
-        env = os.environ.copy()
-        if queue_id:
-            env["REE_QUEUE_ID"] = queue_id
-        if signal_dir is not None:
-            env["REE_RUNNER_SIGNAL_DIR"] = str(signal_dir)
+        env = _build_subprocess_env(queue_id, signal_dir)
         proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
