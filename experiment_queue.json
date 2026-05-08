@@ -42,25 +42,6 @@
       "seeds": 3,
       "conditions": 3,
       "note": "Phase 1 follow-on after V3-EXQ-539 PARTIAL-PASS (substrate counters C1-C4 PASS, behavioural C5 FAIL because legacy MECH-295 cue path does not read the conjunction signal). 3-arm gap decomposition: ARM_0_off / ARM_1_signed_pe (Gap 1 only) / ARM_2_full (all 4 gaps). MECH-295 bridge extended with Path B compute_conjunction_score_bias() that reads VALENCE_WANTING + VALENCE_LIKING + signed VALENCE_SURPRISE + z_beta arousal at each candidate's predicted-imminent location and applies an additional approach bias when the four-way conjunction holds. Bridge consumer-conjunction-read flag ON in ALL arms so ARM_2 has the downstream consumer that EXQ-539 lacked. ARM_3 (SD-014 6-channel fallback) DEFERRED -- if this experiment PARTIAL-PASSes (C1+C2 only), ARM_3 becomes the natural follow-on. Acceptance: C1 substrate-readiness counter dissociation (Gap 1 isolates in ARM_1, all four fire only in ARM_2), C2 conjunction-read fires in ARM_2 only with per-seed-mean rate >= 0.10, C3 approach_commit_rate ARM_2 >= ARM_0 + 0.10 in 2/3 seeds AND ARM_2 > ARM_1. Smoke 2026-05-08 PASSes C1 dissociation in dry-run; C2/C3 cannot exercise in dry-run (6 episodes -> 0 contacts -> goal never seeded -> conjunction read skipped). Anchor doc: REE_assembly/docs/architecture/anticipatory_affect_conjunction_vs_dual_channel.md."
-    },
-    {
-      "queue_id": "V3-EXQ-541",
-      "title": "MECH-204 precision recalibration consumer (Phase 1 validation)",
-      "experiment_type": "v3_exq_541_mech204_precision_recalibration_consumer",
-      "script": "experiments/v3_exq_541_mech204_precision_recalibration_consumer.py",
-      "claim_id": "MECH-204",
-      "priority": 4,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 25,
-      "episodes_per_run": 8,
-      "seeds": 3,
-      "conditions": 2,
-      "note": "Sleep-substrate plan Phase 1 (REE_assembly/evidence/planning/sleep_substrate_plan.md GAP-1) validation of the WRITEBACK-phase MECH-204 precision recalibration consumer. ARM_0 = use_rem_precision_recalibration=False (baseline, bit-identical to legacy WRITEBACK); ARM_1 = use_rem_precision_recalibration=True with rem_precision_recalibration_step=0.1 (Option A linear interpolation on E3._running_variance toward 1.0/precision_at_rem_entry). Hazard-heavy / resource-thin CausalGridWorldV2 (num_hazards=6, num_resources=2, env_drift_prob=0.5) drives sustained PE variance between sleep cycles; sleep_loop K=2 fires 4 cycles per 8-episode run. Acceptance: C1 substrate-readiness (mech204_recalibration_fired=1.0 every cycle in >=2/3 ARM_1 seeds), C2 movement-direction consistency (sign(rv_after-rv_before) matches sign(target_variance-rv) on cycles 2..N AND mean_abs_delta >= 1e-3), C3 cross-arm divergence (mean post-cycle rv differs by >= 5%). First-cycle no-op behaviour expected (target == rv_at_rem_entry by construction); meaningful movement measured on cycles 2..N. Contract suite landed 2026-05-08: 9/9 MECH-204 contracts + 237/237 preflight + contracts PASS with flag OFF (bit-identical) and ON (wiring fires). Companion proposal EXP-MECH204-STEP-SWEEP queued in experiment_proposals.v1.json for tuning rem_precision_recalibration_step post-PASS.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-08T23:40:49.971817+00:00"
-      }
     }
   ]
 }
