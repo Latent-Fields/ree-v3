@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-530c",
-      "title": "ARC-016 precision_commit retest under StepHarness (Tier-1 slam-dunk)",
-      "experiment_type": "v3_exq_530c_arc016_precision_commit_stepharness",
-      "script": "experiments/v3_exq_530c_arc016_precision_commit_stepharness.py",
-      "claim_id": "ARC-016",
-      "supersedes": "V3-EXQ-530b",
-      "priority": 9,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "episodes_per_run": 30,
-      "seeds": 3,
-      "conditions": 2,
-      "note": "Tier-1 StepHarness retest. V3-EXQ-530b ran rv-pinned (update_residue never called) and was reclassified non_contributory 2026-05-07T23:12Z. StepHarness invariant 3 + Q-042 regression contract guarantee rv is live. Acceptance gate C0 fails fast if substrate is not live.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-08T17:23:55.349946+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-514g",
       "title": "SD-049 BG gating wider-seed sweep under StepHarness (Tier-1 diagnostic)",
       "experiment_type": "v3_exq_514g_sd049_bg_gating_wider_seeds_stepharness",
