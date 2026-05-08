@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-514g",
-      "title": "SD-049 BG gating wider-seed sweep under StepHarness (Tier-1 diagnostic)",
-      "experiment_type": "v3_exq_514g_sd049_bg_gating_wider_seeds_stepharness",
-      "script": "experiments/v3_exq_514g_sd049_bg_gating_wider_seeds_stepharness.py",
-      "supersedes": "V3-EXQ-514d",
-      "priority": 9,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 200,
-      "episodes_per_run": 90,
-      "seeds": 6,
-      "conditions": 1,
-      "note": "Tier-1 StepHarness retest. EXQ-514d (seeds [42,43,44]) showed ever_committed only on seed 44 -- rv was pinned, so the BG gate had no live commit-threshold signal. Wider seed sweep [42-47] under StepHarness clearly distinguishes monomodal-seed-44 from gate-functional-across-seeds. experiment_purpose=diagnostic.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-08T17:53:08.739786+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-141c",
       "title": "MECH-111 novelty drive: measurement-validity fix (raised novelty_bonus_weight, fixed nav_bias one-hot, C0 divergence sanity check)",
       "experiment_type": "v3_exq_141c_mech111_novelty_drive_measurement_fix",
