@@ -35,12 +35,16 @@
       "supersedes": "V3-EXQ-514d",
       "priority": 9,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "episodes_per_run": 90,
       "seeds": 6,
       "conditions": 1,
-      "note": "Tier-1 StepHarness retest. EXQ-514d (seeds [42,43,44]) showed ever_committed only on seed 44 -- rv was pinned, so the BG gate had no live commit-threshold signal. Wider seed sweep [42-47] under StepHarness clearly distinguishes monomodal-seed-44 from gate-functional-across-seeds. experiment_purpose=diagnostic."
+      "note": "Tier-1 StepHarness retest. EXQ-514d (seeds [42,43,44]) showed ever_committed only on seed 44 -- rv was pinned, so the BG gate had no live commit-threshold signal. Wider seed sweep [42-47] under StepHarness clearly distinguishes monomodal-seed-44 from gate-functional-across-seeds. experiment_purpose=diagnostic.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-08T17:53:08.739786+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-537b",
