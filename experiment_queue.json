@@ -44,12 +44,16 @@
       "experiment_type": "v3_exq_514f_sd049_phase_2_reef_behavioural_validation",
       "script": "experiments/v3_exq_514f_sd049_phase_2_reef_behavioural_validation.py",
       "title": "SD-049 Phase 2 reef behavioural validation (Bug 1+2 fix)",
-      "status": "pending",
+      "status": "claimed",
       "priority": 5,
       "machine_affinity": "any",
       "estimated_minutes": 100,
       "supersedes": "V3-EXQ-514c",
-      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0), Bug 2 _committed_step_idx saturation in non-bistable path."
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0), Bug 2 _committed_step_idx saturation in non-bistable path.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-08T01:04:55.622693+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-523b",
