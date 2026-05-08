@@ -28,12 +28,16 @@
       "experiment_type": "v3_exq_538_sd049_phase2_with_sleep",
       "script": "experiments/v3_exq_538_sd049_phase2_with_sleep.py",
       "title": "SD-049 Phase 2 reef behavioural validation, sleep-on ablation (paired to 514f)",
-      "status": "pending",
+      "status": "claimed",
       "priority": 8,
       "machine_affinity": "any",
       "estimated_minutes": 220,
       "supersedes_diagnostic": "V3-EXQ-514f",
-      "notes": "Sleep-on ablation paired to V3-EXQ-514f (FAIL 2026-05-08T04:32Z: classifier diverges + probe_acc_neighborhood<=0.564 across all reef arms). 3 arms x 3 seeds: ARM_0_off (sleep OFF, replicates 514f baseline), ARM_1_sd017_only (manual run_sleep_cycle between episodes), ARM_2_phase_a (use_sleep_loop=True K=3). Tests whether SD-017 SWS+REM consolidation recovers SD-049 / SD-015 identity discrimination. Lit anchor: Lansink 2009 SWR replay + Stickgold 2013 + Walker 2017 REM generalisation. Substrate landed 2026-04-25 (Sleep Phases A-E) but no waking evidence-class experiment has used it. Dry-run PASS: ARM_1 sws=24/rem=24, ARM_2 sws=4/rem=4, ARM_0 zero (semantic check confirmed). Priority 8: below EXQ-537 (priority 10) so 537 runs first. Queued 2026-05-08T04:58Z; do not run until user confirms scope."
+      "notes": "Sleep-on ablation paired to V3-EXQ-514f (FAIL 2026-05-08T04:32Z: classifier diverges + probe_acc_neighborhood<=0.564 across all reef arms). 3 arms x 3 seeds: ARM_0_off (sleep OFF, replicates 514f baseline), ARM_1_sd017_only (manual run_sleep_cycle between episodes), ARM_2_phase_a (use_sleep_loop=True K=3). Tests whether SD-017 SWS+REM consolidation recovers SD-049 / SD-015 identity discrimination. Lit anchor: Lansink 2009 SWR replay + Stickgold 2013 + Walker 2017 REM generalisation. Substrate landed 2026-04-25 (Sleep Phases A-E) but no waking evidence-class experiment has used it. Dry-run PASS: ARM_1 sws=24/rem=24, ARM_2 sws=4/rem=4, ARM_0 zero (semantic check confirmed). Priority 8: below EXQ-537 (priority 10) so 537 runs first. Queued 2026-05-08T04:58Z; do not run until user confirms scope.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-08T12:29:57.107084+00:00"
+      }
     }
   ]
 }
