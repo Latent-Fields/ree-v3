@@ -153,13 +153,21 @@ def write_heartbeat(
 
 
 def _active_claim_on_evidence_dir(ree_assembly_path: Path) -> bool:
-    """Return True if TASK_CLAIMS.json has an active claim covering evidence/experiments/.
+    """Return True if TASK_CLAIMS.json has an active claim covering any
+    REE_assembly/evidence/ subdirectory (experiments/, planning/, literature/,
+    or any future evidence sibling).
 
     Used by push_heartbeat / push_commands to skip the per-minute pull-rebase-
     autostash dance whenever a Claude session is mid-edit on evidence files.
     The autostash mechanism is mostly safe but can lose uncommitted edits in
     rare interleavings (e.g. autostash-pop conflict that the loop then talks
     over with subsequent commits). Best-effort -- returns False on any error.
+
+    Scope was originally just 'evidence/experiments/' (added 2026-05-01 after
+    the EXQ-232 ARC-026 supersession revert incident); broadened 2026-05-08
+    to the 'evidence/' prefix after the same signature reappeared on an
+    evidence/planning/substrate_queue.json edit. The autostash mechanism is
+    not specific to experiments/, so the guard should not be either.
     """
     try:
         claims_path = ree_assembly_path.parent / "TASK_CLAIMS.json"
@@ -170,7 +178,7 @@ def _active_claim_on_evidence_dir(ree_assembly_path: Path) -> bool:
             if entry.get("status") != "active":
                 continue
             for res in entry.get("resources", []):
-                if "evidence/experiments/" in res:
+                if "evidence/" in res:
                     return True
         return False
     except Exception:
@@ -183,11 +191,11 @@ def push_heartbeat(ree_assembly_path: Path, path: Path) -> None:
     Used when --auto-sync is on. Failure (e.g. concurrent push) is logged but
     does not interrupt the runner -- the next tick will rewrite + retry.
 
-    If an active TASK_CLAIMS entry covers evidence/experiments/, the entire
-    push is skipped for this tick to avoid disturbing concurrent Claude
-    sessions' uncommitted edits via the pull-rebase-autostash interaction.
-    Heartbeats are best-effort and resume on the next tick once the claim
-    closes.
+    If an active TASK_CLAIMS entry covers any REE_assembly/evidence/ subdir,
+    the entire push is skipped for this tick to avoid disturbing concurrent
+    Claude sessions' uncommitted edits via the pull-rebase-autostash
+    interaction. Heartbeats are best-effort and resume on the next tick once
+    the claim closes.
     """
     if not path or not path.exists():
         return
@@ -290,8 +298,8 @@ def push_commands(ree_assembly_path: Path, path: Path, label: str = "commands") 
     """Stage + commit + push a commands file (best-effort, never raises).
 
     Same active-TASK_CLAIMS protection as push_heartbeat -- skip the entire
-    push if a Claude session is mid-edit on evidence/experiments/, to avoid
-    autostash interactions destabilising uncommitted edits.
+    push if a Claude session is mid-edit on any REE_assembly/evidence/
+    subdir, to avoid autostash interactions destabilising uncommitted edits.
     """
     if not path or not path.exists():
         return
