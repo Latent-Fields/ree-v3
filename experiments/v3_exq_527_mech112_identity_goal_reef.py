@@ -9,7 +9,7 @@ produce genuine goal-directed behavior (GOAL_PRESENT beats GOAL_ABSENT) in a
 multi-resource reef environment that breaks monostrategy?
 
 Fresh angle over EXQ-189:
-  1. Reef substrate (SD-050): breaks fixed-route monostrategy via two behavioral
+  1. Reef substrate (SD-054): breaks fixed-route monostrategy via two behavioral
      attractors (flee-to-reef vs. forage), giving the goal system a non-trivial
      strategy space to influence.
   2. Identity-aware z_resource encoder (SD-049 Phase 2): identity_classifier head
@@ -111,7 +111,7 @@ def _make_env(seed: int) -> CausalGridWorldV2:
         energy_decay=0.005,
         env_drift_interval=999,
         env_drift_prob=0.0,
-        # SD-050 reef substrate
+        # SD-054 reef substrate
         reef_enabled=True,
         n_reef_patches=3,
         reef_patch_radius=2,

@@ -2,7 +2,7 @@
 """V3-EXQ-523: SD-029 Reef-Unblocked Comparator -- Self vs Externally-Caused Harm
 
 Predecessor: V3-EXQ-522 (reef monostrategy break PASS). That experiment confirmed
-the SD-050 reef substrate creates behavioral diversity (ARM_1 zone_transitions/ep~49).
+the SD-054 reef substrate creates behavioral diversity (ARM_1 zone_transitions/ep~49).
 This experiment uses that substrate to unblock the SD-029 C0 trial-sufficiency gate
 that caused EXQ-433/433a/433b/470/433d to be classified non_contributory.
 

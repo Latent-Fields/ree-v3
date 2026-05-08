@@ -1,7 +1,7 @@
 #!/opt/local/bin/python3
 """V3-EXQ-522: Reef Monostrategy Break -- Behavioral Diversity Validation
 
-Tests whether the SD-050 reef enrichment substrate (reef safe zones + food-attracted
+Tests whether the SD-054 reef enrichment substrate (reef safe zones + food-attracted
 hazards) creates meaningful behavioral diversity in a harm-avoiding resource-seeking
 agent. This is the behavioral follow-up to V3-EXQ-521 (substrate readiness PASS).
 

@@ -6,7 +6,7 @@ Claims: SD-029, MECH-256
 Supersedes: V3-EXQ-433d (non_contributory due to monostrategy: agent adopts single
 fixed route, preventing balanced agent-vs-env event distributions for C3/C4).
 
-Reef enrichment (SD-050): reef_enabled=True adds coral-reef safe zones + food-attracted
+Reef enrichment (SD-054): reef_enabled=True adds coral-reef safe zones + food-attracted
 hazard drift to CausalGridWorldV2. Creates two behavioral attractors ("flee to reef" vs
 "forage") to break monostrategy. reef_patch_radius=1 for 8x8 grid (radius=2 would
 cover too much of the small grid).
@@ -132,7 +132,7 @@ def _make_env(seed: int) -> CausalGridWorldV2:
         scheduled_external_hazard_interval=CURRICULUM_INTERVAL,
         scheduled_external_hazard_prob=CURRICULUM_PROB,
         scheduled_external_hazard_adjacent_only=CURRICULUM_ADJACENT_ONLY,
-        # SD-050 reef enrichment -- breaks monostrategy on 8x8 grid
+        # SD-054 reef enrichment -- breaks monostrategy on 8x8 grid
         reef_enabled=True,
         n_reef_patches=3,
         reef_patch_radius=1,

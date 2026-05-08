@@ -7,7 +7,7 @@ Supersedes: V3-EXQ-445c (non_contributory due to monostrategy: even in the
 larger 14x14 environment the agent converges to a single fixed route, preventing
 behavioral diversity measurement for dACC suppression/entropy criteria).
 
-Reef enrichment (SD-050): reef_enabled=True adds coral-reef safe zones (hazard-free
+Reef enrichment (SD-054): reef_enabled=True adds coral-reef safe zones (hazard-free
 corner patches) + food-attracted hazard drift. Creates two behavioral attractors
 ("flee to reef" vs "forage") breaking the monostrategy. reef_patch_radius=2
 appropriate for 14x14 grid.
@@ -78,7 +78,7 @@ def _make_env(seed: int) -> CausalGridWorldV2:
         use_proxy_fields=True,
         resource_respawn_on_consume=True,
         harm_history_len=10,
-        # SD-050 reef enrichment -- breaks monostrategy on 14x14 grid
+        # SD-054 reef enrichment -- breaks monostrategy on 14x14 grid
         reef_enabled=True,
         n_reef_patches=3,
         reef_patch_radius=2,

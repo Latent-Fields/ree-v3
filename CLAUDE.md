@@ -3927,8 +3927,11 @@ Verify with `git fetch` (should return silently).
     consumer), MECH-091 (urgency interrupt; redirect consumer), MECH-094
     (EMA gate).
 
-## SD-050: Reef Enrichment Substrate (2026-05-04)
-- SD-050: environment.reef_enrichment_substrate -- IMPLEMENTED 2026-05-04.
+## SD-054: Reef Enrichment Substrate (2026-05-04)
+- SD-054: environment.reef_enrichment_substrate -- IMPLEMENTED 2026-05-04.
+  (Note: this entry was originally labelled SD-050 in error; SD-050 is the
+  Suffering-Derivative Comparator per claims.yaml. Renamed to SD-054 on
+  2026-05-08; SD-053 is informally reserved for a sustained-drive claim.)
   Module: ree_core/environment/causal_grid_world.py (CausalGridWorldV2).
   Monostrategy-breaking behavioral-diversity substrate. Adds reef safe zones and
   food-attracted hazard drift to CausalGridWorldV2. Motivated by the observation
@@ -3971,6 +3974,6 @@ Verify with `git fetch` (should return silently).
   Validation experiment: V3-EXQ-521 PASS 2026-05-04 (substrate readiness diagnostic).
     V3-EXQ-522 (monostrategy-breaking behavioral diversity test) is the next experiment,
     gated on V3-EXQ-521 PASS.
-  See SD-029 (self_attribution.comparator_z_harm_s -- SD-050 substrate unblocks C2/C3
+  See SD-029 (self_attribution.comparator_z_harm_s -- SD-054 substrate unblocks C2/C3
     behavioral diversity measurement), MECH-256 (SD-029 successor), SD-023 (env
     gradient texture -- parallel substrate enrichment pattern).

@@ -16,7 +16,7 @@ Tests the claim: E3-derived precision (1/running_variance) modulates commit
 threshold. With rv now live, the dACC score_bias path can read true precision
 each tick instead of a constant 1/0.5 = 1.999996 from the pinned variable.
 
-Two arms, both reef-enabled (SD-050 substrate; behavioural diversity attractor):
+Two arms, both reef-enabled (SD-054 substrate; behavioural diversity attractor):
   ARM_0: use_dacc=False -- no precision-commit circuit, baseline.
   ARM_1: use_dacc=True  -- dACC reads e3.current_precision in score_bias
                            (dacc_precision_scale=500.0).

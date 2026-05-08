@@ -23,7 +23,7 @@ relationship.
 
 === REEF FIX ===
 
-The reef substrate (SD-050, landed 2026-05-04) adds two behavioural
+The reef substrate (SD-054, landed 2026-05-04) adds two behavioural
 attractors to the environment:
   1. Reef safe zones: circular patches where hazards cannot enter, providing
      a safe refuge from harm. Agents can seek the reef when hazard pressure
@@ -110,7 +110,7 @@ SEEDS              = [42, 7]
 
 GRID_SIZE          = 10
 
-# Reef parameters (SD-050)
+# Reef parameters (SD-054)
 REEF_ENABLED             = True
 N_REEF_PATCHES           = 3
 REEF_PATCH_RADIUS        = 2

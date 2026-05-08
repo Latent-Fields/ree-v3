@@ -12,7 +12,7 @@ QUESTION:
   ContextMemory query mechanism cannot produce context-dependent behavior when
   z_world is near-constant across all env states.
 
-  V3-EXQ-522 (2026-05-05, PASS) confirmed that reef enrichment (SD-050) reliably
+  V3-EXQ-522 (2026-05-05, PASS) confirmed that reef enrichment (SD-054) reliably
   breaks monostrategy by adding reef_field_view (25 dims) to world_state
   (world_obs_dim: 250->275), creating two behavioral attractors (flee to reef /
   forage) with zone_transitions_per_ep ~49, reef_visit_fraction ~0.5.

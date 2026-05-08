@@ -91,7 +91,7 @@ def _make_env(seed: int) -> CausalGridWorldV2:
         use_proxy_fields=True,
         resource_respawn_on_consume=True,
         harm_history_len=10,
-        # SD-050 reef enrichment -- breaks monostrategy on 14x14 grid
+        # SD-054 reef enrichment -- breaks monostrategy on 14x14 grid
         reef_enabled=True,
         n_reef_patches=3,
         reef_patch_radius=2,

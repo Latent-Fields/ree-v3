@@ -6,7 +6,7 @@ Claims: MECH-257, SD-013, ARC-033
 Supersedes: V3-EXQ-452 (non_contributory due to monostrategy: agent adopts single
 fixed route, preventing behavioral diversity for comparator separation measurement).
 
-Reef enrichment (SD-050): reef_enabled=True adds coral-reef safe zones + food-attracted
+Reef enrichment (SD-054): reef_enabled=True adds coral-reef safe zones + food-attracted
 hazard drift. Creates two behavioral attractors breaking monostrategy on 10x10 grid.
 
 MECH-257 hypothesis: a SINGLE E2_harm_s forward-model substrate can serve
@@ -145,7 +145,7 @@ def _make_env(seed: int) -> CausalGridWorldV2:
         proximity_harm_scale=0.12,
         use_proxy_fields=True,
         harm_history_len=HARM_HISTORY_LEN,
-        # SD-050 reef enrichment -- breaks monostrategy on 10x10 grid
+        # SD-054 reef enrichment -- breaks monostrategy on 10x10 grid
         reef_enabled=True,
         n_reef_patches=3,
         reef_patch_radius=2,

@@ -5,7 +5,7 @@ Claims: None (diagnostic showcase)
 
 EXPERIMENT_PURPOSE = "diagnostic"
 
-Fishtank showcase for the SD-050 reef enrichment substrate. Uses the
+Fishtank showcase for the SD-054 reef enrichment substrate. Uses the
 ARM_1_reef_food config from EXQ-522 (hazard_food_attraction=0.7, reef_enabled=True,
 n_reef_patches=3, reef_patch_radius=2, size=12) which produced the best behavioral
 variety: ~50/50 reef-vs-foraging split and ~49 zone transitions per episode.
@@ -27,7 +27,7 @@ a cleaner reef showcase):
   SD-018  use_resource_proximity_head=True  (resource prox supervision)
   SD-012  z_goal_enabled=True, drive_weight=2.0  (homeostatic drive)
   SD-021  harm_descending_mod_enabled=True  (descending modulation)
-  SD-050  reef_enabled=True, hazard_food_attraction=0.7  (reef substrate)
+  SD-054  reef_enabled=True, hazard_food_attraction=0.7  (reef substrate)
   MECH-090 beta_gate_bistable=True  (bistable commitment latch)
 
 Output:
@@ -80,7 +80,7 @@ ENV_KWARGS = dict(
     toroidal=False,
     # SD-011 second source: rolling harm-history window
     harm_history_len=10,
-    # SD-050: reef enrichment substrate (ARM_1_reef_food config from EXQ-522)
+    # SD-054: reef enrichment substrate (ARM_1_reef_food config from EXQ-522)
     reef_enabled=True,
     n_reef_patches=3,
     reef_patch_radius=2,
@@ -632,7 +632,7 @@ def run(seeds=None, dry_run: bool = False) -> dict:
         f"  Seeds: {seeds}\n"
         f"  Warmup: {WARMUP_EPISODES} eps  Eval: {EVAL_EPISODES} eps"
         f"  Steps/ep: {STEPS_PER_EPISODE}\n"
-        f"  Substrate: SD-007 SD-008 SD-010 SD-011 SD-012 SD-018 SD-021 SD-050 MECH-090\n"
+        f"  Substrate: SD-007 SD-008 SD-010 SD-011 SD-012 SD-018 SD-021 SD-054 MECH-090\n"
         f"  Reef config: n_patches=3 radius=2 hazard_food_attraction=0.7 size=12\n"
         f"  Output: REE_assembly/evidence/experiments/{EXPERIMENT_TYPE}/",
         flush=True,
@@ -673,7 +673,7 @@ overlay, and zone-transition labels (reef_entry / reef_exit).
 **Substrate enabled:** SD-007 (reafference), SD-008 (alpha_world=0.9), SD-010
 (sensory harm stream), SD-011 (affective harm stream + history), SD-012
 (drive-modulated goal), SD-018 (resource proximity supervision), SD-021
-(descending modulation), SD-050 (reef enrichment: n_patches=3 radius=2
+(descending modulation), SD-054 (reef enrichment: n_patches=3 radius=2
 hazard_food_attraction=0.7), MECH-090 (bistable beta gate).
 
 **Grid:** 12x12 non-toroidal | **Reef cells:** ~33 (corners (2,2), (2,9), (9,2)) |

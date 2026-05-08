@@ -4,7 +4,7 @@ V3-EXQ-454a -- ARC-016 adaptive commit_threshold via E2 PE variance (reef).
 
 Supersedes: V3-EXQ-454 (non_contributory -- monostrategy on default 10x10 env
 prevented behavioral diversity, making C2 regime sensitivity unmeasurable).
-Reef enrichment (SD-050) breaks monostrategy by adding safe-zone attractors and
+Reef enrichment (SD-054) breaks monostrategy by adding safe-zone attractors and
 food-attracted hazard drift.
 
 Claims: ARC-016
@@ -115,7 +115,7 @@ def _make_env(seed: int) -> CausalGridWorldV2:
         num_resources=3,
         hazard_harm=0.04,
         proximity_harm_scale=0.12,
-        # SD-050 reef enrichment -- breaks monostrategy on 10x10 grid
+        # SD-054 reef enrichment -- breaks monostrategy on 10x10 grid
         reef_enabled=True,
         n_reef_patches=3,
         reef_patch_radius=2,

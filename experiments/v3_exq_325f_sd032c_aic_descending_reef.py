@@ -8,7 +8,7 @@ Supersedes: V3-EXQ-325d (non_contributory due to monostrategy: agent adopts sing
 fixed route, preventing behavioral diversity measurement for C2/C3 descending
 modulation criteria).
 
-Reef enrichment (SD-050): reef_enabled=True adds coral-reef safe zones + food-attracted
+Reef enrichment (SD-054): reef_enabled=True adds coral-reef safe zones + food-attracted
 hazard drift. Creates two behavioral attractors ("flee to reef" vs "forage") breaking
 the monostrategy on 10x10 grid. reef_patch_radius=2 appropriate for 10x10.
 
@@ -101,7 +101,7 @@ def make_env(seed: int) -> CausalGridWorldV2:
         failure_prob_scale=0.3,
         heal_rate=0.002,
         seed=seed,
-        # SD-050 reef enrichment -- breaks monostrategy on 10x10 grid
+        # SD-054 reef enrichment -- breaks monostrategy on 10x10 grid
         reef_enabled=True,
         n_reef_patches=3,
         reef_patch_radius=2,

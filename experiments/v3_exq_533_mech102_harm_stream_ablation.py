@@ -12,7 +12,7 @@ Two-arm design:
   ARM_0: use_harm_stream=False (no harm encoder; control baseline)
   ARM_1: use_harm_stream=True with harm proximity supervision (harm stream active)
 
-Both arms: reef_enabled=True, hazard_food_attraction=0.7 (SD-050 monostrategy breaking)
+Both arms: reef_enabled=True, hazard_food_attraction=0.7 (SD-054 monostrategy breaking)
 
 Training protocol:
   - 40 episodes random policy (allow env exploration)
