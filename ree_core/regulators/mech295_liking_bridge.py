@@ -95,6 +95,29 @@ class MECH295LikingBridgeConfig:
     # Goal-norm floor below which the bridge does not fire.
     min_z_goal_norm_to_fire: float = 0.05
 
+    # MECH-307 Path B: consumer-side conjunction read (registered 2026-05-08).
+    # When enabled, compute_conjunction_score_bias() reads the SD-014 valence
+    # vector at each candidate's predicted-imminent location plus a global
+    # z_beta arousal scalar and returns a per-candidate negative score_bias
+    # whenever the four-way conjunction (wanting + liking + signed-positive
+    # surprise + z_beta arousal) holds. This gives the MECH-307 substrate fix
+    # (commit 65d4e46, EXQ-539 substrate-readiness PASS, behavioural FAIL on
+    # C5 lift) a downstream commit-gating consumer that actually reads the
+    # conjunction signal, instead of the legacy is_active()-only gate that
+    # ignores the conjunction. Default False -> bit-identical OFF.
+    use_mech307_conjunction_read: bool = False
+    # Threshold knobs match the doc's is_excitement_state_at(...) predicate
+    # at REE_assembly/docs/architecture/anticipatory_affect_conjunction_vs_dual_channel.md
+    # lines 128-137. Wanting and z_beta share a default; liking is half
+    # (anticipatory liking is partial per the doc).
+    mech307_conjunction_wanting_threshold: float = 0.6
+    mech307_conjunction_liking_threshold: float = 0.3
+    mech307_conjunction_z_beta_threshold: float = 0.6
+    # Negative-score gain when the conjunction holds. The bias term is
+    # -conjunction_gain * drive_level for each candidate whose conjunction
+    # predicate fires; zero otherwise.
+    mech307_conjunction_gain: float = 1.0
+
 
 @dataclass
 class MECH295LikingBridgeOutput:
@@ -139,6 +162,11 @@ class MECH295LikingBridge:
         # Counters; persist across episodes for end-of-run reporting.
         self._n_write_fires = 0
         self._n_cue_fires = 0
+        # MECH-307 Path B conjunction-read counters.
+        self._n_conjunction_reads = 0  # ticks where the read fired (any K)
+        self._n_conjunction_fires = 0  # cumulative per-candidate fires
+        self._last_conjunction_count = 0  # K-fires this tick
+        self._last_conjunction_score_max = 0.0
 
     # -- Reset hooks ---------------------------------------------------
 
@@ -235,6 +263,114 @@ class MECH295LikingBridge:
             self._n_cue_fires += 1
         return bias
 
+    # -- MECH-307 Path B: conjunction-aware approach cue ---------------
+
+    def compute_conjunction_score_bias(
+        self,
+        candidate_z_locs: torch.Tensor,
+        residue_field,
+        z_beta_arousal: float,
+        drive_level: float,
+        simulation_mode: bool = False,
+    ) -> torch.Tensor:
+        """MECH-307 Path B: conjunction-aware approach cue.
+
+        Reads the SD-014 valence vector at each candidate's predicted-
+        imminent z_world location and gates a fixed-magnitude approach
+        bias on the four-way conjunction predicate from the doc:
+            v[VALENCE_WANTING]   > wanting_threshold
+            v[VALENCE_LIKING]    > liking_threshold
+            v[VALENCE_SURPRISE]  > 0     (signed; positive PE only --
+                                          requires Gap 1 substrate)
+            z_beta_arousal       > z_beta_threshold
+        When all four hold, the candidate gets a negative score bias of
+        -mech307_conjunction_gain * drive_level (E3 lower-is-better, so
+        this favours approach). Otherwise the per-candidate bias is 0.
+
+        This is the consumer-side fix for the EXQ-539 PARTIAL-PASS
+        finding: substrate counters fired (C1-C4 PASS) but the legacy
+        MECH-295 cue path -- drive * goal_proximity -- did not lift
+        approach_commit_rate (C5 FAIL) because nothing in that path
+        actually read the conjunction signal. This method DOES.
+
+        Args:
+            candidate_z_locs: [K, world_dim] -- per-candidate predicted-
+                imminent locations. Caller normally supplies the
+                first-step z_world summary from each E2-rolled-out
+                trajectory (the same tensor used by compute_approach_cue_score_bias).
+            residue_field: object exposing evaluate_valence(z) -> [B, 4]
+                in component order (wanting, liking, harm, surprise).
+                Pass the agent's residue_field; None disables the read.
+            z_beta_arousal: scalar global z_beta arousal (e.g. agent's
+                self._current_latent.z_beta[..., 0] item, or its abs-mean).
+            drive_level: scalar in [0, 1]. Conjunction bias scales with
+                drive (silent when drive < min_drive_to_fire).
+            simulation_mode: when True returns zeros (MECH-094).
+
+        Returns:
+            score_bias: [K] tensor on candidate_z_locs' device/dtype.
+            Strictly <= 0. Zero when disabled / sub-floor / no
+            conjunction. Bit-identical zero when use_mech307_conjunction_read
+            is False on the bridge config.
+        """
+        K = int(candidate_z_locs.shape[0])
+        zero = torch.zeros(K, dtype=candidate_z_locs.dtype,
+                           device=candidate_z_locs.device)
+        if simulation_mode:
+            return zero
+        if not self.config.use_mech307_conjunction_read:
+            return zero
+        if self.config.mech307_conjunction_gain == 0.0:
+            return zero
+        if residue_field is None or not hasattr(residue_field, "evaluate_valence"):
+            return zero
+        d = float(drive_level)
+        if d < self.config.min_drive_to_fire:
+            return zero
+
+        # Evaluate residue valence at each candidate location. evaluate_valence
+        # accepts a [batch, world_dim] tensor and returns [batch, 4].
+        try:
+            v = residue_field.evaluate_valence(candidate_z_locs)
+        except Exception:
+            return zero
+        if v is None or v.shape[0] != K or v.shape[1] < 4:
+            return zero
+
+        # Component indices: 0=wanting, 1=liking, 2=harm, 3=surprise.
+        v_w = v[:, 0]
+        v_l = v[:, 1]
+        v_s = v[:, 3]
+
+        w_thr = float(self.config.mech307_conjunction_wanting_threshold)
+        l_thr = float(self.config.mech307_conjunction_liking_threshold)
+        b_thr = float(self.config.mech307_conjunction_z_beta_threshold)
+        beta = float(z_beta_arousal)
+
+        # Hard four-way conjunction (matches doc predicate). The signed-
+        # surprise check (v_s > 0) is what makes Gap 1 (signed PE) load-
+        # bearing for this consumer: under unsigned VALENCE_SURPRISE the
+        # surprise channel accumulates magnitude regardless of sign, so
+        # harm-paired surprise can falsely satisfy v_s > 0.
+        cond = (
+            (v_w > w_thr)
+            & (v_l > l_thr)
+            & (v_s > 0.0)
+            & (torch.full_like(v_w, beta) > b_thr)
+        )
+        cond_f = cond.to(dtype=candidate_z_locs.dtype)
+        gain = float(self.config.mech307_conjunction_gain)
+        bias = -gain * d * cond_f
+
+        # Update diagnostics counters.
+        n_fires = int(cond.sum().item())
+        if n_fires > 0:
+            self._n_conjunction_reads += 1
+            self._n_conjunction_fires += n_fires
+        self._last_conjunction_count = n_fires
+        self._last_conjunction_score_max = float(bias.abs().max().item())
+        return bias
+
     # -- Combined tick (orchestration helper) --------------------------
 
     def tick(
@@ -293,4 +429,9 @@ class MECH295LikingBridge:
         return {
             "n_write_fires": int(self._n_write_fires),
             "n_cue_fires": int(self._n_cue_fires),
+            # MECH-307 Path B counters (zero when conjunction read disabled).
+            "n_conjunction_reads": int(self._n_conjunction_reads),
+            "n_conjunction_fires": int(self._n_conjunction_fires),
+            "last_conjunction_count": int(self._last_conjunction_count),
+            "last_conjunction_score_max": float(self._last_conjunction_score_max),
         }

@@ -1796,6 +1796,28 @@ class REEConfig:
     # Multiplier converting schema_salience into the z_beta arousal pulse
     # under Gap 2/3. Pulse is added to z_beta[..., 0] in-place.
     mech307_z_beta_schema_gain: float = 0.3
+    # MECH-307 Path B: consumer-side conjunction read at MECH-295 bridge.
+    #   The four-gap substrate fix populates the signals (signed surprise,
+    #   anticipatory liking, z_beta pulse, predicted-location wanting). The
+    #   legacy MECH-295 cue path is drive * goal_proximity ONLY -- it does
+    #   not read those signals, so EXQ-539 fired all four substrate counters
+    #   (C1-C4 PASS) without lifting approach_commit_rate (C5 FAIL). This
+    #   flag wires the bridge's compute_conjunction_score_bias() into
+    #   select_action(): when the four-way conjunction holds at a candidate's
+    #   predicted-imminent location (wanting + liking + signed-positive
+    #   surprise + z_beta arousal all above their thresholds), the candidate
+    #   gets an additional negative bias of -mech307_conjunction_gain *
+    #   drive_level. Default False -> bit-identical OFF.
+    use_mech307_consumer_conjunction_read: bool = False
+    # Conjunction predicate thresholds (match the doc's
+    # is_excitement_state_at(...) defaults at lines 128-137).
+    mech307_conjunction_wanting_threshold: float = 0.6
+    mech307_conjunction_liking_threshold: float = 0.3
+    mech307_conjunction_z_beta_threshold: float = 0.6
+    # Negative-score gain applied per candidate whose conjunction predicate
+    # fires. Bias term = -mech307_conjunction_gain * drive_level when the
+    # predicate holds; 0 otherwise.
+    mech307_conjunction_gain: float = 1.0
 
     @classmethod
     def from_dims(

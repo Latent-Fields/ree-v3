@@ -668,6 +668,22 @@ class REEAgent(nn.Module):
                 min_z_goal_norm_to_fire=float(
                     getattr(config, "mech295_min_z_goal_norm_to_fire", 0.05)
                 ),
+                # MECH-307 Path B: consumer-side conjunction read.
+                use_mech307_conjunction_read=bool(
+                    getattr(config, "use_mech307_consumer_conjunction_read", False)
+                ),
+                mech307_conjunction_wanting_threshold=float(
+                    getattr(config, "mech307_conjunction_wanting_threshold", 0.6)
+                ),
+                mech307_conjunction_liking_threshold=float(
+                    getattr(config, "mech307_conjunction_liking_threshold", 0.3)
+                ),
+                mech307_conjunction_z_beta_threshold=float(
+                    getattr(config, "mech307_conjunction_z_beta_threshold", 0.6)
+                ),
+                mech307_conjunction_gain=float(
+                    getattr(config, "mech307_conjunction_gain", 1.0)
+                ),
             )
             self.mech295_bridge = MECH295LikingBridge(bridge_cfg)
 
@@ -2666,6 +2682,37 @@ class REEAgent(nn.Module):
                     candidate_proximities=cand_proximities,
                     simulation_mode=False,
                 )
+                # MECH-307 Path B: consumer-side conjunction read. Adds an
+                # additional approach bias when the four-way conjunction
+                # (wanting + liking + signed-positive surprise + z_beta
+                # arousal) holds at the candidate's predicted-imminent
+                # location. Bit-identical zero when the bridge config flag
+                # use_mech307_conjunction_read is False (the bridge's own
+                # internal short-circuit handles that). Reads the
+                # PRE-elevated z_beta from self._current_latent (Gap 3
+                # writes update z_beta in update_schema_wanting before this
+                # block).
+                if (
+                    self.mech295_bridge.config.use_mech307_conjunction_read
+                    and self._current_latent is not None
+                    and self._current_latent.z_beta is not None
+                    and self._current_latent.z_beta.numel() > 0
+                ):
+                    z_beta_arousal = float(
+                        self._current_latent.z_beta[..., 0].abs().mean().item()
+                    )
+                    m307_bias = (
+                        self.mech295_bridge.compute_conjunction_score_bias(
+                            candidate_z_locs=m295_summaries,
+                            residue_field=self.residue_field,
+                            z_beta_arousal=z_beta_arousal,
+                            drive_level=eff_drive_m295,
+                            simulation_mode=False,
+                        )
+                    )
+                    m295_bias = m295_bias + m307_bias.to(
+                        dtype=m295_bias.dtype, device=m295_bias.device
+                    )
             if dacc_score_bias is None:
                 dacc_score_bias = m295_bias
             else:

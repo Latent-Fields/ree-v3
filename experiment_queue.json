@@ -27,6 +27,21 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-08T21:48:14.819883+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-540",
+      "title": "MECH-307 3-arm gap decomposition + Path B consumer conjunction read",
+      "experiment_type": "v3_exq_540_mech307_3arm_conjunction_decomposition",
+      "script": "experiments/v3_exq_540_mech307_3arm_conjunction_decomposition.py",
+      "claim_id": "MECH-307",
+      "priority": 5,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 70,
+      "seeds": 3,
+      "conditions": 3,
+      "note": "Phase 1 follow-on after V3-EXQ-539 PARTIAL-PASS (substrate counters C1-C4 PASS, behavioural C5 FAIL because legacy MECH-295 cue path does not read the conjunction signal). 3-arm gap decomposition: ARM_0_off / ARM_1_signed_pe (Gap 1 only) / ARM_2_full (all 4 gaps). MECH-295 bridge extended with Path B compute_conjunction_score_bias() that reads VALENCE_WANTING + VALENCE_LIKING + signed VALENCE_SURPRISE + z_beta arousal at each candidate's predicted-imminent location and applies an additional approach bias when the four-way conjunction holds. Bridge consumer-conjunction-read flag ON in ALL arms so ARM_2 has the downstream consumer that EXQ-539 lacked. ARM_3 (SD-014 6-channel fallback) DEFERRED -- if this experiment PARTIAL-PASSes (C1+C2 only), ARM_3 becomes the natural follow-on. Acceptance: C1 substrate-readiness counter dissociation (Gap 1 isolates in ARM_1, all four fire only in ARM_2), C2 conjunction-read fires in ARM_2 only with per-seed-mean rate >= 0.10, C3 approach_commit_rate ARM_2 >= ARM_0 + 0.10 in 2/3 seeds AND ARM_2 > ARM_1. Smoke 2026-05-08 PASSes C1 dissociation in dry-run; C2/C3 cannot exercise in dry-run (6 episodes -> 0 contacts -> goal never seeded -> conjunction read skipped). Anchor doc: REE_assembly/docs/architecture/anticipatory_affect_conjunction_vs_dual_channel.md."
     }
   ]
 }
