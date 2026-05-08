@@ -16,13 +16,17 @@
       "supersedes": "V3-EXQ-141c",
       "priority": 6,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "episodes_per_run": 200,
       "seeds": 3,
       "conditions": 2,
       "backlog_id": "EVB-0061",
-      "note": "141c C0 sanity check fired correctly: per_seed_action_divergence=[0,0,0] arms bit-identical despite novelty_bonus_weight=100, one-hot nav_bias, raised nav_bias=0.5. Root cause: random.seed(seed) at start of _run_single resets identical RNG stream in both arms; nav_bias decisions and override actions desync only via paired-RNG. 141d: random.seed(seed if novelty_enabled else seed+7777). Env still _make_env(seed) so paired comparison preserved at env level. Smoke confirms divergence=0.53 (vs 141c's 0.0)."
+      "note": "141c C0 sanity check fired correctly: per_seed_action_divergence=[0,0,0] arms bit-identical despite novelty_bonus_weight=100, one-hot nav_bias, raised nav_bias=0.5. Root cause: random.seed(seed) at start of _run_single resets identical RNG stream in both arms; nav_bias decisions and override actions desync only via paired-RNG. 141d: random.seed(seed if novelty_enabled else seed+7777). Env still _make_env(seed) so paired comparison preserved at env level. Smoke confirms divergence=0.53 (vs 141c's 0.0).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-08T21:48:14.819883+00:00"
+      }
     }
   ]
 }
