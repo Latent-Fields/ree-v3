@@ -35,12 +35,16 @@
       "supersedes": "V3-EXQ-537a",
       "priority": 8,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 200,
       "seeds": 3,
       "conditions": 2,
-      "note": "Decoupled curricula: P0/P1/P2 train on baseline (no scheduled_external_hazard) so forward model can reach EXQ-195 ~0.91 R^2; P3 eval flips curriculum on for balanced n_self/n_ext. 537/537a both FAIL non_contributory because training-curriculum coupling capped p2_r2 at 0.65-0.71 with 48000 steps fully exhausted. Mac affinity: cloud-1 OOM-killed 538 same day; forward-model fit needs Mac throughput, not CX22."
+      "note": "Decoupled curricula: P0/P1/P2 train on baseline (no scheduled_external_hazard) so forward model can reach EXQ-195 ~0.91 R^2; P3 eval flips curriculum on for balanced n_self/n_ext. 537/537a both FAIL non_contributory because training-curriculum coupling capped p2_r2 at 0.65-0.71 with 48000 steps fully exhausted. Mac affinity: cloud-1 OOM-killed 538 same day; forward-model fit needs Mac throughput, not CX22.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-08T18:01:41.065120+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-539a",
