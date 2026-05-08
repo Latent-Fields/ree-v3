@@ -633,6 +633,24 @@ class REEAgent(nn.Module):
         # produces a passive z_goal latent without behavioural consequence -- the
         # EXQ-483 catatonic-lock signature (override fires, PAG releases up,
         # approach_commit = 0.0 across all arms).
+        #
+        # Read-site contract (important): both bridge call sites
+        # (compute_anticipatory_liking_write at _e3_tick and
+        # compute_approach_cue_score_bias at select_action) gate on
+        # self.goal_state.is_active() AND self.goal_state.goal_norm() >=
+        # mech295_min_z_goal_norm_to_fire. Both predicates read the PERSISTENT
+        # attractor (self.goal_state._z_goal). They do NOT see the action-time
+        # MECH-188 inject (cfg.goal.z_goal_inject), which only constructs
+        # _goal_state_for_select via with_injection() for E3.select() and does
+        # not mutate the persistent attractor. EXQ-536b confirmed this dual-
+        # path: with z_goal_inject=0.3, inject_observed_fraction=1.0 at the
+        # E3 per-candidate read site but approach_commit_rate=0.0 because the
+        # bridge gate sees goal_norm=0.0 on the persistent attractor and
+        # short-circuits. Force-arm tests of MECH-295 must seed
+        # self.goal_state._z_goal directly (or set
+        # mech295_min_z_goal_norm_to_fire below the inject floor); see
+        # REE_assembly/docs/architecture/mech188_vs_mech295_dual_path.md
+        # for the disambiguation and the EXQ-536c/d/e proposal.
         # See REE_assembly/docs/architecture/mech_295_drive_liking_approach_bridge.md.
         # Backward-compatible no-op when master switch off.
         self.mech295_bridge: Optional[MECH295LikingBridge] = None
