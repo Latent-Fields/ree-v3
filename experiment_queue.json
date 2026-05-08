@@ -35,12 +35,16 @@
       "supersedes": "V3-EXQ-539",
       "priority": 5,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 60,
       "seeds": 3,
       "conditions": 2,
-      "note": "EXQ-539 ran on ree-cloud-1 2026-05-08T14:56-16:16Z FAIL (4808s, ARM_ON liking=2711 pred_writes=2711 approach_rate=1.0 per_seed=[1.0,1.0,1.0]) but manifest written to /home/ree/... on cloud-1 was never pushed to REE_assembly evidence dir. Re-run on Mac for clean local manifest + emit_outcome sentinel. Discriminative ablation paired to EXQ-536b downstream-chain-inert finding. Per-claim direction emitted in manifest for MECH-307/216/205/093/SD-014."
+      "note": "EXQ-539 ran on ree-cloud-1 2026-05-08T14:56-16:16Z FAIL (4808s, ARM_ON liking=2711 pred_writes=2711 approach_rate=1.0 per_seed=[1.0,1.0,1.0]) but manifest written to /home/ree/... on cloud-1 was never pushed to REE_assembly evidence dir. Re-run on Mac for clean local manifest + emit_outcome sentinel. Discriminative ablation paired to EXQ-536b downstream-chain-inert finding. Per-claim direction emitted in manifest for MECH-307/216/205/093/SD-014.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-08T18:02:57.492585+00:00"
+      }
     }
   ]
 }
