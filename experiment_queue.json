@@ -44,12 +44,16 @@
       "experiment_type": "v3_exq_445h_sd032b_dacc_reef",
       "script": "experiments/v3_exq_445h_sd032b_dacc_reef.py",
       "title": "SD-032b dACC reef substrate (Bug 1+2 fix)",
-      "status": "pending",
+      "status": "claimed",
       "priority": 5,
       "machine_affinity": "any",
       "estimated_minutes": 130,
       "supersedes": "V3-EXQ-445g",
-      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0), Bug 2 _committed_step_idx saturation in non-bistable path."
+      "notes": "Corrected rerun: Bug 1 BreathOscillator disabled (breath_period=0), Bug 2 _committed_step_idx saturation in non-bistable path.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-08T00:29:50.471087+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-514f",
