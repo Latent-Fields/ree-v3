@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-541a",
-      "title": "MECH-204 precision recalibration consumer (F1 cross-cycle reference; supersedes 541)",
-      "experiment_type": "v3_exq_541a_mech204_precision_recalibration_f1",
-      "script": "experiments/v3_exq_541a_mech204_precision_recalibration_f1.py",
-      "claim_id": "MECH-204",
-      "supersedes": "V3-EXQ-541",
-      "priority": 4,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 25,
-      "episodes_per_run": 8,
-      "seeds": 3,
-      "conditions": 2,
-      "note": "Sleep-substrate plan Phase 1 (REE_assembly/evidence/planning/sleep_substrate_plan.md GAP-1) re-run under the F1 substrate fix landed 2026-05-09. SerotoninModule now maintains a cross-cycle persistent zero-point reference (precision_zero_point_ema_alpha=0.1, EMA across REM captures), and compute_recalibration_target() returns that persistent value rather than the just-captured precision_at_rem_entry. Breaks the within-cycle no-op pattern V3-EXQ-541 surfaced (target == rv at writeback by construction; mean_abs_delta 9e-8, six orders of magnitude under threshold). Identical 2-arm ablation to 541: ARM_0 OFF / ARM_1 ON step=0.1, hazard-heavy / resource-thin env, sleep_loop K=2, 4 cycles per run. Pre-registered acceptance C1/C2/C3 unchanged. Contracts: tests/contracts/test_mech204_precision_recalibration.py 13/13 PASS (4 new F1 tests C10-C13 cover EMA arithmetic, persistent-survives-reset / clears-on-hard-reset, alpha edge cases, state roundtrip). Full preflight + contracts 241/241 PASS. The V3-EXQ-541 manifest will be flipped evidence_direction=superseded with a note recording the F1 substrate fix as the architectural successor.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-09T11:59:36.766861+00:00"
-      }
-    }
-  ]
+  "items": []
 }
