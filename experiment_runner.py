@@ -239,6 +239,19 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
                   f"-- skipping push to avoid data loss ({label})", flush=True)
             return False
 
+        # Capture pre-reset HEAD SHA so we can restore committed result files
+        # after `git reset --hard` destroys the local commit.  `git stash
+        # --include-untracked` only captures the working tree; the manifest
+        # that was just committed by git_push_results is in HEAD, not the
+        # working tree, and would otherwise be lost.  See the V3-EXQ-541
+        # leak incident (2026-05-08) and the fix prompt at
+        # /tmp/cloud_manifest_leak_diagnosis_prompt.md.
+        pre_reset_sha_r = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=cwd, capture_output=True,
+            text=True, timeout=5,
+        )
+        pre_reset_sha = pre_reset_sha_r.stdout.strip() if pre_reset_sha_r.returncode == 0 else ""
+
         # Stash uncommitted work (preserves concurrent Claude session edits)
         stash_result = subprocess.run(
             ["git", "stash", "--include-untracked", "-m", f"runner-auto-sync-{now_utc()[:10]}"],
@@ -251,17 +264,81 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
         subprocess.run(["git", "reset", "--hard", f"origin/{branch}"],
                        cwd=cwd, capture_output=True, timeout=10)
 
+        # Restore committed result files from the destroyed pre-reset commit
+        # BEFORE attempting stash pop.  This guarantees the manifest is on
+        # disk regardless of whether the pop succeeds or conflicts.
+        # Build the list of paths to restore.  When result_files is supplied
+        # we restore only those (selective recovery, matches selective stage).
+        # When result_files is None (broad-fallback path), derive the list
+        # from the destroyed commit's diff against the new remote HEAD --
+        # otherwise the broad `git add evidence/experiments/` recovery
+        # below stages nothing because everything was nuked by reset --hard.
+        paths_to_restore: list[str] = []
+        if result_files:
+            for f in result_files:
+                try:
+                    paths_to_restore.append(str(Path(f).relative_to(Path(cwd))))
+                except ValueError:
+                    paths_to_restore.append(f)
+        elif pre_reset_sha:
+            diff_r = subprocess.run(
+                ["git", "diff", "--name-only", f"origin/{branch}", pre_reset_sha],
+                cwd=cwd, capture_output=True, text=True, timeout=10,
+            )
+            if diff_r.returncode == 0:
+                paths_to_restore = [
+                    p for p in diff_r.stdout.splitlines() if p.strip()
+                ]
+
+        restored_paths: list[str] = []
+        if pre_reset_sha and paths_to_restore:
+            for rel in paths_to_restore:
+                co = subprocess.run(
+                    ["git", "checkout", pre_reset_sha, "--", rel],
+                    cwd=cwd, capture_output=True, text=True, timeout=10,
+                )
+                if co.returncode == 0:
+                    restored_paths.append(rel)
+                else:
+                    print(f"[runner] WARN: could not restore {rel} from "
+                          f"{pre_reset_sha[:10]} ({label}): "
+                          f"{co.stderr.strip()}", flush=True)
+
         # Pop stash to restore uncommitted work
+        pop_succeeded = True
         if stashed:
             pop = subprocess.run(
                 ["git", "stash", "pop"],
                 cwd=cwd, capture_output=True, text=True, timeout=10,
             )
             if pop.returncode != 0:
-                # Stash pop conflict -- restore stash and skip pushing
-                print(f"[runner] auto-sync: stash pop conflict -- skipping push ({label}). "
-                      f"Stash preserved for manual recovery.", flush=True)
-                return False
+                # Stash pop conflict -- log but continue.  The stash is
+                # preserved in `git stash list` for manual recovery; the
+                # restored manifest is on disk + staged and we still want
+                # to commit + push it so the scientific result reaches
+                # REE_assembly master.  Resolve every unmerged path by
+                # taking the remote version (--ours, since after reset
+                # HEAD == origin/branch); this clears the conflict
+                # markers without overwriting the manifest restore.
+                print(f"[runner] auto-sync: stash pop conflict ({label}). "
+                      f"Stash preserved for manual recovery; continuing "
+                      f"with manifest-only commit.", flush=True)
+                pop_succeeded = False
+                unmerged_r = subprocess.run(
+                    ["git", "diff", "--name-only", "--diff-filter=U"],
+                    cwd=cwd, capture_output=True, text=True, timeout=5,
+                )
+                unmerged = (
+                    unmerged_r.stdout.splitlines()
+                    if unmerged_r.returncode == 0 else []
+                )
+                for path in unmerged:
+                    subprocess.run(
+                        ["git", "checkout", "--ours", "--", path],
+                        cwd=cwd, capture_output=True, timeout=10,
+                    )
+                    subprocess.run(["git", "reset", "HEAD", "--", path],
+                                   cwd=cwd, capture_output=True, timeout=10)
 
         # Re-stage only the specific result files the runner wrote (selective)
         if result_files:
@@ -271,6 +348,28 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
                 except ValueError:
                     rel = f
                 subprocess.run(["git", "add", rel], cwd=cwd, capture_output=True, timeout=10)
+            # Diagnostic: warn if the selective add staged none of the
+            # expected files.  The historical silent-no-op (file removed
+            # by reset --hard, `git add` matches nothing, stderr swallowed)
+            # is what masked this bug for weeks.
+            staged_r = subprocess.run(
+                ["git", "diff", "--cached", "--name-only"],
+                cwd=cwd, capture_output=True, text=True, timeout=5,
+            )
+            staged = set(staged_r.stdout.splitlines()) if staged_r.returncode == 0 else set()
+            expected = set()
+            for f in result_files:
+                try:
+                    expected.add(str(Path(f).relative_to(Path(cwd))))
+                except ValueError:
+                    expected.add(f)
+            missing = expected - staged
+            if missing:
+                print(f"[runner] WARN: post-recovery selective add staged "
+                      f"none of {sorted(missing)} ({label}). "
+                      f"pop_succeeded={pop_succeeded} "
+                      f"restored_via_checkout={sorted(restored_paths)}",
+                      flush=True)
         else:
             # Fallback: broad staging (only if no specific files known)
             subprocess.run(["git", "add", "evidence/experiments/"],
@@ -362,7 +461,9 @@ def git_push_results(ree_assembly_path: Path, result_files: list[str] | None = N
             ["git", "commit", "-m", msg],
             cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
         )
-        _git_push_with_retry(str(ree_assembly_path), "master", "results -> REE_assembly")
+        _git_push_with_retry(str(ree_assembly_path), "master",
+                             "results -> REE_assembly",
+                             result_files=result_files)
     except Exception as e:
         print(f"[runner] auto-sync push error: {e}", flush=True)
 

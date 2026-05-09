@@ -764,6 +764,24 @@ Note: `title` is optional per schema but the runner required it -- fixed 2026-03
 Run `git remote prune origin` in ree-v3. This cleans up a spurious remote tracking ref.
 Verify with `git fetch` (should return silently).
 
+**Manifest-leak in conflict-recovery (fixed 2026-05-09)**:
+`experiment_runner._git_push_with_retry` previously lost the manifest when a per-experiment
+results push hit a non-fast-forward followed by a `pull --rebase` failure. Root cause: the
+recovery path stashed only the WORKING TREE, then `git reset --hard origin/<branch>` destroyed
+the manifest-bearing local commit; the followup `git add <manifest_path>` was a silent no-op
+because the file no longer existed on disk, and `subprocess.run(..., capture_output=True)`
+swallowed the `did not match any files` stderr. The recovery commit captured stashed
+sentinel/heartbeat/status only, and the manifest never reached REE_assembly master. Five real
+runs lost their manifest this way (V3-EXQ-433f, 537, 537c, 538, 541; V3-EXQ-541 reproduced
+with reflog evidence on ree-cloud-1, 2026-05-08T23:43Z). Fix: capture pre-reset HEAD SHA,
+restore each `result_files` path via `git checkout <pre_reset_sha> -- <rel>` after the
+reset+pop, resolve any stash-pop unmerged paths via `--ours` (taking the post-reset remote
+version), and emit a WARN if the post-recovery selective add stages none of the expected
+files. Also closes a sibling bug: `git_push_results` was not passing `result_files` through
+to `_git_push_with_retry`, so the recovery branch always saw `result_files=None` and fell into
+the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_survives_conflict_recovery.py`
+(C1 single manifest, C2 multi manifest, C3 broad-add fallback).
+
 ## ARC-033: E2_harm_s Forward Model (2026-04-09)
 - ARC-033: harm_stream.sensory_discriminative_forward_model -- IMPLEMENTED 2026-04-09.
   E2HarmSForward in ree_core/predictors/e2_harm_s.py. f(z_harm_s_t, a_t) -> z_harm_s_pred_{t+1}.
