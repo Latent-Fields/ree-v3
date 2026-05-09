@@ -1899,6 +1899,8 @@ class REEConfig:
         z_goal_inject: float = 0.0,  # MECH-188: PFC top-down injection norm floor (0=disabled)
         # MECH-203/204: serotonergic neuromodulation
         tonic_5ht_enabled: bool = False,
+        # MECH-204 F1: cross-cycle persistent zero-point EMA alpha
+        precision_zero_point_ema_alpha: float = 0.1,
         # MECH-205: surprise-gated replay
         surprise_gated_replay: bool = False,
         pe_ema_alpha: float = 0.02,
@@ -2309,6 +2311,8 @@ class REEConfig:
 
         # MECH-203/204: serotonin config
         config.serotonin.tonic_5ht_enabled = tonic_5ht_enabled
+        # MECH-204 F1: cross-cycle persistent zero-point EMA tracking
+        config.serotonin.precision_zero_point_ema_alpha = precision_zero_point_ema_alpha
 
         # MECH-205: surprise-gated replay
         config.surprise_gated_replay = surprise_gated_replay

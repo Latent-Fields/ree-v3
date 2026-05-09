@@ -204,6 +204,129 @@ def test_c8_end_to_end_writeback_recalibration_fires():
     ) < 1e-6
 
 
+def test_c10_persistent_zero_point_cross_cycle_ema():
+    """MECH-204 F1 (2026-05-09): SerotoninModule maintains a cross-cycle
+    persistent zero-point reference. Each enter_rem(precision) call:
+      - cold-start: persistent = first capture.
+      - subsequent: persistent <- (1 - alpha) * persistent + alpha * capture.
+    compute_recalibration_target() returns the persistent value (NOT the
+    just-captured precision_at_rem_entry), so the WRITEBACK consumer pulls
+    rv toward a stable long-horizon reference.
+
+    The within-cycle no-op pattern (V3-EXQ-541 finding) was caused by
+    target == rv at writeback. F1 breaks that by making target track a
+    cross-cycle EMA, so cycles 2..N have target != rv whenever waking
+    drift moves rv between captures.
+    """
+    from ree_core.neuromodulation.serotonin import SerotoninModule, SerotoninConfig
+
+    sero = SerotoninModule(SerotoninConfig(
+        tonic_5ht_enabled=True,
+        precision_zero_point_ema_alpha=0.1,
+    ))
+
+    # Cold-start: no persistent value, target reads 0.0 (sentinel).
+    assert sero._persistent_zero_point is None
+    assert sero.compute_recalibration_target() == 0.0
+
+    # First REM entry sets persistent = first capture.
+    sero.enter_rem(current_precision=2.0)
+    assert sero._persistent_zero_point == 2.0
+    assert sero.compute_recalibration_target() == 2.0
+    assert sero.precision_at_rem_entry == 2.0  # snapshot preserved
+    sero.exit_sleep()
+
+    # Second REM entry: EMA update with alpha=0.1.
+    sero.enter_rem(current_precision=4.0)
+    expected = 0.9 * 2.0 + 0.1 * 4.0  # 2.2
+    assert abs(sero._persistent_zero_point - expected) < 1e-9
+    assert abs(sero.compute_recalibration_target() - expected) < 1e-9
+    assert sero.precision_at_rem_entry == 4.0  # snapshot tracks latest
+    sero.exit_sleep()
+
+    # Third REM entry: target diverges from latest capture.
+    sero.enter_rem(current_precision=6.0)
+    expected = 0.9 * 2.2 + 0.1 * 6.0  # 2.58
+    assert abs(sero._persistent_zero_point - expected) < 1e-9
+    target = sero.compute_recalibration_target()
+    assert abs(target - 6.0) > 0.5  # genuinely DIFFERS from latest capture
+    assert abs(target - expected) < 1e-9
+
+
+def test_c11_persistent_survives_episode_reset_clears_on_hard_reset():
+    """MECH-204 F1: long-horizon zero-point reference accumulates across
+    per-episode reset() calls; only hard_reset() clears it. This is the
+    contract that allows the cross-cycle EMA to do meaningful work across
+    multi-episode experiments (V3-EXQ-541a)."""
+    from ree_core.neuromodulation.serotonin import SerotoninModule, SerotoninConfig
+
+    sero = SerotoninModule(SerotoninConfig(tonic_5ht_enabled=True))
+    sero.enter_rem(current_precision=3.0)
+    assert sero._persistent_zero_point == 3.0
+
+    # Per-episode reset preserves persistent zero-point.
+    sero.reset()
+    assert sero._persistent_zero_point == 3.0
+    assert sero.precision_at_rem_entry == 0.0  # snapshot cleared by reset
+
+    # Hard reset clears it.
+    sero.hard_reset()
+    assert sero._persistent_zero_point is None
+    assert sero.compute_recalibration_target() == 0.0
+
+
+def test_c12_alpha_zero_freezes_first_capture_alpha_one_legacy_behaviour():
+    """MECH-204 F1 alpha edge cases:
+      alpha=0.0 freezes persistent on cold-start (Option F1.A: first-only).
+      alpha=1.0 reverts to legacy snapshot behaviour (each capture replaces).
+    Default 0.1 is between these extremes (slow EMA tracking)."""
+    from ree_core.neuromodulation.serotonin import SerotoninModule, SerotoninConfig
+
+    # alpha=0.0
+    sero = SerotoninModule(SerotoninConfig(
+        tonic_5ht_enabled=True,
+        precision_zero_point_ema_alpha=0.0,
+    ))
+    sero.enter_rem(current_precision=2.0)
+    assert sero._persistent_zero_point == 2.0
+    sero.exit_sleep()
+    sero.enter_rem(current_precision=10.0)
+    assert sero._persistent_zero_point == 2.0  # frozen on first
+    assert sero.precision_at_rem_entry == 10.0  # snapshot still tracks
+
+    # alpha=1.0
+    sero = SerotoninModule(SerotoninConfig(
+        tonic_5ht_enabled=True,
+        precision_zero_point_ema_alpha=1.0,
+    ))
+    sero.enter_rem(current_precision=2.0)
+    assert sero._persistent_zero_point == 2.0
+    sero.exit_sleep()
+    sero.enter_rem(current_precision=10.0)
+    assert sero._persistent_zero_point == 10.0  # tracks latest
+    assert sero.precision_at_rem_entry == 10.0
+
+
+def test_c13_state_roundtrip_preserves_persistent_zero_point():
+    """MECH-204 F1: persistent_zero_point survives get_state/load_state."""
+    from ree_core.neuromodulation.serotonin import SerotoninModule, SerotoninConfig
+
+    sero1 = SerotoninModule(SerotoninConfig(tonic_5ht_enabled=True))
+    sero1.enter_rem(current_precision=5.0)
+    state = sero1.get_state()
+    assert state["persistent_zero_point"] == 5.0
+
+    sero2 = SerotoninModule(SerotoninConfig(tonic_5ht_enabled=True))
+    sero2.load_state(state)
+    assert sero2._persistent_zero_point == 5.0
+    assert sero2.compute_recalibration_target() == 5.0
+
+    # Older state dicts without the field load cleanly (None).
+    sero3 = SerotoninModule(SerotoninConfig(tonic_5ht_enabled=True))
+    sero3.load_state({"tonic_5ht": 0.5, "phase": "wake"})
+    assert sero3._persistent_zero_point is None
+
+
 def test_c9_end_to_end_drift_recalibration_moves_rv():
     """Engineer a drift between REM entry and WRITEBACK by directly
     overwriting _precision_at_rem_entry AFTER the agent's run_sleep_cycle
