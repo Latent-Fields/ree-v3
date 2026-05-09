@@ -16,12 +16,16 @@
       "supersedes": "V3-EXQ-503",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 5,
       "episodes_per_run": 3,
       "seeds": 3,
       "conditions": 2,
-      "note": "GAP-2 of sleep_substrate_plan.md. 2 of 4 remaining Tier-1 successors after V3-EXQ-265a PASS 2026-05-09T20:12Z + V3-EXQ-500a queued 2026-05-09T20:43Z. Discriminative pair (FULL_4_PHASE_ON vs NO_SLEEP_BASELINE) x 3 seeds; preloads identical N=20 deterministic prototype buffers and runs K=3 sleep cycles. Phase 2 substrate template (sd016_writepath_mode='off', sd016_diversification_weight=0.5, use_per_stream_vs=True, use_anchor_sets=True, use_sd039_anchor_payload=True) applied to BOTH arms; use_sleep_loop=True only on FULL_4_PHASE_ON arm. Single-claim ['SD-017']; supersedes='V3-EXQ-503' set in BOTH queue entry and manifest. Pre-registered acceptance: C1 cumulative_sws_writes (ARM_A>=K, ARM_B==0), C2 ctxmem_state_change (ARM_A>=0.10, ARM_B<=1e-6), C3 cumulative_rem_rollouts (ARM_A>=K, ARM_B==0), C4 cross-arm |M2 diff| > 0.20 (calibrated from --dry-run smoke: ARM_A=5.03, ARM_B=0.0; tolerance set to 0.20 above C2 floor 0.10, ~25x safety margin). PASS=C1 AND C2 AND C3 AND C4 across >=2/3 seeds. Five-row docstring interpretation grid covers PASS / C1+C3 substrate-fail / C2-only-fail / C4-only-fail (cross-arm collapse) / C2+C3 joint-mode failure. emit_outcome contract on every code path; ASCII-only print. Smoke PASS in 0.1s on Mac 2026-05-09T21:31Z."
+      "note": "GAP-2 of sleep_substrate_plan.md. 2 of 4 remaining Tier-1 successors after V3-EXQ-265a PASS 2026-05-09T20:12Z + V3-EXQ-500a queued 2026-05-09T20:43Z. Discriminative pair (FULL_4_PHASE_ON vs NO_SLEEP_BASELINE) x 3 seeds; preloads identical N=20 deterministic prototype buffers and runs K=3 sleep cycles. Phase 2 substrate template (sd016_writepath_mode='off', sd016_diversification_weight=0.5, use_per_stream_vs=True, use_anchor_sets=True, use_sd039_anchor_payload=True) applied to BOTH arms; use_sleep_loop=True only on FULL_4_PHASE_ON arm. Single-claim ['SD-017']; supersedes='V3-EXQ-503' set in BOTH queue entry and manifest. Pre-registered acceptance: C1 cumulative_sws_writes (ARM_A>=K, ARM_B==0), C2 ctxmem_state_change (ARM_A>=0.10, ARM_B<=1e-6), C3 cumulative_rem_rollouts (ARM_A>=K, ARM_B==0), C4 cross-arm |M2 diff| > 0.20 (calibrated from --dry-run smoke: ARM_A=5.03, ARM_B=0.0; tolerance set to 0.20 above C2 floor 0.10, ~25x safety margin). PASS=C1 AND C2 AND C3 AND C4 across >=2/3 seeds. Five-row docstring interpretation grid covers PASS / C1+C3 substrate-fail / C2-only-fail / C4-only-fail (cross-arm collapse) / C2+C3 joint-mode failure. emit_outcome contract on every code path; ASCII-only print. Smoke PASS in 0.1s on Mac 2026-05-09T21:31Z.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-05-09T21:46:25.740127+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-436a",
