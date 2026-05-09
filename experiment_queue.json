@@ -15,12 +15,16 @@
       "claim_id": "MECH-204",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 6,
       "episodes_per_run": 16,
       "seeds": 3,
       "conditions": 5,
-      "note": "Companion to V3-EXQ-541b (NOT a supersession). 541b PASSed C1+C2+C3 in every step-size arm but FAILed C4 (cross-arm divergence) with a clean monotone dose-response curve: step 0.05 -> 0.31%, 0.10 -> 0.63%, 0.25 -> 1.56%, 0.50 -> 3.13%. None reached 5% threshold. 541c uses sleep_loop_K=1 + EPISODES_PER_RUN=16 to give 16 cycles per run (4x 541b's 4 cycles), same 5 step arms, same env, same seeds. Tests whether F1 cross-arm divergence scales linearly with cycle count (F1 sufficient given enough exposure -> Phase 7 stays deferred per REM-precision lit-pull SYNTHESIS dispatch case #1) OR plateaus at 4-cycle level (F1 at its ceiling -> Phase 7 / Option B becomes load-bearing per dispatch case #3). Lit-pull SYNTHESIS (5 entries, MECH-204 lit_conf 0.864) has Hobson-Hong-Friston 2014 + Walker-Stickgold 2006 supporting F1-sufficient and Laukkonen-Friston-Chandaria 2025 hyper-model proposal supporting dual-arm F3. validate_experiments + dry-run smoke both OK. Auto-claim by Mac runner expected within seconds."
+      "note": "Companion to V3-EXQ-541b (NOT a supersession). 541b PASSed C1+C2+C3 in every step-size arm but FAILed C4 (cross-arm divergence) with a clean monotone dose-response curve: step 0.05 -> 0.31%, 0.10 -> 0.63%, 0.25 -> 1.56%, 0.50 -> 3.13%. None reached 5% threshold. 541c uses sleep_loop_K=1 + EPISODES_PER_RUN=16 to give 16 cycles per run (4x 541b's 4 cycles), same 5 step arms, same env, same seeds. Tests whether F1 cross-arm divergence scales linearly with cycle count (F1 sufficient given enough exposure -> Phase 7 stays deferred per REM-precision lit-pull SYNTHESIS dispatch case #1) OR plateaus at 4-cycle level (F1 at its ceiling -> Phase 7 / Option B becomes load-bearing per dispatch case #3). Lit-pull SYNTHESIS (5 entries, MECH-204 lit_conf 0.864) has Hobson-Hong-Friston 2014 + Walker-Stickgold 2006 supporting F1-sufficient and Laukkonen-Friston-Chandaria 2025 hyper-model proposal supporting dual-arm F3. validate_experiments + dry-run smoke both OK. Auto-claim by Mac runner expected within seconds.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-05-09T13:14:16.264483+00:00"
+      }
     }
   ]
 }
