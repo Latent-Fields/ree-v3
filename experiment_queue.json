@@ -6,5 +6,25 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-542",
+      "title": "ARC-062 Phase 1 gated-policy substrate-readiness diagnostic",
+      "experiment_type": "v3_exq_542_arc062_gated_policy_substrate_readiness",
+      "script": "experiments/v3_exq_542_arc062_gated_policy_substrate_readiness.py",
+      "claim_id": "ARC-062",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 1,
+      "episodes_per_run": 1,
+      "seeds": 1,
+      "conditions": 5,
+      "note": "Phase 1 of arc_062_rule_apprehension_plan.md (GAP-A). Substrate-readiness diagnostic for the new ree_core/policy/gated_policy.py module (GatedPolicy + GatedPolicyConfig + GatedPolicyOutput) and its REEConfig + REEAgent wiring. Five sub-tests: UC1 forward-pass instantiation; UC2 master-OFF no-op vs baseline E3; UC3 discriminator output varies with z_world (input sensitivity, threshold 0.001 -- Phase-1 init regime, substantial variation is a Phase-2 training signal); UC4 head differentiation under training pressure (>5x output divergence on held-out batch after 200 SGD steps); UC5 MECH-094 simulation_mode gate. Pull A SYNTHESIS verdicts (R1 multi-stream / R2 N=2 / R3 score_bias level) are architectural commitments, not signals tested here -- those are Phase 2 work. PASS gates the Phase 1 substrate-landing close-out (plan-doc GAP-A status open -> done) and unblocks Phase 2 monomodal-collapse falsifier on SD-054 reef substrate.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-05-09T20:22:07.714862+00:00"
+      }
+    }
+  ]
 }
