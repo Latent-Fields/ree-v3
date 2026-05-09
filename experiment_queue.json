@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-543",
-      "title": "ARC-062 Phase 2a monomodal-collapse falsifier (ARM_0 vs ARM_1c on SD-054 reef)",
-      "experiment_type": "v3_exq_543_arc062_phase2a_monomodal_collapse_falsifier",
-      "script": "experiments/v3_exq_543_arc062_phase2a_monomodal_collapse_falsifier.py",
-      "claim_id": "MECH-309",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 80,
-      "episodes_per_run": 48,
-      "seeds": 3,
-      "conditions": 2,
-      "note": "GAP-B of arc_062_rule_apprehension_plan.md. Phase 2a single-arm core 2-arm contrast (ARM_0 use_gated_policy=False vs ARM_1c use_gated_policy=True with full 3-stream discriminator on (z_world, z_self, z_harm_a) per Pull A R1 verdict) at ARM_1_med density (V3-EXQ-522 baseline). Pre-registered acceptance: PASS = >=2 of {C2 state-dependence, C3 risk-type dissociation, C4 cross-seed variation} hold across seeds with no F1 monomodal-collapse or F2 biologically-inverted signature; C1 density-tracking marked non_contributory (single-density Phase 2a; deferred to Phase 2b density-gradient sub-arms). Tags claim_ids=[MECH-309, ARC-062, SD-029] with evidence_direction_per_claim. PASS unblocks Phase 3 (closes commitment_closure_plan.md GAP-1). FAIL routes through plan Phase 2 deliverable 5 falsification chain.",
-      "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-05-09T20:54:12.537180+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-503a",
       "title": "SD-017 sleep-phase discriminative pair, Phase 2 retest (FULL_4_PHASE_ON vs NO_SLEEP_BASELINE)",
       "experiment_type": "v3_exq_503a_sd017_sleep_phase_discriminative_phase2",
