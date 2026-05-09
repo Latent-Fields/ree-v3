@@ -24,7 +24,7 @@
       "note": "Phase 2 of sleep_substrate_plan.md GAP-2 (SD-017 retest cohort). Tier 0 cleared 2026-04-27 by EXQ-418e A2_div_only. Re-runs EXQ-265 with sd016_diversification_weight=0.5 + use_per_stream_vs + use_anchor_sets + use_sd039_anchor_payload + use_sleep_loop. Acceptance: C1+C2+C3 (substrate activation under Phase 2) AND C4 (WITH_SLEEP slot diversity differs from WITHOUT_SLEEP in >= 2/3 seeds, |diff| > 0.05) -- the discrimination signal that the original 265 could not measure under SD-016 confound.",
       "claimed_by": {
         "machine": "Mac",
-        "claimed_at": "2026-05-09T19:49:50.024698+00:00"
+        "claimed_at": "2026-05-09T19:50:52.809032+00:00"
       }
     }
   ]
