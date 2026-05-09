@@ -57,6 +57,22 @@
       "seeds": 5,
       "conditions": 3,
       "note": "GAP-2 of sleep_substrate_plan.md. 4 of 4 (LAST and biggest) Tier-1 successors after V3-EXQ-265a PASS 2026-05-09T20:12Z + V3-EXQ-500a queued 2026-05-09T20:43Z + V3-EXQ-503a queued 2026-05-09T21:31Z. 3 conditions (WAKING_ONLY / SWS_ONLY / SWS_THEN_REM) x 5 seeds = 15 runs. Multi-claim ['SD-017', 'ARC-045', 'MECH-166']; supersedes='V3-EXQ-436' set in BOTH queue entry and manifest. Phase 2 substrate template (sd016_writepath_mode='off', sd016_diversification_weight=0.5, use_per_stream_vs=True, use_anchor_sets=True, use_sd039_anchor_payload=True) applied to ALL 3 conditions; use_sleep_loop=True / sws_enabled=True / rem_enabled=True toggle per-condition (sleep arms only). Acceptance redesigned to signed-|diff| shape per 265a template (replacing original 436's direction-only checks): C1 (SD-017) slot_cosine_sim signed |diff| between SWS_THEN_REM and WAKING_ONLY > 0.03 in >=2/5 seeds; C2 (MECH-166) harm_rate_dangerous signed |diff| > 0.005 in >=2/5 seeds; C3 (baseline) harm_rate_safe < 0.05 in >=9/15 runs (secondary); C4 (ARC-045) slot_separation > 0.3 in SWS_THEN_REM in >=2/5 seeds (secondary). PASS = C1 AND C2 (multi-claim signed-difference behavioural test). KEY 436a-specific feature: per-seed distribution diagnostics emitted in aggregated.per_seed (slot_cosine_sim, slot_separation, harm-rate signed diffs per seed) to expose seed-level heterogeneity vs mean-only summaries (motivated by 265a cross-seed split: sleep-adds / saturates / sleep-collapses pattern). C4 |diff| tolerance tightened to 0.03 (from 265a's 0.05) for 5-seed cohort sensitivity. evidence_direction_per_claim mandatory. Five-row docstring interpretation grid (C1+C2 PASS / C1-pass-C2-fail / C1-fail-C2-pass / C1+C2 FAIL / C3 FAIL only). emit_outcome contract on every code path; ASCII-only print. Smoke PASS Mac 2026-05-09T21:32Z."
+    },
+    {
+      "queue_id": "V3-EXQ-418l",
+      "title": "SD-017 action_bias_div discriminative pair, Phase 2 substrate retest (supersedes V3-EXQ-418a)",
+      "experiment_type": "v3_exq_418l_sd017_action_bias_div_phase2",
+      "script": "experiments/v3_exq_418l_sd017_action_bias_div_phase2.py",
+      "claim_id": "SD-017",
+      "supersedes": "V3-EXQ-418a",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 2,
+      "note": "GAP-2 Tier-1 successor for sleep_substrate_plan.md (SD-017 action_bias_div retest cohort; alongside V3-EXQ-265a PASS, V3-EXQ-500a, V3-EXQ-503a, V3-EXQ-436a). Applies the validated Phase 2 substrate template (sd016_writepath_mode='off', sd016_diversification_weight=0.5, use_per_stream_vs=True, use_anchor_sets=True, use_sd039_anchor_payload=True, use_sleep_loop=True) to base script v3_exq_418a_*.py. Existing 418a substrate (sd016_enabled=True, shy_enabled=False, LAMBDA_TERRAIN=0.1, terrain_loss in E1 training) preserved -- the 5 Phase 2 flags layer on top. WITH_SLEEP_SD016 vs WITHOUT_SLEEP_SD016 x 3 seeds [42, 49, 56]. P0=50 + P1=150 + eval=30 episodes. Acceptance: C1 action_bias_div(WITH_SLEEP) >= 0.05 in 2/3, C2 WITH > WITHOUT in 2/3, C4 |signed_diff| > 0.05 in 2/3 (Phase 2 acceptance shape per EXQ-265a precedent; either direction informative). PASS = C1 AND C2 AND C4. C3 slot_diversity is secondary diagnostic. Five-row docstring interpretation grid covers PASS / C2-fail (substrate-not-sleep) / C4-fail (sub-tolerance) / C1-fail (cue_action_proj confound persists) / C1+C4 (miscalibrated absolute threshold). ID is 418l (NOT 418c as in plan-of-record GAP-2 row): 418c is in runner_status.completed (silent-skip footgun); 418{a..k} all used. Update sleep_substrate_plan.md GAP-2 owner_exqs entry 418c -> 418l on completion. Smoke PASS 2026-05-09T21:32Z (validate_experiments OK; --dry-run end-to-end through 6 cells with 5 Phase 2 flags wired)."
     }
   ]
 }
