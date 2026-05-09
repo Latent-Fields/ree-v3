@@ -14,7 +14,7 @@ Guarantees enforced:
       * E3TrajectorySelector.recalibrate_precision_to(target, step)
         exists and is callable.
       * REEConfig has use_rem_precision_recalibration (default False)
-        and rem_precision_recalibration_step (default 0.1).
+        and rem_precision_recalibration_step (default 0.25 since 2026-05-09).
   C2. Default config flag OFF: agent build is bit-identical at the
       flag level (sleep_loop OFF -> agent.sleep_loop is None).
   C3. Sleep-loop ON but recalibration flag OFF: SleepLoopManager
@@ -78,7 +78,9 @@ def test_c1_module_surface_present():
 
     cfg = REEConfig()
     assert getattr(cfg, "use_rem_precision_recalibration", None) is False
-    assert getattr(cfg, "rem_precision_recalibration_step", None) == 0.1
+    # Default bumped 0.1 -> 0.25 on 2026-05-09 after V3-EXQ-541c PASS;
+    # see REE_assembly/evidence/planning/sleep_substrate_plan.md decision-log.
+    assert getattr(cfg, "rem_precision_recalibration_step", None) == 0.25
 
 
 def test_c2_default_flag_off_backward_compat():
@@ -88,7 +90,7 @@ def test_c2_default_flag_off_backward_compat():
         body_obs_dim=12, world_obs_dim=250, action_dim=4,
     )
     assert cfg.use_rem_precision_recalibration is False
-    assert cfg.rem_precision_recalibration_step == 0.1
+    assert cfg.rem_precision_recalibration_step == 0.25
 
 
 def test_c3_sleep_loop_on_recalibration_off_no_metrics():

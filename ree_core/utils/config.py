@@ -1725,8 +1725,25 @@ class REEConfig:
     use_rem_precision_recalibration: bool = False
     # Step size for the linear interpolation toward target_variance:
     #   new_rv = (1 - step) * rv + step * (1.0 / target_precision)
-    # Default 0.1 per Q1 of sleep_substrate_plan.md. Tunable per experiment.
-    rem_precision_recalibration_step: float = 0.1
+    # Default 0.25 (high end of biologically defensible band per Q-042 Option A).
+    # Bumped from 0.1 to 0.25 on 2026-05-09 after V3-EXQ-541c PASS confirmed
+    # the F1 substrate works across the full {0.05, 0.10, 0.25, 0.50} sweep
+    # with monotonically improving tracking_quality (0.842 -> 0.921) and zero
+    # overshoot. The dose-response curve at 16 cycles per run showed:
+    #   step 0.05 -> 0.90% cross-arm divergence
+    #   step 0.10 -> 1.81%
+    #   step 0.25 -> 4.51%  <- new default; just under 5% threshold
+    #   step 0.50 -> 9.03%  <- above-band stress test, clears threshold
+    # 0.25 is the strongest biologically-defensible default that balances
+    # movement magnitude against overshoot risk; 0.05 / 0.10 are conservative
+    # alternatives if an experiment needs gentler recalibration; 0.50 is
+    # available as an above-band stress test (works empirically but is
+    # outside the Q-042-supported band, so use only with explicit rationale).
+    # See REE_assembly/evidence/planning/sleep_substrate_plan.md decision-log
+    # entry 2026-05-09 ("MECH-204 V3 closure on F1") for full context.
+    # See REE_assembly/evidence/literature/targeted_review_q_042/ for the
+    # biological-defensibility band derivation.
+    rem_precision_recalibration_step: float = 0.25
     # Offline learning-rate scale relative to the waking E2_harm_s LR.
     # Default 0.1 per the C6 architectural commitment.
     mech273_offline_lr_scale: float = 0.1
@@ -2157,7 +2174,10 @@ class REEConfig:
         use_mech273_self_model: bool = False,
         # MECH-204 Option A: precision recalibration consumer in WRITEBACK
         use_rem_precision_recalibration: bool = False,
-        rem_precision_recalibration_step: float = 0.1,
+        # Default 0.25 (was 0.1 pre-2026-05-09); see field comment in REEConfig
+        # dataclass for V3-EXQ-541c rationale + the biologically-defensible
+        # band {0.05, 0.10, 0.25} per Q-042 Option A verdict.
+        rem_precision_recalibration_step: float = 0.25,
         mech273_offline_lr_scale: float = 0.1,
         mech273_offline_n_steps: int = 100,
         mech273_partial_decay_factor: float = 0.5,
