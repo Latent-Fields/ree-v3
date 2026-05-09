@@ -6,5 +6,27 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-500a",
+      "title": "SD-017 sleep-phase readiness probe -- Phase 2 retest (5-flag template successor to V3-EXQ-500)",
+      "experiment_type": "v3_exq_500a_sd017_sleep_phase_readiness_phase2",
+      "script": "experiments/v3_exq_500a_sd017_sleep_phase_readiness_phase2.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 35,
+      "episodes_per_run": 3,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "SD-017",
+      "supersedes": "V3-EXQ-500",
+      "experiment_purpose": "diagnostic",
+      "note": "Sleep substrate plan GAP-2 Phase 2 successor cohort (1 of 4 remaining Tier-1 EXQs after V3-EXQ-265a PASS 2026-05-09T20:12Z). Applies the validated 5-flag substrate template (sd016_writepath_mode='off', sd016_diversification_weight=0.5, use_per_stream_vs=True, use_anchor_sets=True, use_sd039_anchor_payload=True) to the EXQ-500 SD-017 readiness probe. Single-arm probe; no C4 |diff| acceptance (vs 265a/503a). C1/C2/C3 acceptance preserved from EXQ-500. Mac smoke PASS 2026-05-09T20:40Z.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-05-09T20:41:48.019418+00:00"
+      }
+    }
+  ]
 }
