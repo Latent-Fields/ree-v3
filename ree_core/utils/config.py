@@ -1402,6 +1402,40 @@ class REEConfig:
     use_ofc_outcome_oracle: bool = False
 
     # ----------------------------------------------------------------
+    # ARC-062 (Phase 1, weak reading): gated-policy heads + learned
+    # context discriminator. Substrate for the rule-apprehension layer
+    # MECH-309 says is required for behavioural diversity in non-
+    # stationary environments. Default-off; bit-identical OFF.
+    # See evidence/planning/arc_062_rule_apprehension_plan.md Phase 1.
+    # ----------------------------------------------------------------
+    # Master switch. When True, REEAgent instantiates a GatedPolicy that
+    # consumes (z_world, z_self, z_harm_a) for the discriminator and
+    # per-candidate first-step z_world summaries for the heads, and
+    # composes its per-candidate score_bias additively into the dACC /
+    # lateral_pfc / ofc / mech295 chain before E3.select(). Phase 1
+    # has NO connection to SD-033a (that wiring is Phase 3 of the
+    # plan-of-record).
+    use_gated_policy: bool = False
+    # N=2 heads at Phase 1 (substrate-constrained by SD-054 reef-vs-
+    # forage two-mode partition per Pull A R2 verdict). Multi-head
+    # extension is Phase 4 / GAP-E.
+    gated_policy_n_heads: int = 2
+    # Context-discriminator hidden-layer width.
+    gated_policy_disc_hidden: int = 24
+    # Init scale for discriminator weights (small to prevent early
+    # over-commitment to one head before either has differentiated).
+    gated_policy_disc_init_scale: float = 0.1
+    # Per-head MLP hidden-layer width.
+    gated_policy_head_hidden: int = 32
+    # Clamp on |gated_score_bias|. Mirrors lateral_pfc_bias_scale so
+    # Phase 1 magnitudes are comparable to existing PFC contributions.
+    gated_policy_bias_scale: float = 0.1
+    # Symmetry-broken init magnitude on the heads' last-Linear bias
+    # (head_0 +offset, head_1 -offset). Heads can differentiate from
+    # step 0 even before the discriminator has training signal.
+    gated_policy_head_init_bias_offset: float = 0.05
+
+    # ----------------------------------------------------------------
     # SD-034: governance.closure_operator (five-part "done" token)
     # ----------------------------------------------------------------
     # Master switch. When True, REEAgent instantiates a ClosureOperator
@@ -2026,6 +2060,14 @@ class REEConfig:
         ofc_hidden_dim: int = 32,
         ofc_harm_dim: int = 0,
         use_ofc_outcome_oracle: bool = False,
+        # ARC-062 Phase 1: gated-policy heads + context discriminator
+        use_gated_policy: bool = False,
+        gated_policy_n_heads: int = 2,
+        gated_policy_disc_hidden: int = 24,
+        gated_policy_disc_init_scale: float = 0.1,
+        gated_policy_head_hidden: int = 32,
+        gated_policy_bias_scale: float = 0.1,
+        gated_policy_head_init_bias_offset: float = 0.05,
         # SD-034: governance.closure_operator (five-part "done" token)
         use_closure_operator: bool = False,
         closure_rule_delta_threshold: float = 0.001,
@@ -2459,6 +2501,15 @@ class REEConfig:
         config.ofc_hidden_dim = ofc_hidden_dim
         config.ofc_harm_dim = ofc_harm_dim
         config.use_ofc_outcome_oracle = use_ofc_outcome_oracle
+
+        # ARC-062 Phase 1: gated-policy heads + context discriminator
+        config.use_gated_policy = use_gated_policy
+        config.gated_policy_n_heads = gated_policy_n_heads
+        config.gated_policy_disc_hidden = gated_policy_disc_hidden
+        config.gated_policy_disc_init_scale = gated_policy_disc_init_scale
+        config.gated_policy_head_hidden = gated_policy_head_hidden
+        config.gated_policy_bias_scale = gated_policy_bias_scale
+        config.gated_policy_head_init_bias_offset = gated_policy_head_init_bias_offset
 
         # SD-034: governance.closure_operator
         config.use_closure_operator = use_closure_operator

@@ -68,6 +68,7 @@ from ree_core.latent.stack import HarmForwardTrunk
 from ree_core.pfc import LateralPFCAnalog, OFCAnalog
 from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
 from ree_core.pfc.ofc_analog import OFCConfig
+from ree_core.policy import GatedPolicy, GatedPolicyConfig
 from ree_core.governance import (
     ClosureEvent,
     ClosureOperator,
@@ -417,6 +418,34 @@ class REEAgent(nn.Module):
         # Per-candidate oracle predictions cache (List[Tensor] or None).
         # Populated each tick when ofc.oracle_is_ready and e2_harm_s are on.
         self._ofc_oracle_predictions: Optional[List[torch.Tensor]] = None
+
+        # ARC-062 Phase 1 (rule-apprehension layer, weak reading): gated-
+        # policy heads + learned context discriminator. Substrate for the
+        # rule-apprehension architectural slot identified by MECH-309.
+        # Default-off (backward compatible). When True, the GatedPolicy
+        # module is constructed and its per-candidate score_bias is
+        # composed additively into the dACC / lateral_pfc / ofc / mech295
+        # chain before E3.select(). NO connection to SD-033a in Phase 1
+        # -- that wiring is Phase 3 of arc_062_rule_apprehension_plan.md.
+        # See ree_core/policy/gated_policy.py for the module + Pull A
+        # SYNTHESIS verdicts behind R1 / R2 / R3 defaults.
+        self.gated_policy: Optional[GatedPolicy] = None
+        if getattr(config, "use_gated_policy", False):
+            gp_cfg = GatedPolicyConfig(
+                use_gated_policy=True,
+                n_heads=config.gated_policy_n_heads,
+                disc_hidden=config.gated_policy_disc_hidden,
+                disc_init_scale=config.gated_policy_disc_init_scale,
+                head_hidden=config.gated_policy_head_hidden,
+                bias_scale=config.gated_policy_bias_scale,
+                head_init_bias_offset=config.gated_policy_head_init_bias_offset,
+            )
+            self.gated_policy = GatedPolicy(
+                world_dim=config.latent.world_dim,
+                self_dim=config.latent.self_dim,
+                harm_a_dim=config.latent.z_harm_a_dim,
+                config=gp_cfg,
+            )
 
         # SD-034: governance.closure_operator (five-part "done" token)
         # Coordinates release of BetaGate latch, targeted No-Go via dACC,
@@ -1156,6 +1185,13 @@ class REEAgent(nn.Module):
         if self.ofc is not None:
             self.ofc.reset()
         self._ofc_oracle_predictions = None
+
+        # ARC-062 Phase 1: reset GatedPolicy diagnostic counters on episode
+        # boundary. Module is stateless across ticks (no buffers); reset()
+        # only clears the cached gating_weight / bias_abs_mean / sim-skip /
+        # z_harm_a-was-none diagnostics.
+        if self.gated_policy is not None:
+            self.gated_policy.reset()
 
         # SD-034: reset closure-operator completion detector on episode boundary.
         if self.closure_operator is not None:
@@ -2637,6 +2673,52 @@ class REEAgent(nn.Module):
                 self._ofc_oracle_predictions = _oracle_list
             else:
                 self._ofc_oracle_predictions = None
+
+        # ARC-062 Phase 1: gated-policy heads + context discriminator.
+        # Phase 1 weak-reading instantiation. Per-candidate score_bias
+        # = w * head_0(features) + (1 - w) * head_1(features), where w
+        # is a sigmoid over a 3-stream (z_world, z_self, z_harm_a)
+        # discriminator (Pull A R1 multi-stream verdict). N=2 heads at
+        # Phase 1 (Pull A R2 substrate-constrained). Composed additively
+        # into the dACC / lateral_pfc / ofc score_bias chain (Pull A R3
+        # score_bias-level verdict). NO connection to SD-033a in Phase 1
+        # (that wiring is Phase 3 of arc_062_rule_apprehension_plan.md).
+        # MECH-094: simulation_mode=False (waking action selection).
+        if (
+            self.gated_policy is not None
+            and self._current_latent is not None
+        ):
+            # Reuse cand_world_summaries if lateral_pfc or ofc built them
+            # earlier this tick; otherwise build fresh.
+            try:
+                gp_summaries = cand_world_summaries  # type: ignore[name-defined]
+            except NameError:
+                K = len(candidates)
+                _gp_list: List[torch.Tensor] = []
+                for c in candidates:
+                    if c.world_states is not None:
+                        ws = c.get_world_state_sequence()
+                        _gp_list.append(ws[0, 0, :])
+                    else:
+                        _gp_list.append(
+                            self._current_latent.z_world[0].detach()
+                        )
+                gp_summaries = torch.stack(_gp_list, dim=0)
+            with torch.no_grad():
+                gp_output = self.gated_policy(
+                    z_world=self._current_latent.z_world,
+                    z_self=self._current_latent.z_self,
+                    z_harm_a=self._current_latent.z_harm_a,
+                    candidate_features=gp_summaries,
+                    simulation_mode=False,
+                )
+            gp_bias = gp_output.gated_score_bias
+            if dacc_score_bias is None:
+                dacc_score_bias = gp_bias
+            else:
+                dacc_score_bias = dacc_score_bias + gp_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
 
         # MECH-295: drive -> liking-stream -> approach_cue at action selection.
         # Per-candidate liking signal: drive * goal_proximity (each
