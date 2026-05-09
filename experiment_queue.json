@@ -6,5 +6,26 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-541b",
+      "title": "MECH-204 precision recalibration step-size sweep (EXP-0171)",
+      "experiment_type": "v3_exq_541b_mech204_step_size_sweep",
+      "script": "experiments/v3_exq_541b_mech204_step_size_sweep.py",
+      "claim_id": "MECH-204",
+      "backlog_id": "EXP-0171",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 50,
+      "episodes_per_run": 8,
+      "seeds": 3,
+      "conditions": 5,
+      "note": "EXP-0171 step-size sweep on V3-EXQ-541a F1 substrate baseline. V3-EXQ-541a PASSed C1 (substrate-readiness 3/3) and C2 (mean_abs_delta=3.62e-3, four orders of magnitude better than V3-EXQ-541's within-cycle no-op) but FAILed C3 (cross-arm divergence=5.64e-3 vs 5e-2 threshold). The per-cycle effect (~5e-3) is being washed out by waking drift between cycles, so cumulative cross-arm divergence stays small. This sweep tests whether step-size tuning alone (within the F1 substrate, alpha=0.1 held constant) can clear C3, OR whether F1+step-tuning is intrinsically limited and Phase 7 / Option B (broadcast read at action selection; gated on the parallel REM-precision lit-pull) becomes the load-bearing path. Five arms: ARM_0_off (step=0.0, within-experiment OFF reference per contract C6 no-op), ARM_1_step_0_05 (low-band), ARM_2_step_0_10 (V3-EXQ-541a baseline mid-band), ARM_3_step_0_25 (high-band per Q-042 Option A verdict), ARM_4_step_0_50 (above-band stress test). Pre-registered acceptance C1 (substrate-readiness in step>0 arms), C2 tracking_quality >= 0.7 in some defensible step, C3 overshoot_rate <= 0.1 in some defensible step, C4 cross-arm divergence >= 5% in some step>0 arm. PASS = all four. validate_experiments + dry-run smoke both OK.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-09T12:33:58.315549+00:00"
+      }
+    }
+  ]
 }
