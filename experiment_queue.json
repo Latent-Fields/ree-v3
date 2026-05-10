@@ -22,6 +22,25 @@
       "supersedes": "V3-EXQ-543",
       "claim_id": "MECH-309",
       "note": "Phase 3 corrections per arc_062_rule_apprehension_plan.md decision-log 2026-05-10: (A) gated_policy.parameters() in dedicated Adam during P1; (B) phased training P0 encoder warmup -> P1 frozen encoder + scaffolding diversification loss -> P2 eval; (C) behavioral-divergence probe with mid-P1 inert-gating short-circuit at MID_TRAINING_EP=30 (TV<0.05); (D) hardened C3 with transit_rate floor 0.05 + np.nanmean. P1 training pressure is scaffolding (NOT REINFORCE on env reward); full REINFORCE deferred to Phase 3 GAP-C/D when discriminator wires into SD-033a."
+    },
+    {
+      "queue_id": "V3-EXQ-544",
+      "title": "MECH-313 (ARC-065) stochastic_noise_floor substrate-readiness diagnostic (UC1-UC5)",
+      "experiment_type": "v3_exq_544_mech313_noise_floor_substrate_readiness",
+      "script": "experiments/v3_exq_544_mech313_noise_floor_substrate_readiness.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 5,
+      "episodes_per_run": 1,
+      "seeds": 1,
+      "conditions": 2,
+      "claim_id": "MECH-313",
+      "note": "MECH-313 (ARC-065 child) substrate-readiness diagnostic. 5 sub-tests UC1-UC5 covering instantiation, master-OFF backward-compat, lift arithmetic correctness across alpha/min_temperature sweep, select_action wiring contract, and MECH-094 simulation gate. Pure-arithmetic regulator -- no learned parameters, no env loop required, ~5 min on any machine. Substrate landed 2026-05-10 alongside SD doc + 11 contract tests (all PASS) + this validation. Behavioural validation deferred to Q-045 4-arm ablation (MECH-313 vs MECH-260 collapse falsifier) on V3-EXQ-543b/c successors AFTER this substrate is in.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-05-10T10:44:54.770302+00:00"
+      }
     }
   ]
 }
