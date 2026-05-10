@@ -1494,6 +1494,56 @@ class REEConfig:
     curiosity_lp_window_k: int = 5
 
     # ----------------------------------------------------------------
+    # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias. First child
+    # mechanism for the non_deficit_action_drives family. Adds an additive
+    # (or multiplicative-gain, falsifiable secondary) bias on E3 trajectory
+    # scoring, biased toward action-trajectories and away from no-op
+    # trajectories, scaled by a slow EWMA over the realised E3-score-receipt
+    # stream gated by secondary internal-state modulators (energy / drive /
+    # recent PE). See ree_core/policy/tonic_vigor.py and ARC-066 lit-pull
+    # SYNTHESIS (evidence/literature/targeted_review_arc_066_tonic_vigor/
+    # synthesis.md, lit_conf 0.789, supports). R1 substrate: mesolimbic DA-
+    # vigor (Niv 2007 / Salamone & Correa 2012 / Beierholm 2013); LC-NE-
+    # direction REJECTED per Kane et al. 2017. R3 form: additive primary,
+    # multiplicative falsifiable secondary. R4 scalar: slow EWMA over
+    # realised score-receipt (long-window avg-reward-rate per Niv 2007),
+    # NOT internal-capacity composite.
+    use_tonic_vigor: bool = False
+    # EWMA half-life in ticks for the realised-score-receipt average. Long
+    # window per R4 verdict (Niv 2007 long-run avg reward rate, not
+    # short-window). Default 100 ticks ~= ~700-tick window to steady state.
+    tonic_vigor_half_life: float = 100.0
+    # Action-trajectory negative-bias weight (REE convention lower-is-better,
+    # so favouring action means subtracting from action-trajectory scores).
+    # Default 0.1; magnitudes calibrated empirically by V3-EXQ-547 successor.
+    tonic_vigor_w_action: float = 0.1
+    # No-op-trajectory positive-bias weight (opportunity-cost / ARC-068
+    # complement). Default 0.1.
+    tonic_vigor_w_passive: float = 0.1
+    # Hard clamp on |per-candidate bias|. Mirrors lateral_pfc / curiosity
+    # bias_scale so MECH-320 cannot dominate the dACC / lateral_pfc / ofc /
+    # mech295 / curiosity score-bias chain at extreme reward histories.
+    tonic_vigor_bias_scale: float = 0.1
+    # Secondary modulator: energy reserve threshold below which vigor is
+    # gated DOWN linearly. SD-012 owns z_goal pursuit in the deficit regime.
+    tonic_vigor_gate_energy_min: float = 0.2
+    # Secondary modulator: drive_level threshold above which vigor is
+    # gated DOWN linearly. Above this the agent should be in z_goal-pursuit
+    # mode; SD-012 + SD-037 handle the deficit-corner attribution.
+    tonic_vigor_gate_drive_max: float = 0.7
+    # Secondary modulator: recent prediction error threshold above which
+    # vigor is gated DOWN linearly. Above this the agent should attend /
+    # consolidate / sleep, not act vigorously.
+    tonic_vigor_gate_pe_max: float = 1.0
+    # Implementation-form selector. R3 verdict: additive primary;
+    # multiplicative falsifiable secondary. Validated at TonicVigor
+    # construction; "additive" or "multiplicative" only.
+    tonic_vigor_form: str = "additive"
+    # Action-class index treated as no-op. Default 0 matches MECH-279 PAG
+    # freeze-gate convention.
+    tonic_vigor_noop_class: int = 0
+
+    # ----------------------------------------------------------------
     # MECH-319 (ARC-064 / arc_062 GAP-K): simulation_mode_rule_write_gate.
     # Substrate-level instantiation of MECH-094 at the rule-arbitration
     # layer. Unified categorical write gate that suppresses arbitration-
@@ -2166,6 +2216,18 @@ class REEConfig:
         curiosity_bias_scale: float = 0.1,
         curiosity_lp_ema_alpha: float = 0.1,
         curiosity_lp_window_k: int = 5,
+        # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias
+        # (mesolimbic-DA-vigor / avg-reward-rate / opportunity-cost regulator)
+        use_tonic_vigor: bool = False,
+        tonic_vigor_half_life: float = 100.0,
+        tonic_vigor_w_action: float = 0.1,
+        tonic_vigor_w_passive: float = 0.1,
+        tonic_vigor_bias_scale: float = 0.1,
+        tonic_vigor_gate_energy_min: float = 0.2,
+        tonic_vigor_gate_drive_max: float = 0.7,
+        tonic_vigor_gate_pe_max: float = 1.0,
+        tonic_vigor_form: str = "additive",
+        tonic_vigor_noop_class: int = 0,
         # MECH-319 (arc_062 GAP-K): simulation_mode_rule_write_gate
         # (substrate-level instantiation of MECH-094 at the rule-
         # arbitration layer). admit_writes is the V3-EXQ-543c falsifier.
@@ -2630,6 +2692,18 @@ class REEConfig:
         config.curiosity_bias_scale = curiosity_bias_scale
         config.curiosity_lp_ema_alpha = curiosity_lp_ema_alpha
         config.curiosity_lp_window_k = curiosity_lp_window_k
+
+        # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias
+        config.use_tonic_vigor = use_tonic_vigor
+        config.tonic_vigor_half_life = tonic_vigor_half_life
+        config.tonic_vigor_w_action = tonic_vigor_w_action
+        config.tonic_vigor_w_passive = tonic_vigor_w_passive
+        config.tonic_vigor_bias_scale = tonic_vigor_bias_scale
+        config.tonic_vigor_gate_energy_min = tonic_vigor_gate_energy_min
+        config.tonic_vigor_gate_drive_max = tonic_vigor_gate_drive_max
+        config.tonic_vigor_gate_pe_max = tonic_vigor_gate_pe_max
+        config.tonic_vigor_form = tonic_vigor_form
+        config.tonic_vigor_noop_class = tonic_vigor_noop_class
 
         # MECH-319: simulation_mode_rule_write_gate
         config.use_simulation_mode_rule_gate = use_simulation_mode_rule_gate

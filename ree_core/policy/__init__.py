@@ -21,6 +21,11 @@ from ree_core.policy.structured_curiosity import (
     StructuredCuriosity,
     StructuredCuriosityConfig,
 )
+from ree_core.policy.tonic_vigor import (
+    TonicVigor,
+    TonicVigorConfig,
+    TonicVigorOutput,
+)
 
 __all__ = [
     "GatedPolicy",
@@ -30,4 +35,7 @@ __all__ = [
     "NoiseFloorConfig",
     "StructuredCuriosity",
     "StructuredCuriosityConfig",
+    "TonicVigor",
+    "TonicVigorConfig",
+    "TonicVigorOutput",
 ]

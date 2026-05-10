@@ -23,6 +23,22 @@
       "experiment_purpose": "diagnostic",
       "claim_id": "",
       "note": "Re-run of V3-EXQ-514h after the 514h manifest was lost to mid-completion SIGTERM at 17:32:00.5 on ree-cloud-1 (auto-scaler bug, since fixed). 514h's runner_status entry shows PASS but no metrics file. 514i recovers the metrics."
+    },
+    {
+      "queue_id": "V3-EXQ-547",
+      "title": "MECH-320 (ARC-066 child) tonic_vigor_coupling_score_bias substrate-readiness diagnostic (6 sub-tests UC1-UC6)",
+      "experiment_type": "v3_exq_547_mech320_tonic_vigor_substrate_readiness",
+      "script": "experiments/v3_exq_547_mech320_tonic_vigor_substrate_readiness.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 2,
+      "episodes_per_run": 0,
+      "seeds": 1,
+      "conditions": 6,
+      "experiment_purpose": "diagnostic",
+      "claim_id": "MECH-320",
+      "note": "MECH-320 substrate-readiness. UC1 instantiation, UC2 master-OFF backward-compat, UC3 EWMA arithmetic (steady-state convergence + half-life crossing + sign-convention), UC4 select_action wiring contract via act_with_split_obs (compute_score_bias pre-select + update_score_receipt post-select both fire), UC5 MECH-094 simulation gate, UC6 R3 form discriminability (additive vs multiplicative produce different bias on a held-out non-uniform-|score| batch). Smoke 6/6 PASS 2026-05-10. Behavioural validation (3-arm discriminative pair on a well-fed-safe-familiar substrate) is queued separately AFTER this PASSes. lit-pull verdicts: ARC-066 lit_conf 0.789 supports."
     }
   ]
 }

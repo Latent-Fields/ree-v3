@@ -75,6 +75,8 @@ from ree_core.policy import (
     NoiseFloorConfig,
     StructuredCuriosity,
     StructuredCuriosityConfig,
+    TonicVigor,
+    TonicVigorConfig,
 )
 from ree_core.governance import (
     ClosureEvent,
@@ -507,6 +509,37 @@ class REEAgent(nn.Module):
                 curiosity_lp_window_k=config.curiosity_lp_window_k,
             )
             self.curiosity = StructuredCuriosity(config=cur_cfg)
+
+        # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias.
+        # Capacity-keyed additive (or multiplicative-gain) bias on E3
+        # action-vs-no-op scoring. Vigor scalar = slow EWMA over realised
+        # E3-score-receipt, gated by secondary internal-state modulators
+        # (energy / drive / recent PE). Sister to MECH-313 (noise floor,
+        # orthogonal axis) and MECH-314 (curiosity bonus, candidate-level
+        # axis); MECH-320 is the action-vs-no-op axis. R3 lit-pull verdict
+        # ADDITIVE primary; MULTIPLICATIVE GAIN falsifiable secondary --
+        # both implementable via tonic_vigor_form. R4 verdict slow EWMA
+        # over reward history is the primary scalar (Niv 2007 / Beierholm
+        # 2013); internal-state proxies are secondary modulators. See
+        # ree_core/policy/tonic_vigor.py and ARC-066 lit-pull SYNTHESIS
+        # at REE_assembly/evidence/literature/targeted_review_arc_066_tonic_vigor/
+        # synthesis.md (lit_conf 0.789, supports). Bit-identical baseline
+        # when use_tonic_vigor=False.
+        self.tonic_vigor: Optional[TonicVigor] = None
+        if getattr(config, "use_tonic_vigor", False):
+            tv_cfg = TonicVigorConfig(
+                use_tonic_vigor=True,
+                half_life=config.tonic_vigor_half_life,
+                w_action=config.tonic_vigor_w_action,
+                w_passive=config.tonic_vigor_w_passive,
+                bias_scale=config.tonic_vigor_bias_scale,
+                gate_energy_min=config.tonic_vigor_gate_energy_min,
+                gate_drive_max=config.tonic_vigor_gate_drive_max,
+                gate_pe_max=config.tonic_vigor_gate_pe_max,
+                form=config.tonic_vigor_form,
+                noop_class=config.tonic_vigor_noop_class,
+            )
+            self.tonic_vigor = TonicVigor(config=tv_cfg)
 
         # MECH-319 (arc_062 GAP-K): simulation_mode_rule_write_gate.
         # Substrate-level instantiation of MECH-094 at the rule-arbitration
@@ -1282,6 +1315,8 @@ class REEAgent(nn.Module):
         # 314a / 314b are stateless across ticks.
         if self.curiosity is not None:
             self.curiosity.reset()
+        if self.tonic_vigor is not None:
+            self.tonic_vigor.reset()
 
         # MECH-319: reset simulation-mode rule-gate diagnostic counters on
         # episode boundary. The gate has no persistent state across ticks
@@ -2981,6 +3016,61 @@ class REEAgent(nn.Module):
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 
+        # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias.
+        # Target-free, capacity-keyed additive (or multiplicative-gain
+        # falsifiable secondary) bias on E3 trajectory scoring. Negative
+        # bias on action-trajectories (REE lower-is-better favours action);
+        # positive bias on no-op-trajectories (penalises passivity). Vigor
+        # scalar = slow EWMA over realised E3-score-receipt, gated by
+        # secondary internal-state modulators (energy / drive / recent PE).
+        # Composed AFTER MECH-314 curiosity (orthogonal axis: curiosity
+        # rewards novelty; vigor rewards target-free action) and BEFORE
+        # MECH-313 noise_floor (which lifts softmax temperature, not
+        # scores). Bit-identical baseline when self.tonic_vigor is None.
+        if self.tonic_vigor is not None:
+            K_cands = len(candidates)
+            # Per-candidate first-step action class.
+            tv_action_classes = torch.zeros(K_cands, dtype=torch.long)
+            for _i, _c in enumerate(candidates):
+                # _c.actions has shape [batch, horizon, action_dim]; first-
+                # step action class = argmax over action_dim.
+                _first_action = _c.actions[:, 0, :]
+                tv_action_classes[_i] = int(_first_action.argmax(dim=-1).flatten()[0].item())
+            # Multiplicative-form magnitude anchor: pre-MECH-320 score_bias
+            # (additive contributions from upstream sources). When
+            # dacc_score_bias is None, use zeros -- multiplicative form
+            # then yields zero bias (no pre-existing preference to
+            # amplify). Additive form ignores the magnitude argument.
+            if dacc_score_bias is not None:
+                tv_score_anchor = dacc_score_bias.detach()
+            else:
+                tv_score_anchor = torch.zeros(K_cands)
+            # Drive: post-pACC effective drive computed earlier in
+            # select_action (matches AIC / PCC / SalienceCoordinator reads).
+            tv_drive = float(_effective_drive_level)
+            # Energy proxy: 1 - drive. Bounded [0, 1]; SD-012 owns the
+            # depleted regime via gate_drive, but gate_energy provides an
+            # additional rail when the deficit is severe.
+            tv_energy = max(0.0, min(1.0, 1.0 - tv_drive))
+            # Recent PE: e3._running_variance (per-tick PE-MSE accumulator;
+            # same signal MECH-314c learning-progress reads).
+            tv_pe = float(getattr(self.e3, "_running_variance", 0.0))
+            with torch.no_grad():
+                tv_bias = self.tonic_vigor.compute_score_bias(
+                    per_candidate_scores=tv_score_anchor,
+                    action_classes=tv_action_classes,
+                    energy=tv_energy,
+                    drive=tv_drive,
+                    recent_pe=tv_pe,
+                    simulation_mode=False,
+                )
+            if dacc_score_bias is None:
+                dacc_score_bias = tv_bias
+            else:
+                dacc_score_bias = dacc_score_bias + tv_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
+
         # MECH-313 (ARC-065): stochastic_noise_floor. Lifts the softmax
         # temperature uniformly to prevent argmax collapse (LC-NE tonic
         # analog; SAC max-entropy regularisation analog). State-
@@ -3016,6 +3106,23 @@ class REEAgent(nn.Module):
             pe_scalar = float(getattr(self.e3, "_running_variance", 0.0))
             self.curiosity.update_prediction_error(
                 pe_scalar=pe_scalar, simulation_mode=False,
+            )
+
+        # MECH-320 EWMA feed: push the realised E3 score of the SELECTED
+        # candidate into the tonic-vigor EWMA so the NEXT tick's vigor
+        # scalar reflects the current waking reward stream (Niv 2007 long-
+        # run avg-reward-rate formalism). REE convention is lower-is-
+        # better; module internally negates so v_raw climbs in reward-
+        # rich regimes. simulation_mode=False (waking action selection).
+        if self.tonic_vigor is not None:
+            try:
+                _selected_score_val = float(
+                    result.scores[result.selected_index].detach().item()
+                )
+            except (IndexError, AttributeError, RuntimeError):
+                _selected_score_val = 0.0
+            self.tonic_vigor.update_score_receipt(
+                score=_selected_score_val, simulation_mode=False,
             )
 
         # MECH-090: gate policy propagation based on beta state.
