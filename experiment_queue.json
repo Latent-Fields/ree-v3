@@ -35,14 +35,18 @@
       "script": "experiments/v3_exq_547_mech320_tonic_vigor_substrate_readiness.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 2,
       "episodes_per_run": 0,
       "seeds": 1,
       "conditions": 6,
       "experiment_purpose": "diagnostic",
       "claim_id": "MECH-320",
-      "note": "MECH-320 substrate-readiness. UC1 instantiation, UC2 master-OFF backward-compat, UC3 EWMA arithmetic (steady-state convergence + half-life crossing + sign-convention), UC4 select_action wiring contract via act_with_split_obs (compute_score_bias pre-select + update_score_receipt post-select both fire), UC5 MECH-094 simulation gate, UC6 R3 form discriminability (additive vs multiplicative produce different bias on a held-out non-uniform-|score| batch). Smoke 6/6 PASS 2026-05-10. Behavioural validation (3-arm discriminative pair on a well-fed-safe-familiar substrate) is queued separately AFTER this PASSes. lit-pull verdicts: ARC-066 lit_conf 0.789 supports."
+      "note": "MECH-320 substrate-readiness. UC1 instantiation, UC2 master-OFF backward-compat, UC3 EWMA arithmetic (steady-state convergence + half-life crossing + sign-convention), UC4 select_action wiring contract via act_with_split_obs (compute_score_bias pre-select + update_score_receipt post-select both fire), UC5 MECH-094 simulation gate, UC6 R3 form discriminability (additive vs multiplicative produce different bias on a held-out non-uniform-|score| batch). Smoke 6/6 PASS 2026-05-10. Behavioural validation (3-arm discriminative pair on a well-fed-safe-familiar substrate) is queued separately AFTER this PASSes. lit-pull verdicts: ARC-066 lit_conf 0.789 supports.",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-10T20:56:09.829834+00:00"
+      }
     }
   ]
 }
