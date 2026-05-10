@@ -68,7 +68,14 @@ from ree_core.latent.stack import HarmForwardTrunk
 from ree_core.pfc import LateralPFCAnalog, OFCAnalog
 from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
 from ree_core.pfc.ofc_analog import OFCConfig
-from ree_core.policy import GatedPolicy, GatedPolicyConfig, NoiseFloor, NoiseFloorConfig
+from ree_core.policy import (
+    GatedPolicy,
+    GatedPolicyConfig,
+    NoiseFloor,
+    NoiseFloorConfig,
+    StructuredCuriosity,
+    StructuredCuriosityConfig,
+)
 from ree_core.governance import (
     ClosureEvent,
     ClosureOperator,
@@ -463,6 +470,39 @@ class REEAgent(nn.Module):
                 noise_floor_min_temperature=config.noise_floor_min_temperature,
             )
             self.noise_floor = NoiseFloor(config=nf_cfg)
+
+        # MECH-314 (ARC-065): structured_curiosity_bonus (frontopolar / EFE
+        # analog). State-DEPENDENT score-bias on E3 candidate scoring.
+        # Sibling to MECH-313 stochastic_noise_floor at the policy layer:
+        # MECH-313 lifts the softmax temperature uniformly (state-
+        # independent); MECH-314 adds a per-candidate (314a) or broadcast-
+        # scalar (314b/c Phase 1) NEGATIVE score_bias that makes novel /
+        # uncertain / learning-progress-rich candidates more attractive
+        # under the lower-is-better convention. Three sub-flavours
+        # registered separately under ARC-065 (Pull 1 SYNTHESIS R3 +
+        # Q-044): MECH-314a striatal novelty (Wittmann 2008), MECH-314b
+        # frontopolar uncertainty (Daw 2006 / Friston EFE), MECH-314c
+        # learning-progress (Schmidhuber / Pathak; least biologically
+        # anchored). Master + 3 sub-switches independently togglable so
+        # Q-044's three-arm ablation is a flag-set decision. See
+        # ree_core/policy/structured_curiosity.py and
+        # REE_assembly/docs/architecture/mech_314_structured_curiosity_bonus.md.
+        # Bit-identical baseline when use_structured_curiosity=False.
+        self.curiosity: Optional[StructuredCuriosity] = None
+        if getattr(config, "use_structured_curiosity", False):
+            cur_cfg = StructuredCuriosityConfig(
+                use_structured_curiosity=True,
+                use_curiosity_novelty=config.use_curiosity_novelty,
+                use_curiosity_uncertainty=config.use_curiosity_uncertainty,
+                use_curiosity_learning_progress=config.use_curiosity_learning_progress,
+                curiosity_novelty_weight=config.curiosity_novelty_weight,
+                curiosity_uncertainty_weight=config.curiosity_uncertainty_weight,
+                curiosity_learning_progress_weight=config.curiosity_learning_progress_weight,
+                curiosity_bias_scale=config.curiosity_bias_scale,
+                curiosity_lp_ema_alpha=config.curiosity_lp_ema_alpha,
+                curiosity_lp_window_k=config.curiosity_lp_window_k,
+            )
+            self.curiosity = StructuredCuriosity(config=cur_cfg)
 
         # SD-034: governance.closure_operator (five-part "done" token)
         # Coordinates release of BetaGate latch, targeted No-Go via dACC,
@@ -1211,6 +1251,12 @@ class REEAgent(nn.Module):
             self.gated_policy.reset()
         if self.noise_floor is not None:
             self.noise_floor.reset()
+        # MECH-314 (ARC-065): reset structured-curiosity diagnostics + 314c
+        # learning-progress EMA buffer on episode boundary. Per-episode
+        # because a fresh task/environment carries a fresh learning curve;
+        # 314a / 314b are stateless across ticks.
+        if self.curiosity is not None:
+            self.curiosity.reset()
 
         # SD-034: reset closure-operator completion detector on episode boundary.
         if self.closure_operator is not None:
@@ -2827,6 +2873,53 @@ class REEAgent(nn.Module):
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 
+        # MECH-314 (ARC-065): structured_curiosity_bonus. Per-candidate
+        # (314a) and broadcast-scalar (314b/c Phase 1) negative score-bias
+        # composed additively into dacc_score_bias. Fires only when
+        # self.curiosity is not None (master flag ON). Bit-identical
+        # baseline when curiosity is None. Sub-flavour switches inside
+        # the module gate per-flavour computation; flag-set Q-044
+        # ablation is "master ON + per-sub flag flips."
+        if self.curiosity is not None:
+            # Build per-candidate first-step z_world summaries. Reuse
+            # m295_summaries when the MECH-295 block ran; else
+            # cand_world_summaries from lateral_pfc / ofc; else build
+            # fresh from candidates.
+            try:
+                cur_summaries = m295_summaries  # type: ignore[name-defined]
+            except NameError:
+                try:
+                    cur_summaries = cand_world_summaries  # type: ignore[name-defined]
+                except NameError:
+                    K = len(candidates)
+                    _cur_list: List[torch.Tensor] = []
+                    for c in candidates:
+                        if c.world_states is not None:
+                            ws = c.get_world_state_sequence()
+                            _cur_list.append(ws[0, 0, :])
+                        elif self._current_latent is not None:
+                            _cur_list.append(
+                                self._current_latent.z_world[0].detach()
+                            )
+                        else:
+                            _cur_list.append(
+                                torch.zeros(self.config.latent.world_dim)
+                            )
+                    cur_summaries = torch.stack(_cur_list, dim=0)
+            with torch.no_grad():
+                cur_bias = self.curiosity.compute_score_bias(
+                    candidate_world_summaries=cur_summaries.detach(),
+                    residue_field=self.residue_field,
+                    e3=self.e3,
+                    simulation_mode=False,
+                )
+            if dacc_score_bias is None:
+                dacc_score_bias = cur_bias
+            else:
+                dacc_score_bias = dacc_score_bias + cur_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
+
         # MECH-313 (ARC-065): stochastic_noise_floor. Lifts the softmax
         # temperature uniformly to prevent argmax collapse (LC-NE tonic
         # analog; SAC max-entropy regularisation analog). State-
@@ -2851,6 +2944,18 @@ class REEAgent(nn.Module):
             score_bias=dacc_score_bias,
         )
         action = result.selected_action
+
+        # MECH-314c learning-progress feed: push the current waking
+        # tick's PE-magnitude scalar into the structured-curiosity LP
+        # buffer so the next tick's 314c bonus reflects |PE_t - PE_{t-K}|
+        # rate-of-improvement (Schmidhuber 1991 first-difference). Phase 1
+        # signal source is e3._running_variance (a per-tick PE-MSE
+        # accumulator). simulation_mode=False here (waking path).
+        if self.curiosity is not None:
+            pe_scalar = float(getattr(self.e3, "_running_variance", 0.0))
+            self.curiosity.update_prediction_error(
+                pe_scalar=pe_scalar, simulation_mode=False,
+            )
 
         # MECH-090: gate policy propagation based on beta state.
         bistable = self.config.heartbeat.beta_gate_bistable

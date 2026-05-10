@@ -17,6 +17,10 @@ from ree_core.policy.noise_floor import (
     NoiseFloor,
     NoiseFloorConfig,
 )
+from ree_core.policy.structured_curiosity import (
+    StructuredCuriosity,
+    StructuredCuriosityConfig,
+)
 
 __all__ = [
     "GatedPolicy",
@@ -24,4 +28,6 @@ __all__ = [
     "GatedPolicyOutput",
     "NoiseFloor",
     "NoiseFloorConfig",
+    "StructuredCuriosity",
+    "StructuredCuriosityConfig",
 ]

@@ -1457,6 +1457,43 @@ class REEConfig:
     noise_floor_min_temperature: float = 1.0
 
     # ----------------------------------------------------------------
+    # MECH-314 (ARC-065): structured_curiosity_bonus. Frontopolar
+    # exploration / EFE analog. Sibling to MECH-313 stochastic_noise_floor.
+    # Three sub-flavours registered separately (Pull 1 SYNTHESIS R3 +
+    # Q-044): MECH-314a striatal novelty (Wittmann 2008), MECH-314b
+    # frontopolar uncertainty-driven curiosity (Daw 2006 / Friston EFE),
+    # MECH-314c learning-progress / intrinsic motivation (Schmidhuber /
+    # Pathak; least biologically anchored). See
+    # ree_core/policy/structured_curiosity.py for the algorithm; Phase 1
+    # honest-scoping note: 314a is genuinely per-candidate (RBF distance
+    # to ResidueField centers), 314b and 314c are state-dependent global
+    # scalars broadcast across [K] (per-candidate refinement deferred to
+    # Phase 2 follow-on requiring an E1 forward-variance head).
+    use_structured_curiosity: bool = False
+    # Sub-flavour switches. Consulted only when use_structured_curiosity
+    # is True. Defaults are True so flag-set Q-044 ablation is "turn the
+    # master on, then flip individual sub-flavours off" (matches the
+    # cluster-registration verdict NOT to collapse them prematurely).
+    use_curiosity_novelty: bool = True
+    use_curiosity_uncertainty: bool = True
+    use_curiosity_learning_progress: bool = True
+    # Per-sub-flavour magnitudes. Default 0.05 each; Q-043 (relative
+    # weight calibration MECH-313 vs MECH-314) and Q-044 (sub-flavour
+    # independence) are the empirical resolution paths.
+    curiosity_novelty_weight: float = 0.05
+    curiosity_uncertainty_weight: float = 0.05
+    curiosity_learning_progress_weight: float = 0.05
+    # Hard clamp on |total curiosity bias|. Mirrors lateral_pfc_bias_scale
+    # so Phase 1 magnitudes are comparable to existing PFC-side score_bias
+    # contributions and curiosity cannot dominate the dACC / lateral_pfc /
+    # ofc / mech295 score-bias chain at extreme sub-signal magnitudes.
+    curiosity_bias_scale: float = 0.1
+    # 314c learning-progress EMA smoothing (~10-tick window at default).
+    curiosity_lp_ema_alpha: float = 0.1
+    # 314c |PE_t - PE_{t-K}| window K (Schmidhuber 1991 first-difference).
+    curiosity_lp_window_k: int = 5
+
+    # ----------------------------------------------------------------
     # SD-034: governance.closure_operator (five-part "done" token)
     # ----------------------------------------------------------------
     # Master switch. When True, REEAgent instantiates a ClosureOperator
@@ -2093,6 +2130,18 @@ class REEConfig:
         use_noise_floor: bool = False,
         noise_floor_alpha: float = 0.1,
         noise_floor_min_temperature: float = 1.0,
+        # MECH-314 (ARC-065): structured_curiosity_bonus (frontopolar /
+        # EFE analog) + 3 sub-flavour switches (314a/b/c)
+        use_structured_curiosity: bool = False,
+        use_curiosity_novelty: bool = True,
+        use_curiosity_uncertainty: bool = True,
+        use_curiosity_learning_progress: bool = True,
+        curiosity_novelty_weight: float = 0.05,
+        curiosity_uncertainty_weight: float = 0.05,
+        curiosity_learning_progress_weight: float = 0.05,
+        curiosity_bias_scale: float = 0.1,
+        curiosity_lp_ema_alpha: float = 0.1,
+        curiosity_lp_window_k: int = 5,
         # SD-034: governance.closure_operator (five-part "done" token)
         use_closure_operator: bool = False,
         closure_rule_delta_threshold: float = 0.001,
@@ -2540,6 +2589,18 @@ class REEConfig:
         config.use_noise_floor = use_noise_floor
         config.noise_floor_alpha = noise_floor_alpha
         config.noise_floor_min_temperature = noise_floor_min_temperature
+
+        # MECH-314 (ARC-065): structured_curiosity_bonus
+        config.use_structured_curiosity = use_structured_curiosity
+        config.use_curiosity_novelty = use_curiosity_novelty
+        config.use_curiosity_uncertainty = use_curiosity_uncertainty
+        config.use_curiosity_learning_progress = use_curiosity_learning_progress
+        config.curiosity_novelty_weight = curiosity_novelty_weight
+        config.curiosity_uncertainty_weight = curiosity_uncertainty_weight
+        config.curiosity_learning_progress_weight = curiosity_learning_progress_weight
+        config.curiosity_bias_scale = curiosity_bias_scale
+        config.curiosity_lp_ema_alpha = curiosity_lp_ema_alpha
+        config.curiosity_lp_window_k = curiosity_lp_window_k
 
         # SD-034: governance.closure_operator
         config.use_closure_operator = use_closure_operator
