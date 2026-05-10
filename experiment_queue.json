@@ -6,27 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-514i",
-      "title": "SD-049 BG gating wider-seed sweep under StepHarness, Tier-1 diagnostic re-run after 514h manifest lost to mid-completion SIGTERM (supersedes V3-EXQ-514h)",
-      "experiment_type": "v3_exq_514i_sd049_bg_gating_wider_seeds_stepharness",
-      "script": "experiments/v3_exq_514i_sd049_bg_gating_wider_seeds_stepharness.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 200,
-      "episodes_per_run": 90,
-      "seeds": 6,
-      "conditions": 1,
-      "supersedes": "V3-EXQ-514h",
-      "experiment_purpose": "diagnostic",
-      "claim_id": "",
-      "note": "Re-run of V3-EXQ-514h after the 514h manifest was lost to mid-completion SIGTERM at 17:32:00.5 on ree-cloud-1 (auto-scaler bug, since fixed). 514h's runner_status entry shows PASS but no metrics file. 514i recovers the metrics.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-10T20:56:02.871164+00:00"
-      }
-    }
-  ]
+  "items": []
 }
