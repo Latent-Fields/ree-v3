@@ -2,6 +2,19 @@
 
 Active V3 implementation substrate for REE. Primary development target as of 2026-03-18 following formal V3 transition triggered by V2 hard-stop criteria.
 
+## What V3 Is Proving
+
+V3 is not trying to prove full ethical agency. It is proving the prerequisites
+without which ethical testing would be meaningless: self/world separation,
+agency attribution, harm modelling, motivational persistence, commitment
+gating, residue, and offline integration.
+
+This is the implementation counterpart to REE's alignment claim. Work that is
+often placed in post-hoc judges or safety filters must instead be present in
+the state construction and trajectory-generation machinery of the agent. V3 is
+the substrate where those mechanisms become testable one by one before the V4
+multi-agent ethical setting exists.
+
 ## Why V3
 
 V2 experiments (EXQ-014–028) produced three architectural failures requiring new substrate:
