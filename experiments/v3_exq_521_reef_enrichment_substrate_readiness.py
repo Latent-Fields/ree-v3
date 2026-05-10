@@ -221,6 +221,9 @@ def write_result(result: dict, run_id: str) -> None:
         json.dump(manifest, f, indent=2)
     print(f"Result written to {out_path}")
 
+    from experiment_protocol import emit_outcome
+    emit_outcome(outcome=manifest["outcome"], manifest_path=str(out_path))
+
 
 if __name__ == "__main__":
     import argparse

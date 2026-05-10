@@ -643,6 +643,9 @@ def main() -> None:
     print(f"\n[V3-EXQ-227] Written: {out_path}", flush=True)
     print(f"Status: {outcome}", flush=True)
 
+    from experiment_protocol import emit_outcome
+    emit_outcome(outcome=outcome, manifest_path=str(out_path))
+
 
 if __name__ == "__main__":
     main()

@@ -343,6 +343,9 @@ def main() -> None:
           f"mean_rv_final={mean_rv_final:.4f}  "
           f"mean_committed_frac_last={mean_committed_frac_last:.3f}")
 
+    from experiment_protocol import emit_outcome
+    emit_outcome(outcome=outcome, manifest_path=str(out_path))
+
 
 if __name__ == "__main__":
     main()

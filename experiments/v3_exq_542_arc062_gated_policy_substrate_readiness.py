@@ -409,6 +409,9 @@ def main() -> None:
         print(f"  {k}: pass={v['pass']}")
     print(f"Result written to: {out_path}", flush=True)
 
+    from experiment_protocol import emit_outcome
+    emit_outcome(outcome=manifest["result"], manifest_path=str(out_path))
+
 
 if __name__ == "__main__":
     main()

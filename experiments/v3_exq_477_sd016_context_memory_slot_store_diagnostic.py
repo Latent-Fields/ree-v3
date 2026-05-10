@@ -781,10 +781,16 @@ def main(dry_run=False):
             json.dump(output, f, indent=2)
         print(f"Results written to {out_path}", flush=True)
     else:
+        out_path = None
         print(f"[DRY RUN] run_id={run_id} outcome={outcome}", flush=True)
 
     print(f"verdict: {outcome}", flush=True)
     print(f"Outcome: {outcome}", flush=True)
+
+    if not dry_run:
+        from experiment_protocol import emit_outcome
+        emit_outcome(outcome=outcome, manifest_path=str(out_path))
+
     return output
 
 

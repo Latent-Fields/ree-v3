@@ -425,6 +425,9 @@ def main():
         json.dump(manifest, f, indent=2)
     print("manifest written to:", manifest_path)
 
+    from experiment_protocol import emit_outcome
+    emit_outcome(outcome=outcome, manifest_path=str(manifest_path))
+
 
 if __name__ == "__main__":
     main()

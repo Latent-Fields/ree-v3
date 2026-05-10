@@ -403,6 +403,10 @@ def main(dry_run: bool = False) -> int:
     with open(out_path, "w") as f:
         json.dump(manifest, f, indent=2)
     print(f"Result written to: {out_path}")
+
+    from experiment_protocol import emit_outcome
+    emit_outcome(outcome=outcome, manifest_path=str(out_path))
+
     return 0 if outcome == "PASS" else 1
 
 

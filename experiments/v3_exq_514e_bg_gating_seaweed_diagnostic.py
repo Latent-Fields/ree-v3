@@ -336,6 +336,9 @@ def main() -> None:
         flush=True,
     )
 
+    from experiment_protocol import emit_outcome
+    emit_outcome(outcome=outcome, manifest_path=str(out_path))
+
 
 if __name__ == "__main__":
     main()

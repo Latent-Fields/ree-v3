@@ -660,6 +660,12 @@ def main(dry_run: bool = False) -> int:
         with open(out_file, "w") as fh:
             json.dump(manifest, fh, indent=2)
         print(f"Result written to: {out_file}", flush=True)
+
+        from experiment_protocol import emit_outcome
+        emit_outcome(
+            outcome="PASS" if all_pass else "FAIL",
+            manifest_path=str(out_file),
+        )
     return 0 if all_pass else 1
 
 
