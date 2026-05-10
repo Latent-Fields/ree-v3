@@ -1436,6 +1436,27 @@ class REEConfig:
     gated_policy_head_init_bias_offset: float = 0.05
 
     # ----------------------------------------------------------------
+    # MECH-313 (ARC-065): stochastic_noise_floor (LC-NE tonic / SAC
+    # max-entropy policy regularisation analog). State-independent
+    # softmax-temperature lift that prevents complete deterministic
+    # collapse of the policy. Distinct from MECH-260 dACC anti-recency
+    # (state-dependent recency penalty); Q-045 falsifies whether they
+    # collapse into a single substrate. See ree_core/policy/noise_floor.py
+    # and Pull 1 SYNTHESIS verdicts (R1 BOTH-CHANNELS-NEEDED, R2 LC-NE
+    # tonic load-bearing, R4 continuous every tick) for resolved defaults.
+    use_noise_floor: bool = False
+    # SAC-entropy-bonus analog; constant additive lift on the softmax
+    # temperature. Default 0.1 = modest +10% of the baseline E3
+    # temperature (1.0). Q-043 calibrates magnitudes via parametric
+    # sweep (V3-EXQ-543b/c).
+    noise_floor_alpha: float = 0.1
+    # Hard lower bound on the effective softmax temperature (so the
+    # policy never collapses to argmax even under annealing schedules
+    # that drive the baseline below 1.0). Default 1.0 matches the
+    # existing E3 baseline so well-formed callers clear the floor.
+    noise_floor_min_temperature: float = 1.0
+
+    # ----------------------------------------------------------------
     # SD-034: governance.closure_operator (five-part "done" token)
     # ----------------------------------------------------------------
     # Master switch. When True, REEAgent instantiates a ClosureOperator
@@ -2068,6 +2089,10 @@ class REEConfig:
         gated_policy_head_hidden: int = 32,
         gated_policy_bias_scale: float = 0.1,
         gated_policy_head_init_bias_offset: float = 0.05,
+        # MECH-313 (ARC-065): stochastic_noise_floor (LC-NE tonic / SAC analog)
+        use_noise_floor: bool = False,
+        noise_floor_alpha: float = 0.1,
+        noise_floor_min_temperature: float = 1.0,
         # SD-034: governance.closure_operator (five-part "done" token)
         use_closure_operator: bool = False,
         closure_rule_delta_threshold: float = 0.001,
@@ -2510,6 +2535,11 @@ class REEConfig:
         config.gated_policy_head_hidden = gated_policy_head_hidden
         config.gated_policy_bias_scale = gated_policy_bias_scale
         config.gated_policy_head_init_bias_offset = gated_policy_head_init_bias_offset
+
+        # MECH-313 (ARC-065): stochastic_noise_floor
+        config.use_noise_floor = use_noise_floor
+        config.noise_floor_alpha = noise_floor_alpha
+        config.noise_floor_min_temperature = noise_floor_min_temperature
 
         # SD-034: governance.closure_operator
         config.use_closure_operator = use_closure_operator

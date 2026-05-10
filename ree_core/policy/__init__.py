@@ -13,9 +13,15 @@ from ree_core.policy.gated_policy import (
     GatedPolicyConfig,
     GatedPolicyOutput,
 )
+from ree_core.policy.noise_floor import (
+    NoiseFloor,
+    NoiseFloorConfig,
+)
 
 __all__ = [
     "GatedPolicy",
     "GatedPolicyConfig",
     "GatedPolicyOutput",
+    "NoiseFloor",
+    "NoiseFloorConfig",
 ]

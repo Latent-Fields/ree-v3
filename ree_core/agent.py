@@ -68,7 +68,7 @@ from ree_core.latent.stack import HarmForwardTrunk
 from ree_core.pfc import LateralPFCAnalog, OFCAnalog
 from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
 from ree_core.pfc.ofc_analog import OFCConfig
-from ree_core.policy import GatedPolicy, GatedPolicyConfig
+from ree_core.policy import GatedPolicy, GatedPolicyConfig, NoiseFloor, NoiseFloorConfig
 from ree_core.governance import (
     ClosureEvent,
     ClosureOperator,
@@ -446,6 +446,23 @@ class REEAgent(nn.Module):
                 harm_a_dim=config.latent.z_harm_a_dim,
                 config=gp_cfg,
             )
+
+        # MECH-313 (ARC-065): stochastic_noise_floor (LC-NE tonic / SAC analog).
+        # State-independent softmax-temperature lift applied at the
+        # e3.select() call site in select_action(). Bit-identical baseline
+        # when use_noise_floor=False (regulator is None and the call site
+        # passes the unmodified baseline temperature). See
+        # ree_core/policy/noise_floor.py for the module + Pull 1 SYNTHESIS
+        # verdicts. Distinct from MECH-260 dACC anti-recency; Q-045
+        # falsifies whether they collapse into a single substrate.
+        self.noise_floor: Optional[NoiseFloor] = None
+        if getattr(config, "use_noise_floor", False):
+            nf_cfg = NoiseFloorConfig(
+                use_noise_floor=True,
+                noise_floor_alpha=config.noise_floor_alpha,
+                noise_floor_min_temperature=config.noise_floor_min_temperature,
+            )
+            self.noise_floor = NoiseFloor(config=nf_cfg)
 
         # SD-034: governance.closure_operator (five-part "done" token)
         # Coordinates release of BetaGate latch, targeted No-Go via dACC,
@@ -1192,6 +1209,8 @@ class REEAgent(nn.Module):
         # z_harm_a-was-none diagnostics.
         if self.gated_policy is not None:
             self.gated_policy.reset()
+        if self.noise_floor is not None:
+            self.noise_floor.reset()
 
         # SD-034: reset closure-operator completion detector on episode boundary.
         if self.closure_operator is not None:
@@ -2808,8 +2827,23 @@ class REEAgent(nn.Module):
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 
+        # MECH-313 (ARC-065): stochastic_noise_floor. Lifts the softmax
+        # temperature uniformly to prevent argmax collapse (LC-NE tonic
+        # analog; SAC max-entropy regularisation analog). State-
+        # independent -- Q-045 falsifies whether this and MECH-260
+        # (state-dependent dACC anti-recency) collapse into a single
+        # substrate. simulation_mode=False here (waking action selection).
+        # Bit-identical when self.noise_floor is None.
+        if self.noise_floor is not None:
+            effective_temperature = self.noise_floor.compute_effective_temperature(
+                baseline_temperature=temperature,
+                simulation_mode=False,
+            )
+        else:
+            effective_temperature = temperature
+
         result = self.e3.select(
-            candidates, temperature,
+            candidates, effective_temperature,
             goal_state=_goal_state_for_select,
             terrain_weight=self._cue_terrain_weight,
             sweep_threshold_reduction=sweep_reduction,
