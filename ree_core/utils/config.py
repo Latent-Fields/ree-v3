@@ -1494,6 +1494,30 @@ class REEConfig:
     curiosity_lp_window_k: int = 5
 
     # ----------------------------------------------------------------
+    # MECH-319 (ARC-064 / arc_062 GAP-K): simulation_mode_rule_write_gate.
+    # Substrate-level instantiation of MECH-094 at the rule-arbitration
+    # layer. Unified categorical write gate that suppresses arbitration-
+    # weight updates in MECH-312 sub-mechanisms (gated_policy,
+    # lateral_pfc_analog, future arbitrators) during ghost / replay /
+    # DMN passes. Substrate anchors: SWR machinery (Joo & Frank 2018) +
+    # reverse-replay discriminable signature (Foster & Wilson 2006).
+    # The categorical write-gate function at the arbitration layer is
+    # REE-novel (Pull 3 SYNTHESIS R1 GENUINE-NOVELTY-CONFIRMED conf 0.72;
+    # Pull 4 R3 KEEP-AS-IS verdict on MECH-094). See
+    # ree_core/regulators/simulation_mode_rule_gate.py and
+    # REE_assembly/docs/architecture/mech_319_simulation_mode_rule_gate.md.
+    use_simulation_mode_rule_gate: bool = False
+    # V3-EXQ-543c falsifier control. False (default) = MECH-319 normal
+    # (simulation tag suppresses arbitration writes). True =
+    # artificial-write-channel-routing mode -- simulation content IS
+    # admitted into rule_state / gated_policy / future arbitrators.
+    # Predicted to produce monomodal-collapse re-emergence per
+    # MECH-094 / MECH-319 generalisation. Construction raises ValueError
+    # when admit_writes=True without the master flag also on
+    # (loud-not-silent guard against mis-configuration).
+    simulation_mode_rule_gate_admit_writes: bool = False
+
+    # ----------------------------------------------------------------
     # SD-034: governance.closure_operator (five-part "done" token)
     # ----------------------------------------------------------------
     # Master switch. When True, REEAgent instantiates a ClosureOperator
@@ -2142,6 +2166,11 @@ class REEConfig:
         curiosity_bias_scale: float = 0.1,
         curiosity_lp_ema_alpha: float = 0.1,
         curiosity_lp_window_k: int = 5,
+        # MECH-319 (arc_062 GAP-K): simulation_mode_rule_write_gate
+        # (substrate-level instantiation of MECH-094 at the rule-
+        # arbitration layer). admit_writes is the V3-EXQ-543c falsifier.
+        use_simulation_mode_rule_gate: bool = False,
+        simulation_mode_rule_gate_admit_writes: bool = False,
         # SD-034: governance.closure_operator (five-part "done" token)
         use_closure_operator: bool = False,
         closure_rule_delta_threshold: float = 0.001,
@@ -2601,6 +2630,10 @@ class REEConfig:
         config.curiosity_bias_scale = curiosity_bias_scale
         config.curiosity_lp_ema_alpha = curiosity_lp_ema_alpha
         config.curiosity_lp_window_k = curiosity_lp_window_k
+
+        # MECH-319: simulation_mode_rule_write_gate
+        config.use_simulation_mode_rule_gate = use_simulation_mode_rule_gate
+        config.simulation_mode_rule_gate_admit_writes = simulation_mode_rule_gate_admit_writes
 
         # SD-034: governance.closure_operator
         config.use_closure_operator = use_closure_operator

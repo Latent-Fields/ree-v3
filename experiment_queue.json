@@ -37,6 +37,21 @@
       "conditions": 1,
       "claim_id": "MECH-314",
       "note": "Substrate-readiness diagnostic for MECH-314 cluster (parent + 3 sub-flavours). Five UCs: UC1 instantiation; UC2 master-OFF backward-compat (curiosity is None); UC3 sub-flavour flag-set isolation -- 314a-only / 314b-only / 314c-only / all-off-master-on each behave correctly (this is the architectural prerequisite making Q-044 three-arm ablation a flag-set decision); UC4 select_action wiring contract (compute_score_bias invoked once per tick, bias lands additively in dacc_score_bias chain, e3._running_variance feeds 314b); UC5 MECH-094 simulation gate (compute_score_bias returns zeros + skip-only; update_prediction_error no-op on LP buffer). Phase 1 honest scoping: 314a per-candidate via RBF distance to ResidueField centers; 314b/c broadcast scalars (e3._running_variance + EMA |PE_t-PE_{t-K}|), per-candidate refinement deferred to Phase 2 follow-on. Behavioural Q-044 three-arm ablation queued AFTER substrate landing AND MECH-318/319 absorption checks complete."
+    },
+    {
+      "queue_id": "V3-EXQ-546",
+      "title": "MECH-319 (arc_062 GAP-K) simulation_mode_rule_write_gate substrate-readiness diagnostic",
+      "experiment_type": "v3_exq_546_mech319_simulation_mode_rule_gate_substrate_readiness",
+      "script": "experiments/v3_exq_546_mech319_simulation_mode_rule_gate_substrate_readiness.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 2,
+      "episodes_per_run": 1,
+      "seeds": 1,
+      "conditions": 1,
+      "claim_id": "MECH-319",
+      "note": "Substrate-readiness diagnostic for MECH-319 simulation_mode_rule_write_gate (substrate-level instantiation of MECH-094 at the rule-arbitration layer). Six UCs: UC1 forward-pass instantiation + canonical diagnostic keys; UC2 master-OFF backward-compat (gate is None); UC3 truth-table coverage across the 6 valid (master, admit_writes, caller_sim) combinations; UC3b precondition raises ValueError on admit_writes=True without master ON (loud-not-silent guard); UC4 select_action wiring contract (gated_policy + lateral_pfc call sites consult the gate at integration time, n_simulation_* counters remain zero on the waking path); UC5 MECH-094 invariance (master-OFF and master-ON-with-waking-caller produce bit-identical wiring outputs; asymmetry surfaces only at caller_sim=True). Pull 3 SYNTHESIS R1 GENUINE-NOVELTY-CONFIRMED + Pull 4 R3 KEEP-AS-IS verdicts (do NOT modify MECH-094) are architectural commitments encoded in the substrate, not signals tested here. Behavioural V3-EXQ-543c-successor (admit_writes=True falsifier with replay-driven invocation predicting monomodal-collapse re-emergence) is queued AFTER MECH-313 / MECH-314 / MECH-318 sibling substrates land."
     }
   ]
 }

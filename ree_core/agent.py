@@ -97,6 +97,10 @@ from ree_core.regulators import (
     BroadcastOverrideRegulator,
     MECH295LikingBridge,
     MECH295LikingBridgeConfig,
+    SimulationModeRuleGate,
+    SimulationModeRuleGateConfig,
+    SITE_GATED_POLICY,
+    SITE_LATERAL_PFC,
 )
 from ree_core.comparator.suffering_derivative_comparator import (
     SufferingDerivativeComparator,
@@ -503,6 +507,27 @@ class REEAgent(nn.Module):
                 curiosity_lp_window_k=config.curiosity_lp_window_k,
             )
             self.curiosity = StructuredCuriosity(config=cur_cfg)
+
+        # MECH-319 (arc_062 GAP-K): simulation_mode_rule_write_gate.
+        # Substrate-level instantiation of MECH-094 at the rule-arbitration
+        # layer. Unified categorical write gate consulted by the arbitration-
+        # write call sites (gated_policy.forward + lateral_pfc_analog.update)
+        # to translate caller-supplied simulation_mode tag + admit_writes
+        # falsifier flag into the final admit/block decision. Bit-identical
+        # OFF when use_simulation_mode_rule_gate=False (None handle; call
+        # sites pass simulation_mode=False directly). Construction raises
+        # ValueError when admit_writes=True without master ON (loud-not-
+        # silent guard). See ree_core/regulators/simulation_mode_rule_gate.py
+        # and REE_assembly/docs/architecture/mech_319_simulation_mode_rule_gate.md.
+        self.simulation_mode_rule_gate: Optional[SimulationModeRuleGate] = None
+        if getattr(config, "use_simulation_mode_rule_gate", False):
+            smrg_cfg = SimulationModeRuleGateConfig(
+                use_simulation_mode_rule_gate=True,
+                admit_writes=getattr(
+                    config, "simulation_mode_rule_gate_admit_writes", False
+                ),
+            )
+            self.simulation_mode_rule_gate = SimulationModeRuleGate(config=smrg_cfg)
 
         # SD-034: governance.closure_operator (five-part "done" token)
         # Coordinates release of BetaGate latch, targeted No-Go via dACC,
@@ -1257,6 +1282,12 @@ class REEAgent(nn.Module):
         # 314a / 314b are stateless across ticks.
         if self.curiosity is not None:
             self.curiosity.reset()
+
+        # MECH-319: reset simulation-mode rule-gate diagnostic counters on
+        # episode boundary. The gate has no persistent state across ticks
+        # beyond counters, so reset is purely a diagnostic boundary.
+        if self.simulation_mode_rule_gate is not None:
+            self.simulation_mode_rule_gate.reset()
 
         # SD-034: reset closure-operator completion detector on episode boundary.
         if self.closure_operator is not None:
@@ -2629,19 +2660,36 @@ class REEAgent(nn.Module):
             self.lateral_pfc is not None
             and self._current_latent is not None
         ):
-            if self.salience is not None:
-                lpfc_gate = float(self.salience.write_gate("sd_033a"))
+            # MECH-319: consult the simulation-mode rule-write gate before
+            # the lateral_pfc.update call. select_action runs on the waking
+            # path so caller_sim=False; for MECH-319-OFF or master-ON-with-
+            # waking-caller the gate returns False (admit) and update
+            # proceeds normally (bit-identical). The seam is exposed for
+            # V3-EXQ-543c artificial-write-channel-routing tests where a
+            # replay-driven invocation passes simulation_mode=True; with
+            # admit_writes=False the gate returns True (skip update);
+            # with admit_writes=True (falsifier) the gate returns False
+            # (admit despite tag).
+            if self.simulation_mode_rule_gate is not None:
+                _lpfc_skip = self.simulation_mode_rule_gate.effective_simulation_mode(
+                    simulation_mode=False, site=SITE_LATERAL_PFC
+                )
             else:
-                # Coordinator disabled -> full gate (lateral_pfc active under
-                # use_lateral_pfc_analog alone, so ablation is possible without
-                # requiring SD-032a to be on).
-                lpfc_gate = 1.0
-            # Update rule_state (in-place on buffer, no gradient flow).
-            self.lateral_pfc.update(
-                z_delta=self._current_latent.z_delta,
-                z_world=self._current_latent.z_world,
-                gate=lpfc_gate,
-            )
+                _lpfc_skip = False
+            if not _lpfc_skip:
+                if self.salience is not None:
+                    lpfc_gate = float(self.salience.write_gate("sd_033a"))
+                else:
+                    # Coordinator disabled -> full gate (lateral_pfc active under
+                    # use_lateral_pfc_analog alone, so ablation is possible without
+                    # requiring SD-032a to be on).
+                    lpfc_gate = 1.0
+                # Update rule_state (in-place on buffer, no gradient flow).
+                self.lateral_pfc.update(
+                    z_delta=self._current_latent.z_delta,
+                    z_world=self._current_latent.z_world,
+                    gate=lpfc_gate,
+                )
             # Per-candidate z_world summary: first-step z_world of each
             # trajectory (trajectory.world_states[:, 0, :]). Falls back to
             # current z_world replicated across candidates if trajectories
@@ -2769,13 +2817,26 @@ class REEAgent(nn.Module):
                             self._current_latent.z_world[0].detach()
                         )
                 gp_summaries = torch.stack(_gp_list, dim=0)
+            # MECH-319: route the simulation_mode argument through the
+            # rule-write gate. select_action runs on the waking path so
+            # caller_sim=False; gate returns False (admit) when MECH-319
+            # is OFF or when master-ON-with-waking-caller (bit-identical).
+            # The seam is exposed for V3-EXQ-543c artificial-write-channel-
+            # routing where admit_writes=True flips the falsifier control
+            # for replay-driven invocations.
+            if self.simulation_mode_rule_gate is not None:
+                _gp_sim = self.simulation_mode_rule_gate.effective_simulation_mode(
+                    simulation_mode=False, site=SITE_GATED_POLICY
+                )
+            else:
+                _gp_sim = False
             with torch.no_grad():
                 gp_output = self.gated_policy(
                     z_world=self._current_latent.z_world,
                     z_self=self._current_latent.z_self,
                     z_harm_a=self._current_latent.z_harm_a,
                     candidate_features=gp_summaries,
-                    simulation_mode=False,
+                    simulation_mode=_gp_sim,
                 )
             gp_bias = gp_output.gated_score_bias
             if dacc_score_bias is None:

@@ -27,6 +27,14 @@ from ree_core.regulators.mech295_liking_bridge import (
     MECH295LikingBridgeConfig,
     MECH295LikingBridgeOutput,
 )
+from ree_core.regulators.simulation_mode_rule_gate import (
+    SimulationModeRuleGate,
+    SimulationModeRuleGateConfig,
+    SimulationModeRuleGateDiagnostics,
+    SITE_DEFAULT,
+    SITE_GATED_POLICY,
+    SITE_LATERAL_PFC,
+)
 
 __all__ = [
     "GABAergicDecayConfig",
@@ -39,4 +47,10 @@ __all__ = [
     "MECH295LikingBridge",
     "MECH295LikingBridgeConfig",
     "MECH295LikingBridgeOutput",
+    "SimulationModeRuleGate",
+    "SimulationModeRuleGateConfig",
+    "SimulationModeRuleGateDiagnostics",
+    "SITE_DEFAULT",
+    "SITE_GATED_POLICY",
+    "SITE_LATERAL_PFC",
 ]
