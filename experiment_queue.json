@@ -71,7 +71,8 @@
       "conditions": 2,
       "claim_id": "MECH-111",
       "backlog_id": "EVB-0061",
-      "note": "Re-queued 2026-05-10T13:30Z after the 2026-05-10T13:25Z run was hard-stopped at ~80s elapsed (seed 42, ep 0/200) before any manifest could be written. No completed entry exists in any runner_status*.json so the runner will accept the re-queue as a fresh run."
+      "note": "Re-queued 2026-05-10T13:30Z after the 2026-05-10T13:25Z run was hard-stopped at ~80s elapsed (seed 42, ep 0/200) before any manifest could be written. No completed entry exists in any runner_status*.json so the runner will accept the re-queue as a fresh run.",
+      "force_rerun": true
     },
     {
       "queue_id": "V3-EXQ-514h",
