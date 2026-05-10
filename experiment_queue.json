@@ -58,27 +58,6 @@
       "note": "Substrate-readiness diagnostic for MECH-319 simulation_mode_rule_write_gate (substrate-level instantiation of MECH-094 at the rule-arbitration layer). Six UCs: UC1 forward-pass instantiation + canonical diagnostic keys; UC2 master-OFF backward-compat (gate is None); UC3 truth-table coverage across the 6 valid (master, admit_writes, caller_sim) combinations; UC3b precondition raises ValueError on admit_writes=True without master ON (loud-not-silent guard); UC4 select_action wiring contract (gated_policy + lateral_pfc call sites consult the gate at integration time, n_simulation_* counters remain zero on the waking path); UC5 MECH-094 invariance (master-OFF and master-ON-with-waking-caller produce bit-identical wiring outputs; asymmetry surfaces only at caller_sim=True). Pull 3 SYNTHESIS R1 GENUINE-NOVELTY-CONFIRMED + Pull 4 R3 KEEP-AS-IS verdicts (do NOT modify MECH-094) are architectural commitments encoded in the substrate, not signals tested here. Behavioural V3-EXQ-543c-successor (admit_writes=True falsifier with replay-driven invocation predicting monomodal-collapse re-emergence) is queued AFTER MECH-313 / MECH-314 / MECH-318 sibling substrates land."
     },
     {
-      "queue_id": "V3-EXQ-141c",
-      "title": "MECH-111 novelty drive: measurement-validity fix (raised novelty_bonus_weight, fixed nav_bias one-hot, C0 divergence sanity check)",
-      "experiment_type": "v3_exq_141c_mech111_novelty_drive_measurement_fix",
-      "script": "experiments/v3_exq_141c_mech111_novelty_drive_measurement_fix.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 160,
-      "episodes_per_run": 250,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-111",
-      "backlog_id": "EVB-0061",
-      "note": "Re-queued 2026-05-10T13:30Z after the 2026-05-10T13:25Z run was hard-stopped at ~80s elapsed (seed 42, ep 0/200) before any manifest could be written. No completed entry exists in any runner_status*.json so the runner will accept the re-queue as a fresh run.",
-      "force_rerun": true,
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-10T13:52:19.661850+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-514h",
       "title": "SD-049 BG gating wider-seed sweep under StepHarness, Tier-1 diagnostic re-run after V3-EXQ-514g interruption (supersedes V3-EXQ-514g)",
       "experiment_type": "v3_exq_514h_sd049_bg_gating_wider_seeds_stepharness",
