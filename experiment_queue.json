@@ -6,5 +6,22 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-543b",
+      "title": "ARC-062 Phase 3-corrected monomodal-collapse falsifier on SD-054 (gated_policy in optimizer + phased training + divergence probe + hardened C3)",
+      "experiment_type": "v3_exq_543b_arc062_phase3_optimized_falsifier",
+      "script": "experiments/v3_exq_543b_arc062_phase3_optimized_falsifier.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 108,
+      "seeds": 3,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-543",
+      "claim_id": "MECH-309",
+      "note": "Phase 3 corrections per arc_062_rule_apprehension_plan.md decision-log 2026-05-10: (A) gated_policy.parameters() in dedicated Adam during P1; (B) phased training P0 encoder warmup -> P1 frozen encoder + scaffolding diversification loss -> P2 eval; (C) behavioral-divergence probe with mid-P1 inert-gating short-circuit at MID_TRAINING_EP=30 (TV<0.05); (D) hardened C3 with transit_rate floor 0.05 + np.nanmean. P1 training pressure is scaffolding (NOT REINFORCE on env reward); full REINFORCE deferred to Phase 3 GAP-C/D when discriminator wires into SD-033a."
+    }
+  ]
 }
