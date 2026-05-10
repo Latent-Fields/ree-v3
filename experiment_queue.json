@@ -28,25 +28,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-545",
-      "title": "MECH-314 (ARC-065) structured_curiosity_bonus substrate-readiness diagnostic (parent + 314a striatal novelty + 314b frontopolar uncertainty + 314c learning-progress)",
-      "experiment_type": "v3_exq_545_mech314_structured_curiosity_substrate_readiness",
-      "script": "experiments/v3_exq_545_mech314_structured_curiosity_substrate_readiness.py",
-      "priority": 1,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 2,
-      "episodes_per_run": 1,
-      "seeds": 1,
-      "conditions": 1,
-      "claim_id": "MECH-314",
-      "note": "Substrate-readiness diagnostic for MECH-314 cluster (parent + 3 sub-flavours). Five UCs: UC1 instantiation; UC2 master-OFF backward-compat (curiosity is None); UC3 sub-flavour flag-set isolation -- 314a-only / 314b-only / 314c-only / all-off-master-on each behave correctly (this is the architectural prerequisite making Q-044 three-arm ablation a flag-set decision); UC4 select_action wiring contract (compute_score_bias invoked once per tick, bias lands additively in dacc_score_bias chain, e3._running_variance feeds 314b); UC5 MECH-094 simulation gate (compute_score_bias returns zeros + skip-only; update_prediction_error no-op on LP buffer). Phase 1 honest scoping: 314a per-candidate via RBF distance to ResidueField centers; 314b/c broadcast scalars (e3._running_variance + EMA |PE_t-PE_{t-K}|), per-candidate refinement deferred to Phase 2 follow-on. Behavioural Q-044 three-arm ablation queued AFTER substrate landing AND MECH-318/319 absorption checks complete.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-10T16:45:47.409120+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-546",
       "title": "MECH-319 (arc_062 GAP-K) simulation_mode_rule_write_gate substrate-readiness diagnostic",
       "experiment_type": "v3_exq_546_mech319_simulation_mode_rule_gate_substrate_readiness",
