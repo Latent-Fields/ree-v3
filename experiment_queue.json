@@ -34,13 +34,17 @@
       "script": "experiments/v3_exq_546_mech319_simulation_mode_rule_gate_substrate_readiness.py",
       "priority": 1,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 2,
       "episodes_per_run": 1,
       "seeds": 1,
       "conditions": 1,
       "claim_id": "MECH-319",
-      "note": "Substrate-readiness diagnostic for MECH-319 simulation_mode_rule_write_gate (substrate-level instantiation of MECH-094 at the rule-arbitration layer). Six UCs: UC1 forward-pass instantiation + canonical diagnostic keys; UC2 master-OFF backward-compat (gate is None); UC3 truth-table coverage across the 6 valid (master, admit_writes, caller_sim) combinations; UC3b precondition raises ValueError on admit_writes=True without master ON (loud-not-silent guard); UC4 select_action wiring contract (gated_policy + lateral_pfc call sites consult the gate at integration time, n_simulation_* counters remain zero on the waking path); UC5 MECH-094 invariance (master-OFF and master-ON-with-waking-caller produce bit-identical wiring outputs; asymmetry surfaces only at caller_sim=True). Pull 3 SYNTHESIS R1 GENUINE-NOVELTY-CONFIRMED + Pull 4 R3 KEEP-AS-IS verdicts (do NOT modify MECH-094) are architectural commitments encoded in the substrate, not signals tested here. Behavioural V3-EXQ-543c-successor (admit_writes=True falsifier with replay-driven invocation predicting monomodal-collapse re-emergence) is queued AFTER MECH-313 / MECH-314 / MECH-318 sibling substrates land."
+      "note": "Substrate-readiness diagnostic for MECH-319 simulation_mode_rule_write_gate (substrate-level instantiation of MECH-094 at the rule-arbitration layer). Six UCs: UC1 forward-pass instantiation + canonical diagnostic keys; UC2 master-OFF backward-compat (gate is None); UC3 truth-table coverage across the 6 valid (master, admit_writes, caller_sim) combinations; UC3b precondition raises ValueError on admit_writes=True without master ON (loud-not-silent guard); UC4 select_action wiring contract (gated_policy + lateral_pfc call sites consult the gate at integration time, n_simulation_* counters remain zero on the waking path); UC5 MECH-094 invariance (master-OFF and master-ON-with-waking-caller produce bit-identical wiring outputs; asymmetry surfaces only at caller_sim=True). Pull 3 SYNTHESIS R1 GENUINE-NOVELTY-CONFIRMED + Pull 4 R3 KEEP-AS-IS verdicts (do NOT modify MECH-094) are architectural commitments encoded in the substrate, not signals tested here. Behavioural V3-EXQ-543c-successor (admit_writes=True falsifier with replay-driven invocation predicting monomodal-collapse re-emergence) is queued AFTER MECH-313 / MECH-314 / MECH-318 sibling substrates land.",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-10T16:45:54.593256+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-514h",
