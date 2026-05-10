@@ -6,27 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-514h",
-      "title": "SD-049 BG gating wider-seed sweep under StepHarness, Tier-1 diagnostic re-run after V3-EXQ-514g interruption (supersedes V3-EXQ-514g)",
-      "experiment_type": "v3_exq_514h_sd049_bg_gating_wider_seeds_stepharness",
-      "script": "experiments/v3_exq_514h_sd049_bg_gating_wider_seeds_stepharness.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 200,
-      "episodes_per_run": 90,
-      "seeds": 6,
-      "conditions": 1,
-      "supersedes": "V3-EXQ-514g",
-      "claim_id": "SD-049",
-      "experiment_purpose": "diagnostic",
-      "note": "Next-letter re-run after V3-EXQ-514g phantom-PASS. The 2026-05-08T19:26Z 514g run on ree-cloud-1 was killed by SIGTERM mid-seed-43 at ep ~70/90 (systemd shutdown signal); the runner's stdout-derived heuristic logged phantom PASS 4 seconds later. 514g flipped to INTERRUPTED in REE_assembly 13c142debb (2026-05-10). Script logic and design unchanged from 514g; only QUEUE_ID/EXPERIMENT_TYPE/SUPERSEDES updated. Dry-run smoke PASS on Mac (1 seed x 3 episodes, 108s, BG gate fired, rv evolved off init).",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-10T13:47:21.000899+00:00"
-      }
-    }
-  ]
+  "items": []
 }
