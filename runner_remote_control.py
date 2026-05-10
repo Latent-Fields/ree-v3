@@ -106,10 +106,23 @@ def write_heartbeat(
     runner_pid: int | None = None,
     runner_version: str | None = None,
     extra: dict | None = None,
+    current_title: str | None = None,
+    current_claim_id: str | None = None,
+    current_description: str | None = None,
+    progress: dict | None = None,
+    seconds_elapsed: int | None = None,
+    seconds_remaining: int | None = None,
+    recent_lines: list[str] | None = None,
 ) -> Path | None:
     """Write a heartbeat snapshot for this runner. Never raises.
 
     Returns the path written, or None on failure.
+
+    The progress / recent_lines / *_seconds / current_* fields let the
+    explorer render a per-machine "Now Running" card with a progress bar
+    for cloud workers (parity with the local card sourced from the
+    per-machine runner_status.json file). They are all optional; idle-tick
+    heartbeats omit them and the explorer falls back to the bare state.
     """
     if not ree_assembly_path or not ree_assembly_path.is_dir():
         return None
@@ -131,6 +144,13 @@ def write_heartbeat(
         "state": state,
         "current_exq": current_exq,
         "current_exq_started_utc": current_exq_started_utc,
+        "current_title": current_title,
+        "current_claim_id": current_claim_id,
+        "current_description": current_description,
+        "progress": progress,
+        "seconds_elapsed": seconds_elapsed,
+        "seconds_remaining": seconds_remaining,
+        "recent_lines": (recent_lines or [])[-5:] if recent_lines is not None else None,
         "queue_depth": queue_depth,
         "queue_id_at_head": queue_id_at_head,
         "recent_completed": (recent_completed or [])[-5:],

@@ -922,7 +922,9 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                    script_timing: dict | None = None,
                    proc_ref: list | None = None,
                    auto_sync: bool = False,
-                   ree_assembly_path: Path | None = None) -> dict:
+                   ree_assembly_path: Path | None = None,
+                   remote_control: bool = False,
+                   machine: str | None = None) -> dict:
     """Run a single experiment script as a subprocess.
 
     proc_ref: if provided, the active Popen object is stored as proc_ref[0] immediately
@@ -1055,9 +1057,56 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             proc_ref.append(proc)
 
         _hb_stop = threading.Event()
+        # Track last remote-control heartbeat push so we can write the local
+        # heartbeat file every STATUS_WRITE_INTERVAL but push to git only
+        # every ~60s (matches the idle-loop heartbeat cadence; avoids
+        # 12 commits/min/machine during a run).
+        _last_hb_push = [0.0]
+        HB_PUSH_INTERVAL = 60.0
+
+        def _build_progress_payload() -> dict:
+            return {
+                "run_label": current_run_label,
+                "runs_done": runs_done,
+                "runs_total": total_runs,
+                "episodes_done": episodes_in_run,
+                "episodes_total": episodes_per_run,
+                "overall_pct": overall_pct(),
+            }
+
+        def _push_remote_heartbeat():
+            """Write + (throttled) push the per-machine remote-control
+            heartbeat with full progress payload. Best-effort; never raises.
+            """
+            if not (remote_control and _rrc is not None and ree_assembly_path
+                    and machine):
+                return
+            try:
+                hb_path = _rrc.write_heartbeat(
+                    ree_assembly_path, machine, state="running",
+                    current_exq=item["queue_id"],
+                    current_exq_started_utc=started_at_utc,
+                    current_title=item.get("title", ""),
+                    current_claim_id=item.get("claim_id", ""),
+                    current_description=item.get("description", ""),
+                    progress=_build_progress_payload(),
+                    seconds_elapsed=round(time.monotonic() - started_at),
+                    seconds_remaining=round(seconds_remaining()),
+                    recent_lines=list(recent_lines[-5:]),
+                    runner_pid=os.getpid(),
+                )
+                if auto_sync and hb_path is not None:
+                    now_mono = time.monotonic()
+                    if now_mono - _last_hb_push[0] >= HB_PUSH_INTERVAL:
+                        _rrc.push_heartbeat(ree_assembly_path, hb_path)
+                        _last_hb_push[0] = now_mono
+            except Exception as _exc:
+                print(f"[runner] remote heartbeat warn: {_exc}", flush=True)
+
         def _heartbeat():
             while not _hb_stop.wait(timeout=STATUS_WRITE_INTERVAL):
                 update_status_current()
+                _push_remote_heartbeat()
         _hb_thread = threading.Thread(target=_heartbeat, daemon=True)
         _hb_thread.start()
 
@@ -1591,7 +1640,9 @@ def main():
                 result = run_experiment(item, status, status_path, calibration, script_timing,
                                         proc_ref=_current_proc,
                                         auto_sync=args.auto_sync,
-                                        ree_assembly_path=ree_assembly_path)
+                                        ree_assembly_path=ree_assembly_path,
+                                        remote_control=args.remote_control,
+                                        machine=machine)
             except Exception as _run_exc:
                 # Unexpected exception escaping run_experiment -- treat as ERROR and continue
                 print(f"[runner] UNEXPECTED ERROR in {queue_id}: {_run_exc}", flush=True)
