@@ -467,7 +467,7 @@ def main() -> None:
     with open(out_path, "w") as f:
         json.dump(manifest, f, indent=2)
 
-    print(f"result: {manifest['result']}")
+    print(f"verdict: {manifest['result']}")
     for k, v in manifest["metrics"].items():
         print(f"  {k}: pass={v['pass']}")
     print(f"Result written to: {out_path}", flush=True)
