@@ -94,14 +94,24 @@ def find_ree_assembly_path() -> Path | None:
 
 
 def git_pull(repo_path: Path, label: str) -> None:
-    """Pull latest changes. Retries on transient lock errors. Never raises."""
+    """Pull latest changes. Retries on transient lock errors. Never raises.
+
+    Uses --rebase --autostash so that local edits to heartbeat / status JSONs
+    don't block the pull with "Your local changes would be overwritten by merge"
+    (the cloud-1 stall we hit 2026-05-10, where the runner couldn't pull
+    REE_assembly while the heartbeat thread was concurrently writing
+    runner_heartbeats/<host>.json and runner_status/<host>.json). Plain
+    --ff-only refuses on a dirty tree even when the dirty files are exactly
+    the ones this machine writes (so a fast-forward would not actually
+    conflict at content level).
+    """
     import time
     _LOCK_HINTS = ("cannot lock ref", "unable to resolve reference",
                    "lock file", "index.lock")
     for attempt in range(3):
         try:
             r = subprocess.run(
-                ["git", "pull", "--ff-only"],
+                ["git", "pull", "--rebase", "--autostash"],
                 cwd=str(repo_path), capture_output=True, text=True, timeout=30,
             )
             if r.returncode == 0:
