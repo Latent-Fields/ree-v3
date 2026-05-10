@@ -4156,13 +4156,20 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     increments only the simulation-skip counter; replay / DMN consumers (none
     today; reserved for forward-compat) cannot inherit waking-tonic noise floor.
     Match the SD-035 / MECH-279 / gated_policy simulation_mode pattern.
-  Architectural choice (deviation from claims.yaml notes-field hint):
-    SEPARATE NoiseFloor module at the e3.select() call site rather than per-head
-    temperature inside GatedPolicy. Reasoning: MECH-313 is state-independent and
-    must fire on ALL action-selection paths regardless of whether GatedPolicy is
-    wired in -- per-head approach inside GatedPolicy would miss baseline E3
-    selection. Co-locating with the softmax call gives a single point of control
-    and matches the regulator pattern. Both knobs surface as Q-043 calibration levers.
+  Phase-1 instantiation choice (NOT a settled architectural commitment):
+    a separate NoiseFloor module at the e3.select() call site, rather than
+    per-head temperature inside GatedPolicy as the original notes-field hint
+    suggested. Phase-1 reasoning: MECH-313 is state-independent and currently
+    must fire on baseline E3 selection too (which the per-head approach inside
+    GatedPolicy would miss with GatedPolicy disabled). Whether the policy-layer
+    regulators ultimately consolidate into one module is OPEN pending
+    MECH-314 / MECH-318 / MECH-319 implementations -- those substrates may
+    make different placement choices that motivate revisiting MECH-313's
+    placement (MECH-314 structured-curiosity in particular may fit naturally
+    inside GatedPolicy as a per-head bonus, in which case MECH-313 may want
+    to co-locate). Re-evaluate at the point Q-045's 4-arm ablation is queued.
+    Phase-1 module surface + config knobs are stable; what could move is the
+    file location and call site.
   Backward compatible: use_noise_floor=False by default; agent.noise_floor is None
     and select_action passes the temperature kwarg unchanged. 253/253 contracts +
     7/7 preflight PASS with flag OFF (regression-clean).
