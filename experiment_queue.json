@@ -49,14 +49,18 @@
       "script": "experiments/v3_exq_553_orthogonal_cem_seeding.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 30,
       "episodes_per_run": 20,
       "seeds": 3,
       "conditions": 2,
       "claim_id": null,
       "note": "First proposer-fix experiment for the V3-EXQ-550 / 551 / 551a / 552 action-class-entropy=0.0 monostrategy cliff. Tests whether structural CEM-candidate seeding (orthogonal basis instead of iid Gaussian over horizon x action_object_dim) lifts the entropy cliff. Substrate-side flag HippocampalConfig.use_orthogonal_cem_seeding (default False; bit-identical OFF). 309/309 contracts + 7/7 preflight PASS with master OFF + 5/5 new ortho contracts in tests/contracts/test_orthogonal_cem_seeding.py PASS with master ON (C1 surface, C2 OFF no-op, C3 ON diagnostics, C4 min-pairwise-L2 lift at seed level, C5 candidate count preserved). Two-arm ARM_IID vs ARM_ORTHO, 3 seeds [42, 7, 17] matching EXQ-550 / 551 / 552 cross-comparability. Env: CausalGridWorldV2 + SD-029 scheduled hazards verbatim from V3-EXQ-551 (size=10, num_hazards=2, num_resources=3, scheduled_external_hazard_enabled=True interval=50 prob=0.5 adjacent_only=True). No training (P0=20 ep at 30 ticks/ep; cliff exists at depth 0). Metrics: stage1_pairwise_l2_mean / stage1_min_pairwise_l2_mean / action_class_entropy / ortho_diag_last. Pre-registered acceptance: PASS = ARM_ORTHO stage1_pw > 1e-2 AND entropy > 0.30 in >=2/3 seeds AND entropy > ARM_IID entropy + 0.10 in >=2/3 seeds. Five-row interpretation grid in script docstring + manifest evidence_direction_note: R1 PASS (proposer seed-structure is cliff variable) / R2 PARTIAL_PASS (stage1 lifts but entropy ~= 0 -> downstream cliffs are independent blockers; route to V3-EXQ-551a stages 2/3 review) / R3 (stage1 < 1e-2 -> decoder collapse downstream of noise OR CEM elite-refit collapses orthogonal structure; diagnose action-object decoder or elite-refit) / R4 (ARM_IID matches ARM_ORTHO -> wiring broken) / R5 (mixed inconclusive; rerun at higher episode depth). experiment_purpose=evidence; claim_ids=[] intentional -- proposer-fix probe, claim attribution downstream of routing. Smoke 2026-05-11 PASS: 1 seed x 1 ep x 10 ticks per arm -- ARM_IID stage1_pw=3.56e-4 (matches EXQ-551 ~3e-4); ARM_ORTHO stage1_pw=2.30e-4 with ortho_diag={'use_orthogonal_cem_seeding': True, 'n_orthogonal_iters': 3, 'n_iid_fallback_candidates': 0} -- substrate firing as designed (3 CEM iters all ortho, no rank-deficient fallback). validate_experiments OK 1/1. Both smoke arms entropy=0 at smoke depth (expected; full-run is the load-bearing test). machine_affinity=any (~30 min CPU on Mac for 6 cells x 20 ep x 30 steps with no training).",
-      "spawned_session_id": "queue-v3-exq-553-orthogonal-cem-seeding-2026-05-11T2032Z"
+      "spawned_session_id": "queue-v3-exq-553-orthogonal-cem-seeding-2026-05-11T2032Z",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-11T20:42:40.403639+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-540b",
