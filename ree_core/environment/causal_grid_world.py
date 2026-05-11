@@ -280,6 +280,27 @@ class CausalGridWorld:
         reef_patch_radius: int = 2,
         reef_scent_sigma: float = 2.5,
         hazard_food_attraction: float = 0.0,
+        # SD-054 bipartite layout extension (2026-05-11).
+        # When reef_bipartite_layout=True, reef cells are clustered in one half of
+        # the grid (along reef_bipartite_axis) and food / hazards spawn ONLY in the
+        # opposite half. Agent spawns in a band of width 2*agent_band_radius + 1
+        # centered on the midline. The geometric structure forces reef-approach
+        # vs forage-approach trajectories to have categorically different
+        # first-action argmaxes by construction, addressing the V3-EXQ-543b
+        # CEM-candidate-distinguishability bottleneck (TASK_CLAIMS session
+        # diagnose-v3-exq-543c-2026-05-11T0635Z; arc_062_rule_apprehension_plan.md
+        # decision-log entry 2026-05-11 option 3a).
+        # reef_bipartite_axis: "horizontal" -> reef bottom rows, food top rows
+        #                      "vertical"   -> reef right columns, food left columns
+        # reef_bipartite_agent_band_radius: half-width of the agent spawn band
+        #                                   measured from the midline (inclusive).
+        #                                   radius=0 -> midline only (1 row/col).
+        #                                   radius=1 -> midline +/- 1 (3 rows/cols).
+        #                                   radius=2 -> midline +/- 2 (5 rows/cols).
+        # All defaults preserve bit-identical legacy SD-054 behavior.
+        reef_bipartite_layout: bool = False,
+        reef_bipartite_axis: str = "horizontal",
+        reef_bipartite_agent_band_radius: int = 1,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -500,6 +521,21 @@ class CausalGridWorld:
         self.reef_patch_radius = int(max(1, reef_patch_radius))
         self.reef_scent_sigma = float(max(0.1, reef_scent_sigma))
         self.hazard_food_attraction = float(np.clip(hazard_food_attraction, 0.0, 1.0))
+        # SD-054 bipartite layout extension (2026-05-11). See __init__ docstring
+        # above the kwargs and the SD-054 doc for the rationale.
+        self.reef_bipartite_layout = bool(reef_bipartite_layout)
+        if reef_bipartite_axis not in ("horizontal", "vertical"):
+            raise ValueError(
+                f"reef_bipartite_axis must be 'horizontal' or 'vertical', "
+                f"got {reef_bipartite_axis!r}"
+            )
+        self.reef_bipartite_axis = reef_bipartite_axis
+        self.reef_bipartite_agent_band_radius = int(
+            max(0, reef_bipartite_agent_band_radius)
+        )
+        # Per-reset diagnostic; populated by _build_bipartite_pools() when bipartite
+        # is active. 0 in legacy mode and in successful bipartite resets.
+        self._sd054_bipartite_band_widen_count: int = 0
         # Populated by _place_reef_patches() each reset(); empty set / zero field when OFF.
         self._reef_cells: set = set()
         self._reef_field: np.ndarray = np.zeros((size, size), dtype=np.float32)
@@ -603,13 +639,25 @@ class CausalGridWorld:
 
         # Behavioral diversity: place reef patches before any entity placement so
         # reef cells are excluded from agent/hazard/resource spawn pools.
+        # SD-054 bipartite extension (2026-05-11): when reef_bipartite_layout=True,
+        # place reef in one half (bottom rows for axis=horizontal, right cols for
+        # axis=vertical) and partition `available` so agent spawns from the
+        # midline band and hazards/resources spawn from the opposite half. Pools
+        # are aliased to a single `available` list in the legacy path so the
+        # legacy pop()-from-shared-pool behavior is bit-identical.
         if self.reef_enabled:
-            self._place_reef_patches(available)
+            if self.reef_bipartite_layout:
+                self._place_reef_patches_bipartite()
+                agent_pool, forage_pool = self._build_bipartite_pools(available)
+            else:
+                self._place_reef_patches(available)
+                agent_pool = forage_pool = available
         else:
             self._reef_cells = set()
             self._reef_field = np.zeros((self.size, self.size), dtype=np.float32)
+            agent_pool = forage_pool = available
 
-        ax, ay = available.pop()
+        ax, ay = agent_pool.pop()
         self.agent_x = ax
         self.agent_y = ay
         self.agent_health = 1.0
@@ -618,8 +666,8 @@ class CausalGridWorld:
         self._last_action = 4  # stay
 
         self.hazards: List[List[int]] = []
-        for _ in range(min(self.num_hazards, len(available))):
-            hx, hy = available.pop()
+        for _ in range(min(self.num_hazards, len(forage_pool))):
+            hx, hy = forage_pool.pop()
             self.grid[hx, hy] = self.ENTITY_TYPES["hazard"]
             self.hazards.append([hx, hy])
 
@@ -661,9 +709,9 @@ class CausalGridWorld:
             if active_types and sum(active_weights) > 0.0:
                 weights = np.array(active_weights, dtype=np.float64)
                 weights = weights / weights.sum()
-                n_to_spawn = min(self.num_resources, len(available))
+                n_to_spawn = min(self.num_resources, len(forage_pool))
                 for _ in range(n_to_spawn):
-                    rx, ry = available.pop()
+                    rx, ry = forage_pool.pop()
                     type_idx = int(active_types[
                         int(self._rng.choice(len(active_types), p=weights))
                     ])
@@ -676,8 +724,8 @@ class CausalGridWorld:
             # resources spawn this episode -- the agent has no appetitive
             # signal until the curriculum advances. Intentional.
         else:
-            for _ in range(min(self.num_resources, len(available))):
-                rx, ry = available.pop()
+            for _ in range(min(self.num_resources, len(forage_pool))):
+                rx, ry = forage_pool.pop()
                 self.grid[rx, ry] = self.ENTITY_TYPES["resource"]
                 self.resources.append([rx, ry])
 
@@ -689,8 +737,8 @@ class CausalGridWorld:
         self._sequences_completed: int = 0
 
         if self.subgoal_mode:
-            for _ in range(min(self.num_waypoints, len(available))):
-                wx, wy = available.pop()
+            for _ in range(min(self.num_waypoints, len(forage_pool))):
+                wx, wy = forage_pool.pop()
                 self.grid[wx, wy] = self.ENTITY_TYPES["waypoint"]
                 self.waypoints.append([wx, wy])
 
@@ -1771,6 +1819,170 @@ class CausalGridWorld:
         # Remove reef cells from the spawn pool so hazards and resources never start there.
         if self._reef_cells:
             available[:] = [(x, y) for (x, y) in available if (x, y) not in self._reef_cells]
+
+    # ------------------------------------------------------------------ #
+    # SD-054 bipartite layout extension (2026-05-11)                      #
+    # ------------------------------------------------------------------ #
+
+    def _place_reef_patches_bipartite(self) -> None:
+        """SD-054 bipartite layout: place reef patches in the reef-half of the grid.
+
+        Replaces the legacy `_place_reef_patches` corner-pattern when
+        `reef_bipartite_layout=True`. Reef patch centres are positioned along
+        the reef-half edge (bottom edge for axis="horizontal" with reef-bottom
+        convention; right edge for axis="vertical" with reef-right convention).
+        n_reef_patches patches are placed evenly spaced along that edge.
+
+        The reef scent field is computed identically to the legacy helper. The
+        spawn pool is NOT modified here -- partitioning is handled separately
+        by `_build_bipartite_pools()`, which respects the reef_half / agent_band
+        / forage_half partition independently.
+
+        Modifies `self._reef_cells` and `self._reef_field` in place.
+        """
+        sz = self.size
+        self._reef_cells = set()
+        if self.n_reef_patches <= 0 or sz < 5:
+            self._reef_field = np.zeros((sz, sz), dtype=np.float32)
+            return
+
+        radius = self.reef_bipartite_agent_band_radius
+        midline = sz // 2
+
+        if self.reef_bipartite_axis == "horizontal":
+            # Reef in bottom rows (row > midline + radius). Edge row for centres:
+            # sz - 3 (the conventional inner edge offset, matching legacy corner
+            # centres). Column positions distributed across the available range.
+            edge_row = sz - 3
+            # Choose column centres: for n=1, mid; for n=2, left + right; for
+            # n>=3, equally spaced across the interior. Match legacy aesthetics
+            # so the n=3 default tile [(2, c0), (mid, c1), (sz-3, c2)]-like.
+            interior_cols = list(range(2, sz - 2))
+            if self.n_reef_patches == 1:
+                col_centres = [sz // 2]
+            else:
+                step = max(1, (sz - 5) // max(1, self.n_reef_patches - 1))
+                col_centres = [2 + step * i for i in range(self.n_reef_patches)]
+                col_centres[-1] = min(col_centres[-1], sz - 3)
+            centres = [(edge_row, c) for c in col_centres]
+        else:  # "vertical"
+            # Reef in right columns (col > midline + radius).
+            edge_col = sz - 3
+            if self.n_reef_patches == 1:
+                row_centres = [sz // 2]
+            else:
+                step = max(1, (sz - 5) // max(1, self.n_reef_patches - 1))
+                row_centres = [2 + step * i for i in range(self.n_reef_patches)]
+                row_centres[-1] = min(row_centres[-1], sz - 3)
+            centres = [(r, edge_col) for r in row_centres]
+
+        for cx, cy in centres:
+            for i in range(1, sz - 1):
+                for j in range(1, sz - 1):
+                    if abs(i - cx) + abs(j - cy) <= self.reef_patch_radius:
+                        # Guard: only add cells that are on the reef-side of
+                        # the partition. Cells in the agent band or forage half
+                        # are never reef cells under bipartite layout.
+                        if self._is_in_reef_half(i, j):
+                            self._reef_cells.add((i, j))
+
+        # Compute static reef scent field: sum of Manhattan-decay kernels.
+        field = np.zeros((sz, sz), dtype=np.float32)
+        for rx, ry in self._reef_cells:
+            for i in range(sz):
+                for j in range(sz):
+                    dist = abs(i - rx) + abs(j - ry)
+                    field[i, j] += float(np.exp(-dist / self.reef_scent_sigma))
+        max_val = float(field.max())
+        if max_val > 0.0:
+            field /= max_val
+        self._reef_field = field
+
+    def _is_in_reef_half(self, i: int, j: int) -> bool:
+        """SD-054 bipartite: is (i, j) on the reef side of the partition?"""
+        midline = self.size // 2
+        radius = self.reef_bipartite_agent_band_radius
+        if self.reef_bipartite_axis == "horizontal":
+            return i > midline + radius
+        else:  # "vertical"
+            return j > midline + radius
+
+    def _is_in_forage_half(self, i: int, j: int) -> bool:
+        """SD-054 bipartite: is (i, j) on the forage side of the partition?"""
+        midline = self.size // 2
+        radius = self.reef_bipartite_agent_band_radius
+        if self.reef_bipartite_axis == "horizontal":
+            return i < midline - radius
+        else:  # "vertical"
+            return j < midline - radius
+
+    def _is_in_agent_band(self, i: int, j: int) -> bool:
+        """SD-054 bipartite: is (i, j) within the agent spawn band?"""
+        midline = self.size // 2
+        radius = self.reef_bipartite_agent_band_radius
+        if self.reef_bipartite_axis == "horizontal":
+            return abs(i - midline) <= radius
+        else:  # "vertical"
+            return abs(j - midline) <= radius
+
+    def _build_bipartite_pools(self, available: list) -> Tuple[list, list]:
+        """SD-054 bipartite: partition `available` into (agent_pool, forage_pool).
+
+        agent_pool: cells in the agent spawn band (midline +/- agent_band_radius)
+                    that are not reef cells.
+        forage_pool: cells in the forage half (opposite side from reef) that are
+                     not reef cells.
+
+        Cells in the reef half but not used as reef cells are dropped from both
+        pools -- they are intentionally inaccessible to non-reef entities under
+        bipartite layout. This is a feature: the reef half is reef-exclusive,
+        the forage half is forage-exclusive, and the agent band is the only
+        contestable territory.
+
+        Fallback: if agent_pool would be empty (e.g., agent_band_radius=0 on a
+        grid where the midline is mostly walls), widen the band by +1 radius
+        until at least one valid cell exists. Logs a diagnostic via a per-reset
+        counter. If forage_pool is empty, fall back to using agent_pool for
+        hazards/resources (degenerate but won't crash).
+        """
+        sz = self.size
+        reef = self._reef_cells
+
+        def _filter(predicate):
+            return [
+                (x, y) for (x, y) in available
+                if predicate(x, y) and (x, y) not in reef
+            ]
+
+        agent_pool = _filter(self._is_in_agent_band)
+        forage_pool = _filter(self._is_in_forage_half)
+
+        # Fallback: widen agent band if empty (rare; only on degenerate sizes).
+        _band_widen_count = 0
+        while not agent_pool and _band_widen_count < sz:
+            _band_widen_count += 1
+            midline = sz // 2
+            r = self.reef_bipartite_agent_band_radius + _band_widen_count
+            if self.reef_bipartite_axis == "horizontal":
+                widened_predicate = lambda x, y: abs(x - midline) <= r
+            else:
+                widened_predicate = lambda x, y: abs(y - midline) <= r
+            agent_pool = [
+                (x, y) for (x, y) in available
+                if widened_predicate(x, y) and (x, y) not in reef
+            ]
+        self._sd054_bipartite_band_widen_count = _band_widen_count
+        # Defensive: if forage pool empty (degenerate config), fall back to
+        # agent_pool so the reset doesn't crash on hazards.pop(). The
+        # substrate-readiness diagnostic will catch this via low forage-pool
+        # cell counts in info diagnostics.
+        if not forage_pool:
+            forage_pool = list(agent_pool)
+
+        # Shuffle each pool independently for determinism under self._rng.
+        self._rng.shuffle(agent_pool)
+        self._rng.shuffle(forage_pool)
+        return agent_pool, forage_pool
 
     # ------------------------------------------------------------------ #
     # Proxy-gradient field computation (ARC-024)                          #
