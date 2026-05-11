@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-10
+**Last updated:** 2026-05-11
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-10)
+## 0. Current V3 State (2026-05-11)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -100,7 +100,13 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-054 reef enrichment substrate | Reef enrichment / monostrategy-breaking behavioral diversity substrate in CausalGridWorldV2: corner-adjacent Manhattan-radius reef safe zones (hazards excluded; 5x5 reef_field_view scent gradient appended to world_state, world_obs_dim 250->275) + food-attracted hazard drift bias (probability hazard_food_attraction). Two behavioral attractors -- "flee to reef" vs "forage" -- to break the single fixed route. (Renamed from SD-050 to SD-054 on 2026-05-08 to disambiguate from the suffering-derivative comparator; substrate-readiness vs substrate-purpose-validation distinction added the same day -- trained-agent retest table V3-EXQ-433e/f / 523/a/b reclassified non_contributory because monomodal policy cannot exercise the substrate-purpose acceptance criteria; SD-054 v3_pending flipped to true pending the rule-apprehension cluster MECH-309 / ARC-062 / ARC-063 substrate landings.) | Substrate implemented 2026-05-04 (V3-EXQ-521 substrate-readiness PASS 7/7; V3-EXQ-522 monostrategy-breaking PASS zone_transitions=48.9); SD-054 + MECH-309 candidate / v3_pending registered 2026-05-08 alongside ARC-062 (V3 weak rule-apprehension reading) and ARC-063 (V4 strong rule-apprehension reading) per docs/architecture/rule_apprehension_layer.md |
 | MECH-204 sleep substrate Phase 1 | Precision recalibration consumer (sleep_substrate_plan.md GAP-1): SerotoninModule.compute_recalibration_target() returns the captured precision_at_rem_entry zero-point reference (returns 0.0 when disabled / no REM entered). E3TrajectorySelector.recalibrate_precision_to(target, step) applies Option A linear interpolation new_rv = (1-step)*rv + step*(1.0/(target+1e-6)). WRITEBACK-phase sibling step in SleepLoopManager._run_cycle runs independently of MECH-273 self-model gradient; gated on use_rem_precision_recalibration AND rem_enabled AND serotonin.enabled. Cycle metrics emit mech204_recalibration_fired / target / before / after / step. New REEConfig fields use_rem_precision_recalibration (default False, bit-identical OFF) + rem_precision_recalibration_step (default 0.1 per plan-of-record Q1). Companion EXP-0171 step-size sweep gated on V3-EXQ-541 PASS. | Implemented 2026-05-08 (contract suite test_mech204_precision_recalibration.py 9/9 PASS covering C1 surface, C2 default-OFF, C3 sleep_loop-ON / recalibration-OFF no-metrics, C4 arithmetic, C5/C6 zero-target / zero-step no-op, C7 capture-only regression guard, C8 WRITEBACK firing end-to-end, C9 drift movement; V3-EXQ-541 validation FAIL 2026-05-08T23:43Z verdict at runner level pending governance review -- result_summary records "verdict: PASS" with FAIL outcome flag; manifest at evidence/experiments/v3_exq_541_mech204_precision_recalibration_consumer_20260508T234302Z_v3.json) |
 | MECH-307 anticipatory affect conjunction architecture | First-line conjunction-fix proposal vs SD-014 6-channel amendment fallback (~40 lines of code, NOT a new VALENCE channel): excitement and dread emerge as derived states from a four-gap fix to existing channels (signed VALENCE_SURPRISE + MECH-216 z_beta coupling + anticipatory VALENCE_LIKING write + write-at-predicted-location). Lit anchors from targeted_review_excitement_5th_valence_channel (lit_conf 0.77, 9 entries). Cross-tags MECH-111 because the same wiring gaps likely substrate-confound the EXQ-141 curiosity-drive failure. Falsifiable 4-arm experiment in docs/architecture/anticipatory_affect_conjunction_vs_dual_channel.md. Consumer-side Path B extension: MECH295LikingBridge.compute_conjunction_score_bias() reads SD-014 valence + z_beta arousal at per-candidate predicted-imminent locations and applies a negative approach bias when the four-way conjunction holds; new flag use_mech307_consumer_conjunction_read (default False; bit-identical OFF). | Registered candidate / v3_pending 2026-05-08; consumer-conjunction bridge extension landed 2026-05-08 (test_mech307_consumer_conjunction.py 8/8 PASS); V3-EXQ-539 4-arm substrate-readiness FAIL governance-applied hold_pending_v3_substrate (substrate counters PASS, behavioural C5 FAIL because legacy MECH-295 cue path does not read the conjunction signal); V3-EXQ-540 3-arm gap decomposition (ARM_0_off / ARM_1_signed_pe / ARM_2_full) queued with consumer-conjunction-read ON in all arms |
-| ARC-062 Phase 1 (gated_policy_heads) | rule_apprehension.gated_policy_heads -- V3 weak-reading instantiation of the rule-apprehension architectural slot identified by MECH-309 (logical-necessity claim: monomodal collapse without a non-Bayesian rule-creator at the policy layer). Module ree_core/policy/gated_policy.py (GatedPolicy + GatedPolicyConfig + GatedPolicyOutput): N=2 scoring heads sharing E3 candidate features (symmetry-broken init on heads' last-Linear bias so heads differentiate from step 0 under any training pressure) + 3-stream context discriminator on (z_world, z_self, z_harm_a) per Pull A SYNTHESIS R1 verdict (Miller & Cohen 2001 + Rigotti 2013 + Mitchell 2016 macaque MD insular cluster) at score_bias level per R3 verdict. disc_init_scale=0.1 keeps sigmoid output near 0.5 at init; bias clamped to [-bias_scale, +bias_scale]. n_heads=2 substrate-constrained per Pull A R2 verdict; n_heads != 2 raises ValueError. NO connection to SD-033a in Phase 1 -- that wiring is Phase 3 (closes commitment_closure_plan.md GAP-1). REEAgent.select_action composes gated_policy_score_bias additively into dacc_score_bias before MECH-295 block. MECH-094 simulation_mode=True returns zeros and increments only skip counter. Plan-of-record: REE_assembly/evidence/planning/arc_062_rule_apprehension_plan.md (GAP-A done; GAP-B Phase 2 monomodal-collapse falsifier on SD-054 reef + hazard_food_attraction substrate queued). | Implemented 2026-05-09 (V3-EXQ-542 5/5 PASS UC1-UC5 substrate readiness on Mac 2026-05-09T20:22Z; runner outcome flag ERROR with manifest verdict PASS per the substrate-readiness pattern). Phase 2 GAP-B falsifier V3-EXQ-543 PASS 2026-05-09T21:45Z on Mac (3 seeds x 2 arms; ARM_0 use_gated_policy=False vs ARM_1c use_gated_policy=True with full 3-stream discriminator at ARM_1_med density on SD-054 reef). 5/5 contract tests test_gated_policy.py (C1 default-off no-op / C2 backward-compat flag-on / C3 discriminator output in [0,1] across 64 diverse latents with bias_scale clamp / C4 heads' OUTPUTS diverge >5x under anti-symmetric SGD / C5 simulation_mode skip counter). Full ree-v3 suite 249/249 PASS (244 prior + 5 new). |
+| ARC-062 Phase 1 (gated_policy_heads) | rule_apprehension.gated_policy_heads -- V3 weak-reading instantiation of the rule-apprehension architectural slot identified by MECH-309 (logical-necessity claim: monomodal collapse without a non-Bayesian rule-creator at the policy layer). Module ree_core/policy/gated_policy.py (GatedPolicy + GatedPolicyConfig + GatedPolicyOutput): N=2 scoring heads sharing E3 candidate features (symmetry-broken init on heads' last-Linear bias so heads differentiate from step 0 under any training pressure) + 3-stream context discriminator on (z_world, z_self, z_harm_a) per Pull A SYNTHESIS R1 verdict (Miller & Cohen 2001 + Rigotti 2013 + Mitchell 2016 macaque MD insular cluster) at score_bias level per R3 verdict. disc_init_scale=0.1 keeps sigmoid output near 0.5 at init; bias clamped to [-bias_scale, +bias_scale]. n_heads=2 substrate-constrained per Pull A R2 verdict; n_heads != 2 raises ValueError. NO connection to SD-033a in Phase 1 -- that wiring is Phase 3 (closes commitment_closure_plan.md GAP-1). REEAgent.select_action composes gated_policy_score_bias additively into dacc_score_bias before MECH-295 block. MECH-094 simulation_mode=True returns zeros and increments only skip counter. Plan-of-record: REE_assembly/evidence/planning/arc_062_rule_apprehension_plan.md (GAP-A done; GAP-B Phase 2 monomodal-collapse falsifier on SD-054 reef + hazard_food_attraction substrate queued). | Implemented 2026-05-09 (V3-EXQ-542 5/5 PASS UC1-UC5 substrate readiness on Mac 2026-05-09T20:22Z; runner outcome flag ERROR with manifest verdict PASS per the substrate-readiness pattern). Phase 2 GAP-B falsifier V3-EXQ-543 PASS 2026-05-09T21:45Z on Mac (3 seeds x 2 arms; ARM_0 use_gated_policy=False vs ARM_1c use_gated_policy=True with full 3-stream discriminator at ARM_1_med density on SD-054 reef). 5/5 contract tests test_gated_policy.py (C1 default-off no-op / C2 backward-compat flag-on / C3 discriminator output in [0,1] across 64 diverse latents with bias_scale clamp / C4 heads' OUTPUTS diverge >5x under anti-symmetric SGD / C5 simulation_mode skip counter). Full ree-v3 suite 249/249 PASS (244 prior + 5 new). Phase 3 GAP-C optimizer-side wiring (gated_policy bias-head into E3 optimizer + discriminator output threaded into SD-033a `LateralPFCAnalog.update()` source vector) attempted in V3-EXQ-543b (2026-05-10 Phase 3 falsifier on Mac, 14407s) but FAILED -- closes commitment_closure_plan.md GAP-1 remains blocked pending Phase 3 design refinement. |
+| MECH-313 (ARC-065 child) | policy.stochastic_noise_floor_lc_ne_tonic_analog -- pure-arithmetic regulator (sibling to MECH-314 / MECH-318 / MECH-319) instantiating the LC-NE tonic complement to MECH-104 phasic spike. Single primitive `noise_floor.compute_effective_temperature(baseline_temperature, simulation_mode)` returns `max(baseline_T + noise_floor_alpha, noise_floor_min_temperature)`; SAC-entropy-bonus analog (Haarnoja 2018) on E3 softmax temperature. Distinct from MECH-260 dACC anti-recency (state-dependent); Q-045 falsifies whether they collapse. Phase-1 instantiation choice = SEPARATE module at the e3.select() call site rather than per-head temperature inside GatedPolicy (revisit at Q-045 4-arm ablation). MECH-094: simulation_mode=True returns baseline temperature unchanged + increments skip counter only. | Implemented 2026-05-10 (V3-EXQ-544 substrate-readiness 5/5 PASS UC1-UC5 smoke; runner outcome flag ERROR with manifest verdict PASS per the substrate-readiness false-ERROR stdout pattern fixed mid-day; 11 contract tests in tests/contracts/test_mech_313_noise_floor.py PASS). Behavioural validation deferred to Q-045 4-arm ablation AFTER MECH-314 also lands. |
+| MECH-314 (ARC-065 child) + MECH-314a/b/c sub-flavours | policy.structured_curiosity_bonus_parent + 3 sub-flavours (314a striatal novelty per-candidate min-distance from candidate's first-step z_world to nearest active ResidueField RBF center; 314b frontopolar uncertainty broadcast scalar from e3._running_variance; 314c learning progress EMA of `|PE_t - PE_{t-K}|`). Pure-arithmetic, no learned parameters; sibling to MECH-313 NoiseFloor in the ree_core.policy package. Composed AFTER MECH-295 liking-bridge block and BEFORE MECH-313 noise_floor temperature lift (curiosity affects scores; noise floor affects temperature; orthogonal). Per Pull 1 R3 verdict the three sub-flavours are independently togglable so Q-044's three-arm ablation is a flag-set decision. Phase 1 honest-scoping caveat: 314a is genuinely per-candidate; 314b and 314c are state-dependent global scalars broadcast across [K]; per-candidate refinement deferred to Phase 2 follow-on. MECH-094: simulation_mode=True returns zeros[K] + increments skip counter only. | Implemented 2026-05-10 (V3-EXQ-545 substrate-readiness 5/5 PASS UC1-UC5 smoke; ran twice on Mac + cloud-2 via multi-machine race; 13 contract tests in tests/contracts/test_mech_314_curiosity.py PASS; 273/273 contracts + 7/7 preflight PASS with master OFF). Behavioural validation deferred to Q-044 three-arm ablation AFTER MECH-318 / MECH-319 sibling absorption-check sessions complete. |
+| MECH-319 (arc_062 GAP-K) | policy.arbitration.simulation_mode_write_gating_substrate -- substrate-level instantiation of MECH-094 at the rule-arbitration layer per Pull 3 SYNTHESIS R1 GENUINE-NOVELTY-CONFIRMED + Pull 4 R3 KEEP-AS-IS verdicts. Pure-arithmetic regulator (sibling to GABAergicDecayRegulator and BroadcastOverrideRegulator) in the regulators package. Single primitive `gate.effective_simulation_mode(simulation_mode, site) -> bool` with truth-table semantics: master OFF identity; master ON + admit_writes=False blocks sim writes; master ON + admit_writes=True (V3-EXQ-543c-successor falsifier control) admits sim writes. Two existing arbitration-write call sites in REEAgent.select_action() consult the gate when instantiated: GatedPolicy block (replace literal simulation_mode=False) + LateralPFCAnalog block (skip update() when blocked, compute_bias still runs). MECH-094 NOT modified per KEEP-AS-IS verdict. Construction raises ValueError on admit_writes=True without master ON (loud-not-silent guard). Per-site diagnostic counters on {gated_policy, lateral_pfc, default}. | Implemented 2026-05-10 (V3-EXQ-546 substrate-readiness 6/6 PASS UC1-UC5 + UC3b precondition; ran twice on Mac + cloud-2 via multi-machine race; 15 contract tests in tests/contracts/test_mech_319_simulation_mode_rule_gate.py PASS; 288/288 contract + preflight tests PASS with master OFF). claims.yaml MECH-319 candidate -> candidate_substrate_landed; v3_pending: true retained pending V3-EXQ-543c-successor falsifier with admit_writes=True. arc_062 GAP-K closed (registered -> substrate_landed). |
+| MECH-320 (ARC-066 child) | action.tonic_vigor_coupling_score_bias -- first child mechanism for ARC-066 (the non_deficit_action_drives architectural family). Pure-arithmetic regulator (sister to MECH-313 NoiseFloor + MECH-314 StructuredCuriosity in ree_core.policy). Composed AFTER MECH-314 curiosity (orthogonal axis: curiosity rewards novelty/uncertainty/LP at candidate level; vigor biases on action-vs-no-op axis) and BEFORE MECH-313 noise_floor. Algorithm: `v_t = max(0, slow EWMA over realised E3 score) * gate_energy * gate_drive * gate_pe`; `bias[i] = -w_action*v_t` on action classes / `+w_passive*v_t` on noop class (additive primary; multiplicative gain falsifiable secondary via tonic_vigor_form="multiplicative"). TARGET-FREE: bias applies regardless of whether any z_goal is currently active, closing the "well-fed-safe-familiar agent has no positive gradient to act" gap that ARC-066 registered. Defaults: half_life=100 (long-window per R4), w_action=w_passive=0.1, bias_scale=0.1. MECH-094: simulation_mode=True on either compute_score_bias or update_score_receipt returns zeros + increments skip counter only. | Implemented 2026-05-10 (V3-EXQ-547 substrate-readiness 6/6 PASS UC1-UC6 on cloud-2 2026-05-10T20:56Z; 28 contract tests in tests/contracts/test_mech_320_tonic_vigor.py PASS; 309/309 contracts + 7/7 preflight PASS with master OFF). claims.yaml MECH-320 candidate -> candidate_substrate_landed. Behavioural validation 3-arm discriminative pair (baseline / additive / multiplicative on a well-fed-safe-familiar substrate) deferred to a separate /queue-experiment session. |
+| ARC-066 / ARC-067 / ARC-068 cluster (non_deficit_action_drives family) | Three architectural-slot claims registered 2026-05-10: ARC-066 tonic_vigor_coupling (capacity -> action bias); ARC-067 idle_aversion_boredom (sustained low-engagement is aversive); ARC-068 opportunity_cost_no_op_penalty (waiting carries cost). Family principle: behaviour comes from surplus capacity AND from deficits, not deficits alone. ARC-066 lit-pull lit_conf 0.789 supports (LC-NE substrate REJECTED, mesolimbic DA-vigor LOAD-BEARING per Niv 2007 + Salamone & Correa 2012 + Beierholm 2013). ARC-067 lit-pull lit_conf 0.85 supports. ARC-068 lit-pull lit_conf 0.806 supports-direction-dominant (R1 SEPARATE-AT-ARCHITECTURE-VIA-KERNEL not via substrate -- ARC-068 anchors on long-window historical EMA, SD-032b on current-environmental scalar; R3 ARC-066 + ARC-068 collapse LICENSED at implementation layer per Niv 2007 mathematical symmetry but slot-level separation preserved for psychiatric failure-mode dissociation). | Cluster registered 2026-05-10 (3 architectural-slot claims + umbrella architecture doc REE_assembly/docs/architecture/non_deficit_action_drives.md + 3 lit-pulls landing under targeted_review_arc_066_tonic_vigor / targeted_review_arc_067_boredom / targeted_review_arc_068_opportunity_cost). MECH-320 (ARC-066 first child mechanism) substrate landed same day. ARC-067 / ARC-068 child-MECH design pending. |
+| ARC-069 / ARC-070 / ARC-071 cluster (policy_primitive_granularity family) | Three architectural-slot claims registered 2026-05-10: ARC-069 parent (policy_hierarchy_dynamic_regranularisation -- the unit of policy operated on is itself dynamic, not fixed); ARC-070 decomposition-on-prediction-failure (zoom in / re-segment when an imagined chunk fails to ground); ARC-071 composition-via-repeated-grounding (zoom out / chunking when a sequence has been grounded enough times to be treated atomically). ARC-070 lit-pull lit_conf 0.88 supports (R2 LOAD-BEARING SHARED SUBSTRATE -- ARC-070 implemented as bidirectional extension of MECH-288 event_segmenter, not a new module; Schacter 2008 constructive-episodic-simulation core network supplies the empirical anchor). ARC-071 lit-pull lit_conf 0.848 supports (R3 LOAD-BEARING -- CONFIRMED ARC-071 IS the missing transition mechanism in MECH-163 dual_goal_directed_systems, MECH-163 depends_on extended +ARC-071 the same day; R6 SAFETY-CRITICAL escalation -- biology does NOT cleanly gate chunking write path against replay/imagined sequences per Albouy 2013, ARC-071's pre-registered MECH-094 hypothesis_tag=False strict-gating MORE CONSERVATIVE than biology, governance decision pending). | Cluster registered 2026-05-10 (3 architectural-slot claims + umbrella architecture doc REE_assembly/docs/architecture/policy_primitive_granularity.md + 2 lit-pulls under targeted_review_arc_070_decomposition / targeted_review_arc_071_composition). ARC-070 R2 reframe landed (MECH-288 cross-reference rewritten from observation-side analog to bidirectional consumer; event_segmenter.py needs input_stream label for MECH-094 hypothesis_tag-conditional dispatch). MECH-321 (ARC-070 first child mechanism, policy.decomposition_via_event_segmenter) registered candidate / v3_pending the same day with R1-R5 verdicts folded into functional_restatement; depends_on ARC-070 + MECH-288 + MECH-269 + MECH-094. ARC-071 child-MECH design deferred until R6 governance decision lands. |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -119,10 +125,49 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **665 runner-side completions** (per `runner_status.json` 2026-05-10T01:10Z read:
-  131 PASS / 266 FAIL / 73 ERROR / 195 UNKNOWN; v3 subset still dominates the
-  post-2026-02-27 epoch; +11 vs the 2026-05-09T01:10Z nightly read -- the
-  2026-05-09 wave covers the ARC-062 Phase 1 substrate landing
+- **1045 runner-side completions across all five machines** (per per-machine
+  `runner_status/<host>.json` 2026-05-11T01:10Z read: 555 DLAPTOP-4.local +
+  28 Daniel-PC + 77 EWIN-PC + 222 ree-cloud-1 + 163 ree-cloud-2; cumulative
+  cross-machine breakdown 241 PASS / 463 FAIL / 105 ERROR / 236 UNKNOWN;
+  v3 subset still dominates the post-2026-02-27 epoch). The single-file
+  `runner_status.json` cited in prior nightlies no longer exists; per the
+  multi-machine coordination policy each machine writes to
+  `evidence/experiments/runner_status/<hostname>.json`. The 665 figure in
+  the 2026-05-10T01:10Z snapshot was an under-count and has been replaced
+  here with the cross-machine aggregate. **+10 cumulative-by-machine
+  completions since the 2026-05-10T01:10Z nightly read** (deduped: 8
+  unique experiments because V3-EXQ-545 + V3-EXQ-546 each ran twice via
+  the multi-machine claim race). Today's wave covers the four remaining
+  ARC-064/ARC-065/ARC-066 child substrate landings (MECH-313 stochastic
+  noise floor + MECH-314 structured curiosity bonus + MECH-319 simulation-
+  mode rule-write gate + MECH-320 tonic vigor coupling -- all
+  substrate-readiness 5-6 sub-test PASS; closes arc_062 GAP-K and
+  ARC-066 first child), the ARC-062 Phase 3 falsifier V3-EXQ-543b on
+  Mac (~4h, FAIL -- Phase 3 wiring design needs refinement before
+  another attempt), the SD-049 Phase 2 behavioural validation cohort
+  V3-EXQ-514h / 514i on cloud-1 (both PASS), the V3-EXQ-141c MECH-111
+  novelty-drive RNG-desync FAIL on cloud-2 (re-route to /diagnose-errors
+  per the per-seed-distribution diagnostic interpretation grid the
+  2026-05-09 wave's V3-EXQ-141d successor was already deferred to), and
+  the false-ERROR-stdout-sentinel diagnose-errors session that landed
+  the canonical `verdict:` print fix across V3-EXQ-542 / 544 / 545 (and
+  the sibling MECH-319 implement-substrate session applied the same fix
+  to V3-EXQ-546 before queueing). **Pending review queue regenerated
+  2026-05-10T13:02Z is 0 items** -- the 2026-05-10T12:24Z governance
+  cycle walked the 3 PASS pending experiments (V3-EXQ-500a + V3-EXQ-543
+  + V3-EXQ-503a) and applied 13 pending_user recommendations via
+  decision_log.v1.jsonl appends (10 hold_pending_v3_substrate on
+  ARC-062, ARC-064, ARC-065, MECH-309, MECH-312, MECH-313, MECH-316,
+  MECH-317, MECH-318, SD-054 newly registered v3_pending claims; 3
+  hold_candidate_resolve_conflict on ARC-045, MECH-166, MECH-204).
+  substrate_queue.json grew from 69 -> 78 entries with the new
+  ARC-064 / ARC-065 / MECH-313 / MECH-314 / MECH-316 / MECH-317 /
+  MECH-318 / MECH-319 / SD-054 entries reflecting today's substrate
+  landings + cluster registrations. Earlier 2026-05-09/10 narrative
+  context preserved below. Historical context: the 2026-05-10T01:10Z
+  nightly read reported 665 completions (131 PASS / 266 FAIL / 73 ERROR /
+  195 UNKNOWN) +11 vs the 2026-05-09T01:10Z nightly read -- the
+  2026-05-09 wave covered the ARC-062 Phase 1 substrate landing
   (V3-EXQ-542 substrate-readiness 5/5 manifest PASS UC1-UC5 with runner
   outcome ERROR per the substrate-readiness pattern), the ARC-062 Phase 2
   monomodal-collapse falsifier (V3-EXQ-543 PASS on Mac in ~50min ARM_0
@@ -290,20 +335,28 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   MECH-293 waking ghost-goal probe search) extends the suite further to
   **183/183 contracts + 7/7 preflight PASS** with all flags OFF, preserving
   the bit-identical-when-OFF guarantee.
-- **Currently queued (2026-05-10T01:10Z): 0 items (empty `items: []`).** The
-  2026-05-09 substrate wave drained the queue -- ARC-062 Phase 1 substrate
-  landing (V3-EXQ-542 5/5 manifest PASS), Phase 2 falsifier (V3-EXQ-543
-  PASS), MECH-204 step-size sweep (V3-EXQ-541a/b/c all PASS), and
-  sleep_substrate_plan.md GAP-2 Tier-1 successor cohort (V3-EXQ-265a /
-  500a / 503a PASS + 436a / 418l FAIL) all completed by 2026-05-09T21:53Z.
-  V3-EXQ-540 MECH-307 3-arm gap decomposition (queued 2026-05-08, claimed
-  by Mac 2026-05-09T00:00Z) is no longer in the queue at this read --
-  presumed run earlier in the 2026-05-09 wave; verify against
-  runner_status. Next-up substrate work in `evidence/planning/substrate_queue.json`
-  remains SD-049 Phase 2 z_resource encoder follow-on (ready=True
-  priority=2) and the ARC-062 Phase 3 wiring pass that closes
-  commitment_closure_plan.md GAP-1 (gated by ARC-062 Phase 2 PASS, now
-  cleared via V3-EXQ-543).
+- **Currently queued (2026-05-11T01:10Z): 0 items (empty `items: []`).** The
+  2026-05-10 substrate wave drained the queue again. Today's queue churn:
+  V3-EXQ-543b (ARC-062 Phase 3 falsifier on Mac, FAIL after ~4h),
+  V3-EXQ-544 / 545 / 546 / 547 (substrate-readiness diagnostics for
+  MECH-313 / MECH-314 / MECH-319 / MECH-320, all 5-6 sub-test PASS), plus
+  V3-EXQ-514h / 514i SD-049 Phase 2 behavioural successors on cloud-1
+  (both PASS) and V3-EXQ-141c MECH-111 novelty-drive RNG-desync on
+  cloud-2 (FAIL, re-route to /diagnose-errors). Next-up substrate work
+  in `evidence/planning/substrate_queue.json` (now 78 entries, was 69
+  before today's governance cycle pushed the new ARC-064/ARC-065/
+  MECH-313/314/316/317/318/319/SD-054 entries) is the ARC-062 Phase 3
+  wiring pass that closes commitment_closure_plan.md GAP-1 (still
+  blocked after V3-EXQ-543b FAIL pending design refinement), the
+  SD-049 Phase 2 z_resource encoder follow-on (ready=True priority=2),
+  and the ARC-066/067/068 + ARC-069/070/071 family child-MECH design
+  cycles that flow from today's two cluster registrations. ARC-070's
+  first child mechanism MECH-321 (policy.decomposition_via_event_segmenter)
+  was registered candidate / v3_pending today; substrate work waits on
+  MECH-288 event_segmenter.py input_stream label extension per the
+  R2 bidirectional-substrate verdict.
+
+  Historical-context (2026-05-10T01:10Z snapshot): 0 items.
   Historical-context (2026-05-09T01:10Z snapshot): 1 item. V3-EXQ-540
   (MECH-307 3-arm gap decomposition + Path B consumer conjunction read,
   priority=5, machine_affinity=DLAPTOP-4.local, 70 episodes x 3 seeds x
@@ -577,6 +630,30 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
   ladder, plus several FAILs that point recovery effort at SD-005 / SD-015 /
   Q-034 / MECH-112 / MECH-098 specifically; final accounting waits on the
   walk.
+
+- **Current bottleneck (2026-05-11):** the **ARC-062 Phase 3 wiring pass
+  + ARC-064/ARC-065/ARC-066 child-MECH cluster behavioural validation**
+  is the immediate gate. Phase 3 wiring (gated_policy bias-head into E3
+  optimizer + discriminator output threaded into SD-033a
+  `LateralPFCAnalog.update()` source vector) was attempted in V3-EXQ-543b
+  on Mac (~4h, FAIL) -- design needs refinement before another attempt;
+  commitment_closure_plan.md GAP-1 remains blocked. The four ARC-064/
+  ARC-065/ARC-066 child substrates (MECH-313 noise floor + MECH-314
+  structured curiosity bonus + MECH-319 simulation-mode rule-write gate
+  + MECH-320 tonic vigor coupling) all landed substrate-readiness PASS
+  today; the next move is the Q-043 / Q-044 / Q-045 cross-cohort
+  behavioural ablation (relative-weight calibration + sub-flavour
+  independence + MECH-313 vs MECH-260 collapse falsifier) on the
+  V3-EXQ-543c-successor admit_writes=True falsifier substrate.
+  Underneath those, the **ARC-070/071 R6 SAFETY-CRITICAL governance
+  decision** (MECH-094 hypothesis_tag strict-vs-relaxed for chunking
+  write path, escalated by the ARC-071 lit-pull synthesis) and the
+  **non_deficit_action_drives + policy_primitive_granularity child-MECH
+  design cycles** are the architectural-side gates that flow from
+  today's two cluster registrations. The monostrategy / reef-recovery
+  thread continues to be the underlying scientific bottleneck pending
+  ARC-062 Phase 3 + the rule-apprehension cluster's behavioural
+  validation cohort.
 
 - **Current bottleneck (2026-05-09):** the **sleep-substrate Phase 1
   validation + MECH-307 conjunction-architecture cluster** is the immediate
