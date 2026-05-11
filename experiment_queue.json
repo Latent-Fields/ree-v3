@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-543c",
-      "title": "ARC-062 Phase 3 monomodal-collapse falsifier on bipartite SD-054 (world_states[1] fix + bipartite layout)",
-      "experiment_type": "v3_exq_543c_arc062_phase3_bipartite_falsifier",
-      "script": "experiments/v3_exq_543c_arc062_phase3_bipartite_falsifier.py",
-      "priority": 1,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 240,
-      "episodes_per_run": 108,
-      "seeds": 3,
-      "conditions": 2,
-      "supersedes": "V3-EXQ-543b",
-      "claim_id": "ARC-062",
-      "note": "Supersedes V3-EXQ-543b after 2026-05-11 diagnose-errors session traced the inert-gating to two causes: (1) script-level world_states[0] = initial_z_world identical across all K (corrected by switching to world_states[1] post-action z_world with len >= 2 guard); (2) substrate-level CEM near-degenerate-candidates issue (addressed by enabling SD-054 bipartite-layout extension landed today in ree-v3 commit 73fdd7e, V3-EXQ-548 substrate-readiness PASS confirmed 1.27x structural-divergence uplift). ENV_KWARGS now sets reef_bipartite_layout=True, axis=horizontal, agent_band_radius=1. claim_ids tightened to [ARC-062, MECH-309]; SD-029 dropped (SD-054 not its measurement substrate). On PASS: closes arc_062 GAP-B; routes to GAP-C/D Phase 3 wiring. On FAIL with probe-gate FAIL: route to option 2 (substrate change to GatedPolicy head input). On FAIL with probe-gate PASS + criteria-FAIL / F1: MECH-309 monomodal-collapse evidence.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-11T17:09:51.121642+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-549",
       "title": "ARC-066 / MECH-320 tonic_vigor behavioural discriminative pair (EXP-0083 / EVB-0232)",
       "experiment_type": "v3_exq_549_arc066_tonic_vigor_discriminative_pair",
