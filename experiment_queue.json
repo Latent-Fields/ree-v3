@@ -14,13 +14,17 @@
       "script": "experiments/v3_exq_548_sd054_bipartite_substrate_readiness.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 5,
       "episodes_per_run": 5,
       "seeds": 3,
       "conditions": 4,
       "claim_id": "SD-054",
-      "note": "Structural-only env-level diagnostic validating the SD-054 bipartite-layout extension landed 2026-05-11. 4 arms (ARM_0 legacy, ARM_1 bipartite horizontal radius=1, ARM_2 bipartite horizontal radius=0, ARM_3 bipartite vertical radius=1) x 3 seeds; random policy, no agent training. Local PASS verified 2026-05-11 (C0/C1/C2/C3/C4 all PASS; ARM_1 structural divergence 0.807, 1.27x uplift over ARM_0 baseline 0.633). Cross-plan: arc_062_rule_apprehension_plan.md GAP-B resume_condition; full-pipeline V3-EXQ-543b/c rerun deferred until V3-EXQ-548 PASS confirms substrate readiness."
+      "note": "Structural-only env-level diagnostic validating the SD-054 bipartite-layout extension landed 2026-05-11. 4 arms (ARM_0 legacy, ARM_1 bipartite horizontal radius=1, ARM_2 bipartite horizontal radius=0, ARM_3 bipartite vertical radius=1) x 3 seeds; random policy, no agent training. Local PASS verified 2026-05-11 (C0/C1/C2/C3/C4 all PASS; ARM_1 structural divergence 0.807, 1.27x uplift over ARM_0 baseline 0.633). Cross-plan: arc_062_rule_apprehension_plan.md GAP-B resume_condition; full-pipeline V3-EXQ-543b/c rerun deferred until V3-EXQ-548 PASS confirms substrate readiness.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-11T16:22:28.667023+00:00"
+      }
     }
   ]
 }
