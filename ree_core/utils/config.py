@@ -653,6 +653,20 @@ class HippocampalConfig:
     num_candidates: int = 32
     num_cem_iterations: int = 3
     elite_fraction: float = 0.2
+    # V3-EXQ-553 proposer-fix substrate (ARC-062 / MECH-269 cluster). When True,
+    # the CEM inner-loop noise draw in propose_trajectories() is replaced with
+    # an orthogonal-basis sample: the n noise vectors per iteration are stacked,
+    # QR-decomposed, and the Q rows used (rescaled to N(0,1)-equivalent norm)
+    # as the per-candidate noise. This gives maximally-distinct CEM proposals
+    # at the seed-structure level, isolating "noise structure" as the variable
+    # under test for the action-class-entropy cliff (V3-EXQ-550 / 551 / 551a /
+    # 552 finding: pairwise_l2 ~ 1e-4, action_class_entropy = 0.0). When
+    # n > flatten_dim (= horizon * action_object_dim), the basis is rank-
+    # deficient and the implementation falls back to iid Gaussian for the
+    # surplus candidates (with a diagnostic flag exposed in propose
+    # diagnostics). Backward compatible: disabled by default; bit-identical
+    # to legacy iid CEM when off.
+    use_orthogonal_cem_seeding: bool = False
     # VALENCE_WANTING gradient: when > 0, trajectories toward high-wanting
     # (resource-proximal) regions score better during CEM selection.
     # Subtracted from terrain score (lower score = better in CEM).
@@ -2380,6 +2394,12 @@ class REEConfig:
         mech293_min_ghost_candidates: int = 1,
         mech293_max_ghost_candidates: int = 8,
         mech293_replace_lowest_ranked: bool = True,
+        # V3-EXQ-553 proposer-fix substrate: orthogonal CEM-candidate seeding.
+        # When True, the CEM inner-loop noise is replaced with an orthogonal
+        # basis (QR-decomposed) so that the n candidates per iteration are
+        # maximally distinct at the proposal level. Backward compatible:
+        # default False; bit-identical to legacy iid Gaussian when off.
+        use_orthogonal_cem_seeding: bool = False,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -2855,6 +2875,9 @@ class REEConfig:
         config.hippocampal.mech293_min_ghost_candidates = mech293_min_ghost_candidates
         config.hippocampal.mech293_max_ghost_candidates = mech293_max_ghost_candidates
         config.hippocampal.mech293_replace_lowest_ranked = mech293_replace_lowest_ranked
+
+        # V3-EXQ-553 proposer-fix substrate: orthogonal CEM seeding
+        config.hippocampal.use_orthogonal_cem_seeding = use_orthogonal_cem_seeding
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep

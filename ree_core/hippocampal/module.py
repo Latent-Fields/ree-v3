@@ -535,12 +535,72 @@ class HippocampalModule(nn.Module):
 
         all_trajectories: List[Trajectory] = []
 
+        # V3-EXQ-553 proposer-fix substrate: optional orthogonal-basis noise.
+        # When use_orthogonal_cem_seeding is True, pre-generate n orthogonal
+        # noise vectors per CEM iteration (QR over a stack of iid Gaussians
+        # in flatten-dim = H * ao_dim) and use them in place of the legacy
+        # per-candidate iid Gaussian draws. The flag is consulted once per
+        # iteration; iid fallback is used when n > flatten_dim (rank-deficient
+        # basis). Diagnostics counted on the per-tick propose-diagnostics dict.
+        use_orthogonal = bool(
+            getattr(self.config, "use_orthogonal_cem_seeding", False)
+        )
+        ortho_diag = {
+            "use_orthogonal_cem_seeding": use_orthogonal,
+            "n_orthogonal_iters": 0,
+            "n_iid_fallback_candidates": 0,
+        }
+
         for _iteration in range(self.config.num_cem_iterations):
             trajectories: List[Trajectory] = []
             scores: List[torch.Tensor] = []
 
-            for _ in range(n):
-                noise = torch.randn_like(ao_mean)
+            # Pre-generate orthogonal noise for this CEM iteration when enabled.
+            ortho_noise: Optional[torch.Tensor] = None
+            if use_orthogonal:
+                # ao_mean shape: [batch, H, ao_dim]; flatten_dim = H * ao_dim.
+                # Build [n, flatten_dim] iid Gaussian, then QR decompose so the
+                # n rows form an orthonormal set (rank-deficient when
+                # n > flatten_dim -> falls back to iid per-candidate).
+                flatten_dim = int(ao_mean.shape[1] * ao_mean.shape[2])
+                if n <= flatten_dim:
+                    # Stack n iid Gaussian vectors as rows of an [n, flatten_dim]
+                    # matrix; QR yields Q [n, n] and R [n, flatten_dim] with the
+                    # rows of (Q.T @ R) approximating the original. We want a
+                    # set of n orthogonal unit-norm vectors in flatten_dim
+                    # space -- equivalent to taking the first n columns of the
+                    # Q matrix from QR(A.T) where A is [n, flatten_dim].
+                    raw = torch.randn(n, flatten_dim, device=device, dtype=ao_mean.dtype)
+                    # QR over the transpose so we get an orthonormal basis
+                    # in flatten_dim space. raw.T is [flatten_dim, n]; Q is
+                    # [flatten_dim, n] with orthonormal columns.
+                    q, _ = torch.linalg.qr(raw.T, mode="reduced")
+                    # q.T is [n, flatten_dim] with orthonormal rows. Rescale
+                    # by sqrt(flatten_dim) so each row's expected squared
+                    # magnitude matches an iid standard Gaussian sample (which
+                    # has expected squared norm = flatten_dim). This preserves
+                    # ao_std's amplitude calibration vs. the iid path.
+                    ortho_noise = q.T * float(flatten_dim) ** 0.5
+                    # Shape ortho_noise into [n, batch, H, ao_dim]. Same noise
+                    # pattern broadcast across batch (batch is typically 1 at
+                    # this call site).
+                    ortho_noise = ortho_noise.view(
+                        n, ao_mean.shape[1], ao_mean.shape[2]
+                    ).unsqueeze(1).expand(
+                        n, ao_mean.shape[0], ao_mean.shape[1], ao_mean.shape[2]
+                    ).contiguous()
+                    ortho_diag["n_orthogonal_iters"] += 1
+                else:
+                    # Rank-deficient: fall back to iid for all candidates this
+                    # iteration. Cleanly logged for diagnostics.
+                    ortho_noise = None
+                    ortho_diag["n_iid_fallback_candidates"] += n
+
+            for cand_idx in range(n):
+                if ortho_noise is not None:
+                    noise = ortho_noise[cand_idx]
+                else:
+                    noise = torch.randn_like(ao_mean)
                 action_objects_sample = ao_mean + ao_std * noise  # [batch, H, ao_dim]
 
                 # Decode action objects → actions for E2 rollout
@@ -601,6 +661,12 @@ class HippocampalModule(nn.Module):
                         getattr(self.config, "mech293_replace_lowest_ranked", True)
                     ),
                 )
+
+        # V3-EXQ-553 substrate: merge ortho-seeding diagnostics into the
+        # per-tick propose diagnostics dict (does not overwrite the MECH-293
+        # ghost diagnostics when those fire).
+        if use_orthogonal:
+            self._last_propose_diagnostics.update(ortho_diag)
 
         return all_trajectories
 
