@@ -59,6 +59,21 @@
       "supersedes": "V3-EXQ-540",
       "claim_id": "MECH-307",
       "note": "Option-b successor to never-queued V3-EXQ-540 (authored 2026-05-08 against Option-a use_mech307_signed_pe). MECH-307 substrate landed 2026-05-11 (ree-v3 commit fcfcf10) with Gap 1 implemented as Option-b (split VALENCE_POSITIVE_SURPRISE + VALENCE_NEGATIVE_SURPRISE channels) per user override. Same 3-arm decomposition as 540: ARM_0_off (master OFF), ARM_1_split_only (use_mech307_split_surprise=True only), ARM_2_full (all three sub-flags True). Closes goal_pipeline:GAP-1 acceptance gate; PASS unblocks GAP-2 SD-049 Phase 2 V3-EXQ-514 behavioural validation. claim_ids=[MECH-307, MECH-216, MECH-205, MECH-093, SD-014, MECH-295]; experiment_purpose=diagnostic (gap decomposition, not single-claim evidence). Pre-registered acceptance: C1 substrate-readiness counter dissociation (Gap 1 marker = n_split_surprise_centers; Gap 2 = liking_writes; Gap 3 = z_beta_excursion; Gap 4 = gap4_e1_prior_writes); C2 consumer-side conjunction read fires only in ARM_2 (rate >= 0.10); C3 approach_commit_rate lift ARM_2 vs ARM_0 >= 0.10 in 2/3 seeds AND ARM_2 mean > ARM_1 mean. PASS = C1 AND C2 AND C3. PARTIAL PASS (C1+C2 only) routes to SD-014 6-channel fallback ARM_3. FAIL on C1 routes to /diagnose-errors. Dry-run smoke 2026-05-11 PASS: substrate counters dissociate correctly across arms (ARM_0 silent, ARM_1 split_surp_centers=18 only, ARM_2 all four counters fire); C2/C3 expected FAIL on dry-run scale (6 episodes/cell insufficient for conjunction accumulation). machine_affinity=DLAPTOP-4.local (matches 540 precedent expectations; ~90 min budget on Mac for 3 arms x 3 seeds x 70 ep)."
+    },
+    {
+      "queue_id": "V3-EXQ-550",
+      "title": "MECH-269 z_goal-enabled monostrategy falsifier (config-default vs substrate diagnosis)",
+      "experiment_type": "v3_exq_550_zgoal_monostrategy_falsifier",
+      "script": "experiments/v3_exq_550_zgoal_monostrategy_falsifier.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 15,
+      "episodes_per_run": 6,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-269",
+      "note": "Diagnostic falsifier. Audit 2026-05-11 established that GoalConfig.z_goal_enabled and REEConfig.from_dims() both default to False. EXQ-476/476a/476b/476c (and EXQ-433*, EXQ-470*) -- the runs that fed the MECH-269 'monomodal policy' diagnosis -- all ran with z_goal_enabled defaulted off. The agent in those runs had no structured approach drive (only harm avoidance), which is exactly the 'no competing drive state' precondition for action-class collapse. This experiment mirrors the EXQ-476c entropy-probe structure (no training, V_s circuit ON in both arms, 6 ep x 200 steps) and flips z_goal_enabled between arms: ARM_OFF (z_goal_enabled=False, replicates EXQ-476c baseline) vs ARM_ON (z_goal_enabled=True, drive_weight=2.0, per-step update_z_goal feed from info['benefit_exposure']). Env adds SD-029 scheduled_external_hazard_enabled=True. 3 seeds [42, 7, 17]. Metric: action_class_entropy delta. PASS = ARM_ON - ARM_OFF >= 0.10 in >= 2/3 seeds -> WEAKENS the substrate reading (config default was the cause; MECH-269 V_s monostrategy hold on SD-029 must be revisited with z_goal-on runs). FAIL -> SUPPORTS the substrate reading at this probe depth (does NOT rule out trained-arm follow-up). ERROR branch (non-finite action in ARM_ON) surfaces a separate substrate bug. experiment_purpose=diagnostic (audit-decision input, not direct claim weighting). Smoke 2026-05-11 PASS: 2 arms x 1 seed x 1 ep x 20 steps end-to-end without crashes; both arms entropy=0 at no-training random-init (expected -- this is the monostrategy phenomenon under test at scale)."
     }
   ]
 }
