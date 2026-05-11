@@ -41,6 +41,22 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-11T20:22:43.848612+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-540b",
+      "title": "MECH-307 consumer-conjunction threshold sweep (calibration diagnostic; supersedes V3-EXQ-540a FAIL)",
+      "experiment_type": "v3_exq_540b_mech307_conjunction_threshold_sweep",
+      "script": "experiments/v3_exq_540b_mech307_conjunction_threshold_sweep.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 70,
+      "seeds": 3,
+      "conditions": 4,
+      "supersedes": "V3-EXQ-540a",
+      "claim_id": "MECH-307",
+      "note": "Focused diagnostic threshold sweep superseding V3-EXQ-540a (2026-05-11T20:17:50Z FAIL on C2/C3). 540a confirmed C1 substrate-dissociation PASS across all three arms but FAILed C2 (conj_fire_rate=0 in ALL arms): the MECH-295 bridge consumer predicate (wanting > 0.6 AND liking > 0.3 AND positive_surprise > 0 AND z_beta > 0.6) never fires even when all four substrate counters are populated. 540b varies only the three consumer-side thresholds across 4 arms with substrate fully ON in every arm via use_mech307_conjunction=True. ARM_default 0.6/0.3/0.6 (reproduces 540a ARM_2_full), ARM_half 0.3/0.15/0.3, ARM_low 0.1/0.05/0.1, ARM_floor 0.01/0.005/0.01 (sanity arm; if this doesn't fire something is structurally wrong). Acceptance: C1 monotone-in-threshold fire-rate non-increasing across descending-threshold ordering (allows ties + 1e-4 tolerance); C2 at least one non-default arm fires conjunction in >= 2/3 seeds at floor rate 0.10. PASS routes to a 540c behavioural retest with the lowest-firing threshold arm. PARTIAL C1-PASS-C2-FAIL routes to structural read-side audit. C3 approach_commit_rate is OUT OF SCOPE here (540a metric saturated at 1.0 across all arms; separable metric-redesign session). claim_ids=[MECH-307, MECH-295]; experiment_purpose=diagnostic. Dry-run smoke 2026-05-11 PASS end-to-end: substrate fires identically in all 4 arms; conj_fire_rate=0.0 at dry-run scale of 6 ep (acceptance: C1 vacuously PASS via tied zeros, C2 FAIL as expected); real run at 70 ep/cell accumulates ~11x more writes."
     }
   ]
 }
