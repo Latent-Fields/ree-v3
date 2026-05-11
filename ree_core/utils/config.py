@@ -1972,6 +1972,16 @@ class REEConfig:
     #   +surprise otherwise -- consumers reading sign get differential
     #   information, consumers reading magnitude get current behaviour.
     use_mech307_signed_pe: bool = False
+    # Gap 1 Option-b (2026-05-11 user override): split VALENCE_SURPRISE into
+    #   two separate channels VALENCE_POSITIVE_SURPRISE / VALENCE_NEGATIVE_SURPRISE
+    #   in the residue field. Mutually exclusive with use_mech307_signed_pe
+    #   (split takes precedence when both are True). Under the split path,
+    #   the agent ALSO continues to write magnitude into the legacy
+    #   VALENCE_SURPRISE channel so MECH-205 / SD-014 consumers reading the
+    #   magnitude slot are bit-identical to the legacy substrate.
+    #   When this flag is False, the residue field's indices 4-5 (positive /
+    #   negative surprise) stay zeroed.
+    use_mech307_split_surprise: bool = False
     # Gap 2 + Gap 3: MECH-216 schema readout writes to multiple channels. The
     #   existing path writes to VALENCE_WANTING only. With this flag, MECH-216
     #   ALSO writes proportional anticipatory VALENCE_LIKING and adds a
@@ -2016,6 +2026,27 @@ class REEConfig:
     # fires. Bias term = -mech307_conjunction_gain * drive_level when the
     # predicate holds; 0 otherwise.
     mech307_conjunction_gain: float = 1.0
+    # MECH-307 master convenience flag (2026-05-11). When True, the
+    # post-init resolver sets all four substrate-side sub-flags True:
+    #   use_mech307_split_surprise        (Gap 1 Option-b)
+    #   use_mech307_schema_multichannel   (Gap 2 + Gap 3)
+    #   use_mech307_predicted_location_write (Gap 4)
+    # The consumer-side flag use_mech307_consumer_conjunction_read is NOT
+    # auto-set (it is a downstream consumer wiring decision, not a
+    # substrate change). Setting this master flag overrides any explicit
+    # False on the three sub-flags above. Bit-identical OFF by default.
+    use_mech307_conjunction: bool = False
+
+    def __post_init__(self) -> None:
+        # MECH-307 master flag resolver. When the convenience master flag
+        # is set, force the three substrate-side sub-flags True so callers
+        # can flip one switch rather than threading three. Explicit
+        # sub-flags True without the master flag continue to work as
+        # before (the resolver only flips False -> True under the master).
+        if self.use_mech307_conjunction:
+            self.use_mech307_split_surprise = True
+            self.use_mech307_schema_multichannel = True
+            self.use_mech307_predicted_location_write = True
 
     @classmethod
     def from_dims(

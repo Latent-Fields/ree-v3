@@ -119,6 +119,8 @@ from ree_core.residue.field import (
     VALENCE_LIKING,
     VALENCE_HARM_DISCRIMINATIVE,
     VALENCE_SURPRISE,
+    VALENCE_POSITIVE_SURPRISE,
+    VALENCE_NEGATIVE_SURPRISE,
 )
 
 
@@ -3533,21 +3535,49 @@ class REEAgent(nn.Module):
                     surprise = max(0.0, pe_mag - self._pe_ema)
                     # Gate: only write genuine surprises above threshold
                     if surprise > self.config.pe_surprise_threshold:
-                        # MECH-307 Gap 1: signed VALENCE_SURPRISE write. Sign is
-                        # derived from concurrent harm signal -- harm-paired
-                        # surprise gets stored as negative (dread-correlate),
-                        # non-harm surprise as positive (excitement-correlate).
-                        # Backward compat: when the flag is False, store the
-                        # unsigned magnitude as before so consumers reading
-                        # |VALENCE_SURPRISE| are bit-identical.
-                        if getattr(self.config, "use_mech307_signed_pe", False):
-                            signed_surprise = -surprise if harm_signal < 0 else surprise
+                        # MECH-307 Gap 1 write-site dispatch (2026-05-11 user-
+                        # override landing). Three paths, in priority order:
+                        # (1) use_mech307_split_surprise (Option b, 2026-05-11):
+                        #     route surprise to VALENCE_POSITIVE_SURPRISE or
+                        #     VALENCE_NEGATIVE_SURPRISE based on harm_signal
+                        #     sign. ALSO write magnitude to legacy
+                        #     VALENCE_SURPRISE so MECH-205 / SD-014 consumers
+                        #     reading the magnitude slot stay bit-identical.
+                        # (2) use_mech307_signed_pe (Option a, 2026-05-08 legacy):
+                        #     signed single-channel write -- harm-paired
+                        #     surprise stored as negative, non-harm as positive,
+                        #     into VALENCE_SURPRISE. Magnitude-readers get the
+                        #     correct magnitude via |signed_surprise| = surprise.
+                        # (3) Both flags False (true legacy): unsigned magnitude
+                        #     into VALENCE_SURPRISE.
+                        if getattr(self.config, "use_mech307_split_surprise", False):
+                            target_channel = (
+                                VALENCE_NEGATIVE_SURPRISE
+                                if harm_signal < 0
+                                else VALENCE_POSITIVE_SURPRISE
+                            )
+                            self.residue_field.update_valence(
+                                z_world, target_channel, surprise,
+                                hypothesis_tag=False,
+                            )
+                            # Backward-compat magnitude write to legacy slot.
+                            self.residue_field.update_valence(
+                                z_world, VALENCE_SURPRISE, surprise,
+                                hypothesis_tag=False,
+                            )
+                        elif getattr(self.config, "use_mech307_signed_pe", False):
+                            signed_surprise = (
+                                -surprise if harm_signal < 0 else surprise
+                            )
+                            self.residue_field.update_valence(
+                                z_world, VALENCE_SURPRISE, signed_surprise,
+                                hypothesis_tag=False,
+                            )
                         else:
-                            signed_surprise = surprise
-                        self.residue_field.update_valence(
-                            z_world, VALENCE_SURPRISE, signed_surprise,
-                            hypothesis_tag=False,
-                        )
+                            self.residue_field.update_valence(
+                                z_world, VALENCE_SURPRISE, surprise,
+                                hypothesis_tag=False,
+                            )
                         self._surprise_write_count += 1
                     metrics["mech205_pe_mag"] = pe_mag
                     metrics["mech205_pe_ema"] = self._pe_ema

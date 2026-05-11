@@ -42,17 +42,33 @@ import torch.nn.functional as F
 from ree_core.utils.config import ResidueConfig
 
 # SD-014 / ARC-036: Valence vector component indices.
-# Each hippocampal map node stores a 4-component valence vector updated incrementally.
+# Each hippocampal map node stores a 6-component valence vector updated incrementally.
 # Component 0: wanting        -- z_goal signal (frontal goal attractor, drives approach)
 # Component 1: liking         -- benefit terrain signal (where benefit was received)
 # Component 2: harm_discriminative -- z_harm_s signal (sensory-discriminative, A-delta analog)
-# Component 3: surprise       -- prediction error (novelty / unexpectedness signal)
+# Component 3: surprise       -- prediction error magnitude (novelty / unexpectedness; legacy
+#                                unsigned channel preserved for MECH-205 / SD-014 consumers)
+# Component 4: positive_surprise -- MECH-307 Gap 1 Option-b (2026-05-11): signed-positive PE
+#                                   (excitement / dopamine-RPE correlate). Written only when
+#                                   use_mech307_split_surprise=True; zero otherwise.
+# Component 5: negative_surprise -- MECH-307 Gap 1 Option-b (2026-05-11): signed-negative PE
+#                                   (dread / habenula correlate). Written only when
+#                                   use_mech307_split_surprise=True; zero otherwise.
 VALENCE_WANTING: int = 0
 VALENCE_LIKING: int = 1
 VALENCE_HARM_DISCRIMINATIVE: int = 2
 VALENCE_SURPRISE: int = 3
-VALENCE_DIM: int = 4
-VALENCE_COMPONENTS = [VALENCE_WANTING, VALENCE_LIKING, VALENCE_HARM_DISCRIMINATIVE, VALENCE_SURPRISE]
+VALENCE_POSITIVE_SURPRISE: int = 4
+VALENCE_NEGATIVE_SURPRISE: int = 5
+VALENCE_DIM: int = 6
+VALENCE_COMPONENTS = [
+    VALENCE_WANTING,
+    VALENCE_LIKING,
+    VALENCE_HARM_DISCRIMINATIVE,
+    VALENCE_SURPRISE,
+    VALENCE_POSITIVE_SURPRISE,
+    VALENCE_NEGATIVE_SURPRISE,
+]
 
 
 class RBFLayer(nn.Module):
@@ -68,8 +84,10 @@ class RBFLayer(nn.Module):
         self.weights = nn.Parameter(torch.zeros(num_centers))
         self.register_buffer("active_mask", torch.zeros(num_centers, dtype=torch.bool))
         self.register_buffer("next_center_idx", torch.tensor(0))
-        # SD-014 / ARC-036: 4-component valence vector per center.
-        # Shape [num_centers, VALENCE_DIM]: [wanting, liking, harm_discriminative, surprise].
+        # SD-014 / ARC-036 / MECH-307: 6-component valence vector per center.
+        # Shape [num_centers, VALENCE_DIM]: [wanting, liking, harm_discriminative,
+        # surprise, positive_surprise, negative_surprise]. Indices 4-5 stay zeroed
+        # unless MECH-307 Gap 1 Option-b is enabled (use_mech307_split_surprise=True).
         # Sparse by design -- most centers start at zeros and are updated incrementally.
         self.register_buffer("valence_vecs", torch.zeros(num_centers, VALENCE_DIM))
 
@@ -125,7 +143,8 @@ class RBFLayer(nn.Module):
 
         Args:
             center_idx:        Index of the RBF center to update (0-based).
-            valence_component: One of VALENCE_WANTING/LIKING/HARM_DISCRIMINATIVE/SURPRISE.
+            valence_component: One of VALENCE_WANTING / LIKING / HARM_DISCRIMINATIVE /
+                               SURPRISE / POSITIVE_SURPRISE / NEGATIVE_SURPRISE.
             value:             Signed scalar to add to the component.
         """
         with torch.no_grad():
@@ -143,7 +162,9 @@ class RBFLayer(nn.Module):
 
         Returns:
             valence: [batch, VALENCE_DIM]  -- component order [wanting, liking,
-                     harm_discriminative, surprise]
+                     harm_discriminative, surprise, positive_surprise,
+                     negative_surprise]. Indices 4-5 zeroed unless MECH-307 Gap 1
+                     Option-b (use_mech307_split_surprise) is enabled.
         """
         if not self.active_mask.any():
             return torch.zeros(z.shape[0], VALENCE_DIM, device=z.device, dtype=z.dtype)
@@ -178,14 +199,17 @@ class ResidueField(nn.Module):
     - world_delta accumulation: magnitude of world-state change drives
       accumulation strength (requires SD-003 pipeline to be wired)
 
-    SD-014 / ARC-036 — 4-component valence vector:
-    Each RBF center also stores a 4-component valence vector [wanting, liking,
-    harm_discriminative, surprise] that is updated incrementally as the agent
-    visits different z_world regions.  The valence map enables drive-weighted
-    replay prioritisation:  priority(node) = dot(V_node, d_current) + epsilon
-    where d_current = [w_drive, l_drive, h_drive, s_drive] is the current
-    drive-state vector.  API: update_valence(), evaluate_valence(),
-    get_valence_priority().  Controlled by ResidueConfig.valence_enabled.
+    SD-014 / ARC-036 / MECH-307 — 6-component valence vector:
+    Each RBF center stores a 6-component valence vector [wanting, liking,
+    harm_discriminative, surprise, positive_surprise, negative_surprise] that
+    is updated incrementally as the agent visits different z_world regions.
+    The valence map enables drive-weighted replay prioritisation:
+      priority(node) = dot(V_node, d_current) + epsilon
+    where d_current is the current drive-state vector. Indices 4-5
+    (positive/negative surprise) are MECH-307 Gap 1 Option-b channels and
+    stay zeroed unless use_mech307_split_surprise=True (bit-identical OFF).
+    API: update_valence(), evaluate_valence(), get_valence_priority().
+    Controlled by ResidueConfig.valence_enabled.
     """
 
     def __init__(self, config: Optional[ResidueConfig] = None):
