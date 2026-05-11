@@ -63,25 +63,6 @@
       "supersedes": "V3-EXQ-543c",
       "claim_id": "ARC-062",
       "note": "2x2 factorial of (use_gated_policy, use_dacc) with MECH-260 anti-recency suppression_weight=0.5; tests whether 543c inert-gating reflects an actual substrate failure or just the absence of cluster-wiring. Pre-registered cross-arm criteria D1-D4 (D1 dACC-alone effect; D2 dACC adds to gated; D3 gated adds to dACC; D4 543c null replication). PASS=D2 AND D3. FAIL with D1-only routes to ARC-062 substrate-rationale review. FAIL all-D-null routes to option 2 head-input augmentation (2026-05-11 decision-log). dACC sub-weights other than suppression left at default 0.0 to isolate MECH-260 anti-recency. All other 543c config preserved (SD-054 bipartite layout, world_states[1] fix, P0=40/P1=60/P2=8). Probe-gate kept as diagnostic; NON-FATAL in 543d (dACC modifies RNG stream so byte-identical-trace concern from 543b doesn't apply). claim_ids=[ARC-062, MECH-309]. SD-029 stays dropped. experiment_purpose=evidence (architecturally load-bearing falsifier). Local smoke dry-run 2026-05-11 PASS wiring: 12 verdict lines (4 arms x 3 seeds), agent.gated_policy + agent.dacc toggle correctly per arm config, D-criteria printout works, ASCII-only verified, runner-conformance contract validated. Mac affinity matches 543b/c precedent (543b: 240 min Mac, 543c: 113 min Mac with short-circuit; 543d worst-case 540 min for 12 runs without short-circuit)."
-    },
-    {
-      "queue_id": "V3-EXQ-551",
-      "title": "Pipeline entropy diagnostic: localize the action-class entropy=0.0 cliff (CEM proposer / E2 rollout / E3 evaluator / action class)",
-      "experiment_type": "v3_exq_551_pipeline_entropy_diagnostic",
-      "script": "experiments/v3_exq_551_pipeline_entropy_diagnostic.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 15,
-      "episodes_per_run": 1,
-      "seeds": 3,
-      "conditions": 1,
-      "claim_id": null,
-      "note": "Diagnostic localization of WHERE the action-class-entropy=0.0 monostrategy cliff (observed in V3-EXQ-550 ARM_OFF and ARM_ON) originates in the action-selection pipeline. Mirrors EXQ-550 env config (CausalGridWorldV2 + SD-029 scheduled hazards ON). 3 seeds [42, 7, 17] for cross-comparability with EXQ-550. No training. Single arm (V_s circuit ON, z_goal OFF, matches EXQ-550 ARM_OFF). ~400 ticks/seed. Four per-tick metrics: stage1 = pairwise L2 distance variance across CEM candidate first-step actions BEFORE selection; stage2 = elementwise variance of E2-rolled-out final z_world states across the K candidates; stage3 = variance of E3 last_scores across rollouts (read off e3.last_scores after select_action); stage4 = standard action_class_entropy across the run. experiment_purpose=diagnostic; claim_ids=[]. Read directly off existing API surface (Trajectory.actions / Trajectory.world_states / e3.last_scores) -- no ree_core monkey-patch. Pre-registered interpretation grid baked into evidence_direction_note: Stage1~0 -> proposer collapse (next: V3-EXQ-553+ structural CEM seeding); Stage1 OK + Stage2~0 -> E2 rollout collapse (next: E2 conditioning diagnostic); Stages 1+2 OK + Stage3~0 -> evaluator flatness (next: forced-exploration warmup V3-EXQ-552 in parallel session); Stages 1+2+3 OK + Stage4 collapses -> selection-temperature/policy-head bug (next: z_beta -> CEM temperature wiring); all four diverse -> baseline OK, EXQ-550 monostrategy is training-induced. Smoke (1 seed x 40 ticks) 2026-05-11 PASS: stage1=3.07e-4, stage2=8.70e-7, stage3=8.22e-4, stage4=0.0, interpretation=e2_rollout_collapse on the smoke depth (real run with 400 ticks/seed is authoritative). Validate_experiments OK, validate_queue to follow. machine_affinity=any (~15 min CPU; no training; lightweight per-tick metric extraction).",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-11T20:15:32.625970+00:00"
-      }
     }
   ]
 }
