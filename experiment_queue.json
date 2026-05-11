@@ -8,27 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-549",
-      "title": "ARC-066 / MECH-320 tonic_vigor behavioural discriminative pair (EXP-0083 / EVB-0232)",
-      "experiment_type": "v3_exq_549_arc066_tonic_vigor_discriminative_pair",
-      "script": "experiments/v3_exq_549_arc066_tonic_vigor_discriminative_pair.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 60,
-      "episodes_per_run": 230,
-      "seeds": 2,
-      "conditions": 2,
-      "backlog_id": "EVB-0232",
-      "proposal_id": "EXP-0083",
-      "claim_id": "ARC-066",
-      "note": "Behavioural validation of ARC-066 + MECH-320 per proposal EXP-0083 / EVB-0232 (dispatch_mode=discriminative_pair). Substrate landed 2026-05-10 (ree_core/policy/tonic_vigor.py); V3-EXQ-547 substrate-readiness PASS 2026-05-10. ARM_OFF use_tonic_vigor=False vs ARM_ON use_tonic_vigor=True additive (R3 primary). Well-fed-safe-familiar env: CausalGridWorldV2 8x8, 1 hazard, 3 resources, action_dim=5 with tonic_vigor_noop_class=4 (matches env ACTIONS[4]=noop). 2 matched seeds [42, 43]. P0 warmup 200 ep, P1 eval 30 ep x 200 steps. Pre-registered thresholds: C1 mean(action_density_ON - OFF) >= 0.03 paired by seed; C2 within-arm Pearson r(v_t_window, action_density_window) >= 0.30 in ARM_ON; C3 mean(gate_energy*gate_drive*gate_pe) >= 0.50 in ARM_ON (gate-sanity, guards non_contributory failure mode). PASS = C1 AND C2 AND C3. C3 fail with C1/C2 sane -> non_contributory; otherwise weakens. PASS clears ARC-066 v3_pending behavioural-validation gate; multiplicative-form R3 falsifiable secondary deferred to a separate pair if C1 passes.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-11T19:01:22.539126+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-540a",
       "title": "MECH-307 Option-b 3-arm conjunction decomposition (goal_pipeline:GAP-1 Phase 1 acceptance)",
       "experiment_type": "v3_exq_540a_mech307_optionb_3arm_conjunction_decomposition",
