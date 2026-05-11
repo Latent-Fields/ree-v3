@@ -47,25 +47,6 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-11T19:03:54.493769+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-550",
-      "title": "MECH-269 z_goal-enabled monostrategy falsifier (config-default vs substrate diagnosis)",
-      "experiment_type": "v3_exq_550_zgoal_monostrategy_falsifier",
-      "script": "experiments/v3_exq_550_zgoal_monostrategy_falsifier.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 15,
-      "episodes_per_run": 6,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-269",
-      "note": "Diagnostic falsifier. Audit 2026-05-11 established that GoalConfig.z_goal_enabled and REEConfig.from_dims() both default to False. EXQ-476/476a/476b/476c (and EXQ-433*, EXQ-470*) -- the runs that fed the MECH-269 'monomodal policy' diagnosis -- all ran with z_goal_enabled defaulted off. The agent in those runs had no structured approach drive (only harm avoidance), which is exactly the 'no competing drive state' precondition for action-class collapse. This experiment mirrors the EXQ-476c entropy-probe structure (no training, V_s circuit ON in both arms, 6 ep x 200 steps) and flips z_goal_enabled between arms: ARM_OFF (z_goal_enabled=False, replicates EXQ-476c baseline) vs ARM_ON (z_goal_enabled=True, drive_weight=2.0, per-step update_z_goal feed from info['benefit_exposure']). Env adds SD-029 scheduled_external_hazard_enabled=True. 3 seeds [42, 7, 17]. Metric: action_class_entropy delta. PASS = ARM_ON - ARM_OFF >= 0.10 in >= 2/3 seeds -> WEAKENS the substrate reading (config default was the cause; MECH-269 V_s monostrategy hold on SD-029 must be revisited with z_goal-on runs). FAIL -> SUPPORTS the substrate reading at this probe depth (does NOT rule out trained-arm follow-up). ERROR branch (non-finite action in ARM_ON) surfaces a separate substrate bug. experiment_purpose=diagnostic (audit-decision input, not direct claim weighting). Smoke 2026-05-11 PASS: 2 arms x 1 seed x 1 ep x 20 steps end-to-end without crashes; both arms entropy=0 at no-training random-init (expected -- this is the monostrategy phenomenon under test at scale).",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-11T19:01:30.613821+00:00"
-      }
     }
   ]
 }
