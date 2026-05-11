@@ -43,6 +43,22 @@
       "proposal_id": "EXP-0083",
       "claim_id": "ARC-066",
       "note": "Behavioural validation of ARC-066 + MECH-320 per proposal EXP-0083 / EVB-0232 (dispatch_mode=discriminative_pair). Substrate landed 2026-05-10 (ree_core/policy/tonic_vigor.py); V3-EXQ-547 substrate-readiness PASS 2026-05-10. ARM_OFF use_tonic_vigor=False vs ARM_ON use_tonic_vigor=True additive (R3 primary). Well-fed-safe-familiar env: CausalGridWorldV2 8x8, 1 hazard, 3 resources, action_dim=5 with tonic_vigor_noop_class=4 (matches env ACTIONS[4]=noop). 2 matched seeds [42, 43]. P0 warmup 200 ep, P1 eval 30 ep x 200 steps. Pre-registered thresholds: C1 mean(action_density_ON - OFF) >= 0.03 paired by seed; C2 within-arm Pearson r(v_t_window, action_density_window) >= 0.30 in ARM_ON; C3 mean(gate_energy*gate_drive*gate_pe) >= 0.50 in ARM_ON (gate-sanity, guards non_contributory failure mode). PASS = C1 AND C2 AND C3. C3 fail with C1/C2 sane -> non_contributory; otherwise weakens. PASS clears ARC-066 v3_pending behavioural-validation gate; multiplicative-form R3 falsifiable secondary deferred to a separate pair if C1 passes."
+    },
+    {
+      "queue_id": "V3-EXQ-540a",
+      "title": "MECH-307 Option-b 3-arm conjunction decomposition (goal_pipeline:GAP-1 Phase 1 acceptance)",
+      "experiment_type": "v3_exq_540a_mech307_optionb_3arm_conjunction_decomposition",
+      "script": "experiments/v3_exq_540a_mech307_optionb_3arm_conjunction_decomposition.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 70,
+      "seeds": 3,
+      "conditions": 3,
+      "supersedes": "V3-EXQ-540",
+      "claim_id": "MECH-307",
+      "note": "Option-b successor to never-queued V3-EXQ-540 (authored 2026-05-08 against Option-a use_mech307_signed_pe). MECH-307 substrate landed 2026-05-11 (ree-v3 commit fcfcf10) with Gap 1 implemented as Option-b (split VALENCE_POSITIVE_SURPRISE + VALENCE_NEGATIVE_SURPRISE channels) per user override. Same 3-arm decomposition as 540: ARM_0_off (master OFF), ARM_1_split_only (use_mech307_split_surprise=True only), ARM_2_full (all three sub-flags True). Closes goal_pipeline:GAP-1 acceptance gate; PASS unblocks GAP-2 SD-049 Phase 2 V3-EXQ-514 behavioural validation. claim_ids=[MECH-307, MECH-216, MECH-205, MECH-093, SD-014, MECH-295]; experiment_purpose=diagnostic (gap decomposition, not single-claim evidence). Pre-registered acceptance: C1 substrate-readiness counter dissociation (Gap 1 marker = n_split_surprise_centers; Gap 2 = liking_writes; Gap 3 = z_beta_excursion; Gap 4 = gap4_e1_prior_writes); C2 consumer-side conjunction read fires only in ARM_2 (rate >= 0.10); C3 approach_commit_rate lift ARM_2 vs ARM_0 >= 0.10 in 2/3 seeds AND ARM_2 mean > ARM_1 mean. PASS = C1 AND C2 AND C3. PARTIAL PASS (C1+C2 only) routes to SD-014 6-channel fallback ARM_3. FAIL on C1 routes to /diagnose-errors. Dry-run smoke 2026-05-11 PASS: substrate counters dissociate correctly across arms (ARM_0 silent, ARM_1 split_surp_centers=18 only, ARM_2 all four counters fire); C2/C3 expected FAIL on dry-run scale (6 episodes/cell insufficient for conjunction accumulation). machine_affinity=DLAPTOP-4.local (matches 540 precedent expectations; ~90 min budget on Mac for 3 arms x 3 seeds x 70 ep)."
     }
   ]
 }
