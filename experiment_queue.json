@@ -20,22 +20,6 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-12T06:35:57.448462+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-556",
-      "title": "Module-init swap diagnostic (localises which submodule's seed-7 init enables V3-EXQ-555 C0/C2 escape from monostrategy)",
-      "experiment_type": "v3_exq_556_module_init_swap",
-      "script": "experiments/v3_exq_556_module_init_swap.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "claim_ids": [],
-      "note": "Diagnostic follow-up to V3-EXQ-555 (env vs agent factorization) which found agent-side seed=7 init enables diverse policies (C0=0.679, C2=0.690) while env_seed is irrelevant (C1=0.000, C3=0.000). V3-EXQ-556 drills one level deeper: which SPECIFIC submodule's weight init is responsible? Eight arms at env_seed=42 fixed: ARM_BASELINE_42 (all modules seed=42), ARM_BASELINE_7 (all seed=7), and six single-module swaps (latent_stack / e1 / e2 / residue / e3 / hippocampal) each at seed=7 with others at seed=42. Per-module seed override implemented via class-level __init__ monkey-patch that calls torch.manual_seed before each submodule's original __init__, then restored after REEAgent construction. Smoke 2026-05-12T06:34Z PASS: per-module first-informative-param checksum table shows BASELINE_42 vs BASELINE_7 differ on every module (latent -8.16 vs -2.38; e1 -0.023 vs 0.388; e2 -6.32 vs 9.15; residue 0.898 vs 1.163; e3 0.898 vs 1.163; hippocampal -6.32 vs 9.15); SWAP_E1.e1 == BASELINE_7.e1 (0.388); SWAP_E1.<every-other-module> == BASELINE_42.<that-module>; 1-ep boot loop completes (BASELINE_42 P1 action_counts={2:20}, replicating monostrategy at smoke scale). Pre-registered 6-row interpretation grid in script docstring + manifest evidence_direction_note: R1 single_module_sufficient (ONE swap >= 0.30 -> that module's init drives diversity) / R2 multi_module_conjunctive (NO single-swap lifts AND BASELINE_7 ~0.68 -> route to pair-swap V3-EXQ-558 candidate) / R3 latent_stack_only / R4 e3_only / R5 hippocampal_only / R6 replication_failure (BASELINE_7 NOT in [0.58,0.78] -> patch disturbs baseline; debug before drawing conclusions). P0=40, P1=60, 200 steps/ep matches V3-EXQ-555 / V3-EXQ-552 ARM_NORMAL verbatim. Single seed-pair per cell -- the seed pair IS the variable. evidence_direction set non_contributory on PASS so governance does not weight any claim. experiment_purpose=diagnostic; claim_ids=[].",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-12T06:37:43.837480+00:00"
-      }
     }
   ]
 }
