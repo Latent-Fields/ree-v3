@@ -20,6 +20,33 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-12T05:21:25.668639+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-554a",
+      "title": "Decoder + elite-refit collapse localization diagnostic (M0-M4) [re-queue of V3-EXQ-554 killed by 06:10 UTC systemctl restart]",
+      "script": "experiments/v3_exq_554_decoder_elite_refit_collapse_localization.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 80,
+      "supersedes": "V3-EXQ-554",
+      "note": "Re-queue of V3-EXQ-554 (killed by systemctl restart 2026-05-12T06:10Z mid-run on ree-cloud-1; runner ERROR'd it out of the queue with no manifest written). Script unchanged. Localizes which operation inside HippocampalModule.propose_trajectories collapses CEM candidate diversity. V3-EXQ-551a rollout_only_collapse + V3-EXQ-553 ARM_ORTHO indistinguishable from ARM_IID together establish the cliff is between orthogonal noise injection and stage-1 measurement. Instruments 5 measurement points via experiment-side monkey-patch (no ree_core mods): M0 noise tensor, M1 candidates_ao = ao_mean+ao_std*noise, M2 decoded actions, M3 E2 rollout final world_state, M4 iter-2 candidates_ao post-elite-refit. 3 seeds [42,7,17] x 2 arms (ARM_IID / ARM_ORTHO) x ~600 ticks/cell, no training. Pre-registered 5-row grid (R3 noise_shape_irrelevant -> R1 decoder_collapse -> R4 e2_rollout_collapse -> R2 elite_refit_collapse -> R5 other) baked into evidence_direction_note. Smoke 2026-05-12T05Z confirmed substrate fires (ARM_ORTHO ortho_diag n_orthogonal_iters=3, M0/M1 pairwise L2 ~31, M2 collapses to ~3.6, M3 ~17, M4 ~3.6 post-refit) -- successor routing depends on which row fires at full depth. claim_ids=[] (localization probe, no single-claim test). experiment_purpose=diagnostic. Mirrors EXQ-553 env wiring for cross-comparability."
+    },
+    {
+      "queue_id": "V3-EXQ-540d",
+      "title": "MECH-307 read-site introspection probe (diagnoses V3-EXQ-540b structural conj_fire_rate=0) [re-queue of V3-EXQ-540c killed by 06:10 UTC systemctl restart]",
+      "experiment_type": "v3_exq_540c_mech307_readsite_probe",
+      "script": "experiments/v3_exq_540c_mech307_readsite_probe.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 20,
+      "episodes_per_run": 35,
+      "seeds": 1,
+      "conditions": 1,
+      "claim_id": "MECH-307",
+      "supersedes": "V3-EXQ-540c",
+      "note": "Re-queue of V3-EXQ-540c (killed by systemctl restart 2026-05-12T06:10Z mid-run on ree-cloud-2 with exit code -15 SIGTERM; runner ERROR'd it out with no manifest written). Script unchanged. Diagnostic follow-up to V3-EXQ-540b FAIL (conj_fire_rate=0 across 8000 read opportunities per arm per seed at thresholds down to 0.01/0.005/0.01). The bridge IS called but the predicate returns False at every read. Probe wraps mech295_bridge.compute_conjunction_score_bias (delegates to original so agent runs bit-identically) and logs per-call valence amplitudes per channel + z_beta_arousal + drive_level + RBF center geometry across all 4 threshold tiers in parallel. Single seed [42], ARM_2_full config (use_mech307_conjunction=True), 30 ep warmup + 5 ep eval. Dry-run smoke 2026-05-12T05:30Z + re-confirmed 2026-05-12T06:18Z PASS in 23.7s with full diagnostic table populated. The 540a/540b conj_fire_rate=0 result is fully explained by the drive_level gate (max=0.06 vs min_drive_to_fire=0.1), not the threshold predicate. Full-scale run produces the official manifest with ~10x more samples. Architecture-level decision (lower min_drive_to_fire, tighten env, or redesign probe substrate) deferred to next session post-review. claim_ids=[MECH-307, MECH-295]; experiment_purpose=diagnostic."
     }
   ]
 }
