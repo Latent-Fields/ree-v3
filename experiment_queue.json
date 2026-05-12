@@ -6,28 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-558",
-      "script": "experiments/v3_exq_558_agent_seed_readout_rank_diagnostic.py",
-      "title": "Clean seed-7 vs seed-42 readout/rank diagnostic for monostrategy collapse",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "seeds": [
-        7,
-        42
-      ],
-      "conditions": [
-        "ARM_ESCAPER_seed7",
-        "ARM_COLLAPSED_seed42"
-      ],
-      "note": "Diagnostic only; claim_ids=[] in manifest. Fixed env_seed=42, agent_seed=7 vs 42. Reuses V3-EXQ-555 P0/P1 depth and instruments P1 fresh E3 proposal ticks for candidate/readout diversity, score margins, argmin action-class entropy, selected action-class entropy, and executed action-class entropy. No monkey-patching and no ree_core edits.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-12T18:51:20.379807+00:00"
-      }
-    }
-  ]
+  "items": []
 }
