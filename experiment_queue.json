@@ -30,6 +30,21 @@
       "status": "pending",
       "estimated_minutes": 80,
       "note": "Localizes which operation inside HippocampalModule.propose_trajectories collapses CEM candidate diversity. V3-EXQ-551a rollout_only_collapse + V3-EXQ-553 ARM_ORTHO indistinguishable from ARM_IID together establish the cliff is between orthogonal noise injection and stage-1 measurement. Instruments 5 measurement points via experiment-side monkey-patch (no ree_core mods): M0 noise tensor, M1 candidates_ao = ao_mean+ao_std*noise, M2 decoded actions, M3 E2 rollout final world_state, M4 iter-2 candidates_ao post-elite-refit. 3 seeds [42,7,17] x 2 arms (ARM_IID / ARM_ORTHO) x ~600 ticks/cell, no training. Pre-registered 5-row grid (R3 noise_shape_irrelevant -> R1 decoder_collapse -> R4 e2_rollout_collapse -> R2 elite_refit_collapse -> R5 other) baked into evidence_direction_note. Smoke 2026-05-12T05Z confirmed substrate fires (ARM_ORTHO ortho_diag n_orthogonal_iters=3, M0/M1 pairwise L2 ~31, M2 collapses to ~3.6, M3 ~17, M4 ~3.6 post-refit) -- successor routing depends on which row fires at full depth. claim_ids=[] (localization probe, no single-claim test). experiment_purpose=diagnostic. Mirrors EXQ-553 env wiring for cross-comparability."
+    },
+    {
+      "queue_id": "V3-EXQ-540c",
+      "title": "MECH-307 read-site introspection probe (diagnoses V3-EXQ-540b structural conj_fire_rate=0)",
+      "experiment_type": "v3_exq_540c_mech307_readsite_probe",
+      "script": "experiments/v3_exq_540c_mech307_readsite_probe.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 20,
+      "episodes_per_run": 35,
+      "seeds": 1,
+      "conditions": 1,
+      "claim_id": "MECH-307",
+      "note": "Diagnostic follow-up to V3-EXQ-540b FAIL (conj_fire_rate=0 across 8000 read opportunities per arm per seed at thresholds down to 0.01/0.005/0.01). The bridge IS called but the predicate returns False at every read. Probe wraps mech295_bridge.compute_conjunction_score_bias (delegates to original so agent runs bit-identically) and logs per-call valence amplitudes per channel + z_beta_arousal + drive_level + RBF center geometry across all 4 threshold tiers in parallel. Single seed [42], ARM_2_full config (use_mech307_conjunction=True), 30 ep warmup + 5 ep eval. Dry-run smoke 2026-05-12T05:30Z already revealed the bug at 30-step scale: per-channel amplitudes at read sites are FINE (wanting/liking max=4.56 mean=2.63 frac>0.01=1.0; z_beta max=0.54 frac>0.1=1.0); predicate at ARM_low and ARM_floor thresholds passes 100% of candidates; but drive_level max=0.06 mean=0.017 NEVER crosses min_drive_to_fire=0.1, so the bridge short-circuits at mech295_liking_bridge.py lines 328-329 before evaluating the predicate. The 540a/540b conj_fire_rate=0 result is fully explained by the drive_level gate, not the threshold predicate. Full-scale run produces the official manifest with ~10x more samples. Outcome routing: PASS = probe completed end-to-end (manifest carries the diagnostic table). Architecture-level decision (lower min_drive_to_fire, tighten env to produce drive variation, or redesign probe substrate) deferred to next session post-review. claim_ids=[MECH-307, MECH-295]; experiment_purpose=diagnostic."
     }
   ]
 }
