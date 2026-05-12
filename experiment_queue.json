@@ -20,25 +20,6 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-12T05:21:25.668639+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-540c",
-      "title": "MECH-307 read-site introspection probe (diagnoses V3-EXQ-540b structural conj_fire_rate=0)",
-      "experiment_type": "v3_exq_540c_mech307_readsite_probe",
-      "script": "experiments/v3_exq_540c_mech307_readsite_probe.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 20,
-      "episodes_per_run": 35,
-      "seeds": 1,
-      "conditions": 1,
-      "claim_id": "MECH-307",
-      "note": "Diagnostic follow-up to V3-EXQ-540b FAIL (conj_fire_rate=0 across 8000 read opportunities per arm per seed at thresholds down to 0.01/0.005/0.01). The bridge IS called but the predicate returns False at every read. Probe wraps mech295_bridge.compute_conjunction_score_bias (delegates to original so agent runs bit-identically) and logs per-call valence amplitudes per channel + z_beta_arousal + drive_level + RBF center geometry across all 4 threshold tiers in parallel. Single seed [42], ARM_2_full config (use_mech307_conjunction=True), 30 ep warmup + 5 ep eval. Dry-run smoke 2026-05-12T05:30Z already revealed the bug at 30-step scale: per-channel amplitudes at read sites are FINE (wanting/liking max=4.56 mean=2.63 frac>0.01=1.0; z_beta max=0.54 frac>0.1=1.0); predicate at ARM_low and ARM_floor thresholds passes 100% of candidates; but drive_level max=0.06 mean=0.017 NEVER crosses min_drive_to_fire=0.1, so the bridge short-circuits at mech295_liking_bridge.py lines 328-329 before evaluating the predicate. The 540a/540b conj_fire_rate=0 result is fully explained by the drive_level gate, not the threshold predicate. Full-scale run produces the official manifest with ~10x more samples. Outcome routing: PASS = probe completed end-to-end (manifest carries the diagnostic table). Architecture-level decision (lower min_drive_to_fire, tighten env to produce drive variation, or redesign probe substrate) deferred to next session post-review. claim_ids=[MECH-307, MECH-295]; experiment_purpose=diagnostic.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-12T06:05:25.966565+00:00"
-      }
     }
   ]
 }
