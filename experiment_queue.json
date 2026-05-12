@@ -6,5 +6,16 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-557",
+      "title": "Agent-seed sweep diagnostic (monostrategy basin size in agent-init space)",
+      "script": "experiments/v3_exq_557_agent_seed_sweep.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180,
+      "note": "Diagnostic sampling 30 agent_seeds at fixed env_seed=42 to characterise the monostrategy basin in agent-init space. Builds on V3-EXQ-555 finding (agent_seed=7 entropy ~ 0.68 vs agent_seed=42 entropy=0). Reuses V3-EXQ-555 _make_agent_and_env factored-seed helper; replicates ARM_NORMAL config verbatim (P0=40, P1=60, 200 steps/ep). 4-row interpretation grid: R1 deep_collapse_basin / R2 bimodal_split / R3 mostly_diverse / R4 continuous_spread. Seeds include 7/42/17 V3-EXQ-552/555 anchors plus spread of magnitudes. claim_ids=[] (no substrate claim under test). experiment_purpose=diagnostic."
+    }
+  ]
 }
