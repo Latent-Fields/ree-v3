@@ -43,6 +43,18 @@ from pathlib import Path
 # Ensure UTF-8 output on Windows (default cp1252 breaks -> and other Unicode in experiment scripts)
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 
+# Hoisted to module top-level so the _push_remote_heartbeat closure inside
+# run_experiment() resolves _rrc via module globals. Previously this import
+# lived only inside main()'s local scope, which caused a NameError every
+# heartbeat tick once run_experiment started (the closure runs on its own
+# thread and never sees main()'s locals).
+try:
+    import runner_remote_control as _rrc
+    _rrc_import_error = None
+except Exception as _rrc_exc:
+    _rrc = None
+    _rrc_import_error = _rrc_exc
+
 REPO_ROOT = Path(__file__).resolve().parent
 QUEUE_FILE = REPO_ROOT / "experiment_queue.json"
 PID_FILE = REPO_ROOT / "runner.pid"
@@ -1337,13 +1349,9 @@ def main():
     )
     args = parser.parse_args()
 
-    try:
-        import runner_remote_control as _rrc
-    except Exception as _rrc_exc:
-        _rrc = None
-        if args.remote_control:
-            print(f"[runner] --remote-control requested but module import failed: "
-                  f"{_rrc_exc}. Heartbeats disabled.", flush=True)
+    if args.remote_control and _rrc is None:
+        print(f"[runner] --remote-control requested but module import failed: "
+              f"{_rrc_import_error}. Heartbeats disabled.", flush=True)
 
     # Pull ree-v3 before preflight so a stale local queue doesn't block startup.
     # (The full auto-sync pull of REE_assembly happens after preflight as before.)
