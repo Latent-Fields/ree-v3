@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-540d",
-      "title": "MECH-307 read-site introspection probe (diagnoses V3-EXQ-540b structural conj_fire_rate=0) [re-queue of V3-EXQ-540c killed by 06:10 UTC systemctl restart]",
-      "experiment_type": "v3_exq_540c_mech307_readsite_probe",
-      "script": "experiments/v3_exq_540c_mech307_readsite_probe.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 20,
-      "episodes_per_run": 35,
-      "seeds": 1,
-      "conditions": 1,
-      "claim_id": "MECH-307",
-      "supersedes": "V3-EXQ-540c",
-      "note": "Re-queue of V3-EXQ-540c (killed by systemctl restart 2026-05-12T06:10Z mid-run on ree-cloud-2 with exit code -15 SIGTERM; runner ERROR'd it out with no manifest written). Script unchanged. Diagnostic follow-up to V3-EXQ-540b FAIL (conj_fire_rate=0 across 8000 read opportunities per arm per seed at thresholds down to 0.01/0.005/0.01). The bridge IS called but the predicate returns False at every read. Probe wraps mech295_bridge.compute_conjunction_score_bias (delegates to original so agent runs bit-identically) and logs per-call valence amplitudes per channel + z_beta_arousal + drive_level + RBF center geometry across all 4 threshold tiers in parallel. Single seed [42], ARM_2_full config (use_mech307_conjunction=True), 30 ep warmup + 5 ep eval. Dry-run smoke 2026-05-12T05:30Z + re-confirmed 2026-05-12T06:18Z PASS in 23.7s with full diagnostic table populated. The 540a/540b conj_fire_rate=0 result is fully explained by the drive_level gate (max=0.06 vs min_drive_to_fire=0.1), not the threshold predicate. Full-scale run produces the official manifest with ~10x more samples. Architecture-level decision (lower min_drive_to_fire, tighten env, or redesign probe substrate) deferred to next session post-review. claim_ids=[MECH-307, MECH-295]; experiment_purpose=diagnostic.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-12T06:18:32.158823+00:00"
-      }
-    }
-  ]
+  "items": []
 }
