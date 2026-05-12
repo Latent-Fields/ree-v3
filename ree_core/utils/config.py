@@ -1965,9 +1965,13 @@ class REEConfig:
     # the MECH-295 weak-necessity test.
     mech295_liking_to_approach_cue_gain: float = 0.5
     # Drive floor below which the bridge is silent (avoids noisy writes
-    # when sated). At default 0.1 the bridge fires only when the agent
-    # is at least mildly depleted.
-    mech295_min_drive_to_fire: float = 0.1
+    # when sated). Lowered 2026-05-12 from 0.1 -> 0.01 per V3-EXQ-540c
+    # probe finding: the legacy 0.1 floor was never crossed in standard
+    # env configs (drive_level max=0.030 across 1087 bridge calls),
+    # short-circuiting MECH-307 conjunction-bias evaluation on every
+    # call. 0.01 preserves the "some unmet need" semantic while letting
+    # the bridge fire under realistic drive levels.
+    mech295_min_drive_to_fire: float = 0.01
     # Goal-norm floor below which the bridge does not fire (no goal
     # seeded; nothing to be congruent with).
     mech295_min_z_goal_norm_to_fire: float = 0.05
@@ -2035,7 +2039,13 @@ class REEConfig:
     # is_excitement_state_at(...) defaults at lines 128-137).
     mech307_conjunction_wanting_threshold: float = 0.6
     mech307_conjunction_liking_threshold: float = 0.3
-    mech307_conjunction_z_beta_threshold: float = 0.6
+    # Lowered 2026-05-12 from 0.6 -> 0.3 per V3-EXQ-540c probe finding:
+    # observed z_beta_arousal under use_mech307_conjunction has
+    # max=0.545 mean=0.518 across 1087 bridge calls -- the legacy 0.6
+    # floor sits above the achievable ceiling. The half-tier 0.3
+    # cleared 94.66% of reads in the probe; 0.3 is the empirical sweet
+    # spot.
+    mech307_conjunction_z_beta_threshold: float = 0.3
     # Negative-score gain applied per candidate whose conjunction predicate
     # fires. Bias term = -mech307_conjunction_gain * drive_level when the
     # predicate holds; 0 otherwise.
@@ -2443,7 +2453,9 @@ class REEConfig:
         use_mech295_liking_bridge: bool = False,
         mech295_drive_to_liking_gain: float = 1.0,
         mech295_liking_to_approach_cue_gain: float = 0.5,
-        mech295_min_drive_to_fire: float = 0.1,
+        # Lowered 2026-05-12 from 0.1 -> 0.01 (V3-EXQ-540c finding); see
+        # REEConfig.mech295_min_drive_to_fire field comment.
+        mech295_min_drive_to_fire: float = 0.01,
         mech295_min_z_goal_norm_to_fire: float = 0.05,
         # MECH-302: suffering-derivative comparator substrate
         use_suffering_derivative_comparator: bool = False,

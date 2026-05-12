@@ -43,7 +43,10 @@ def test_c1_module_importable():
     cfg = MECH295LikingBridgeConfig()
     assert cfg.drive_to_liking_gain == 1.0
     assert cfg.liking_to_approach_cue_gain == 0.5
-    assert cfg.min_drive_to_fire == 0.1
+    # min_drive_to_fire default lowered 0.1 -> 0.01 on 2026-05-12 per V3-EXQ-540c
+    # probe finding (observed drive_level max=0.030 across 1087 bridge calls under
+    # standard env config; legacy 0.1 floor was never crossed).
+    assert cfg.min_drive_to_fire == 0.01
     assert cfg.min_z_goal_norm_to_fire == 0.05
     bridge = MECH295LikingBridge(cfg)
     assert bridge.get_last_output() is None

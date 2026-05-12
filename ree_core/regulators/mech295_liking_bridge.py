@@ -90,7 +90,13 @@ class MECH295LikingBridgeConfig:
     liking_to_approach_cue_gain: float = 0.5
 
     # Drive floor below which the bridge is silent.
-    min_drive_to_fire: float = 0.1
+    # Lowered 2026-05-12 from 0.1 -> 0.01 per V3-EXQ-540c probe finding: in the
+    # standard env config (resource_respawn_on_consume=True), drive_level stays
+    # in [0.0, 0.03] across 1087 bridge calls and never reaches the legacy 0.1
+    # floor, short-circuiting the bridge on every call. Lowering to 0.01 lets
+    # the bridge fire under realistic drive levels without losing the "agent
+    # must have some unmet need" semantic.
+    min_drive_to_fire: float = 0.01
 
     # Goal-norm floor below which the bridge does not fire.
     min_z_goal_norm_to_fire: float = 0.05
@@ -112,7 +118,13 @@ class MECH295LikingBridgeConfig:
     # (anticipatory liking is partial per the doc).
     mech307_conjunction_wanting_threshold: float = 0.6
     mech307_conjunction_liking_threshold: float = 0.3
-    mech307_conjunction_z_beta_threshold: float = 0.6
+    # Lowered 2026-05-12 from 0.6 -> 0.3 per V3-EXQ-540c probe finding: the
+    # observed z_beta_arousal under the standard env + use_mech307_conjunction
+    # has max=0.545 mean=0.518 across 1087 bridge calls -- the legacy 0.6 floor
+    # sits above the achievable ceiling and ARM_default would never fire on
+    # this gate alone. The half-tier 0.3 clears 94.66% of reads (b_pass=0.948
+    # in the 540c manifest); 0.3 is the empirical sweet spot.
+    mech307_conjunction_z_beta_threshold: float = 0.3
     # Negative-score gain when the conjunction holds. The bias term is
     # -conjunction_gain * drive_level for each candidate whose conjunction
     # predicate fires; zero otherwise.

@@ -809,7 +809,7 @@ class REEAgent(nn.Module):
                     getattr(config, "mech295_liking_to_approach_cue_gain", 0.5)
                 ),
                 min_drive_to_fire=float(
-                    getattr(config, "mech295_min_drive_to_fire", 0.1)
+                    getattr(config, "mech295_min_drive_to_fire", 0.01)
                 ),
                 min_z_goal_norm_to_fire=float(
                     getattr(config, "mech295_min_z_goal_norm_to_fire", 0.05)
@@ -825,7 +825,7 @@ class REEAgent(nn.Module):
                     getattr(config, "mech307_conjunction_liking_threshold", 0.3)
                 ),
                 mech307_conjunction_z_beta_threshold=float(
-                    getattr(config, "mech307_conjunction_z_beta_threshold", 0.6)
+                    getattr(config, "mech307_conjunction_z_beta_threshold", 0.3)
                 ),
                 mech307_conjunction_gain=float(
                     getattr(config, "mech307_conjunction_gain", 1.0)

@@ -122,11 +122,13 @@ def test_c4_partial_conjunction_zero_bias():
             z_beta_arousal=0.9, drive_level=0.7,
         )
         assert b.abs().max().item() == 0.0
-    # Low z_beta arousal also blocks.
+    # Low z_beta arousal also blocks. (z_beta_arousal=0.1 sits below the
+    # 2026-05-12 default threshold of 0.3; the legacy 0.4 used here pre-fix
+    # was below the legacy 0.6 default but now sits ABOVE the new 0.3.)
     rf_ok = _StubResidueField(torch.tensor([[0.8, 0.5, 0.0, 0.4]]))
     b = bridge.compute_conjunction_score_bias(
         candidate_z_locs=z, residue_field=rf_ok,
-        z_beta_arousal=0.4, drive_level=0.7,
+        z_beta_arousal=0.1, drive_level=0.7,
     )
     assert b.abs().max().item() == 0.0
 
@@ -230,5 +232,8 @@ def test_c2_no_bridge_no_errors():
     assert getattr(cfg, "use_mech307_consumer_conjunction_read") is False
     assert getattr(cfg, "mech307_conjunction_wanting_threshold") == 0.6
     assert getattr(cfg, "mech307_conjunction_liking_threshold") == 0.3
-    assert getattr(cfg, "mech307_conjunction_z_beta_threshold") == 0.6
+    # z_beta default lowered 0.6 -> 0.3 on 2026-05-12 per V3-EXQ-540c probe
+    # finding (observed z_beta_arousal max=0.545 across 1087 bridge calls;
+    # legacy 0.6 floor sat above the achievable ceiling).
+    assert getattr(cfg, "mech307_conjunction_z_beta_threshold") == 0.3
     assert getattr(cfg, "mech307_conjunction_gain") == 1.0
