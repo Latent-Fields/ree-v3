@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-543d",
-      "title": "ARC-062 x MECH-260 2x2 factorial monomodal-collapse falsifier on bipartite SD-054",
-      "experiment_type": "v3_exq_543d_arc062_mech260_factorial_falsifier",
-      "script": "experiments/v3_exq_543d_arc062_mech260_factorial_falsifier.py",
-      "priority": 1,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 540,
-      "episodes_per_run": 108,
-      "seeds": 3,
-      "conditions": 4,
-      "supersedes": "V3-EXQ-543c",
-      "claim_id": "ARC-062",
-      "note": "2x2 factorial of (use_gated_policy, use_dacc) with MECH-260 anti-recency suppression_weight=0.5; tests whether 543c inert-gating reflects an actual substrate failure or just the absence of cluster-wiring. Pre-registered cross-arm criteria D1-D4 (D1 dACC-alone effect; D2 dACC adds to gated; D3 gated adds to dACC; D4 543c null replication). PASS=D2 AND D3. FAIL with D1-only routes to ARC-062 substrate-rationale review. FAIL all-D-null routes to option 2 head-input augmentation (2026-05-11 decision-log). dACC sub-weights other than suppression left at default 0.0 to isolate MECH-260 anti-recency. All other 543c config preserved (SD-054 bipartite layout, world_states[1] fix, P0=40/P1=60/P2=8). Probe-gate kept as diagnostic; NON-FATAL in 543d (dACC modifies RNG stream so byte-identical-trace concern from 543b doesn't apply). claim_ids=[ARC-062, MECH-309]. SD-029 stays dropped. experiment_purpose=evidence (architecturally load-bearing falsifier). Local smoke dry-run 2026-05-11 PASS wiring: 12 verdict lines (4 arms x 3 seeds), agent.gated_policy + agent.dacc toggle correctly per arm config, D-criteria printout works, ASCII-only verified, runner-conformance contract validated. Mac affinity matches 543b/c precedent (543b: 240 min Mac, 543c: 113 min Mac with short-circuit; 543d worst-case 540 min for 12 runs without short-circuit).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-11T21:36:37.602784+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-540b",
       "title": "MECH-307 consumer-conjunction threshold sweep (calibration diagnostic; supersedes V3-EXQ-540a FAIL)",
       "experiment_type": "v3_exq_540b_mech307_conjunction_threshold_sweep",
