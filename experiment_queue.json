@@ -8,20 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-555",
-      "title": "Seed-7 env vs agent factorization diagnostic",
-      "script": "experiments/v3_exq_555_seed7_env_factorization.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 60,
-      "note": "Diagnostic decomposing the V3-EXQ-552 seed-7 anomaly (action_class_entropy ~ 0.68 only in seed=7, not 42/17). Factors seed=(env_seed, agent_seed) into 4 cells C0(7,7)/C1(7,42)/C2(42,7)/C3(42,42). Pre-registered 5-row interpretation grid (env_side_only / agent_side_only / conjunctive / either_sufficient / replication_failure). claim_ids=[] (no substrate claim under test). experiment_purpose=diagnostic.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-12T05:21:25.668639+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-540d",
       "title": "MECH-307 read-site introspection probe (diagnoses V3-EXQ-540b structural conj_fire_rate=0) [re-queue of V3-EXQ-540c killed by 06:10 UTC systemctl restart]",
       "experiment_type": "v3_exq_540c_mech307_readsite_probe",
