@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-559a",
+      "script": "experiments/v3_exq_559a_goal_stream_canonical.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 5,
+      "title": "Canonical goal-stream landing validation",
+      "supersedes": "V3-EXQ-559",
+      "note": "Validates that the StepHarness canonical path, not an experiment-local hook, calls update_schema_wanting before action selection and reproduces the V3-EXQ-559 full-arm heartbeat counters. Non-contributory diagnostic.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-13T16:55:43.992674+00:00"
+      }
+    }
+  ]
 }
