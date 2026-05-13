@@ -6,20 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-559",
-      "script": "experiments/v3_exq_559_goal_stream_heartbeat.py",
-      "title": "Goal-stream heartbeat diagnostic after config/harness seam fixes",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 20,
-      "note": "Diagnostic only; claim_ids empty and manifest evidence_direction non_contributory. Classifies goal-stream arms as zero_stream / partial_stream_write_only / live_read_side / live_action_side after 2026-05-13 fixes: from_dims goal_weight -> E3Config.goal_weight and StepHarness benefit_exposure from body_state[11]. Dry-run PASS: full MECH-307 arm produced wanting+liking writes, z_goal_norm_peak > 0, bridge cue fires, and conjunction fires.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-13T16:38:37.220090+00:00"
-      }
-    }
-  ]
+  "items": []
 }
