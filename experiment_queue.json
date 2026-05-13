@@ -12,11 +12,15 @@
       "script": "experiments/v3_exq_560_goal_stream_selectivity_score_decomp.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 8,
       "title": "Goal-stream selectivity and score-decomposition diagnostic",
       "supersedes": "V3-EXQ-559a",
-      "note": "Non-contributory diagnostic following V3-EXQ-559a action_entropy=0.0. Measures schema salience selectivity, candidate/proposer diversity, E3 score component ranges, goal/bias argmin changes, and contact-seeded goal-memory arms."
+      "note": "Non-contributory diagnostic following V3-EXQ-559a action_entropy=0.0. Measures schema salience selectivity, candidate/proposer diversity, E3 score component ranges, goal/bias argmin changes, and contact-seeded goal-memory arms.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-13T17:30:09.006514+00:00"
+      }
     }
   ]
 }
