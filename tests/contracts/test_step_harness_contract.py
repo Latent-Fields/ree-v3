@@ -23,6 +23,10 @@ Guarantees enforced here:
       double-sense; this is the structural fix.)
   H5. ``StepHarness.step()`` calls ``agent.update_z_goal`` exactly once per
       env step, kwargs only -- no positional that could collide.
+  H6. ``StepHarness.step()`` leaves schema wanting untouched when the
+      MECH-216 switch is off.
+  H7. ``StepHarness.step()`` calls ``agent.update_schema_wanting`` exactly
+      once before action selection when MECH-216 is enabled.
 """
 
 from __future__ import annotations
@@ -213,3 +217,65 @@ def test_step_harness_update_z_goal_call_uses_kwargs_only():
         "StepHarness must source benefit_exposure from body_state[11] when "
         "the env does not expose a top-level obs_dict['benefit_exposure'] key."
     )
+
+
+def test_step_harness_default_off_does_not_call_schema_wanting():
+    """H6: default-off runs should preserve the historical no-op path."""
+    set_all_seeds(0)
+    env = make_tiny_env(seed=0)
+    cfg = make_tiny_config(env)
+    agent = REEAgent(cfg)
+
+    calls = []
+    real = agent.update_schema_wanting
+
+    def spy(*args, **kwargs):
+        calls.append((args, dict(kwargs)))
+        return real(*args, **kwargs)
+
+    agent.update_schema_wanting = spy
+
+    harness = StepHarness(agent, env, train_mode=False, seed=0)
+    flat_obs, obs_dict = env.reset()
+    agent.reset()
+    harness.reset()
+    harness.step(obs_dict)
+
+    assert calls == []
+
+
+def test_step_harness_schema_wanting_runs_before_select_action_when_enabled():
+    """H7: canonical MECH-216 write path must feed action-side consumers."""
+    set_all_seeds(0)
+    env = make_tiny_env(seed=0)
+    cfg = make_tiny_config(env)
+    cfg.e1.schema_wanting_enabled = True
+    cfg.schema_wanting_threshold = 1.1
+    agent = REEAgent(cfg)
+
+    order = []
+    real_schema = agent.update_schema_wanting
+    real_select = agent.select_action
+
+    def schema_spy(*args, **kwargs):
+        order.append(("schema", args, dict(kwargs)))
+        return real_schema(*args, **kwargs)
+
+    def select_spy(*args, **kwargs):
+        order.append(("select", args, dict(kwargs)))
+        return real_select(*args, **kwargs)
+
+    agent.update_schema_wanting = schema_spy
+    agent.select_action = select_spy
+
+    harness = StepHarness(agent, env, train_mode=False, seed=0)
+    flat_obs, obs_dict = env.reset()
+    agent.reset()
+    harness.reset()
+    harness.step(obs_dict)
+
+    assert len(order) >= 2
+    assert order[0][0] == "schema"
+    assert order[1][0] == "select"
+    assert order[0][1] == ()
+    assert set(order[0][2].keys()) == {"drive_level"}

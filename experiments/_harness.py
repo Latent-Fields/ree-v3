@@ -81,7 +81,7 @@ class StepHooks:
     double-tick bug the harness is here to prevent.
     """
 
-    # After sense(); before generate_trajectories / select_action.
+    # After sense() and canonical goal-stream updates; before select_action.
     on_sense: Optional[Callable[..., None]] = None
     # After select_action(); before env.step.
     on_action: Optional[Callable[..., None]] = None
@@ -161,14 +161,15 @@ class StepHarness:
             2. record_transition() against this tick's z_self.
             3. clock.advance(), _e1_tick (if scheduled), generate_trajectories.
             4. update_z_goal(benefit_exposure, drive_level) with kwargs only.
-            5. on_sense hook.
-            6. select_action with fallback to random when the gate withholds.
-            7. on_action hook.
-            8. env.step.
-            9. update_residue(harm_signal, world_delta=optional) -- canonical
+            5. update_schema_wanting(drive_level) when MECH-216 is enabled.
+            6. on_sense hook.
+            7. select_action with fallback to random when the gate withholds.
+            8. on_action hook.
+            9. env.step.
+           10. update_residue(harm_signal, world_delta=optional) -- canonical
                e3.post_action_update path.
-           10. on_post_step hook.
-           11. plumbing rotate.
+           11. on_post_step hook.
+           12. plumbing rotate.
         """
         agent = self.agent
         env = self.env
@@ -225,6 +226,12 @@ class StepHarness:
                 benefit_exposure=benefit_exposure,
                 drive_level=drive_level,
             )
+
+            # 5. update_schema_wanting -- canonical MECH-216 call site.
+            #    Default-off guard preserves the historical no-op path.
+            e1_cfg = getattr(getattr(agent, "config", None), "e1", None)
+            if bool(getattr(e1_cfg, "schema_wanting_enabled", False)):
+                agent.update_schema_wanting(drive_level=drive_level)
 
         if self.hooks.on_sense is not None:
             self.hooks.on_sense(

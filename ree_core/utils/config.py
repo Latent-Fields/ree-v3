@@ -1029,6 +1029,10 @@ class REEConfig:
     # schema_wanting_threshold: minimum schema_salience to seed VALENCE_WANTING.
     # schema_wanting_gain: multiplier on schema_salience * drive_level -> wanting value.
     # Master switch is E1Config.schema_wanting_enabled (default False).
+    # goal_stream_enabled: convenience marker/preset for the coherent z_goal +
+    # schema wanting + MECH-295/307 bundle. Default False preserves legacy
+    # partial-switch behavior.
+    goal_stream_enabled: bool = False
     schema_wanting_threshold: float = 0.3
     schema_wanting_gain: float = 0.5
 
@@ -2072,6 +2076,65 @@ class REEConfig:
             self.use_mech307_schema_multichannel = True
             self.use_mech307_predicted_location_write = True
 
+    def enable_goal_stream(
+        self,
+        *,
+        goal_weight: float = 0.5,
+        wanting_weight: float = 0.5,
+        benefit_threshold: float = 0.05,
+        drive_weight: float = 2.0,
+        schema_wanting_threshold: float = 0.10,
+        schema_wanting_gain: float = 0.60,
+        use_resource_encoder: bool = True,
+        use_mech307: bool = True,
+        use_consumer_conjunction_read: bool = True,
+    ) -> "REEConfig":
+        """Enable the canonical goal-stream heartbeat bundle.
+
+        This is a convenience preset, not a new mechanism. It turns on the
+        pieces that V3-EXQ-559 showed must be co-enabled for a live stream:
+        contact-gated z_goal seeding, E3 goal scoring, schema wanting,
+        hippocampal wanting reads, MECH-295 cue bridge, and the MECH-307
+        write/read path.
+        """
+        self.goal_stream_enabled = True
+
+        self.goal.z_goal_enabled = True
+        self.goal.goal_weight = float(goal_weight)
+        self.goal.benefit_threshold = float(benefit_threshold)
+        self.goal.drive_weight = float(drive_weight)
+        self.e3.goal_weight = float(goal_weight)
+
+        self.e1.schema_wanting_enabled = True
+        self.schema_wanting_threshold = float(schema_wanting_threshold)
+        self.schema_wanting_gain = float(schema_wanting_gain)
+        self.hippocampal.wanting_weight = float(wanting_weight)
+
+        if use_resource_encoder:
+            self.latent.use_resource_encoder = True
+            self.latent.z_resource_dim = self.goal.goal_dim
+
+        self.use_mech295_liking_bridge = True
+        self.mech295_drive_to_liking_gain = 1.0
+        self.mech295_liking_to_approach_cue_gain = 0.5
+        self.mech295_min_drive_to_fire = 0.01
+        self.mech295_min_z_goal_norm_to_fire = 0.03
+
+        if use_mech307:
+            self.surprise_gated_replay = True
+            self.use_mech307_split_surprise = True
+            self.use_mech307_schema_multichannel = True
+            self.use_mech307_predicted_location_write = True
+            self.use_mech307_consumer_conjunction_read = bool(
+                use_consumer_conjunction_read
+            )
+            self.mech307_conjunction_gain = 1.0
+            self.mech307_conjunction_wanting_threshold = 0.10
+            self.mech307_conjunction_liking_threshold = 0.05
+            self.mech307_conjunction_z_beta_threshold = 0.10
+
+        return self
+
     @classmethod
     def from_dims(
         cls,
@@ -2481,6 +2544,9 @@ class REEConfig:
         breath_period: int = 50,
         breath_sweep_amplitude: float = 0.25,
         breath_sweep_duration: int = 5,
+        # Goal-stream convenience bundle. Kept near **kwargs to preserve the
+        # long-standing positional order of from_dims() arguments.
+        goal_stream_enabled: bool = False,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -2971,7 +3037,66 @@ class REEConfig:
         config.heartbeat.breath_sweep_amplitude = breath_sweep_amplitude
         config.heartbeat.breath_sweep_duration = breath_sweep_duration
 
+        if goal_stream_enabled:
+            config.enable_goal_stream(
+                goal_weight=goal_weight,
+                wanting_weight=wanting_weight if wanting_weight > 0.0 else 0.5,
+                benefit_threshold=benefit_threshold,
+                drive_weight=drive_weight,
+                schema_wanting_threshold=schema_wanting_threshold,
+                schema_wanting_gain=schema_wanting_gain,
+            )
+
         return config
+
+    @classmethod
+    def goal_stream(
+        cls,
+        body_obs_dim: int,
+        world_obs_dim: int,
+        action_dim: int,
+        **kwargs,
+    ) -> "REEConfig":
+        """Create a config with the canonical goal-stream bundle enabled."""
+        goal_weight = float(kwargs.pop("goal_weight", 0.5))
+        wanting_weight = float(kwargs.pop("wanting_weight", 0.5))
+        benefit_threshold = float(kwargs.pop("benefit_threshold", 0.05))
+        drive_weight = float(kwargs.pop("drive_weight", 2.0))
+        schema_wanting_threshold = float(
+            kwargs.pop("schema_wanting_threshold", 0.10)
+        )
+        schema_wanting_gain = float(kwargs.pop("schema_wanting_gain", 0.60))
+        use_resource_encoder = bool(kwargs.pop("use_resource_encoder", True))
+        use_mech307 = bool(kwargs.pop("use_mech307", True))
+        use_consumer_conjunction_read = bool(
+            kwargs.pop("use_consumer_conjunction_read", True)
+        )
+        config = cls.from_dims(
+            body_obs_dim=body_obs_dim,
+            world_obs_dim=world_obs_dim,
+            action_dim=action_dim,
+            z_goal_enabled=True,
+            goal_weight=goal_weight,
+            benefit_threshold=benefit_threshold,
+            drive_weight=drive_weight,
+            wanting_weight=wanting_weight,
+            schema_wanting_enabled=True,
+            schema_wanting_threshold=schema_wanting_threshold,
+            schema_wanting_gain=schema_wanting_gain,
+            use_mech295_liking_bridge=True,
+            **kwargs,
+        )
+        return config.enable_goal_stream(
+            goal_weight=goal_weight,
+            wanting_weight=wanting_weight,
+            benefit_threshold=benefit_threshold,
+            drive_weight=drive_weight,
+            schema_wanting_threshold=schema_wanting_threshold,
+            schema_wanting_gain=schema_wanting_gain,
+            use_resource_encoder=use_resource_encoder,
+            use_mech307=use_mech307,
+            use_consumer_conjunction_read=use_consumer_conjunction_read,
+        )
 
     @classmethod
     def large(
