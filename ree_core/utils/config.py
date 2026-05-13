@@ -2556,6 +2556,7 @@ class REEConfig:
         config.e3.urgency_weight = urgency_weight
         config.e3.urgency_max = urgency_max
         config.e3.affective_harm_scale = affective_harm_scale
+        config.e3.goal_weight = goal_weight
 
         # Hippocampal
         config.hippocampal.world_dim = world_dim

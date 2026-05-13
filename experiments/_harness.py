@@ -212,7 +212,15 @@ class StepHarness:
             #    NEVER pass `latent` here; it is not a parameter of the method.
             from ree_core.agent import REEAgent as _REEAgent
             drive_level = _REEAgent.compute_drive_level(obs_body)
-            benefit_exposure = max(0.0, float(obs_dict.get("benefit_exposure", 0.0)))
+            benefit_raw = obs_dict.get("benefit_exposure", None)
+            if benefit_raw is None and isinstance(obs_body, torch.Tensor):
+                if obs_body.shape[-1] > 11:
+                    benefit_raw = (
+                        obs_body[0, 11] if obs_body.dim() == 2 else obs_body[11]
+                    )
+            benefit_exposure = (
+                0.0 if benefit_raw is None else max(0.0, float(benefit_raw))
+            )
             agent.update_z_goal(
                 benefit_exposure=benefit_exposure,
                 drive_level=drive_level,

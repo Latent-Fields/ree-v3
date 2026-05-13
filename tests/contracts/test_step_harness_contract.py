@@ -192,6 +192,8 @@ def test_step_harness_update_z_goal_call_uses_kwargs_only():
 
     harness = StepHarness(agent, env, train_mode=False, seed=0)
     flat_obs, obs_dict = env.reset()
+    obs_dict["body_state"] = obs_dict["body_state"].clone()
+    obs_dict["body_state"][11] = 0.25
     agent.reset()
     harness.reset()
     harness.step(obs_dict)
@@ -206,4 +208,8 @@ def test_step_harness_update_z_goal_call_uses_kwargs_only():
     )
     assert set(kwargs.keys()) == {"benefit_exposure", "drive_level"}, (
         f"harness update_z_goal kwargs drift: {set(kwargs.keys())}"
+    )
+    assert kwargs["benefit_exposure"] == pytest.approx(0.25), (
+        "StepHarness must source benefit_exposure from body_state[11] when "
+        "the env does not expose a top-level obs_dict['benefit_exposure'] key."
     )
