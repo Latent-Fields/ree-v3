@@ -6,5 +6,26 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-562",
+      "title": "WPC Rung 1: forced z_goal score-margin seam diagnostic",
+      "experiment_type": "v3_exq_562_wpc1_goal_score_margin",
+      "script": "experiments/v3_exq_562_wpc1_goal_score_margin.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "estimated_minutes": 30,
+      "episodes_per_run": 55,
+      "seeds": 2,
+      "conditions": 4,
+      "experiment_purpose": "diagnostic",
+      "claim_ids": [],
+      "note": "WPC Rung 1: forced z_goal injection to verify E3 goal-scoring seam; non_contributory diagnostic; 4 arms (baseline / natural / forced / forced-high goal_weight)",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-14T04:41:32.154083+00:00"
+      }
+    }
+  ]
 }
