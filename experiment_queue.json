@@ -6,5 +6,20 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-563",
+      "title": "Forced action-bias actuator test (CEM collapse + MECH-320 sign/scale diagnosis)",
+      "experiment_type": "v3_exq_563_action_bias_actuator_test",
+      "script": "experiments/v3_exq_563_action_bias_actuator_test.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 40,
+      "episodes_per_run": 30,
+      "seeds": 2,
+      "conditions": 6,
+      "added_at": "2026-05-14T12:02:16Z",
+      "status": "pending"
+    }
+  ]
 }

@@ -12,7 +12,7 @@ V3 changes vs V2:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from ree_core.goal import GoalConfig
 from ree_core.neuromodulation.serotonin import SerotoninConfig
@@ -1560,6 +1560,22 @@ class REEConfig:
     # Action-class index treated as no-op. Default 0 matches MECH-279 PAG
     # freeze-gate convention.
     tonic_vigor_noop_class: int = 0
+    # V3-EXQ-563 MECH-320: floor on the gated vigor scalar before per-
+    # candidate bias computation. Default 0.0 = standard behaviour. Set > 0
+    # to force a minimum positive tonic-vigor scalar for actuator tests.
+    tonic_vigor_v_t_floor: float = 0.0
+
+    # ----------------------------------------------------------------
+    # V3-EXQ-563 diagnostic: forced_score_bias_per_class.
+    # Hard-injects a per-action-class score bias vector, bypassing all
+    # naturalistic signal generation (MECH-313/314/320). Used to verify
+    # the score-bias -> action-change seam independently of CEM collapse.
+    # None (default) = disabled; bit-identical to prior behaviour.
+    # When set, each candidate's first-step action class is read and the
+    # corresponding element of this list is added to dacc_score_bias.
+    # List index = action class (0-based); out-of-range classes get 0.0.
+    # E3 convention: NEGATIVE values favour a candidate; POSITIVE penalise.
+    forced_score_bias_per_class: Optional[List[float]] = None
 
     # ----------------------------------------------------------------
     # MECH-319 (ARC-064 / arc_062 GAP-K): simulation_mode_rule_write_gate.
@@ -2346,6 +2362,12 @@ class REEConfig:
         tonic_vigor_gate_pe_max: float = 1.0,
         tonic_vigor_form: str = "additive",
         tonic_vigor_noop_class: int = 0,
+        # V3-EXQ-563: forced floor on v_t; bypasses sign/scale gate for
+        # actuator tests. Default 0.0 = standard behaviour.
+        tonic_vigor_v_t_floor: float = 0.0,
+        # V3-EXQ-563: hard-inject per-class score bias after all naturalistic
+        # signal generation. None = disabled (standard behaviour).
+        forced_score_bias_per_class: Optional[List[float]] = None,
         # MECH-319 (arc_062 GAP-K): simulation_mode_rule_write_gate
         # (substrate-level instantiation of MECH-094 at the rule-
         # arbitration layer). admit_writes is the V3-EXQ-543c falsifier.
@@ -2834,6 +2856,8 @@ class REEConfig:
         config.tonic_vigor_gate_pe_max = tonic_vigor_gate_pe_max
         config.tonic_vigor_form = tonic_vigor_form
         config.tonic_vigor_noop_class = tonic_vigor_noop_class
+        config.tonic_vigor_v_t_floor = tonic_vigor_v_t_floor
+        config.forced_score_bias_per_class = forced_score_bias_per_class
 
         # MECH-319: simulation_mode_rule_write_gate
         config.use_simulation_mode_rule_gate = use_simulation_mode_rule_gate

@@ -540,6 +540,7 @@ class REEAgent(nn.Module):
                 gate_pe_max=config.tonic_vigor_gate_pe_max,
                 form=config.tonic_vigor_form,
                 noop_class=config.tonic_vigor_noop_class,
+                v_t_floor=getattr(config, "tonic_vigor_v_t_floor", 0.0),
             )
             self.tonic_vigor = TonicVigor(config=tv_cfg)
 
@@ -3070,6 +3071,27 @@ class REEAgent(nn.Module):
                 dacc_score_bias = tv_bias
             else:
                 dacc_score_bias = dacc_score_bias + tv_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
+
+        # V3-EXQ-563 diagnostic: forced_score_bias_per_class injection.
+        # Bypasses all naturalistic signal generation to verify the
+        # score-bias -> action-change seam independently of MECH-313/314/320
+        # signal failures. Bit-identical when config field is None (default).
+        _fsb = getattr(self.config, "forced_score_bias_per_class", None)
+        if _fsb is not None and len(candidates) > 0:
+            _fb_classes = [
+                int(c.actions[:, 0, :].argmax(dim=-1).flatten()[0].item())
+                for c in candidates
+            ]
+            _forced_bias = torch.tensor(
+                [_fsb[cls] if cls < len(_fsb) else 0.0 for cls in _fb_classes],
+                dtype=torch.float32,
+            )
+            if dacc_score_bias is None:
+                dacc_score_bias = _forced_bias
+            else:
+                dacc_score_bias = dacc_score_bias + _forced_bias.to(
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 

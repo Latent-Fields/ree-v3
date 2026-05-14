@@ -186,6 +186,14 @@ class TonicVigorConfig:
     gate_pe_max: float = 1.0
     form: str = FORM_ADDITIVE
     noop_class: int = 0
+    # V3-EXQ-563 diagnostic: hard floor applied to v_t before per-candidate
+    # bias computation. Default 0.0 = standard behaviour (v_t gated to zero
+    # when EWMA is negative, as normal). Set > 0 to force a minimum positive
+    # tonic-vigor scalar regardless of the EWMA / gate state. Used in ARM_3
+    # and ARM_5 of EXQ-563 to verify the score-bias -> action seam works
+    # independently of the sign/scale failure on v_raw. Bit-identical to
+    # prior behaviour when left at 0.0.
+    v_t_floor: float = 0.0
 
 
 @dataclass
@@ -355,7 +363,10 @@ class TonicVigor:
         gate_e = self._gate_energy(energy)
         gate_d = self._gate_drive(drive)
         gate_p = self._gate_pe(recent_pe)
-        v_t = max(0.0, self._v_raw) * gate_e * gate_d * gate_p
+        v_t = max(
+            float(self.config.v_t_floor),
+            max(0.0, self._v_raw) * gate_e * gate_d * gate_p,
+        )
 
         # Cache.
         self._last_v_t = v_t
