@@ -673,6 +673,13 @@ class HippocampalConfig:
     # number of normal CEM candidates to preserve total K where possible.
     # Default False is bit-identical to the normal CEM proposer.
     use_action_class_scaffold_candidates: bool = False
+    # Experimental support-preserving CEM repair. When enabled, CEM elite refit
+    # preserves a small first-action class floor when that support is already
+    # present, and final candidate generation injects minimal one-hot first
+    # actions only when the returned support surface is collapsed. Default False
+    # preserves legacy proposer behaviour.
+    use_support_preserving_cem: bool = False
+    support_preserving_min_first_action_classes: int = 2
     # VALENCE_WANTING gradient: when > 0, trajectories toward high-wanting
     # (resource-proximal) regions score better during CEM selection.
     # Subtracted from terrain score (lower score = better in CEM).
@@ -2505,6 +2512,11 @@ class REEConfig:
         # When True, HippocampalModule ensures one one-hot first-action
         # candidate per action class reaches E3. Default False.
         use_action_class_scaffold_candidates: bool = False,
+        # V3-EXQ-563b: experimental support-preserving CEM option.
+        # Default False. When True, HippocampalModule preserves or injects a
+        # minimal first-action support floor without enabling the full scaffold.
+        use_support_preserving_cem: bool = False,
+        support_preserving_min_first_action_classes: int = 2,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -2993,6 +3005,10 @@ class REEConfig:
         config.hippocampal.use_orthogonal_cem_seeding = use_orthogonal_cem_seeding
         config.hippocampal.use_action_class_scaffold_candidates = (
             use_action_class_scaffold_candidates
+        )
+        config.hippocampal.use_support_preserving_cem = use_support_preserving_cem
+        config.hippocampal.support_preserving_min_first_action_classes = (
+            support_preserving_min_first_action_classes
         )
 
         # MECH-290: backward trajectory credit sweep

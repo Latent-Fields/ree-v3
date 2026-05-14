@@ -502,6 +502,251 @@ class HippocampalModule(nn.Module):
             scaffolds.append(traj)
         return scaffolds
 
+    @staticmethod
+    def _trajectory_first_action_class(trajectory: Trajectory) -> int:
+        return int(
+            trajectory.actions[:, 0, :]
+            .argmax(dim=-1)
+            .detach()
+            .reshape(-1)[0]
+            .item()
+        )
+
+    @staticmethod
+    def _ao_std_stats(ao_std: torch.Tensor) -> Dict[str, float]:
+        detached = ao_std.detach()
+        return {
+            "ao_std_mean": float(detached.mean().item()),
+            "ao_std_min": float(detached.min().item()),
+            "ao_std_max": float(detached.max().item()),
+        }
+
+    def _support_preserving_target_class_count(
+        self,
+        budget: Optional[int] = None,
+    ) -> int:
+        action_dim = int(self.config.action_dim)
+        if action_dim <= 1:
+            return 1
+        configured = int(
+            getattr(self.config, "support_preserving_min_first_action_classes", 2)
+        )
+        target = min(action_dim, max(2, configured))
+        if budget is not None:
+            target = min(target, max(1, int(budget)))
+        return int(target)
+
+    @staticmethod
+    def _score_to_float(score: torch.Tensor) -> float:
+        if isinstance(score, torch.Tensor):
+            return float(score.detach().cpu().item())
+        return float(score)
+
+    def _support_preserving_elite_indices(
+        self,
+        trajectories: List[Trajectory],
+        scores_tensor: torch.Tensor,
+        elite_indices: torch.Tensor,
+    ) -> Tuple[torch.Tensor, Dict[str, Any]]:
+        target = self._support_preserving_target_class_count(
+            budget=int(elite_indices.numel())
+        )
+        elite_trajectories = [
+            trajectories[int(i.item() if hasattr(i, "item") else i)]
+            for i in elite_indices
+        ]
+        before_summary = self._summarize_trajectories(elite_trajectories)
+        diag: Dict[str, Any] = {
+            "support_preserving_elite_active": False,
+            "support_preserving_elite_target_classes": int(target),
+            "support_preserving_elite_classes_before": sorted(
+                int(k) for k in before_summary["first_action_counts"].keys()
+            ),
+            "support_preserving_elite_classes_after": sorted(
+                int(k) for k in before_summary["first_action_counts"].keys()
+            ),
+        }
+
+        if not bool(getattr(self.config, "use_support_preserving_cem", False)):
+            return elite_indices, diag
+        if target <= 1 or len(trajectories) <= 1:
+            return elite_indices, diag
+        if before_summary["unique_first_action_classes"] >= target:
+            return elite_indices, diag
+
+        best_by_class: Dict[int, Tuple[int, float]] = {}
+        for idx, traj in enumerate(trajectories):
+            cls = self._trajectory_first_action_class(traj)
+            score = self._score_to_float(scores_tensor[idx])
+            if cls not in best_by_class or score < best_by_class[cls][1]:
+                best_by_class[cls] = (idx, score)
+
+        if len(best_by_class) < target:
+            return elite_indices, diag
+
+        selected: List[int] = []
+        selected_set = set()
+        selected_classes = set()
+        ranked_classes = sorted(
+            best_by_class.items(),
+            key=lambda item: (item[1][1], item[0]),
+        )
+        for cls, (idx, _score) in ranked_classes:
+            if len(selected_classes) >= target:
+                break
+            if idx in selected_set:
+                continue
+            selected.append(idx)
+            selected_set.add(idx)
+            selected_classes.add(cls)
+
+        for raw_idx in torch.argsort(scores_tensor).detach().cpu().tolist():
+            idx = int(raw_idx)
+            if len(selected) >= int(elite_indices.numel()):
+                break
+            if idx in selected_set:
+                continue
+            selected.append(idx)
+            selected_set.add(idx)
+
+        if not selected:
+            return elite_indices, diag
+
+        selected = selected[: int(elite_indices.numel())]
+        new_indices = torch.tensor(
+            selected,
+            dtype=elite_indices.dtype,
+            device=elite_indices.device,
+        )
+        after_summary = self._summarize_trajectories(
+            [trajectories[i] for i in selected]
+        )
+        diag.update({
+            "support_preserving_elite_active": bool(
+                after_summary["unique_first_action_classes"]
+                > before_summary["unique_first_action_classes"]
+            ),
+            "support_preserving_elite_classes_after": sorted(
+                int(k) for k in after_summary["first_action_counts"].keys()
+            ),
+        })
+        return new_indices, diag
+
+    def _inject_support_preserving_candidates(
+        self,
+        trajectories: List[Trajectory],
+        z_self: torch.Tensor,
+        z_world: torch.Tensor,
+        action_bias: Optional[torch.Tensor],
+        budget: int,
+    ) -> Tuple[List[Trajectory], Dict[str, Any]]:
+        target = self._support_preserving_target_class_count(budget=budget)
+        pre_summary = self._summarize_trajectories(trajectories)
+        diag: Dict[str, Any] = {
+            "use_support_preserving_cem": bool(
+                getattr(self.config, "use_support_preserving_cem", False)
+            ),
+            "support_preserving_min_first_action_classes": int(
+                getattr(
+                    self.config,
+                    "support_preserving_min_first_action_classes",
+                    2,
+                )
+            ),
+            "support_preserving_target_first_action_classes": int(target),
+            "support_preserving_active": False,
+            "support_preserving_injected_candidates": 0,
+            "support_preserving_injected_classes": [],
+            "support_preserving_replaced_candidates": 0,
+            "support_preserving_pre_injection_first_action_counts": pre_summary[
+                "first_action_counts"
+            ],
+            "support_preserving_pre_injection_unique_first_action_classes": pre_summary[
+                "unique_first_action_classes"
+            ],
+            "support_preserving_pre_injection_first_action_entropy": pre_summary[
+                "first_action_entropy"
+            ],
+        }
+
+        if not diag["use_support_preserving_cem"]:
+            return trajectories, diag
+        if target <= 1 or pre_summary["unique_first_action_classes"] >= target:
+            return trajectories, diag
+
+        present = {int(k) for k in pre_summary["first_action_counts"].keys()}
+        missing_classes = [
+            cls for cls in range(int(self.config.action_dim)) if cls not in present
+        ]
+        need = max(0, target - int(pre_summary["unique_first_action_classes"]))
+        inject_classes = missing_classes[:need]
+        if not inject_classes:
+            return trajectories, diag
+
+        scaffold = self._build_action_class_scaffold_candidates(
+            z_self=z_self,
+            z_world=z_world,
+            action_bias=action_bias,
+        )
+        scaffold_by_class = {
+            self._trajectory_first_action_class(traj): traj for traj in scaffold
+        }
+        injected: List[Trajectory] = []
+        for cls in inject_classes:
+            traj = scaffold_by_class.get(cls)
+            if traj is None:
+                continue
+            metadata = dict(traj.metadata or {})
+            metadata.update({
+                "source": "support_preserving_cem_injected",
+                "first_action_class": int(cls),
+            })
+            traj.metadata = metadata
+            injected.append(traj)
+
+        if not injected:
+            return trajectories, diag
+
+        total_budget = max(0, int(budget))
+        if total_budget <= 0:
+            total_budget = len(trajectories) + len(injected)
+        keep_n = max(0, total_budget - len(injected))
+        if keep_n >= len(trajectories):
+            kept = list(trajectories)
+        else:
+            scored = [
+                (idx, self._score_to_float(self._score_trajectory(traj)))
+                for idx, traj in enumerate(trajectories)
+            ]
+            scored.sort(key=lambda item: (item[1], item[0]))
+            keep_indices = {idx for idx, _score in scored[:keep_n]}
+            kept = [
+                traj for idx, traj in enumerate(trajectories)
+                if idx in keep_indices
+            ]
+        repaired = kept + injected
+        post_summary = self._summarize_trajectories(repaired)
+        diag.update({
+            "support_preserving_active": True,
+            "support_preserving_injected_candidates": int(len(injected)),
+            "support_preserving_injected_classes": [
+                self._trajectory_first_action_class(traj) for traj in injected
+            ],
+            "support_preserving_replaced_candidates": int(
+                max(0, len(trajectories) - len(kept))
+            ),
+            "support_preserving_post_injection_first_action_counts": post_summary[
+                "first_action_counts"
+            ],
+            "support_preserving_post_injection_unique_first_action_classes": post_summary[
+                "unique_first_action_classes"
+            ],
+            "support_preserving_post_injection_first_action_entropy": post_summary[
+                "first_action_entropy"
+            ],
+        })
+        return repaired, diag
+
     def _score_trajectory(self, trajectory: Trajectory) -> torch.Tensor:
         """
         Score a trajectory for CEM elite selection.
@@ -671,6 +916,7 @@ class HippocampalModule(nn.Module):
         for _iteration in range(self.config.num_cem_iterations):
             trajectories: List[Trajectory] = []
             scores: List[torch.Tensor] = []
+            ao_std_diag = self._ao_std_stats(ao_std)
 
             # Pre-generate orthogonal noise for this CEM iteration when enabled.
             ortho_noise: Optional[torch.Tensor] = None
@@ -735,6 +981,13 @@ class HippocampalModule(nn.Module):
 
             scores_tensor = torch.stack(scores)
             elite_indices = torch.argsort(scores_tensor)[:num_elite]
+            elite_indices, support_elite_diag = (
+                self._support_preserving_elite_indices(
+                    trajectories=trajectories,
+                    scores_tensor=scores_tensor,
+                    elite_indices=elite_indices,
+                )
+            )
             decoded_summary = self._summarize_trajectories(trajectories)
             elite_trajectories = [
                 trajectories[int(i.item() if hasattr(i, "item") else i)]
@@ -743,6 +996,7 @@ class HippocampalModule(nn.Module):
             elite_summary = self._summarize_trajectories(elite_trajectories)
             cem_iteration_diagnostics.append({
                 "iteration": int(_iteration),
+                **ao_std_diag,
                 "pre_refit_first_action_counts": decoded_summary["first_action_counts"],
                 "pre_refit_unique_first_action_classes": decoded_summary[
                     "unique_first_action_classes"
@@ -765,6 +1019,7 @@ class HippocampalModule(nn.Module):
                 "post_elite_refit_first_action_entropy": elite_summary[
                     "first_action_entropy"
                 ],
+                **support_elite_diag,
             })
 
             # Refit distribution to elite action-object sequences
@@ -811,6 +1066,16 @@ class HippocampalModule(nn.Module):
                     ),
                 )
 
+        all_trajectories, support_preserving_diag = (
+            self._inject_support_preserving_candidates(
+                trajectories=all_trajectories,
+                z_self=z_self,
+                z_world=z_world,
+                action_bias=action_bias,
+                budget=n,
+            )
+        )
+
         scaffold_diag: Dict[str, Any] = {
             "use_action_class_scaffold_candidates": bool(
                 getattr(self.config, "use_action_class_scaffold_candidates", False)
@@ -836,12 +1101,6 @@ class HippocampalModule(nn.Module):
                     "action_class_scaffold_classes": scaffold_classes,
                 })
 
-        # V3-EXQ-553 substrate: merge ortho-seeding diagnostics into the
-        # per-tick propose diagnostics dict (does not overwrite the MECH-293
-        # ghost diagnostics when those fire).
-        if use_orthogonal:
-            self._last_propose_diagnostics.update(ortho_diag)
-
         final_summary = self._summarize_trajectories(all_trajectories)
         self._last_propose_diagnostics.update({
             "candidate_first_action_counts": final_summary["first_action_counts"],
@@ -849,6 +1108,7 @@ class HippocampalModule(nn.Module):
                 "unique_first_action_classes"
             ],
             "candidate_first_action_entropy": final_summary["first_action_entropy"],
+            "candidate_samples_collected": int(len(all_trajectories)),
             "decoded_action_argmax_histogram": final_summary[
                 "all_action_argmax_histogram"
             ],
@@ -856,6 +1116,8 @@ class HippocampalModule(nn.Module):
                 "raw_output_stats"
             ],
             "cem_iteration_diagnostics": cem_iteration_diagnostics,
+            **ortho_diag,
+            **support_preserving_diag,
             **scaffold_diag,
         })
 

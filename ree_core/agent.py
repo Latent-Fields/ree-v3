@@ -1178,6 +1178,8 @@ class REEAgent(nn.Module):
         self._last_candidate_support_preflight: Dict[str, Any] = {}
         # Last selected action (held between E3 ticks)
         self._last_action: Optional[torch.Tensor] = None
+        self._last_e3_selection_result: Optional[Any] = None
+        self._last_e3_score_bias: Optional[torch.Tensor] = None
         # MECH-090: step index within committed trajectory (Layer 1 trajectory stepping).
         # Incremented each committed step so a0->a1->a2->... is executed in sequence.
         self._committed_step_idx: int = 0
@@ -1298,6 +1300,8 @@ class REEAgent(nn.Module):
         self._harm_this_episode = 0.0
         self._committed_candidates = None
         self._last_action = None
+        self._last_e3_selection_result = None
+        self._last_e3_score_bias = None
         self._committed_step_idx = 0
         # MECH-269 / MECH-090 read-side hook: clear V_s -> commit release snapshot.
         self._committed_anchor_keys = None
@@ -3184,6 +3188,11 @@ class REEAgent(nn.Module):
         else:
             effective_temperature = temperature
 
+        self._last_e3_score_bias = (
+            dacc_score_bias.detach().clone()
+            if dacc_score_bias is not None
+            else None
+        )
         result = self.e3.select(
             candidates, effective_temperature,
             goal_state=_goal_state_for_select,
@@ -3192,6 +3201,7 @@ class REEAgent(nn.Module):
             z_harm_a=z_harm_a,
             score_bias=dacc_score_bias,
         )
+        self._last_e3_selection_result = result
         action = result.selected_action
 
         # MECH-314c learning-progress feed: push the current waking
