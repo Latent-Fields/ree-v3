@@ -6,5 +6,22 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-563b",
+      "title": "Candidate-support repair and weak forced-bias dose response",
+      "script": "experiments/v3_exq_563b_candidate_support_repair.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "claimed",
+      "estimated_minutes": 90,
+      "supersedes": "V3-EXQ-563a",
+      "claim_id": "ARC-065,MECH-320",
+      "note": "Compares normal CEM, diagnostic scaffold support, and use_support_preserving_cem, then runs scaffolded action-0 forced-bias dose response. Diagnostic only; evidence_direction remains non_contributory.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-14T20:21:34.105160+00:00"
+      }
+    }
+  ]
 }
