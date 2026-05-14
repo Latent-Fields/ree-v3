@@ -457,6 +457,7 @@ def main(dry_run: bool = False):
 
     for seed in seeds:
         for arm in ARMS:
+            print(f"Seed {seed} Condition {arm['arm']}", flush=True)
             row = _run_arm_seed(arm, seed, train_eps, eval_eps, steps)
             rows.append(row)
             verdict = "PASS" if (
