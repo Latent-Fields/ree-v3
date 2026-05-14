@@ -30,6 +30,7 @@ MECH-092 (replay):
 """
 
 from typing import Any, Dict, List, Optional, Tuple
+import math
 import random
 
 import torch
@@ -386,6 +387,121 @@ class HippocampalModule(nn.Module):
         actions_flat = self.action_object_decoder(flat)
         return actions_flat.reshape(batch, horizon, self.config.action_dim)
 
+    @staticmethod
+    def _entropy_from_counts(counts: Dict[int, int]) -> float:
+        total = sum(counts.values())
+        if total <= 0:
+            return 0.0
+        entropy = 0.0
+        for count in counts.values():
+            if count <= 0:
+                continue
+            p = float(count) / float(total)
+            entropy -= p * math.log(p)
+        return float(entropy)
+
+    @staticmethod
+    def _counts_from_tensor(classes: torch.Tensor) -> Dict[int, int]:
+        flat = classes.detach().reshape(-1).to(dtype=torch.long, device="cpu")
+        counts: Dict[int, int] = {}
+        for cls in flat.tolist():
+            counts[int(cls)] = counts.get(int(cls), 0) + 1
+        return dict(sorted(counts.items()))
+
+    def _summarize_action_tensor(self, actions: torch.Tensor) -> Dict[str, Any]:
+        """Summarize continuous action vectors by their downstream argmax class."""
+        with torch.no_grad():
+            if actions.dim() == 3:
+                # [batch, horizon, action_dim] -> [candidate, batch, horizon, action_dim]
+                action_batch = actions.unsqueeze(0)
+            elif actions.dim() == 4:
+                action_batch = actions
+            else:
+                raise ValueError(
+                    "actions must have shape [batch,horizon,action_dim] or "
+                    "[candidate,batch,horizon,action_dim]"
+                )
+
+            first_classes = action_batch[:, :, 0, :].argmax(dim=-1)
+            all_classes = action_batch.argmax(dim=-1)
+            first_counts = self._counts_from_tensor(first_classes)
+            all_counts = self._counts_from_tensor(all_classes)
+
+            flat_actions = action_batch.detach().reshape(-1, action_batch.shape[-1])
+            raw_mean = flat_actions.mean(dim=0).detach().cpu().tolist()
+            raw_std = flat_actions.std(dim=0, unbiased=False).detach().cpu().tolist()
+            raw_min = flat_actions.min(dim=0).values.detach().cpu().tolist()
+            raw_max = flat_actions.max(dim=0).values.detach().cpu().tolist()
+
+        return {
+            "first_action_counts": first_counts,
+            "unique_first_action_classes": int(len(first_counts)),
+            "first_action_entropy": self._entropy_from_counts(first_counts),
+            "all_action_argmax_histogram": all_counts,
+            "raw_output_stats": {
+                "mean_by_action_dim": [float(v) for v in raw_mean],
+                "std_by_action_dim": [float(v) for v in raw_std],
+                "min_by_action_dim": [float(v) for v in raw_min],
+                "max_by_action_dim": [float(v) for v in raw_max],
+            },
+        }
+
+    def _summarize_trajectories(self, trajectories: List[Trajectory]) -> Dict[str, Any]:
+        if not trajectories:
+            return {
+                "first_action_counts": {},
+                "unique_first_action_classes": 0,
+                "first_action_entropy": 0.0,
+                "all_action_argmax_histogram": {},
+                "raw_output_stats": {
+                    "mean_by_action_dim": [],
+                    "std_by_action_dim": [],
+                    "min_by_action_dim": [],
+                    "max_by_action_dim": [],
+                },
+            }
+        actions = torch.stack([t.actions.detach() for t in trajectories], dim=0)
+        return self._summarize_action_tensor(actions)
+
+    def _build_action_class_scaffold_candidates(
+        self,
+        z_self: torch.Tensor,
+        z_world: torch.Tensor,
+        action_bias: Optional[torch.Tensor] = None,
+    ) -> List[Trajectory]:
+        """Diagnostic-only candidate scaffold with one first action per class."""
+        batch_size = z_world.shape[0]
+        device = z_world.device
+        dtype = z_world.dtype
+        horizon = int(self.config.horizon)
+        action_dim = int(self.config.action_dim)
+        scaffolds: List[Trajectory] = []
+
+        for cls in range(action_dim):
+            actions = torch.zeros(
+                batch_size,
+                horizon,
+                action_dim,
+                device=device,
+                dtype=dtype,
+            )
+            actions[:, 0, cls] = 1.0
+            traj = self.e2.rollout_with_world(
+                z_self,
+                z_world,
+                actions,
+                compute_action_objects=True,
+                action_bias=action_bias,
+            )
+            metadata = dict(traj.metadata or {})
+            metadata.update({
+                "source": "action_class_scaffold",
+                "first_action_class": int(cls),
+            })
+            traj.metadata = metadata
+            scaffolds.append(traj)
+        return scaffolds
+
     def _score_trajectory(self, trajectory: Trajectory) -> torch.Tensor:
         """
         Score a trajectory for CEM elite selection.
@@ -550,6 +666,7 @@ class HippocampalModule(nn.Module):
             "n_orthogonal_iters": 0,
             "n_iid_fallback_candidates": 0,
         }
+        cem_iteration_diagnostics: List[Dict[str, Any]] = []
 
         for _iteration in range(self.config.num_cem_iterations):
             trajectories: List[Trajectory] = []
@@ -618,12 +735,44 @@ class HippocampalModule(nn.Module):
 
             scores_tensor = torch.stack(scores)
             elite_indices = torch.argsort(scores_tensor)[:num_elite]
+            decoded_summary = self._summarize_trajectories(trajectories)
+            elite_trajectories = [
+                trajectories[int(i.item() if hasattr(i, "item") else i)]
+                for i in elite_indices
+            ]
+            elite_summary = self._summarize_trajectories(elite_trajectories)
+            cem_iteration_diagnostics.append({
+                "iteration": int(_iteration),
+                "pre_refit_first_action_counts": decoded_summary["first_action_counts"],
+                "pre_refit_unique_first_action_classes": decoded_summary[
+                    "unique_first_action_classes"
+                ],
+                "pre_refit_first_action_entropy": decoded_summary[
+                    "first_action_entropy"
+                ],
+                "decoded_action_argmax_histogram": decoded_summary[
+                    "all_action_argmax_histogram"
+                ],
+                "action_object_decoder_raw_output_stats": decoded_summary[
+                    "raw_output_stats"
+                ],
+                "post_elite_refit_first_action_counts": elite_summary[
+                    "first_action_counts"
+                ],
+                "post_elite_refit_unique_first_action_classes": elite_summary[
+                    "unique_first_action_classes"
+                ],
+                "post_elite_refit_first_action_entropy": elite_summary[
+                    "first_action_entropy"
+                ],
+            })
 
             # Refit distribution to elite action-object sequences
             # Extract action objects from trajectories
             elite_ao = []
             for i in elite_indices:
-                ao_seq = trajectories[i].get_action_object_sequence()
+                idx = int(i.item() if hasattr(i, "item") else i)
+                ao_seq = trajectories[idx].get_action_object_sequence()
                 if ao_seq is not None:
                     elite_ao.append(ao_seq)
 
@@ -662,11 +811,53 @@ class HippocampalModule(nn.Module):
                     ),
                 )
 
+        scaffold_diag: Dict[str, Any] = {
+            "use_action_class_scaffold_candidates": bool(
+                getattr(self.config, "use_action_class_scaffold_candidates", False)
+            ),
+            "action_class_scaffold_candidates_added": 0,
+            "action_class_scaffold_classes": [],
+        }
+        if scaffold_diag["use_action_class_scaffold_candidates"]:
+            scaffold = self._build_action_class_scaffold_candidates(
+                z_self=z_self,
+                z_world=z_world,
+                action_bias=action_bias,
+            )
+            if scaffold:
+                scaffold_classes = [
+                    int(t.actions[:, 0, :].argmax(dim=-1).flatten()[0].item())
+                    for t in scaffold
+                ]
+                keep_n = max(0, n - len(scaffold))
+                all_trajectories = list(scaffold) + list(all_trajectories[:keep_n])
+                scaffold_diag.update({
+                    "action_class_scaffold_candidates_added": int(len(scaffold)),
+                    "action_class_scaffold_classes": scaffold_classes,
+                })
+
         # V3-EXQ-553 substrate: merge ortho-seeding diagnostics into the
         # per-tick propose diagnostics dict (does not overwrite the MECH-293
         # ghost diagnostics when those fire).
         if use_orthogonal:
             self._last_propose_diagnostics.update(ortho_diag)
+
+        final_summary = self._summarize_trajectories(all_trajectories)
+        self._last_propose_diagnostics.update({
+            "candidate_first_action_counts": final_summary["first_action_counts"],
+            "candidate_unique_first_action_classes": final_summary[
+                "unique_first_action_classes"
+            ],
+            "candidate_first_action_entropy": final_summary["first_action_entropy"],
+            "decoded_action_argmax_histogram": final_summary[
+                "all_action_argmax_histogram"
+            ],
+            "action_object_decoder_raw_output_stats": final_summary[
+                "raw_output_stats"
+            ],
+            "cem_iteration_diagnostics": cem_iteration_diagnostics,
+            **scaffold_diag,
+        })
 
         return all_trajectories
 

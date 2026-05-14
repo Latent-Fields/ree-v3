@@ -32,6 +32,8 @@ Multi-rate execution:
 
 from typing import Optional, Dict, List, Any, Tuple
 from dataclasses import dataclass
+from collections import Counter
+import math
 
 import torch
 import torch.nn as nn
@@ -122,6 +124,68 @@ from ree_core.residue.field import (
     VALENCE_POSITIVE_SURPRISE,
     VALENCE_NEGATIVE_SURPRISE,
 )
+
+
+def candidate_support_preflight(
+    candidates: List[Trajectory],
+    forced_score_bias_per_class: Optional[List[float]] = None,
+) -> Dict[str, Any]:
+    """Compute first-action support metrics for behavioural interpretation.
+
+    This is diagnostic-only: callers decide whether to abort interpretation.
+    """
+    first_action_classes: List[int] = []
+    for candidate in candidates:
+        if candidate.actions.shape[1] <= 0:
+            continue
+        first = candidate.actions[:, 0, :]
+        first_action_classes.append(
+            int(first.argmax(dim=-1).flatten()[0].item())
+        )
+
+    counts = Counter(first_action_classes)
+    total = sum(counts.values())
+    entropy = 0.0
+    if total > 0:
+        for count in counts.values():
+            p = float(count) / float(total)
+            if p > 0.0:
+                entropy -= p * math.log(p)
+
+    forced_bias_abs_mean: Optional[float] = None
+    forced_bias_nonzero_candidate_count: Optional[int] = None
+    if forced_score_bias_per_class is not None:
+        abs_vals: List[float] = []
+        nonzero = 0
+        for cls in first_action_classes:
+            bias = (
+                float(forced_score_bias_per_class[cls])
+                if cls < len(forced_score_bias_per_class)
+                else 0.0
+            )
+            if abs(bias) > 0.0:
+                nonzero += 1
+            abs_vals.append(abs(bias))
+        forced_bias_abs_mean = (
+            sum(abs_vals) / len(abs_vals) if abs_vals else 0.0
+        )
+        forced_bias_nonzero_candidate_count = nonzero
+
+    status = "RUN" if len(counts) >= 2 else "NOT_RUN"
+    reason = None if status == "RUN" else "candidate_support_collapse"
+    return {
+        "preflight_status": status,
+        "not_run_reason": reason,
+        "interpretation": (
+            "RUN" if status == "RUN" else "NOT_RUN: candidate_support_collapse"
+        ),
+        "candidate_first_action_classes": first_action_classes,
+        "candidate_first_action_counts": dict(sorted(counts.items())),
+        "candidate_unique_first_action_classes": int(len(counts)),
+        "candidate_first_action_entropy": float(entropy),
+        "forced_bias_abs_mean": forced_bias_abs_mean,
+        "forced_bias_nonzero_candidate_count": forced_bias_nonzero_candidate_count,
+    }
 
 
 @dataclass
@@ -1111,6 +1175,7 @@ class REEAgent(nn.Module):
 
         # MECH-057a: cached E3 candidates for action-loop gate
         self._committed_candidates: Optional[List[Trajectory]] = None
+        self._last_candidate_support_preflight: Dict[str, Any] = {}
         # Last selected action (held between E3 ticks)
         self._last_action: Optional[torch.Tensor] = None
         # MECH-090: step index within committed trajectory (Layer 1 trajectory stepping).
@@ -3074,16 +3139,25 @@ class REEAgent(nn.Module):
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 
+        _fsb = getattr(self.config, "forced_score_bias_per_class", None)
+        self._last_candidate_support_preflight = candidate_support_preflight(
+            candidates,
+            forced_score_bias_per_class=_fsb,
+        )
+
         # V3-EXQ-563 diagnostic: forced_score_bias_per_class injection.
         # Bypasses all naturalistic signal generation to verify the
         # score-bias -> action-change seam independently of MECH-313/314/320
         # signal failures. Bit-identical when config field is None (default).
-        _fsb = getattr(self.config, "forced_score_bias_per_class", None)
         if _fsb is not None and len(candidates) > 0:
-            _fb_classes = [
-                int(c.actions[:, 0, :].argmax(dim=-1).flatten()[0].item())
-                for c in candidates
-            ]
+            _fb_classes = self._last_candidate_support_preflight.get(
+                "candidate_first_action_classes", []
+            )
+            if len(_fb_classes) != len(candidates):
+                _fb_classes = [
+                    int(c.actions[:, 0, :].argmax(dim=-1).flatten()[0].item())
+                    for c in candidates
+                ]
             _forced_bias = torch.tensor(
                 [_fsb[cls] if cls < len(_fsb) else 0.0 for cls in _fb_classes],
                 dtype=torch.float32,

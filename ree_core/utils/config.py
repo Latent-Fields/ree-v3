@@ -667,6 +667,12 @@ class HippocampalConfig:
     # diagnostics). Backward compatible: disabled by default; bit-identical
     # to legacy iid CEM when off.
     use_orthogonal_cem_seeding: bool = False
+    # Diagnostic-only candidate support scaffold. When enabled,
+    # HippocampalModule prepends one one-hot first-action candidate per
+    # action class before returning candidates to E3, replacing the same
+    # number of normal CEM candidates to preserve total K where possible.
+    # Default False is bit-identical to the normal CEM proposer.
+    use_action_class_scaffold_candidates: bool = False
     # VALENCE_WANTING gradient: when > 0, trajectories toward high-wanting
     # (resource-proximal) regions score better during CEM selection.
     # Subtracted from terrain score (lower score = better in CEM).
@@ -2495,6 +2501,10 @@ class REEConfig:
         # maximally distinct at the proposal level. Backward compatible:
         # default False; bit-identical to legacy iid Gaussian when off.
         use_orthogonal_cem_seeding: bool = False,
+        # V3-EXQ-563 follow-up: diagnostic candidate support scaffold.
+        # When True, HippocampalModule ensures one one-hot first-action
+        # candidate per action class reaches E3. Default False.
+        use_action_class_scaffold_candidates: bool = False,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -2981,6 +2991,9 @@ class REEConfig:
 
         # V3-EXQ-553 proposer-fix substrate: orthogonal CEM seeding
         config.hippocampal.use_orthogonal_cem_seeding = use_orthogonal_cem_seeding
+        config.hippocampal.use_action_class_scaffold_candidates = (
+            use_action_class_scaffold_candidates
+        )
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep
