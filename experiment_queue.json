@@ -16,9 +16,18 @@
       "machine_affinity": "DLAPTOP-4.local",
       "episodes_per_run": 8,
       "estimated_minutes": 10,
-      "claim_ids": ["ARC-065", "MECH-313", "MECH-314", "MECH-320"],
+      "claim_ids": [
+        "ARC-065",
+        "MECH-313",
+        "MECH-314",
+        "MECH-320"
+      ],
       "experiment_purpose": "diagnostic",
-      "status": "pending"
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-14T04:17:25.697875+00:00"
+      }
     }
   ]
 }
