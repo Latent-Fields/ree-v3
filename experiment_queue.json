@@ -6,22 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-563a",
-      "title": "Scaffolded forced action-bias actuator retest",
-      "script": "experiments/v3_exq_563a_action_bias_scaffold_actuator_test.py",
-      "priority": 1,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 35,
-      "supersedes": "V3-EXQ-563",
-      "claim_id": "ARC-065,MECH-320",
-      "note": "Lettered successor to V3-EXQ-563. Enables use_action_class_scaffold_candidates and corrected 5-class forced bias to test E3 score-bias actuator on a real multi-action candidate surface.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-14T19:12:50.564277+00:00"
-      }
-    }
-  ]
+  "items": []
 }
