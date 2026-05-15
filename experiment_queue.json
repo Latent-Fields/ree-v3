@@ -8,6 +8,21 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-563c",
+      "title": "Stratified CEM and E3 score-bias calibration diagnostic (7 arms)",
+      "experiment_type": "v3_exq_563c_stratified_cem_bias_calibration",
+      "script": "experiments/v3_exq_563c_stratified_cem_bias_calibration.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 42,
+      "supersedes": "V3-EXQ-563b",
+      "claim_ids": [
+        "ARC-065",
+        "MECH-320"
+      ]
+    },
+    {
       "queue_id": "V3-EXQ-540f",
       "title": "MECH-307 default-fix clean 3-seed rerun (seeds 42, 43, 45)",
       "experiment_type": "v3_exq_540f_mech307_default_fix_3seed",
