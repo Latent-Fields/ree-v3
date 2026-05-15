@@ -158,9 +158,9 @@ def run_arm(arm_name, seed, dry_run=False):
             for i in range(candidates.shape[0]):
                 seq = candidates[i].unsqueeze(0)  # [1, horizon, action_dim]
                 traj = agent.e2.rollout_with_world(
-                    initial_z_self=z_self.unsqueeze(0),
-                    initial_z_world=z_world.unsqueeze(0),
-                    action_sequence=seq,
+                    initial_z_self=z_self.unsqueeze(0),   # [1, self_dim]
+                    initial_z_world=z_world.unsqueeze(0), # [1, world_dim]
+                    action_sequence=seq,                   # [1, horizon, action_dim]
                 )
                 ws = traj.world_states
                 if ws is not None and len(ws) >= 2:
