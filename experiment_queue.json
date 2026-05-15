@@ -8,6 +8,20 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-569",
+      "title": "WPB matched-entropy sweep: structured diversity vs noise floor (ARC-065)",
+      "experiment_type": "v3_exq_569_wpb_matched_entropy_sweep",
+      "script": "experiments/v3_exq_569_wpb_matched_entropy_sweep.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "seeds": 3,
+      "conditions": 6,
+      "episodes_per_run": 40,
+      "claim_ids": ["ARC-065"]
+    },
+    {
       "queue_id": "V3-EXQ-540g",
       "title": "MECH-307 corrected C1 criterion (liking_writes baseline fix)",
       "script": "experiments/v3_exq_540g_mech307_criterion_fix.py",
