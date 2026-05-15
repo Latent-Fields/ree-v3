@@ -27,21 +27,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-566",
-      "title": "WPC Rung 3: forced schema_salience injection diagnostic (MECH-216 write seam)",
-      "experiment_type": "v3_exq_566_wpc3_schema_salience_injection",
-      "script": "experiments/v3_exq_566_wpc3_schema_salience_injection.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 12,
-      "claim_ids": [],
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-15T19:17:09.709420+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-567",
       "title": "WPB natural entropy measurement: SP-CEM vs normal CEM (no scaffold, no forced bias)",
       "experiment_type": "v3_exq_567_wpb_natural_entropy_sp_cem",
