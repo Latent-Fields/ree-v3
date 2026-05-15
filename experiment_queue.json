@@ -35,6 +35,21 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-15T21:17:09.093606+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-570",
+      "title": "E2 rollout collapse diagnostic -- oracle z_world pairwise distance",
+      "experiment_type": "v3_exq_570_e2_rollout_collapse_diagnostic",
+      "script": "experiments/v3_exq_570_e2_rollout_collapse_diagnostic.py",
+      "priority": 20,
+      "status": "pending",
+      "machine_affinity": "any",
+      "estimated_minutes": 15,
+      "seeds": 2,
+      "conditions": 4,
+      "episodes_per_run": 20,
+      "claim_ids": [],
+      "experiment_purpose": "diagnostic"
     }
   ]
 }
