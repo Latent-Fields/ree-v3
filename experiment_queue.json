@@ -14,14 +14,18 @@
       "script": "experiments/v3_exq_569_wpb_matched_entropy_sweep.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "seeds": 3,
       "conditions": 6,
       "episodes_per_run": 40,
       "claim_ids": [
         "ARC-065"
-      ]
+      ],
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-15T23:33:13.842389+00:00"
+      }
     }
   ]
 }
