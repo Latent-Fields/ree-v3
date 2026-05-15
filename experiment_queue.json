@@ -6,21 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-565",
-      "title": "WPD GAP-8 validation -- MECH-272 routing-gate downstream consumer",
-      "script": "experiments/v3_exq_565_wpd_gap8_routing_consumer.py",
-      "priority": 5,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 5,
-      "claim_id": "MECH-272",
-      "note": "GAP-8: validates use_mech272_routing_consumer flag gates mean_anchor in SleepLoopManager._run_cycle(). ARM_0 (consumer OFF) -> sws_anchor_weight_applied==1.0; ARM_1 (consumer ON) -> ~=0.6. C3 requires act_with_split_obs loop to populate world_experience_buffer (sense() alone does not run _e1_tick). Smoke C1/C2/C3 PASS 2026-05-15.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-15T18:03:05.227004+00:00"
-      }
-    }
-  ]
+  "items": []
 }
