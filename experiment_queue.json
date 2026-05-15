@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-563c",
-      "title": "Stratified CEM and E3 score-bias calibration diagnostic (7 arms)",
-      "experiment_type": "v3_exq_563c_stratified_cem_bias_calibration",
-      "script": "experiments/v3_exq_563c_stratified_cem_bias_calibration.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 42,
-      "supersedes": "V3-EXQ-563b",
-      "claim_ids": [
-        "ARC-065",
-        "MECH-320"
-      ],
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-15T19:17:01.121045+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-567",
       "title": "WPB natural entropy measurement: SP-CEM vs normal CEM (no scaffold, no forced bias)",
       "experiment_type": "v3_exq_567_wpb_natural_entropy_sp_cem",
