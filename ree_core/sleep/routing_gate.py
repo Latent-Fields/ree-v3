@@ -24,11 +24,12 @@ sections "Routing-gate contract" and "Phase ordering within a sleep cycle"):
     weights = WAKING row) emits anchor_channel=1.0, probe_channel=0.0,
     matching the bit-identical waking guarantee.
 
-Phase C is a NO-OP CONSUMER. The downstream MECH-271 hippocampal router /
-E1 ContextMemory consolidation consumer (anchor channel) and the Phase D
-Bayesian aggregator (probe channel) do not exist yet, so RoutedEvents
-land on SleepCycleState.last_metrics as diagnostics. The gate itself is
-still exercised end-to-end so that Phase D / E can plug straight in.
+Phase C anchor channel IS consumed (GAP-8, 2026-05-15): mean anchor_channel
+over SWS draws is forwarded via SleepLoopManager._run_cycle() ->
+agent.run_sleep_cycle(sws_anchor_weight=mean_anchor) ->
+agent.run_sws_schema_pass(anchor_weight=...) where e1_input is scaled by
+the weight before the ContextMemory write. Phase D Bayesian aggregator
+consumes the probe channel.
 
 Bit-identical OFF: the master flag use_mech272_routing defaults False;
 when False, REEAgent never instantiates this class and the SleepLoopManager

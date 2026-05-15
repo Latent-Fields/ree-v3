@@ -1880,6 +1880,15 @@ class REEConfig:
     mech272_sws_probe_weight: float = 0.4
     mech272_rem_anchor_weight: float = 0.2
     mech272_rem_probe_weight: float = 0.8
+    # Phase C downstream consumer (GAP-8): when True (and
+    # use_mech272_routing is True), SleepLoopManager computes the mean
+    # anchor_channel across the SWS draw batch and passes it as a
+    # write_scale to run_sws_schema_pass(). The ContextMemory slot writes
+    # are multiplied by this scale (0.6 at SWS_ANALOG row) so that
+    # schema installation strength tracks the routing weight rather than
+    # always writing at full strength regardless of phase.
+    # Default False: bit-identical to pre-GAP-8 behaviour.
+    use_mech272_routing_consumer: bool = False
 
     # Phase D (MECH-275): general Bayesian aggregator. When True (and
     # use_sleep_loop is True), the SleepLoopManager constructs a

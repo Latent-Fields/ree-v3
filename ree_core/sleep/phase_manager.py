@@ -261,9 +261,19 @@ class SleepLoopManager:
                         domain=self.aggregator_domain,
                     )
 
+        # GAP-8: compute mean anchor_channel weight from SWS routing draws.
+        # Forwarding this to run_sleep_cycle wires the MECH-272 anchor channel
+        # into the E1 ContextMemory write path (run_sws_schema_pass).
+        if sws_routed_draws:
+            mean_anchor = float(
+                sum(r.anchor_channel for r in sws_routed_draws) / len(sws_routed_draws)
+            )
+        else:
+            mean_anchor = 1.0
+
         # Delegate to the existing SD-017 surface. run_sleep_cycle handles
         # the SWS -> REM ordering, mode entry/exit, and metric merging.
-        metrics = agent.run_sleep_cycle()
+        metrics = agent.run_sleep_cycle(sws_anchor_weight=mean_anchor)
 
         # Phase E: WRITEBACK -- self-model offline gradient pass on
         # E2_harm_s using aggregator-corrected residuals as targets, plus

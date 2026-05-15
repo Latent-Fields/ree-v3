@@ -4602,7 +4602,7 @@ class REEAgent(nn.Module):
 
     # -- SD-017: SWS-analog and REM-analog passes --
 
-    def run_sws_schema_pass(self) -> Dict[str, float]:
+    def run_sws_schema_pass(self, anchor_weight: float = 1.0) -> Dict[str, float]:
         """
         SD-017 SWS-analog pass: hippocampus-to-cortex schema installation.
 
@@ -4619,14 +4619,20 @@ class REEAgent(nn.Module):
         Algorithm:
         1. Sample sws_consolidation_steps prototype z_worlds from the world
            experience buffer (diverse sampling: early, mid, and recent windows).
-        2. For each prototype, construct the full E1 input [z_self_mean, z_world]
-           and write it directly to ContextMemory bypassing the offline gate.
+        2. For each prototype, construct the full E1 input [z_self_mean, z_world],
+           scale by anchor_weight (MECH-272 routing gate anchor channel), and
+           write directly to ContextMemory bypassing the offline gate.
            (The offline gate suppresses waking writes; this pass writes offline
            schema content, which is the intended action during SWS.)
         3. Compute slot diversity (mean pairwise cosine distance) as a metric
            for context differentiation quality.
 
-        Args: none (uses self._world_experience_buffer internally)
+        Args:
+            anchor_weight: MECH-272 routing gate anchor_channel value for this
+                           cycle. Scales the e1_input before writing to
+                           ContextMemory (1.0 = full strength, 0.6 = SWS default
+                           per routing table). Defaults to 1.0 (no scaling) for
+                           callers that do not use the routing gate.
 
         Returns:
             dict with keys:
@@ -4634,11 +4640,13 @@ class REEAgent(nn.Module):
               sws_slot_diversity: mean pairwise cosine distance of ContextMemory
                                   slots after pass (higher = more differentiated)
               sws_buffer_size: size of experience buffer used
+              sws_anchor_weight_applied: the anchor_weight value used this pass
         """
         metrics: Dict[str, float] = {
             "sws_n_writes": 0.0,
             "sws_slot_diversity": 0.0,
             "sws_buffer_size": 0.0,
+            "sws_anchor_weight_applied": float(anchor_weight),
         }
 
         if not self.config.sws_enabled:
@@ -4684,6 +4692,12 @@ class REEAgent(nn.Module):
 
             # Full E1 input: [z_self, z_world] concatenated
             e1_input = torch.cat([z_self, z_world], dim=-1)  # [1, self_dim+world_dim]
+
+            # GAP-8: scale by MECH-272 anchor_channel weight before writing.
+            # ContextMemory.write has no weight param; scaling the input is the
+            # correct approach -- it scales the magnitude of content being written.
+            if anchor_weight != 1.0:
+                e1_input = e1_input * anchor_weight
 
             # Write to ContextMemory (offline gate lifted for this block only)
             self.e1.context_memory.write(e1_input)
@@ -4811,7 +4825,7 @@ class REEAgent(nn.Module):
 
         return metrics
 
-    def run_sleep_cycle(self) -> Dict[str, float]:
+    def run_sleep_cycle(self, sws_anchor_weight: float = 1.0) -> Dict[str, float]:
         """
         SD-017: Run a complete SWS->REM sleep cycle.
 
@@ -4819,6 +4833,11 @@ class REEAgent(nn.Module):
         enter_rem_mode(), run_rem_attribution_pass(), then exit_sleep_mode().
 
         Returns merged metrics from both passes.
+
+        Args:
+            sws_anchor_weight: MECH-272 anchor_channel weight forwarded to
+                run_sws_schema_pass(). Default 1.0 preserves waking
+                bit-identical behaviour (GAP-8 consumer wiring).
 
         IMPORTANT: Only call this when sws_enabled=True or rem_enabled=True.
         If both are False this is a no-op returning empty metrics.
@@ -4830,7 +4849,7 @@ class REEAgent(nn.Module):
         # SWS phase
         if self.config.sws_enabled:
             self.enter_sws_mode()
-            sws_metrics = self.run_sws_schema_pass()
+            sws_metrics = self.run_sws_schema_pass(anchor_weight=sws_anchor_weight)
             all_metrics.update(sws_metrics)
             self.exit_sleep_mode()
 
