@@ -13,10 +13,14 @@
       "script": "experiments/v3_exq_540g_mech307_criterion_fix.py",
       "priority": 1,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 110,
       "supersedes": "V3-EXQ-540f",
-      "claim_id": "MECH-307"
+      "claim_id": "MECH-307",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-15T21:17:09.093606+00:00"
+      }
     }
   ]
 }
