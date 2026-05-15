@@ -6,28 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-568",
-      "title": "SD-055 differentiable CEM substrate-readiness diagnostic",
-      "experiment_type": "v3_exq_568_sd055_differentiable_cem_substrate_readiness",
-      "script": "experiments/v3_exq_568_sd055_differentiable_cem_substrate_readiness.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "seeds": 1,
-      "conditions": 5,
-      "episodes_per_run": 1,
-      "estimated_minutes": 3,
-      "claim_ids": [
-        "SD-055"
-      ],
-      "experiment_purpose": "diagnostic",
-      "status": "claimed",
-      "notes": "Substrate-readiness diagnostic for SD-055 differentiable CEM (softmax-weighted ao_mean). 5 UCs: config flags, legacy path, no spurious detach, gradient flows, path divergence. Smoke 5/5 PASS 2026-05-15.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-15T20:49:28.253880+00:00"
-      }
-    }
-  ]
+  "items": []
 }
