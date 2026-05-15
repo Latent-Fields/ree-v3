@@ -6,5 +6,20 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-564",
+      "title": "WPC Rung 2: forced VALENCE_WANTING write diagnostic (write->read seam)",
+      "experiment_type": "v3_exq_564_wpc2_valence_wanting_write",
+      "script": "experiments/v3_exq_564_wpc2_valence_wanting_write.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 30,
+      "episodes_per_run": 30,
+      "seeds": 2,
+      "conditions": 4,
+      "added_at": "2026-05-15T06:01:53Z",
+      "status": "pending"
+    }
+  ]
 }
