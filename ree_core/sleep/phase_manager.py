@@ -104,6 +104,7 @@ class SleepLoopManager:
         self_model_domain: str = "self",
         use_rem_precision_recalibration: bool = False,
         rem_precision_recalibration_step: float = 0.1,
+        use_mech272_routing_consumer: bool = False,
     ) -> None:
         if cycle_every_k_episodes < 1:
             raise ValueError(
@@ -138,6 +139,7 @@ class SleepLoopManager:
                 f"got {rem_precision_recalibration_step}"
             )
         self.rem_precision_recalibration_step = float(rem_precision_recalibration_step)
+        self.use_mech272_routing_consumer = bool(use_mech272_routing_consumer)
         self.state = SleepCycleState()
         self._cycle_history: List[Dict[str, float]] = []
 
@@ -261,10 +263,10 @@ class SleepLoopManager:
                         domain=self.aggregator_domain,
                     )
 
-        # GAP-8: compute mean anchor_channel weight from SWS routing draws.
-        # Forwarding this to run_sleep_cycle wires the MECH-272 anchor channel
-        # into the E1 ContextMemory write path (run_sws_schema_pass).
-        if sws_routed_draws:
+        # GAP-8: forward mean anchor_channel to run_sleep_cycle ONLY when
+        # use_mech272_routing_consumer is enabled. When OFF the weight stays
+        # at 1.0 (bit-identical to pre-GAP-8: full-strength schema writes).
+        if self.use_mech272_routing_consumer and sws_routed_draws:
             mean_anchor = float(
                 sum(r.anchor_channel for r in sws_routed_draws) / len(sws_routed_draws)
             )

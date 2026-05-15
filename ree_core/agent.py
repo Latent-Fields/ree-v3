@@ -1150,6 +1150,9 @@ class REEAgent(nn.Module):
                 rem_precision_recalibration_step=float(
                     getattr(config, "rem_precision_recalibration_step", 0.1)
                 ),
+                use_mech272_routing_consumer=bool(
+                    getattr(config, "use_mech272_routing_consumer", False)
+                ),
             )
 
         # Observation encoders (maps raw body/world obs to latent input)

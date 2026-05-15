@@ -2547,6 +2547,7 @@ class REEConfig:
         mech272_sws_probe_weight: float = 0.4,
         mech272_rem_anchor_weight: float = 0.2,
         mech272_rem_probe_weight: float = 0.8,
+        use_mech272_routing_consumer: bool = False,
         # Phase D: MECH-275 Bayesian aggregator
         use_mech275_aggregator: bool = False,
         mech275_domains: tuple = ("place",),
@@ -3044,6 +3045,7 @@ class REEConfig:
         config.mech272_sws_probe_weight = mech272_sws_probe_weight
         config.mech272_rem_anchor_weight = mech272_rem_anchor_weight
         config.mech272_rem_probe_weight = mech272_rem_probe_weight
+        config.use_mech272_routing_consumer = use_mech272_routing_consumer
 
         # Sleep-aggregation cluster Phase D (MECH-275)
         config.use_mech275_aggregator = use_mech275_aggregator
