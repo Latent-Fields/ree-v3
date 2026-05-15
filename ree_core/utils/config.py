@@ -721,6 +721,13 @@ class HippocampalConfig:
         "internal_replay":       0.5,
         "offline_consolidation": 0.3,
     })
+    # SD-055: differentiable CEM selection approximation. When enabled, replaces
+    # the non-differentiable argsort elite-selection step with a softmax-weighted
+    # candidate mean so gradient can flow back to cue_action_proj (SD-016).
+    # ARC-007 STRICT: scoring continues to use existing residue-terrain evaluation;
+    # no value head is added. Opt-in; default False (legacy argmax path unchanged).
+    use_differentiable_cem: bool = False
+    differentiable_cem_temperature: float = 1.0
     # MECH-269 base substrate (Phase 1, 2026-04-22): per-stream verisimilitude
     # V_s scores tracked on the HippocampalModule. For each registered stream,
     # V_s = 1 - norm(z_hat - z_curr) / (norm(z_curr) + eps), EMA-smoothed with
@@ -2553,6 +2560,9 @@ class REEConfig:
         support_preserving_ao_std_floor: float = 0.0,
         # V3-EXQ-563c: score/bias scale normalisation
         normalize_score_bias_to_e3_range: bool = False,
+        # SD-055: differentiable CEM selection approximation
+        use_differentiable_cem: bool = False,
+        differentiable_cem_temperature: float = 1.0,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -3056,6 +3066,9 @@ class REEConfig:
         config.hippocampal.support_preserving_ao_std_floor = (
             support_preserving_ao_std_floor
         )
+        # SD-055: differentiable CEM selection approximation
+        config.hippocampal.use_differentiable_cem = use_differentiable_cem
+        config.hippocampal.differentiable_cem_temperature = differentiable_cem_temperature
 
         # V3-EXQ-563c: score/bias scale normalisation
         config.e3.normalize_score_bias_to_e3_range = normalize_score_bias_to_e3_range

@@ -976,6 +976,16 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     condition_count = _run_axis_count(item.get("conditions", 1), "conditions")
     total_runs = max(1, seed_count * condition_count)
     episodes_per_run = item.get("episodes_per_run", 130)
+    # Floor prevents warmup/eval phase denominators from shrinking below the
+    # queue-specified per-run episode count (fix for multi-phase experiments).
+    episodes_per_run_floor = item.get("episodes_per_run", 0)
+    # True when the experiment manages seeds/conditions internally (no queue metadata).
+    _unstructured_est = (
+        bool(item.get("estimated_minutes"))
+        and not item.get("seeds")
+        and not item.get("conditions")
+        and total_runs == 1
+    )
 
     runs_done = 0
     current_run_label = "starting..."
@@ -987,13 +997,24 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     started_at_utc = now_utc()
 
     def overall_pct() -> float:
+        # For experiments with estimated_minutes but no seed/condition metadata,
+        # use elapsed-time fraction so multi-phase internal loops don't cause
+        # the timer to show 100% after the first phase completes.
+        if _unstructured_est:
+            elapsed = time.monotonic() - started_at
+            est_secs = float(item["estimated_minutes"]) * 60
+            return min(round(elapsed / est_secs * 100, 1), 99.0)
         run_frac = (runs_done + episodes_in_run / max(episodes_per_run, 1)) / max(total_runs, 1)
         return round(run_frac * 100, 1)
 
     def seconds_remaining() -> float:
         elapsed = time.monotonic() - started_at
         pct = overall_pct()
-        static_secs = estimate_minutes(item, calibration, script_timing) * 60
+        manual_est = item.get("estimated_minutes")
+        if manual_est:
+            static_secs = float(manual_est) * 60
+        else:
+            static_secs = estimate_minutes(item, calibration, script_timing) * 60
         if pct <= 0:
             return static_secs
         if run_end_times:
@@ -1165,7 +1186,12 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             m = RE_EP_PROGRESS.search(line)
             if m:
                 episodes_in_run = int(m.group(1))
-                episodes_per_run = int(m.group(2))  # use denominator for accurate pct
+                new_denom = int(m.group(2))
+                # Only update if the new denominator is at least as large as the
+                # queue-specified floor, so warmup/eval phase denominators don't
+                # shrink episodes_per_run and cause overall_pct to hit 100% early.
+                if episodes_per_run_floor == 0 or new_denom >= episodes_per_run_floor:
+                    episodes_per_run = new_denom
 
             # Progress bar -- print every 20% of progress
             if episodes_in_run > 0:

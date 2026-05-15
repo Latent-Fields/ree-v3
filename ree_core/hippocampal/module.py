@@ -1068,30 +1068,61 @@ class HippocampalModule(nn.Module):
                 **support_elite_diag,
             })
 
-            # Refit distribution to elite action-object sequences
-            # Extract action objects from trajectories
-            elite_ao = []
-            for i in elite_indices:
-                idx = int(i.item() if hasattr(i, "item") else i)
-                ao_seq = trajectories[idx].get_action_object_sequence()
-                if ao_seq is not None:
-                    elite_ao.append(ao_seq)
-
-            if elite_ao:
-                elite_ao_tensor = torch.stack(elite_ao)  # [elite, batch, H, ao_dim]
-                ao_mean = elite_ao_tensor.mean(dim=0)
-                ao_std  = elite_ao_tensor.std(dim=0) + 1e-6
-                # V3-EXQ-563c: ao_std floor prevents collapse when all elites
-                # share one action class (sd approaches zero after refit).
-                _std_floor = float(
-                    getattr(self.config, "support_preserving_ao_std_floor", 0.0)
-                )
-                if (
-                    getattr(self.config, "use_support_preserving_cem", False)
-                    and _std_floor > 0.0
-                ):
-                    ao_std = torch.clamp(ao_std, min=_std_floor)
-            # else: keep previous distribution
+            # Refit distribution to action-object sequences.
+            # SD-055: when use_differentiable_cem=True, use a softmax-weighted
+            # mean over ALL candidates so that ao_mean is differentiable w.r.t.
+            # scores (and therefore w.r.t. cue_action_proj via E2 rollouts).
+            # ARC-007 STRICT preserved: scoring still uses _score_trajectory
+            # over residue terrain; no value head is added here.
+            # When False (default), legacy argsort + indexed mean over elites.
+            _std_floor = float(
+                getattr(self.config, "support_preserving_ao_std_floor", 0.0)
+            )
+            if getattr(self.config, "use_differentiable_cem", False):
+                # Collect (ao_seq, score) pairs for candidates that have ao seqs.
+                _diff_ao, _diff_scores = [], []
+                for _traj, _sc in zip(trajectories, scores):
+                    _ao_seq = _traj.get_action_object_sequence()
+                    if _ao_seq is not None:
+                        _diff_ao.append(_ao_seq)
+                        _diff_scores.append(_sc)
+                if _diff_ao:
+                    _T = max(
+                        float(getattr(self.config, "differentiable_cem_temperature", 1.0)),
+                        1e-6,
+                    )
+                    _all_ao = torch.stack(_diff_ao)   # [n, batch, H, ao_dim]
+                    _sc_t   = torch.stack(_diff_scores)  # [n]
+                    # softmax(-score/T): lower score -> higher weight (better)
+                    _w = torch.softmax(-_sc_t / _T, dim=0)  # [n]
+                    ao_mean = (_w.view(-1, 1, 1, 1) * _all_ao).sum(dim=0)
+                    ao_std  = _all_ao.std(dim=0) + 1e-6
+                    if (
+                        getattr(self.config, "use_support_preserving_cem", False)
+                        and _std_floor > 0.0
+                    ):
+                        ao_std = torch.clamp(ao_std, min=_std_floor)
+                # else: keep previous distribution
+            else:
+                # Legacy: argsort elite selection + indexed mean.
+                elite_ao = []
+                for i in elite_indices:
+                    idx = int(i.item() if hasattr(i, "item") else i)
+                    ao_seq = trajectories[idx].get_action_object_sequence()
+                    if ao_seq is not None:
+                        elite_ao.append(ao_seq)
+                if elite_ao:
+                    elite_ao_tensor = torch.stack(elite_ao)  # [elite, batch, H, ao_dim]
+                    ao_mean = elite_ao_tensor.mean(dim=0)
+                    ao_std  = elite_ao_tensor.std(dim=0) + 1e-6
+                    # V3-EXQ-563c: ao_std floor prevents collapse when all
+                    # elites share one action class.
+                    if (
+                        getattr(self.config, "use_support_preserving_cem", False)
+                        and _std_floor > 0.0
+                    ):
+                        ao_std = torch.clamp(ao_std, min=_std_floor)
+                # else: keep previous distribution
 
             all_trajectories = trajectories
 
