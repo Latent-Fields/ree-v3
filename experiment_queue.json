@@ -44,10 +44,10 @@
       "priority": 20,
       "status": "pending",
       "machine_affinity": "any",
-      "estimated_minutes": 15,
-      "seeds": 2,
-      "conditions": 4,
-      "episodes_per_run": 20,
+      "estimated_minutes": 25,
+      "seeds": 3,
+      "conditions": 3,
+      "episodes_per_run": 50,
       "claim_ids": [],
       "experiment_purpose": "diagnostic"
     }

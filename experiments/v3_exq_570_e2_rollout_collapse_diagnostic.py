@@ -1,343 +1,329 @@
-#!/usr/bin/env python3
-"""
-V3-EXQ-570: E2 Rollout Collapse Diagnostic
+"""V3-EXQ-570: E2 rollout collapse diagnostic.
 
-Diagnostic experiment testing whether E2 rollout collapse prevents candidate
-diversity from becoming behavioural diversity in the ree-v3 architecture.
+Stage 3 of the behavioral diversity collapse chain: even when CEM produces
+diverse first-action candidates (Stage 1 fixed by SP-CEM, EXQ-567), E2 dynamics
+over H=30 rollout steps may converge all candidates to identical terminal z_world
+states, eliminating diversity before E3 scoring.
 
-4 arms measure candidate and z_world diversity at different intervention points:
-  ARM_0_baseline   -- standard agent + env, temperature=1.0
-  ARM_1_high_temp  -- standard env, temperature=5.0
-  ARM_2_bipartite  -- SD-054 bipartite env (categorically distinct niches), temperature=1.0
-  ARM_3_oracle     -- bypass CEM; inject diverse synthetic action seqs into E2.rollout_with_world
+Interpretation grid:
+  ARM_1 diversity_preservation_ratio > 0.5  -> Stage 3 is NOT the bottleneck;
+      z_world diversity survives rollout. Look at E3 scoring or post-commit collapse.
+  ARM_1 ratio 0.3-0.5  -> Partial collapse; E2 attenuates diversity but does not
+      eliminate it. Stage 3 is a contributing factor.
+  ARM_1 ratio < 0.3    -> Stage 3 IS a bottleneck; E2 rollout collapses candidates.
+      Needs a diversity-preserving rollout objective or shorter horizon.
+  ARM_1 first_step_spread < 0.01 -> Class-anchored sequences failed to produce
+      diverse first-step z_world; experiment is non-contributory at init.
 
-PASS criterion (pre-registered threshold):
-  ARM_3 mean oracle_z_world_pairwise_dist > 0.05 (across all seeds)
-
-Interpretation grid (one row per plausible outcome -> next action):
-  oracle FAIL                            -> E2/LatentStack z_world insensitive to action;
-                                           root cause in substrate; check alpha_world, encoder
-  oracle PASS, arm0 entropy < 0.3 nat   -> CEM/hippocampus collapses proposal diversity;
-                                           check hippocampal.propose_trajectories() distribution
-  oracle PASS, arm1 entropy > arm0      -> temperature lever effective;
-                                           raise temperature or soften CEM scoring
-  oracle PASS, arm2 entropy > arm0      -> env contrast lever sufficient;
-                                           bipartite env or env-diversity injection recommended
-  oracle PASS, all arms low entropy     -> scoring/selection collapses diverse proposals;
-                                           check E3._running_variance and score sharpening
+EXPERIMENT_PURPOSE = "diagnostic" -- excluded from governance confidence scoring.
 """
 
-import argparse
-import json
-import os
 import sys
-from datetime import datetime
-
+import json
+import argparse
 import numpy as np
 import torch
+from datetime import datetime
+from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from experiment_protocol import emit_outcome
-from ree_core.agent import REEAgent, REEConfig, candidate_support_preflight
-from ree_core.environment.causal_grid_world import CausalGridWorldV2
+from ree_core.environment.causal_grid_world import CausalGridWorld
+from ree_core.agent import REEAgent
+from ree_core.utils.config import REEConfig
 
-QUEUE_ID = "V3-EXQ-570"
-EXPERIMENT_TYPE = "v3_exq_570_e2_rollout_collapse_diagnostic"
 EXPERIMENT_PURPOSE = "diagnostic"
+EXPERIMENT_TYPE = "v3_exq_570_e2_rollout_collapse_diagnostic"
 
 # Pre-registered thresholds
-THRESHOLD_ORACLE_Z_WORLD_DIST = 0.05   # ARM_3 PASS if mean pairwise L2 > this
-THRESHOLD_ARM0_ENTROPY_DIAGNOSTIC = 0.3  # below this flags candidate collapse in ARM_0
+PASS_THRESHOLD = 0.5
+FAIL_THRESHOLD = 0.3
+NON_CONTRIBUTORY_SPREAD_MIN = 0.01
 
-# Run config
-SEEDS = [42, 123]
-EPISODES_PER_ARM = 20
-STEPS_PER_EPISODE = 30
-WARMUP_STEPS = 5          # steps before measuring to let latents initialise
-ORACLE_ROLLOUT_HORIZON = 8
+SEEDS = [42, 123, 456]
+N_PROBE_STEPS = 50
+N_RANDOM_CANDIDATES = 32
+GRID_SIZE = 8
+NUM_HAZARDS = 1
 
-ARM_LABELS = [
-    "ARM_0_baseline",
-    "ARM_1_high_temp",
-    "ARM_2_bipartite",
-    "ARM_3_oracle",
-]
-ARM_TEMPERATURES = {
-    "ARM_0_baseline": 1.0,
-    "ARM_1_high_temp": 5.0,
-    "ARM_2_bipartite": 1.0,
-    "ARM_3_oracle": 1.0,
-}
-ARM_BIPARTITE = {
-    "ARM_0_baseline": False,
-    "ARM_1_high_temp": False,
-    "ARM_2_bipartite": True,
-    "ARM_3_oracle": True,
-}
+ARM_NAMES = ["ARM_0_random_cem", "ARM_1_class_scaffold", "ARM_2_mixed"]
 
 
-def make_env(arm_label, seed):
-    kwargs = {"num_hazards": 1, "seed": seed}
-    if ARM_BIPARTITE[arm_label]:
-        kwargs.update({
-            "reef_enabled": True,
-            "reef_bipartite_layout": True,
-            "reef_bipartite_axis": "horizontal",
-            "reef_bipartite_agent_band_radius": 1,
-        })
-    return CausalGridWorldV2(**kwargs)
-
-
-def make_agent(env, seed):
+def make_env_and_agent(seed):
     torch.manual_seed(seed)
     np.random.seed(seed)
-    _flat, obs_dict = env.reset()
-    obs_body_dim = int(obs_dict["body_state"].shape[0])
-    obs_world_dim = int(obs_dict["world_state"].shape[0])
-    action_dim = int(env.action_dim)
-    config = REEConfig.from_dims(
-        body_obs_dim=obs_body_dim,
-        world_obs_dim=obs_world_dim,
-        action_dim=action_dim,
-        alpha_world=0.9,  # SD-008: required for z_world fidelity
+
+    env = CausalGridWorld(
+        size=GRID_SIZE,
+        num_hazards=NUM_HAZARDS,
+        use_proxy_fields=True,
     )
-    agent = REEAgent(config)
+    _, obs_dict = env.reset()
+
+    body_obs_dim = obs_dict["body_state"].shape[0]
+    world_obs_dim = obs_dict["world_state"].shape[0]
+    action_dim = env.action_dim
+
+    config = REEConfig().from_dims(
+        body_obs_dim=body_obs_dim,
+        world_obs_dim=world_obs_dim,
+        action_dim=action_dim,
+        harm_obs_dim=51,
+    )
+    config.latent.alpha_world = 0.9  # SD-008: high fidelity z_world
+
+    agent = REEAgent(config=config)
     agent.eval()
-    return agent, action_dim
+
+    horizon = config.e2.rollout_horizon
+    return agent, env, obs_dict, action_dim, horizon
 
 
-def mean_pairwise_l2(vecs):
-    """Mean pairwise L2 distance over a list of numpy vectors."""
-    if len(vecs) < 2:
+def build_candidates(arm_name, action_dim, horizon, n_random):
+    """Build action sequences [N, horizon, action_dim] for each arm."""
+    if arm_name == "ARM_0_random_cem":
+        return torch.randn(n_random, horizon, action_dim)
+
+    elif arm_name == "ARM_1_class_scaffold":
+        seqs = []
+        for ac in range(action_dim):
+            seq = torch.zeros(horizon, action_dim)
+            seq[0, ac] = 1.0  # one-hot first action, rest zeros
+            seqs.append(seq)
+        return torch.stack(seqs, dim=0)  # [4, horizon, action_dim]
+
+    elif arm_name == "ARM_2_mixed":
+        class_seqs = []
+        for ac in range(action_dim):
+            seq = torch.zeros(horizon, action_dim)
+            seq[0, ac] = 1.0
+            class_seqs.append(seq)
+        n_fill = max(0, n_random - action_dim)
+        if n_fill > 0:
+            fill = torch.randn(n_fill, horizon, action_dim)
+            return torch.cat([torch.stack(class_seqs, dim=0), fill], dim=0)
+        return torch.stack(class_seqs, dim=0)
+
+    else:
+        raise ValueError(f"Unknown arm: {arm_name}")
+
+
+def compute_spread(z_list):
+    """Mean std across latent dims for a list of z tensors."""
+    if len(z_list) < 2:
         return 0.0
-    dists = []
-    for i in range(len(vecs)):
-        for j in range(i + 1, len(vecs)):
-            dists.append(float(np.linalg.norm(vecs[i] - vecs[j])))
-    return float(np.mean(dists)) if dists else 0.0
+    stacked = torch.stack(z_list, dim=0)
+    return stacked.std(dim=0).mean().item()
 
 
-def first_action_seq_diversity(candidates):
-    """Mean pairwise L2 of first-step actions across candidate trajectories."""
-    if not candidates or len(candidates) < 2:
-        return 0.0
-    # Trajectory.actions: [batch=1, horizon, action_dim]
-    first_actions = [c.actions[0, 0].detach().cpu().numpy() for c in candidates]
-    return mean_pairwise_l2(first_actions)
+def run_arm(arm_name, seed, dry_run=False):
+    agent, env, obs_dict, action_dim, horizon = make_env_and_agent(seed)
+    n_steps = 3 if dry_run else N_PROBE_STEPS
 
+    first_step_spreads = []
+    terminal_spreads = []
 
-def run_arm(arm_label, seed, episodes, dry_run=False):
-    """Run one arm×seed combination and return aggregated metrics dict."""
-    env = make_env(arm_label, seed)
-    agent, action_dim = make_agent(env, seed)
-    temperature = ARM_TEMPERATURES[arm_label]
-    ep_count = 2 if dry_run else episodes
-
-    arm_first_entropy = []
-    arm_seq_diversity = []
-    arm_e3_variance = []
-    arm_oracle_z_world_dist = []
-
-    for ep in range(ep_count):
-        flat_obs, obs_dict = env.reset()
-        obs_body_t = torch.as_tensor(obs_dict["body_state"], dtype=torch.float32).unsqueeze(0)
-        obs_world_t = torch.as_tensor(obs_dict["world_state"], dtype=torch.float32).unsqueeze(0)
-
-        ep_first_entropy = []
-        ep_seq_diversity = []
-        ep_e3_variance = []
-        ep_oracle_z_world_dist = []
-
-        for step in range(STEPS_PER_EPISODE):
-            with torch.no_grad():
-                action_t = agent.act_with_split_obs(
-                    obs_body_t, obs_world_t, temperature=temperature
-                )
-            action_np = int(action_t.argmax(dim=-1).item())
-
-            if step >= WARMUP_STEPS:
-                if arm_label == "ARM_3_oracle":
-                    latent = agent._current_latent
-                    if latent is not None:
-                        z_self = latent.z_self   # [1, self_dim]
-                        z_world = latent.z_world  # [1, world_dim]
-                        n_dirs = min(4, action_dim)
-
-                        # Construct 2*n_dirs diverse action sequences (pos + neg per dim)
-                        seqs = []
-                        for d in range(n_dirs):
-                            s = torch.zeros(1, ORACLE_ROLLOUT_HORIZON, action_dim)
-                            s[0, :, d] = 1.0
-                            seqs.append(s)
-                        for d in range(n_dirs):
-                            s = torch.zeros(1, ORACLE_ROLLOUT_HORIZON, action_dim)
-                            s[0, :, d] = -1.0
-                            seqs.append(s)
-
-                        final_z_worlds = []
-                        with torch.no_grad():
-                            for s in seqs:
-                                traj = agent.hippocampal.e2.rollout_with_world(
-                                    z_self, z_world, s,
-                                    compute_action_objects=False,
-                                )
-                                if traj.world_states and len(traj.world_states) > 0:
-                                    zw = traj.world_states[-1][0].detach().cpu().numpy()
-                                    final_z_worlds.append(zw)
-
-                        if len(final_z_worlds) >= 2:
-                            ep_oracle_z_world_dist.append(mean_pairwise_l2(final_z_worlds))
-                else:
-                    candidates = agent._committed_candidates
-                    if candidates is not None:
-                        try:
-                            sup = candidate_support_preflight(candidates)
-                            ep_first_entropy.append(
-                                float(sup.get("candidate_first_action_entropy", 0.0))
-                            )
-                        except Exception:
-                            pass
-                        ep_seq_diversity.append(first_action_seq_diversity(candidates))
-
-                    try:
-                        ep_e3_variance.append(float(agent.e3._running_variance))
-                    except Exception:
-                        pass
-
-            flat_obs, harm_signal, done, info, next_obs_dict = env.step(action_np)
-            obs_dict = next_obs_dict
-            obs_body_t = torch.as_tensor(obs_dict["body_state"], dtype=torch.float32).unsqueeze(0)
-            obs_world_t = torch.as_tensor(obs_dict["world_state"], dtype=torch.float32).unsqueeze(0)
-            if done:
-                break
-
-        if ep_first_entropy:
-            arm_first_entropy.append(float(np.mean(ep_first_entropy)))
-        if ep_seq_diversity:
-            arm_seq_diversity.append(float(np.mean(ep_seq_diversity)))
-        if ep_e3_variance:
-            arm_e3_variance.append(float(np.mean(ep_e3_variance)))
-        if ep_oracle_z_world_dist:
-            arm_oracle_z_world_dist.append(float(np.mean(ep_oracle_z_world_dist)))
-
-        if (ep + 1) % max(1, ep_count // 4) == 0 or ep + 1 == ep_count:
+    for step_i in range(n_steps):
+        if (step_i + 1) % 10 == 0 or step_i == 0:
             print(
-                f"  [train] {arm_label} seed={seed} ep {ep + 1}/{ep_count} ...",
+                f"  [train] label seed={seed} ep {step_i+1}/{n_steps} arm={arm_name}",
                 flush=True,
             )
 
+        obs_body = torch.tensor(obs_dict["body_state"]).float()
+        obs_world = torch.tensor(obs_dict["world_state"]).float()
+        latent = agent.sense(obs_body=obs_body, obs_world=obs_world)
+
+        z_world = latent.z_world
+        z_self = latent.z_self
+        if z_world is None:
+            _, _, terminated, _, obs_dict = env.step(int(np.random.randint(env.action_dim)))
+            if terminated:
+                _, obs_dict = env.reset()
+            continue
+        if z_world.dim() == 2:
+            z_world = z_world.squeeze(0)
+        if z_self is not None and z_self.dim() == 2:
+            z_self = z_self.squeeze(0)
+        z_world = z_world.detach()
+        z_self = z_self.detach() if z_self is not None else torch.zeros_like(z_world)
+
+        candidates = build_candidates(arm_name, action_dim, horizon, N_RANDOM_CANDIDATES)
+
+        first_zw = []
+        terminal_zw = []
+
+        with torch.no_grad():
+            for i in range(candidates.shape[0]):
+                seq = candidates[i].unsqueeze(0)  # [1, horizon, action_dim]
+                traj = agent.e2.rollout_with_world(
+                    initial_z_self=z_self.unsqueeze(0),
+                    initial_z_world=z_world.unsqueeze(0),
+                    action_sequence=seq,
+                )
+                ws = traj.world_states
+                if ws is not None and len(ws) >= 2:
+                    w1 = ws[1]
+                    wt = ws[-1]
+                    if w1.dim() == 2:
+                        w1 = w1.squeeze(0)
+                    if wt.dim() == 2:
+                        wt = wt.squeeze(0)
+                    first_zw.append(w1.detach())
+                    terminal_zw.append(wt.detach())
+
+        if len(first_zw) >= 2:
+            first_step_spreads.append(compute_spread(first_zw))
+            terminal_spreads.append(compute_spread(terminal_zw))
+
+        action = int(np.random.randint(env.action_dim))
+        _, _, terminated, _, obs_dict = env.step(action)
+        if terminated:
+            _, obs_dict = env.reset()
+
+    mean_fs = float(np.mean(first_step_spreads)) if first_step_spreads else 0.0
+    mean_ts = float(np.mean(terminal_spreads)) if terminal_spreads else 0.0
+    ratio = mean_ts / (mean_fs + 1e-6)
+
     return {
-        "arm": arm_label,
+        "arm": arm_name,
         "seed": seed,
-        "episodes": ep_count,
-        "mean_first_action_entropy": float(np.mean(arm_first_entropy)) if arm_first_entropy else None,
-        "mean_action_seq_diversity": float(np.mean(arm_seq_diversity)) if arm_seq_diversity else None,
-        "mean_e3_score_variance": float(np.mean(arm_e3_variance)) if arm_e3_variance else None,
-        "mean_oracle_z_world_pairwise_dist": (
-            float(np.mean(arm_oracle_z_world_dist)) if arm_oracle_z_world_dist else None
-        ),
+        "n_valid": len(first_step_spreads),
+        "mean_first_step_spread": mean_fs,
+        "mean_terminal_spread": mean_ts,
+        "diversity_preservation_ratio": ratio,
     }
 
 
-def run_experiment(seeds, episodes, dry_run=False):
+def run_experiment(dry_run=False):
     all_results = {}
-    oracle_passed_flags = []
 
-    for seed in seeds:
-        for arm_label in ARM_LABELS:
-            print(f"Seed {seed} Condition {arm_label}", flush=True)
-            result = run_arm(arm_label, seed, episodes, dry_run=dry_run)
+    for arm_name in ARM_NAMES:
+        arm_results = []
+        for seed in SEEDS:
+            print(f"Seed {seed} Condition {arm_name}", flush=True)
+            r = run_arm(arm_name, seed, dry_run=dry_run)
+            arm_results.append(r)
+            passed_seed = r["diversity_preservation_ratio"] >= PASS_THRESHOLD
+            print(f"verdict: {'PASS' if passed_seed else 'FAIL'}", flush=True)
+        all_results[arm_name] = arm_results
 
-            if arm_label == "ARM_3_oracle":
-                dist = result.get("mean_oracle_z_world_pairwise_dist")
-                arm_passed = dist is not None and dist > THRESHOLD_ORACLE_Z_WORLD_DIST
-                oracle_passed_flags.append(arm_passed)
-                result["arm_passed"] = arm_passed
-            else:
-                result["arm_passed"] = True  # non-oracle arms are diagnostic; don't gate outcome
+    arm_summaries = {}
+    for arm_name, arm_results in all_results.items():
+        valid = [r for r in arm_results if r["n_valid"] > 0]
+        if valid:
+            arm_summaries[arm_name] = {
+                "mean_first_step_spread": float(np.mean([r["mean_first_step_spread"] for r in valid])),
+                "mean_terminal_spread": float(np.mean([r["mean_terminal_spread"] for r in valid])),
+                "diversity_preservation_ratio": float(np.mean([r["diversity_preservation_ratio"] for r in valid])),
+                "n_valid_seeds": len(valid),
+            }
+        else:
+            arm_summaries[arm_name] = {
+                "mean_first_step_spread": 0.0,
+                "mean_terminal_spread": 0.0,
+                "diversity_preservation_ratio": 0.0,
+                "n_valid_seeds": 0,
+            }
 
-            if arm_label == "ARM_0_baseline":
-                entropy = result.get("mean_first_action_entropy")
-                if entropy is not None and entropy < THRESHOLD_ARM0_ENTROPY_DIAGNOSTIC:
-                    print(
-                        f"  [diag] arm0 first_action_entropy={entropy:.4f} < "
-                        f"{THRESHOLD_ARM0_ENTROPY_DIAGNOSTIC} -> candidate collapse flagged",
-                        flush=True,
-                    )
+    arm1 = arm_summaries.get("ARM_1_class_scaffold", {})
+    arm1_ratio = arm1.get("diversity_preservation_ratio", 0.0)
+    arm1_first_step = arm1.get("mean_first_step_spread", 0.0)
 
-            all_results[f"seed{seed}_{arm_label}"] = result
-            print(f"verdict: {'PASS' if result['arm_passed'] else 'FAIL'}", flush=True)
+    if arm1_first_step < NON_CONTRIBUTORY_SPREAD_MIN:
+        outcome = "FAIL"
+        outcome_note = (
+            f"non_contributory: scaffold first_step_spread={arm1_first_step:.4f} < "
+            f"{NON_CONTRIBUTORY_SPREAD_MIN}; z_world at random init lacks sensitivity "
+            f"to first-action diversity"
+        )
+    elif arm1_ratio >= PASS_THRESHOLD:
+        outcome = "PASS"
+        outcome_note = (
+            f"E2 rollout preserves diversity (ARM_1 ratio={arm1_ratio:.3f} >= {PASS_THRESHOLD}); "
+            f"Stage 3 is NOT the bottleneck"
+        )
+    elif arm1_ratio < FAIL_THRESHOLD:
+        outcome = "FAIL"
+        outcome_note = (
+            f"E2 rollout collapses diversity (ARM_1 ratio={arm1_ratio:.3f} < {FAIL_THRESHOLD}); "
+            f"Stage 3 IS a bottleneck"
+        )
+    else:
+        outcome = "FAIL"
+        outcome_note = (
+            f"Partial E2 collapse (ARM_1 ratio={arm1_ratio:.3f} in [{FAIL_THRESHOLD}, {PASS_THRESHOLD}]); "
+            f"Stage 3 is a contributing factor"
+        )
 
-    overall_passed = bool(oracle_passed_flags) and all(oracle_passed_flags)
-    return all_results, "PASS" if overall_passed else "FAIL", oracle_passed_flags
-
-
-def main():
-    parser = argparse.ArgumentParser(description="V3-EXQ-570 E2 Rollout Collapse Diagnostic")
-    parser.add_argument("--dry-run", action="store_true", help="2 episodes per arm for fast validation")
-    parser.add_argument("--seeds", type=int, nargs="+", default=None)
-    args = parser.parse_args()
-
-    seeds = args.seeds or SEEDS
-    dry_run = args.dry_run
-
-    if dry_run:
-        print("DRY RUN: 2 episodes per arm", flush=True)
-
-    print(f"Starting {QUEUE_ID}: E2 Rollout Collapse Diagnostic", flush=True)
-    print(
-        f"Seeds: {seeds}, Episodes/arm: {2 if dry_run else EPISODES_PER_ARM}, "
-        f"Arms: {len(ARM_LABELS)}, oracle threshold: {THRESHOLD_ORACLE_Z_WORLD_DIST}",
-        flush=True,
-    )
-
-    all_results, outcome, oracle_flags = run_experiment(seeds, EPISODES_PER_ARM, dry_run=dry_run)
-
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"{EXPERIMENT_TYPE}_{timestamp}_v3"
-
-    manifest = {
-        "run_id": run_id,
-        "queue_id": QUEUE_ID,
-        "experiment_type": EXPERIMENT_TYPE,
-        "experiment_purpose": EXPERIMENT_PURPOSE,
-        "architecture_epoch": "ree_hybrid_guardrails_v1",
-        "claim_ids": [],
+    return {
         "outcome": outcome,
-        "timestamp_utc": timestamp,
-        "seeds": seeds,
-        "episodes_per_arm": 2 if dry_run else EPISODES_PER_ARM,
-        "steps_per_episode": STEPS_PER_EPISODE,
-        "warmup_steps": WARMUP_STEPS,
-        "oracle_rollout_horizon": ORACLE_ROLLOUT_HORIZON,
-        "threshold_oracle_z_world_dist": THRESHOLD_ORACLE_Z_WORLD_DIST,
-        "threshold_arm0_entropy_diagnostic": THRESHOLD_ARM0_ENTROPY_DIAGNOSTIC,
-        "arm_labels": ARM_LABELS,
-        "all_results": all_results,
-        "oracle_passed_per_seed": oracle_flags,
-        "dry_run": dry_run,
+        "outcome_note": outcome_note,
+        "arm_summaries": arm_summaries,
+        "per_seed_results": all_results,
     }
-
-    out_dir = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "..", "..", "REE_assembly", "evidence", "experiments",
-    )
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, f"{run_id}.json")
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
-
-    print(f"Manifest written: {out_path}", flush=True)
-    print(f"Outcome: {outcome}", flush=True)
-
-    return outcome, out_path
 
 
 if __name__ == "__main__":
-    _outcome, _out_path = main()
-    _outcome_raw = str(_outcome).upper()
+    parser = argparse.ArgumentParser(description="V3-EXQ-570: E2 rollout collapse diagnostic")
+    parser.add_argument("--dry-run", action="store_true", help="Short run for smoke testing")
+    args = parser.parse_args()
+
+    result = run_experiment(dry_run=args.dry_run)
+
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    run_id = f"v3_exq_570_e2_rollout_collapse_diagnostic_{timestamp}_v3"
+
+    out_dir = (
+        Path(__file__).parent.parent.parent
+        / "REE_assembly"
+        / "evidence"
+        / "experiments"
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest = {
+        "run_id": run_id,
+        "experiment_type": EXPERIMENT_TYPE,
+        "architecture_epoch": "ree_hybrid_guardrails_v1",
+        "claim_ids": ["ARC-065"],
+        "experiment_purpose": EXPERIMENT_PURPOSE,
+        "evidence_direction": "diagnostic",
+        "outcome": result["outcome"],
+        "outcome_note": result["outcome_note"],
+        "timestamp_utc": timestamp,
+        "seeds": SEEDS,
+        "n_probe_steps": N_PROBE_STEPS,
+        "n_random_candidates": N_RANDOM_CANDIDATES,
+        "arm_names": ARM_NAMES,
+        "arm_summaries": result["arm_summaries"],
+        "per_seed_results": {
+            arm: [
+                {k: (v if not isinstance(v, float) else float(v))
+                 for k, v in r.items()}
+                for r in results
+            ]
+            for arm, results in result["per_seed_results"].items()
+        },
+        "thresholds": {
+            "pass": PASS_THRESHOLD,
+            "fail": FAIL_THRESHOLD,
+            "non_contributory_spread_min": NON_CONTRIBUTORY_SPREAD_MIN,
+        },
+    }
+
+    out_path = out_dir / f"{run_id}.json"
+
+    with open(out_path, "w") as f:
+        json.dump(manifest, f, indent=2, default=str)
+    print(f"Manifest written: {out_path}")
+
+    if args.dry_run:
+        print("DRY RUN complete.")
+
+    _outcome_raw = str(result["outcome"]).upper()
     emit_outcome(
         outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
-        manifest_path=_out_path,
+        manifest_path=out_path,
     )
