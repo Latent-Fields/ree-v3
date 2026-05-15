@@ -22,25 +22,6 @@
       "claim_ids": [
         "ARC-065"
       ]
-    },
-    {
-      "queue_id": "V3-EXQ-570",
-      "title": "E2 rollout collapse diagnostic -- oracle z_world pairwise distance",
-      "experiment_type": "v3_exq_570_e2_rollout_collapse_diagnostic",
-      "script": "experiments/v3_exq_570_e2_rollout_collapse_diagnostic.py",
-      "priority": 20,
-      "status": "claimed",
-      "machine_affinity": "any",
-      "estimated_minutes": 25,
-      "seeds": 3,
-      "conditions": 3,
-      "episodes_per_run": 50,
-      "claim_ids": [],
-      "experiment_purpose": "diagnostic",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-15T23:32:29.802722+00:00"
-      }
     }
   ]
 }
