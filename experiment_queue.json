@@ -27,29 +27,6 @@
         "machine": "ree-cloud-2",
         "claimed_at": "2026-05-15T19:59:38.727452+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-540f",
-      "title": "MECH-307 default-fix clean 3-seed rerun (seeds 42, 43, 45)",
-      "experiment_type": "v3_exq_540f_mech307_default_fix_3seed",
-      "script": "experiments/v3_exq_540f_mech307_default_fix_3seed.py",
-      "priority": 1,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "supersedes": "V3-EXQ-540e",
-      "claim_ids": [
-        "MECH-307",
-        "MECH-216",
-        "MECH-205",
-        "MECH-093",
-        "SD-014",
-        "MECH-295"
-      ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-15T18:34:44.778921+00:00"
-      }
     }
   ]
 }
