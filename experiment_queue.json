@@ -6,27 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-567",
-      "title": "WPB natural entropy measurement: SP-CEM vs normal CEM (no scaffold, no forced bias)",
-      "experiment_type": "v3_exq_567_wpb_natural_entropy_sp_cem",
-      "script": "experiments/v3_exq_567_wpb_natural_entropy_sp_cem.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 24,
-      "supersedes": "V3-EXQ-563b",
-      "seeds": 3,
-      "conditions": 2,
-      "episodes_per_run": 40,
-      "claim_ids": [
-        "ARC-065"
-      ],
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-15T19:59:38.727452+00:00"
-      }
-    }
-  ]
+  "items": []
 }
