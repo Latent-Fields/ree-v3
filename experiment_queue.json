@@ -23,6 +23,34 @@
       ]
     },
     {
+      "queue_id": "V3-EXQ-566",
+      "title": "WPC Rung 3: forced schema_salience injection diagnostic (MECH-216 write seam)",
+      "experiment_type": "v3_exq_566_wpc3_schema_salience_injection",
+      "script": "experiments/v3_exq_566_wpc3_schema_salience_injection.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 12,
+      "claim_ids": []
+    },
+    {
+      "queue_id": "V3-EXQ-567",
+      "title": "WPB natural entropy measurement: SP-CEM vs normal CEM (no scaffold, no forced bias)",
+      "experiment_type": "v3_exq_567_wpb_natural_entropy_sp_cem",
+      "script": "experiments/v3_exq_567_wpb_natural_entropy_sp_cem.py",
+      "priority": 2,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 24,
+      "supersedes": "V3-EXQ-563b",
+      "seeds": 3,
+      "conditions": 2,
+      "episodes_per_run": 40,
+      "claim_ids": [
+        "ARC-065"
+      ]
+    },
+    {
       "queue_id": "V3-EXQ-540f",
       "title": "MECH-307 default-fix clean 3-seed rerun (seeds 42, 43, 45)",
       "experiment_type": "v3_exq_540f_mech307_default_fix_3seed",
