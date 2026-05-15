@@ -359,6 +359,13 @@ class E3Config:
     # 0.8 default: fires only on strong affective harm signal; 1e9 effectively disables.
     urgency_interrupt_threshold: float = 0.8
 
+    # V3-EXQ-563c: experimental score-bias scale normalisation.
+    # When True, score_bias passed to select() is rescaled by the ratio
+    # raw_score_range / bias_range before application so that a given bias
+    # magnitude exerts a consistent *relative* push regardless of the raw
+    # score spread. Default False (backward compat: bias applied as-is).
+    normalize_score_bias_to_e3_range: bool = False
+
 
 @dataclass
 class EventSegmenterScaleConfig:
@@ -680,6 +687,20 @@ class HippocampalConfig:
     # preserves legacy proposer behaviour.
     use_support_preserving_cem: bool = False
     support_preserving_min_first_action_classes: int = 2
+    # Stratified elite selection: when True, the CEM elite refit always picks
+    # the best-scoring candidate per action class first (across ALL present
+    # classes), then fills remaining elite slots score-sorted. Stronger than
+    # the current support-preserving path which only activates when below the
+    # class-count target.  Requires use_support_preserving_cem=True.
+    support_preserving_stratified_elites: bool = False
+    # Per-class quota: when > 0, guarantees this many elite slots per
+    # represented action class (capped by total elite budget and actual
+    # candidates available).  0 = disabled (backward compat).
+    support_preserving_per_class_quota: int = 0
+    # ao_std floor: after each CEM elite refit, clamp ao_std to at least this
+    # value so the sampling distribution cannot collapse to a point.  0.0 =
+    # disabled (backward compat).
+    support_preserving_ao_std_floor: float = 0.0
     # VALENCE_WANTING gradient: when > 0, trajectories toward high-wanting
     # (resource-proximal) regions score better during CEM selection.
     # Subtracted from terrain score (lower score = better in CEM).
@@ -2526,6 +2547,12 @@ class REEConfig:
         # minimal first-action support floor without enabling the full scaffold.
         use_support_preserving_cem: bool = False,
         support_preserving_min_first_action_classes: int = 2,
+        # V3-EXQ-563c: stronger support-preserving CEM options
+        support_preserving_stratified_elites: bool = False,
+        support_preserving_per_class_quota: int = 0,
+        support_preserving_ao_std_floor: float = 0.0,
+        # V3-EXQ-563c: score/bias scale normalisation
+        normalize_score_bias_to_e3_range: bool = False,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -3020,6 +3047,18 @@ class REEConfig:
         config.hippocampal.support_preserving_min_first_action_classes = (
             support_preserving_min_first_action_classes
         )
+        config.hippocampal.support_preserving_stratified_elites = (
+            support_preserving_stratified_elites
+        )
+        config.hippocampal.support_preserving_per_class_quota = (
+            support_preserving_per_class_quota
+        )
+        config.hippocampal.support_preserving_ao_std_floor = (
+            support_preserving_ao_std_floor
+        )
+
+        # V3-EXQ-563c: score/bias scale normalisation
+        config.e3.normalize_score_bias_to_e3_range = normalize_score_bias_to_e3_range
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep

@@ -571,48 +571,92 @@ class HippocampalModule(nn.Module):
             return elite_indices, diag
         if target <= 1 or len(trajectories) <= 1:
             return elite_indices, diag
-        if before_summary["unique_first_action_classes"] >= target:
-            return elite_indices, diag
 
-        best_by_class: Dict[int, Tuple[int, float]] = {}
-        for idx, traj in enumerate(trajectories):
-            cls = self._trajectory_first_action_class(traj)
-            score = self._score_to_float(scores_tensor[idx])
-            if cls not in best_by_class or score < best_by_class[cls][1]:
-                best_by_class[cls] = (idx, score)
-
-        if len(best_by_class) < target:
-            return elite_indices, diag
-
-        selected: List[int] = []
-        selected_set = set()
-        selected_classes = set()
-        ranked_classes = sorted(
-            best_by_class.items(),
-            key=lambda item: (item[1][1], item[0]),
+        use_stratified = bool(
+            getattr(self.config, "support_preserving_stratified_elites", False)
         )
-        for cls, (idx, _score) in ranked_classes:
-            if len(selected_classes) >= target:
-                break
-            if idx in selected_set:
-                continue
-            selected.append(idx)
-            selected_set.add(idx)
-            selected_classes.add(cls)
+        per_class_quota = int(
+            getattr(self.config, "support_preserving_per_class_quota", 0)
+        )
 
+        # Non-stratified, no quota: original gate (skip if already diverse enough).
+        # With stratified=True or quota>0, always reselect to enforce the per-class
+        # guarantee.
+        if not use_stratified and per_class_quota == 0:
+            if before_summary["unique_first_action_classes"] >= target:
+                return elite_indices, diag
+
+        budget = int(elite_indices.numel())
+        selected: List[int] = []
+        selected_set: set = set()
+
+        if per_class_quota > 0:
+            # Build per-class candidate lists, sorted by score ascending (lower = better).
+            candidates_by_class: Dict[int, List[Tuple[int, float]]] = {}
+            for idx, traj in enumerate(trajectories):
+                cls = self._trajectory_first_action_class(traj)
+                score = self._score_to_float(scores_tensor[idx])
+                if cls not in candidates_by_class:
+                    candidates_by_class[cls] = []
+                candidates_by_class[cls].append((idx, score))
+            for cls in candidates_by_class:
+                candidates_by_class[cls].sort(key=lambda x: x[1])
+            # Rank classes by their best (lowest) score.
+            ranked_classes_q = sorted(
+                candidates_by_class.items(),
+                key=lambda item: (item[1][0][1], item[0]),
+            )
+            for cls, class_cands in ranked_classes_q:
+                n_taken = 0
+                for idx, _score in class_cands:
+                    if len(selected) >= budget or n_taken >= per_class_quota:
+                        break
+                    if idx not in selected_set:
+                        selected.append(idx)
+                        selected_set.add(idx)
+                        n_taken += 1
+        else:
+            # Original best-per-class logic, with or without the target gate.
+            best_by_class: Dict[int, Tuple[int, float]] = {}
+            for idx, traj in enumerate(trajectories):
+                cls = self._trajectory_first_action_class(traj)
+                score = self._score_to_float(scores_tensor[idx])
+                if cls not in best_by_class or score < best_by_class[cls][1]:
+                    best_by_class[cls] = (idx, score)
+
+            if not use_stratified and len(best_by_class) < target:
+                return elite_indices, diag
+
+            selected_classes: set = set()
+            ranked_classes = sorted(
+                best_by_class.items(),
+                key=lambda item: (item[1][1], item[0]),
+            )
+            # Stratified: force ALL present classes; non-stratified: up to target.
+            n_classes_to_force = (
+                len(best_by_class) if use_stratified else target
+            )
+            for cls, (idx, _score) in ranked_classes:
+                if len(selected_classes) >= n_classes_to_force:
+                    break
+                if idx not in selected_set:
+                    selected.append(idx)
+                    selected_set.add(idx)
+                    selected_classes.add(cls)
+
+        # Fill remaining elite slots score-sorted from the full candidate pool.
         for raw_idx in torch.argsort(scores_tensor).detach().cpu().tolist():
             idx = int(raw_idx)
-            if len(selected) >= int(elite_indices.numel()):
+            if len(selected) >= budget:
                 break
-            if idx in selected_set:
-                continue
-            selected.append(idx)
-            selected_set.add(idx)
+            if idx not in selected_set:
+                selected.append(idx)
+                selected_set.add(idx)
 
         if not selected:
             return elite_indices, diag
 
-        selected = selected[: int(elite_indices.numel())]
+        selected = selected[:budget]
         new_indices = torch.tensor(
             selected,
             dtype=elite_indices.dtype,
@@ -625,10 +669,12 @@ class HippocampalModule(nn.Module):
             "support_preserving_elite_active": bool(
                 after_summary["unique_first_action_classes"]
                 > before_summary["unique_first_action_classes"]
-            ),
+            ) or use_stratified or (per_class_quota > 0),
             "support_preserving_elite_classes_after": sorted(
                 int(k) for k in after_summary["first_action_counts"].keys()
             ),
+            "support_preserving_stratified_elites": use_stratified,
+            "support_preserving_per_class_quota": per_class_quota,
         })
         return new_indices, diag
 
@@ -1035,6 +1081,16 @@ class HippocampalModule(nn.Module):
                 elite_ao_tensor = torch.stack(elite_ao)  # [elite, batch, H, ao_dim]
                 ao_mean = elite_ao_tensor.mean(dim=0)
                 ao_std  = elite_ao_tensor.std(dim=0) + 1e-6
+                # V3-EXQ-563c: ao_std floor prevents collapse when all elites
+                # share one action class (sd approaches zero after refit).
+                _std_floor = float(
+                    getattr(self.config, "support_preserving_ao_std_floor", 0.0)
+                )
+                if (
+                    getattr(self.config, "use_support_preserving_cem", False)
+                    and _std_floor > 0.0
+                ):
+                    ao_std = torch.clamp(ao_std, min=_std_floor)
             # else: keep previous distribution
 
             all_trajectories = trajectories

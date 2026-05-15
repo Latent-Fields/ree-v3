@@ -191,6 +191,8 @@ class E3TrajectorySelector(nn.Module):
         # rv never updates -> agent can never commit.
         self._last_selected_trajectory: Optional[Trajectory] = None
         self.last_scores: Optional[torch.Tensor] = None
+        # V3-EXQ-563c: score / bias scale diagnostics written each select() call.
+        self.last_score_diagnostics: dict = {}
 
         # ARC-030: benefit_eval warmup gate.
         # benefit_eval_head starts at random init — scoring with it before training
@@ -676,6 +678,11 @@ class E3TrajectorySelector(nn.Module):
         ])
         scores = scores.mean(dim=-1)
 
+        # V3-EXQ-563c: capture raw score range for diagnostics + normalisation.
+        raw_scores = scores.detach()
+        raw_score_range = float((raw_scores.max() - raw_scores.min()).item())
+        raw_score_std = float(raw_scores.std().item())
+
         # SD-032b dACC bias: additive, same sign convention as raw scores.
         # Applied before last_scores / softmax so downstream consumers see
         # the biased values consistently.
@@ -685,7 +692,47 @@ class E3TrajectorySelector(nn.Module):
                     f"score_bias shape {tuple(score_bias.shape)} does not match "
                     f"scores shape {tuple(scores.shape)}"
                 )
-            scores = scores + score_bias.to(dtype=scores.dtype, device=scores.device)
+            bias_tensor = score_bias.to(dtype=scores.dtype, device=scores.device)
+            # Optional: rescale bias proportional to raw score range so the
+            # relative push stays consistent across environments.
+            if (
+                getattr(self.config, "normalize_score_bias_to_e3_range", False)
+                and raw_score_range > 1e-6
+            ):
+                bias_range = float(
+                    (bias_tensor.max() - bias_tensor.min()).abs().item()
+                )
+                if bias_range > 1e-9:
+                    scale = raw_score_range / bias_range
+                    bias_tensor = bias_tensor * scale
+            scores = scores + bias_tensor
+
+        # V3-EXQ-563c: score / bias diagnostics (pre-softmax, post-bias).
+        bias_detached = (
+            score_bias.detach().to(dtype=raw_scores.dtype, device=raw_scores.device)
+            if score_bias is not None else raw_scores.new_zeros(raw_scores.shape)
+        )
+        self.last_score_diagnostics = {
+            "e3_raw_score_range_mean": raw_score_range,
+            "e3_raw_score_std_mean": raw_score_std,
+            "score_bias_abs_mean": float(bias_detached.abs().mean().item()),
+            "score_bias_range_mean": float(
+                (bias_detached.max() - bias_detached.min()).item()
+            ),
+            "score_bias_to_raw_range_ratio": (
+                float(
+                    (bias_detached.max() - bias_detached.min()).abs().item()
+                ) / max(raw_score_range, 1e-9)
+            ),
+            "normalize_score_bias_active": bool(
+                getattr(self.config, "normalize_score_bias_to_e3_range", False)
+                and score_bias is not None
+                and raw_score_range > 1e-6
+            ),
+            # Filled in after selection (requires selected_idx).
+            "selected_candidate_rank_before_bias": -1,
+            "selected_candidate_rank_after_bias": -1,
+        }
         self.last_scores = scores.detach()
 
         probs = F.softmax(-scores / temperature, dim=0)
@@ -727,6 +774,23 @@ class E3TrajectorySelector(nn.Module):
             selected_idx = int(scores.argmin().item())
         else:
             selected_idx = int(torch.multinomial(probs, 1).item())
+
+        # Update post-selection rank diagnostics now that selected_idx is known.
+        if score_bias is not None:
+            sorted_raw = torch.argsort(raw_scores).tolist()
+            sorted_biased = torch.argsort(scores.detach()).tolist()
+            self.last_score_diagnostics["selected_candidate_rank_before_bias"] = (
+                sorted_raw.index(selected_idx)
+            )
+            self.last_score_diagnostics["selected_candidate_rank_after_bias"] = (
+                sorted_biased.index(selected_idx)
+            )
+        # When no bias: rank is the same before and after.
+        else:
+            sorted_raw = torch.argsort(raw_scores).tolist()
+            rank = sorted_raw.index(selected_idx)
+            self.last_score_diagnostics["selected_candidate_rank_before_bias"] = rank
+            self.last_score_diagnostics["selected_candidate_rank_after_bias"] = rank
 
         selected_trajectory = candidates[selected_idx]
         selected_action = selected_trajectory.actions[:, 0, :]
