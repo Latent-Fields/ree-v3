@@ -347,6 +347,24 @@ class CausalGridWorld:
         transient_benefit_prob: float = 0.02,
         transient_benefit_duration: int = 15,
         transient_benefit_multiplier: float = 2.0,
+        # infant_substrate:GAP-5 -- H_pos / zone_coverage telemetry.
+        # Always-present info-dict keys: pos_entropy (Shannon entropy in
+        # nats of the agent position histogram over a rolling
+        # pos_entropy_window) and zone_coverage ({zone: fraction of that
+        # zone's cells visited this episode}, consuming the GAP-2
+        # _zone_map; single stub zone 0 = whole interior when microhabitat
+        # is disabled). Unlike GAP-1/2/3 and SD-047/48/49 this telemetry
+        # has NO RNG and never feeds back into env/agent/obs dynamics, so
+        # results are bit-identical whether ON or OFF -- there is nothing
+        # to be "bit-identical OFF" about. It is a DEV-NEED-001 blocking
+        # gate, so it defaults ON: experiments get H_pos / zone_coverage
+        # without having to flip a flag. The master switch is retained so
+        # the contract OFF path and zero-overhead runs can disable it.
+        # Env-only; not surfaced through REEConfig.from_dims. Spec:
+        # REE_assembly/evidence/planning/infant_substrate_plan.md GAP-5.
+        pos_telemetry_enabled: bool = True,
+        pos_entropy_window: int = 100,
+        zone_coverage_stub_single_zone: bool = True,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -632,6 +650,16 @@ class CausalGridWorld:
         self._transient_benefit_n_expired: int = 0
         self._transient_benefit_contact_this_tick: float = 0.0
 
+        # infant_substrate:GAP-5 -- H_pos / zone_coverage telemetry.
+        self.pos_telemetry_enabled = bool(pos_telemetry_enabled)
+        self.pos_entropy_window = int(max(1, pos_entropy_window))
+        self.zone_coverage_stub_single_zone = bool(zone_coverage_stub_single_zone)
+        # Rolling window of recent (x, y) positions (most recent last,
+        # capped at pos_entropy_window) and the set of all cells visited
+        # this episode. Both per-episode; reset by _reset_pos_telemetry().
+        self._pos_window: List[Tuple[int, int]] = []
+        self._visited_cells: set = set()
+
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
         self.landmark_b_positions: List[Tuple[int, int]] = []
@@ -772,6 +800,12 @@ class CausalGridWorld:
             self._build_microhabitat_zones(_interior)
         else:
             self._zone_map = None
+
+        # infant_substrate:GAP-5 -- clear rolling position window + visited
+        # set. Reset regardless of switch (GAP-2 precedent) so the
+        # pos_entropy / zone_coverage diagnostics are deterministic across
+        # episodes.
+        self._reset_pos_telemetry()
 
         ax, ay = agent_pool.pop()
         self.agent_x = ax
@@ -1021,6 +1055,10 @@ class CausalGridWorld:
         # Same reasoning as SD-047 above: comparator-harness experiments need clean
         # tagging, so per-episode body-noise state starts at zero.
         self._fatigue_state = 0.0
+        # infant_substrate:GAP-5 -- scripted-eval path also clears the
+        # position-telemetry window/visited set so pos_entropy /
+        # zone_coverage are deterministic across reset_to() episodes.
+        self._reset_pos_telemetry()
         self._sensitisation_amplification = 0.0
         self._prev_harm_obs_a = None
         self._last_transition_type = "none"
@@ -1582,6 +1620,16 @@ class CausalGridWorld:
         self.steps += 1
         done = self.agent_health <= 0.0 or self.steps >= 500
 
+        # infant_substrate:GAP-5 -- record the final agent cell this tick
+        # into the rolling pos-entropy window + per-episode visited set.
+        # Guarded by the master switch so disabled runs do no work.
+        if self.pos_telemetry_enabled:
+            cell = (int(self.agent_x), int(self.agent_y))
+            self._pos_window.append(cell)
+            if len(self._pos_window) > self.pos_entropy_window:
+                self._pos_window.pop(0)
+            self._visited_cells.add(cell)
+
         # SD-048: cache transition_type so _apply_interoceptive_noise can classify
         # agent-caused vs body-noise-caused harm-state-change events when computed
         # inside _get_observation_dict.
@@ -1696,6 +1744,12 @@ class CausalGridWorld:
             "transient_benefit_contact_this_tick": float(
                 self._transient_benefit_contact_this_tick
             ),
+            # infant_substrate:GAP-5 H_pos / zone_coverage telemetry
+            # (always present; -1.0 / {} sentinels when disabled).
+            "pos_telemetry_enabled": bool(self.pos_telemetry_enabled),
+            "pos_entropy": self._pos_entropy(),
+            "pos_entropy_window": int(self.pos_entropy_window),
+            "zone_coverage": self._zone_coverage(),
         }
         if self.use_proxy_fields:
             info["hazard_field_at_agent"] = float(
@@ -1707,6 +1761,79 @@ class CausalGridWorld:
             info["harm_exposure"] = self.harm_exposure
             info["benefit_exposure"] = self.benefit_exposure
         return flat_obs, harm_signal, done, info, obs_dict
+
+    # ------------------------------------------------------------------ #
+    # infant_substrate:GAP-5  H_pos / zone_coverage telemetry              #
+    # ------------------------------------------------------------------ #
+
+    def _reset_pos_telemetry(self) -> None:
+        """Clear the rolling position window and per-episode visited set."""
+        self._pos_window = []
+        self._visited_cells = set()
+
+    def _interior_cells_spec(self):
+        """(predicate, count) for the interior used by the single-zone stub.
+
+        Mirrors the GAP-2 _build_microhabitat_zones interior definition:
+        the full grid when toroidal, else the non-border interior.
+        """
+        if self.toroidal:
+            return (lambda x, y: True), self.size * self.size
+        n = max(0, self.size - 2)
+        return (
+            lambda x, y: 1 <= x <= self.size - 2 and 1 <= y <= self.size - 2
+        ), n * n
+
+    def _pos_entropy(self) -> float:
+        """Shannon entropy (nats) of the position histogram over the
+        rolling window. -1.0 when telemetry is disabled or the window is
+        empty. A stationary agent yields 0.0; a uniform spread over K
+        distinct cells yields ln(K)."""
+        if not self.pos_telemetry_enabled or not self._pos_window:
+            return -1.0
+        counts: Dict[Tuple[int, int], int] = {}
+        for cell in self._pos_window:
+            counts[cell] = counts.get(cell, 0) + 1
+        total = float(len(self._pos_window))
+        h = 0.0
+        for c in counts.values():
+            p = c / total
+            h -= p * float(np.log(p))
+        # Clamp tiny negative dust from float rounding (e.g. -1e-16).
+        return float(max(0.0, h))
+
+    def _zone_coverage(self) -> Dict[int, float]:
+        """{zone_id: fraction of that zone's cells visited this episode}.
+
+        GAP-2 active (_zone_map present): zones 0..3 keyed off the zone
+        map, same per-zone denominator as the microhabitat_zone_counts
+        info key. GAP-2 inactive + stub: single zone 0 = whole interior.
+        Empty dict when telemetry disabled, or when no zone map and the
+        single-zone stub is switched off."""
+        if not self.pos_telemetry_enabled:
+            return {}
+        if self._zone_map is not None:
+            cov: Dict[int, float] = {}
+            for z in range(4):
+                denom = int((self._zone_map == z).sum())
+                if denom <= 0:
+                    continue
+                visited = sum(
+                    1
+                    for (x, y) in self._visited_cells
+                    if int(self._zone_map[x, y]) == z
+                )
+                cov[z] = float(visited) / float(denom)
+            return cov
+        if not self.zone_coverage_stub_single_zone:
+            return {}
+        in_interior, n_interior = self._interior_cells_spec()
+        if n_interior <= 0:
+            return {0: 0.0}
+        visited = sum(
+            1 for (x, y) in self._visited_cells if in_interior(x, y)
+        )
+        return {0: float(visited) / float(n_interior)}
 
     # ------------------------------------------------------------------ #
     # SD-005 Observation construction                                      #
