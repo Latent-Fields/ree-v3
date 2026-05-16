@@ -14,7 +14,7 @@
       "script": "experiments/v3_exq_571_e3_score_variance_decomp.py",
       "priority": 10,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 40,
       "seeds": 3,
       "conditions": 2,
@@ -25,7 +25,11 @@
         "MECH-314",
         "MECH-320"
       ],
-      "experiment_purpose": "diagnostic"
+      "experiment_purpose": "diagnostic",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-16T00:39:38.366724+00:00"
+      }
     }
   ]
 }
