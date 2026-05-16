@@ -1175,6 +1175,8 @@ class REEAgent(nn.Module):
         self._self_experience_buffer: List[torch.Tensor] = []   # z_self history
         self._world_experience_buffer: List[torch.Tensor] = []  # z_world history
         self._e2_transition_buffer: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+        # GAP-4 / MECH-273: waking-stream (z_harm_s, action) pairs for sleep WRITEBACK.
+        self._harm_replay_buffer: List[Tuple[torch.Tensor, torch.Tensor]] = []
 
         # MECH-057a: cached E3 candidates for action-loop gate
         self._committed_candidates: Optional[List[Trajectory]] = None
@@ -1304,6 +1306,7 @@ class REEAgent(nn.Module):
         self._step_count = 0
         self._harm_this_episode = 0.0
         self._committed_candidates = None
+        self._harm_replay_buffer = []
         self._last_action = None
         self._last_e3_selection_result = None
         self._last_e3_score_bias = None
@@ -2193,6 +2196,20 @@ class REEAgent(nn.Module):
                     safety_magnitude=accum_w,
                     hypothesis_tag=hyp_tag,
                 )
+
+        # GAP-4 / MECH-273: buffer (z_harm_s, action) pairs for sleep WRITEBACK.
+        # Collected only on the waking observation stream (not simulation/replay).
+        if (
+            new_latent.z_harm is not None
+            and self._last_action is not None
+            and not bool(getattr(new_latent, "hypothesis_tag", False))
+        ):
+            self._harm_replay_buffer.append((
+                new_latent.z_harm.detach().clone(),
+                self._last_action.detach().clone(),
+            ))
+            if len(self._harm_replay_buffer) > 1000:
+                self._harm_replay_buffer = self._harm_replay_buffer[-1000:]
 
         return new_latent
 

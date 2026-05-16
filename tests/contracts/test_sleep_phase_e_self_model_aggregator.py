@@ -354,3 +354,208 @@ def test_e10_partial_decay_targets_only_replayed_regions():
     )
     assert n_decayed == 1
     assert abs(acc.get(("fast", "0.2")) - 0.2) < 1e-9
+
+
+# ---------------------------------------------------------------------------- #
+# GAP-4 / MECH-273 real-replay-buffer contracts                               #
+# ---------------------------------------------------------------------------- #
+
+def test_e11_harm_replay_buffer_real_tuple_path_updates_params():
+    """Real (z_harm_s, action) tuples [1, z_dim] from the buffer are sampled and
+    used in offline_gradient_pass, resulting in E2_harm_s parameter updates."""
+    import torch
+
+    from ree_core.sleep import (
+        RoutedEvent,
+        SelfModelAggregator,
+        SelfModelAggregatorConfig,
+        SleepPhase,
+    )
+    from ree_core.predictors.e2_harm_s import E2HarmSConfig, E2HarmSForward
+
+    torch.manual_seed(42)
+    e2 = E2HarmSForward(
+        E2HarmSConfig(use_e2_harm_s_forward=True, learning_rate=1e-2)
+    )
+    params_before = [p.detach().clone() for p in e2.parameters()]
+
+    agg = SelfModelAggregator(
+        SelfModelAggregatorConfig(
+            prior_mean=0.0, prior_variance=1.0, likelihood_variance=1.0, probe_gain=1.0
+        )
+    )
+    routed = RoutedEvent(
+        event=("fast", "0.1"),
+        anchor_channel=0.6,
+        probe_channel=1.0,
+        phase=SleepPhase.SWS_ANALOG,
+    )
+    for _ in range(5):
+        agg.update(routed, evidence=3.0, domain="self")
+    agg.snapshot()
+
+    z_dim = int(e2.config.z_harm_dim)
+    a_dim = int(e2.config.action_dim)
+    # Simulate sense()-produced tensors: shape [1, z_dim] and [1, a_dim].
+    buf = [
+        (
+            torch.randn(1, z_dim),
+            torch.zeros(1, a_dim).scatter_(1, torch.tensor([[i % a_dim]]), 1.0),
+        )
+        for i in range(3)
+    ]
+
+    metrics = agg.offline_gradient_pass(
+        e2_harm_s=e2,
+        replayed_regions=[("fast", "0.1")],
+        n_steps=10,
+        domain="self",
+        use_snapshot=True,
+        harm_replay_buffer=buf,
+    )
+    assert metrics["mech273_writeback_regions"] == 1.0
+    assert metrics["mech273_writeback_n_steps"] == 10.0
+    assert metrics["mech273_writeback_sum_loss"] > 0.0
+
+    moved = any(
+        not torch.allclose(pb, pa.detach())
+        for pb, pa in zip(params_before, e2.parameters())
+    )
+    assert moved, "E2_harm_s parameters must move with real replay buffer"
+
+
+def test_e12_harm_replay_buffer_empty_uses_synthetic_fallback():
+    """An empty harm_replay_buffer triggers the synthetic zeros/round-robin
+    one-hot fallback path and completes without error."""
+    import torch
+
+    from ree_core.sleep import (
+        RoutedEvent,
+        SelfModelAggregator,
+        SelfModelAggregatorConfig,
+        SleepPhase,
+    )
+    from ree_core.predictors.e2_harm_s import E2HarmSConfig, E2HarmSForward
+
+    torch.manual_seed(0)
+    e2 = E2HarmSForward(E2HarmSConfig(use_e2_harm_s_forward=True))
+    agg = SelfModelAggregator(
+        SelfModelAggregatorConfig(
+            prior_mean=0.0, prior_variance=1.0, likelihood_variance=1.0, probe_gain=1.0
+        )
+    )
+    routed = RoutedEvent(
+        event=("fast", "0.1"),
+        anchor_channel=0.6,
+        probe_channel=1.0,
+        phase=SleepPhase.SWS_ANALOG,
+    )
+    for _ in range(5):
+        agg.update(routed, evidence=2.0, domain="self")
+    agg.snapshot()
+
+    metrics = agg.offline_gradient_pass(
+        e2_harm_s=e2,
+        replayed_regions=[("fast", "0.1")],
+        n_steps=5,
+        harm_replay_buffer=[],
+    )
+    assert metrics["mech273_writeback_regions"] == 1.0
+    assert metrics["mech273_writeback_n_steps"] == 5.0
+    assert agg.n_offline_passes == 1
+
+
+def test_e13_harm_replay_buffer_none_uses_synthetic_fallback():
+    """None harm_replay_buffer (backward-compat default) triggers the synthetic
+    zeros/round-robin one-hot fallback path."""
+    import torch
+
+    from ree_core.sleep import (
+        RoutedEvent,
+        SelfModelAggregator,
+        SelfModelAggregatorConfig,
+        SleepPhase,
+    )
+    from ree_core.predictors.e2_harm_s import E2HarmSConfig, E2HarmSForward
+
+    torch.manual_seed(1)
+    e2 = E2HarmSForward(E2HarmSConfig(use_e2_harm_s_forward=True))
+    agg = SelfModelAggregator(
+        SelfModelAggregatorConfig(
+            prior_mean=0.0, prior_variance=1.0, likelihood_variance=1.0, probe_gain=1.0
+        )
+    )
+    routed = RoutedEvent(
+        event=("fast", "0.1"),
+        anchor_channel=0.6,
+        probe_channel=1.0,
+        phase=SleepPhase.SWS_ANALOG,
+    )
+    for _ in range(5):
+        agg.update(routed, evidence=2.0, domain="self")
+    agg.snapshot()
+
+    # Omit harm_replay_buffer entirely (defaults to None).
+    metrics = agg.offline_gradient_pass(
+        e2_harm_s=e2,
+        replayed_regions=[("fast", "0.1")],
+        n_steps=5,
+    )
+    assert metrics["mech273_writeback_regions"] == 1.0
+    assert metrics["mech273_writeback_n_steps"] == 5.0
+    assert agg.n_offline_passes == 1
+
+
+def test_e14_harm_replay_buffer_smaller_than_n_regions_samples_with_replacement():
+    """When len(harm_replay_buffer) < n_regions, random.choices with replacement
+    satisfies the k=n_regions demand without error."""
+    import torch
+
+    from ree_core.sleep import (
+        RoutedEvent,
+        SelfModelAggregator,
+        SelfModelAggregatorConfig,
+        SleepPhase,
+    )
+    from ree_core.predictors.e2_harm_s import E2HarmSConfig, E2HarmSForward
+
+    torch.manual_seed(7)
+    e2 = E2HarmSForward(E2HarmSConfig(use_e2_harm_s_forward=True))
+    agg = SelfModelAggregator(
+        SelfModelAggregatorConfig(
+            prior_mean=0.0, prior_variance=1.0, likelihood_variance=1.0, probe_gain=1.0
+        )
+    )
+    # Seed 4 distinct regions so n_regions = 4 at writeback time.
+    for seg in ("0.1", "0.2", "0.3", "0.4"):
+        routed = RoutedEvent(
+            event=("fast", seg),
+            anchor_channel=0.6,
+            probe_channel=1.0,
+            phase=SleepPhase.SWS_ANALOG,
+        )
+        for _ in range(3):
+            agg.update(routed, evidence=2.0, domain="self")
+    agg.snapshot()
+
+    z_dim = int(e2.config.z_harm_dim)
+    a_dim = int(e2.config.action_dim)
+    # Only 2 entries in the buffer; n_regions will be 4.
+    # random.choices(buf, k=4) samples with replacement -- must not raise.
+    buf = [
+        (
+            torch.randn(1, z_dim),
+            torch.zeros(1, a_dim).scatter_(1, torch.tensor([[i]]), 1.0),
+        )
+        for i in range(2)
+    ]
+
+    metrics = agg.offline_gradient_pass(
+        e2_harm_s=e2,
+        replayed_regions=[("fast", "0.1"), ("fast", "0.2"), ("fast", "0.3"), ("fast", "0.4")],
+        n_steps=5,
+        harm_replay_buffer=buf,
+    )
+    assert metrics["mech273_writeback_regions"] == 4.0
+    assert metrics["mech273_writeback_n_steps"] == 5.0
+    assert metrics["mech273_writeback_sum_loss"] > 0.0

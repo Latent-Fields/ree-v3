@@ -200,11 +200,17 @@ class SleepLoopManager:
         sws_routed_draws: List = []
         evidence_snapshot: Dict = {}
         replayed_regions: "set" = set()
+        harm_replay_buffer_snapshot: list = []
         if self.replay_sampler is not None:
             self.state.phase = SleepPhase.SLEEP_ENTRY
             if self.routing_gate is not None:
                 self.routing_gate.set_phase(SleepPhase.SWS_ANALOG)
             self.replay_sampler.freeze_snapshot()
+            # GAP-4 / MECH-273: snapshot waking (z_harm_s, action) pairs before
+            # any sleep-pass state changes the agent's waking-stream buffer.
+            harm_replay_buffer_snapshot = list(
+                getattr(agent, "_harm_replay_buffer", [])
+            )
             if self.bayesian_aggregator is not None:
                 evidence_snapshot = self._build_evidence_snapshot(agent)
             for _ in range(self.draws_per_cycle):
@@ -296,6 +302,7 @@ class SleepLoopManager:
                 n_steps=self.self_model_offline_n_steps,
                 domain=self.self_model_domain,
                 use_snapshot=True,
+                harm_replay_buffer=harm_replay_buffer_snapshot,
             )
             hippocampal = getattr(agent, "hippocampal", None)
             staleness = getattr(hippocampal, "staleness_accumulator", None)

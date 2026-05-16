@@ -24,14 +24,16 @@ section C6 + WRITEBACK pseudocode + build-order step 5):
     region schema as MECH-284.
 
   * OFFLINE GRADIENT PASS. offline_gradient_pass(e2_harm_s,
-    replayed_regions, n_steps) iterates over the live "self" posteriors
-    (or last_snapshot when available, capturing the SWS-only state),
-    samples (z_harm_s, action) anchor pairs from the supplied
-    replay_buffer, and runs n_steps of bounded MSE gradient descent at
-    learning_rate = waking_lr * offline_lr_scale (default 0.1). The
-    target residual is the posterior MEAN at the routed region:
-    aggregator-corrected residuals are the canonical Phase E training
-    target per the C6 commitment.
+    replayed_regions, n_steps, harm_replay_buffer) iterates over the
+    live "self" posteriors (or last_snapshot when available, capturing
+    the SWS-only state) and runs n_steps of bounded MSE gradient descent
+    at learning_rate = waking_lr * offline_lr_scale (default 0.1). The
+    target residual is the posterior MEAN at the routed region
+    (aggregator-corrected residuals, canonical Phase E training target
+    per the C6 commitment). GAP-4 / MECH-273: (z_harm_s, action) pairs
+    are drawn from harm_replay_buffer (waking-stream tuples buffered on
+    REEAgent._harm_replay_buffer) when the buffer is non-empty; a
+    synthetic zeros+round-robin-one-hot fallback is used otherwise.
 
   * MECH-094 EXCEPTION. Phase E is the SINGLE EXPLICIT EXCEPTION to
     MECH-094 simulation_mode "no parameter writes" rule. Inside the
@@ -55,8 +57,9 @@ E2_harm_s parameters supplied by the caller).
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, Iterable, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple
 
 from ree_core.sleep.bayesian_aggregator import (
     BayesianAggregator,
@@ -143,15 +146,15 @@ class SelfModelAggregator(BayesianAggregator):
         n_steps: Optional[int] = None,
         domain: str = "self",
         use_snapshot: bool = True,
+        harm_replay_buffer: Optional[List[Tuple["torch.Tensor", "torch.Tensor"]]] = None,
     ) -> Dict[str, float]:
         """Bounded low-LR MSE gradient pass on E2_harm_s.
 
         For each replayed region with an active "self"-domain posterior,
-        the posterior mean is read as the target residual. A synthetic
-        (z_harm_s, action) tensor is constructed at the E2_harm_s input
-        dimensions; the residual delta predicted by E2_harm_s is pulled
-        toward the posterior mean via MSE loss; backward + step at
-        offline_lr.
+        the posterior mean is read as the target residual. When a non-empty
+        harm_replay_buffer is supplied, (z_harm_s, action) pairs are sampled
+        from it (GAP-4 / MECH-273 real-replay path). Otherwise a synthetic
+        fallback is used: zeros for z_harm_s and round-robin one-hot actions.
 
         MECH-094 exception is scoped here: parameters of e2_harm_s ARE
         updated despite the writeback being offline content. No other
@@ -172,6 +175,11 @@ class SelfModelAggregator(BayesianAggregator):
                 available, read posterior means from last_snapshot
                 (the SWS-only frozen copy). When False or no snapshot,
                 read live posteriors.
+            harm_replay_buffer: optional list of (z_harm_s, action)
+                tuples collected during the preceding waking phase.
+                When provided and non-empty, real pairs are sampled
+                instead of the synthetic fallback. When None or empty,
+                the synthetic fallback is used (backward compatible).
 
         Returns:
             Dict of mech273_* diagnostics for SleepCycleState.last_metrics.
@@ -209,11 +217,9 @@ class SelfModelAggregator(BayesianAggregator):
                 touched=0, sum_loss=0.0, n_steps=0
             )
 
-        # Construct a synthetic (z_harm_s, action) batch of size n_regions
-        # at the E2_harm_s input dims. The training target is the
-        # posterior-mean residual broadcast to the harm-latent shape.
-        # This is the canonical Phase E target: aggregator-corrected
-        # residuals as scalar means in the "self" causal_sig posterior.
+        # Build (z_harm_s, action) batch of size n_regions.
+        # GAP-4 / MECH-273: use real waking-stream pairs when available;
+        # fall back to zeros + round-robin one-hot for backward compat.
         cfg = e2_harm_s.config
         z_dim = int(getattr(cfg, "z_harm_dim", 32))
         a_dim = int(getattr(cfg, "action_dim", 4))
@@ -221,12 +227,23 @@ class SelfModelAggregator(BayesianAggregator):
         offline_lr = waking_lr * float(self._config.offline_lr_scale)  # type: ignore[attr-defined]
 
         device = next(e2_harm_s.parameters()).device
-        z_harm_s = torch.zeros(n_regions, z_dim, device=device)
-        action = torch.zeros(n_regions, a_dim, device=device)
-        # Round-robin one-hot action so the residual prediction depends
-        # on a non-degenerate action signal.
-        for i in range(n_regions):
-            action[i, i % a_dim] = 1.0
+        if harm_replay_buffer:
+            # Sample n_regions pairs from the waking replay buffer.
+            # .view(-1) collapses any leading batch-1 dim from sense() so
+            # the stack yields [n_regions, z_dim] / [n_regions, a_dim].
+            sampled = random.choices(harm_replay_buffer, k=n_regions)
+            z_harm_s = torch.stack(
+                [p[0].view(-1)[:z_dim] for p in sampled], dim=0
+            ).to(device)
+            action = torch.stack(
+                [p[1].view(-1)[:a_dim] for p in sampled], dim=0
+            ).to(device)
+        else:
+            # Synthetic fallback: zeros for z_harm_s, round-robin one-hot action.
+            z_harm_s = torch.zeros(n_regions, z_dim, device=device)
+            action = torch.zeros(n_regions, a_dim, device=device)
+            for i in range(n_regions):
+                action[i, i % a_dim] = 1.0
         target_means = torch.tensor(
             [t[1] for t in targets], dtype=torch.float32, device=device
         ).unsqueeze(-1)
