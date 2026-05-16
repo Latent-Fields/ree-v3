@@ -8,24 +8,24 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-569",
-      "title": "WPB matched-entropy sweep: structured diversity vs noise floor (ARC-065)",
-      "experiment_type": "v3_exq_569_wpb_matched_entropy_sweep",
-      "script": "experiments/v3_exq_569_wpb_matched_entropy_sweep.py",
-      "priority": 2,
+      "queue_id": "V3-EXQ-571",
+      "title": "E3 score variance decomposition diagnostic (ARC-065 / MECH-313 / MECH-314 / MECH-320)",
+      "experiment_type": "v3_exq_571_e3_score_variance_decomp",
+      "script": "experiments/v3_exq_571_e3_score_variance_decomp.py",
+      "priority": 10,
       "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
+      "status": "pending",
+      "estimated_minutes": 40,
       "seeds": 3,
-      "conditions": 6,
-      "episodes_per_run": 40,
+      "conditions": 2,
+      "steps_per_seed": 200,
       "claim_ids": [
-        "ARC-065"
+        "ARC-065",
+        "MECH-313",
+        "MECH-314",
+        "MECH-320"
       ],
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-15T23:33:13.842389+00:00"
-      }
+      "experiment_purpose": "diagnostic"
     }
   ]
 }
