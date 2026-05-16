@@ -301,6 +301,18 @@ class CausalGridWorld:
         reef_bipartite_layout: bool = False,
         reef_bipartite_axis: str = "horizontal",
         reef_bipartite_agent_band_radius: int = 1,
+        # infant_substrate:GAP-1 -- harm gradient env feature.
+        # Graduated harm proximity reward proportional to distance from nearest
+        # hazard. Fires when no direct-contact / approach transition has fired
+        # (transition_type == "none"). Pure reward signal; no health deduction.
+        # Reward: -hazard_harm * (1 - d/r_outer)**2 * scale
+        # for inner_radius < d <= outer_radius.
+        # Env-only; not surfaced through REEConfig.from_dims. All defaults
+        # are no-op when disabled (bit-identical legacy behaviour).
+        harm_gradient_enabled: bool = False,
+        harm_gradient_outer_radius: float = 3.0,
+        harm_gradient_inner_radius: float = 0.0,
+        harm_gradient_scale: float = 1.0,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -539,6 +551,12 @@ class CausalGridWorld:
         # Populated by _place_reef_patches() each reset(); empty set / zero field when OFF.
         self._reef_cells: set = set()
         self._reef_field: np.ndarray = np.zeros((size, size), dtype=np.float32)
+
+        # infant_substrate:GAP-1 -- harm gradient env feature.
+        self.harm_gradient_enabled = bool(harm_gradient_enabled)
+        self.harm_gradient_outer_radius = float(max(0.0, harm_gradient_outer_radius))
+        self.harm_gradient_inner_radius = float(max(0.0, harm_gradient_inner_radius))
+        self.harm_gradient_scale = float(harm_gradient_scale)
 
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
@@ -955,6 +973,10 @@ class CausalGridWorld:
         # SD-022: save position before movement for potential limb-failure rollback.
         prev_x, prev_y = self.agent_x, self.agent_y
 
+        # infant_substrate:GAP-1: per-tick gradient diagnostics (always reset; set inside movement block).
+        _grad_reward = 0.0
+        _grad_dist = float("inf")
+
         # Move agent if not wall (toroidal has no walls, so always move)
         if self.toroidal or self.grid[new_x, new_y] != self.ENTITY_TYPES["wall"]:
             old_x, old_y = self.agent_x, self.agent_y
@@ -1129,6 +1151,31 @@ class CausalGridWorld:
                     harm_signal = self.proximity_benefit_scale * r_field_val
                     transition_type = "benefit_approach"
                     self.total_benefit += harm_signal
+
+            # infant_substrate:GAP-1 -- harm gradient env feature.
+            # Graduated approach signal based on Euclidean distance to nearest
+            # hazard. Fires only when no direct-contact or existing-approach
+            # transition fired (transition_type == "none"). Pure reward signal:
+            # no agent health deduction. No RNG draws; bit-identical OFF when disabled.
+            if self.harm_gradient_enabled and transition_type == "none" and self.hazards:
+                _min_dist_sq = float("inf")
+                for _h in self.hazards:
+                    _dx = float(_h[0] - new_x)
+                    _dy = float(_h[1] - new_y)
+                    _dsq = _dx * _dx + _dy * _dy
+                    if _dsq < _min_dist_sq:
+                        _min_dist_sq = _dsq
+                _grad_dist = _min_dist_sq ** 0.5
+                _r_out = self.harm_gradient_outer_radius
+                _r_in = self.harm_gradient_inner_radius
+                if _r_in < _grad_dist <= _r_out and _r_out > 0.0:
+                    _grad_reward = (
+                        -self.hazard_harm
+                        * (1.0 - _grad_dist / _r_out) ** 2
+                        * self.harm_gradient_scale
+                    )
+                    harm_signal += _grad_reward
+                    transition_type = "harm_gradient"
 
             # Move agent
             self.agent_x = new_x
@@ -1401,6 +1448,12 @@ class CausalGridWorld:
             # target for the V3-EXQ-514 identity classifier (z_resource ->
             # identity_logits cross-entropy). Always present (0 when SD-049 OFF).
             "sd049_consumed_type_tag_this_tick": int(self._consumed_type_tag_this_tick),
+            # infant_substrate:GAP-1 harm gradient diagnostics (always present; 0/False when disabled).
+            "harm_gradient_enabled": bool(self.harm_gradient_enabled),
+            "harm_gradient_reward_this_tick": float(_grad_reward),
+            "harm_gradient_dist_to_nearest": (
+                float(_grad_dist) if _grad_dist != float("inf") else -1.0
+            ),
         }
         if self.use_proxy_fields:
             info["hazard_field_at_agent"] = float(
