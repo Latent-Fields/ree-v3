@@ -332,6 +332,21 @@ class CausalGridWorld:
         zone_C_hazard_factor: float = 0.0,
         zone_C_ambient_bonus: float = 0.05,
         zone_novelty_decay: float = 0.95,
+        # infant_substrate:GAP-3 -- transient benefit patches env feature.
+        # Stochastic high-salience benefit patch spawn for z_goal seeding.
+        # Each step, with probability transient_benefit_prob, a benefit
+        # patch is placed at a (zone-weighted, when microhabitat zones are
+        # active) random empty interior cell. Patches expire after
+        # transient_benefit_duration steps. Contact reward =
+        # resource_benefit * transient_benefit_multiplier. Env-only; not
+        # surfaced through REEConfig.from_dims. All defaults are no-op when
+        # disabled (bit-identical legacy behaviour: no patches, no extra
+        # RNG draws). Spec: REE_assembly/docs/architecture/
+        # infant_substrate_expansion.md Section 5.3.
+        transient_benefit_enabled: bool = False,
+        transient_benefit_prob: float = 0.02,
+        transient_benefit_duration: int = 15,
+        transient_benefit_multiplier: float = 2.0,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -598,6 +613,25 @@ class CausalGridWorld:
         self._zone_c_visit_count: int = 0
         self._zone_c_ambient_this_tick: float = 0.0
 
+        # infant_substrate:GAP-3 -- transient benefit patches env feature.
+        self.transient_benefit_enabled = bool(transient_benefit_enabled)
+        self.transient_benefit_prob = float(
+            np.clip(transient_benefit_prob, 0.0, 1.0)
+        )
+        self.transient_benefit_duration = int(max(1, transient_benefit_duration))
+        self.transient_benefit_multiplier = float(
+            max(0.0, transient_benefit_multiplier)
+        )
+        # Active patches: list of [x, y, expiry_step]. Parallel set of
+        # (x, y) for O(1) contact lookup. Both empty when disabled.
+        self._transient_benefits: List[List[int]] = []
+        self._transient_benefit_cells: set = set()
+        # Per-episode diagnostics (reset in reset()).
+        self._transient_benefit_n_spawned: int = 0
+        self._transient_benefit_n_contacted: int = 0
+        self._transient_benefit_n_expired: int = 0
+        self._transient_benefit_contact_this_tick: float = 0.0
+
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
         self.landmark_b_positions: List[Tuple[int, int]] = []
@@ -861,6 +895,18 @@ class CausalGridWorld:
         self._interoceptive_n_body_noise_events = 0
         self._interoceptive_n_agent_caused_harm_events = 0
 
+        # infant_substrate:GAP-3 -- per-episode transient benefit patch reset.
+        # Patches are episode-local (a fresh stochastic schedule per
+        # episode). self.grid was rebuilt at the top of reset(), so any
+        # prior-episode patch cells are already cleared; only the Python-
+        # side tracking + diagnostic counters need resetting here.
+        self._transient_benefits = []
+        self._transient_benefit_cells = set()
+        self._transient_benefit_n_spawned = 0
+        self._transient_benefit_n_contacted = 0
+        self._transient_benefit_n_expired = 0
+        self._transient_benefit_contact_this_tick = 0.0
+
         # Proxy-gradient state
         self.harm_exposure: float = 0.0
         self.benefit_exposure: float = 0.0
@@ -1052,6 +1098,10 @@ class CausalGridWorld:
         # infant_substrate:GAP-2: per-tick zone-C ambient bonus (always reset;
         # set inside movement block when the agent enters a zone-C cell).
         self._zone_c_ambient_this_tick = 0.0
+        # infant_substrate:GAP-3: per-tick transient benefit contact reward
+        # (always reset; set inside the resource-contact branch when the
+        # agent steps onto a transient patch cell).
+        self._transient_benefit_contact_this_tick = 0.0
 
         # Move agent if not wall (toroidal has no walls, so always move)
         if self.toroidal or self.grid[new_x, new_y] != self.ENTITY_TYPES["wall"]:
@@ -1110,6 +1160,27 @@ class CausalGridWorld:
                 if contact_type_idx >= 0:
                     amp = float(self.resource_type_benefit_amplitudes[contact_type_idx])
                 contact_benefit = self.resource_benefit * amp
+                # infant_substrate:GAP-3 -- transient benefit patch contact.
+                # A transient patch is a high-salience benefit: its contact
+                # reward is resource_benefit * transient_benefit_multiplier
+                # (overrides the SD-049 per-type amplitude; transient
+                # patches are intentionally NOT SD-049 typed -- their
+                # _resource_type_grid tag is 0). The patch is consumed here
+                # (dropped from transient tracking); the normal
+                # self.resources / grid removal below handles the rest.
+                if (new_x, new_y) in self._transient_benefit_cells:
+                    contact_benefit = (
+                        self.resource_benefit * self.transient_benefit_multiplier
+                    )
+                    self._transient_benefit_cells.discard((new_x, new_y))
+                    self._transient_benefits = [
+                        tb for tb in self._transient_benefits
+                        if not (tb[0] == new_x and tb[1] == new_y)
+                    ]
+                    self._transient_benefit_n_contacted += 1
+                    self._transient_benefit_contact_this_tick = float(
+                        contact_benefit
+                    )
                 # SD-049 novelty curve: scale benefit by (1 - cell_familiarity).
                 # First-visit cells give full benefit; re-visits give attenuated
                 # benefit reflecting non-homeostatic familiarity decay.
@@ -1455,6 +1526,50 @@ class CausalGridWorld:
             self._drift_hazards()
             env_drift_occurred = True
 
+        # infant_substrate:GAP-3 -- transient benefit patches.
+        # Agent-independent stochastic high-salience benefit spawn for
+        # z_goal seeding. Expiry runs first (drop patches whose lifetime
+        # elapsed), then one spawn attempt with probability
+        # transient_benefit_prob. All RNG draws are guarded by
+        # transient_benefit_enabled so seed sequences for existing
+        # experiments are bit-identical when disabled. Uses self.steps
+        # pre-increment as the clock: a patch spawned at tick T expires
+        # at tick T + transient_benefit_duration.
+        _tb_changed = False
+        if self.transient_benefit_enabled:
+            if self._transient_benefits:
+                _surv: List[List[int]] = []
+                for _tb in self._transient_benefits:
+                    if self.steps >= _tb[2]:
+                        # Expire. Only clear the grid cell if it still
+                        # carries the resource tag (the agent standing on
+                        # it would have tagged it "agent"; a contacted
+                        # patch was already removed via the contact hook).
+                        if (
+                            self.grid[_tb[0], _tb[1]]
+                            == self.ENTITY_TYPES["resource"]
+                        ):
+                            self.grid[_tb[0], _tb[1]] = self.ENTITY_TYPES[
+                                "empty"
+                            ]
+                        self.resources = [
+                            r for r in self.resources
+                            if not (r[0] == _tb[0] and r[1] == _tb[1])
+                        ]
+                        self._transient_benefit_cells.discard(
+                            (_tb[0], _tb[1])
+                        )
+                        self._transient_benefit_n_expired += 1
+                        _tb_changed = True
+                    else:
+                        _surv.append(_tb)
+                self._transient_benefits = _surv
+            if self._rng.random() < self.transient_benefit_prob:
+                if self._spawn_transient_benefit() is not None:
+                    _tb_changed = True
+        if _tb_changed and self.use_proxy_fields:
+            self._compute_proximity_fields()
+
         # Subgoal timeout
         if self.subgoal_mode and self._sequence_in_progress:
             self._steps_since_waypoint += 1
@@ -1564,6 +1679,22 @@ class CausalGridWorld:
                 [int((self._zone_map == z).sum()) for z in range(4)]
                 if self._zone_map is not None
                 else [0, 0, 0, 0]
+            ),
+            # infant_substrate:GAP-3 transient benefit diagnostics (always
+            # present; 0 / False when disabled).
+            "transient_benefit_enabled": bool(self.transient_benefit_enabled),
+            "transient_benefit_n_active": int(len(self._transient_benefits)),
+            "transient_benefit_n_spawned": int(
+                self._transient_benefit_n_spawned
+            ),
+            "transient_benefit_n_contacted": int(
+                self._transient_benefit_n_contacted
+            ),
+            "transient_benefit_n_expired": int(
+                self._transient_benefit_n_expired
+            ),
+            "transient_benefit_contact_this_tick": float(
+                self._transient_benefit_contact_this_tick
             ),
         }
         if self.use_proxy_fields:
@@ -2806,6 +2937,54 @@ class CausalGridWorld:
         rx, ry = available[0]
         self.grid[rx, ry] = self.ENTITY_TYPES["resource"]
         self.resources.append([rx, ry])
+
+    def _spawn_transient_benefit(self) -> Optional[Tuple[int, int]]:
+        """infant_substrate:GAP-3 -- spawn one transient benefit patch.
+
+        Picks an empty interior cell (zone-weighted toward higher
+        resource-factor zones when microhabitat zones are active, uniform
+        otherwise; reef cells excluded), tags it as a resource entity so
+        the proximity field and perception treat it as a high-salience
+        benefit, and registers it in self.resources + self._transient_benefits
+        (with an expiry step) + self._transient_benefit_cells. Returns the
+        (x, y) cell, or None when no empty interior cell is available.
+
+        Only called from the enabled spawn path; the disabled path makes no
+        RNG draws so legacy seed sequences are bit-identical.
+        """
+        if self.toroidal:
+            empties = [
+                (i, j)
+                for i in range(self.size)
+                for j in range(self.size)
+                if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+            ]
+        else:
+            empties = [
+                (i, j)
+                for i in range(1, self.size - 1)
+                for j in range(1, self.size - 1)
+                if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+            ]
+        # Reef safe zones never spawn resources (mirrors reset() placement).
+        if self.reef_enabled and self._reef_cells:
+            empties = [c for c in empties if c not in self._reef_cells]
+        if not empties:
+            return None
+        if self.microhabitat_enabled and self._zone_map is not None:
+            # _pop_zone_weighted pops from the supplied list (local here).
+            cx, cy = self._pop_zone_weighted(empties, "resource")
+        else:
+            self._rng.shuffle(empties)
+            cx, cy = empties[0]
+        self.grid[cx, cy] = self.ENTITY_TYPES["resource"]
+        self.resources.append([int(cx), int(cy)])
+        self._transient_benefits.append(
+            [int(cx), int(cy), int(self.steps + self.transient_benefit_duration)]
+        )
+        self._transient_benefit_cells.add((int(cx), int(cy)))
+        self._transient_benefit_n_spawned += 1
+        return (int(cx), int(cy))
 
     def _respawn_waypoints(self) -> None:
         """Respawn waypoints after sequence completion or timeout."""
