@@ -332,6 +332,13 @@ class CausalGridWorld:
         zone_C_hazard_factor: float = 0.0,
         zone_C_ambient_bonus: float = 0.05,
         zone_novelty_decay: float = 0.95,
+        # Degenerate-seeding redraw guard: when the Voronoi seeds land
+        # close together one base niche can be fully absorbed into the D
+        # ecotone (~2-3% of stochastic episodes). After boundary->D
+        # promotion, if fewer than n_seeds base zones survive, the seeds
+        # are redrawn via self._rng (deterministic, capped). 0 disables
+        # the guard (pre-guard behaviour). Only the enabled path draws RNG.
+        microhabitat_max_seed_redraws: int = 8,
         # infant_substrate:GAP-3 -- transient benefit patches env feature.
         # Stochastic high-salience benefit patch spawn for z_goal seeding.
         # Each step, with probability transient_benefit_prob, a benefit
@@ -625,11 +632,18 @@ class CausalGridWorld:
         self.zone_C_hazard_factor = float(max(0.0, zone_C_hazard_factor))
         self.zone_C_ambient_bonus = float(zone_C_ambient_bonus)
         self.zone_novelty_decay = float(np.clip(zone_novelty_decay, 0.0, 1.0))
+        self.microhabitat_max_seed_redraws = int(
+            max(0, microhabitat_max_seed_redraws)
+        )
         # Zone codes: -1 = wall / non-interior, 0 = A, 1 = B, 2 = C,
         # 3 = D (transition/border, neutral), 4+ = extra Voronoi zone (neutral).
         self._zone_map: Optional[np.ndarray] = None
         self._zone_c_visit_count: int = 0
         self._zone_c_ambient_this_tick: float = 0.0
+        # GAP-2 redraw-guard diagnostics (always present in step() info;
+        # 0 / False when microhabitat disabled or first draw accepted).
+        self._microhabitat_redraw_count: int = 0
+        self._microhabitat_redraw_exhausted: bool = False
 
         # infant_substrate:GAP-3 -- transient benefit patches env feature.
         self.transient_benefit_enabled = bool(transient_benefit_enabled)
@@ -786,6 +800,11 @@ class CausalGridWorld:
         # (bit-identical legacy behaviour, SD-047/048/049 OFF precedent).
         self._zone_c_visit_count = 0
         self._zone_c_ambient_this_tick = 0.0
+        # GAP-2 redraw-guard diagnostics reset regardless of switch so the
+        # info keys are deterministic; _build_microhabitat_zones overwrites
+        # them on the enabled path.
+        self._microhabitat_redraw_count = 0
+        self._microhabitat_redraw_exhausted = False
         if self.microhabitat_enabled:
             if self.toroidal:
                 _interior = [
@@ -1728,6 +1747,13 @@ class CausalGridWorld:
                 if self._zone_map is not None
                 else [0, 0, 0, 0]
             ),
+            # GAP-2 degenerate-seeding redraw-guard diagnostics: redraws
+            # performed this episode (0 = first draw accepted) and whether
+            # the retry cap was exhausted with a still-degenerate best draw.
+            "microhabitat_redraw_count": int(self._microhabitat_redraw_count),
+            "microhabitat_redraw_exhausted": bool(
+                self._microhabitat_redraw_exhausted
+            ),
             # infant_substrate:GAP-3 transient benefit diagnostics (always
             # present; 0 / False when disabled).
             "transient_benefit_enabled": bool(self.transient_benefit_enabled),
@@ -2348,15 +2374,69 @@ class CausalGridWorld:
         baseline resource/hazard spawn weighting; D promotes boundary
         exploration with neutral factors. Only called when enabled.
 
-        Sets self._zone_map (np.int8 [size, size]).
+        Degenerate-seeding redraw guard (GAP-2): when the seeds land close
+        together a whole base niche can be consumed by the boundary->D
+        promotion (~2-3% of stochastic episodes -- the V3-EXQ-577 C2
+        false-negative). After promotion, if fewer than n_seeds base zones
+        survive in the interior, the seeds are redrawn via self._rng (fully
+        deterministic given the per-episode seed) up to
+        microhabitat_max_seed_redraws times. The first non-degenerate draw
+        wins; if the cap is exhausted the draw with the most surviving base
+        zones is kept and a diagnostic is surfaced
+        (microhabitat_redraw_count / microhabitat_redraw_exhausted info
+        keys + an ASCII stdout note). The common ~97-98% case accepts the
+        first draw and consumes self._rng exactly as the pre-guard code did.
+
+        Sets self._zone_map (np.int8 [size, size]); records the redraw
+        diagnostics on self.
         """
+        self._microhabitat_redraw_count = 0
+        self._microhabitat_redraw_exhausted = False
+
         sz = self.size
-        zone_map = np.full((sz, sz), -1, dtype=np.int8)
         if not interior_cells:
-            self._zone_map = zone_map
+            self._zone_map = np.full((sz, sz), -1, dtype=np.int8)
             return
 
         n_seeds = min(self.n_microhabitats, len(interior_cells))
+
+        best_map = None
+        best_surviving = -1
+        # attempt 0 = first draw; attempts 1.. each consume self._rng again.
+        for attempt in range(self.microhabitat_max_seed_redraws + 1):
+            candidate = self._draw_microhabitat_zone_map(
+                interior_cells, n_seeds, sz
+            )
+            surviving = self._count_surviving_base_zones(
+                candidate, interior_cells, n_seeds
+            )
+            if surviving > best_surviving:
+                best_surviving = surviving
+                best_map = candidate
+            if surviving >= n_seeds:
+                self._microhabitat_redraw_count = attempt
+                self._zone_map = candidate
+                return
+
+        # Retry cap exhausted: keep the best draw, surface a diagnostic.
+        self._microhabitat_redraw_count = self.microhabitat_max_seed_redraws
+        self._microhabitat_redraw_exhausted = True
+        self._zone_map = best_map
+        print(
+            "[causal_grid_world] GAP-2 microhabitat: degenerate Voronoi "
+            "seeding persisted after {} redraws; keeping best draw "
+            "({}/{} base zones surviving).".format(
+                self.microhabitat_max_seed_redraws, best_surviving, n_seeds
+            )
+        )
+
+    def _draw_microhabitat_zone_map(self, interior_cells, n_seeds, sz):
+        """One Voronoi draw + boundary->D promotion. Consumes self._rng
+        once (the seed sample). Returns an np.int8 [sz, sz] zone map and
+        does not mutate self. See _build_microhabitat_zones for the code
+        scheme. This body is the pre-guard logic verbatim.
+        """
+        zone_map = np.full((sz, sz), -1, dtype=np.int8)
         seed_idx = self._rng.choice(
             len(interior_cells), size=n_seeds, replace=False
         )
@@ -2386,7 +2466,21 @@ class CausalGridWorld:
                     if nz != -1 and nz != z:
                         zone_map[i, j] = 3
                         break
-        self._zone_map = zone_map
+        return zone_map
+
+    def _count_surviving_base_zones(self, zone_map, interior_cells, n_seeds):
+        """Distinct base-zone codes still present in the interior after the
+        boundary->D promotion. Base zones are codes 0..n_seeds-1; code 3 is
+        the D ecotone (never a surviving base zone for the supported
+        n_microhabitats<=3 default -- best_k stays in 0..2). A fully
+        absorbed niche is exactly what drops this below n_seeds.
+        """
+        present = set()
+        for (i, j) in interior_cells:
+            z = int(zone_map[i, j])
+            if 0 <= z < n_seeds and z != 3:
+                present.add(z)
+        return len(present)
 
     def _zone_resource_factor(self, cell: Tuple[int, int]) -> float:
         """Resource spawn weight for a cell's zone. 1.0 when no zone map."""

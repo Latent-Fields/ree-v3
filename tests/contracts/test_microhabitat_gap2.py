@@ -223,3 +223,79 @@ def test_c5_disabled_reset_nulls_map():
     env = CausalGridWorldV2(size=10, seed=2, microhabitat_enabled=False)
     env.reset()
     assert env._zone_map is None
+
+
+# --------------------------------------------------------------------------- #
+# C6 -- Degenerate-seeding redraw guard (GAP-2 V3-EXQ-577 false-negative)
+# --------------------------------------------------------------------------- #
+
+# Exact config the V3-EXQ-577 autopsy reproduced the collapse with
+# (failure_autopsy_EXQ-577_2026-05-16): seeds 0/1/2 x 100 episodes saw
+# missing_012 = 2/2/3 -- one base Voronoi niche fully absorbed into the D
+# ecotone in ~2-3% of stochastic episodes. With the redraw guard active
+# (default microhabitat_max_seed_redraws=8) the collapse rate must be 0
+# and strict per-episode {0,1,2} presence must hold.
+_AUTOPSY_SEEDS = (0, 1, 2)
+_AUTOPSY_EPISODES = 100
+
+
+def test_c6_redraw_guard_eliminates_base_zone_collapse():
+    """Over the exact autopsy repro (size=14, n=3, seeds 0/1/2, 100 eps
+    each) no episode loses a base zone; codes stay well-formed; the guard
+    demonstrably engages (>=1 redraw across the 300 episodes -- the same
+    first-draws that previously collapsed) and never exhausts its cap."""
+    collapses = 0
+    total_redraws = 0
+    exhausted_any = False
+    for seed in _AUTOPSY_SEEDS:
+        env = CausalGridWorldV2(
+            size=14, seed=seed, num_hazards=6, num_resources=0,
+            use_proxy_fields=False, microhabitat_enabled=True,
+            n_microhabitats=3,
+        )
+        for _ in range(_AUTOPSY_EPISODES):
+            env.reset()
+            zm = env._zone_map
+            assert zm is not None
+            interior = zm[1:-1, 1:-1]
+            codes = set(int(v) for v in np.unique(interior))
+            assert -1 not in codes, "unassigned interior cell"
+            assert codes.issubset({0, 1, 2, 3}), f"bad zone code in {codes}"
+            assert 3 in codes, "expected a D-border cell"
+            if not {0, 1, 2}.issubset(codes):
+                collapses += 1
+            total_redraws += int(env._microhabitat_redraw_count)
+            exhausted_any |= bool(env._microhabitat_redraw_exhausted)
+    assert collapses == 0, f"base-zone collapse persisted: {collapses}/300"
+    assert not exhausted_any, "redraw cap exhausted -- raise the cap"
+    assert total_redraws >= 1, (
+        "guard never engaged -- the autopsy config had degenerate "
+        "first-draws, so the guard must have performed >=1 redraw"
+    )
+
+
+def test_c6_redraw_diagnostics_inert_when_disabled():
+    """The two new info keys are always present and inert when the master
+    switch is off (no extra RNG -- bit-identical OFF is covered by C1)."""
+    env = CausalGridWorldV2(size=12, seed=7, num_hazards=2)
+    env.reset()
+    _, _, _, info, _ = env.step(0)
+    assert info["microhabitat_redraw_count"] == 0
+    assert info["microhabitat_redraw_exhausted"] is False
+
+
+def test_c6_zero_cap_disables_redraw():
+    """microhabitat_max_seed_redraws=0 is the escape hatch: the guard never
+    redraws (redraw_count stays 0), the first draw is always kept, and a
+    still-degenerate draw is surfaced via the exhausted flag rather than
+    fixed. The zone map is still built."""
+    env = CausalGridWorldV2(
+        size=14, seed=0, num_hazards=6, num_resources=0,
+        use_proxy_fields=False, microhabitat_enabled=True,
+        n_microhabitats=3, microhabitat_max_seed_redraws=0,
+    )
+    assert env.microhabitat_max_seed_redraws == 0
+    for _ in range(_AUTOPSY_EPISODES):
+        env.reset()
+        assert env._zone_map is not None
+        assert env._microhabitat_redraw_count == 0, "cap=0 must not redraw"
