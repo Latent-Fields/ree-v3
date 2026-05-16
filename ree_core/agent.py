@@ -1183,6 +1183,8 @@ class REEAgent(nn.Module):
         self._last_action: Optional[torch.Tensor] = None
         self._last_e3_selection_result: Optional[Any] = None
         self._last_e3_score_bias: Optional[torch.Tensor] = None
+        # V3-EXQ-571: per-component bias decomposition (written when e3.e3_score_decomp_enabled)
+        self._last_score_bias_decomp: dict = {}
         # MECH-090: step index within committed trajectory (Layer 1 trajectory stepping).
         # Incremented each committed step so a0->a1->a2->... is executed in sequence.
         self._committed_step_idx: int = 0
@@ -2652,6 +2654,15 @@ class REEAgent(nn.Module):
         # The bundle reads the (precision-weighted) affective-pain PE from the last
         # forward-model prediction, and mixes in per-candidate payoff/effort terms.
         dacc_score_bias: Optional[torch.Tensor] = None
+        # V3-EXQ-571: per-component bias trackers (zero-cost when flag OFF)
+        _bdc_dacc: Optional[torch.Tensor] = None
+        _bdc_lpfc: Optional[torch.Tensor] = None
+        _bdc_ofc: Optional[torch.Tensor] = None
+        _bdc_gp: Optional[torch.Tensor] = None
+        _bdc_m295: Optional[torch.Tensor] = None
+        _bdc_curiosity: Optional[torch.Tensor] = None
+        _bdc_vigor: Optional[torch.Tensor] = None
+        _bdc_forced: Optional[torch.Tensor] = None
         if self.dacc is not None and z_harm_a is not None:
             # Per-candidate payoff proxy: negative of E3 running candidate score if
             # available (lower score = better, so payoff = -score). Falls back to
@@ -2689,6 +2700,8 @@ class REEAgent(nn.Module):
             if self.dacc_adapter is not None:
                 dacc_score_bias = self.dacc_adapter(bundle)
                 self._dacc_last_bias = dacc_score_bias.detach().clone()
+                if self.e3.e3_score_decomp_enabled:
+                    _bdc_dacc = dacc_score_bias.detach().clone()
 
         # SD-032a: tick the salience-network coordinator. Aggregates the dACC
         # bundle (live), drive_level (live), and offline-mode flag (proxy for
@@ -2816,6 +2829,8 @@ class REEAgent(nn.Module):
                     )
             cand_world_summaries = torch.stack(cand_world_list, dim=0)  # [K, world_dim]
             lpfc_bias = self.lateral_pfc.compute_bias(cand_world_summaries)
+            if self.e3.e3_score_decomp_enabled:
+                _bdc_lpfc = lpfc_bias.detach().clone()
             # Compose additively with dACC score_bias (lower-is-better in E3).
             if dacc_score_bias is None:
                 dacc_score_bias = lpfc_bias
@@ -2867,6 +2882,8 @@ class REEAgent(nn.Module):
                         )
                 ofc_summaries = torch.stack(_ofc_list, dim=0)
             ofc_bias = self.ofc.compute_bias(ofc_summaries)
+            if self.e3.e3_score_decomp_enabled:
+                _bdc_ofc = ofc_bias.detach().clone()
             if dacc_score_bias is None:
                 dacc_score_bias = ofc_bias
             else:
@@ -2949,6 +2966,8 @@ class REEAgent(nn.Module):
                     simulation_mode=_gp_sim,
                 )
             gp_bias = gp_output.gated_score_bias
+            if self.e3.e3_score_decomp_enabled:
+                _bdc_gp = gp_bias.detach().clone()
             if dacc_score_bias is None:
                 dacc_score_bias = gp_bias
             else:
@@ -3037,6 +3056,9 @@ class REEAgent(nn.Module):
                     m295_bias = m295_bias + m307_bias.to(
                         dtype=m295_bias.dtype, device=m295_bias.device
                     )
+
+            if self.e3.e3_score_decomp_enabled:
+                _bdc_m295 = m295_bias.detach().clone()
             if dacc_score_bias is None:
                 dacc_score_bias = m295_bias
             else:
@@ -3084,6 +3106,8 @@ class REEAgent(nn.Module):
                     e3=self.e3,
                     simulation_mode=False,
                 )
+            if self.e3.e3_score_decomp_enabled:
+                _bdc_curiosity = cur_bias.detach().clone()
             if dacc_score_bias is None:
                 dacc_score_bias = cur_bias
             else:
@@ -3139,6 +3163,8 @@ class REEAgent(nn.Module):
                     recent_pe=tv_pe,
                     simulation_mode=False,
                 )
+            if self.e3.e3_score_decomp_enabled:
+                _bdc_vigor = tv_bias.detach().clone()
             if dacc_score_bias is None:
                 dacc_score_bias = tv_bias
             else:
@@ -3169,6 +3195,9 @@ class REEAgent(nn.Module):
                 [_fsb[cls] if cls < len(_fsb) else 0.0 for cls in _fb_classes],
                 dtype=torch.float32,
             )
+
+            if self.e3.e3_score_decomp_enabled:
+                _bdc_forced = _forced_bias.detach().clone()
             if dacc_score_bias is None:
                 dacc_score_bias = _forced_bias
             else:
@@ -3196,6 +3225,21 @@ class REEAgent(nn.Module):
             if dacc_score_bias is not None
             else None
         )
+        if self.e3.e3_score_decomp_enabled:
+            def _bdc_mean(t: "Optional[torch.Tensor]") -> float:
+                return float(t.mean().item()) if t is not None else 0.0
+            self._last_score_bias_decomp = {
+                "dacc": _bdc_mean(_bdc_dacc),
+                "lateral_pfc": _bdc_mean(_bdc_lpfc),
+                "ofc": _bdc_mean(_bdc_ofc),
+                "gated_policy": _bdc_mean(_bdc_gp),
+                "mech295_liking": _bdc_mean(_bdc_m295),
+                "curiosity": _bdc_mean(_bdc_curiosity),
+                "tonic_vigor": _bdc_mean(_bdc_vigor),
+                "forced": _bdc_mean(_bdc_forced),
+                "noise_floor_temp": float(effective_temperature),
+                "total_bias": _bdc_mean(self._last_e3_score_bias),
+            }
         result = self.e3.select(
             candidates, effective_temperature,
             goal_state=_goal_state_for_select,

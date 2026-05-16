@@ -193,6 +193,10 @@ class E3TrajectorySelector(nn.Module):
         self.last_scores: Optional[torch.Tensor] = None
         # V3-EXQ-563c: score / bias scale diagnostics written each select() call.
         self.last_score_diagnostics: dict = {}
+        # V3-EXQ-571: per-component score decomposition (default OFF, bit-identical)
+        self.e3_score_decomp_enabled: bool = False
+        self.last_score_decomp: dict = {}
+        self._last_traj_components: dict = {}
 
         # ARC-030: benefit_eval warmup gate.
         # benefit_eval_head starts at random init — scoring with it before training
@@ -565,6 +569,11 @@ class E3TrajectorySelector(nn.Module):
             m = self.compute_ethical_cost(trajectory)
         phi = self.compute_residue_cost(trajectory)
 
+        # V3-EXQ-571: component trackers (used only when e3_score_decomp_enabled)
+        _dc_benefit_w = 0.0
+        _dc_novelty_w = 0.0
+        _dc_goal_w = 0.0
+
         # SD-011: z_harm_a amplification of ethical cost.
         # When accumulated threat is high, harm costs weigh more.
         lambda_eff = self.config.lambda_ethical
@@ -591,6 +600,8 @@ class E3TrajectorySelector(nn.Module):
                 w_goal = terrain_weight[:, 1]  # [batch]
                 b = b * w_goal
             score = score - self.config.benefit_weight * b
+            if self.e3_score_decomp_enabled:
+                _dc_benefit_w = float((self.config.benefit_weight * b).detach().mean().item())
 
         # MECH-111: novelty bonus — subtract EMA novelty signal
         if self.config.novelty_bonus_weight > 0.0:
@@ -598,6 +609,8 @@ class E3TrajectorySelector(nn.Module):
             device = score.device
             novelty_bonus = torch.tensor(self._novelty_ema, device=device)
             score = score - self.config.novelty_bonus_weight * novelty_bonus
+            if self.e3_score_decomp_enabled:
+                _dc_novelty_w = float(self.config.novelty_bonus_weight * self._novelty_ema)
 
         # MECH-112 / MECH-117: wanting signal via z_goal distance
         if (goal_state is not None
@@ -609,7 +622,19 @@ class E3TrajectorySelector(nn.Module):
                 w_goal = terrain_weight[:, 1]  # [batch]
                 g = g * w_goal
             score = score - self.config.goal_weight * g
+            if self.e3_score_decomp_enabled:
+                _dc_goal_w = float((self.config.goal_weight * g).detach().mean().item())
 
+        if self.e3_score_decomp_enabled:
+            self._last_traj_components = {
+                "f": float(f.detach().mean().item()),
+                "harm_weighted": float((lambda_eff * m).detach().mean().item()),
+                "residue_weighted": float((self.config.rho_residue * phi).detach().mean().item()),
+                "benefit_weighted": _dc_benefit_w,
+                "novelty_weighted": _dc_novelty_w,
+                "goal_weighted": _dc_goal_w,
+                "lambda_eff": float(lambda_eff),
+            }
         return score
 
     # ------------------------------------------------------------------ #
@@ -666,16 +691,20 @@ class E3TrajectorySelector(nn.Module):
         if not candidates:
             raise ValueError("No candidate trajectories provided")
 
-        scores = torch.stack([
-            self.score_trajectory(
-                t, goal_state=goal_state, harm_bridge=harm_bridge,
+        _score_list = []
+        _cand_components = [] if self.e3_score_decomp_enabled else None
+        for _cand_t in candidates:
+            _s = self.score_trajectory(
+                _cand_t, goal_state=goal_state, harm_bridge=harm_bridge,
                 terrain_weight=terrain_weight,
                 harm_forward_model=harm_forward_model,
                 z_harm_s_current=z_harm_s_current,
                 z_harm_a=z_harm_a,
             )
-            for t in candidates
-        ])
+            _score_list.append(_s)
+            if self.e3_score_decomp_enabled:
+                _cand_components.append(dict(self._last_traj_components))
+        scores = torch.stack(_score_list)
         scores = scores.mean(dim=-1)
 
         # V3-EXQ-563c: capture raw score range for diagnostics + normalisation.
@@ -734,6 +763,11 @@ class E3TrajectorySelector(nn.Module):
             "selected_candidate_rank_after_bias": -1,
         }
         self.last_scores = scores.detach()
+        if self.e3_score_decomp_enabled and _cand_components:
+            self.last_score_decomp = {
+                "per_candidate": _cand_components,
+                "n_candidates": len(_cand_components),
+            }
 
         probs = F.softmax(-scores / temperature, dim=0)
 
@@ -774,6 +808,10 @@ class E3TrajectorySelector(nn.Module):
             selected_idx = int(scores.argmin().item())
         else:
             selected_idx = int(torch.multinomial(probs, 1).item())
+
+        # V3-EXQ-571: record which candidate was selected into decomp dict.
+        if self.e3_score_decomp_enabled and self.last_score_decomp:
+            self.last_score_decomp["selected_idx"] = selected_idx
 
         # Update post-selection rank diagnostics now that selected_idx is known.
         if score_bias is not None:
