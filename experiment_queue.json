@@ -18,8 +18,12 @@
       "conditions": 3,
       "episodes_per_run": 100,
       "estimated_minutes": 12,
-      "status": "pending",
-      "notes": "infant_substrate:GAP-5 substrate-readiness diagnostic (experiment_purpose=diagnostic, claim_ids=[]). C0 ARM_0 inert + layout bit-identical, C1 ARM_1 pos_entropy under ln(window) ceiling, C2 ARM_1 stub zone_coverage monotone, C3 ARM_2 GAP-2 zone_coverage keys/range, C4 ARM_1 window-cap recompute match. Unblocks DEV-NEED-001 / DEV-NEED-008. Plan-of-record: REE_assembly/evidence/planning/infant_substrate_plan.md GAP-5."
+      "status": "claimed",
+      "notes": "infant_substrate:GAP-5 substrate-readiness diagnostic (experiment_purpose=diagnostic, claim_ids=[]). C0 ARM_0 inert + layout bit-identical, C1 ARM_1 pos_entropy under ln(window) ceiling, C2 ARM_1 stub zone_coverage monotone, C3 ARM_2 GAP-2 zone_coverage keys/range, C4 ARM_1 window-cap recompute match. Unblocks DEV-NEED-001 / DEV-NEED-008. Plan-of-record: REE_assembly/evidence/planning/infant_substrate_plan.md GAP-5.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-16T22:38:32.675367+00:00"
+      }
     }
   ]
 }
