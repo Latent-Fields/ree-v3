@@ -14,7 +14,11 @@ Guarantees enforced here:
       _mix_value_flat_with_ghost, get_last_propose_diagnostics.
   C2. Default backward-compat: use_mech293_ghost_probes=False;
       propose_trajectories returns value-flat candidates with no ghost
-      branch; _last_propose_diagnostics stays empty.
+      branch; the ghost branch contributes no mech293_* diagnostics.
+      (General proposer diagnostics added by later substrates -- the
+      EXQ-563 candidate-support repair / action-class scaffold /
+      orthogonal-CEM observability keys -- are emitted unconditionally
+      and are out of scope for the MECH-293 backward-compat contract.)
   C3. Precondition gate: use_mech293_ghost_probes=True without
       use_mech292_ghost_bank=True raises ValueError at module construction.
   C4. Ghost branch fires when bank has entries: at least one trajectory
@@ -176,8 +180,19 @@ def test_c2_master_off_no_op():
         # Defaults from Trajectory dataclass extension.
         assert traj.hypothesis_tag is False
         assert traj.metadata is None
-    # Diagnostics empty when ghost branch is off.
-    assert module.get_last_propose_diagnostics() == {}
+    # The MECH-293 contract is that with the ghost branch OFF it
+    # contributes NOTHING to the propose-diagnostics surface -- i.e. no
+    # mech293_* keys. The dict itself is a shared proposer-observability
+    # surface that later substrates (EXQ-563 candidate-support repair,
+    # action-class scaffold, orthogonal-CEM) populate unconditionally;
+    # asserting it is wholesale empty would couple this contract to
+    # unrelated diagnostic substrates. Test the contract, not the dict.
+    diag = module.get_last_propose_diagnostics()
+    mech293_keys = [k for k in diag if k.startswith("mech293_")]
+    assert mech293_keys == [], (
+        f"ghost branch OFF must emit no mech293_* diagnostics; got "
+        f"{mech293_keys}"
+    )
 
 
 # ------------------------------------------------------------------ #
