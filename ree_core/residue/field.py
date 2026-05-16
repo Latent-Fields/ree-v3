@@ -649,6 +649,88 @@ class ResidueField(nn.Module):
             ),
         }
 
+    def get_coverage_telemetry(
+        self, residue_scale_factor: float = 1.0
+    ) -> Dict[str, float]:
+        """infant_substrate:GAP-6 -- residue coverage + harm/benefit telemetry.
+
+        Read-only summary over the persistent harm-residue RBF field plus the
+        harm/benefit balance. Additive to get_statistics() (deliberately left
+        unchanged because EXQ-575 and other callers depend on its exact key
+        set). This method mutates no field state and is bit-identical for
+        every existing run -- nothing in the agent/env hot path calls it; it
+        is invoked only by experiment scripts at episode/summary time, the
+        same way EXQ-575 already calls get_statistics().
+
+        residue_coverage_pct
+            infant_substrate_plan.md GAP-6 defines this as the fraction of
+            grid cells with abs(residue) > threshold, threshold =
+            0.02 * residue_scale_factor. The V3 substrate has no literal
+            (y,x) residue grid -- the field is RBF-over-z_world -- so the
+            operational unit is the RBF basis (EXQ-575 precedent:
+            active_centers / num_centers, refined here with the magnitude
+            threshold). A center counts when it is active AND
+            abs(weight) > threshold.
+        harm_benefit_ratio
+            total_residue / total_benefit when the benefit terrain is
+            enabled and benefit has accumulated; -1.0 sentinel otherwise
+            (benefit terrain disabled, or zero benefit accumulated). One
+            sentinel for "undefined", following the GAP-5 pos_entropy
+            sentinel precedent.
+
+        Args:
+            residue_scale_factor: ARC-046 hazard-protection scale (a
+                developmental_curriculum.md parameter, not a ResidueConfig
+                field). Clamped to >= 1e-8 so a 0.0 curriculum value does
+                not collapse the threshold to 0 (which would count every
+                active center regardless of magnitude).
+
+        Returns:
+            Dict of native python floats/ints (ASCII-safe, no tensors):
+            residue_coverage_pct, residue_coverage_threshold,
+            residue_active_centers, residue_n_centers, harm_benefit_ratio,
+            harm_total, benefit_total.
+        """
+        eps = 1e-8
+        thr = 0.02 * max(float(residue_scale_factor), eps)
+        n_centers = int(self.rbf_field.num_centers)
+
+        with torch.no_grad():
+            active_mask = self.rbf_field.active_mask
+            weights_abs = self.rbf_field.weights.detach().abs()
+            active_centers = int(active_mask.sum().item())
+            if n_centers > 0:
+                covered = int(
+                    (active_mask & (weights_abs > thr)).sum().item()
+                )
+                coverage_pct = covered / n_centers
+            else:
+                coverage_pct = 0.0
+
+        harm_total = float(self.total_residue.item())
+
+        if getattr(self, "benefit_terrain_enabled", False) and hasattr(
+            self, "total_benefit"
+        ):
+            benefit_total = float(self.total_benefit.item())
+            if benefit_total > eps:
+                harm_benefit_ratio = harm_total / benefit_total
+            else:
+                harm_benefit_ratio = -1.0
+        else:
+            benefit_total = -1.0
+            harm_benefit_ratio = -1.0
+
+        return {
+            "residue_coverage_pct": float(coverage_pct),
+            "residue_coverage_threshold": float(thr),
+            "residue_active_centers": int(active_centers),
+            "residue_n_centers": int(n_centers),
+            "harm_benefit_ratio": float(harm_benefit_ratio),
+            "harm_total": float(harm_total),
+            "benefit_total": float(benefit_total),
+        }
+
     def visualize_field(
         self,
         z_range: Tuple[float, float] = (-3, 3),
