@@ -6,5 +6,25 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-577a",
+      "title": "GAP-2 microhabitat zones -- substrate readiness diagnostic (corrected C2; supersedes V3-EXQ-577)",
+      "experiment_type": "gap2_microhabitat_validation",
+      "script": "experiments/v3_exq_577a_gap2_microhabitat_validation_v3.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "seeds": 3,
+      "conditions": 2,
+      "episodes_per_run": 100,
+      "estimated_minutes": 10,
+      "status": "claimed",
+      "supersedes": "V3-EXQ-577",
+      "notes": "infant_substrate:GAP-2 readiness, corrected C2 (supersedes V3-EXQ-577 per failure_autopsy_EXQ-577_2026-05-16). V3-EXQ-577 C2 was a false-negative: it demanded per-episode presence of ALL base zones {0,1,2}, fighting the deliberately stochastic Voronoi seeding (~2-3% of episodes legitimately absorbed one niche into the D ecotone). Corrected C2: per episode assert WELL-FORMEDNESS only (no -1 in interior, codes subset {0,1,2,3}, border 3 present, >=2 base zones); assert {0,1,2} present AGGREGATED over episodes; report base-zone-collapse frequency + redraw-guard counters as DIAGNOSTIC stats (expect ~0 collapses now the GAP-2 degenerate-seeding redraw guard has landed in _build_microhabitat_zones). C1 (bit-identical OFF) / C3 (zone-C zero hazard + zone-B density > zone-A) / C4 (zone-C ambient fires+decays) unchanged. experiment_purpose=diagnostic (no governance weighting; claim_ids=[]). GAP-2 unblocks DEV-NEED-001/003/007 + ARC-065 via the full infant pipeline.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-16T23:07:54.394265+00:00"
+      }
+    }
+  ]
 }
