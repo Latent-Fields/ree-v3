@@ -6,5 +6,20 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-575",
+      "title": "ISEF-001 harm gradient baseline -- warm-start gate diagnostic",
+      "experiment_type": "v3_exq_575_isef001_harm_gradient_baseline",
+      "script": "experiments/v3_exq_575_isef001_harm_gradient_baseline.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "seeds": 5,
+      "conditions": 2,
+      "episodes_per_run": 200,
+      "estimated_minutes": 200,
+      "status": "pending",
+      "notes": "DEV-NEED-029 warm-start gate. 2-arm diagnostic: ARM_0 proximity_harm_scale=0.05 (cold-start control) vs ARM_1 proximity_harm_scale=0.30 (treatment). PASS gates all downstream ARC-065, Q-043/044/045, INV-049 retests."
+    }
+  ]
 }
