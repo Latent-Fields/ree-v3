@@ -36,7 +36,11 @@
       "conditions": 2,
       "episodes_per_run": 100,
       "estimated_minutes": 8,
-      "status": "pending"
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-16T19:50:00.538644+00:00"
+      }
     }
   ]
 }
