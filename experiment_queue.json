@@ -24,25 +24,6 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-16T19:05:59.868353+00:00"
       }
-    },
-    {
-      "queue_id": "V3-EXQ-578",
-      "title": "GAP-3 transient benefit patches env feature substrate validation",
-      "experiment_type": "gap3_transient_benefit_validation",
-      "script": "experiments/v3_exq_578_gap3_transient_benefit_validation_v3.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "seeds": 3,
-      "conditions": 2,
-      "episodes_per_run": 100,
-      "estimated_minutes": 12,
-      "status": "claimed",
-      "claim_id": "DEV-NEED-006",
-      "notes": "infant_substrate:GAP-3 substrate-readiness diagnostic (analogous to V3-EXQ-576 for GAP-1). 2-arm: ARM_0 transient_benefit_enabled=False (counters exactly zero) vs ARM_1 enabled (prob=0.15, duration=15, multiplier=2.0). PASS = C1 spawn-rate in band AND C2 ARM_0 fully silent AND C3 patches expire AND C4 contact pays resource_benefit*multiplier exactly. Unblocks DEV-NEED-006 (z_goal seeding via accidental benefit contacts) + MECH-189. experiment_purpose=diagnostic; claim_ids=[] (no governance weighting).",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-16T21:32:33.317582+00:00"
-      }
     }
   ]
 }
