@@ -6,5 +6,24 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-580",
+      "title": "GAP-6 residue_coverage_pct / harm_benefit_ratio metric substrate validation",
+      "experiment_type": "gap6_residue_coverage_validation",
+      "script": "experiments/v3_exq_580_gap6_residue_coverage_validation_v3.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "seeds": 3,
+      "conditions": 2,
+      "episodes_per_run": 40,
+      "estimated_minutes": 10,
+      "status": "claimed",
+      "notes": "infant_substrate:GAP-6 substrate-readiness diagnostic (experiment_purpose=diagnostic, claim_ids=[]). Validates the new read-only ResidueField.get_coverage_telemetry() (residue_coverage_pct + harm_benefit_ratio). C0 both arms well-formed (coverage in [0,1], threshold==0.02*0.1, active<=n_centers), C1 ARM_1 (GAP-1 harm_gradient on) residue_coverage_pct strictly > ARM_0 (binary contact) by >= 0.01 margin, C2 benefit-terrain-off -1.0 sentinel both arms, C3 non-invasive (get_statistics intact, idempotent, weights unchanged -- protects EXQ-575), C4 ARM_0 has harm residue. Dry-run smoke 5/5 criteria PASS. Unblocks DEV-NEED-004 / DEV-NEED-008. Plan-of-record: REE_assembly/evidence/planning/infant_substrate_plan.md GAP-6.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-16T22:46:54.176585+00:00"
+      }
+    }
+  ]
 }
