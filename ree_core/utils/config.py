@@ -1847,6 +1847,26 @@ class REEConfig:
     # ----------------------------------------------------------------
     # Sleep-aggregation cluster (MECH-272 / MECH-273 / MECH-275 / MECH-285)
     # ----------------------------------------------------------------
+    # GAP-3 unified cluster master flag. The Phase A-E surface is gated by
+    # eight independent default-False flags (use_sleep_loop, sws_enabled,
+    # rem_enabled, use_mech285_sampler, use_mech272_routing,
+    # use_mech272_routing_consumer, use_mech275_aggregator,
+    # use_mech273_self_model). Before this flag existed, an experiment had to
+    # set all eight by hand or the offline-consolidation pathway was silent
+    # (sleep_substrate_plan.md GAP-3). When this flag is True, the eight
+    # sub-flags are forced True via enable_sleep_aggregation_cluster()
+    # (called from __post_init__ for direct construction and from from_dims()
+    # for the factory path). Resolution is OR-only: it flips False -> True,
+    # matching the use_mech307_conjunction resolver convention; an explicit
+    # sub-flag set False alongside the master is overridden to True (use the
+    # individual flags, not the master, when fine-grained opt-out is needed).
+    # MECH-204 precision recalibration (use_rem_precision_recalibration) is a
+    # separate sibling WRITEBACK step under sleep_substrate GAP-1 and is
+    # intentionally NOT bundled here. Substrate prerequisites for the cluster
+    # to actually fire (anchor sets for Phase B, e2_harm_s for Phase E) are
+    # separate MECH-269/ARC-033 substrate switches, also not bundled here.
+    # Default False: bit-identical to pre-GAP-3 behaviour.
+    use_sleep_aggregation_cluster: bool = False
     # Phase A master flag. When True, REEAgent instantiates a SleepLoopManager
     # that drives a deterministic K-episode sleep cycle through the existing
     # SD-017 surface (run_sleep_cycle). Bit-identical OFF: the agent does not
@@ -2141,6 +2161,45 @@ class REEConfig:
             self.use_mech307_split_surprise = True
             self.use_mech307_schema_multichannel = True
             self.use_mech307_predicted_location_write = True
+
+        # GAP-3 sleep-aggregation cluster master flag resolver. Same OR-only
+        # convention as MECH-307: flips the eight Phase A-E sub-flags
+        # False -> True so a single switch lights the whole offline-
+        # consolidation pathway. from_dims() handles the factory path
+        # separately (it sets fields after cls(), so it re-invokes the
+        # bundle via enable_sleep_aggregation_cluster()).
+        if self.use_sleep_aggregation_cluster:
+            self.enable_sleep_aggregation_cluster()
+
+    def enable_sleep_aggregation_cluster(self) -> "REEConfig":
+        """Enable the full Phase A-E sleep-aggregation cluster (GAP-3).
+
+        Convenience preset, not a new mechanism. Forces the eight
+        independent default-False master flags True so the offline-
+        consolidation pathway (MECH-285 replay sampler -> MECH-272 routing
+        gate + GAP-8 consumer -> MECH-275 Bayesian aggregator -> MECH-273
+        self-model writeback) runs end-to-end from one switch. Before this,
+        the cluster was silent unless an experiment set all eight by hand
+        (sleep_substrate_plan.md GAP-3).
+
+        OR-only, like the use_mech307_conjunction resolver: only flips
+        False -> True. MECH-204 precision recalibration is a separate
+        sibling step (GAP-1) and is deliberately not turned on here.
+        Substrate prerequisites (anchor sets for Phase B, e2_harm_s for
+        Phase E) are separate MECH-269/ARC-033 switches and are not
+        bundled here -- the cluster flag governs the sleep-phase flags
+        only, which is exactly GAP-3's scope.
+        """
+        self.use_sleep_aggregation_cluster = True
+        self.use_sleep_loop = True               # Phase A
+        self.sws_enabled = True                  # SD-017 SWS pass
+        self.rem_enabled = True                  # SD-017 REM pass
+        self.use_mech285_sampler = True          # Phase B
+        self.use_mech272_routing = True          # Phase C gate
+        self.use_mech272_routing_consumer = True  # Phase C consumer (GAP-8)
+        self.use_mech275_aggregator = True       # Phase D
+        self.use_mech273_self_model = True       # Phase E
+        return self
 
     def enable_goal_stream(
         self,
@@ -2567,6 +2626,10 @@ class REEConfig:
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
         backward_sweep_min_quality: float = 0.6,
+        # Sleep-aggregation cluster GAP-3 unified master flag (resolves the
+        # eight Phase A-E sub-flags True via enable_sleep_aggregation_cluster()
+        # at the end of from_dims). Default False: bit-identical pre-GAP-3.
+        use_sleep_aggregation_cluster: bool = False,
         # Sleep-aggregation cluster Phase A master flag
         use_sleep_loop: bool = False,
         sleep_loop_episodes_K: int = 1,
@@ -3162,6 +3225,13 @@ class REEConfig:
                 schema_wanting_threshold=schema_wanting_threshold,
                 schema_wanting_gain=schema_wanting_gain,
             )
+
+        # GAP-3: resolve the unified sleep-aggregation cluster master flag
+        # AFTER the individual Phase A-E flag assignments above so the master
+        # wins (OR-only: forces the eight sub-flags True). __post_init__ ran
+        # on cls() with the default False and was a no-op for this path.
+        if use_sleep_aggregation_cluster:
+            config.enable_sleep_aggregation_cluster()
 
         return config
 
