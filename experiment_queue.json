@@ -24,6 +24,20 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-16T19:05:59.868353+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-577",
+      "title": "GAP-2 microhabitat zones env feature -- substrate readiness diagnostic",
+      "experiment_type": "gap2_microhabitat_validation",
+      "script": "experiments/v3_exq_577_gap2_microhabitat_validation_v3.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "seeds": 3,
+      "conditions": 2,
+      "episodes_per_run": 100,
+      "estimated_minutes": 10,
+      "status": "pending",
+      "notes": "infant_substrate:GAP-2 readiness. 2-arm: ARM_0 microhabitat_enabled=False (bit-identical OFF) vs ARM_1 microhabitat_enabled=True n_microhabitats=3 (defaults). C1 bit-identical OFF; C2 zone-map coverage {0,1,2}+border 3; C3 zone-C zero hazard + zone-B density > zone-A; C4 zone-C ambient bonus fires and decays. experiment_purpose=diagnostic (no governance weighting; claim_ids=[]). GAP-2 unblocks DEV-NEED-001/003/007 + ARC-065 via the full infant pipeline."
     }
   ]
 }

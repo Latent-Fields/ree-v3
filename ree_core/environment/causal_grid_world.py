@@ -313,6 +313,25 @@ class CausalGridWorld:
         harm_gradient_outer_radius: float = 3.0,
         harm_gradient_inner_radius: float = 0.0,
         harm_gradient_scale: float = 1.0,
+        # infant_substrate:GAP-2 -- microhabitat zones env feature.
+        # Per-episode Voronoi-seeded zone map (A/B/C + automatic D border)
+        # modulating per-cell resource/hazard spawn weighting, plus a
+        # zone-C ambient presence bonus that decays with repeated zone-C
+        # visits. Env-only; not surfaced through REEConfig.from_dims.
+        # All defaults are no-op when disabled (bit-identical legacy
+        # behaviour: no zone map, unweighted pop(), zero new RNG draws).
+        # Spec: REE_assembly/docs/architecture/infant_substrate_expansion.md
+        # Section 5.2.
+        microhabitat_enabled: bool = False,
+        n_microhabitats: int = 3,
+        zone_A_resource_factor: float = 1.5,
+        zone_A_hazard_factor: float = 0.3,
+        zone_B_resource_factor: float = 0.8,
+        zone_B_hazard_factor: float = 1.8,
+        zone_C_resource_factor: float = 0.3,
+        zone_C_hazard_factor: float = 0.0,
+        zone_C_ambient_bonus: float = 0.05,
+        zone_novelty_decay: float = 0.95,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -558,6 +577,27 @@ class CausalGridWorld:
         self.harm_gradient_inner_radius = float(max(0.0, harm_gradient_inner_radius))
         self.harm_gradient_scale = float(harm_gradient_scale)
 
+        # infant_substrate:GAP-2 -- microhabitat zones env feature.
+        self.microhabitat_enabled = bool(microhabitat_enabled)
+        self.n_microhabitats = int(max(1, n_microhabitats))
+        # Zone factor lookup: index 0=A, 1=B, 2=C. Voronoi zones beyond the
+        # first 3 (when n_microhabitats > 3) and the automatic D border zone
+        # get neutral 1.0/1.0 factors and no ambient bonus, mirroring the
+        # SD-049 "extra types get generic entries" precedent.
+        self.zone_A_resource_factor = float(max(0.0, zone_A_resource_factor))
+        self.zone_A_hazard_factor = float(max(0.0, zone_A_hazard_factor))
+        self.zone_B_resource_factor = float(max(0.0, zone_B_resource_factor))
+        self.zone_B_hazard_factor = float(max(0.0, zone_B_hazard_factor))
+        self.zone_C_resource_factor = float(max(0.0, zone_C_resource_factor))
+        self.zone_C_hazard_factor = float(max(0.0, zone_C_hazard_factor))
+        self.zone_C_ambient_bonus = float(zone_C_ambient_bonus)
+        self.zone_novelty_decay = float(np.clip(zone_novelty_decay, 0.0, 1.0))
+        # Zone codes: -1 = wall / non-interior, 0 = A, 1 = B, 2 = C,
+        # 3 = D (transition/border, neutral), 4+ = extra Voronoi zone (neutral).
+        self._zone_map: Optional[np.ndarray] = None
+        self._zone_c_visit_count: int = 0
+        self._zone_c_ambient_this_tick: float = 0.0
+
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
         self.landmark_b_positions: List[Tuple[int, int]] = []
@@ -675,6 +715,30 @@ class CausalGridWorld:
             self._reef_field = np.zeros((self.size, self.size), dtype=np.float32)
             agent_pool = forage_pool = available
 
+        # infant_substrate:GAP-2 -- per-episode microhabitat zone map.
+        # Built over the full interior cell list (independent of reef
+        # removal) BEFORE entity placement so spawn weighting can read it.
+        # Reset per-episode zone state regardless of switch so diagnostics
+        # are deterministic. When disabled: _zone_map stays None, the
+        # spawn paths use a bare pop() and no extra RNG draws occur
+        # (bit-identical legacy behaviour, SD-047/048/049 OFF precedent).
+        self._zone_c_visit_count = 0
+        self._zone_c_ambient_this_tick = 0.0
+        if self.microhabitat_enabled:
+            if self.toroidal:
+                _interior = [
+                    (i, j) for i in range(self.size) for j in range(self.size)
+                ]
+            else:
+                _interior = [
+                    (i, j)
+                    for i in range(1, self.size - 1)
+                    for j in range(1, self.size - 1)
+                ]
+            self._build_microhabitat_zones(_interior)
+        else:
+            self._zone_map = None
+
         ax, ay = agent_pool.pop()
         self.agent_x = ax
         self.agent_y = ay
@@ -685,7 +749,10 @@ class CausalGridWorld:
 
         self.hazards: List[List[int]] = []
         for _ in range(min(self.num_hazards, len(forage_pool))):
-            hx, hy = forage_pool.pop()
+            if self.microhabitat_enabled:
+                hx, hy = self._pop_zone_weighted(forage_pool, "hazard")
+            else:
+                hx, hy = forage_pool.pop()
             self.grid[hx, hy] = self.ENTITY_TYPES["hazard"]
             self.hazards.append([hx, hy])
 
@@ -729,7 +796,10 @@ class CausalGridWorld:
                 weights = weights / weights.sum()
                 n_to_spawn = min(self.num_resources, len(forage_pool))
                 for _ in range(n_to_spawn):
-                    rx, ry = forage_pool.pop()
+                    if self.microhabitat_enabled:
+                        rx, ry = self._pop_zone_weighted(forage_pool, "resource")
+                    else:
+                        rx, ry = forage_pool.pop()
                     type_idx = int(active_types[
                         int(self._rng.choice(len(active_types), p=weights))
                     ])
@@ -743,7 +813,10 @@ class CausalGridWorld:
             # signal until the curriculum advances. Intentional.
         else:
             for _ in range(min(self.num_resources, len(forage_pool))):
-                rx, ry = forage_pool.pop()
+                if self.microhabitat_enabled:
+                    rx, ry = self._pop_zone_weighted(forage_pool, "resource")
+                else:
+                    rx, ry = forage_pool.pop()
                 self.grid[rx, ry] = self.ENTITY_TYPES["resource"]
                 self.resources.append([rx, ry])
 
@@ -976,6 +1049,9 @@ class CausalGridWorld:
         # infant_substrate:GAP-1: per-tick gradient diagnostics (always reset; set inside movement block).
         _grad_reward = 0.0
         _grad_dist = float("inf")
+        # infant_substrate:GAP-2: per-tick zone-C ambient bonus (always reset;
+        # set inside movement block when the agent enters a zone-C cell).
+        self._zone_c_ambient_this_tick = 0.0
 
         # Move agent if not wall (toroidal has no walls, so always move)
         if self.toroidal or self.grid[new_x, new_y] != self.ENTITY_TYPES["wall"]:
@@ -1176,6 +1252,26 @@ class CausalGridWorld:
                     )
                     harm_signal += _grad_reward
                     transition_type = "harm_gradient"
+
+            # infant_substrate:GAP-2 -- zone-C ambient presence bonus.
+            # Small positive reward for occupying a zone-C (novelty) cell
+            # when no contact / approach / gradient event fired. Decays
+            # multiplicatively with the number of zone-C visits this episode
+            # (zone_novelty_decay): a familiar novelty zone yields less.
+            # No RNG draws; bit-identical OFF when disabled.
+            if (
+                self.microhabitat_enabled
+                and self._zone_map is not None
+                and transition_type == "none"
+                and int(self._zone_map[new_x, new_y]) == 2
+            ):
+                _ambient = self.zone_C_ambient_bonus * (
+                    self.zone_novelty_decay ** self._zone_c_visit_count
+                )
+                harm_signal += _ambient
+                self._zone_c_ambient_this_tick = float(_ambient)
+                self._zone_c_visit_count += 1
+                transition_type = "zone_c_ambient"
 
             # Move agent
             self.agent_x = new_x
@@ -1453,6 +1549,21 @@ class CausalGridWorld:
             "harm_gradient_reward_this_tick": float(_grad_reward),
             "harm_gradient_dist_to_nearest": (
                 float(_grad_dist) if _grad_dist != float("inf") else -1.0
+            ),
+            # infant_substrate:GAP-2 microhabitat diagnostics (always present; 0/-1 when disabled).
+            "microhabitat_enabled": bool(self.microhabitat_enabled),
+            "microhabitat_zone_at_agent": (
+                int(self._zone_map[self.agent_x, self.agent_y])
+                if self._zone_map is not None
+                else -1
+            ),
+            "microhabitat_zone_c_ambient_this_tick": float(
+                self._zone_c_ambient_this_tick
+            ),
+            "microhabitat_zone_counts": (
+                [int((self._zone_map == z).sum()) for z in range(4)]
+                if self._zone_map is not None
+                else [0, 0, 0, 0]
             ),
         }
         if self.use_proxy_fields:
@@ -1959,6 +2070,117 @@ class CausalGridWorld:
             return i > midline + radius
         else:  # "vertical"
             return j > midline + radius
+
+    # ------------------------------------------------------------------ #
+    # infant_substrate:GAP-2 -- microhabitat zones                        #
+    # ------------------------------------------------------------------ #
+
+    def _build_microhabitat_zones(self, interior_cells: list) -> None:
+        """Build a per-episode Voronoi zone map over interior cells.
+
+        n_microhabitats seed points are sampled (without replacement) from
+        the interior cells via self._rng. Each interior cell is assigned to
+        the nearest seed (Euclidean) -> a base zone index 0..n-1. A cell
+        whose 4-neighbourhood contains a different base zone is promoted to
+        the automatic transition/border zone D (code 3). Zone codes:
+        -1 = wall / non-interior, 0 = A, 1 = B, 2 = C, 3 = D border,
+        >=4 = extra Voronoi zone when n_microhabitats > 3 (neutral factors).
+
+        Per the design doc (Section 5.2): zone identity determines per-cell
+        baseline resource/hazard spawn weighting; D promotes boundary
+        exploration with neutral factors. Only called when enabled.
+
+        Sets self._zone_map (np.int8 [size, size]).
+        """
+        sz = self.size
+        zone_map = np.full((sz, sz), -1, dtype=np.int8)
+        if not interior_cells:
+            self._zone_map = zone_map
+            return
+
+        n_seeds = min(self.n_microhabitats, len(interior_cells))
+        seed_idx = self._rng.choice(
+            len(interior_cells), size=n_seeds, replace=False
+        )
+        seeds = [interior_cells[int(k)] for k in np.atleast_1d(seed_idx)]
+
+        # Base Voronoi assignment (nearest seed by squared Euclidean).
+        for (i, j) in interior_cells:
+            best_k = 0
+            best_dsq = float("inf")
+            for k, (sx, sy) in enumerate(seeds):
+                dsq = (sx - i) ** 2 + (sy - j) ** 2
+                if dsq < best_dsq:
+                    best_dsq = dsq
+                    best_k = k
+            zone_map[i, j] = best_k
+
+        # Promote boundary cells to zone D (code 3): a cell adjacent (4-conn)
+        # to a different base zone. Computed against the base assignment so
+        # promotion does not cascade.
+        base = zone_map.copy()
+        for (i, j) in interior_cells:
+            z = int(base[i, j])
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ni, nj = i + di, j + dj
+                if 0 <= ni < sz and 0 <= nj < sz:
+                    nz = int(base[ni, nj])
+                    if nz != -1 and nz != z:
+                        zone_map[i, j] = 3
+                        break
+        self._zone_map = zone_map
+
+    def _zone_resource_factor(self, cell: Tuple[int, int]) -> float:
+        """Resource spawn weight for a cell's zone. 1.0 when no zone map."""
+        if self._zone_map is None:
+            return 1.0
+        z = int(self._zone_map[cell[0], cell[1]])
+        if z == 0:
+            return self.zone_A_resource_factor
+        if z == 1:
+            return self.zone_B_resource_factor
+        if z == 2:
+            return self.zone_C_resource_factor
+        return 1.0  # D border, extra Voronoi zone, or wall: neutral
+
+    def _zone_hazard_factor(self, cell: Tuple[int, int]) -> float:
+        """Hazard spawn weight for a cell's zone. 1.0 when no zone map."""
+        if self._zone_map is None:
+            return 1.0
+        z = int(self._zone_map[cell[0], cell[1]])
+        if z == 0:
+            return self.zone_A_hazard_factor
+        if z == 1:
+            return self.zone_B_hazard_factor
+        if z == 2:
+            return self.zone_C_hazard_factor
+        return 1.0  # D border, extra Voronoi zone, or wall: neutral
+
+    def _pop_zone_weighted(self, pool: list, kind: str) -> Tuple[int, int]:
+        """Pop a cell from `pool` with probability proportional to its zone
+        spawn factor for `kind` ("resource" or "hazard").
+
+        Falls back to a uniform pop() when microhabitat is disabled, the
+        zone map is absent, or every candidate weight is zero (degenerate
+        config). Only called from the enabled spawn paths -- the disabled
+        path uses a bare pool.pop() so legacy RNG sequences are
+        bit-identical.
+        """
+        if self._zone_map is None or not pool:
+            return pool.pop()
+        if kind == "hazard":
+            weights = np.array(
+                [self._zone_hazard_factor(c) for c in pool], dtype=np.float64
+            )
+        else:
+            weights = np.array(
+                [self._zone_resource_factor(c) for c in pool], dtype=np.float64
+            )
+        total = weights.sum()
+        if total <= 0.0:
+            return pool.pop()
+        idx = int(self._rng.choice(len(pool), p=weights / total))
+        return pool.pop(idx)
 
     def _is_in_forage_half(self, i: int, j: int) -> bool:
         """SD-054 bipartite: is (i, j) on the forage side of the partition?"""
