@@ -35,14 +35,23 @@
       "script": "experiments/v3_exq_573_arc065_bias_scale_sweep.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 30,
       "seeds": 3,
       "conditions": 10,
-      "claim_ids": ["ARC-065", "MECH-313", "MECH-314", "MECH-320"],
+      "claim_ids": [
+        "ARC-065",
+        "MECH-313",
+        "MECH-314",
+        "MECH-320"
+      ],
       "experiment_purpose": "evidence",
-      "note": "Follow-up to EXQ-571 diagnosis (F dominates 88-89%%, bias_fraction~0). Sweep noise_floor_alpha (MECH-313) and bias_scale (MECH-314/320) at 1x/5x/10x individually and combined. PASS if any arm > ARM_0 + 0.05 entropy."
+      "note": "Follow-up to EXQ-571 diagnosis (F dominates 88-89%%, bias_fraction~0). Sweep noise_floor_alpha (MECH-313) and bias_scale (MECH-314/320) at 1x/5x/10x individually and combined. PASS if any arm > ARM_0 + 0.05 entropy.",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-16T06:36:23.265407+00:00"
+      }
     }
   ]
 }
