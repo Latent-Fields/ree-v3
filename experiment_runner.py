@@ -1714,6 +1714,35 @@ def main():
                 )
                 script_timing = load_script_timing()
 
+            # Detect transient infrastructure crashes (OOM, SIGKILL) vs genuine script
+            # errors. Exit code 137 = SIGKILL on Linux (OOM-killer). Negative codes =
+            # killed by signal directly. These must NOT permanently remove the queue
+            # item -- release the claim so another machine (or the next pass) can retry.
+            # Root cause: Hetzner CX22 2-shared-vCPU OOM kills emit code 137; the
+            # script dies before emit_outcome() runs, so no sentinel is written, which
+            # caused the belt-and-braces block to convert UNKNOWN -> ERROR, and the
+            # ERROR path below to permanently drop the experiment. This block intercepts
+            # that case before it reaches the permanent-removal path.
+            _transient_exit_codes = {137, -9, -11}  # SIGKILL (OOM), SIGKILL direct, SIGSEGV
+            _is_infra_crash = (
+                result["result"] == "ERROR"
+                and exit_code in _transient_exit_codes
+                and not sentinel  # only when script never called emit_outcome
+            )
+            if _is_infra_crash:
+                print(
+                    f"[runner] INFRA-CRASH: {queue_id} exit={exit_code} "
+                    f"(likely OOM/SIGKILL); leaving in queue, releasing claim. "
+                    f"actual_secs={result.get('actual_secs')}",
+                    flush=True,
+                )
+                if args.auto_sync:
+                    release_claim(QUEUE_FILE, queue_id, machine)
+                completed_ids.add(queue_id)  # don't re-pick this pass
+                status["current"] = None
+                write_status(status, status_path)
+                continue
+
             if result["result"] == "ERROR":
                 # Script crashed -- move to completed (so it appears in the explorer
                 # completed list) and remove from queue, just like a finished experiment.
