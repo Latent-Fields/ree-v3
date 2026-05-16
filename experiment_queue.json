@@ -6,5 +6,24 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-581",
+      "title": "GAP-3 sleep-aggregation cluster: unified master flag end-to-end + equivalence validation",
+      "experiment_type": "v3_exq_581_gap3_sleep_aggregation_cluster_validation_v3",
+      "script": "experiments/v3_exq_581_gap3_sleep_aggregation_cluster_validation_v3.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 5,
+      "episodes_per_run": 20,
+      "seeds": 2,
+      "conditions": 2,
+      "note": "sleep_substrate GAP-3 owner-EXQ. Diagnostic/substrate-readiness (claim_ids=[]). ARM_CLUSTER (use_sleep_aggregation_cluster=True) vs ARM_EXPLICIT (8 sub-flags by hand). C1-C5: all Phase A-E components fire end-to-end under the single flag; C6: cluster == explicit (master flag is pure ergonomics, zero behavioural divergence). Dry-run 6/6 PASS 2026-05-16. Unblocks MECH-285/272/275/273 empirical promotion.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-16T22:52:10.153077+00:00"
+      }
+    }
+  ]
 }
