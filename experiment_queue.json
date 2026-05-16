@@ -8,27 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-572",
-      "title": "Intervention A dual attractor: context-sensitive strategy switching (ARC-065 Rung 3)",
-      "experiment_type": "v3_exq_572_intervention_a_dual_attractor",
-      "script": "experiments/v3_exq_572_intervention_a_dual_attractor.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 75,
-      "seeds": 3,
-      "conditions": 4,
-      "episodes_per_run": 50,
-      "claim_ids": [
-        "ARC-065"
-      ],
-      "experiment_purpose": "evidence",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-16T06:21:24.547840+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-573",
       "title": "ARC-065 bias-scale 5-10x sweep: MECH-313/314/320 calibration vs F-term",
       "experiment_type": "v3_exq_573_arc065_bias_scale_sweep",
