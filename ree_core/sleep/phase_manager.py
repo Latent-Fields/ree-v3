@@ -229,6 +229,12 @@ class SleepLoopManager:
                             self._lookup_evidence(routed, evidence_snapshot),
                             domain=self.aggregator_domain,
                         )
+                    if self.self_model_aggregator is not None:
+                        self.self_model_aggregator.update(
+                            routed,
+                            self._lookup_evidence(routed, evidence_snapshot),
+                            domain=self.self_model_domain,
+                        )
             sampler_metrics = self.replay_sampler.get_metrics()
         else:
             sampler_metrics = {}
@@ -255,6 +261,8 @@ class SleepLoopManager:
             self.state.phase = SleepPhase.PHASE_SWITCH
             if self.bayesian_aggregator is not None:
                 self.bayesian_aggregator.snapshot()
+            if self.self_model_aggregator is not None:
+                self.self_model_aggregator.snapshot()
             self.routing_gate.set_phase(SleepPhase.REM_ANALOG)
             for routed in sws_routed_draws:
                 rem_routed = self.routing_gate.route(routed.event)
@@ -267,6 +275,12 @@ class SleepLoopManager:
                         rem_routed,
                         self._lookup_evidence(rem_routed, evidence_snapshot),
                         domain=self.aggregator_domain,
+                    )
+                if self.self_model_aggregator is not None:
+                    self.self_model_aggregator.update(
+                        rem_routed,
+                        self._lookup_evidence(rem_routed, evidence_snapshot),
+                        domain=self.self_model_domain,
                     )
 
         # GAP-8: forward mean anchor_channel to run_sleep_cycle ONLY when
