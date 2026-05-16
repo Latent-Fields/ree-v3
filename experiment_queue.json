@@ -6,5 +6,26 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-574",
+      "title": "MECH-273 SelfModelAggregator offline gradient pass validation",
+      "experiment_type": "v3_exq_574_mech273_self_model_aggregator_validation",
+      "script": "experiments/v3_exq_574_mech273_self_model_aggregator_validation.py",
+      "priority": 10,
+      "machine_affinity": "any",
+      "estimated_minutes": 45,
+      "seeds": 3,
+      "conditions": 1,
+      "episodes_per_run": 90,
+      "claim_ids": [
+        "MECH-273"
+      ],
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-16T10:58:24.941168+00:00"
+      }
+    }
+  ]
 }
