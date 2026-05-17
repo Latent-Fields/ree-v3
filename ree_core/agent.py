@@ -2512,7 +2512,11 @@ class REEAgent(nn.Module):
         # fresh E3 selection. Mirrors the MECH-091 urgency-interrupt template.
         # No-op when the flag is off, when beta is not elevated, or when no
         # snapshot exists. Diagnostic counter incremented each time the
-        # release fires (read by V3-EXQ-481 as commit_release_via_vs_count).
+        # release fires (read by V3-EXQ-481b as vs_commit_release_count).
+        # Empty-snapshot fix (GAP-5): if the snapshot was empty at commit entry
+        # (no active anchors yet), re-populate from the first non-empty set
+        # observed while still committed; the trivial issubset of an empty
+        # set made the release predicate vacuously false every tick.
         if (
             getattr(self.hippocampal.config, "use_vs_commit_release", False)
             and self.beta_gate.is_elevated
@@ -2522,7 +2526,9 @@ class REEAgent(nn.Module):
             current_keys = {
                 a.key for a in self.hippocampal.anchor_set.active_anchors()
             }
-            if not self._committed_anchor_keys.issubset(current_keys):
+            if not self._committed_anchor_keys and current_keys:
+                self._committed_anchor_keys = current_keys
+            elif self._committed_anchor_keys and not self._committed_anchor_keys.issubset(current_keys):
                 self.beta_gate.release()
                 self._committed_step_idx = 0
                 self._committed_anchor_keys = None

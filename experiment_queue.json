@@ -129,6 +129,22 @@
       "conditions": 3,
       "claim_id": "ARC-046",
       "note": "infant_substrate:GAP-14 closure. PASS confirms ARC-046 (phased residue accumulation via curriculum); unblocks DEV-NEED-008."
+    },
+    {
+      "queue_id": "V3-EXQ-481b",
+      "title": "MECH-090 V_s commit-release substrate validation (re-issue 481)",
+      "experiment_type": "v3_exq_481b_vs_commit_release",
+      "script": "experiments/v3_exq_481b_vs_commit_release.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "episodes_per_run": 1,
+      "seeds": 1,
+      "conditions": 3,
+      "claim_id": "MECH-090",
+      "supersedes": "V3-EXQ-481",
+      "note": "GAP-5 close: forced-commit substrate test; 3 UCs (ON, OFF, empty-snapshot). Smoke-test PASS 2026-05-17."
     }
   ]
 }
