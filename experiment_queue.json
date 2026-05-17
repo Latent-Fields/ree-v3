@@ -78,13 +78,17 @@
       "script": "experiments/v3_exq_589_isef003_microhabitat_latent_diversity.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 150,
       "episodes_per_run": 1000,
       "seeds": 5,
       "conditions": 2,
       "claim_id": "ARC-065",
-      "note": "infant_substrate:GAP-12 closure. PASS confirms ARC-065 substrate-readiness; unblocks DEV-NEED-001/007."
+      "note": "infant_substrate:GAP-12 closure. PASS confirms ARC-065 substrate-readiness; unblocks DEV-NEED-001/007.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-17T14:03:41.923731+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-590",
