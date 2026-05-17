@@ -680,27 +680,38 @@ class HippocampalConfig:
     # number of normal CEM candidates to preserve total K where possible.
     # Default False is bit-identical to the normal CEM proposer.
     use_action_class_scaffold_candidates: bool = False
-    # Experimental support-preserving CEM repair. When enabled, CEM elite refit
-    # preserves a small first-action class floor when that support is already
-    # present, and final candidate generation injects minimal one-hot first
-    # actions only when the returned support surface is collapsed. Default False
-    # preserves legacy proposer behaviour.
-    use_support_preserving_cem: bool = False
+    # Support-preserving CEM repair (ARC-065 hippocampal-trajectory-sampling
+    # child). When enabled, CEM elite refit preserves a first-action class
+    # floor when that support is present, and final candidate generation
+    # injects minimal one-hot first actions only when the returned support
+    # surface is collapsed.
+    # MAIN-PATH DEFAULT (2026-05-17, SP-CEM landing): default True. The legacy
+    # collapsing-CEM behaviour is intentionally NOT the default any more -- it
+    # produced the monostrategy that left SD-029 / ARC-062 Rung 2 /
+    # goal_pipeline / self_attribution experiments non_contributory. Validated
+    # by V3-EXQ-567 PASS (ARM_1: selected_action_entropy 0.0124 -> 0.4965).
+    # Bit-identical legacy opt-out: explicitly set this False together with
+    # support_preserving_stratified_elites=False and
+    # support_preserving_ao_std_floor=0.0.
+    use_support_preserving_cem: bool = True
     support_preserving_min_first_action_classes: int = 2
     # Stratified elite selection: when True, the CEM elite refit always picks
     # the best-scoring candidate per action class first (across ALL present
     # classes), then fills remaining elite slots score-sorted. Stronger than
-    # the current support-preserving path which only activates when below the
+    # the support-preserving path which only activates when below the
     # class-count target.  Requires use_support_preserving_cem=True.
-    support_preserving_stratified_elites: bool = False
+    # MAIN-PATH DEFAULT (2026-05-17): True (part of the V3-EXQ-567 ARM_1
+    # validated combination). Legacy opt-out: set False.
+    support_preserving_stratified_elites: bool = True
     # Per-class quota: when > 0, guarantees this many elite slots per
     # represented action class (capped by total elite budget and actual
-    # candidates available).  0 = disabled (backward compat).
+    # candidates available).  0 = disabled.
     support_preserving_per_class_quota: int = 0
     # ao_std floor: after each CEM elite refit, clamp ao_std to at least this
-    # value so the sampling distribution cannot collapse to a point.  0.0 =
-    # disabled (backward compat).
-    support_preserving_ao_std_floor: float = 0.0
+    # value so the sampling distribution cannot collapse to a point.
+    # MAIN-PATH DEFAULT (2026-05-17): 0.2 (V3-EXQ-567 ARM_1 value). Legacy
+    # opt-out: set 0.0.
+    support_preserving_ao_std_floor: float = 0.2
     # VALENCE_WANTING gradient: when > 0, trajectories toward high-wanting
     # (resource-proximal) regions score better during CEM selection.
     # Subtracted from terrain score (lower score = better in CEM).
@@ -2609,15 +2620,18 @@ class REEConfig:
         # When True, HippocampalModule ensures one one-hot first-action
         # candidate per action class reaches E3. Default False.
         use_action_class_scaffold_candidates: bool = False,
-        # V3-EXQ-563b: experimental support-preserving CEM option.
-        # Default False. When True, HippocampalModule preserves or injects a
-        # minimal first-action support floor without enabling the full scaffold.
-        use_support_preserving_cem: bool = False,
+        # Support-preserving CEM (ARC-065). MAIN-PATH DEFAULT 2026-05-17
+        # (SP-CEM landing, V3-EXQ-567 ARM_1): True / True / 0.2. Bit-identical
+        # legacy opt-out: pass use_support_preserving_cem=False,
+        # support_preserving_stratified_elites=False,
+        # support_preserving_ao_std_floor=0.0. These from_dims defaults must
+        # match the HippocampalConfig dataclass defaults (assigned unconditionally
+        # below), otherwise from_dims-built agents silently revert to legacy CEM.
+        use_support_preserving_cem: bool = True,
         support_preserving_min_first_action_classes: int = 2,
-        # V3-EXQ-563c: stronger support-preserving CEM options
-        support_preserving_stratified_elites: bool = False,
+        support_preserving_stratified_elites: bool = True,
         support_preserving_per_class_quota: int = 0,
-        support_preserving_ao_std_floor: float = 0.0,
+        support_preserving_ao_std_floor: float = 0.2,
         # V3-EXQ-563c: score/bias scale normalisation
         normalize_score_bias_to_e3_range: bool = False,
         # SD-055: differentiable CEM selection approximation
