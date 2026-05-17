@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-575a",
-      "title": "ISEF-001 harm-gradient warm-start gate (instrument fix; supersedes V3-EXQ-575)",
-      "experiment_type": "v3_exq_575a_isef001_harm_gradient_baseline",
-      "script": "experiments/v3_exq_575a_isef001_harm_gradient_baseline.py",
-      "priority": 1,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 75,
-      "episodes_per_run": 200,
-      "seeds": 5,
-      "conditions": 2,
-      "supersedes": "V3-EXQ-575",
-      "note": "failure_autopsy_EXQ-575_2026-05-17: V3-EXQ-575 C2 FAIL was a measurement_artifact (get_statistics active_centers = 32-slot ring-buffer saturation counter blind to harm intensity). 575a swaps to GAP-6 get_coverage_telemetry residue_coverage_pct + secondary harm_total/mean_weight. Diagnostic claim_ids=[]; gates downstream ARC-065 / Q-043/044/045 / INV-049 (DEV-NEED-029).",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-17T06:06:59.280048+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-583",
       "title": "SP-CEM main-path default-wiring validation (3-arm equivalence)",
       "experiment_type": "v3_exq_583_spcem_mainpath_default_wiring",
