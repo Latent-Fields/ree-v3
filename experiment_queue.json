@@ -28,12 +28,16 @@
       "script": "experiments/v3_exq_585_gap8_z_goal_retention_validation_v3.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 5,
       "episodes_per_run": 1,
       "seeds": 3,
       "conditions": 2,
-      "note": "Substrate-readiness diagnostic for infant_substrate:GAP-8. ARM_0 (no goal_state) verifies -1.0 sentinels; ARM_1 (goal seeded) verifies retention > 0.95. DEV-NEED-007 advisory gate instrumentation. dry-run smoke PASS: C1/C2/C3/C4 all True."
+      "note": "Substrate-readiness diagnostic for infant_substrate:GAP-8. ARM_0 (no goal_state) verifies -1.0 sentinels; ARM_1 (goal seeded) verifies retention > 0.95. DEV-NEED-007 advisory gate instrumentation. dry-run smoke PASS: C1/C2/C3/C4 all True.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-17T14:03:23.525794+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-586",
