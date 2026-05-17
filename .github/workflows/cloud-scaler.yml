@@ -56,6 +56,7 @@ jobs:
           WORKERS=(
             "ree-worker-1:ree-cloud-1"
             "ree-worker-2:ree-cloud-2"
+            "ree-worker-3:ree-cloud-3"
           )
 
           for entry in "${WORKERS[@]}"; do
