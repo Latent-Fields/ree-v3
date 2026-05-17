@@ -178,14 +178,18 @@
       "script": "experiments/v3_exq_543h_arc062_crystallization_falsifier.py",
       "priority": 10,
       "machine_affinity": "ree-cloud-4",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 200,
       "episodes_per_run": 108,
       "seeds": 3,
       "conditions": 8,
       "claim_id": "ARC-062",
       "supersedes": "V3-EXQ-543g",
-      "note": "ARC-062 GAP-B / MECH-309 falsifier re-run with a 3rd binary factor crystallize_at_phase3 (INV-074/MECH-333/MECH-334). 2x2x2 = 8 arms x 3 seeds = 24 runs. xtal-OFF arms (ARM_0-3) are an EXACT 543g reproduction (verified bit-identical in dry-run: ARM_0=0.278/ARM_1=0.174/ARM_2=0.444/ARM_3=0.243); xtal-ON arms (ARM_4-7) add the full closure regime: at CRYSTALLIZE_P1_OPEN_FRACTION=0.5 of P1 the closure fires (gated_policy.crystallize() freezes head_0/head_1/discriminator + adds zero-init plastic expansion, Nikishin 2023; residue.snapshot_ewc_anchor(), Kirkpatrick 2017), the REINFORCE optimizer is rebuilt to target ONLY gated_policy.expansion_parameters() (frozen heads protected), and residue.ewc_penalty() (lambda=0.1) is added to the P1 loss. MECH-314 held novelty-only on xtal arms per the Pathak-2017 ICM-self-defeat pre-check (314b/314c are F-error-dependent, ~0 by Phase 3). SCHEDULER-GATE ADAPTATION: the closure is the IDENTICAL callable InfantCurriculumScheduler(on_phase3_entry=...) invokes in production; its hard ep-min gate (2000) is incompatible with this short falsifier so 543h fires the same closure at the open-window-closes boundary (arc_062 GAP-B decision log 2026-05-17). PRIMARY D2_xtal = ARM_7-ARM_6 >= 0.10 (crystallization rescues the 543g D2 FAIL delta=-0.200); SECONDARY repro = ARM_2 > ARM_3. PASS = D2_xtal AND repro AND not xtal_harms_gated_only. Interpretation grid branches a-d recorded in metrics.acceptance.interpretation_branch. claim_ids [ARC-062, MECH-309, INV-074, MECH-334]; evidence_direction_per_claim emitted. Smoke/dry-run PASS (closure fires gated_frozen=4467/expansion=1249, ewc_anchored, emit_outcome OK). Supersedes V3-EXQ-543g (still queued as 'claimed' -- flagged to user, not mutated). Substrate landed ree-v3 f8b93e3."
+      "note": "ARC-062 GAP-B / MECH-309 falsifier re-run with a 3rd binary factor crystallize_at_phase3 (INV-074/MECH-333/MECH-334). 2x2x2 = 8 arms x 3 seeds = 24 runs. xtal-OFF arms (ARM_0-3) are an EXACT 543g reproduction (verified bit-identical in dry-run: ARM_0=0.278/ARM_1=0.174/ARM_2=0.444/ARM_3=0.243); xtal-ON arms (ARM_4-7) add the full closure regime: at CRYSTALLIZE_P1_OPEN_FRACTION=0.5 of P1 the closure fires (gated_policy.crystallize() freezes head_0/head_1/discriminator + adds zero-init plastic expansion, Nikishin 2023; residue.snapshot_ewc_anchor(), Kirkpatrick 2017), the REINFORCE optimizer is rebuilt to target ONLY gated_policy.expansion_parameters() (frozen heads protected), and residue.ewc_penalty() (lambda=0.1) is added to the P1 loss. MECH-314 held novelty-only on xtal arms per the Pathak-2017 ICM-self-defeat pre-check (314b/314c are F-error-dependent, ~0 by Phase 3). SCHEDULER-GATE ADAPTATION: the closure is the IDENTICAL callable InfantCurriculumScheduler(on_phase3_entry=...) invokes in production; its hard ep-min gate (2000) is incompatible with this short falsifier so 543h fires the same closure at the open-window-closes boundary (arc_062 GAP-B decision log 2026-05-17). PRIMARY D2_xtal = ARM_7-ARM_6 >= 0.10 (crystallization rescues the 543g D2 FAIL delta=-0.200); SECONDARY repro = ARM_2 > ARM_3. PASS = D2_xtal AND repro AND not xtal_harms_gated_only. Interpretation grid branches a-d recorded in metrics.acceptance.interpretation_branch. claim_ids [ARC-062, MECH-309, INV-074, MECH-334]; evidence_direction_per_claim emitted. Smoke/dry-run PASS (closure fires gated_frozen=4467/expansion=1249, ewc_anchored, emit_outcome OK). Supersedes V3-EXQ-543g (still queued as 'claimed' -- flagged to user, not mutated). Substrate landed ree-v3 f8b93e3.",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-05-17T19:49:47.854760+00:00"
+      }
     }
   ]
 }
