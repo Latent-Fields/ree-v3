@@ -1,5 +1,6 @@
 """
 V3-EXQ-265a: SD-017 Sleep Phase Methods Validation -- Phase 2 retest
+SLEEP DRIVER: K=1 single-fire (SleepLoopManager, default cycle_every_k_episodes=1, fires every episode)
 
 SUPERSEDES: V3-EXQ-265 (non_contributory under SD-016 attention-uniformity confound).
 

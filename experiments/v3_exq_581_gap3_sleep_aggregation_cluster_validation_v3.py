@@ -1,5 +1,6 @@
 """
 V3-EXQ-581: sleep_substrate GAP-3 validation -- unified Phase A-E
+SLEEP DRIVER: K=1 single-fire (SleepLoopManager, sleep_loop_episodes_K=1, fires every episode)
 sleep-aggregation cluster master flag (use_sleep_aggregation_cluster).
 
 Before GAP-3 the offline-consolidation pathway was gated by EIGHT

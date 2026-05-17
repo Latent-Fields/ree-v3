@@ -1,5 +1,6 @@
 """
 V3-EXQ-565: WPD GAP-8 validation -- MECH-272 routing-gate downstream consumer.
+SLEEP DRIVER: K=1 single-fire (SleepLoopManager, sleep_loop_episodes_K=1, fires every episode)
 
 Tests that the use_mech272_routing_consumer flag correctly gates mean_anchor
 computation in SleepLoopManager._run_cycle() so that run_sws_schema_pass

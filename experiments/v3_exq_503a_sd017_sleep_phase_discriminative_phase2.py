@@ -1,5 +1,6 @@
 #!/opt/local/bin/python3
 """V3-EXQ-503a -- SD-017 sleep-phase discriminative pair, Phase 2 retest.
+SLEEP DRIVER: K=1 single-fire (SleepLoopManager, default cycle_every_k_episodes=1, fires every episode)
 
 SUPERSEDES: V3-EXQ-503 (ran on the pre-Phase-2 substrate; the SD-016 confounded
 baseline meant ContextMemory state was already collapsed prior to the SWS schema

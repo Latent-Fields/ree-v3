@@ -1,5 +1,6 @@
 #!/opt/local/bin/python3
 """V3-EXQ-538 -- SD-049 Phase 2 reef behavioural validation, sleep-on ablation.
+SLEEP DRIVER: K=3 multi-fire (SleepLoopManager, sleep_loop_episodes_K=3, fires every 3 episodes)
 
 ----------------------------------------------------------------------
 HOLD STATUS (2026-05-08): DO NOT REQUEUE WITHOUT CHECKING THIS LIST.

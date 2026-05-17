@@ -1,5 +1,6 @@
 """
 V3-EXQ-265: SD-017 Sleep Phase Methods Validation
+SLEEP DRIVER: manual-multi (run_sleep_cycle() called directly every SLEEP_INTERVAL=10 episodes in training loop)
 
 MECHANISM UNDER TEST: SD-017 (sleep_phase.minimal_sleep_infrastructure_v3)
   run_sws_schema_pass() and run_rem_attribution_pass() added to REEAgent.

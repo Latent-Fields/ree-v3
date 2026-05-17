@@ -1,5 +1,6 @@
 #!/opt/local/bin/python3
 """V3-EXQ-500 -- EXP-0171 SD-017 sleep-phase substrate readiness.
+SLEEP DRIVER: manual-cycle-loop (run_sleep_cycle() called once per cycle in a dedicated N_CYCLES wake-sleep-test loop)
 
 This is a diagnostic readiness probe, not the later sleep-vs-no-sleep
 discriminative ablation. It verifies that the existing SD-017 substrate can

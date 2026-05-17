@@ -1,5 +1,6 @@
 #!/opt/local/bin/python3
 """V3-EXQ-541c -- MECH-204 step-size sweep at extended cycle count
+SLEEP DRIVER: K=1 single-fire (SleepLoopManager, sleep_loop_episodes_K=1, fires every episode)
 (16 cycles per run vs V3-EXQ-541b's 4 cycles; companion to 541b, not
 a supersession).
 

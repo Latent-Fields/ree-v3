@@ -1,4 +1,5 @@
 """V3-EXQ-503 -- EXP-0171a SD-017 sleep-phase discriminative pair.
+SLEEP DRIVER: manual-cycle-loop (run_sleep_cycle() called once per cycle in a dedicated N_CYCLES=3 wake-sleep-test loop)
 
 Claim: SD-017 (sleep_phase.minimal_sleep_infrastructure_v3)
 Proposal: EXP-0171a (follow-up to EXP-0171 / V3-EXQ-500 substrate-readiness probe)

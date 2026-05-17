@@ -1,5 +1,6 @@
 #!/opt/local/bin/python3
 """V3-EXQ-500a -- SD-017 sleep-phase substrate readiness, Phase 2 retest.
+SLEEP DRIVER: K=1 single-fire (SleepLoopManager, default cycle_every_k_episodes=1, fires every episode)
 
 SUPERSEDES: V3-EXQ-500 (ran on the pre-Phase-2 substrate; readiness signature
 not measurable against the SD-016 confounded baseline -- replay quality and

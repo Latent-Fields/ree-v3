@@ -1,6 +1,7 @@
 #!/opt/local/bin/python3
 """
 V3-EXQ-436a -- SD-017 + ARC-045 + MECH-166 Context-Conditioned Harm Threshold:
+SLEEP DRIVER: K=1 single-fire (SleepLoopManager, default cycle_every_k_episodes=1, fires every episode)
                 Phase 2 substrate retest with per-seed distribution diagnostics.
 
 SUPERSEDES: V3-EXQ-436. Original 436 ran on the pre-Phase-2 substrate; under the

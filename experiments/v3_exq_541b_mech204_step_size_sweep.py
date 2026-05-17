@@ -1,5 +1,6 @@
 #!/opt/local/bin/python3
 """V3-EXQ-541b -- MECH-204 precision recalibration step-size sweep
+SLEEP DRIVER: K=2 multi-fire (SleepLoopManager, sleep_loop_episodes_K=2, fires every 2 episodes)
 (EXP-0171 instantiation; gated on V3-EXQ-541a F1 result).
 
 V3-EXQ-541a (F1 substrate) PASSed C1 (substrate-readiness, 3/3) and C2

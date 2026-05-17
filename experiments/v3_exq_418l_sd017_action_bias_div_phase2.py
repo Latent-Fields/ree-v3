@@ -1,6 +1,7 @@
 #!/opt/local/bin/python3
 """
 V3-EXQ-418l -- SD-017 Context-Conditioned Action: Phase 2 substrate retest.
+SLEEP DRIVER: K=1 single-fire (SleepLoopManager, default cycle_every_k_episodes=1, fires every episode)
 
 SUPERSEDES: V3-EXQ-418a (FAIL under pre-Phase-2 substrate -- action_bias_div
 flat at 0.0003 across all seeds; same FAIL signature as the 418/418a/436

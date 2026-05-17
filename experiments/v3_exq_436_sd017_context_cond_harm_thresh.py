@@ -1,6 +1,7 @@
 #!/opt/local/bin/python3
 """
 V3-EXQ-436 -- SD-017 Sleep Phase Ablation Redesign: Context-Conditioned Harm Threshold
+SLEEP DRIVER: manual-multi (run_sleep_cycle() called directly every SLEEP_INTERVAL=10 episodes in training loop)
 
 Claims: SD-017, ARC-045, MECH-166
 

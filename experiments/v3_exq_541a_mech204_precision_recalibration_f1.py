@@ -1,5 +1,6 @@
 #!/opt/local/bin/python3
 """V3-EXQ-541a -- MECH-204 precision recalibration consumer (F1 validation;
+SLEEP DRIVER: K=2 multi-fire (SleepLoopManager, sleep_loop_episodes_K=2, fires every 2 episodes)
 supersedes V3-EXQ-541).
 
 Sleep-substrate plan Phase 1 (REE_assembly/evidence/planning/

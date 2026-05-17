@@ -1,5 +1,6 @@
 """
 V3-EXQ-585: infant_substrate:GAP-8 validation --
+SLEEP DRIVER: K=1 single-fire (SleepLoopManager, sleep_loop_episodes_K=1, fires every episode)
 post_sleep_z_goal_retention and replay_diversity_index telemetry.
 
 Tests that the four GAP-8 metrics added to SleepLoopManager._run_cycle()

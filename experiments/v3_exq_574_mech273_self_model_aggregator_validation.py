@@ -1,5 +1,6 @@
 """
 V3-EXQ-574: MECH-273 SelfModelAggregator offline gradient pass validation.
+SLEEP DRIVER: K=never (SleepLoopManager, sleep_loop_episodes_K=TOTAL_EPS+1; sleep never fires during training; eval calls run_sleep_cycle() manually once)
 
 Tests that SelfModelAggregator.offline_gradient_pass() (MECH-273 Phase E
 WRITEBACK) correctly runs n_steps=100 bounded MSE gradient steps on E2_harm_s
