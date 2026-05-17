@@ -177,7 +177,7 @@
       "experiment_type": "v3_exq_543h_arc062_crystallization_falsifier",
       "script": "experiments/v3_exq_543h_arc062_crystallization_falsifier.py",
       "priority": 10,
-      "machine_affinity": "any",
+      "machine_affinity": "ree-cloud-4",
       "status": "pending",
       "estimated_minutes": 200,
       "episodes_per_run": 108,
