@@ -372,6 +372,18 @@ class CausalGridWorld:
         pos_telemetry_enabled: bool = True,
         pos_entropy_window: int = 100,
         zone_coverage_stub_single_zone: bool = True,
+        # infant_substrate:GAP-7 -- traj_pairwise_cosine_mean telemetry.
+        # At episode end, stores a position histogram for the completed
+        # episode (fixed-length size*size vector) and computes mean(1 -
+        # cosine_similarity) over up to traj_n_pairs random pairs drawn
+        # from the rolling store of up to traj_max_stored episodes.
+        # Advisory gate: traj_pairwise_cosine_mean > 0.3. Never feeds back
+        # into env/agent/obs dynamics -> bit-identical when ON vs OFF.
+        # Pair sampling uses a separate _traj_pair_rng so self._rng is
+        # unaffected. Spec: evidence/planning/infant_substrate_plan.md GAP-7.
+        traj_telemetry_enabled: bool = True,
+        traj_max_stored: int = 20,
+        traj_n_pairs: int = 20,
         # commitment_closure:GAP-3 -- CausalGridWorldV2 env extensions
         # (primitives 1-3). Env-only; NOT surfaced through
         # REEConfig.from_dims (same precedent as harm_gradient_* /
@@ -705,6 +717,23 @@ class CausalGridWorld:
         self._pos_window: List[Tuple[int, int]] = []
         self._visited_cells: set = set()
 
+        # infant_substrate:GAP-7 -- traj_pairwise_cosine_mean telemetry.
+        self.traj_telemetry_enabled = bool(traj_telemetry_enabled)
+        self.traj_max_stored = int(max(2, traj_max_stored))
+        self.traj_n_pairs = int(max(1, traj_n_pairs))
+        # _traj_store accumulates episode histograms across episodes (not
+        # cleared by reset). _traj_current is per-episode (cleared by
+        # _reset_traj_telemetry). _traj_pairwise_cosine_mean is the cached
+        # metric; -1.0 until at least 2 complete episodes are stored.
+        # _traj_pair_rng is separate from self._rng to preserve bit-identity
+        # of env dynamics when telemetry is ON vs OFF.
+        self._traj_store: List[np.ndarray] = []
+        self._traj_current: List[Tuple[int, int]] = []
+        self._traj_pairwise_cosine_mean: float = -1.0
+        self._traj_pair_rng = np.random.default_rng(
+            seed if seed is not None else 0
+        )
+
         # commitment_closure:GAP-3 -- env extensions primitives 1-3.
         # Primitive 1: adaptive tolerance-band completion.
         self.completion_tolerance_enabled = bool(completion_tolerance_enabled)
@@ -968,6 +997,8 @@ class CausalGridWorld:
         # pos_entropy / zone_coverage diagnostics are deterministic across
         # episodes.
         self._reset_pos_telemetry()
+        # infant_substrate:GAP-7 -- clear per-episode trajectory buffer.
+        self._reset_traj_telemetry()
 
         ax, ay = agent_pool.pop()
         self.agent_x = ax
@@ -1243,6 +1274,9 @@ class CausalGridWorld:
         # position-telemetry window/visited set so pos_entropy /
         # zone_coverage are deterministic across reset_to() episodes.
         self._reset_pos_telemetry()
+        # infant_substrate:GAP-7 -- scripted-eval path also clears the
+        # per-episode trajectory buffer.
+        self._reset_traj_telemetry()
         self._sensitisation_amplification = 0.0
         self._prev_harm_obs_a = None
         self._last_transition_type = "none"
@@ -1999,6 +2033,14 @@ class CausalGridWorld:
                 self._pos_window.pop(0)
             self._visited_cells.add(cell)
 
+        # infant_substrate:GAP-7 -- record the final agent cell this tick
+        # into the per-episode trajectory buffer. On episode end, commit
+        # the episode histogram to _traj_store and recompute the metric.
+        if self.traj_telemetry_enabled:
+            self._traj_current.append((int(self.agent_x), int(self.agent_y)))
+            if done:
+                self._update_traj_store()
+
         # SD-048: cache transition_type so _apply_interoceptive_noise can classify
         # agent-caused vs body-noise-caused harm-state-change events when computed
         # inside _get_observation_dict.
@@ -2126,6 +2168,14 @@ class CausalGridWorld:
             "pos_entropy": self._pos_entropy(),
             "pos_entropy_window": int(self.pos_entropy_window),
             "zone_coverage": self._zone_coverage(),
+            # infant_substrate:GAP-7 traj_pairwise_cosine_mean telemetry
+            # (always present; -1.0 sentinel when disabled or < 2 episodes
+            # stored). Updated only at episode end (done=True step).
+            "traj_telemetry_enabled": bool(self.traj_telemetry_enabled),
+            "traj_pairwise_cosine_mean": float(
+                self._traj_pairwise_cosine_mean
+            ),
+            "traj_n_episodes_stored": int(len(self._traj_store)),
             # commitment_closure:GAP-3 env-extension diagnostics (always
             # present; inert sentinels when the relevant primitive is
             # disabled). Primitive 1: adaptive tolerance-band completion.
@@ -2269,6 +2319,71 @@ class CausalGridWorld:
             1 for (x, y) in self._visited_cells if in_interior(x, y)
         )
         return {0: float(visited) / float(n_interior)}
+
+    # ------------------------------------------------------------------ #
+    # infant_substrate:GAP-7  traj_pairwise_cosine_mean telemetry          #
+    # ------------------------------------------------------------------ #
+
+    def _reset_traj_telemetry(self) -> None:
+        """Clear the per-episode trajectory buffer.
+
+        _traj_store persists across episodes by design -- it accumulates
+        episode histograms so that pairwise diversity can be measured across
+        episodes, not just within one."""
+        self._traj_current = []
+
+    def _update_traj_store(self) -> None:
+        """Commit the completed episode's position histogram to _traj_store
+        and recompute _traj_pairwise_cosine_mean.
+
+        Called once at the end of each episode (when done=True in step())
+        if traj_telemetry_enabled. Normalised histogram: fraction of steps
+        spent at each grid cell. _traj_store is a rolling buffer capped at
+        traj_max_stored (oldest evicted when full)."""
+        if not self.traj_telemetry_enabled or not self._traj_current:
+            return
+        hist = np.zeros(self.size * self.size, dtype=np.float32)
+        for x, y in self._traj_current:
+            hist[x * self.size + y] += 1.0
+        hist /= float(len(self._traj_current))
+        self._traj_store.append(hist)
+        if len(self._traj_store) > self.traj_max_stored:
+            self._traj_store.pop(0)
+        self._traj_pairwise_cosine_mean = self._compute_traj_cosine_mean()
+
+    def _compute_traj_cosine_mean(self) -> float:
+        """Mean(1 - cosine_similarity) over up to traj_n_pairs random pairs
+        drawn from _traj_store.
+
+        -1.0 when fewer than 2 episodes are stored. Pair sampling uses
+        _traj_pair_rng (separate from self._rng) so env dynamics are
+        bit-identical whether telemetry is ON or OFF."""
+        n = len(self._traj_store)
+        if n < 2:
+            return -1.0
+        all_pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
+        if len(all_pairs) <= self.traj_n_pairs:
+            pairs = all_pairs
+        else:
+            idxs = self._traj_pair_rng.choice(
+                len(all_pairs), size=self.traj_n_pairs, replace=False
+            )
+            pairs = [all_pairs[int(k)] for k in idxs]
+        dists = []
+        for i, j in pairs:
+            a = self._traj_store[i]
+            b = self._traj_store[j]
+            na = float(np.linalg.norm(a))
+            nb = float(np.linalg.norm(b))
+            if na < 1e-12 or nb < 1e-12:
+                dists.append(1.0)
+                continue
+            sim = float(np.dot(a, b) / (na * nb))
+            sim = max(-1.0, min(1.0, sim))
+            dists.append(1.0 - sim)
+        if not dists:
+            return -1.0
+        return float(np.mean(dists))
 
     # ------------------------------------------------------------------ #
     # SD-005 Observation construction                                      #

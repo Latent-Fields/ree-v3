@@ -6,5 +6,20 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-584",
+      "title": "GAP-7 traj_pairwise_cosine_mean substrate-readiness diagnostic",
+      "experiment_type": "v3_exq_584_gap7_traj_cosine_validation",
+      "script": "experiments/v3_exq_584_gap7_traj_cosine_validation_v3.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 2,
+      "episodes_per_run": 5,
+      "seeds": 3,
+      "conditions": 2,
+      "note": "infant_substrate:GAP-7 diagnostic. Validates traj_pairwise_cosine_mean info key in CausalGridWorldV2. Unblocks DEV-NEED-002/005/008 advisory gate."
+    }
+  ]
 }
