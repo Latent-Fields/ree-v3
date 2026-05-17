@@ -346,7 +346,7 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   goal_pipeline Q2). Lit-anchored operating value 0.02 (~35-step half-life;
   wanting_liking synthesis 30-60 step window). Phased training: N/A (no encoder, no
   learning). MECH-094: N/A (no simulation/replay/memory write). Contract:
-  tests/contracts/test_sustained_drive_ema_gap3.py (6/6). Validation experiment:
+  tests/contracts/test_sustained_drive_ema_gap3.py (7/7). Validation experiment:
   discriminative drive_ema_alpha sweep {0.01,0.02,0.2,1.0} queued (see goal_pipeline_plan.md
   GAP-3). claims.yaml NOT modified -- MECH-306 sustained_drive_trace registration is the
   governance follow-on gated on the sweep result. See GoalConfig, goal.py GoalState.update().
