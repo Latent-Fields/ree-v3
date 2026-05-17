@@ -308,6 +308,7 @@ def run_experiment():
         "experiment_purpose": EXPERIMENT_PURPOSE,
         "claim_ids": CLAIM_IDS,
         "outcome": outcome,
+        "evidence_direction": "non_contributory",
         "timestamp_utc": ts,
         "seeds": SEEDS,
         "arm0_episodes": ARM_0_EPISODES,
