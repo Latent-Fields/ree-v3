@@ -168,29 +168,6 @@
       "note": "commitment_closure:GAP-11 diagnostic pilot. 3 arms: EMERGENT (P0 warmup on easy env -> P2 eval on target), FORCED_RV (clone + forced rv=0.001 -> P2), STARVED (tight threshold=1e-4 -> abort gate fires at mid-probe). C1: emergent committed steps/ep>100 in >=2/3 seeds. C2: forced-rv committed steps/ep>100 all seeds. C3: starved arm aborts (abort_reason=commitment_not_elicited) all seeds. PASS unblocks V3-EXQ-460b/463b/464b/466b/467b/468b OCD battery. Supersedes V3-EXQ-461 (synthetic scripted diagnostic, 2026-05-12)."
     },
     {
-      "queue_id": "V3-EXQ-543g",
-      "title": "ARC-062 x MECH-309: outcome-coupled REINFORCE P1 loss (falsifier)",
-      "experiment_type": "v3_exq_543g_arc062_outcome_coupled_falsifier",
-      "script": "experiments/v3_exq_543g_arc062_outcome_coupled_falsifier.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "episodes_per_run": 108,
-      "seeds": 3,
-      "conditions": 4,
-      "claim_ids": [
-        "ARC-062",
-        "MECH-309"
-      ],
-      "supersedes": "V3-EXQ-543f",
-      "note": "543f autopsy routing (2026-05-17): P1 diversification regularizer (head_div + disc_var self-supervised) caused symmetric-cancellation training error: composed gated_score_bias = w*h0 + (1-w)*h1 stays near zero when w~0.5 even when heads maximally divergent. TV 0.0001-0.0006, threshold 0.05 (4 orders of magnitude gap). Fix: replace with REINFORCE on GatedPolicy params. Records (snap, sel_idx, ep_return) every 4 steps during P1; advantage = ep_return - EMA_baseline; loss = mean(-adv * log_softmax(bias / T, dim=0)[sel_idx]) - 0.1 * disc_var. head_div_term removed. Substrate fixes from 543f inherited (FIX 1: use_first_action_onehot; FIX 2: dacc_weight=1.0). Same 2x2 factorial, same D2 AND D3 PASS rule. GAP-C and GAP-D unblock on PASS.",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-05-17T15:55:03.255472+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-543h",
       "title": "ARC-062 GAP-B x crystallize_at_phase3 falsifier (INV-074/MECH-334; 2x2x2)",
       "experiment_type": "v3_exq_543h_arc062_crystallization_falsifier",
