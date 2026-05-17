@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-543e",
-      "title": "ARC-062 x MECH-260 2x2 factorial monomodal-collapse falsifier on SP-CEM substrate",
-      "experiment_type": "v3_exq_543e_arc062_spcem_falsifier",
-      "script": "experiments/v3_exq_543e_arc062_spcem_falsifier.py",
-      "priority": 1,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 540,
-      "episodes_per_run": 108,
-      "seeds": 3,
-      "conditions": 4,
-      "supersedes": "V3-EXQ-543d",
-      "claim_id": "ARC-062",
-      "note": "Closes arc_062_rule_apprehension:GAP-B. Re-issue of the canonical 543d 2x2 factorial monomodal-collapse falsifier on the support-preserving CEM (SP-CEM) substrate. The 543d design is UNCHANGED -- same 4 arms (ARM_0 gated/dacc OFF, ARM_1 dacc-only suppression_weight=0.5, ARM_2 gated-only, ARM_3 both), same pre-registered D1-D4 cross-arm grid (D1 dACC-alone; D2 dACC-adds-to-gated; D3 gated-adds-to-dACC; D4 543c null replication), same PASS=D2 AND D3 rule, same FAIL routing, same claim_ids=[ARC-062, MECH-309] and per-claim evidence-direction map. The ONLY change: all 4 arms now build the agent with support-preserving CEM enabled (use_support_preserving_cem=True + support_preserving_stratified_elites=True + support_preserving_ao_std_floor=0.2 + support_preserving_min_first_action_classes=2 -- the exact config V3-EXQ-567 validated PASS for ARC-065, which lifted natural selected_action_entropy 0.0124->0.49 and candidate support 1.00->2.80). Rationale: the 543b/c/d line ran on the OLD collapsed CEM whose candidates were structurally near-indistinguishable (~1e-4..1e-5 spread), so the ARC-062 gated heads had no candidate-feature variance to discriminate on -- those runs stay non_contributory/weakens and are NOT force-mapped. Per arc_062_rule_apprehension_plan.md decision-log 2026-05-16 (closure-map reconciliation) the substrate-redesign branch was effectively taken and validated by the ARC-065 SP-CEM line; this re-run is the FIRST contributory test of MECH-309. experiment_purpose=evidence (architecturally load-bearing falsifier). Mac affinity matches 543b/c/d precedent. Local smoke dry-run 2026-05-16T234109Z PASS wiring: exit 0, 12 verdict lines (4 arms x 3 seeds), 36 [train] ep N/M progress lines (denom=loop-bound total_train_episodes), 12 Seed/Condition boundaries, gated_policy/dacc toggle correctly per arm, SP-CEM flags verified reaching config.hippocampal in all 4 arms, D1-D4 printout works, ASCII-only verified, runner-conformance contract validated.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-16T23:42:41.114249+00:00"
-      }
-    }
-  ]
+  "items": []
 }
