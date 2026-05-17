@@ -19,7 +19,10 @@
       "episodes_per_run": 108,
       "seeds": 3,
       "conditions": 4,
-      "claim_ids": ["ARC-062", "MECH-309"],
+      "claim_ids": [
+        "ARC-062",
+        "MECH-309"
+      ],
       "supersedes": "V3-EXQ-543e",
       "note": "GAP-B arc_062 falsifier re-issue. FIX 1: gated_policy_use_first_action_onehot=True (E2 compresses SP-CEM diversity to 0.22pct; one-hot bypasses). FIX 2: dacc_weight=1.0 (was 0.0 -- DACCtoE3Adapter short-circuited to zeros, making dACC arms byte-identical). Pre-flight assertion added. PASS = D2 AND D3. Smoke PASS 2026-05-17."
     },
@@ -161,6 +164,21 @@
       "claim_id": "MECH-090",
       "supersedes": "V3-EXQ-481",
       "note": "GAP-5 close: forced-commit substrate test; 3 UCs (ON, OFF, empty-snapshot). Smoke-test PASS 2026-05-17."
+    },
+    {
+      "queue_id": "V3-EXQ-582a",
+      "title": "GAP-3 Option 2: drive_floor insatiability floor sweep (escalation from EXQ-582 FAIL)",
+      "experiment_type": "v3_exq_582a_gap3_drive_floor_sweep",
+      "script": "experiments/v3_exq_582a_gap3_drive_floor_sweep.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 30,
+      "seeds": 3,
+      "conditions": 5,
+      "supersedes": "V3-EXQ-582",
+      "note": "EXQ-582 diagnostic grid row: No arm clears A1 (incl. 0.01) -> Escalate to Option 2. Sweeps drive_floor in {0.0, 0.3, 0.6, 0.9, 1.2} with drive_ema_alpha=1.0 (Option 1 OFF). First-PASS arm floor=0.9. goal_pipeline:GAP-3 closure gated on PASS."
     }
   ]
 }

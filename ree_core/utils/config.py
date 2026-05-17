@@ -1441,6 +1441,15 @@ class REEConfig:
     lateral_pfc_bias_scale: float = 0.1
     # Bias-head hidden-layer width.
     lateral_pfc_hidden_dim: int = 32
+    # ARC-062 GAP-C: route GatedPolicy discriminator output into rule_state
+    # update source. Default False = no-op, bit-identical backward compat.
+    lateral_pfc_use_discriminator_source: bool = False
+    # Weight of discriminator contribution in the source formula.
+    lateral_pfc_discriminator_pool_weight: float = 0.3
+    # ARC-062 GAP-D: when True, rule_bias_head's last Linear is NOT zeroed at
+    # init (keeps random init so gradient training works from tick 1).
+    # Default False = last Linear zeroed (bit-identical landing behaviour).
+    lateral_pfc_train_rule_bias_head: bool = False
 
     # SD-033b: OFC-analog (specific-outcome / task-structure substrate,
     # MECH-261 second consumer; MECH-263 falsification target). When True,
@@ -2338,7 +2347,8 @@ class REEConfig:
         goal_weight: float = 1.0,
         e1_goal_conditioned: bool = True,
         drive_weight: float = 2.0,  # SD-012: benefit amplification when depleted
-        drive_ema_alpha: float = 1.0,  # SD-012 GAP-3: sustained-drive EMA (1.0=OFF, bit-identical; 0.02~35-step half-life)
+        drive_ema_alpha: float = 1.0,  # SD-012 GAP-3 Option 1: sustained-drive EMA (1.0=OFF, bit-identical; 0.02~35-step half-life)
+        drive_floor: float = 0.0,  # SD-012 GAP-3 Option 2: insatiability floor on drive_level (0.0=disabled, bit-identical)
         valence_wanting_floor: float = 0.0,  # MECH-186: minimum z_goal norm floor (0=disabled)
         z_goal_seeding_gain: float = 1.0,  # MECH-187: gain on seeding signal (1.0=no change)
         z_goal_inject: float = 0.0,  # MECH-188: PFC top-down injection norm floor (0=disabled)
@@ -2445,6 +2455,9 @@ class REEConfig:
         lateral_pfc_world_pool_weight: float = 0.5,
         lateral_pfc_bias_scale: float = 0.1,
         lateral_pfc_hidden_dim: int = 32,
+        lateral_pfc_use_discriminator_source: bool = False,
+        lateral_pfc_discriminator_pool_weight: float = 0.3,
+        lateral_pfc_train_rule_bias_head: bool = False,
         # SD-033b: OFC-analog (specific-outcome / task-structure substrate)
         use_ofc_analog: bool = False,
         ofc_state_dim: int = 16,
@@ -2820,7 +2833,8 @@ class REEConfig:
             "z_goal_enabled", "alpha_goal", "decay_goal",
             "benefit_threshold", "goal_weight", "e1_goal_conditioned",
             "drive_weight",  # SD-012
-            "drive_ema_alpha",  # SD-012 GAP-3 sustained-drive EMA
+            "drive_ema_alpha",  # SD-012 GAP-3 Option 1 sustained-drive EMA
+            "drive_floor",  # SD-012 GAP-3 Option 2 insatiability floor
             "valence_wanting_floor",  # MECH-186
             "z_goal_seeding_gain",  # MECH-187
             "z_goal_inject",  # MECH-188
@@ -2833,7 +2847,8 @@ class REEConfig:
             "goal_weight": goal_weight,
             "e1_goal_conditioned": e1_goal_conditioned,
             "drive_weight": drive_weight,  # SD-012
-            "drive_ema_alpha": drive_ema_alpha,  # SD-012 GAP-3 sustained-drive EMA
+            "drive_ema_alpha": drive_ema_alpha,  # SD-012 GAP-3 Option 1
+            "drive_floor": drive_floor,  # SD-012 GAP-3 Option 2
             "valence_wanting_floor": valence_wanting_floor,  # MECH-186
             "z_goal_seeding_gain": z_goal_seeding_gain,  # MECH-187
             "z_goal_inject": z_goal_inject,  # MECH-188
@@ -2965,6 +2980,9 @@ class REEConfig:
         config.lateral_pfc_world_pool_weight = lateral_pfc_world_pool_weight
         config.lateral_pfc_bias_scale = lateral_pfc_bias_scale
         config.lateral_pfc_hidden_dim = lateral_pfc_hidden_dim
+        config.lateral_pfc_use_discriminator_source = lateral_pfc_use_discriminator_source
+        config.lateral_pfc_discriminator_pool_weight = lateral_pfc_discriminator_pool_weight
+        config.lateral_pfc_train_rule_bias_head = lateral_pfc_train_rule_bias_head
 
         # SD-033b: OFC-analog
         config.use_ofc_analog = use_ofc_analog

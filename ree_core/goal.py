@@ -63,6 +63,23 @@ class GoalConfig:
     #   accepted confound the discriminative sweep accounts for).
     drive_ema_alpha: float = 1.0
 
+    # SD-012 sustained-drive amendment (goal_pipeline:GAP-3, Option 2).
+    # Insatiability floor applied to drive_level BEFORE the EMA update:
+    #   drive_level_floored = max(drive_level, drive_floor)
+    # Motivation: even with Option 1 EMA, the drive stays near-zero throughout
+    # the episode when the agent remains well-fed (EXQ-582: all alphas gave
+    # drive_trace_at_contact ~0.0002-0.005 because drive_level was low all along,
+    # not just at the consummatory step). A floor guarantees a minimum multiplier
+    # contribution at every contact regardless of satiation level.
+    # drive_floor = 0.0 (default) -> no floor, bit-identical to pre-amendment
+    #   behaviour when combined with drive_ema_alpha=1.0.
+    # drive_floor = 0.9 -> effective_benefit >= benefit_exposure * (1 + 2.0*0.9)
+    #   = benefit_exposure * 2.8 (first-PASS arm for EXQ-582a given the regime's
+    #   benefit_exposure ~0.03 at first contact with nociception_ema_alpha=0.1).
+    # Can combine with Option 1 EMA: the floor is applied to drive_level before
+    # the EMA update, so the trace stays >= drive_floor in steady state.
+    drive_floor: float = 0.0
+
     # Whether E1 receives z_goal as conditioning input (MECH-116)
     e1_goal_conditioned: bool = True
 
@@ -170,13 +187,20 @@ class GoalState:
                 # Floor clamp has no effect until first benefit contact seeds direction.
                 pass
 
+        # SD-012 sustained-drive amendment (goal_pipeline:GAP-3, Option 2):
+        # Apply insatiability floor before the EMA update so the trace stays
+        # >= drive_floor in steady state, guaranteeing a minimum multiplier
+        # contribution even when the agent is well-fed (drive_level near 0).
+        # drive_floor=0.0 (default) -> no-op, bit-identical to pre-amendment.
+        drive_level_floored = max(drive_level, self.config.drive_floor)
+
         # SD-012 sustained-drive amendment (goal_pipeline:GAP-3, Option 1):
-        # EMA-smooth drive_level so the multiplier does not collapse on the
-        # consummatory step. alpha=1.0 (default) -> trace == drive_level every
-        # step regardless of init -> bit-identical to pre-amendment behaviour.
+        # EMA-smooth the (floored) drive_level so the multiplier does not
+        # collapse on the consummatory step. alpha=1.0 (default) -> trace ==
+        # drive_level_floored every step -> bit-identical OFF at drive_floor=0.
         alpha = self.config.drive_ema_alpha
         self._drive_trace = (
-            (1.0 - alpha) * self._drive_trace + alpha * drive_level
+            (1.0 - alpha) * self._drive_trace + alpha * drive_level_floored
         )
 
         # MECH-187: apply seeding gain before drive modulation
