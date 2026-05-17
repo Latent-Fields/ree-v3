@@ -518,6 +518,13 @@ class REEAgent(nn.Module):
                 head_hidden=config.gated_policy_head_hidden,
                 bias_scale=config.gated_policy_bias_scale,
                 head_init_bias_offset=config.gated_policy_head_init_bias_offset,
+                # ARC-062 GAP-B option-2: head-input first-action one-hot.
+                # first_action_dim derived from config.e2.action_dim (single
+                # source of truth; not exposed as a separate REEConfig knob).
+                use_first_action_onehot=getattr(
+                    config, "gated_policy_use_first_action_onehot", False
+                ),
+                first_action_dim=config.e2.action_dim,
             )
             self.gated_policy = GatedPolicy(
                 world_dim=config.latent.world_dim,
@@ -2974,12 +2981,27 @@ class REEAgent(nn.Module):
                 )
             else:
                 _gp_sim = False
+            # ARC-062 GAP-B option-2: build first-action one-hots [K, action_dim]
+            # when use_first_action_onehot is enabled. Each candidate always has
+            # actions shape [batch, horizon, action_dim]; we take batch-dim 0,
+            # step 0. simulation_mode early-return in forward() already bypasses
+            # this data before it reaches the heads (MECH-094 safe).
+            if self.gated_policy.config.use_first_action_onehot:
+                _fa_list: List[torch.Tensor] = []
+                for _gpc in candidates:
+                    _fa_list.append(
+                        _gpc.actions[:, 0, :][0].detach().float()
+                    )
+                _gp_first_action_onehots = torch.stack(_fa_list, dim=0)
+            else:
+                _gp_first_action_onehots = None
             with torch.no_grad():
                 gp_output = self.gated_policy(
                     z_world=self._current_latent.z_world,
                     z_self=self._current_latent.z_self,
                     z_harm_a=self._current_latent.z_harm_a,
                     candidate_features=gp_summaries,
+                    first_action_onehots=_gp_first_action_onehots,
                     simulation_mode=_gp_sim,
                 )
             gp_bias = gp_output.gated_score_bias

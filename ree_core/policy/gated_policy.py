@@ -145,6 +145,16 @@ class GatedPolicyConfig:
     head_hidden: int = 32
     bias_scale: float = 0.1
     head_init_bias_offset: float = 0.05
+    # ARC-062 GAP-B option-2: head-input first-action one-hot augmentation.
+    # When True, each scoring head receives [K, world_dim + first_action_dim]
+    # instead of [K, world_dim], bypassing E2 world-forward compression
+    # (EXQ-543e autopsy: first-action diversity compressed to 0.22% of
+    # z_world magnitude before reaching the z_world-only head).
+    # first_action_dim must equal the environment action-space size (set by
+    # REEAgent.__init__ from config.e2.action_dim). Default False = no-op,
+    # bit-identical backward compat.
+    use_first_action_onehot: bool = False
+    first_action_dim: int = 0
 
 
 @dataclass
@@ -197,15 +207,25 @@ class GatedPolicy(nn.Module):
         disc_hidden = self.config.disc_hidden
         bias_offset = self.config.head_init_bias_offset
 
-        # Two scoring heads. Each takes per-candidate features [K, world_dim]
-        # and emits a per-candidate scalar [K, 1] -> squeeze to [K].
+        # ARC-062 GAP-B option-2: expand head input to include first-action
+        # one-hot when use_first_action_onehot=True. Default (False) keeps
+        # head_in_dim = world_dim for exact backward compat.
+        if self.config.use_first_action_onehot and self.config.first_action_dim > 0:
+            head_in_dim = world_dim + self.config.first_action_dim
+        else:
+            head_in_dim = world_dim
+        self._head_in_dim = head_in_dim
+
+        # Two scoring heads. Each takes per-candidate features and emits a
+        # per-candidate scalar [K, 1] -> squeeze to [K].
+        # Input: [K, world_dim] (default) or [K, world_dim+action_dim] (option-2).
         self.head_0 = nn.Sequential(
-            nn.Linear(world_dim, head_hidden),
+            nn.Linear(head_in_dim, head_hidden),
             nn.ReLU(),
             nn.Linear(head_hidden, 1),
         )
         self.head_1 = nn.Sequential(
-            nn.Linear(world_dim, head_hidden),
+            nn.Linear(head_in_dim, head_hidden),
             nn.ReLU(),
             nn.Linear(head_hidden, 1),
         )
@@ -242,6 +262,7 @@ class GatedPolicy(nn.Module):
         self._last_bias_abs_mean: float = 0.0
         self._last_n_simulation_skips: int = 0
         self._last_z_harm_a_was_none: bool = False
+        self._last_onehot_was_none: bool = False
 
     # ------------------------------------------------------------------
     # Forward path
@@ -252,6 +273,7 @@ class GatedPolicy(nn.Module):
         z_self: torch.Tensor,
         z_harm_a: Optional[torch.Tensor],
         candidate_features: torch.Tensor,
+        first_action_onehots: Optional[torch.Tensor] = None,
         simulation_mode: bool = False,
     ) -> GatedPolicyOutput:
         """Compute the gated per-candidate score bias.
@@ -266,6 +288,13 @@ class GatedPolicy(nn.Module):
                 zero tensors of the right shape, NOT by passing None.
             candidate_features : [K, world_dim] -- per-candidate first-step
                 z_world summary (caller builds this from trajectory rollouts).
+            first_action_onehots : Optional [K, action_dim] -- per-candidate
+                first-action one-hot vectors. Required when
+                use_first_action_onehot=True; concatenated onto
+                candidate_features before feeding the scoring heads (ARC-062
+                GAP-B option-2). When None with use_first_action_onehot=True,
+                falls back to zeros and raises the _last_onehot_was_none
+                diagnostic. Ignored when use_first_action_onehot=False.
             simulation_mode : bool, default False. MECH-094 gate. When True,
                 returns (0.5, zeros[K], zeros[K], zeros[K]) without updating
                 diagnostic counters.
@@ -314,9 +343,29 @@ class GatedPolicy(nn.Module):
         w_tensor = self.discriminator(disc_input).squeeze()  # scalar
         w = float(w_tensor.detach().item())
 
-        # Per-head bias. Heads share candidate_features as input.
-        head_0_raw = self.head_0(candidate_features).squeeze(-1)  # [K]
-        head_1_raw = self.head_1(candidate_features).squeeze(-1)  # [K]
+        # ARC-062 GAP-B option-2: augment head input with first-action one-hot.
+        # Mirrors the z_harm_a=None fallback pattern for the None-guard.
+        if self.config.use_first_action_onehot and self.config.first_action_dim > 0:
+            if first_action_onehots is None:
+                self._last_onehot_was_none = True
+                first_action_onehots = torch.zeros(
+                    K, self.config.first_action_dim,
+                    device=device, dtype=dtype,
+                )
+            else:
+                self._last_onehot_was_none = False
+            head_input = torch.cat(
+                [candidate_features,
+                 first_action_onehots.to(device=device, dtype=dtype)],
+                dim=-1,
+            )  # [K, world_dim + action_dim]
+        else:
+            self._last_onehot_was_none = False
+            head_input = candidate_features  # [K, world_dim]
+
+        # Per-head bias.
+        head_0_raw = self.head_0(head_input).squeeze(-1)  # [K]
+        head_1_raw = self.head_1(head_input).squeeze(-1)  # [K]
 
         # Composed gated bias. Use w_tensor (not float w) so the gradient
         # path through the discriminator is preserved when grad is enabled.
@@ -350,6 +399,7 @@ class GatedPolicy(nn.Module):
         self._last_bias_abs_mean = 0.0
         self._last_n_simulation_skips = 0
         self._last_z_harm_a_was_none = False
+        self._last_onehot_was_none = False
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
@@ -358,4 +408,5 @@ class GatedPolicy(nn.Module):
             "last_bias_abs_mean": self._last_bias_abs_mean,
             "last_n_simulation_skips": self._last_n_simulation_skips,
             "last_z_harm_a_was_none": self._last_z_harm_a_was_none,
+            "last_onehot_was_none": self._last_onehot_was_none,
         }

@@ -1504,6 +1504,13 @@ class REEConfig:
     # (head_0 +offset, head_1 -offset). Heads can differentiate from
     # step 0 even before the discriminator has training signal.
     gated_policy_head_init_bias_offset: float = 0.05
+    # ARC-062 GAP-B option-2: head-input first-action one-hot augmentation.
+    # When True, REEAgent.__init__ sets GatedPolicyConfig.use_first_action_onehot=True
+    # and first_action_dim=config.e2.action_dim so each scoring head receives
+    # [K, world_dim + action_dim] rather than [K, world_dim], bypassing the
+    # E2 world-forward compression diagnosed in EXQ-543e (0.22% signal ratio).
+    # Default False = no-op, bit-identical backward compat.
+    gated_policy_use_first_action_onehot: bool = False
 
     # ----------------------------------------------------------------
     # MECH-313 (ARC-065): stochastic_noise_floor (LC-NE tonic / SAC
@@ -2455,6 +2462,7 @@ class REEConfig:
         gated_policy_head_hidden: int = 32,
         gated_policy_bias_scale: float = 0.1,
         gated_policy_head_init_bias_offset: float = 0.05,
+        gated_policy_use_first_action_onehot: bool = False,
         # MECH-313 (ARC-065): stochastic_noise_floor (LC-NE tonic / SAC analog)
         use_noise_floor: bool = False,
         noise_floor_alpha: float = 0.1,
@@ -2976,6 +2984,7 @@ class REEConfig:
         config.gated_policy_head_hidden = gated_policy_head_hidden
         config.gated_policy_bias_scale = gated_policy_bias_scale
         config.gated_policy_head_init_bias_offset = gated_policy_head_init_bias_offset
+        config.gated_policy_use_first_action_onehot = gated_policy_use_first_action_onehot
 
         # MECH-313 (ARC-065): stochastic_noise_floor
         config.use_noise_floor = use_noise_floor

@@ -281,3 +281,107 @@ def test_c5_simulation_mode_returns_zeros_and_increments_skip_counter():
     assert gp._last_n_simulation_skips == pre_skip + 1, (
         "C5: waking call must not increment the simulation-skip counter."
     )
+
+
+# ----------------------------------------------------------------------
+# C6 ARC-062 GAP-B option-2: head-input first-action one-hot augmentation
+# ----------------------------------------------------------------------
+def test_c6_first_action_onehot_augmentation():
+    """C6: use_first_action_onehot=True changes head outputs; shape correct;
+    simulation_mode still returns zeros even when one-hots are provided.
+
+    Three sub-checks:
+    C6a output shape unchanged [K] regardless of augmentation flag.
+    C6b outputs differ between onehot-ON and onehot-OFF for the same seed
+        (the wider head input with distinct one-hots changes the forward pass).
+    C6c simulation_mode=True returns zeros even when first_action_onehots
+        are supplied (MECH-094 bypass precedes the augmentation path).
+    """
+    torch.manual_seed(42)
+    world_dim, self_dim, harm_a_dim, action_dim = 32, 16, 16, 4
+    K = 5
+
+    # Build two modules: one standard, one with onehot augmentation.
+    cfg_base = GatedPolicyConfig(use_gated_policy=True)
+    cfg_aug = GatedPolicyConfig(
+        use_gated_policy=True,
+        use_first_action_onehot=True,
+        first_action_dim=action_dim,
+    )
+    # Same initial seed so symmetry-broken init starts identically for
+    # world_dim portion (the extra action_dim cols will differ due to wider
+    # Linear, but that is expected and tested by C6b).
+    torch.manual_seed(42)
+    gp_base = GatedPolicy(world_dim=world_dim, self_dim=self_dim,
+                          harm_a_dim=harm_a_dim, config=cfg_base)
+    torch.manual_seed(42)
+    gp_aug = GatedPolicy(world_dim=world_dim, self_dim=self_dim,
+                         harm_a_dim=harm_a_dim, config=cfg_aug)
+
+    zw = torch.randn(1, world_dim)
+    zs = torch.randn(1, self_dim)
+    za = torch.randn(1, harm_a_dim)
+    cand = torch.randn(K, world_dim)
+
+    # Construct first-action one-hots: K candidates, each with a distinct
+    # action class so the augmentation provides unambiguous signal.
+    fa_onehots = torch.zeros(K, action_dim)
+    for k in range(K):
+        fa_onehots[k, k % action_dim] = 1.0
+
+    with torch.no_grad():
+        out_base = gp_base(z_world=zw, z_self=zs, z_harm_a=za,
+                           candidate_features=cand, simulation_mode=False)
+        out_aug = gp_aug(z_world=zw, z_self=zs, z_harm_a=za,
+                         candidate_features=cand,
+                         first_action_onehots=fa_onehots,
+                         simulation_mode=False)
+
+    # C6a: output shape [K] in both cases.
+    assert out_base.gated_score_bias.shape == (K,), (
+        f"C6a base shape: expected ({K},), got {out_base.gated_score_bias.shape}"
+    )
+    assert out_aug.gated_score_bias.shape == (K,), (
+        f"C6a aug shape: expected ({K},), got {out_aug.gated_score_bias.shape}"
+    )
+
+    # C6b: augmented output differs from base output (wider head input with
+    # distinct one-hots changes the linear projection).
+    assert not torch.allclose(out_aug.gated_score_bias, out_base.gated_score_bias), (
+        "C6b: augmented and base outputs are identical -- the one-hot "
+        "augmentation is not reaching the head input."
+    )
+
+    # C6c: simulation_mode=True returns zeros even when one-hots supplied.
+    with torch.no_grad():
+        out_sim = gp_aug(z_world=zw, z_self=zs, z_harm_a=za,
+                         candidate_features=cand,
+                         first_action_onehots=fa_onehots,
+                         simulation_mode=True)
+    assert torch.equal(out_sim.gated_score_bias, torch.zeros(K)), (
+        "C6c: simulation_mode=True must return zero bias even when "
+        "first_action_onehots are provided."
+    )
+    assert out_sim.gating_weight == 0.5, (
+        "C6c: simulation_mode=True must return gating_weight=0.5."
+    )
+
+    # C6d: _last_onehot_was_none diagnostic stays False when one-hots provided.
+    assert not gp_aug._last_onehot_was_none, (
+        "C6d: _last_onehot_was_none must be False when one-hots are provided."
+    )
+
+    # C6e: None-guard -- when one-hots are None with use_first_action_onehot=True,
+    # falls back to zeros (no crash) and sets the diagnostic flag.
+    with torch.no_grad():
+        out_none = gp_aug(z_world=zw, z_self=zs, z_harm_a=za,
+                          candidate_features=cand,
+                          first_action_onehots=None,
+                          simulation_mode=False)
+    assert gp_aug._last_onehot_was_none, (
+        "C6e: _last_onehot_was_none must be True when first_action_onehots=None "
+        "with use_first_action_onehot=True."
+    )
+    assert out_none.gated_score_bias.shape == (K,), (
+        f"C6e: output shape must still be ({K},) on None fallback."
+    )

@@ -4204,7 +4204,8 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   OFF). Sub-knobs (REEConfig + REEConfig.from_dims): gated_policy_n_heads
   (2), gated_policy_disc_hidden (24), gated_policy_disc_init_scale (0.1),
   gated_policy_head_hidden (32), gated_policy_bias_scale (0.1),
-  gated_policy_head_init_bias_offset (0.05).
+  gated_policy_head_init_bias_offset (0.05),
+  gated_policy_use_first_action_onehot (False; see GAP-B below).
   Agent wiring (REEAgent.__init__): when use_gated_policy=True, instantiate
     GatedPolicy with (world_dim, self_dim, z_harm_a_dim) from
     config.latent. Phase 1 has NO connection to SD-033a LateralPFCAnalog
@@ -4247,7 +4248,9 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     queues an end-to-end task. Phase 2 monomodal-collapse falsifier on
     SD-054 is the first behavioural training environment; Phase 1 only
     validates substrate wiring + architectural prerequisites for the
-    Phase 2 falsifier.
+    Phase 2 falsifier. V3-EXQ-543f (GAP-B falsifier) requires phased
+    training (P0 encoder warmup -> P1 frozen-encoder head training ->
+    P2 eval).
   Validation experiment: V3-EXQ-542 5/5 PASS 2026-05-09T20:22:11Z (Mac
     runner; v3_exq_542_arc062_gated_policy_substrate_readiness_v3_*.json
     in REE_assembly/evidence/experiments/). Five sub-tests UC1-UC5:
@@ -4261,17 +4264,44 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     substrate is the next behavioural validation (queued as a separate
     session per the plan-of-record's six-phase sequencing -- do NOT
     bundle Phase 2 EXQ in the Phase 1 landing session).
-  Contract tests: tests/contracts/test_gated_policy.py 5/5 PASS (C1
+  Contract tests: tests/contracts/test_gated_policy.py 6/6 PASS (C1
     default-off no-op; C2 backward-compat flag-on does not raise during
     construction or first sense() tick; C3 discriminator output in
     [0, 1] across 64 diverse latent states with bias_scale clamp
     respected; C4 heads' OUTPUTS diverge >5x on held-out batch after
     200 SGD steps under anti-symmetric loss; C5 simulation_mode=True
     returns zeros + increments skip counter only, subsequent waking
-    call does not retroactively re-increment skip counter).
+    call does not retroactively re-increment skip counter; C6
+    use_first_action_onehot: correct head_in_dim, output shape, differs
+    from base, sim-mode still zeros, _last_onehot_was_none diagnostic).
   Plan-of-record: REE_assembly/evidence/planning/arc_062_rule_apprehension_plan.md
     GAP-A status open -> done 2026-05-09; owner_exq=V3-EXQ-542; Phase 2
-    GAP-B remains open as next-thing-to-queue.
+    GAP-B in-progress pending V3-EXQ-543f.
+  GAP-B: ARC-062 head-input first-action one-hot augmentation (option 2)
+    IMPLEMENTED 2026-05-17. Root cause from EXQ-543e autopsy: SP-CEM
+    delivers ~5 distinct first-action classes but E2 world-forward
+    compresses them to 0.22% of z_world magnitude before reaching the
+    z_world-only GatedPolicy heads -- the heads are under-fed. Fix:
+    bypass E2 compression by concatenating the first-action one-hot
+    directly onto the head's candidate_features input.
+    Config: REEConfig.gated_policy_use_first_action_onehot (bool, default
+      False; bit-identical OFF when False). GatedPolicyConfig gains
+      use_first_action_onehot (bool, False) and first_action_dim (int, 0;
+      set to config.e2.action_dim by REEAgent.__init__ -- single source
+      of truth, not a separate REEConfig knob).
+    Data flow: c.actions[:, 0, :][0] -> [action_dim] one-hot per
+      candidate; stacked to [K, action_dim]; cat with gp_summaries
+      [K, world_dim] -> augmented head input [K, world_dim+action_dim].
+      Discriminator input (z_world, z_self, z_harm_a) UNCHANGED.
+    Backward compatible: gated_policy_use_first_action_onehot=False
+      (default); head Linear input stays [K, world_dim]; select_action
+      sets first_action_onehots=None; forward() skips the cat. 484/484
+      contracts+preflight PASS with defaults unchanged.
+    Phased training required for V3-EXQ-543f (P0 -> P1 -> P2).
+    Validation: V3-EXQ-543f to be queued via /queue-experiment (supersedes
+      V3-EXQ-543e; same 2x2 SP-CEM/dACC factorial; also requires
+      dacc_weight>0 + pre-flight non-degeneracy assertion per 543e
+      autopsy addendum).
   Cross-plan link: commitment_closure_plan.md GAP-1 (SD-033a bias-head
     training) remains blocked on arc_062 GAP-A (now done) AND arc_062
     GAP-B (still open). GAP-1 unblock requires Phase 2 PASS then Phase 3
