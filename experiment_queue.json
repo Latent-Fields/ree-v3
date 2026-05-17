@@ -73,13 +73,17 @@
       "script": "experiments/v3_exq_588_isef002_transient_benefit_zgoal_seeding.py",
       "priority": 4,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 150,
       "episodes_per_run": 1000,
       "seeds": 5,
       "conditions": 2,
       "claim_id": "MECH-189",
-      "note": "infant_substrate:GAP-11 closure. ARM_0: transient_benefit_enabled=False (uniform resource). ARM_1: transient_benefit_enabled=True, multiplier=3.0. C1 gate: ARM_1 median first z_goal.norm()>0.4 crossing episode < 0.7x ARM_0 median (sentinel=1001 if never). PASS enables transient patches as infant default and unblocks DEV-NEED-006, MECH-189 governance. Smoke PASS."
+      "note": "infant_substrate:GAP-11 closure. ARM_0: transient_benefit_enabled=False (uniform resource). ARM_1: transient_benefit_enabled=True, multiplier=3.0. C1 gate: ARM_1 median first z_goal.norm()>0.4 crossing episode < 0.7x ARM_0 median (sentinel=1001 if never). PASS enables transient patches as infant default and unblocks DEV-NEED-006, MECH-189 governance. Smoke PASS.",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-17T10:52:16.702799+00:00"
+      }
     }
   ]
 }
