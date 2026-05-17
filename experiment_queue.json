@@ -188,14 +188,17 @@
       "title": "ARC-062 x MECH-309: outcome-coupled REINFORCE P1 loss (falsifier)",
       "experiment_type": "v3_exq_543g_arc062_outcome_coupled_falsifier",
       "script": "experiments/v3_exq_543g_arc062_outcome_coupled_falsifier.py",
-      "priority": 2,
+      "priority": 4,
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 90,
       "episodes_per_run": 108,
       "seeds": 3,
       "conditions": 4,
-      "claim_ids": ["ARC-062", "MECH-309"],
+      "claim_ids": [
+        "ARC-062",
+        "MECH-309"
+      ],
       "supersedes": "V3-EXQ-543f",
       "note": "543f autopsy routing (2026-05-17): P1 diversification regularizer (head_div + disc_var self-supervised) caused symmetric-cancellation training error: composed gated_score_bias = w*h0 + (1-w)*h1 stays near zero when w~0.5 even when heads maximally divergent. TV 0.0001-0.0006, threshold 0.05 (4 orders of magnitude gap). Fix: replace with REINFORCE on GatedPolicy params. Records (snap, sel_idx, ep_return) every 4 steps during P1; advantage = ep_return - EMA_baseline; loss = mean(-adv * log_softmax(bias / T, dim=0)[sel_idx]) - 0.1 * disc_var. head_div_term removed. Substrate fixes from 543f inherited (FIX 1: use_first_action_onehot; FIX 2: dacc_weight=1.0). Same 2x2 factorial, same D2 AND D3 PASS rule. GAP-C and GAP-D unblock on PASS."
     }
