@@ -4,9 +4,10 @@ name: Cloud Worker Scaler
 #
 # Routing rules (per worker):
 #   - "claimable" items = status==pending AND machine_affinity in {any, <server_affinity>}
-#   - server off + claimable > 0 -> poweron
+#   - mode "full" (default): server off + claimable > 0 -> poweron
+#   - mode "shutdown-only": never auto-starts; must be powered on manually
 #   - server running + claimable == 0 + heartbeat says idle + last completed > IDLE_GRACE_MIN ago
-#       -> shutdown (graceful, drains current run)
+#       -> shutdown (graceful, drains current run) [applies to both modes]
 #
 # The heartbeat gate prevents the race where the queue momentarily reads zero
 # pending items because the runner has just claimed an item and is mid-experiment;
@@ -52,16 +53,18 @@ jobs:
           curl -sL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_VERSION}/hcloud-linux-amd64.tar.gz" \
             | tar xz -C /usr/local/bin hcloud
 
-          # server_name:affinity pairs -- add more workers by extending this list
+          # server_name:affinity[:mode] pairs -- add more workers by extending this list
+          # mode "shutdown-only" = auto-shutdown when idle but never auto-start
           WORKERS=(
             "ree-worker-1:ree-cloud-1"
             "ree-worker-2:ree-cloud-2"
             "ree-worker-3:ree-cloud-3"
+            "ree-worker-4:ree-cloud-4:shutdown-only"
           )
 
           for entry in "${WORKERS[@]}"; do
-            SERVER_NAME="${entry%%:*}"
-            AFFINITY="${entry##*:}"
+            IFS=: read -r SERVER_NAME AFFINITY MODE <<< "$entry"
+            MODE="${MODE:-full}"
 
             # Count pending items this worker could claim (its affinity or "any")
             CLAIMABLE=$(AFFINITY="$AFFINITY" python3 -c "
@@ -151,9 +154,11 @@ jobs:
               continue
             fi
 
-            if [ "$CLAIMABLE" -gt 0 ] && [ "$STATUS" = "off" ]; then
+            if [ "$CLAIMABLE" -gt 0 ] && [ "$STATUS" = "off" ] && [ "$MODE" = "full" ]; then
               echo "  -> queue has work, starting $SERVER_NAME"
               hcloud server poweron "$SERVER_NAME"
+            elif [ "$CLAIMABLE" -gt 0 ] && [ "$STATUS" = "off" ] && [ "$MODE" = "shutdown-only" ]; then
+              echo "  -> queue has work but $SERVER_NAME is shutdown-only (manual start required)"
             elif [ "$CLAIMABLE" -eq 0 ] && [ "$STATUS" = "running" ] && [ "$IDLE_OK" = "1" ]; then
               echo "  -> no matching work AND runner idle past grace window, shutting down $SERVER_NAME"
               # shutdown (not poweroff) so systemd sends SIGTERM for graceful drain
