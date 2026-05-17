@@ -295,7 +295,7 @@ def run_p0_warmup(
             probe_log.append(probe)
             print(
                 f"  [P0 probe] ep {ep+1}/{budget}  rv={rv:.5f}"
-                f"  threshold={effective_threshold:.3f}"
+                f"  threshold={effective_threshold:.6g}"
                 f"  converging={rv < effective_threshold}",
                 flush=True,
             )
@@ -303,7 +303,7 @@ def run_p0_warmup(
             # Mid-probe abort (R1 detection)
             if (ep + 1) >= mid_probe_episode and rv >= effective_threshold:
                 print(
-                    f"  [P0 ABORT] rv={rv:.5f} >= threshold={effective_threshold:.3f}"
+                    f"  [P0 ABORT] rv={rv:.5f} >= threshold={effective_threshold:.6g}"
                     f" at ep={ep+1} ({int(mid_probe_frac*100)}% of budget={budget})."
                     f" Escalate as R1 substrate mis-calibration -- do NOT retune gate.",
                     flush=True,
@@ -317,7 +317,7 @@ def run_p0_warmup(
                 stable_count += 1
                 if stable_count >= convergence_stable_checkpoints:
                     print(
-                        f"  [P0 CONVERGED] rv={rv:.5f} < {effective_threshold:.3f}"
+                        f"  [P0 CONVERGED] rv={rv:.5f} < {effective_threshold:.6g}"
                         f" stable for {stable_count} probes. P0 done at ep={ep+1}.",
                         flush=True,
                     )
