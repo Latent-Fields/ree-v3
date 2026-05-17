@@ -27,24 +27,6 @@
       }
     },
     {
-      "queue_id": "V3-EXQ-582",
-      "title": "goal_pipeline:GAP-3 SD-012 sustained-drive EMA discriminative alpha sweep",
-      "experiment_type": "v3_exq_582_gap3_sustained_drive_ema_sweep",
-      "script": "experiments/v3_exq_582_gap3_sustained_drive_ema_sweep.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "episodes_per_run": 30,
-      "seeds": 3,
-      "conditions": 4,
-      "note": "goal_pipeline:GAP-3 Phase 3 Option 1 validation. Diagnostic (claim_ids=[]), excluded from governance scoring. Anchored to the EXQ-536a goal-seeding regime; sweeps GoalConfig.drive_ema_alpha in {0.01,0.02,0.2,1.0} x 3 seeds (1.0=OFF parity, 0.02=lit-anchored first-PASS). PASS = alpha=0.02 lifts mean drive-trace-at-contact >0.10 (vs 536a's 0.005), >=2/3 seeds clear benefit_threshold, z_goal_active_fraction>0.20, and the alpha curve is monotone with the OFF arm at the 536a value. PASS gates MECH-306 sustained_drive_trace governance registration and the goal_pipeline:GAP-3 node done flag (unblocks GAP-4 prerequisite). Substrate landed this session (GoalConfig.drive_ema_alpha; contract test_sustained_drive_ema_gap3.py 7/7).",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-17T07:13:57.378592+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-583",
       "title": "SP-CEM main-path default-wiring validation (3-arm equivalence)",
       "experiment_type": "v3_exq_583_spcem_mainpath_default_wiring",
