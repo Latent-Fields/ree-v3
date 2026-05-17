@@ -372,6 +372,37 @@ class CausalGridWorld:
         pos_telemetry_enabled: bool = True,
         pos_entropy_window: int = 100,
         zone_coverage_stub_single_zone: bool = True,
+        # commitment_closure:GAP-3 -- CausalGridWorldV2 env extensions
+        # (primitives 1-3). Env-only; NOT surfaced through
+        # REEConfig.from_dims (same precedent as harm_gradient_* /
+        # microhabitat_* / transient_benefit_*). All defaults no-op:
+        # disabled, bit-identical legacy behaviour, no extra RNG.
+        # Spec: REE_assembly/evidence/planning/
+        # causalgridworldv2_env_extensions_spec.md (decision-complete
+        # 2026-05-16). Primitive 1: adaptive tolerance-band completion.
+        completion_tolerance_enabled: bool = False,
+        completion_tolerance_frac: float = 0.0,
+        completion_tolerance_cells: int = -1,
+        completion_tolerance_metric: str = "chebyshev",
+        completion_tolerance_targets: str = "waypoint",
+        completion_tolerance_kernel: str = "hard",
+        completion_tolerance_lambda: float = 1.0,
+        # Primitive 2: counter-evidence injection hook (graded
+        # contingency degradation against a persistent rule_state;
+        # NOT a signed perturbation -- Q-2a, lit-grounded).
+        counter_evidence_enabled: bool = False,
+        counter_evidence_interval: int = 50,
+        counter_evidence_prob: float = 0.5,
+        counter_evidence_degrade_step: float = 0.2,
+        counter_evidence_degrade_floor: float = 0.0,
+        counter_evidence_requires_persistent_rule: bool = True,
+        # Primitive 3: dual simultaneously-active resource cue. Requires
+        # the SD-049 multi-resource path; raises a hard precondition
+        # error if SD-049 is not enabled (Q-3a, fail-fast).
+        dual_cue_enabled: bool = False,
+        dual_cue_min_active_ticks: int = 10,
+        dual_cue_replace_on_early_consume: bool = False,
+        dual_cue_type_tags: tuple = (1, 2),
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -674,6 +705,118 @@ class CausalGridWorld:
         self._pos_window: List[Tuple[int, int]] = []
         self._visited_cells: set = set()
 
+        # commitment_closure:GAP-3 -- env extensions primitives 1-3.
+        # Primitive 1: adaptive tolerance-band completion.
+        self.completion_tolerance_enabled = bool(completion_tolerance_enabled)
+        self.completion_tolerance_frac = float(
+            max(0.0, completion_tolerance_frac)
+        )
+        self.completion_tolerance_cells = int(completion_tolerance_cells)
+        self.completion_tolerance_metric = (
+            str(completion_tolerance_metric).lower()
+        )
+        if self.completion_tolerance_metric not in ("chebyshev", "manhattan"):
+            raise ValueError(
+                "completion_tolerance_metric must be 'chebyshev' or "
+                "'manhattan', got " + repr(completion_tolerance_metric)
+            )
+        self.completion_tolerance_targets = (
+            str(completion_tolerance_targets).lower()
+        )
+        if self.completion_tolerance_targets not in (
+            "waypoint",
+            "waypoint+resource",
+        ):
+            raise ValueError(
+                "completion_tolerance_targets must be 'waypoint' or "
+                "'waypoint+resource', got "
+                + repr(completion_tolerance_targets)
+            )
+        if self.completion_tolerance_targets == "waypoint+resource":
+            # Q-1a resolved the default to waypoint-only; the named
+            # behavioural arms (EXP-0156/0157/0162) are rule_state /
+            # waypoint. The resource-target extension (tolerance-driven
+            # consume-at-distance) is a documented but unimplemented
+            # option -- fail fast rather than silently honour only the
+            # waypoint half (commitment_closure:GAP-3 primitive 1).
+            raise ValueError(
+                "completion_tolerance_targets='waypoint+resource' is "
+                "reserved and not yet implemented; primitive 1 ships "
+                "waypoint-only (commitment_closure:GAP-3 Q-1a default). "
+                "Use 'waypoint'."
+            )
+        self.completion_tolerance_kernel = (
+            str(completion_tolerance_kernel).lower()
+        )
+        if self.completion_tolerance_kernel not in ("hard", "graded_exp"):
+            raise ValueError(
+                "completion_tolerance_kernel must be 'hard' or "
+                "'graded_exp', got " + repr(completion_tolerance_kernel)
+            )
+        self.completion_tolerance_lambda = float(
+            max(1e-6, completion_tolerance_lambda)
+        )
+        # Primitive 2: counter-evidence injection hook.
+        self.counter_evidence_enabled = bool(counter_evidence_enabled)
+        self.counter_evidence_interval = int(
+            max(1, counter_evidence_interval)
+        )
+        self.counter_evidence_prob = float(
+            np.clip(counter_evidence_prob, 0.0, 1.0)
+        )
+        self.counter_evidence_degrade_step = float(
+            np.clip(counter_evidence_degrade_step, 0.0, 1.0)
+        )
+        self.counter_evidence_degrade_floor = float(
+            np.clip(counter_evidence_degrade_floor, 0.0, 1.0)
+        )
+        self.counter_evidence_requires_persistent_rule = bool(
+            counter_evidence_requires_persistent_rule
+        )
+        # Primitive 3: dual simultaneously-active resource cue.
+        self.dual_cue_enabled = bool(dual_cue_enabled)
+        self.dual_cue_min_active_ticks = int(
+            max(0, dual_cue_min_active_ticks)
+        )
+        self.dual_cue_replace_on_early_consume = bool(
+            dual_cue_replace_on_early_consume
+        )
+        self.dual_cue_type_tags = tuple(int(t) for t in dual_cue_type_tags)
+        if self.dual_cue_enabled:
+            if len(self.dual_cue_type_tags) != 2 or (
+                self.dual_cue_type_tags[0] == self.dual_cue_type_tags[1]
+            ):
+                raise ValueError(
+                    "dual_cue_type_tags must be two distinct SD-049 type "
+                    "tags, got " + repr(self.dual_cue_type_tags)
+                )
+            # Q-3a: fail-fast -- dual-cue rides the SD-049 multi-resource
+            # heterogeneity path (_resources_by_type / _resource_type_grid).
+            # No silent auto-enable; the experiment author must opt in.
+            if not self.multi_resource_heterogeneity_enabled:
+                raise ValueError(
+                    "dual_cue_enabled=True requires the SD-049 "
+                    "multi-resource path "
+                    "(multi_resource_heterogeneity_enabled=True); refusing "
+                    "to silently auto-enable it (commitment_closure:GAP-3 "
+                    "Q-3a fail-fast)."
+                )
+        # Per-episode GAP-3 diagnostics (re-initialised in reset() so the
+        # info keys are always present and deterministic, ON or OFF).
+        self._completion_within_tol_this_tick: bool = False
+        self._completion_dist_to_target: int = -1
+        self._completion_tol_credit: float = 0.0
+        self._counter_evidence_event_count: int = 0
+        self._counter_evidence_injected_this_tick: bool = False
+        self._counter_evidence_last_step: int = -1
+        self._counter_evidence_target_validity: float = 1.0
+        self._counter_evidence_sustained_steps: int = 0
+        self._counter_evidence_last_target_idx: int = -1
+        self._dual_cue_ticks_both_active: int = 0
+        self._dual_cue_consumed_tag_this_tick: int = -1
+        self._dual_cue_invalid_this_episode: bool = False
+        self._dual_cue_n_active: int = 0
+
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
         self.landmark_b_positions: List[Tuple[int, int]] = []
@@ -959,6 +1102,28 @@ class CausalGridWorld:
         self._transient_benefit_n_contacted = 0
         self._transient_benefit_n_expired = 0
         self._transient_benefit_contact_this_tick = 0.0
+
+        # commitment_closure:GAP-3 -- per-episode env-extension diagnostics.
+        # Reset regardless of master switches so the info keys are
+        # deterministic ON or OFF (same discipline as GAP-1/2/3 above).
+        self._completion_within_tol_this_tick = False
+        self._completion_dist_to_target = -1
+        self._completion_tol_credit = 0.0
+        self._counter_evidence_event_count = 0
+        self._counter_evidence_injected_this_tick = False
+        self._counter_evidence_last_step = -1
+        # Outcome-validity of the currently committed target. 1.0 = intact
+        # (a healthy action->outcome contingency); degraded toward
+        # counter_evidence_degrade_floor by scheduled injections while the
+        # rule_state is persistent. Episode-local; a fresh episode starts
+        # from an intact contingency.
+        self._counter_evidence_target_validity = 1.0
+        self._counter_evidence_sustained_steps = 0
+        self._counter_evidence_last_target_idx = -1
+        self._dual_cue_ticks_both_active = 0
+        self._dual_cue_consumed_tag_this_tick = -1
+        self._dual_cue_invalid_this_episode = False
+        self._dual_cue_n_active = 0
 
         # Proxy-gradient state
         self.harm_exposure: float = 0.0
@@ -1329,17 +1494,34 @@ class CausalGridWorld:
                         self._sequence_in_progress = True
 
                     if self._next_waypoint_idx >= len(self.waypoints):
-                        # Sequence complete
-                        harm_signal += self.waypoint_completion_reward
-                        self.total_benefit += self.waypoint_completion_reward
+                        # Sequence complete. commitment_closure:GAP-3
+                        # Primitive 2: the realised committed outcome is
+                        # scaled by the action's current outcome-validity
+                        # when counter-evidence degradation is active
+                        # (bit-identical when disabled -- original
+                        # expression taken via the guard).
+                        _cwr = (
+                            self.waypoint_completion_reward
+                            * self._counter_evidence_target_validity
+                            if self.counter_evidence_enabled
+                            else self.waypoint_completion_reward
+                        )
+                        harm_signal += _cwr
+                        self.total_benefit += _cwr
                         transition_type = "sequence_complete"
                         self._sequences_completed += 1
                         self._sequence_in_progress = False
                         self._next_waypoint_idx = 0
                         self._respawn_waypoints()
                     else:
-                        harm_signal += self.waypoint_visit_reward
-                        self.total_benefit += self.waypoint_visit_reward
+                        _cvr = (
+                            self.waypoint_visit_reward
+                            * self._counter_evidence_target_validity
+                            if self.counter_evidence_enabled
+                            else self.waypoint_visit_reward
+                        )
+                        harm_signal += _cvr
+                        self.total_benefit += _cvr
                         transition_type = "waypoint"
 
             elif self.use_proxy_fields and transition_type == "none":
@@ -1355,6 +1537,89 @@ class CausalGridWorld:
                     harm_signal = self.proximity_benefit_scale * r_field_val
                     transition_type = "benefit_approach"
                     self.total_benefit += harm_signal
+
+            # commitment_closure:GAP-3 Primitive 1 -- adaptive
+            # tolerance-band completion. Fires the next committed
+            # waypoint (or sequence) when the agent is within T of it
+            # WITHOUT exact-cell contact. Gated by the master switch +
+            # subgoal_mode; skipped if the exact-match path already
+            # completed this tick (transition_type guard -> no
+            # double-fire). frac=0.0 -> T=0 -> only dist==0, i.e. the
+            # agent is ON the cell, which the exact path already
+            # handled and which makes this guard fail -- so OFF AND
+            # frac=0.0 are both bit-identical. No RNG draws.
+            # Per-tick diagnostics reset every step (these are
+            # *_this_tick / per-tick sentinels; resetting only in
+            # reset() would leak stale values onto steps where the
+            # block does not run). Resetting to the OFF defaults is
+            # dynamics-neutral, so bit-identical OFF is preserved.
+            self._completion_within_tol_this_tick = False
+            self._completion_dist_to_target = -1
+            self._completion_tol_credit = 0.0
+            if (
+                self.completion_tolerance_enabled
+                and self.subgoal_mode
+                and transition_type not in ("waypoint", "sequence_complete")
+                and self.waypoints
+                and 0 <= self._next_waypoint_idx < len(self.waypoints)
+            ):
+                _tw = self.waypoints[self._next_waypoint_idx]
+                _tdx = abs(int(_tw[0]) - new_x)
+                _tdy = abs(int(_tw[1]) - new_y)
+                if self.completion_tolerance_metric == "manhattan":
+                    _tdist = _tdx + _tdy
+                else:
+                    _tdist = _tdx if _tdx > _tdy else _tdy
+                if self.completion_tolerance_cells >= 0:
+                    _ttol = self.completion_tolerance_cells
+                else:
+                    _ttol = int(
+                        round(self.completion_tolerance_frac * self.size)
+                    )
+                self._completion_dist_to_target = int(_tdist)
+                if _tdist <= _ttol:
+                    self._completion_within_tol_this_tick = True
+                    if self.completion_tolerance_kernel == "graded_exp":
+                        _tcredit = float(
+                            np.exp(
+                                -float(_tdist)
+                                / self.completion_tolerance_lambda
+                            )
+                        )
+                    else:
+                        _tcredit = 1.0
+                    self._completion_tol_credit = _tcredit
+                    _cev = (
+                        self._counter_evidence_target_validity
+                        if self.counter_evidence_enabled
+                        else 1.0
+                    )
+                    _old_idx = self._next_waypoint_idx
+                    self._next_waypoint_idx += 1
+                    self._sequence_step = _old_idx
+                    self._steps_since_waypoint = 0
+                    if not self._sequence_in_progress:
+                        self._sequence_in_progress = True
+                    if self._next_waypoint_idx >= len(self.waypoints):
+                        _twr = (
+                            self.waypoint_completion_reward
+                            * _tcredit
+                            * _cev
+                        )
+                        harm_signal += _twr
+                        self.total_benefit += _twr
+                        transition_type = "sequence_complete"
+                        self._sequences_completed += 1
+                        self._sequence_in_progress = False
+                        self._next_waypoint_idx = 0
+                        self._respawn_waypoints()
+                    else:
+                        _twr = (
+                            self.waypoint_visit_reward * _tcredit * _cev
+                        )
+                        harm_signal += _twr
+                        self.total_benefit += _twr
+                        transition_type = "waypoint"
 
             # infant_substrate:GAP-1 -- harm gradient env feature.
             # Graduated approach signal based on Euclidean distance to nearest
@@ -1578,6 +1843,91 @@ class CausalGridWorld:
                 if self.use_proxy_fields:
                     self._compute_proximity_fields()
 
+        # commitment_closure:GAP-3 Primitive 2 -- counter-evidence
+        # injection hook (graded contingency degradation). While the
+        # rule_state is persistent, scheduled injections lower the
+        # committed target's outcome-validity toward the floor; the
+        # surrounding context (hazards / resources / drift) is NOT
+        # touched (Q-2a: degradation, not perturbation, not reversal).
+        # Structurally cloned from the SD-029 scheduled-injection gate
+        # above. Fully gated by the master switch: when disabled there
+        # is zero RNG and zero state change (bit-identical OFF).
+        if self.counter_evidence_enabled:
+            self._counter_evidence_injected_this_tick = False
+            _ce_rule_persistent = bool(
+                self.subgoal_mode
+                and self._sequence_in_progress
+                and 0 <= self._next_waypoint_idx < len(self.waypoints)
+            )
+            # A fresh committed target starts from an intact
+            # contingency: validity 1.0, duration counter restarts.
+            if (
+                self._next_waypoint_idx
+                != self._counter_evidence_last_target_idx
+            ):
+                self._counter_evidence_target_validity = 1.0
+                self._counter_evidence_sustained_steps = 0
+                self._counter_evidence_last_target_idx = (
+                    self._next_waypoint_idx
+                )
+            _ce_active = _ce_rule_persistent or (
+                not self.counter_evidence_requires_persistent_rule
+            )
+            if (
+                _ce_active
+                and self.steps > 0
+                and (self.steps % self.counter_evidence_interval == 0)
+                and self._rng.random() < self.counter_evidence_prob
+            ):
+                if self._inject_counter_evidence():
+                    self._counter_evidence_injected_this_tick = True
+                    self._counter_evidence_event_count += 1
+                    self._counter_evidence_last_step = self.steps
+            # Duration: every step the current committed target is under
+            # active degradation (validity below intact, rule persistent).
+            if (
+                _ce_rule_persistent
+                and self._counter_evidence_target_validity < 1.0
+            ):
+                self._counter_evidence_sustained_steps += 1
+
+        # commitment_closure:GAP-3 Primitive 3 -- dual simultaneously-
+        # active resource cue. Rides the SD-049 per-type resource lists
+        # (construction already enforced the multi-resource path via the
+        # Q-3a fail-fast precondition). Default invalidate-episode path
+        # draws no RNG; bit-identical OFF (block fully gated).
+        if self.dual_cue_enabled:
+            self._dual_cue_consumed_tag_this_tick = -1
+            _tag_a, _tag_b = self.dual_cue_type_tags
+            _ia, _ib = _tag_a - 1, _tag_b - 1
+            _na = (
+                len(self._resources_by_type[_ia])
+                if 0 <= _ia < len(self._resources_by_type)
+                else 0
+            )
+            _nb = (
+                len(self._resources_by_type[_ib])
+                if 0 <= _ib < len(self._resources_by_type)
+                else 0
+            )
+            self._dual_cue_n_active = int(_na > 0) + int(_nb > 0)
+            if _na > 0 and _nb > 0:
+                self._dual_cue_ticks_both_active += 1
+            _consumed = int(self._consumed_type_tag_this_tick)
+            if _consumed in (_tag_a, _tag_b):
+                self._dual_cue_consumed_tag_this_tick = _consumed
+                if self.steps < self.dual_cue_min_active_ticks:
+                    if self.dual_cue_replace_on_early_consume:
+                        # Diagnostic-only path (Q-3b): re-place a
+                        # resource so the both-active window can still
+                        # be met. Confounds the MECH-266 mode-stickiness
+                        # measurement -- never the default. Generic
+                        # respawn (type-tag re-placement is approximate
+                        # on this path; not used for the measurement).
+                        self._respawn_resource()
+                    else:
+                        self._dual_cue_invalid_this_episode = True
+
         # Env-caused drift
         if self.steps % self.env_drift_interval == 0 and self.steps > 0:
             self._drift_hazards()
@@ -1776,6 +2126,65 @@ class CausalGridWorld:
             "pos_entropy": self._pos_entropy(),
             "pos_entropy_window": int(self.pos_entropy_window),
             "zone_coverage": self._zone_coverage(),
+            # commitment_closure:GAP-3 env-extension diagnostics (always
+            # present; inert sentinels when the relevant primitive is
+            # disabled). Primitive 1: adaptive tolerance-band completion.
+            "completion_tolerance_enabled": bool(
+                self.completion_tolerance_enabled
+            ),
+            "completion_tolerance_T": (
+                (
+                    self.completion_tolerance_cells
+                    if self.completion_tolerance_cells >= 0
+                    else int(
+                        round(
+                            self.completion_tolerance_frac * self.size
+                        )
+                    )
+                )
+                if self.completion_tolerance_enabled
+                else -1
+            ),
+            "completion_within_tolerance_this_tick": bool(
+                self._completion_within_tol_this_tick
+            ),
+            "completion_dist_to_target": int(
+                self._completion_dist_to_target
+            ),
+            "completion_tolerance_credit": float(
+                self._completion_tol_credit
+            ),
+            # Primitive 2: counter-evidence injection hook.
+            "counter_evidence_enabled": bool(
+                self.counter_evidence_enabled
+            ),
+            "counter_evidence_event_count": int(
+                self._counter_evidence_event_count
+            ),
+            "counter_evidence_injected_this_tick": bool(
+                self._counter_evidence_injected_this_tick
+            ),
+            "counter_evidence_target_validity": float(
+                self._counter_evidence_target_validity
+            ),
+            "counter_evidence_sustained_steps": int(
+                self._counter_evidence_sustained_steps
+            ),
+            "counter_evidence_last_step": int(
+                self._counter_evidence_last_step
+            ),
+            # Primitive 3: dual simultaneously-active resource cue.
+            "dual_cue_enabled": bool(self.dual_cue_enabled),
+            "dual_cue_n_active": int(self._dual_cue_n_active),
+            "dual_cue_ticks_both_active": int(
+                self._dual_cue_ticks_both_active
+            ),
+            "dual_cue_consumed_tag_this_tick": int(
+                self._dual_cue_consumed_tag_this_tick
+            ),
+            "dual_cue_invalid_this_episode": bool(
+                self._dual_cue_invalid_this_episode
+            ),
         }
         if self.use_proxy_fields:
             info["hazard_field_at_agent"] = float(
@@ -3087,6 +3496,40 @@ class CausalGridWorld:
             self.grid[tx, ty] = self.ENTITY_TYPES["hazard"]
             self.hazards.append([tx, ty])
         return True
+
+    def _inject_counter_evidence(self) -> bool:
+        """
+        commitment_closure:GAP-3 Primitive 2 -- graded contingency
+        degradation against the persistent committed rule_state.
+
+        Lowers the committed target's outcome-validity by
+        counter_evidence_degrade_step toward counter_evidence_degrade_floor.
+        Does NOT clear the rule_state, does NOT advance the waypoint
+        index, and does NOT touch the surrounding context (hazards /
+        resources / drift). The committed action progressively loses
+        validity as a predictor of the committed outcome while
+        everything else is held constant -- this is contingency
+        degradation, not a signed perturbation and not a contingency
+        reversal (commitment_closure:GAP-3 Q-2a, lit-grounded: Piquet
+        2023 Curr Biol; Dutech 2011 J Physiol Paris).
+
+        Returns True if validity was actually decreased this call,
+        False if it was already at the floor or there is no persistent
+        rule_state to degrade.
+        """
+        if not (
+            self.subgoal_mode
+            and self._sequence_in_progress
+            and 0 <= self._next_waypoint_idx < len(self.waypoints)
+        ):
+            return False
+        _before = self._counter_evidence_target_validity
+        _after = max(
+            self.counter_evidence_degrade_floor,
+            _before - self.counter_evidence_degrade_step,
+        )
+        self._counter_evidence_target_validity = _after
+        return _after < _before
 
     def _drift_hazards(self) -> None:
         """Drift environment-caused hazards randomly.

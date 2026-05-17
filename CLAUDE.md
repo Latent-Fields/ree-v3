@@ -4819,3 +4819,50 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     fidelity bug worth landing once 540e PASS confirms the architecture.
   See MECH-307, MECH-295 (bridge config owner), V3-EXQ-540c (probe diagnosis),
     V3-EXQ-540e (default-fix validation), goal_pipeline:GAP-1 (closure plan).
+
+## SD Design Decisions Implemented (V3) — continued
+- commitment_closure:GAP-3 — CausalGridWorldV2 env extensions, primitives 1-3 —
+  IMPLEMENTED 2026-05-17. ree_core/environment/causal_grid_world.py.
+  Env-only constructor kwargs (NOT REEConfig / from_dims — same precedent as
+  harm_gradient_* / microhabitat_* / transient_benefit_*). All master switches
+  default no-op; bit-identical OFF verified suite-wide (full contract
+  regression 434/434).
+  Primitive 1 — adaptive tolerance-band completion: completion_tolerance_enabled
+    (default False), _frac (0.0), _cells (-1; >=0 overrides frac), _metric
+    ("chebyshev" | "manhattan"), _targets ("waypoint"; "waypoint+resource"
+    RESERVED — raises ValueError, ships waypoint-only per Q-1a), _kernel
+    ("hard" | "graded_exp"; credit exp(-d/lambda)), _lambda (1.0). Wraps the
+    waypoint exact-match; OFF and frac=0.0 both dynamics bit-identical.
+  Primitive 2 — counter-evidence injection hook (graded contingency
+    degradation, NOT signed perturbation): counter_evidence_enabled (False),
+    _interval (50), _prob (0.5), _degrade_step (0.2), _degrade_floor (0.0),
+    _requires_persistent_rule (True). _inject_counter_evidence() cloned
+    structurally from the SD-029 scheduled-injection pattern; lowers the
+    committed target's outcome-validity toward the floor while the rule_state
+    is persistent; committed-target reward scaled by validity; context
+    (hazards/resources/drift) untouched. transition_type set by the existing
+    waypoint path.
+  Primitive 3 — dual simultaneously-active resource cue: dual_cue_enabled
+    (False), _min_active_ticks (10), _replace_on_early_consume (False =
+    invalidate-episode, Q-3b; True is diagnostic-only), _type_tags ((1,2)).
+    Rides the SD-049 multi-resource path; RAISES ValueError if SD-049 not
+    enabled (Q-3a fail-fast, no silent auto-enable).
+  16 always-present info keys (inert sentinels when the relevant primitive is
+  disabled). Backward compatible: disabled by default; existing experiments
+  unaffected. Not a learning module — no encoder head, no phased training, no
+  MECH-094 simulation-write surface.
+  Validation: tests/contracts/test_env_extensions_gap3.py 14/14 (C1 bit-
+  identical OFF + frac=0.0 dynamics-identical; C2 tolerance/graded_exp/metric;
+  C3 counter-evidence persistent-only + monotone validity->floor +
+  context-invariant; C4 dual-cue SD-049 fail-fast + accounting; C5 spec
+  section-5 integration smoke) + full contract regression 434/434. NO
+  claim-validation EXQ queued — spec section 5: Phase 3 is env infrastructure
+  with no claim-validation EXQ (a spec-sanctioned deviation from the
+  implement-substrate skill Step 8; concurrency also forbade queue edits).
+  Spec: REE_assembly/evidence/planning/causalgridworldv2_env_extensions_spec.md
+  (Status: IMPLEMENTED 2026-05-17). Closes commitment_closure:GAP-3 (unblocks
+  GAP-8). Deliverable 4 (phased rule_state training curriculum) deliberately
+  SEPARATE (spec section 6) — the SD-034/MECH-266/MECH-268 behavioural arms
+  still need it. See commitment_closure_plan.md, claims SD-034 / MECH-266 /
+  MECH-268. claims.yaml NOT modified (env infra unblocks but does not itself
+  promote).
