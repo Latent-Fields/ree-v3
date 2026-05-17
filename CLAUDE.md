@@ -4998,5 +4998,6 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   Generalises EXQ-321b run_training + clone_for_condition + EXQ-543b P0/P1 scaffolding.
   Blocks cleared: SD-034, MECH-266, MECH-268, MECH-090, SD-021 behavioural arms
   (V3-EXQ-460b/461/463b/464b/466b/467b/468b) -- see commitment_closure_plan.md.
-  Pilot experiment: EXP-0157 / V3-EXQ-461 (delayed-reward persistence) -- to be
-  queued via /queue-experiment.
+  Pilot experiment: EXP-0157 / V3-EXQ-592 (GAP-11 pilot, 3 arms: EMERGENT/FORCED_RV/STARVED).
+  New ID (not V3-EXQ-461b) because V3-EXQ-461 was a synthetic scripted PASS, not
+  emergent training. Queued 2026-05-17. Supersedes V3-EXQ-461.
