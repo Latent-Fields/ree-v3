@@ -264,6 +264,95 @@ class ResidueField(nn.Module):
             self.register_buffer("total_safety", torch.tensor(0.0))
             self.register_buffer("num_safety_steps", torch.tensor(0))
 
+        # MECH-334 (INV-074): critical-period closure EWC write-protect.
+        # snapshot_ewc_anchor() captures the Phase-3 checkpoint (rbf_field
+        # centers/weights + an established-basin Fisher proxy) at the
+        # infant-curriculum Phase 2->3 transition; ewc_penalty() then
+        # returns a Fisher-weighted quadratic pull toward that anchor for
+        # the experiment to add to its loss. NOT a hard freeze --
+        # established basins resist overwriting in proportion to their
+        # accumulated strength (Kirkpatrick 2017; faithful to MECH-334
+        # "high resistance to overwriting established basins"). Default
+        # disabled / lambda 0.0 = bit-identical no-op.
+        self.ewc_enabled: bool = bool(getattr(self.config, "ewc_enabled", False))
+        self._ewc_lambda: float = float(getattr(self.config, "ewc_lambda", 0.0))
+        self._ewc_anchored: bool = False
+        self._ewc_centers_anchor: Optional[torch.Tensor] = None
+        self._ewc_weights_anchor: Optional[torch.Tensor] = None
+        self._ewc_fisher: Optional[torch.Tensor] = None
+
+    # ------------------------------------------------------------------
+    # MECH-334 (INV-074): critical-period closure EWC write-protect
+    # ------------------------------------------------------------------
+    def snapshot_ewc_anchor(self) -> dict:
+        """Capture the Phase-3 residue checkpoint + established-basin Fisher.
+
+        Called once at the infant-curriculum Phase 2->3 transition (the
+        experiment harness wires the callback alongside
+        gated_policy.crystallize()). Snapshots a detached copy of the
+        rbf_field centers/weights and a diagonal Fisher proxy:
+
+            Fisher_i = |weights_anchor_i| * active_mask_i
+
+        i.e. basins that accumulated more residue during the open window
+        are protected more strongly afterwards. This is the biologically
+        faithful MECH-334 reading (protect established basins in
+        proportion to their strength), not a uniform L2 pull.
+
+        Idempotent: a second call refreshes the anchor to the current
+        state (developmental closure normally fires once).
+
+        Returns:
+            dict with anchored (bool), n_active_centers (int),
+            fisher_sum (float).
+        """
+        rbf = self.rbf_field
+        with torch.no_grad():
+            self._ewc_centers_anchor = rbf.centers.detach().clone()
+            self._ewc_weights_anchor = rbf.weights.detach().clone()
+            active = rbf.active_mask.detach().float()
+            self._ewc_fisher = (rbf.weights.detach().abs() * active).clone()
+        self._ewc_anchored = True
+        return {
+            "anchored": True,
+            "n_active_centers": int(rbf.active_mask.sum().item()),
+            "fisher_sum": float(self._ewc_fisher.sum().item()),
+        }
+
+    def ewc_penalty(self) -> torch.Tensor:
+        """Fisher-weighted quadratic pull toward the Phase-3 anchor.
+
+        penalty = ewc_lambda * sum_i Fisher_i * [
+                      (weights_i - weights_anchor_i)^2
+                      + sum_d (centers_i,d - centers_anchor_i,d)^2 ]
+
+        Differentiable w.r.t. the current rbf_field params (anchor and
+        Fisher are detached). Returns a 0.0 scalar (on the params' device)
+        when EWC is disabled, lambda is 0, or no anchor has been captured
+        -- so the experiment can unconditionally add it to its loss.
+        """
+        w = self.rbf_field.weights
+        zero = torch.zeros((), device=w.device, dtype=w.dtype)
+        if (
+            not self.ewc_enabled
+            or self._ewc_lambda <= 0.0
+            or not self._ewc_anchored
+            or self._ewc_fisher is None
+        ):
+            return zero
+        fisher = self._ewc_fisher.to(device=w.device, dtype=w.dtype)
+        w_anchor = self._ewc_weights_anchor.to(device=w.device, dtype=w.dtype)
+        c_anchor = self._ewc_centers_anchor.to(device=w.device, dtype=w.dtype)
+        w_term = fisher * (w - w_anchor).pow(2)
+        c_sqdiff = (self.rbf_field.centers - c_anchor).pow(2).sum(dim=-1)  # [C]
+        c_term = fisher * c_sqdiff
+        return self._ewc_lambda * (w_term.sum() + c_term.sum())
+
+    @property
+    def ewc_anchored(self) -> bool:
+        """True once snapshot_ewc_anchor() has captured the Phase-3 checkpoint."""
+        return self._ewc_anchored
+
     def evaluate(self, z_world: torch.Tensor) -> torch.Tensor:
         """
         Evaluate φ(z_world) at a point.

@@ -38,7 +38,7 @@ Usage:
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 
 # Hard episode-count minimums:  phase i+1 cannot start before episode
@@ -64,10 +64,22 @@ class InfantCurriculumScheduler:
     ``config_overrides()`` to get the parameter dicts for the current phase.
     """
 
-    def __init__(self, grid_size: int = 12) -> None:
+    def __init__(
+        self,
+        grid_size: int = 12,
+        on_phase3_entry: Optional[Callable[[], Any]] = None,
+    ) -> None:
         """
         grid_size: side length of the CausalGridWorldV2 grid.  Used to
             compute the H_pos threshold for Phase 0 exit.
+        on_phase3_entry: optional zero-arg callback fired EXACTLY ONCE,
+            at the moment the scheduler advances into Phase 3 (INV-074 /
+            MECH-333 / MECH-334 critical-period closure hook).  The
+            experiment harness passes a closure that calls
+            ``agent.gated_policy.crystallize()`` and
+            ``agent.residue_field.snapshot_ewc_anchor()``.  Kept as a
+            caller-supplied callback so this helper stays ree_core-free.
+            None (default) = no-op, bit-identical legacy behaviour.
         """
         self._grid_size = grid_size
         self._current_phase: int = 0
@@ -75,6 +87,9 @@ class InfantCurriculumScheduler:
         self._episode: int = -1
         # Rolling window of benefit-contact counts per episode.
         self._benefit_window: list[int] = []
+        # INV-074 / MECH-334 Phase-3 crystallization hook.
+        self._on_phase3_entry = on_phase3_entry
+        self._phase3_hook_fired: bool = False
 
     # ------------------------------------------------------------------
     # Read-only properties
@@ -218,6 +233,17 @@ class InfantCurriculumScheduler:
         if self._current_phase != prev:
             self._phase_changed = True
 
+        # INV-074 / MECH-334: fire the critical-period closure hook
+        # exactly once, the first time the scheduler is in Phase 3.
+        # Guarded so a callback exception cannot be double-fired.
+        if (
+            self._current_phase == 3
+            and not self._phase3_hook_fired
+            and self._on_phase3_entry is not None
+        ):
+            self._phase3_hook_fired = True
+            self._on_phase3_entry()
+
         return self._current_phase
 
     # ------------------------------------------------------------------
@@ -277,4 +303,5 @@ class InfantCurriculumScheduler:
             "phase_changed": self._phase_changed,
             "benefit_window_sum": sum(self._benefit_window),
             "benefit_window_len": len(self._benefit_window),
+            "phase3_hook_fired": self._phase3_hook_fired,
         }

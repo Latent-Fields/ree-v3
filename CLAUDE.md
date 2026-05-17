@@ -5001,3 +5001,63 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   Pilot experiment: EXP-0157 / V3-EXQ-592 (GAP-11 pilot, 3 arms: EMERGENT/FORCED_RV/STARVED).
   New ID (not V3-EXQ-461b) because V3-EXQ-461 was a synthetic scripted PASS, not
   emergent training. Queued 2026-05-17. Supersedes V3-EXQ-461.
+
+- INV-074 / MECH-333 / MECH-334: Phase-3 plasticity-injection crystallization
+  + EWC residue write-protect -- IMPLEMENTED 2026-05-17.
+  Files: ree_core/policy/gated_policy.py (GatedPolicy.crystallize() +
+  expansion_parameters() + .crystallized; forward gains the post-crystallize
+  expansion branch), ree_core/residue/field.py (ResidueField.
+  snapshot_ewc_anchor() + ewc_penalty() + .ewc_anchored), experiments/
+  infant_curriculum.py (InfantCurriculumScheduler on_phase3_entry fire-once
+  hook), ree_core/utils/config.py (REEConfig + ResidueConfig + from_dims),
+  ree_core/agent.py (GatedPolicyConfig passthrough).
+  Config: REEConfig.crystallize_at_phase3 (default False; set True to enable).
+  Subsidiary: gated_policy_crystallize_expansion_hidden (32),
+  residue_ewc_lambda (0.0 = anchor captured, penalty inert). When
+  crystallize_at_phase3=True, from_dims also arms ResidueConfig.ewc_enabled
+  + ewc_lambda.
+  Data flow: infant-curriculum Phase 2->3 transition -> scheduler fires the
+  experiment's on_phase3_entry closure -> agent.gated_policy.crystallize()
+  (requires_grad=False on head_0/head_1/discriminator; fresh plastic
+  expansion MLP, last-Linear zero-init so output is bit-identical at the
+  transition instant; forward = frozen_gated(x) + expansion(x.detach()),
+  the .detach() blocking diversity gradient from the crystallized weights)
+  + agent.residue_field.snapshot_ewc_anchor() (centers/weights anchor +
+  established-basin Fisher proxy |anchor_w|*active_mask). The experiment's
+  post-Phase-3 optimizer targets gated_policy.expansion_parameters() (plus
+  dACC / MECH-313 / MECH-314a / MECH-320 diversity params) and adds
+  residue_field.ewc_penalty() to its loss.
+  Biological basis: Nikishin et al. 2023 NeurIPS plasticity injection
+  (MECH-333 option E open-phase channel); Kirkpatrick et al. 2017 EWC
+  write-protect (MECH-334 closure, faithful to "high resistance to
+  overwriting established basins" -- NOT a hard freeze). Grounds INV-074
+  (plasticity crystallization necessity), the V3-tractable subset of
+  MECH-333/334, and ARC-075 (infant curriculum plasticity magnitude
+  asymmetry, not just temporal scheduling).
+  Pre-check (encoded in design doc): MECH-314b (uncertainty, reads
+  e3._running_variance) and MECH-314c (learning-progress, EMA of
+  |PE_t-PE_{t-K}| fed e3._running_variance) are forward-model-error-
+  dependent -- 314c is the canonical Pathak 2017 ICM self-defeat case --
+  and decay to ~0 before Phase-3 crystallization fires, so they cannot
+  establish competitive weight on the expansion layer. MECH-313 (constant
+  temperature), MECH-314a (residue-RBF novelty, Wittmann 2008 RPE-
+  independent), MECH-320-primary (avg-reward-rate EWMA, Niv 2007), and
+  dACC/MECH-260 (state-dependent recency) are F-robust and are the
+  meaningful signals to route.
+  Backward compatible: disabled by default; crystallize_at_phase3=False
+  is bit-identical (forward never references the expansion; EWC penalty
+  returns a 0.0 scalar). Contract regression 484/484 PASS; backward-compat
+  543g dry-run reproduces the prior signature exactly (ARM_2=0.444,
+  ARM_3=0.243, D2 FAIL). Not an encoder head -> no P0/P1/P2 phased
+  training of a latent target; the experiment DOES swap the optimizer
+  param-set at Phase 3 (gated_policy.parameters() -> expansion_parameters()
+  + diversity params) -- flagged in the queue entry.
+  MECH-094: GatedPolicy.forward()'s existing simulation_mode early-return
+  precedes the expansion add, so replay/DMN paths never receive the
+  expansion bias. Crystallization is a structural weight-state change
+  (developmental closure, persists across episodes; reset() does NOT
+  un-crystallize), not memory content -> hypothesis_tag N/A.
+  Validation experiment: V3-EXQ-543h queued (2x2x2 use_gated_policy x
+  use_dacc x crystallize_at_phase3; supersedes V3-EXQ-543g).
+  Design doc: REE_assembly/docs/architecture/critical_period_crystallization.md.
+  See INV-074, MECH-333, MECH-334, ARC-075, Q-052; arc_062 GAP-B.

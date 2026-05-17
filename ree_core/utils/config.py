@@ -955,6 +955,18 @@ class ResidueConfig:
     # Used to ablate valence tracking in experiments that do not need replay prioritisation.
     # Prerequisite for ARC-036 (multidimensional valence map).
     valence_enabled: bool = True
+    # MECH-334 (INV-074): critical-period closure / crystallization EWC
+    # penalty. When ewc_enabled=True, snapshot_ewc_anchor() captures the
+    # Phase-3 checkpoint (rbf_field centers/weights + an established-basin
+    # Fisher proxy = |anchor_weight| * active_mask) and ewc_penalty()
+    # returns ewc_lambda * sum(Fisher * (param - anchor)^2) for the
+    # experiment to add to its loss. NOT a hard freeze: established basins
+    # are protected proportionally to their accumulated strength while the
+    # field keeps adapting elsewhere (Kirkpatrick 2017 write-protect;
+    # faithful to MECH-334 "high resistance to overwriting established
+    # basins"). Default OFF / lambda 0.0 = bit-identical no-op.
+    ewc_enabled: bool = False
+    ewc_lambda: float = 0.0
 
 
 @dataclass
@@ -1520,6 +1532,24 @@ class REEConfig:
     # E2 world-forward compression diagnosed in EXQ-543e (0.22% signal ratio).
     # Default False = no-op, bit-identical backward compat.
     gated_policy_use_first_action_onehot: bool = False
+    # INV-074 / MECH-333 / MECH-334: Phase-3 plasticity-injection
+    # crystallization. Master toggle read by the infant-curriculum
+    # experiment harness. When True: GatedPolicy is built with
+    # crystallize_enabled=True and ResidueField with ewc_enabled=True,
+    # and the experiment installs an on_phase3_entry callback that calls
+    # agent.gated_policy.crystallize() + agent.residue_field.
+    # snapshot_ewc_anchor() at the Phase 2->3 transition. The actual
+    # crystallize()/snapshot fire only at Phase 3; with this flag False
+    # everything is bit-identical (Nikishin 2023 plasticity injection +
+    # Kirkpatrick 2017 EWC residue write-protect). Default False = no-op.
+    crystallize_at_phase3: bool = False
+    # Plastic expansion-MLP hidden width (Nikishin 2023 fresh-layer
+    # channel added at crystallization). Mirrors gated_policy_head_hidden.
+    gated_policy_crystallize_expansion_hidden: int = 32
+    # MECH-334 residue-field EWC penalty weight (passed to
+    # ResidueConfig.ewc_lambda when crystallize_at_phase3=True). 0.0 =
+    # anchor captured but penalty contributes nothing (safe default).
+    residue_ewc_lambda: float = 0.0
 
     # ----------------------------------------------------------------
     # MECH-313 (ARC-065): stochastic_noise_floor (LC-NE tonic / SAC
@@ -2476,6 +2506,10 @@ class REEConfig:
         gated_policy_bias_scale: float = 0.1,
         gated_policy_head_init_bias_offset: float = 0.05,
         gated_policy_use_first_action_onehot: bool = False,
+        # INV-074 / MECH-333 / MECH-334: Phase-3 plasticity-injection crystallization
+        crystallize_at_phase3: bool = False,
+        gated_policy_crystallize_expansion_hidden: int = 32,
+        residue_ewc_lambda: float = 0.0,
         # MECH-313 (ARC-065): stochastic_noise_floor (LC-NE tonic / SAC analog)
         use_noise_floor: bool = False,
         noise_floor_alpha: float = 0.1,
@@ -3003,6 +3037,21 @@ class REEConfig:
         config.gated_policy_bias_scale = gated_policy_bias_scale
         config.gated_policy_head_init_bias_offset = gated_policy_head_init_bias_offset
         config.gated_policy_use_first_action_onehot = gated_policy_use_first_action_onehot
+
+        # INV-074 / MECH-333 / MECH-334: Phase-3 plasticity-injection
+        # crystallization. The master toggle flows to the GatedPolicy /
+        # ResidueField builds in REEAgent.__init__; here it also arms the
+        # residue EWC config so the anchor/penalty are available when the
+        # Phase-3 callback fires. lambda 0.0 keeps the penalty inert even
+        # when armed (safe default).
+        config.crystallize_at_phase3 = crystallize_at_phase3
+        config.gated_policy_crystallize_expansion_hidden = (
+            gated_policy_crystallize_expansion_hidden
+        )
+        config.residue_ewc_lambda = residue_ewc_lambda
+        if crystallize_at_phase3:
+            config.residue.ewc_enabled = True
+            config.residue.ewc_lambda = residue_ewc_lambda
 
         # MECH-313 (ARC-065): stochastic_noise_floor
         config.use_noise_floor = use_noise_floor

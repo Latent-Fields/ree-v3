@@ -534,6 +534,18 @@ class REEAgent(nn.Module):
                     config, "gated_policy_use_first_action_onehot", False
                 ),
                 first_action_dim=config.e2.action_dim,
+                # INV-074 / MECH-333 / MECH-334: arm Phase-3 plasticity-
+                # injection crystallization. crystallize_at_phase3 only
+                # ARMS the capability; the actual crystallize() call fires
+                # at the infant-curriculum Phase 2->3 transition via the
+                # experiment's on_phase3_entry callback. Default False =
+                # bit-identical (forward never touches the expansion).
+                crystallize_enabled=getattr(
+                    config, "crystallize_at_phase3", False
+                ),
+                crystallize_expansion_hidden=getattr(
+                    config, "gated_policy_crystallize_expansion_hidden", 32
+                ),
             )
             self.gated_policy = GatedPolicy(
                 world_dim=config.latent.world_dim,

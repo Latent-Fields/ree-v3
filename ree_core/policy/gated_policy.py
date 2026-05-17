@@ -155,6 +155,20 @@ class GatedPolicyConfig:
     # bit-identical backward compat.
     use_first_action_onehot: bool = False
     first_action_dim: int = 0
+    # INV-074 / MECH-333 / MECH-334: Phase-3 plasticity-injection
+    # crystallization (Nikishin et al. 2023 NeurIPS). When True the module
+    # supports a one-shot crystallize() call: head_0/head_1/discriminator
+    # params are frozen (requires_grad=False) and a fresh plastic
+    # expansion MLP is added whose forward is gated(x) + expansion(
+    # x.detach()). The .detach() blocks diversity gradient (dACC /
+    # MECH-313 / MECH-314a / MECH-320) from overwriting the crystallized
+    # discrimination. crystallize_enabled only ARMS the capability; the
+    # actual crystallize() call happens at the infant-curriculum Phase
+    # 2->3 transition. Default False = no-op, bit-identical backward
+    # compat (forward never touches the expansion branch).
+    crystallize_enabled: bool = False
+    # Plastic expansion-MLP hidden width. Mirrors head_hidden.
+    crystallize_expansion_hidden: int = 32
 
 
 @dataclass
@@ -264,6 +278,120 @@ class GatedPolicy(nn.Module):
         self._last_z_harm_a_was_none: bool = False
         self._last_onehot_was_none: bool = False
 
+        # INV-074 / MECH-334 crystallization state. The expansion module
+        # is created lazily by crystallize(); until then forward() never
+        # references it (bit-identical pre-crystallization).
+        self._crystallized: bool = False
+        self.expansion: Optional[nn.Module] = None
+        self._n_frozen_params: int = 0
+        self._n_crystallize_calls: int = 0
+
+    # ------------------------------------------------------------------
+    # INV-074 / MECH-334: Phase-3 plasticity-injection crystallization
+    # ------------------------------------------------------------------
+    def crystallize(self) -> dict:
+        """Freeze the established discrimination and add a plastic channel.
+
+        One-shot, idempotent. Called by the infant-curriculum Phase 2->3
+        transition hook (the experiment harness wires a callback). After
+        this returns:
+
+        - head_0 / head_1 / discriminator params have requires_grad=False
+          (the discrimination ARM_2 established during the open window is
+          crystallized -- diversity gradient can no longer overwrite it,
+          the MECH-334 closure / EWC-write-protect analog for the policy
+          heads).
+        - self.expansion is a fresh plastic MLP with the SAME input
+          contract as the scoring heads, last-Linear ZERO-initialised so
+          the module's output is bit-identical at the instant of
+          crystallization (the expansion contributes exactly 0 until
+          diversity gradient grows it).
+        - forward() now returns gated(x) + expansion(x.detach()); the
+          .detach() is essential -- it prevents the expansion's gradient
+          from flowing back into the frozen heads' upstream feature
+          producers (Nikishin et al. 2023 NeurIPS plasticity injection).
+
+        Requires crystallize_enabled=True (config arms the capability).
+        Idempotent: a second call is a no-op (counter advanced only).
+
+        Returns:
+            dict with crystallized (bool), n_frozen_params (int),
+            n_expansion_params (int), was_already_crystallized (bool).
+        """
+        self._n_crystallize_calls += 1
+        if not self.config.crystallize_enabled:
+            # Capability not armed -- refuse silently (caller installs the
+            # Phase-3 hook only when crystallize_at_phase3=True, so this
+            # path is defensive). Bit-identical: nothing frozen, no
+            # expansion, forward() unchanged.
+            return {
+                "crystallized": False,
+                "n_frozen_params": 0,
+                "n_expansion_params": 0,
+                "was_already_crystallized": False,
+                "reason": "crystallize_enabled=False",
+            }
+        if self._crystallized:
+            return {
+                "crystallized": True,
+                "n_frozen_params": self._n_frozen_params,
+                "n_expansion_params": sum(
+                    p.numel() for p in self.expansion.parameters()
+                ) if self.expansion is not None else 0,
+                "was_already_crystallized": True,
+            }
+
+        # Freeze the crystallized discrimination.
+        n_frozen = 0
+        for module in (self.head_0, self.head_1, self.discriminator):
+            for p in module.parameters():
+                p.requires_grad = False
+                n_frozen += int(p.numel())
+        self._n_frozen_params = n_frozen
+
+        # Fresh plastic expansion channel. Same input contract as the
+        # heads (head_in_dim). Last-Linear zero-init -> output is exactly
+        # zero at the crystallization instant (bit-identical transition);
+        # diversity gradient (dACC / MECH-313 / MECH-314a / MECH-320)
+        # grows it thereafter.
+        h = int(self.config.crystallize_expansion_hidden)
+        # device/dtype: follow head_0's first Linear weight.
+        ref_w = self.head_0[0].weight
+        self.expansion = nn.Sequential(
+            nn.Linear(self._head_in_dim, h),
+            nn.ReLU(),
+            nn.Linear(h, 1),
+        ).to(device=ref_w.device, dtype=ref_w.dtype)
+        with torch.no_grad():
+            self.expansion[-1].weight.zero_()
+            self.expansion[-1].bias.zero_()
+
+        self._crystallized = True
+        return {
+            "crystallized": True,
+            "n_frozen_params": n_frozen,
+            "n_expansion_params": sum(
+                p.numel() for p in self.expansion.parameters()
+            ),
+            "was_already_crystallized": False,
+        }
+
+    def expansion_parameters(self):
+        """Iterator over the plastic expansion params (post-crystallize).
+
+        The experiment's post-Phase-3 optimizer targets these (mirrors
+        the SD-033a GAP-D lateral_pfc.bias_head_parameters() pattern).
+        Empty iterator before crystallize() / when expansion is None.
+        """
+        if self.expansion is None:
+            return iter(())
+        return self.expansion.parameters()
+
+    @property
+    def crystallized(self) -> bool:
+        """True once crystallize() has frozen the heads + added expansion."""
+        return self._crystallized
+
     # ------------------------------------------------------------------
     # Forward path
     # ------------------------------------------------------------------
@@ -370,6 +498,19 @@ class GatedPolicy(nn.Module):
         # Composed gated bias. Use w_tensor (not float w) so the gradient
         # path through the discriminator is preserved when grad is enabled.
         gated_bias_raw = w_tensor * head_0_raw + (1.0 - w_tensor) * head_1_raw
+
+        # INV-074 / MECH-334: post-crystallization plastic channel
+        # (Nikishin et al. 2023). forward = frozen_gated(x) +
+        # expansion(x.detach()). The .detach() blocks the expansion's
+        # gradient from reaching the (frozen) heads' upstream feature
+        # producers; the heads themselves are also requires_grad=False so
+        # the crystallized discrimination cannot be overwritten by the
+        # routed diversity gradient. Bit-identical until crystallize()
+        # runs (zero-initialised last Linear -> +0 at the transition).
+        if self._crystallized and self.expansion is not None:
+            expansion_bias = self.expansion(head_input.detach()).squeeze(-1)
+            gated_bias_raw = gated_bias_raw + expansion_bias
+
         gated_bias = gated_bias_raw.clamp(
             min=-self.config.bias_scale,
             max=+self.config.bias_scale,
@@ -393,7 +534,10 @@ class GatedPolicy(nn.Module):
     def reset(self) -> None:
         """Reset per-episode diagnostic counters.
 
-        No persistent state to clear (the module is stateless across ticks).
+        Does NOT un-crystallize: crystallization is a developmental
+        closure (persists across episodes once Phase 3 is reached), not
+        per-episode state. _crystallized / expansion are intentionally
+        left untouched here.
         """
         self._last_gating_weight = 0.5
         self._last_bias_abs_mean = 0.0
@@ -409,4 +553,8 @@ class GatedPolicy(nn.Module):
             "last_n_simulation_skips": self._last_n_simulation_skips,
             "last_z_harm_a_was_none": self._last_z_harm_a_was_none,
             "last_onehot_was_none": self._last_onehot_was_none,
+            "crystallized": self._crystallized,
+            "n_crystallize_calls": self._n_crystallize_calls,
+            "n_frozen_params": self._n_frozen_params,
+            "expansion_active": self.expansion is not None,
         }
