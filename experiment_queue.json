@@ -34,6 +34,19 @@
       "seeds": 3,
       "conditions": 2,
       "note": "Substrate-readiness diagnostic for infant_substrate:GAP-8. ARM_0 (no goal_state) verifies -1.0 sentinels; ARM_1 (goal seeded) verifies retention > 0.95. DEV-NEED-007 advisory gate instrumentation. dry-run smoke PASS: C1/C2/C3/C4 all True."
+    },
+    {
+      "queue_id": "V3-EXQ-586",
+      "title": "GAP-9 infant curriculum scheduler validation",
+      "experiment_type": "v3_exq_586_gap9_curriculum_validation",
+      "script": "experiments/v3_exq_586_gap9_curriculum_validation_v3.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "seeds": 3,
+      "conditions": 2,
+      "note": "infant_substrate:GAP-9 diagnostic. Validates InfantCurriculumScheduler hard-count (ARM_0) and telemetry-gated (ARM_1, delayed by H_pos/z_goal gates) transitions. Unblocks DEV-NEED-008, ARC-046, EXQ-ISEF-005 (GAP-14)."
     }
   ]
 }
