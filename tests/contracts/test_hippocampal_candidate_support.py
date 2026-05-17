@@ -52,10 +52,17 @@ def test_config_exposes_scaffold_default_off():
     from ree_core.utils.config import HippocampalConfig, REEConfig
 
     cfg = HippocampalConfig()
+    # Action-class scaffold remains an opt-in diagnostic (default off).
     assert hasattr(cfg, "use_action_class_scaffold_candidates")
     assert cfg.use_action_class_scaffold_candidates is False
+    # SP-CEM landed as the main-path default 2026-05-17 (ARC-065, cb1c6da):
+    # use_support_preserving_cem, support_preserving_stratified_elites, and
+    # support_preserving_ao_std_floor were flipped on. The legacy opt-out is
+    # passing these three explicitly off (see config.py from_dims comment).
     assert hasattr(cfg, "use_support_preserving_cem")
-    assert cfg.use_support_preserving_cem is False
+    assert cfg.use_support_preserving_cem is True
+    assert cfg.support_preserving_stratified_elites is True
+    assert cfg.support_preserving_ao_std_floor == 0.2
     assert cfg.support_preserving_min_first_action_classes == 2
 
     master = REEConfig.from_dims(
