@@ -4941,3 +4941,26 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   still need it. See commitment_closure_plan.md, claims SD-034 / MECH-266 /
   MECH-268. claims.yaml NOT modified (env infra unblocks but does not itself
   promote).
+
+- commitment_closure:GAP-11 -- Phased rule_state training curriculum harness helper
+  -- IMPLEMENTED 2026-05-17.
+  File: experiments/committed_mode_curriculum.py (experiment-harness helper, NOT a
+  ree_core substrate scheduler -- O-1 resolved).
+  Public API: run_p0_warmup(), run_p1_consolidation(), run_p2_eval(),
+  clone_trained_agent(), P0Result, P1Result, CommittedModeMetrics.
+  Data flow: P0 trains E1+E2 on easy env (EXQ-321b run_training pattern) until
+  running_variance < commit_threshold; P1 consolidates on target env until
+  total_committed_steps per episode >= commitment_floor(100); P2 is frozen-policy
+  eval measuring committed_steps / hold_rate / rule_state_norm.
+  Mid-probe abort gate (default 60% of budget): fires commitment_not_elicited ->
+  caller escalates as R1 substrate mis-calibration finding, not a tuning problem.
+  O-2 mandatory contrast: every arm must run BOTH emergent (P0->P2) and
+  forced-rv clone (clone_trained_agent + set rv=0.001 + run_p2_eval).
+  O-3: at most ONE commitment_threshold relaxation step (threshold_relaxation param,
+  max meaningful value 0.125); further non-convergence = substrate finding, escalate.
+  Backward compatible: no ree_core changes; no experiment script changes.
+  Generalises EXQ-321b run_training + clone_for_condition + EXQ-543b P0/P1 scaffolding.
+  Blocks cleared: SD-034, MECH-266, MECH-268, MECH-090, SD-021 behavioural arms
+  (V3-EXQ-460b/461/463b/464b/466b/467b/468b) -- see commitment_closure_plan.md.
+  Pilot experiment: EXP-0157 / V3-EXQ-461 (delayed-reward persistence) -- to be
+  queued via /queue-experiment.
