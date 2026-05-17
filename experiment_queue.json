@@ -195,7 +195,7 @@
       "title": "ARC-062 GAP-B x crystallize_at_phase3 falsifier (INV-074/MECH-334; 2x2x2)",
       "experiment_type": "v3_exq_543h_arc062_crystallization_falsifier",
       "script": "experiments/v3_exq_543h_arc062_crystallization_falsifier.py",
-      "priority": 1,
+      "priority": 10,
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 200,
