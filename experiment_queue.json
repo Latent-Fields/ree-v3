@@ -12,7 +12,7 @@
       "title": "ARC-062 x MECH-309 monomodal-collapse falsifier -- one-hot head augmentation + dacc_weight fix",
       "experiment_type": "v3_exq_543f_arc062_onehot_dacc_falsifier",
       "script": "experiments/v3_exq_543f_arc062_onehot_dacc_falsifier.py",
-      "priority": 1,
+      "priority": 10,
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 120,
