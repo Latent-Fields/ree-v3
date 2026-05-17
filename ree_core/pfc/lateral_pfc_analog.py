@@ -129,6 +129,22 @@ class LateralPFCConfig:
             source: source = z_delta_proj + world_pool_weight * z_world_proj.
         bias_scale: clamp on |score_bias|. Keeps the bias from dominating E3.
         hidden_dim: bias head hidden layer width.
+        use_discriminator_source: ARC-062 GAP-C. When True, the ARC-062
+            GatedPolicy discriminator output (gating_weight scalar) is projected
+            into rule_dim and added to the rule_state update source. Requires
+            the gated_policy block to run before the lateral_pfc block in
+            select_action() (handled by agent.py reorder). Default False =
+            no-op, bit-identical backward compat.
+        discriminator_pool_weight: weight of the discriminator contribution in
+            the source formula. Source becomes:
+              delta_proj(z_delta) + world_pool_weight * world_proj(z_world)
+              + discriminator_pool_weight * discriminator_proj(disc_output)
+        train_rule_bias_head: ARC-062 GAP-D. When True, the rule_bias_head's
+            last Linear is NOT zeroed at init (random init preserved). Enables
+            the head to be added to an experiment optimizer and trained via
+            E3 score-aggregation gradient. Default False = last Linear zeroed
+            (bit-identical to original landing, bias output stays 0 until
+            deliberately trained).
     """
 
     use_lateral_pfc_analog: bool = False
@@ -137,6 +153,11 @@ class LateralPFCConfig:
     world_pool_weight: float = 0.5
     bias_scale: float = 0.1
     hidden_dim: int = 32
+    # ARC-062 GAP-C: discriminator output -> rule_state source
+    use_discriminator_source: bool = False
+    discriminator_pool_weight: float = 0.3
+    # ARC-062 GAP-D: trainable rule_bias_head
+    train_rule_bias_head: bool = False
 
 
 class LateralPFCAnalog(nn.Module):
@@ -164,20 +185,29 @@ class LateralPFCAnalog(nn.Module):
         self.delta_proj = nn.Linear(delta_dim, rule_dim)
         self.world_proj = nn.Linear(world_dim, rule_dim)
 
+        # ARC-062 GAP-C: discriminator_proj maps the 1-D GatedPolicy
+        # gating_weight scalar into rule_dim to contribute to the rule_state
+        # update source. Always constructed (cheap: Linear(1, rule_dim));
+        # only used when use_discriminator_source=True.
+        self.discriminator_proj = nn.Linear(1, rule_dim)
+
         # Per-candidate bias head:
         #   concat([rule_state, z_world_candidate_summary]) -> scalar.
-        # Last Linear weights + bias ZEROED so initial bias output = 0.
-        # This makes use_lateral_pfc_analog=True bit-identical to OFF until
-        # the head is deliberately trained (phased training, deferred).
+        # When train_rule_bias_head=False (default / GAP-D off): last Linear
+        # weights + bias ZEROED so initial bias output = 0. Bit-identical to
+        # OFF until deliberately trained.
+        # When train_rule_bias_head=True (GAP-D on): last Linear keeps random
+        # init so gradient moves it from the first optimizer step.
         self.rule_bias_head = nn.Sequential(
             nn.Linear(rule_dim + world_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )
-        with torch.no_grad():
-            last_linear = self.rule_bias_head[-1]
-            last_linear.weight.zero_()
-            last_linear.bias.zero_()
+        if not self.config.train_rule_bias_head:
+            with torch.no_grad():
+                last_linear = self.rule_bias_head[-1]
+                last_linear.weight.zero_()
+                last_linear.bias.zero_()
 
         # rule_state buffer: persistent across ticks within episode,
         # reset on episode boundary.
@@ -200,6 +230,7 @@ class LateralPFCAnalog(nn.Module):
         z_delta: torch.Tensor,
         z_world: torch.Tensor,
         gate: float,
+        disc_output: Optional[torch.Tensor] = None,
     ) -> None:
         """Gate-modulated EMA update of rule_state.
 
@@ -207,12 +238,19 @@ class LateralPFCAnalog(nn.Module):
             z_delta: [batch, delta_dim]. Detached before use.
             z_world: [batch, world_dim]. Detached before use.
             gate: float in [0, 1]. write_gate("sd_033a") from SalienceCoordinator.
+            disc_output: ARC-062 GAP-C. Optional [batch, 1] or [1, 1] tensor
+                containing the GatedPolicy discriminator gating_weight. When
+                use_discriminator_source=True and disc_output is not None,
+                adds discriminator_pool_weight * discriminator_proj(disc_output)
+                to the source vector. Default None = no-op (backward compat).
 
         Effect:
             rule_state <- (1 - eff_eta) * rule_state + eff_eta * source
             where eff_eta = update_eta * clip(gate, 0, 1)
-                  source  = delta_proj(z_delta).mean(0) + world_pool_weight *
-                            world_proj(z_world).mean(0)
+                  source  = delta_proj(z_delta).mean(0)
+                            + world_pool_weight * world_proj(z_world).mean(0)
+                            [+ discriminator_pool_weight * discriminator_proj(disc_output)
+                              if use_discriminator_source and disc_output is not None]
             No gradient flow (update is in-place on a buffer).
         """
         if not self.config.use_lateral_pfc_analog:
@@ -232,6 +270,14 @@ class LateralPFCAnalog(nn.Module):
             delta_contrib = self.delta_proj(zd).mean(dim=0, keepdim=True)  # [1, rule_dim]
             world_contrib = self.world_proj(zw).mean(dim=0, keepdim=True)  # [1, rule_dim]
             source = delta_contrib + self.config.world_pool_weight * world_contrib
+
+            # ARC-062 GAP-C: add discriminator contribution when enabled.
+            if self.config.use_discriminator_source and disc_output is not None:
+                do = disc_output.detach()
+                if do.dim() == 1:
+                    do = do.unsqueeze(0)  # [1, 1]
+                disc_contrib = self.discriminator_proj(do).mean(dim=0, keepdim=True)  # [1, rule_dim]
+                source = source + self.config.discriminator_pool_weight * disc_contrib
 
             self.rule_state.mul_(1.0 - eff_eta).add_(eff_eta * source)
 
@@ -283,6 +329,19 @@ class LateralPFCAnalog(nn.Module):
         return bias
 
     # ------------------------------------------------------------------
+    # GAP-D: trainable bias head parameter access
+    # ------------------------------------------------------------------
+    def bias_head_parameters(self):
+        """Return rule_bias_head parameters for experiment optimizer inclusion.
+
+        ARC-062 GAP-D. Experiment scripts that set train_rule_bias_head=True
+        should add these to their P1 optimizer:
+            optim.Adam(list(agent.lateral_pfc.bias_head_parameters()), lr=LR)
+        Gradient flows: E3 loss -> score_bias -> compute_bias() -> these weights.
+        """
+        return self.rule_bias_head.parameters()
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
     def reset(self) -> None:
@@ -300,4 +359,6 @@ class LateralPFCAnalog(nn.Module):
             "last_gate": self._last_gate,
             "last_effective_eta": self._last_effective_eta,
             "last_bias_abs_mean": self._last_bias_abs_mean,
+            "use_discriminator_source": self.config.use_discriminator_source,
+            "train_rule_bias_head": self.config.train_rule_bias_head,
         }

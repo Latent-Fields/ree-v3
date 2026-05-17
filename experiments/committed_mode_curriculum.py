@@ -294,7 +294,7 @@ def run_p0_warmup(
             }
             probe_log.append(probe)
             print(
-                f"  [P0 probe] ep={ep+1}/{budget}  rv={rv:.5f}"
+                f"  [P0 probe] ep {ep+1}/{budget}  rv={rv:.5f}"
                 f"  threshold={effective_threshold:.3f}"
                 f"  converging={rv < effective_threshold}",
                 flush=True,
@@ -327,7 +327,7 @@ def run_p0_warmup(
 
         if (ep + 1) % (probe_interval * 2) == 0:
             print(
-                f"  [P0 train] ep={ep+1}/{budget}  rv={rv:.5f}"
+                f"  [P0 train] ep {ep+1}/{budget}  rv={rv:.5f}"
                 f"  reward={ep_reward:.4f}",
                 flush=True,
             )
@@ -413,7 +413,7 @@ def run_p1_consolidation(
             }
             probe_log.append(probe)
             print(
-                f"  [P1 probe] ep={ep+1}/{budget}  rv={rv:.5f}"
+                f"  [P1 probe] ep {ep+1}/{budget}  rv={rv:.5f}"
                 f"  ep_committed={ep_committed}"
                 f"  median_window={median_committed:.1f}"
                 f"  floor={commitment_floor}",
@@ -445,7 +445,7 @@ def run_p1_consolidation(
 
         if (ep + 1) % (probe_interval * 2) == 0:
             print(
-                f"  [P1 train] ep={ep+1}/{budget}  rv={rv:.5f}"
+                f"  [P1 train] ep {ep+1}/{budget}  rv={rv:.5f}"
                 f"  ep_committed={ep_committed}  reward={ep_reward:.4f}",
                 flush=True,
             )

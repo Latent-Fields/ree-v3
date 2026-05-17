@@ -4303,10 +4303,9 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
       dacc_weight>0 + pre-flight non-degeneracy assertion per 543e
       autopsy addendum).
   Cross-plan link: commitment_closure_plan.md GAP-1 (SD-033a bias-head
-    training) remains blocked on arc_062 GAP-A (now done) AND arc_062
-    GAP-B (still open). GAP-1 unblock requires Phase 2 PASS then Phase 3
-    (wires discriminator output into SD-033a LateralPFCAnalog.update()
-    source vector + adds bias-head parameters to E3 optimiser).
+    training) unblocked at substrate level by GAP-C + GAP-D (below).
+    Validation EXQ for GAP-1 deferred until V3-EXQ-543f returns a
+    contributory result (GAP-B scientific gate).
   See ARC-062 (this claim, weak reading), MECH-309 (logical-necessity
     diagnostic the substrate addresses), ARC-063 (V4 strong reading,
     distributed CandidateRule field; deferred via Phase 4 / GAP-E
@@ -4317,6 +4316,43 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     substrate; Phase 2 falsifier environment), MECH-094 (simulation_mode
     argument), Pull A SYNTHESIS verdicts R1 / R2 / R3, Pull B SYNTHESIS
     R4 verdict (Phase 2 acceptance criteria).
+  GAP-C: ARC-062 discriminator output -> SD-033a rule_state source vector --
+    IMPLEMENTED 2026-05-17.
+    Changes: LateralPFCConfig gains use_discriminator_source (bool, default
+      False), discriminator_pool_weight (float, default 0.3);
+      LateralPFCAnalog gains discriminator_proj (nn.Linear(1, rule_dim))
+      and accepts optional disc_output arg in update(). REEConfig gains
+      lateral_pfc_use_discriminator_source and lateral_pfc_discriminator_pool_weight.
+    agent.py reorder: gated_policy block now runs BEFORE lateral_pfc block
+      so gp_output.gating_weight is available as disc_output. Score-bias
+      composition is additive -- reorder is value-identical to prior ordering.
+      gated_policy block sets cand_world_summaries = gp_summaries so
+      lateral_pfc / ofc / mech295 blocks reuse rather than rebuild.
+    Data flow: GatedPolicy.gating_weight scalar -> tensor([[w]]) [1,1]
+      -> discriminator_proj -> [1, rule_dim] added to source with weight
+      discriminator_pool_weight. Gated by use_discriminator_source (default
+      False = no-op, bit-identical backward compat).
+    Backward compatible: use_discriminator_source=False by default; update()
+      disc_output=None arg is no-op. 484/484 contracts PASS; 543f dry-run
+      exit 0. MECH-094: disc_output is detached (gated_policy under no_grad);
+      existing MECH-319 lateral_pfc skip gate unchanged.
+  GAP-D: SD-033a rule_bias_head trainable -- IMPLEMENTED 2026-05-17.
+    Changes: LateralPFCConfig gains train_rule_bias_head (bool, default False);
+      when True, last Linear is NOT zeroed at init (random init preserved).
+      LateralPFCAnalog gains bias_head_parameters() method returning
+      self.rule_bias_head.parameters() for optimizer inclusion. REEConfig
+      gains lateral_pfc_train_rule_bias_head (bool, default False).
+    Gradient path: E3 loss -> score_bias -> compute_bias() -> rule_bias_head
+      weights. No separate loss term needed. Starting from zero-init (default
+      False) OR from random-init (True), gradient flows from tick 1 of P1.
+    Experiment use: in P1 optimizer, add:
+        list(agent.lateral_pfc.bias_head_parameters())
+    Backward compatible: train_rule_bias_head=False by default; last Linear
+      remains zeroed (bias output stays 0.0); behavior bit-identical.
+    Phased training: bias head can join P1 optimizer alongside gated_policy
+      heads (same E3 gradient path). No separate warmup protocol needed.
+    Validation EXQ (commitment_closure:GAP-1): 2-arm ablation (head frozen
+      vs trainable) deferred until V3-EXQ-543f contributory result.
 
 ## MECH-313 (ARC-065 child): Stochastic Noise Floor (LC-NE tonic / SAC analog) (2026-05-10)
 - MECH-313: policy.stochastic_noise_floor_lc_ne_tonic_analog -- IMPLEMENTED 2026-05-10.

@@ -461,6 +461,15 @@ class REEAgent(nn.Module):
                 world_pool_weight=config.lateral_pfc_world_pool_weight,
                 bias_scale=config.lateral_pfc_bias_scale,
                 hidden_dim=config.lateral_pfc_hidden_dim,
+                use_discriminator_source=getattr(
+                    config, "lateral_pfc_use_discriminator_source", False
+                ),
+                discriminator_pool_weight=getattr(
+                    config, "lateral_pfc_discriminator_pool_weight", 0.3
+                ),
+                train_rule_bias_head=getattr(
+                    config, "lateral_pfc_train_rule_bias_head", False
+                ),
             )
             self.lateral_pfc = LateralPFCAnalog(
                 delta_dim=config.latent.delta_dim,
@@ -2801,12 +2810,92 @@ class REEAgent(nn.Module):
                 dacc_score_bias = dacc_score_bias * float(e3_gate)
                 self._dacc_last_bias = dacc_score_bias.detach().clone()
 
+        # ARC-062 Phase 1/3: gated-policy heads + context discriminator.
+        # Block is ordered BEFORE lateral_pfc (ARC-062 GAP-C reorder 2026-05-17)
+        # so gp_output.gating_weight is available to pass as disc_output into
+        # lateral_pfc.update(). Score-bias composition is additive and
+        # order-independent; net score_bias is bit-identical to pre-reorder.
+        # Phase 1 weak-reading: Per-candidate score_bias = w * head_0(features)
+        # + (1 - w) * head_1(features), where w is a sigmoid over a 3-stream
+        # (z_world, z_self, z_harm_a) discriminator (Pull A R1 verdict). N=2
+        # heads (Pull A R2 substrate-constrained). Composed additively into the
+        # dACC / lateral_pfc / ofc score_bias chain (Pull A R3 verdict).
+        # MECH-094: simulation_mode=False (waking action selection).
+        _gp_output = None  # sentinel used by lateral_pfc GAP-C block below
+        if (
+            self.gated_policy is not None
+            and self._current_latent is not None
+        ):
+            # Build per-candidate z_world summaries (first-step z_world of
+            # each trajectory). gated_policy runs first so cand_world_summaries
+            # is not yet set; build fresh and expose as cand_world_summaries
+            # so lateral_pfc / ofc / mech295 blocks below can reuse it.
+            K = len(candidates)
+            _gp_list: List[torch.Tensor] = []
+            for c in candidates:
+                if c.world_states is not None:
+                    ws = c.get_world_state_sequence()
+                    _gp_list.append(ws[0, 0, :])
+                else:
+                    _gp_list.append(
+                        self._current_latent.z_world[0].detach()
+                    )
+            gp_summaries = torch.stack(_gp_list, dim=0)
+            cand_world_summaries = gp_summaries  # expose for downstream blocks
+            # MECH-319: route the simulation_mode argument through the
+            # rule-write gate. select_action runs on the waking path so
+            # caller_sim=False; gate returns False (admit) when MECH-319
+            # is OFF or when master-ON-with-waking-caller (bit-identical).
+            # The seam is exposed for V3-EXQ-543c artificial-write-channel-
+            # routing where admit_writes=True flips the falsifier control
+            # for replay-driven invocations.
+            if self.simulation_mode_rule_gate is not None:
+                _gp_sim = self.simulation_mode_rule_gate.effective_simulation_mode(
+                    simulation_mode=False, site=SITE_GATED_POLICY
+                )
+            else:
+                _gp_sim = False
+            # ARC-062 GAP-B option-2: build first-action one-hots [K, action_dim]
+            # when use_first_action_onehot is enabled. Each candidate always has
+            # actions shape [batch, horizon, action_dim]; we take batch-dim 0,
+            # step 0. simulation_mode early-return in forward() already bypasses
+            # this data before it reaches the heads (MECH-094 safe).
+            if self.gated_policy.config.use_first_action_onehot:
+                _fa_list: List[torch.Tensor] = []
+                for _gpc in candidates:
+                    _fa_list.append(
+                        _gpc.actions[:, 0, :][0].detach().float()
+                    )
+                _gp_first_action_onehots = torch.stack(_fa_list, dim=0)
+            else:
+                _gp_first_action_onehots = None
+            with torch.no_grad():
+                _gp_output = self.gated_policy(
+                    z_world=self._current_latent.z_world,
+                    z_self=self._current_latent.z_self,
+                    z_harm_a=self._current_latent.z_harm_a,
+                    candidate_features=gp_summaries,
+                    first_action_onehots=_gp_first_action_onehots,
+                    simulation_mode=_gp_sim,
+                )
+            gp_bias = _gp_output.gated_score_bias
+            if self.e3.e3_score_decomp_enabled:
+                _bdc_gp = gp_bias.detach().clone()
+            if dacc_score_bias is None:
+                dacc_score_bias = gp_bias
+            else:
+                dacc_score_bias = dacc_score_bias + gp_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
+
         # SD-033a: Lateral-PFC-analog tick. Primary consumer of MECH-261
         # write_gate("sd_033a"). Gate-modulated EMA update of rule_state,
         # then per-candidate score_bias composed additively with dACC bias.
-        # Initial bias output is exactly zero (last Linear zeroed at init)
-        # so use_lateral_pfc_analog=True with an untrained head is
-        # backward-compatible until the head is deliberately trained.
+        # ARC-062 GAP-C (2026-05-17): when use_discriminator_source=True,
+        # passes gp_output.gating_weight as disc_output into update() so the
+        # discriminator's context-classification signal reaches rule_state.
+        # ARC-062 GAP-D (2026-05-17): rule_bias_head trainable when
+        # lateral_pfc_train_rule_bias_head=True (last Linear not zeroed).
         # MECH-094: rule persistence is gated by the registry -- no separate
         # hypothesis_tag check (the gate IS the tag via MECH-261).
         if (
@@ -2837,27 +2926,45 @@ class REEAgent(nn.Module):
                     # use_lateral_pfc_analog alone, so ablation is possible without
                     # requiring SD-032a to be on).
                     lpfc_gate = 1.0
+                # ARC-062 GAP-C: build disc_output from gp_output.gating_weight
+                # when use_discriminator_source is True and gated_policy ran this
+                # tick. gp_output is under no_grad; disc_output is detached inside
+                # lateral_pfc.update(). Default None = no-op (backward compat).
+                _lpfc_disc: Optional[torch.Tensor] = None
+                if (
+                    self.lateral_pfc.config.use_discriminator_source
+                    and _gp_output is not None
+                ):
+                    _lpfc_disc = torch.tensor(
+                        [[_gp_output.gating_weight]],
+                        dtype=self._current_latent.z_world.dtype,
+                        device=self._current_latent.z_world.device,
+                    )
                 # Update rule_state (in-place on buffer, no gradient flow).
                 self.lateral_pfc.update(
                     z_delta=self._current_latent.z_delta,
                     z_world=self._current_latent.z_world,
                     gate=lpfc_gate,
+                    disc_output=_lpfc_disc,
                 )
-            # Per-candidate z_world summary: first-step z_world of each
-            # trajectory (trajectory.world_states[:, 0, :]). Falls back to
-            # current z_world replicated across candidates if trajectories
-            # lack world_states.
-            K = len(candidates)
-            cand_world_list: List[torch.Tensor] = []
-            for c in candidates:
-                if c.world_states is not None:
-                    ws = c.get_world_state_sequence()  # [batch, horizon+1, world_dim]
-                    cand_world_list.append(ws[0, 0, :])  # first-step, first batch
-                else:
-                    cand_world_list.append(
-                        self._current_latent.z_world[0].detach()
-                    )
-            cand_world_summaries = torch.stack(cand_world_list, dim=0)  # [K, world_dim]
+            # Per-candidate z_world summary: reuse from gated_policy block if
+            # it ran this tick (cand_world_summaries set above), otherwise build
+            # fresh from candidates (backward-compatible path when gated_policy
+            # is disabled).
+            try:
+                cand_world_summaries  # type: ignore[name-defined]
+            except NameError:
+                K = len(candidates)
+                cand_world_list: List[torch.Tensor] = []
+                for c in candidates:
+                    if c.world_states is not None:
+                        ws = c.get_world_state_sequence()  # [batch, horizon+1, world_dim]
+                        cand_world_list.append(ws[0, 0, :])  # first-step, first batch
+                    else:
+                        cand_world_list.append(
+                            self._current_latent.z_world[0].detach()
+                        )
+                cand_world_summaries = torch.stack(cand_world_list, dim=0)  # [K, world_dim]
             lpfc_bias = self.lateral_pfc.compute_bias(cand_world_summaries)
             if self.e3.e3_score_decomp_enabled:
                 _bdc_lpfc = lpfc_bias.detach().clone()
@@ -2943,82 +3050,6 @@ class REEAgent(nn.Module):
                 self._ofc_oracle_predictions = _oracle_list
             else:
                 self._ofc_oracle_predictions = None
-
-        # ARC-062 Phase 1: gated-policy heads + context discriminator.
-        # Phase 1 weak-reading instantiation. Per-candidate score_bias
-        # = w * head_0(features) + (1 - w) * head_1(features), where w
-        # is a sigmoid over a 3-stream (z_world, z_self, z_harm_a)
-        # discriminator (Pull A R1 multi-stream verdict). N=2 heads at
-        # Phase 1 (Pull A R2 substrate-constrained). Composed additively
-        # into the dACC / lateral_pfc / ofc score_bias chain (Pull A R3
-        # score_bias-level verdict). NO connection to SD-033a in Phase 1
-        # (that wiring is Phase 3 of arc_062_rule_apprehension_plan.md).
-        # MECH-094: simulation_mode=False (waking action selection).
-        if (
-            self.gated_policy is not None
-            and self._current_latent is not None
-        ):
-            # Reuse cand_world_summaries if lateral_pfc or ofc built them
-            # earlier this tick; otherwise build fresh.
-            try:
-                gp_summaries = cand_world_summaries  # type: ignore[name-defined]
-            except NameError:
-                K = len(candidates)
-                _gp_list: List[torch.Tensor] = []
-                for c in candidates:
-                    if c.world_states is not None:
-                        ws = c.get_world_state_sequence()
-                        _gp_list.append(ws[0, 0, :])
-                    else:
-                        _gp_list.append(
-                            self._current_latent.z_world[0].detach()
-                        )
-                gp_summaries = torch.stack(_gp_list, dim=0)
-            # MECH-319: route the simulation_mode argument through the
-            # rule-write gate. select_action runs on the waking path so
-            # caller_sim=False; gate returns False (admit) when MECH-319
-            # is OFF or when master-ON-with-waking-caller (bit-identical).
-            # The seam is exposed for V3-EXQ-543c artificial-write-channel-
-            # routing where admit_writes=True flips the falsifier control
-            # for replay-driven invocations.
-            if self.simulation_mode_rule_gate is not None:
-                _gp_sim = self.simulation_mode_rule_gate.effective_simulation_mode(
-                    simulation_mode=False, site=SITE_GATED_POLICY
-                )
-            else:
-                _gp_sim = False
-            # ARC-062 GAP-B option-2: build first-action one-hots [K, action_dim]
-            # when use_first_action_onehot is enabled. Each candidate always has
-            # actions shape [batch, horizon, action_dim]; we take batch-dim 0,
-            # step 0. simulation_mode early-return in forward() already bypasses
-            # this data before it reaches the heads (MECH-094 safe).
-            if self.gated_policy.config.use_first_action_onehot:
-                _fa_list: List[torch.Tensor] = []
-                for _gpc in candidates:
-                    _fa_list.append(
-                        _gpc.actions[:, 0, :][0].detach().float()
-                    )
-                _gp_first_action_onehots = torch.stack(_fa_list, dim=0)
-            else:
-                _gp_first_action_onehots = None
-            with torch.no_grad():
-                gp_output = self.gated_policy(
-                    z_world=self._current_latent.z_world,
-                    z_self=self._current_latent.z_self,
-                    z_harm_a=self._current_latent.z_harm_a,
-                    candidate_features=gp_summaries,
-                    first_action_onehots=_gp_first_action_onehots,
-                    simulation_mode=_gp_sim,
-                )
-            gp_bias = gp_output.gated_score_bias
-            if self.e3.e3_score_decomp_enabled:
-                _bdc_gp = gp_bias.detach().clone()
-            if dacc_score_bias is None:
-                dacc_score_bias = gp_bias
-            else:
-                dacc_score_bias = dacc_score_bias + gp_bias.to(
-                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
-                )
 
         # MECH-295: drive -> liking-stream -> approach_cue at action selection.
         # Per-candidate liking signal: drive * goal_proximity (each
