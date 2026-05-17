@@ -33,12 +33,16 @@
       "script": "experiments/v3_exq_583_spcem_mainpath_default_wiring.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 40,
       "seeds": 3,
       "conditions": 3,
-      "note": "implement-substrate validation for the 2026-05-17 SP-CEM MAIN-PATH DEFAULT landing (HippocampalConfig + REEConfig.from_dims defaults flipped to use_support_preserving_cem=True/stratified_elites=True/ao_std_floor=0.2). DIAGNOSTIC, claim_ids=[] -- excluded from governance scoring; validates the WIRING, not the substrate (substrate already validated by V3-EXQ-567 PASS). 3-arm: ARM_default (no flags, relies on new defaults) / ARM_explicit_on (EXQ-567 ARM_1 flags) / ARM_explicit_off (legacy opt-out). P1 = ARM_default == ARM_explicit_on within 1e-9 + exact dict match per matched seed (wiring equivalence); P2 = ARM_default selected_action_class_entropy > ARM_explicit_off + 0.05 AND candidate_unique_first_action_classes_mean >= 2 (EXQ-567 ARM_1-vs-ARM_0 effect reproduced with zero flags). Env/harness/metrics mirror V3-EXQ-567. P1 FAIL -> from_dims pass-through audit; P1 PASS+P2 FAIL -> defaults not reaching the gate. Dry-run PASS (both criteria True)."
+      "note": "implement-substrate validation for the 2026-05-17 SP-CEM MAIN-PATH DEFAULT landing (HippocampalConfig + REEConfig.from_dims defaults flipped to use_support_preserving_cem=True/stratified_elites=True/ao_std_floor=0.2). DIAGNOSTIC, claim_ids=[] -- excluded from governance scoring; validates the WIRING, not the substrate (substrate already validated by V3-EXQ-567 PASS). 3-arm: ARM_default (no flags, relies on new defaults) / ARM_explicit_on (EXQ-567 ARM_1 flags) / ARM_explicit_off (legacy opt-out). P1 = ARM_default == ARM_explicit_on within 1e-9 + exact dict match per matched seed (wiring equivalence); P2 = ARM_default selected_action_class_entropy > ARM_explicit_off + 0.05 AND candidate_unique_first_action_classes_mean >= 2 (EXQ-567 ARM_1-vs-ARM_0 effect reproduced with zero flags). Env/harness/metrics mirror V3-EXQ-567. P1 FAIL -> from_dims pass-through audit; P1 PASS+P2 FAIL -> defaults not reaching the gate. Dry-run PASS (both criteria True).",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-17T08:31:38.553115+00:00"
+      }
     }
   ]
 }
