@@ -331,6 +331,26 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   Set drive_weight=0.0 explicitly for ablation baselines. EXQ-074e and EXQ-085 successors
   will benefit immediately. See GoalConfig, agent.py update_z_goal().
 
+- SD-012 sustained-drive amendment (goal_pipeline:GAP-3, Option 1) — IMPLEMENTED 2026-05-17.
+  GoalConfig.drive_ema_alpha (default 1.0; goal.py). The SD-012 multiplier now uses an
+  EMA trace of drive_level instead of the instantaneous value:
+  _drive_trace = (1 - drive_ema_alpha) * _drive_trace + drive_ema_alpha * drive_level;
+  effective_benefit = benefit_exposure * z_goal_seeding_gain * (1 + drive_weight * _drive_trace).
+  Motivation: instantaneous drive_level collapses to ~0.005 the step a resource is
+  consumed (energy resets toward 1.0), cancelling the SD-012 amplification at exactly
+  the contact events where seeding must fire (EXQ-536a). Backward compatible:
+  drive_ema_alpha=1.0 -> trace == drive_level every step regardless of init ->
+  bit-identical to the pre-amendment instantaneous form (contract C1/C2). Surfaced
+  through REEConfig.from_dims() mirroring drive_weight. _drive_trace is zero-initialised,
+  so alpha < 1.0 carries a deliberate ~1/alpha-step cold-start transient (accepted per
+  goal_pipeline Q2). Lit-anchored operating value 0.02 (~35-step half-life;
+  wanting_liking synthesis 30-60 step window). Phased training: N/A (no encoder, no
+  learning). MECH-094: N/A (no simulation/replay/memory write). Contract:
+  tests/contracts/test_sustained_drive_ema_gap3.py (6/6). Validation experiment:
+  discriminative drive_ema_alpha sweep {0.01,0.02,0.2,1.0} queued (see goal_pipeline_plan.md
+  GAP-3). claims.yaml NOT modified -- MECH-306 sustained_drive_trace registration is the
+  governance follow-on gated on the sweep result. See GoalConfig, goal.py GoalState.update().
+
 ## SD-018: Resource Proximity Supervision (2026-04-07)
 - SD-018: encoder.resource_proximity_supervision — IMPLEMENTED 2026-04-07.
   Auxiliary Sigmoid regression head on z_world predicting max(resource_field_view)

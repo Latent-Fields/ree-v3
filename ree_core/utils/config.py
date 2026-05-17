@@ -2320,6 +2320,7 @@ class REEConfig:
         goal_weight: float = 1.0,
         e1_goal_conditioned: bool = True,
         drive_weight: float = 2.0,  # SD-012: benefit amplification when depleted
+        drive_ema_alpha: float = 1.0,  # SD-012 GAP-3: sustained-drive EMA (1.0=OFF, bit-identical; 0.02~35-step half-life)
         valence_wanting_floor: float = 0.0,  # MECH-186: minimum z_goal norm floor (0=disabled)
         z_goal_seeding_gain: float = 1.0,  # MECH-187: gain on seeding signal (1.0=no change)
         z_goal_inject: float = 0.0,  # MECH-188: PFC top-down injection norm floor (0=disabled)
@@ -2797,6 +2798,7 @@ class REEConfig:
             "z_goal_enabled", "alpha_goal", "decay_goal",
             "benefit_threshold", "goal_weight", "e1_goal_conditioned",
             "drive_weight",  # SD-012
+            "drive_ema_alpha",  # SD-012 GAP-3 sustained-drive EMA
             "valence_wanting_floor",  # MECH-186
             "z_goal_seeding_gain",  # MECH-187
             "z_goal_inject",  # MECH-188
@@ -2809,6 +2811,7 @@ class REEConfig:
             "goal_weight": goal_weight,
             "e1_goal_conditioned": e1_goal_conditioned,
             "drive_weight": drive_weight,  # SD-012
+            "drive_ema_alpha": drive_ema_alpha,  # SD-012 GAP-3 sustained-drive EMA
             "valence_wanting_floor": valence_wanting_floor,  # MECH-186
             "z_goal_seeding_gain": z_goal_seeding_gain,  # MECH-187
             "z_goal_inject": z_goal_inject,  # MECH-188
