@@ -168,22 +168,6 @@
       "note": "commitment_closure:GAP-11 diagnostic pilot. 3 arms: EMERGENT (P0 warmup on easy env -> P2 eval on target), FORCED_RV (clone + forced rv=0.001 -> P2), STARVED (tight threshold=1e-4 -> abort gate fires at mid-probe). C1: emergent committed steps/ep>100 in >=2/3 seeds. C2: forced-rv committed steps/ep>100 all seeds. C3: starved arm aborts (abort_reason=commitment_not_elicited) all seeds. PASS unblocks V3-EXQ-460b/463b/464b/466b/467b/468b OCD battery. Supersedes V3-EXQ-461 (synthetic scripted diagnostic, 2026-05-12)."
     },
     {
-      "queue_id": "V3-EXQ-593",
-      "title": "MECH-204 GAP-8 proxy behavioral effects (>20 sleep cycles, step=0.25)",
-      "experiment_type": "v3_exq_593_mech204_gap8_proxy_behavioral_effects",
-      "script": "experiments/v3_exq_593_mech204_gap8_proxy_behavioral_effects.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 10,
-      "episodes_per_run": 24,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-204",
-      "backlog_id": "EXP-0171",
-      "note": "Failure-autopsy routing (2026-05-17): shifts primary criterion from REM-mechanics (541a/541b/541c) to GAP-8 proxy metrics. 2 arms: ARM_0 step=0.0 (no-op ref) vs ARM_1 step=0.25. Full sleep aggregation cluster + z_goal for non-sentinel replay_diversity_index and post_sleep_z_goal_before. PASS = C1 (mechanism fires) AND C2 (non-sentinel rdi >=50% cycles) AND C3 (rdi ARM_1 > ARM_0 + 0.02 in >=2/3 seeds, post-warmup cycles 5..24). Smoke PASS 2026-05-17."
-    },
-    {
       "queue_id": "V3-EXQ-543g",
       "title": "ARC-062 x MECH-309: outcome-coupled REINFORCE P1 loss (falsifier)",
       "experiment_type": "v3_exq_543g_arc062_outcome_coupled_falsifier",
