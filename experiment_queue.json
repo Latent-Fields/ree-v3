@@ -14,7 +14,7 @@
       "script": "experiments/v3_exq_543f_arc062_onehot_dacc_falsifier.py",
       "priority": 10,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 108,
       "seeds": 3,
@@ -24,7 +24,11 @@
         "MECH-309"
       ],
       "supersedes": "V3-EXQ-543e",
-      "note": "GAP-B arc_062 falsifier re-issue. FIX 1: gated_policy_use_first_action_onehot=True (E2 compresses SP-CEM diversity to 0.22pct; one-hot bypasses). FIX 2: dacc_weight=1.0 (was 0.0 -- DACCtoE3Adapter short-circuited to zeros, making dACC arms byte-identical). Pre-flight assertion added. PASS = D2 AND D3. Smoke PASS 2026-05-17."
+      "note": "GAP-B arc_062 falsifier re-issue. FIX 1: gated_policy_use_first_action_onehot=True (E2 compresses SP-CEM diversity to 0.22pct; one-hot bypasses). FIX 2: dacc_weight=1.0 (was 0.0 -- DACCtoE3Adapter short-circuited to zeros, making dACC arms byte-identical). Pre-flight assertion added. PASS = D2 AND D3. Smoke PASS 2026-05-17.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-17T13:11:02.889039+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-584",
