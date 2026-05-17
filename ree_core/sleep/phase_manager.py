@@ -295,7 +295,12 @@ class SleepLoopManager:
 
         # Delegate to the existing SD-017 surface. run_sleep_cycle handles
         # the SWS -> REM ordering, mode entry/exit, and metric merging.
+        # infant_substrate:GAP-8 -- capture z_goal norm before the cycle so
+        # retention can be computed after. Non-invasive read; -1.0 sentinel
+        # when goal_state is absent.
+        _z_goal_before = self._safe_z_goal_norm(agent)
         metrics = agent.run_sleep_cycle(sws_anchor_weight=mean_anchor)
+        _z_goal_after = self._safe_z_goal_norm(agent)
 
         # Phase E: WRITEBACK -- self-model offline gradient pass on
         # E2_harm_s using aggregator-corrected residuals as targets, plus
@@ -380,6 +385,24 @@ class SleepLoopManager:
         if writeback_metrics:
             merged.update(writeback_metrics)
 
+        # infant_substrate:GAP-8 -- post_sleep_z_goal_retention telemetry.
+        # -1.0 sentinel when goal_state absent or z_goal_before <= 1e-8
+        # (uninitialised). replay_diversity_index = distinct-regions / draws;
+        # -1.0 sentinel when no draws occurred this cycle.
+        merged["post_sleep_z_goal_before"] = _z_goal_before
+        merged["post_sleep_z_goal_after"] = _z_goal_after
+        merged["post_sleep_z_goal_retention"] = (
+            _z_goal_after / _z_goal_before
+            if _z_goal_before > 1e-8
+            else -1.0
+        )
+        _n_draws = len(sws_routed_draws)
+        merged["replay_diversity_index"] = (
+            float(len(replayed_regions)) / float(_n_draws)
+            if _n_draws > 0
+            else -1.0
+        )
+
         self.state.phase = SleepPhase.WAKING
         self.state.episodes_since_sleep = 0
         self.state.last_metrics = merged
@@ -406,6 +429,23 @@ class SleepLoopManager:
         except Exception:  # pragma: no cover -- defensive
             return {}
         return dict(snap)
+
+    @staticmethod
+    def _safe_z_goal_norm(agent: "REEAgent") -> float:
+        """Return z_goal L2 norm or -1.0 sentinel when unavailable.
+
+        infant_substrate:GAP-8 helper -- non-invasive read, no state mutation.
+        """
+        goal_state = getattr(agent, "goal_state", None)
+        if goal_state is None:
+            return -1.0
+        z_goal = getattr(goal_state, "_z_goal", None)
+        if z_goal is None:
+            return -1.0
+        try:
+            return float(z_goal.norm().item())
+        except Exception:  # pragma: no cover -- defensive
+            return -1.0
 
     @staticmethod
     def _extract_region_key(routed) -> Optional[tuple]:
