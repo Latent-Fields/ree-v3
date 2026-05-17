@@ -165,6 +165,36 @@ def _check_active_claim_on_file(relative_path: str) -> bool:
         return False
 
 
+def _sync_pull_tick(ree_assembly_path: Path | None) -> None:
+    """One iteration of the --auto-sync background pull. Never raises.
+
+    Pulls ree-v3 unconditionally, then pulls REE_assembly UNLESS a Claude
+    session holds an active TASK_CLAIMS claim covering any evidence/ path.
+    The REE_assembly skip mirrors runner_remote_control.push_heartbeat /
+    push_commands: `git pull --rebase --autostash` can stack failing
+    autostash stashes and silently revert a concurrent session's
+    uncommitted evidence/claims edits (the EXQ-232 / substrate_queue.json
+    revert incident class). The ree-v3 pull is intentionally unguarded --
+    only REE_assembly carries the high-contention evidence files.
+
+    Default path (no active evidence claim, or runner_remote_control
+    unimportable) is bit-identical to the pre-guard behaviour: both pulls
+    run, each best-effort.
+    """
+    try:
+        git_pull(REPO_ROOT, "ree-v3")
+    except Exception:
+        pass
+    if not ree_assembly_path:
+        return
+    if _rrc is not None and _rrc._active_claim_on_evidence_dir(ree_assembly_path):
+        return
+    try:
+        git_pull(ree_assembly_path, "REE_assembly")
+    except Exception:
+        pass
+
+
 def _merge_queue_json(remote_content: str, saved_content: str) -> str:
     """JSON-level merge of two experiment_queue.json strings.
 
@@ -1156,15 +1186,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         if auto_sync:
             def _background_sync():
                 while not _hb_stop.wait(timeout=60):
-                    try:
-                        git_pull(REPO_ROOT, "ree-v3")
-                    except Exception:
-                        pass
-                    if ree_assembly_path:
-                        try:
-                            git_pull(ree_assembly_path, "REE_assembly")
-                        except Exception:
-                            pass
+                    _sync_pull_tick(ree_assembly_path)
             _sync_thread = threading.Thread(target=_background_sync, daemon=True)
             _sync_thread.start()
 
