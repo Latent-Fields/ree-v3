@@ -156,14 +156,18 @@
       "script": "experiments/v3_exq_543i_arc062_differential_heads_falsifier.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 450,
       "episodes_per_run": 108,
       "seeds": 3,
       "conditions": 12,
       "claim_id": "ARC-062",
       "supersedes": "V3-EXQ-543h",
-      "note": "Single-variable test of the ARC-062 use_differential_heads substrate fix (landed 2026-05-18, ree-v3 73199fd). 12-arm pruned: ARM_0..7 = exact 543h 2x2x2 diff-OFF (full supersession of 543h, which itself superseded 543g; diff-OFF gated arms 2/3/6/7 MUST reproduce the cross-machine inert collapse), ARM_8..11 = the 4 gated arms diff-ON (PRIMARY). P1 outcome-coupled REINFORCE loss BYTE-IDENTICAL to 543g/h; only varied factor in matched pairs (2<->8, 3<->9, 6<->10, 7<->11) is use_differential_heads. PASS = diff_on_escape (all 4 diff-ON arms n_inert==0) AND diff_off_reproduced_collapse (matched diff-OFF arms inert) AND c2c3_on_pass (discriminator routes by context). Branch a -> ARC-062 supports / MECH-309 bounded / INV-074+MECH-334 testable; branch e -> MECH-309 STRONG confirmation, ARC-062 weak reading falsified, ARC-063/V4 required; branch c -> non_contributory (substrate drift). CROSS-MACHINE: single-machine PASS is PROVISIONAL -- governance needs n_inert==0 on >=2 machines (the 543g ACTIVE-host-A / INERT-cloud bistability is the failure mode under test). claim_ids ARC-062/MECH-309/INV-074/MECH-334. Autopsy: failure_autopsy_V3-EXQ-543h_2026-05-18."
+      "note": "Single-variable test of the ARC-062 use_differential_heads substrate fix (landed 2026-05-18, ree-v3 73199fd). 12-arm pruned: ARM_0..7 = exact 543h 2x2x2 diff-OFF (full supersession of 543h, which itself superseded 543g; diff-OFF gated arms 2/3/6/7 MUST reproduce the cross-machine inert collapse), ARM_8..11 = the 4 gated arms diff-ON (PRIMARY). P1 outcome-coupled REINFORCE loss BYTE-IDENTICAL to 543g/h; only varied factor in matched pairs (2<->8, 3<->9, 6<->10, 7<->11) is use_differential_heads. PASS = diff_on_escape (all 4 diff-ON arms n_inert==0) AND diff_off_reproduced_collapse (matched diff-OFF arms inert) AND c2c3_on_pass (discriminator routes by context). Branch a -> ARC-062 supports / MECH-309 bounded / INV-074+MECH-334 testable; branch e -> MECH-309 STRONG confirmation, ARC-062 weak reading falsified, ARC-063/V4 required; branch c -> non_contributory (substrate drift). CROSS-MACHINE: single-machine PASS is PROVISIONAL -- governance needs n_inert==0 on >=2 machines (the 543g ACTIVE-host-A / INERT-cloud bistability is the failure mode under test). claim_ids ARC-062/MECH-309/INV-074/MECH-334. Autopsy: failure_autopsy_V3-EXQ-543h_2026-05-18.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-18T15:44:21.315717+00:00"
+      }
     }
   ]
 }
