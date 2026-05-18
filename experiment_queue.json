@@ -176,7 +176,7 @@
       "title": "ARC-062 differential-heads falsifier: does base+norm-pinned-differential STRUCTURE escape monomodal collapse (supersedes 543g+543h)",
       "experiment_type": "v3_exq_543i_arc062_differential_heads_falsifier",
       "script": "experiments/v3_exq_543i_arc062_differential_heads_falsifier.py",
-      "priority": 1,
+      "priority": 5,
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 450,
