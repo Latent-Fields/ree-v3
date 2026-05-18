@@ -148,6 +148,21 @@
       "claim_id": "MECH-090",
       "supersedes": "V3-EXQ-461",
       "note": "commitment_closure:GAP-11 diagnostic pilot. 3 arms: EMERGENT (P0 warmup on easy env -> P2 eval on target), FORCED_RV (clone + forced rv=0.001 -> P2), STARVED (tight threshold=1e-4 -> abort gate fires at mid-probe). C1: emergent committed steps/ep>100 in >=2/3 seeds. C2: forced-rv committed steps/ep>100 all seeds. C3: starved arm aborts (abort_reason=commitment_not_elicited) all seeds. PASS unblocks V3-EXQ-460b/463b/464b/466b/467b/468b OCD battery. Supersedes V3-EXQ-461 (synthetic scripted diagnostic, 2026-05-12)."
+    },
+    {
+      "queue_id": "V3-EXQ-543j",
+      "title": "ARC-062 differential-heads cross-machine confirmation of 543i (ree-cloud-4)",
+      "experiment_type": "v3_exq_543j_arc062_differential_heads_xmachine_confirm",
+      "script": "experiments/v3_exq_543j_arc062_differential_heads_xmachine_confirm.py",
+      "priority": 5,
+      "machine_affinity": "ree-cloud-4",
+      "status": "pending",
+      "estimated_minutes": 330,
+      "episodes_per_run": 108,
+      "seeds": 3,
+      "conditions": 12,
+      "claim_id": "ARC-062",
+      "note": "Cross-machine CONFIRMATION of V3-EXQ-543i_20260518T191052Z (NOT a supersession; 543i stands, keeps its 543h/543g chain; manifest carries confirms=V3-EXQ-543i). Byte-identical to 543i in all executable code (config, thresholds, 12-arm design, phased training, acceptance logic); the ONLY varied factor vs 543i is the host machine. 543i FAILed branch e (MECH-309 supports / ARC-062 weakens: all 4 diff-ON gated arms 3/3 inert despite delta_hat L2 pinned to differential_bias_scale=0.1) on a SINGLE machine (Mac). The 543g->h->i chain exists because of a cross-machine bistability (ACTIVE host-A / INERT cloud-3+cloud-4); pinned to ree-cloud-4 (a participant in that divergent INERT basin) for the strongest single-variable confirmation. Branch e CONFIRMS-543i -> clears single-machine caveat, ARC-062 demotion + ARC-063/V4 governance can proceed; branch a CONTRADICTS-543i -> 543i was itself a single-machine basin artifact, do NOT demote ARC-062, escalate to /failure-autopsy + >=2-machine matrix; branch c NON-CONTRIBUTORY (diff-OFF did not reproduce collapse on this host -> drift). priority 5 (above current max 4): ARC-062/MECH-309 governance is gated on this. Smoke: dry-run PASS (36/36 verdicts, branch c as expected for 3-ep dry-run, identical to 543i dry-run; manifest+sentinel+identity fields verified)."
     }
   ]
 }
