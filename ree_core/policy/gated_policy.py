@@ -169,6 +169,21 @@ class GatedPolicyConfig:
     crystallize_enabled: bool = False
     # Plastic expansion-MLP hidden width. Mirrors head_hidden.
     crystallize_expansion_hidden: int = 32
+    # ARC-062 robustness fix (2026-05-18, V3-EXQ-543h failure autopsy +
+    # cross-machine 543g replication). When True the two scoring heads are
+    # reparameterized as a shared base plus a candidate-axis-norm-pinned
+    # differential: head_0 = base + delta_hat, head_1 = base - delta_hat,
+    # delta_hat = differential_bias_scale * delta / (||delta||_K + eps).
+    # This makes the head_0==head_1 (delta==0) inert collapse a structural
+    # NON-equilibrium -- the cross-machine common attractor that made
+    # n_inert_gating_seeds=3 on cloud-3/cloud-4 while host-A landed active.
+    # Default False = no-op: two independent heads, bit-identical to the
+    # pre-fix path. See ree-v3/CLAUDE.md SD Design Decisions.
+    use_differential_heads: bool = False
+    # Pinned policy-space (candidate-axis) L2 norm of the differential.
+    # Only read when use_differential_heads=True. Mirrors bias_scale so the
+    # differential magnitude is comparable to the score-bias clamp.
+    differential_bias_scale: float = 0.1
 
 
 @dataclass
@@ -233,23 +248,53 @@ class GatedPolicy(nn.Module):
         # Two scoring heads. Each takes per-candidate features and emits a
         # per-candidate scalar [K, 1] -> squeeze to [K].
         # Input: [K, world_dim] (default) or [K, world_dim+action_dim] (option-2).
-        self.head_0 = nn.Sequential(
-            nn.Linear(head_in_dim, head_hidden),
-            nn.ReLU(),
-            nn.Linear(head_hidden, 1),
-        )
-        self.head_1 = nn.Sequential(
-            nn.Linear(head_in_dim, head_hidden),
-            nn.ReLU(),
-            nn.Linear(head_hidden, 1),
-        )
-        # Symmetry-broken init: head_0 +offset, head_1 -offset on the LAST
-        # Linear's bias term. Heads can differentiate under any training
-        # pressure from step 0 -- avoids the all-zero degenerate equilibrium
-        # where w*head_0 + (1-w)*head_1 = head_0 = head_1 = 0 for any w.
-        with torch.no_grad():
-            self.head_0[-1].bias.fill_(bias_offset)
-            self.head_1[-1].bias.fill_(-bias_offset)
+        self._use_diff = bool(self.config.use_differential_heads)
+        if self._use_diff:
+            # ARC-062 robustness reparameterization (2026-05-18). The two
+            # heads are SYNTHESIZED in forward() as base +/- delta_hat,
+            # where delta_hat has its candidate-axis L2 norm pinned to
+            # differential_bias_scale. delta==0 (the head_0==head_1 inert
+            # collapse, i.e. the cross-machine common attractor in the
+            # 543h autopsy) is therefore structurally unreachable. The
+            # trainable modules are base + delta (not head_0/head_1).
+            self.head_0 = None
+            self.head_1 = None
+            self.base = nn.Sequential(
+                nn.Linear(head_in_dim, head_hidden),
+                nn.ReLU(),
+                nn.Linear(head_hidden, 1),
+            )
+            self.delta = nn.Sequential(
+                nn.Linear(head_in_dim, head_hidden),
+                nn.ReLU(),
+                nn.Linear(head_hidden, 1),
+            )
+            with torch.no_grad():
+                # base last-Linear bias 0 (shared evaluative trunk);
+                # nonzero delta bias so the pinned-norm direction is
+                # well-defined and asymmetric from step 0.
+                self.base[-1].bias.zero_()
+                self.delta[-1].bias.fill_(bias_offset)
+        else:
+            self.base = None
+            self.delta = None
+            self.head_0 = nn.Sequential(
+                nn.Linear(head_in_dim, head_hidden),
+                nn.ReLU(),
+                nn.Linear(head_hidden, 1),
+            )
+            self.head_1 = nn.Sequential(
+                nn.Linear(head_in_dim, head_hidden),
+                nn.ReLU(),
+                nn.Linear(head_hidden, 1),
+            )
+            # Symmetry-broken init: head_0 +offset, head_1 -offset on the LAST
+            # Linear's bias term. Heads can differentiate under any training
+            # pressure from step 0 -- avoids the all-zero degenerate equilibrium
+            # where w*head_0 + (1-w)*head_1 = head_0 = head_1 = 0 for any w.
+            with torch.no_grad():
+                self.head_0[-1].bias.fill_(bias_offset)
+                self.head_1[-1].bias.fill_(-bias_offset)
 
         # Context discriminator: 3-stream input -> hidden -> sigmoid scalar.
         # Per Pull A R1 verdict (Miller-Cohen 2001 explicit "inputs, internal
@@ -341,9 +386,16 @@ class GatedPolicy(nn.Module):
                 "was_already_crystallized": True,
             }
 
-        # Freeze the crystallized discrimination.
+        # Freeze the crystallized discrimination. Under the differential
+        # reparameterization the trainable scoring modules are base+delta
+        # (not head_0/head_1); freeze whichever set is live so the MECH-334
+        # write-protect semantics are identical in both configs.
+        if self._use_diff:
+            _freeze_set = (self.base, self.delta, self.discriminator)
+        else:
+            _freeze_set = (self.head_0, self.head_1, self.discriminator)
         n_frozen = 0
-        for module in (self.head_0, self.head_1, self.discriminator):
+        for module in _freeze_set:
             for p in module.parameters():
                 p.requires_grad = False
                 n_frozen += int(p.numel())
@@ -355,8 +407,8 @@ class GatedPolicy(nn.Module):
         # diversity gradient (dACC / MECH-313 / MECH-314a / MECH-320)
         # grows it thereafter.
         h = int(self.config.crystallize_expansion_hidden)
-        # device/dtype: follow head_0's first Linear weight.
-        ref_w = self.head_0[0].weight
+        # device/dtype: follow the live scoring trunk's first Linear weight.
+        ref_w = (self.base if self._use_diff else self.head_0)[0].weight
         self.expansion = nn.Sequential(
             nn.Linear(self._head_in_dim, h),
             nn.ReLU(),
@@ -492,8 +544,40 @@ class GatedPolicy(nn.Module):
             head_input = candidate_features  # [K, world_dim]
 
         # Per-head bias.
-        head_0_raw = self.head_0(head_input).squeeze(-1)  # [K]
-        head_1_raw = self.head_1(head_input).squeeze(-1)  # [K]
+        if self._use_diff:
+            # ARC-062 robustness reparameterization (2026-05-18). Shared
+            # evaluative trunk + a candidate-axis-norm-pinned differential:
+            #   head_0 = base + delta_hat ;  head_1 = base - delta_hat
+            #   delta_hat = differential_bias_scale * delta / (||delta||_K + eps)
+            # The norm pin makes delta==0 (head_0==head_1, the inert
+            # cross-machine common attractor in the 543h autopsy)
+            # structurally unreachable, while leaving the differential's
+            # DIRECTION (which candidates each mode prefers) free for the
+            # return objective to shape. It is not the removed head_div
+            # term: that was a soft raw-space penalty satisfiable by
+            # softmax-canceling anti-symmetric offsets; delta_hat is a
+            # unit-norm direction over candidates added to a shared base,
+            # so a non-zero differential necessarily changes the candidate
+            # ranking at the gating extremes and cannot be softmax-canceled.
+            base_raw = self.base(head_input).squeeze(-1)    # [K]
+            delta_raw = self.delta(head_input).squeeze(-1)  # [K]
+            if K >= 2:
+                dnorm = delta_raw.norm(p=2)
+                delta_hat = (
+                    self.config.differential_bias_scale
+                    * delta_raw
+                    / (dnorm + 1e-8)
+                )
+            else:
+                # K<2: no candidate ranking to differentiate; leave the
+                # raw differential unscaled (degenerate single-candidate
+                # tick, the action softmax is trivial anyway).
+                delta_hat = delta_raw
+            head_0_raw = base_raw + delta_hat
+            head_1_raw = base_raw - delta_hat
+        else:
+            head_0_raw = self.head_0(head_input).squeeze(-1)  # [K]
+            head_1_raw = self.head_1(head_input).squeeze(-1)  # [K]
 
         # Composed gated bias. Use w_tensor (not float w) so the gradient
         # path through the discriminator is preserved when grad is enabled.
@@ -557,4 +641,5 @@ class GatedPolicy(nn.Module):
             "n_crystallize_calls": self._n_crystallize_calls,
             "n_frozen_params": self._n_frozen_params,
             "expansion_active": self.expansion is not None,
+            "use_differential_heads": self._use_diff,
         }
