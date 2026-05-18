@@ -1,6 +1,7 @@
 #!/opt/local/bin/python3
 """
 V3-EXQ-385 -- INV-049 Offline Consolidation Necessity: Sleep Ablation Probe
+SLEEP DRIVER: manual-multi (run_sleep_cycle() called directly every SLEEP_INTERVAL=10 episodes in training loop)
 
 experiment_purpose: evidence
 Claims: INV-049

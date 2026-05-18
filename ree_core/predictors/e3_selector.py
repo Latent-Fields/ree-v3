@@ -24,7 +24,7 @@ hypothesis — see ARCHITECTURE NOTE below. All weights are placeholder.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 
 import torch
 import torch.nn as nn
@@ -191,6 +191,12 @@ class E3TrajectorySelector(nn.Module):
         # rv never updates -> agent can never commit.
         self._last_selected_trajectory: Optional[Trajectory] = None
         self.last_scores: Optional[torch.Tensor] = None
+        # V3-EXQ-563c: score / bias scale diagnostics written each select() call.
+        self.last_score_diagnostics: dict = {}
+        # V3-EXQ-571: per-component score decomposition (default OFF, bit-identical)
+        self.e3_score_decomp_enabled: bool = False
+        self.last_score_decomp: dict = {}
+        self._last_traj_components: dict = {}
 
         # ARC-030: benefit_eval warmup gate.
         # benefit_eval_head starts at random init — scoring with it before training
@@ -234,6 +240,36 @@ class E3TrajectorySelector(nn.Module):
             self._volatility_estimate = sum((v - mean) ** 2 for v in vals) / len(vals)
         else:
             self._volatility_estimate = 0.0
+
+    def recalibrate_precision_to(self, target_precision: float, step: float = 0.1) -> Tuple[float, float]:
+        """
+        MECH-204 Option A: nudge ``_running_variance`` toward the variance
+        implied by ``target_precision``, by a tunable step in [0, 1].
+
+        target_precision is a precision scalar (inverse variance). Implementation
+        converts it to a variance and applies a one-shot linear interpolation:
+
+            new_variance = (1 - step) * current_variance + step * target_variance
+
+        Returns (running_variance_before, running_variance_after) for diagnostics.
+
+        Caller (SleepLoopManager WRITEBACK phase) is responsible for gating
+        on the master flag and on whether REM was actually entered. This
+        method does not check enablement, but it is a no-op when
+        target_precision <= 0.0 (the "no target captured" sentinel from
+        SerotoninModule.compute_recalibration_target()).
+        """
+        rv_before = float(self._running_variance)
+        if target_precision <= 0.0:
+            return rv_before, rv_before
+        if step <= 0.0:
+            return rv_before, rv_before
+        step_clamped = min(1.0, float(step))
+        target_variance = 1.0 / (float(target_precision) + 1e-6)
+        self._running_variance = (
+            (1.0 - step_clamped) * rv_before + step_clamped * target_variance
+        )
+        return rv_before, float(self._running_variance)
 
     def record_benefit_sample(self, n: int = 1) -> None:
         """Record that n benefit training samples have been added to the buffer.
@@ -533,6 +569,11 @@ class E3TrajectorySelector(nn.Module):
             m = self.compute_ethical_cost(trajectory)
         phi = self.compute_residue_cost(trajectory)
 
+        # V3-EXQ-571: component trackers (used only when e3_score_decomp_enabled)
+        _dc_benefit_w = 0.0
+        _dc_novelty_w = 0.0
+        _dc_goal_w = 0.0
+
         # SD-011: z_harm_a amplification of ethical cost.
         # When accumulated threat is high, harm costs weigh more.
         lambda_eff = self.config.lambda_ethical
@@ -559,6 +600,8 @@ class E3TrajectorySelector(nn.Module):
                 w_goal = terrain_weight[:, 1]  # [batch]
                 b = b * w_goal
             score = score - self.config.benefit_weight * b
+            if self.e3_score_decomp_enabled:
+                _dc_benefit_w = float((self.config.benefit_weight * b).detach().mean().item())
 
         # MECH-111: novelty bonus — subtract EMA novelty signal
         if self.config.novelty_bonus_weight > 0.0:
@@ -566,6 +609,8 @@ class E3TrajectorySelector(nn.Module):
             device = score.device
             novelty_bonus = torch.tensor(self._novelty_ema, device=device)
             score = score - self.config.novelty_bonus_weight * novelty_bonus
+            if self.e3_score_decomp_enabled:
+                _dc_novelty_w = float(self.config.novelty_bonus_weight * self._novelty_ema)
 
         # MECH-112 / MECH-117: wanting signal via z_goal distance
         if (goal_state is not None
@@ -577,7 +622,19 @@ class E3TrajectorySelector(nn.Module):
                 w_goal = terrain_weight[:, 1]  # [batch]
                 g = g * w_goal
             score = score - self.config.goal_weight * g
+            if self.e3_score_decomp_enabled:
+                _dc_goal_w = float((self.config.goal_weight * g).detach().mean().item())
 
+        if self.e3_score_decomp_enabled:
+            self._last_traj_components = {
+                "f": float(f.detach().mean().item()),
+                "harm_weighted": float((lambda_eff * m).detach().mean().item()),
+                "residue_weighted": float((self.config.rho_residue * phi).detach().mean().item()),
+                "benefit_weighted": _dc_benefit_w,
+                "novelty_weighted": _dc_novelty_w,
+                "goal_weighted": _dc_goal_w,
+                "lambda_eff": float(lambda_eff),
+            }
         return score
 
     # ------------------------------------------------------------------ #
@@ -596,6 +653,7 @@ class E3TrajectorySelector(nn.Module):
         z_harm_a: Optional[torch.Tensor] = None,
         harm_forward_model: Optional["nn.Module"] = None,
         z_harm_s_current: Optional[torch.Tensor] = None,
+        score_bias: Optional[torch.Tensor] = None,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -622,6 +680,10 @@ class E3TrajectorySelector(nn.Module):
                                     for M(zeta) computation via step-by-step rollout.
             z_harm_s_current:       [batch, z_harm_dim] current sensory-discriminative harm
                                     latent. Required when harm_forward_model is provided.
+            score_bias:             SD-032b dACC bias, [K] tensor (one entry per candidate).
+                                    Added directly to per-candidate scores before softmax.
+                                    Sign convention: lower is better (favourable bias is
+                                    negative). None means no bias (backward compat default).
 
         Returns:
             SelectionResult
@@ -629,18 +691,83 @@ class E3TrajectorySelector(nn.Module):
         if not candidates:
             raise ValueError("No candidate trajectories provided")
 
-        scores = torch.stack([
-            self.score_trajectory(
-                t, goal_state=goal_state, harm_bridge=harm_bridge,
+        _score_list = []
+        _cand_components = [] if self.e3_score_decomp_enabled else None
+        for _cand_t in candidates:
+            _s = self.score_trajectory(
+                _cand_t, goal_state=goal_state, harm_bridge=harm_bridge,
                 terrain_weight=terrain_weight,
                 harm_forward_model=harm_forward_model,
                 z_harm_s_current=z_harm_s_current,
                 z_harm_a=z_harm_a,
             )
-            for t in candidates
-        ])
+            _score_list.append(_s)
+            if self.e3_score_decomp_enabled:
+                _cand_components.append(dict(self._last_traj_components))
+        scores = torch.stack(_score_list)
         scores = scores.mean(dim=-1)
+
+        # V3-EXQ-563c: capture raw score range for diagnostics + normalisation.
+        raw_scores = scores.detach()
+        raw_score_range = float((raw_scores.max() - raw_scores.min()).item())
+        raw_score_std = float(raw_scores.std().item())
+
+        # SD-032b dACC bias: additive, same sign convention as raw scores.
+        # Applied before last_scores / softmax so downstream consumers see
+        # the biased values consistently.
+        if score_bias is not None:
+            if score_bias.shape != scores.shape:
+                raise ValueError(
+                    f"score_bias shape {tuple(score_bias.shape)} does not match "
+                    f"scores shape {tuple(scores.shape)}"
+                )
+            bias_tensor = score_bias.to(dtype=scores.dtype, device=scores.device)
+            # Optional: rescale bias proportional to raw score range so the
+            # relative push stays consistent across environments.
+            if (
+                getattr(self.config, "normalize_score_bias_to_e3_range", False)
+                and raw_score_range > 1e-6
+            ):
+                bias_range = float(
+                    (bias_tensor.max() - bias_tensor.min()).abs().item()
+                )
+                if bias_range > 1e-9:
+                    scale = raw_score_range / bias_range
+                    bias_tensor = bias_tensor * scale
+            scores = scores + bias_tensor
+
+        # V3-EXQ-563c: score / bias diagnostics (pre-softmax, post-bias).
+        bias_detached = (
+            score_bias.detach().to(dtype=raw_scores.dtype, device=raw_scores.device)
+            if score_bias is not None else raw_scores.new_zeros(raw_scores.shape)
+        )
+        self.last_score_diagnostics = {
+            "e3_raw_score_range_mean": raw_score_range,
+            "e3_raw_score_std_mean": raw_score_std,
+            "score_bias_abs_mean": float(bias_detached.abs().mean().item()),
+            "score_bias_range_mean": float(
+                (bias_detached.max() - bias_detached.min()).item()
+            ),
+            "score_bias_to_raw_range_ratio": (
+                float(
+                    (bias_detached.max() - bias_detached.min()).abs().item()
+                ) / max(raw_score_range, 1e-9)
+            ),
+            "normalize_score_bias_active": bool(
+                getattr(self.config, "normalize_score_bias_to_e3_range", False)
+                and score_bias is not None
+                and raw_score_range > 1e-6
+            ),
+            # Filled in after selection (requires selected_idx).
+            "selected_candidate_rank_before_bias": -1,
+            "selected_candidate_rank_after_bias": -1,
+        }
         self.last_scores = scores.detach()
+        if self.e3_score_decomp_enabled and _cand_components:
+            self.last_score_decomp = {
+                "per_candidate": _cand_components,
+                "n_candidates": len(_cand_components),
+            }
 
         probs = F.softmax(-scores / temperature, dim=0)
 
@@ -681,6 +808,27 @@ class E3TrajectorySelector(nn.Module):
             selected_idx = int(scores.argmin().item())
         else:
             selected_idx = int(torch.multinomial(probs, 1).item())
+
+        # V3-EXQ-571: record which candidate was selected into decomp dict.
+        if self.e3_score_decomp_enabled and self.last_score_decomp:
+            self.last_score_decomp["selected_idx"] = selected_idx
+
+        # Update post-selection rank diagnostics now that selected_idx is known.
+        if score_bias is not None:
+            sorted_raw = torch.argsort(raw_scores).tolist()
+            sorted_biased = torch.argsort(scores.detach()).tolist()
+            self.last_score_diagnostics["selected_candidate_rank_before_bias"] = (
+                sorted_raw.index(selected_idx)
+            )
+            self.last_score_diagnostics["selected_candidate_rank_after_bias"] = (
+                sorted_biased.index(selected_idx)
+            )
+        # When no bias: rank is the same before and after.
+        else:
+            sorted_raw = torch.argsort(raw_scores).tolist()
+            rank = sorted_raw.index(selected_idx)
+            self.last_score_diagnostics["selected_candidate_rank_before_bias"] = rank
+            self.last_score_diagnostics["selected_candidate_rank_after_bias"] = rank
 
         selected_trajectory = candidates[selected_idx]
         selected_action = selected_trajectory.actions[:, 0, :]

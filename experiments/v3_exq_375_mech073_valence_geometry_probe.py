@@ -513,6 +513,9 @@ def main():
         json.dump(output, f, indent=2)
     print(f"Results -> {out_path}", flush=True)
 
+    from experiment_protocol import emit_outcome
+    emit_outcome(outcome=outcome, manifest_path=str(out_path))
+
 
 if __name__ == "__main__":
     main()

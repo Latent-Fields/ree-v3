@@ -44,6 +44,42 @@ class GoalConfig:
     # Set to 0.0 explicitly for ablation baselines.
     drive_weight: float = 2.0
 
+    # SD-012 sustained-drive amendment (goal_pipeline:GAP-3, Option 1).
+    # EMA smoothing factor for the drive_level used in the SD-012 multiplier:
+    #   trace_t = (1 - drive_ema_alpha) * trace_{t-1} + drive_ema_alpha * drive_level
+    # Motivation: instantaneous drive_level collapses to ~0.005 the step a
+    # resource is consumed (energy resets toward 1.0), so the multiplier
+    # (1 + drive_weight * drive_level) ~ 1.0 and cancels the SD-012 benefit
+    # amplification at exactly the contact events where seeding must fire
+    # (EXQ-536a: H_b_threshold never crossed, mean drive on contact 0.005).
+    # A slow trace keeps the multiplier elevated across the consummatory pulse
+    # (Berridge/Robinson sustained anticipatory wanting).
+    # drive_ema_alpha = 1.0 (default) -> trace == drive_level every step,
+    #   regardless of init -> BIT-IDENTICAL to pre-amendment behaviour (OFF).
+    # 0.02 ~ 35-step half-life (lit-anchored: wanting_liking synthesis 30-60
+    #   step window). Lower alpha = slower / more sustained. The trace is
+    #   zero-initialised, so alpha < 1.0 has a ~1/alpha-step cold-start
+    #   transient that underestimates drive early in an episode (a known,
+    #   accepted confound the discriminative sweep accounts for).
+    drive_ema_alpha: float = 1.0
+
+    # SD-012 sustained-drive amendment (goal_pipeline:GAP-3, Option 2).
+    # Insatiability floor applied to drive_level BEFORE the EMA update:
+    #   drive_level_floored = max(drive_level, drive_floor)
+    # Motivation: even with Option 1 EMA, the drive stays near-zero throughout
+    # the episode when the agent remains well-fed (EXQ-582: all alphas gave
+    # drive_trace_at_contact ~0.0002-0.005 because drive_level was low all along,
+    # not just at the consummatory step). A floor guarantees a minimum multiplier
+    # contribution at every contact regardless of satiation level.
+    # drive_floor = 0.0 (default) -> no floor, bit-identical to pre-amendment
+    #   behaviour when combined with drive_ema_alpha=1.0.
+    # drive_floor = 0.9 -> effective_benefit >= benefit_exposure * (1 + 2.0*0.9)
+    #   = benefit_exposure * 2.8 (first-PASS arm for EXQ-582a given the regime's
+    #   benefit_exposure ~0.03 at first contact with nociception_ema_alpha=0.1).
+    # Can combine with Option 1 EMA: the floor is applied to drive_level before
+    # the EMA update, so the trace stays >= drive_floor in steady state.
+    drive_floor: float = 0.0
+
     # Whether E1 receives z_goal as conditioning input (MECH-116)
     e1_goal_conditioned: bool = True
 
@@ -97,6 +133,12 @@ class GoalState:
             1, config.goal_dim, device=device
         )
         self._goal_norm_peak: float = 0.0
+        # SD-012 sustained-drive EMA trace (goal_pipeline:GAP-3, Option 1).
+        # Zero-init: with drive_ema_alpha=1.0 the recursion yields
+        # trace == drive_level every step regardless of this value, so OFF is
+        # bit-identical. With alpha < 1.0 this introduces a deliberate
+        # cold-start transient (accepted per Q2).
+        self._drive_trace: float = 0.0
 
     @property
     def z_goal(self) -> torch.Tensor:
@@ -118,7 +160,13 @@ class GoalState:
             z_world_current: [batch, world_dim]
             benefit_exposure: scalar benefit this step (body_state[11])
             drive_level: homeostatic drive 0=sated, 1=depleted (SD-012).
-                         effective_benefit = benefit_exposure * (1 + drive_weight * drive_level).
+                         EMA-smoothed into self._drive_trace (drive_ema_alpha;
+                         GAP-3 Option 1), then
+                         effective_benefit = benefit_exposure
+                             * z_goal_seeding_gain
+                             * (1 + drive_weight * drive_trace).
+                         drive_ema_alpha=1.0 (default) -> trace == drive_level
+                         (bit-identical to the pre-amendment instantaneous form).
                          Default 1.0 for backward compat when drive_weight=0.
         """
         # Always decay toward zero
@@ -139,11 +187,27 @@ class GoalState:
                 # Floor clamp has no effect until first benefit contact seeds direction.
                 pass
 
+        # SD-012 sustained-drive amendment (goal_pipeline:GAP-3, Option 2):
+        # Apply insatiability floor before the EMA update so the trace stays
+        # >= drive_floor in steady state, guaranteeing a minimum multiplier
+        # contribution even when the agent is well-fed (drive_level near 0).
+        # drive_floor=0.0 (default) -> no-op, bit-identical to pre-amendment.
+        drive_level_floored = max(drive_level, self.config.drive_floor)
+
+        # SD-012 sustained-drive amendment (goal_pipeline:GAP-3, Option 1):
+        # EMA-smooth the (floored) drive_level so the multiplier does not
+        # collapse on the consummatory step. alpha=1.0 (default) -> trace ==
+        # drive_level_floored every step -> bit-identical OFF at drive_floor=0.
+        alpha = self.config.drive_ema_alpha
+        self._drive_trace = (
+            (1.0 - alpha) * self._drive_trace + alpha * drive_level_floored
+        )
+
         # MECH-187: apply seeding gain before drive modulation
         # gain=1.0 (default) is identity -- fully backward compatible.
-        # SD-012: scale benefit by drive level
+        # SD-012: scale benefit by the sustained drive trace
         effective_benefit = benefit_exposure * self.config.z_goal_seeding_gain * (
-            1.0 + self.config.drive_weight * drive_level
+            1.0 + self.config.drive_weight * self._drive_trace
         )
 
         # Pull toward current z_world if effective benefit fires
@@ -224,6 +288,12 @@ class GoalState:
         """Reset goal to zero."""
         self._z_goal = torch.zeros_like(self._z_goal)
         self._goal_norm_peak = 0.0
+        # SD-012 GAP-3: the sustained-drive trace is a per-episode state
+        # (the goal_pipeline Q2 zero-init cold-start is defined per episode,
+        # not just per agent construction). Mirrors the _z_goal reset above
+        # so eval/training loops that call reset() between episodes restart
+        # the trace from the documented zero-init.
+        self._drive_trace = 0.0
 
     def state_dict(self) -> dict:
         return {

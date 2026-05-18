@@ -42,17 +42,33 @@ import torch.nn.functional as F
 from ree_core.utils.config import ResidueConfig
 
 # SD-014 / ARC-036: Valence vector component indices.
-# Each hippocampal map node stores a 4-component valence vector updated incrementally.
+# Each hippocampal map node stores a 6-component valence vector updated incrementally.
 # Component 0: wanting        -- z_goal signal (frontal goal attractor, drives approach)
 # Component 1: liking         -- benefit terrain signal (where benefit was received)
 # Component 2: harm_discriminative -- z_harm_s signal (sensory-discriminative, A-delta analog)
-# Component 3: surprise       -- prediction error (novelty / unexpectedness signal)
+# Component 3: surprise       -- prediction error magnitude (novelty / unexpectedness; legacy
+#                                unsigned channel preserved for MECH-205 / SD-014 consumers)
+# Component 4: positive_surprise -- MECH-307 Gap 1 Option-b (2026-05-11): signed-positive PE
+#                                   (excitement / dopamine-RPE correlate). Written only when
+#                                   use_mech307_split_surprise=True; zero otherwise.
+# Component 5: negative_surprise -- MECH-307 Gap 1 Option-b (2026-05-11): signed-negative PE
+#                                   (dread / habenula correlate). Written only when
+#                                   use_mech307_split_surprise=True; zero otherwise.
 VALENCE_WANTING: int = 0
 VALENCE_LIKING: int = 1
 VALENCE_HARM_DISCRIMINATIVE: int = 2
 VALENCE_SURPRISE: int = 3
-VALENCE_DIM: int = 4
-VALENCE_COMPONENTS = [VALENCE_WANTING, VALENCE_LIKING, VALENCE_HARM_DISCRIMINATIVE, VALENCE_SURPRISE]
+VALENCE_POSITIVE_SURPRISE: int = 4
+VALENCE_NEGATIVE_SURPRISE: int = 5
+VALENCE_DIM: int = 6
+VALENCE_COMPONENTS = [
+    VALENCE_WANTING,
+    VALENCE_LIKING,
+    VALENCE_HARM_DISCRIMINATIVE,
+    VALENCE_SURPRISE,
+    VALENCE_POSITIVE_SURPRISE,
+    VALENCE_NEGATIVE_SURPRISE,
+]
 
 
 class RBFLayer(nn.Module):
@@ -68,8 +84,10 @@ class RBFLayer(nn.Module):
         self.weights = nn.Parameter(torch.zeros(num_centers))
         self.register_buffer("active_mask", torch.zeros(num_centers, dtype=torch.bool))
         self.register_buffer("next_center_idx", torch.tensor(0))
-        # SD-014 / ARC-036: 4-component valence vector per center.
-        # Shape [num_centers, VALENCE_DIM]: [wanting, liking, harm_discriminative, surprise].
+        # SD-014 / ARC-036 / MECH-307: 6-component valence vector per center.
+        # Shape [num_centers, VALENCE_DIM]: [wanting, liking, harm_discriminative,
+        # surprise, positive_surprise, negative_surprise]. Indices 4-5 stay zeroed
+        # unless MECH-307 Gap 1 Option-b is enabled (use_mech307_split_surprise=True).
         # Sparse by design -- most centers start at zeros and are updated incrementally.
         self.register_buffer("valence_vecs", torch.zeros(num_centers, VALENCE_DIM))
 
@@ -125,7 +143,8 @@ class RBFLayer(nn.Module):
 
         Args:
             center_idx:        Index of the RBF center to update (0-based).
-            valence_component: One of VALENCE_WANTING/LIKING/HARM_DISCRIMINATIVE/SURPRISE.
+            valence_component: One of VALENCE_WANTING / LIKING / HARM_DISCRIMINATIVE /
+                               SURPRISE / POSITIVE_SURPRISE / NEGATIVE_SURPRISE.
             value:             Signed scalar to add to the component.
         """
         with torch.no_grad():
@@ -143,7 +162,9 @@ class RBFLayer(nn.Module):
 
         Returns:
             valence: [batch, VALENCE_DIM]  -- component order [wanting, liking,
-                     harm_discriminative, surprise]
+                     harm_discriminative, surprise, positive_surprise,
+                     negative_surprise]. Indices 4-5 zeroed unless MECH-307 Gap 1
+                     Option-b (use_mech307_split_surprise) is enabled.
         """
         if not self.active_mask.any():
             return torch.zeros(z.shape[0], VALENCE_DIM, device=z.device, dtype=z.dtype)
@@ -178,14 +199,17 @@ class ResidueField(nn.Module):
     - world_delta accumulation: magnitude of world-state change drives
       accumulation strength (requires SD-003 pipeline to be wired)
 
-    SD-014 / ARC-036 — 4-component valence vector:
-    Each RBF center also stores a 4-component valence vector [wanting, liking,
-    harm_discriminative, surprise] that is updated incrementally as the agent
-    visits different z_world regions.  The valence map enables drive-weighted
-    replay prioritisation:  priority(node) = dot(V_node, d_current) + epsilon
-    where d_current = [w_drive, l_drive, h_drive, s_drive] is the current
-    drive-state vector.  API: update_valence(), evaluate_valence(),
-    get_valence_priority().  Controlled by ResidueConfig.valence_enabled.
+    SD-014 / ARC-036 / MECH-307 — 6-component valence vector:
+    Each RBF center stores a 6-component valence vector [wanting, liking,
+    harm_discriminative, surprise, positive_surprise, negative_surprise] that
+    is updated incrementally as the agent visits different z_world regions.
+    The valence map enables drive-weighted replay prioritisation:
+      priority(node) = dot(V_node, d_current) + epsilon
+    where d_current is the current drive-state vector. Indices 4-5
+    (positive/negative surprise) are MECH-307 Gap 1 Option-b channels and
+    stay zeroed unless use_mech307_split_surprise=True (bit-identical OFF).
+    API: update_valence(), evaluate_valence(), get_valence_priority().
+    Controlled by ResidueConfig.valence_enabled.
     """
 
     def __init__(self, config: Optional[ResidueConfig] = None):
@@ -224,6 +248,110 @@ class ResidueField(nn.Module):
             )
             self.register_buffer("total_benefit", torch.tensor(0.0))
             self.register_buffer("num_benefit_events", torch.tensor(0))
+
+        # MECH-303: contextual passive safety terrain (vmPFC/hippocampal analog).
+        # Accumulates harm-absence signal per step; separate from benefit_terrain
+        # and VALENCE_LIKING. Disabled by default (bit-identical OFF).
+        self.safety_terrain_enabled: bool = getattr(
+            self.config, "safety_terrain_enabled", False
+        )
+        if self.safety_terrain_enabled:
+            self.safety_terrain_rbf_field = RBFLayer(
+                world_dim=self.config.world_dim,
+                num_centers=self.config.num_basis_functions,
+                bandwidth=self.config.kernel_bandwidth,
+            )
+            self.register_buffer("total_safety", torch.tensor(0.0))
+            self.register_buffer("num_safety_steps", torch.tensor(0))
+
+        # MECH-334 (INV-074): critical-period closure EWC write-protect.
+        # snapshot_ewc_anchor() captures the Phase-3 checkpoint (rbf_field
+        # centers/weights + an established-basin Fisher proxy) at the
+        # infant-curriculum Phase 2->3 transition; ewc_penalty() then
+        # returns a Fisher-weighted quadratic pull toward that anchor for
+        # the experiment to add to its loss. NOT a hard freeze --
+        # established basins resist overwriting in proportion to their
+        # accumulated strength (Kirkpatrick 2017; faithful to MECH-334
+        # "high resistance to overwriting established basins"). Default
+        # disabled / lambda 0.0 = bit-identical no-op.
+        self.ewc_enabled: bool = bool(getattr(self.config, "ewc_enabled", False))
+        self._ewc_lambda: float = float(getattr(self.config, "ewc_lambda", 0.0))
+        self._ewc_anchored: bool = False
+        self._ewc_centers_anchor: Optional[torch.Tensor] = None
+        self._ewc_weights_anchor: Optional[torch.Tensor] = None
+        self._ewc_fisher: Optional[torch.Tensor] = None
+
+    # ------------------------------------------------------------------
+    # MECH-334 (INV-074): critical-period closure EWC write-protect
+    # ------------------------------------------------------------------
+    def snapshot_ewc_anchor(self) -> dict:
+        """Capture the Phase-3 residue checkpoint + established-basin Fisher.
+
+        Called once at the infant-curriculum Phase 2->3 transition (the
+        experiment harness wires the callback alongside
+        gated_policy.crystallize()). Snapshots a detached copy of the
+        rbf_field centers/weights and a diagonal Fisher proxy:
+
+            Fisher_i = |weights_anchor_i| * active_mask_i
+
+        i.e. basins that accumulated more residue during the open window
+        are protected more strongly afterwards. This is the biologically
+        faithful MECH-334 reading (protect established basins in
+        proportion to their strength), not a uniform L2 pull.
+
+        Idempotent: a second call refreshes the anchor to the current
+        state (developmental closure normally fires once).
+
+        Returns:
+            dict with anchored (bool), n_active_centers (int),
+            fisher_sum (float).
+        """
+        rbf = self.rbf_field
+        with torch.no_grad():
+            self._ewc_centers_anchor = rbf.centers.detach().clone()
+            self._ewc_weights_anchor = rbf.weights.detach().clone()
+            active = rbf.active_mask.detach().float()
+            self._ewc_fisher = (rbf.weights.detach().abs() * active).clone()
+        self._ewc_anchored = True
+        return {
+            "anchored": True,
+            "n_active_centers": int(rbf.active_mask.sum().item()),
+            "fisher_sum": float(self._ewc_fisher.sum().item()),
+        }
+
+    def ewc_penalty(self) -> torch.Tensor:
+        """Fisher-weighted quadratic pull toward the Phase-3 anchor.
+
+        penalty = ewc_lambda * sum_i Fisher_i * [
+                      (weights_i - weights_anchor_i)^2
+                      + sum_d (centers_i,d - centers_anchor_i,d)^2 ]
+
+        Differentiable w.r.t. the current rbf_field params (anchor and
+        Fisher are detached). Returns a 0.0 scalar (on the params' device)
+        when EWC is disabled, lambda is 0, or no anchor has been captured
+        -- so the experiment can unconditionally add it to its loss.
+        """
+        w = self.rbf_field.weights
+        zero = torch.zeros((), device=w.device, dtype=w.dtype)
+        if (
+            not self.ewc_enabled
+            or self._ewc_lambda <= 0.0
+            or not self._ewc_anchored
+            or self._ewc_fisher is None
+        ):
+            return zero
+        fisher = self._ewc_fisher.to(device=w.device, dtype=w.dtype)
+        w_anchor = self._ewc_weights_anchor.to(device=w.device, dtype=w.dtype)
+        c_anchor = self._ewc_centers_anchor.to(device=w.device, dtype=w.dtype)
+        w_term = fisher * (w - w_anchor).pow(2)
+        c_sqdiff = (self.rbf_field.centers - c_anchor).pow(2).sum(dim=-1)  # [C]
+        c_term = fisher * c_sqdiff
+        return self._ewc_lambda * (w_term.sum() + c_term.sum())
+
+    @property
+    def ewc_anchored(self) -> bool:
+        """True once snapshot_ewc_anchor() has captured the Phase-3 checkpoint."""
+        return self._ewc_anchored
 
     def evaluate(self, z_world: torch.Tensor) -> torch.Tensor:
         """
@@ -344,6 +472,50 @@ class ResidueField(nn.Module):
             self.num_benefit_events = self.num_benefit_events + 1
 
     # ------------------------------------------------------------------
+    # MECH-303: contextual passive safety terrain API
+    # ------------------------------------------------------------------
+
+    def evaluate_safety(self, z_world: torch.Tensor) -> torch.Tensor:
+        """
+        Evaluate contextual safety terrain at z_world (MECH-303).
+
+        Returns safety prediction scalar [batch]. Higher = more accumulated
+        harm-absence exposure at this z_world region. Returns zeros if
+        safety terrain disabled.
+        """
+        if not self.safety_terrain_enabled:
+            return torch.zeros(z_world.shape[0], device=z_world.device)
+        return self.safety_terrain_rbf_field(z_world)
+
+    def accumulate_safety(
+        self,
+        z_world: torch.Tensor,
+        safety_magnitude: float = 0.01,
+        hypothesis_tag: bool = False,
+    ) -> None:
+        """
+        Accumulate safety attractor at a z_world location (MECH-303).
+
+        Called per step when z_harm_a.norm() is below the quiescent threshold.
+        Small per-step increments model diffuse/passive contextual learning.
+
+        MECH-094: hypothesis_tag=True blocks accumulation. Contextual safety
+        can only be learned from waking experience, not replay or simulation.
+
+        Args:
+            z_world:          Location in z_world space [batch, world_dim]
+            safety_magnitude: Per-step increment (small by design, default 0.01)
+            hypothesis_tag:   MECH-094 gate -- if True, no accumulation
+        """
+        if not self.safety_terrain_enabled or hypothesis_tag:
+            return
+        loc = z_world.mean(dim=0) if z_world.dim() == 2 else z_world
+        with torch.no_grad():
+            self.safety_terrain_rbf_field.add_residue(loc, float(safety_magnitude))
+            self.total_safety = self.total_safety + safety_magnitude
+            self.num_safety_steps = self.num_safety_steps + 1
+
+    # ------------------------------------------------------------------
     # SD-014 / ARC-036: 4-component valence vector API
     # ------------------------------------------------------------------
 
@@ -439,6 +611,96 @@ class ResidueField(nn.Module):
         priority = (valence * d.unsqueeze(0)).sum(dim=-1) + epsilon  # [batch]
         return priority
 
+    def discharge_domain(
+        self,
+        z_world: torch.Tensor,
+        factor: float = 0.5,
+        radius: float = 1.5,
+    ) -> int:
+        """SD-034: domain-scoped residue discharge (rule-end closure signal).
+
+        Attenuates (multiplicatively) the RBF weights at active centers within
+        a rule-domain neighbourhood of z_world. This is NOT erasure -- the
+        ResidueField invariant "residue cannot be erased" is preserved because
+        weights decay multiplicatively toward (but never to) zero, and only
+        within a bounded domain scoped by radius. Interpreted as a controlled
+        sleep-style contextualisation of just-completed rule-episode residue:
+        the affective pressure that drove the committed sequence relaxes in
+        the region where resolution just occurred, without discarding the
+        trajectory record globally.
+
+        Args:
+            z_world: [batch, world_dim] or [world_dim]. The closure-firing
+                location (rule-domain centre). Batched input is averaged.
+            factor: Multiplicative decay applied to in-domain weights.
+                Must be in (0.0, 1.0]. 0.5 halves the weight; 1.0 is a no-op
+                (ablation). Default 0.5.
+            radius: Domain radius in RBF-bandwidth units. Centers within
+                (radius * bandwidth) of z_world are considered in-domain.
+                Default 1.5 (encompasses one RBF bandwidth plus a modest
+                tail). Unitless -- converted to a squared distance via
+                (radius * bandwidth)^2 at comparison time.
+
+        Returns:
+            int: number of active centers attenuated.
+
+        MECH-094: discharge is a waking-control signal. hypothesis_tag
+        semantics are enforced by the caller (ClosureOperator skips firing
+        during replay via mode-conditioning on operating_mode).
+
+        Invariant: valence_vecs are NOT modified -- closure discharges the
+        scalar residue weight (policy-relevance / approach-avoidance signal)
+        but the 4-component valence vector (wanting/liking/harm_discriminative/
+        surprise) is preserved so replay prioritisation remains faithful to
+        what actually happened.
+        """
+        if factor >= 1.0:
+            return 0
+        if factor <= 0.0:
+            # Clip to a small positive value; do NOT allow true zero
+            # (preserves the "cannot be erased" invariant).
+            factor = 1e-6
+
+        if not self.rbf_field.active_mask.any():
+            return 0
+
+        # Reduce batch to a single representative point.
+        if z_world.dim() == 2:
+            z_point = z_world.mean(dim=0)           # [world_dim]
+        else:
+            z_point = z_world
+
+        radius_sq = float(radius * self.rbf_field.bandwidth) ** 2
+        active_idxs = self.rbf_field.active_mask.nonzero(as_tuple=True)[0]
+        active_centers = self.rbf_field.centers[active_idxs]                 # [n_active, world_dim]
+        diffs = z_point.unsqueeze(0) - active_centers                        # [n_active, world_dim]
+        dists_sq = (diffs ** 2).sum(dim=-1)                                  # [n_active]
+        in_domain_local = (dists_sq <= radius_sq).nonzero(as_tuple=True)[0]
+        if in_domain_local.numel() == 0:
+            return 0
+        in_domain_global = active_idxs[in_domain_local]
+
+        # Hard floor to preserve the "residue cannot be erased" invariant.
+        # Positive weights clamp to >= +MIN_FLOOR; negative weights clamp to
+        # <= -MIN_FLOOR. Weights that were exactly zero stay zero.
+        MIN_FLOOR = 1e-6
+        with torch.no_grad():
+            w = self.rbf_field.weights.data[in_domain_global]
+            decayed = w * float(factor)
+            sign = torch.sign(w)
+            floored = torch.where(
+                sign > 0,
+                torch.clamp(decayed, min=MIN_FLOOR),
+                torch.where(
+                    sign < 0,
+                    torch.clamp(decayed, max=-MIN_FLOOR),
+                    decayed,
+                ),
+            )
+            self.rbf_field.weights.data[in_domain_global] = floored
+
+        return int(in_domain_global.numel())
+
     def integrate(self, num_steps: int = 10) -> Dict[str, float]:
         """
         Offline integration of residue (contextualisation, no erasure).
@@ -474,6 +736,88 @@ class ResidueField(nn.Module):
                 if self.rbf_field.active_mask.any()
                 else torch.tensor(0.0)
             ),
+        }
+
+    def get_coverage_telemetry(
+        self, residue_scale_factor: float = 1.0
+    ) -> Dict[str, float]:
+        """infant_substrate:GAP-6 -- residue coverage + harm/benefit telemetry.
+
+        Read-only summary over the persistent harm-residue RBF field plus the
+        harm/benefit balance. Additive to get_statistics() (deliberately left
+        unchanged because EXQ-575 and other callers depend on its exact key
+        set). This method mutates no field state and is bit-identical for
+        every existing run -- nothing in the agent/env hot path calls it; it
+        is invoked only by experiment scripts at episode/summary time, the
+        same way EXQ-575 already calls get_statistics().
+
+        residue_coverage_pct
+            infant_substrate_plan.md GAP-6 defines this as the fraction of
+            grid cells with abs(residue) > threshold, threshold =
+            0.02 * residue_scale_factor. The V3 substrate has no literal
+            (y,x) residue grid -- the field is RBF-over-z_world -- so the
+            operational unit is the RBF basis (EXQ-575 precedent:
+            active_centers / num_centers, refined here with the magnitude
+            threshold). A center counts when it is active AND
+            abs(weight) > threshold.
+        harm_benefit_ratio
+            total_residue / total_benefit when the benefit terrain is
+            enabled and benefit has accumulated; -1.0 sentinel otherwise
+            (benefit terrain disabled, or zero benefit accumulated). One
+            sentinel for "undefined", following the GAP-5 pos_entropy
+            sentinel precedent.
+
+        Args:
+            residue_scale_factor: ARC-046 hazard-protection scale (a
+                developmental_curriculum.md parameter, not a ResidueConfig
+                field). Clamped to >= 1e-8 so a 0.0 curriculum value does
+                not collapse the threshold to 0 (which would count every
+                active center regardless of magnitude).
+
+        Returns:
+            Dict of native python floats/ints (ASCII-safe, no tensors):
+            residue_coverage_pct, residue_coverage_threshold,
+            residue_active_centers, residue_n_centers, harm_benefit_ratio,
+            harm_total, benefit_total.
+        """
+        eps = 1e-8
+        thr = 0.02 * max(float(residue_scale_factor), eps)
+        n_centers = int(self.rbf_field.num_centers)
+
+        with torch.no_grad():
+            active_mask = self.rbf_field.active_mask
+            weights_abs = self.rbf_field.weights.detach().abs()
+            active_centers = int(active_mask.sum().item())
+            if n_centers > 0:
+                covered = int(
+                    (active_mask & (weights_abs > thr)).sum().item()
+                )
+                coverage_pct = covered / n_centers
+            else:
+                coverage_pct = 0.0
+
+        harm_total = float(self.total_residue.item())
+
+        if getattr(self, "benefit_terrain_enabled", False) and hasattr(
+            self, "total_benefit"
+        ):
+            benefit_total = float(self.total_benefit.item())
+            if benefit_total > eps:
+                harm_benefit_ratio = harm_total / benefit_total
+            else:
+                harm_benefit_ratio = -1.0
+        else:
+            benefit_total = -1.0
+            harm_benefit_ratio = -1.0
+
+        return {
+            "residue_coverage_pct": float(coverage_pct),
+            "residue_coverage_threshold": float(thr),
+            "residue_active_centers": int(active_centers),
+            "residue_n_centers": int(n_centers),
+            "harm_benefit_ratio": float(harm_benefit_ratio),
+            "harm_total": float(harm_total),
+            "benefit_total": float(benefit_total),
         }
 
     def visualize_field(

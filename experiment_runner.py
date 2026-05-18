@@ -43,16 +43,33 @@ from pathlib import Path
 # Ensure UTF-8 output on Windows (default cp1252 breaks -> and other Unicode in experiment scripts)
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 
+# Hoisted to module top-level so the _push_remote_heartbeat closure inside
+# run_experiment() resolves _rrc via module globals. Previously this import
+# lived only inside main()'s local scope, which caused a NameError every
+# heartbeat tick once run_experiment started (the closure runs on its own
+# thread and never sees main()'s locals).
+try:
+    import runner_remote_control as _rrc
+    _rrc_import_error = None
+except Exception as _rrc_exc:
+    _rrc = None
+    _rrc_import_error = _rrc_exc
+
 REPO_ROOT = Path(__file__).resolve().parent
 QUEUE_FILE = REPO_ROOT / "experiment_queue.json"
 PID_FILE = REPO_ROOT / "runner.pid"
 EVIDENCE_DIR = REPO_ROOT / "evidence" / "experiments"
 SCRIPT_TIMING_FILE = REPO_ROOT / "script_timing.json"
 
+# Runner-conformance sentinel directory. Each experiment subprocess writes
+# <SIGNAL_DIR>/<queue_id>.json via experiment_protocol.emit_outcome(); the
+# runner reads it after subprocess exit. See ree-v3/experiment_protocol.py.
+RUNNER_SIGNAL_SUBPATH = Path("evidence") / "experiments" / "_runner_signals"
+
 # Auto-detect REE_assembly runner_status directory (per-machine files)
 _REE_ASSEMBLY_STATUS_DIRS = [
     REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments" / "runner_status",
-    Path.home() / "Documents" / "GitHub" / "REE_Working" / "REE_assembly" / "evidence" / "experiments" / "runner_status",
+    Path.home() / "REE_Working" / "REE_assembly" / "evidence" / "experiments" / "runner_status",
 ]
 
 STATUS_WRITE_INTERVAL = 5
@@ -70,6 +87,9 @@ RE_STATUS_LINE = re.compile(r'^Status:\s+(PASS|FAIL)')
 RE_EXQ_VERDICT = re.compile(r'\[EXQ-[\w-]+\]\s+(PASS|FAIL)')
 RE_DONE_OUTCOME = re.compile(r'Done\.\s+Outcome:\s+(PASS|FAIL)')
 RE_EXQ_BANNER = re.compile(r'===\s+(?:V3-)?EXQ-[\w-]+\s+(PASS|FAIL)\s*===')
+RE_EXQ_DASHED_OUTCOME = re.compile(
+    r'(?:V3-)?EXQ-[\w-]+\s+\([^)]+\)\s+--\s+(PASS|FAIL)\s+in'
+)
 RE_SAVED_TO = re.compile(r'Result (?:pack )?written to:?\s+(.+)')
 
 
@@ -77,7 +97,7 @@ def find_ree_assembly_path() -> Path | None:
     """Locate the REE_assembly repo (for git auto-sync pushes)."""
     candidates = [
         REPO_ROOT.parent / "REE_assembly",
-        Path.home() / "Documents" / "GitHub" / "REE_Working" / "REE_assembly",
+        Path.home() / "REE_Working" / "REE_assembly",
     ]
     for c in candidates:
         if c.is_dir() and (c / "evidence" / "experiments").is_dir():
@@ -86,14 +106,24 @@ def find_ree_assembly_path() -> Path | None:
 
 
 def git_pull(repo_path: Path, label: str) -> None:
-    """Pull latest changes. Retries on transient lock errors. Never raises."""
+    """Pull latest changes. Retries on transient lock errors. Never raises.
+
+    Uses --rebase --autostash so that local edits to heartbeat / status JSONs
+    don't block the pull with "Your local changes would be overwritten by merge"
+    (the cloud-1 stall we hit 2026-05-10, where the runner couldn't pull
+    REE_assembly while the heartbeat thread was concurrently writing
+    runner_heartbeats/<host>.json and runner_status/<host>.json). Plain
+    --ff-only refuses on a dirty tree even when the dirty files are exactly
+    the ones this machine writes (so a fast-forward would not actually
+    conflict at content level).
+    """
     import time
     _LOCK_HINTS = ("cannot lock ref", "unable to resolve reference",
                    "lock file", "index.lock")
     for attempt in range(3):
         try:
             r = subprocess.run(
-                ["git", "pull", "--ff-only"],
+                ["git", "pull", "--rebase", "--autostash"],
                 cwd=str(repo_path), capture_output=True, text=True, timeout=30,
             )
             if r.returncode == 0:
@@ -133,6 +163,36 @@ def _check_active_claim_on_file(relative_path: str) -> bool:
         return False
     except Exception:
         return False
+
+
+def _sync_pull_tick(ree_assembly_path: Path | None) -> None:
+    """One iteration of the --auto-sync background pull. Never raises.
+
+    Pulls ree-v3 unconditionally, then pulls REE_assembly UNLESS a Claude
+    session holds an active TASK_CLAIMS claim covering any evidence/ path.
+    The REE_assembly skip mirrors runner_remote_control.push_heartbeat /
+    push_commands: `git pull --rebase --autostash` can stack failing
+    autostash stashes and silently revert a concurrent session's
+    uncommitted evidence/claims edits (the EXQ-232 / substrate_queue.json
+    revert incident class). The ree-v3 pull is intentionally unguarded --
+    only REE_assembly carries the high-contention evidence files.
+
+    Default path (no active evidence claim, or runner_remote_control
+    unimportable) is bit-identical to the pre-guard behaviour: both pulls
+    run, each best-effort.
+    """
+    try:
+        git_pull(REPO_ROOT, "ree-v3")
+    except Exception:
+        pass
+    if not ree_assembly_path:
+        return
+    if _rrc is not None and _rrc._active_claim_on_evidence_dir(ree_assembly_path):
+        return
+    try:
+        git_pull(ree_assembly_path, "REE_assembly")
+    except Exception:
+        pass
 
 
 def _merge_queue_json(remote_content: str, saved_content: str) -> str:
@@ -231,6 +291,19 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
                   f"-- skipping push to avoid data loss ({label})", flush=True)
             return False
 
+        # Capture pre-reset HEAD SHA so we can restore committed result files
+        # after `git reset --hard` destroys the local commit.  `git stash
+        # --include-untracked` only captures the working tree; the manifest
+        # that was just committed by git_push_results is in HEAD, not the
+        # working tree, and would otherwise be lost.  See the V3-EXQ-541
+        # leak incident (2026-05-08) and the fix prompt at
+        # /tmp/cloud_manifest_leak_diagnosis_prompt.md.
+        pre_reset_sha_r = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=cwd, capture_output=True,
+            text=True, timeout=5,
+        )
+        pre_reset_sha = pre_reset_sha_r.stdout.strip() if pre_reset_sha_r.returncode == 0 else ""
+
         # Stash uncommitted work (preserves concurrent Claude session edits)
         stash_result = subprocess.run(
             ["git", "stash", "--include-untracked", "-m", f"runner-auto-sync-{now_utc()[:10]}"],
@@ -243,17 +316,81 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
         subprocess.run(["git", "reset", "--hard", f"origin/{branch}"],
                        cwd=cwd, capture_output=True, timeout=10)
 
+        # Restore committed result files from the destroyed pre-reset commit
+        # BEFORE attempting stash pop.  This guarantees the manifest is on
+        # disk regardless of whether the pop succeeds or conflicts.
+        # Build the list of paths to restore.  When result_files is supplied
+        # we restore only those (selective recovery, matches selective stage).
+        # When result_files is None (broad-fallback path), derive the list
+        # from the destroyed commit's diff against the new remote HEAD --
+        # otherwise the broad `git add evidence/experiments/` recovery
+        # below stages nothing because everything was nuked by reset --hard.
+        paths_to_restore: list[str] = []
+        if result_files:
+            for f in result_files:
+                try:
+                    paths_to_restore.append(str(Path(f).relative_to(Path(cwd))))
+                except ValueError:
+                    paths_to_restore.append(f)
+        elif pre_reset_sha:
+            diff_r = subprocess.run(
+                ["git", "diff", "--name-only", f"origin/{branch}", pre_reset_sha],
+                cwd=cwd, capture_output=True, text=True, timeout=10,
+            )
+            if diff_r.returncode == 0:
+                paths_to_restore = [
+                    p for p in diff_r.stdout.splitlines() if p.strip()
+                ]
+
+        restored_paths: list[str] = []
+        if pre_reset_sha and paths_to_restore:
+            for rel in paths_to_restore:
+                co = subprocess.run(
+                    ["git", "checkout", pre_reset_sha, "--", rel],
+                    cwd=cwd, capture_output=True, text=True, timeout=10,
+                )
+                if co.returncode == 0:
+                    restored_paths.append(rel)
+                else:
+                    print(f"[runner] WARN: could not restore {rel} from "
+                          f"{pre_reset_sha[:10]} ({label}): "
+                          f"{co.stderr.strip()}", flush=True)
+
         # Pop stash to restore uncommitted work
+        pop_succeeded = True
         if stashed:
             pop = subprocess.run(
                 ["git", "stash", "pop"],
                 cwd=cwd, capture_output=True, text=True, timeout=10,
             )
             if pop.returncode != 0:
-                # Stash pop conflict -- restore stash and skip pushing
-                print(f"[runner] auto-sync: stash pop conflict -- skipping push ({label}). "
-                      f"Stash preserved for manual recovery.", flush=True)
-                return False
+                # Stash pop conflict -- log but continue.  The stash is
+                # preserved in `git stash list` for manual recovery; the
+                # restored manifest is on disk + staged and we still want
+                # to commit + push it so the scientific result reaches
+                # REE_assembly master.  Resolve every unmerged path by
+                # taking the remote version (--ours, since after reset
+                # HEAD == origin/branch); this clears the conflict
+                # markers without overwriting the manifest restore.
+                print(f"[runner] auto-sync: stash pop conflict ({label}). "
+                      f"Stash preserved for manual recovery; continuing "
+                      f"with manifest-only commit.", flush=True)
+                pop_succeeded = False
+                unmerged_r = subprocess.run(
+                    ["git", "diff", "--name-only", "--diff-filter=U"],
+                    cwd=cwd, capture_output=True, text=True, timeout=5,
+                )
+                unmerged = (
+                    unmerged_r.stdout.splitlines()
+                    if unmerged_r.returncode == 0 else []
+                )
+                for path in unmerged:
+                    subprocess.run(
+                        ["git", "checkout", "--ours", "--", path],
+                        cwd=cwd, capture_output=True, timeout=10,
+                    )
+                    subprocess.run(["git", "reset", "HEAD", "--", path],
+                                   cwd=cwd, capture_output=True, timeout=10)
 
         # Re-stage only the specific result files the runner wrote (selective)
         if result_files:
@@ -263,6 +400,28 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
                 except ValueError:
                     rel = f
                 subprocess.run(["git", "add", rel], cwd=cwd, capture_output=True, timeout=10)
+            # Diagnostic: warn if the selective add staged none of the
+            # expected files.  The historical silent-no-op (file removed
+            # by reset --hard, `git add` matches nothing, stderr swallowed)
+            # is what masked this bug for weeks.
+            staged_r = subprocess.run(
+                ["git", "diff", "--cached", "--name-only"],
+                cwd=cwd, capture_output=True, text=True, timeout=5,
+            )
+            staged = set(staged_r.stdout.splitlines()) if staged_r.returncode == 0 else set()
+            expected = set()
+            for f in result_files:
+                try:
+                    expected.add(str(Path(f).relative_to(Path(cwd))))
+                except ValueError:
+                    expected.add(f)
+            missing = expected - staged
+            if missing:
+                print(f"[runner] WARN: post-recovery selective add staged "
+                      f"none of {sorted(missing)} ({label}). "
+                      f"pop_succeeded={pop_succeeded} "
+                      f"restored_via_checkout={sorted(restored_paths)}",
+                      flush=True)
         else:
             # Fallback: broad staging (only if no specific files known)
             subprocess.run(["git", "add", "evidence/experiments/"],
@@ -354,9 +513,42 @@ def git_push_results(ree_assembly_path: Path, result_files: list[str] | None = N
             ["git", "commit", "-m", msg],
             cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
         )
-        _git_push_with_retry(str(ree_assembly_path), "master", "results -> REE_assembly")
+        _git_push_with_retry(str(ree_assembly_path), "master",
+                             "results -> REE_assembly",
+                             result_files=result_files)
     except Exception as e:
         print(f"[runner] auto-sync push error: {e}", flush=True)
+
+
+def git_push_status(ree_assembly_path: Path, status_path: Path, queue_id: str) -> None:
+    """Stage, commit, and push the per-machine runner_status file only.
+
+    Called per-completion to maintain the invariant that GitHub's status is at
+    least as fresh as the queue. Without this, the queue-removal commit lands
+    (via git_push_queue) while the corresponding status entry stays local --
+    other machines see "queue shrunk" with no record of what ran.
+
+    Warns on failure; never raises.
+    """
+    try:
+        rel = str(status_path.relative_to(ree_assembly_path))
+        subprocess.run(
+            ["git", "add", rel],
+            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
+        )
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=str(ree_assembly_path), timeout=5,
+        )
+        if diff.returncode == 0:
+            return  # nothing to push
+        subprocess.run(
+            ["git", "commit", "-m", f"runner_status: {queue_id} -> {status_path.stem}"],
+            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
+        )
+        _git_push_with_retry(str(ree_assembly_path), "master", f"status {queue_id} -> REE_assembly")
+    except Exception as e:
+        print(f"[runner] auto-sync status push error ({queue_id}): {e}", flush=True)
 
 
 # ── Multi-machine coordination ────────────────────────────────────────────────
@@ -737,9 +929,54 @@ def build_initial_status(queue_data: dict, script_timing: dict | None = None) ->
     }
 
 
+def _resolve_signal_dir(ree_assembly_path: Path | None) -> Path | None:
+    """Return REE_assembly/evidence/experiments/_runner_signals/, or None."""
+    if ree_assembly_path is None:
+        return None
+    d = ree_assembly_path / RUNNER_SIGNAL_SUBPATH
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    return d
+
+
+def _build_subprocess_env(queue_id: str, signal_dir: Path | None) -> dict:
+    """Build the env dict for an experiment subprocess.
+
+    Both REE_QUEUE_ID and REE_RUNNER_SIGNAL_DIR are ALWAYS written -- with
+    empty-string fallbacks -- so the child never inherits a stale value
+    from the runner's own shell env. A stale REE_QUEUE_ID would route the
+    sentinel emit_outcome() writes to the wrong file under the wrong
+    signal dir, masking real-run sentinels with phantom ones.
+    """
+    env = os.environ.copy()
+    env["REE_QUEUE_ID"] = queue_id or ""
+    env["REE_RUNNER_SIGNAL_DIR"] = str(signal_dir) if signal_dir is not None else ""
+    return env
+
+
+def _read_sentinel(signal_dir: Path | None, queue_id: str) -> dict | None:
+    """Read <signal_dir>/<queue_id>.json. Return parsed dict or None."""
+    if signal_dir is None or not queue_id:
+        return None
+    sig_path = signal_dir / f"{queue_id}.json"
+    if not sig_path.is_file():
+        return None
+    try:
+        return json.loads(sig_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[runner] WARN: sentinel {sig_path} unreadable: {exc}", flush=True)
+        return None
+
+
 def run_experiment(item: dict, status: dict, status_path: Path, calibration: dict,
                    script_timing: dict | None = None,
-                   proc_ref: list | None = None) -> dict:
+                   proc_ref: list | None = None,
+                   auto_sync: bool = False,
+                   ree_assembly_path: Path | None = None,
+                   remote_control: bool = False,
+                   machine: str | None = None) -> dict:
     """Run a single experiment script as a subprocess.
 
     proc_ref: if provided, the active Popen object is stored as proc_ref[0] immediately
@@ -752,10 +989,33 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         raw_args = shlex.split(raw_args)
     args = [sys.executable, "-u", str(script)] + raw_args
 
+    signal_dir = _resolve_signal_dir(ree_assembly_path)
+    queue_id = item.get("queue_id", "")
+    # Pre-clean any stale sentinel from a previous attempt of the same queue_id
+    # (e.g. requeued after manual edit). Avoids spurious "PASS" reads.
+    if signal_dir is not None and queue_id:
+        stale = signal_dir / f"{queue_id}.json"
+        if stale.exists():
+            try:
+                stale.unlink()
+            except OSError as _exc:
+                print(f"[runner] WARN: could not unlink stale sentinel {stale}: {_exc}",
+                      flush=True)
+
     seed_count = _run_axis_count(item.get("seeds", 1), "seeds")
     condition_count = _run_axis_count(item.get("conditions", 1), "conditions")
     total_runs = max(1, seed_count * condition_count)
     episodes_per_run = item.get("episodes_per_run", 130)
+    # Floor prevents warmup/eval phase denominators from shrinking below the
+    # queue-specified per-run episode count (fix for multi-phase experiments).
+    episodes_per_run_floor = item.get("episodes_per_run", 0)
+    # True when the experiment manages seeds/conditions internally (no queue metadata).
+    _unstructured_est = (
+        bool(item.get("estimated_minutes"))
+        and not item.get("seeds")
+        and not item.get("conditions")
+        and total_runs == 1
+    )
 
     runs_done = 0
     current_run_label = "starting..."
@@ -767,13 +1027,24 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     started_at_utc = now_utc()
 
     def overall_pct() -> float:
+        # For experiments with estimated_minutes but no seed/condition metadata,
+        # use elapsed-time fraction so multi-phase internal loops don't cause
+        # the timer to show 100% after the first phase completes.
+        if _unstructured_est:
+            elapsed = time.monotonic() - started_at
+            est_secs = float(item["estimated_minutes"]) * 60
+            return min(round(elapsed / est_secs * 100, 1), 99.0)
         run_frac = (runs_done + episodes_in_run / max(episodes_per_run, 1)) / max(total_runs, 1)
         return round(run_frac * 100, 1)
 
     def seconds_remaining() -> float:
         elapsed = time.monotonic() - started_at
         pct = overall_pct()
-        static_secs = estimate_minutes(item, calibration, script_timing) * 60
+        manual_est = item.get("estimated_minutes")
+        if manual_est:
+            static_secs = float(manual_est) * 60
+        else:
+            static_secs = estimate_minutes(item, calibration, script_timing) * 60
         if pct <= 0:
             return static_secs
         if run_end_times:
@@ -845,23 +1116,79 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     }
 
     try:
+        env = _build_subprocess_env(queue_id, signal_dir)
         proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=env,
         )
         if proc_ref is not None:
             proc_ref.clear()
             proc_ref.append(proc)
 
         _hb_stop = threading.Event()
+        # Track last remote-control heartbeat push so we can write the local
+        # heartbeat file every STATUS_WRITE_INTERVAL but push to git only
+        # every ~60s (matches the idle-loop heartbeat cadence; avoids
+        # 12 commits/min/machine during a run).
+        _last_hb_push = [0.0]
+        HB_PUSH_INTERVAL = 60.0
+
+        def _build_progress_payload() -> dict:
+            return {
+                "run_label": current_run_label,
+                "runs_done": runs_done,
+                "runs_total": total_runs,
+                "episodes_done": episodes_in_run,
+                "episodes_total": episodes_per_run,
+                "overall_pct": overall_pct(),
+            }
+
+        def _push_remote_heartbeat():
+            """Write + (throttled) push the per-machine remote-control
+            heartbeat with full progress payload. Best-effort; never raises.
+            """
+            if not (remote_control and _rrc is not None and ree_assembly_path
+                    and machine):
+                return
+            try:
+                hb_path = _rrc.write_heartbeat(
+                    ree_assembly_path, machine, state="running",
+                    current_exq=item["queue_id"],
+                    current_exq_started_utc=started_at_utc,
+                    current_title=item.get("title", ""),
+                    current_claim_id=item.get("claim_id", ""),
+                    current_description=item.get("description", ""),
+                    progress=_build_progress_payload(),
+                    seconds_elapsed=round(time.monotonic() - started_at),
+                    seconds_remaining=round(seconds_remaining()),
+                    recent_lines=list(recent_lines[-5:]),
+                    runner_pid=os.getpid(),
+                )
+                if auto_sync and hb_path is not None:
+                    now_mono = time.monotonic()
+                    if now_mono - _last_hb_push[0] >= HB_PUSH_INTERVAL:
+                        _rrc.push_heartbeat(ree_assembly_path, hb_path)
+                        _last_hb_push[0] = now_mono
+            except Exception as _exc:
+                print(f"[runner] remote heartbeat warn: {_exc}", flush=True)
+
         def _heartbeat():
             while not _hb_stop.wait(timeout=STATUS_WRITE_INTERVAL):
                 update_status_current()
+                _push_remote_heartbeat()
         _hb_thread = threading.Thread(target=_heartbeat, daemon=True)
         _hb_thread.start()
+
+        if auto_sync:
+            def _background_sync():
+                while not _hb_stop.wait(timeout=60):
+                    _sync_pull_tick(ree_assembly_path)
+            _sync_thread = threading.Thread(target=_background_sync, daemon=True)
+            _sync_thread.start()
 
         for line in proc.stdout:
             line = line.rstrip()
@@ -881,7 +1208,12 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             m = RE_EP_PROGRESS.search(line)
             if m:
                 episodes_in_run = int(m.group(1))
-                episodes_per_run = int(m.group(2))  # use denominator for accurate pct
+                new_denom = int(m.group(2))
+                # Only update if the new denominator is at least as large as the
+                # queue-specified floor, so warmup/eval phase denominators don't
+                # shrink episodes_per_run and cause overall_pct to hit 100% early.
+                if episodes_per_run_floor == 0 or new_denom >= episodes_per_run_floor:
+                    episodes_per_run = new_denom
 
             # Progress bar -- print every 20% of progress
             if episodes_in_run > 0:
@@ -913,15 +1245,18 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             _exq_m = RE_EXQ_VERDICT.search(line)
             _done_m = RE_DONE_OUTCOME.search(line)
             _banner_m = RE_EXQ_BANNER.search(line)
+            _dashed_m = RE_EXQ_DASHED_OUTCOME.search(line)
             if "verdict: PASS" in line or (RE_STATUS_LINE.match(line) and "PASS" in line) \
                     or (_exq_m and _exq_m.group(1) == "PASS") \
                     or (_done_m and _done_m.group(1) == "PASS") \
-                    or (_banner_m and _banner_m.group(1) == "PASS"):
+                    or (_banner_m and _banner_m.group(1) == "PASS") \
+                    or (_dashed_m and _dashed_m.group(1) == "PASS"):
                 result_info["result"] = "PASS"
             elif "verdict: FAIL" in line or (RE_STATUS_LINE.match(line) and "FAIL" in line) \
                     or (_exq_m and _exq_m.group(1) == "FAIL") \
                     or (_done_m and _done_m.group(1) == "FAIL") \
-                    or (_banner_m and _banner_m.group(1) == "FAIL"):
+                    or (_banner_m and _banner_m.group(1) == "FAIL") \
+                    or (_dashed_m and _dashed_m.group(1) == "FAIL"):
                 result_info["result"] = "FAIL"
 
             stripped = line.strip()
@@ -938,9 +1273,65 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         proc.wait()
         exit_code = proc.returncode
 
+        # Sentinel file authoritatively determines outcome (replaces fragile
+        # stdout-regex scraping that caused 2026-05-08 silent drops). The
+        # stdout-derived result_info["result"] is kept as a diagnostic
+        # cross-check but the sentinel wins when present.
+        sentinel = _read_sentinel(signal_dir, queue_id)
+        if sentinel is not None:
+            sent_outcome = sentinel.get("outcome")
+            sent_manifest = sentinel.get("manifest_path")
+            if sent_outcome in ("PASS", "FAIL"):
+                if (result_info["result"] in ("PASS", "FAIL")
+                        and result_info["result"] != sent_outcome):
+                    print(f"[runner] WARN: stdout said {result_info['result']} but "
+                          f"sentinel says {sent_outcome}; trusting sentinel.", flush=True)
+                result_info["result"] = sent_outcome
+                if sent_manifest:
+                    result_info["output_file"] = sent_manifest
+                exit_reason = sentinel.get("exit_reason", "ok")
+                if not result_info["result_summary"] and exit_reason and exit_reason != "ok":
+                    result_info["result_summary"] = f"sentinel exit_reason={exit_reason}"
+            else:
+                print(f"[runner] WARN: sentinel for {queue_id} has invalid "
+                      f"outcome={sent_outcome!r}; classifying ERROR", flush=True)
+                result_info["result"] = "ERROR"
+                result_info["result_summary"] = f"sentinel invalid outcome: {sent_outcome!r}"
+        else:
+            # Sentinel missing -- script did not call emit_outcome, OR was
+            # killed before reaching the call, OR ran on a stale binary
+            # without the protocol module. Classify ERROR (NOT UNKNOWN);
+            # downstream branches keep the queue item in place if the
+            # script is not yet retrofitted (legacy stdout result still
+            # surfaces in result_summary).
+            if result_info["result"] in ("PASS", "FAIL"):
+                # Legacy stdout-only path: trust the regex result but flag
+                # the missing sentinel so the user can retrofit the script.
+                print(f"[runner] NOTE: no sentinel for {queue_id}; using "
+                      f"legacy stdout-derived result {result_info['result']} "
+                      f"(retrofit experiment_protocol.emit_outcome to silence)",
+                      flush=True)
+            else:
+                # No sentinel and no PASS/FAIL on stdout -> ERROR.
+                result_info["result"] = "ERROR"
+                if exit_code != 0:
+                    result_info["result_summary"] = (
+                        f"Non-zero exit code {exit_code}; no runner sentinel "
+                        f"and no stdout verdict"
+                    )
+                else:
+                    result_info["result_summary"] = (
+                        f"No runner sentinel emitted and no PASS/FAIL on stdout "
+                        f"(exit={exit_code}; secs={round(time.monotonic() - started_at, 1)})"
+                    )
+
+        # Belt-and-braces: a true non-zero exit with no positive verdict from
+        # either source is always ERROR.
         if exit_code != 0 and result_info["result"] == "UNKNOWN":
             result_info["result"] = "ERROR"
-            result_info["result_summary"] = f"Non-zero exit code {exit_code}"
+            result_info["result_summary"] = (
+                result_info["result_summary"] or f"Non-zero exit code {exit_code}"
+            )
 
     except Exception as exc:
         result_info["result"] = "ERROR"
@@ -991,7 +1382,48 @@ def main():
         help="Machine identity for experiment claiming (default: hostname). "
              "Use 'any' to disable affinity filtering.",
     )
+    parser.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Skip the regression-suite preflight layer. Also honoured via "
+             "REE_SKIP_PREFLIGHT=1 (useful when a preflight test itself is broken).",
+    )
+    parser.add_argument(
+        "--remote-control",
+        action="store_true",
+        help="Write per-machine heartbeat to REE_assembly each loop tick "
+             "(REE_assembly/evidence/experiments/runner_heartbeats/<hostname>.json). "
+             "Phase 1 of the multi-machine dashboard; off by default.",
+    )
     args = parser.parse_args()
+
+    if args.remote_control and _rrc is None:
+        print(f"[runner] --remote-control requested but module import failed: "
+              f"{_rrc_import_error}. Heartbeats disabled.", flush=True)
+
+    # Pull ree-v3 before preflight so a stale local queue doesn't block startup.
+    # (The full auto-sync pull of REE_assembly happens after preflight as before.)
+    if args.auto_sync:
+        git_pull(REPO_ROOT, "ree-v3")
+
+    if not args.skip_preflight and os.environ.get("REE_SKIP_PREFLIGHT") != "1":
+        preflight_dir = REPO_ROOT / "tests" / "preflight"
+        if preflight_dir.exists():
+            print(f"[runner] Preflight: running {preflight_dir}", flush=True)
+            rc = subprocess.call(
+                [sys.executable, "-m", "pytest", "-q", "--tb=line", str(preflight_dir)],
+                cwd=str(REPO_ROOT),
+            )
+            if rc != 0:
+                print(
+                    "[runner] Preflight FAILED (exit {}). Fix failing tests or "
+                    "re-run with --skip-preflight to bypass.".format(rc),
+                    flush=True,
+                )
+                sys.exit(rc)
+            print("[runner] Preflight: OK", flush=True)
+        else:
+            print("[runner] Preflight: tests/preflight not found -- skipping.", flush=True)
 
     machine = _get_machine_name(args.machine)
     status_path = args.status_file or find_default_status_path(machine)
@@ -999,6 +1431,16 @@ def main():
     print(f"[runner] Status file: {status_path}", flush=True)
     print(f"[runner] Queue file:  {QUEUE_FILE}", flush=True)
     print(f"[runner] Machine identity: {machine}", flush=True)
+    if args.remote_control and _rrc is not None and ree_assembly_path:
+        print(f"[runner] Remote-control: ON (heartbeats -> "
+              f"{ree_assembly_path}/evidence/experiments/runner_heartbeats/)", flush=True)
+        _rrc.write_heartbeat(
+            ree_assembly_path, machine, state="starting",
+            runner_pid=os.getpid(),
+        )
+    elif args.remote_control and not ree_assembly_path:
+        print("[runner] --remote-control requested but REE_assembly not found; "
+              "heartbeats disabled.", flush=True)
     if args.auto_sync:
         if ree_assembly_path:
             print(f"[runner] Auto-sync: ON (REE_assembly: {ree_assembly_path})", flush=True)
@@ -1021,6 +1463,8 @@ def main():
     # _current_proc holds the active experiment subprocess so the second signal can kill it.
     _drain_flag: list[bool] = []           # non-empty -> drain requested
     _current_proc: list[subprocess.Popen] = []  # 0 or 1 elements
+    _pause_flag: list[bool] = []           # non-empty -> remote pause requested
+    _force_stop_flag: list[bool] = []      # non-empty -> remote force_stop requested
 
     def _do_immediate_exit() -> None:
         """Final cleanup steps shared by both force-exit and post-drain exit."""
@@ -1151,7 +1595,30 @@ def main():
     while True:
         ran_any = False
 
+        # Drain any pending remote-control commands at the top of each pass
+        # (before claiming the next experiment). Commands like 'stop', 'pause',
+        # 'kick', 'release_claim' need to take effect before the inner loop
+        # picks up its next item.
+        if args.remote_control and _rrc is not None and ree_assembly_path:
+            _rrc.process_pending_commands(
+                ree_assembly_path, machine, QUEUE_FILE,
+                drain_flag=_drain_flag,
+                pause_flag=_pause_flag,
+                force_stop_flag=_force_stop_flag,
+                current_proc=_current_proc,
+                auto_sync=args.auto_sync,
+            )
+            if _force_stop_flag:
+                print("[runner] Remote force_stop received -- exiting.", flush=True)
+                break
+            if _pause_flag:
+                # Skip the inner experiment loop entirely while paused.
+                # Heartbeat update at the bottom will record state=paused.
+                pass
+
         for item in items:
+            if _pause_flag:
+                break  # paused: don't pick up new experiments this pass
             queue_id = item["queue_id"]
 
             if queue_id in completed_ids:
@@ -1182,6 +1649,8 @@ def main():
                     status["completed"].append(completed_entry)
                     status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] != queue_id]
                     write_status(status, status_path)
+                    if args.auto_sync and ree_assembly_path:
+                        git_push_status(ree_assembly_path, status_path, queue_id)
                     try:
                         qdata = json.loads(QUEUE_FILE.read_text())
                         qdata["items"] = [qi for qi in qdata.get("items", [])
@@ -1235,7 +1704,11 @@ def main():
 
             try:
                 result = run_experiment(item, status, status_path, calibration, script_timing,
-                                        proc_ref=_current_proc)
+                                        proc_ref=_current_proc,
+                                        auto_sync=args.auto_sync,
+                                        ree_assembly_path=ree_assembly_path,
+                                        remote_control=args.remote_control,
+                                        machine=machine)
             except Exception as _run_exc:
                 # Unexpected exception escaping run_experiment -- treat as ERROR and continue
                 print(f"[runner] UNEXPECTED ERROR in {queue_id}: {_run_exc}", flush=True)
@@ -1262,6 +1735,35 @@ def main():
                     item.get("episodes_per_run", 130),
                 )
                 script_timing = load_script_timing()
+
+            # Detect transient infrastructure crashes (OOM, SIGKILL) vs genuine script
+            # errors. Exit code 137 = SIGKILL on Linux (OOM-killer). Negative codes =
+            # killed by signal directly. These must NOT permanently remove the queue
+            # item -- release the claim so another machine (or the next pass) can retry.
+            # Root cause: Hetzner CX22 2-shared-vCPU OOM kills emit code 137; the
+            # script dies before emit_outcome() runs, so no sentinel is written, which
+            # caused the belt-and-braces block to convert UNKNOWN -> ERROR, and the
+            # ERROR path below to permanently drop the experiment. This block intercepts
+            # that case before it reaches the permanent-removal path.
+            _transient_exit_codes = {137, -9, -11}  # SIGKILL (OOM), SIGKILL direct, SIGSEGV
+            _is_infra_crash = (
+                result["result"] == "ERROR"
+                and exit_code in _transient_exit_codes
+                and not sentinel  # only when script never called emit_outcome
+            )
+            if _is_infra_crash:
+                print(
+                    f"[runner] INFRA-CRASH: {queue_id} exit={exit_code} "
+                    f"(likely OOM/SIGKILL); leaving in queue, releasing claim. "
+                    f"actual_secs={result.get('actual_secs')}",
+                    flush=True,
+                )
+                if args.auto_sync:
+                    release_claim(QUEUE_FILE, queue_id, machine)
+                completed_ids.add(queue_id)  # don't re-pick this pass
+                status["current"] = None
+                write_status(status, status_path)
+                continue
 
             if result["result"] == "ERROR":
                 # Script crashed -- move to completed (so it appears in the explorer
@@ -1337,6 +1839,43 @@ def main():
                       flush=True)
                 continue
 
+            # UNKNOWN result MUST NOT reach the success branch. Without a
+            # PASS/FAIL/ERROR classification we cannot safely remove the
+            # queue item. Release the claim, leave the entry in the queue,
+            # and surface loudly. Pre-2026-05-08 the fall-through on
+            # line 1394 let UNKNOWN reach the queue-removal block here,
+            # silently dropping V3-EXQ-433f / 537 / 538 on cloud-1.
+            if result["result"] == "UNKNOWN":
+                print(f"[runner] UNKNOWN result for {queue_id} (no sentinel and "
+                      f"no stdout verdict); leaving in queue, releasing claim. "
+                      f"actual_secs={result.get('actual_secs')}, "
+                      f"output_file={result.get('output_file')!r}",
+                      flush=True)
+                if args.auto_sync:
+                    release_claim(QUEUE_FILE, queue_id, machine)
+                completed_ids.add(queue_id)  # don't re-pick this pass
+                status["current"] = None
+                write_status(status, status_path)
+                continue
+
+            # Verify the manifest exists before declaring done. A PASS/FAIL
+            # outcome with a missing manifest is a contract violation; do
+            # not remove the queue entry. (sentinel.manifest_path was
+            # already validated for str-shape; check existence here.)
+            manifest_str = result.get("output_file") or ""
+            manifest_ok = (not manifest_str) or Path(manifest_str).is_file()
+            if not manifest_ok:
+                print(f"[runner] WARN: {queue_id} reports {result['result']} "
+                      f"but manifest {manifest_str!r} is missing on disk. "
+                      f"Leaving in queue; investigate before requeueing.",
+                      flush=True)
+                if args.auto_sync:
+                    release_claim(QUEUE_FILE, queue_id, machine)
+                completed_ids.add(queue_id)
+                status["current"] = None
+                write_status(status, status_path)
+                continue
+
             completed_entry = {
                 "queue_id": queue_id,
                 "backlog_id": item.get("backlog_id", ""),
@@ -1358,6 +1897,24 @@ def main():
             status["current"] = None
 
             write_status(status, status_path)
+
+            # Push status to REE_assembly BEFORE queue push. Invariant: GitHub's
+            # status is always at least as fresh as the queue. Otherwise a
+            # crash between queue-push and end-of-pass results-push loses the
+            # status entry permanently (406a/429a/430a on 2026-04-18).
+            if args.auto_sync and ree_assembly_path:
+                git_push_status(ree_assembly_path, status_path, queue_id)
+
+            # Push results BEFORE queue removal. Otherwise a Hetzner-style
+            # mid-pass shutdown between queue-push and end-of-pass results-push
+            # strands the manifest on the dying VM (the V3-EXQ-483b SIGTERM
+            # signature on 2026-05-08). Same invariant as status above.
+            if args.auto_sync and ree_assembly_path and result.get("output_file"):
+                try:
+                    git_push_results(ree_assembly_path, [result["output_file"]])
+                except Exception as _re:
+                    print(f"[runner] warn: per-experiment results push "
+                          f"failed for {queue_id}: {_re}", flush=True)
 
             # Remove completed item from queue file -- runner_status.json is the
             # authoritative record of what has run; queue file should only contain
@@ -1396,6 +1953,33 @@ def main():
             print(f"[runner] Pass complete. Waiting {args.loop_interval}s ...", flush=True)
         else:
             print(f"[runner] No new items. Waiting {args.loop_interval}s ...", flush=True)
+
+        if args.remote_control and _rrc is not None and ree_assembly_path:
+            queue_pending = [
+                qi for qi in status.get("queue", [])
+                if qi.get("queue_id") not in completed_ids
+            ]
+            head_id = queue_pending[0]["queue_id"] if queue_pending else None
+            recent = status.get("completed", [])[-5:]
+            hb_state = "paused" if _pause_flag else (
+                "draining" if _drain_flag else "idle"
+            )
+            hb_path = _rrc.write_heartbeat(
+                ree_assembly_path, machine, state=hb_state,
+                queue_depth=len(queue_pending),
+                queue_id_at_head=head_id,
+                recent_completed=[
+                    {
+                        "queue_id": c.get("queue_id"),
+                        "result": c.get("result"),
+                        "completed_at": c.get("completed_at"),
+                    }
+                    for c in recent
+                ],
+                runner_pid=os.getpid(),
+            )
+            if args.auto_sync and hb_path is not None:
+                _rrc.push_heartbeat(ree_assembly_path, hb_path)
 
         time.sleep(args.loop_interval)
 

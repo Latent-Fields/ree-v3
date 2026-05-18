@@ -271,19 +271,52 @@ class ResourceEncoder(nn.Module):
         bind context (where) with object identity (what). Goal-directed approach requires a
         "what-to-seek" signal, not a "where-it-was" signal.
 
-    Phased training (recommended):
+    Phased training (recommended -- Phase 1 single-type substrate):
         P0: Train ResourceEncoder on benefit_exposure supervision (aux head).
         P1: Activate goal seeding from z_resource in update_z_goal().
 
+    SD-049 Phase 2 hybrid identity expansion (use_identity_classifier=True):
+        Adds an identity-classifier head riding on z_resource (the trunk output).
+        Cross-entropy supervision target = obs_dict["resource_type_at_agent"]
+        from the SD-049 multi-resource substrate. The classifier head pulls
+        on the trunk during P0 supervised pre-training; the trunk output
+        z_resource shape is unchanged so all downstream consumers (GoalState
+        seeding, etc.) continue to work without modification.
+
+        Phased training (Phase 2):
+          P0: enable use_identity_classifier=True; backprop identity-CE loss
+              + resource_prox MSE loss + downstream losses through trunk.
+              Classifier head provides anti-collapse pull (Levi 2021 mitigation
+              in spirit) and identity-discriminability supervision per the
+              biology-anchored verdict (Ballesta-Padoa-Schioppa 2019 labeled
+              lines + Schapiro 2017 hybrid CLS).
+          P1: freeze identity_head.requires_grad_(False); continue trunk
+              training under E1/E3/downstream-task losses. Trunk embedding
+              develops similarity structure beyond what classifier supervision
+              alone provides (Schapiro 2016 distributed substrate).
+          P2: evaluate identity-recovery (linear probe on z_resource) AND
+              wanting!=liking trajectory dissociation (per V3-EXQ-514
+              acceptance).
+
+        Lit-pull provenance: REE_assembly/evidence/literature/
+        targeted_review_sd_049_encoder_identity_expansion/verdict.md
+        (Option C hybrid, confidence 0.78).
+
     MECH-094: not applicable (waking observation stream).
-    See CLAUDE.md: SD-015, MECH-112. See goal.py: GoalState.update().
+    See CLAUDE.md: SD-015, MECH-112, SD-049 Phase 2. See goal.py: GoalState.update().
     """
 
     def __init__(self, world_obs_dim: int = 250, z_resource_dim: int = 32,
-                 hidden_dim: int = 64):
+                 hidden_dim: int = 64,
+                 use_identity_classifier: bool = False,
+                 n_resource_types: int = 3):
         super().__init__()
         self.world_obs_dim = world_obs_dim
         self.z_resource_dim = z_resource_dim
+        self.use_identity_classifier = bool(use_identity_classifier)
+        self.n_resource_types = int(n_resource_types)
+        # Shared trunk -- the distributed similarity-preserving substrate
+        # (Schapiro 2016/2017 monosynaptic-analog).
         self.encoder = nn.Sequential(
             nn.Linear(world_obs_dim, hidden_dim),
             nn.ReLU(),
@@ -296,8 +329,21 @@ class ResourceEncoder(nn.Module):
             nn.Linear(z_resource_dim, 1),
             nn.Sigmoid(),
         )
+        # SD-049 Phase 2 hybrid identity classifier head -- the labeled-line
+        # readout (Ballesta-Padoa-Schioppa 2019 + Quiroga 2005 trisynaptic-
+        # analog). Cross-entropy supervision on resource_type_at_agent. Gated
+        # by use_identity_classifier flag for backward compat (existing SD-015
+        # experiments do not enable this and see no behavioural change).
+        if self.use_identity_classifier:
+            self.identity_head: Optional[nn.Module] = nn.Linear(
+                z_resource_dim, self.n_resource_types
+            )
+        else:
+            self.identity_head = None
 
-    def forward(self, world_obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, world_obs: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """
         Encode world observation into resource-type latent.
 
@@ -305,12 +351,18 @@ class ResourceEncoder(nn.Module):
             world_obs: [batch, world_obs_dim] -- raw exteroceptive observation
 
         Returns:
-            z_resource: [batch, z_resource_dim] -- object-type latent
+            z_resource: [batch, z_resource_dim] -- object-type latent (trunk output)
             resource_prox_pred_r: [batch, 1] -- aux prediction for training supervision
+            identity_logits: [batch, n_resource_types] -- SD-049 Phase 2 identity
+                classifier output (raw logits, NOT softmaxed). None when
+                use_identity_classifier=False (default; backward-compat).
         """
         z_resource = self.encoder(world_obs)
         resource_prox_pred_r = self.resource_prox_head(z_resource)
-        return z_resource, resource_prox_pred_r
+        identity_logits: Optional[torch.Tensor] = None
+        if self.identity_head is not None:
+            identity_logits = self.identity_head(z_resource)
+        return z_resource, resource_prox_pred_r, identity_logits
 
 
 # DEPRECATED 2026-04-02 -- use ResidualHarmForward (ARC-033). Identity collapse on autocorrelated signals.
@@ -365,6 +417,98 @@ class HarmForwardModel(nn.Module):
         """
         x = torch.cat([z_harm_s, action], dim=-1)
         return self.forward_net(x)
+
+
+class HarmForwardTrunk(nn.Module):
+    """Shared hidden-representation substrate for harm forward models (ARC-058).
+
+    Implements the trunk half of the shared-trunk-plus-stream-specific-heads
+    architecture: takes (z_harm, action) -> hidden representation. One trunk
+    instance is shared between E2HarmSForward and E2HarmAForward when
+    REEConfig.use_shared_harm_trunk is True, so the same hidden substrate
+    serves both sensory-discriminative and affective streams.
+
+    Biological grounding (Horing & Buchel 2022 PLoS Biol): anterior insula
+    encodes a modality-independent unsigned prediction-error signal shared
+    across pain and non-pain aversive modalities; dorsal posterior insula
+    encodes modality-specific signed PE. The trunk models the shared
+    unsigned-PE substrate; stream-specific heads (HarmForwardHead) produce
+    the signed per-stream predictions. See
+    evidence/literature/targeted_review_pain_predictive_coding_substrate.
+
+    Architecturally identical to the first half of ResidualHarmForward. The
+    two cohabit in this module for backward compatibility: when the
+    shared-trunk flag is off, ResidualHarmForward runs unchanged.
+
+    Note: z_harm_dim here must match ALL streams' dimensions. When z_harm_s
+    and z_harm_a have different dims (they typically do -- 32 vs 16), the
+    shared-trunk path requires a common hidden dim. See experiment scripts
+    for the projection heads that reconcile mismatched stream dims.
+    """
+
+    def __init__(
+        self,
+        z_harm_dim: int = 32,
+        action_dim: int = 4,
+        hidden_dim: int = 128,
+        action_enc_dim: int = 16,
+    ):
+        super().__init__()
+        self.z_harm_dim = z_harm_dim
+        self.action_dim = action_dim
+        self.hidden_dim = hidden_dim
+        self.action_enc_dim = action_enc_dim
+        self.action_encoder = nn.Linear(action_dim, action_enc_dim)
+        # Single hidden layer, ReLU; produces the shared hidden representation.
+        self.hidden_net = nn.Sequential(
+            nn.Linear(z_harm_dim + action_enc_dim, hidden_dim),
+            nn.ReLU(),
+        )
+
+    def forward(self, z_harm: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        """Produce shared hidden representation.
+
+        Args:
+            z_harm: [batch, z_harm_dim] -- harm latent (sensory or affective)
+            action: [batch, action_dim] -- action taken
+
+        Returns:
+            hidden: [batch, hidden_dim] -- shared representation
+        """
+        action_enc = self.action_encoder(action)
+        return self.hidden_net(torch.cat([z_harm, action_enc], dim=-1))
+
+
+class HarmForwardHead(nn.Module):
+    """Stream-specific head for harm forward models (ARC-058).
+
+    Takes a shared hidden representation from HarmForwardTrunk and produces a
+    per-stream residual delta that is added to the input z_harm. Each stream
+    (sensory, affective) owns its own HarmForwardHead instance; the trunk is
+    shared when REEConfig.use_shared_harm_trunk is True.
+
+    Biological grounding: dorsal posterior insula / S1+S2 (sensory head) vs
+    ACC / pgACC (affective head) as modality-specific signed-PE consumers.
+    """
+
+    def __init__(self, hidden_dim: int = 128, z_harm_dim: int = 32):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.z_harm_dim = z_harm_dim
+        self.delta_net = nn.Linear(hidden_dim, z_harm_dim)
+
+    def forward(self, hidden: torch.Tensor, z_harm: torch.Tensor) -> torch.Tensor:
+        """Produce next-step prediction via residual delta.
+
+        Args:
+            hidden: [batch, hidden_dim] -- output of HarmForwardTrunk
+            z_harm: [batch, z_harm_dim] -- current z_harm (skip-connection input)
+
+        Returns:
+            z_harm_next: [batch, z_harm_dim] -- predicted next-step z_harm
+        """
+        delta = self.delta_net(hidden)
+        return z_harm + delta
 
 
 class ResidualHarmForward(nn.Module):
@@ -613,6 +757,8 @@ class LatentState:
     resource_prox_pred: Optional[torch.Tensor] = None  # SD-018 [batch, 1] for MSE loss; None if not enabled
     z_resource: Optional[torch.Tensor] = None  # SD-015/MECH-112 object-type latent [batch, z_resource_dim]
     resource_prox_pred_r: Optional[torch.Tensor] = None  # SD-015 aux head [batch, 1]; None if disabled
+    identity_logits: Optional[torch.Tensor] = None  # SD-049 Phase 2 identity-classifier raw logits [batch, n_resource_types]; None if not enabled
+    z_harm_un: Optional[torch.Tensor] = None  # SD-019a harm_unpleasantness_channel [batch, harm_dim]; EMA of z_harm_s, NOT modulated by controllability
 
     def to_tensor(self) -> torch.Tensor:
         """Concatenate all channels into a single tensor (excludes z_harm)."""
@@ -643,6 +789,8 @@ class LatentState:
             resource_prox_pred=self.resource_prox_pred.detach() if self.resource_prox_pred is not None else None,
             z_resource=self.z_resource.detach() if self.z_resource is not None else None,
             resource_prox_pred_r=self.resource_prox_pred_r.detach() if self.resource_prox_pred_r is not None else None,
+            identity_logits=self.identity_logits.detach() if self.identity_logits is not None else None,
+            z_harm_un=self.z_harm_un.detach() if self.z_harm_un is not None else None,
         )
 
 
@@ -935,11 +1083,22 @@ class LatentStack(nn.Module):
         # Encodes world_obs -> z_resource independently of z_world; provides
         # "what to seek" signal for GoalState instead of position-confounded z_world.
         # Disabled by default (backward compat).
+        # SD-049 Phase 2: identity classifier head (Option C hybrid per
+        # verdict.md) gated by use_identity_classifier flag. When enabled with
+        # SD-049 multi_resource_heterogeneity in env, supervises trunk on
+        # resource-type discriminability via cross-entropy on
+        # obs_dict["resource_type_at_agent"].
         if getattr(self.config, "use_resource_encoder", False):
             self.resource_encoder: Optional[ResourceEncoder] = ResourceEncoder(
                 world_obs_dim=self.config.world_obs_dim,
                 z_resource_dim=getattr(self.config, "z_resource_dim", 32),
                 hidden_dim=hidden,
+                use_identity_classifier=getattr(
+                    self.config, "use_identity_classifier", False
+                ),
+                n_resource_types=getattr(
+                    self.config, "identity_classifier_n_types", 3
+                ),
             )
         else:
             self.resource_encoder = None
@@ -1163,10 +1322,15 @@ class LatentStack(nn.Module):
 
         # SD-015 / MECH-112: ResourceEncoder produces object-type latent from world_obs.
         # world_obs already extracted above (from _split_observation); reuse it here.
+        # SD-049 Phase 2: ResourceEncoder.forward returns 3-tuple
+        # (z_resource, resource_prox_pred_r, identity_logits) where
+        # identity_logits is None when use_identity_classifier=False
+        # (backward-compat default).
         z_resource = None
         resource_prox_pred_r = None
+        identity_logits = None
         if self.resource_encoder is not None:
-            z_resource, resource_prox_pred_r = self.resource_encoder(world_obs)
+            z_resource, resource_prox_pred_r, identity_logits = self.resource_encoder(world_obs)
 
         return LatentState(
             z_self=z_self,
@@ -1187,6 +1351,7 @@ class LatentStack(nn.Module):
             resource_prox_pred=resource_prox_pred,  # SD-018: None if resource head not enabled
             z_resource=z_resource,  # SD-015: None if resource encoder not enabled
             resource_prox_pred_r=resource_prox_pred_r,  # SD-015 aux head: None if disabled
+            identity_logits=identity_logits,  # SD-049 Phase 2: None if identity classifier disabled
         )
 
     def predict(self, state: LatentState) -> LatentState:

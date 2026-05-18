@@ -1,6 +1,21 @@
 name: Cloud Worker Scaler
-# Auto-starts Hetzner cloud worker when experiments are queued,
-# stops it when the queue is empty.
+# Auto-starts each Hetzner cloud worker when experiments matching its
+# machine_affinity are queued, stops it when no matching work remains.
+#
+# Routing rules (per worker):
+#   - "claimable" items = status==pending AND machine_affinity in {any, <server_affinity>}
+#   - mode "full" (default): server off + claimable > 0 -> poweron
+#   - mode "shutdown-only": never auto-starts; must be powered on manually
+#   - server running + claimable == 0 + heartbeat says idle + last completed > IDLE_GRACE_MIN ago
+#       -> shutdown (graceful, drains current run) [applies to both modes]
+#
+# The heartbeat gate prevents the race where the queue momentarily reads zero
+# pending items because the runner has just claimed an item and is mid-experiment;
+# without it, the scaler would issue SIGTERM mid-manifest-write (the V3-EXQ-244a /
+# V3-EXQ-541 SIGTERM signature). The recent_completed gate adds a second layer:
+# even if the heartbeat shows idle, we wait IDLE_GRACE_MIN after the last
+# completed experiment before powering off, so a back-to-back claim has time to
+# land before the box goes down.
 
 on:
   schedule:
@@ -9,6 +24,8 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  IDLE_GRACE_MIN: 20          # min minutes since last completed before shutdown
+  HEARTBEAT_FRESH_MIN: 5      # heartbeat must be at most this many minutes stale
 
 jobs:
   scale:
@@ -17,8 +34,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: experiment_queue.json
+          path: ree-v3
 
-      - name: Check queue and scale cloud worker
+      - uses: actions/checkout@v4
+        with:
+          repository: Latent-Fields/REE_assembly
+          sparse-checkout: evidence/experiments/runner_heartbeats
+          path: ree-assembly
+
+      - name: Check queue + heartbeats and scale cloud workers
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
         run: |
@@ -29,29 +53,117 @@ jobs:
           curl -sL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_VERSION}/hcloud-linux-amd64.tar.gz" \
             | tar xz -C /usr/local/bin hcloud
 
-          SERVER_NAME="ree-worker-1"
+          # server_name:affinity[:mode] pairs -- add more workers by extending this list
+          # mode "shutdown-only" = auto-shutdown when idle but never auto-start
+          WORKERS=(
+            "ree-worker-1:ree-cloud-1"
+            "ree-worker-2:ree-cloud-2"
+            "ree-worker-3:ree-cloud-3"
+            "ree-worker-4:ree-cloud-4:shutdown-only"
+          )
 
-          # Count pending (unclaimed) queue items
-          PENDING=$(python3 -c "
-          import json
-          q = json.load(open('experiment_queue.json'))
-          pending = [i for i in q.get('items', []) if i.get('status') == 'pending']
-          print(len(pending))
+          for entry in "${WORKERS[@]}"; do
+            IFS=: read -r SERVER_NAME AFFINITY MODE <<< "$entry"
+            MODE="${MODE:-full}"
+
+            # Count pending items this worker could claim (its affinity or "any")
+            CLAIMABLE=$(AFFINITY="$AFFINITY" python3 -c "
+          import json, os
+          aff = os.environ['AFFINITY']
+          q = json.load(open('ree-v3/experiment_queue.json'))
+          n = sum(
+              1 for i in q.get('items', [])
+              if i.get('status') == 'pending'
+              and i.get('machine_affinity') in ('any', aff)
+          )
+          print(n)
           ")
 
-          # Get current server status
-          STATUS=$(hcloud server describe "$SERVER_NAME" -o format='{{.Status}}' 2>/dev/null || echo "unknown")
+            # Read heartbeat to decide whether the runner is genuinely idle.
+            # idle_ok is "1" when:
+            #   - heartbeat file exists and is fresh (last_tick_utc within HEARTBEAT_FRESH_MIN)
+            #   - state == "idle"
+            #   - current_exq is null
+            #   - newest recent_completed.completed_at is older than IDLE_GRACE_MIN
+            # OR the heartbeat is missing/very stale (> 1 hour) -- runner already dead,
+            # safe to power off.
+            IDLE_INFO=$(AFFINITY="$AFFINITY" \
+              IDLE_GRACE_MIN="${IDLE_GRACE_MIN}" \
+              HEARTBEAT_FRESH_MIN="${HEARTBEAT_FRESH_MIN}" \
+              python3 -c "
+          import json, os, sys
+          from datetime import datetime, timezone, timedelta
+          aff = os.environ['AFFINITY']
+          grace = int(os.environ['IDLE_GRACE_MIN'])
+          fresh = int(os.environ['HEARTBEAT_FRESH_MIN'])
+          path = f'ree-assembly/evidence/experiments/runner_heartbeats/{aff}.json'
+          now = datetime.now(timezone.utc)
 
-          echo "Pending items: $PENDING"
-          echo "Server status: $STATUS"
+          def parse_utc(s):
+              if not s: return None
+              try:
+                  return datetime.fromisoformat(s.replace('Z','+00:00'))
+              except Exception:
+                  return None
 
-          if [ "$PENDING" -gt 0 ] && [ "$STATUS" = "off" ]; then
-            echo "Queue has work -- starting cloud worker..."
-            hcloud server poweron "$SERVER_NAME"
-          elif [ "$PENDING" -eq 0 ] && [ "$STATUS" = "running" ]; then
-            echo "Queue empty -- stopping cloud worker..."
-            # Use shutdown (not poweroff) so systemd sends SIGTERM for graceful drain
-            hcloud server shutdown "$SERVER_NAME"
-          else
-            echo "No action needed."
-          fi
+          if not os.path.exists(path):
+              # Never heartbeated -- treat as 'idle' (runner not running)
+              print('idle_ok=1 reason=no_heartbeat')
+              sys.exit(0)
+
+          with open(path) as f:
+              hb = json.load(f)
+          last_tick = parse_utc(hb.get('last_tick_utc'))
+          state = hb.get('state')
+          current_exq = hb.get('current_exq')
+          completed = hb.get('recent_completed') or []
+          last_completed = None
+          for c in completed:
+              t = parse_utc(c.get('completed_at'))
+              if t and (last_completed is None or t > last_completed):
+                  last_completed = t
+
+          # Heartbeat very stale -> runner dead; safe to shutdown
+          if last_tick is None or (now - last_tick) > timedelta(hours=1):
+              print('idle_ok=1 reason=heartbeat_stale')
+              sys.exit(0)
+          # Heartbeat moderately stale -> uncertain; do NOT shutdown
+          if (now - last_tick) > timedelta(minutes=fresh):
+              print('idle_ok=0 reason=heartbeat_aging')
+              sys.exit(0)
+          # Runner says it's working
+          if state != 'idle' or current_exq is not None:
+              print(f'idle_ok=0 reason=state_{state}_current_{current_exq}')
+              sys.exit(0)
+          # Runner idle, but last completion is recent -> grace window not yet expired
+          if last_completed is not None and (now - last_completed) < timedelta(minutes=grace):
+              age_min = int((now - last_completed).total_seconds() // 60)
+              print(f'idle_ok=0 reason=grace_window_age={age_min}min')
+              sys.exit(0)
+          print('idle_ok=1 reason=clean_idle')
+          ")
+            IDLE_OK=$(echo "$IDLE_INFO" | sed -n 's/^idle_ok=\([01]\) .*/\1/p')
+
+            # Get current server status (off, running, starting, stopping, unknown)
+            STATUS=$(hcloud server describe "$SERVER_NAME" -o format='{{.Status}}' 2>/dev/null || echo "unknown")
+
+            echo "[$SERVER_NAME affinity=$AFFINITY] claimable=$CLAIMABLE status=$STATUS $IDLE_INFO"
+
+            if [ "$STATUS" = "unknown" ]; then
+              echo "  -> server not provisioned yet, skipping"
+              continue
+            fi
+
+            if [ "$CLAIMABLE" -gt 0 ] && [ "$STATUS" = "off" ] && [ "$MODE" = "full" ]; then
+              echo "  -> queue has work, starting $SERVER_NAME"
+              hcloud server poweron "$SERVER_NAME"
+            elif [ "$CLAIMABLE" -gt 0 ] && [ "$STATUS" = "off" ] && [ "$MODE" = "shutdown-only" ]; then
+              echo "  -> queue has work but $SERVER_NAME is shutdown-only (manual start required)"
+            elif [ "$CLAIMABLE" -eq 0 ] && [ "$STATUS" = "running" ] && [ "$IDLE_OK" = "1" ]; then
+              echo "  -> no matching work AND runner idle past grace window, shutting down $SERVER_NAME"
+              # shutdown (not poweroff) so systemd sends SIGTERM for graceful drain
+              hcloud server shutdown "$SERVER_NAME"
+            else
+              echo "  -> no action needed"
+            fi
+          done

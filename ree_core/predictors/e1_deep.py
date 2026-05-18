@@ -22,6 +22,7 @@ start via reset_hidden_state(). The prediction-loss computation in REEAgent
 uses a save/restore pattern so training replays do not disturb inference.
 """
 
+import math
 from typing import List, Optional, Tuple, Dict
 
 import torch
@@ -43,7 +44,18 @@ class ContextMemory(nn.Module):
 
         self.memory = nn.Parameter(torch.randn(num_slots, memory_dim) * 0.01)
         self.query_proj = nn.Linear(latent_dim, memory_dim)
-        self.key_proj = nn.Linear(memory_dim, memory_dim)
+        # SD-016 Part A (2026-04-25): key_proj bias removed.
+        # With memory init scale 0.01 and a default-init bias on Linear, the bias
+        # term dominates over W_K @ memory_s for every slot, collapsing all keys
+        # to ~b_K and softmax to uniform attention (entropy = ln(num_slots)).
+        # EXQ-477 EXP-0155 measured this directly:
+        #   bias_over_content_ratio = 9.88 (pre-train), 3.41 (post-P0)
+        #   attn_entropy_mean = 2.773 (uniform reference 2.7726)
+        #   cue_context_per_channel_std = 2.86e-08 (cue_context constant across batch)
+        # bias=False is structural -- there is no bias parameter for the optimiser
+        # to drift back, and key projection is a pure linear map of slot content.
+        # See REE_assembly/docs/architecture/context_memory_writepath_fix.md.
+        self.key_proj = nn.Linear(memory_dim, memory_dim, bias=False)
         self.value_proj = nn.Linear(memory_dim, memory_dim)
         self.output_proj = nn.Linear(memory_dim, latent_dim)
         self.write_gate = nn.Sequential(
@@ -71,6 +83,17 @@ class ContextMemory(nn.Module):
             self.memory.data[min_idx] = (
                 0.9 * self.memory.data[min_idx] + 0.1 * write_signal.mean(0)
             )
+
+    def compute_diversification_loss(self) -> torch.Tensor:
+        # SD-016 Path 1 (2026-04-25): mean squared off-diagonal cosine similarity
+        # of slot vectors. Pushes slots toward mutual orthogonality on the unit
+        # sphere. Returns a scalar tensor; gradient flows into self.memory.
+        # See REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md.
+        slot_norm = F.normalize(self.memory, dim=-1)
+        sim = slot_norm @ slot_norm.T
+        n = self.num_slots
+        mask = 1.0 - torch.eye(n, device=sim.device, dtype=sim.dtype)
+        return (sim * mask).pow(2).sum() / (n * (n - 1))
 
 
 class E1DeepPredictor(nn.Module):
@@ -160,8 +183,39 @@ class E1DeepPredictor(nn.Module):
             cue_context_dim = self.config.self_dim + self.config.world_dim  # = latent_dim = 64
             action_object_dim = getattr(config, 'action_object_dim', 16)
             self.world_query_proj = nn.Linear(self.config.world_dim, self.config.hidden_dim)
-            self.cue_action_proj  = nn.Linear(cue_context_dim, action_object_dim)
+            # EXQ-449a fix: cue_action_proj now consumes [cue_context, z_world]. The
+            # ContextMemory attention path collapses to uniform softmax (entropy = ln(num_slots))
+            # because key_proj's bias dominates over the small-init memory slots, so cue_context
+            # is constant across batch and cue_action_proj output had per-channel std ~2.7e-8.
+            # Concatenating z_world guarantees per-input variation in action_bias.
+            self.cue_action_proj  = nn.Linear(cue_context_dim + self.config.world_dim, action_object_dim)
             self.cue_terrain_proj = nn.Linear(cue_context_dim, 2)
+
+            # SD-016 Path 4 (V3-EXQ-418g): learnable attention temperature on the
+            # z_world-only ContextMemory query. EXQ-418e diagnosed slot-side
+            # diversification as insufficient: even with perfectly orthogonal slots
+            # (A2_div_only mean cosine ~1e-3), attention stayed pinned at the
+            # uniform rail (attn_entropy_mean ~ ln(16) = 2.7726) and cue_context
+            # made zero behavioural contribution. Replacing the fixed
+            # sqrt(memory_dim) divisor with exp(log_tau) gives the optimiser a
+            # per-pass selectivity knob; pair with compute_attention_entropy_loss
+            # to apply gradient pressure toward peaky attention.
+            # Initialised at log(sqrt(memory_dim)) so step-0 behaviour is bit-
+            # identical to the fixed-temperature baseline -- the optimiser can
+            # then drive log_tau down for sharper attention if it pays off.
+            self._sd016_temperature_learnable = bool(
+                getattr(config, 'sd016_temperature_learnable', False)
+            )
+            if self._sd016_temperature_learnable:
+                init_log_tau = math.log(self.config.hidden_dim ** 0.5)
+                self.sd016_log_temperature = nn.Parameter(
+                    torch.tensor(init_log_tau, dtype=torch.float32)
+                )
+            else:
+                self.sd016_log_temperature = None
+        else:
+            self._sd016_temperature_learnable = False
+            self.sd016_log_temperature = None
 
     def reset_hidden_state(self) -> None:
         """Reset hidden state for a new episode."""
@@ -281,15 +335,53 @@ class E1DeepPredictor(nn.Module):
         k = self.context_memory.key_proj(memory).unsqueeze(0).expand(batch_size, -1, -1)
         v = self.context_memory.value_proj(memory).unsqueeze(0).expand(batch_size, -1, -1)
 
-        scores = torch.bmm(q, k.transpose(1, 2)) / (memory_dim ** 0.5)  # [batch, 1, num_slots]
-        weights = F.softmax(scores, dim=-1)                               # [batch, 1, num_slots]
-        context = torch.bmm(weights, v).squeeze(1)                        # [batch, memory_dim]
+        scale = self._sd016_attention_scale(memory_dim)
+        scores = torch.bmm(q, k.transpose(1, 2)) / scale                   # [batch, 1, num_slots]
+        weights = F.softmax(scores, dim=-1)                                # [batch, 1, num_slots]
+        context = torch.bmm(weights, v).squeeze(1)                         # [batch, memory_dim]
 
         cue_context = self.context_memory.output_proj(context)  # [batch, latent_dim=64]
 
-        action_bias    = self.cue_action_proj(cue_context)                    # [batch, action_object_dim]
+        # EXQ-449a fix: feed z_world directly alongside cue_context so the action_bias
+        # has a non-collapsed input path (cue_context is constant under uniform attention).
+        action_bias    = self.cue_action_proj(torch.cat([cue_context, z_world], dim=-1))
         terrain_weight = torch.sigmoid(self.cue_terrain_proj(cue_context))    # [batch, 2] in (0,1)
         return action_bias, terrain_weight
+
+    def _sd016_attention_scale(self, memory_dim: int):
+        """Resolve the divisor used inside the SD-016 z_world-only attention.
+
+        Returns the learnable exp(log_tau) when sd016_temperature_learnable
+        is set, otherwise the fixed sqrt(memory_dim) scale used pre-EXQ-418g.
+        """
+        if self._sd016_temperature_learnable and self.sd016_log_temperature is not None:
+            return torch.exp(self.sd016_log_temperature) + 1e-3
+        return memory_dim ** 0.5
+
+    def compute_attention_entropy_loss(self, z_world: torch.Tensor) -> torch.Tensor:
+        """SD-016 Path 4: attention-entropy minimisation on the z_world-only query.
+
+        Recomputes the SD-016 attention pattern (matching extract_cue_context's
+        scale resolution, including the optional learnable temperature) and
+        returns the mean Shannon entropy across the batch. Minimising this
+        loss pushes world_query_proj + key_proj (and, when enabled,
+        sd016_log_temperature) toward queries that select specific slots
+        rather than producing uniform softmax. Targets the EXQ-418e diagnostic
+        finding that diversified slots alone do not break the uniform-rail
+        attention regime.
+        """
+        if not getattr(self.config, 'sd016_enabled', False):
+            return torch.zeros((), device=z_world.device, dtype=z_world.dtype)
+        batch_size = z_world.shape[0]
+        memory_dim = self.context_memory.memory_dim
+        q = self.world_query_proj(z_world).unsqueeze(1)
+        memory = self.context_memory.memory
+        k = self.context_memory.key_proj(memory).unsqueeze(0).expand(batch_size, -1, -1)
+        scale = self._sd016_attention_scale(memory_dim)
+        scores = torch.bmm(q, k.transpose(1, 2)) / scale
+        weights = F.softmax(scores, dim=-1).squeeze(1)
+        probs = weights.clamp(min=1e-12)
+        return -(probs * probs.log()).sum(dim=-1).mean()
 
     def get_schema_salience(self) -> Optional[torch.Tensor]:
         """MECH-216: return last schema salience [batch, 1] or None."""

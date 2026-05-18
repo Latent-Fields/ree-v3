@@ -55,6 +55,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.goal import GoalConfig, GoalState
 from ree_core.predictors.e2_fast import Trajectory
 from ree_core.utils.config import REEConfig
+from experiment_protocol import emit_outcome
 
 
 EXPERIMENT_TYPE = "v3_exq_105_rollout_horizon_sweep"
@@ -418,3 +419,10 @@ if __name__ == "__main__":
         print("[V3-EXQ-105] SMOKE TEST COMPLETE", flush=True)
         for k in ["ratio_e2w", "ratio_frz", "criteria_met", "status"]:
             print(f"  {k}: {result.get(k, 'N/A')}", flush=True)
+
+    # --- runner-conformance sentinel (added by retrofit_experiments.py) ---
+    _outcome_raw = str(result.get("status", "FAIL")).upper()
+    emit_outcome(
+        outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+        manifest_path=out_path,
+    )

@@ -41,6 +41,7 @@ import numpy as np
 import torch
 
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
+from experiment_protocol import emit_outcome
 
 EXPERIMENT_TYPE = "v3_exq_106a_harm_obs_a_persistence_fix"
 CLAIM_IDS = ["SD-011"]
@@ -346,3 +347,10 @@ if __name__ == "__main__":
 
     if args.smoke_test:
         print("[V3-EXQ-106a] SMOKE TEST COMPLETE", flush=True)
+
+    # --- runner-conformance sentinel (added by retrofit_experiments.py) ---
+    _outcome_raw = str(result.get("status", "FAIL")).upper()
+    emit_outcome(
+        outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+        manifest_path=out_path,
+    )

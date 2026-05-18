@@ -24,6 +24,45 @@ Run packs go to REE_assembly/evidence/experiments/.
 run_id must end _v3. architecture_epoch must be "ree_hybrid_guardrails_v1".
 After experiments complete: run sync_v3_results.py then build_experiment_indexes.py.
 
+## Regression Suite
+
+Three-layer test suite in `tests/`:
+
+- **preflight** (`tests/preflight/`) — cheap wiring checks run before the runner
+  starts machine work. Validates imports, queue integrity, and one-tick boot.
+  The runner invokes preflight automatically at startup (see
+  `experiment_runner.py`). Escape hatches: `--skip-preflight` flag or
+  `REE_SKIP_PREFLIGHT=1` env var. If preflight fails, the runner exits non-zero
+  and no experiment is started.
+
+- **contracts** (`tests/contracts/`) — interface-level guarantees that should
+  hold regardless of tuning. Includes: C1 agent boot, C2 feature-flag boot
+  matrix, C3 seed determinism, C4 BG gating (MECH-090 / MECH-091), C5
+  imagined/acted isolation (MECH-094), C6/C7/C8 SD-032 cluster wiring
+  (dACC / AIC / PCC / pACC). Run: `pytest tests/contracts -q`.
+
+- **changed** — subsystem-targeted contract tests. Resolves a `ree_core/`
+  subdirectory name (or a path like `ree_core/residue/field.py`, or a
+  substring like `bg`) to the contract tests that could plausibly break.
+  `python3 scripts/run_regression_suite.py --changed residue` runs the
+  MECH-094 / residue-write contracts only. See `--list-subsystems` for
+  the map.
+
+**When to run what:**
+- Every experiment run: preflight (automatic via runner).
+- Before committing a focused change to `ree_core/<subsystem>/`:
+  `python3 scripts/run_regression_suite.py --changed <subsystem>` (~1-4s).
+- Before committing a cross-cutting change: `pytest tests/contracts -q` or
+  `python3 scripts/run_regression_suite.py --contracts` (~14s).
+- Preflight + contracts together:
+  `python3 scripts/run_regression_suite.py --preflight && \
+   python3 scripts/run_regression_suite.py --contracts`.
+
+**Contracts test contracts, not thresholds.** If a test starts asserting a
+specific magnitude or sign from an EXQ manifest, that belongs in an experiment
+script, not the regression suite. The regression suite is the thing that has to
+keep working when experiments and claim state evolve.
+
 ## Key Architecture Constraints
 - E2 trains on motor-sensory error (z_self). NOT harm/goal error.
 - E3 is the harm evaluator. harm_eval() belongs on E3Selector.
@@ -292,6 +331,138 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   Set drive_weight=0.0 explicitly for ablation baselines. EXQ-074e and EXQ-085 successors
   will benefit immediately. See GoalConfig, agent.py update_z_goal().
 
+- SD-012 sustained-drive amendment (goal_pipeline:GAP-3, Option 1) — IMPLEMENTED 2026-05-17.
+  GoalConfig.drive_ema_alpha (default 1.0; goal.py). The SD-012 multiplier now uses an
+  EMA trace of drive_level instead of the instantaneous value:
+  _drive_trace = (1 - drive_ema_alpha) * _drive_trace + drive_ema_alpha * drive_level;
+  effective_benefit = benefit_exposure * z_goal_seeding_gain * (1 + drive_weight * _drive_trace).
+  Motivation: instantaneous drive_level collapses to ~0.005 the step a resource is
+  consumed (energy resets toward 1.0), cancelling the SD-012 amplification at exactly
+  the contact events where seeding must fire (EXQ-536a). Backward compatible:
+  drive_ema_alpha=1.0 -> trace == drive_level every step regardless of init ->
+  bit-identical to the pre-amendment instantaneous form (contract C1/C2). Surfaced
+  through REEConfig.from_dims() mirroring drive_weight. _drive_trace is zero-initialised,
+  so alpha < 1.0 carries a deliberate ~1/alpha-step cold-start transient (accepted per
+  goal_pipeline Q2). Lit-anchored operating value 0.02 (~35-step half-life;
+  wanting_liking synthesis 30-60 step window). Phased training: N/A (no encoder, no
+  learning). MECH-094: N/A (no simulation/replay/memory write). Contract:
+  tests/contracts/test_sustained_drive_ema_gap3.py (7/7). Validation experiment:
+  discriminative drive_ema_alpha sweep {0.01,0.02,0.2,1.0} queued (see goal_pipeline_plan.md
+  GAP-3). claims.yaml NOT modified -- MECH-306 sustained_drive_trace registration is the
+  governance follow-on gated on the sweep result. See GoalConfig, goal.py GoalState.update().
+
+## ARC-065 SP-CEM Main-Path Landing (2026-05-17)
+- ARC-065 hippocampal-trajectory-sampling child (support-preserving + stratified
+  CEM, "SP-CEM") — LANDED AS MAIN-PATH DEFAULT 2026-05-17. The substrate itself
+  was already implemented (HippocampalModule._support_preserving_elite_indices,
+  hippocampal/module.py); this change flips its config defaults so the main agent
+  action path runs SP-CEM instead of the legacy collapsing CEM.
+  Config (6 defaults flipped, in BOTH the HippocampalConfig dataclass AND the
+  REEConfig.from_dims() signature, because from_dims assigns its params onto
+  config.hippocampal.* unconditionally — flipping only the dataclass would be
+  silently reverted for from_dims-built agents):
+    use_support_preserving_cem            False -> True
+    support_preserving_stratified_elites  False -> True
+    support_preserving_ao_std_floor       0.0   -> 0.2
+  (support_preserving_min_first_action_classes stays 2; normalize_score_bias_to_e3_range
+  untouched — it was NOT in the validated combination.)
+  This is an INTENTIONAL non-no-op default change (the one deliberate departure
+  from the implement-substrate no-op-default rule): the legacy collapsing CEM
+  produced the monostrategy that left SD-029, ARC-062 Rung 2, goal_pipeline
+  GAP-2/4 and self_attribution GAP-1/2/3 non_contributory. Every experiment that
+  builds config WITHOUT explicitly setting these flags now gets SP-CEM.
+  Bit-identical legacy opt-out: explicitly pass use_support_preserving_cem=False,
+  support_preserving_stratified_elites=False, support_preserving_ao_std_floor=0.0.
+  EXQ-567 ARM_0 and all existing ablation/control arms already pin these
+  explicitly, so they are unaffected; only default-reliant scripts change (the
+  intended effect).
+  Evidence basis: V3-EXQ-567 PASS 2026-05-15 (ARM_1 vs ARM_0:
+  selected_action_entropy 0.0124 -> 0.4965, candidate support 1.007 -> 2.810;
+  claim ARC-065). Corroborated by V3-EXQ-573 + V3-EXQ-568. Confound-free per the
+  V3-EXQ-543e failure autopsy (2026-05-17: H1/H2 FALSE, H3 confirmed; SP-CEM
+  delivers ~4.95 unique first-action classes). Phased training: N/A (selection/
+  sampling change, no encoder/learning). MECH-094: N/A (no simulation/replay/
+  memory write). Smoke: /tmp/smoke_spcem_mainpath.py 4/4 (bare from_dims agent
+  runs SP-CEM via StepHarness, gate on every candidate step, no crash, opt-out
+  intact); experiments/v3_exq_567_..._sp_cem.py --dry-run still PASS (both
+  explicit-off ARM_0 and explicit-on ARM_1 end-to-end). Validation experiment:
+  V3-EXQ-583 (experiments/v3_exq_583_spcem_mainpath_default_wiring.py,
+  experiment_type v3_exq_583_spcem_mainpath_default_wiring) 3-arm default-wiring
+  equivalence queued, DIAGNOSTIC claim_ids=[] (ARM_default == ARM_explicit_on
+  within 1e-9 + exact dict match, both >> ARM_explicit_off; dry-run PASS both
+  criteria). claims.yaml: ARC-065 carries an
+  implementation_note; NOT promoted (promotion is Rung-1 matched-entropy governance,
+  gated on V3-EXQ-569). The ARC-062 GatedPolicy head-input one-hot augmentation is
+  a SEPARATE follow-on (V3-EXQ-543f), out of scope here. See ARC-065, ARC-062,
+  SD-029, MECH-269, MECH-309, behavioral_diversity_acceptance_criteria.md.
+
+## ARC-062 GatedPolicy differential-heads robustness fix (2026-05-18)
+- ARC-062: policy.gated_policy two-head reparameterization -- IMPLEMENTED
+  2026-05-18. ree_core/policy/gated_policy.py. Motivated by the V3-EXQ-543h
+  failure autopsy + cross-machine 543g replication (REE_assembly/evidence/
+  planning/failure_autopsy_V3-EXQ-543h_2026-05-18.{md,json}): the same 543g
+  config landed gating-ACTIVE on host-A but INERT (n_inert_gating_seeds=3,
+  TV<0.05) on cloud-3 AND cloud-4 -- head_0==head_1 collapse is the common
+  cross-machine attractor; differentiation was a rare lucky-basin escape.
+  Root cause: under outcome-coupled REINFORCE the inert state (head_0==head_1,
+  w irrelevant) is a flat equilibrium; head_init_bias_offset is softmax-
+  invariant (behaviorally invisible) and the removed head_div term was
+  satisfiable by softmax-canceling anti-symmetric offsets.
+  Fix: when use_differential_heads=True the two heads are SYNTHESIZED as a
+  shared trunk plus a candidate-axis-norm-pinned differential:
+    base(x), delta(x) MLPs ; delta_hat = differential_bias_scale *
+    delta / (||delta||_K + 1e-8) ; head_0 = base + delta_hat ;
+    head_1 = base - delta_hat ; composed = base + (2w-1)*delta_hat.
+  Why it makes collapse a non-equilibrium: (route 1) delta==0 is structurally
+  unreachable -- delta_hat depends ONLY on delta's DIRECTION (scale-invariant
+  normalization), so the loss gradient w.r.t. delta's magnitude is exactly
+  zero; gradient descent never drives ||delta||->0 and the nonzero delta
+  last-bias init keeps it off zero from step 0. (route 2) at w=0.5,
+  d(gated)/dw = head_0-head_1 = 2*delta_hat != 0 by the norm pin, so REINFORCE
+  gets a non-vanishing gradient to move w off 0.5 whenever the two pinned
+  modes differ in return -- which the pin guarantees. Not the removed head_div
+  term: delta_hat is a unit-norm direction over candidates added to a shared
+  base, so a nonzero differential necessarily changes the candidate ranking at
+  the gating extremes and cannot be softmax-canceled.
+  Config: GatedPolicyConfig.use_differential_heads (default False -> two
+  independent heads, bit-identical pre-fix path) and .differential_bias_scale
+  (default 0.1, mirrors bias_scale; only read on the True path).
+  Wiring path (how experiments toggle it): agent.py builds GatedPolicyConfig
+  with use_differential_heads=getattr(config,"gated_policy_use_differential_
+  heads",False) and differential_bias_scale=getattr(config,"gated_policy_
+  differential_bias_scale",0.1) -- same getattr style as
+  gated_policy_use_first_action_onehot / crystallize_at_phase3, bit-identical
+  when the flat REEConfig attr is absent. An experiment sets
+  config.gated_policy_use_differential_heads=True AFTER REEConfig.from_dims()
+  and BEFORE REEAgent(config) (single clean build; no rebuild / RNG offset).
+  crystallize() freezes (base,delta,discriminator) instead of
+  (head_0,head_1,discriminator) when the flag is on -- MECH-334 write-protect
+  semantics identical in both configs; expansion device/dtype follows base[0].
+  When the flag is on, self.head_0/self.head_1 are None (no external consumer
+  touches the modules; downstream reads GatedPolicyOutput.head_*_bias, which
+  are the synthesized base +/- delta_hat). get_state() reports
+  use_differential_heads for the 543i manifest.
+  Backward compatible: default False; every existing experiment runs unchanged
+  (verified: v3_exq_543h --dry-run flag-off path). Activation smoke: delta_hat
+  L2-over-K == differential_bias_scale exactly; crystallize freezes base+delta
+  +disc; heads structurally differ.
+  Phased training: N/A (architecture-only; no new encoder/learning signal --
+  the P1 loss is deliberately UNCHANGED so V3-EXQ-543i is a clean single-
+  variable test of structure-vs-MECH-309). MECH-094: N/A (no simulation/
+  replay/memory write; forward simulation_mode path unchanged).
+  Validation experiment: V3-EXQ-543i (supersedes V3-EXQ-543g + V3-EXQ-543h),
+  queued via /queue-experiment -- same 2x2(x2) design + identical P1 loss,
+  only new factor use_differential_heads; acceptance n_inert_gating_seeds==0
+  across all seeds AND >=2 machines AND C2/C3 context-discrimination pass.
+  Decisive either way: escape -> ARC-062 weak reading viable (MECH-309 holds
+  only for unstructured parametric policies); still collapses -> MECH-309
+  strong confirmation -> ARC-063/V4 distributed CandidateRule field.
+  claims.yaml: ARC-062 + MECH-333 carry an implementation_note only; NO flag/
+  confidence/promotion change (governance gated on V3-EXQ-543i). The MECH-309-
+  support reading of the 543 cluster is a parked governance follow-on
+  (workstream A; not applied this session). See ARC-062, ARC-063, MECH-309,
+  MECH-333, MECH-334, INV-074, SD-054, rule_apprehension_layer.md.
+
 ## SD-018: Resource Proximity Supervision (2026-04-07)
 - SD-018: encoder.resource_proximity_supervision — IMPLEMENTED 2026-04-07.
   Auxiliary Sigmoid regression head on z_world predicting max(resource_field_view)
@@ -458,9 +629,54 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   quality -> dopamine signal -> beta drops -> E3 state propagates to action selection.
   get_state() and reset() updated. Return type of propose_trajectories() unchanged.
 
+- MECH-290: hippocampal.backward_trajectory_credit_sweep -- IMPLEMENTED 2026-04-24.
+  Module: ree_core/hippocampal/module.py (HippocampalModule.record_committed_trajectory,
+  HippocampalModule.backward_credit_sweep, HippocampalModule.reset_committed_trajectory).
+  Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay fires at reward
+  endpoint during waking, concurrent with dopamine. Credit propagates backward from goal
+  to trajectory start.
+  Two new methods:
+    record_committed_trajectory(trajectory): called at BetaGate elevation (commit entry
+      in select_action()), stores a detached copy of the committed trajectory in
+      _committed_trajectory_buffer. Distinct from _exploration_buffer (MECH-165
+      quiescent replay source): this stores EXECUTED trajectory, not CEM proposals.
+    backward_credit_sweep(outcome_quality): called when BetaGate releases via
+      receive_hippocampal_completion() in _e3_tick(). Sweeps committed trajectory
+      backward; at each z_world state t: credit = outcome_quality * gamma^(T-1-t);
+      ResidueField.update_valence(z_world_t, VALENCE_WANTING, credit) called.
+      Returns dict: n_steps_swept, mean_credit, outcome_quality.
+      No-op when outcome_quality < backward_sweep_min_quality (default 0.6).
+    reset_committed_trajectory(): called from agent.reset() on episode boundary.
+  Config: HippocampalConfig.use_backward_credit_sweep (bool, default False),
+    backward_sweep_gamma (float, default 0.9), backward_sweep_min_quality (float, 0.6).
+    All wired through REEConfig.from_dims().
+  Agent wiring:
+    _e3_tick(): receive_hippocampal_completion() return value captured as `released`;
+      when True and flag is on, hippocampal.backward_credit_sweep(
+      hippocampal._last_completion_signal) is called.
+    select_action(): at bistable commit entry AND legacy non-bistable new-commit:
+      hippocampal.record_committed_trajectory(e3._committed_trajectory) called.
+    reset(): hippocampal.reset_committed_trajectory() called when flag on.
+  No SD-006 dependency: fires synchronously on waking path.
+  MECH-094: waking path (hypothesis_tag=False) -- credit from real executed trajectory.
+  Requires ResidueConfig.valence_enabled=True to write VALENCE_WANTING; silently skips
+  valence write if disabled (backward compat).
+  Backward compatible: use_backward_credit_sweep=False by default; all methods are no-ops.
+  Smoke: C1-C7 PASS (buffer management, sweep arithmetic, flag OFF no-op, valence write).
+  End-to-end: agent boot + direct wiring test PASS 2026-04-24.
+  Validation experiment: to be queued post-476a (SD-038 anti-recency sequenced after).
+  See MECH-290, ARC-028, MECH-105, SD-014 (VALENCE_WANTING write paths), MECH-165.
+
 ## SD Design Decisions Validated (V3) — 2026-03-18
-- SD-003: self_attribution.counterfactual_e2_pipeline — VALIDATED EXQ-030b PASS
-  (on z_world pipeline). REDESIGN IN PROGRESS for z_harm_s pipeline (SD-011/ARC-033).
+- SD-003: self_attribution.counterfactual_e2_pipeline — **SUPERSEDED 2026-04-18** after
+  28 accumulated FAILs across the two-pass counterfactual architecture. Successor layer:
+  MECH-256 (general single-pass forward-model comparator, stream-agnostic) + SD-029
+  (concrete z_harm_s instantiation; event-conditioned test queued as V3-EXQ-433) + MECH-257
+  (dual-function single-substrate E2: comparator vs evaluator, controller-gated). Per-stream
+  successors SD-030 (z_self) and SD-031 (z_world) are V4-deferred. Architecture doc:
+  `REE_assembly/docs/architecture/self_attribution_per_stream.md`. The EXQ-030b world-pipeline
+  PASS (world_forward_r2=0.947, attribution_gap=0.035) is preserved as historical evidence but
+  does not transfer to the z_harm_s topology.
   EXQ-030b pipeline: z_world_actual = E2.world_forward(z_world, a_actual),
   z_world_cf = E2.world_forward(z_world, a_cf), causal_sig = E3(z_world_actual) - E3(z_world_cf).
   Results: world_forward_r2=0.947, attribution_gap=0.035, correct sign structure.
@@ -502,13 +718,31 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
 - Master switch: tonic_5ht_enabled=False (default). All existing experiments unaffected.
 - Location: ree_core/neuromodulation/serotonin.py
 
-**V4 scope (full sleep mechanisms — not V3):**
+(All further sleep substrates — SD-017 sleep passes, SD-032 cingulate cluster,
+MECH-261 mode-conditioned write gating — are likewise V3. See the unified
+"V3 scope (full sleep mechanisms)" block below.)
+
+**V3 scope (full sleep mechanisms — rescoped from V4 2026-04-20):**
+All sleep-related substrates are V3. V4 is reserved for social extensions
+(see below). The following items are therefore V3 in-scope, not deferred:
 - Full SWR consolidation pipeline (MECH-121 complete implementation)
 - Slow-wave sleep prediction error baseline reset
 - Sleep-dependent recalibration of commit thresholds (full SR-3/SR-4)
 - Theta-gamma coupling during offline replay for memory formation
-- Lansink et al. (2009) hippocampus-leads-striatum replay is V4 evidence
+- Lansink et al. (2009) hippocampus-leads-striatum replay — V3 evidence
 - Phase boundary triggers (SR-4: sws_consolidation_complete -> REM transition)
+- MECH-261 predicate enrichment on the SD-032a registry (carrier-rhythm
+  *function* -> multi-factor admission conjunction; see
+  REE_assembly/evidence/literature/targeted_review_mech261_mode_gating/
+  synthesis.md for the biology-to-REE mapping)
+- Per-mode write-gate weight refinement as new mode-gating literature lands
+
+**V4 scope (social systems — rescoped 2026-04-20):**
+V4 is now reserved for social systems ("sharing joys and sorrows"): representing
+other agents, their z_self / z_harm_a, and trajectories that affect another
+agent's state over time. This remains structurally inaccessible to 1-step greedy
+planning, which is why V3 full completion gate (MECH-163 hippocampal multi-step
+trajectory planning) is a prerequisite for V4 entry.
 
 **V4 scope (self-model integration — INV-064/MECH-214/MECH-215 audit, 2026-04-07):**
 
@@ -589,11 +823,16 @@ or goal types:
     - ~0.35 min/ep at 300 steps/ep
     - Calibrated from onboarding smoke 2026-04-09: 14.2 steps/sec CPU, 1571.9 env steps/sec
     - Suitable for env-heavy and standard experiments. Not for GPU-dependent runs.
+  - **ree-cloud-2** — Hetzner CX22, CPU-only (second, nominally identical to cloud-1):
+    - Throughput pending -- onboarding smoke V3-ONBOARD-smoke-ree-cloud-2 queued.
+    - Estimate as for cloud-1 until its smoke calibrates. Shared-vCPU neighbour noise
+      may produce small per-instance divergence; check the smoke result before tight
+      runtime estimates.
   - **EWIN-PC** — AMD Ryzen 7 8700F + RTX 5070 12GB (Eoin Golden's machine):
     - Throughput not yet benchmarked (original smoke errored 2026-04-06, -b pending)
     - Use `"EWIN-PC"` affinity string. GPU likely fast at larger world_dim.
   - Add ~20% overhead for scripts with stratified replay buffers or event classification
-- Set `machine_affinity` to match compute profile: `"DLAPTOP-4.local"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"ree-cloud-1"` (CPU-only, standard/env-heavy), `"EWIN-PC"` (GPU-capable, Eoin's machine), `"any"` (indifferent)
+- Set `machine_affinity` to match compute profile: `"DLAPTOP-4.local"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"ree-cloud-1"` / `"ree-cloud-2"` (CPU-only Hetzner CX22, standard/env-heavy), `"EWIN-PC"` (GPU-capable, Eoin's machine), `"any"` (indifferent -- any cloud worker that's already awake will typically claim first)
   - **IMPORTANT:** The runner matches affinity against `socket.gethostname()` exactly. The macbook hostname is `DLAPTOP-4.local` — do NOT use `"macbook"` as the affinity string, it will not match.
 - Always queue experiments immediately after writing the script.
 - Always include `estimated_minutes` — the runner's auto-calibration refines it over time.
@@ -610,6 +849,18 @@ V3 experiments: V3-EXQ-001 onward.
 **Supersession:** when a lettered iteration corrects a bug that invalidated the predecessor's evidence, add `"supersedes": "V3-EXQ-047i"` to the new queue entry. After the run completes, set `evidence_direction: "superseded"` on the old manifest and rebuild the index (governance pipeline). This prevents buggy experiments from continuing to weight claim confidence scores.
 
 **Queue validation:** `validate_queue.py` is called automatically at runner startup. Run it manually after any queue edit: `/opt/local/bin/python3 validate_queue.py`
+
+## Remote Control (--remote-control flag)
+
+When started with `--remote-control`, the runner emits a per-machine heartbeat each loop tick to `REE_assembly/evidence/experiments/runner_heartbeats/<hostname>.json` and processes pending commands from `runner_commands/<hostname>.json`. Default-off; bit-identical when omitted. Helper module: `runner_remote_control.py` (sibling of `experiment_runner.py`).
+
+**Active-claim protection (added 2026-05-01, broadened 2026-05-08)**: `push_heartbeat()` and `push_commands()` start each tick with `git pull --rebase --autostash` against REE_assembly. To prevent the autostash cycle silently reverting concurrent Claude sessions' uncommitted edits anywhere under `evidence/`, both functions now bail at the top via `_active_claim_on_evidence_dir()` whenever any TASK_CLAIMS.json entry tagged `"active"` lists a resource path containing `evidence/` (originally scoped to `evidence/experiments/`; broadened to the `evidence/` prefix on 2026-05-08 so it also covers `evidence/planning/`, `evidence/literature/`, and any future evidence sibling). Heartbeats/commands are best-effort; the next tick after the claim closes resumes pushing. Two real-world incidents motivated and reinforced this guard: (1) 5 EXQ-232 ARC-026 supersession edits to `evidence/experiments/` made 2026-04-29 silently reverted to original-commit content by 2026-05-01 with no trace in git history (no stash, no orphan commit); (2) an `evidence/planning/substrate_queue.json` MECH-204 design_doc edit made 2026-05-08 silently reverted with the same signature -- in both cases the autostash mechanism in the per-minute heartbeat was the culprit. Contract test: `tests/contracts/test_active_claim_evidence_guard.py`.
+
+Six command kinds: `stop` (graceful drain), `force_stop` (SIGKILL current proc + exit), `pause` / `resume` (skip new experiments), `kick:<EXQ>` (move to head of queue), `release_claim:<EXQ>` (clear stuck `claimed_by`). `start` is intentionally not in this channel (a stopped runner cannot read its own command file) — use `/api/runner/v3/start` locally or SSH for remote.
+
+When developing the runner: command processing happens at the **top of each pass** in the main `while True:` loop (before the experiment-picking `for item in items:` loop) so `pause` / `stop` / `kick` / `release_claim` take effect before the next claim attempt. Heartbeat write happens at the **bottom**, just before `time.sleep(args.loop_interval)`, with state in `{starting, idle, paused, draining}`.
+
+Multi-machine dashboard: `/machines` in serve.py. POST `/api/machines/<host>/command {kind, args}` to enqueue commands. Trust model: GitHub push access = command-issue access.
 
 ## Troubleshooting Runner
 
@@ -644,6 +895,24 @@ Note: `title` is optional per schema but the runner required it -- fixed 2026-03
 **git pull fails with `fatal: bad object refs/remotes/origin/main 2`**:
 Run `git remote prune origin` in ree-v3. This cleans up a spurious remote tracking ref.
 Verify with `git fetch` (should return silently).
+
+**Manifest-leak in conflict-recovery (fixed 2026-05-09)**:
+`experiment_runner._git_push_with_retry` previously lost the manifest when a per-experiment
+results push hit a non-fast-forward followed by a `pull --rebase` failure. Root cause: the
+recovery path stashed only the WORKING TREE, then `git reset --hard origin/<branch>` destroyed
+the manifest-bearing local commit; the followup `git add <manifest_path>` was a silent no-op
+because the file no longer existed on disk, and `subprocess.run(..., capture_output=True)`
+swallowed the `did not match any files` stderr. The recovery commit captured stashed
+sentinel/heartbeat/status only, and the manifest never reached REE_assembly master. Five real
+runs lost their manifest this way (V3-EXQ-433f, 537, 537c, 538, 541; V3-EXQ-541 reproduced
+with reflog evidence on ree-cloud-1, 2026-05-08T23:43Z). Fix: capture pre-reset HEAD SHA,
+restore each `result_files` path via `git checkout <pre_reset_sha> -- <rel>` after the
+reset+pop, resolve any stash-pop unmerged paths via `--ours` (taking the post-reset remote
+version), and emit a WARN if the post-recovery selective add stages none of the expected
+files. Also closes a sibling bug: `git_push_results` was not passing `result_files` through
+to `_git_push_with_retry`, so the recovery branch always saw `result_files=None` and fell into
+the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_survives_conflict_recovery.py`
+(C1 single manifest, C2 multi manifest, C3 broad-add fallback).
 
 ## ARC-033: E2_harm_s Forward Model (2026-04-09)
 - ARC-033: harm_stream.sensory_discriminative_forward_model -- IMPLEMENTED 2026-04-09.
@@ -688,11 +957,28 @@ Verify with `git fetch` (should return silently).
   Training for cue_terrain_proj: supervised terrain_loss using hazard_field_view proxy (lambda=0.1).
     terrain_loss must be included in experiment E1 training loops to train this projection.
     Pattern: see EXQ-182, EXQ-187a, EXQ-194. Omitting terrain_loss leaves cue_terrain_proj random.
-  Training for cue_action_proj: implicit via E3 trajectory selection gradient (no new loss).
+  Training for cue_action_proj: UNRESOLVED (diagnostic open -- see EXP-0155). The original
+    claim "implicit via E3 trajectory selection gradient (no new loss)" is DEMONSTRABLY FALSE.
+    V3-EXQ-449 (diagnostic probe, 2026-04-20) confirmed cue_action_proj.weight receives
+    exactly 0.0 gradient under this path (C1 PASS, 2 seeds, ~1.7k steps) because the CEM
+    argmax in HippocampalModule is non-differentiable and agent.py:694 detaches action_bias
+    before rollouts. EXQ-449 C2 arm added a supervised MSE loss against
+    E2.action_object(z_world, a_executed).detach(): weights trained (grad ~0.013, delta
+    ~0.21) but action_bias_divergence stayed at exactly 0.0 in both seeds -- something
+    downstream of cue_action_proj zeroes the signal before it reaches E3.select. The simple
+    supervision fix is insufficient on its own. EXP-0155 queued to instrument the full
+    forward path (extract_cue_context -> cue_action_proj -> ... -> E3.select) and identify
+    the specific blocker before any EXQ-418b successor is written. Until EXP-0155
+    resolves, cue_action_proj must be treated as CURRENTLY UNGROUNDED: sd016_enabled=True
+    experiments should expect action_bias_divergence ~= 0.0 and should not rely on
+    cue_action_proj for behavioural effects. (cue_terrain_proj path remains valid --
+    trained via terrain_loss.)
   Backward compatible: sd016_enabled=False by default; existing experiments unaffected.
   MECH-094: not applicable (waking encoder query, not replay content).
   Validation experiment: V3-EXQ-418a queued (SD-016+SD-017 combined retest with terrain_loss).
-  See MECH-150, MECH-151, MECH-152, ARC-041, INV-040.
+    V3-EXQ-418/418a/418b have all FAILed with action_bias_divergence=0.0; the EXQ-418b
+    successor is GATED on EXP-0155 diagnostic resolution.
+  See MECH-150, MECH-151, MECH-152, ARC-041, INV-040, EXP-0155 (cue_action_proj diagnostic).
   Design doc: REE_assembly/docs/architecture/sd_016_frontal_cue_integration.md
 
 ## SD-017: Minimal Sleep-Phase Infrastructure -- SWS/REM Passes (2026-04-09)
@@ -727,3 +1013,4118 @@ Verify with `git fetch` (should return silently).
   Validation experiment: V3-EXQ-265 queued (SD-017 activation + slot differentiation ablation,
   2 conditions x 3 seeds, ~45 min on Mac).
   See SD-017, ARC-045, MECH-166, MECH-120 (SHY gated within enter_sws_mode).
+
+## SD-032b / MECH-258 / MECH-260 / ARC-058: dACC-analog Adaptive Control (2026-04-19)
+- SD-032b: cingulate.dacc_analog_adaptive_control -- IMPLEMENTED 2026-04-19.
+  Module: ree_core/cingulate/dacc.py (DACCAdaptiveControl, DACCConfig,
+  DACCtoE3Adapter). First substrate in SD-032 cingulate cluster; resolves
+  EXQ-395 MECH-220 z_harm_a wiring gap.
+  Config: REEConfig.use_dacc (bool, default False). Sub-weights:
+  dacc_weight (overall gain on E3 score_bias), dacc_interaction_weight
+  (Croxson 2009 payoff x effort interaction), dacc_foraging_weight
+  (Kolling 2015 switch-value), dacc_suppression_weight (MECH-260 recency
+  bias suppression), dacc_suppression_memory (FIFO depth, default 8),
+  dacc_precision_scale (PE precision normaliser, default 500),
+  dacc_effort_cost (Shenhav 2013 EVC cost, default 0.1),
+  dacc_drive_coupling (SD-012 hook, default 0).
+  Bundle output (per Croxson/Shenhav/Kolling integration, NOT a scalar):
+  {mode_ev[K], choice_difficulty, foraging_value, harm_interaction[K],
+  suppression[K], pe, drive_gain}.
+  DACCtoE3Adapter (stopgap): converts bundle to score_bias[K] passed to
+  E3.select() via new score_bias param on E3Selector.select(). MARKED
+  FOR REPLACEMENT when SD-032a salience-network coordinator lands --
+  coordinator is the architectural consumer of the bundle per SD-032
+  design; the adapter is a shim to route the bundle to E3 in its
+  absence.
+  Data flow: sense() caches z_harm_a_prev -> select_action() builds
+  payoffs (from last E3 scores), effort (trajectory horizons),
+  action_classes (argmax of first action) -> DACCAdaptiveControl.forward()
+  -> bundle -> DACCtoE3Adapter.forward(bundle) -> score_bias -> e3.select()
+  -> post-step: E2_harm_a prediction for next tick (no_grad) +
+  dacc.record_action(action_class).
+  Backward compatible: use_dacc=False by default; existing experiments
+  unaffected. All sub-weights default 0.0/0 (no-op). Non-default flags:
+  use_e2_harm_a, use_shared_harm_trunk (ARC-058 path selection).
+  Phased training required for E2_harm_a (see MECH-258 entry).
+  Biological basis: Shackman 2011 (dACC integration hub); Baliki 2010
+  (ACC-NAc pathway for affective pain to action value); Shenhav 2013
+  EVC (mode_ev = payoff - control_required * effort_cost); Croxson 2009
+  (reward x effort interaction); Kolling 2015 (foraging value as dACC
+  switch signal); Scholl 2017 (neuromodulator-tunable coupling via
+  drive_level).
+  MECH-094: not applicable (waking action selection, no simulation).
+  Validation experiment: V3-EXQ-445 queued (3-arm ablation:
+  dACC-OFF vs dACC-ON-independent-E2_harm_a vs dACC-ON-shared-trunk).
+  See SD-032b, MECH-258, MECH-260, ARC-058, ARC-033, SD-032 parent.
+
+- MECH-258: cingulate.precision_weighted_pain_PE -- IMPLEMENTED 2026-04-19.
+  Module: ree_core/predictors/e2_harm_a.py (E2HarmAConfig, E2HarmAForward).
+  Structurally mirrors E2HarmSForward (ARC-033). Two constructor paths:
+    (a) shared_trunk=None (default): owns independent ResidualHarmForward
+        -- ARC-033-parallel, independent per-stream forward model.
+    (b) shared_trunk=<HarmForwardTrunk>: reuses trunk, owns only
+        HarmForwardHead -- ARC-058 shared-substrate path.
+  Precision weighting (in DACCAdaptiveControl): pe = ||z_harm_a -
+  E2_harm_a(z_harm_a_prev, a_prev)||; pe_weighted = pe * (1 +
+  min(precision/dacc_precision_scale, 3)). bundle["pe"] drives the
+  dACC adaptive-control magnitude via Shenhav 2013 EVC form.
+  Config: REEConfig.use_e2_harm_a (bool, default False), e2_harm_a_lr
+  (default 5e-4), use_shared_harm_trunk (bool, default False -- selects
+  ARC-033 independent-per-stream vs ARC-058 shared-trunk path).
+  Phased training (REQUIRED): P0 AffectiveHarmEncoder warmup (SD-011
+  second source: harm_history input + SD-020 surprise-PE target);
+  P1 E2_harm_a trains on FROZEN z_harm_a (caller MUST .detach() targets);
+  P2 eval harm_a_forward_r2. Joint training with encoder causes head
+  collapse (see EXQ-166b/c/d).
+  Biological basis: Seymour 2019 pain-as-precision-signal; Chen 2023,
+  Hoskin 2023, Geuter 2017 (AIC unsigned aversive PE); Keltner 2006
+  (affective pain does not show predictive cancellation at subjective
+  report, but PE substrate exists and is used for control demand).
+  MECH-094: not applicable (waking forward model, not replay content).
+  Consumed by: DACCAdaptiveControl bundle (SD-032b).
+  Validation experiment: V3-EXQ-445 queued.
+  See MECH-258, ARC-033, ARC-058, SD-020, SD-011.
+
+- MECH-260: cingulate.dacc_bias_suppression -- IMPLEMENTED 2026-04-19.
+  Module: ree_core/cingulate/dacc.py (DACCAdaptiveControl maintains
+  FIFO _action_history of recently-executed action classes).
+  Computation: suppression[i] = count(action_class_i in history) /
+  len(history). DACCtoE3Adapter adds dacc_suppression_weight *
+  suppression to E3 score_bias (positive bias = unfavourable under
+  E3's lower-is-better convention -- suppresses re-selection of
+  recently-executed action classes).
+  Config: REEConfig.dacc_suppression_weight (float, default 0.0),
+  dacc_suppression_memory (int, default 8).
+  Agent wiring: REEAgent.select_action() calls
+  self.dacc.record_action(argmax(action[0])) after action is emitted.
+  Backward compatible: suppression_weight=0 (default) -> no suppression.
+  Biological basis: Scholl, Kolling et al 2015 (dACC + lateral aPFC
+  actively suppress vmPFC/amygdala bias toward recently-rewarded
+  choices). Target behavioural signature: fishtank_viz monostrategy
+  ablation.
+  Validation experiment: V3-EXQ-445 includes suppression_weight=0 vs
+  suppression_weight=0.5 comparison.
+  See MECH-260, SD-032b.
+
+## SD-032a / MECH-259 / MECH-261: Salience-Network Coordinator (2026-04-19)
+- SD-032a: cingulate.salience_network_coordinator -- IMPLEMENTED 2026-04-19.
+  Module: ree_core/cingulate/salience_coordinator.py
+  (SalienceCoordinator, SalienceCoordinatorConfig, DEFAULT_MODE_NAMES,
+  DEFAULT_GATE_WEIGHTS). Network-level coordinator that aggregates the
+  SD-032b dACC bundle and homeostatic / offline signals into a soft
+  operating-mode probability vector and a discrete MECH-259 mode-switch
+  trigger. Hosts the MECH-261 dict-keyed write-gate registry.
+  Inputs (live in V3): dACC bundle (pe / foraging_value /
+  choice_difficulty), drive_level (SD-012; proxy SD-032c), agent
+  offline-mode flag (proxy SD-032d). Registered slots aic_salience /
+  pcc_stability / pacc_autonomic accept update_signal calls and remain
+  no-op until SD-032c/d/e land.
+  Outputs: operating_mode dict[str, float] (softmax over per-mode
+  affinity logits, default biased to external_task waking baseline);
+  current_mode str (Schmitt-trigger hysteresis -- updates only on
+  threshold crossing); mode_switch_trigger bool (fires when
+  salience_aggregate > switch_threshold * (1 + stability_scaling *
+  pcc_stability) AND argmax(operating_mode) != current_mode);
+  write_gate(target) float (soft-weighted sum over mode probs).
+  MECH-261 default registry covers sd_033a, sd_033b, sd_033c, sd_033d,
+  hc_viability, sensory_buffer, autonomic, e3_policy with the per-mode
+  weights from the spec table. mode_names is a list, register_target
+  accepts arbitrary mode keys -- V4 parallel_goal_deliberation
+  (SD-033e) can be added without schema changes.
+  Config: REEConfig.use_salience_coordinator (bool, default False).
+  Sub-knobs: salience_switch_threshold (1.0), salience_stability_scaling
+  (1.0), salience_softmax_temperature (1.0),
+  salience_external_task_bias (1.0), salience_dacc_pe_weight (1.0),
+  salience_dacc_foraging_weight (0.5), salience_apply_to_dacc_bias
+  (False -- when True, scales dACC score_bias by the e3_policy gate so
+  internal_replay attenuates dACC influence on action selection).
+  Data flow: select_action() builds dACC bundle -> coordinator.tick()
+  consumes bundle + drive_level + e1._offline_mode -> caches operating_mode
+  + trigger -> optional scale of dacc_score_bias by write_gate("e3_policy")
+  -> e3.select() unchanged path.
+  Backward compatible: use_salience_coordinator=False by default. Existing
+  experiments unaffected. DACCtoE3Adapter is RETAINED as the score_bias
+  source until SD-033 substrates consume operating_mode natively (staged
+  removal -- adapter shim is now optionally gated rather than fully
+  replaced this PR).
+  Biological basis: Menon & Uddin 2010 (AIC-dACC salience network);
+  Craig 2009 (AIC interoceptive-salience hub); Carr/Jadhav/Frank 2011
+  (soft-boundary write subpopulations during awake SWRs); Tambini &
+  Davachi 2019 (cross-state persistence, forward propagation bias).
+  MECH-094: not authored here -- coordinator emits the gate that MECH-094
+  generalises to. Phased training: not applicable (non-trainable
+  arithmetic).
+  Validation experiment: V3-EXQ-446 queued (coordinator-OFF vs
+  coordinator-ON, plus synthetic high-PE injection to confirm trigger
+  fires; verifies write_gate values in [0, 1] across 8 default targets).
+  See SD-032a, MECH-259, MECH-261, SD-032 parent.
+
+- MECH-266: cingulate.asymmetric_per_mode_hysteresis -- IMPLEMENTED 2026-04-21.
+  Module: ree_core/cingulate/salience_coordinator.py.
+  Per-mode Schmitt-trigger rails on top of the MECH-259 symmetric
+  switch_threshold. Two optional dict overrides on
+  SalienceCoordinatorConfig:
+    enter_thresholds[target_mode]: salience_aggregate required to enter
+      target_mode (falls back to switch_threshold when unset).
+    exit_thresholds[current_mode]: operating_mode[current_mode] must be
+      strictly less than this value before a switch OUT of the current
+      mode is permitted (falls back to 1.0 sentinel = always satisfied
+      for any proper softmax, preserving legacy MECH-259 behaviour).
+  MECH-266 trigger:
+    trigger = (salience_aggregate > enter_threshold * stability_mult)
+           AND (operating_mode[current_mode] < exit_threshold)
+           AND (soft_argmax != current_mode)
+  Over-binding / OCD axis: exit_thresholds[m] near 0 -> current mode
+    must collapse to near-zero probability before leaving. Stuck-in-mode
+    signature reproducible at exit=0.05.
+  Under-binding / depression axis: set lower enter_threshold (e.g. 0.5)
+    so salience clears entry rail more readily; exit left at 1.0 no-op.
+  Symmetric baseline: empty dicts; trigger reduces to legacy MECH-259.
+  Setters:
+    set_enter_threshold(mode, value) -- per-mode enter rail.
+    set_exit_threshold(mode, value)  -- per-mode exit rail.
+    set_hysteresis_ratio(ratio)      -- uniform exit rail across all
+      registered modes (EXP-0163 parametric sweep convenience).
+  Tick return dict extended with enter_threshold, exit_threshold,
+  current_mode_prob; effective_threshold retained as alias for
+  enter_threshold (backward-compat diagnostic).
+  Backward compatible: default SalienceCoordinatorConfig uses empty
+  enter_thresholds / exit_thresholds dicts -- all existing experiments
+  unaffected.
+  Biological basis: Schmitt-trigger hysteresis is a canonical
+  implementation of the per-mode asymmetric switch costs observed
+  in task-switching paradigms (over-binding in OCD: hard to leave
+  mode; under-binding in depression/ADHD axis: easy to flip). ocd4
+  thought file row "competing goals" and "mode stickiness / Hold
+  decay" derive from this substrate.
+  MECH-094: not applicable (non-trainable arithmetic extension).
+  Phased training: none (no parameters).
+  Validation experiments: V3-EXQ-464 (EXP-0160 competing-goals, 5
+    sub-tests, substrate-landing diagnostic) and V3-EXQ-467 (EXP-0163
+    mode stickiness / hold decay, 5-arm parametric sweep r in
+    [0.10, 0.50, 1.00, 1.50, 2.00]). Both smoke-PASS all sub-tests.
+    Full behavioural competing-goals runs (switch-cost asymmetry,
+    goal-completion dose-response) deferred to EXQ-464b / EXQ-467b
+    when the CausalGridWorldV2 dual simultaneously active
+    resource-cue extension lands.
+  See MECH-266, SD-032a, MECH-259, SD-033 parent, REE_assembly
+  evidence/planning/sd033_governance_plan.md, docs/thoughts/
+  2026-04-20_ocd4.md.
+
+- SD-032c: cingulate.aic_analog_salience_urgency -- IMPLEMENTED 2026-04-19.
+  Module: ree_core/cingulate/aic_analog.py (AICAnalog, AICConfig).
+  Anterior-insula-analog interoceptive-salience / urgency-interrupt module.
+  NOT the affective-pain consumer (that is SD-032b); this is the mode-switch
+  trigger source AND the descending pain-modulation gate. Subsumes SD-021:
+  the raw beta_gate.is_elevated check in agent.sense() is replaced by a
+  drive-aware, operating-mode-aware gain function.
+  Inputs (per sense() tick):
+    z_harm_a_norm  (SD-011 affective stream)
+    drive_level    (SD-012 GoalState._last_drive_level)
+    beta_gate_elevated (MECH-090 committed-state signal)
+    operating_mode (SD-032a coordinator, previous tick; None -> treat
+                    p_external_task=1.0, preserves SD-032c function even
+                    without coordinator)
+    extra_salient  (optional; unexpected z_goal drop, reward-surprise,
+                    irreversibility; default no-op via aic_extra_weight=0)
+  Outputs (stored on the module, cached in agent._aic_last_tick):
+    aic_salience   -- fed to SalienceCoordinator.update_signal("aic_salience",
+                      ...) BEFORE coordinator.tick() each select_action cycle
+                      (drives MECH-259 urgency-trigger).
+    harm_s_gain    -- multiplier on z_harm in sense(), replacing the raw
+                      SD-021 beta_gate check when use_aic_analog=True.
+                      harm_s_gain < 1.0 only when committed AND the agent is
+                      not depleted (drive_protect=1.0 default).
+    urgency_signal -- diagnostic threshold crossing on aic_salience.
+  Computation:
+    baseline <- (1-alpha)*baseline + alpha * z_harm_a_norm  (EMA interoceptive
+                                                             baseline)
+    urgency  = max(0, (z_harm_a_norm - baseline) / (baseline + eps))
+    aic_salience = urgency * (1 + drive_coupling * drive_level)
+                 + aic_extra_weight * sum(extra_salient)
+    drive_protect = max(0, 1 - drive_protect_weight * drive_level)
+    harm_s_gain = clip_[0,1] ( 1 - base_attenuation * p_external *
+                               float(beta_gate_elevated) * drive_protect )
+  Config: REEConfig.use_aic_analog (bool, default False).
+    Sub-knobs: aic_baseline_alpha (0.02, ~50-step window),
+    aic_drive_coupling (1.0 -- MUST be non-zero for falsification signature),
+    aic_urgency_threshold (1.0, diagnostic only),
+    aic_base_attenuation (0.5, matches legacy descending_attenuation_factor),
+    aic_drive_protect_weight (1.0; alterable-configuration knob flagged by
+                              SD-032c spec: +1 preserve depleted signal,
+                              0 drive-independent, -1 opposite-sign),
+    aic_extra_weight (0.0, reserved for extra salient-event signals).
+  Falsification signature (spec): same z_harm_a -> different mode-switch
+    behaviour in depleted vs well-resourced agents. Both aic_salience AND
+    harm_s_gain depend on drive_level -- this is the ONLY V3 substrate that
+    makes the dependence structural. EXQ-325a FAIL (DESCENDING ==
+    CONTROL bit-identical under raw beta_gate check) resolves when the AIC
+    path replaces the raw check -- the descending branch becomes a
+    genuinely different function of state.
+  Data flow: encode() -> z_harm_a, z_harm -> aic.tick(z_harm_a_norm,
+    drive_level, beta_gate_elevated, operating_mode_prev) -> aic_salience
+    cached + harm_s_gain applied to z_harm if harm_descending_mod_enabled.
+    select_action() injects aic_salience into coordinator via
+    update_signal("aic_salience", ...) BEFORE coordinator.tick() so MECH-259
+    trigger sees it on the current cycle. One-step lag on operating_mode
+    read is biologically plausible (AIC->dACC->SAL is a circuit).
+  Backward compatible: use_aic_analog=False by default. Legacy SD-021 raw
+    beta_gate check retained behind the same harm_descending_mod_enabled
+    flag -- selected only when use_aic_analog=False. With both flags off,
+    existing experiments unchanged. The old descending_attenuation_factor
+    config is still consumed by the legacy path.
+  Biological basis: Craig 2009 AIC as interoceptive-salience hub with
+    autonomic and motor efferents; Menon & Uddin 2010 salience-network
+    coupling; Basbaum 1984 + Keltner 2006 ACC/AIC -> PAG descending
+    inhibitory pathway.
+  MECH-094: not applicable (waking observation stream, not replay content).
+  Phased training: not applicable (non-trainable arithmetic, single EMA).
+  Validation experiment: V3-EXQ-325b queued (3-condition x 2-drive-regime
+    retest of EXQ-325a; supersedes EXQ-325a; acceptance criteria include
+    drive-dependence contrast which the prior metric could not measure).
+  See SD-032c, SD-032a, SD-032b, SD-021, MECH-259, MECH-261, SD-032 parent.
+
+- SD-032d: cingulate.pcc_analog_attention_partition -- IMPLEMENTED 2026-04-19.
+  Module: ree_core/cingulate/pcc_analog.py (PCCAnalog, PCCConfig).
+  Posterior-cingulate-analog metastability scalar in [0, 1] that modulates
+  the SD-032a MECH-259 effective_threshold. High pcc_stability -> coordinator
+  resists mode transitions; low stability (depleted / no recent rest /
+  failing task outcomes) -> transitions happen at lower salience. Does NOT
+  trigger mode switches directly (that is SD-032c's job). Non-trainable
+  arithmetic; no gradient flow.
+  Inputs (per select_action tick):
+    drive_level (SD-012 fatigue, [0, 1])
+    success_ema (EMA over caller-supplied task-outcome scalars, neutral 0.5
+                 baseline; experiments opt in via agent.note_task_outcome())
+    steps_since_offline (cross-episode counter; reset only by
+                         note_offline_entry() called from
+                         agent.enter_offline_mode())
+  Computation:
+    offline_recency = min(1.0, steps_since_offline / window)
+    stability = baseline + success_weight * (success_ema - 0.5)
+              - fatigue_weight * drive_level
+              - offline_weight * offline_recency
+    stability = clip_[0,1](stability)
+  Config: REEConfig.use_pcc_analog (bool, default False).
+    Sub-knobs: pcc_success_alpha (0.02, ~50-step EMA window),
+    pcc_success_weight (0.5; centred contribution from success_ema),
+    pcc_fatigue_weight (0.5; subtractive from drive_level),
+    pcc_offline_recency_window (500 steps; saturation),
+    pcc_offline_weight (0.3; subtractive from offline_recency),
+    pcc_stability_baseline (0.5; additive baseline before clipping).
+  Falsification signature (spec): ablating SD-032d makes the SalienceCoordinator
+    effective_threshold insensitive to fatigue / time-since-offline. Agent
+    over-commits to external_task without rest-driven relaxation. PCC-ON ->
+    drive_level rises -> stability falls -> effective_threshold falls ->
+    mode_switch_trigger rate rises under matched salience input.
+  Data flow: select_action() -> pcc.tick(drive_level=sal_drive) ->
+    salience.update_signal("pcc_stability", pcc.pcc_stability) BEFORE
+    coordinator.tick() -> coordinator.effective_threshold modulated.
+    enter_offline_mode() -> pcc.note_offline_entry() (single integration
+    point shared by MECH-092 within-session quiescence and INV-049
+    cross-session sleep). reset() -> pcc.reset() (per-episode; preserves
+    cross-episode _steps_since_offline). agent.note_task_outcome(value) ->
+    pcc.note_task_outcome(value) feeds success EMA.
+  Backward compatible: use_pcc_analog=False by default. Existing experiments
+    unaffected. note_task_outcome() is a no-op when pcc is None.
+  Biological basis: Leech & Sharp 2013 ("Arousal, Balance, Breadth") --
+    PCC tracks the global stability of the current cognitive set vs the
+    need to broaden attentional sampling. Treated conservatively: a
+    [0, 1] metastability index that biases the threshold for any mode
+    change without committing to attention-partition geometry. Frankland
+    & Bontempi 2005 systems-consolidation framing: stability falls with
+    time-since-last-offline, biasing the system toward requesting offline
+    consolidation when held externally too long.
+  MECH-094: not applicable (waking arithmetic, no replay content authored).
+  Phased training: not applicable (non-trainable arithmetic).
+  Validation experiment: V3-EXQ-447 queued (PCC-OFF vs PCC-ON x rest /
+    no-rest contrast; acceptance criterion: with PCC-ON and matched dACC
+    salience injection, mode-switch trigger rate is monotone in
+    drive_level and time-since-offline; PCC-OFF rate is invariant).
+  See SD-032d, SD-032a, MECH-259, MECH-261, INV-049, MECH-092, SD-032 parent.
+
+- SD-032e: cingulate.pacc_autonomic_coupling -- IMPLEMENTED 2026-04-19.
+  Module: ree_core/cingulate/pacc_analog.py (PACCAnalog, PACCConfig).
+  Perigenual / subgenual cingulate-analog slow-EMA autonomic write-back.
+  Accumulates tanh-normalised z_harm_a magnitude into a bounded drive_bias
+  that shifts the effective drive_level passed into GoalState.update(),
+  SalienceCoordinator.tick(), SD-032c AICAnalog, SD-032d PCCAnalog, and
+  dACC bundle composition. Architectural path for chronic-pain-like
+  sensitisation (Baliki 2012) compressed into the V3 drive_level proxy.
+  Non-trainable arithmetic; no gradient flow.
+  Scoping (see REE_assembly/evidence/literature/
+  targeted_review_pacc_autonomic_coupling_write_target/synthesis.md):
+    (1) Write target: drive_level as first-pass proxy. Biologically
+        tighter targets (valence-signed mood setpoint, fast autonomic
+        effectors) do not have V3 substrates; documented simplification.
+    (2) Timescale: slow EMA, default alpha=0.002 (pacc_drive_ema=0.998;
+        half-life ~347 steps). Scoping synthesis called alpha>=0.005
+        "fast end of biological plausibility" -- default is inside the
+        envelope; long-horizon sensitisation studies should use
+        alpha<=0.0005. Compresses two biological steps (Guo 2018 ACC
+        mGluR5 LTP + ACC downstream influence) into one accumulator.
+    (3) Offline decay: DEFAULT 0.0 (no decay). Non-zero instantiates a
+        DISTINCT sleep-recalibration claim that would need its own
+        literature pull -- hook exists so a future claim can wire in
+        without another implementation pass.
+  Inputs (per select_action tick):
+    z_harm_a_norm  (SD-011 affective stream, current latent)
+    write_gate     (SalienceCoordinator.write_gate("autonomic") from
+                    previous tick; one-step lag, pACC->autonomic->
+                    sensitisation is slow. Defaults to 1.0 when
+                    salience coordinator is disabled so drift remains
+                    observable under ablation.)
+    hypothesis_tag (MECH-094 gate; select_action passes False --
+                    waking write. Simulation/replay paths that call
+                    pacc.tick with True are skipped.)
+  Computation:
+    if hypothesis_tag: skip
+    elif z_harm_a_norm <= z_harm_a_min: target = 0  (Guo 2018 rest relaxation)
+    else: target = tanh(z_harm_a_norm) * drive_scale
+    drive_bias = (1 - alpha*gate) * drive_bias + alpha*gate*target
+    drive_bias = clip(drive_bias, -cap, +cap)
+  Read path: effective_drive(base) = clip_[0,1](base + drive_bias).
+  Consumers (all in agent.py select_action / sense / update_z_goal):
+    - dACC bundle drive_level input (SD-032b)
+    - SalienceCoordinator.tick drive_level (SD-032a)
+    - AICAnalog.tick drive_level input (SD-032c; one-step lag via next sense)
+    - PCCAnalog.tick drive_level input (SD-032d)
+    - GoalState.update drive_level (SD-012 wanting-gain scaling)
+  Convention: goal_state._last_drive_level stores the BASE drive_level;
+  SD-032 consumers apply pacc.effective_drive() themselves to avoid
+  double-counting the bias.
+  Per-episode reset() clears diagnostics cache only -- drive_bias is
+  cross-episode by architectural intent. enter_offline_mode() calls
+  note_offline_entry() (default no-op at offline_decay=0.0).
+  Config: REEConfig.use_pacc_analog (bool, default False).
+    Sub-knobs: pacc_drive_alpha (0.002, ~347-step half-life),
+    pacc_drive_scale (1.0), pacc_drive_bias_cap (0.5, absolute cap
+    on |drive_bias|), pacc_z_harm_a_min (0.0, threshold below which
+    target is 0 -- reversibility under quiescence),
+    pacc_offline_decay (0.0, distinct sleep-recalibration claim if
+    set non-zero).
+  Falsification signature (spec): sustained z_harm_a exposure produces
+    drift in drive_level, which modulates SD-032c switch threshold and
+    GoalState wanting gain. With SD-032e OFF, same sustained z_harm_a
+    leaves drive_level untouched (only obs_body[3] energy depletion
+    moves it) -- no chronic-pain-sensitisation signature possible.
+  Backward compatible: use_pacc_analog=False by default; agent.pacc is
+    None and every integration site is a no-op. Existing experiments
+    unaffected.
+  Biological basis: Vogt 2005 ACC subdivisions (perigenual/subgenual
+    as autonomic/affective-output hub); Mayberg 2005 sgACC
+    depression-baseline setpoint (cited for valence-setpoint role the
+    current implementation does NOT directly instantiate -- shape
+    mismatch documented); Critchley 2003 ACC-autonomic coupling;
+    Gianaros 2011 ACC-PAG-medulla fast-effector route (out of V3
+    scope; future SD-032f); Guo 2018 ACC mGluR5 LTP days-timescale
+    plasticity (primary grounding for slow-EMA default); Baliki 2012
+    corticostriatal chronic-pain drift (falsification-signature
+    behaviour the substrate targets).
+  MECH-094: handled by hypothesis_tag skip in tick(); waking
+    select_action writes are valid (tag=False).
+  Phased training: not applicable (non-trainable arithmetic).
+  Validation experiment: V3-EXQ-448 queued (4-arm ablation:
+    pACC-OFF / pACC-ON-normal-z_harm_a / pACC-ON-sustained-z_harm_a /
+    pACC-ON-hypothesis-tag-only; acceptance: drive_bias monotone in
+    sustained exposure magnitude, MECH-094 skip suppresses accumulation,
+    bias bounded by cap, downstream effective_drive shifts AIC
+    harm_s_gain and coordinator effective_threshold in expected
+    directions).
+  See SD-032e, SD-032a, SD-032c, SD-032d, SD-012, SD-011, MECH-261,
+  MECH-094, SD-032 parent.
+
+- ARC-058: harm_stream.shared_forward_trunk -- REGISTERED 2026-04-19,
+  COMPETES WITH ARC-033.
+  Module: ree_core/latent/stack.py (HarmForwardTrunk, HarmForwardHead
+  -- pre-existing substrate classes). Selection via shared_trunk
+  constructor arg on E2HarmSForward / E2HarmAForward (see MECH-258).
+  ARC-033 claim: independent per-stream forward models (separate
+  ResidualHarmForward per stream). Biological reading: dorsal posterior
+  insula (sensory PE) + anterior insula (affective PE) as separate
+  learned substrates.
+  ARC-058 claim (competing): shared HarmForwardTrunk (unsigned,
+  modality-independent PE substrate) + stream-specific HarmForwardHead
+  (signed, per-modality readout). Biological reading: Horing & Buchel
+  2022 anterior insula encodes modality-independent unsigned PE shared
+  across aversive modalities; dorsal posterior insula encodes
+  modality-specific signed PE. Trunk ~ unsigned; head ~ signed.
+  Same nn.Module topology, different wiring. Constructor switch arbitrates.
+  Falsifiable: V3-EXQ-445 three-arm ablation measures per-stream
+  forward_r2 for z_harm_s and z_harm_a + downstream dACC bundle
+  usefulness under each path. If shared-trunk matches or beats
+  independent with fewer parameters AND produces a useful unsigned
+  PE signal, ARC-058 wins and ARC-033 is narrowed. If independence
+  wins, ARC-058 is retired.
+  See ARC-058, ARC-033, MECH-258, MECH-257, SD-032b.
+
+## SD-029: Balanced Hazard-Event Curriculum (2026-04-21)
+- SD-029: self_attribution.comparator_z_harm_s -- CURRICULUM-LEVEL BALANCED HAZARD-EVENT SUPPORT IMPLEMENTED 2026-04-21.
+  Module: ree_core/environment/causal_grid_world.py (CausalGridWorldV2).
+  The substrate for the z_harm_s comparator (E2_harm_s forward model, ARC-033) and its
+  interventional training (SD-013) already pass C1 (forward_r2 >= 0.9) and C2 (partial
+  attenuation). The remaining blocker for C3/C4 (event-conditioned SNR on approach-to-harm
+  events, with n_self >= 20 AND n_ext >= 20 per seed) is curriculum-level: the default env
+  produces highly imbalanced hazard-event densities (some seeds near-zero self-caused,
+  others near-zero externally-caused). This substrate change adds a scheduled
+  externally-caused hazard injection curriculum to the env.
+  Mechanism: when scheduled_external_hazard_enabled=True, every
+  scheduled_external_hazard_interval steps, with probability scheduled_external_hazard_prob,
+  an existing hazard is moved (or new one spawned) to a cell adjacent to the agent
+  (or any empty cell when adjacent_only=False). Purely curriculum-level: the agent did
+  not initiate the encounter, so subsequent harm is externally-caused in the
+  self-vs-externally-caused taxonomy. Agent and latent code unchanged.
+  Config (CausalGridWorldV2 __init__): scheduled_external_hazard_enabled (bool,
+  default False -- no-op); scheduled_external_hazard_interval (int, default 50);
+  scheduled_external_hazard_prob (float, default 0.5);
+  scheduled_external_hazard_adjacent_only (bool, default True -- if no empty neighbour
+  and False, falls back to any empty cell; if True, a tick with no adjacency is skipped).
+  New env state and info keys:
+    self._external_hazard_event_count: per-episode counter (reset in reset()).
+    info["external_hazard_injected"]: bool, True on the step the injection fired.
+    info["external_hazard_event_count"]: int, cumulative this episode.
+  Data flow: step() -> after agent move / env drift checks -> [enabled and steps%interval==0
+  and rng<prob] -> _inject_external_hazard() -> hazard relocated/spawned ->
+  info tags set -> proximity fields recomputed.
+  Backward compatible: scheduled_external_hazard_enabled=False by default; env state
+  is unchanged relative to legacy behaviour (_drift_hazards, _respawn_resource unaffected).
+  Info dict tags are always present (value 0 / False when disabled), but existing
+  experiments that don't read them are unaffected.
+  Biological basis: none required (curriculum-level env augmentation). The distinction
+  this supports (self-caused vs externally-caused harm events) is a prerequisite of the
+  Blakemore / Shergill / Frith comparator literature already grounding SD-029.
+  Phased training: not applicable (env only; no new trainable parameters).
+  MECH-094: not applicable (env observation stream, not replay content).
+  Validation experiment: V3-EXQ-470 queued (diagnostic ablation:
+  SCHEDULED vs BASELINE, 4 seeds, confirms per-seed n_ext >= 20 under the curriculum
+  and that balanced event counts preserve C1/C2 while enabling C3/C4 measurement).
+  See SD-029, MECH-256, ARC-033, SD-013.
+  Design-doc reference: REE_assembly/docs/architecture/self_attribution_per_stream.md.
+
+## SD-047: Multi-Source Environmental Dynamics (2026-05-03)
+- SD-047: environment.multi_source_dynamics -- IMPLEMENTED 2026-05-03.
+  Module: ree_core/environment/causal_grid_world.py (CausalGridWorld /
+  CausalGridWorldV2). Three concurrent stochastic event sources at distinct
+  spatial / temporal scales, each agent-independent, layered onto the
+  existing SD-022 / SD-029 hazard substrate. Substrate-ceiling unblock for
+  MECH-095 TPJ agency-detection comparator (V3-EXQ-506 C4-only-PASS pattern,
+  2026-05-03). Lit-anchor: 18 PubMed entries (Asai 2016 non-monotonic agency
+  S/N; Sawtell 2010 cerebellar cancellation; Pitcher & Ungerleider 2021
+  lateral cortex network; Woo/Spelke 2023 falsifier; passivity cluster
+  Blakemore/Frith 2000, Synofzik 2008, Stirling 2001, Gallagher 2004,
+  Shamanna 2023, Brandt 2017, Ganos 2015, Lyndon 2026, Seth & Friston 2016,
+  Jeganathan & Breakspear 2021, Nassar 2021, Jardri & Deneve 2013, Ward 2010).
+  SD-047 lit_conf=0.841.
+  Three sources:
+    Source 1 (weather field): AR(1) coarse-grid additive perturbation on
+      hazard_field. Continuous, smooth, autocorrelated, agent-independent.
+      Per-cell signature for cerebellar-style cancellation tests (MECH-098).
+      Stationary AR(1) form: x_{t+1} = alpha*x_t + sqrt(1-alpha^2)*sigma*N(0,1).
+      Variance bounded at sigma^2 across long episodes.
+    Source 2 (transient events): Poisson appear / disappear of transient
+      hazard cells. Discrete, spatially pointwise, short-lived,
+      agent-independent. Tracked separately from self.hazards
+      (self._transient_hazards) for bookkeeping; underlying cell still
+      registered in self.hazards so proximity field treats it as a hazard.
+    Source 3 (background drift): n_drift_sources mobile single-cell hazard-
+      analog objects with random_walk / linear_drift / levy_walk dynamics.
+      Discrete, mobile, autocorrelated, agent-independent. Tracked in
+      self._drift_sources; same dual-list bookkeeping as transients.
+  Config (CausalGridWorld __init__ kwargs, env-only -- not surfaced through
+  REEConfig.from_dims, matching SD-023 / SD-029 precedent for env-only SDs):
+    multi_source_dynamics_enabled (bool, default False) -- master switch.
+    multi_source_intensity_scale (float, default 1.0) -- 4-arm noise-sweep
+      lever (OFF / 0.25 / 1.0 / 4.0); scales weather sigma, transient
+      p_appear, and drift move probability uniformly.
+    weather_field_enabled (bool, default False) -- per-source switch.
+    weather_super_cells (int, default 4) -- coarse AR(1) grid resolution.
+    weather_alpha_ar1 (float, default 0.95) -- temporal autocorrelation.
+    weather_sigma (float, default 0.05) -- per-cell perturbation magnitude.
+    transient_events_enabled (bool, default False) -- per-source switch.
+    transient_p_appear (float, default 1e-3) -- per-tick per-cell appearance.
+    transient_p_disappear (float, default 0.1) -- mean lifespan ~10 ticks.
+    transient_intensity (float, default 1.0) -- reserved for harm scaling.
+    background_drift_enabled (bool, default False) -- per-source switch.
+    n_drift_sources (int, default 1) -- count.
+    drift_policy (str, default "random_walk") -- one of random_walk /
+      linear_drift / levy_walk.
+  Data flow (step()): existing logic (move, harm, contamination, SD-022
+    limb damage) -> SD-029 _inject_external_hazard -> _drift_hazards
+    (legacy env_drift) -> [if multi_source_dynamics_enabled] _step_weather_field
+    -> _step_transient_events -> _step_background_drift -> _compute_proximity_fields
+    if any source perturbed hazard layout / weather. Existing SD-029 path is
+    untouched; SD-047 is purely additive.
+  info dict tags (always present, 0 / False when disabled):
+    multi_source_dynamics_enabled, multi_source_intensity_scale,
+    multi_source_weather_step_delta, multi_source_n_transient_appear,
+    multi_source_n_transient_disappear, multi_source_n_transient_active,
+    multi_source_n_drift_moved, multi_source_n_drift_active,
+    multi_source_n_env_events (cumulative env-caused per tick),
+    multi_source_n_agent_events (cumulative agent-caused per tick).
+    The ratio multi_source_n_env_events / multi_source_n_agent_events is the
+    calibration target signal for the validation experiment (target 1:1-2:1).
+  Backward compatible: multi_source_dynamics_enabled=False by default;
+    _init_multi_source_state not called; _step_* not called; proximity
+    field path unchanged; info tags zero / False. RNG draws guarded inside
+    `if multi_source_dynamics_enabled:` so seed sequences for existing
+    experiments are bit-identical when disabled. 7/7 preflight + 184/184
+    contracts PASS with master OFF (smoke 2026-05-03).
+  Activation smoke (2026-05-03, 4-arm sweep, 200 ticks each):
+    ARM_0 (OFF): env_events=2 (background drift only), agent_events=193,
+      bit-identical to legacy.
+    ARM_1 (scale=0.25 ON): env_events=77, agent_events=185.
+    ARM_2 (scale=1.0 ON): env_events=330, agent_events=169.
+      Calibration ratio 1.95:1 -- matches SD doc target 1:1-2:1.
+    ARM_3 (scale=4.0 ON): env_events=354, agent_events=175.
+      Saturation at high noise -- transient-pool bound.
+    Weather AR(1) firing (super_field abs-mean 0.053 with sigma=0.1);
+    drift sources moving 170 / 240 attempts (~0.71 effective move rate);
+    transients churning at ~5e-3 per cell per tick.
+  Implementation choices (deviations / clarifications from SD doc):
+    - Flat kwargs on CausalGridWorld.__init__ rather than nested dataclass
+      (MultiSourceDynamicsConfig). Matches SD-022 / SD-023 / SD-029 precedent
+      for env-only SDs; nothing else uses dataclass-config for env params.
+    - Transient + drift hazards live in self.hazards (with parallel
+      bookkeeping lists for movement / disappearance) rather than getting
+      a new ENTITY_TYPES entry. Adding a new entity type would change
+      NUM_ENTITY_TYPES from 7 to 8 and break local_view shape (5x5x7=175 ->
+      5x5x8=200), violating backward compat.
+    - Per-source bit-identical OFF preserved: each source's RNG draws are
+      gated by its own switch and the master switch, so single-source
+      ablation studies are clean.
+  No trainable parameters. Pure env-side stochastic substrate enrichment.
+  No phased training needed.
+  MECH-094: not applicable (env observation stream, not replay / simulation
+    content). Validation experiments call sense() / step() in waking mode;
+    simulation paths do not invoke env.step.
+  Validation experiment: V3-EXQ-509 queued (4-arm noise sweep
+    {OFF / 0.25x / 1.0x / 4.0x}, V3-EXQ-506-equivalent metrics). Pre-
+    registered prediction per SD doc: ARM_0 replicates V3-EXQ-506 C1-C3
+    FAIL; C1, C2, C3 pass-rate forms inverted U across ARM_1 -> ARM_2 ->
+    ARM_3 with ARM_2 peak (Asai 2016 non-monotonic). Five-row interpretation
+    grid handles validation / calibration miscalibration / Woo & Spelke
+    falsifier branch (re-route MECH-095 to substrate_conditional V4) /
+    opposite-direction artefact / standard validation.
+  Design doc: REE_assembly/docs/architecture/sd_047_multi_source_dynamics.md
+  Lit-pull: REE_assembly/evidence/literature/targeted_review_sd_047/
+    + targeted_review_connectome_mech_095/ (passivity cluster).
+  See SD-047, MECH-095 (substrate-ceiling unblock), MECH-098 (reafference
+    cancellation, secondary unblock), MECH-099 (downstream agency
+    attribution, secondary unblock), SD-022 (body-damage substrate, layered
+    on top of), SD-029 (scheduled hazard curriculum, layered on top of),
+    ARC-033 (E2_harm_s forward, indirect benefit on cf_gap_ratio), MECH-094
+    (call-site scoping; not applicable).
+
+## SD-048: Interoceptive Noise Dynamics (2026-05-03)
+- SD-048: body.interoceptive_noise_dynamics -- IMPLEMENTED 2026-05-03.
+  Module: ree_core/environment/causal_grid_world.py (CausalGridWorldV2).
+  Three concurrent agent-independent stochastic body-state noise sources at
+  distinct temporal scales applied to harm_obs_a readout, layered onto the
+  existing SD-022 limb-damage / SD-011 EMA substrate. Level 2 counterpart
+  to SD-047 at the body-state layer; substrate-ceiling unblock for ARC-058
+  (and ARC-033 arbitration) per the V3-EXQ-506-equivalent C4-only-PASS
+  signature on z_harm_a comparator testing.
+  Three sources:
+    Source 1 (autonomic noise): per-element i.i.d. Gaussian additive noise
+      on harm_obs_a at every tick. Fast, continuous, low-amplitude
+      (HRV / sympathetic-fluctuation analog). default sigma=0.02 normalised
+      harm units.
+    Source 2 (sensitisation spikes): Poisson onset of transient
+      multiplicative amplification on harm_obs_a, exponentially decaying.
+      Inflammatory sensitisation analog. default rate=0.008/step,
+      magnitude=1.8x (0.8x amplification contribution), halflife=15 steps.
+      Cumulative amplification capped at 5.0x to bound long Poisson tails.
+    Source 3 (fatigue drift): slow AR(1) latent fatigue state additively
+      contributing to harm_obs_a across the episode. Allostatic-load /
+      sleep-pressure analog. default ar_coeff=0.995 (very slow decay),
+      noise_scale=0.005, contribution_weight=0.15. Resets per episode.
+  Order: fatigue (additive baseline shift) -> sensitisation (multiplicative
+  gain modulation) -> autonomic (read-out noise floor). Fatigue and
+  sensitisation modulate baseline / gain; autonomic noise is true read-out
+  noise on top.
+  Config (CausalGridWorldV2 __init__ kwargs, env-only -- not surfaced through
+  REEConfig.from_dims, matching SD-047 / SD-022 / SD-029 precedent for
+  env-only SDs):
+    interoceptive_noise_enabled (bool, default False) -- master switch.
+    interoceptive_noise_scale (float, default 1.0) -- 4-arm sweep lever
+      (OFF / 0.25 / 1.0 / 4.0); scales autonomic_noise_scale,
+      sensitisation_rate, and fatigue_noise_scale uniformly.
+    autonomic_noise_enabled (bool, default True) -- per-source switch.
+    autonomic_noise_scale (float, default 0.02) -- per-step Gaussian SD.
+    sensitisation_enabled (bool, default True) -- per-source switch.
+    sensitisation_rate (float, default 0.008) -- Poisson onset/step.
+    sensitisation_magnitude (float, default 1.8) -- multiplicative amplifier.
+    sensitisation_halflife (int, default 15) -- exponential decay half-life.
+    fatigue_enabled (bool, default True) -- per-source switch.
+    fatigue_ar_coeff (float, default 0.995) -- AR(1) persistence.
+    fatigue_noise_scale (float, default 0.005) -- per-step innovation SD.
+    fatigue_contribution_weight (float, default 0.15) -- additive weight on
+      harm_obs_a.
+    interoceptive_change_threshold (float, default 0.01) -- |delta_harm_obs_a|
+      floor used to count body-noise vs agent-caused harm-state-change
+      events (calibration-target denominator).
+  Data flow (_get_observation_dict): existing SD-022 limb-damage build OR
+    legacy 50-dim EMA build -> harm_obs_a numpy array ->
+    [if interoceptive_noise_enabled] _apply_interoceptive_noise: fatigue
+    AR(1) update / additive contribution -> sensitisation Poisson onset and
+    multiplicative amplification -> autonomic per-element Gaussian ->
+    delta-event classification vs cached previous tick -> torch.from_numpy.
+  info dict tags (always present, 0 / False when disabled):
+    interoceptive_noise_enabled, interoceptive_noise_scale,
+    interoceptive_n_autonomic_events, interoceptive_n_sensitisation_events,
+    interoceptive_n_fatigue_events, interoceptive_n_body_noise_events,
+    interoceptive_n_agent_caused_harm_events, interoceptive_fatigue_state,
+    interoceptive_sensitisation_amplification.
+    The ratio interoceptive_n_body_noise_events / interoceptive_n_agent_caused_harm_events
+    is the calibration target signal for the validation experiment
+    (target 1:1-2:1 at ARM_2). Classification of |delta_harm_obs_a| events
+    uses _last_transition_type cached from step() to attribute agent-caused
+    transitions; everything else counts as body-noise-caused.
+  Backward compatible: interoceptive_noise_enabled=False by default;
+    _apply_interoceptive_noise short-circuits; no RNG draws; no state
+    advance; harm_obs_a returned unchanged. RNG draws gated inside
+    `if interoceptive_noise_enabled:` AND per-source switches so seed
+    sequences for existing experiments are bit-identical when disabled.
+    Default vs explicit-False bit-identical OFF guarantee verified
+    2026-05-03 (50-tick parity check).
+  Activation smoke (2026-05-03, 4-arm sweep, 200 ticks each, 8x8 env,
+  random policy):
+    ARM_0 (OFF, scale=1.0): all SD-048 counters zero.
+    ARM_1 (ON, scale=0.25): autonomic 0 (sigma 0.005 below threshold 0.01),
+      n_body_noise=7. Sensitisation / fatigue rare at this scale.
+    ARM_2 (ON, scale=1.0): n_aut=176, n_sens=1, fatigue state evolves
+      ~+/-0.04, max sensitisation amp=0.8 (one event x 0.8x contribution).
+    ARM_3 (ON, scale=4.0): n_aut=200 saturated, n_sens=5.
+    All three sources fire end-to-end. Body_noise:agent_caused ratio is
+    dominated by random-policy contact rate at small env (164/200
+    agent-caused events); validation experiment will use a larger env or
+    sparser policy to land the calibration band per the SD doc's
+    recalibration interpretation row.
+  Implementation choices (deviations / clarifications from SD doc):
+    - Flat kwargs on CausalGridWorld.__init__ rather than nested dataclass.
+      Matches SD-047 / SD-022 / SD-023 / SD-029 precedent for env-only SDs.
+    - Output-side perturbation on harm_obs_a readout, NOT modification of
+      upstream limb_damage state. Biologically correct (interoceptive
+      reporting noise vs change to underlying body) and avoids interaction
+      with SD-022's failure_prob_scale movement-failure mechanism.
+    - Cumulative sensitisation amplification capped at 5.0x to defend
+      against long Poisson tails (numerical stability; not in SD doc).
+    - Per-source diagnostic counters distinguish autonomic / sensitisation /
+      fatigue source firing (always-on per-source RNG draws cross threshold)
+      from the calibration-target body_noise / agent_caused classification
+      (steps where readout |delta| > threshold, attributed by
+      _last_transition_type).
+  No trainable parameters. Pure stochastic readout enrichment. No phased
+  training needed (env-only substrate; no new encoder, no new training
+  target).
+  MECH-094: not applicable (env observation stream, not replay / simulation
+    content). Validation experiments call sense() / step() in waking mode;
+    simulation paths do not invoke env.step.
+  Validation experiment: V3-EXQ-511 queued (4-arm noise sweep
+    {OFF / 0.25x / 1.0x / 4.0x}, 3 seeds, larger env + sparser policy to
+    land the 1:1-2:1 calibration band; ARC-058-equivalent C1-C4 metrics
+    deferred to the comparator-gap behavioural successor V3-EXQ-512).
+    Pre-registered prediction per SD doc: ARM_0 reproduces current
+    substrate-ceiling pattern (no body-noise events); ARM_2 produces
+    calibrated mixed substrate; ARM_1 / ARM_3 quantify under- and
+    over-noise regimes per Asai 2016 non-monotonic.
+  Design doc: REE_assembly/docs/architecture/sd_048_interoceptive_noise_dynamics.md
+  See SD-048, SD-011 (z_harm_a stream prerequisite), SD-022 (agent-caused
+    body-state variance prerequisite), SD-047 (Level 1 environmental
+    counterpart, parallel architectural logic), ARC-058 (primary Level 2
+    comparator unblock), ARC-033 (competing arbitration, same substrate
+    enrichment), ARC-061 (reafference comparator family Level 2
+    contribution), MECH-094 (call-site scoping; not applicable).
+
+## SD-033a: Lateral-PFC-analog / MECH-261 Primary Consumer (2026-04-20)
+- SD-033a: pfc.lateral_pfc_analog -- IMPLEMENTED 2026-04-20.
+  Module: ree_core/pfc/lateral_pfc_analog.py (LateralPFCAnalog,
+  LateralPFCConfig). First subdivision of SD-033 (PFC subdivision cluster)
+  and primary consumer of MECH-261's write-gate registry on SD-032a
+  (SalienceCoordinator). Instantiates MECH-262 (rule-selective persistence).
+  Config: REEConfig.use_lateral_pfc_analog (bool, default False).
+  Sub-knobs: lateral_pfc_rule_dim (16), lateral_pfc_update_eta (0.05),
+  lateral_pfc_world_pool_weight (0.5), lateral_pfc_bias_scale (0.1),
+  lateral_pfc_hidden_dim (32).
+  State: rule_state buffer [1, rule_dim], persistent across ticks within
+  episode, reset on agent.reset(). Cross-episode carry-over is NOT
+  implemented (V3 simplification; V4 extension if required).
+  Update rule: rule_state <- (1 - eff_eta) * rule_state + eff_eta * source
+    where eff_eta = update_eta * gate, gate = write_gate("sd_033a"),
+    source = delta_proj(z_delta) + world_pool_weight * world_proj(z_world).
+    Gate near 0 (internal_replay weight 0.05) -> rule-state near-frozen
+    (distractor resistance). Gate near 1 (external_task / internal_planning)
+    -> fast update.
+  Bias head: frozen-random with last nn.Linear weights and bias ZEROED at
+    init so initial bias output is EXACTLY zero. Head takes concat(
+    [rule_state, per-candidate z_world summary]) -> scalar per candidate
+    -> clamp [-bias_scale, +bias_scale] -> [K] bias vector added to
+    dacc_score_bias before E3.select(). Training-dependent emergence
+    (SD-033 signature iv) deferred: phased-training protocol not wired.
+  Data flow: select_action() -> gate = salience.write_gate("sd_033a") (or
+    1.0 if coord disabled) -> lateral_pfc.update(z_delta, z_world, gate)
+    -> per-candidate summaries from trajectory.world_states[:, 0, :] ->
+    lateral_pfc.compute_bias(summaries) -> add to dacc_score_bias ->
+    e3.select(score_bias=...).
+  Backward compatible: use_lateral_pfc_analog=False by default. When
+    True with the zeroed-last-layer head, initial bias output is exactly
+    zero -- agent runs bit-identical to baseline until the head is
+    deliberately trained (deferred).
+  Biological basis: Miller & Cohen 2001 (rule-as-top-down-bias), Badre
+    & Nee 2018 (mid-lateral rule-hierarchy), Mansouri 2020 (rule-selective
+    persistence). MECH-261 per-mode weights for sd_033a (from spec):
+    external_task=1.0, internal_planning=1.0, internal_replay=0.05,
+    offline_consolidation=0.3.
+  MECH-094: rule persistence is gated by the MECH-261 registry (not by
+    a separate hypothesis_tag check). MECH-261 generalises MECH-094:
+    write_gate("sd_033a") = 0.05 in internal_replay mode means replay
+    content cannot meaningfully update rule_state. The gate IS the tag.
+  DESIGN ALTERNATIVES (documented in design doc, lit-pulls queued in
+    task_inbox.md): A1 per-candidate vs uniform bias; A2 frozen-random
+    head with zeroed last Linear vs trained head via phased protocol;
+    A3 gate-modulated EMA vs recurrent GRU / synaptic-hold persistence.
+  Smoke test (2026-04-20): module instantiates; gate=1.0 rule_state delta
+    ~0.1 on single tick; gate=0.0 rule_state delta < 1e-6 (freeze); initial
+    bias vector exactly zero; reset() zeroes rule_state. E2E five-tick
+    loop with SD-033a ON hits the same pre-existing multinomial-on-
+    untrained-E3-scores edge case that SD-033a-OFF also hits; confirmed
+    not caused by this SD.
+  Validation experiment: V3-EXQ-456 queued (diagnostic -- five sub-tests:
+    instantiation, gate modulates update rate, bias reaches E3 with
+    zero-init contract, backward compat, reset clears rule_state).
+  Phased training: deferred until A2 alternative is considered.
+  Design doc: REE_assembly/docs/architecture/sd_033a_lateral_pfc_analog.md
+  See SD-033, SD-033a, MECH-261, MECH-262, SD-032a, SD-032b, MECH-094.
+
+## SD-033b: OFC-analog / MECH-261 Second Consumer (2026-04-26)
+- SD-033b: pfc.ofc_analog -- IMPLEMENTED 2026-04-26.
+  Module: ree_core/pfc/ofc_analog.py (OFCAnalog, OFCConfig). Second
+  subdivision of SD-033 (PFC subdivision cluster) and second consumer
+  of MECH-261's write-gate registry on SD-032a (SalienceCoordinator).
+  Substrate for MECH-263 functional signatures (devaluation sensitivity,
+  same-sensory / different-task-role discrimination); the behavioural
+  signatures themselves are deferred to environment-extension EXQs.
+  Config: REEConfig.use_ofc_analog (bool, default False).
+  Sub-knobs: ofc_state_dim (16), ofc_update_eta (0.05),
+  ofc_outcome_pool_weight (0.5), ofc_bias_scale (0.1),
+  ofc_hidden_dim (32), ofc_harm_dim (0). harm_dim=0 (default) builds the
+  state_code from z_world only; setting harm_dim to the SD-011 z_harm
+  dim turns on outcome_proj so harm-magnitude information enters the
+  outcome-state code (the architectural shape MECH-263 devaluation
+  sensitivity probes).
+  State: state_code buffer [1, state_dim], persistent across ticks
+  within episode, reset on agent.reset(). Cross-episode carry-over not
+  implemented (V3 simplification, parallel to SD-033a).
+  Update rule: state_code <- (1 - eff_eta) * state_code + eff_eta * source
+    where eff_eta = update_eta * gate, gate = write_gate("sd_033b"),
+    source = world_proj(z_world).mean(0)
+           + outcome_pool_weight * outcome_proj(z_harm).mean(0) (if harm_dim>0).
+    Gate near 0 (internal_replay weight 0.05) -> state_code near-frozen.
+    Gate near 1 (external_task weight 1.0) -> fast update. internal_planning
+    weight 0.5 (vs 1.0 for sd_033a) reflects partial replanning during
+    planning rollouts.
+  Bias head: frozen-random with last nn.Linear weights and bias ZEROED at
+    init so initial bias output is EXACTLY zero. Head takes concat(
+    [state_code, per-candidate z_world summary]) -> scalar per candidate
+    -> clamp [-bias_scale, +bias_scale] -> [K] bias vector added to
+    dacc_score_bias before E3.select(). Training-dependent emergence
+    deferred along with MECH-263 behavioural signatures (env extension
+    required: outcome relabelling, task-role-distinct state pairs).
+  Data flow: select_action() -> gate = salience.write_gate("sd_033b") (or
+    1.0 if coord disabled) -> ofc.update(z_world, z_harm-if-harm_dim>0,
+    gate) -> per-candidate summaries (reused from lateral_pfc tick block
+    when SD-033a also on; built fresh otherwise) -> ofc.compute_bias(
+    summaries) -> add to dacc_score_bias -> e3.select(score_bias=...).
+  Backward compatible: use_ofc_analog=False by default. When True with
+    the zeroed-last-layer head, initial bias output is exactly zero --
+    agent runs bit-identical to baseline until the head is deliberately
+    trained. 143/143 contracts PASS with substrate landed.
+  Biological basis: MECH-263 OFC functional signatures (devaluation
+    sensitivity, same-sensory / different-task-role discrimination).
+    MECH-261 per-mode weights for sd_033b (from spec): external_task=1.0,
+    internal_planning=0.5, internal_replay=0.05, offline_consolidation=0.3.
+  MECH-094: handled via MECH-261 generalisation. write_gate("sd_033b")=
+    0.05 in internal_replay means replay content cannot meaningfully
+    update state_code. The gate IS the tag.
+  Smoke test (2026-04-26): module instantiates; gate=1.0 state_code delta
+    ~0.27 on single tick; gate=0.0 state_code delta exactly 0.0 (freeze);
+    initial bias vector max-abs exactly zero; reset() zeroes state_code.
+    EXQ-485 5/5 sub-tests PASS.
+  Oracle path (MECH-263, 2026-05-04): OFCConfig.use_outcome_oracle (bool,
+    default False). When True, OFCAnalog.query_outcome(z_harm_s, action,
+    e2_harm_s) delegates to E2HarmSForward.forward() with no_grad + detach;
+    raises AssertionError when oracle is disabled. REEAgent stores
+    _ofc_oracle_predictions (per-candidate oracle list, cleared on reset).
+    REEConfig.use_ofc_outcome_oracle (default False) wired through from_dims().
+    Bit-identical OFF: the oracle block in select_action() is entirely gated
+    by oracle_is_ready (False when use_outcome_oracle=False) so all existing
+    experiments are unaffected. 7/7 preflight + 184/184 contracts PASS with
+    oracle OFF.
+  Validation experiment: V3-EXQ-485 queued (diagnostic -- five sub-tests:
+    instantiation + state_code shape, gate=1 vs gate=0 update modulation,
+    bias zero at init, backward compat, reset clears state_code). Smoke
+    PASS 2026-04-26. V3-EXQ-485a queued (6-sub-test oracle round-trip
+    extension; UC6 new: A query_outcome() matches e2_harm_s.forward() <1e-6
+    diff; B AssertionError when oracle disabled; C reset() clears prediction
+    caches; D oracle_is_ready=False by default; E get_state() exposes oracle
+    diagnostics). Behavioural validation (MECH-263 devaluation + task-role
+    discrimination) deferred to env-extension EXQs.
+  Phased training: deferred along with MECH-263 behavioural signatures.
+  Design doc: REE_assembly/docs/architecture/sd_033b_ofc_analog.md
+  See SD-033, SD-033a (sibling consumer; additive E3 bias composition),
+    SD-033b, MECH-261, MECH-263, SD-032a, SD-032b, MECH-094.
+
+## SD-034: Governance Closure Operator (2026-04-20)
+- SD-034: governance.closure_operator -- IMPLEMENTED 2026-04-20.
+  Module: ree_core/governance/closure_operator.py (ClosureOperator,
+  ClosureOperatorConfig, ClosureEvent). First substrate in SD-033
+  governance cluster; first consumer of MECH-261 write-gate registry's
+  mode-conditioning predicate. Coordinates a five-part "done" token
+  emitted at rule-completion events:
+    (a) MECH-090 beta_gate.release() -- commitment latch drops.
+    (b) MECH-260 dacc.inject_nogo(action_class, count) -- targeted
+        No-Go FIFO injection on the just-completed action class
+        (semantically distinct from execution record; same mechanism).
+    (c) ResidueField.discharge_domain(z_world, factor, radius) --
+        rule-domain multiplicative decay on RBF weights; hard 1e-6
+        floor preserves the "residue cannot be erased" invariant.
+    (d) SalienceCoordinator.update_signal("closure_event", value) --
+        re-biases affinity toward internal_planning via registered
+        affinity_weights (default internal_planning=0.5).
+    (e) dacc.reset_episode_pe() + optional dacc_pe_cap install --
+        MECH-268 pe saturation/reset.
+  Config: REEConfig.use_closure_operator (bool, default False). Sub-
+  knobs: closure_rule_delta_threshold (0.001), closure_stable_ticks
+  (3), closure_require_beta_elevated (True), closure_min_sd033a_gate
+  (0.5), closure_nogo_injection_count (3), closure_residue_discharge_
+  factor (0.5), closure_residue_discharge_radius (1.5),
+  closure_signal_value (1.0), closure_reset_pe_ema (True),
+  closure_pe_cap_after (None), closure_signal_affinity_internal_
+  planning (0.5).
+  Completion detector (tick path): rule_state delta < threshold for
+  N consecutive ticks AND beta elevated AND current_mode in
+  allowed_closure_modes AND sd_033a write_gate >= min. Rule-state
+  norm guard prevents firing on unset rule_state. Explicit
+  emit_closure() path is the experiment hook (bypass_mode_
+  conditioning for controlled ablations).
+  Mode conditioning is the falsifiability predicate: if MECH-090 +
+  MECH-260 + MECH-094 tuning WITHOUT closure produces the signature
+  in follow-up behavioural variants, SD-034 is over-specification.
+  ResidueField.discharge_domain API added in same pass: multiplicative
+  decay + sign-aware 1e-6 floor + radius-scoped in-domain selection
+  via squared distance vs (radius * bandwidth)^2; valence_vecs NOT
+  modified (4-component valence preserved so replay prioritisation
+  remains faithful). DACCAdaptiveControl extended with dacc_pe_cap,
+  inject_nogo(), reset_episode_pe() (distinct from full reset() --
+  preserves _action_history where the just-injected No-Go lives).
+  Agent wiring: REEAgent.__init__ instantiates closure_operator when
+  enabled (requires use_lateral_pfc_analog=True, use_dacc=True;
+  salience coordinator optional). select_action() calls tick() after
+  action emission with current z_world + argmax action_class +
+  operating_mode + sd_033a gate. reset() calls closure_operator.reset().
+  register_on_coordinator() wires closure_event into
+  salience.config.affinity_weights at init.
+  Backward compatible: use_closure_operator=False by default ->
+  agent.closure_operator is None; every integration site is a no-op.
+  Existing experiments unaffected. Bit-identical with
+  closure_signal_affinity_internal_planning=0.0 and the master switch
+  off.
+  Biological basis: Rich & Shapiro 2009 (OFC sequence-completion
+  cells); Collins & Frank 2014 (task-set disengagement); Schuck 2016
+  (mPFC task-stage encoding). Five-part signal collocates multiple
+  biologically-observed end-of-sequence signatures; EXP-0156 and
+  EXP-0162 probe whether the collocation is a single substrate or
+  co-occurring independent processes.
+  MECH-094: mode-conditioning on operating_mode generalises the
+  MECH-094 hypothesis-tag -- internal_replay / offline_consolidation
+  modes block closure firing via allowed_closure_modes and via
+  sd_033a gate floor (write_gate("sd_033a")=0.05 in internal_replay).
+  Validation experiments:
+    V3-EXQ-460 (EXP-0156, ocd4 verified-but-not-released) -- landing
+      diagnostic (6 sub-tests: backward compat, wiring, beta release,
+      No-Go, pe reset, mode conditioning). PASS on smoke.
+    V3-EXQ-466 (EXP-0162, ocd4 satisficing / No-Go thresholding) --
+      residue-discharge landing diagnostic (5 sub-tests: near
+      attenuation, far spared, invariant preserved, closure->discharge
+      end-to-end, distant-z spares). PASS on smoke.
+  Behavioral variants with full E3 task loop + tolerance-band
+  completion env are deferred: they depend on phased rule_state
+  training and an env variant not yet on any roadmap item.
+  Anchor doc: REE_assembly/evidence/planning/sd033_governance_plan.md
+  Source: docs/thoughts/2026-04-20_ocd4.md
+  See SD-034, MECH-090, MECH-260, MECH-261, MECH-262, MECH-094,
+  MECH-268, SD-032a, SD-033a.
+
+## SD-035: Amygdala Analogue -- BLA + CeA Peer Modules (2026-04-21)
+- SD-035: amygdala.analog_bla_cea_peers -- IMPLEMENTED 2026-04-21.
+  Modules:
+    ree_core/amygdala/bla.py (BLAAnalog, BLAConfig, BLAOutput)
+    ree_core/amygdala/cea.py (CeAAnalog, CeAConfig, CeAOutput)
+  Two peer non-trainable arithmetic substrates mirroring the biological
+  BLA / CeA division. Both read z_harm_a (SD-011 affective stream) and
+  write to different downstream consumers. Master switch
+  use_amygdala_analog gates both; per-module switches use_bla_analog and
+  use_cea_analog give granular control.
+
+  BLAAnalog (basolateral-analog, slow/content) -- MECH-074a/b/d:
+    MECH-074a encoding_gain: inverted-U arousal-dependent multiplier on
+      HippocampalModule write strength (Roozendaal 2011). Threshold
+      on_arousal=0.4, peak=0.7, max gain=2.5, window=18000 steps,
+      half-life=3600 steps. Zero below threshold; falls back to 1.0 in
+      the tail of the post-encoding window.
+    MECH-074b retrieval_bias: content-selective per-trace weight
+      vector w_i = 1 + alpha * arousal_tag_i (NOT a scalar; LaBar &
+      Cabeza 2006). Requires arousal_tags_in_context from caller
+      (hippocampal retrieval side). None-passthrough when no context
+      provided.
+    MECH-074d remap_signal: Moita 2004 attribution-gated per-code
+      remap. Fires when PE z-score > remap_pe_sigma_threshold AND
+      candidate_code_contributions attribution dict is supplied.
+      Output is {code_idx: 1.0} over the top remap_code_fraction of
+      attribution candidates (default 33%).
+  BLA outputs are cached on agent._bla_last_output. V3 hippocampal
+  consumer wiring (write-gain multiplication, retrieval reweighting,
+  remap handoff) is deferred -- the module emits the signals but the
+  HippocampalModule does not yet read them. First-pass consumer wiring
+  is gated on EXQ-B acceptance.
+
+  CeAAnalog (central-analog, fast/scalar) -- MECH-046/074c:
+    MECH-046 mode_prior: pre-softmax additive log-odds bias written
+      to SalienceCoordinator.affinity_weights. Fires within 1-2 sim
+      steps (~75 ms biological; Mendez-Bertolo 2016) when
+      |LowFreq(z_harm_a)| > fast_route_threshold. Distinct from AIC
+      urgency (SD-032c): AIC modulates mode-SWITCH threshold; CeA
+      mode_prior biases mode SELECTION.
+    MECH-074c fast_prime: scalar candidate-prior pulse distinct from
+      mode_prior (Pessoa & Adolphs 2010 many-roads framing). Override
+      window 5-10 steps; cortical_confirmation signal holds the pulse
+      across the window or accelerates decay (tau=4 steps base).
+    Q-036 escapability_hint: placeholder input (no-op pass-through)
+      so MECH-219 escapability wiring can land without an interface
+      refactor.
+  CeA outputs are cached on agent._cea_last_output and injected into
+  SalienceCoordinator via update_signal calls in select_action() BEFORE
+  coordinator.tick() each cycle:
+    update_signal("cea_mode_prior", mode_prior_float)
+    update_signal("cea_fast_prime", fast_prime_float)
+  Signal slots registered at agent __init__:
+    affinity_weights["cea_mode_prior"] = {"external_task": 1.0}
+    salience_weights["cea_fast_prime"] = 0.5
+
+  Config: REEConfig.use_amygdala_analog (bool, default False).
+  Sub-switches: use_bla_analog (bool, default True),
+  use_cea_analog (bool, default True) -- only take effect when master
+  is True. 14 BLA flat params (bla_encoding_gain_max, bla_encoding_gain_floor,
+  bla_arousal_threshold_on, bla_arousal_peak, bla_window_steps,
+  bla_window_half_life_steps, bla_retrieval_bias_alpha,
+  bla_retrieval_bias_compensation, bla_retrieval_tag_at_encoding,
+  bla_remap_pe_sigma_threshold, bla_remap_pe_ema_alpha,
+  bla_remap_pe_std_init, bla_remap_code_fraction,
+  bla_remap_requires_attribution) and 9 CeA flat params
+  (cea_fast_route_threshold, cea_fast_route_input_is_lowfreq,
+  cea_mode_prior_log_odds_max, cea_mode_prior_gain,
+  cea_pre_softmax_additive, cea_fast_prime_amplitude,
+  cea_fast_prime_decay_tau_steps, cea_fast_prime_override_window_steps,
+  cea_cortical_confirmation_weight). All wired through
+  REEConfig.from_dims() with synthesis-seeded defaults (see
+  REE_assembly/evidence/literature/targeted_review_amygdala_analog/
+  synthesis.md).
+
+  Data flow:
+    sense() -> LatentStack.encode() -> z_harm_a (SD-011, requires
+      use_affective_harm_stream=True) -> bla.tick(z_harm_a, z_harm_a_pred)
+      AND cea.tick(z_harm_a) -> cache outputs ->
+    select_action() -> coordinator update_signal("cea_mode_prior", ...)
+      AND update_signal("cea_fast_prime", ...) -> coordinator.tick() ->
+      mode affinity and salience aggregate reflect the fast route.
+  BLA retrieval_bias / remap_signal hippocampal wiring: DEFERRED.
+  Outputs produced and cached; HippocampalModule consumer wiring lands
+  when EXQ-B passes and the retrieval-bias-aware replay path is added.
+
+  Backward compatible: use_amygdala_analog=False by default; both
+  modules are None; all integration sites are no-ops. 33/33 preflight +
+  contract tests PASS with flag OFF (2026-04-21). Bit-identical to
+  baseline.
+
+  Activation smoke (2026-04-21, flag ON):
+    CeA mode_prior: 0.0 at rest -> 0.3 under synthetic threat
+      (L1/dim=0.8; threshold 0.5; cap mode_prior_log_odds_max=0.8 *
+      gain=0.5).
+    CeA fast_prime: 0.0 at rest -> 0.225 under threat.
+    BLA encoding_gain: 1.0 at rest -> 2.5 under synthetic arousal
+      (inverted-U cap).
+    BLA remap_signal: fires on synthetic PE spike when attribution
+      candidates supplied (Moita 2004 gate).
+    All three activation signatures confirmed; agent.sense() one-tick
+    boot completes without error with amygdala ON.
+
+  Biological basis (see synthesis.md):
+    BLA encoding: McGaugh 2004, Roozendaal 2011 (arousal-dependent LTP
+      modulation of hippocampal consolidation).
+    BLA retrieval: LaBar & Cabeza 2006, Dolcos et al 2005, Phelps 2004
+      (content-selective per-trace bias, not global arousal gain).
+    BLA remap: Moita 2004, Nader 2000, Schiller 2010 (PE-spike
+      remapping on violated expectation; attribution-gated).
+    CeA mode_prior: LeDoux 1996 "low road", Pessoa & Adolphs 2010
+      (fast subcortical route, mode SELECTION bias distinct from
+      cortical mode-SWITCH threshold).
+    CeA fast_prime: Mendez-Bertolo 2016 (~75 ms fast visual-amygdalar
+      pulvinar route), Pessoa & Adolphs 2010 (cortical confirmation
+      window).
+  MECH-094: CeAAnalog.tick() accepts simulation_mode argument;
+    returns zeroed output without updating state when True.
+    BLAAnalog defers to caller for simulation gating (encoding-gain
+    writes are gated at the HippocampalModule consumer side via
+    MECH-261).
+  Phased training: not applicable (non-trainable arithmetic).
+  Design doc: REE_assembly/docs/architecture/sd_035_amygdala_analog.md
+  Literature synthesis: REE_assembly/evidence/literature/
+    targeted_review_amygdala_analog/synthesis.md
+  Validation experiments: V3-EXQ-A (CeA mode-prior ablation, MECH-046)
+    and V3-EXQ-B (BLA encoding + remap, MECH-074a/d) -- queued in a
+    follow-up pass.
+  See SD-035, MECH-046, MECH-074, MECH-074a, MECH-074b, MECH-074c,
+  MECH-074d, SD-011, SD-032a, SD-032c, Q-036.
+
+## SD-036 + MECH-279: GABAergic Cross-Stream Decay + PAG Freeze-Gate (2026-04-22)
+- SD-036: regulators.gabaergic_cross_stream_decay -- IMPLEMENTED 2026-04-22.
+  Module: ree_core/regulators/gabaergic_decay.py (GABAergicDecayRegulator,
+  GABAergicDecayConfig, StreamRegistration). Regulator-layer substrate
+  (NOT per-stream update rule): a single broadly-projecting tonic GABAergic
+  decay applied across multiple registered latent streams in parallel.
+  Decay formula:
+    z_s(t+1) = z_s(t) * exp(-tau_s * gaba_tone(t))
+  with per-stream baseline tau and a global gaba_tone multiplier in
+  [0, 2] (default 1.0). gaba_tone > 1.0 = benzo-analog (faster decay,
+  easier exit from committed states); gaba_tone < 1.0 = withdrawal /
+  chronic-stress analog (slower decay); gaba_tone = 0.0 = decay
+  suspended.
+  Default coverage (tau values from design doc):
+    z_harm   tau=0.05  (~20-step half-life)  -- SD-010 sensory harm
+    z_harm_a tau=0.02  (~50-step half-life)  -- SD-011 affective harm
+    z_beta   tau=0.03  (~30-step half-life)  -- MECH-090 precision/affective
+  Drive accumulator (SD-012) intentionally NOT covered -- the homeostatic
+  override mechanism (separate, V4-or-late-V3) provides drive dynamics.
+  Suspend-on-input gate: per-stream input_threshold; when |z(t)-z(t-1)|
+  exceeds threshold, decay is skipped for that tick (the input drives
+  the update). Default 0.0 = always decay.
+  Decay is OUT-OF-PLACE (detach + scalar multiply + setattr): an in-place
+  mul_() on encoder outputs breaks autograd version tracking when those
+  outputs are concurrently consumed by SD-018 resource_proximity_head /
+  SD-011 harm_accum_head aux losses. Out-of-place is required for the
+  EXQ-471 training pipeline.
+  Config: REEConfig.use_gabaergic_decay (bool, default False). 14 sub-
+  knobs in REEConfig.from_dims: gaba_tone (1.0), gaba_tone_min (0.0),
+  gaba_tone_max (2.0), per-stream tau (gaba_tau_z_harm_s/a/beta),
+  per-stream coverage flags (gaba_decay_z_harm_s/a/beta), per-stream
+  input thresholds (gaba_input_threshold_z_harm_s/a/beta).
+  Agent wiring: instantiated in REEAgent.__init__ when master switch is
+  on; register_default_streams() called immediately. tick() invoked in
+  agent.sense() right after LatentStack.encode() and BEFORE AIC, BLA/CeA,
+  salience coordinator, etc. -- so all downstream consumers see the
+  decayed latent state on the same tick (no one-step lag). reset() called
+  from REEAgent.reset() per-episode.
+  Backward compatible: use_gabaergic_decay=False by default; agent.gabaergic_decay
+  is None and tick wiring is a no-op. Existing experiments unaffected.
+  No trainable parameters. No phased training needed.
+  Biological basis: GABAergic system as broadly-projecting tonic
+  inhibitory neuromodulator (Vogt 2005, Sohal & Rubenstein 2019).
+  Decay-as-regulator-layer (not per-stream update) is the architectural
+  commitment: a single GABA tonic value modulates many cortical and
+  subcortical sites in parallel. SD-036 implements this commitment.
+  MECH-094: simulation_mode=True path returns input unchanged and does
+  not advance counters (replay / DMN content not subject to waking decay).
+  Validation experiment: V3-EXQ-475 queued (matched re-run of EXQ-471
+  with use_gabaergic_decay=True + use_pag_freeze_gate=True; not a
+  supersede; EXQ-471 retained as no-decay baseline).
+  Design doc: REE_assembly/docs/architecture/sd_036_gabaergic_decay_regulator.md
+  See SD-036, MECH-279, MECH-094, SD-010, SD-011, MECH-090, SD-012.
+
+- MECH-279: pag.freeze_gate -- IMPLEMENTED 2026-04-22.
+  Module: ree_core/pag/freeze_gate.py (PAGFreezeGate, PAGFreezeGateConfig,
+  PAGFreezeGateOutput). Periaqueductal-gray-analog committed-freeze gate.
+  Freeze is a *committed* behavioural state -- sustained motor immobility
+  plus elevated autonomic arousal -- with its own duration and exit
+  criterion. Biologically PAG-gated; freeze-promoting cells are themselves
+  GABAergic (so SD-036 gates BOTH entry and exit).
+  Logic:
+    duration_above_threshold(t) -- ticks since z_harm_a first crossed
+      duration_input_threshold (defaults 0.4); resets when z drops below
+      that threshold OR on release. Increments only while gate inactive
+      (per-cycle "fresh accumulation" semantic; each commit requires a
+      new run-up).
+    freeze_commit(t) = (z_harm_a(t) * duration_above_threshold(t))
+                       > theta_freeze (default 2.0); strict-greater so
+      e.g. z=1.0 sustained at duration=2 (product=2.0) does NOT commit.
+    exit_threshold(t) = theta_freeze * gaba_tone(t)
+    freeze_release    = active AND z < exit_threshold AND
+                        ticks_in_freeze >= min_freeze_duration; OR
+                        ticks_in_freeze >= max_freeze_duration (cap).
+  Action constraint: when freeze_active, REEAgent.select_action()
+  replaces the chosen action with a no-op one-hot (action class
+  noop_class=0 by convention; matches action shape/dtype/device).
+  Tick wired AFTER beta_gate.propagate() and BEFORE _last_action assignment
+  so subsequent record_transition / E2_harm_a forward steps see the no-op.
+  Config: REEConfig.use_pag_freeze_gate (bool, default False). 4 sub-
+  knobs: pag_theta_freeze (2.0), pag_duration_input_threshold (0.4),
+  pag_min_freeze_duration (0 -- no minimum), pag_max_freeze_duration
+  (0 -- no cap; set positive for forced-release safety in smoke tests).
+  Backward compatible: use_pag_freeze_gate=False by default; agent.pag_freeze_gate
+  is None. Existing experiments unaffected.
+  No trainable parameters. Pure arithmetic over scalars + small counters.
+  No phased training needed.
+  Biological basis: descending inputs from amygdala / hypothalamus /
+  medial PFC converge on PAG freeze-promoting cells; freeze termination
+  requires GABAergic inhibition to wane. Same neurotransmitter system
+  gates BOTH entry (PAG freeze-cell commitment) and exit (SD-036 decay
+  returning z_harm_a below exit_threshold). Architectural prediction:
+  GABA agonists treat freeze catatonia (clinical observation as
+  architectural consequence, not empirical add-on).
+  MECH-094: simulation_mode=True path returns zeroed PAGFreezeGateOutput
+  without updating internal state (replay / DMN content must not commit
+  the agent into behavioural freeze).
+  Validation experiment: V3-EXQ-475 (combined SD-036 + MECH-279
+  diagnostic; under default theta_freeze=2.0 the gate is expected to be
+  silent on EXQ-471 dynamics, but is wired so the substrate is exercised
+  end-to-end).
+  See MECH-279, SD-036, SD-011, MECH-090, MECH-094.
+
+## MECH-269 Base Substrate -- Phase 1 (2026-04-22)
+- MECH-269 base: hippocampal.per_stream_verisimilitude -- IMPLEMENTED 2026-04-22.
+  Module: ree_core/hippocampal/module.py (HippocampalModule.update_per_stream_vs,
+  HippocampalModule.reset_per_stream_vs, HippocampalModule._stream_value).
+  Phase 1 of the V_s invalidation runtime (architecture doc:
+  REE_assembly/docs/architecture/v_s_invalidation_runtime.md). Adds the
+  observable per-stream verisimilitude foundation that Phase 2 (MECH-287
+  broadcast invalidation trigger) and Phase 3 (MECH-284 staleness
+  accumulator + MECH-269 anchor-reset hysteresis) will consume.
+  Computation (Phase 1, identity-prediction proxy):
+    For each registered stream s in config.per_stream_vs_streams:
+      z_curr = LatentState[s] (or GoalState.z_goal for s=='z_goal',
+                               LatentState.z_harm for s=='z_harm_s')
+      err = ||z_curr - z_prev|| / (||z_curr|| + 1e-6)
+      score = clip_[0,1](1 - err)
+      V_s[s] = (1-tau)*V_s_prev[s] + tau*score   # EMA
+    First observation seeds V_s[s] = 1.0 (perfect verisimilitude assumed)
+    and caches z_curr; subsequent ticks compute the proxy.
+  Forward-predictor routing (z_world -> ReafferencePredictor SD-007;
+  z_harm_s -> HarmForwardModel SD-011) is RESERVED for Phase 2. Phase 1
+  uses the identity proxy uniformly to keep HippocampalModule decoupled
+  from per-stream predictor wiring; the dict is populated as an
+  OBSERVABLE that downstream phases can consume.
+  Config: HippocampalConfig.use_per_stream_vs (bool, default False),
+  HippocampalConfig.per_stream_vs_tau (float, default 0.1),
+  HippocampalConfig.per_stream_vs_streams (tuple, default
+  ("z_world", "z_self", "z_harm_s", "z_harm_a", "z_goal", "z_beta")).
+  Streams absent from the current LatentState / GoalState are silently
+  skipped (no entry written to per_stream_vs).
+  Agent wiring:
+    REEAgent.sense() -- after new_latent.detach(), before return:
+      if hippocampal.config.use_per_stream_vs:
+        hippocampal.update_per_stream_vs(new_latent, goal_state=self.goal_state)
+    REEAgent.reset() -- after MECH-279 PAG reset:
+      if hippocampal.config.use_per_stream_vs:
+        hippocampal.reset_per_stream_vs()
+  Backward compatible: use_per_stream_vs=False by default; HippocampalModule
+  exposes per_stream_vs={} and update_per_stream_vs() returns immediately.
+  All 58 contract tests + 7 preflight tests pass with flag OFF
+  (bit-identical to legacy).
+  Activation smoke (2026-04-22, default agent + flag ON):
+    Tick 1 (zero baseline obs): per_stream_vs = {z_world: 1.0,
+      z_self: 1.0, z_beta: 1.0}. Streams z_harm_s/z_harm_a/z_goal absent
+      because default REEConfig leaves harm streams and goal seeding off.
+    Tick 2 (perturbed obs): per_stream_vs = {z_world: 0.958,
+      z_self: 0.959, z_beta: 0.959} -- identity proxy responds to the
+      change as designed.
+    Reset: per_stream_vs = {} (cache cleared).
+  No trainable parameters; pure arithmetic over latent norms. No
+  phased training needed.
+  MECH-094: hypothesis_tag is NOT yet checked in update_per_stream_vs()
+  -- Phase 1 is invoked only from REEAgent.sense() (waking observation
+  stream, never replay/simulation). Phase 2 will add the gate when
+  replay paths begin to consume the V_s signal directly.
+  Validation experiment: deferred to Phase 2/3 -- Phase 1 is substrate
+  scaffolding for the MECH-287 trigger and MECH-284 staleness layers
+  that follow. End-to-end EXQ-476 (re-run of EXQ-475 with full V_s
+  invalidation circuit on) is the validation experiment for the
+  combined cluster.
+  Contract tests: tests/contracts/test_mech_269_per_stream_vs.py
+    C1: default config backward-compat.
+    C2: master switch OFF -> per_stream_vs stays empty.
+    C3: master switch ON -> seeds at 1.0, drops on perturbation.
+    C4: per-stream isolation -- a perturbation in one stream does not
+        move other streams' V_s.
+    C5: EMA correctness under repeated identical observations.
+  Design doc: REE_assembly/docs/architecture/v_s_invalidation_runtime.md
+  See MECH-269, MECH-272 (state-gated routing -- Phase 3), MECH-284
+  (staleness accumulator -- Phase 3), MECH-287 (broadcast trigger --
+  Phase 2), SD-007/MECH-101 (ReafferencePredictor -- Phase 2 z_world
+  routing), SD-011 (HarmForwardModel -- Phase 2 z_harm_s routing),
+  MECH-094 (hypothesis_tag gate -- Phase 2 when replay consumes V_s).
+
+## MECH-288 Event Segmenter -- Phase 2 (2026-04-22)
+- MECH-288: hippocampal.event_segmenter -- IMPLEMENTED 2026-04-22.
+  Module: ree_core/hippocampal/event_segmenter.py (EventSegmenter,
+  BoundaryEvent, Scale, _PEThresholdDetector, _BOCPDGaussianDetector).
+  Phase 2 of the V_s invalidation runtime (architecture doc:
+  REE_assembly/docs/architecture/v_s_invalidation_runtime.md). Emits
+  BoundaryEvent objects with nested outer.inner segment IDs at
+  event-scale transitions. Downstream consumers are MECH-287
+  (broadcast invalidation trigger) and MECH-269 anchor-reset
+  hysteresis; the module queues BoundaryEvents on HippocampalModule
+  for those consumers to drain.
+  Canonical two-scale config (EventSegmenterConfig defaults):
+    fast: pe_threshold on (z_world, z_self); pe_window_length=200,
+          pe_threshold=0.65, tau=1, min_segment_length=2.
+    slow: bocpd_gaussian on (z_goal,); hazard=1/40,
+          posterior_threshold=0.5, bocpd_top_k=20, bocpd_prior_var=1.0,
+          tau=40, min_segment_length=15.
+  BoundaryEvent payload: segment_id_old, segment_id_new (both
+  "outer.inner" strings), scale, posterior, sources (list[str]), t.
+  Hierarchical rule: slow fire forces outer+=1, inner=0 and suppresses
+  a same-tick fast event (slow owns the inner reset). Fast fire
+  increments inner only. force_boundary(scale, reason) bypasses
+  min_segment_length (supervised / scripted API hook).
+  BOCPD implementation: Adams & MacKay 2007 recursion with Welford
+  online variance per run. Top-k pruning keeps the posterior O(1).
+  Underflow-robust: if every existing run-hypothesis assigns
+  negligible log-probability (max(pred_log) < -20) to the observation,
+  the regime is treated as a decisive change-point -- fire with
+  posterior=1.0 and reseed the posterior. Mirrors the literal
+  total<=0 underflow path.
+  Config: HippocampalConfig.use_event_segmenter (bool, default False),
+  HippocampalConfig.event_segmenter (EventSegmenterConfig; default
+  canonical two-scale above). EventSegmenterConfig.scales is a list
+  of EventSegmenterScaleConfig entries; emit_to defaults to
+  ["mech_287_broadcast", "mech_269_anchor_set"]; scale_id_format
+  "{outer}.{inner}"; slow_scale_name "slow".
+  HippocampalModule: instantiates event_segmenter when flag is on;
+  exposes _boundary_event_queue (List[BoundaryEvent]),
+  drain_boundary_events() -> List[BoundaryEvent] (list + clear),
+  reset_event_segmenter() (per-episode reset).
+  Agent wiring:
+    REEAgent.sense() -- after z_harm_a_prev cache, before per-stream
+      V_s (MECH-269 Phase 1) update: if hippocampal.config.use_event_segmenter
+      and hippocampal.event_segmenter is not None, builds a latent_dict
+      over (z_world, z_self, z_harm, z_harm_s, z_harm_a, z_beta,
+      z_goal) and calls event_segmenter.step(latent_dict, pe_dict=None,
+      t=self._step_count). Emitted events appended to
+      hippocampal._boundary_event_queue.
+    REEAgent.reset() -- after MECH-269 per_stream_vs reset:
+      if use_event_segmenter: hippocampal.reset_event_segmenter().
+  Backward compatible: use_event_segmenter=False by default;
+  event_segmenter is None; drain_boundary_events() returns []; all
+  existing experiments unaffected. 65/65 contracts + 7/7 preflight
+  PASS with flag OFF (bit-identical to legacy).
+  Activation smoke (2026-04-22): default agent constructed with
+  use_event_segmenter=True instantiates both scales; fresh
+  current_segment_id() == "0.0"; boundary queue drains to [] on
+  empty tick.
+  No trainable parameters. Pure arithmetic (sliding z-score + BOCPD
+  recursion). No phased training needed.
+  MECH-094: hypothesis_tag is NOT checked inside the segmenter; the
+  segmenter is invoked only from REEAgent.sense() (waking observation
+  stream, never replay/simulation). MECH-094 gating for replay-driven
+  segmentation is deferred to the Phase 3 consumer wiring.
+  Contract tests: tests/contracts/test_mech_288_event_segmenter.py
+    C1: default config backward-compat; event_segmenter is None when
+        flag is off; drain queue empty.
+    C2: pe_threshold silent on constant baseline, fires on 10x
+        sustained spike.
+    C3: bocpd_gaussian silent on stationary z_goal, fires on 10x
+        regime shift.
+    C4: hierarchical outer.inner correctness (slow -> outer+1,
+        inner=0; fast -> inner+1).
+    C5: force_boundary bypasses min_segment_length, posterior=1.0,
+        source tagged "force:<reason>"; unknown scale -> ValueError.
+    C6: BoundaryEvent payload invariants (posterior in [0,1], sources
+        populated, t within window, segment_id_new != segment_id_old,
+        both contain ".").
+    C7: min_segment_length suppresses immediate re-fire
+        (min_segment_length=5 caps fires at <=2 over 10 ticks).
+  Validation experiment: deferred to Phase 3 -- Phase 2 is the
+  substrate that emits boundary events. End-to-end validation
+  (MECH-287 broadcast consumption + MECH-269 anchor-reset hysteresis)
+  is scheduled with the Phase 3 wiring pass; V3-EXQ-476 (re-run of
+  EXQ-475 with full V_s invalidation circuit on) remains the
+  end-to-end validation experiment for the combined cluster.
+  Design doc: REE_assembly/docs/architecture/v_s_invalidation_runtime.md
+  See MECH-288, MECH-269, MECH-287 (broadcast trigger -- Phase 3
+  consumer), MECH-284 (staleness accumulator -- Phase 3 consumer),
+  MECH-272 (state-gated routing -- Phase 3), MECH-094 (hypothesis_tag
+  -- Phase 3 when replay consumes segments).
+
+## MECH-287 Invalidation Trigger -- Phase 2 iv (2026-04-22)
+- MECH-287: regulators.invalidation_trigger -- IMPLEMENTED 2026-04-22.
+  Module: ree_core/regulators/invalidation_trigger.py (InvalidationTrigger
+  + BroadcastEvent dataclass). Phase 2 iv of the V_s invalidation
+  runtime (architecture doc: REE_assembly/docs/architecture/
+  v_s_invalidation_runtime.md). Subscribes to MECH-288 BoundaryEvents
+  emitted in agent.sense() and re-emits them as graded BroadcastEvent
+  objects. Graded output: broadcast_strength = posterior * gain (NO
+  binary thresholding of strength). Downstream consumers (MECH-269
+  anchor-reset -- T3; MECH-284 staleness accumulator -- Phase 3) drain
+  via HippocampalModule.drain_broadcast_events().
+
+  VERDICT-3 ARCHITECTURAL COMMITMENT (option c, V_s foundation lit-pull
+  SYNTHESIS verdict 3): the trigger is a BoundaryEvent subscriber, NOT
+  an independent comparator. The upstream CA1/CA3 mismatch comparator
+  stage (Vinogradova 2001; O'Mara 2009; Lisman & Grace 2005) -- per
+  MECH-287's dual-component biological substrate in the claim entry --
+  is collapsed HERE to a subscription on the MECH-288 boundary queue.
+  The biological-substrate text in claims.yaml remains accurate (biology
+  IS a two-stage loop); the implementation collapses ComparatorStage to
+  a subscriber. Whether to refactor MECH-287's claim text to make this
+  explicit is a downstream governance decision -- NOT resolved in this
+  commit.
+
+  Phasic/tonic guardrail (Aston-Jones & Cohen 2005; Clewett 2025 failure
+  signature 2): rolling-mean tonic estimate over config.tonic_window
+  past-tick aggregated posteriors. If the estimate (measured BEFORE the
+  current tick) exceeds config.tonic_threshold, the whole tick's phasic
+  broadcast is suppressed (each suppressed BoundaryEvent increments
+  n_suppressed). Passive decay via rolling window: once high-frequency
+  boundary activity stops, the estimate falls below threshold in
+  tonic_window+1 quiet ticks and broadcast resumes.
+
+  Config: InvalidationTriggerConfig (ree_core/utils/config.py) --
+  gain=1.0, targets=("mech_269_anchor_set",), tonic_threshold=0.5,
+  tonic_window=50. HippocampalConfig.use_invalidation_trigger (default
+  False); HippocampalConfig.invalidation_trigger (default factory).
+
+  BroadcastEvent payload: t, strength (posterior * gain), posterior
+  (inherited from BoundaryEvent, in [0, 1]), targets (list from config),
+  source_scale, source_segment_id_old, source_segment_id_new,
+  source_sources (original BoundaryEvent.sources).
+
+  HippocampalModule: instantiates invalidation_trigger when flag is on;
+  exposes _broadcast_event_queue (List[BroadcastEvent]),
+  drain_broadcast_events() -> List[BroadcastEvent] (list + clear),
+  reset_invalidation_trigger() (per-episode reset of tonic history /
+  counters / queue).
+
+  Agent wiring:
+    REEAgent.sense() -- immediately AFTER the event_segmenter.step()
+      call and the _boundary_event_queue extend (so this tick's
+      BoundaryEvents are visible). If use_invalidation_trigger is on
+      AND the segmenter produced events, the trigger is ticked with
+      them and the resulting BroadcastEvents are appended to
+      hippocampal._broadcast_event_queue. If use_invalidation_trigger
+      is on but use_event_segmenter is OFF, the trigger is ticked with
+      an empty boundary list so its tonic history advances in lockstep
+      with the clock -- no broadcasts can fire (C5 dissociation).
+    REEAgent.reset() -- after reset_event_segmenter:
+      if use_invalidation_trigger: hippocampal.reset_invalidation_trigger().
+
+  Backward compatible: use_invalidation_trigger=False by default;
+  invalidation_trigger is None; _broadcast_event_queue stays empty;
+  drain_broadcast_events() returns []. Regression: 70/70 contracts +
+  7/7 preflight PASS with flag OFF (bit-identical to pre-MECH-287 HEAD).
+  Activation smoke (2026-04-22): default agent constructed with
+  use_invalidation_trigger=True + use_event_segmenter=True instantiates
+  InvalidationTrigger; reset clears tonic_estimate to 0.0; broadcast
+  queue empty on construction.
+
+  No trainable parameters. Pure arithmetic (rolling mean on boundary
+  posteriors). No phased training needed.
+
+  MECH-094: hypothesis_tag is NOT checked inside the trigger. The
+  segmenter feeds only from REEAgent.sense() (waking observation
+  stream). Forced BoundaryEvents via EventSegmenter.force_boundary()
+  would flow through the trigger as real broadcasts -- intentional
+  (caller is responsible for the MECH-094 gate at the force-boundary
+  call site).
+
+  Contract tests: tests/contracts/test_mech_287_invalidation_trigger.py
+    C1: default config backward-compat; invalidation_trigger is None
+        when flag is off; drain queue empty.
+    C2: BoundaryEvent arrival fires BroadcastEvent with strength =
+        posterior * gain; source payload preserved.
+    C3: graded posterior -> graded broadcast across [0.01 .. 1.0]
+        (NO binary threshold).
+    C4: tonic guardrail suppresses next phasic under sustained high-
+        activity period; reopens after tonic_window+1 quiet ticks.
+    C5: verdict-3 dissociation -- with event_segmenter lesioned (no
+        BoundaryEvents queued), trigger never fires a broadcast
+        regardless of internal state (including synthetically elevated
+        tonic history). This is the falsifiable tertiary prediction
+        for MECH-288 and validates the option-c implementation choice.
+
+  Validation experiment: deferred to Phase 3 (T3 wires the MECH-269
+  anchor-reset consumer). V3-EXQ-476 (re-run of EXQ-475 with full V_s
+  invalidation circuit on) remains the combined-cluster end-to-end
+  validation experiment.
+  Design doc: REE_assembly/docs/architecture/v_s_invalidation_runtime.md
+  See MECH-287, MECH-288 (upstream BoundaryEvent emitter), MECH-269
+  (Phase 3 anchor-reset consumer), MECH-284 (Phase 3 staleness
+  accumulator consumer), MECH-272 (Phase 3 state-gated routing).
+
+## MECH-269 Anchor Sets -- Phase 2 (ii) (2026-04-22)
+- MECH-269 Phase 2 (ii): hippocampal.anchor_sets -- IMPLEMENTED 2026-04-22.
+  Module: ree_core/hippocampal/anchor_set.py (AnchorSet, Anchor, AnchorKey).
+  Phase 2 (ii) of the V_s invalidation runtime. Scale-tagged hippocampal
+  anchor store with dual-trace preservation (Bouton 2004) and k-consecutive
+  hysteresis on V_s_anchor crossings. Consumes MECH-288 BoundaryEvents
+  (via HippocampalModule) to install / remap anchors keyed on
+  (scale, segment_id, stream_mixture).
+  Key schema:
+    AnchorKey = (scale: str, segment_id: str, stream_mixture: tuple[str, ...])
+  Phase 2 stand-in for stream_mixture: tuple(sorted(per_stream_vs.keys()))
+  at anchor-creation tick. Learned attribution head deferred to Phase 3
+  (MECH-284); this gives a deterministic, observable stream-membership
+  signature sufficient for the first end-to-end validation.
+  Dual-trace routing (Bouton 2004): on remap, the outgoing active anchor
+  on (scale, stream_mixture) is marked INACTIVE (not erased) and retained
+  in all_anchors() for retrieval / replay consumers; excluded from
+  active_anchors(). Erase is never the resolution path.
+  Hysteresis: per-anchor below_threshold_streak counter on
+  V_s_anchor = avg(V_s over mixture) - staleness (staleness monotonic in
+  (tick - last_accessed) * staleness_rate, clipped at staleness_clip).
+  Streak increments when V_s_anchor < reset_threshold; resets to 0 on any
+  tick at-or-above threshold. At hysteresis_k consecutive below-threshold
+  ticks (default 5), the active anchor is marked inactive and returned.
+  Config: HippocampalConfig.use_anchor_sets (bool, default False);
+  HippocampalConfig.anchor_set (AnchorSetConfig, default factory).
+  AnchorSetConfig: scales=("fast","slow"), reset_threshold=0.3,
+  hysteresis_k=5, staleness_rate=0.005, staleness_clip=1.0,
+  max_anchors_per_scale=128, subscribe_to_boundary_events=True.
+  FIFO soft-cap: when active_per_scale exceeds max_anchors_per_scale, the
+  oldest (smallest created_at) active anchor in that scale is marked
+  inactive. Inactive anchors are preserved.
+  HippocampalModule: instantiates anchor_set when flag is on; exposes
+  tick_anchor_set(latent_state, events) and reset_anchor_set(). Stream
+  mixture is built as tuple(sorted(self.per_stream_vs.keys())) at tick
+  time (populated earlier in the same sense() tick by MECH-269 Phase 1).
+  Agent wiring:
+    REEAgent.sense() -- after per_stream_vs update, with the current
+      tick's events list (local var from the event_segmenter branch,
+      empty if segmenter is off or fired nothing): if use_anchor_sets
+      is on, hippocampal.tick_anchor_set(new_latent, events) is called.
+      tick_anchor_set consumes the events (write_anchor per registered
+      scale, dual-trace remap internally) then advances
+      tick_hysteresis(per_stream_vs).
+    REEAgent.reset() -- after reset_invalidation_trigger:
+      if use_anchor_sets: hippocampal.reset_anchor_set().
+  Public API: write_anchor(scale, segment_id, stream_mixture, z_world)
+  -> Anchor; get_anchor(...) -> Optional[Anchor] (refreshes last_accessed);
+  mark_inactive(scale, stream_mixture) -> Optional[Anchor];
+  reset_region(scale, stream_mixture, new_segment_id, z_world) -> Anchor
+  (dual-trace remap; mark_inactive + write_anchor in one call);
+  tick_hysteresis(per_stream_vs) -> List[Anchor] (fired this tick);
+  consume_boundary_events(events, z_world, stream_mixture) -> List[Anchor]
+  (skips scales not in config.scales; skips when z_world is None);
+  active_anchors(scale=None) -> List[Anchor]; all_anchors(scale=None)
+  -> List[Anchor]; reset() (per-episode: clears active + inactive +
+  tick counter).
+  Backward compatible: use_anchor_sets=False by default; HippocampalModule.
+  anchor_set is None; tick_anchor_set / reset_anchor_set are no-ops.
+  85/85 preflight + contracts PASS with flag OFF (bit-identical to
+  pre-anchor-set HEAD). Contract tests all pass with flag ON.
+  No trainable parameters. Pure arithmetic over latent norms + tick
+  counters + detached z_world clones. No phased training needed.
+  MECH-094: write_anchor is invoked only from HippocampalModule.tick_anchor_set,
+  which is called from REEAgent.sense() (waking observation stream).
+  Simulation / replay paths must not route through tick_anchor_set.
+  hypothesis_tag gating is therefore achieved by call-site scoping, not
+  by an inline tag check (same pattern as MECH-269 Phase 1, MECH-288,
+  MECH-287).
+  Contract tests: tests/contracts/test_mech_269_anchor_set.py
+    C1: default config backward-compat; use_anchor_sets defaults False;
+        HippocampalModule.anchor_set is None; tick/reset hooks no-op.
+    C2: BoundaryEvent on registered scale installs active anchor with
+        correct (scale, segment_id_new, stream_mixture) key; unregistered
+        scale ignored.
+    C3: second BoundaryEvent on same (scale, stream_mixture) family
+        marks prior anchor INACTIVE (not erased); prior retained in
+        all_anchors(); exactly one active anchor on the family.
+    C4a: k-1 below-threshold ticks then at-or-above resets streak;
+         anchor stays active.
+    C4b: k consecutive below-threshold ticks fire the reset on the k-th
+         tick; inactive anchor retained (dual-trace).
+    C5: reset_region marks current active inactive and installs new
+        active; both retained in all_anchors().
+    C6: per-episode reset() clears active + inactive anchor stores and
+        resets the internal tick counter.
+    Plus 2 integration smoke tests verifying agent-level flag OFF is
+    no-op and flag ON installs anchors via tick_anchor_set with
+    stream_mixture drawn from sorted per_stream_vs keys.
+  Validation experiment: deferred to V3-EXQ-476 (combined cluster end-
+  to-end validation with the full V_s invalidation circuit on). No
+  standalone Phase 2 (ii) EXQ is queued -- approved by user 2026-04-22
+  in favour of the combined-cluster validation.
+  Design doc: REE_assembly/docs/architecture/hippocampal_anchor_selection.md
+  See MECH-269, MECH-288 (BoundaryEvent source), MECH-287 (Phase 3
+  broadcast consumer for remap), MECH-284 (Phase 3 staleness accumulator
+  successor to the local proxy), MECH-272 (Phase 3 state-gated routing),
+  MECH-094 (waking-stream call-site scoping).
+
+## MECH-269 Per-Region V_s Readout -- Phase 2 (iii, T4) (2026-04-22)
+- MECH-269 Phase 2 (iii, T4): hippocampal.per_region_verisimilitude --
+  IMPLEMENTED 2026-04-22. Module: ree_core/hippocampal/module.py
+  (HippocampalModule.update_per_region_vs,
+  HippocampalModule.apply_invalidation_broadcasts_to_regions,
+  HippocampalModule.reset_per_stream_vs extension).
+  Promotes the flat per_stream_vs[stream] -> float readout to a
+  per-region dict per_region_vs[(scale, segment_id)][stream] -> float
+  keyed on AnchorSet (Phase 2 ii) active anchor keys. V_s foundation
+  lit-pull verdict 3: per-stream V_s is the projection-readout of the
+  integrated mixed-selectivity code; per-region keying provides the
+  scale/segment partition so downstream consumers (MECH-284 staleness
+  accumulator Phase 3; replay prioritisation; BG / E3 policy
+  modulation) can query V_s for a specific region without collapsing
+  across all active regions.
+  Computation (Phase 1 identity-proxy parity, scoped per region):
+    For each active anchor a on (scale, segment_id, stream_mixture):
+      region_key = (scale, segment_id)  # stream_mixture dropped for readout
+      for stream_name in config.per_stream_vs_streams:
+        z_curr = LatentState[stream_name] (or GoalState.z_goal)
+        z_prev = self._prev_region_stream_values[region_key][stream_name]
+        if z_prev is None: V_s[region_key][stream_name] = 1.0 (seed)
+        else:
+          err = ||z_curr - z_prev|| / (||z_curr|| + 1e-6)
+          score = clip_[0,1](1 - err)
+          V_s[region_key][stream_name] = (1-tau)*prev_vs + tau*score
+        z_prev <- z_curr
+    Regions whose active anchor has disappeared since the previous tick
+    (hysteresis mark_inactive from tick_hysteresis, FIFO cap eviction,
+    or an earlier apply_invalidation_broadcasts_to_regions call this tick)
+    are pruned from per_region_vs and _prev_region_stream_values.
+  Invalidation broadcast reset path (MECH-287 consumer):
+    apply_invalidation_broadcasts_to_regions(broadcasts) iterates
+    BroadcastEvents; for each bcast on (source_scale, source_segment_id_old),
+    drops per_region_vs[(scale, segment_id_old)] and mark_inactive's the
+    matching active anchor. This is the T3 hysteresis-shortcut reset
+    path described in the design doc: k=5 hysteresis is the passive
+    path; broadcasts are the explicit-reset path. Idempotent: a
+    second broadcast on an already-reset region returns [] and is
+    otherwise a no-op.
+  Config: HippocampalConfig.use_per_region_vs (bool, default False).
+    Orthogonal to use_per_stream_vs -- per-region is a refinement,
+    not a replacement; both can be on simultaneously. Requires
+    use_anchor_sets=True to do anything (no-op without an anchor set
+    to query). Per-stream tau shared with flat path via
+    per_stream_vs_tau. Per-stream set shared via per_stream_vs_streams.
+  State: per_region_vs: Dict[Tuple[str,str], Dict[str,float]] and
+    _prev_region_stream_values: Dict[Tuple[str,str], Dict[str,Tensor]]
+    on HippocampalModule. Both cleared by reset_per_stream_vs() on
+    episode boundaries (extended in this pass).
+  Agent wiring: REEAgent.sense(), immediately after tick_anchor_set
+  (which consumes BoundaryEvents and advances hysteresis against
+  per_stream_vs):
+    if use_per_region_vs:
+      broadcasts = list(hippocampal._broadcast_event_queue)  # peek, not drain
+      if broadcasts: apply_invalidation_broadcasts_to_regions(broadcasts)
+      update_per_region_vs(new_latent, goal_state=self.goal_state)
+  Peek-not-drain on the broadcast queue: downstream Phase 3 consumers
+  (MECH-284 staleness accumulator) still see the events after this
+  tick. The dual consumption (tick_anchor_set's consume_boundary_events
+  AND apply_invalidation_broadcasts_to_regions) is intentional: the
+  first is the dual-trace remap path keyed on (scale, stream_mixture);
+  the second is the explicit safety net keyed on
+  (source_scale, source_segment_id_old).
+  Backward compatible: use_per_region_vs=False by default. With flag
+  OFF, per_region_vs stays empty, update_per_region_vs / apply_invalidation_broadcasts_to_regions
+  are no-ops, reset_per_stream_vs extension is inert. 85/85 preflight
+  + contracts PASS unchanged (bit-identical to pre-T4 HEAD).
+  Activation smoke (2026-04-22, full MECH-269 stack ON + force_boundary):
+    per_stream_vs populated as before (Phase 1);
+    per_region_vs keys: [('fast', '0.1')] after one forced fast
+    boundary; region V_s values non-trivial (0.89 / 0.97 / 0.96 under
+    mild latent drift); active anchors reflect the new region.
+    Flag OFF: per_region_vs stays empty across multiple sense() ticks.
+  No trainable parameters. Pure arithmetic over latent norms + dict
+  membership. No phased training needed.
+  MECH-094: update_per_region_vs / apply_invalidation_broadcasts_to_regions
+    are invoked only from REEAgent.sense() (waking observation stream).
+    Simulation / replay paths must not route through sense(), so the
+    hypothesis_tag gate is achieved by call-site scoping (same pattern
+    as MECH-269 Phase 1 / Phase 2 ii, MECH-288, MECH-287).
+  Contract tests: tests/contracts/test_mech_269_per_region_vs.py
+    C1: default flag False; with flag OFF update_per_region_vs is a
+        no-op even when anchors are present; flat per_stream_vs path
+        continues to work.
+    C2: per_region_vs populates on BoundaryEvent-installed anchor;
+        (scale, segment_id_new) key present; streams seeded at 1.0.
+    C3: cross-region isolation -- two active anchors on distinct
+        (scale, segment_id) keys; marking one inactive prunes only
+        that region's entry; the other region's cached V_s untouched.
+    C4: MECH-287 broadcast on (source_scale, source_segment_id_old)
+        drops only that region's entry AND mark_inactives the matching
+        anchor; other region remains active. Idempotent.
+    C5: hysteresis_k=5 honoured -- 5 consecutive below-threshold
+        tick_hysteresis calls fire mark_inactive; subsequent
+        update_per_region_vs prunes the per_region_vs entry.
+    Plus 1 integration smoke test for reset_per_stream_vs clearing
+    both flat and per-region state.
+  Validation experiment: deferred to V3-EXQ-476 (combined cluster
+    end-to-end validation with the full V_s invalidation circuit on;
+    tests MECH-288 falsifiable prediction secondary -- z_goal / z_world
+    broadcast events should preferentially reset their home-region V_s
+    entries rather than peer regions). No standalone T4 EXQ queued in
+    this pass (follow-up task per user spec).
+  Design doc: REE_assembly/docs/architecture/v_s_invalidation_runtime.md
+  See MECH-269, MECH-288 (BoundaryEvent source via tick_anchor_set),
+    MECH-287 (broadcast reset path consumer), MECH-284 (Phase 3
+    staleness accumulator successor; reads per_region_vs), MECH-272
+    (Phase 3 state-gated routing), MECH-094 (call-site scoping).
+
+## MECH-284 Staleness Accumulator + MECH-269 Online Hysteresis -- Phase 3 (2026-04-24)
+- MECH-284: hippocampal.staleness_accumulator -- IMPLEMENTED 2026-04-24.
+  Module: ree_core/hippocampal/staleness_accumulator.py (StalenessAccumulator,
+  StalenessAccumulatorConfig, RegionKey). Phase 3 of the V_s invalidation
+  runtime (architecture doc: REE_assembly/docs/architecture/
+  v_s_invalidation_runtime.md). Region-indexed residual schema-staleness
+  accumulator. Integrates MECH-287 BroadcastEvents against the currently
+  active MECH-269 anchor set with an attribution weight, decays per tick,
+  and exposes a getter consumed by MECH-269 online anchor-reset
+  hysteresis (the online arm of the dual-readout; MECH-285 offline
+  sleep-priority arm is deferred).
+  Region key: (scale, segment_id) -- stream_mixture dropped to match the
+  Phase 2 (iii, T4) per_region_vs partition. One (scale, segment_id)
+  region reachable by multiple stream_mixture families has its staleness
+  merged on the region bucket.
+  Operational definition (per claims.yaml refinement 2026-04-22):
+    for each schema region r in active_anchor_set(t):
+      if MECH-287 trigger(t):
+        staleness[r] += attribution_weight(r, source_streams) * magnitude
+      staleness[r] *= leak_factor
+  Attribution modes (config.attribution_mode):
+    "equal"          -- 1/N uniform credit across N active anchors.
+    "stream_overlap" -- |source_sources & stream_mixture| /
+                        max(|source_sources|, 1) per anchor; cheap
+                        cosine-similarity surrogate over stream-name
+                        sets. Anchor with zero overlap gets zero credit.
+  Staleness is clipped at config.staleness_clip (default 1.0) so
+  V_s_anchor = V_s(r) - staleness[r] stays in [-1, 1] whether the
+  Phase 2 proxy or Phase 3 lookup drives hysteresis.
+  Config: HippocampalConfig.use_staleness_accumulator (bool, default
+  False); HippocampalConfig.staleness_accumulator (StalenessAccumulatorConfig,
+  default factory). StalenessAccumulatorConfig: leak_factor=0.995,
+  attribution_mode="equal", staleness_clip=1.0, drop_epsilon=1e-6.
+  MECH-269 online hysteresis swap:
+    HippocampalConfig.use_mech284_hysteresis (bool, default False).
+    When both use_staleness_accumulator AND use_mech284_hysteresis are
+    True, AnchorSet.tick_hysteresis() receives a staleness_lookup
+    callable pointing at StalenessAccumulator.lookup_by_anchor_key.
+    V_s_anchor = V_s(r) - staleness_lookup(anchor_key). With
+    use_staleness_accumulator ON but use_mech284_hysteresis OFF, the
+    accumulator is populated as a diagnostic only; hysteresis continues
+    to use the Phase 2 internal proxy ((tick - last_accessed) *
+    staleness_rate).
+  Integration site (HippocampalModule.tick_anchor_set):
+    consume_boundary_events (MECH-269 Phase 2 ii) -> integrate broadcasts
+    against active anchors (peek, not drain; MECH-287 consumers that
+    run after tick_anchor_set still see the queue) -> tick_leak ->
+    tick_hysteresis (with staleness_lookup if MECH-284 hysteresis is on).
+    This ordering preserves the "this-tick broadcasts affect this-tick
+    V_s_anchor check" semantic.
+  HippocampalModule public API additions:
+    integrate_staleness(broadcasts) -- explicit credit path for code
+      that wants to integrate outside the tick_anchor_set cycle; no-op
+      when accumulator is disabled. Applies leak after integration.
+    reset_staleness_accumulator() -- per-episode reset of region map +
+      diagnostic counters.
+  Agent wiring (REEAgent):
+    reset() -- after reset_anchor_set: if use_staleness_accumulator is
+      on, hippocampal.reset_staleness_accumulator().
+    sense() -- no additional call-site required: the existing
+      tick_anchor_set call handles integration internally via a peek of
+      the _broadcast_event_queue populated earlier in the same sense()
+      tick by MECH-287.
+  Backward compatible: use_staleness_accumulator=False by default;
+    staleness_accumulator is None; tick_anchor_set follows the legacy
+    Phase 2 path (no integration, no leak, no staleness_lookup). 91/91
+    preflight + contracts PASS with flag OFF (bit-identical to pre-
+    Phase-3 HEAD, 2026-04-24).
+  Activation smoke (2026-04-24, two ARMs):
+    ARM1 (use_staleness_accumulator=True, use_mech284_hysteresis=False):
+      Two active anchors on (fast, 0.1) and (fast, 0.2) with distinct
+      stream_mixtures; one synthetic BroadcastEvent with strength=1.0
+      injected; tick_anchor_set called -> snapshot:
+        (fast, 0.1): 0.4975, (fast, 0.2): 0.4975
+      (0.5 equal credit * leak 0.995); stats: n_integrations=1,
+      n_leak_ticks=1, n_regions=2, max_staleness=0.4975. Reset clears
+      map + counters. PASS.
+    ARM2 (use_staleness_accumulator=True, use_mech284_hysteresis=True):
+      staleness_rate=0.0 (passive proxy off), hysteresis_k=3,
+      reset_threshold=0.5, per_stream_vs held at 1.0. Inject staleness=0.9
+      on region key each tick; tick_anchor_set ticks 3 times -> anchor
+      marked inactive on tick 3 (below_threshold_streak=3). Confirms
+      staleness_lookup path is exercised under the swap. PASS.
+  No trainable parameters. Pure float arithmetic + dict state. No phased
+  training needed.
+  MECH-094: integrate() is invoked only from HippocampalModule.integrate_staleness
+    and HippocampalModule.tick_anchor_set, both of which are called from
+    REEAgent.sense() (waking observation stream). Simulation / replay
+    paths must not route through these; hypothesis_tag gating is achieved
+    by call-site scoping (same pattern as MECH-269 Phase 1 / Phase 2 ii
+    / Phase 2 iii, MECH-288, MECH-287).
+  Validation experiment: V3-EXQ-478 queued (Phase 3 diagnostic ablation:
+    OFF vs ON x 2 seeds; metrics freeze_recommit_count, anchor_reset_count,
+    mean_staleness_peak, action_class_entropy). Also unblocks previously
+    gated combined-cluster validations (V3-EXQ-445d, V3-EXQ-449c,
+    V3-EXQ-455a, V3-EXQ-476/475 re-run).
+  Design doc: REE_assembly/docs/architecture/v_s_invalidation_runtime.md
+  See MECH-284, MECH-269 (Phase 1 + 2 ii + 2 iii; online-arm consumer),
+    MECH-287 (broadcast event source), MECH-288 (boundary segmenter),
+    MECH-285 (offline sleep-priority readout, deferred), MECH-272
+    (Phase 3 state-gated routing), MECH-094 (call-site scoping).
+
+## SD-037: Broadcast Override Regulator (orexin-analog) (2026-04-25)
+- SD-037: regulators.broadcast_override -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/regulators/broadcast_override.py (BroadcastOverrideRegulator,
+  BroadcastOverrideConfig). Third regulatory layer of the V3 control stack
+  alongside 5-HT goal-pipeline gain (MECH-186/187/188) and SD-036
+  GABAergic cross-stream decay. Orexinergic (hypocretin) hub analog: scalar
+  override_signal in [0, 1] driven by SD-012 drive_level + sustained-threat
+  rolling-window magnitude over z_harm, EMA-smoothed.
+  Computation:
+    sustained_threat = clip_[0,1]( rolling_mean(z_harm.norm, window) /
+                                   sustained_threat_threshold )
+    drive_input      = clip_[0,1]( drive_level )
+    raw              = sigmoid( drive_weight*drive_input
+                              + harm_weight*sustained_threat
+                              - recruitment_threshold )
+    override_signal  = clip_[0,1]( (1-decay_rate)*prev + decay_rate*raw )
+  Consumed at three sites:
+    PAG freeze-gate (MECH-279): exit_threshold scaled by
+      (1 + alpha_override * override_signal). Strong override raises
+      the bar for entering / staying in committed-freeze (orexin ->
+      arousal / escape-from-freeze; Carter et al. 2009 LH -> PAG).
+      PAGFreezeGateConfig.alpha_override (default 0.0; agent wires
+      override_alpha_pag when both flags on). Override_signal passed
+      explicitly per-tick into PAGFreezeGate.tick().
+    SalienceCoordinator (SD-032a): update_signal("override_signal", ...)
+      injection biases operating-mode aggregate toward external_task
+      (registered affinity_weights["override_signal"] =
+      {"external_task": override_salience_reweight_alpha}). MECH-261
+      generalises MECH-094 here -- registry is the gating point.
+    GoalState (SD-012): drive -> z_goal seeding amplified by
+      effective_drive *= (1 + (override_goal_seeding_gain - 1) *
+      override_signal). Implements "drive becomes action-orienting only
+      when override system has recruited" semantic. Default gain 2.0
+      means saturated override doubles the seeding multiplier.
+  Config: REEConfig.use_broadcast_override (bool, default False).
+    Sub-knobs: override_recruitment_threshold (0.5),
+    override_alpha_pag (0.5; PAG exit-threshold scaling),
+    override_salience_reweight_alpha (0.3; SalienceCoordinator affinity),
+    override_drive_weight (1.0), override_harm_weight (1.0),
+    override_sustained_threat_window (12 ticks),
+    override_sustained_threat_threshold (0.4),
+    override_decay_rate (0.05; ~20-tick EMA),
+    override_goal_seeding_gain (2.0).
+  Defaults are biologically defensible per orexin kinetics lit-pull
+  (Mileykovskiy et al. 2005 LH burst firing 5-15 Hz on threat;
+  Lee et al. 2005 LHA orexin neuron arousal-correlated activity;
+  Karnani et al. 2020 sleep/wake state transitions; Johnson et al. 2012
+  PAG-projecting orexin escape behaviours). Two flagged for sweep:
+  recruitment_threshold and alpha_pag at low end.
+  Agent wiring (REEAgent):
+    __init__ -- after PAG instantiation: if use_broadcast_override is on,
+      construct BroadcastOverrideConfig from sub-knobs and instantiate
+      BroadcastOverrideRegulator. PAG freeze-gate config receives
+      alpha_override = override_alpha_pag when both flags are on
+      (else 0.0 -- no-op). SalienceCoordinator (if present) gets
+      affinity_weights["override_signal"] registered.
+    sense() -- after SD-036 GABAergic decay tick: if broadcast_override
+      is not None, tick(drive_level=goal_state._last_drive_level,
+      z_harm_norm=z_harm.norm, simulation_mode=hypothesis_tag).
+      One-step latency on drive_level read is intentional: the
+      goal_state value reflects the previous tick's effective_drive,
+      which is the post-pACC-bias drive. No double counting.
+    select_action() -- before salience.tick(): inject
+      update_signal("override_signal", broadcast_override.override_signal).
+      PAG.tick() receives override_signal explicitly each cycle so
+      exit_threshold scaling responds on the same tick.
+    update_z_goal() -- after pacc.effective_drive: amplify effective_drive
+      by (1 + (override_goal_seeding_gain - 1) * override_signal),
+      clipped to [0, 1].
+    reset() -- per episode: broadcast_override.reset() clears threat
+      window, EMA state, and diagnostics.
+  Backward compatible: use_broadcast_override=False by default;
+    agent.broadcast_override is None; PAG receives alpha_override=0.0;
+    salience signal slot is no-op; goal seeding multiplier=1.0. 95/95
+    contracts PASS with flag OFF (bit-identical to pre-SD-037 HEAD,
+    2026-04-25).
+  Activation smoke (2026-04-25):
+    Flag OFF: agent.broadcast_override is None.
+    Flag ON: regulator instantiates with default config; one tick at
+      drive=0.9, harm=0.6 produces override_signal=0.040 (sigmoid raw
+      ~0.81 EMA-smoothed at decay_rate=0.05). 50 ticks of sustained
+      load climb to 0.7431.
+    MECH-094: simulation_mode=True returns cached signal unchanged
+      (no threat-window advance, no EMA update).
+    PAG with both flags on: alpha_override=0.5 wired correctly.
+  No trainable parameters. Pure scalar arithmetic. No phased training.
+  Biological basis: orexinergic (hypocretin) hub in lateral
+    hypothalamus (LH). Persistent depletion (SD-012) plus sustained
+    nociceptive signal (z_harm window) recruits LH orexin neurons;
+    broad projections (PAG, BLA, LC, VTA, mPFC) gate downstream
+    arousal / escape / motivational systems. Lit-pull synthesis:
+    REE_assembly/evidence/literature/targeted_review_orexin_kinetics/
+    synthesis.md.
+  Failure-mode predictions (validation EXQ acceptance criteria):
+    PWS-hyperphagia analog: saturated override (chronic high
+      drive + harm) -> >=2x approach-commit rate vs balanced arm.
+    Narcolepsy/cataplexy analog: lost override (regulator OFF
+      under threat) -> <30% approach-commit vs balanced arm.
+    Catatonic lock-in (V3-EXQ-471): with SD-036 + SD-037 ON, the
+      orexin-analog raises PAG exit_threshold under sustained
+      drive+harm so freeze releases instead of persisting.
+  MECH-094: simulation_mode argument on tick(); when True, cached
+    signal returned unchanged and no state advances. Replay / DMN
+    content cannot recruit the override system.
+  Validation experiment: V3-EXQ-483 queued (4-arm factorial
+    {SD-036, SD-037} x {OFF, ON}, 3 seeds, ~50 min/arm; PWS /
+    narcolepsy acceptance criteria from lit-pull synthesis).
+  Design doc: REE_assembly/docs/architecture/sd_037_broadcast_override_regulator.md
+  Lit-pull: REE_assembly/evidence/literature/targeted_review_orexin_kinetics/
+  See SD-037, SD-036, MECH-279, SD-012, SD-032a, MECH-261, MECH-094.
+
+## Sleep Aggregation Cluster Phase A: Scaffolding (2026-04-25)
+- Sleep cluster Phase A: scaffold ree_core/sleep/ package -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/sleep/__init__.py, ree_core/sleep/phase_manager.py.
+  New SleepPhase enum (6 phases: WAKING/SLEEP_ENTRY/SWS_ANALOG/PHASE_SWITCH/REM_ANALOG/
+  WRITEBACK; only WAKING/SWS_ANALOG/REM_ANALOG visited in Phase A), SleepCycleState
+  dataclass, and SleepLoopManager that wraps the existing SD-017 surface
+  (REEAgent.run_sleep_cycle / enter_sws_mode / run_sws_schema_pass / enter_rem_mode /
+  run_rem_attribution_pass / exit_sleep_mode -- pre-existing per SD-017).
+  Master flag use_sleep_loop (default False) + sleep_loop_episodes_K (default 1) +
+  sleep_loop_require_passes (default True) wired through REEConfig + REEConfig.from_dims().
+  Manager instantiated in REEAgent.__init__ when flag is on; notify_episode_end() called
+  at the start of REEAgent.reset() BEFORE per-episode resets so sleep operates on the
+  final waking state.
+  Validation: 8/8 new contract tests PASS (test_sleep_phase_a_scaffolding.py covering
+  import, default backward-compat, master-OFF no instantiation, K=1 cycle drive,
+  K=3 fires-on-third, no-substrate refusal, force_cycle, phase returns to WAKING).
+  Full suite: 103/103 contracts + 7/7 preflight PASS -- bit-identical OFF guarantee
+  holds. Phase A is no-op-consumer scaffolding only; Phases B-E layer additional
+  master flags on top.
+  See SD-017, MECH-272, MECH-273, MECH-275, MECH-285.
+  Design doc: REE_assembly/docs/architecture/sleep_aggregation_cluster.md
+
+## Sleep Aggregation Cluster Phase B: MECH-285 SleepReplaySampler (2026-04-25)
+- MECH-285: sleep.replay_sampler -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/sleep/replay_sampler.py (SleepReplaySampler).
+  At SLEEP_ENTRY freezes StalenessAccumulator.snapshot(), then draws N seeds from
+  AnchorSet.all_with_dual_trace() (active + inactive, Bouton 2004 dual-trace
+  preserved) with softmax(staleness/temperature) priority. Stateless within cycle;
+  uniform-fallback when no accumulator (mech285_allow_uniform_fallback=True default).
+  Config: REEConfig.use_mech285_sampler (master, default False),
+    mech285_draws_per_cycle (50), mech285_temperature (1.0),
+    mech285_allow_uniform_fallback (True). All wired through from_dims.
+  Agent wiring: REEAgent constructs sampler when master ON AND hippocampal.anchor_set
+  exists (Phase B requires MECH-269 Phase 2 ii); accumulator optional.
+  SleepLoopManager extended with replay_sampler + draws_per_cycle ctor args; _run_cycle
+  enters SLEEP_ENTRY phase, freezes snapshot, runs draws, merges mech285_* diagnostics
+  into SleepCycleState.last_metrics. Phase B is NO-OP CONSUMER -- draws land in metrics
+  only (Phases C-E wire routing/aggregator/writeback).
+  Added AnchorSet.all_with_dual_trace() alias.
+  Validation: 10/10 new contract tests + 113/113 contracts + 7/7 preflight all PASS.
+  Bit-identical OFF guarantee holds.
+  See MECH-285, MECH-269, MECH-272, MECH-275, MECH-273.
+
+## Sleep Aggregation Cluster Phase C: MECH-272 RoutingGate (2026-04-25)
+- MECH-272: sleep.routing_gate -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/sleep/routing_gate.py (RoutingGate, RoutedEvent).
+  State-conditioned channel weights {anchor_channel, probe_channel} that flip across
+  SWS_ANALOG / REM_ANALOG / WAKING rows per the design-doc table.
+  Config: REEConfig.use_mech272_routing (master, default False) + 6 sub-knobs:
+    sws_anchor_weight, sws_probe_weight, rem_anchor_weight, rem_probe_weight,
+    waking_anchor_weight, waking_probe_weight.
+  Wired into SleepLoopManager: set weights at SLEEP_ENTRY (SWS row), at PHASE_SWITCH
+  (REM row); call route() on each replay draw and surface routed counts as mech272_*
+  diagnostics on SleepCycleState.last_metrics.
+  Wired flag through REEAgent constructor. No downstream consumer wiring yet
+  (HippocampalRouter / E1 ContextMemory consumer / aggregator land in Phases D-E).
+  Validation: bit-identical waking with all flags OFF; weights flip across phases when
+  ON; backward-compat with use_mech285_sampler ON + use_mech272_routing OFF preserved.
+  Result: 10/10 Phase C contracts PASS, 7/7 preflight PASS, 123/123 full contracts PASS.
+  See MECH-272, MECH-285, MECH-275, MECH-273, MECH-094 (mode-conditioning generalisation).
+
+## Sleep Aggregation Cluster Phase D: MECH-275 BayesianAggregator (2026-04-25)
+- MECH-275: sleep.bayesian_aggregator -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/sleep/bayesian_aggregator.py (BayesianAggregator,
+  GaussianPosterior, PosteriorUpdate, BayesianAggregatorConfig).
+  Per-domain per-region Gaussian posteriors over residuals; conjugate mean-and-variance
+  update gated by RoutedEvent.probe_channel * probe_gain (probe<=0 skipped, counted as
+  mech275_n_skipped_zero_probe); snapshot+decay contract (snapshot deep-copies live
+  posteriors, decay_factor multiplies live variance per cycle); place-domain default
+  with (scale, segment_id) region key matching MECH-284.
+  Config: REEConfig.use_mech275_aggregator (master, default False) + 6 sub-knobs:
+    mech275_domains, mech275_prior_mean, mech275_prior_variance,
+    mech275_likelihood_variance, mech275_decay_factor, mech275_probe_gain.
+  Wired into SleepLoopManager._run_cycle: SLEEP_ENTRY freezes evidence_snapshot from
+  agent.hippocampal.staleness_accumulator.snapshot() (place-domain evidence = staleness
+  scalar at routed anchor's region, falls back to 0.0 if absent); each routed draw in
+  SWS pass calls bayesian_aggregator.update(routed, evidence, domain=aggregator_domain);
+  at PHASE_SWITCH snapshot() fires BEFORE routing_gate.set_phase(REM_ANALOG) so the
+  snapshot captures SWS-only posteriors (Phase E reads this); REM re-route loop applies
+  same probe-channel-gated update; mech275_* metrics merged into
+  SleepCycleState.last_metrics.
+  REEAgent.__init__ extended with Phase D conditional construction block;
+  SleepLoopManager extended with bayesian_aggregator+aggregator_domain ctor args.
+  NO downstream writeback (Phase E / MECH-273 deferred until next pass).
+  Validation: 10/10 new contract tests + 38/38 sleep phases A-D + 133/133 contracts +
+  7/7 preflight all PASS. Bit-identical OFF guarantee holds. MECH-094 enforced via
+  call-site scoping (aggregator only invoked from _run_cycle, never from waking path).
+  See MECH-275, MECH-272, MECH-285, MECH-284, MECH-094.
+
+## Sleep Aggregation Cluster Phase E: MECH-273 SelfModelAggregator (2026-04-25)
+- MECH-273: sleep.self_model_writeback -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/sleep/self_model_aggregator.py (SelfModelAggregator,
+  SelfModelAggregatorConfig). Subclass of MECH-275 BayesianAggregator specialised on
+  SD-003 causal_sig posterior. offline_gradient_pass(e2_harm_s, replayed_regions,
+  n_steps, domain='self', use_snapshot=True) reads posterior means from last_snapshot
+  (SWS-only frozen copy at PHASE_SWITCH) when available; constructs synthetic
+  (z_harm_s zeros, action one-hot round-robin) batch at E2_harm_s input dims; trains
+  via Adam at waking_lr * offline_lr_scale for n_steps bounded MSE steps.
+  MECH-094 exception scoped: optimiser constructed locally over e2_harm_s.parameters()
+  only -- no other module's params touched. n_steps<=0 short-circuits to no-op; empty
+  replayed_regions returns zero-loss diagnostics. Cumulative diagnostics
+  (mech273_n_offline_passes/steps/sum_loss/last_offline_loss/n_offline_regions_consumed)
+  and per-call (mech273_writeback_regions/n_steps/sum_loss/mean_loss).
+  NEW API: StalenessAccumulator.partial_decay(replayed_regions, decay_factor=0.5) ->
+  int multiplicatively decays only the supplied region keys (clamped [0,1], drops
+  below drop_epsilon, dedupes input via 'seen' set).
+  Config: REEConfig.use_mech273_self_model (master, default False) + 3 sub-knobs:
+    mech273_offline_lr_scale (0.1), mech273_offline_n_steps (100),
+    mech273_partial_decay_factor (0.5). All wired through from_dims.
+  REEAgent.__init__: agent-level e2_harm_s construction (parallel to e2_harm_a) when
+  config.latent.use_e2_harm_s_forward; sleep_self_model_aggregator instantiated when
+  use_mech273_self_model AND e2_harm_s exist; passed to SleepLoopManager via 4 new
+  ctor args (self_model_aggregator, self_model_offline_n_steps,
+  self_model_partial_decay_factor, self_model_domain).
+  SleepLoopManager._run_cycle: replayed_regions set accumulated during SWS+REM update
+  loops via _extract_region_key helper (handles RoutedEvent.event.key tuple form and
+  direct tuple form); AFTER agent.run_sleep_cycle() set phase WRITEBACK ->
+  offline_gradient_pass(use_snapshot=True) -> staleness.partial_decay(replayed_regions,
+  decay_factor=self_model_partial_decay_factor); writeback_metrics merged into
+  SleepCycleState.last_metrics including mech273_partial_decay_n_regions and
+  mech273_partial_decay_factor.
+  SHY normalisation (MECH-120) explicitly out of V3 scope.
+  Validation: 10/10 Phase E contracts + 150/150 (143 contracts + 7 preflight) all PASS.
+  Bit-identical OFF guarantee holds.
+  See MECH-273, MECH-275, MECH-272, MECH-285, MECH-284, MECH-094, SD-003, ARC-033.
+
+## SD-016 Path 1: ContextMemory Diversification Loss (2026-04-25)
+- SD-016 Path 1: e1.context_memory_diversification_loss -- IMPLEMENTED 2026-04-25.
+  Module: ree_core/predictors/e1_deep.py (ContextMemory.compute_diversification_loss),
+  ree_core/agent.py (REEAgent.compute_prediction_loss), ree_core/utils/config.py.
+  EXQ-418d FAILed across all 4 write-path arms with attn_entropy_mean ~2.76 (uniform
+  reference 2.7726) and bimodal seed pattern (seed 42 ~0.46 div, seeds 43/44 collapse
+  <1e-4). Diagnosis: no gradient pressure for slot diversification -- read-side
+  gradient through cue_terrain_loss + cue_action_loss alone cannot differentiate
+  slots, and writes-only path is luck-dependent on init symmetry breaking.
+  Path 1 substrate: explicit auxiliary diversification loss on ContextMemory.memory:
+  mean squared off-diagonal cosine similarity over normalized slot vectors.
+  ContextMemory.compute_diversification_loss() method added; weighted loss term added
+  in REEAgent.compute_prediction_loss.
+  Config: new sd016_diversification_weight float wired through E1Config + REEConfig
+  + REEConfig.from_dims (default 0.0; backward compatible).
+  Validation: V3-EXQ-418e 4-arm ablation queued (A0_off baseline, A1_writes_only
+  replicates 418d, A2_div_only tests div alone, A3_writes_plus_div tests bootstrap;
+  supersedes V3-EXQ-418d). Smoke verified: slot_div climbs 0.2->0.5->1.0 across arms;
+  wiring confirmed.
+  See SD-016, MECH-150, MECH-151, MECH-152, ARC-041, EXP-0155.
+  Design doc: REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md
+
+## MECH-269b Symmetric V_s Gating on E1/E2 Cortical Rollouts (2026-04-26)
+- MECH-269b: cortical_world_model.regional_verisimilitude_rollout_gating -- IMPLEMENTED 2026-04-26.
+  Module: ree_core/regulators/vs_rollout_gate.py (VsRolloutGate, VsRolloutGateConfig).
+  Read-side consumer of MECH-269 Phase 1 hippocampal.per_stream_vs at the cortical
+  forward-prediction call sites. Two integration sites in agent.py:
+    (a) _e1_tick: gate latent_state for E1 side BEFORE total_state cat, BEFORE
+        e1(...) call AND BEFORE extract_cue_context(). Held streams substitute
+        snapshot for current value into z_self / z_world (and z_goal via
+        gate_stream when e1_goal_conditioned).
+    (b) select_action E2_harm_a forward block: gate _harm_a_prev for E2 side
+        BEFORE the per-tick e2_harm_a forward call. Held substitution prevents
+        E2_harm_a from rolling forward off a stale-but-confident-looking
+        affective stream.
+  Snapshot semantics: refresh per-stream snapshot to latent[s].detach().clone()
+  in agent.sense() (after update_per_stream_vs / update_per_region_vs) when
+  V_s[s] >= vs_gate_snapshot_refresh_threshold (default 0.5). Hold (substitute
+  snapshot) at the rollout call sites when V_s[s] < per-side threshold (default
+  0.4 on both sides). 0.4-0.5 dead-band gives lightweight Schmitt-trigger
+  hysteresis without a streak counter.
+  Config: HippocampalConfig.use_vs_rollout_gating (master, default False);
+  vs_gate_snapshot_refresh_threshold (0.5), vs_gate_e1_threshold (0.4),
+  vs_gate_e2_threshold (0.4), vs_gate_streams (("z_world","z_self","z_harm_s",
+  "z_harm_a","z_goal","z_beta")), vs_gate_unknown_stream_passes (True). All
+  wired through REEConfig.from_dims. Per-stream override dicts
+  (e1_threshold_per_stream / e2_threshold_per_stream) live on
+  VsRolloutGateConfig and are not surfaced via from_dims (set on the gate
+  config directly when needed for asymmetric per-stream tuning).
+  Precondition: agent.__init__ raises ValueError if use_vs_rollout_gating=True
+  but use_per_stream_vs=False (the gate has no V_s to read).
+  Diagnostics on VsRolloutGate: per-stream held counts (e1, e2), per-stream
+  refresh counts, snapshot store, last-tick held flags. Surfaced via
+  get_diagnostics() for inclusion in experiment manifests; the V3-EXQ-490
+  acceptance criteria read these counters directly (C1).
+  Backward compatible: use_vs_rollout_gating=False by default; agent.vs_rollout_gate
+  is None and every integration site is no-op. With flag ON but V_s seeded at
+  1.0 the gate fires zero times -- bit-identical to flag-OFF in the well-aligned
+  regime. Substrate-validation smoke 2026-04-26: 7/7 preflight + 143/143 contracts
+  PASS with flag OFF; with flag ON and V_s seeded at 1.0, 5-tick run produced
+  zero held substitutions and 5 snapshots. Forced low V_s (per_stream_vs[s]=0.1)
+  correctly triggered held substitution on the E1 side.
+  No trainable parameters. Pure dataclass-replace + scalar arithmetic. No phased
+  training needed.
+  Biological basis (lit-pull SYNTHESIS, evidence/literature/
+  targeted_review_mech269b_vs_rollout_gating/): Bastos 2012 + Feldman & Friston
+  2010 + Kanai 2015 (cortex-side per-stream precision-weighted PE gating);
+  Ernst & Banks 2002 (psychophysical foundation for per-stream reliability-
+  weighted integration); Adams 2013 + Lawson 2014 (aberrant-precision wired-
+  but-inert clinical phenotype). Symmetric application of one V_s vector to
+  both proposer and cortical forward predictors is genuinely novel
+  architectural ground; no paper in the anchor list demonstrates the symmetric
+  claim biologically (see evidence_quality_note in claims.yaml).
+  MECH-094: handled by call-site scoping. Gate invoked only from waking paths
+  (sense, _e1_tick, select_action). No hypothesis_tag check inside the gate
+  primitive; same pattern as MECH-269 Phase 1 / Phase 2 ii / 2 iii, MECH-288,
+  MECH-287, MECH-284.
+  Validation experiment: V3-EXQ-490 queued. Q-040 factorial: ON_OFF vs ON_ON
+  with use_broadcast_override + use_dacc + drive_weight=2.0 + full V_s
+  invalidation circuit + use_vs_commit_release ON in both arms; only manipulated
+  variable is use_vs_rollout_gating. Acceptance: C1 (gate fires > 0 holds),
+  C2 (approach_commit_count > 0 in >=2/3 seeds; OFF reproduces EXQ-483 zero
+  baseline), C3 (dacc_score_bias_mean > 0). PASS = C1 AND C2 AND C3. FAIL on
+  C2/C3 with C1 PASSing -> Q-040 FAIL branch points evidence at MECH-295
+  liking-bridge as dominant blocker. experiment_purpose=diagnostic.
+  Design doc: REE_assembly/docs/architecture/mech_269b_vs_rollout_gating.md
+  Lit-pull: REE_assembly/evidence/literature/targeted_review_mech269b_vs_rollout_gating/
+  See MECH-269b, MECH-269 (parent V_s primitive), MECH-284 (online staleness arm),
+  MECH-098 (reafference cancellation, one V_s signal source), Q-040 (factorial),
+  MECH-295 (complementary candidate cause), SD-032b (dACC adaptive control,
+  downstream consumer), SD-037 (broadcast override, fires correctly already),
+  ARC-033 (E2_harm_s forward, future gate consumer), MECH-258 (E2_harm_a
+  forward, current gate consumer), SD-016 (cue_action_proj reads gated z_world).
+
+## MECH-269b + MECH-284 Staleness-into-Gate Wiring (Q-040b strong reading, 2026-04-29)
+- MECH-269b + MECH-284: cortical_world_model.regional_verisimilitude_rollout_gating
+  STALENESS-WIRING IMPLEMENTED 2026-04-29.
+  Modules: ree_core/regulators/vs_rollout_gate.py (VsRolloutGateConfig.use_staleness_lookup,
+  gate / gate_stream / _gate_value extended with per_stream_staleness kwarg);
+  ree_core/hippocampal/module.py (HippocampalModule.compute_per_stream_staleness);
+  ree_core/agent.py (REEAgent._refresh_vs_gate_staleness, cached per-tick;
+  precondition raises on missing use_staleness_accumulator / use_anchor_sets).
+  The 2026-04-26 substrate compared raw per_stream_vs[s] to a fixed threshold
+  (default 0.4); EXQ-490/490b/490c all had to override that threshold to smoke
+  values (0.85/0.85/0.95) to make the gate fire at realistic V_s readings.
+  This update wires MECH-284 region staleness into the comparison:
+    effective_vs = raw_vs - per_stream_staleness[s]
+  with per_stream_staleness aggregated as
+    staleness[s] = max over active anchors a where s in a.stream_mixture
+                   of staleness_accumulator.lookup_by_anchor_key(a.key)
+  (max captures worst-case region staleness the stream is exposed to). Cached
+  once per waking tick; reused by all gate / gate_stream call sites in the
+  same tick.
+  Config: REEConfig.from_dims(use_vs_gate_staleness_lookup=False default).
+  When True, agent build raises ValueError unless use_staleness_accumulator
+  AND use_anchor_sets are also True.
+  Backward compatible: flag-OFF gate behaviour bit-identical to legacy raw-V_s
+  path. 191/191 preflight + contracts PASS with the wiring landed.
+  Q-040b strong reading: V3-EXQ-490c successor (490d) can drop the smoke
+  threshold override and verify the hold path fires only when sustained
+  MECH-287 broadcasts have accumulated region staleness. C4 severance arm
+  (use_vs_gate_staleness_lookup=False vs True at matched thresholds) becomes
+  the falsifiable test of the strong reading.
+  MECH-094: aggregator + refresh helper are call-site-scoped to waking
+  paths (_e1_tick); replay / simulation paths do not invoke them.
+  Contract tests: tests/contracts/test_mech_269b_vs_rollout_gate_staleness.py
+    C1: VsRolloutGateConfig.use_staleness_lookup defaults False;
+        HippocampalConfig.use_vs_gate_staleness_lookup defaults False.
+    C2: flag OFF -- supplied per_stream_staleness ignored (raw-V_s path).
+    C3: flag ON without dict -- falls back to raw V_s (staleness=0 default).
+    C4: flag ON with dict pushing effective_vs below threshold -- hold fires
+        and snapshot is substituted.
+    C5: per-stream isolation -- staleness on z_world does not affect z_self.
+    C6: HippocampalModule.compute_per_stream_staleness max-over-anchors with
+        stream_mixture overlap.
+    C7: diagnostics (vs_gate_staleness_lookup_calls,
+        vs_gate_max_staleness_<stream>) populated and cleared by reset.
+    C8: agent precondition raises on missing accumulator / anchor substrates.
+  Validation experiment: V3-EXQ-490d (490c successor) -- queue separately
+  per the 490c-successor-tree planning doc once the 490c result lands.
+  Design doc: REE_assembly/docs/architecture/mech_269b_vs_rollout_gating.md
+  (new section "MECH-284 staleness wiring (Q-040b strong reading,
+  2026-04-29)").
+  See MECH-269b, MECH-284, MECH-269 (Phase 1 / Phase 2 ii / Phase 2 iii),
+  MECH-287 (broadcast trigger -- staleness source), MECH-094 (call-site
+  scoping), Q-040, Q-040b.
+
+## MECH-295 Drive -> Liking-Stream -> Approach Cue Bridge (2026-04-26)
+- MECH-295 weak-reading bridge: regulators.mech295_liking_bridge -- IMPLEMENTED 2026-04-26.
+  Module: ree_core/regulators/mech295_liking_bridge.py (MECH295LikingBridge,
+  MECH295LikingBridgeConfig, MECH295LikingBridgeOutput). Wires the missing
+  link between SD-012 drive amplification, the SD-014/SD-015 liking-stream
+  substrate, and E3 / BG action selection. Without this bridge, drive
+  amplification produces a passive z_goal latent without behavioural
+  consequence (the EXQ-483 catatonic-lock signature: override_signal climbs
+  to mean 0.563, PAG release ratio ON_ON / ON_OFF = 1.69, but
+  approach_commit = 0.0 across all four arms).
+  Two integration sites:
+    (a) update_z_goal() -- after the existing SD-012 / SD-037 effective_drive
+        computation and GoalState.update() call: when bridge is active and
+        goal_state.is_active(), call
+        bridge.compute_anticipatory_liking_write(effective_drive,
+        goal_state.goal_norm()) -> non-zero scalar -> ResidueField.update_valence
+        at the goal location (z_goal latent, NOT current z_world), component
+        VALENCE_LIKING. This is the anticipatory cue-side pulse, distinct
+        from the existing consummatory-contact write in update_liking().
+    (b) select_action() -- after lateral_pfc + ofc score_bias composition,
+        before e3.select(): build per-candidate first-step z_world
+        summaries (reuse cand_world_summaries when lateral_pfc / ofc are on),
+        compute per-candidate goal_proximity via GoalState.goal_proximity,
+        call bridge.compute_approach_cue_score_bias(effective_drive,
+        proximities) -> NEGATIVE [K] tensor (E3 lower-is-better, so liking
+        favours approach by reducing the score), composed additively with
+        existing dacc_score_bias.
+  Weak-necessity reading commitment: baseline liking-stream activation is
+  sufficient. Cue-side gain is a function of drive * goal_proximity --
+  the "is the bridge intact?" surface, not drive * residue.liking which
+  would be the level-coupled strong reading. Setting
+  mech295_liking_to_approach_cue_gain=0.0 is the SEVERED-BRIDGE arm of
+  the falsifiable test: drive elevated AND write side intact AND cue
+  side severed -> approach_commit predicted to collapse.
+  Config: REEConfig.use_mech295_liking_bridge (bool, default False).
+    Sub-knobs: mech295_drive_to_liking_gain (float, 1.0; 0 disables write
+    side), mech295_liking_to_approach_cue_gain (float, 0.5; 0 severs cue
+    side), mech295_min_drive_to_fire (float, 0.1; drive floor below which
+    bridge is silent), mech295_min_z_goal_norm_to_fire (float, 0.05; goal
+    norm floor below which bridge does not fire). All wired through
+    REEConfig.from_dims().
+  Backward compatible: use_mech295_liking_bridge=False by default;
+    agent.mech295_bridge is None; both integration sites are no-ops.
+    154/154 contracts + 7/7 preflight PASS with flag OFF (bit-identical
+    to pre-MECH-295 HEAD, 2026-04-26).
+  Activation smoke (2026-04-26): default agent + flag ON + drive_weight=2.0
+    + cfg.goal.z_goal_enabled=True + min_z_goal_norm_to_fire=0.001 + 30 ticks
+    forced drive=0.8 + benefit=0.4 -> n_write_fires=30, n_cue_fires=4,
+    final goal_norm=0.333. Severed-bridge arm (cue gain=0) -> bias_max_abs
+    exactly 0.0 with write side still firing.
+  No trainable parameters. Pure scalar arithmetic + per-candidate proximity
+  read. No phased training needed.
+  Biological basis: NAc shell hedonic hotspot (Pecina & Berridge 2005,
+    Castro & Berridge 2014), ventral pallidum (Smith Berridge & Aldridge
+    2011 -- the strongest direct mechanistic anchor: VP single-unit
+    recording shows drive change recodes palatability before cue firing),
+    Berridge & Kringelbach 2015 architectural articulation, Dickinson &
+    Balleine 1994 foundational behavioural devaluation requires outcome
+    re-experience. Strong-vs-weak necessity not arbitrated by literature;
+    Pecina 2003 DAT-knockdown finding (more wanting, unchanged liking) is
+    compatible only with the weak reading. Bridge commits to the WEAK
+    reading provisionally per claims.yaml MECH-295. Lit-pull synthesis:
+    REE_assembly/evidence/literature/targeted_review_mech295_liking_approach_bridge/
+  MECH-094: simulation_mode argument honoured at both compute methods;
+    when True, write returns 0.0 and cue returns zero score_bias and
+    counters do not advance.
+  Validation experiment: V3-EXQ-493 queued (six-part diagnostic: UC1
+    module-importable, UC2 master-OFF no-op, UC3 30-tick env loop write
+    fires, UC4 cue side produces monotone-negative bias, UC5 SEVERED-BRIDGE
+    COLLAPSE -- cue gain=0 produces zero bias even at elevated drive +
+    write intact, UC6 MECH-094 simulation gate). All 6 PASS via --dry-run
+    smoke 2026-04-26. Behavioural EXQ-483-style approach_commit recovery
+    deferred to a successor (combined-cluster after V3-EXQ-490 lands).
+  Design doc: REE_assembly/docs/architecture/mech_295_drive_liking_approach_bridge.md
+  Lit-pull: REE_assembly/evidence/literature/targeted_review_mech295_liking_approach_bridge/
+  See MECH-295, SD-012 (homeostatic drive input), SD-014 (valence vector
+    substrate -- VALENCE_LIKING component), SD-015 (z_resource encoder
+    upstream of GoalState.update), MECH-117 (existing wanting/liking
+    dissociation in REE benefit_eval_head vs z_goal_latent), ARC-036
+    (hedonic hotspot anatomical substrate -- prerequisite), MECH-094
+    (call-site scoping + simulation_mode argument), SD-037 (broadcast
+    override, drives effective_drive that the bridge consumes), MECH-269b
+    (complementary candidate cause for EXQ-483 wired-but-inert; Q-040
+    factorial points evidence at this bridge if MECH-269b alone fails to
+    recover approach_commit).
+
+## SD-039 Dual-Trace Anchor Goal-Snapshot Payload -- Substrate Foundation (2026-04-26)
+- SD-039 substrate-side: hippocampal.anchor_goal_snapshot_payload --
+  IMPLEMENTED 2026-04-26 (substrate side only; module-level write-site
+  population deferred). Module: ree_core/hippocampal/anchor_set.py
+  (AnchorGoalPayload dataclass; Anchor.goal_payload field +
+  Anchor.goal_match() helper; AnchorSet.write_anchor / mark_inactive /
+  reset_region / consume_boundary_events accept optional goal_payload;
+  AnchorSet.query_by_goal_match() helper). Resolves the substrate-side
+  prerequisite for MECH-292 (ranked ghost-goal bank) and MECH-293
+  (waking ghost-goal probes); both downstream consumers can now query
+  preserved motivational payloads on dual-trace anchors instead of
+  reasoning over staleness-only signatures.
+  Architectural design (claims.yaml SD-039): "Current MECH-269 anchors
+  preserve z_world and active/inactive status, while MECH-284 preserves
+  a region-level staleness scalar. SD-039 adds a compact motivational
+  payload to each anchor at write, remap, or invalidation time:
+  z_goal_snapshot, wanting strength, arousal tag, and optional last_vs /
+  staleness_at_write. The payload is preserved across mark_inactive, so
+  inactive anchors remain queryable as blocked or deferred goal traces."
+  Refresh-on-invalidate semantic: when a non-None goal_payload is
+  supplied to mark_inactive or reset_region, the payload is written
+  onto the outgoing anchor BEFORE inactivation. Existing payload is NOT
+  cleared on inactivation -- inactive anchors retain motivational
+  identity (the entire point of dual-trace preservation). On
+  reset_region, the same payload is written to BOTH the outgoing
+  inactive trace and the new active anchor (cause-of-blockage payload
+  on the outgoing; new motivational state on the new active).
+  AnchorGoalPayload fields:
+    z_goal_snapshot: Optional[torch.Tensor] -- detached clone of z_goal
+      at write time. None when no goal active.
+    wanting_strength: float -- VALENCE_WANTING readout at the anchor
+      location (or last cached drive*benefit proxy).
+    arousal_tag: float -- BLA arousal-tag scalar at write time.
+    last_vs: Optional[float] -- last V_s_anchor reading on the parent
+      (scale, stream_mixture) family at write/remap/invalidate time.
+    staleness_at_write: Optional[float] -- MECH-284 region staleness at
+      write time.
+    payload_written_step: int -- HippocampalModule tick index at write.
+  Anchor.goal_match(current_z_goal) -> float: cosine similarity between
+    stored z_goal_snapshot and supplied current_z_goal, clipped to
+    non-negative (motivational-relevance is a non-negative signal, not
+    a signed correlation). Returns 0.0 when payload is None, snapshot
+    is None, current is None, or norms are degenerate.
+  AnchorSet.query_by_goal_match(current_z_goal, threshold=0.0,
+    scale=None, active_only=False) -> List[Tuple[Anchor, float]]:
+    scans the dual-trace pool (active + inactive by default) and
+    returns anchors paired with non-zero goal_match scores, sorted by
+    score descending. This is the substrate hook MECH-292 will consume.
+    SD-039 itself does NOT rank or implement the bank; ranking by
+    ghost_priority ~ wanting * goal_match * staleness * recoverability
+    lives in MECH-292's module (deferred).
+    threshold=0.0 (default) excludes payload-less / norm-zero traces.
+    threshold=-1.0 includes every anchor with a payload regardless of
+    match (diagnostic path).
+    active_only=True restricts to the active half of the dual-trace
+    pool (legacy active_anchors() behaviour).
+  Config: AnchorSetConfig.use_sd039_anchor_payload (bool, default False).
+    Substrate-side flag. Module-level callers populate the payload from
+    GoalState / VALENCE_WANTING / amygdala arousal tags when this flag
+    is True; with flag OFF callers pass goal_payload=None and behaviour
+    is bit-identical to pre-SD-039.
+  Backward compatible: anchor.goal_payload defaults to None. Existing
+    write_anchor / mark_inactive / reset_region call sites that omit
+    the new goal_payload kwarg work unchanged. 164/164 contracts +
+    7/7 preflight PASS with flag implicitly off (2026-04-26).
+  No trainable parameters. Pure dataclass + cosine arithmetic.
+  Out of scope this session (deferred follow-on):
+    - Module-level write-site wiring: REEAgent / HippocampalModule
+      should populate goal_payload from GoalState (z_goal_snapshot),
+      ResidueField VALENCE_WANTING (wanting_strength), and amygdala
+      arousal tags (arousal_tag) on anchor write/remap/invalidate.
+      The substrate accepts the payload; the population layer is a
+      separate session.
+    - MECH-292 ranked ghost-goal bank computation.
+    - MECH-293 waking ghost-goal probe budget allocation.
+    - ARC-060 hybrid field+bank architectural framing.
+    - Validation EXQ exercising the falsifiable test (after reward
+      relocation or path blockage, inactive anchors on the formerly
+      valid approach path retain non-zero goal_match with current
+      z_goal while unrelated stale anchors do not).
+  Biological basis (lit-pull SYNTHESIS, evidence/literature/
+    targeted_review_ghost_goal_search/): Berridge 1998 + Barch 2010
+    (persistent wanting / goal representations); Mattar & Daw 2018
+    (utility-prioritised replay); Pfeiffer & Foster 2013 (goal-biased
+    path search); Gillespie 2021 (broad / non-current trace
+    reactivation); Muessig 2019 (one sequence generator across waking
+    + offline modes); Berkowitz 1989 (frustration / unresolved goal
+    persistence).
+  MECH-094: substrate-side scope; the goal_match query and the
+    goal_payload dataclass are passive. Population sites (deferred)
+    will gate writes via simulation_mode / hypothesis_tag at the
+    REEAgent / HippocampalModule call site (same call-site-scoping
+    pattern as MECH-269 Phase 1 / 2 ii / 2 iii, MECH-288, MECH-287,
+    MECH-284).
+  Contract tests: tests/contracts/test_sd_039_anchor_payload.py 10/10
+    PASS (S1 imports + symbol presence; S2 default backward-compat;
+    S3 ON-payload-attached-on-write; S4 payload-survives-mark_inactive;
+    S5 goal_match-zero-on-null-inputs; S6 goal_match-cosine-correctness;
+    S7 query-returns-active-and-inactive-sorted; S8 query-empty-for-
+    None-current; S9 reset_region-refreshes-payload-on-both-traces;
+    S10 per-episode-reset-clears-payloads).
+  Validation experiment: deferred until module-level write-site wiring
+    lands. The substrate-side foundation is observable through
+    contracts; behavioural validation requires the population layer.
+  Design doc: REE_assembly/docs/architecture/sd_039_anchor_goal_payload.md
+  See SD-039, MECH-269 (Phase 2 ii dual-trace anchor substrate being
+    extended), MECH-216 (predictive wanting -- input to wanting_strength
+    population), MECH-230 (z_goal latent structure -- z_goal_snapshot
+    source), MECH-284 (region staleness -- staleness_at_write source),
+    MECH-292 (downstream ghost-goal bank consumer), MECH-293 (downstream
+    waking ghost-goal probe consumer), ARC-060 (hybrid field+bank
+    architectural framing), MECH-094 (call-site scoping for population
+    layer).
+
+## MECH-292 Ranked Ghost-Goal Bank (2026-04-27)
+- MECH-292: hippocampal.unresolved_goal_ghost_bank -- IMPLEMENTED 2026-04-27.
+  Module: ree_core/hippocampal/ghost_goal_bank.py (GhostGoalBank,
+  GhostGoalBankConfig, GhostGoalBankEntry). First downstream consumer of the
+  SD-039 dual-trace anchor goal-snapshot payload (substrate landed 2026-04-26;
+  population layer landed 2026-04-27 with V3-EXQ-494 6/6 PASS). Pure-
+  arithmetic, non-trainable derived view over the existing AnchorSet.all_anchors()
+  pool. The bank does NOT own state beyond a small per-call diagnostics cache;
+  the anchor pool itself remains the source of truth. Per spec
+  (REE_assembly/docs/architecture/mech_292_ghost_goal_bank.md): "Implementation
+  is intentionally a derived view, not a persistent store: SD-039 already
+  preserves the per-anchor payload; MECH-292 just arranges the existing data."
+  Ranking formula (per anchor a clearing goal_match_floor):
+    wanting        = a.goal_payload.wanting_strength
+    goal_match     = a.goal_match(current_z_goal)             [SD-039 cosine]
+    staleness      = staleness_accumulator.snapshot()[(scale, segment_id)]
+                     when accumulator present, else
+                     clip_[0,1]((current_tick - last_accessed) * staleness_proxy_rate)
+    recoverability = clip_[0,1](a.goal_payload.last_vs)
+                     when last_vs is not None, else
+                     default_recoverability_when_unknown
+    ghost_priority = w_w*wanting + w_m*goal_match + w_s*staleness + w_r*recoverability
+  goal_match_floor (default 0.05) is the architectural rumination guard:
+  anchors with no payload OR with goal_match below the floor are invisible
+  to the bank entirely. Pure low-V_s chasing is excluded by construction.
+  Default pool: include_inactive=True, include_active=False, scale=None
+  (all scales). MECH-293 ghost-goal probes work primarily over inactive
+  traces; diagnostic / replay-prioritisation consumers may flip include_active
+  on. top_k caps the returned list at 32 by default.
+  Config: HippocampalConfig.use_mech292_ghost_bank (bool, default False).
+    Nested: HippocampalConfig.ghost_goal_bank_config (GhostGoalBankConfig,
+    default factory). REEConfig.from_dims surfaces 6 sub-knobs:
+    mech292_wanting_weight (1.0), mech292_goal_match_weight (1.0),
+    mech292_staleness_weight (0.5), mech292_recoverability_weight (0.5),
+    mech292_goal_match_floor (0.05), mech292_top_k (32). Other GhostGoalBankConfig
+    fields (default_recoverability_when_unknown, include_inactive,
+    include_active, scale, staleness_proxy_rate) are not surfaced through
+    from_dims; set on the nested config directly when needed.
+  HippocampalModule wiring (after staleness_accumulator block):
+    instantiate GhostGoalBank when use_mech292_ghost_bank is on; raise
+    ValueError if anchor_set is None (use_anchor_sets must be True) OR if
+    anchor_set.config.use_sd039_anchor_payload is False (otherwise every
+    anchor scores goal_match=0.0 and the bank degenerates to empty).
+    Public API: rank_ghost_goals(current_z_goal) -> List[GhostGoalBankEntry]
+    (returns [] when bank is None or current_z_goal is None);
+    reset_ghost_goal_bank() per-episode reset of diagnostics cache (anchor
+    pool is reset separately by reset_anchor_set()).
+  Agent wiring (REEAgent.reset()): reset_ghost_goal_bank() called on
+    episode boundary when use_mech292_ghost_bank is on. No agent.sense /
+    select_action wiring -- MECH-293 will be the first behavioural consumer.
+  Backward compatible: use_mech292_ghost_bank=False by default;
+    hippocampal.ghost_goal_bank is None; rank_ghost_goals returns [].
+    164/164 contracts + 7/7 preflight PASS with master OFF (bit-identical
+    to pre-MECH-292 HEAD). Smoke (master ON + SD-039 ON + 60-tick episode +
+    forced fast-scale boundaries every 8 ticks): 6 inactive anchors with
+    populated payload, 6 admitted entries, max_priority 1.609,
+    monotone-decreasing.
+  No trainable parameters. Pure scalar arithmetic + cosine via
+    Anchor.goal_match (SD-039 helper). No phased training needed.
+  Falsifiable signature (per spec, behavioural validation deferred): in a
+    reward-relocation or blocked-corridor task, anchors from the now-
+    obstructed but still-valued path should rank above equally stale but
+    goal-irrelevant anchors. Substrate-level dissociation (UC4 of V3-EXQ-496)
+    confirmed: Phase A goal-inactive anchors all below floor; Phase B
+    goal-active anchors admitted with goal_match component dominant on top
+    entry.
+  MECH-094: substrate-side scope. Bank reads payloads whose provenance was
+    set by the SD-039 population layer (sense() always passes
+    simulation_mode=False, so source anchors carry waking-stream provenance).
+    The bank itself has no write path -- nothing to gate. Inherits whatever
+    provenance the source anchors carry.
+  Validation experiment: V3-EXQ-496 queued (5 sub-tests UC1-UC5 covering
+    module / config / method exposure, master OFF no-op, ranking_fires,
+    goal_irrelevant_excluded, component_breakdown_consistent). Mac
+    2026-04-27: 5/5 PASS (39s). Behavioural validation lives in V3-EXQ-495
+    (V3 full-completion gate) once MECH-293 wires propose_trajectories()
+    to consume the bank.
+  Design doc: REE_assembly/docs/architecture/mech_292_ghost_goal_bank.md
+  See MECH-292 (parent claim), SD-039 (dual-trace payload substrate),
+  MECH-216 (predictive wanting -- wanting_strength source), MECH-230
+  (z_goal latent -- cosine query target), MECH-269 Phase 2 (ii) (anchor
+  substrate), MECH-269 Phase 1/2 (iii) (per-stream / per-region V_s for
+  last_vs), MECH-284 (region staleness accumulator), MECH-293 (downstream
+  consumer -- waking ghost-goal probe search), ARC-060 (hybrid field+bank
+  architectural framing).
+
+## SD-039 Module-Level Write-Site Population Layer (2026-04-27)
+- SD-039 population: hippocampal.anchor_goal_payload_population -- IMPLEMENTED 2026-04-27.
+  Modules: ree_core/hippocampal/module.py (HippocampalModule.build_goal_payload,
+  tick_anchor_set goal_payload kwarg, apply_invalidation_broadcasts_to_regions
+  goal_payload kwarg); ree_core/agent.py (REEAgent.sense() builds payload once
+  per tick and threads it through both write/remap and broadcast-invalidate
+  call sites); ree_core/utils/config.py (REEConfig.from_dims accepts
+  use_sd039_anchor_payload, propagates to AnchorSetConfig).
+  Wires the deferred follow-on to the SD-039 substrate (landed 2026-04-26):
+  REEAgent / HippocampalModule now populate AnchorGoalPayload from the
+  current waking-stream signals at every anchor write / remap / invalidate
+  site so that MECH-292 / MECH-293 consumers see live motivational state on
+  both halves of the dual trace.
+  Sourcing (build_goal_payload):
+    z_goal_snapshot     <- goal_state.z_goal.detach().clone() when
+                          goal_state.is_active(); None otherwise.
+    wanting_strength    <- residue_field.evaluate_valence(z_world)[..., VALENCE_WANTING].mean()
+                          when residue + valence_enabled; 0.0 otherwise.
+    arousal_tag         <- bla_output.arousal_tag when supplied; 0.0 otherwise.
+    last_vs             <- mean(self.per_stream_vs.values()) when non-empty;
+                          None otherwise. Phase 2 ii proxy for the parent
+                          (scale, stream_mixture) family V_s -- the payload
+                          is shared across all anchors written this tick.
+    staleness_at_write  <- max(staleness_accumulator.snapshot().values())
+                          when MECH-284 accumulator is enabled; None otherwise.
+                          Region-keyed; max-across-regions is the most
+                          informative scalar for downstream MECH-292 ranking.
+    payload_written_step <- agent._step_count (anchor_set._tick fallback).
+  build_goal_payload returns None (skipping population entirely) when:
+    - the AnchorSet substrate is disabled (anchor_set is None),
+    - AnchorSetConfig.use_sd039_anchor_payload is False (master flag OFF),
+    - simulation_mode=True (MECH-094 gate; replay/DMN paths must not
+      populate payloads from waking signals).
+  Wiring sites in agent.sense():
+    1. After update_per_stream_vs (Phase 1 V_s populated): build payload.
+    2. tick_anchor_set(latent, events, goal_payload=...): boundary-event
+       write/remap path; consume_boundary_events forwards the payload to
+       each per-event write_anchor (the dual-trace remap path internally
+       writes the payload onto BOTH outgoing inactive trace and the new
+       active anchor when same family is replaced).
+    3. apply_invalidation_broadcasts_to_regions(broadcasts, goal_payload=...):
+       MECH-287 broadcast-driven mark_inactive path; payload is refreshed on
+       the outgoing anchor at the moment of broadcast invalidation.
+    Hysteresis-fired mark_inactive (inside tick_hysteresis) does NOT refresh
+    payload -- the prior payload is preserved as the cause-of-blockage trace
+    per dual-trace semantics.
+  Config: REEConfig.from_dims(use_sd039_anchor_payload=False) propagates to
+  config.hippocampal.anchor_set.use_sd039_anchor_payload. Backward
+  compatible: master flag default False; agent.sense build_goal_payload
+  returns None; tick_anchor_set / apply_invalidation_broadcasts_to_regions
+  receive goal_payload=None and behaviour is bit-identical to pre-SD-039.
+  170/171 preflight + contracts PASS with population layer landed; the
+  remaining failure is unrelated queue-housekeeping (V3-EXQ-418e / 490
+  completion-record duplication).
+  No trainable parameters. No phased training needed. ASCII-safe (no
+  print() output added).
+  MECH-094: build_goal_payload accepts simulation_mode argument; sense()
+  passes simulation_mode=False (waking observation stream). Hysteresis
+  invalidation has no fresh-state context and intentionally leaves the
+  prior payload preserved.
+  Validation experiment: V3-EXQ-494 6/6 PASS 2026-04-27 (UC1 module
+  importable; UC2 master OFF no-op; UC3 population_fires 7/7 anchors with
+  populated payloads, max_goal_match 0.9999; UC4 dual-trace preservation
+  6 inactive + 1 active all carry payloads; UC5 falsifiable signature
+  Phase A mean=0.0 vs Phase B mean=0.998 with 3/3 above 0.3; UC6 MECH-094
+  simulation gate -- replay path produces zero anchors with populated
+  payload). Validation script extends _step_episode helper to force
+  MECH-288 fast-scale boundary events every 8 ticks via
+  event_segmenter.force_boundary so the SD-039 contract is exercised
+  without depending on stochastic boundary firing within the test window.
+  Design doc: REE_assembly/docs/architecture/sd_039_anchor_goal_payload.md
+  See SD-039 (parent claim), MECH-269 Phase 2 (ii) anchor substrate,
+  MECH-287 broadcast trigger (invalidation site), MECH-284 staleness
+  accumulator (staleness_at_write source), MECH-216 predictive wanting
+  (wanting_strength source), MECH-230 z_goal structure (z_goal_snapshot
+  source), MECH-292 / MECH-293 / ARC-060 (downstream ghost-goal
+  consumers), MECH-094 (simulation gate).
+
+## MECH-293 Waking Ghost-Goal Probe Search (2026-04-27)
+- MECH-293: hippocampal.awake_ghost_goal_probe_search -- IMPLEMENTED 2026-04-27.
+  Modules: ree_core/hippocampal/module.py (HippocampalModule.propose_trajectories
+  extended; new private methods _propose_ghost_seeded + _mix_value_flat_with_ghost;
+  diagnostic accessor get_last_propose_diagnostics); ree_core/predictors/e2_fast.py
+  (Trajectory dataclass extended with hypothesis_tag: bool=False and
+  metadata: Optional[Dict[str, Any]]=None fields); ree_core/agent.py
+  (REEAgent._e3_tick threads current_z_goal=goal_state.z_goal into
+  propose_trajectories when goal is active; record_committed_trajectory
+  explicitly sets hypothesis_tag=False / metadata=None on the executed
+  committed trajectory). Read-side consumer of MECH-292 ranked ghost-goal
+  bank: extends propose_trajectories with a minority budget of CEM probes
+  seeded around the highest-priority bank entries' anchor.z_world rather
+  than the agent's current z_world. Each ghost trajectory carries
+  hypothesis_tag=True and metadata={"source": "mech293_ghost_probe",
+  "anchor_key": ..., "ghost_priority": ..., "goal_match": ...} for
+  downstream provenance.
+  Algorithm:
+    1. n_ghost = clamp(round(n_total * mech293_ghost_fraction),
+                      [mech293_min_ghost_candidates, mech293_max_ghost_candidates])
+       bounded by len(bank.rank()).
+    2. For each top entry: seed action-object distribution mean from
+       _get_terrain_action_object_mean(anchor.z_world, e1_prior). Single
+       noise draw (no inner CEM refit -- ghosts are exploratory probes,
+       not optimised plans, so probe cost <= one value-flat sample).
+    3. e2.rollout_with_world(z_self, anchor_z, actions, action_bias=...)
+       produces the candidate trajectory; tag + metadata stamped.
+    4. Mix with value-flat candidates per mech293_replace_lowest_ranked:
+         True (default): drop the highest-cost (worst) value-flat
+                          candidates, append ghosts at the tail. Preserves
+                          downstream E3 selection cost; len(candidates)
+                          stays at n_total.
+         False: append ghosts on top of the value-flat pool (raises total
+                count). Diagnostic-only path.
+    5. Diagnostics dict surfaced on _last_propose_diagnostics:
+       {mech293_n_ghost_proposed, mech293_n_ghost_admitted,
+        mech293_max_ghost_priority, mech293_mean_goal_match_at_seed,
+        mech293_reason in {"ok","no_z_goal","empty_bank","n_ghost_zero"}}.
+  Config: REEConfig.use_mech293_ghost_probes (bool, default False) +
+    sub-knobs: mech293_ghost_fraction (0.2), mech293_min_ghost_candidates
+    (1), mech293_max_ghost_candidates (8), mech293_replace_lowest_ranked
+    (True). All wired through REEConfig.from_dims.
+  Precondition (raised on HippocampalModule.__init__):
+    use_mech293_ghost_probes=True requires use_mech292_ghost_bank=True.
+    The MECH-292 block transitively guarantees use_anchor_sets=True and
+    AnchorSetConfig.use_sd039_anchor_payload=True, so only the bank
+    flag needs explicit enforcement here. Loud-not-silent failure mode
+    matches the MECH-292 / SD-039 precondition pattern.
+  Backward compatible: use_mech293_ghost_probes=False by default;
+    propose_trajectories returns value-flat candidates; new current_z_goal
+    arg is ignored when MECH-293 is off; new Trajectory.hypothesis_tag
+    and .metadata fields default to backward-compat values (False / None).
+    record_committed_trajectory now constructs Trajectory with explicit
+    hypothesis_tag=False + metadata=None so the executed committed
+    trajectory drops any ghost provenance from the source proposal (the
+    executed trajectory IS real, regardless of its origin -- spec
+    requirement). 12/12 MECH-293 contracts + 183/183 full preflight +
+    contracts PASS with flag OFF (bit-identical to pre-MECH-293 HEAD).
+  Activation smoke (2026-04-27, V3-EXQ-497 5/5 PASS, 34s on Mac):
+    UC1 module surface (config flags + methods + Trajectory fields all
+      exposed with correct defaults); UC2 master-OFF no-op (n_ghost=0,
+      diagnostics={}, all candidates default-clean); UC3 ghost branch
+      fires (n_ghost_admitted=4, max_priority=1.61,
+      mean_goal_match_at_seed=0.998, reason='ok'); UC4 hypothesis_tag
+      preserved on every ghost + metadata complete + 28 value-flat
+      candidates remain default-clean; UC5 budget arithmetic
+      (round(0.25*8)=2 in [1,4] arm A; bank-size cap to 1 in arm B;
+      min-floor wins over fraction=0.0 in arm C).
+  No trainable parameters. Pure routing logic. No phased training needed.
+  ASCII-safe (no print() output added).
+  MECH-094: ghost trajectories carry hypothesis_tag=True for
+    provenance-routing. CEM rollout itself does not write residue or
+    anchors during proposal (those are observation-side paths in
+    agent.sense()), so no inline gate is needed during proposal. At
+    commit boundary, record_committed_trajectory explicitly strips the
+    tag (and metadata) so the executed trajectory is treated as real
+    for downstream backward-credit-sweep / valence-write paths.
+    SD-039's build_goal_payload(simulation_mode=True) path returns None
+    already (handled at the SD-039 layer). No new MECH-094 plumbing
+    required at the MECH-293 layer.
+  ARC-007 strict: ghost probes do NOT add a hippocampal value head.
+    Goal-match enters via MECH-292's external ranking over stored
+    payloads, which lives outside HippocampalModule. The proposer is
+    still proposing trajectories without an internal value computation;
+    the ghost-seeded ones are biased BY LOCATION (the anchor's z_world)
+    not by an internal value head.
+  Validation experiment: V3-EXQ-497 5/5 PASS 2026-04-27 (UC1-UC5 above).
+    Behavioural validation = V3-EXQ-495 (V3 full-completion gate,
+    MECH-163 dual systems test); already drafted, gated on this
+    substrate. queue V3-EXQ-495 as a separate decision after reviewing
+    V3-EXQ-497 -- 3 conditions x 2 paradigms x 7 seeds is a several-hour
+    behavioural run, not a substrate-readiness diagnostic.
+  Design doc: REE_assembly/docs/architecture/mech_293_ghost_goal_probe_search.md
+  See MECH-293 (this claim), MECH-292 (upstream ranked-bank source),
+    SD-039 (transitive payload substrate), ARC-007 strict (no value head),
+    ARC-018 (waking trajectory proposal loop being modified), ARC-032
+    (goal-biased sequence generation -- one instantiation), MECH-089
+    (theta-packaged waking E3 updates -- architectural context),
+    MECH-094 (hypothesis-tag invariant -- preserved at proposal,
+    stripped at commit), MECH-269 (anchor / probe substrate -- transitive
+    via MECH-292), MECH-291 (mode-sensitive sequence generator framing --
+    MECH-293 is the waking arm).
+
+## SD-049: Multi-Resource Heterogeneity (Phase 1 substrate, 2026-05-03)
+- SD-049 Phase 1: environment.multi_resource_heterogeneity -- IMPLEMENTED 2026-05-03
+  (env-only Phase 1; encoder rebuild + SD-032 consumer cascade deferred to
+  Phase 2, see Phase 2 follow-on note below).
+  Module: ree_core/environment/causal_grid_world.py (CausalGridWorld /
+  CausalGridWorldV2). Three additions to the env, gated by master switch
+  multi_resource_heterogeneity_enabled (default False, bit-identical OFF).
+  Substrate-roadmap H-priority #2; lit-anchored at sd_049 lit_conf=0.898
+  (Berridge 2018 + Smith & Berridge 2007 + Kidd & Hayden 2015 + Shutts/Spelke
+  2009 + Matthews/Tye 2016).
+  Three additions:
+    Addition 1 (multi-identity resources): num_resources cells split across
+      n_resource_types qualitatively distinct types (default 3:
+      food / water / novelty) per resource_type_distribution (default uniform).
+      Each cell carries an identity tag stored in self._resource_type_grid
+      (0 = no resource; type_idx + 1 elsewhere). Per-type resource lists in
+      self._resources_by_type[type_idx]. Per-type proximity fields in
+      self._resource_field_by_type[type_idx], computed in
+      _compute_proximity_fields() when master is on. Per-type 5x5 field
+      views appended to world_state in _get_observation_dict(); world_obs_dim
+      grows by n_resource_types * 25 (250 -> 325 default 3-type ARM_2;
+      250 -> 375 5-type ARM_3 overshoot). Per-type benefit profiles via
+      resource_type_benefit_curves: "sigmoidal_saturating" / "sharp_saturation" /
+      "novelty_decay" -- the novelty_decay curve attenuates contact benefit
+      by per-cell familiarity, producing the structurally-distinct
+      non-homeostatic benefit signal the wanting/liking dissociation
+      requires (MECH-229 cohort).
+    Addition 2 (per-axis homeostatic drive): per_axis_drive[n_axes] vector
+      tracked alongside legacy agent_energy. Each per-tick depletion rate
+      from per_axis_drive_decay; restoration on contact applied to the
+      matching axis only (per the type-axis 1:1 mapping). When
+      per_axis_drive_enabled, agent_energy collapses to
+      1.0 - combiner(per_axis_drive) (combiner default "max", also
+      "mean" / "sum") so all legacy SD-032 consumers (AIC / PCC / pACC /
+      dACC / salience / override / MECH-295 bridge) continue to read
+      obs_body[3] without modification. New observable:
+      obs_dict["per_axis_drive"] for new experiments.
+    Addition 3 (curriculum hook): resource_introduction_schedule:
+      Dict[str, int] gates per-type spawn availability by self._global_step
+      (cross-episode counter that survives reset()). Defaults to None ->
+      all types available from step 0 (existing-experiment-equivalent
+      behaviour even when master is on). Gate is checked at every reset()
+      against current _global_step.
+  Config (CausalGridWorld __init__ kwargs, env-only -- not surfaced through
+  REEConfig.from_dims, matching SD-022 / SD-023 / SD-029 / SD-047 / SD-048
+  precedent for env-only SDs):
+    multi_resource_heterogeneity_enabled (bool, default False) -- master switch.
+    n_resource_types (int, default 3).
+    resource_type_names (tuple, default ("food","water","novelty")).
+    resource_type_drive_axes (tuple, default ("hunger","thirst","curiosity")).
+    resource_type_benefit_curves (tuple, default ("sigmoidal_saturating",
+      "sharp_saturation","novelty_decay")).
+    resource_type_distribution (tuple, default uniform via None).
+    resource_type_benefit_amplitudes (tuple, default uniform 1.0 via None).
+    per_axis_drive_enabled (bool, default False) -- per-axis vector observable
+      and legacy-energy collapse.
+    per_axis_drive_decay (tuple, default (0.001, 0.0015, 0.0005)).
+    per_axis_drive_combiner (str, default "max"; also "mean" / "sum").
+    novelty_familiarity_increment (float, default 0.2) -- per-contact
+      per-cell familiarity bump.
+    novelty_familiarity_recovery (float, default 0.0) -- 0 = permanent
+      familiarity within episode; >0 = slow recovery toward 0.
+    resource_introduction_schedule (Optional[Dict], default None).
+  Defaults (truncated / padded for n_resource_types > 3) ensure the 5-type
+  ARM_3 overshoot configuration runs without code changes (extra types get
+  generic "type_<i>" / "axis_<i>" / "sigmoidal_saturating" entries).
+  Per-resource-type bit-identical OFF: setting an entry to 0.0 in
+  resource_type_distribution drops that type without code change (recovers
+  ARM_1 from ARM_2 in the validation 4-arm sweep).
+  Data flow:
+    reset() -> distribute num_resources across active (curriculum-permitted)
+      types by weighted draw -> populate _resources_by_type / _resource_type_grid
+      -> _compute_proximity_fields rebuilds legacy + per-type fields ->
+      world_state cat includes per-type 5x5 patches ->
+      obs_dict["resource_field_view_<name>"] for each type +
+      obs_dict["per_axis_drive"] + obs_dict["resource_type_at_agent"].
+    step() resource consumption -> identify type from
+      _resource_type_grid[new_x, new_y] -> apply type-specific benefit_curve
+      with per-cell familiarity for novelty_decay -> remove cell from
+      per-type list and clear tag -> apply axis restoration on matching
+      axis -> increment _novelty_familiarity[cell] -> recompute proximity
+      fields.
+    step() post-move -> per_axis_drive[i] += per_axis_drive_decay[i]
+      (gated on master + per_axis_drive_enabled) -> agent_energy =
+      1 - combiner(per_axis_drive) -> _global_step += 1.
+  info dict tags (always present, 0 / False when disabled):
+    multi_resource_heterogeneity_enabled, sd049_n_resource_types,
+    sd049_per_axis_drive_enabled, sd049_per_axis_drive_max,
+    sd049_per_axis_drive_mean, sd049_n_resource_contacts_total,
+    sd049_n_active_resources_by_type, sd049_global_step,
+    sd049_resource_type_at_agent.
+  Backward compatible: master switch False by default; all per-type state
+  initialized to empty/zero; world_obs_dim returns the legacy value;
+  obs_dict surfaces no SD-049 keys; agent_energy follows legacy path.
+  RNG draws gated inside `if multi_resource_heterogeneity_enabled:` so seed
+  sequences for existing experiments are bit-identical when disabled.
+  Bit-identical OFF guarantee verified 2026-05-03 (50-tick parity check
+  across explicit-False vs default + V3-EXQ-513 C0 acceptance criterion).
+  Activation smoke (2026-05-03):
+    50-tick no-resource depletion test: per_axis_drive evolves linearly per
+      configured rates (0.5 / 0.25 / 0.0 at 50 ticks * (0.01, 0.005, 0.0)
+      decay). agent_energy collapses correctly to 1 - max_drive.
+    200-tick 3-type random-policy: per-type spawn counts ~uniform across
+      types (5/3/4 with 12 cells, weighted-uniform draw); contacts distribute
+      across types; per-axis drive evolves with per-tick decay - per-contact
+      restoration; novelty familiarity grows on contacted cells.
+    Curriculum hook: water introduced at step 1000 -- spawn count [6, 0, 6]
+      at episode 0; spawn count [4, 6, 2] at episode 1 after 1001 ticks
+      advance _global_step.
+    ARM_3 5-type overshoot: world_obs_dim 250 -> 375 (250 + 5*25); spawn
+      distributes across 5 types per uniform distribution.
+  Implementation choices (deviations / clarifications from SD doc):
+    - Flat kwargs on CausalGridWorld.__init__ rather than nested dataclasses
+      (MultiResourceHeterogeneityConfig / ResourceTypeConfig / PerAxisDriveConfig).
+      Matches SD-022 / SD-023 / SD-029 / SD-047 / SD-048 precedent for env-only
+      SDs. Nested dataclasses are not used elsewhere for env params.
+    - Per-axis drive vector is parallel to legacy agent_energy, NOT replacing
+      it. agent_energy collapses via configurable combiner so legacy SD-032
+      consumers continue to read obs_body[3] unchanged. The per-axis vector
+      is observable through obs_dict["per_axis_drive"] for new experiments
+      and the deferred Phase 2 encoder upgrade. This is the lighter-cascade
+      Phase 1 deviation from the SD doc's "drive_weight scalar must become
+      a per-axis vector" -- the cascade through every SD-032 consumer is
+      instead deferred to Phase 2 for clean phased validation.
+    - Per-resource-type bit-identical OFF preserved: setting an entry to 0.0
+      in resource_type_distribution drops the type without code change
+      (per the SD doc requirement). All-zero distribution falls back to
+      uniform to avoid spawn-zero pathology (use master switch to disable
+      SD-049 entirely).
+    - Type-axis 1:1 mapping: resource type i restores axis i. Future MECH
+      may decouple via a learned mapping (registerable post-validation).
+    - Encoder side NOT modified: the existing ResourceEncoder (SD-015)
+      consumes the larger world_obs (325 ARM_2 / 375 ARM_3) without code
+      changes -- it sees the per-type field views as additional dimensions
+      in world_obs. Identity discrimination on z_resource is the Phase 2
+      validation target; Phase 1 measures only substrate readiness.
+  No trainable parameters. Pure env-side state + arithmetic. No phased
+  training needed for Phase 1 (env-only).
+  MECH-094: not applicable (env observation stream, not replay / simulation
+    content). reset_to() scripted-eval bypass leaves SD-049 OFF (matches
+    SD-047 / SD-048 precedent: scripted-eval comparator harnesses
+    intentionally bypass enrichment substrates for clean tagging).
+  Phase 2 follow-on (REGISTERED, not implemented): the validation
+    experiment for SD-049 requires a z_resource encoder upgrade to
+    discriminate identities (one-hot identity slot or learned embedding
+    on the larger world_obs) and the SD-032 consumer cascade to read
+    per_axis_drive directly rather than the collapsed obs_body[3].
+    This is registered as a Phase 2 substrate task in
+    REE_assembly/evidence/planning/substrate_queue.json (SD-049 entry,
+    phase_2 follow-on note); the behavioural validation lands as
+    V3-EXQ-514 (goal_resource_r lift + identity-recovery probe + wanting
+    != liking trajectory dissociation) post-Phase 2.
+  Validation experiment: V3-EXQ-513 queued (substrate readiness
+    diagnostic; 4-arm sweep ARM_0/ARM_1/ARM_2/ARM_3 + curriculum check;
+    13 acceptance criteria covering bit-identical OFF, per-type
+    spawn / contact, per-axis drive evolution, novelty familiarity
+    growth, agent_energy divergence from legacy path, ARM_3 overshoot
+    obs_dim shape, curriculum gate / release. Dry-run smoke 2026-05-03:
+    13/13 PASS at 30 ticks * 1 seed; full run at 200 ticks * 3 seeds
+    expected ~5 min on Mac).
+  Design doc: REE_assembly/docs/architecture/sd_049_multi_resource_heterogeneity.md
+  Lit-pull: REE_assembly/evidence/literature/targeted_review_sd_049/
+  See SD-049, SD-012 (per-axis drive extension cascade -- triggers
+    pending_substrate_reconfirmation on SD-012-emergent invariants per
+    invariant-types governance rule when Phase 2 lands), SD-015
+    (z_resource encoder upstream substrate this enables in Phase 2),
+    SD-005 (z_world routing must hold under multiple resource identities),
+    MECH-229 (wanting/liking dissociation -- primary behavioural test
+    post-Phase 2), MECH-230 (z_goal latent structure -- non-trivial
+    multi-modal structure post-Phase 2), MECH-117 (existing
+    wanting/liking trajectory dissociation -- non-degenerate evidence
+    post-Phase 2), MECH-216 (schema generalisation across identity-
+    distinct cues), Q-030 (6-cell z_resource x z_world routing sweep --
+    well-posed post-Phase 2), ARC-030 (approach-avoidance symmetry
+    across goal types), ARC-032 (theta-routing across goal identities),
+    SD-047 (parallel substrate enrichment, file-coordinated, Phase 1
+    landed first), SD-048 (parallel substrate enrichment, file-coordinated).
+
+## SD-049 Phase 2: Hybrid Identity-Aware z_resource Encoder (2026-05-04)
+- SD-049 Phase 2: encoder.identity_aware_z_resource (Option C hybrid) --
+  IMPLEMENTED 2026-05-04. Encoder-side Phase 2 follow-on to the SD-049
+  Phase 1 substrate (env-only) landed 2026-05-03. Lands the architectural
+  choice from the 2026-05-04 lit-pull verdict
+  (evidence/literature/targeted_review_sd_049_encoder_identity_expansion/
+  verdict.md, Option C hybrid at confidence 0.78). Biology-anchored to
+  Ballesta-Padoa-Schioppa 2019 OFC labeled-line + Quiroga 2005 sparse
+  readouts + Schapiro 2017 hybrid CLS bi-pathway architecture.
+  Modules:
+    ree_core/latent/stack.py (ResourceEncoder + LatentState)
+    ree_core/utils/config.py (LatentStackConfig)
+    ree_core/agent.py (compute_resource_identity_loss)
+    ree_core/environment/causal_grid_world.py (info dict supervision target)
+  Encoder shape (Option C hybrid):
+    Shared trunk MLP encoder (Linear -> ReLU -> Linear) producing 32-dim
+    z_resource (Schapiro 2017 monosynaptic-analog distributed substrate;
+    Schapiro 2016 statistical-learning pathway).
+    Identity-classifier head (Linear(z_resource_dim, n_resource_types))
+    supervised by cross-entropy on obs_dict["sd049_consumed_type_tag_this_tick"]
+    when SD-049 multi_resource_heterogeneity is on (Ballesta-Padoa-Schioppa
+    labeled lines; Quiroga sparse readouts; Schapiro 2017 trisynaptic-
+    analog episode pattern separation).
+    Magnitude head (resource_prox_head) reusing existing SD-018 pattern
+    unchanged.
+  IMPORTANT design choice: z_resource OUTPUT shape unchanged at
+    z_resource_dim (32). Classifier head shapes the trunk via training
+    pressure (anti-collapse mitigation per Levi 2021 + identity
+    discriminability supervision per the verdict). identity_logits is
+    exposed as a SEPARATE LatentState field (Optional[Tensor]) for the
+    cross-entropy loss; downstream consumers (GoalState seeding etc.)
+    continue to read z_resource unchanged. This avoids the
+    GoalState.z_goal seeding dim-mismatch that pure-concat would create
+    (z_goal_dim=32; concat would grow z_resource to 32 + n_types).
+  Config (LatentStackConfig):
+    use_identity_classifier (bool, default False) -- master switch.
+    identity_classifier_n_types (int, default 3) -- output dim of head.
+    Both surfaced via direct attribute assignment on cfg.latent.* (not
+    via REEConfig.from_dims kwargs -- matches existing SD-015
+    use_resource_encoder pattern).
+  Phased training (per verdict.md):
+    P0: enable use_identity_classifier=True. Joint backprop of identity
+        cross-entropy + resource_prox MSE + downstream task losses
+        through the trunk. Classifier head provides anti-collapse pull
+        (Levi 2021 mitigation in spirit) AND identity-discriminability
+        supervision per the biology-anchored verdict.
+    P1: freeze identity_head.requires_grad_(False). Continue trunk
+        training under E1/E3/downstream losses. Trunk embedding develops
+        similarity structure beyond what classifier supervision alone
+        provides (Schapiro 2016 distributed substrate development).
+    P2: evaluate identity-recovery (linear probe on z_resource) AND
+        goal_resource_r AND per-axis drive evolution per V3-EXQ-514
+        acceptance criteria.
+  Data flow:
+    ResourceEncoder.forward(world_obs) -> (z_resource [batch, 32],
+      resource_prox_pred_r [batch, 1], identity_logits [batch, n_types]
+      OR None when classifier disabled).
+    LatentStack.encode() -> LatentState with z_resource +
+      resource_prox_pred_r + identity_logits all populated when classifier
+      enabled.
+    agent.compute_resource_identity_loss(target_type, latent_state) ->
+      cross-entropy scalar; zero when classifier disabled, target=0
+      (no resource at agent), or out-of-range.
+  Env supervision target plumbing (SD-049 Phase 2 env fix):
+    causal_grid_world.py step() caches consumed-type tag BEFORE clearing
+    the cell tag in the resource-consumption branch. Surfaced as
+    info["sd049_consumed_type_tag_this_tick"] (1..n_types when consumption
+    fired this tick; 0 otherwise). The supervision target for the
+    identity classifier in the V3-EXQ-514 training loop. Always present
+    (0 when SD-049 OFF or no consumption this tick).
+  Backward compatible: use_identity_classifier=False by default;
+    ResourceEncoder.identity_head=None; identity_logits=None on every
+    LatentState; compute_resource_identity_loss returns 0; all existing
+    SD-015 experiments (use_resource_encoder=True with classifier OFF)
+    behave bit-identically. 7/7 preflight + 184/184 contracts PASS with
+    classifier OFF (regression suite green, 2026-05-04).
+  Activation smoke (2026-05-04):
+    Default ResourceEncoder + use_identity_classifier=False -> identity_logits
+    is None on LatentState; compute_resource_identity_loss returns 0.0.
+    use_identity_classifier=True + n_types=3 -> identity_logits shape
+    [1, 3]; cross-entropy with target=type_0 returns ~ln(3)~1.10 at random
+    init; backward succeeds; target=0 (no-resource) returns 0.0 (skip).
+    Env consumed-type plumbing: with multi_resource_heterogeneity_enabled=True,
+    info["sd049_consumed_type_tag_this_tick"] correctly reports type_idx+1
+    (1/2/3) on resource-contact ticks; 0 on non-contact ticks.
+  No phased training needed for the SUBSTRATE itself (encoder change is a
+  shape change with backward-compat defaults). Phased training is REQUIRED
+  for V3-EXQ-514 (it is the validation methodology, not a substrate
+  requirement).
+  MECH-094: not applicable (waking observation stream encoder; not replay
+    / simulation content). The classifier supervision target is the
+    waking-stream env consumption tag.
+  ML/AI engineering notes (Layer 7, per implement-substrate skill rule):
+    - Class-collapse hazard (Levi et al. 2021 ICCV): mitigated by phased
+      training. P0 supervised classifier head provides anti-collapse pull
+      on the trunk; P1 freezes the head; P2 evaluates. No additional
+      anti-collapse machinery needed at the substrate level.
+    - Joint training fragility (EXQ-166b/c/d historical): the phased
+      protocol decouples head learning from encoder learning across the
+      P0/P1 boundary. Standard mitigation pattern.
+    - z_resource shape preservation rather than concat: chosen over the
+      verdict.md Option-1 concat instantiation because GoalState.z_goal
+      is fixed at goal_dim=32 and would silently break under z_resource =
+      concat(trunk, identity_softmax) = 32 + n_types. The "single-output-
+      with-supervision" instantiation (verdict.md Option 2) is what
+      most ML papers do; the classifier head is training-only in the
+      sense that downstream consumers read just z_resource, but the
+      identity_logits are still computed at every tick (cheap) and
+      exposed for the loss term.
+  Validation experiment: V3-EXQ-514 queued -- 4-arm sweep + phased
+    training + identity-recovery linear probe + goal_resource_r
+    measurement + per-axis drive evolution check. 10 acceptance criteria
+    (C0/C1a/C1b/C2a/C2b/C2c/C2d/C2e/C3a/C3b). PASS = SD-049 Phase 2
+    validated; SD-015 promotable; SD-049 v3_pending may be cleared. FAIL
+    routes to the 6-row interpretation grid in verdict.md, including the
+    Woo/Spelke-style substrate-ceiling falsifier branch (joint failure
+    across ARM_2 AND ARM_3 routes MECH-229 to substrate_conditional with
+    V4-1 multi-agent ecology dependency). estimated_minutes=90.
+  Design doc: REE_assembly/docs/architecture/sd_049_multi_resource_heterogeneity.md
+  Lit-pull: REE_assembly/evidence/literature/targeted_review_sd_049_encoder_identity_expansion/
+  See SD-049 (parent claim, Phase 1 substrate landed 2026-05-03), SD-015
+    (z_resource encoder upstream substrate this extends), MECH-229
+    (wanting/liking dissociation primary test), MECH-230 (z_goal latent
+    structure non-trivial), Q-030 (6-cell z_resource x z_world routing),
+    SD-012 (per-axis drive extension; SD-012-emergent invariants
+    pending_substrate_reconfirmation flag deferred to next governance
+    cycle), MECH-094 (call-site scoping; not applicable).
+  Deferred Phase 3 follow-on (substrate_queue.json SD-049-PHASE-3 entry):
+    SD-032 consumer cascade migrating AIC, PCC, pACC, dACC, salience,
+    override, MECH-295 from reading goal_state._last_drive_level
+    (collapsed scalar) to reading obs_dict["per_axis_drive"] directly.
+    Action-trigger: V3-EXQ-514 failure on SD-032-mediated mode-switching
+    pathway (which is not predicted by the current encoder-driven
+    failure modes per verdict.md).
+
+## SD-050: Suffering-Derivative Comparator (2026-05-04)
+- SD-050 / MECH-302: relief.suffering_derivative_comparator -- IMPLEMENTED 2026-05-04.
+  Module: ree_core/comparator/suffering_derivative_comparator.py
+    (SufferingDerivativeComparator -- non-trainable, no nn.Module inheritance).
+  Config: REEConfig.use_suffering_derivative_comparator (default False; set True to enable).
+    Additional params: suffering_window_length (default 5), suffering_drop_threshold
+    (default 0.10), suffering_min_initial_norm (default 0.05),
+    relief_completion_weight (default 1.0). All defaults are no-op.
+  Data flow: sense() -> suffering_comparator.tick(z_harm_a.norm(), sim_mode)
+    -> _relief_completion_event: bool (ephemeral flag, not in LatentState)
+    -> select_action() -> beta_gate.release() + committed_step_idx reset
+    + residue_field.update_valence(z_world, VALENCE_LIKING, relief_weight,
+    hypothesis_tag=False) when valence_liking_enabled.
+  Pipeline reuse: identical to MECH-057a goal-completion pipeline -- commitment
+    release + MECH-094 categorical tag write -- triggered by suffering-stream
+    descent rather than goal attainment. Architecturally adjacent to MECH-091
+    urgency block in select_action(); opposite polarity.
+  MECH-094 compliance: tick(simulation_mode=True) returns False without advancing
+    the buffer (waking-path signal only; replay/DMN must not trigger events).
+  Backward compatible: disabled by default; existing experiments unaffected;
+    bit-identical OFF (no RNG draws; pure arithmetic).
+  Phased training: not applicable (non-trainable).
+  Validation experiments: V3-EXQ-515 PASS 2026-05-04 (comparator logic: 4-arm
+    synthetic-norm unit diagnostic). V3-EXQ-516 queued (agent-loop integration:
+    ARM_0 OFF backward-compat, ARM_1 event fires, ARM_2 valence write, ARM_3
+    flat signal no false fires).
+  See MECH-302, MECH-057a (commitment release pipeline reused), MECH-091
+    (urgency block -- adjacent, opposite polarity), MECH-094 (simulation gate),
+    SD-011 (z_harm_a source stream).
+
+## SD-051: Conditioned Safety Store (2026-05-04)
+- SD-051 / MECH-304: safety_prediction.cue_specific_conditioned_inhibition_substrate -- IMPLEMENTED 2026-05-04.
+  Module: ree_core/safety/conditioned_safety_store.py (ConditionedSafetyStore -- non-trainable,
+    no nn.Module inheritance; pure arithmetic). New package ree_core/safety/__init__.py.
+  Config: REEConfig.use_conditioned_safety_store (default False; set True to enable).
+    Additional params: safety_store_ema_alpha (default 0.1), safety_store_decay_rate (default 0.001),
+    safety_store_min_norm (default 0.1), safety_store_threshold (default 0.5),
+    safety_store_commitment_weight (default 1.0). All defaults are no-op.
+  Data flow: sense() -> z_world [world_dim] -> conditioned_safety_store.update(z_world,
+    event_fired=_relief_completion_event, sim_mode=hypothesis_tag) -> _conditioned_safety_signal: float
+    -> select_action(): when _conditioned_safety_signal > threshold AND beta_gate elevated ->
+    beta_gate.release() + optional VALENCE_LIKING write (MECH-094).
+  Encoding pathway (dorsal striatum / dlPFC analog): EMA prototype of z_world at MECH-302 event ticks.
+    Per-step decay toward zero (safety_store_decay_rate) provides forgetting without reinforcement.
+  Expression pathway (IL->CeA analog): cosine similarity between current z_world and prototype ->
+    sigmoid -> safety_prediction scalar -> commitment-release gate.
+  MECH-094 compliance: update(sim_mode=True) returns 0.0 without advancing the prototype
+    (waking-path signal only; replay/DMN ticks are silent).
+  Backward compatible: disabled by default; conditioned_safety_store is None when disabled;
+    sense() and select_action() skip all SD-051 blocks entirely; bit-identical OFF.
+  Phased training: not applicable (non-trainable).
+  V4-deferred: (1) Approach attractor toward safety-signaling cues (requires V4 multi-step
+    planning infrastructure, MECH-163 V3 completion gate). (2) Contrastive cue-specific
+    learning (requires trainable encoder head + phased training; V3 prototype may
+    over-generalise in stable-environment settings). See v3_v4_transition_boundary.md.
+  Validation experiment: V3-EXQ-519 queued 2026-05-04 (4-arm substrate-readiness diagnostic).
+  See MECH-304 (the claim this SD implements), MECH-303 (sister contextual pathway),
+    MECH-302 / SD-050 (teaching signal source), MECH-057a (commitment-release pipeline reused),
+    MECH-094 (simulation gate), SD-011 (z_harm_a source for MECH-302 event).
+
+## SD-052: Contextual Passive Safety Terrain (2026-05-04)
+- SD-052 / MECH-303: safety_prediction.contextual_passive_substrate -- IMPLEMENTED 2026-05-04.
+  Module: ree_core/residue/field.py (ResidueField -- extended with safety_terrain_rbf_field,
+    accumulate_safety(), evaluate_safety()). No new file; extends existing ResidueField.
+  Config: REEConfig.use_contextual_safety_terrain (bool, default False; set True to enable).
+    ResidueConfig.safety_terrain_enabled (bool, default False; auto-set by from_dims when
+    use_contextual_safety_terrain=True).
+    Additional params: contextual_safety_accum_weight (float, default 0.01),
+    contextual_safety_harm_threshold (float, default 0.05),
+    contextual_safety_release_threshold (float, default 1.0). All defaults are no-op.
+  Data flow: sense() -> z_harm_a.norm() < contextual_safety_harm_threshold AND
+    hypothesis_tag=False -> residue_field.accumulate_safety(z_world, accum_weight) ->
+    safety_terrain_rbf_field.add_residue() [incremental per-step].
+    select_action() when beta_gate.is_elevated -> residue_field.evaluate_safety(z_world)
+    -> if mean >= contextual_safety_release_threshold -> beta_gate.release() +
+    _committed_step_idx=0 + _committed_anchor_keys=None.
+  Architecture: follows same RBF pattern as benefit_terrain (ARC-030 / MECH-117).
+    Separate safety_terrain_rbf_field -- no sharing with benefit_terrain or residue values.
+    Biological analog: vmPFC + hippocampus (vHipp-to-PL). Slow/diffuse (0.01/step);
+    contrasts with MECH-304 fast event-driven update.
+  MECH-094 compliance: accumulate_safety(hypothesis_tag=True) returns immediately --
+    safety accumulation is waking-only; simulation/replay ticks are silent.
+  Backward compatible: disabled by default; safety_terrain_rbf_field not instantiated
+    when disabled; all agent.py blocks guarded by getattr config check; bit-identical OFF.
+  Phased training: not applicable (non-trainable accumulator).
+  Validation experiment: V3-EXQ-520 queued 2026-05-04 (4-arm substrate-readiness diagnostic).
+  See MECH-303 (the claim this SD implements), MECH-304 / SD-051 (cue-specific sister),
+    MECH-302 / SD-050 (harm source monitored by harm_threshold gate), SD-011 (z_harm_a stream),
+    ARC-007 (contextual encoding substrate), ARC-030 / MECH-117 (benefit terrain parallel),
+    MECH-094 (simulation gate).
+
+## SD-019a: harm_unpleasantness_channel (2026-05-04)
+- SD-019a: harm_stream.immediate_affective_valence -- IMPLEMENTED 2026-05-04.
+  Module: ree_core/agent.py (REEAgent.__init__, reset(), sense(), select_action()),
+    ree_core/latent/stack.py (LatentState.z_harm_un), ree_core/utils/config.py
+    (LatentStackConfig.use_harm_un, harm_un_ema_alpha).
+  Config: LatentStackConfig.use_harm_un (bool, default False; set True to enable).
+    LatentStackConfig.harm_un_ema_alpha (float, default 0.2; ~5-step rise to
+    z_harm_s=1.0 at alpha=0.2).
+  State: REEAgent._harm_un_ema (Optional[Tensor], same dim as z_harm_s); reset
+    per episode; seeded at z_harm_s on first tick; None when feature is OFF.
+  Data flow: sense() -> LatentStack.encode() -> new_latent.z_harm (z_harm_s) ->
+    [if use_harm_un and not hypothesis_tag] EMA update: _harm_un_ema <-
+    (1-alpha)*_harm_un_ema + alpha*z_harm -> new_latent.z_harm_un <-
+    _harm_un_ema.clone() -> AIC urgency (aic_z_norm reads z_harm_un.norm() when
+    use_harm_un; falls back to z_harm_a.norm() otherwise) + select_action() E3
+    short-horizon urgency_weight and MECH-091 interrupt (redirect z_harm_a
+    variable to z_harm_un when use_harm_un).
+  Three-tier harm hierarchy: z_harm_s (fast, instantaneous) ->
+    [EMA alpha=0.2] -> z_harm_un (medium, ~5-step rise) ->
+    [MECH-219/SD-019b, not yet implemented] -> z_harm_a (slow, suffering).
+  Controllability parity (Loffler 2018 key constraint): SD-021 descending
+    modulation only multiplies new_latent.z_harm (z_harm_s). z_harm_un evolves
+    exclusively via its own EMA rule and is NOT attenuated during commitment.
+    Verified: UC3 in V3-EXQ-518 (norm_un unchanged during commitment, norm_s
+    attenuated by 50%).
+  AIC redirect (SD-032c): when use_harm_un=True, aic_z_norm reads
+    z_harm_un.norm() so the AIC urgency computation tracks the medium-timescale
+    unpleasantness channel, not the slow suffering accumulator.
+  E3 redirect: z_harm_a variable in select_action() is shadowed by z_harm_un
+    when use_harm_un=True and z_harm_un is not None. Affects urgency_weight
+    computation and MECH-091 interrupt threshold. dACC (SD-032b), pACC
+    (SD-032e) retain independent z_harm_a reads (NOT redirected -- they
+    correctly consume the slow suffering accumulator).
+  MECH-094 compliance: EMA update gated on hypothesis_tag=False; replay/
+    simulation paths do not advance _harm_un_ema.
+  Backward compatible: use_harm_un=False by default; z_harm_un=None on
+    every LatentState; all integration sites no-op. 184/184 contracts PASS
+    with flag OFF.
+  Biological basis: Loffler et al. 2018 (Pain Reports) three-way dissociation
+    (intensity / unpleasantness / suffering): controllability selectively reduces
+    suffering (z_harm_a) without touching unpleasantness (z_harm_un). ACC /
+    anterior insula medial-pathway affective-motivational component of pain
+    (Price 2000 dual-pathway; Rainville 1997 ACC/S1 double dissociation).
+  Phased training: not applicable (non-trainable EMA buffer; no gradient flow).
+  Validation experiment: V3-EXQ-518 queued (4-arm diagnostic, 9 acceptance
+    criteria UC0a-b/UC1a-d/UC2a-b/UC3; dry-run PASS 2026-05-04).
+  See SD-019a, SD-019 (parent nonredundancy), SD-011 (z_harm_s source),
+    SD-019b (SD-019a is the input to the MECH-219 hysteretic integrator),
+    SD-021 (descending mod; controllability parity), SD-032c (AIC redirect
+    consumer), MECH-091 (urgency interrupt; redirect consumer), MECH-094
+    (EMA gate).
+
+## SD-054: Reef Enrichment Substrate (2026-05-04)
+- SD-054: environment.reef_enrichment_substrate -- IMPLEMENTED 2026-05-04.
+  (Note: this entry was originally labelled SD-050 in error; SD-050 is the
+  Suffering-Derivative Comparator per claims.yaml. Renamed to SD-054 on
+  2026-05-08; SD-053 is informally reserved for a sustained-drive claim.)
+  Module: ree_core/environment/causal_grid_world.py (CausalGridWorldV2).
+  Monostrategy-breaking behavioral-diversity substrate. Adds reef safe zones and
+  food-attracted hazard drift to CausalGridWorldV2. Motivated by the observation
+  that monomodal policy prevents balanced agent-vs-env event distributions (SD-029
+  C2/C3 blocker). Creates two behavioral attractors -- "flee to reef" vs "forage"
+  -- to break the single fixed route the agent otherwise exploits.
+  Two mechanisms:
+    Reef safe zones: circular patches (Manhattan radius) around corner-adjacent
+      centers where hazards cannot enter and no food/hazards spawn. Agent CAN enter
+      reef cells (attractor for safety-seeking). Static scent gradient: 5x5
+      normalized Manhattan-decay kernel appended to world_state when reef_enabled=True.
+      world_obs_dim: 250 -> 275 (+ 25 reef_field_view dimensions).
+    Food-attracted hazards: during _drift_hazards(), with probability
+      hazard_food_attraction, each hazard biases its random walk step toward the
+      nearest food cell rather than sampling uniformly. Default 0.0 (bit-identical OFF).
+      Makes foraging actively more dangerous; paired with reef safety creates a
+      structurally richer strategy space.
+  Config (CausalGridWorldV2 __init__):
+    reef_enabled (bool, default False) -- master switch for reef zones.
+    n_reef_patches (int, default 3) -- number of circular reef patches.
+    reef_patch_radius (int, default 2) -- Manhattan radius of each patch.
+    hazard_food_attraction (float, default 0.0) -- probability hazard steps
+      toward nearest food. 0.0 = legacy random walk (bit-identical OFF).
+  State: self._reef_cells: Set[Tuple[int,int]] (populated at reset());
+    world_obs_dim property returns 275 when reef_enabled else 250.
+  Observation: obs_dict["reef_field_view"] [25] static Gaussian-decay view of
+    reef proximity; appended to world_state in _get_observation_dict().
+  Backward compatible: reef_enabled=False and hazard_food_attraction=0.0 by default;
+    _reef_cells is empty set; world_obs_dim=250; existing experiments unaffected.
+  V3-EXQ-521 substrate readiness diagnostic PASS 7/7 criteria (2026-05-04):
+    ARM_0 baseline obs_dim=250 reef_cells=0; ARM_1/ARM_2 obs_dim=275 reef_cells=33;
+    0 reef violations in ARM_1/ARM_2 across 30 ep x 200 steps x 3 seeds;
+    ARM_2 food_dist=2.057 vs baseline 3.790 (46% reduction); entropy not collapsed
+    (ARM_2=4.049 >= 0.7 x baseline 4.557=3.190); agent reef_visits=1987 in ARM_1.
+  Biological analog: coral reef refugia as behavioral partitioning substrate --
+    distinct safe-zone vs. foraging patch microhabitats force context-dependent
+    strategy selection rather than single-template exploitation.
+  MECH-094: not applicable (env observation stream, not replay content).
+  No trainable parameters. Pure env substrate.
+  Validation experiment: V3-EXQ-521 PASS 2026-05-04 (substrate readiness diagnostic).
+    V3-EXQ-522 (monostrategy-breaking behavioral diversity test) is the next experiment,
+    gated on V3-EXQ-521 PASS.
+  See SD-029 (self_attribution.comparator_z_harm_s -- SD-054 substrate unblocks C2/C3
+    behavioral diversity measurement), MECH-256 (SD-029 successor), SD-023 (env
+    gradient texture -- parallel substrate enrichment pattern).
+
+## SD-054 bipartite layout extension (2026-05-11)
+- SD-054 bipartite layout: environment.reef_bipartite_spawn_partition -- IMPLEMENTED 2026-05-11.
+  Module: ree_core/environment/causal_grid_world.py (CausalGridWorldV2).
+  Extends SD-054 with a geometric bipartite spawn structure so reef-vs-forage
+  trajectories require categorically-different first-action argmaxes by
+  construction. Resolves the upstream CEM-candidate-distinguishability
+  bottleneck surfaced by V3-EXQ-543b diagnose-errors (TASK_CLAIMS session
+  diagnose-v3-exq-543c-2026-05-11T0635Z; arc_062_rule_apprehension_plan.md
+  decision-log 2026-05-11 option 3a).
+  Three new __init__ kwargs (all default to legacy SD-054 behavior; env-only,
+  NOT surfaced through REEConfig.from_dims per SD-022 / SD-023 / SD-029 /
+  SD-047 / SD-048 / SD-054 precedent):
+    reef_bipartite_layout (bool, default False) -- master switch.
+    reef_bipartite_axis (str, default "horizontal") -- "horizontal" -> reef
+      bottom rows, food top rows. "vertical" -> reef right cols, food left
+      cols. Validation: raises ValueError on construction if axis is neither.
+    reef_bipartite_agent_band_radius (int, default 1) -- half-width of the
+      agent spawn band measured from the midline (inclusive). 0 = midline
+      only; 1 = midline +/- 1 (3 rows/cols); 2 = midline +/- 2 (5 rows/cols).
+  Geometry (axis="horizontal", radius=1, size=12 default):
+    Reef half: rows in (midline + radius .. size - 2] = rows 8, 9, 10
+    Agent band: rows in [midline - radius .. midline + radius] = rows 5, 6, 7
+    Forage half: rows in [1 .. midline - radius) = rows 1, 2, 3, 4
+    Reef patches placed along the bottom edge (row sz-3) with column centres
+    evenly distributed across interior columns. Patches that would intersect
+    the agent band or forage half are clipped via _is_in_reef_half guard.
+  Reset partitioning: when reef_bipartite_layout=True, reset() calls the new
+    _place_reef_patches_bipartite() (does NOT consume from `available`) and
+    _build_bipartite_pools(available) which returns (agent_pool, forage_pool)
+    as two disjoint subsets. Agent pops from agent_pool; hazards / resources /
+    waypoints pop from forage_pool. Legacy mode aliases both pools to a single
+    `available` list so the pre-existing single-pool pop-from-shared behavior
+    is bit-identical.
+  Fallback: if agent_pool would be empty (degenerate config, e.g. radius=0 on
+    a size where the midline is mostly walls), widens the band by +1 radius
+    iteratively until a valid cell exists; records the widen count in
+    self._sd054_bipartite_band_widen_count (0 in legacy mode and successful
+    bipartite resets).
+  No new state in obs_dict, no change to world_obs_dim (still 275 with
+    reef_enabled=True), no new training target. Pure env substrate refinement.
+  Why the extension was needed: legacy SD-054 places reef patches in fixed
+    corners but agent / hazards / food spawn at uniformly-random positions in
+    the remaining cells. Per-episode reef / food geometry is randomized; the
+    mean optimal policy across episodes converges to a single "head toward
+    nearest food" template (a direction-following heuristic that works
+    regardless of episode-specific reef-food geometry). The agent-side
+    consequence (verified 2026-05-11 by direct numerical probe in
+    TASK_CLAIMS session diagnose-v3-exq-543c-2026-05-11T0635Z): CEM proposer
+    at init produces 8 candidates all sharing argmax-first-action=3 with
+    continuous-action spread ~1e-4 and post-action z_world spread ~1e-5,
+    leaving the ARC-062 head reading near-identical inputs and unable to
+    discriminate. Bipartite layout forces reef-bound and forage-bound
+    trajectories to have categorically opposite first-action argmaxes
+    (action 1 = down toward reef, action 0 = up toward food on horizontal
+    axis), restoring the structural condition under which a well-trained
+    ARC-062 substrate WOULD produce per-candidate first-action argmax
+    diversity at probe states sampled from typical training rollouts.
+  Diagnostic counter: env.info dict surfacing TBD with the validation EXQ;
+    self._sd054_bipartite_band_widen_count is exposed as an attribute for
+    direct read.
+  Backward compatible: all three new kwargs default to legacy SD-054
+    behavior; agent_pool and forage_pool are aliased to a single `available`
+    list; pop()-from-shared-pool semantics preserved; bit-identical to
+    pre-extension HEAD when reef_bipartite_layout=False.
+  Smoke (2026-05-11): backward-compat with legacy reef kwargs reproduces 33
+    reef cells spanning rows 1-10, world_obs_dim 275, bipartite_band_widen
+    count 0. Activation with reef_bipartite_layout=True, axis=horizontal,
+    radius=1 across seeds 0/1/2: agent always spawns in rows [5,6,7]; reef
+    cells always in rows [8,9,10] (28 cells with edge-row centres clipped
+    by reef-half predicate); hazards + resources always in rows [1,2,3,4];
+    band_widen_count 0 in all seeds. Vertical axis with radius=2 verified
+    independently (agent col in [4..8], reef cols [9,10], hazards cols
+    [1,2]). Bad-axis construction raises ValueError as expected.
+  Biological analog: coral-reef refugia in marine systems force categorically
+    opposite swim-direction choices (toward reef-shelter vs toward open-water
+    foraging grounds) because the two microhabitats are spatially anti-
+    correlated, not interleaved. The legacy SD-054 corner-placement is a
+    weaker geometric expression of the same claim; the bipartite extension
+    is the sharper instantiation.
+  No trainable parameters. Pure env substrate. No phased training. No
+    MECH-094 interaction (env observation stream, not replay content).
+  Validation experiment: V3-EXQ-548 substrate-readiness diagnostic to be
+    queued via /queue-experiment immediately following this entry. Will
+    measure CEM-candidate first-action argmax entropy at probe states with
+    bipartite ON vs OFF across 3 seeds + structural-only (no full P1 falsifier
+    rerun in this pass; that decision waits on V3-EXQ-548 PASS).
+  See SD-054 (parent claim, unchanged in semantics), MECH-309 (logical-
+    necessity claim for which the substrate enables a sharper falsifier),
+    ARC-062 (downstream consumer; this extension creates the structural
+    conditions for ARC-062 GAP-B falsifier testability), MECH-269 (V_s
+    primitive; orthogonal cluster but parallel substrate-readiness pattern),
+    SD-023 / SD-047 / SD-048 / SD-049 (parallel env-only substrate-
+    enrichment kwargs precedent for not surfacing through REEConfig.from_dims).
+
+
+## ARC-062 Phase 1: Gated-Policy Heads + Context Discriminator (2026-05-09)
+- ARC-062 (Phase 1, weak reading): rule_apprehension.gated_policy_heads --
+  IMPLEMENTED 2026-05-09. Phase 1 of arc_062_rule_apprehension_plan.md
+  (GAP-A). V3-tractable instantiation of the rule-apprehension architectural
+  slot identified by MECH-309 (logical-necessity claim: trainers weight
+  rules they do not invent; without a non-Bayesian rule-creator at the
+  policy layer, gradient descent on a parametric policy collapses to the
+  smoothest single regime good-enough across the whole state space).
+  Module: ree_core/policy/gated_policy.py (GatedPolicy + GatedPolicyConfig
+  + GatedPolicyOutput). New ree_core/policy/__init__.py package.
+  Architecture (Phase 1, weak reading):
+    Two scoring heads (head_0, head_1) sharing E3 candidate features [K,
+      world_dim]. Each head: Linear(world_dim, head_hidden) -> ReLU ->
+      Linear(head_hidden, 1) -> [K] scalar bias. Symmetry-broken init
+      on the heads' last-Linear bias term (head_0 +offset, head_1
+      -offset; default offset=0.05) so heads can differentiate from
+      step 0 under any training pressure -- avoids the all-zero
+      degenerate equilibrium where w*head_0 + (1-w)*head_1 collapses to
+      a single value.
+    Context discriminator: 3-stream input (z_world, z_self, z_harm_a)
+      per Pull A SYNTHESIS verdict 1 (Miller & Cohen 2001 + Rigotti 2013
+      + Mitchell 2016 macaque MD with insular cluster). Linear(world_dim
+      + self_dim + harm_a_dim, disc_hidden=24) -> ReLU -> Linear(24, 1)
+      -> sigmoid -> scalar w in [0, 1]. Discriminator weights scaled by
+      disc_init_scale=0.1 at init so sigmoid output sits near 0.5 --
+      avoids early head over-commitment before either head has
+      differentiated.
+    Gated bias: gated_score_bias = w * head_0(features) + (1 - w) *
+      head_1(features), clamped to [-bias_scale, +bias_scale]
+      (bias_scale=0.1; mirrors lateral_pfc_bias_scale so Phase 1
+      magnitudes are comparable to existing PFC-side contributions).
+  Pull A SYNTHESIS verdicts (resolved defaults; do NOT re-litigate):
+    R1 multi-stream input (z_world, z_self, z_harm_a) -- single-stream
+      z_world-only is the impoverished case, reserved for Phase 2
+      ARM_1a/b/c input-ablation sub-arms.
+    R2 N=2 heads at Phase 1 -- substrate-constrained by SD-054 reef-vs-
+      forage two-mode partition. GatedPolicyConfig.n_heads != 2 raises
+      ValueError on construction; multi-head extension is Phase 4 / GAP-E
+      multi-strategy scaling probe.
+    R3 score_bias level (option iii) -- engineering reasons dominate
+      (SD-033a substrate is wired, gradient path through E3 score-
+      aggregation is clean). FAIL chain at score_bias level routes
+      discriminator to BG-side first then trajectory-proposal level
+      then ARC-063 V4 strong reading.
+  Config: REEConfig.use_gated_policy (bool, default False; bit-identical
+  OFF). Sub-knobs (REEConfig + REEConfig.from_dims): gated_policy_n_heads
+  (2), gated_policy_disc_hidden (24), gated_policy_disc_init_scale (0.1),
+  gated_policy_head_hidden (32), gated_policy_bias_scale (0.1),
+  gated_policy_head_init_bias_offset (0.05),
+  gated_policy_use_first_action_onehot (False; see GAP-B below).
+  Agent wiring (REEAgent.__init__): when use_gated_policy=True, instantiate
+    GatedPolicy with (world_dim, self_dim, z_harm_a_dim) from
+    config.latent. Phase 1 has NO connection to SD-033a LateralPFCAnalog
+    -- that wiring is Phase 3 (closes commitment_closure GAP-1) per
+    arc_062_rule_apprehension_plan.md. Per-episode reset() clears
+    diagnostic counters (no persistent state to clear -- module is
+    stateless across ticks).
+  Data flow (REEAgent.select_action): immediately before the MECH-295
+    block, compose gated_policy_score_bias additively into dacc_score_bias
+    (parallel to the dACC / lateral_pfc / ofc / mech295 composition
+    pattern). Per-candidate features = first-step z_world summary [K,
+    world_dim] (reuses cand_world_summaries from lateral_pfc / ofc when
+    they ran earlier this tick; builds fresh otherwise). simulation_mode
+    parameter is False at this call site (waking action selection); the
+    module's MECH-094 simulation_mode=True path (used by replay/DMN
+    consumers if they ever call this module) returns (0.5, zeros[K])
+    without advancing diagnostics.
+  Backward compatible: use_gated_policy=False by default; agent.gated_policy
+    is None and the entire select_action GatedPolicy block is skipped.
+    249/249 preflight + contracts PASS (244 prior + 5 new) with master
+    OFF. Bit-identical to baseline.
+  Biological basis: Pull A SYNTHESIS (lit-pull A: lateral PFC rule-context
+    modulation, 8 entries) -- Miller & Cohen 2001 PFC rule-as-bias
+    foundational; Rigotti et al. 2013 mixed selectivity; Mitchell et al.
+    2016 macaque MD network with insular cluster; Bongard & Nieder 2010
+    PFC rule-coding units; Erez & Duncan 2015 MD adaptive coding;
+    Capkova/Mansouri 2025 frontal lesion rule-value-learning dissociation.
+    Pull A SYNTHESIS verdicts captured in
+    REE_assembly/evidence/literature/targeted_review_arc_062_rule_apprehension/
+    SYNTHESIS.md.
+  MECH-094: simulation_mode argument on forward(); when True, returns
+    (gating_weight=0.5, zeros[K], zeros[K], zeros[K]) and increments
+    only the simulation-skip counter. Match SD-035 amygdala / MECH-279
+    PAG simulation_mode pattern. Module has no internal state buffer
+    (no EMA, no rule_state) -- stateless across ticks; reset() only
+    clears diagnostic counters.
+  Phased training: not required for Phase 1 substrate-readiness. The
+    head + discriminator parameters develop training pressure naturally
+    via E3 score-aggregation gradient when the validation experiment
+    queues an end-to-end task. Phase 2 monomodal-collapse falsifier on
+    SD-054 is the first behavioural training environment; Phase 1 only
+    validates substrate wiring + architectural prerequisites for the
+    Phase 2 falsifier. V3-EXQ-543f (GAP-B falsifier) requires phased
+    training (P0 encoder warmup -> P1 frozen-encoder head training ->
+    P2 eval).
+  Validation experiment: V3-EXQ-542 5/5 PASS 2026-05-09T20:22:11Z (Mac
+    runner; v3_exq_542_arc062_gated_policy_substrate_readiness_v3_*.json
+    in REE_assembly/evidence/experiments/). Five sub-tests UC1-UC5:
+    UC1 forward-pass instantiation; UC2 master-OFF no-op vs baseline E3;
+    UC3 discriminator output varies with z_world (input sensitivity,
+    threshold 0.001 in the Phase-1 init regime; substantial discriminator
+    variation is a Phase-2 training signal); UC4 head differentiation
+    under training pressure (>5x output divergence on held-out batch
+    after 200 SGD steps); UC5 MECH-094 simulation_mode gate. Phase 2
+    monomodal-collapse falsifier on SD-054 reef + hazard_food_attraction
+    substrate is the next behavioural validation (queued as a separate
+    session per the plan-of-record's six-phase sequencing -- do NOT
+    bundle Phase 2 EXQ in the Phase 1 landing session).
+  Contract tests: tests/contracts/test_gated_policy.py 6/6 PASS (C1
+    default-off no-op; C2 backward-compat flag-on does not raise during
+    construction or first sense() tick; C3 discriminator output in
+    [0, 1] across 64 diverse latent states with bias_scale clamp
+    respected; C4 heads' OUTPUTS diverge >5x on held-out batch after
+    200 SGD steps under anti-symmetric loss; C5 simulation_mode=True
+    returns zeros + increments skip counter only, subsequent waking
+    call does not retroactively re-increment skip counter; C6
+    use_first_action_onehot: correct head_in_dim, output shape, differs
+    from base, sim-mode still zeros, _last_onehot_was_none diagnostic).
+  Plan-of-record: REE_assembly/evidence/planning/arc_062_rule_apprehension_plan.md
+    GAP-A status open -> done 2026-05-09; owner_exq=V3-EXQ-542; Phase 2
+    GAP-B in-progress pending V3-EXQ-543f.
+  GAP-B: ARC-062 head-input first-action one-hot augmentation (option 2)
+    IMPLEMENTED 2026-05-17. Root cause from EXQ-543e autopsy: SP-CEM
+    delivers ~5 distinct first-action classes but E2 world-forward
+    compresses them to 0.22% of z_world magnitude before reaching the
+    z_world-only GatedPolicy heads -- the heads are under-fed. Fix:
+    bypass E2 compression by concatenating the first-action one-hot
+    directly onto the head's candidate_features input.
+    Config: REEConfig.gated_policy_use_first_action_onehot (bool, default
+      False; bit-identical OFF when False). GatedPolicyConfig gains
+      use_first_action_onehot (bool, False) and first_action_dim (int, 0;
+      set to config.e2.action_dim by REEAgent.__init__ -- single source
+      of truth, not a separate REEConfig knob).
+    Data flow: c.actions[:, 0, :][0] -> [action_dim] one-hot per
+      candidate; stacked to [K, action_dim]; cat with gp_summaries
+      [K, world_dim] -> augmented head input [K, world_dim+action_dim].
+      Discriminator input (z_world, z_self, z_harm_a) UNCHANGED.
+    Backward compatible: gated_policy_use_first_action_onehot=False
+      (default); head Linear input stays [K, world_dim]; select_action
+      sets first_action_onehots=None; forward() skips the cat. 484/484
+      contracts+preflight PASS with defaults unchanged.
+    Phased training required for V3-EXQ-543f (P0 -> P1 -> P2).
+    Validation: V3-EXQ-543f to be queued via /queue-experiment (supersedes
+      V3-EXQ-543e; same 2x2 SP-CEM/dACC factorial; also requires
+      dacc_weight>0 + pre-flight non-degeneracy assertion per 543e
+      autopsy addendum).
+  Cross-plan link: commitment_closure_plan.md GAP-1 (SD-033a bias-head
+    training) unblocked at substrate level by GAP-C + GAP-D (below).
+    Validation EXQ for GAP-1 deferred until V3-EXQ-543f returns a
+    contributory result (GAP-B scientific gate).
+  See ARC-062 (this claim, weak reading), MECH-309 (logical-necessity
+    diagnostic the substrate addresses), ARC-063 (V4 strong reading,
+    distributed CandidateRule field; deferred via Phase 4 / GAP-E
+    multi-strategy scaling probe), SD-033a (Phase 3 downstream consumer
+    -- not wired in Phase 1), MECH-262 (rule-selective persistence;
+    Phase 3 work), SD-029 (monomodal-collapse measurement gate; Phase 2
+    falsifier dependent variable), SD-054 (reef + hazard_food_attraction
+    substrate; Phase 2 falsifier environment), MECH-094 (simulation_mode
+    argument), Pull A SYNTHESIS verdicts R1 / R2 / R3, Pull B SYNTHESIS
+    R4 verdict (Phase 2 acceptance criteria).
+  GAP-C: ARC-062 discriminator output -> SD-033a rule_state source vector --
+    IMPLEMENTED 2026-05-17.
+    Changes: LateralPFCConfig gains use_discriminator_source (bool, default
+      False), discriminator_pool_weight (float, default 0.3);
+      LateralPFCAnalog gains discriminator_proj (nn.Linear(1, rule_dim))
+      and accepts optional disc_output arg in update(). REEConfig gains
+      lateral_pfc_use_discriminator_source and lateral_pfc_discriminator_pool_weight.
+    agent.py reorder: gated_policy block now runs BEFORE lateral_pfc block
+      so gp_output.gating_weight is available as disc_output. Score-bias
+      composition is additive -- reorder is value-identical to prior ordering.
+      gated_policy block sets cand_world_summaries = gp_summaries so
+      lateral_pfc / ofc / mech295 blocks reuse rather than rebuild.
+    Data flow: GatedPolicy.gating_weight scalar -> tensor([[w]]) [1,1]
+      -> discriminator_proj -> [1, rule_dim] added to source with weight
+      discriminator_pool_weight. Gated by use_discriminator_source (default
+      False = no-op, bit-identical backward compat).
+    Backward compatible: use_discriminator_source=False by default; update()
+      disc_output=None arg is no-op. 484/484 contracts PASS; 543f dry-run
+      exit 0. MECH-094: disc_output is detached (gated_policy under no_grad);
+      existing MECH-319 lateral_pfc skip gate unchanged.
+  GAP-D: SD-033a rule_bias_head trainable -- IMPLEMENTED 2026-05-17.
+    Changes: LateralPFCConfig gains train_rule_bias_head (bool, default False);
+      when True, last Linear is NOT zeroed at init (random init preserved).
+      LateralPFCAnalog gains bias_head_parameters() method returning
+      self.rule_bias_head.parameters() for optimizer inclusion. REEConfig
+      gains lateral_pfc_train_rule_bias_head (bool, default False).
+    Gradient path: E3 loss -> score_bias -> compute_bias() -> rule_bias_head
+      weights. No separate loss term needed. Starting from zero-init (default
+      False) OR from random-init (True), gradient flows from tick 1 of P1.
+    Experiment use: in P1 optimizer, add:
+        list(agent.lateral_pfc.bias_head_parameters())
+    Backward compatible: train_rule_bias_head=False by default; last Linear
+      remains zeroed (bias output stays 0.0); behavior bit-identical.
+    Phased training: bias head can join P1 optimizer alongside gated_policy
+      heads (same E3 gradient path). No separate warmup protocol needed.
+    Validation EXQ (commitment_closure:GAP-1): 2-arm ablation (head frozen
+      vs trainable) deferred until V3-EXQ-543f contributory result.
+
+## MECH-313 (ARC-065 child): Stochastic Noise Floor (LC-NE tonic / SAC analog) (2026-05-10)
+- MECH-313: policy.stochastic_noise_floor_lc_ne_tonic_analog -- IMPLEMENTED 2026-05-10.
+  Module: ree_core/policy/noise_floor.py (NoiseFloor + NoiseFloorConfig). First of
+  four ARC-065 child substrates (sibling MECH-314 / MECH-318 / MECH-319 are
+  separate spawned tasks). Pure-arithmetic regulator (no learned parameters; no
+  nn.Module inheritance); matches the SD-035 / SD-036 / SD-037 regulator pattern.
+  State-independent softmax-temperature lift -- the LC-NE tonic complement to
+  MECH-104 phasic spike. Distinct from MECH-260 dACC anti-recency (state-dependent);
+  Q-045 falsifies whether they collapse into a single substrate.
+  Algorithm at the e3.select() call site in REEAgent.select_action():
+    effective_T = max(baseline_T + noise_floor_alpha, noise_floor_min_temperature)
+  alpha is the SAC-entropy-bonus analog (Haarnoja 2018) -- additive lift on the
+  softmax temperature; min_temperature is a hard floor preventing argmax collapse
+  under annealing schedules that drive the baseline below 1.0.
+  Config: REEConfig.use_noise_floor (bool, default False; bit-identical OFF) +
+    noise_floor_alpha (float, default 0.1; modest +10%% of E3 baseline 1.0;
+    Q-043 calibrates) + noise_floor_min_temperature (float, default 1.0;
+    matches existing E3 baseline so well-formed callers clear the floor).
+    All wired through REEConfig.from_dims().
+  Agent wiring (REEAgent.__init__): instantiate NoiseFloor when use_noise_floor=True;
+    REEAgent.select_action() reads noise_floor.compute_effective_temperature(
+    baseline_temperature=temperature, simulation_mode=False) BEFORE calling
+    e3.select(...). Bit-identical when noise_floor is None (the else branch
+    passes the unmodified temperature kwarg). reset() clears diagnostic counters.
+  MECH-094: simulation_mode=True returns baseline temperature unchanged and
+    increments only the simulation-skip counter; replay / DMN consumers (none
+    today; reserved for forward-compat) cannot inherit waking-tonic noise floor.
+    Match the SD-035 / MECH-279 / gated_policy simulation_mode pattern.
+  Phase-1 instantiation choice (NOT a settled architectural commitment):
+    a separate NoiseFloor module at the e3.select() call site, rather than
+    per-head temperature inside GatedPolicy as the original notes-field hint
+    suggested. Phase-1 reasoning: MECH-313 is state-independent and currently
+    must fire on baseline E3 selection too (which the per-head approach inside
+    GatedPolicy would miss with GatedPolicy disabled). Whether the policy-layer
+    regulators ultimately consolidate into one module is OPEN pending
+    MECH-314 / MECH-318 / MECH-319 implementations -- those substrates may
+    make different placement choices that motivate revisiting MECH-313's
+    placement (MECH-314 structured-curiosity in particular may fit naturally
+    inside GatedPolicy as a per-head bonus, in which case MECH-313 may want
+    to co-locate). Re-evaluate at the point Q-045's 4-arm ablation is queued.
+    Phase-1 module surface + config knobs are stable; what could move is the
+    file location and call site.
+  Backward compatible: use_noise_floor=False by default; agent.noise_floor is None
+    and select_action passes the temperature kwarg unchanged. 253/253 contracts +
+    7/7 preflight PASS with flag OFF (regression-clean).
+  Lit-pull verdicts (resolved defaults; see Pull 1 SYNTHESIS at
+    REE_assembly/evidence/literature/targeted_review_arc_065_behavioral_diversity_generation/
+    SYNTHESIS.md, 9 entries, lit_conf 0.78-0.82, supports-direction):
+    R1 BOTH-CHANNELS-NEEDED (conf 0.85): noise floor (this) AND structured
+      curiosity (MECH-314) both required. Wilson 2014 Horizon task + Faisal/
+      Selen/Wolpert 2008 noise-substrate irreducibility + Friston 2015
+      complementary terms.
+    R2 LC-NE tonic LOAD-BEARING (conf 0.84): Aston-Jones & Cohen 2005 adaptive-
+      gain model. MECH-104 covers phasic spike (substrate-landed); MECH-313 is
+      the tonic complement.
+    R4 continuous, every tick (conf 0.80): non-zero softmax temperature on E3
+      every waking tick, regardless of context. Aston-Jones & Cohen 2005 +
+      Friston 2015. NOT triggered.
+    Magnitudes intentionally NOT pinned by the lit-pull (Q-043 calibration
+    sweep is the empirical route).
+  Phased training: not applicable (pure scalar regulator; no learned parameters;
+    no gradient flow).
+  Validation experiment: V3-EXQ-544 substrate-readiness diagnostic (5 sub-tests
+    UC1-UC5 covering instantiation, master-OFF backward-compat, lift-arithmetic
+    sweep across alpha/min_temperature, select_action wiring contract via
+    act_with_split_obs, MECH-094 simulation gate). Smoke 5/5 PASS 2026-05-10
+    (manifests scrubbed; runner will write the canonical PASS manifest from the
+    queued entry). 11 contract tests in tests/contracts/test_mech_313_noise_floor.py
+    PASS. Behavioural validation deferred to Q-045 4-arm ablation (MECH-313 OFF /
+    313 only / 260 only / both ON) on V3-EXQ-543b/c successors AFTER MECH-314
+    also lands.
+  Design doc: REE_assembly/docs/architecture/mech_313_stochastic_noise_floor.md.
+  See MECH-313 (this claim), ARC-065 (parent architectural commitment),
+    MECH-260 (related but distinct mechanism; Q-045 falsifies collapse),
+    MECH-104 (LC-NE phasic complement; substrate-landed),
+    MECH-314 (sibling structured-curiosity bonus under ARC-065; separate substrate),
+    Q-043 (relative weight calibration -- parametric sweep),
+    Q-044 (MECH-314a/b/c sub-flavour independence),
+    Q-045 (MECH-313 vs MECH-260 collapse falsifier -- 4-arm ablation),
+    MECH-094 (simulation_mode argument; call-site scoping for waking-only effects).
+
+## MECH-314 (ARC-065 child): Structured Curiosity Bonus + 3 Sub-Flavours (2026-05-10)
+- MECH-314: policy.structured_curiosity_bonus_parent + MECH-314a/b/c sub-flavours
+  -- IMPLEMENTED 2026-05-10. Module: ree_core/policy/structured_curiosity.py
+  (StructuredCuriosity + StructuredCuriosityConfig). Second of four ARC-065 child
+  substrates (MECH-313 noise-floor landed earlier the same day; MECH-318 / MECH-319
+  remain separate spawned tasks). Pure-arithmetic, no learned parameters, no
+  nn.Module inheritance; sibling to MECH-313 NoiseFloor in the ree_core.policy
+  package. Three sub-flavours implemented as a single module with master + 3
+  independently-togglable sub-flavour switches per Pull 1 R3 verdict NOT to
+  collapse them prematurely; Q-044 holds the empirical resolution path.
+  Three sub-flavours:
+    MECH-314a striatal novelty (Wittmann 2008): per-candidate min-distance from
+      candidate's first-step z_world to nearest ACTIVE ResidueField RBF center,
+      normalised by candidate-pool mean norm. Genuinely per-candidate [K].
+    MECH-314b frontopolar uncertainty (Daw 2006 / Friston 2010/2015 EFE):
+      e3._running_variance scalar. Phase 1 BROADCAST scalar across [K]
+      (per-candidate refinement requires E1 forward-variance head, deferred
+      to Phase 2 follow-on).
+    MECH-314c learning progress (Schmidhuber 1991 / Pathak 2017): EMA of
+      |PE_t - PE_{t-K}| where PE feed is e3._running_variance per tick.
+      Phase 1 BROADCAST scalar across [K] (per-candidate refinement
+      deferred). Pull 1 R3 flagged 314c as least biologically anchored;
+      Q-044 outcome may retire it without architectural cost.
+  Algorithm at the e3.select() call site in REEAgent.select_action():
+    total = zeros[K]
+    if 314a ON and residue has active centers:
+        total += -w_a * normalised_min_RBF_distance[K]
+    if 314b ON: total += -w_b * unc * ones[K]
+    if 314c ON and lp_seeded: total += -w_c * lp_ema * ones[K]
+    return clamp(total, [-bias_scale, +bias_scale])
+  Bonus is non-positive in E3's lower-is-better convention (curiosity makes
+  novel/uncertain/LP-rich candidates more attractive). Composed additively into
+  dacc_score_bias immediately AFTER the MECH-295 liking-bridge block and
+  BEFORE the MECH-313 noise_floor temperature lift (curiosity affects scores;
+  noise floor affects temperature; orthogonal). LP feed:
+  curiosity.update_prediction_error(e3._running_variance, simulation_mode=False)
+  called after each e3.select cycle in select_action (advances 314c LP
+  buffer for next tick).
+  Config: REEConfig.use_structured_curiosity (default False; bit-identical OFF
+  master) + use_curiosity_novelty / _uncertainty / _learning_progress (defaults
+  True; consulted only when master ON) + curiosity_novelty_weight /
+  curiosity_uncertainty_weight / curiosity_learning_progress_weight (default
+  0.05 each; Q-043 / Q-044 calibrate) + curiosity_bias_scale (default 0.1;
+  mirrors lateral_pfc_bias_scale) + curiosity_lp_ema_alpha (default 0.1;
+  ~10-tick window) + curiosity_lp_window_k (default 5; Schmidhuber 1991
+  first-difference). All wired through REEConfig.from_dims().
+  MECH-094: compute_score_bias(simulation_mode=True) returns zeros[K] +
+  increments only the simulation-skip counter; update_prediction_error(
+  simulation_mode=True) no-op on the LP buffer. Match the SD-035 / MECH-279 /
+  gated_policy / MECH-313 simulation_mode pattern.
+  Phase-1 architectural-placement note (mirrors MECH-313): a SEPARATE
+  StructuredCuriosity module at the e3.select() call site, in parallel with
+  MECH-313 NoiseFloor and the GatedPolicy bias chain. Whether the policy-
+  layer regulators ultimately consolidate into one module is OPEN pending
+  MECH-318 / MECH-319 substrates and Q-043 / Q-044 calibration. The
+  separate-module choice keeps each sub-flavour independently togglable
+  (which is what Q-044 needs).
+  Phase 1 honest-scoping caveat: 314a is genuinely per-candidate; 314b and
+  314c are state-dependent global scalars broadcast across [K] in Phase 1.
+  The architectural shape is correct (bonus magnitude varies with global
+  uncertainty / LP; substrate exposes the falsification surface), and
+  Q-044's three-arm ablation IS a flag-set decision. What Phase 1 does NOT
+  deliver: distinguishable behavioural signatures per sub-flavour at the
+  candidate-selection level (broadcast-scalar 314b/c shifts every candidate's
+  score by the same amount and does not change selection ordering).
+  Per-candidate refinement is a Phase 2 follow-on, deferred until Q-044
+  surfaces concrete need.
+  Backward compatible: use_structured_curiosity=False by default; agent.curiosity
+  is None and select_action skips the entire block + LP feed -> bit-identical
+  to baseline. 273/273 contracts + 7/7 preflight PASS with master OFF
+  (regression-clean, was 253 + 13 new MECH-314 tests + 7 preflight).
+  Phased training: not applicable (pure-arithmetic regulator; no learned
+  parameters; no gradient flow).
+  Validation experiment: V3-EXQ-545 substrate-readiness diagnostic (5 sub-tests
+  UC1-UC5 covering instantiation, master-OFF backward-compat, sub-flavour
+  flag-set isolation -- the architectural prerequisite making Q-044 three-arm
+  ablation a flag-set decision -- select_action wiring contract via
+  act_with_split_obs, MECH-094 simulation gate). Smoke 5/5 PASS 2026-05-10
+  (manifest scrubbed; runner will write the canonical PASS manifest from the
+  queued entry). 13 contract tests in tests/contracts/test_mech_314_curiosity.py
+  PASS. Behavioural validation deferred to Q-044 three-arm ablation (314a-OFF
+  / 314b-OFF / 314c-OFF + all-on baseline) on V3-EXQ-543b/c successors AFTER
+  MECH-318 / MECH-319 absorption-check sessions complete.
+  Design doc: REE_assembly/docs/architecture/mech_314_structured_curiosity_bonus.md.
+  See MECH-314 (parent claim), MECH-314a / MECH-314b / MECH-314c (sub-flavours),
+    ARC-065 (parent architectural commitment), MECH-313 (sibling noise-floor
+    under same parent; substrate-landed earlier the same day),
+    MECH-104 (LC-NE phasic complement; substrate-landed),
+    MECH-260 (anti-monostrategy related claim; Q-045 collapse falsifier),
+    MECH-295 (sibling score-bias contributor composed before MECH-314 in chain),
+    Q-043 (relative weight calibration MECH-313 vs MECH-314 -- parametric sweep),
+    Q-044 (MECH-314a/b/c sub-flavour independence -- three-arm ablation),
+    Q-045 (MECH-313 vs MECH-260 collapse falsifier),
+    MECH-318 / MECH-319 (sibling ARC-065 / ARC-064 substrates; separate spawned tasks),
+    MECH-094 (simulation_mode argument; call-site scoping for waking-only effects).
+
+## MECH-319 (arc_062 GAP-K): Simulation-Mode Rule-Write Gate (Categorical Replay Tag) (2026-05-10)
+- MECH-319: policy.arbitration.simulation_mode_write_gating_substrate_ree_novel_function
+  -- IMPLEMENTED 2026-05-10. Module: ree_core/regulators/simulation_mode_rule_gate.py
+  (SimulationModeRuleGate + SimulationModeRuleGateConfig + SimulationModeRuleGateDiagnostics).
+  Substrate-level instantiation of MECH-094 at the rule-arbitration layer. Pure-arithmetic
+  regulator (no nn.Module inheritance, no learned parameters); sibling to
+  GABAergicDecayRegulator (SD-036) and BroadcastOverrideRegulator (SD-037) in the
+  regulators package. Resolves arc_062 GAP-K substrate gap registered in the 2026-05-10
+  cluster-registration session.
+  Single primitive: gate.effective_simulation_mode(simulation_mode, site) -> bool.
+  Truth table (master_on, admit_writes, caller_sim) -> output:
+    OFF, *,     *     -> caller_sim (identity; bit-identical pre-MECH-319)
+    ON,  False, False -> False     (admit waking write)
+    ON,  False, True  -> True      (block simulation write -- MECH-319 normal)
+    ON,  True,  False -> False     (admit waking; flag has no effect)
+    ON,  True,  True  -> False     (admit simulation write -- V3-EXQ-543c falsifier)
+  The gate is idempotent for waking calls (always returns False), so wiring it into
+  existing waking call sites is bit-identical regardless of admit_writes. The falsifier-
+  control asymmetry surfaces only when caller_sim=True (replay paths, ghost-goal probes,
+  DMN passes -- not currently exercised by select_action).
+  Diagnostic counters (per-call + per-site): n_calls_total, n_waking_admitted,
+  n_simulation_blocked, n_simulation_admitted (the falsifier path), plus per_site_*
+  dicts keyed on canonical labels SITE_GATED_POLICY, SITE_LATERAL_PFC, SITE_DEFAULT.
+  New consumer call sites can pass arbitrary site strings.
+  Config: REEConfig.use_simulation_mode_rule_gate (bool, default False; bit-identical OFF
+  master) + REEConfig.simulation_mode_rule_gate_admit_writes (bool, default False;
+  V3-EXQ-543c artificial-write-channel-routing falsifier flag). All wired through
+  REEConfig.from_dims(). Construction raises ValueError when admit_writes=True without
+  master ON (loud-not-silent guard against mis-configuration -- admit_writes is meaningless
+  without the substrate to gate).
+  Agent wiring (REEAgent.__init__): instantiate simulation_mode_rule_gate when master ON;
+  None otherwise. Two existing arbitration-write call sites in REEAgent.select_action()
+  consult the gate when it is instantiated:
+    GatedPolicy block: replace literal simulation_mode=False with
+      gate.effective_simulation_mode(False, site=SITE_GATED_POLICY) and pass to
+      gated_policy.forward(...). Bit-identical for waking; seam exposed for V3-EXQ-543c.
+    LateralPFCAnalog block: consult gate via
+      eff_sim = gate.effective_simulation_mode(False, site=SITE_LATERAL_PFC); if eff_sim:
+      skip lateral_pfc.update(...) else proceed with the existing MECH-261 mode-
+      conditioned EMA. compute_bias still runs (arbitration RECEIVES the bias even
+      during simulation; it just does not write back into rule_state on simulation
+      ticks). Bit-identical for waking; falsifier-routed simulation writes to
+      lateral_pfc would be skipped under default MECH-319 ON, admitted under
+      admit_writes=True.
+  Per-episode reset() clears diagnostic counters (gate has no persistent state across
+  ticks beyond counters).
+  MECH-094 INVARIANCE: this substrate does NOT modify MECH-094, GatedPolicy.forward's
+  simulation_mode argument semantics, or LateralPFCAnalog.update. Pull 3 SYNTHESIS R1
+  GENUINE-NOVELTY-CONFIRMED conf 0.72 + Pull 4 R3 KEEP-AS-IS verdict. The gate is a
+  pre-call coordinator that wraps the simulation_mode argument that callers ALREADY
+  pass. With MECH-319 disabled, every arbitration-write call site behaves bit-identically
+  to its pre-MECH-319 form.
+  RELATION TO MECH-261: MECH-261 (mode-conditioned write-gate registry on SD-032a
+  SalienceCoordinator) is a complementary, continuous gate. MECH-261 returns a per-mode
+  weight in [0, 1] that scales the magnitude of the EMA update on
+  LateralPFCAnalog.rule_state. MECH-319 is a categorical (binary admit/block) pre-gate
+  keyed to the simulation tag of the caller, not the operating mode of the agent.
+  The two gates compose: caller waking + MECH-319 admits -> MECH-261 modulates EMA
+  strength based on operating mode. Caller simulation + MECH-319 normal -> MECH-319
+  blocks the entire update() call, MECH-261 never consulted. Caller simulation +
+  MECH-319 falsifier -> MECH-319 admits -> MECH-261 modulates as if waking.
+  Backward compatible: use_simulation_mode_rule_gate=False by default;
+  agent.simulation_mode_rule_gate is None and both call sites take the legacy literal
+  path. 288/288 contract + preflight tests PASS with master OFF (regression-clean;
+  was 273 + 15 new MECH-319 contracts).
+  Lit-pull verdicts (resolved defaults; see Pull 3 SYNTHESIS at
+  REE_assembly/evidence/literature/targeted_review_mech_312_arbitration_divergences/
+  synthesis.md):
+    R1 GENUINE-NOVELTY-CONFIRMED (conf 0.72): substrate-availability premise well-
+      anchored (Joo & Frank 2018 SWR review + Foster & Wilson 2006 reverse replay
+      discriminable signature); the categorical write-gate FUNCTION at the arbitration
+      layer is REE-novel. The literature provides only the substrate; downstream
+      regions are not yet documented as exploiting the discriminable replay signature
+      as a write-gate.
+    Pull 4 R3 KEEP-AS-IS: MECH-094 stays as-is (architectural principle); MECH-319
+      is registered as the substrate-level instantiation. The two claims are NOT
+      redundant.
+  Phased training: not applicable (pure boolean / counter arithmetic; no learned
+  parameters; no gradient flow).
+  Validation experiment: V3-EXQ-546 substrate-readiness diagnostic (6 sub-tests
+  UC1-UC5 + UC3b precondition: instantiation + diagnostic keys; master-OFF backward-
+  compat; truth-table coverage across the 6 valid (master, admit_writes, caller_sim)
+  combinations; precondition raises on admit_writes=True without master ON;
+  select_action wiring contract -- gate sees waking calls from both gated_policy and
+  lateral_pfc sites after one act_with_split_obs tick, n_simulation_* counters remain
+  zero on the waking path; MECH-094 invariance -- master-OFF and master-ON-with-waking-
+  caller produce bit-identical wiring outputs, asymmetry surfaces only at
+  caller_sim=True). Smoke 6/6 PASS 2026-05-10 (manifest scrubbed; runner will write
+  the canonical PASS manifest from the queued entry). 15 contract tests in
+  tests/contracts/test_mech_319_simulation_mode_rule_gate.py PASS. Behavioural
+  validation -- the V3-EXQ-543c-successor falsifier with the admit_writes=True arm
+  and a replay-driven invocation path -- is queued separately AFTER MECH-313 /
+  MECH-314 / MECH-318 sibling substrates have landed.
+  Design doc: REE_assembly/docs/architecture/mech_319_simulation_mode_rule_gate.md.
+  See MECH-319 (this claim), MECH-094 (architectural principle this substrate
+    instantiates; KEEP-AS-IS per Pull 3 R1 + Pull 4 R3 verdicts -- not modified),
+    MECH-312 (parent arbitration layer whose write-gate this implements),
+    MECH-312a/b/c/d (sub-mechanisms gated by the simulation tag),
+    MECH-261 (mode-conditioned continuous write gate on SalienceCoordinator;
+      complementary to MECH-319's categorical pre-gate),
+    ARC-062 (rule apprehension cluster; GAP-K hosted this landing),
+    MECH-313 / MECH-314 / MECH-318 (sibling ARC-065 / ARC-064 substrates landed
+      in separate spawned tasks the same day),
+    MECH-293 (ghost-goal probes; future call site that will pass simulation_mode=
+      True through the gate),
+    SD-033a (LateralPFCAnalog; one of the two wired arbitration-write call sites),
+    GatedPolicy (ARC-062 Phase 1; the other wired arbitration-write call site),
+    MECH-309 (logical-necessity claim motivating the broader ARC-062 cluster).
+
+## MECH-320 (ARC-066 child): Tonic Vigor Coupling Score Bias (mesolimbic-DA-vigor / avg-reward-rate) (2026-05-10)
+- MECH-320: action.tonic_vigor_coupling_score_bias -- IMPLEMENTED 2026-05-10.
+  Module: ree_core/policy/tonic_vigor.py (TonicVigor + TonicVigorConfig +
+  TonicVigorOutput). First child mechanism for ARC-066 (the
+  non_deficit_action_drives architectural family). Pure-arithmetic regulator
+  (no learned parameters; no nn.Module inheritance); sister to MECH-313
+  NoiseFloor and MECH-314 StructuredCuriosity in the ree_core.policy package.
+  Adds an additive (or multiplicative-gain falsifiable secondary) bias to E3
+  trajectory scoring such that action-trajectories receive a NEGATIVE bias
+  (REE lower-is-better favours action) and no-op-trajectories receive a
+  POSITIVE bias (penalises passivity), proportional to a slow EWMA over the
+  realised E3-score-receipt stream gated by secondary internal-state
+  modulators (energy / drive / recent PE). TARGET-FREE: bias applies
+  regardless of whether any z_goal is currently active -- closes the
+  "well-fed-safe-familiar agent has no positive gradient to act" gap that
+  ARC-066 registered.
+  Algorithm at the e3.select() call site in REEAgent.select_action():
+    update_score_receipt: v_raw <- (1-alpha)*v_raw + alpha*(-score_realised)
+      (REE-low-is-better internally negated so v_raw climbs in reward-rich
+      regimes; alpha = 1 - 0.5**(1/half_life))
+    compute_score_bias: v_t = max(0, v_raw) * gate_energy * gate_drive * gate_pe
+      bias[i] = -w_action * v_t   if action_classes[i] != noop_class
+                +w_passive * v_t  if action_classes[i] == noop_class    (additive)
+      bias[i] = (-w_action * v_t * |scores[i]|) on action /
+                (+w_passive * v_t * |scores[i]|) on noop                 (multiplicative)
+      bias = clamp(bias, [-bias_scale, +bias_scale])
+  Composed AFTER MECH-314 curiosity (orthogonal axis: curiosity rewards
+  novelty / uncertainty / LP at the candidate level; vigor biases on the
+  action-vs-no-op axis) and BEFORE MECH-313 noise_floor (which lifts softmax
+  temperature, not scores -- orthogonal to bias).
+  Composition order at e3.select call site:
+    dacc_score_bias  +=  lateral_pfc_bias       (SD-033a)
+                      +  ofc_bias               (SD-033b)
+                      +  mech295_liking_bias    (MECH-295)
+                      +  curiosity_bias         (MECH-314)
+                      +  tonic_vigor_bias       (MECH-320; -action / +noop)
+    [then MECH-313 lifts effective_temperature for the softmax]
+  Config: REEConfig.use_tonic_vigor (default False; bit-identical OFF) +
+    tonic_vigor_half_life (100.0; long-window EWMA per R4 verdict --
+    Niv 2007 long-run avg-reward-rate, NOT short-window) + tonic_vigor_w_action
+    (0.1) + tonic_vigor_w_passive (0.1) + tonic_vigor_bias_scale (0.1; mirrors
+    lateral_pfc / curiosity bias_scale so MECH-320 cannot dominate the
+    score-bias chain at extreme reward histories) + tonic_vigor_gate_energy_min
+    (0.2) + tonic_vigor_gate_drive_max (0.7) + tonic_vigor_gate_pe_max (1.0) +
+    tonic_vigor_form ("additive" | "multiplicative"; validated at construction)
+    + tonic_vigor_noop_class (0; matches MECH-279 PAG freeze-gate convention).
+    All wired through REEConfig.from_dims().
+  Agent wiring (REEAgent.__init__): instantiate TonicVigor when
+    use_tonic_vigor=True (parallel to self.noise_floor / self.curiosity).
+    REEAgent.select_action() reads tonic_vigor.compute_score_bias(...)
+    AFTER MECH-314 curiosity block and composes additively into
+    dacc_score_bias; AFTER e3.select() returns, feeds the SELECTED
+    candidate's E3 score back into tonic_vigor.update_score_receipt(...) to
+    advance the EWMA for the next tick. reset() clears EWMA + diagnostic
+    counters.
+  Energy proxy: 1 - effective_drive_level (post-pACC). Drive: post-pACC
+    effective_drive_level (matches AIC / PCC / SalienceCoordinator reads).
+    Recent PE: e3._running_variance (same signal MECH-314c learning-progress
+    consumes).
+  MECH-094: simulation_mode=True on either compute_score_bias or
+    update_score_receipt returns zeros (or skips state advance) and
+    increments only the simulation-skip counter. Match the SD-035 / MECH-279 /
+    gated_policy / MECH-313 / MECH-314 simulation_mode pattern.
+  Lit-pull verdicts (resolved defaults; see ARC-066 SYNTHESIS at
+    REE_assembly/evidence/literature/targeted_review_arc_066_tonic_vigor/
+    synthesis.md, lit_conf 0.789, supports-direction, 7 entries):
+    R1 -- mesolimbic DA-vigor LOAD-BEARING (Niv 2007 formalism + Salamone &
+          Correa 2012 substrate identity + Beierholm 2013 human L-DOPA
+          causal test). LC-NE-direction REJECTED -- LC-NE tonic mode is
+          one mechanism (noise = MECH-313), per Kane et al. 2017 DREADD
+          test by the original Aston-Jones / Cohen authorship group.
+    R3 -- ADDITIVE form is primary (Niv 2007 opportunity-cost derivation
+          is naturally additive). MULTIPLICATIVE GAIN is the falsifiable
+          secondary; both implementable via tonic_vigor_form. The
+          discriminative-pair behavioural validation (queued separately)
+          chooses which lands as primary.
+    R4 -- SLOW EWMA over realised E3-score-receipt is the primary scalar
+          (Niv 2007 average-reward-rate formalism + Beierholm 2013
+          empirical confirmation). Internal-state proxies (energy, drive,
+          recent PE) enter as SECONDARY MODULATORS. The slot's
+          registration-time pre-guess of "high energy AND low recent PE
+          AND low drive" composite is REFINED to the literature-attributed
+          history-average primary + internal-state secondaries.
+  Phase-1 instantiation choice (mirrors MECH-313 / MECH-314): a SEPARATE
+    TonicVigor module at the e3.select() call site, parallel to NoiseFloor
+    and StructuredCuriosity. Whether the policy-layer regulators ultimately
+    consolidate into one module is OPEN pending future refactor passes.
+  Distinct-from contracts: orthogonal to MECH-313 (noise on choice vs
+    direction on score axis); target-free vs target-conditioned MECH-216;
+    capacity-keyed vs deficit-keyed inverse SD-012; mathematical complement
+    of ARC-068 (opportunity-cost no-op penalty -- collapse-vs-separate
+    decision deferred to ARC-068 lit-pull); state-INDEPENDENT vs
+    state-dependent recency-keyed MECH-260.
+  Backward compatible: use_tonic_vigor=False by default; agent.tonic_vigor
+    is None and the entire select_action MECH-320 block is skipped.
+    309/309 contracts (281 prior + 28 new MECH-320) + 7/7 preflight PASS
+    with master OFF (regression-clean, 2026-05-10).
+  Phased training: not applicable (pure-arithmetic regulator; no learned
+    parameters; no gradient flow).
+  Validation experiment: V3-EXQ-547 substrate-readiness diagnostic (6
+    sub-tests UC1-UC6 covering instantiation, master-OFF backward-compat,
+    EWMA convergence + half-life + sign convention, select_action wiring
+    contract via act_with_split_obs (compute_score_bias pre-select +
+    update_score_receipt post-select both fire), MECH-094 simulation gate,
+    R3 form discriminability additive-vs-multiplicative). Smoke 6/6 PASS
+    2026-05-10 (manifest scrubbed; runner will write the canonical PASS
+    manifest from the queued entry). 28 contract tests in
+    tests/contracts/test_mech_320_tonic_vigor.py PASS. Behavioural
+    validation -- the 3-arm discriminative pair (baseline / additive /
+    multiplicative on a well-fed-safe-familiar environment substrate) --
+    is queued separately AFTER V3-EXQ-547 PASSes via the runner.
+  Design doc: REE_assembly/docs/architecture/non_deficit_action_drives.md
+  Lit-pull: REE_assembly/evidence/literature/targeted_review_arc_066_tonic_vigor/
+  See MECH-320 (this claim), ARC-066 (parent architectural commitment),
+    MECH-313 (sibling LC-NE noise floor; orthogonal axis -- substrate-landed
+    earlier the same day; lit-pull R2 verdict establishes LC-NE tonic mode
+    is fully covered by MECH-313 with no remaining ARC-066 LC-NE function),
+    MECH-314 (sibling structured curiosity bonus; substrate-landed earlier
+    the same day; orthogonal axis at the candidate-feature level),
+    MECH-216 (target-conditioned predictive wanting; ARC-066 is target-free),
+    SD-012 (deficit-keyed homeostatic drive; ARC-066 is capacity-keyed inverse),
+    MECH-260 (state-dependent dACC anti-recency; orthogonal),
+    MECH-295 (sibling score-bias contributor composed before MECH-320),
+    ARC-068 (opportunity_cost_no_op_penalty; mathematical complement;
+      collapse-vs-separate decision deferred to ARC-068 lit-pull),
+    SD-037 (broadcast override; deficit-recruited; ARC-066 is surplus-
+      recruited; opposite corners of state space),
+    MECH-094 (simulation_mode argument; call-site scoping for waking-only
+      effects).
+
+## MECH-307 Anticipatory Affect Conjunction Architecture (2026-05-11)
+- MECH-307: affect.anticipatory_conjunction_architecture -- SUBSTRATE LANDED 2026-05-11.
+  Goal-pipeline GAP-1 / Phase 1 (REE_assembly/evidence/planning/goal_pipeline_plan.md).
+  Four-gap substrate amendment to the SD-014 valence vector + MECH-216 schema readout
+  + MECH-205 PE write site. Excitement / dread emerge as derived conjunction-states
+  from the existing channel set; NOT a new primitive VALENCE channel.
+  Gaps 2, 3, 4 substrate-landed 2026-05-08 in the prior MECH-307 session under flags
+  use_mech307_schema_multichannel / use_mech307_predicted_location_write. This pass
+  resolves Gap 1 via the 2026-05-11 user-override to Option-b (split channels) over
+  the design-doc default Option-a (signed single channel). The Option-a path is
+  retained behind use_mech307_signed_pe for backward compat; Option-b takes
+  precedence when both flags are True.
+  Modules:
+    ree_core/residue/field.py -- VALENCE_DIM 4 -> 6; new constants
+      VALENCE_POSITIVE_SURPRISE=4 and VALENCE_NEGATIVE_SURPRISE=5 added to
+      VALENCE_COMPONENTS. valence_vecs buffer auto-resizes via VALENCE_DIM
+      (RBFLayer.register_buffer). evaluate_valence return shape grows
+      [batch, 4] -> [batch, 6]. Indices 4-5 stay zeroed unless
+      use_mech307_split_surprise=True.
+    ree_core/utils/config.py -- two new REEConfig fields:
+      use_mech307_split_surprise (default False) -- Option-b master.
+      use_mech307_conjunction (default False) -- convenience master flag
+      that __post_init__ propagates to all three substrate-side sub-flags
+      (use_mech307_split_surprise + use_mech307_schema_multichannel +
+      use_mech307_predicted_location_write). Path B / consumer-side
+      use_mech307_consumer_conjunction_read NOT auto-set (that is a
+      downstream wiring decision).
+    ree_core/agent.py -- MECH-205 PE write site (line ~3527) dispatches
+      between three paths: (1) Option-b split (use_mech307_split_surprise);
+      (2) Option-a signed single channel (use_mech307_signed_pe legacy);
+      (3) true legacy unsigned magnitude. Option-b routes surprise to
+      VALENCE_POSITIVE_SURPRISE or VALENCE_NEGATIVE_SURPRISE based on
+      concurrent harm_signal sign; ALSO writes magnitude to legacy
+      VALENCE_SURPRISE so MECH-205 / SD-014 consumers reading the
+      magnitude slot stay bit-identical to the legacy substrate.
+  Data flow (Option-b under master flag ON):
+    MECH-205 fires on PE > threshold -> route by harm sign:
+      harm_signal <  0 -> update_valence(z_world, VALENCE_NEGATIVE_SURPRISE, ...)
+      harm_signal >= 0 -> update_valence(z_world, VALENCE_POSITIVE_SURPRISE, ...)
+      Plus magnitude write to VALENCE_SURPRISE (backward compat).
+    MECH-216 schema readout (under multichannel flag) -> writes anticipatory
+      VALENCE_LIKING + pulses z_beta arousal (Gaps 2 + 3, unchanged from
+      2026-05-08 landing).
+    MECH-216 write target (under predicted-location flag) -> cached e1_prior
+      rather than current z_world (Gap 4, unchanged from 2026-05-08).
+  Config: REEConfig.use_mech307_conjunction (bool, default False; bit-identical
+    OFF). When True, __post_init__ sets use_mech307_split_surprise =
+    use_mech307_schema_multichannel = use_mech307_predicted_location_write =
+    True. Sub-flags can still be set independently when finer control is
+    needed. Existing gain knobs (mech307_anticipatory_liking_gain,
+    mech307_z_beta_schema_gain, conjunction thresholds, conjunction_gain) are
+    unchanged from the 2026-05-08 landing.
+  Backward compatible: all four flags default False. With defaults:
+    - residue field's valence_vecs is shape [num_centers, 6] but indices 4-5
+      stay zeroed (extra buffer is ~50% overhead on a small sparse buffer);
+    - evaluate_valence returns [batch, 6] but only indices 0-3 carry signal;
+    - PE write site falls through to the true-legacy unsigned-magnitude path;
+    - all consumers reading VALENCE_SURPRISE (MECH-205 replay-priority, SD-014
+      consumers via evaluate_valence) are bit-identical.
+  Regression: 309/309 contracts PASS + 7/7 preflight PASS with master OFF
+    (verified 2026-05-11). Existing tests/contracts/test_mech307_conjunction_contract.py
+    (12 contracts covering Gaps 1-4 under their individual flags) PASSed
+    unmodified -- the Option-a Gap-1 path is preserved.
+  Direct field-level smoke (2026-05-11): VALENCE_DIM=6 buffer allocation,
+    update_valence to VALENCE_POSITIVE_SURPRISE / VALENCE_NEGATIVE_SURPRISE
+    accumulates correctly, evaluate_valence returns [1, 6], MECH-094
+    hypothesis_tag=True gate respected (write skipped).
+  Biological basis: 2026-05-08 lit-pull synthesis (9 entries, lit_conf 0.77)
+    on excitement-as-5th-channel; NAcc-anticipation (Knutson 2001a et seq.) +
+    dopamine RPE (Bromberg-Martin 2010) + habenula dread (Bromberg-Martin 2010b)
+    + Adcock 2006 preplay-priority + Berridge & Robinson 2003 wanting/liking
+    dissociation. Conjunction reading is more biologically faithful than a
+    new channel: biology has no VALENCE_EXCITEMENT neuron type; excitement
+    is the anatomical convergence of DA RPE + hippocampal preplay + ANS
+    arousal at NAcc. SD-014 6-channel amendment retained as registered
+    fallback if the conjunction reading fails behavioural validation.
+  MECH-094: split-channel write inherits the hypothesis_tag=False gate from
+    the MECH-205 / SD-014 update_valence call site; replay / simulation
+    paths cannot write to either new channel.
+  Phased training: not applicable (substrate is buffer-level + write-site
+    routing; no learned parameters; no gradient flow).
+  Validation experiment: 4-arm discriminative-pair to be queued via
+    /queue-experiment in a separate session per the user 2026-05-11 directive
+    "substrate only first". Acceptance criteria per anticipatory_affect_conjunction_vs_dual_channel.md
+    Validation Experiment section: all-four-gaps-fixed arm produces non-zero
+    cue_fires + dacc_bias + approach_commit relative to baseline; any single-
+    gap-lesioned arm collapses to baseline (the conjunction-architecture
+    falsifier). Fallback (per design doc): SD-014 6-channel amendment if the
+    conjunction-fix does not produce the expected derived states.
+  Plan-of-record: REE_assembly/evidence/planning/goal_pipeline_plan.md
+    GAP-1 status open -> done 2026-05-11; Phase 2 (GAP-2 SD-049 Phase 2
+    behavioural validation under MECH-307-fixed substrate) unblocked.
+  Design doc: REE_assembly/docs/architecture/anticipatory_affect_conjunction_vs_dual_channel.md
+  See MECH-307 (this claim), SD-014 (4-component valence vector substrate
+    being extended; 6-channel amendment retained as registered fallback),
+    MECH-216 (E1 predictive wanting / schema readout; Gap 2 + 4 consumer),
+    MECH-205 (surprise-gated replay write path; Gap 1 write site),
+    MECH-093 (z_beta modulates E3 heartbeat rate; Gap 3 downstream consumer),
+    MECH-111 (curiosity / novelty drive; likely upstream-blocked by Gap 1),
+    MECH-292 (ranked ghost-goal bank; downstream conjunction consumer),
+    MECH-094 (hypothesis_tag gate; preserved through call-site scoping),
+    MECH-295 (drive-liking-approach bridge; Path B consumer-read target;
+      out-of-scope this session per "substrate only first" directive).
+
+## MECH-307 Default-Value Recalibration (2026-05-12)
+- MECH-307 default tweaks: TWO bridge-config defaults lowered after V3-EXQ-540c
+  read-site probe (10x scale, 1087 bridge calls, 34784 candidate-reads) confirmed
+  the V3-EXQ-540a / 540b conj_fire_rate=0 across all arms was caused by two
+  config defaults sitting above the achievable substrate ceiling under the
+  standard env config (CausalGridWorld with resource_respawn_on_consume=True):
+    mech295_min_drive_to_fire        0.1 -> 0.01
+    mech307_conjunction_z_beta_threshold  0.6 -> 0.3
+  V3-EXQ-540c observations driving the change:
+    drive_level: max=0.030 mean=0.016 frac>0.1=0.000 across 1087 bridge calls.
+      The legacy 0.1 floor was NEVER crossed -- bridge short-circuited at
+      mech295_liking_bridge.py:328-329 on every single call.
+    z_beta_arousal: max=0.545 mean=0.518 frac>0.1=1.000. The legacy 0.6 floor
+      sat above the achievable ceiling; ARM_default at 0.6 would never fire on
+      this gate alone even if the drive gate were cleared.
+    Predicate components at half-tier thresholds (0.3/0.15/0.3): all_pass=0.9466
+      across 34784 candidates -- substrate writes populate read sites cleanly;
+      the predicate WOULD have fired on 94.66% of reads if both gates allowed
+      it through. At low-tier (0.1/0.05/0.1) and floor-tier (0.01/0.005/0.01)
+      all_pass=1.000.
+  Both changes are pure default-value adjustments to substrate-side config:
+    ree_core/regulators/mech295_liking_bridge.py: MECH295LikingBridgeConfig
+      dataclass defaults.
+    ree_core/utils/config.py: REEConfig dataclass field defaults +
+      REEConfig.from_dims kwarg default.
+    ree_core/agent.py: getattr fallback used by REEAgent.__init__ when
+      constructing the bridge config from REEConfig.
+    Contract test assertions updated to match new defaults:
+      tests/contracts/test_mech_295_liking_bridge.py (min_drive_to_fire == 0.01)
+      tests/contracts/test_mech307_consumer_conjunction.py (z_beta default == 0.3
+        + the C4 low-z_beta-blocks test uses z_beta_arousal=0.1 instead of 0.4
+        to remain below the new default).
+  Regression: 314/314 contracts + 7/7 preflight PASS with new defaults
+    (verified 2026-05-12). The new defaults preserve the bridge's "some unmet
+    need" + "some arousal" semantic while letting the bridge fire under
+    realistic substrate output magnitudes.
+  Backward compat: callers that explicitly set either flag to a custom value
+    are unaffected (the defaults only apply when the caller omits the kwarg).
+    Old 540a/540b scripts that explicitly set cfg.mech295_min_drive_to_fire=0.1
+    on the cfg object after from_dims would still see the legacy behaviour;
+    540e is specifically NOT overriding these to test the new defaults.
+  Validation experiment: V3-EXQ-540e (3-arm decomposition under new defaults).
+    Dry-run smoke 2026-05-12T06:39Z PASS at 6 ep / 1 seed: ARM_2_full
+    conj_fire_rate=0.155 (>= 0.10 floor cleared at dry-run scale; ARM_0_off and
+    ARM_1_split_only correctly zero). Full-scale run on DLAPTOP-4.local
+    produces the definitive manifest at 3 seeds x 70 ep.
+  Deferred follow-on (separate session): Option-b semantic fix at the bridge
+    consumer-read site (line 343 of mech295_liking_bridge.py reads v[:, 3] =
+    VALENCE_SURPRISE -- the LEGACY unsigned-magnitude channel -- rather than
+    v[:, 4] = VALENCE_POSITIVE_SURPRISE under Option-b semantics; (v_s > 0.0)
+    therefore loses its sign-filter intent and falsely satisfies on
+    harm-paired magnitudes). Not a behavioural blocker (the v_s > 0 gate is
+    cleared by Option-b's magnitude write anyway), but is a design-doc
+    fidelity bug worth landing once 540e PASS confirms the architecture.
+  See MECH-307, MECH-295 (bridge config owner), V3-EXQ-540c (probe diagnosis),
+    V3-EXQ-540e (default-fix validation), goal_pipeline:GAP-1 (closure plan).
+
+## SD Design Decisions Implemented (V3) — continued
+- commitment_closure:GAP-3 — CausalGridWorldV2 env extensions, primitives 1-3 —
+  IMPLEMENTED 2026-05-17. ree_core/environment/causal_grid_world.py.
+  Env-only constructor kwargs (NOT REEConfig / from_dims — same precedent as
+  harm_gradient_* / microhabitat_* / transient_benefit_*). All master switches
+  default no-op; bit-identical OFF verified suite-wide (full contract
+  regression 434/434).
+  Primitive 1 — adaptive tolerance-band completion: completion_tolerance_enabled
+    (default False), _frac (0.0), _cells (-1; >=0 overrides frac), _metric
+    ("chebyshev" | "manhattan"), _targets ("waypoint"; "waypoint+resource"
+    RESERVED — raises ValueError, ships waypoint-only per Q-1a), _kernel
+    ("hard" | "graded_exp"; credit exp(-d/lambda)), _lambda (1.0). Wraps the
+    waypoint exact-match; OFF and frac=0.0 both dynamics bit-identical.
+  Primitive 2 — counter-evidence injection hook (graded contingency
+    degradation, NOT signed perturbation): counter_evidence_enabled (False),
+    _interval (50), _prob (0.5), _degrade_step (0.2), _degrade_floor (0.0),
+    _requires_persistent_rule (True). _inject_counter_evidence() cloned
+    structurally from the SD-029 scheduled-injection pattern; lowers the
+    committed target's outcome-validity toward the floor while the rule_state
+    is persistent; committed-target reward scaled by validity; context
+    (hazards/resources/drift) untouched. transition_type set by the existing
+    waypoint path.
+  Primitive 3 — dual simultaneously-active resource cue: dual_cue_enabled
+    (False), _min_active_ticks (10), _replace_on_early_consume (False =
+    invalidate-episode, Q-3b; True is diagnostic-only), _type_tags ((1,2)).
+    Rides the SD-049 multi-resource path; RAISES ValueError if SD-049 not
+    enabled (Q-3a fail-fast, no silent auto-enable).
+  16 always-present info keys (inert sentinels when the relevant primitive is
+  disabled). Backward compatible: disabled by default; existing experiments
+  unaffected. Not a learning module — no encoder head, no phased training, no
+  MECH-094 simulation-write surface.
+  Validation: tests/contracts/test_env_extensions_gap3.py 14/14 (C1 bit-
+  identical OFF + frac=0.0 dynamics-identical; C2 tolerance/graded_exp/metric;
+  C3 counter-evidence persistent-only + monotone validity->floor +
+  context-invariant; C4 dual-cue SD-049 fail-fast + accounting; C5 spec
+  section-5 integration smoke) + full contract regression 434/434. NO
+  claim-validation EXQ queued — spec section 5: Phase 3 is env infrastructure
+  with no claim-validation EXQ (a spec-sanctioned deviation from the
+  implement-substrate skill Step 8; concurrency also forbade queue edits).
+  Spec: REE_assembly/evidence/planning/causalgridworldv2_env_extensions_spec.md
+  (Status: IMPLEMENTED 2026-05-17). Closes commitment_closure:GAP-3 (unblocks
+  GAP-8). Deliverable 4 (phased rule_state training curriculum) deliberately
+  SEPARATE (spec section 6) — the SD-034/MECH-266/MECH-268 behavioural arms
+  still need it. See commitment_closure_plan.md, claims SD-034 / MECH-266 /
+  MECH-268. claims.yaml NOT modified (env infra unblocks but does not itself
+  promote).
+
+- commitment_closure:GAP-11 -- Phased rule_state training curriculum harness helper
+  -- IMPLEMENTED 2026-05-17.
+  File: experiments/committed_mode_curriculum.py (experiment-harness helper, NOT a
+  ree_core substrate scheduler -- O-1 resolved).
+  Public API: run_p0_warmup(), run_p1_consolidation(), run_p2_eval(),
+  clone_trained_agent(), P0Result, P1Result, CommittedModeMetrics.
+  Data flow: P0 trains E1+E2 on easy env (EXQ-321b run_training pattern) until
+  running_variance < commit_threshold; P1 consolidates on target env until
+  total_committed_steps per episode >= commitment_floor(100); P2 is frozen-policy
+  eval measuring committed_steps / hold_rate / rule_state_norm.
+  Mid-probe abort gate (default 60% of budget): fires commitment_not_elicited ->
+  caller escalates as R1 substrate mis-calibration finding, not a tuning problem.
+  O-2 mandatory contrast: every arm must run BOTH emergent (P0->P2) and
+  forced-rv clone (clone_trained_agent + set rv=0.001 + run_p2_eval).
+  O-3: at most ONE commitment_threshold relaxation step (threshold_relaxation param,
+  max meaningful value 0.125); further non-convergence = substrate finding, escalate.
+  Backward compatible: no ree_core changes; no experiment script changes.
+  Generalises EXQ-321b run_training + clone_for_condition + EXQ-543b P0/P1 scaffolding.
+  Blocks cleared: SD-034, MECH-266, MECH-268, MECH-090, SD-021 behavioural arms
+  (V3-EXQ-460b/461/463b/464b/466b/467b/468b) -- see commitment_closure_plan.md.
+  Pilot experiment: EXP-0157 / V3-EXQ-592 (GAP-11 pilot, 3 arms: EMERGENT/FORCED_RV/STARVED).
+  New ID (not V3-EXQ-461b) because V3-EXQ-461 was a synthetic scripted PASS, not
+  emergent training. Queued 2026-05-17. Supersedes V3-EXQ-461.
+
+- INV-074 / MECH-333 / MECH-334: Phase-3 plasticity-injection crystallization
+  + EWC residue write-protect -- IMPLEMENTED 2026-05-17.
+  Files: ree_core/policy/gated_policy.py (GatedPolicy.crystallize() +
+  expansion_parameters() + .crystallized; forward gains the post-crystallize
+  expansion branch), ree_core/residue/field.py (ResidueField.
+  snapshot_ewc_anchor() + ewc_penalty() + .ewc_anchored), experiments/
+  infant_curriculum.py (InfantCurriculumScheduler on_phase3_entry fire-once
+  hook), ree_core/utils/config.py (REEConfig + ResidueConfig + from_dims),
+  ree_core/agent.py (GatedPolicyConfig passthrough).
+  Config: REEConfig.crystallize_at_phase3 (default False; set True to enable).
+  Subsidiary: gated_policy_crystallize_expansion_hidden (32),
+  residue_ewc_lambda (0.0 = anchor captured, penalty inert). When
+  crystallize_at_phase3=True, from_dims also arms ResidueConfig.ewc_enabled
+  + ewc_lambda.
+  Data flow: infant-curriculum Phase 2->3 transition -> scheduler fires the
+  experiment's on_phase3_entry closure -> agent.gated_policy.crystallize()
+  (requires_grad=False on head_0/head_1/discriminator; fresh plastic
+  expansion MLP, last-Linear zero-init so output is bit-identical at the
+  transition instant; forward = frozen_gated(x) + expansion(x.detach()),
+  the .detach() blocking diversity gradient from the crystallized weights)
+  + agent.residue_field.snapshot_ewc_anchor() (centers/weights anchor +
+  established-basin Fisher proxy |anchor_w|*active_mask). The experiment's
+  post-Phase-3 optimizer targets gated_policy.expansion_parameters() (plus
+  dACC / MECH-313 / MECH-314a / MECH-320 diversity params) and adds
+  residue_field.ewc_penalty() to its loss.
+  Biological basis: Nikishin et al. 2023 NeurIPS plasticity injection
+  (MECH-333 option E open-phase channel); Kirkpatrick et al. 2017 EWC
+  write-protect (MECH-334 closure, faithful to "high resistance to
+  overwriting established basins" -- NOT a hard freeze). Grounds INV-074
+  (plasticity crystallization necessity), the V3-tractable subset of
+  MECH-333/334, and ARC-075 (infant curriculum plasticity magnitude
+  asymmetry, not just temporal scheduling).
+  Pre-check (encoded in design doc): MECH-314b (uncertainty, reads
+  e3._running_variance) and MECH-314c (learning-progress, EMA of
+  |PE_t-PE_{t-K}| fed e3._running_variance) are forward-model-error-
+  dependent -- 314c is the canonical Pathak 2017 ICM self-defeat case --
+  and decay to ~0 before Phase-3 crystallization fires, so they cannot
+  establish competitive weight on the expansion layer. MECH-313 (constant
+  temperature), MECH-314a (residue-RBF novelty, Wittmann 2008 RPE-
+  independent), MECH-320-primary (avg-reward-rate EWMA, Niv 2007), and
+  dACC/MECH-260 (state-dependent recency) are F-robust and are the
+  meaningful signals to route.
+  Backward compatible: disabled by default; crystallize_at_phase3=False
+  is bit-identical (forward never references the expansion; EWC penalty
+  returns a 0.0 scalar). Contract regression 484/484 PASS; backward-compat
+  543g dry-run reproduces the prior signature exactly (ARM_2=0.444,
+  ARM_3=0.243, D2 FAIL). Not an encoder head -> no P0/P1/P2 phased
+  training of a latent target; the experiment DOES swap the optimizer
+  param-set at Phase 3 (gated_policy.parameters() -> expansion_parameters()
+  + diversity params) -- flagged in the queue entry.
+  MECH-094: GatedPolicy.forward()'s existing simulation_mode early-return
+  precedes the expansion add, so replay/DMN paths never receive the
+  expansion bias. Crystallization is a structural weight-state change
+  (developmental closure, persists across episodes; reset() does NOT
+  un-crystallize), not memory content -> hypothesis_tag N/A.
+  Validation experiment: V3-EXQ-543h queued (2x2x2 use_gated_policy x
+  use_dacc x crystallize_at_phase3; supersedes V3-EXQ-543g).
+  Design doc: REE_assembly/docs/architecture/critical_period_crystallization.md.
+  See INV-074, MECH-333, MECH-334, ARC-075, Q-052; arc_062 GAP-B.

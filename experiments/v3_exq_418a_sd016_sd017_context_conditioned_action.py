@@ -1,6 +1,7 @@
 #!/opt/local/bin/python3
 """
 V3-EXQ-418a -- SD-017 Context-Conditioned Action: Sleep + SD-016 Integration (Fix)
+SLEEP DRIVER: manual-multi (run_sleep_cycle() called directly every SLEEP_INTERVAL=10 episodes in training loop)
 
 EXPERIMENT_PURPOSE: evidence
 

@@ -106,10 +106,12 @@ import torch.optim as optim
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiment_protocol import emit_outcome
 
 
 EXPERIMENT_TYPE = "v3_exq_137_mech097_pps_commit_locus_pair"
 CLAIM_IDS = ["MECH-097"]
+EXPERIMENT_PURPOSE = "evidence"
 
 # Pre-registered thresholds
 THRESH_C1 = 0.04   # gap_locus_on >= 0.04 (harm eval above floor, both seeds)
@@ -707,8 +709,11 @@ def run(
         "criteria_met":              float(criteria_met),
     }
 
+    print(f"verdict: {status}", flush=True)
     return {
         "status": status,
+        "outcome": status,
+        "experiment_purpose": EXPERIMENT_PURPOSE,
         "metrics": metrics,
         "summary_markdown": summary_markdown,
         "claim_ids": CLAIM_IDS,
@@ -755,6 +760,7 @@ if __name__ == "__main__":
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     result["run_timestamp"] = ts
+    result["timestamp_utc"] = ts
     result["claim"] = CLAIM_IDS[0]
     result["verdict"] = result["status"]
     result["run_id"] = f"{EXPERIMENT_TYPE}_{ts}_v3"
@@ -769,8 +775,8 @@ if __name__ == "__main__":
     result["seeds"] = list(args.seeds)
     result["conditions"] = ["PPS_LOCUS_ON", "PPS_LOCUS_ABLATED"]
     result["dispatch_mode"] = "discriminative_pair"
-    result["backlog_id"] = "EVB-0029"
-    result["proposal_id"] = "EXP-0037"
+    result["backlog_id"] = "EVB-0137"
+    result["proposal_id"] = "EXP-0138"
 
     if args.dry_run:
         print("\n[dry-run] Skipping file output.", flush=True)
@@ -788,3 +794,10 @@ if __name__ == "__main__":
     print(f"Status: {result['status']}", flush=True)
     for k, v in result["metrics"].items():
         print(f"  {k}: {v}", flush=True)
+
+    # --- runner-conformance sentinel (added by retrofit_experiments.py) ---
+    _outcome_raw = str(result.get("status", "FAIL")).upper()
+    emit_outcome(
+        outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+        manifest_path=out_path,
+    )

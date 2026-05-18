@@ -1,11 +1,27 @@
 #!/opt/local/bin/python3
 """
-V3-EXQ-327: MECH-163 Hippocampal Goal-Conditioned Navigation
+V3-EXQ-327: SD-015 Hippocampal Goal-Conditioned Navigation (Habit Arm)
 
 experiment_purpose: evidence
 
-Tests MECH-163 (z_goal in E3 trajectory scoring via goal_weight) and
-SD-015 (z_resource encoder seeding enables goal-directed navigation).
+Tests SD-015 (z_resource encoder seeding enables goal-directed navigation
+via goal_weight in E3 trajectory scoring on value-flat HippocampalModule
+proposals -- the habit arm of MECH-163's dual goal-directed systems).
+
+claim_ids: ['SD-015'] only -- MECH-163 dropped 2026-04-27 (R1 governance
+fix per claim_ids accuracy rule REE_assembly/CLAUDE.md). EXQ-327 tests
+goal_weight in E3.score_trajectory() on VALUE-FLAT HippocampalModule
+proposals -- this is the SD-015 substrate, NOT the MECH-163 dual-system
+distinction. MECH-163 asserts a discrimination between habit (model-free,
+SNc/dorsal-striatum) and VTA/hippocampally-planned (model-based,
+VTA/accumbens+PFC) systems. EXQ-327 has only the habit arm in it, so it
+cannot discriminate the two systems. The V3 full-completion gate -- a
+paradigm where 1-step / habit-policy approach is insufficient AND
+goal-seeded multi-step trajectory generation by HippocampalModule
+produces a discriminable behavioural advantage -- remains the still-
+pending discriminative test for MECH-163. Tagging this experiment as
+MECH-163 evidence would conflate the parent claim with one of its sub-
+arms and corrupt the governance evidence record.
 
 Design: Does using z_goal as a scoring term in E3.score_trajectory()
 (via E3Config.goal_weight) produce benefit_ratio >= 1.3x (paper gate)?
@@ -34,7 +50,7 @@ Pass criteria:
 
 PASS: C1 AND C3 across >= 2/3 seeds (C2 advisory).
 
-Claims: MECH-163, SD-015
+Claims: SD-015
 """
 
 import sys
@@ -60,7 +76,7 @@ from ree_core.agent import REEAgent
 # Experiment metadata
 # ---------------------------------------------------------------------------
 EXPERIMENT_TYPE    = "v3_exq_327_mech163_goal_conditioned_nav"
-CLAIM_IDS          = ["MECH-163", "SD-015"]
+CLAIM_IDS          = ["SD-015"]  # MECH-163 dropped 2026-04-27 (R1 fix; see module docstring)
 EXPERIMENT_PURPOSE = "evidence"
 
 # ---------------------------------------------------------------------------

@@ -637,6 +637,10 @@ def main(dry_run: bool = False):
         json.dump(output, f, indent=2)
 
     print(f"\nResults written to: {out_path}")
+
+    from experiment_protocol import emit_outcome
+    emit_outcome(outcome=outcome, manifest_path=str(out_path))
+
     return output
 
 

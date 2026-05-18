@@ -1,6 +1,7 @@
 #!/opt/local/bin/python3
 """
 V3-EXQ-430 -- INV-010: Offline Integration Necessity
+SLEEP DRIVER: manual-multi (run_sleep_cycle() called directly every SLEEP_INTERVAL=10 episodes in training loop)
 
 experiment_purpose: evidence
 claim_ids: ["INV-010"]

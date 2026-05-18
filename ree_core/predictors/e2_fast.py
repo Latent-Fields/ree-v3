@@ -27,8 +27,8 @@ harm_predict head from V2 is REMOVED — harm evaluation belongs to E3.
 rollout_horizon must exceed E1.prediction_horizon (30 > 20).
 """
 
-from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -52,6 +52,22 @@ class Trajectory:
     world_states: Optional[List[torch.Tensor]] = None  # z_world: for SD-003 attribution
     action_objects: Optional[List[torch.Tensor]] = None  # o_t: for HippocampalModule
     is_reverse: bool = False             # MECH-165: True when trajectory is reverse-replayed
+    memory_strength: float = 1.0         # BLA write-strength proxy for replay sampling
+    arousal_tag: float = 0.0             # BLA retrieval tag written at encoding time
+    # MECH-094 / MECH-293: provenance tag for trajectory routing.
+    # True for ghost-seeded probes (MECH-293) and any other simulation /
+    # replay-derived trajectory that downstream write paths must treat as
+    # hypothetical. False for waking value-flat CEM proposals AND for the
+    # executed committed trajectory (record_committed_trajectory sets it
+    # back to False explicitly even if the source proposal was a ghost).
+    hypothesis_tag: bool = False
+    # MECH-293: per-trajectory provenance dict. None for value-flat CEM
+    # proposals; ghost probes carry {"source": "mech293_ghost_probe",
+    # "anchor_key": ..., "ghost_priority": ..., "goal_match": ...} so
+    # diagnostics can attribute downstream behaviour to the bank entry
+    # that seeded the probe. Optional[Dict] keeps existing call sites
+    # bit-identical when omitted.
+    metadata: Optional[Dict[str, Any]] = None
 
     @property
     def total_length(self) -> int:

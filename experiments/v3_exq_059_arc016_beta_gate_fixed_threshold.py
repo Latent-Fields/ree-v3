@@ -72,6 +72,7 @@ import torch.optim as optim
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiment_protocol import emit_outcome
 
 EXPERIMENT_TYPE = "v3_exq_060_arc016_beta_gate_fixed_threshold"
 CLAIM_IDS = ["ARC-016", "MECH-057b", "MECH-090"]
@@ -434,3 +435,10 @@ if __name__ == "__main__":
     out_path = out_dir / f"{EXPERIMENT_TYPE}_{ts}.json"
     out_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(f"[EXQ-057] Result written to {out_path.name}")
+
+    # --- runner-conformance sentinel (added by retrofit_experiments.py) ---
+    _outcome_raw = str(status).upper()
+    emit_outcome(
+        outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+        manifest_path=out_path,
+    )

@@ -8,230 +8,165 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-321c",
-      "title": "MECH-090 bistable vs legacy gate hold rate: spike-aligned E3-tick test (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_321b_mech090_bistable_holdrate",
-      "script": "experiments/v3_exq_321b_mech090_bistable_holdrate.py",
-      "priority": 10,
+      "queue_id": "V3-EXQ-584",
+      "title": "GAP-7 traj_pairwise_cosine_mean substrate-readiness diagnostic",
+      "experiment_type": "v3_exq_584_gap7_traj_cosine_validation",
+      "script": "experiments/v3_exq_584_gap7_traj_cosine_validation_v3.py",
+      "priority": 1,
       "machine_affinity": "any",
       "status": "pending",
-      "estimated_minutes": 90,
-      "seeds": 3,
-      "claim_ids": [
-        "MECH-090"
-      ],
-      "supersedes": "V3-EXQ-321b",
-      "notes": "V3-EXQ-321b errored on EWIN-PC (setup crash, 0.2s). Same script, re-queued on Mac."
-    },
-    {
-      "queue_id": "V3-EXQ-324c",
-      "title": "SD-020 harm surprise PE: multi-episode eval fix (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_324b_sd020_harm_surprise_pe",
-      "script": "experiments/v3_exq_324b_sd020_harm_surprise_pe.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 150,
-      "seeds": 5,
-      "claim_ids": [
-        "SD-020"
-      ],
-      "supersedes": "V3-EXQ-324b",
-      "notes": "V3-EXQ-324b errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
-    },
-    {
-      "queue_id": "V3-EXQ-325b",
-      "title": "SD-021 descending pain modulation retest: E2 world-forward training addon (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_325a_sd021_descending_pain_modulation",
-      "script": "experiments/v3_exq_325a_sd021_descending_pain_modulation.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 150,
-      "seeds": 5,
-      "claim_ids": [
-        "SD-021"
-      ],
-      "supersedes": "V3-EXQ-325a",
-      "notes": "V3-EXQ-325a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
-    },
-    {
-      "queue_id": "V3-EXQ-355b",
-      "title": "ARC-038 schema assimilation probe: optimizer isolation fix (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_355a_arc038_schema_assimilation_probe",
-      "script": "experiments/v3_exq_355a_arc038_schema_assimilation_probe.py",
-      "priority": 20,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 120,
+      "estimated_minutes": 2,
+      "episodes_per_run": 5,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": [
-        "ARC-038"
-      ],
-      "supersedes": "V3-EXQ-355a",
-      "notes": "V3-EXQ-355a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
+      "note": "infant_substrate:GAP-7 diagnostic. Validates traj_pairwise_cosine_mean info key in CausalGridWorldV2. Unblocks DEV-NEED-002/005/008 advisory gate."
     },
     {
-      "queue_id": "V3-EXQ-375a",
-      "title": "MECH-073 valence geometry: discriminative support vs ablation pair (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_375_mech073_valence_geometry_probe",
-      "script": "experiments/v3_exq_375_mech073_valence_geometry_probe.py",
-      "priority": 30,
+      "queue_id": "V3-EXQ-586",
+      "title": "GAP-9 infant curriculum scheduler validation",
+      "experiment_type": "v3_exq_586_gap9_curriculum_validation",
+      "script": "experiments/v3_exq_586_gap9_curriculum_validation_v3.py",
+      "priority": 2,
       "machine_affinity": "any",
       "status": "pending",
-      "estimated_minutes": 120,
+      "estimated_minutes": 5,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": [
-        "MECH-073"
-      ],
-      "backlog_id": "EVB-0057",
-      "supersedes": "V3-EXQ-375",
-      "notes": "V3-EXQ-375 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
+      "note": "infant_substrate:GAP-9 diagnostic. Validates InfantCurriculumScheduler hard-count (ARM_0) and telemetry-gated (ARM_1, delayed by H_pos/z_goal gates) transitions. Unblocks DEV-NEED-008, ARC-046, EXQ-ISEF-005 (GAP-14)."
     },
     {
-      "queue_id": "V3-EXQ-385b",
-      "title": "INV-049 offline consolidation necessity: SHY decay rate fix (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_385a_inv049_offline_consolidation_necessity",
-      "script": "experiments/v3_exq_385a_inv049_offline_consolidation_necessity.py",
-      "priority": 20,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 120,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "INV-049"
-      ],
-      "supersedes": "V3-EXQ-385a",
-      "notes": "V3-EXQ-385a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
-    },
-    {
-      "queue_id": "V3-EXQ-395a",
-      "title": "MECH-220 harm hub: behavioral harm-avoidance probe (hub_enabled vs hub_ablated) (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_395_mech220_harm_hub",
-      "script": "experiments/v3_exq_395_mech220_harm_hub.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 120,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "MECH-220"
-      ],
-      "backlog_id": "EVB-0114",
-      "supersedes": "V3-EXQ-395",
-      "notes": "V3-EXQ-395 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
-    },
-    {
-      "queue_id": "V3-EXQ-397a",
-      "title": "ARC-007 path memory ablation: residue field zeroing degrades hippo proposals (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_397_arc007_path_memory_ablation",
-      "script": "experiments/v3_exq_397_arc007_path_memory_ablation.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 90,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "ARC-007",
-        "SD-004"
-      ],
-      "supersedes": "V3-EXQ-397",
-      "notes": "V3-EXQ-397 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
-    },
-    {
-      "queue_id": "V3-EXQ-406a",
-      "title": "INV-053 depression attractor replication: 5-seed LONG_HORIZON characterisation (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_406_inv053_depression_attractor_replication",
-      "script": "experiments/v3_exq_406_inv053_depression_attractor_replication.py",
-      "priority": 40,
+      "queue_id": "V3-EXQ-587",
+      "title": "EXQ-ISEF-001: harm_gradient_enabled vs binary-contact residue geography formation (GAP-10)",
+      "experiment_type": "v3_exq_587_isef001_harm_gradient_enabled",
+      "script": "experiments/v3_exq_587_isef001_harm_gradient_enabled_v3.py",
+      "priority": 4,
       "machine_affinity": "any",
       "status": "claimed",
-      "estimated_minutes": 200,
+      "estimated_minutes": 280,
+      "episodes_per_run": 1000,
       "seeds": 5,
-      "claim_ids": [
-        "INV-053"
-      ],
-      "supersedes": "V3-EXQ-406",
-      "notes": "V3-EXQ-406 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac.",
+      "conditions": 2,
+      "note": "infant_substrate:GAP-10 closure. ARM_0: harm_gradient_enabled=False (binary contact only). ARM_1: harm_gradient_enabled=True, harm_gradient_scale=0.30. C1 gate: ARM_1 final mean_weight > 2x ARM_0 in >= 4/5 seeds. Coverage saturates (575a finding); mean_weight is the discriminating metric. PASS closes GAP-10 and unblocks ARC-013, DEV-NEED-004. Smoke PASS.",
       "claimed_by": {
-        "machine": "EWIN-PC",
-        "claimed_at": "2026-04-18T04:10:25.371927+00:00"
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-05-18T00:09:32.670354+00:00"
       }
     },
     {
-      "queue_id": "V3-EXQ-418b",
-      "title": "SD-016+SD-017 context-conditioned action: SHY fix + terrain_loss (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_418a_sd016_sd017_context_conditioned_action",
-      "script": "experiments/v3_exq_418a_sd016_sd017_context_conditioned_action.py",
-      "priority": 10,
+      "queue_id": "V3-EXQ-588",
+      "title": "EXQ-ISEF-002: transient benefit patches z_goal seeding rate comparison (GAP-11)",
+      "experiment_type": "v3_exq_588_isef002_transient_benefit_zgoal_seeding",
+      "script": "experiments/v3_exq_588_isef002_transient_benefit_zgoal_seeding.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 150,
+      "episodes_per_run": 1000,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_id": "MECH-189",
+      "note": "infant_substrate:GAP-11 closure. ARM_0: transient_benefit_enabled=False (uniform resource). ARM_1: transient_benefit_enabled=True, multiplier=3.0. C1 gate: ARM_1 median first z_goal.norm()>0.4 crossing episode < 0.7x ARM_0 median (sentinel=1001 if never). PASS enables transient patches as infant default and unblocks DEV-NEED-006, MECH-189 governance. Smoke PASS.",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-17T10:52:16.702799+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-590",
+      "title": "EXQ-ISEF-004: novelty bonus Goldilocks calibration -- MECH-111 broadcast weight sweep (infant_substrate:GAP-13)",
+      "experiment_type": "v3_exq_590_isef004_novelty_bonus_goldilocks",
+      "script": "experiments/v3_exq_590_isef004_novelty_bonus_goldilocks_v3.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 500,
+      "episodes_per_run": 1000,
+      "seeds": 3,
+      "conditions": 5,
+      "claim_id": "MECH-314",
+      "note": "infant_substrate:GAP-13 closure. Sweeps novelty_bonus_weight in [0.1, 0.3, 0.5, 0.7, 1.0]. C1: signal active (mean_novelty_ema > 0.001 in >=2/3 seeds for any arm). C2: >=3/5 arms with mean_coverage > 0.05 in >=2/3 seeds. Goldilocks weight = arm with highest (norm_coverage + norm_H_pos) / 2. PASS unblocks infant curriculum Phase 1 weight adoption. Smoke PASS.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-18T13:49:30.564407+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-591",
+      "title": "EXQ-ISEF-005: 4-phase infant curriculum vs flat parameter baselines (GAP-14)",
+      "experiment_type": "v3_exq_591_isef005_curriculum_vs_flat",
+      "script": "experiments/v3_exq_591_isef005_curriculum_vs_flat_v3.py",
+      "priority": 3,
       "machine_affinity": "any",
       "status": "pending",
       "estimated_minutes": 120,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "SD-017"
-      ],
-      "supersedes": "V3-EXQ-418a",
-      "notes": "V3-EXQ-418a errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
+      "episodes_per_run": 2000,
+      "seeds": 5,
+      "conditions": 3,
+      "claim_id": "ARC-046",
+      "note": "infant_substrate:GAP-14 closure. PASS confirms ARC-046 (phased residue accumulation via curriculum); unblocks DEV-NEED-008."
     },
     {
-      "queue_id": "V3-EXQ-429a",
-      "title": "INV-044: Bayesian Prior-Before-Posterior Necessity (SWS-ordered vs REM-only vs waking-only) (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_429_inv044_bayesian_prior_before_posterior",
-      "script": "experiments/v3_exq_429_inv044_bayesian_prior_before_posterior.py",
-      "priority": 40,
+      "queue_id": "V3-EXQ-481b",
+      "title": "MECH-090 V_s commit-release substrate validation (re-issue 481)",
+      "experiment_type": "v3_exq_481b_vs_commit_release",
+      "script": "experiments/v3_exq_481b_vs_commit_release.py",
+      "priority": 2,
       "machine_affinity": "any",
       "status": "pending",
-      "estimated_minutes": 200,
+      "estimated_minutes": 5,
+      "episodes_per_run": 1,
+      "seeds": 1,
+      "conditions": 3,
+      "claim_id": "MECH-090",
+      "supersedes": "V3-EXQ-481",
+      "note": "GAP-5 close: forced-commit substrate test; 3 UCs (ON, OFF, empty-snapshot). Smoke-test PASS 2026-05-17."
+    },
+    {
+      "queue_id": "V3-EXQ-582a",
+      "title": "GAP-3 Option 2: drive_floor insatiability floor sweep (escalation from EXQ-582 FAIL)",
+      "experiment_type": "v3_exq_582a_gap3_drive_floor_sweep",
+      "script": "experiments/v3_exq_582a_gap3_drive_floor_sweep.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 30,
+      "seeds": 3,
+      "conditions": 5,
+      "supersedes": "V3-EXQ-582",
+      "note": "EXQ-582 diagnostic grid row: No arm clears A1 (incl. 0.01) -> Escalate to Option 2. Sweeps drive_floor in {0.0, 0.3, 0.6, 0.9, 1.2} with drive_ema_alpha=1.0 (Option 1 OFF). First-PASS arm floor=0.9. goal_pipeline:GAP-3 closure gated on PASS."
+    },
+    {
+      "queue_id": "V3-EXQ-592",
+      "title": "GAP-11 pilot: committed-mode curriculum harness validation (EXP-0157)",
+      "experiment_type": "v3_exq_592_gap11_pilot_committed_mode_curriculum",
+      "script": "experiments/v3_exq_592_gap11_pilot_committed_mode_curriculum.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 400,
       "seeds": 3,
       "conditions": 3,
-      "claim_ids": [
-        "INV-044"
-      ],
-      "backlog_id": "EVB-0060",
-      "supersedes": "V3-EXQ-429",
-      "notes": "V3-EXQ-429 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
+      "claim_id": "MECH-090",
+      "supersedes": "V3-EXQ-461",
+      "note": "commitment_closure:GAP-11 diagnostic pilot. 3 arms: EMERGENT (P0 warmup on easy env -> P2 eval on target), FORCED_RV (clone + forced rv=0.001 -> P2), STARVED (tight threshold=1e-4 -> abort gate fires at mid-probe). C1: emergent committed steps/ep>100 in >=2/3 seeds. C2: forced-rv committed steps/ep>100 all seeds. C3: starved arm aborts (abort_reason=commitment_not_elicited) all seeds. PASS unblocks V3-EXQ-460b/463b/464b/466b/467b/468b OCD battery. Supersedes V3-EXQ-461 (synthetic scripted diagnostic, 2026-05-12)."
     },
     {
-      "queue_id": "V3-EXQ-430a",
-      "title": "INV-010: Offline Integration Necessity (SLEEP vs NO_SLEEP behavioral comparison) (EWIN-PC requeue)",
-      "experiment_type": "v3_exq_430_inv010_offline_integration_necessity",
-      "script": "experiments/v3_exq_430_inv010_offline_integration_necessity.py",
-      "priority": 40,
+      "queue_id": "V3-EXQ-543i",
+      "title": "ARC-062 differential-heads falsifier: does base+norm-pinned-differential STRUCTURE escape monomodal collapse (supersedes 543g+543h)",
+      "experiment_type": "v3_exq_543i_arc062_differential_heads_falsifier",
+      "script": "experiments/v3_exq_543i_arc062_differential_heads_falsifier.py",
+      "priority": 5,
       "machine_affinity": "any",
       "status": "pending",
-      "estimated_minutes": 120,
+      "estimated_minutes": 450,
+      "episodes_per_run": 108,
       "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "INV-010"
-      ],
-      "backlog_id": "EVB-0071",
-      "supersedes": "V3-EXQ-430",
-      "notes": "V3-EXQ-430 errored on EWIN-PC (setup crash, 0.1s). Same script, re-queued on Mac."
-    },
-    {
-      "queue_id": "V3-EXQ-432",
-      "title": "SD-014 replay gate: surprise-weighted vs wanting-weighted prioritization (Carey 2019 replication)",
-      "experiment_type": "v3_exq_432_sd014_replay_gate_prioritization",
-      "script": "experiments/v3_exq_432_sd014_replay_gate_prioritization.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 240,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_ids": [
-        "SD-014"
-      ],
-      "backlog_id": "EVB-0132",
-      "notes": "3 conditions (A_SURPRISE d=[0,0,0,1], B_WANTING d=[1,0,0,0], C_ABLATION), 3 seeds. D1(100eps)+D2(50eps)+Test(20eps) per condition-seed. Tests Carey 2019 anti-preference replay: SURPRISE_WEIGHTED should select newly-devalued (stale) nodes after D1->D2 revaluation. P1: surprise@start[A]>surprise@start[B]+0.001. P2: wanting@start[B]>wanting@start[A]+0.001. P3: n_surprise_writes_d2>5."
+      "conditions": 12,
+      "claim_id": "ARC-062",
+      "supersedes": "V3-EXQ-543h",
+      "note": "Single-variable test of the ARC-062 use_differential_heads substrate fix (landed 2026-05-18, ree-v3 73199fd). 12-arm pruned: ARM_0..7 = exact 543h 2x2x2 diff-OFF (full supersession of 543h, which itself superseded 543g; diff-OFF gated arms 2/3/6/7 MUST reproduce the cross-machine inert collapse), ARM_8..11 = the 4 gated arms diff-ON (PRIMARY). P1 outcome-coupled REINFORCE loss BYTE-IDENTICAL to 543g/h; only varied factor in matched pairs (2<->8, 3<->9, 6<->10, 7<->11) is use_differential_heads. PASS = diff_on_escape (all 4 diff-ON arms n_inert==0) AND diff_off_reproduced_collapse (matched diff-OFF arms inert) AND c2c3_on_pass (discriminator routes by context). Branch a -> ARC-062 supports / MECH-309 bounded / INV-074+MECH-334 testable; branch e -> MECH-309 STRONG confirmation, ARC-062 weak reading falsified, ARC-063/V4 required; branch c -> non_contributory (substrate drift). CROSS-MACHINE: single-machine PASS is PROVISIONAL -- governance needs n_inert==0 on >=2 machines (the 543g ACTIVE-host-A / INERT-cloud bistability is the failure mode under test). claim_ids ARC-062/MECH-309/INV-074/MECH-334. Autopsy: failure_autopsy_V3-EXQ-543h_2026-05-18."
     }
   ]
 }

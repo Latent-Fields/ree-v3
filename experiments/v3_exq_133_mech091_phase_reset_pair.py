@@ -104,6 +104,7 @@ import torch.optim as optim
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiment_protocol import emit_outcome
 
 
 EXPERIMENT_TYPE = "v3_exq_133_mech091_phase_reset_pair"
@@ -464,6 +465,7 @@ def run(
     for seed in seeds:
         for reset_on in [True, False]:
             label = "PHASE_RESET_ON" if reset_on else "PHASE_RESET_ABLATED"
+            print(f"Seed {seed} Condition {label}", flush=True)
             print(
                 f"\n[V3-EXQ-133] {label} seed={seed}"
                 f" warmup={warmup_episodes} eval={eval_episodes}"
@@ -491,6 +493,8 @@ def run(
                 results_on.append(r)
             else:
                 results_ablated.append(r)
+            run_ok = r["harm_eval_gap"] >= 0.0
+            print(f"verdict: {'PASS' if run_ok else 'FAIL'}", flush=True)
 
     def _avg(results: List[Dict], key: str) -> float:
         vals = [r[key] for r in results]
@@ -722,7 +726,7 @@ def run(
     }
 
     return {
-        "status": status,
+        "outcome": status,
         "metrics": metrics,
         "summary_markdown": summary_markdown,
         "claim_ids": CLAIM_IDS,
@@ -772,7 +776,7 @@ if __name__ == "__main__":
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     result["run_timestamp"] = ts
     result["claim"] = CLAIM_IDS[0]
-    result["verdict"] = result["status"]
+    result["verdict"] = result["outcome"]
     result["run_id"] = f"{EXPERIMENT_TYPE}_{ts}_v3"
     result["architecture_epoch"] = "ree_hybrid_guardrails_v1"
     result["registered_thresholds"] = {
@@ -802,3 +806,10 @@ if __name__ == "__main__":
     out_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
     print(f"\nResult written to: {out_path}", flush=True)
+
+    # --- runner-conformance sentinel (added by retrofit_experiments.py) ---
+    _outcome_raw = str(result.get("outcome", "FAIL")).upper()
+    emit_outcome(
+        outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+        manifest_path=out_path,
+    )
