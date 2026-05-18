@@ -546,6 +546,17 @@ class REEAgent(nn.Module):
                 crystallize_expansion_hidden=getattr(
                     config, "gated_policy_crystallize_expansion_hidden", 32
                 ),
+                # ARC-062 robustness fix (2026-05-18, V3-EXQ-543h autopsy):
+                # base + candidate-axis-norm-pinned differential
+                # reparameterization so head_0==head_1 collapse is a
+                # structural non-equilibrium. getattr fallback => bit-
+                # identical when the REEConfig attr is absent.
+                use_differential_heads=getattr(
+                    config, "gated_policy_use_differential_heads", False
+                ),
+                differential_bias_scale=getattr(
+                    config, "gated_policy_differential_bias_scale", 0.1
+                ),
             )
             self.gated_policy = GatedPolicy(
                 world_dim=config.latent.world_dim,

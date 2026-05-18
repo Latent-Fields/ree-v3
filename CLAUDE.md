@@ -427,6 +427,14 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   Config: GatedPolicyConfig.use_differential_heads (default False -> two
   independent heads, bit-identical pre-fix path) and .differential_bias_scale
   (default 0.1, mirrors bias_scale; only read on the True path).
+  Wiring path (how experiments toggle it): agent.py builds GatedPolicyConfig
+  with use_differential_heads=getattr(config,"gated_policy_use_differential_
+  heads",False) and differential_bias_scale=getattr(config,"gated_policy_
+  differential_bias_scale",0.1) -- same getattr style as
+  gated_policy_use_first_action_onehot / crystallize_at_phase3, bit-identical
+  when the flat REEConfig attr is absent. An experiment sets
+  config.gated_policy_use_differential_heads=True AFTER REEConfig.from_dims()
+  and BEFORE REEAgent(config) (single clean build; no rebuild / RNG offset).
   crystallize() freezes (base,delta,discriminator) instead of
   (head_0,head_1,discriminator) when the flag is on -- MECH-334 write-protect
   semantics identical in both configs; expansion device/dtype follows base[0].
