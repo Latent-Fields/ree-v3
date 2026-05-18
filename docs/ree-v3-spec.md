@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-17
+**Last updated:** 2026-05-18
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-17)
+## 0. Current V3 State (2026-05-18)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -107,6 +107,9 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | MECH-320 (ARC-066 child) | action.tonic_vigor_coupling_score_bias -- first child mechanism for ARC-066 (the non_deficit_action_drives architectural family). Pure-arithmetic regulator (sister to MECH-313 NoiseFloor + MECH-314 StructuredCuriosity in ree_core.policy). Composed AFTER MECH-314 curiosity (orthogonal axis: curiosity rewards novelty/uncertainty/LP at candidate level; vigor biases on action-vs-no-op axis) and BEFORE MECH-313 noise_floor. Algorithm: `v_t = max(0, slow EWMA over realised E3 score) * gate_energy * gate_drive * gate_pe`; `bias[i] = -w_action*v_t` on action classes / `+w_passive*v_t` on noop class (additive primary; multiplicative gain falsifiable secondary via tonic_vigor_form="multiplicative"). TARGET-FREE: bias applies regardless of whether any z_goal is currently active, closing the "well-fed-safe-familiar agent has no positive gradient to act" gap that ARC-066 registered. Defaults: half_life=100 (long-window per R4), w_action=w_passive=0.1, bias_scale=0.1. MECH-094: simulation_mode=True on either compute_score_bias or update_score_receipt returns zeros + increments skip counter only. | Implemented 2026-05-10 (V3-EXQ-547 substrate-readiness 6/6 PASS UC1-UC6 on cloud-2 2026-05-10T20:56Z; 28 contract tests in tests/contracts/test_mech_320_tonic_vigor.py PASS; 309/309 contracts + 7/7 preflight PASS with master OFF). claims.yaml MECH-320 candidate -> candidate_substrate_landed. Behavioural validation 3-arm discriminative pair (baseline / additive / multiplicative on a well-fed-safe-familiar substrate) deferred to a separate /queue-experiment session. |
 | ARC-066 / ARC-067 / ARC-068 cluster (non_deficit_action_drives family) | Three architectural-slot claims registered 2026-05-10: ARC-066 tonic_vigor_coupling (capacity -> action bias); ARC-067 idle_aversion_boredom (sustained low-engagement is aversive); ARC-068 opportunity_cost_no_op_penalty (waiting carries cost). Family principle: behaviour comes from surplus capacity AND from deficits, not deficits alone. ARC-066 lit-pull lit_conf 0.789 supports (LC-NE substrate REJECTED, mesolimbic DA-vigor LOAD-BEARING per Niv 2007 + Salamone & Correa 2012 + Beierholm 2013). ARC-067 lit-pull lit_conf 0.85 supports. ARC-068 lit-pull lit_conf 0.806 supports-direction-dominant (R1 SEPARATE-AT-ARCHITECTURE-VIA-KERNEL not via substrate -- ARC-068 anchors on long-window historical EMA, SD-032b on current-environmental scalar; R3 ARC-066 + ARC-068 collapse LICENSED at implementation layer per Niv 2007 mathematical symmetry but slot-level separation preserved for psychiatric failure-mode dissociation). | Cluster registered 2026-05-10 (3 architectural-slot claims + umbrella architecture doc REE_assembly/docs/architecture/non_deficit_action_drives.md + 3 lit-pulls landing under targeted_review_arc_066_tonic_vigor / targeted_review_arc_067_boredom / targeted_review_arc_068_opportunity_cost). MECH-320 (ARC-066 first child mechanism) substrate landed same day. ARC-067 / ARC-068 child-MECH design completed 2026-05-16: two-child split for ARC-067 (MECH-330 idle_aversion_acute_restlessness_accumulator + MECH-331 idle_aversion_chronic_anhedonic_flatness_substrate); ARC-068 collapses into MECH-320 per ARC-068 lit-pull R3 verdict (Niv 2007 mathematical symmetry -- MECH-320 w_passive term IS the ARC-068 implementation). Biology-before-formal-definitions gate now fully clear for the family. |
 | ARC-069 / ARC-070 / ARC-071 cluster (policy_primitive_granularity family) | Three architectural-slot claims registered 2026-05-10: ARC-069 parent (policy_hierarchy_dynamic_regranularisation -- the unit of policy operated on is itself dynamic, not fixed); ARC-070 decomposition-on-prediction-failure (zoom in / re-segment when an imagined chunk fails to ground); ARC-071 composition-via-repeated-grounding (zoom out / chunking when a sequence has been grounded enough times to be treated atomically). ARC-070 lit-pull lit_conf 0.88 supports (R2 LOAD-BEARING SHARED SUBSTRATE -- ARC-070 implemented as bidirectional extension of MECH-288 event_segmenter, not a new module; Schacter 2008 constructive-episodic-simulation core network supplies the empirical anchor). ARC-071 lit-pull lit_conf 0.848 supports (R3 LOAD-BEARING -- CONFIRMED ARC-071 IS the missing transition mechanism in MECH-163 dual_goal_directed_systems, MECH-163 depends_on extended +ARC-071 the same day; R6 SAFETY-CRITICAL escalation -- biology does NOT cleanly gate chunking write path against replay/imagined sequences per Albouy 2013, ARC-071's pre-registered MECH-094 hypothesis_tag=False strict-gating MORE CONSERVATIVE than biology, governance decision pending). | Cluster registered 2026-05-10 (3 architectural-slot claims + umbrella architecture doc REE_assembly/docs/architecture/policy_primitive_granularity.md + 2 lit-pulls under targeted_review_arc_070_decomposition / targeted_review_arc_071_composition). ARC-070 R2 reframe landed (MECH-288 cross-reference rewritten from observation-side analog to bidirectional consumer; event_segmenter.py needs input_stream label for MECH-094 hypothesis_tag-conditional dispatch). MECH-321 (ARC-070 first child mechanism, policy.decomposition_via_event_segmenter) registered candidate / v3_pending the same day with R1-R5 verdicts folded into functional_restatement; depends_on ARC-070 + MECH-288 + MECH-269 + MECH-094. ARC-071 child-MECH design deferred until R6 governance decision lands. |
+| ARC-062 GAP-B/C/D | rule_apprehension wiring continuation: GAP-B head-input first-action one-hot augmentation (bypasses E2 world-forward compression that flattened SP-CEM first-action diversity to 0.22% of z_world before the z_world-only heads -- gated_policy_use_first_action_onehot, default OFF); GAP-C discriminator-output -> SD-033a rule_state source vector (lateral_pfc_use_discriminator_source, default OFF) with agent.py gated_policy block reordered before lateral_pfc so gating_weight is available; GAP-D SD-033a rule_bias_head made optionally trainable (lateral_pfc_train_rule_bias_head, default OFF -- last Linear no longer zeroed when True). All three bit-identical OFF; 484/484 contracts PASS. | Implemented 2026-05-17 (ree-v3 15ca95e); validation EXQ deferred until V3-EXQ-543f/h returns a contributory ARC-062 result |
+| ARC-065 SP-CEM main-path default | Support-preserving + stratified CEM ("SP-CEM") flipped to the main-agent action-path default (6 HippocampalConfig + REEConfig.from_dims defaults: use_support_preserving_cem False->True, support_preserving_stratified_elites False->True, support_preserving_ao_std_floor 0.0->0.2). INTENTIONAL non-no-op default change (the one deliberate departure from the implement-substrate no-op rule) -- the legacy collapsing CEM produced the monostrategy that left SD-029 / ARC-062 Rung 2 / goal_pipeline GAP-2/4 / self_attribution GAP-1/2/3 non_contributory. Bit-identical legacy opt-out by explicitly pinning the three flags. Evidence: V3-EXQ-567 PASS 2026-05-15 (selected_action_entropy 0.0124 -> 0.4965). | Main-path default landed 2026-05-17; V3-EXQ-583 3-arm default-wiring equivalence PASS 2026-05-17T09:25Z (ARM_default == ARM_explicit_on within 1e-9, both >> ARM_explicit_off); claims.yaml ARC-065 implementation_note (NOT promoted -- promotion is Rung-1 matched-entropy governance gated on V3-EXQ-569) |
+| INV-074 / MECH-333 / MECH-334 (ARC-075) | Phase-3 plasticity-injection crystallization + EWC residue write-protect. GatedPolicy.crystallize() freezes head_0/head_1/discriminator + adds a fresh plastic expansion MLP (zero-init last Linear so output bit-identical at the transition instant; forward = frozen_gated(x) + expansion(x.detach())); ResidueField.snapshot_ewc_anchor() + ewc_penalty() write-protect established basins (Kirkpatrick 2017 EWC, NOT a hard freeze); InfantCurriculumScheduler on_phase3_entry fire-once hook. REEConfig.crystallize_at_phase3 default OFF (bit-identical; 484/484 contracts PASS). Nikishin 2023 plasticity injection + Kirkpatrick 2017 EWC. | Implemented 2026-05-17 (ree-v3 f8b93e3); validation V3-EXQ-543h 2x2x2 (use_gated_policy x use_dacc x crystallize_at_phase3, supersedes V3-EXQ-543g) queued |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -125,6 +128,65 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-05-18T01:10Z nightly read.** Central
+  `evidence/experiments/runner_status.json` reports **720 cumulative
+  completions** (164 PASS / 286 FAIL / 77 ERROR / 193 UNKNOWN);
+  last_updated 2026-05-17T13:11:02Z -- the central file is now ~12h
+  stale (the multi-machine runners write per-machine
+  `runner_status/<hostname>.json`; cross-machine aggregate as of this
+  read is **1103 cumulative** -- DLAPTOP-4.local 591 + ree-cloud-1 237
+  + ree-cloud-2 170 + EWIN-PC 77 + Daniel-PC 28; 274 PASS / 486 FAIL /
+  107 ERROR / 236 UNKNOWN). +2 central completions since the
+  2026-05-17T01:11Z nightly read (V3-EXQ-582 FAIL SD-012 EMA-sweep
+  substrate-ceiling + V3-EXQ-583 PASS SP-CEM main-path default-wiring
+  equivalence). **Pending review queue (regenerated
+  2026-05-17T12:59:48Z; last review 2026-05-17T10:24:31Z) is 0
+  items.** **Currently queued (`experiment_queue.json`): 11 items**
+  (0 -> 11) -- the infant_substrate GAP / EXQ-ISEF cohort:
+  V3-EXQ-584 (GAP-7 traj_cosine), 586 (GAP-9 curriculum scheduler),
+  587 (EXQ-ISEF-001 harm-gradient curriculum, claimed ree-cloud-4),
+  588 (ISEF-002 transient-benefit z_goal seeding, claimed
+  ree-cloud-2), 589 (ISEF-003 microhabitat latent diversity, claimed
+  DLAPTOP-4.local), 590 (ISEF-004 novelty Goldilocks, claimed
+  ree-cloud-3), 591 (ISEF-005 curriculum-vs-flat) + V3-EXQ-481b
+  (MECH-090 V_s commit-release), 582a (goal_pipeline:GAP-3 Option 2
+  drive_floor sweep), 592 (commitment_closure:GAP-11 committed-mode
+  curriculum pilot). Cloud capacity scaled: ree-worker-3 (CX43) +
+  ree-worker-4 provisioned. 2026-05-17 substrate / claim wave:
+  (1) **plasticity-crystallization cluster registered** -- INV-074 +
+  MECH-333 + MECH-334 + ARC-075 + Q-052 (developmental critical-period
+  crystallization), INV-075 (signal-structure temporal decoupling;
+  parent of INV-074 -- a self-extinguishing load-bearing signal
+  necessarily requires lock OR handoff), ARC-076 + MECH-335 + MECH-336
+  (developmental commitment-loop calibration window with critical-period
+  lock = personality; INV-075 LOCK-arm instance) with an
+  implementation_prerequisites HARD ORDERING GATE; claims.yaml now
+  **645 claims**. (2) **INV-074/MECH-333/334 Phase-3 crystallization
+  substrate landed** in ree-v3 (f8b93e3) -- GatedPolicy.crystallize()
+  plasticity injection + ResidueField EWC residue write-protect +
+  InfantCurriculumScheduler on_phase3_entry hook;
+  crystallize_at_phase3 default OFF; 484/484 contracts PASS.
+  (3) **ARC-062 GAP-B/C/D landed** -- head-input first-action one-hot
+  augmentation (bypasses E2 world-forward compression) + discriminator
+  -> SD-033a rule_state source + trainable rule_bias_head; all
+  bit-identical OFF. (4) **ARC-065 SP-CEM flipped to main-path
+  default** (intentional non-no-op; legacy collapsing CEM was the
+  monostrategy root cause) -- V3-EXQ-583 default-wiring equivalence
+  PASS. (5) **SD-012 sustained-drive amendment** -- Option 1
+  drive_ema_alpha trace + Option 2 drive_floor for goal_pipeline:GAP-3
+  (V3-EXQ-582 FAIL escalated to the 582a drive_floor sweep).
+  (6) **commitment_closure GAP-3 + GAP-11** -- CausalGridWorldV2 env
+  extensions primitives 1-3 + committed_mode_curriculum.py harness
+  helper (unblocks the OCD battery V3-EXQ-460b/463b/464b/466b/467b/468b).
+  Bottleneck (unchanged framing): the **ARC-065 behavioural-diversity
+  developmental warm-start failure** remains the dominant scientific
+  blocker, now under active test -- **EXQ-ISEF-001 (V3-EXQ-587
+  harm-gradient curriculum) is Rank 1**, claimed by ree-cloud-4 and
+  running; ISEF-002..005 (V3-EXQ-588..591) queued/claimed across cloud
+  workers. The freshly-landed INV-074/MECH-334 crystallization substrate
+  has its falsifier **V3-EXQ-543h** (2x2x2 ARC-062 GAP-B x
+  crystallize_at_phase3, supersedes 543g) queued at priority 10 on
+  ree-cloud-4. Historical context preserved below.
 - **2026-05-17T01:11Z nightly read.** Central
   `evidence/experiments/runner_status.json` reports **718 cumulative
   completions** (163 PASS / 285 FAIL / 77 ERROR / 193 UNKNOWN);
