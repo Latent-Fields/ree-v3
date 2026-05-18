@@ -136,9 +136,23 @@ def git_pull(repo_path: Path, label: str) -> None:
                       f"({attempt + 1}/2)...", flush=True)
                 time.sleep(2)
                 continue
+            # A failed --rebase pull may stop mid-rebase and leave
+            # .git/rebase-merge behind, which wedges EVERY later git op on
+            # this repo ("there is already a rebase-merge directory") until
+            # a manual / launchd repair. Abort it so the next tick starts
+            # clean. Lost work is impossible here: autostash is restored by
+            # the abort, and a failed pull changed nothing to begin with.
+            subprocess.run(["git", "rebase", "--abort"], cwd=str(repo_path),
+                            capture_output=True, timeout=10)
+            subprocess.run(["git", "rebase", "--quit"], cwd=str(repo_path),
+                            capture_output=True, timeout=10)
             print(f"[runner] git pull {label} warn: {stderr}", flush=True)
             return
         except Exception as e:
+            subprocess.run(["git", "rebase", "--abort"], cwd=str(repo_path),
+                            capture_output=True, timeout=10)
+            subprocess.run(["git", "rebase", "--quit"], cwd=str(repo_path),
+                            capture_output=True, timeout=10)
             print(f"[runner] git pull {label} error: {e}", flush=True)
             return
 

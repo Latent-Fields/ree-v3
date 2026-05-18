@@ -205,17 +205,157 @@ def _active_claim_on_evidence_dir(ree_assembly_path: Path) -> bool:
         return False
 
 
-def push_heartbeat(ree_assembly_path: Path, path: Path) -> None:
-    """Stage + commit + push a single heartbeat file. Best-effort, never raises.
+# Runner telemetry dirs whose working-tree contents are fully regenerable on
+# the next tick. `git checkout -f -B <branch> origin/<branch>` may freely
+# discard local changes (uncommitted or committed-but-unpushed) confined to
+# these paths; anything else is treated as precious and the push is skipped.
+_REGENERABLE_PREFIXES = (
+    "evidence/experiments/runner_heartbeats/",
+    "evidence/experiments/runner_status/",
+    "evidence/experiments/runner_commands/",
+)
 
-    Used when --auto-sync is on. Failure (e.g. concurrent push) is logged but
-    does not interrupt the runner -- the next tick will rewrite + retry.
+_PUSH_BRANCH = "master"
+_MAX_PUSH_ATTEMPTS = 3
+
+
+def _git(repo: str, *args: str, timeout: int) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *args], cwd=repo,
+        capture_output=True, text=True, timeout=timeout,
+    )
+
+
+def _is_regenerable(rel_path: str) -> bool:
+    rel_path = rel_path.strip().strip('"')
+    return bool(rel_path) and any(
+        rel_path.startswith(p) for p in _REGENERABLE_PREFIXES
+    )
+
+
+def _hard_sync_is_safe(repo: str, branch: str) -> bool:
+    """True iff resetting the worktree to origin/<branch> cannot destroy
+    precious work -- i.e. every uncommitted *tracked* change AND every
+    commit ahead of origin/<branch> is confined to the regenerable
+    telemetry dirs. Mirrors the launchd repair script's safety envelope so
+    this per-tick path is never less safe than the 3-hourly net. Untracked
+    files are irrelevant (a hard checkout leaves them in place).
+    Conservative: any git error -> False (caller skips the push this tick).
+    """
+    try:
+        st = _git(repo, "status", "--porcelain", "--untracked-files=no",
+                  timeout=10)
+        if st.returncode != 0:
+            return False
+        for line in st.stdout.splitlines():
+            entry = line[3:]
+            if " -> " in entry:  # rename/copy: the new path is what lands
+                entry = entry.split(" -> ", 1)[1]
+            if entry.strip() and not _is_regenerable(entry):
+                return False
+        ahead = _git(repo, "rev-list", f"origin/{branch}..HEAD", timeout=10)
+        if ahead.returncode != 0:
+            return False
+        for sha in ahead.stdout.split():
+            files = _git(repo, "diff-tree", "--no-commit-id",
+                         "--name-only", "-r", sha, timeout=10)
+            if files.returncode != 0:
+                return False
+            for f in files.stdout.splitlines():
+                if f.strip() and not _is_regenerable(f):
+                    return False
+        return True
+    except Exception:
+        return False
+
+
+def _push_telemetry_file(
+    ree_assembly_path: Path, path: Path, rel: Path, label: str,
+) -> None:
+    """Rebase-free commit+push of one regenerable telemetry file.
+
+    The old path ran `git pull --rebase --autostash` every tick on every
+    machine against a single shared branch; losing the push race left a
+    stuck .git/rebase-merge that wedged the repo for hours. This path
+    never rebases, so it cannot wedge: capture the file's intended bytes,
+    fetch origin, force the local branch onto origin/<branch> (discarding
+    only regenerable telemetry -- verified safe by _hard_sync_is_safe),
+    restore our bytes, commit just this file, push. A non-fast-forward
+    rejection (another machine pushed first) just re-fetches and replays,
+    bounded to _MAX_PUSH_ATTEMPTS; the next tick retries regardless.
+
+    Best-effort, never raises. If precious (non-telemetry) uncommitted or
+    unpushed work exists, the push is skipped this tick rather than risk
+    destroying it -- heartbeats resume once the working tree is clean.
+    """
+    repo = str(ree_assembly_path)
+    try:
+        content = path.read_bytes()
+    except Exception:
+        return
+    rel_s = str(rel)
+    try:
+        for attempt in range(_MAX_PUSH_ATTEMPTS):
+            fetch = _git(repo, "fetch", "origin", _PUSH_BRANCH, timeout=20)
+            if fetch.returncode != 0:
+                return  # offline / transient -- next tick retries
+            if not _hard_sync_is_safe(repo, _PUSH_BRANCH):
+                return  # precious work present -- do not hard-reset
+            # Clean slate vs origin: handles detached HEAD or divergence,
+            # discards regenerable telemetry, never rebases.
+            sync = _git(repo, "checkout", "-f", "-B", _PUSH_BRANCH,
+                        f"origin/{_PUSH_BRANCH}", timeout=15)
+            if sync.returncode != 0:
+                return
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+            except Exception:
+                return
+            add = _git(repo, "add", rel_s, timeout=10)
+            if add.returncode != 0:
+                return
+            # Nothing staged -> unchanged vs origin within this tick.
+            diff = _git(repo, "diff", "--cached", "--quiet", timeout=10)
+            if diff.returncode == 0:
+                return
+            commit = _git(repo, "commit", "-m", f"{label}: {path.stem}",
+                          timeout=15)
+            if commit.returncode != 0:
+                return
+            push = _git(repo, "push", "origin",
+                        f"HEAD:{_PUSH_BRANCH}", timeout=30)
+            if push.returncode == 0:
+                return
+            stderr = push.stderr or ""
+            lost_race = any(
+                tok in stderr for tok in
+                ("fast-forward", "non-fast-forward", "rejected",
+                 "fetch first", "[remote rejected]")
+            )
+            if not lost_race or attempt == _MAX_PUSH_ATTEMPTS - 1:
+                lines = stderr.strip().splitlines()
+                tail = lines[-1] if lines else "?"
+                print(f"[remote-control] {label} push warn: {tail}",
+                      flush=True)
+                return
+            # Lost the race; loop to re-fetch the new tip and replay.
+    except Exception as exc:
+        print(f"[remote-control] {label} push error: {exc}", flush=True)
+
+
+def push_heartbeat(ree_assembly_path: Path, path: Path) -> None:
+    """Commit + push a single heartbeat file. Best-effort, never raises.
+
+    Used when --auto-sync is on. Failure (e.g. losing the push race) is
+    logged but does not interrupt the runner -- the next tick rewrites the
+    heartbeat and retries.
 
     If an active TASK_CLAIMS entry covers any REE_assembly/evidence/ subdir,
-    the entire push is skipped for this tick to avoid disturbing concurrent
-    Claude sessions' uncommitted edits via the pull-rebase-autostash
-    interaction. Heartbeats are best-effort and resume on the next tick once
-    the claim closes.
+    the entire push is skipped for this tick so a concurrent Claude session's
+    uncommitted edits are left untouched. Heartbeats resume on the next tick
+    once the claim closes. See _push_telemetry_file for the (rebase-free)
+    git strategy.
     """
     if not path or not path.exists():
         return
@@ -225,40 +365,7 @@ def push_heartbeat(ree_assembly_path: Path, path: Path) -> None:
         rel = path.relative_to(ree_assembly_path)
     except ValueError:
         return
-    try:
-        subprocess.run(
-            ["git", "pull", "--rebase", "--autostash"],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=20,
-        )
-        add = subprocess.run(
-            ["git", "add", str(rel)],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
-        )
-        if add.returncode != 0:
-            return
-        # Skip commit if nothing staged (heartbeat unchanged within tick window).
-        diff = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
-        )
-        if diff.returncode == 0:
-            return
-        commit = subprocess.run(
-            ["git", "commit", "-m", f"heartbeat: {path.stem}"],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
-        )
-        if commit.returncode != 0:
-            return
-        push = subprocess.run(
-            ["git", "push", "origin", "HEAD:master"],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=30,
-        )
-        if push.returncode != 0:
-            stderr = (push.stderr or "").strip().splitlines()
-            tail = stderr[-1] if stderr else "?"
-            print(f"[remote-control] heartbeat push warn: {tail}", flush=True)
-    except Exception as exc:
-        print(f"[remote-control] heartbeat push error: {exc}", flush=True)
+    _push_telemetry_file(ree_assembly_path, path, rel, "heartbeat")
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -329,39 +436,7 @@ def push_commands(ree_assembly_path: Path, path: Path, label: str = "commands") 
         rel = path.relative_to(ree_assembly_path)
     except ValueError:
         return
-    try:
-        subprocess.run(
-            ["git", "pull", "--rebase", "--autostash"],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=20,
-        )
-        add = subprocess.run(
-            ["git", "add", str(rel)],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
-        )
-        if add.returncode != 0:
-            return
-        diff = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
-        )
-        if diff.returncode == 0:
-            return
-        commit = subprocess.run(
-            ["git", "commit", "-m", f"{label}: {path.stem}"],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
-        )
-        if commit.returncode != 0:
-            return
-        push = subprocess.run(
-            ["git", "push", "origin", "HEAD:master"],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=30,
-        )
-        if push.returncode != 0:
-            tail = (push.stderr or "").strip().splitlines()
-            tail_msg = tail[-1] if tail else "?"
-            print(f"[remote-control] {label} push warn: {tail_msg}", flush=True)
-    except Exception as exc:
-        print(f"[remote-control] {label} push error: {exc}", flush=True)
+    _push_telemetry_file(ree_assembly_path, path, rel, label)
 
 
 def append_command(
