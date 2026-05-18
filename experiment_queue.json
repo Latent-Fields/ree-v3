@@ -28,11 +28,15 @@
       "script": "experiments/v3_exq_586_gap9_curriculum_validation_v3.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 5,
       "seeds": 3,
       "conditions": 2,
-      "note": "infant_substrate:GAP-9 diagnostic. Validates InfantCurriculumScheduler hard-count (ARM_0) and telemetry-gated (ARM_1, delayed by H_pos/z_goal gates) transitions. Unblocks DEV-NEED-008, ARC-046, EXQ-ISEF-005 (GAP-14)."
+      "note": "infant_substrate:GAP-9 diagnostic. Validates InfantCurriculumScheduler hard-count (ARM_0) and telemetry-gated (ARM_1, delayed by H_pos/z_goal gates) transitions. Unblocks DEV-NEED-008, ARC-046, EXQ-ISEF-005 (GAP-14).",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-18T22:25:13.143535+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-587",
