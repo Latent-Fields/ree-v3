@@ -22,8 +22,8 @@
       "claim_id": "MECH-314",
       "note": "infant_substrate:GAP-13 closure. Sweeps novelty_bonus_weight in [0.1, 0.3, 0.5, 0.7, 1.0]. C1: signal active (mean_novelty_ema > 0.001 in >=2/3 seeds for any arm). C2: >=3/5 arms with mean_coverage > 0.05 in >=2/3 seeds. Goldilocks weight = arm with highest (norm_coverage + norm_H_pos) / 2. PASS unblocks infant curriculum Phase 1 weight adoption. Smoke PASS.",
       "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-05-19T08:07:43.214638+00:00"
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-19T18:39:24.082872+00:00"
       }
     },
     {
