@@ -1,98 +1,79 @@
 {
- "schema_version": "v1",
- "calibration": {
-  "ms_per_episode_condition": 8000,
-  "hardware": "Apple M2 Air 8 GB",
-  "calibrated_at": "2026-03-16",
-  "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
- },
- "items": [
-  {
-   "queue_id": "V3-EXQ-590",
-   "title": "EXQ-ISEF-004: novelty bonus Goldilocks calibration -- MECH-111 broadcast weight sweep (infant_substrate:GAP-13)",
-   "experiment_type": "v3_exq_590_isef004_novelty_bonus_goldilocks",
-   "script": "experiments/v3_exq_590_isef004_novelty_bonus_goldilocks_v3.py",
-   "priority": 3,
-   "machine_affinity": "any",
-   "status": "pending",
-   "estimated_minutes": 500,
-   "episodes_per_run": 1000,
-   "seeds": 3,
-   "conditions": 5,
-   "claim_id": "MECH-314",
-   "note": "infant_substrate:GAP-13 closure. Sweeps novelty_bonus_weight in [0.1, 0.3, 0.5, 0.7, 1.0]. C1: signal active (mean_novelty_ema > 0.001 in >=2/3 seeds for any arm). C2: >=3/5 arms with mean_coverage > 0.05 in >=2/3 seeds. Goldilocks weight = arm with highest (norm_coverage + norm_H_pos) / 2. PASS unblocks infant curriculum Phase 1 weight adoption. Smoke PASS.",
-   "claimed_by": null
+  "schema_version": "v1",
+  "calibration": {
+    "ms_per_episode_condition": 8000,
+    "hardware": "Apple M2 Air 8 GB",
+    "calibrated_at": "2026-03-16",
+    "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  {
-   "queue_id": "V3-EXQ-591",
-   "title": "EXQ-ISEF-005: 4-phase infant curriculum vs flat parameter baselines (GAP-14)",
-   "experiment_type": "v3_exq_591_isef005_curriculum_vs_flat",
-   "script": "experiments/v3_exq_591_isef005_curriculum_vs_flat_v3.py",
-   "priority": 3,
-   "machine_affinity": "any",
-   "status": "claimed",
-   "estimated_minutes": 120,
-   "episodes_per_run": 2000,
-   "seeds": 5,
-   "conditions": 3,
-   "claim_id": "ARC-046",
-   "note": "infant_substrate:GAP-14 closure. PASS confirms ARC-046 (phased residue accumulation via curriculum); unblocks DEV-NEED-008.",
-   "claimed_by": {
-    "machine": "Mac",
-    "claimed_at": "2026-05-19T03:03:30.386909+00:00"
-   }
-  },
-  {
-   "queue_id": "V3-EXQ-592",
-   "title": "GAP-11 pilot: committed-mode curriculum harness validation (EXP-0157)",
-   "experiment_type": "v3_exq_592_gap11_pilot_committed_mode_curriculum",
-   "script": "experiments/v3_exq_592_gap11_pilot_committed_mode_curriculum.py",
-   "priority": 6,
-   "machine_affinity": "DLAPTOP-4.local",
-   "status": "pending",
-   "estimated_minutes": 60,
-   "episodes_per_run": 400,
-   "seeds": 3,
-   "conditions": 3,
-   "claim_id": "MECH-090",
-   "supersedes": "V3-EXQ-461",
-   "note": "commitment_closure:GAP-11 diagnostic pilot. 3 arms: EMERGENT (P0 warmup on easy env -> P2 eval on target), FORCED_RV (clone + forced rv=0.001 -> P2), STARVED (tight threshold=1e-4 -> abort gate fires at mid-probe). C1: emergent committed steps/ep>100 in >=2/3 seeds. C2: forced-rv committed steps/ep>100 all seeds. C3: starved arm aborts (abort_reason=commitment_not_elicited) all seeds. PASS unblocks V3-EXQ-460b/463b/464b/466b/467b/468b OCD battery. Supersedes V3-EXQ-461 (synthetic scripted diagnostic, 2026-05-12).",
-   "claimed_by": null
-  },
-  {
-   "queue_id": "V3-EXQ-543j",
-   "title": "ARC-062 differential-heads cross-machine confirmation of 543i (ree-cloud-4)",
-   "experiment_type": "v3_exq_543j_arc062_differential_heads_xmachine_confirm",
-   "script": "experiments/v3_exq_543j_arc062_differential_heads_xmachine_confirm.py",
-   "priority": 5,
-   "machine_affinity": "ree-cloud-4",
-   "status": "claimed",
-   "estimated_minutes": 330,
-   "episodes_per_run": 108,
-   "seeds": 3,
-   "conditions": 12,
-   "claim_id": "ARC-062",
-   "note": "Cross-machine CONFIRMATION of V3-EXQ-543i_20260518T191052Z (NOT a supersession; 543i stands, keeps its 543h/543g chain; manifest carries confirms=V3-EXQ-543i). Byte-identical to 543i in all executable code (config, thresholds, 12-arm design, phased training, acceptance logic); the ONLY varied factor vs 543i is the host machine. 543i FAILed branch e (MECH-309 supports / ARC-062 weakens: all 4 diff-ON gated arms 3/3 inert despite delta_hat L2 pinned to differential_bias_scale=0.1) on a SINGLE machine (Mac). The 543g->h->i chain exists because of a cross-machine bistability (ACTIVE host-A / INERT cloud-3+cloud-4); pinned to ree-cloud-4 (a participant in that divergent INERT basin) for the strongest single-variable confirmation. Branch e CONFIRMS-543i -> clears single-machine caveat, ARC-062 demotion + ARC-063/V4 governance can proceed; branch a CONTRADICTS-543i -> 543i was itself a single-machine basin artifact, do NOT demote ARC-062, escalate to /failure-autopsy + >=2-machine matrix; branch c NON-CONTRIBUTORY (diff-OFF did not reproduce collapse on this host -> drift). priority 5 (above current max 4): ARC-062/MECH-309 governance is gated on this. Smoke: dry-run PASS (36/36 verdicts, branch c as expected for 3-ep dry-run, identical to 543i dry-run; manifest+sentinel+identity fields verified).",
-   "claimed_by": {
-    "machine": "ree-cloud-4",
-    "claimed_at": "2026-05-19T01:56:01.028528+00:00"
-   }
-  },
-  {
-   "queue_id": "V3-EXQ-594",
-   "title": "MECH-339 C1 composite cue + outshining gate -- substrate validation",
-   "experiment_type": "v3_exq_594_mech339_composite_cue_outshining_validation",
-   "script": "experiments/v3_exq_594_mech339_composite_cue_outshining_validation.py",
-   "claim_id": "MECH-339",
-   "priority": 10,
-   "machine_affinity": "any",
-   "status": "pending",
-   "claimed_by": null,
-   "estimated_minutes": 1,
-   "episodes_per_run": 1,
-   "seeds": 1,
-   "conditions": 1,
-   "note": "Diagnostic substrate-readiness for MECH-339 (C1) composite cue + outshining gate (smallest step: arousal_tag context channel gated by goal_match in ghost_goal_bank.py). Pure-arithmetic, no training/env. 4 sub-tests = the 4 MECH-339 falsifiable predictions: T1 backward-compat bit-identical (master off), T2 strong match closes the gate (context term exactly 0.0, top unchanged), T3 weak match -> context changes top, T4 ungated fixed-weight context degrades top-1 on a clean match (gate does real work). PASS=T1&T2&T3&T4. experiment_purpose=diagnostic (excluded from governance scoring); MECH-339 stays candidate/v3_pending. Smoke PASS (all 4); validate_experiments OK."
-  }
- ]
+  "items": [
+    {
+      "queue_id": "V3-EXQ-590",
+      "title": "EXQ-ISEF-004: novelty bonus Goldilocks calibration -- MECH-111 broadcast weight sweep (infant_substrate:GAP-13)",
+      "experiment_type": "v3_exq_590_isef004_novelty_bonus_goldilocks",
+      "script": "experiments/v3_exq_590_isef004_novelty_bonus_goldilocks_v3.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 500,
+      "episodes_per_run": 1000,
+      "seeds": 3,
+      "conditions": 5,
+      "claim_id": "MECH-314",
+      "note": "infant_substrate:GAP-13 closure. Sweeps novelty_bonus_weight in [0.1, 0.3, 0.5, 0.7, 1.0]. C1: signal active (mean_novelty_ema > 0.001 in >=2/3 seeds for any arm). C2: >=3/5 arms with mean_coverage > 0.05 in >=2/3 seeds. Goldilocks weight = arm with highest (norm_coverage + norm_H_pos) / 2. PASS unblocks infant curriculum Phase 1 weight adoption. Smoke PASS.",
+      "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-591",
+      "title": "EXQ-ISEF-005: 4-phase infant curriculum vs flat parameter baselines (GAP-14)",
+      "experiment_type": "v3_exq_591_isef005_curriculum_vs_flat",
+      "script": "experiments/v3_exq_591_isef005_curriculum_vs_flat_v3.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "claimed",
+      "estimated_minutes": 120,
+      "episodes_per_run": 2000,
+      "seeds": 5,
+      "conditions": 3,
+      "claim_id": "ARC-046",
+      "note": "infant_substrate:GAP-14 closure. PASS confirms ARC-046 (phased residue accumulation via curriculum); unblocks DEV-NEED-008.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-05-19T03:03:30.386909+00:00"
+      }
+    },
+    {
+      "queue_id": "V3-EXQ-592",
+      "title": "GAP-11 pilot: committed-mode curriculum harness validation (EXP-0157)",
+      "experiment_type": "v3_exq_592_gap11_pilot_committed_mode_curriculum",
+      "script": "experiments/v3_exq_592_gap11_pilot_committed_mode_curriculum.py",
+      "priority": 6,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 400,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "MECH-090",
+      "supersedes": "V3-EXQ-461",
+      "note": "commitment_closure:GAP-11 diagnostic pilot. 3 arms: EMERGENT (P0 warmup on easy env -> P2 eval on target), FORCED_RV (clone + forced rv=0.001 -> P2), STARVED (tight threshold=1e-4 -> abort gate fires at mid-probe). C1: emergent committed steps/ep>100 in >=2/3 seeds. C2: forced-rv committed steps/ep>100 all seeds. C3: starved arm aborts (abort_reason=commitment_not_elicited) all seeds. PASS unblocks V3-EXQ-460b/463b/464b/466b/467b/468b OCD battery. Supersedes V3-EXQ-461 (synthetic scripted diagnostic, 2026-05-12).",
+      "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-594",
+      "title": "MECH-339 C1 composite cue + outshining gate -- substrate validation",
+      "experiment_type": "v3_exq_594_mech339_composite_cue_outshining_validation",
+      "script": "experiments/v3_exq_594_mech339_composite_cue_outshining_validation.py",
+      "claim_id": "MECH-339",
+      "priority": 10,
+      "machine_affinity": "any",
+      "status": "pending",
+      "claimed_by": null,
+      "estimated_minutes": 1,
+      "episodes_per_run": 1,
+      "seeds": 1,
+      "conditions": 1,
+      "note": "Diagnostic substrate-readiness for MECH-339 (C1) composite cue + outshining gate (smallest step: arousal_tag context channel gated by goal_match in ghost_goal_bank.py). Pure-arithmetic, no training/env. 4 sub-tests = the 4 MECH-339 falsifiable predictions: T1 backward-compat bit-identical (master off), T2 strong match closes the gate (context term exactly 0.0, top unchanged), T3 weak match -> context changes top, T4 ungated fixed-weight context degrades top-1 on a clean match (gate does real work). PASS=T1&T2&T3&T4. experiment_purpose=diagnostic (excluded from governance scoring); MECH-339 stays candidate/v3_pending. Smoke PASS (all 4); validate_experiments OK."
+    }
+  ]
 }
