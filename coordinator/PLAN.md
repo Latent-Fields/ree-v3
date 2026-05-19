@@ -45,6 +45,7 @@ results, then queue removal.
 | POST `/result` | `git_push_results()` ~:1926 | gzip JSON body, up to 32MB; idempotent on `run_id` |
 | POST `/queue/remove` | `git_push_queue()` ~:1942 | body `{queue_id, reason}` |
 | GET  `/shadow/divergence` | -- | shadow audit: rows where coordinator verdict != git verdict |
+| GET  `/shadow/status` | -- | one-call soak snapshot: traffic + divergence + per-machine heartbeat freshness (backs `check_shadow.py`) |
 
 Result payload is a single flat JSON document. Verified 2026-05-19: 0 of the
 experiment scripts emit sidecar artifacts (png/npz/csv/savefig); manifest

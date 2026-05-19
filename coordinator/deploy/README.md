@@ -99,6 +99,28 @@ Phase 2/3 (claim cutover, then result cutover, sync_daemon as sole git
 writer) are described in `../PLAN.md` and are deliberately NOT enabled by
 this runbook.
 
+## Daily soak watch
+
+From any mesh machine (e.g. your Mac), once per day during the shadow
+period:
+
+```
+python3 ~/REE_Working/ree-v3/coordinator/check_shadow.py \
+  --url http://10.8.0.1:8787 --token <any-worker-token>
+```
+
+It prints one verdict and sets an exit code you can alert on:
+
+- `0 HEALTHY` -- claims observed, 0 divergence, >=1 live machine. This is
+  the state that, sustained over several days of real load, clears
+  Phase 2.
+- `1 DIVERGENCE` -- the coordinator disagreed with git at least once. Do
+  NOT advance; investigate every printed row.
+- `2 NO SIGNAL` -- coordinator healthy but no claim traffic / all
+  heartbeats stale. The soak is not exercising anything: runners are
+  drained or were not flipped to `COORDINATION_MODE=shadow`.
+- `3 UNREACHABLE` -- WireGuard down, coordinator down, or token bad.
+
 ## Rollback
 
 Remove the four env vars from a worker (or set `COORDINATION_MODE=git`) and

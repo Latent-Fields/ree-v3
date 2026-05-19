@@ -159,6 +159,32 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"total_claims": total, "divergences": ndiv,
                              "rows": [dict(r) for r in rows]})
             return
+        if path == "/shadow/status":
+            # One-call operator soak snapshot: traffic seen, divergence
+            # count, per-machine heartbeat freshness. Backs check_shadow.py.
+            conn = db.connect(DB_PATH)
+            try:
+                total = conn.execute(
+                    "SELECT COUNT(*) c FROM claim_log").fetchone()["c"]
+                ndiv = conn.execute("SELECT COUNT(*) c FROM claim_log "
+                                    "WHERE diverged=1").fetchone()["c"]
+                nexp = conn.execute(
+                    "SELECT COUNT(*) c FROM experiments").fetchone()["c"]
+                machines = [dict(r) for r in conn.execute(
+                    "SELECT machine, last_seen, state, current_exq FROM "
+                    "heartbeats ORDER BY machine").fetchall()]
+                recent = [dict(r) for r in conn.execute(
+                    "SELECT queue_id, machine, git_verdict, coord_verdict, "
+                    "logged_at FROM claim_log WHERE diverged=1 "
+                    "ORDER BY id DESC LIMIT 20").fetchall()]
+            finally:
+                conn.close()
+            self._send(200, {"mode": MODE, "total_claims": total,
+                             "divergences": ndiv,
+                             "experiments_in_mirror": nexp,
+                             "machines": machines,
+                             "recent_divergences": recent})
+            return
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
