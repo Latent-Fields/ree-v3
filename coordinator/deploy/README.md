@@ -99,6 +99,26 @@ Phase 2/3 (claim cutover, then result cutover, sync_daemon as sole git
 writer) are described in `../PLAN.md` and are deliberately NOT enabled by
 this runbook.
 
+## Starting from the explorer (the button)
+
+Instead of starting each runner by hand, the REE explorer has a "Shadow
+Coordination" panel (bottom-right). On the Mac running `serve.py`:
+
+```
+cd ~/REE_Working/REE_assembly
+cp coordinator.env.example coordinator.env     # gitignored
+# set COORDINATOR_URL (the WG IP, e.g. http://10.8.0.1:8787),
+# COORDINATOR_LOCAL_TOKEN (this Mac's gen_token.py token), and the
+# SHADOW_SSH_HOST_ree-cloud-* lines to the boxes' WireGuard IPs --
+# bare names like 'ree-cloud-1' do NOT resolve on the Mac.
+# restart serve.py
+```
+
+The button then starts the Mac runner in shadow, SSH-starts the
+ree-cloud-1 coordinator + cloud-2/3/4 runners, and the panel shows the
+live verdict. Daniel-PC / EWIN-PC are reported as "start manually" (no
+inbound SSH). Unreachable boxes are reported FAILED, never fatal.
+
 ## Daily soak watch
 
 From any mesh machine (e.g. your Mac), once per day during the shadow
