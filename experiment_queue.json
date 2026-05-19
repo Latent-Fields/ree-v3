@@ -61,25 +61,6 @@
       "supersedes": "V3-EXQ-461",
       "note": "commitment_closure:GAP-11 diagnostic pilot. 3 arms: EMERGENT (P0 warmup on easy env -> P2 eval on target), FORCED_RV (clone + forced rv=0.001 -> P2), STARVED (tight threshold=1e-4 -> abort gate fires at mid-probe). C1: emergent committed steps/ep>100 in >=2/3 seeds. C2: forced-rv committed steps/ep>100 all seeds. C3: starved arm aborts (abort_reason=commitment_not_elicited) all seeds. PASS unblocks V3-EXQ-460b/463b/464b/466b/467b/468b OCD battery. Supersedes V3-EXQ-461 (synthetic scripted diagnostic, 2026-05-12).",
       "claimed_by": null
-    },
-    {
-      "queue_id": "V3-EXQ-594",
-      "title": "MECH-339 C1 composite cue + outshining gate -- substrate validation",
-      "experiment_type": "v3_exq_594_mech339_composite_cue_outshining_validation",
-      "script": "experiments/v3_exq_594_mech339_composite_cue_outshining_validation.py",
-      "claim_id": "MECH-339",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-19T18:39:14.542351+00:00"
-      },
-      "estimated_minutes": 1,
-      "episodes_per_run": 1,
-      "seeds": 1,
-      "conditions": 1,
-      "note": "Diagnostic substrate-readiness for MECH-339 (C1) composite cue + outshining gate (smallest step: arousal_tag context channel gated by goal_match in ghost_goal_bank.py). Pure-arithmetic, no training/env. 4 sub-tests = the 4 MECH-339 falsifiable predictions: T1 backward-compat bit-identical (master off), T2 strong match closes the gate (context term exactly 0.0, top unchanged), T3 weak match -> context changes top, T4 ungated fixed-weight context degrades top-1 on a clean match (gate does real work). PASS=T1&T2&T3&T4. experiment_purpose=diagnostic (excluded from governance scoring); MECH-339 stays candidate/v3_pending. Smoke PASS (all 4); validate_experiments OK."
     }
   ]
 }
