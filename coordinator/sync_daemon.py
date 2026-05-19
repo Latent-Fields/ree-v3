@@ -23,6 +23,7 @@ All printed text is ASCII-only.
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -32,13 +33,47 @@ DEFAULT_QUEUE = os.path.join(
     os.path.dirname(__file__), "..", "experiment_queue.json")
 
 
+def _load_queue_json(queue_path):
+    """Return the parsed queue dict from the AUTHORITATIVE git ref
+    (SYNC_QUEUE_REF, default origin/main), fetched read-only.
+
+    Why not just read queue_path: the local working-tree copy is only as
+    fresh as this box's last `git pull`. When this box's runner is drained
+    nothing pulls, so the file goes stale and every other machine's
+    git-claim looks like a state-divergence (mirror=claimed vs stale
+    file=pending) -- a false positive, not a coordinator-logic fault.
+    `git fetch` + `git show <ref>:file` never touches the working tree
+    (no autostash risk, consistent with sync_daemon being git-read-only).
+    Degrades to the local file if git is unavailable, logging that it is
+    running on a possibly-stale source."""
+    repo = os.path.dirname(os.path.abspath(queue_path))
+    rel = os.path.basename(queue_path)
+    ref = os.environ.get("SYNC_QUEUE_REF", "origin/main")
+    try:
+        subprocess.run(["git", "-C", repo, "fetch", "--quiet", "origin"],
+                        check=True, capture_output=True, timeout=30)
+        out = subprocess.run(
+            ["git", "-C", repo, "show", "%s:%s" % (ref, rel)],
+            check=True, capture_output=True, timeout=15)
+        return json.loads(out.stdout.decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 -- degrade, never crash
+        if not os.path.exists(queue_path):
+            sys.stderr.write(
+                "[sync] no git queue and no local file: %r\n" % exc)
+            return None
+        sys.stderr.write(
+            "[sync] WARN authoritative git queue unavailable (%r); "
+            "falling back to STALE local file\n" % exc)
+        with open(queue_path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+
 def reconcile_once(conn, queue_path):
-    """Make the mirror match the authoritative queue file. Returns
-    (n_items, n_state_divergences)."""
-    if not os.path.exists(queue_path):
+    """Make the mirror match the AUTHORITATIVE git queue (not this box's
+    possibly-stale local file). Returns (n_items, n_state_divergences)."""
+    qdata = _load_queue_json(queue_path)
+    if qdata is None:
         return (0, 0)
-    with open(queue_path, "r", encoding="utf-8") as fh:
-        qdata = json.load(fh)
     items = {it["queue_id"]: it for it in qdata.get("items", [])
              if it.get("queue_id")}
 
