@@ -1,6 +1,6 @@
 """Sync daemon.
 
-PHASE 1 (shadow) behaviour -- the only behaviour enabled by default:
+PHASE 1 (shadow) behaviour -- the default behaviour:
   * Periodically read experiment_queue.json (git is authoritative in
     shadow) and reconcile the coordinator DB mirror to match it, so the
     coordinator's claim logic always evaluates against fresh state.
@@ -16,6 +16,11 @@ PHASE 3 (authoritative) behaviour is present but guarded OFF: becoming the
 sole git writer (commit result manifests, push, snapshot queue) only
 activates when SYNC_MODE=authoritative AND --i-understand-phase3 is passed.
 Stubbed deliberately; do not enable until Phase 1 has proven out.
+
+PHASE 2 (claim cutover) behaviour is selected by SYNC_MODE=coordinator:
+git remains the queue worklist and result/status transport, but the DB is
+the claim authority. Reconciliation refreshes metadata and removals from
+git without overwriting coordinator claim state.
 
 All printed text is ASCII-only.
 """
@@ -68,9 +73,15 @@ def _load_queue_json(queue_path):
             return json.load(fh)
 
 
-def reconcile_once(conn, queue_path):
+def reconcile_once(conn, queue_path, *, claim_authority="git"):
     """Make the mirror match the AUTHORITATIVE git queue (not this box's
-    possibly-stale local file). Returns (n_items, n_state_divergences)."""
+    possibly-stale local file). Returns (n_items, n_state_divergences).
+
+    claim_authority='git' is Phase 1 shadow: git claims are truth and
+    state-level mismatches are logged. claim_authority='coordinator' is
+    Phase 2: git is only the worklist, so existing DB claim state is
+    preserved and git-vs-DB claim mismatches are not divergence rows.
+    """
     qdata = _load_queue_json(queue_path)
     if qdata is None:
         return (0, 0)
@@ -88,7 +99,7 @@ def reconcile_once(conn, queue_path):
             cb = (item.get("claimed_by") or {}).get("machine")
             git_status = item.get("status", "pending")
             m = mirror.get(qid)
-            if m is not None:
+            if claim_authority == "git" and m is not None:
                 # State-level shadow check: did the coordinator's mirror
                 # (driven only by reported claim attempts) end up agreeing
                 # with what git actually recorded?
@@ -104,7 +115,8 @@ def reconcile_once(conn, queue_path):
                         detail="state-reconcile mirror=%s/%s git=%s/%s" % (
                             m["status"], m["claimed_by_machine"],
                             git_status, cb))
-            db.upsert_experiment(conn, item)
+            db.upsert_experiment(
+                conn, item, preserve_claim=(claim_authority == "coordinator"))
 
         # Items no longer in the queue file have been completed/removed by
         # the authoritative path; drop them from the mirror so the
@@ -152,12 +164,19 @@ def main():
             return 2
         phase3_git_writer()  # raises NotImplementedError by design
         return 2
+    if sync_mode not in ("shadow", "coordinator"):
+        sys.stderr.write(
+            "refusing: SYNC_MODE must be shadow, coordinator, or "
+            "authoritative (got %r)\n" % sync_mode)
+        return 2
+    claim_authority = "coordinator" if sync_mode == "coordinator" else "git"
 
     db.init_db(args.db)
     while True:
         conn = db.connect(args.db)
         try:
-            n, div = reconcile_once(conn, args.queue)
+            n, div = reconcile_once(conn, args.queue,
+                                    claim_authority=claim_authority)
             sys.stdout.write(
                 "[sync] reconciled %d items, %d state-divergence(s)\n" % (
                     n, div))

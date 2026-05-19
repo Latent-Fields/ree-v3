@@ -9,7 +9,9 @@ runner with this module present behaves byte-identically to one without it.
 Modes:
   git         (default) -- no-op. Live path unchanged.
   shadow      -- best-effort reports alongside the existing git ops.
-  coordinator -- Phase 2+. Reserved; treated like shadow for reporting.
+  coordinator -- Phase 2 claim cutover. /claim is authoritative; status,
+                 result, and queue-remove reports remain best-effort side
+                 channels while git still carries committed evidence.
 
 Env:
   COORDINATION_MODE     git | shadow | coordinator
@@ -39,6 +41,10 @@ _ENABLED = MODE in ("shadow", "coordinator") and bool(URL)
 
 def enabled():
     return _ENABLED
+
+
+def claims_authoritative():
+    return MODE == "coordinator"
 
 
 def _log(msg):
@@ -98,6 +104,31 @@ def report_claim(queue_id, machine, git_verdict):
         _log("DIVERGENCE queue_id=%s machine=%s git=%s coord=%s" % (
             queue_id, machine, git_verdict, r.get("verdict")))
     return r
+
+
+def claim(queue_id, machine):
+    """Authoritative Phase-2 claim. Returns ok/already_claimed/error.
+
+    Coordinator mode must not fall through to running unclaimed work. Any
+    HTTP/auth/timeout failure returns 'error' so the runner can skip and
+    retry on the next loop tick.
+    """
+    if MODE != "coordinator":
+        return "error"
+    r = _post("/claim", {"queue_id": queue_id, "machine": machine})
+    if not r or not r.get("authoritative"):
+        return "error"
+    verdict = r.get("verdict")
+    if verdict in ("ok", "already_claimed", "error"):
+        return verdict
+    return "error"
+
+
+def release_claim(queue_id, machine):
+    if MODE != "coordinator":
+        return None
+    return _post("/claim/release", {"queue_id": queue_id,
+                                    "machine": machine})
 
 
 def report_heartbeat(machine, state, current_exq, progress, gpu):

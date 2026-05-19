@@ -37,11 +37,29 @@ def _affinity_ok(affinity, machine):
     return affinity in (None, "", "any") or affinity == machine
 
 
-def upsert_experiment(conn, item):
+def upsert_experiment(conn, item, preserve_claim=False):
     """Insert/refresh one queue item into the mirror, preserving the
     authoritative claim state carried in the item itself (git is the
-    source of truth in shadow mode)."""
+    source of truth in shadow mode).
+
+    In coordinator claim-cutover mode, git remains the worklist but stops
+    being the claim authority. For existing rows, preserve the DB claim
+    fields while refreshing queue metadata from git.
+    """
+    existing = None
+    if preserve_claim:
+        existing = conn.execute(
+            "SELECT status, claimed_by_machine, claimed_at FROM experiments "
+            "WHERE queue_id=?", (item["queue_id"],)
+        ).fetchone()
     cb = item.get("claimed_by") or {}
+    status = item.get("status", "pending")
+    cb_machine = cb.get("machine")
+    cb_at = cb.get("claimed_at")
+    if existing is not None:
+        status = existing["status"]
+        cb_machine = existing["claimed_by_machine"]
+        cb_at = existing["claimed_at"]
     conn.execute(
         """
         INSERT INTO experiments
@@ -74,7 +92,7 @@ def upsert_experiment(conn, item):
             "script": item.get("script", ""),
             "priority": int(item.get("priority", 1)),
             "machine_affinity": item.get("machine_affinity", "any") or "any",
-            "status": item.get("status", "pending"),
+            "status": status,
             "estimated_minutes": item.get("estimated_minutes"),
             "supersedes": item.get("supersedes"),
             "claim_id": item.get("claim_id"),
@@ -82,8 +100,8 @@ def upsert_experiment(conn, item):
             "title": item.get("title"),
             "note": item.get("note"),
             "force_rerun": 1 if item.get("force_rerun") else 0,
-            "cb_machine": cb.get("machine"),
-            "cb_at": cb.get("claimed_at"),
+            "cb_machine": cb_machine,
+            "cb_at": cb_at,
             "item_json": json.dumps(item, sort_keys=True),
             "updated_at": utcnow(),
         },
@@ -180,6 +198,62 @@ def apply_git_outcome(conn, queue_id, machine, git_verdict):
             "claimed_at=?, updated_at=? WHERE queue_id=?",
             (machine, now, now, queue_id),
         )
+
+
+def release_claim(conn, queue_id, machine):
+    """Release this machine's live coordinator claim. Returns (ok, note).
+
+    Only the owning machine can release its claim. This mirrors the runner's
+    existing git release path and keeps crash/retry cases from waiting for
+    the stale-claim TTL during coordinator-authoritative claiming.
+    """
+    now = utcnow()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT status, claimed_by_machine FROM experiments "
+            "WHERE queue_id=?", (queue_id,)
+        ).fetchone()
+        if row is None:
+            conn.execute("ROLLBACK")
+            return (False, "queue_id not found")
+        if row["status"] != "claimed":
+            conn.execute("ROLLBACK")
+            return (True, "not claimed")
+        if row["claimed_by_machine"] != machine:
+            conn.execute("ROLLBACK")
+            return (False, "claimed by %s" % row["claimed_by_machine"])
+        conn.execute(
+            "UPDATE experiments SET status='pending', "
+            "claimed_by_machine=NULL, claimed_at=NULL, updated_at=? "
+            "WHERE queue_id=?",
+            (now, queue_id),
+        )
+        conn.execute("COMMIT")
+        return (True, "released")
+    except sqlite3.Error as exc:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return (False, "sqlite error: %s" % exc)
+
+
+def mark_queue_removed(conn, queue_id, reason):
+    """Mark a queue item as completed/removed in coordinator mode.
+
+    Phase 2 still writes the canonical queue removal to git, but marking the
+    DB row completed immediately prevents another coordinator-mode worker
+    from reclaiming the item if the git queue push lags or fails. The shadow
+    sync daemon will delete the row once the item disappears from git.
+    """
+    now = utcnow()
+    cur = conn.execute(
+        "UPDATE experiments SET status='completed', claimed_by_machine=NULL, "
+        "claimed_at=NULL, updated_at=? WHERE queue_id=?",
+        (now, queue_id),
+    )
+    return cur.rowcount > 0
 
 
 def log_claim(conn, queue_id, machine, git_verdict, coord_verdict, detail=""):

@@ -713,6 +713,39 @@ def release_claim(queue_file: Path, queue_id: str, machine: str) -> None:
         print(f"[runner] Release claim error ({queue_id}): {e}", flush=True)
 
 
+def coordinator_claims_authoritative() -> bool:
+    """True when Phase-2 coordinator claiming is explicitly enabled."""
+    try:
+        return bool(coordinator_client.claims_authoritative())
+    except Exception:
+        return False
+
+
+def acquire_claim(queue_file: Path, queue_id: str, machine: str) -> str:
+    """Acquire a claim via the selected coordination authority."""
+    if coordinator_claims_authoritative():
+        return coordinator_client.claim(queue_id, machine)
+
+    claim_result = attempt_claim(queue_file, queue_id, machine)
+    # SHADOW (no-op unless COORDINATION_MODE=shadow): report the git
+    # verdict so the coordinator can compare its own atomic-claim logic
+    # against git's. git stays authoritative outside coordinator mode.
+    coordinator_client.report_claim(queue_id, machine, claim_result)
+    return claim_result
+
+
+def release_active_claim(queue_file: Path, queue_id: str, machine: str) -> None:
+    """Release a live claim through the selected coordination authority."""
+    if coordinator_claims_authoritative():
+        r = coordinator_client.release_claim(queue_id, machine)
+        if not r or not r.get("ok"):
+            note = r.get("note") if isinstance(r, dict) else "no response"
+            print(f"[runner] Coordinator release warn ({queue_id}): {note}",
+                  flush=True)
+        return
+    release_claim(queue_file, queue_id, machine)
+
+
 # STUB: smart_assign ──────────────────────────────────────────────────────────
 def smart_assign(items: list[dict], available_machines: list[str]) -> None:
     """
@@ -1469,6 +1502,9 @@ def main():
     if args.auto_sync:
         if ree_assembly_path:
             print(f"[runner] Auto-sync: ON (REE_assembly: {ree_assembly_path})", flush=True)
+            if coordinator_claims_authoritative():
+                print("[runner] Coordination: coordinator claims authoritative; "
+                      "git remains status/result/queue transport", flush=True)
             git_pull(REPO_ROOT, "ree-v3")
             git_pull(ree_assembly_path, "REE_assembly")
         else:
@@ -1494,7 +1530,7 @@ def main():
     def _do_immediate_exit() -> None:
         """Final cleanup steps shared by both force-exit and post-drain exit."""
         if args.auto_sync and _current_claim:
-            release_claim(QUEUE_FILE, _current_claim[0], machine)
+            release_active_claim(QUEUE_FILE, _current_claim[0], machine)
         if status_path.exists():
             try:
                 s = json.loads(status_path.read_text())
@@ -1686,6 +1722,8 @@ def main():
                     except Exception as _qe:
                         print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
                               flush=True)
+                    if args.auto_sync:
+                        coordinator_client.report_queue_remove(queue_id, "FAIL")
                 completed_ids.add(queue_id)
                 continue
 
@@ -1696,13 +1734,14 @@ def main():
                 continue
 
             # Skip experiments already claimed by another active machine
-            existing_claim = item.get("claimed_by")
-            if (existing_claim
-                    and existing_claim.get("machine") != machine
-                    and not _is_stale_claim(existing_claim)):
-                print(f"[runner] Skipping {queue_id} -- claimed by "
-                      f"{existing_claim['machine']}", flush=True)
-                continue
+            if not coordinator_claims_authoritative():
+                existing_claim = item.get("claimed_by")
+                if (existing_claim
+                        and existing_claim.get("machine") != machine
+                        and not _is_stale_claim(existing_claim)):
+                    print(f"[runner] Skipping {queue_id} -- claimed by "
+                          f"{existing_claim['machine']}", flush=True)
+                    continue
 
             script = REPO_ROOT / item["script"]
             if not script.exists():
@@ -1713,18 +1752,20 @@ def main():
                 write_status(status, status_path)
                 continue
 
-            # In auto-sync mode, use git claim as mutex before running
+            # In auto-sync mode, acquire the selected claim mutex before
+            # running. Default/shadow use git; coordinator mode uses the
+            # SQLite coordinator and never runs on a claim error.
             if args.auto_sync:
-                claim_result = attempt_claim(QUEUE_FILE, queue_id, machine)
-                # SHADOW (no-op unless COORDINATION_MODE=shadow): report the
-                # git verdict so the coordinator can compare its own
-                # atomic-claim logic against git's. git stays authoritative.
-                coordinator_client.report_claim(queue_id, machine, claim_result)
+                claim_result = acquire_claim(QUEUE_FILE, queue_id, machine)
                 if claim_result == "already_claimed":
                     print(f"[runner] {queue_id} -- claim lost to another machine, skipping",
                           flush=True)
                     continue
                 if claim_result == "error":
+                    if coordinator_claims_authoritative():
+                        print(f"[runner] {queue_id} -- coordinator claim unavailable; "
+                              "will retry later", flush=True)
+                        continue
                     print(f"[runner] {queue_id} -- claim push failed (network?), "
                           f"running anyway", flush=True)
                 # "ok" or "error" -> proceed; track for signal handler
@@ -1788,7 +1829,7 @@ def main():
                     flush=True,
                 )
                 if args.auto_sync:
-                    release_claim(QUEUE_FILE, queue_id, machine)
+                    release_active_claim(QUEUE_FILE, queue_id, machine)
                 completed_ids.add(queue_id)  # don't re-pick this pass
                 status["current"] = None
                 write_status(status, status_path)
@@ -1827,6 +1868,8 @@ def main():
                 except Exception as _qe:
                     print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
                           flush=True)
+                if args.auto_sync:
+                    coordinator_client.report_queue_remove(queue_id, "ERROR")
                 print(f"[runner] ERROR: {queue_id} -- moved to completed, continuing", flush=True)
                 continue
 
@@ -1864,6 +1907,8 @@ def main():
                 except Exception as _qe:
                     print(f"[runner] warn: could not remove {queue_id} from queue file: {_qe}",
                           flush=True)
+                if args.auto_sync:
+                    coordinator_client.report_queue_remove(queue_id, "FAIL")
                 print(f"[runner] FAIL: {queue_id} -- moved to completed, continuing to next",
                       flush=True)
                 continue
@@ -1881,7 +1926,7 @@ def main():
                       f"output_file={result.get('output_file')!r}",
                       flush=True)
                 if args.auto_sync:
-                    release_claim(QUEUE_FILE, queue_id, machine)
+                    release_active_claim(QUEUE_FILE, queue_id, machine)
                 completed_ids.add(queue_id)  # don't re-pick this pass
                 status["current"] = None
                 write_status(status, status_path)
@@ -1899,7 +1944,7 @@ def main():
                       f"Leaving in queue; investigate before requeueing.",
                       flush=True)
                 if args.auto_sync:
-                    release_claim(QUEUE_FILE, queue_id, machine)
+                    release_active_claim(QUEUE_FILE, queue_id, machine)
                 completed_ids.add(queue_id)
                 status["current"] = None
                 write_status(status, status_path)

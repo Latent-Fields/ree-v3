@@ -39,6 +39,7 @@ results, then queue removal.
 |---|---|---|
 | GET  `/health` | -- | unauthenticated liveness |
 | POST `/claim` | `attempt_claim()` ~:1707 | body `{queue_id, machine, git_verdict?}`; returns `{verdict: ok|already_claimed|error, diverged: bool}` |
+| POST `/claim/release` | `release_claim()` | Phase 2 only; body `{queue_id, machine}`; owning machine releases a live coordinator claim |
 | POST `/heartbeat` | `runner_remote_control.push_heartbeat` | body `{machine, state, current_exq, progress, gpu}` |
 | GET  `/commands?machine=X` | `read_commands_file()` | returns pending pause/resume/stop/force_stop/kick/release_claim |
 | POST `/status` | `git_push_status()` ~:1920 | body `{machine, status_json}` |
@@ -67,8 +68,16 @@ schema), `results` (PK run_id -> idempotency), `heartbeats` (PK machine),
   coord_verdict) pair. Watch `/shadow/divergence` for a few days. Near-zero
   divergence = coordinator logic proven. ZERO risk: git stays source of
   truth; the shadow client swallows all errors and never blocks the runner.
-- **Phase 2 -- claim cutover.** Claiming goes through `POST /claim`;
-  git-claim disabled. Results still dual-written (git + coordinator).
+- **Phase 2 -- claim cutover.** Claiming goes through authoritative
+  `POST /claim`; git-claim is disabled. Results/status/queue removal still
+  use the existing git path, with coordinator result/queue reports as a
+  second channel. Required mode pair: workers set
+  `COORDINATION_MODE=coordinator`, service sets `COORDINATOR_MODE=coordinator`,
+  sync daemon sets `SYNC_MODE=coordinator` so git refreshes queue metadata
+  without overwriting DB claim state. Coordinator claim errors are retry-only:
+  the runner skips the item and waits instead of running unclaimed work. Do
+  not run a mixed claim-authority fleet during cutover; drain/pause git or
+  shadow workers before resuming coordinator-mode workers.
 - **Phase 3 -- result cutover.** Results to coordinator only; sync_daemon is
   sole git writer. The `runner_remote_control` git heartbeat push (the
   autostash-war bug source) is disabled. Repair cron kept one cycle as
@@ -120,3 +129,8 @@ cleanup, not migration-critical.
   env-gated runner hooks + local e2e test + deploy runbook. No cutover.
   Coordinator host decided = `ree-cloud-1`. Auth = WireGuard + per-worker
   bearer token. HTTP layer = pure stdlib (no FastAPI; CX22 anti-fragility).
+- 2026-05-19: Phase-2 claim-cutover code added but not deployed by default.
+  `COORDINATION_MODE=coordinator` now makes `/claim` authoritative in the
+  runner; release and queue-remove endpoints prevent stuck or duplicate DB
+  claims; `SYNC_MODE=coordinator` preserves DB claim state while git remains
+  the worklist/result transport. Default stays `git`.

@@ -100,9 +100,51 @@ curl -s -H "Authorization: Bearer <tok>" \
   `../SOAK_LOG.md`; advance only when `adjusted_divergences` is ~0 and
   every unexplained row was root-caused.
 
-Phase 2/3 (claim cutover, then result cutover, sync_daemon as sole git
-writer) are described in `../PLAN.md` and are deliberately NOT enabled by
-this runbook.
+## 2. Claim cutover (Phase 2, explicit)
+
+Only after the adjusted shadow divergence count has stayed near zero under
+real load, cut over claims while leaving results/status/queue commits on the
+existing git path.
+
+Do not run a mixed claim-authority fleet. Before setting any worker to
+`COORDINATION_MODE=coordinator`, drain or pause every worker that is still
+in `git`/`shadow` mode, then flip the active workers and resume them. A
+git-mode worker still sees `experiment_queue.json` as pending work and can
+race outside the coordinator.
+
+On ree-cloud-1:
+
+```
+sudoedit /etc/ree-coordinator.env
+# set:
+#   COORDINATOR_MODE=coordinator
+#   SYNC_MODE=coordinator
+sudo systemctl restart ree-coordinator ree-sync-daemon
+curl -s http://10.8.0.1:8787/health     # {"ok": true, "mode": "coordinator"}
+```
+
+On each worker, one at a time:
+
+```
+COORDINATION_MODE=coordinator
+COORDINATOR_URL=http://10.8.0.1:8787
+COORDINATOR_TOKEN=<that worker's token>
+```
+
+Restart the runner. In this mode the runner claims via `POST /claim`.
+If the coordinator is down, unauthorized, or unreachable, the runner does
+**not** run the experiment unclaimed; it skips and retries on the next loop.
+Clean shutdown / retry cases call `/claim/release`. Completed items still
+push status/results/queue removal through git, then notify `/queue/remove`
+so another coordinator-mode worker cannot reclaim the completed item while
+git catches up.
+
+Rollback is immediate: set each worker back to `COORDINATION_MODE=shadow`
+or `git`, and set ree-cloud-1 back to `COORDINATOR_MODE=shadow` /
+`SYNC_MODE=shadow`.
+
+Phase 3 (result cutover, sync_daemon as sole git writer) is described in
+`../PLAN.md` and is deliberately NOT enabled by this runbook.
 
 ## Starting from the explorer (the button)
 

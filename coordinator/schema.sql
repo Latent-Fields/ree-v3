@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     script              TEXT NOT NULL,
     priority            INTEGER NOT NULL DEFAULT 1,
     machine_affinity    TEXT NOT NULL DEFAULT 'any',
-    status              TEXT NOT NULL DEFAULT 'pending',  -- pending|claimed|failed
+    status              TEXT NOT NULL DEFAULT 'pending',  -- pending|claimed|failed|completed
     estimated_minutes   REAL,
     supersedes          TEXT,
     claim_id            TEXT,

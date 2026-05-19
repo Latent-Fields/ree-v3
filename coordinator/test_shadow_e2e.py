@@ -186,6 +186,82 @@ def main():
         except subprocess.TimeoutExpired:
             proc.kill()
 
+    # ---- coordinator-mode HTTP claim behaviour (Phase 2) --------------
+    coord_db = os.path.join(tmp, "coord.db")
+    coord_port = free_port()
+    seed = subprocess.run(
+        [sys.executable, os.path.join(HERE, "seed_from_queue.py"),
+         "--queue", queue_path, "--db", coord_db],
+        capture_output=True, text=True)
+    check("coordinator seed_from_queue ran", seed.returncode == 0)
+
+    coord_env = dict(env)
+    coord_env.update({
+        "COORDINATOR_DB": coord_db,
+        "COORDINATOR_BIND_PORT": str(coord_port),
+        "COORDINATOR_MODE": "coordinator",
+    })
+    proc = subprocess.Popen(
+        [sys.executable, os.path.join(HERE, "app.py")],
+        env=coord_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True)
+    coord_base = "http://127.0.0.1:%d" % coord_port
+    try:
+        up = False
+        for _ in range(50):
+            try:
+                st, _ = http("GET", coord_base + "/health")
+                if st == 200:
+                    up = True
+                    break
+            except urllib.error.URLError:
+                time.sleep(0.1)
+        check("coordinator-mode server came up", up)
+
+        st, jb = http("POST", coord_base + "/claim", token="good-token",
+                      body={"queue_id": "V3-EXQ-901",
+                            "machine": "DLAPTOP-4.local"})
+        check("coordinator claim 901 -> ok authoritative",
+              st == 200 and jb["verdict"] == "ok"
+              and jb["authoritative"] is True)
+
+        st, jb = http("POST", coord_base + "/claim", token="good-token",
+                      body={"queue_id": "V3-EXQ-901",
+                            "machine": "Daniel-PC"})
+        check("coordinator second claim 901 -> already_claimed",
+              st == 200 and jb["verdict"] == "already_claimed")
+
+        st, jb = http("POST", coord_base + "/claim/release",
+                      token="good-token",
+                      body={"queue_id": "V3-EXQ-901",
+                            "machine": "DLAPTOP-4.local"})
+        check("coordinator release by owner -> ok",
+              st == 200 and jb["ok"] is True and jb["applied"] is True)
+
+        st, jb = http("POST", coord_base + "/claim", token="good-token",
+                      body={"queue_id": "V3-EXQ-901",
+                            "machine": "Daniel-PC"})
+        check("coordinator claim after release -> ok",
+              st == 200 and jb["verdict"] == "ok")
+
+        st, jb = http("POST", coord_base + "/queue/remove",
+                      token="good-token",
+                      body={"queue_id": "V3-EXQ-901", "reason": "PASS"})
+        check("coordinator queue/remove applies",
+              st == 200 and jb["ok"] is True and jb["applied"] is True)
+
+        st, jb = http("POST", coord_base + "/claim", token="good-token",
+                      body={"queue_id": "V3-EXQ-901",
+                            "machine": "DLAPTOP-4.local"})
+        check("completed queue item is not claimable",
+              st == 200 and jb["verdict"] == "already_claimed")
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
     # ---- atomic-mutex property at the db layer (Phase 2 correctness) ---
     race_db = os.path.join(tmp, "race.db")
     db.init_db(race_db)
@@ -226,6 +302,45 @@ def main():
     check("sync_daemon --once exited 0", sd.returncode == 0)
     check("sync_daemon reconciled output present",
           "reconciled" in sd.stdout)
+
+    # In Phase 2, git remains a worklist but DB claims are authoritative.
+    # A sync against a git/local queue that still says "pending" must not
+    # overwrite an existing coordinator claim back to pending.
+    preserve_db = os.path.join(tmp, "preserve.db")
+    db.init_db(preserve_db)
+    pc = db.connect(preserve_db)
+    try:
+        db.upsert_experiment(pc, {
+            "queue_id": "V3-EXQ-PRESERVE", "script": "x",
+            "priority": 1, "machine_affinity": "any",
+            "status": "pending", "estimated_minutes": 1})
+        check("preserve setup claim -> ok",
+              db.try_claim(pc, "V3-EXQ-PRESERVE", "Mac") == "ok")
+    finally:
+        pc.close()
+    preserve_queue = os.path.join(tmp, "preserve_queue.json")
+    with open(preserve_queue, "w", encoding="utf-8") as fh:
+        json.dump({"items": [
+            {"queue_id": "V3-EXQ-PRESERVE", "script": "x",
+             "priority": 1, "machine_affinity": "any",
+             "status": "pending", "estimated_minutes": 1}
+        ]}, fh)
+    sd_env = dict(os.environ)
+    sd_env["SYNC_MODE"] = "coordinator"
+    sd = subprocess.run(
+        [sys.executable, os.path.join(HERE, "sync_daemon.py"),
+         "--queue", preserve_queue, "--db", preserve_db, "--once"],
+        env=sd_env, capture_output=True, text=True)
+    pc = db.connect(preserve_db)
+    try:
+        row = pc.execute(
+            "SELECT status, claimed_by_machine FROM experiments "
+            "WHERE queue_id='V3-EXQ-PRESERVE'").fetchone()
+    finally:
+        pc.close()
+    check("sync_daemon coordinator mode preserves DB claim",
+          sd.returncode == 0 and row["status"] == "claimed"
+          and row["claimed_by_machine"] == "Mac")
 
     print("")
     if _failures:

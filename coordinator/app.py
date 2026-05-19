@@ -223,6 +223,28 @@ class Handler(BaseHTTPRequestHandler):
                 conn.close()
             return
 
+        if path == "/claim/release":
+            if body is None:
+                self._send(400, {"error": "bad body"})
+                return
+            qid = body.get("queue_id")
+            machine = body.get("machine") or machine_tok
+            if not qid:
+                self._send(400, {"error": "queue_id required"})
+                return
+            if MODE == "shadow":
+                self._send(200, {"ok": True, "applied": False,
+                                 "note": "shadow mode"})
+                return
+            conn = db.connect(DB_PATH)
+            try:
+                ok, note = db.release_claim(conn, qid, machine)
+            finally:
+                conn.close()
+            self._send(200 if ok else 409,
+                       {"ok": ok, "applied": ok, "note": note})
+            return
+
         if path == "/heartbeat":
             if body is None:
                 self._send(400, {"error": "bad body"})
@@ -279,8 +301,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
             # Shadow: do not mutate the mirror destructively; sync_daemon
             # reconciles removals from experiment_queue.json (git is
-            # authoritative in Phase 1). Record receipt only.
-            self._send(200, {"ok": True, "applied": (MODE != "shadow")})
+            # authoritative in Phase 1). Coordinator mode marks the item
+            # completed immediately so no other coordinator-mode worker can
+            # reclaim it while the git queue removal propagates.
+            applied = False
+            if MODE != "shadow":
+                conn = db.connect(DB_PATH)
+                try:
+                    applied = db.mark_queue_removed(
+                        conn, body.get("queue_id"), body.get("reason"))
+                finally:
+                    conn.close()
+            self._send(200, {"ok": True, "applied": applied})
             return
 
         self._send(404, {"error": "not found"})
