@@ -45,14 +45,18 @@
       "script": "experiments/v3_exq_592_gap11_pilot_committed_mode_curriculum.py",
       "priority": 6,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 60,
       "episodes_per_run": 400,
       "seeds": 3,
       "conditions": 3,
       "claim_id": "MECH-090",
       "supersedes": "V3-EXQ-461",
-      "note": "commitment_closure:GAP-11 diagnostic pilot. 3 arms: EMERGENT (P0 warmup on easy env -> P2 eval on target), FORCED_RV (clone + forced rv=0.001 -> P2), STARVED (tight threshold=1e-4 -> abort gate fires at mid-probe). C1: emergent committed steps/ep>100 in >=2/3 seeds. C2: forced-rv committed steps/ep>100 all seeds. C3: starved arm aborts (abort_reason=commitment_not_elicited) all seeds. PASS unblocks V3-EXQ-460b/463b/464b/466b/467b/468b OCD battery. Supersedes V3-EXQ-461 (synthetic scripted diagnostic, 2026-05-12)."
+      "note": "commitment_closure:GAP-11 diagnostic pilot. 3 arms: EMERGENT (P0 warmup on easy env -> P2 eval on target), FORCED_RV (clone + forced rv=0.001 -> P2), STARVED (tight threshold=1e-4 -> abort gate fires at mid-probe). C1: emergent committed steps/ep>100 in >=2/3 seeds. C2: forced-rv committed steps/ep>100 all seeds. C3: starved arm aborts (abort_reason=commitment_not_elicited) all seeds. PASS unblocks V3-EXQ-460b/463b/464b/466b/467b/468b OCD battery. Supersedes V3-EXQ-461 (synthetic scripted diagnostic, 2026-05-12).",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-19T01:45:17.279116+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-543j",
