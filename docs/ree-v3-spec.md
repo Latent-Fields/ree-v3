@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-18
+**Last updated:** 2026-05-19
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-18)
+## 0. Current V3 State (2026-05-19)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -110,6 +110,7 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | ARC-062 GAP-B/C/D | rule_apprehension wiring continuation: GAP-B head-input first-action one-hot augmentation (bypasses E2 world-forward compression that flattened SP-CEM first-action diversity to 0.22% of z_world before the z_world-only heads -- gated_policy_use_first_action_onehot, default OFF); GAP-C discriminator-output -> SD-033a rule_state source vector (lateral_pfc_use_discriminator_source, default OFF) with agent.py gated_policy block reordered before lateral_pfc so gating_weight is available; GAP-D SD-033a rule_bias_head made optionally trainable (lateral_pfc_train_rule_bias_head, default OFF -- last Linear no longer zeroed when True). All three bit-identical OFF; 484/484 contracts PASS. | Implemented 2026-05-17 (ree-v3 15ca95e); validation EXQ deferred until V3-EXQ-543f/h returns a contributory ARC-062 result |
 | ARC-065 SP-CEM main-path default | Support-preserving + stratified CEM ("SP-CEM") flipped to the main-agent action-path default (6 HippocampalConfig + REEConfig.from_dims defaults: use_support_preserving_cem False->True, support_preserving_stratified_elites False->True, support_preserving_ao_std_floor 0.0->0.2). INTENTIONAL non-no-op default change (the one deliberate departure from the implement-substrate no-op rule) -- the legacy collapsing CEM produced the monostrategy that left SD-029 / ARC-062 Rung 2 / goal_pipeline GAP-2/4 / self_attribution GAP-1/2/3 non_contributory. Bit-identical legacy opt-out by explicitly pinning the three flags. Evidence: V3-EXQ-567 PASS 2026-05-15 (selected_action_entropy 0.0124 -> 0.4965). | Main-path default landed 2026-05-17; V3-EXQ-583 3-arm default-wiring equivalence PASS 2026-05-17T09:25Z (ARM_default == ARM_explicit_on within 1e-9, both >> ARM_explicit_off); claims.yaml ARC-065 implementation_note (NOT promoted -- promotion is Rung-1 matched-entropy governance gated on V3-EXQ-569) |
 | INV-074 / MECH-333 / MECH-334 (ARC-075) | Phase-3 plasticity-injection crystallization + EWC residue write-protect. GatedPolicy.crystallize() freezes head_0/head_1/discriminator + adds a fresh plastic expansion MLP (zero-init last Linear so output bit-identical at the transition instant; forward = frozen_gated(x) + expansion(x.detach())); ResidueField.snapshot_ewc_anchor() + ewc_penalty() write-protect established basins (Kirkpatrick 2017 EWC, NOT a hard freeze); InfantCurriculumScheduler on_phase3_entry fire-once hook. REEConfig.crystallize_at_phase3 default OFF (bit-identical; 484/484 contracts PASS). Nikishin 2023 plasticity injection + Kirkpatrick 2017 EWC. | Implemented 2026-05-17 (ree-v3 f8b93e3); validation V3-EXQ-543h 2x2x2 (use_gated_policy x use_dacc x crystallize_at_phase3, supersedes V3-EXQ-543g) queued |
+| ARC-062 GatedPolicy differential-heads robustness fix | policy.gated_policy two-head reparameterization. Motivated by the V3-EXQ-543h failure autopsy + cross-machine 543g replication (same config landed gating-ACTIVE on host-A but INERT on cloud-3 AND cloud-4; head_0==head_1 collapse is the common cross-machine attractor). When gated_policy_use_differential_heads=True the two heads are SYNTHESIZED as a shared trunk plus a candidate-axis-norm-pinned differential (base +/- delta_hat; delta_hat = differential_bias_scale * delta / (||delta||_K + 1e-8)) so head collapse is a non-equilibrium: delta==0 is structurally unreachable (scale-invariant normalization zeroes the magnitude gradient) and at w=0.5 d(gated)/dw = 2*delta_hat != 0 by the norm pin. crystallize() freezes (base, delta, discriminator). Config GatedPolicyConfig.use_differential_heads (default False -> two independent heads, bit-identical pre-fix path) + .differential_bias_scale (default 0.1). | Implemented 2026-05-18; validation V3-EXQ-543i (supersedes 543g+543h) FAILed branch e (MECH-309 supports / ARC-062 weakens; all 4 diff-ON gated arms 3/3 inert) on a SINGLE machine (Mac); 2026-05-18 governance cycle marked the 543f x4 / 543g / 543h x2 cluster evidence_direction=superseded by 543i + epistemic_category=substrate_ceiling; V3-EXQ-543j byte-identical cross-machine confirmation (pinned ree-cloud-4) queued -- ARC-062/MECH-309 governance gated on it |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -128,6 +129,66 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-05-19T01:10Z nightly read.** Central
+  `evidence/experiments/runner_status.json` reports **723 cumulative
+  completions** (166 PASS / 287 FAIL / 77 ERROR / 193 UNKNOWN);
+  last_updated 2026-05-18T15:44:20Z -- the central file is ~9.5h stale
+  at this read (the multi-machine runners write per-machine
+  `runner_status/<hostname>.json`). +3 central completions since the
+  2026-05-18T01:10Z nightly read (+2 PASS / +1 FAIL). **Pending review
+  queue (regenerated 2026-05-18T16:32:44Z; last review
+  2026-05-18T16:30:27Z) is 1 item** -- the lone pending is
+  `v3_exq_543i_arc062_differential_heads_falsifier_20260518T063711Z_v3`
+  (ARC-062 / INV-074 / MECH-309 / MECH-334), FLAGGED for /failure-autopsy
+  by the 2026-05-18T16:30Z governance cycle (diff_on_escape=true substrate
+  fix works, diff_off non-reproduction) and deliberately left pending
+  pending the cross-machine confirmation. **Currently queued
+  (`experiment_queue.json`): 6 items** -- V3-EXQ-590 (ISEF-004 novelty
+  Goldilocks weight sweep, MECH-314, claimed), 591 (ISEF-005
+  curriculum-vs-flat baselines, ARC-046), 481b (MECH-090 V_s
+  commit-release re-issue), 582a (goal_pipeline:GAP-3 Option 2
+  drive_floor sweep, supersedes 582), 592 (commitment_closure:GAP-11
+  committed-mode curriculum pilot, MECH-090), **543j** (ARC-062
+  differential-heads byte-identical cross-machine confirmation of 543i,
+  pinned ree-cloud-4). 2026-05-18 -> 2026-05-19 substrate / governance
+  wave: (1) **ARC-062 GatedPolicy differential-heads robustness fix
+  landed** 2026-05-18 (ree-v3) -- norm-pinned base+/-delta_hat
+  reparameterization making head_0==head_1 collapse a non-equilibrium;
+  validation **V3-EXQ-543i (supersedes 543g+543h) FAILed branch e**
+  (MECH-309 supports / ARC-062 weakens; all 4 diff-ON gated arms 3/3
+  inert) on a SINGLE machine (Mac). (2) **2026-05-18T16:30Z governance
+  cycle** -- confirmed failure_autopsy_V3-EXQ-543h applied to the
+  ARC-062 / MECH-309 crystallization-falsifier cluster (543f x4 / 543g /
+  543h x2 set evidence_direction=superseded by 543i,
+  epistemic_category=substrate_ceiling, pending_retest_after_substrate);
+  MECH-332 / MECH-334 hold_pending_v3_substrate; claims.json rebuilt
+  (645). (3) **retrieval-cue reframe** (interpretive only --
+  ARC-060 / MECH-292 / MECH-293 / SD-039 recast as content-addressed
+  cued retrieval; status unchanged) + **ARC-078** (unresolved-goal bank
+  = content-addressed cue-addressed retrieval system, parent) +
+  **MECH-339** (composite retrieval cue + outshining gate) registered
+  2026-05-19; the C3 abandon mechanism deliberately NOT registered --
+  gated behind a goal-disengagement biology-before lit-pull (active).
+  claims.yaml 648 -> **650 claims**. (4) **GAP-L socially-scaffolded
+  rule-population lit-pull discharged** -- ARC-077 / MECH-337 / MECH-338
+  lit_conf parallel signal (NOT blended into exp_conf; all remain
+  candidate; the caregiver/teacher-agent substrate hard gate stays open).
+  (5) **infra:** heartbeat-autostash governance-regen recovery (639-file
+  regen restored from dangling commit), Phase 0-1 shadow
+  experiment-coordinator built (`ree-v3/coordinator/`, shadow-only, no
+  cutover, git stays authoritative), all runners gracefully drained +
+  cloud-2 force-stopped for a multi-machine coordination update.
+  Bottleneck (shift): the **ARC-062 / MECH-309 rule-apprehension
+  cross-machine bistability** is now the load-bearing gate --
+  **V3-EXQ-543j** byte-identical cross-machine confirmation of the
+  543i 19:10Z run (pinned ree-cloud-4, a participant in the divergent
+  INERT basin) must land before ARC-062 demotion + ARC-063 / V4 strong-
+  reading governance can proceed (branch e CONFIRMS-543i -> clears the
+  single-machine caveat; branch a CONTRADICTS -> 543i was itself a
+  single-machine basin artifact). The **ARC-065 behavioural-diversity
+  developmental warm-start failure** (EXQ-ISEF cohort, V3-EXQ-587..591)
+  remains the parallel dominant blocker. Historical context preserved
+  below.
 - **2026-05-18T01:10Z nightly read.** Central
   `evidence/experiments/runner_status.json` reports **720 cumulative
   completions** (164 PASS / 286 FAIL / 77 ERROR / 193 UNKNOWN);
