@@ -33,13 +33,17 @@
       "script": "experiments/v3_exq_591_isef005_curriculum_vs_flat_v3.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 2000,
       "seeds": 5,
       "conditions": 3,
       "claim_id": "ARC-046",
-      "note": "infant_substrate:GAP-14 closure. PASS confirms ARC-046 (phased residue accumulation via curriculum); unblocks DEV-NEED-008."
+      "note": "infant_substrate:GAP-14 closure. PASS confirms ARC-046 (phased residue accumulation via curriculum); unblocks DEV-NEED-008.",
+      "claimed_by": {
+        "machine": "Mac",
+        "claimed_at": "2026-05-19T03:03:30.386909+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-592",
