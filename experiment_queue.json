@@ -45,13 +45,17 @@
       "script": "experiments/v3_exq_582a_gap3_drive_floor_sweep.py",
       "priority": 7,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 90,
       "episodes_per_run": 30,
       "seeds": 3,
       "conditions": 5,
       "supersedes": "V3-EXQ-582",
-      "note": "EXQ-582 diagnostic grid row: No arm clears A1 (incl. 0.01) -> Escalate to Option 2. Sweeps drive_floor in {0.0, 0.3, 0.6, 0.9, 1.2} with drive_ema_alpha=1.0 (Option 1 OFF). First-PASS arm floor=0.9. goal_pipeline:GAP-3 closure gated on PASS."
+      "note": "EXQ-582 diagnostic grid row: No arm clears A1 (incl. 0.01) -> Escalate to Option 2. Sweeps drive_floor in {0.0, 0.3, 0.6, 0.9, 1.2} with drive_ema_alpha=1.0 (Option 1 OFF). First-PASS arm floor=0.9. goal_pipeline:GAP-3 closure gated on PASS.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-19T01:26:21.310905+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-592",
