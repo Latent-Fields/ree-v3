@@ -45,6 +45,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+# Coordinator shadow shim. Env-gated no-op unless COORDINATION_MODE=shadow;
+# guarded import so it can never break heartbeat writing.
+try:
+    import coordinator_client
+except Exception:  # pragma: no cover -- shim must never break the runner
+    class _NoCoordClient:
+        def __getattr__(self, _name):
+            return lambda *a, **k: None
+    coordinator_client = _NoCoordClient()
+
 
 HEARTBEAT_SUBPATH = Path("evidence") / "experiments" / "runner_heartbeats"
 COMMANDS_SUBPATH = Path("evidence") / "experiments" / "runner_commands"
@@ -169,6 +179,11 @@ def write_heartbeat(
     except Exception as exc:
         print(f"[remote-control] heartbeat write failed: {exc}", flush=True)
         return None
+    # SHADOW (no-op unless COORDINATION_MODE=shadow): mirror the heartbeat
+    # to the coordinator alongside the existing file write. Best-effort.
+    coordinator_client.report_heartbeat(
+        machine, state, current_exq, payload.get("progress"),
+        payload.get("gpu"))
     return path
 
 

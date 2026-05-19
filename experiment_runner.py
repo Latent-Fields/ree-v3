@@ -39,6 +39,17 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Coordinator shadow shim. Env-gated: a hard no-op unless
+# COORDINATION_MODE=shadow. Import is guarded so a missing or broken shim
+# can never stop the runner (the live git path must stay byte-identical).
+try:
+    import coordinator_client
+except Exception:  # pragma: no cover -- shim must never break the runner
+    class _NoCoordClient:
+        def __getattr__(self, _name):
+            return lambda *a, **k: None
+    coordinator_client = _NoCoordClient()
+
 
 # Ensure UTF-8 output on Windows (default cp1252 breaks -> and other Unicode in experiment scripts)
 os.environ['PYTHONIOENCODING'] = 'utf-8'
@@ -1705,6 +1716,10 @@ def main():
             # In auto-sync mode, use git claim as mutex before running
             if args.auto_sync:
                 claim_result = attempt_claim(QUEUE_FILE, queue_id, machine)
+                # SHADOW (no-op unless COORDINATION_MODE=shadow): report the
+                # git verdict so the coordinator can compare its own
+                # atomic-claim logic against git's. git stays authoritative.
+                coordinator_client.report_claim(queue_id, machine, claim_result)
                 if claim_result == "already_claimed":
                     print(f"[runner] {queue_id} -- claim lost to another machine, skipping",
                           flush=True)
@@ -1918,6 +1933,10 @@ def main():
             # status entry permanently (406a/429a/430a on 2026-04-18).
             if args.auto_sync and ree_assembly_path:
                 git_push_status(ree_assembly_path, status_path, queue_id)
+                # SHADOW (no-op unless COORDINATION_MODE=shadow)
+                coordinator_client.report_status(
+                    machine, {"last_completed": queue_id,
+                              "result": result["result"]})
 
             # Push results BEFORE queue removal. Otherwise a Hetzner-style
             # mid-pass shutdown between queue-push and end-of-pass results-push
@@ -1929,6 +1948,12 @@ def main():
                 except Exception as _re:
                     print(f"[runner] warn: per-experiment results push "
                           f"failed for {queue_id}: {_re}", flush=True)
+                # SHADOW (no-op unless COORDINATION_MODE=shadow): ship the
+                # manifest bytes to the coordinator. Idempotent on run_id
+                # server-side; the shim swallows any path/IO error.
+                coordinator_client.report_result(
+                    queue_id, result.get("run_id"),
+                    result["output_file"], result["result"], machine)
 
             # Remove completed item from queue file -- runner_status.json is the
             # authoritative record of what has run; queue file should only contain
@@ -1942,6 +1967,9 @@ def main():
                     git_push_queue()
             except Exception as _qe:
                 print(f"[runner] warn: could not update queue file for {queue_id}: {_qe}", flush=True)
+
+            # SHADOW (no-op unless COORDINATION_MODE=shadow)
+            coordinator_client.report_queue_remove(queue_id, result["result"])
 
             print(f"[runner] Done: {queue_id} -- {result['result']}", flush=True)
 

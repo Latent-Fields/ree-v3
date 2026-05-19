@@ -1,0 +1,44 @@
+# /etc/wireguard/wg0.conf on ree-cloud-1 (the hub).
+# Hub-and-spoke: one [Peer] block per worker. Workers never talk to each
+# other, only to 10.8.0.1, so this is all the routing needed.
+#
+# Lock down the public firewall to UDP 51820 only. The coordinator's HTTP
+# port is bound to 10.8.0.1 (see /etc/ree-coordinator.env) and is never
+# reachable from the public internet.
+
+[Interface]
+Address = 10.8.0.1/24
+ListenPort = 51820
+PrivateKey = <PASTE_CONTENTS_OF_hub.key>
+
+# --- one block per worker; AllowedIPs is that worker's /32 -------------
+
+[Peer]
+# DLAPTOP-4.local (MacBook)
+PublicKey = <MAC_WG_PUBKEY>
+AllowedIPs = 10.8.0.10/32
+
+[Peer]
+# Daniel-PC (home Windows box, behind NAT -- WireGuard handles traversal)
+PublicKey = <DANIELPC_WG_PUBKEY>
+AllowedIPs = 10.8.0.11/32
+
+[Peer]
+# ree-cloud-2
+PublicKey = <CLOUD2_WG_PUBKEY>
+AllowedIPs = 10.8.0.12/32
+
+[Peer]
+# ree-cloud-3
+PublicKey = <CLOUD3_WG_PUBKEY>
+AllowedIPs = 10.8.0.13/32
+
+[Peer]
+# ree-cloud-4
+PublicKey = <CLOUD4_WG_PUBKEY>
+AllowedIPs = 10.8.0.14/32
+
+[Peer]
+# EWIN-PC
+PublicKey = <EWINPC_WG_PUBKEY>
+AllowedIPs = 10.8.0.15/32

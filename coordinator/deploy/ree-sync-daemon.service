@@ -1,0 +1,22 @@
+# /etc/systemd/system/ree-sync-daemon.service
+# Phase 1 (shadow): read-only reconcile of the DB mirror against
+# experiment_queue.json. Does NOT run git. Structurally incapable of the
+# autostash/rebase failure class.
+
+[Unit]
+Description=REE coordinator sync daemon (shadow mirror reconcile)
+After=ree-coordinator.service
+Wants=ree-coordinator.service
+
+[Service]
+Type=simple
+User=ree
+WorkingDirectory=/home/ree/REE_Working/ree-v3/coordinator
+EnvironmentFile=/etc/ree-coordinator.env
+ExecStart=/usr/bin/python3 sync_daemon.py
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+# /etc/wireguard/wg0.conf on a WORKER (Mac/Daniel-PC/cloud/EWIN-PC).
+# Replace the Address with this worker's /32 (must match the AllowedIPs
+# the hub config assigns it: .10 Mac, .11 Daniel-PC, .12 cloud-2,
+# .13 cloud-3, .14 cloud-4, .15 EWIN-PC).
+#
+# Only the coordinator (10.8.0.1/32) is routed over the tunnel, so this
+# does not disturb the worker's normal networking.
+
+[Interface]
+Address = 10.8.0.10/32
+PrivateKey = <PASTE_CONTENTS_OF_this_worker_key>
+
+[Peer]
+# ree-cloud-1 hub
+PublicKey = <HUB_WG_PUBKEY>
+Endpoint = <REE_CLOUD_1_PUBLIC_IP>:51820
+AllowedIPs = 10.8.0.1/32
+# Keep the NAT pinhole open for the home PC behind a router.
+PersistentKeepalive = 25

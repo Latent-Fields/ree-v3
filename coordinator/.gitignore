@@ -1,0 +1,7 @@
+# Never commit runtime state or secrets.
+coordinator.db
+coordinator.db-wal
+coordinator.db-shm
+*.db
+tokens.json
+*.tmp
