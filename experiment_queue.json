@@ -70,8 +70,11 @@
       "claim_id": "MECH-339",
       "priority": 10,
       "machine_affinity": "any",
-      "status": "pending",
-      "claimed_by": null,
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-19T18:39:14.542351+00:00"
+      },
       "estimated_minutes": 1,
       "episodes_per_run": 1,
       "seeds": 1,
