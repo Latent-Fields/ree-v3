@@ -94,6 +94,11 @@ curl -s -H "Authorization: Bearer <tok>" \
   `git_verdict` due to its own pull lag) are expected to be rare and
   self-consistent. Unexplained divergence = the coordinator's claim logic
   does not yet match git; do NOT cut over.
+- The raw `divergences` count includes measurement-harness artifacts
+  (e.g. a still-git-mode machine claiming in git without reporting to the
+  coordinator). Read the count **net of the explained classes** logged in
+  `../SOAK_LOG.md`; advance only when `adjusted_divergences` is ~0 and
+  every unexplained row was root-caused.
 
 Phase 2/3 (claim cutover, then result cutover, sync_daemon as sole git
 writer) are described in `../PLAN.md` and are deliberately NOT enabled by
