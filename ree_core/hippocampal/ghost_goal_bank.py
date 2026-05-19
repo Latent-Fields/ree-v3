@@ -11,6 +11,36 @@ Each rank() call walks the anchor pool, scores each anchor on a four-term
 composite (wanting + goal_match + staleness + recoverability), and returns
 a sorted list. Pure arithmetic; no trainable parameters; no gradient flow.
 
+MECH-339 Constraint 1 (composite cue + outshining gate; ghost_goal_search.md
+Section 0.2): the retrieval cue must be composite -- z_goal cosine PLUS a
+context channel built from the SD-039 payload fields the match ignores,
+combined by an OUTSHINING gate so a strong direct goal_match suppresses the
+context channel rather than it being summed in with fixed weight (Smith &
+Vela 2001; encoding specificity is real but outshone by a strong direct
+cue). When GhostGoalBankConfig.use_composite_cue_outshining is enabled, a
+fifth gated term is added:
+
+    context_salience = 1 - exp(-arousal_tag / arousal_scale)   in [0, 1)
+    gate             = clip_[0,1]((outshine_pivot - goal_match)
+                                   / outshine_pivot)
+    context_term     = context_weight * gate * context_salience
+
+so the context channel contributes nothing once goal_match reaches
+outshine_pivot (the falsifiable (i): a strong direct match must not let
+the context channel change the top entry) and dominates only when the
+direct match is weak/absent (falsifiable (ii)). The overall ghost_priority
+stays an additive sum of independently gateable channels -- Constraint 2
+(dissociable additive channels) is unaffected; the outshining is a
+within-channel multiplier on the context term, not a product across
+wanting/goal_match. The smallest substrate step sources the context
+channel from arousal_tag only -- the one SD-039 payload field that is both
+already stored and entirely unused by the bank. last_vs is deferred (it
+already drives the recoverability channel; reusing it would double-count)
+and a `cause` tag is deferred (not present in the implemented
+AnchorGoalPayload -- design-sketch only, would require an SD-039 payload
+extension). Defaults are no-op: with the master switch off (or
+context_weight 0.0) the bank is bit-identical to the pre-MECH-339 form.
+
 Architectural commitments (from MECH-292 spec):
   - The goal_match_floor is the rumination guard: anchors with no payload
     OR with cosine(z_goal_snapshot, current_z_goal) below the floor are
@@ -46,6 +76,7 @@ MECH-293 consumes the bank.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -69,8 +100,11 @@ class GhostGoalBankEntry:
       components:      per-term breakdown for diagnostics, with keys
                        "wanting", "goal_match", "staleness",
                        "recoverability" each holding the WEIGHTED term
-                       (i.e. weight * raw value). Sum of values matches
-                       ghost_priority within float tolerance.
+                       (i.e. weight * raw value). When MECH-339's
+                       composite cue is enabled, a fifth key "context"
+                       holds the gated context term (context_weight *
+                       outshine_gate * context_salience). Sum of values
+                       matches ghost_priority within float tolerance.
     """
     anchor: Anchor
     ghost_priority: float
@@ -135,6 +169,12 @@ class GhostGoalBank:
         pool = self._pool_for_config()
         n_scanned = len(pool)
 
+        # MECH-339 Constraint 1: composite cue + outshining gate. Off by
+        # default -> the "context" channel is absent everywhere (sums,
+        # per-entry components, diagnostics) so the bank is bit-identical
+        # to the pre-MECH-339 four-term form.
+        composite_on = bool(cfg.use_composite_cue_outshining)
+
         scored: List[GhostGoalBankEntry] = []
         sums = {
             "wanting": 0.0,
@@ -142,6 +182,8 @@ class GhostGoalBank:
             "staleness": 0.0,
             "recoverability": 0.0,
         }
+        if composite_on:
+            sums["context"] = 0.0
         n_below_floor = 0
         n_no_payload = 0
 
@@ -171,15 +213,33 @@ class GhostGoalBank:
             sums["staleness"] += s_term
             sums["recoverability"] += r_term
 
+            components = {
+                "wanting": float(w_term),
+                "goal_match": float(m_term),
+                "staleness": float(s_term),
+                "recoverability": float(r_term),
+            }
+
+            if composite_on:
+                # MECH-339 C1: gated context channel. The gate is a
+                # function of THIS anchor's direct goal_match -- a strong
+                # direct match (>= outshine_pivot) drives the gate to 0 so
+                # the context term cannot change the top-ranked entry
+                # (falsifiable (i)); a weak/absent match opens the gate so
+                # the context channel can decide the ordering (falsifiable
+                # (ii)). Not a fixed-weight additive term -- the gate is
+                # the outshining (Smith & Vela 2001).
+                context_salience = self._context_salience_for_anchor(anchor)
+                gate = self._outshine_gate(goal_match)
+                c_term = cfg.context_weight * gate * context_salience
+                priority += c_term
+                sums["context"] += c_term
+                components["context"] = float(c_term)
+
             scored.append(GhostGoalBankEntry(
                 anchor=anchor,
                 ghost_priority=float(priority),
-                components={
-                    "wanting": float(w_term),
-                    "goal_match": float(m_term),
-                    "staleness": float(s_term),
-                    "recoverability": float(r_term),
-                },
+                components=components,
             ))
 
         scored.sort(key=lambda e: e.ghost_priority, reverse=True)
@@ -289,7 +349,64 @@ class GhostGoalBank:
             return float(cfg.default_recoverability_when_unknown)
         return max(0.0, min(1.0, float(last_vs)))
 
+    def _outshine_gate(self, goal_match: float) -> float:
+        """MECH-339 C1 outshining gate, a function of the direct cue match.
+
+        gate = clip_[0,1]((outshine_pivot - goal_match) / outshine_pivot)
+
+        gate -> 1.0 as goal_match -> 0 (direct cue weak/absent: the
+        context channel is allowed to decide ordering -- falsifiable (ii)).
+        gate -> 0.0 once goal_match >= outshine_pivot (a strong direct
+        match outshines context entirely: the context channel cannot
+        change the top-ranked entry -- falsifiable (i); Smith & Vela 2001).
+        A non-positive pivot is the degenerate "always outshone" case ->
+        gate 0.0 (context channel effectively off).
+        """
+        pivot = float(self.config.outshine_pivot)
+        if pivot <= 0.0:
+            return 0.0
+        gate = (pivot - float(goal_match)) / pivot
+        return max(0.0, min(1.0, gate))
+
+    def _context_salience_for_anchor(self, anchor: Anchor) -> float:
+        """MECH-339 C1 context salience in [0, 1) from arousal_tag.
+
+        The smallest substrate step sources the context channel from
+        payload.arousal_tag (LaBar & Cabeza 2006 per-trace arousal tag;
+        the one SD-039 field that is both already stored and entirely
+        unused by the bank's match). A saturating transform maps the
+        unbounded arousal scalar onto [0, 1):
+
+            context_salience = 1 - exp(-arousal_tag / arousal_scale)
+
+        0.0 when there is no payload, arousal_tag <= 0 (e.g. BLA analog
+        disabled, the SD-039 default), or arousal_scale is non-positive
+        (degenerate config). last_vs and a `cause` tag are deliberately
+        NOT folded in here -- last_vs already drives the recoverability
+        channel (reuse would double-count) and `cause` is not present in
+        the implemented AnchorGoalPayload (design-sketch only; an SD-039
+        payload extension, out of scope for this smallest step).
+        """
+        payload = anchor.goal_payload
+        if payload is None:
+            return 0.0
+        arousal = max(0.0, float(payload.arousal_tag))
+        if arousal <= 0.0:
+            return 0.0
+        scale = float(self.config.arousal_scale)
+        if scale <= 0.0:
+            return 0.0
+        return 1.0 - math.exp(-arousal / scale)
+
     def _empty_diagnostics(self, reason: str) -> Dict[str, Any]:
+        component_sums = {
+            "wanting": 0.0,
+            "goal_match": 0.0,
+            "staleness": 0.0,
+            "recoverability": 0.0,
+        }
+        if bool(self.config.use_composite_cue_outshining):
+            component_sums["context"] = 0.0
         return {
             "n_candidates_scanned": 0,
             "n_no_payload": 0,
@@ -298,11 +415,6 @@ class GhostGoalBank:
             "n_returned": 0,
             "max_priority": 0.0,
             "mean_priority": 0.0,
-            "component_sums": {
-                "wanting": 0.0,
-                "goal_match": 0.0,
-                "staleness": 0.0,
-                "recoverability": 0.0,
-            },
+            "component_sums": component_sums,
             "reason": reason,
         }

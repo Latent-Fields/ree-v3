@@ -637,6 +637,33 @@ class GhostGoalBankConfig:
     include_active: bool = False
     scale: Optional[str] = None
     staleness_proxy_rate: float = 0.005
+    # ---- MECH-339 Constraint 1: composite cue + outshining gate ----
+    # The landed bank matches the retrieval cue by z_goal cosine only
+    # (Anchor.goal_match). MECH-339 (ghost_goal_search.md Section 0.2
+    # Constraint 1) asserts the cue must be composite: z_goal PLUS a
+    # context channel built from the SD-039 payload fields the match
+    # ignores, combined by an OUTSHINING gate (Smith & Vela 2001) so a
+    # strong direct goal_match suppresses the context channel rather than
+    # it being summed in with fixed weight. The smallest substrate step
+    # sources the context channel from arousal_tag (the one SD-039 field
+    # that is both stored and entirely unused by the bank). last_vs is
+    # deferred (already consumed by the recoverability channel); a `cause`
+    # tag is deferred (not present in the implemented AnchorGoalPayload --
+    # design-sketch only, would need an SD-039 payload extension).
+    #
+    #   context_salience = 1 - exp(-arousal_tag / arousal_scale)   in [0, 1)
+    #   gate             = clip_[0,1]((outshine_pivot - goal_match)
+    #                                  / outshine_pivot)
+    #   context_term     = context_weight * gate * context_salience
+    #   ghost_priority  += context_term     (overall form stays additive;
+    #                                        Constraint 2 unaffected)
+    #
+    # Defaults are no-op: master switch off and context_weight 0.0 ->
+    # behaviour bit-identical to the pre-MECH-339 bank.
+    use_composite_cue_outshining: bool = False
+    context_weight: float = 0.0
+    outshine_pivot: float = 0.5
+    arousal_scale: float = 1.0
 
 
 @dataclass
