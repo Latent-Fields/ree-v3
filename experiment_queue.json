@@ -188,7 +188,7 @@
       "script": "experiments/v3_exq_543k_arc062_mode_separation_gap_b_falsifier.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 1350,
       "episodes_per_run": 108,
       "seeds": 3,
@@ -201,7 +201,10 @@
       ],
       "supersedes": "V3-EXQ-543i",
       "note": "arc_062_rule_apprehension:GAP-B retest. Substrate: mode_separation_floor=0.25 + p1_w_deviation_aux=0.1 on gated arms (543i autopsy: w~0.5 cancels differential in composed bias). K_IDENTICAL_RUNS=3 per (arm,seed) basin-stability gate; hostname in manifest. Same 12-arm 543i design. PASS = diff_on_escape AND diff_off_reproduced_collapse (all-K strict) AND c2c3_on_pass AND basin_stable. Smoke + validate OK.",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-20T21:54:58.578460+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-598",
