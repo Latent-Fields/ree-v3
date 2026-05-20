@@ -77,6 +77,22 @@
       "supersedes": "V3-EXQ-461",
       "note": "commitment_closure:GAP-11 diagnostic pilot. 3 arms: EMERGENT (P0 warmup on easy env -> P2 eval on target), FORCED_RV (clone + forced rv=0.001 -> P2), STARVED (tight threshold=1e-4 -> abort gate fires at mid-probe). C1: emergent committed steps/ep>100 in >=2/3 seeds. C2: forced-rv committed steps/ep>100 all seeds. C3: starved arm aborts (abort_reason=commitment_not_elicited) all seeds. PASS unblocks V3-EXQ-460b/463b/464b/466b/467b/468b OCD battery. Supersedes V3-EXQ-461 (synthetic scripted diagnostic, 2026-05-12).",
       "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-595",
+      "title": "Post-SP-CEM three-arm ARC-033 vs ARC-058 harm-trunk arbitration (self_attribution:GAP-1)",
+      "experiment_type": "v3_exq_595_arc033_vs_arc058_post_diversity_three_arm",
+      "script": "experiments/v3_exq_595_arc033_vs_arc058_post_diversity_three_arm.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180,
+      "episodes_per_run": 180,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "ARC-058",
+      "note": "self_attribution:GAP-1 evidence. OFF vs ON_INDEPENDENT (ARC-033) vs ON_SHARED (ARC-058); main-path SP-CEM defaults (ARC-065). PASS requires C0 policy entropy>=0.10, C1 balanced agent/body harm tags in P2, C2 harm_a_forward_r2>=0.3 both ON arms, C3 cross-arm r2 discrimination (not bit-identical). Supersedes inconclusive 445/445b monostrategy reads and two-arm 445h. validate_experiments OK; dry-run smoke exit 0 (criteria FAIL on tiny run expected).",
+      "claimed_by": null
     }
   ]
 }
