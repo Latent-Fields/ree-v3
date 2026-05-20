@@ -99,7 +99,7 @@
       "note": "goal_pipeline:GAP-4 Tier-1 diagnostic. Reef env (EXQ-524); single gap4 arm; Tier-1 C1-C4 thresholds only (claim_ids=[]).",
       "claimed_by": {
         "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-20T19:41:22.775206+00:00"
+        "claimed_at": "2026-05-20T19:51:24.450466+00:00"
       }
     },
     {
