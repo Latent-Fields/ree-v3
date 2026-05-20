@@ -19,7 +19,9 @@
       "episodes_per_run": 60,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": ["MECH-295"],
+      "claim_ids": [
+        "MECH-295"
+      ],
       "supersedes": "V3-EXQ-490f",
       "note": "goal_pipeline:GAP-4 owner EXQ. StepHarness + drive_floor=0.9 + goal_stream (MECH-307/295). 2 arms: legacy collapsed vs gap4 operating. Tier-1 C1-C4 on gap4 arm (cue_fires, dacc_bias, approach_commit, goal_active) + lift vs legacy. validate_experiments + dry-run OK.",
       "claimed_by": null
@@ -36,7 +38,9 @@
       "episodes_per_run": 60,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": ["Q-040"],
+      "claim_ids": [
+        "Q-040"
+      ],
       "note": "goal_pipeline:GAP-4 Tier-1 cohort. Same 2-arm legacy vs gap4 design as 490g on fishtank env; Q-040 catatonic-lock factorial under corrected harness.",
       "claimed_by": null
     },
@@ -52,7 +56,10 @@
       "episodes_per_run": 60,
       "seeds": 3,
       "conditions": 2,
-      "claim_ids": ["SD-036", "MECH-279"],
+      "claim_ids": [
+        "SD-036",
+        "MECH-279"
+      ],
       "note": "goal_pipeline:GAP-4 Tier-1. Both arms use gap4 stack; factorial is gabaergic decay OFF vs ON (+pag on gaba arm). Supersedes pre-harness EXQ-475 read.",
       "claimed_by": null
     },
@@ -68,7 +75,11 @@
       "episodes_per_run": 60,
       "seeds": 3,
       "conditions": 4,
-      "claim_ids": ["SD-037", "MECH-280", "MECH-281"],
+      "claim_ids": [
+        "SD-037",
+        "MECH-280",
+        "MECH-281"
+      ],
       "note": "goal_pipeline:GAP-4 Tier-1. 4-arm gaba x broadcast factorial; all arms gap4 operating. Tier-1 gate ON_ON vs OFF_OFF then SD-037-specific reads.",
       "claimed_by": null
     },
@@ -206,7 +217,7 @@
       "script": "experiments/v3_exq_597_mech258_pe_vs_raw_post_spcem.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "claimed",
+      "status": "pending",
       "estimated_minutes": 180,
       "episodes_per_run": 280,
       "seeds": 3,
