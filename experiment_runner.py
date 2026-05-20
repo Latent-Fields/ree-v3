@@ -1745,6 +1745,10 @@ def main():
             if _force_stop_flag:
                 print("[runner] Remote force_stop received -- exiting.", flush=True)
                 break
+            if _drain_flag:
+                print("[runner] Remote stop received -- exiting before next claim.",
+                      flush=True)
+                break
             if _pause_flag:
                 # Skip the inner experiment loop entirely while paused.
                 # Heartbeat update at the bottom will record state=paused.
