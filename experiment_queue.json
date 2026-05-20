@@ -79,6 +79,24 @@
       }
     },
     {
+      "queue_id": "V3-EXQ-598",
+      "title": "commitment_closure GAP-1: SD-033a bias-head frozen vs trainable ablation",
+      "experiment_type": "v3_exq_598_gap1_sd033a_bias_head_trainable_ablation",
+      "script": "experiments/v3_exq_598_gap1_sd033a_bias_head_trainable_ablation.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 96,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": [
+        "SD-033a"
+      ],
+      "note": "commitment_closure:GAP-1 validation. 2 arms: lateral_pfc_train_rule_bias_head OFF vs ON on ARC-062+SD-054 stack (SP-CEM, differential heads, mode_separation_floor). C1 frozen bias silent; C2 trainable non-zero score_bias; C3 trainable reef_frac in (0.2,0.8). Scientific gate: interpret after V3-EXQ-543k contributory PASS. Priority 4 (runs after 543k at 5). validate + dry-run OK.",
+      "claimed_by": null
+    },
+    {
       "queue_id": "V3-EXQ-597",
       "title": "MECH-258 precision-weighted PE vs raw magnitude (post-SP-CEM revalidation)",
       "experiment_type": "v3_exq_597_mech258_pe_vs_raw_post_spcem",
