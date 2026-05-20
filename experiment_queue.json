@@ -106,7 +106,7 @@
       "script": "experiments/v3_exq_514j_sd049_phase2_reef_mech307_spcem.py",
       "priority": 7,
       "machine_affinity": "any",
-      "status": "claimed",
+      "status": "pending",
       "estimated_minutes": 240,
       "episodes_per_run": 55,
       "seeds": 3,
@@ -120,10 +120,7 @@
       ],
       "supersedes": "V3-EXQ-514f",
       "note": "goal_pipeline:GAP-2 owner. 514f reef P0/P1/P2 + MECH-307 conjunction + drive_floor=0.9 + SP-CEM defaults on ARM_1/2/3. PASS: 514f C0-C3b + goal_resource_r>=0.5 + lift>=0.4 + wl_dissoc>=0.6. Runs after 588b recommended. validate + dry-run OK.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-20T19:11:39.948162+00:00"
-      }
+      "claimed_by": null
     },
     {
       "queue_id": "V3-EXQ-588b",
