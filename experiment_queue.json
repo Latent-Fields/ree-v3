@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-542a",
-      "title": "ARC-062 Phase 1 substrate-readiness refresh (one-hot head input UC6)",
-      "experiment_type": "v3_exq_542a_arc062_gated_policy_substrate_readiness_onehot",
-      "script": "experiments/v3_exq_542a_arc062_gated_policy_substrate_readiness_onehot.py",
-      "priority": 8,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 2,
-      "episodes_per_run": 1,
-      "seeds": 1,
-      "conditions": 1,
-      "supersedes": "V3-EXQ-542",
-      "claim_id": "ARC-062",
-      "note": "arc_062_rule_apprehension:GAP-A refresh after GAP-B option-2 one-hot head input (2026-05-17). UC1-UC5 same as 542 + UC6 first_action_onehot wiring. Diagnostic only. Local smoke 6/6 PASS; validate_experiments OK.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-20T04:16:14.071248+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-588b",
       "title": "Goal-seeding pipeline diagnostic: drive_floor x transient patches (post EXQ-588 autopsy)",
       "experiment_type": "v3_exq_588b_goal_seeding_pipeline_diagnostic",
