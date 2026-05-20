@@ -209,26 +209,6 @@
       ],
       "note": "commitment_closure:GAP-1 validation. 2 arms: lateral_pfc_train_rule_bias_head OFF vs ON on ARC-062+SD-054 stack (SP-CEM, differential heads, mode_separation_floor). C1 frozen bias silent; C2 trainable non-zero score_bias; C3 trainable reef_frac in (0.2,0.8). Scientific gate: interpret after V3-EXQ-543k contributory PASS. Priority 4 (runs after 543k at 5). validate + dry-run OK.",
       "claimed_by": null
-    },
-    {
-      "queue_id": "V3-EXQ-597",
-      "title": "MECH-258 precision-weighted PE vs raw magnitude (post-SP-CEM revalidation)",
-      "experiment_type": "v3_exq_597_mech258_pe_vs_raw_post_spcem",
-      "script": "experiments/v3_exq_597_mech258_pe_vs_raw_post_spcem.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 180,
-      "episodes_per_run": 280,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-258",
-      "supersedes": "V3-EXQ-445h",
-      "note": "self_attribution MECH-258 closure. 2 arms: PE_FORWARD (E2+dACC) vs RAW_NORM_ABLATION (dACC only, ||z|| fallback). Main-path SP-CEM defaults. C0 entropy>=0.10, C1 harm_a_forward_r2>=0.3, C2 corr(bias,model_pe)>corr(bias,raw)+0.05 in >=2/3 seeds. validate_experiments OK; dry-run smoke exit 0.",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-20T06:33:25.629283+00:00"
-      }
     }
   ]
 }
