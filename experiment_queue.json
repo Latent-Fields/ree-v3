@@ -66,7 +66,7 @@
       "script": "experiments/v3_exq_596_mech204_sleep_cluster_stepharness_integration.py",
       "priority": 8,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 12,
       "seeds": 3,
@@ -74,7 +74,10 @@
       "claim_id": "MECH-204",
       "confirms": "V3-EXQ-541c",
       "note": "Closure-handoff contributory evidence for substrate_ready MECH-204. 2-arm step {0.0, 0.25} with use_sleep_aggregation_cluster + StepHarness waking + anchor install (581 pattern). C1 MECH-204 fires; C2 cluster SWS/replay live post-anchor; C3 rv divergence >=3% vs off. confirms 541c (does not supersede). validate_experiments OK; dry-run smoke exit 0 (aggregate FAIL on 1 seed expected). Behavioral proxy V3-EXQ-593 remains deferred until ARC-065/MECH-269.",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-20T04:16:23.075317+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-595",
