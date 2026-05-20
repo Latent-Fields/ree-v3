@@ -94,8 +94,10 @@ today), `shadow` (Phase 1), `coordinator` (Phase 2+). Default MUST stay
 - Coordinator down -> `POST /claim` fails, worker waits/retries (same UX as
   "nothing claimable"). A finished run is spooled locally and replayed until
   acked. Idempotent on `run_id` -> double-send after partition is a no-op.
-- Worker dies mid-run -> heartbeat TTL stale -> reaper flips claim back to
-  `pending` and logs (this is the long-stubbed `recover_stale_claims()`).
+- Worker dies mid-run -> the claim becomes recoverable only after its
+  `claimed_at` TTL is old *and* the owner no longer has a fresh heartbeat
+  for that same `queue_id`. A multi-day live run must not be reclaimed just
+  because the initial claim timestamp is old.
 - Coordinator disk loss -> sync_daemon's periodic queue snapshot in git is
   the disaster-recovery seed; evidence already committed. Worst case: a few
   experiments re-run, deduped in evidence by `run_id`.
@@ -134,3 +136,8 @@ cleanup, not migration-critical.
   runner; release and queue-remove endpoints prevent stuck or duplicate DB
   claims; `SYNC_MODE=coordinator` preserves DB claim state while git remains
   the worklist/result transport. Default stays `git`.
+- 2026-05-20: Long-run lease guard added. Both the legacy git claim path and
+  the coordinator claim evaluator now treat a stale `claimed_at` as protected
+  when the owner has a fresh heartbeat for the same `queue_id`. This was a
+  cutover blocker: `V3-EXQ-591` showed duplicate execution after the fixed
+  six-hour TTL expired during a legitimate multi-day run.

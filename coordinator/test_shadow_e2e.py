@@ -26,10 +26,14 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+sys.path.insert(0, ROOT)
 import db  # noqa: E402
+import experiment_runner  # noqa: E402
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -293,6 +297,54 @@ def main():
     oks = results.count("ok")
     check("concurrent try_claim: exactly one winner (got %d)" % oks,
           oks == 1)
+
+    # ---- stale-claim lease is extended by a fresh owner heartbeat -----
+    lease_db = os.path.join(tmp, "lease.db")
+    db.init_db(lease_db)
+    lc = db.connect(lease_db)
+    old_claim = "2000-01-01T00:00:00Z"
+    try:
+        db.upsert_experiment(lc, {
+            "queue_id": "V3-EXQ-LEASE-NO-HB", "script": "x",
+            "priority": 1, "machine_affinity": "any",
+            "status": "claimed", "estimated_minutes": 1,
+            "claimed_by": {"machine": "Mac", "claimed_at": old_claim}})
+        check("old claim without heartbeat is recoverable",
+              db.try_claim(lc, "V3-EXQ-LEASE-NO-HB", "Daniel-PC") == "ok")
+
+        db.upsert_experiment(lc, {
+            "queue_id": "V3-EXQ-LEASE-HB", "script": "x",
+            "priority": 1, "machine_affinity": "any",
+            "status": "claimed", "estimated_minutes": 1,
+            "claimed_by": {"machine": "Mac", "claimed_at": old_claim}})
+        db.upsert_heartbeat(lc, "Mac", "running", "V3-EXQ-LEASE-HB",
+                            {"overall_pct": 50.0}, {"available": False})
+        check("fresh owner heartbeat blocks stale recovery",
+              db.try_claim(lc, "V3-EXQ-LEASE-HB", "Daniel-PC")
+              == "already_claimed")
+        check("evaluate_claim also honors fresh owner heartbeat",
+              db.evaluate_claim(lc, "V3-EXQ-LEASE-HB", "Daniel-PC")
+              == "already_claimed")
+    finally:
+        lc.close()
+
+    assembly = os.path.join(tmp, "REE_assembly")
+    hb_dir = os.path.join(
+        assembly, "evidence", "experiments", "runner_heartbeats")
+    os.makedirs(hb_dir, exist_ok=True)
+    hb_path = os.path.join(hb_dir, "ree-cloud-1.json")
+    with open(hb_path, "w", encoding="utf-8") as fh:
+        json.dump({"machine": "ree-cloud-1",
+                   "last_tick_utc": experiment_runner.now_utc(),
+                   "state": "running",
+                   "current_exq": "V3-EXQ-LONG"}, fh)
+    runner_claim = {"machine": "ree-cloud-1", "claimed_at": old_claim}
+    check("runner stale check honors fresh owner heartbeat",
+          experiment_runner._is_stale_claim(
+              runner_claim, "V3-EXQ-LONG", Path(assembly)) is False)
+    check("runner stale check rejects heartbeat for a different queue id",
+          experiment_runner._is_stale_claim(
+              runner_claim, "V3-EXQ-OTHER", Path(assembly)) is True)
 
     # ---- sync_daemon --once reconciles mirror from the queue file -----
     sd = subprocess.run(

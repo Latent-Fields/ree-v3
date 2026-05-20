@@ -19,6 +19,7 @@ Config (env):
   COORDINATOR_BIND_PORT    default 8787
   COORDINATOR_TOKENS_FILE  JSON {token: machine} (default ./tokens.json)
   COORDINATOR_STALE_HOURS  stale-claim cutoff, default 6
+  COORDINATOR_HEARTBEAT_FRESH_SECONDS live-owner grace window, default 900
   COORDINATOR_MODE         shadow (default) | coordinator
 """
 
@@ -43,6 +44,9 @@ BIND_PORT = int(os.environ.get("COORDINATOR_BIND_PORT", "8787"))
 TOKENS_FILE = os.environ.get("COORDINATOR_TOKENS_FILE", os.path.join(
     os.path.dirname(__file__), "tokens.json"))
 STALE_HOURS = float(os.environ.get("COORDINATOR_STALE_HOURS", "6"))
+HEARTBEAT_FRESH_SECONDS = int(
+    os.environ.get("COORDINATOR_HEARTBEAT_FRESH_SECONDS", "900")
+)
 MODE = os.environ.get("COORDINATOR_MODE", "shadow")
 
 _tokens_lock = threading.Lock()
@@ -207,7 +211,8 @@ class Handler(BaseHTTPRequestHandler):
             conn = db.connect(DB_PATH)
             try:
                 coord_verdict = db.evaluate_claim(
-                    conn, qid, machine, STALE_HOURS)
+                    conn, qid, machine, STALE_HOURS,
+                    HEARTBEAT_FRESH_SECONDS)
                 if MODE == "shadow":
                     diverged = db.log_claim(
                         conn, qid, machine, git_verdict, coord_verdict)
@@ -216,7 +221,9 @@ class Handler(BaseHTTPRequestHandler):
                                      "diverged": bool(diverged),
                                      "authoritative": False})
                 else:
-                    real = db.try_claim(conn, qid, machine, STALE_HOURS)
+                    real = db.try_claim(
+                        conn, qid, machine, STALE_HOURS,
+                        HEARTBEAT_FRESH_SECONDS)
                     self._send(200, {"verdict": real,
                                      "authoritative": True})
             finally:

@@ -578,7 +578,10 @@ def git_push_status(ree_assembly_path: Path, status_path: Path, queue_id: str) -
 
 # ── Multi-machine coordination ────────────────────────────────────────────────
 
-CLAIM_TTL_HOURS = 6  # claims older than this are treated as stale/abandoned
+CLAIM_TTL_HOURS = float(os.environ.get("REE_CLAIM_TTL_HOURS", "6"))
+CLAIM_HEARTBEAT_FRESH_SECONDS = int(
+    os.environ.get("REE_CLAIM_HEARTBEAT_FRESH_SECONDS", "900")
+)
 
 
 def _get_machine_name(override: str | None = None) -> str:
@@ -591,14 +594,83 @@ def _affinity_matches(item: dict, machine: str) -> bool:
     return affinity in ("any", None, "") or affinity == machine
 
 
-def _is_stale_claim(claimed_by: dict) -> bool:
-    """Return True if a claim is older than CLAIM_TTL_HOURS."""
+def _parse_utc_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
     try:
-        claimed_at = datetime.fromisoformat(claimed_by["claimed_at"])
-        age = datetime.now(timezone.utc) - claimed_at
-        return age.total_seconds() > CLAIM_TTL_HOURS * 3600
+        text = str(value).strip()
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
     except Exception:
-        return True  # malformed -> treat as stale
+        return None
+
+
+def _safe_heartbeat_filename(machine: str) -> str:
+    keep = "-_."
+    return "".join(c if (c.isalnum() or c in keep) else "_" for c in machine)
+
+
+def _claim_owner_has_fresh_heartbeat(
+    claimed_by: dict,
+    queue_id: str,
+    ree_assembly_path: Path | None = None,
+) -> bool:
+    """True when the claim owner is freshly reporting this same queue item.
+
+    This is the lease extension for multi-day experiments. The original
+    six-hour claimed_at TTL is still useful for dead workers, but a live
+    owner must not be reclaimed just because the run is long.
+    """
+    owner = claimed_by.get("machine")
+    if not owner or not queue_id:
+        return False
+
+    base = ree_assembly_path or find_ree_assembly_path()
+    if base is None:
+        return False
+    hb_path = (
+        base / "evidence" / "experiments" / "runner_heartbeats" /
+        f"{_safe_heartbeat_filename(owner)}.json"
+    )
+    try:
+        hb = json.loads(hb_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+
+    if hb.get("current_exq") != queue_id:
+        return False
+    last_tick = _parse_utc_timestamp(hb.get("last_tick_utc"))
+    if last_tick is None:
+        return False
+    age = datetime.now(timezone.utc) - last_tick
+    return age.total_seconds() <= CLAIM_HEARTBEAT_FRESH_SECONDS
+
+
+def _is_stale_claim(
+    claimed_by: dict,
+    queue_id: str | None = None,
+    ree_assembly_path: Path | None = None,
+) -> bool:
+    """Return True if a claim is old and the owner is not freshly alive."""
+    try:
+        claimed_at = _parse_utc_timestamp(claimed_by["claimed_at"])
+        if claimed_at is None:
+            raise ValueError("bad claimed_at")
+        age = datetime.now(timezone.utc) - claimed_at
+        timestamp_stale = age.total_seconds() > CLAIM_TTL_HOURS * 3600
+    except Exception:
+        timestamp_stale = True  # malformed -> treat as stale
+    if not timestamp_stale:
+        return False
+    if queue_id and _claim_owner_has_fresh_heartbeat(
+        claimed_by, queue_id, ree_assembly_path
+    ):
+        return False
+    return True
 
 
 def _git_undo_last_commit(repo: Path) -> None:
@@ -638,7 +710,8 @@ def attempt_claim(queue_file: Path, queue_id: str, machine: str
             return "error"
 
         existing = item.get("claimed_by")
-        if existing and existing.get("machine") != machine and not _is_stale_claim(existing):
+        if (existing and existing.get("machine") != machine
+                and not _is_stale_claim(existing, queue_id)):
             return "already_claimed"
 
         if not _affinity_matches(item, machine):
@@ -783,7 +856,7 @@ def recover_stale_claims(queue_file: Path, machine: str) -> int:
         stale = []
         for item in data.get("items", []):
             cb = item.get("claimed_by")
-            if cb and cb.get("machine") != machine and _is_stale_claim(cb):
+            if cb and cb.get("machine") != machine and _is_stale_claim(cb, item["queue_id"]):
                 stale.append((item["queue_id"], cb["machine"], cb["claimed_at"]))
         if stale:
             print(f"[runner] Stale claims detected (not yet auto-recovering): "
@@ -1738,7 +1811,7 @@ def main():
                 existing_claim = item.get("claimed_by")
                 if (existing_claim
                         and existing_claim.get("machine") != machine
-                        and not _is_stale_claim(existing_claim)):
+                        and not _is_stale_claim(existing_claim, queue_id)):
                     print(f"[runner] Skipping {queue_id} -- claimed by "
                           f"{existing_claim['machine']}", flush=True)
                     continue

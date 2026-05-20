@@ -108,20 +108,55 @@ def upsert_experiment(conn, item, preserve_claim=False):
     )
 
 
-def _is_stale(claimed_at, stale_hours):
-    if not claimed_at:
-        return False
+def _parse_utc(value):
+    if not value:
+        return None
     try:
-        ts = claimed_at.replace("Z", "+00:00")
+        ts = str(value).strip().replace("Z", "+00:00")
         dt = datetime.fromisoformat(ts)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
     except ValueError:
+        return None
+    return dt.astimezone(timezone.utc)
+
+
+def _is_stale(claimed_at, stale_hours):
+    dt = _parse_utc(claimed_at)
+    if dt is None:
         return False
     return datetime.now(timezone.utc) - dt > timedelta(hours=stale_hours)
 
 
-def try_claim(conn, queue_id, machine, stale_hours=6):
+def _has_fresh_owner_heartbeat(conn, queue_id, claimed_by_machine,
+                               heartbeat_fresh_seconds):
+    if not claimed_by_machine or not queue_id or heartbeat_fresh_seconds <= 0:
+        return False
+    row = conn.execute(
+        "SELECT last_seen, current_exq FROM heartbeats WHERE machine=?",
+        (claimed_by_machine,),
+    ).fetchone()
+    if row is None or row["current_exq"] != queue_id:
+        return False
+    last_seen = _parse_utc(row["last_seen"])
+    if last_seen is None:
+        return False
+    age = datetime.now(timezone.utc) - last_seen
+    return age.total_seconds() <= heartbeat_fresh_seconds
+
+
+def _claim_recoverable(conn, row, queue_id, stale_hours,
+                       heartbeat_fresh_seconds):
+    if row["status"] != "claimed":
+        return False
+    if not _is_stale(row["claimed_at"], stale_hours):
+        return False
+    return not _has_fresh_owner_heartbeat(
+        conn, queue_id, row["claimed_by_machine"], heartbeat_fresh_seconds)
+
+
+def try_claim(conn, queue_id, machine, stale_hours=6,
+              heartbeat_fresh_seconds=900):
     """Atomic conditional claim. Returns one of: 'ok', 'already_claimed',
     'error'. Mirrors experiment_runner.attempt_claim() semantics exactly so
     the shadow comparison is apples-to-apples.
@@ -143,10 +178,8 @@ def try_claim(conn, queue_id, machine, stale_hours=6):
         if not _affinity_ok(row["machine_affinity"], machine):
             conn.execute("ROLLBACK")
             return "already_claimed"
-        eligible = row["status"] == "pending" or (
-            row["status"] == "claimed"
-            and _is_stale(row["claimed_at"], stale_hours)
-        )
+        eligible = row["status"] == "pending" or _claim_recoverable(
+            conn, row, queue_id, stale_hours, heartbeat_fresh_seconds)
         if not eligible:
             conn.execute("ROLLBACK")
             return "already_claimed"
@@ -165,12 +198,14 @@ def try_claim(conn, queue_id, machine, stale_hours=6):
         return "error"
 
 
-def evaluate_claim(conn, queue_id, machine, stale_hours=6):
+def evaluate_claim(conn, queue_id, machine, stale_hours=6,
+                   heartbeat_fresh_seconds=900):
     """Read-only: what verdict WOULD the coordinator return, without
     mutating the mirror. Used by the shadow audit so the comparison does
     not perturb state. Same logic as try_claim()."""
     row = conn.execute(
-        "SELECT status, machine_affinity, claimed_at FROM experiments "
+        "SELECT status, machine_affinity, claimed_by_machine, claimed_at "
+        "FROM experiments "
         "WHERE queue_id=?",
         (queue_id,),
     ).fetchone()
@@ -178,10 +213,8 @@ def evaluate_claim(conn, queue_id, machine, stale_hours=6):
         return "error"
     if not _affinity_ok(row["machine_affinity"], machine):
         return "already_claimed"
-    eligible = row["status"] == "pending" or (
-        row["status"] == "claimed"
-        and _is_stale(row["claimed_at"], stale_hours)
-    )
+    eligible = row["status"] == "pending" or _claim_recoverable(
+        conn, row, queue_id, stale_hours, heartbeat_fresh_seconds)
     return "ok" if eligible else "already_claimed"
 
 
