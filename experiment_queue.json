@@ -196,8 +196,8 @@
       "claim_id": "ARC-058",
       "note": "self_attribution:GAP-1 evidence. OFF vs ON_INDEPENDENT (ARC-033) vs ON_SHARED (ARC-058); main-path SP-CEM defaults (ARC-065). PASS requires C0 policy entropy>=0.10, C1 balanced agent/body harm tags in P2, C2 harm_a_forward_r2>=0.3 both ON arms, C3 cross-arm r2 discrimination (not bit-identical). Supersedes inconclusive 445/445b monostrategy reads and two-arm 445h. validate_experiments OK; dry-run smoke exit 0 (criteria FAIL on tiny run expected).",
       "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-05-20T04:41:53.619490+00:00"
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-20T20:14:44.706652+00:00"
       }
     },
     {
