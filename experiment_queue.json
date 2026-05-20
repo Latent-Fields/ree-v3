@@ -151,7 +151,7 @@
       "script": "experiments/v3_exq_590_isef004_novelty_bonus_goldilocks_v3.py",
       "priority": 6,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 500,
       "episodes_per_run": 1000,
       "seeds": 3,
@@ -159,7 +159,10 @@
       "claim_id": "MECH-314",
       "supersedes": "V3-EXQ-590",
       "note": "Recovery rerun for V3-EXQ-590 after stdout-only false PASS with output_file=\"\" and no evidence manifest. Same pre-registered design: novelty_bonus_weight in [0.1, 0.3, 0.5, 0.7, 1.0], 3 seeds, 1000 episodes, 200 steps. Script now writes a per-arm/seed checkpoint under REE_assembly/evidence/experiments/_partial so a future interruption can resume from completed seed metrics.",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-05-20T19:31:36.526589+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-591",
