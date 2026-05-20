@@ -130,8 +130,8 @@
       "claim_id": "ARC-046",
       "note": "infant_substrate:GAP-14 closure. PASS confirms ARC-046 (phased residue accumulation via curriculum); unblocks DEV-NEED-008.",
       "claimed_by": {
-        "machine": "Mac",
-        "claimed_at": "2026-05-19T03:03:30.386909+00:00"
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-20T07:11:33.768476+00:00"
       }
     },
     {
