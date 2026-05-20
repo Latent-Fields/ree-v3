@@ -84,25 +84,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-524a",
-      "title": "SD-054 reef fishtank showcase under GAP-4 operating substrate",
-      "experiment_type": "v3_exq_524a_reef_showcase_gap4_tier1",
-      "script": "experiments/v3_exq_524a_reef_showcase_gap4_tier1.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 90,
-      "episodes_per_run": 60,
-      "seeds": 3,
-      "conditions": 1,
-      "claim_ids": [],
-      "note": "goal_pipeline:GAP-4 Tier-1 diagnostic. Reef env (EXQ-524); single gap4 arm; Tier-1 C1-C4 thresholds only (claim_ids=[]).",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-20T19:51:24.450466+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-514j",
       "title": "SD-049 Phase 2 reef behavioural validation under GAP-2 substrate (goal_pipeline:GAP-2)",
       "experiment_type": "v3_exq_514j_sd049_phase2_reef_mech307_spcem",
