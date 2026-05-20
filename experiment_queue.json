@@ -84,7 +84,7 @@
       "script": "experiments/v3_exq_597_mech258_pe_vs_raw_post_spcem.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 180,
       "episodes_per_run": 280,
       "seeds": 3,
@@ -92,7 +92,10 @@
       "claim_id": "MECH-258",
       "supersedes": "V3-EXQ-445h",
       "note": "self_attribution MECH-258 closure. 2 arms: PE_FORWARD (E2+dACC) vs RAW_NORM_ABLATION (dACC only, ||z|| fallback). Main-path SP-CEM defaults. C0 entropy>=0.10, C1 harm_a_forward_r2>=0.3, C2 corr(bias,model_pe)>corr(bias,raw)+0.05 in >=2/3 seeds. validate_experiments OK; dry-run smoke exit 0.",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-05-20T06:33:25.629283+00:00"
+      }
     }
   ]
 }
