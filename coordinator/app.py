@@ -158,9 +158,12 @@ class Handler(BaseHTTPRequestHandler):
                     "SELECT COUNT(*) c FROM claim_log").fetchone()["c"]
                 ndiv = conn.execute("SELECT COUNT(*) c FROM claim_log "
                                     "WHERE diverged=1").fetchone()["c"]
+                dstat = db.divergence_stats(conn)
             finally:
                 conn.close()
             self._send(200, {"total_claims": total, "divergences": ndiv,
+                             "divergences_explained": dstat["explained"],
+                             "divergences_blocking": dstat["blocking"],
                              "rows": [dict(r) for r in rows]})
             return
         if path == "/shadow/status":
@@ -172,6 +175,7 @@ class Handler(BaseHTTPRequestHandler):
                     "SELECT COUNT(*) c FROM claim_log").fetchone()["c"]
                 ndiv = conn.execute("SELECT COUNT(*) c FROM claim_log "
                                     "WHERE diverged=1").fetchone()["c"]
+                dstat = db.divergence_stats(conn)
                 nexp = conn.execute(
                     "SELECT COUNT(*) c FROM experiments").fetchone()["c"]
                 machines = [dict(r) for r in conn.execute(
@@ -185,6 +189,9 @@ class Handler(BaseHTTPRequestHandler):
                 conn.close()
             self._send(200, {"mode": MODE, "total_claims": total,
                              "divergences": ndiv,
+                             "divergences_explained": dstat["explained"],
+                             "divergences_blocking": dstat["blocking"],
+                             "adjusted_divergences": dstat["blocking"],
                              "experiments_in_mirror": nexp,
                              "machines": machines,
                              "recent_divergences": recent})

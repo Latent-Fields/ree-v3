@@ -145,6 +145,16 @@ def main():
               st == 200 and jb["verdict"] == "ok"
               and jb["diverged"] is False)
 
+        # E2 harness: same machine re-reports git ok after mirror already
+        # holds the claim (sync_daemon upsert or prior /claim).
+        st, jb = http("POST", base + "/claim", token="good-token",
+                      body={"queue_id": "V3-EXQ-901",
+                            "machine": "DLAPTOP-4.local",
+                            "git_verdict": "ok"})
+        check("E2 idempotent same-machine re-report -> no divergence",
+              st == 200 and jb["verdict"] == "already_claimed"
+              and jb["diverged"] is False)
+
         st, jb = http("POST", base + "/claim", token="good-token",
                       body={"queue_id": "V3-EXQ-901", "machine": "Daniel-PC",
                             "git_verdict": "already_claimed"})

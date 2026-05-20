@@ -14,7 +14,27 @@ artifacts are expected and do not gate Phase 2 (see deploy/README.md
 
 ## Explained classes (subtract these from the raw count)
 
+### E2 -- sync mirror ahead of shadow report (git=ok, coord=already_claimed)
+
+`sync_daemon` upserts the authoritative git queue into the coordinator
+mirror each tick. A shadow reporter may POST `/claim` with
+`git_verdict=ok` after the mirror already shows that machine as owner
+(same tick ordering, or a harmless re-report). That is **not** a mutex
+fault: git and the coordinator agree on ownership.
+
+Signature: `git_verdict=ok`, `coord_verdict=already_claimed`, mirror row
+`status=claimed` with `claimed_by_machine` equal to `machine` on the
+log row. Fixed in harness: `db.claim_verdicts_diverge` skips logging;
+`check_shadow.py` / `/shadow/status` use `adjusted_divergences`
+(blocking count only).
+
 ### E1 -- non-shadow machine claim (state-reconcile mirror=pending vs git=claimed)
+
+**Historical only (2026-05-20):** Phase-1 `sync_daemon` no longer runs
+pre-upsert state-reconcile when `claim_authority=git`; new E1 rows
+should not appear from that path. Rows already in `claim_log` remain
+until hub purge. Live E1 still applies when Daniel-PC / EWIN-PC claim
+in git without shadow reporting.
 
 Any machine still in `COORDINATION_MODE=git` (not a shadow reporter)
 claims experiments in git **without** reporting the claim to the
@@ -38,6 +58,13 @@ cloud-3 onboarded via root SSH (ree had no passwordless sudo); hub peer
 | logged_at (UTC) | queue_id | machine | git | coord | class | note |
 |---|---|---|---|---|---|---|
 | 2026-05-19T08:07:57Z | V3-EXQ-590 | ree-cloud-4 | claimed | pending | E1 | cloud-4 git-mode; claimed V3-EXQ-590 right after the phantom-completion purge (~07:00Z) freed it. No claim reported to coordinator -> mirror stayed pending. Not a mutex fault. Snapshot 2026-05-19T18:58Z: total_claims=4, divergences=1 (this row only). |
+| 2026-05-20T19:41Z | V3-EXQ-591 | ree-cloud-2 | pending | claimed | E1 | One-shot state-reconcile before harness fix; stale mirror vs git. |
+| 2026-05-20T19:41Z | V3-EXQ-514j | ree-cloud-4 | pending | claimed | E1 | Same. |
+| 2026-05-20T19:51Z | V3-EXQ-524a | Mac | ok | already_claimed | E2 | Mirror held Mac claim; shadow re-report. |
+| 2026-05-20T19:51Z | V3-EXQ-588b | ree-cloud-2 | ok | already_claimed | E2 | Same pattern on cloud-2. |
+
+Fleet snapshot 2026-05-20 after harness deploy: raw_divergences purged on
+hub; `adjusted_divergences=0` with Mac + cloud-2/3/4 FRESH in shadow.
 
 ## Go / no-go reading rule
 

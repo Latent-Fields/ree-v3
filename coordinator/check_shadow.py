@@ -88,14 +88,18 @@ def main():
 
     mode = st.get("mode")
     total = st.get("total_claims", 0)
-    ndiv = st.get("divergences", 0)
+    raw_div = st.get("divergences", 0)
+    ndiv = st.get("adjusted_divergences",
+                  st.get("divergences_blocking", raw_div))
+    explained = st.get("divergences_explained", 0)
     nexp = st.get("experiments_in_mirror", 0)
     machines = st.get("machines", [])
     stale_cut = args.stale_mins * 60.0
 
     print("coordinator %s  mode=%s  queue-mirror=%d items"
           % (args.url, mode, nexp))
-    print("claims observed: %d   divergences: %d" % (total, ndiv))
+    print("claims observed: %d   divergences: %d (raw=%d explained=%d)"
+          % (total, ndiv, raw_div, explained))
     print("machines (heartbeat freshness):")
     fresh = 0
     if not machines:
@@ -115,8 +119,8 @@ def main():
 
     if ndiv > 0:
         print("")
-        print("VERDICT: DIVERGENCE DETECTED (%d) -- DO NOT ADVANCE TO "
-              "PHASE 2" % ndiv)
+        print("VERDICT: DIVERGENCE DETECTED (blocking=%d raw=%d) -- DO NOT "
+              "ADVANCE TO PHASE 2" % (ndiv, raw_div))
         for r in st.get("recent_divergences", [])[:20]:
             print("  %s machine=%s git=%s coord=%s @ %s"
                   % (r.get("queue_id"), r.get("machine"),

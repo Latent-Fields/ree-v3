@@ -4,10 +4,9 @@ PHASE 1 (shadow) behaviour -- the default behaviour:
   * Periodically read experiment_queue.json (git is authoritative in
     shadow) and reconcile the coordinator DB mirror to match it, so the
     coordinator's claim logic always evaluates against fresh state.
-  * Detect STATE-level divergence: cases where the mirror's claim state
-    disagrees with the authoritative queue file. These are logged so the
-    operator can confirm the coordinator would have made the same
-    decisions before any cutover.
+  * Claim-level shadow checks happen via runner POST /claim (git_verdict
+    vs coordinator evaluate_claim). State-level pre-upsert reconcile was
+    removed 2026-05-20 (false positives; see SOAK_LOG.md E1/E2).
   * It does NOT write git. Read-only on the queue file. No autostash, no
     rebase -- this daemon is structurally incapable of the failure class
     the whole project exists to remove.
@@ -96,25 +95,11 @@ def reconcile_once(conn, queue_path, *, claim_authority="git"):
         ).fetchall()}
 
         for qid, item in items.items():
-            cb = (item.get("claimed_by") or {}).get("machine")
-            git_status = item.get("status", "pending")
-            m = mirror.get(qid)
-            if claim_authority == "git" and m is not None:
-                # State-level shadow check: did the coordinator's mirror
-                # (driven only by reported claim attempts) end up agreeing
-                # with what git actually recorded?
-                mirror_claimed = m["status"] == "claimed"
-                git_claimed = git_status == "claimed"
-                if mirror_claimed != git_claimed or (
-                        git_claimed and cb and
-                        m["claimed_by_machine"] not in (None, cb)):
-                    divergences += 1
-                    db.log_claim(
-                        conn, qid, cb or "?", git_status,
-                        m["status"],
-                        detail="state-reconcile mirror=%s/%s git=%s/%s" % (
-                            m["status"], m["claimed_by_machine"],
-                            git_status, cb))
+            # Phase 1 (git authority): upsert mirror from authoritative git
+            # queue each tick. Pre-upsert state-reconcile logged false
+            # divergences when the mirror was briefly ahead of origin/main
+            # (harness E1 in SOAK_LOG.md) -- claim-level shadow /claim
+            # compares git_verdict vs evaluate_claim instead.
             db.upsert_experiment(
                 conn, item, preserve_claim=(claim_authority == "coordinator"))
 

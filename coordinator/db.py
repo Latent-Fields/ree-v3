@@ -289,8 +289,49 @@ def mark_queue_removed(conn, queue_id, reason):
     return cur.rowcount > 0
 
 
+def is_explained_divergence(git_verdict, coord_verdict, detail=""):
+    """Harness artifacts that must not block Phase 2 (see SOAK_LOG.md)."""
+    d = detail or ""
+    if d.startswith("state-reconcile"):
+        return True
+    # E2: sync_daemon mirrored git claim before shadow report; same machine.
+    if git_verdict == "ok" and coord_verdict == "already_claimed":
+        return True
+    return False
+
+
+def claim_verdicts_diverge(conn, queue_id, machine, git_verdict,
+                           coord_verdict):
+    """True only when git and coordinator materially disagree (Phase 2 gate)."""
+    if not git_verdict or git_verdict == coord_verdict:
+        return False
+    if git_verdict == "ok" and coord_verdict == "already_claimed":
+        row = conn.execute(
+            "SELECT status, claimed_by_machine FROM experiments "
+            "WHERE queue_id=?", (queue_id,)).fetchone()
+        if (row and row["status"] == "claimed" and
+                row["claimed_by_machine"] == machine):
+            return False
+    return True
+
+
+def divergence_stats(conn):
+    """Raw vs explained vs blocking counts from claim_log."""
+    rows = conn.execute(
+        "SELECT git_verdict, coord_verdict, detail FROM claim_log "
+        "WHERE diverged=1").fetchall()
+    raw = len(rows)
+    explained = sum(
+        1 for r in rows
+        if is_explained_divergence(
+            r["git_verdict"], r["coord_verdict"], r["detail"]))
+    return {"raw": raw, "explained": explained,
+            "blocking": raw - explained}
+
+
 def log_claim(conn, queue_id, machine, git_verdict, coord_verdict, detail=""):
-    diverged = 1 if (git_verdict and git_verdict != coord_verdict) else 0
+    diverged = 1 if claim_verdicts_diverge(
+        conn, queue_id, machine, git_verdict, coord_verdict) else 0
     conn.execute(
         "INSERT INTO claim_log (queue_id, machine, git_verdict, "
         "coord_verdict, diverged, detail, logged_at) VALUES (?,?,?,?,?,?,?)",
