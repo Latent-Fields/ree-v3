@@ -27,9 +27,11 @@ Signature: `coord_verdict` is `pending`/`null` (NOT `already_claimed`),
 `detail` starts `state-reconcile mirror=pending`, `machine` is a known
 non-shadow box. Recurs once per experiment that any non-shadow machine
 claims until that machine is flipped to shadow. Currently non-shadow:
-ree-cloud-3, ree-cloud-4, Daniel-PC, EWIN-PC (shadow: Mac, ree-cloud-2;
-ree-cloud-4 is WG/token/drop-in staged but git-mode until a deliberate
-Phase B -- see memory project-coordinator-shadow).
+Daniel-PC, EWIN-PC.
+
+Shadow reporters (2026-05-20): Mac, ree-cloud-2, ree-cloud-3, ree-cloud-4.
+cloud-3 onboarded via root SSH (ree had no passwordless sudo); hub peer
+10.8.0.13/32 added live with `wg set`.
 
 ## Logged instances
 

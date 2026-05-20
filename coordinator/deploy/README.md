@@ -1,5 +1,8 @@
 # Coordinator deploy runbook (Phase 0 standup + Phase 1 shadow)
 
+**Fleet operator sheet:** `FLEET_CHECKLIST.md` (per-host status, public IPs,
+Mac SSH caveats, cloud-3 sudo blocker).
+
 Hub host = **ree-cloud-1** (public IP, always-on). Topology is hub-and-spoke
 WireGuard: every worker reaches only the coordinator, not each other (all
 coordination traffic is worker -> coordinator, so a full mesh is
