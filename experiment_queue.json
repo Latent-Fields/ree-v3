@@ -132,14 +132,17 @@
       "script": "experiments/v3_exq_588b_goal_seeding_pipeline_diagnostic.py",
       "priority": 6,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 75,
       "episodes_per_run": 300,
       "seeds": 3,
       "conditions": 3,
       "supersedes": "V3-EXQ-588",
       "note": "Diagnostic (claim_ids=[]). 3 arms: ARM_OFF (floor=0, no patch), ARM_FLOOR (0.9, no patch), ARM_FLOOR_PATCH (0.9 + transient benefit 3.0). Persistent agent, 300 ep x 200 steps, post-warmup=ep50. A1 OFF zero seedings; A2 floor >=2/3 seeds seeding; A3 floor+patch >=2/3; A4 patch contacts >1.1x floor. Routes failure_autopsy_V3-EXQ-588. Smoke PASS; validate_experiments OK.",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-05-20T19:13:11.274520+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-590a",
