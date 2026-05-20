@@ -1,5 +1,8 @@
 # Phase-1 shadow fleet checklist
 
+**Start here for the story:** `../OPERATOR_GUIDE.md` (parallel run ->
+assess -> when to retire git).
+
 Cross-session operator sheet for bringing **ree-cloud-2 / 3 / 4** into the
 shadow soak. Hub = **ree-cloud-1** (`ree-worker-1`, public `91.98.130.117`,
 WireGuard `10.8.0.1`). Plan-of-record: `../PLAN.md`, runbook: `README.md`.
