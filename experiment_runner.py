@@ -104,6 +104,14 @@ RE_EXQ_DASHED_OUTCOME = re.compile(
 RE_SAVED_TO = re.compile(r'Result (?:pack )?written to:?\s+(.+)')
 
 
+def _result_manifest_exists(result: dict) -> bool:
+    """Return True only when a PASS/FAIL result names an existing manifest."""
+    manifest = result.get("output_file")
+    if not isinstance(manifest, str) or not manifest.strip():
+        return False
+    return Path(manifest).is_file()
+
+
 def find_ree_assembly_path() -> Path | None:
     """Locate the REE_assembly repo (for git auto-sync pushes)."""
     candidates = [
@@ -1593,12 +1601,13 @@ def main():
     # Track active claim so signal handler can release it
     _current_claim: list[str] = []  # 0 or 1 elements (mutable container for closure)
 
-    # Graceful-drain state: set by first stop signal; second signal force-kills.
-    # _current_proc holds the active experiment subprocess so the second signal can kill it.
+    # Graceful-drain state: SIGTERM / remote stop only request drain. Immediate
+    # termination is reserved for remote force_stop or a second interactive SIGINT.
     _drain_flag: list[bool] = []           # non-empty -> drain requested
     _current_proc: list[subprocess.Popen] = []  # 0 or 1 elements
     _pause_flag: list[bool] = []           # non-empty -> remote pause requested
     _force_stop_flag: list[bool] = []      # non-empty -> remote force_stop requested
+    _sigint_force_armed: list[bool] = []   # non-empty -> next SIGINT force-stops
 
     def _do_immediate_exit() -> None:
         """Final cleanup steps shared by both force-exit and post-drain exit."""
@@ -1621,9 +1630,9 @@ def main():
             PID_FILE.unlink()
 
     def handle_signal(sig, frame):
-        if _drain_flag:
-            # Second signal while already draining -- force exit immediately.
-            print(f"\n[runner] Second signal -- force-stopping now.", flush=True)
+        is_sigint = sig == signal.SIGINT
+        if is_sigint and _sigint_force_armed:
+            print(f"\n[runner] Second SIGINT -- force-stopping now.", flush=True)
             if _current_proc:
                 try:
                     _current_proc[0].kill()
@@ -1632,10 +1641,27 @@ def main():
             _do_immediate_exit()
             sys.exit(0)
 
+        if _drain_flag:
+            print(f"\n[runner] Signal {sig} received while drain is already pending.",
+                  flush=True)
+            if is_sigint and not _sigint_force_armed:
+                _sigint_force_armed.append(True)
+                print("[runner] Send SIGINT again to force-stop immediately.",
+                      flush=True)
+            else:
+                print("[runner] SIGTERM remains graceful-only; use remote "
+                      "force_stop for an immediate kill.", flush=True)
+            return
+
         # First stop signal: request graceful drain.
         print(f"\n[runner] Caught signal {sig} -- will stop after current experiment finishes.",
               flush=True)
-        print("[runner] Send signal again to force-stop immediately.", flush=True)
+        if is_sigint:
+            _sigint_force_armed.append(True)
+            print("[runner] Send SIGINT again to force-stop immediately.", flush=True)
+        else:
+            print("[runner] SIGTERM is graceful-only; use remote force_stop for "
+                  "an immediate kill.", flush=True)
         _drain_flag.append(True)
 
         # Write draining indicator so the Explorer can show the correct state.
@@ -2014,10 +2040,9 @@ def main():
             # not remove the queue entry. (sentinel.manifest_path was
             # already validated for str-shape; check existence here.)
             manifest_str = result.get("output_file") or ""
-            manifest_ok = (not manifest_str) or Path(manifest_str).is_file()
-            if not manifest_ok:
+            if not _result_manifest_exists(result):
                 print(f"[runner] WARN: {queue_id} reports {result['result']} "
-                      f"but manifest {manifest_str!r} is missing on disk. "
+                      f"but manifest {manifest_str!r} is missing on disk or empty. "
                       f"Leaving in queue; investigate before requeueing.",
                       flush=True)
                 if args.auto_sync:
