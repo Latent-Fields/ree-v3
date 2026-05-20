@@ -178,9 +178,20 @@ class Handler(BaseHTTPRequestHandler):
                 dstat = db.divergence_stats(conn)
                 nexp = conn.execute(
                     "SELECT COUNT(*) c FROM experiments").fetchone()["c"]
-                machines = [dict(r) for r in conn.execute(
-                    "SELECT machine, last_seen, state, current_exq FROM "
-                    "heartbeats ORDER BY machine").fetchall()]
+                machines = []
+                for r in conn.execute(
+                    "SELECT machine, last_seen, state, current_exq, "
+                    "progress_json FROM heartbeats ORDER BY machine"
+                ).fetchall():
+                    row = dict(r)
+                    raw_pj = row.pop("progress_json", None)
+                    try:
+                        row["progress"] = (
+                            json.loads(raw_pj)
+                            if isinstance(raw_pj, str) and raw_pj else {})
+                    except (TypeError, ValueError):
+                        row["progress"] = {}
+                    machines.append(row)
                 recent = [dict(r) for r in conn.execute(
                     "SELECT queue_id, machine, git_verdict, coord_verdict, "
                     "logged_at FROM claim_log WHERE diverged=1 "
