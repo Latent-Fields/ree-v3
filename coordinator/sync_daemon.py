@@ -116,13 +116,62 @@ def reconcile_once(conn, queue_path, *, claim_authority="git"):
     return (len(items), divergences)
 
 
-def phase3_git_writer(*_a, **_k):
-    # PHASE 3 STUB. Sole-git-writer: drain results table -> write manifest
-    # files into the REE_assembly evidence checkout -> commit -> push;
-    # snapshot the live queue back to experiment_queue.json. Intentionally
-    # not implemented for the shadow build. Do not wire this up until
-    # /shadow/divergence has been ~zero under real multi-machine load.
-    raise NotImplementedError("Phase 3 git writer is not enabled in shadow")
+# Set True only after phase3_git_writer steps 1-6 are implemented and
+# phase3_preflight.py + phase3_verify.py pass on the live fleet.
+PHASE3_GIT_WRITER_READY = False
+
+# Hub paths (override via env when deploying).
+PHASE3_REE_ASSEMBLY = os.environ.get(
+    "PHASE3_REE_ASSEMBLY",
+    "/home/ree/REE_Working/REE_assembly")
+PHASE3_QUEUE_FILE = os.environ.get(
+    "COORDINATOR_QUEUE_FILE", DEFAULT_QUEUE)
+
+
+def phase3_git_writer(
+    conn,
+    queue_path,
+    *,
+    ree_assembly_path=None,
+    dry_run=False,
+):
+    """Sole git writer tick (Phase 3).
+
+    Safe no-op while PHASE3_GIT_WRITER_READY is False: logs intent and
+    returns False so main() refuses authoritative mode.
+
+    Planned steps (TODO -- implement in order):
+      1. SELECT results WHERE committed_at IS NULL ORDER BY received_at
+      2. Write manifest bytes to evidence/experiments/... (idempotent paths)
+      3. git add/commit/push REE_assembly (no pull --rebase --autostash)
+      4. UPDATE results SET committed_at for shipped run_ids
+      5. Snapshot queue removals/completions -> experiment_queue.json + push
+         ree-v3 main (or hub queue checkout per deploy layout)
+      6. Write derived runner_heartbeats/*.json + runner_status from DB
+         (replaces per-runner git heartbeat push)
+
+    Returns True only when a full tick completed (or dry_run simulated).
+    """
+    asm = ree_assembly_path or PHASE3_REE_ASSEMBLY
+    if not PHASE3_GIT_WRITER_READY:
+        sys.stderr.write(
+            "[phase3] git writer stub (PHASE3_GIT_WRITER_READY=False); "
+            "no git writes performed\n")
+        return False
+    if dry_run:
+        sys.stdout.write(
+            "[phase3] dry_run tick (writer ready but no filesystem/git IO)\n")
+        return True
+    # TODO step 1: pending = conn.execute(
+    #     "SELECT run_id, queue_id, manifest ... FROM results "
+    #     "WHERE committed_at IS NULL ...").fetchall()
+    # TODO step 2-3: write manifests under asm / commit / push master
+    # TODO step 4: mark committed_at
+    # TODO step 5: queue snapshot from experiments table -> queue_path
+    # TODO step 6: derived telemetry files under asm/evidence/experiments/
+    sys.stderr.write(
+        "[phase3] PHASE3_GIT_WRITER_READY=True but body not implemented\n")
+    return False
 
 
 def main():
@@ -147,8 +196,21 @@ def main():
                 "refusing: SYNC_MODE=authoritative needs "
                 "--i-understand-phase3 (Phase 3 not built)\n")
             return 2
-        phase3_git_writer()  # raises NotImplementedError by design
-        return 2
+        db.init_db(args.db)
+        while True:
+            conn = db.connect(args.db)
+            try:
+                ok = phase3_git_writer(conn, args.queue)
+            finally:
+                conn.close()
+            if not ok:
+                sys.stderr.write(
+                    "refusing: phase3 git writer not ready (see "
+                    "PHASE3_GIT_WRITER_READY and phase3_preflight.py)\n")
+                return 2
+            if args.once:
+                return 0
+            time.sleep(args.interval)
     if sync_mode not in ("shadow", "coordinator"):
         sys.stderr.write(
             "refusing: SYNC_MODE must be shadow, coordinator, or "
