@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-490g",
-      "title": "MECH-295 cascade Tier-1 retest under GAP-4 operating substrate (goal_pipeline:GAP-4)",
-      "experiment_type": "v3_exq_490g_mech295_cascade_gap4_tier1",
-      "script": "experiments/v3_exq_490g_mech295_cascade_gap4_tier1.py",
-      "priority": 1,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 120,
-      "episodes_per_run": 60,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "MECH-295"
-      ],
-      "supersedes": "V3-EXQ-490f",
-      "note": "goal_pipeline:GAP-4 owner EXQ. StepHarness + drive_floor=0.9 + goal_stream (MECH-307/295). 2 arms: legacy collapsed vs gap4 operating. Tier-1 C1-C4 on gap4 arm (cue_fires, dacc_bias, approach_commit, goal_active) + lift vs legacy. validate_experiments + dry-run OK.",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-590a",
       "title": "EXQ-ISEF-004 rerun: novelty bonus Goldilocks calibration with checkpoint/resume",
       "experiment_type": "v3_exq_590_isef004_novelty_bonus_goldilocks",
