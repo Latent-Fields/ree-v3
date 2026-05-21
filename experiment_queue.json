@@ -196,25 +196,6 @@
       "backlog_id": "EVB-0229",
       "note": "IGW-20260521-003 GAP-H: 3x3 grid (noise_floor_alpha x curiosity scale). Pareto calibration zone + entropy/reef tradeoff. validate_experiments + dry-run OK.",
       "claimed_by": null
-    },
-    {
-      "queue_id": "V3-EXQ-606",
-      "title": "ARC-064 GAP-I MECH-318 empirical gate (multi-rule bipartite axis alternation)",
-      "experiment_type": "v3_exq_606_arc064_gap_i_mech318_multi_rule_empirical_gate",
-      "script": "experiments/v3_exq_606_arc064_gap_i_mech318_multi_rule_empirical_gate.py",
-      "priority": 6,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 150,
-      "episodes_per_run": 76,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_ids": [
-        "MECH-318"
-      ],
-      "gates_on": "V3-EXQ-543k",
-      "note": "IGW-20260521-004 GAP-I: 3 arms (cluster OFF / single-regime ON / multi-rule axis alternation). MECH-318 retire-vs-promote; MECH-316/317 not tested. Episode-boundary multi-rule only. Interpret after 543k PASS. validate_queue + dry-run OK.",
-      "claimed_by": null
     }
   ]
 }
