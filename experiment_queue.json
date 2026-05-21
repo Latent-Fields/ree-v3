@@ -51,7 +51,7 @@
       "script": "experiments/v3_exq_475a_sd036_decay_gap4_tier1.py",
       "priority": 3,
       "machine_affinity": "any",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 120,
       "episodes_per_run": 60,
       "seeds": 3,
@@ -61,7 +61,10 @@
         "MECH-279"
       ],
       "note": "goal_pipeline:GAP-4 Tier-1. Both arms use gap4 stack; factorial is gabaergic decay OFF vs ON (+pag on gaba arm). Supersedes pre-harness EXQ-475 read.",
-      "claimed_by": null
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-21T07:07:17.531741+00:00"
+      }
     },
     {
       "queue_id": "V3-EXQ-590a",
