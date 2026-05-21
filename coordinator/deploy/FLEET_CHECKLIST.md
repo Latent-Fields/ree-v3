@@ -1,24 +1,100 @@
-# Phase-1 shadow fleet checklist
+# Coordinator fleet checklist (Phase 1 shadow + Phase 2 claims)
 
 **Start here for the story:** `../OPERATOR_GUIDE.md` (parallel run ->
-assess -> when to retire git).
+assess -> claim cutover -> result cutover).
 
 Cross-session operator sheet for bringing **ree-cloud-2 / 3 / 4** into the
 shadow soak. Hub = **ree-cloud-1** (`ree-worker-1`, public `91.98.130.117`,
 WireGuard `10.8.0.1`). Plan-of-record: `../PLAN.md`, runbook: `README.md`.
 
-**2026-05-20 status (this session):**
+**2026-05-21 status (Phase 2 claim cutover):**
 
-| Host | Public SSH | WG IP | shadow.conf | Runner | Coordinator HB |
-|------|------------|-------|-------------|--------|----------------|
-| Mac | local | 10.8.0.10 | via explorer | running | fresh |
-| ree-cloud-1 | 91.98.130.117 | 10.8.0.1 | n/a (hub) | active | n/a |
-| ree-cloud-2 | 116.203.216.181 | 10.8.0.12 | yes | **active** (restarted) | fresh |
-| ree-cloud-3 | 46.62.170.133 | 10.8.0.13 | **BLOCKED** | inactive | not on mesh |
-| ree-cloud-4 | 91.99.68.94 | 10.8.0.14 | yes | **active** (restarted) | fresh |
+| Host | Public SSH | WG IP | coordination | Runner | Notes |
+|------|------------|-------|--------------|--------|-------|
+| Mac | local | 10.8.0.10 | coordinator | active | via serve `POST /api/coordinator/start` |
+| ree-cloud-1 | 91.98.130.117 | 10.8.0.1 | coordinator (hub) | active | hub + optional worker |
+| ree-cloud-2 | 116.203.216.181 | 10.8.0.12 | coordinator | active | |
+| ree-cloud-3 | 46.62.170.133 | 10.8.0.13 | coordinator | active | |
+| ree-cloud-4 | 91.99.68.94 | 10.8.0.14 | coordinator | active | |
 
-`GET /shadow/status` on the hub: **HEALTHY**, divergences **0**, machines
-Mac + ree-cloud-2 + ree-cloud-4 (cloud-3 pending WG).
+Hub health: `{"ok": true, "mode": "coordinator"}`. Claims authoritative on
+coordinator; git still used for results/status until Phase 3.
+
+---
+
+## Phase-2 soak checklist (gate before Phase 3)
+
+Phase 2 cutover landed **2026-05-21** (hard drain, not ideal). Treat the fleet
+as **early Phase 2** until this checklist is green for **several days** of
+real queue traffic. Phase 3 is **not** a config flip: `sync_daemon` needs
+`SYNC_MODE=authoritative` **and** `--i-understand-phase3` (stubbed off until
+then). See `README.md` and `../sync_daemon.py`.
+
+### What Phase 2 means (still running)
+
+| Path | Authority |
+|------|-----------|
+| **Claims** | Coordinator `POST /claim` (workers `COORDINATION_MODE=coordinator`) |
+| **Results / status / queue file** | Runners still **git push** (`--auto-sync`) |
+| **Heartbeats** | Still `runner_remote_control` -> `REE_assembly` (autostash risk **remains**) |
+| **Hub** | `COORDINATOR_MODE=coordinator`, `SYNC_MODE=coordinator` on ree-cloud-1 |
+
+### Daily checks (Mac, 2 minutes)
+
+```bash
+# Hub mode + traffic
+curl -s http://10.8.0.1:8787/health
+# Expect: {"ok": true, "mode": "coordinator"}
+
+# Divergence / heartbeats (shadow endpoint still valid in Phase 2)
+grep '^COORDINATOR_LOCAL_TOKEN=' ~/REE_Working/REE_assembly/coordinator.env | cut -d= -f2- | \
+  xargs -I{} /opt/local/bin/python3 ~/REE_Working/ree-v3/coordinator/check_shadow.py \
+    --url http://10.8.0.1:8787 --token {}
+
+# Explorer panel
+curl -s http://127.0.0.1:8000/api/shadow/status | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); g=d.get('guide',{}); \
+   print(g.get('phase_label'), d.get('verdict'), 'div', d.get('adjusted_divergences'))"
+```
+
+| Check | Pass criterion |
+|-------|----------------|
+| Hub `/health` | `mode` == `coordinator` |
+| `check_shadow.py` | Exit **0** (HEALTHY), `adjusted_divergences` == 0 |
+| Explorer guide | **Phase 2 -- claim cutover (live)** |
+| Machines | Mac + ree-cloud-1..4 **FRESH** (~10 min), each running or idle cleanly |
+| No duplicate EXQ | At most **one** machine `current_exq` per queue_id (affinity respected) |
+| Coordinator log | No sustained `POST /claim` failure storms on workers |
+
+### Soak period (human gate)
+
+- [ ] **3+ calendar days** after Phase-2 cutover with runners active and queue non-empty
+- [ ] At least one **full EXQ** completes end-to-end (claim -> run -> result on git -> `/queue/remove` notified)
+- [ ] No unexplained `DIVERGENCE` rows (`../SOAK_LOG.md`); E1/E2 only if classified
+- [ ] No mixed fleet: every experiment host on `COORDINATION_MODE=coordinator` (not `git`/`shadow`)
+- [ ] Daniel-PC / EWIN-PC either **idle** or flipped; if git-only and claiming, expect E1 noise
+- [ ] `machine_affinity` honored (post-rescue: e.g. V3-EXQ-590a only on ree-cloud-3 if partial there)
+
+### Before scheduling Phase 3 (maintenance window)
+
+Same discipline as Phase 2 cutover:
+
+1. **Pause / drain** all workers (no mixed result writers).
+2. Hub: `SYNC_MODE=authoritative` + enable Phase-3 sync_daemon flags per runbook (when implemented).
+3. Workers: stop pushing results/queue via git; coordinator + sync_daemon own writes.
+4. Verify manifests land in git via sync_daemon only; then retire heartbeat push.
+
+### Phase-2 rollback (claims back to git)
+
+Per-worker: set `COORDINATION_MODE=shadow` or remove drop-in; hub:
+`COORDINATOR_MODE=shadow`, `SYNC_MODE=shadow`; restart services. See **Rollback** below.
+
+### Known post-cutover watch items (2026-05-21)
+
+- Prefer **pause -> finish current EXQ -> flip** next time; hard `systemctl kill` loses in-flight compute.
+- Stale `stop` in `runner_commands/<machine>.json` can exit runners before first claim; clear pending commands.
+- Coordinator claim can stick on wrong host until `POST /claim/release` + runner stop on that host.
+- Partial checkpoints (e.g. V3-EXQ-590a `_partial/`) are **per-machine**; pin `machine_affinity` before resume.
 
 ---
 
@@ -44,7 +120,7 @@ key in `~ree/.ssh/authorized_keys` on that box.
 
 ## Hub prerequisites (ree-cloud-1, one-time)
 
-Done if `curl http://10.8.0.1:8787/health` returns `{"ok": true, "mode": "shadow"}`.
+Done if `curl http://10.8.0.1:8787/health` returns `{"ok": true, "mode": "coordinator"}` (Phase 2).
 
 - [ ] WireGuard hub up (`10.8.0.1`, UDP 51820 open)
 - [ ] `ree-coordinator` + `ree-sync-daemon` enabled (`/etc/ree-coordinator.env`)
@@ -123,13 +199,15 @@ sudo systemctl restart ree-coordinator
 
 Save the printed `COORDINATOR_TOKEN` (shown once).
 
-### D. systemd drop-in (shadow mode)
+### D. systemd drop-in (coordinator mode -- Phase 2)
+
+File name remains `shadow.conf`; value is `COORDINATION_MODE=coordinator`.
 
 ```bash
 sudo mkdir -p /etc/systemd/system/ree-runner.service.d
 sudo tee /etc/systemd/system/ree-runner.service.d/shadow.conf <<'EOF'
 [Service]
-Environment=COORDINATION_MODE=shadow
+Environment=COORDINATION_MODE=coordinator
 Environment=COORDINATOR_URL=http://10.8.0.1:8787
 Environment=COORDINATOR_TOKEN=<paste token>
 Environment=COORDINATOR_LOG=/home/ree/coordinator_shadow.log
@@ -140,7 +218,7 @@ sudo systemctl start ree-runner
 systemctl is-active ree-runner
 ```
 
-Git claiming is **unchanged**; shadow only adds best-effort coordinator reports.
+Phase 2: coordinator owns claims; git remains result/status transport until Phase 3.
 
 ### E. Post-start verification
 
@@ -190,7 +268,11 @@ Does not replace `check_shadow.py`; run both on different schedules.
 
 ---
 
-## Daily soak (go/no-go for Phase 2)
+## Daily soak (Phase 1 gate -- historical)
+
+Use **Phase-2 soak checklist** above for current operations. Phase 1 gate
+(before claim cutover): all hosts in **shadow**, `adjusted_divergences` ~0 for
+**days**, then drain and flip per `README.md` section 2.
 
 ```bash
 /opt/local/bin/python3 ~/REE_Working/ree-v3/coordinator/check_shadow.py \
@@ -199,14 +281,10 @@ Does not replace `check_shadow.py`; run both on different schedules.
 
 | Exit | Meaning |
 |------|---------|
-| 0 | HEALTHY -- proceed only after **days** of this under real load |
-| 1 | DIVERGENCE -- read rows; do not cut over |
-| 2 | NO SIGNAL -- runners drained or not in shadow mode |
+| 0 | HEALTHY -- keep soaking |
+| 1 | DIVERGENCE -- investigate; do not advance phase |
+| 2 | NO SIGNAL -- runners drained or not reporting |
 | 3 | UNREACHABLE -- fix WG / coordinator / token |
-
-Before Phase 2: all experiment hosts in **shadow**, `adjusted_divergences` ~0
-(see `../SOAK_LOG.md` E1 class for git-only stragglers), drain fleet, flip to
-`COORDINATION_MODE=coordinator` per `README.md` section 2.
 
 ---
 

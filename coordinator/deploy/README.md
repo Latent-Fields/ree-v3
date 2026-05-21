@@ -106,6 +106,10 @@ curl -s -H "Authorization: Bearer <tok>" \
 
 ## 2. Claim cutover (Phase 2, explicit)
 
+**2026-05-21:** Phase 2 is live on Mac + ree-cloud-1..4 (see `../SOAK_LOG.md`
+cutover section). Resume after drain: `POST http://127.0.0.1:8000/api/coordinator/start`
+(serve.py) or `deploy/phase2_cutover.sh`.
+
 Only after the adjusted shadow divergence count has stayed near zero under
 real load, cut over claims while leaving results/status/queue commits on the
 existing git path.

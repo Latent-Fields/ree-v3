@@ -66,6 +66,19 @@ cloud-3 onboarded via root SSH (ree had no passwordless sudo); hub peer
 Fleet snapshot 2026-05-20 after harness deploy: raw_divergences purged on
 hub; `adjusted_divergences=0` with Mac + cloud-2/3/4 FRESH in shadow.
 
+## Phase-2 claim cutover (2026-05-21T08:35Z)
+
+Phase-1 soak gate cleared (2+ days HEALTHY, adjusted_divergences=0).
+Maintenance cutover executed from Mac:
+
+- Hub `ree-cloud-1`: `/etc/ree-coordinator.env` -> `COORDINATOR_MODE=coordinator`, `SYNC_MODE=coordinator`; health `{"ok": true, "mode": "coordinator"}`.
+- Workers Mac + ree-cloud-1..4: `COORDINATION_MODE=coordinator` in `ree-runner.service.d/shadow.conf` (cloud-1 drop-in created; token minted).
+- Resume: `POST /api/coordinator/start` (serve.py) + `systemctl start ree-runner` on clouds.
+- Mac runner restarted after stale `stop` command drained; claimed via coordinator (e.g. V3-EXQ-606).
+
+Git still authoritative for results/status/queue commits until Phase 3.
+Daniel-PC / EWIN-PC remain manual (git-only if started).
+
 ## Go / no-go reading rule
 
 `adjusted_divergences = raw_divergences - (rows matching E1...En)`.
