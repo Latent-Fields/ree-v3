@@ -44,6 +44,29 @@
       "claimed_by": null
     },
     {
+      "queue_id": "V3-EXQ-543k",
+      "title": "ARC-062 GAP-B mode-separation floor falsifier (post-543i substrate)",
+      "experiment_type": "v3_exq_543k_arc062_mode_separation_gap_b_falsifier",
+      "script": "experiments/v3_exq_543k_arc062_mode_separation_gap_b_falsifier.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 1350,
+      "episodes_per_run": 108,
+      "seeds": 3,
+      "conditions": 12,
+      "claim_ids": [
+        "ARC-062",
+        "MECH-309",
+        "INV-074",
+        "MECH-334"
+      ],
+      "supersedes": "V3-EXQ-543i",
+      "force_rerun": true,
+      "note": "IGW-20260521-040 ARC-062 retest after substrate. Re-queued 2026-05-21T14:13Z with force_rerun (ree-cloud-4 FAIL 08:31Z, no central manifest; queue pruned). mode_separation_floor=0.25 + p1_w_deviation_aux=0.1; K=3 basin gate; 12-arm 543i design. validate_experiments + dry-run --seeds 0 exit 0. Gates 606a/598.",
+      "claimed_by": null
+    },
+    {
       "queue_id": "V3-EXQ-591",
       "title": "EXQ-ISEF-005: 4-phase infant curriculum vs flat parameter baselines (GAP-14)",
       "experiment_type": "v3_exq_591_isef005_curriculum_vs_flat",
