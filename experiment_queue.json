@@ -60,23 +60,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-597b",
-      "title": "MECH-258 PE vs raw (597b: pre-clip bias telemetry for C2)",
-      "experiment_type": "v3_exq_597b_mech258_pe_vs_raw_post_spcem",
-      "script": "experiments/v3_exq_597b_mech258_pe_vs_raw_post_spcem.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 180,
-      "episodes_per_run": 280,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-258",
-      "supersedes": "V3-EXQ-597",
-      "note": "597 failure autopsy measurement_gap: C2 used saturated post-clip |bias|==2.0. Same arms/training as 597; C2 corr uses pre-clip DACCtoE3Adapter bias. C0 entropy>=0.10, C1 forward_r2>=0.3, C2 corr delta>=0.05 in >=2/3 seeds. validate_experiments OK; dry-run smoke exit 0 (finite corr on tiny run).",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-603",
       "title": "Q-045 MECH-313 vs MECH-260 four-arm anti-monostrategy ablation",
       "experiment_type": "v3_exq_603_q045_mech313_mech260_four_arm_ablation",
