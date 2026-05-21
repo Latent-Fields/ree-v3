@@ -3197,8 +3197,8 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     C7: diagnostics (vs_gate_staleness_lookup_calls,
         vs_gate_max_staleness_<stream>) populated and cleared by reset.
     C8: agent precondition raises on missing accumulator / anchor substrates.
-  Validation experiment: V3-EXQ-490d (490c successor) -- queue separately
-  per the 490c-successor-tree planning doc once the 490c result lands.
+  Validation experiment: V3-EXQ-601 queued (MECH-269b-followup-A severance at
+  default 0.4/0.5 thresholds; supersedes the drafted 490d staleness path).
   Design doc: REE_assembly/docs/architecture/mech_269b_vs_rollout_gating.md
   (new section "MECH-284 staleness wiring (Q-040b strong reading,
   2026-04-29)").
