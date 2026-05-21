@@ -177,6 +177,19 @@ verdict. Cloud-2/3/4 restarts use SSH to **public** IPs.
 
 ---
 
+## Fleet integrity (optional cron on Mac)
+
+```bash
+cd ~/REE_Working/ree-v3/coordinator
+/opt/local/bin/python3 deploy/fleet_integrity_check.py --write-baseline   # once
+/opt/local/bin/python3 deploy/fleet_integrity_check.py                     # probe
+```
+
+Uses `coordinator.env` SSH hosts. See `deploy/README.md` for exit codes.
+Does not replace `check_shadow.py`; run both on different schedules.
+
+---
+
 ## Daily soak (go/no-go for Phase 2)
 
 ```bash

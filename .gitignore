@@ -21,3 +21,4 @@ runner.pid
 runner *.pid
 script_timing.json
 runner_status.tmp
+coordinator/deploy/fleet_integrity_baseline.json

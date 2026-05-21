@@ -1,0 +1,5 @@
+# Example cron on the Mac (operator machine). Adjust python path and log dir.
+# Install: crontab -e and paste one line (no secrets in this file).
+#
+# Twice daily integrity probe (shadow soak is separate: check_shadow.py):
+# 15 8,20 * * * /opt/local/bin/python3 /Users/dgolden/REE_Working/ree-v3/coordinator/deploy/fleet_integrity_check.py >> /Users/dgolden/REE_Working/logs/fleet_integrity.log 2>&1

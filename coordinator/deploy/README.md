@@ -170,6 +170,36 @@ ree-cloud-1 coordinator + cloud-2/3/4 runners, and the panel shows the
 live verdict. Daniel-PC / EWIN-PC are reported as "start manually" (no
 inbound SSH). Unreachable boxes are reported FAILED, never fatal.
 
+## Fleet integrity (compute takeover watch)
+
+Separate from shadow divergence: host-level read-only checks that the
+workers still look like REE boxes (not a substitute for Hetzner account
+security or SSH hardening).
+
+```bash
+# One-time: capture authorized_keys fingerprints (local, gitignored JSON)
+/opt/local/bin/python3 deploy/fleet_integrity_check.py --write-baseline
+
+# Manual or cron (exit 0/1/2/3 for alerting)
+/opt/local/bin/python3 deploy/fleet_integrity_check.py
+```
+
+Reads SSH targets from `REE_assembly/coordinator.env` when present
+(`SHADOW_SSH_HOST_ree-cloud-*`). Probes per host:
+
+- `authorized_keys` SHA-256 vs baseline (ALERT on change)
+- newly **enabled** systemd units vs baseline (WARN; docker/miner ALERT)
+- top CPU processes (ALERT on miner-like command lines)
+- `nvidia-smi` compute apps not matching python/ree (ALERT)
+- hub `wg show wg0 peers` count (WARN if below threshold)
+- coordinator `/shadow/status` machine names (ALERT if unknown)
+
+Cron template: `deploy/fleet_integrity_cron.example`. Baseline template:
+`deploy/fleet_integrity_baseline.json.example`.
+
+Science data in public GitHub repos is unchanged; this guards **compute**
+and **SSH/control-plane** drift on the Hetzner fleet.
+
 ## Daily soak watch
 
 From any mesh machine (e.g. your Mac), once per day during the shadow

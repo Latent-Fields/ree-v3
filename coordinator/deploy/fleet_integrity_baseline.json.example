@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "updated": "2026-05-21T00:00:00Z",
+  "hosts": {
+    "91.98.130.117": {
+      "authorized_keys_sha256": "<sha256 from --write-baseline>",
+      "enabled_units": ["ree-runner.service", "wg-quick@wg0.service"],
+      "recorded_at": "2026-05-21T00:00:00Z"
+    }
+  }
+}
