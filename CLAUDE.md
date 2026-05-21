@@ -632,6 +632,14 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   enter_sws_mode(), enter_rem_mode(), exit_sleep_mode(). HippocampalModule.replay() accepts
   optional drive_state for valence-weighted start selection. Master switch:
   tonic_5ht_enabled=False (default, fully backward compatible).
+  MECH-204 GAP-1 consumer (2026-05-08): SleepLoopManager WRITEBACK (phase_manager.py)
+  calls SerotoninModule.compute_recalibration_target() and
+  E3TrajectorySelector.recalibrate_precision_to(target, step). Config:
+  REEConfig.use_rem_precision_recalibration (default False);
+  rem_precision_recalibration_step default 0.25 (post V3-EXQ-541c PASS 2026-05-09).
+  NOT bundled in use_sleep_aggregation_cluster (separate GAP-1 flag).
+  Contracts: tests/contracts/test_mech204_precision_recalibration.py 13/13 PASS.
+  Canonical validation: V3-EXQ-541c. Integration closure: V3-EXQ-602 queued.
 
 - ARC-028 + MECH-105: control_plane.hippocampal_betagate_coupling — IMPLEMENTED 2026-04-04.
   HippocampalModule.compute_completion_signal(trajectories) -> float: scores all proposed

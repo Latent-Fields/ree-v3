@@ -1,5 +1,5 @@
 #!/opt/local/bin/python3
-"""V3-EXQ-596 -- MECH-204 closure integration validation (sleep cluster + StepHarness).
+"""V3-EXQ-602 -- MECH-204 closure integration validation (sleep cluster + StepHarness).
 SLEEP DRIVER: K=1 single-fire (SleepLoopManager, sleep_loop_episodes_K=1, fires every episode)
 
 Substrate-ready handoff for MECH-204 (sleep_substrate_plan.md GAP-1 done via
@@ -60,7 +60,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E4
 from ree_core.utils.config import REEConfig  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_596_mech204_sleep_cluster_stepharness_integration"
-QUEUE_ID = "V3-EXQ-596"
+QUEUE_ID = "V3-EXQ-602"
 CLAIM_IDS = ["MECH-204"]
 EXPERIMENT_PURPOSE = "evidence"
 BACKLOG_ID = "EXP-0171"
@@ -304,7 +304,7 @@ def main(dry_run: bool = False):
     direction = "supports" if outcome == "PASS" else "weakens"
 
     print(
-        f"V3-EXQ-596 MECH-204 sleep-cluster StepHarness integration -- "
+        f"V3-EXQ-602 MECH-204 sleep-cluster StepHarness integration -- "
         f"{outcome} in {elapsed:.1f}s",
         flush=True,
     )

@@ -230,6 +230,25 @@
       ],
       "note": "IGW-20260521-021: validates use_vs_gate_staleness_lookup at default 0.4/0.5 thresholds (no smoke override). C1 staleness_lookup_calls>0 on LOOKUP_ON; C2 ON total_held > OFF severance. diagnostic substrate readiness for Q-040b narrow reading. validate_queue + dry-run OK.",
       "claimed_by": null
+    },
+    {
+      "queue_id": "V3-EXQ-602",
+      "title": "MECH-204 sleep-cluster StepHarness integration closure",
+      "experiment_type": "v3_exq_596_mech204_sleep_cluster_stepharness_integration",
+      "script": "experiments/v3_exq_596_mech204_sleep_cluster_stepharness_integration.py",
+      "priority": 6,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 12,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_ids": [
+        "MECH-204"
+      ],
+      "confirms": "V3-EXQ-541c",
+      "note": "IGW-20260521-022: contributory integration after 541c substrate-readiness PASS. F1 recal + use_sleep_aggregation_cluster + StepHarness waking. 2 arms x 3 seeds. ID V3-EXQ-602 (596 reserved for MECH-269 script). validate_queue + contracts 13/13 OK.",
+      "claimed_by": null
     }
   ]
 }
