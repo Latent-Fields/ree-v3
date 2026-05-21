@@ -57,20 +57,6 @@
       "supersedes": "V3-EXQ-597",
       "note": "597 failure autopsy measurement_gap: C2 used saturated post-clip |bias|==2.0. Same arms/training as 597; C2 corr uses pre-clip DACCtoE3Adapter bias. C0 entropy>=0.10, C1 forward_r2>=0.3, C2 corr delta>=0.05 in >=2/3 seeds. validate_experiments OK; dry-run smoke exit 0 (finite corr on tiny run).",
       "claimed_by": null
-    },
-    {
-      "queue_id": "V3-EXQ-607",
-      "title": "MECH-340 persistence/efficacy gate substrate validation",
-      "experiment_type": "v3_exq_607_mech340_persistence_efficacy_gate_validation",
-      "script": "experiments/v3_exq_607_mech340_persistence_efficacy_gate_validation.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 2,
-      "claim_id": "MECH-340",
-      "experiment_purpose": "diagnostic",
-      "note": "Substrate readiness for MECH-340 gated persistence (ARC-079/Q-053). Pure-arithmetic 5 sub-tests; default-off gate. Not governance evidence.",
-      "claimed_by": null
     }
   ]
 }
