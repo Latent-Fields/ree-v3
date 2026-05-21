@@ -70,22 +70,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-598",
-      "title": "GAP-1 SD-033a bias-head trainable ablation (GAP-C/D validation)",
-      "experiment_type": "v3_exq_598_gap1_sd033a_bias_head_trainable_ablation",
-      "script": "experiments/v3_exq_598_gap1_sd033a_bias_head_trainable_ablation.py",
-      "priority": 6,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 90,
-      "episodes_per_run": 96,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "SD-033a",
-      "note": "commitment_closure:GAP-1 / arc_062 GAP-C+D. 2-arm frozen vs trainable rule_bias_head; discriminator source ON. Hard gate: V3-EXQ-543k contributory PASS (runtime + priority 6 after 543k=5). Re-queued 2026-05-21T14:37Z.",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-603",
       "title": "Q-045 MECH-313 vs MECH-260 four-arm anti-monostrategy ablation",
       "experiment_type": "v3_exq_603_q045_mech313_mech260_four_arm_ablation",
