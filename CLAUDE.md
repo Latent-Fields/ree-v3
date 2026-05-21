@@ -5106,6 +5106,21 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     V3-EXQ-540e (default-fix validation), goal_pipeline:GAP-1 (closure plan).
 
 ## SD Design Decisions Implemented (V3) — continued
+- infant_substrate:GAP-1 / INF-ENV-001 — harm gradient env feature —
+  IMPLEMENTED 2026-05-16. ree_core/environment/causal_grid_world.py.
+  Env-only constructor kwargs (NOT REEConfig / from_dims): harm_gradient_enabled
+  (default False), harm_gradient_outer_radius (3.0), harm_gradient_inner_radius
+  (0.0), harm_gradient_scale (1.0). step(): when transition_type == "none" and
+  nearest-hazard distance d in (inner, outer], apply
+  -hazard_harm * (1 - d/r_outer)^2 * scale to harm_signal; transition_type
+  harm_gradient. Terminal hazard contact unchanged. Info keys: harm_gradient_enabled,
+  harm_gradient_reward_this_tick, harm_gradient_dist_to_nearest. Backward compatible:
+  disabled by default; bit-identical OFF verified (test_harm_gradient_gap1.py 10/10).
+  Not a learning module — no encoder, no phased training, MECH-094 N/A.
+  Validation: V3-EXQ-576 PASS 20260516T195014Z (diagnostic, claim_ids=[]).
+  Unblocks DEV-NEED-004 gate experiments (tier-1: V3-EXQ-587 GAP-10). See
+  infant_substrate_plan.md, infant_substrate_expansion.md Section 5.1, ARC-013.
+
 - commitment_closure:GAP-3 — CausalGridWorldV2 env extensions, primitives 1-3 —
   IMPLEMENTED 2026-05-17. ree_core/environment/causal_grid_world.py.
   Env-only constructor kwargs (NOT REEConfig / from_dims — same precedent as
