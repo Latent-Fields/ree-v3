@@ -41,23 +41,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-592",
-      "title": "GAP-11 pilot: committed-mode curriculum harness validation (EXP-0157)",
-      "experiment_type": "v3_exq_592_gap11_pilot_committed_mode_curriculum",
-      "script": "experiments/v3_exq_592_gap11_pilot_committed_mode_curriculum.py",
-      "priority": 3,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
-      "estimated_minutes": 60,
-      "episodes_per_run": 400,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_id": "MECH-090",
-      "supersedes": "V3-EXQ-461",
-      "note": "commitment_closure:GAP-4 gate (GAP-11 pilot). Priority 3 / DLAPTOP-4.local. 3 arms: EMERGENT (P0 warmup -> P2 eval), FORCED_RV, STARVED. C1-C3 per script. PASS unblocks /queue-experiment Phase 4/5 cohort 460b/463b/464b/466b/467b/468b. Supersedes V3-EXQ-461 (synthetic scripted diagnostic, 2026-05-12).",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-599",
       "title": "MECH-286 override-gated sleep-onset substrate validation",
       "experiment_type": "v3_exq_599_mech286_sleep_onset_gate_validation",
