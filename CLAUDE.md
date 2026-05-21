@@ -1011,7 +1011,9 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     the specific blocker before any EXQ-418b successor is written. Until EXP-0155
     resolves, cue_action_proj must be treated as CURRENTLY UNGROUNDED: sd016_enabled=True
     experiments should expect action_bias_divergence ~= 0.0 and should not rely on
-    cue_action_proj for behavioural effects. (cue_terrain_proj path remains valid --
+    cue_action_proj for behavioural effects unless use_differentiable_cem=True (SD-055
+    substrate-ready 2026-05-15; V3-EXQ-568 PASS grad_max=372 -- gradient barrier only,
+    not behavioural divergence). (cue_terrain_proj path remains valid --
     trained via terrain_loss.)
   Backward compatible: sd016_enabled=False by default; existing experiments unaffected.
   MECH-094: not applicable (waking encoder query, not replay content).
@@ -4377,6 +4379,31 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     primitive; orthogonal cluster but parallel substrate-readiness pattern),
     SD-023 / SD-047 / SD-048 / SD-049 (parallel env-only substrate-
     enrichment kwargs precedent for not surfacing through REEConfig.from_dims).
+
+## SD-055: Differentiable CEM Selection Approximation (2026-05-15)
+- SD-055: hippocampal.differentiable_cem_selection -- IMPLEMENTED 2026-05-15.
+  Module: ree_core/hippocampal/module.py (post-elite refit block).
+  Config: HippocampalConfig.use_differentiable_cem (bool, default False);
+    HippocampalConfig.differentiable_cem_temperature (float, default 1.0);
+    REEConfig.from_dims(use_differentiable_cem=..., differentiable_cem_temperature=...).
+  Data flow: E2 rollouts score candidates -> softmax(-score/T) weights over ALL
+    candidate ao sequences -> differentiable ao_mean (and ao_std) -> downstream
+    HippocampalModule consumers. Legacy path (flag False): argsort elite fraction +
+    indexed mean unchanged (bit-identical default).
+  Motivation: EXP-0155 / EXQ-449 zero gradient through CEM argmax severs SD-016
+    cue_action_proj learning (ARC-072 gap 2 diagnostic).
+  Backward compatible: use_differentiable_cem=False by default; existing experiments
+    unaffected. smoke_sd055_differentiable_cem.py 4/4 PASS (grad_max ~260 smoke,
+    EXQ-568 grad_max=372).
+  MECH-094: not applicable (waking CEM selection, not replay content).
+  Phased training: not an encoder head; no P0/P1/P2 latent-target phasing required
+    for the substrate switch itself. Behavioural experiments that train cue_action_proj
+    should enable the flag explicitly.
+  Validation experiment: V3-EXQ-568 PASS 20260515T204931Z (substrate-readiness,
+    evidence_direction=non_contributory). Does NOT validate cue-conditioned behavioural
+    divergence on goal-rich env.
+  Design doc: REE_assembly/docs/architecture/sd_055_differentiable_cem_selection.md
+  See SD-016, ARC-072, MECH-326, EXP-0155, developmental_bootstrapping_hippo_retrieval.md.
 
 
 ## ARC-062 Phase 1: Gated-Policy Heads + Context Discriminator (2026-05-09)
