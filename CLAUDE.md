@@ -3162,14 +3162,10 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   (sense, _e1_tick, select_action). No hypothesis_tag check inside the gate
   primitive; same pattern as MECH-269 Phase 1 / Phase 2 ii / 2 iii, MECH-288,
   MECH-287, MECH-284.
-  Validation experiment: V3-EXQ-490 queued. Q-040 factorial: ON_OFF vs ON_ON
-  with use_broadcast_override + use_dacc + drive_weight=2.0 + full V_s
-  invalidation circuit + use_vs_commit_release ON in both arms; only manipulated
-  variable is use_vs_rollout_gating. Acceptance: C1 (gate fires > 0 holds),
-  C2 (approach_commit_count > 0 in >=2/3 seeds; OFF reproduces EXQ-483 zero
-  baseline), C3 (dacc_score_bias_mean > 0). PASS = C1 AND C2 AND C3. FAIL on
-  C2/C3 with C1 PASSing -> Q-040 FAIL branch points evidence at MECH-295
-  liking-bridge as dominant blocker. experiment_purpose=diagnostic.
+  Substrate validation: V3-EXQ-601 PASS 2026-05-21 (staleness lookup at default
+  0.4/0.5 thresholds; supersedes smoke-only V3-EXQ-490b C1 path). Q-040
+  behavioural factorial (V3-EXQ-490/490c cohort) remains deferred to StepHarness
+  + MECH-307 substrate; C2/C3 not proven by 601.
   Design doc: REE_assembly/docs/architecture/mech_269b_vs_rollout_gating.md
   Lit-pull: REE_assembly/evidence/literature/targeted_review_mech269b_vs_rollout_gating/
   See MECH-269b, MECH-269 (parent V_s primitive), MECH-284 (online staleness arm),
@@ -3223,8 +3219,8 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     C7: diagnostics (vs_gate_staleness_lookup_calls,
         vs_gate_max_staleness_<stream>) populated and cleared by reset.
     C8: agent precondition raises on missing accumulator / anchor substrates.
-  Validation experiment: V3-EXQ-601 queued (MECH-269b-followup-A severance at
-  default 0.4/0.5 thresholds; supersedes the drafted 490d staleness path).
+  Validation experiment: V3-EXQ-601 PASS 2026-05-21 (MECH-269b-followup-A
+  severance at default 0.4/0.5 thresholds; evidence_direction=supports).
   Design doc: REE_assembly/docs/architecture/mech_269b_vs_rollout_gating.md
   (new section "MECH-284 staleness wiring (Q-040b strong reading,
   2026-04-29)").
