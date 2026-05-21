@@ -41,25 +41,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-600",
-      "title": "MECH-282 LPB interoceptive harm routing substrate diagnostic",
-      "experiment_type": "v3_exq_600_mech282_lpb_interoceptive_routing_diag",
-      "script": "experiments/v3_exq_600_mech282_lpb_interoceptive_routing_diag.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 10,
-      "episodes_per_run": 1,
-      "seeds": 1,
-      "conditions": 3,
-      "claim_ids": [
-        "MECH-282",
-        "SD-037"
-      ],
-      "note": "Substrate readiness: 3 arms (LPB off / intero boost / external boost) with broadcast override on. C1 z_harm_intero populated; C2 intero recruits override > external; C3 external drives PAG freeze >= intero. Non-trainable routing in ree_core/regulators/lpb_interoceptive_routing.py. validate_queue + dry-run OK.",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-601",
       "title": "MECH-269b-followup-A staleness-into-VsRolloutGate substrate validation",
       "experiment_type": "v3_exq_601_mech269b_followup_a_staleness_gate",
