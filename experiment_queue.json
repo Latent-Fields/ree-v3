@@ -59,27 +59,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-603",
-      "title": "Q-045 MECH-313 vs MECH-260 four-arm anti-monostrategy ablation",
-      "experiment_type": "v3_exq_603_q045_mech313_mech260_four_arm_ablation",
-      "script": "experiments/v3_exq_603_q045_mech313_mech260_four_arm_ablation.py",
-      "priority": 7,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 180,
-      "episodes_per_run": 30,
-      "seeds": 3,
-      "conditions": 4,
-      "claim_ids": [
-        "Q-045",
-        "MECH-313",
-        "MECH-260"
-      ],
-      "backlog_id": "EVB-0231",
-      "note": "IGW-20260521-003 GAP-H: SD-054 reef + gated-policy + SP-CEM. 4 arms (both-off / 313 / 260 / both-on). PASS=C2 mutually load-bearing. validate_experiments + dry-run OK.",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-604",
       "title": "Q-044 MECH-314a/b/c sub-flavour independence ablation",
       "experiment_type": "v3_exq_604_q044_mech314_subflavour_three_arm_ablation",
