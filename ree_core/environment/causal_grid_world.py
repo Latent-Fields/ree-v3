@@ -3851,6 +3851,47 @@ def CausalGridWorldV2(**kwargs) -> CausalGridWorld:
     """
     CausalGridWorldV2: CausalGridWorld with proxy-gradient fields enabled.
 
+    INF-ENV-004 / infant_substrate:GAP-4 stochastic-attractor audit (2026-05-21).
+    Code-read only. There are no random.random() or torch.randn() calls in this
+    module; all env RNG uses self._rng = np.random.default_rng(seed) at :855
+    (reproducible across runs). Curiosity/noisy-TV risk is within-episode
+    irreducible entropy in observation channels, not cross-run nondeterminism.
+
+    Classification key:
+      (a) Markovian / predictable-stochastic -- stationary rule, layout, or
+          fully observable state; OK for MECH-314a z_world novelty.
+      (b) Irreducibly random -- innovation or memoryless draw that cannot be
+          predicted away; must stay OFF or be excluded from MECH-314b/c PE feeds
+          when novelty_bonus_weight > 0 (Burda 2018 / Pathak 2017).
+
+    reset() and callees (all (a) unless noted):
+      :944 shuffle available; :991/_draw :2964 Voronoi microhabitat seeds;
+      :3058/_pop_zone_weighted zone spawn; :1065 SD-049 type choice;
+      :1184-1186 landmark placement (:2668, :2690-2713);
+      :3134-3135 SD-054 bipartite pool shuffles; :1107/_init_multi_source_state
+      (:3245 shuffle, :3255 drift initial velocity) when SD-047 on.
+
+    step() and callees:
+      (a) :1728 SD-022 limb-failure Bernoulli (prob = observable limb_damage);
+      :1871/:3594 SD-029 scheduled external hazard; :1914 counter-evidence gate;
+      :1967/_drift_hazards (:3661, :3665, :3678); :1512/:3715 SD-012 respawn;
+      :2008/:3757 infant GAP-3 transient benefit; :1549/:3780 waypoint respawn;
+      :3365-3378 SD-047 background drift (hazard position observable).
+      (b) partial -- SD-047 :3275 weather AR(1) Gaussian innovation;
+      :3311/:3336 transient Poisson appear/disappear (OFF by default).
+      (b) PRIMARY -- SD-048 _apply_interoceptive_noise (:3466 fatigue AR(1)
+      innovation; :3485 sensitisation Poisson onset; :3507 autonomic i.i.d.
+      standard_normal on harm_obs_a every tick). Called from _get_observation_dict
+      at end of step(). OFF by default; inflates E3 PE -> exposes MECH-314b/c.
+
+    Out of reset/step obs path: _traj_pair_rng (:2368) -- telemetry pair sampling
+    only; does not affect obs_dict.
+
+    Binding (unchanged from infant_substrate_expansion.md S5.6): MECH-314a safe;
+    when use_structured_curiosity AND interoceptive_noise_enabled, exclude or
+    low-pass harm-stream PE before 314b/c; mask interoceptive_noise_scale and
+    SD-047 multi_source_intensity_scale from novelty computation before GAP-13.
+
     Implements ARC-024 proxy-gradient structure:
     - Hazard proximity field generates continuous harm signal before contact
     - Resource proximity field generates continuous benefit signal before collection
