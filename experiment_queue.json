@@ -67,6 +67,7 @@
         "MECH-260"
       ],
       "note": "IGW-20260521-003 arc_062 GAP-H. 4-arm noise_floor x dACC ablation; SD-054 + gated policy + SP-CEM. Independent of 543k gate. Re-queued 2026-05-21T14:37Z.",
+      "force_rerun": true,
       "claimed_by": null
     },
     {
@@ -84,6 +85,7 @@
       "claim_id": "MECH-318",
       "supersedes": "V3-EXQ-606",
       "note": "arc_062 GAP-I. Supersedes premature 606. 3-arm cluster x multi-rule axis alternation. Hard gate: V3-EXQ-543k contributory PASS. Priority 8 after 598/603. Re-queued 2026-05-21T14:37Z.",
+      "force_rerun": true,
       "claimed_by": null
     },
     {
