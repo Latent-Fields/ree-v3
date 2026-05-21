@@ -64,29 +64,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-483c",
-      "title": "SD-037 broadcast override 4-arm factorial under GAP-4 substrate",
-      "experiment_type": "v3_exq_483c_sd037_broadcast_gap4_tier1",
-      "script": "experiments/v3_exq_483c_sd037_broadcast_gap4_tier1.py",
-      "priority": 4,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 240,
-      "episodes_per_run": 60,
-      "seeds": 3,
-      "conditions": 4,
-      "claim_ids": [
-        "SD-037",
-        "MECH-280",
-        "MECH-281"
-      ],
-      "note": "goal_pipeline:GAP-4 Tier-1. 4-arm gaba x broadcast factorial; all arms gap4 operating. Tier-1 gate ON_ON vs OFF_OFF then SD-037-specific reads.",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-21T03:58:04.080097+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-590a",
       "title": "EXQ-ISEF-004 rerun: novelty bonus Goldilocks calibration with checkpoint/resume",
       "experiment_type": "v3_exq_590_isef004_novelty_bonus_goldilocks",
