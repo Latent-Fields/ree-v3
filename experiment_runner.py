@@ -1252,7 +1252,11 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         "completed_at": "",
         "output_file": "",
         "actual_secs": 0.0,
+        "exit_code": None,
+        "has_sentinel": False,
     }
+    exit_code = None
+    has_sentinel = False
 
     try:
         env = _build_subprocess_env(queue_id, signal_dir)
@@ -1411,12 +1415,15 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         _hb_stop.set()
         proc.wait()
         exit_code = proc.returncode
+        result_info["exit_code"] = exit_code
 
         # Sentinel file authoritatively determines outcome (replaces fragile
         # stdout-regex scraping that caused 2026-05-08 silent drops). The
         # stdout-derived result_info["result"] is kept as a diagnostic
         # cross-check but the sentinel wins when present.
         sentinel = _read_sentinel(signal_dir, queue_id)
+        has_sentinel = sentinel is not None
+        result_info["has_sentinel"] = has_sentinel
         if sentinel is not None:
             sent_outcome = sentinel.get("outcome")
             sent_manifest = sentinel.get("manifest_path")
@@ -1919,14 +1926,17 @@ def main():
             # ERROR path below to permanently drop the experiment. This block intercepts
             # that case before it reaches the permanent-removal path.
             _transient_exit_codes = {137, -9, -11}  # SIGKILL (OOM), SIGKILL direct, SIGSEGV
+            _run_exit_code = result.get("exit_code")
+            _run_has_sentinel = result.get("has_sentinel", False)
             _is_infra_crash = (
                 result["result"] == "ERROR"
-                and exit_code in _transient_exit_codes
-                and not sentinel  # only when script never called emit_outcome
+                and _run_exit_code is not None
+                and _run_exit_code in _transient_exit_codes
+                and not _run_has_sentinel  # only when script never called emit_outcome
             )
             if _is_infra_crash:
                 print(
-                    f"[runner] INFRA-CRASH: {queue_id} exit={exit_code} "
+                    f"[runner] INFRA-CRASH: {queue_id} exit={_run_exit_code} "
                     f"(likely OOM/SIGKILL); leaving in queue, releasing claim. "
                     f"actual_secs={result.get('actual_secs')}",
                     flush=True,
