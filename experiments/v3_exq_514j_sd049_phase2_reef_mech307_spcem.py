@@ -16,11 +16,14 @@ Pre-registered PASS (514f reef criteria + goal_pipeline Phase 2 extensions):
   C5: ARM_2 - ARM_0 goal_resource_r lift >= 0.4.
   C6: ARM_2 wanting!=liking trajectory fraction >= 0.6 (|w-l| > 0.1).
 
-FAIL interpretation grid (manifest):
-  Row 1: C2b FAIL, C2c PASS -> curriculum richness insufficient (reef axis).
-  Row 2: C4/C5 FAIL, C2b PASS -> goal seeding / drive multiplier still inert.
-  Row 3: C6 FAIL, C2b PASS -> trunk trained but valence dissociation absent.
-  Row 4: joint ARM_2+ARM_3 failure -> substrate_ceiling (MECH-229 V4-1 branch).
+FAIL interpretation grid (manifest acceptance.interpretation_branch):
+  Row 1: C2b FAIL, C2c PASS -> row1_curriculum_insufficient (reef neighborhood weak).
+  Row 1b: C2b FAIL, C2c FAIL -> row1b_joint_identity_probe_weak (both probes weak).
+  Row 2: C2b PASS, C4 or C5 FAIL -> row2_goal_seeding_inert.
+  Row 3: C2b PASS, C6 FAIL -> row3_valence_dissoc_absent.
+  Row 4: C2b FAIL, C3b FAIL -> row4_substrate_ceiling (ARM_2+ARM_3 classifier dead).
+  Row 5: C2b FAIL, C4 PASS, C5 or C6 FAIL -> row5_phase2_lift_or_dissoc_inert.
+  Else on FAIL -> row_unmatched (should not occur; signals grid drift).
 
 claim_ids: SD-049, SD-015, MECH-229, MECH-230, MECH-307
 experiment_purpose: evidence
@@ -644,7 +647,10 @@ def evaluate_acceptance(agg: Dict[str, Dict]) -> Dict:
     )
     branch = "pass"
     if not overall:
-        if not c2b and c2c:
+        # Most-specific first; 514j FAIL (C2b+C2c both false) was falling through to "pass".
+        if not c2b and not c2c:
+            branch = "row1b_joint_identity_probe_weak"
+        elif not c2b and c2c:
             branch = "row1_curriculum_insufficient"
         elif c2b and (not c4 or not c5):
             branch = "row2_goal_seeding_inert"
@@ -652,6 +658,10 @@ def evaluate_acceptance(agg: Dict[str, Dict]) -> Dict:
             branch = "row3_valence_dissoc_absent"
         elif not c2b and not c3b:
             branch = "row4_substrate_ceiling"
+        elif not c2b and c4 and (not c5 or not c6):
+            branch = "row5_phase2_lift_or_dissoc_inert"
+        else:
+            branch = "row_unmatched"
     return {
         "C0_arm0_runs_clean": bool(c0),
         "C1a_arm1_world_obs_dim_350": bool(c1a),
@@ -695,7 +705,6 @@ def main(dry_run: bool = False):
                 f"elapsed={time.time()-arm_t0:.1f}s",
                 flush=True,
             )
-            print(f"verdict: PASS", flush=True)
             if (len(per_cell) % 1) == 0 and len(per_cell) > 0:
                 print(
                     f"  [train] completed unit {len(per_cell)}/{len(seeds) * len(ARMS_CONFIG)} "
