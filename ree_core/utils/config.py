@@ -664,6 +664,26 @@ class GhostGoalBankConfig:
     context_weight: float = 0.0
     outshine_pivot: float = 0.5
     arousal_scale: float = 1.0
+    # ---- MECH-340 persistence / efficacy gate ----
+    # ARC-079 / MECH-340 (ghost_goal_search.md Section 0.3; Q-053
+    # front-runner): persistence of an entry as an active re-probe target is
+    # a GATED control/efficacy operation; disengagement is the default.
+    # Smallest substrate step: a global control/efficacy *unattainability
+    # appraisal passed into rank() -- NOT accumulated failure, NOT
+    # recoverability/staleness/wanting (hard negatives per the pull).
+    #
+    #   license = clip_[0,1](control_efficacy * (1 - goal_unattainability))
+    #
+    # Anchors with license < persistence_floor are excluded from the bank
+    # (they cease to be re-probe-eligible; the SD-039 trace is preserved).
+    # Reengagement-coupled disengagement STATE is deferred (Klinger phase);
+    # this step is the separable gate primitive only.
+    #
+    # Defaults are no-op: master switch off -> rank() ignores appraisal and
+    # is bit-identical to the pre-MECH-340 bank.
+    use_persistence_efficacy_gate: bool = False
+    persistence_floor: float = 0.05
+    persistence_default_when_appraisal_missing: float = 1.0
 
 
 @dataclass

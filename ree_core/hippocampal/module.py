@@ -52,6 +52,7 @@ from ree_core.hippocampal.anchor_set import AnchorGoalPayload, AnchorSet
 from ree_core.hippocampal.ghost_goal_bank import (
     GhostGoalBank,
     GhostGoalBankEntry,
+    PersistenceAppraisal,
 )
 from ree_core.hippocampal.staleness_accumulator import StalenessAccumulator
 
@@ -1221,6 +1222,7 @@ class HippocampalModule(nn.Module):
         z_self: torch.Tensor,
         e1_prior: Optional[torch.Tensor] = None,
         action_bias: Optional[torch.Tensor] = None,
+        persistence_appraisal: Optional[PersistenceAppraisal] = None,
     ) -> List[Trajectory]:
         """MECH-293: generate ghost-seeded probe trajectories from the
         MECH-292 bank.
@@ -1250,7 +1252,10 @@ class HippocampalModule(nn.Module):
             }
             return []
 
-        entries = self.ghost_goal_bank.rank(current_z_goal)
+        entries = self.ghost_goal_bank.rank(
+            current_z_goal,
+            persistence_appraisal=persistence_appraisal,
+        )
         if not entries:
             self._last_propose_diagnostics = {
                 "mech293_n_ghost_proposed": 0,
@@ -2304,13 +2309,16 @@ class HippocampalModule(nn.Module):
     def rank_ghost_goals(
         self,
         current_z_goal: Optional[torch.Tensor],
+        persistence_appraisal: Optional[PersistenceAppraisal] = None,
     ) -> List[GhostGoalBankEntry]:
         """MECH-292: return the ranked ghost-goal bank for the current z_goal.
 
         Read-only derived view over the SD-039 dual-trace anchor pool.
         Returns [] when use_mech292_ghost_bank is False, when
         current_z_goal is None, or when no anchor clears the
-        goal_match_floor. See ree_core/hippocampal/ghost_goal_bank.py
+        goal_match_floor. MECH-340: when use_persistence_efficacy_gate is
+        True, anchors below the persistence license floor are excluded
+        (see PersistenceAppraisal). See ree_core/hippocampal/ghost_goal_bank.py
         for the ranking formula.
 
         Consumers: MECH-293 (waking ghost-goal probe search) is the
@@ -2319,7 +2327,10 @@ class HippocampalModule(nn.Module):
         """
         if self.ghost_goal_bank is None:
             return []
-        return self.ghost_goal_bank.rank(current_z_goal)
+        return self.ghost_goal_bank.rank(
+            current_z_goal,
+            persistence_appraisal=persistence_appraisal,
+        )
 
     def reset_ghost_goal_bank(self) -> None:
         """Per-episode reset of the MECH-292 ghost-goal bank diagnostics.

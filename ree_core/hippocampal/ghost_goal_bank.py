@@ -41,6 +41,21 @@ AnchorGoalPayload -- design-sketch only, would require an SD-039 payload
 extension). Defaults are no-op: with the master switch off (or
 context_weight 0.0) the bank is bit-identical to the pre-MECH-339 form.
 
+MECH-340 (persistence / efficacy gate; ghost_goal_search.md Section 0.3;
+ARC-079 / Q-053 front-runner): when
+GhostGoalBankConfig.use_persistence_efficacy_gate is enabled, rank()
+requires a global PersistenceAppraisal (control_efficacy and
+goal_unattainability in [0, 1]) and excludes anchors whose persistence
+license falls below persistence_floor. The license is:
+
+    license = clip_[0,1](control_efficacy * (1 - goal_unattainability))
+
+It deliberately does NOT read recoverability, staleness, wanting, or any
+accumulated-failure proxy (Maier & Seligman / Bouton / Husain hard
+negatives). Agent wiring of the appraisal is deferred; when the gate is
+on but appraisal is None, persistence_default_when_appraisal_missing
+applies (default 1.0 -> bit-identical until a consumer passes appraisal).
+
 Architectural commitments (from MECH-292 spec):
   - The goal_match_floor is the rumination guard: anchors with no payload
     OR with cosine(z_goal_snapshot, current_z_goal) below the floor are
@@ -85,6 +100,25 @@ import torch
 from ree_core.hippocampal.anchor_set import Anchor, AnchorSet
 from ree_core.hippocampal.staleness_accumulator import StalenessAccumulator
 from ree_core.utils.config import GhostGoalBankConfig
+
+
+@dataclass
+class PersistenceAppraisal:
+    """MECH-340 global persistence gate inputs (goal-level, not per-anchor).
+
+    Q-053 front-runner structural form: an internal control/efficacy
+    unattainability appraisal. High control_efficacy and low
+    goal_unattainability license persistence; the gate's absence is the
+    biological default (disengagement).
+
+    Fields:
+      control_efficacy:       [0, 1] -- control / efficacy positive signal.
+      goal_unattainability:   [0, 1] -- unattainability appraisal (0 =
+                                still attainable). NOT an accumulated-failure
+                                tally and NOT derived from recoverability.
+    """
+    control_efficacy: float = 1.0
+    goal_unattainability: float = 0.0
 
 
 @dataclass
@@ -149,6 +183,7 @@ class GhostGoalBank:
     def rank(
         self,
         current_z_goal: Optional[torch.Tensor],
+        persistence_appraisal: Optional[PersistenceAppraisal] = None,
     ) -> List[GhostGoalBankEntry]:
         """Return the ranked ghost-goal bank for the supplied current z_goal.
 
@@ -174,6 +209,8 @@ class GhostGoalBank:
         # per-entry components, diagnostics) so the bank is bit-identical
         # to the pre-MECH-339 four-term form.
         composite_on = bool(cfg.use_composite_cue_outshining)
+        persistence_on = bool(cfg.use_persistence_efficacy_gate)
+        persistence_license = self._persistence_license(persistence_appraisal)
 
         scored: List[GhostGoalBankEntry] = []
         sums = {
@@ -186,6 +223,7 @@ class GhostGoalBank:
             sums["context"] = 0.0
         n_below_floor = 0
         n_no_payload = 0
+        n_below_persistence = 0
 
         for anchor in pool:
             payload = anchor.goal_payload
@@ -196,6 +234,10 @@ class GhostGoalBank:
             goal_match = anchor.goal_match(current_z_goal)
             if goal_match < cfg.goal_match_floor:
                 n_below_floor += 1
+                continue
+
+            if persistence_on and persistence_license < cfg.persistence_floor:
+                n_below_persistence += 1
                 continue
 
             wanting = float(payload.wanting_strength)
@@ -236,6 +278,9 @@ class GhostGoalBank:
                 sums["context"] += c_term
                 components["context"] = float(c_term)
 
+            if persistence_on:
+                components["persistence_license"] = float(persistence_license)
+
             scored.append(GhostGoalBankEntry(
                 anchor=anchor,
                 ghost_priority=float(priority),
@@ -256,6 +301,10 @@ class GhostGoalBank:
             "n_candidates_scanned": int(n_scanned),
             "n_no_payload": int(n_no_payload),
             "n_below_floor": int(n_below_floor),
+            "n_below_persistence": int(n_below_persistence),
+            "persistence_license": (
+                float(persistence_license) if persistence_on else None
+            ),
             "n_admitted": int(n_admitted),
             "n_returned": int(len(scored)),
             "max_priority": float(max_priority),
@@ -398,6 +447,42 @@ class GhostGoalBank:
             return 0.0
         return 1.0 - math.exp(-arousal / scale)
 
+    def _persistence_license(
+        self,
+        persistence_appraisal: Optional[PersistenceAppraisal],
+    ) -> float:
+        """MECH-340 global persistence license in [0, 1].
+
+        Off when use_persistence_efficacy_gate is False (callers treat this
+        as 1.0 and never exclude on persistence). On when enabled:
+
+          license = clip(control_efficacy) * (1 - clip(goal_unattainability))
+
+        Missing appraisal uses persistence_default_when_appraisal_missing
+        (default 1.0 so agent wiring can land later without changing ranks
+        until a consumer passes explicit appraisal).
+        """
+        cfg = self.config
+        if not bool(cfg.use_persistence_efficacy_gate):
+            return 1.0
+        if persistence_appraisal is None:
+            return max(
+                0.0,
+                min(
+                    1.0,
+                    float(cfg.persistence_default_when_appraisal_missing),
+                ),
+            )
+        control = max(
+            0.0,
+            min(1.0, float(persistence_appraisal.control_efficacy)),
+        )
+        unattain = max(
+            0.0,
+            min(1.0, float(persistence_appraisal.goal_unattainability)),
+        )
+        return max(0.0, min(1.0, control * (1.0 - unattain)))
+
     def _empty_diagnostics(self, reason: str) -> Dict[str, Any]:
         component_sums = {
             "wanting": 0.0,
@@ -411,6 +496,12 @@ class GhostGoalBank:
             "n_candidates_scanned": 0,
             "n_no_payload": 0,
             "n_below_floor": 0,
+            "n_below_persistence": 0,
+            "persistence_license": (
+                float(self._persistence_license(None))
+                if bool(self.config.use_persistence_efficacy_gate)
+                else None
+            ),
             "n_admitted": 0,
             "n_returned": 0,
             "max_priority": 0.0,
