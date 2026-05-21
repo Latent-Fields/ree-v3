@@ -184,6 +184,18 @@ class GatedPolicyConfig:
     # Only read when use_differential_heads=True. Mirrors bias_scale so the
     # differential magnitude is comparable to the score-bias clamp.
     differential_bias_scale: float = 0.1
+    # ARC-062 GAP-B mode-separation floor (2026-05-20, V3-EXQ-543i autopsy).
+    # Additive boost on the COMPOSED gated bias (not raw head space):
+    #   gated = w*h0 + (1-w)*h1 + floor*(h0 - h1)
+    # With differential heads h0-h1 = 2*delta_hat, so at discriminator
+    # w=0.5 the standard mixture cancels delta_hat in the composed output
+    # (gated = base only) and REINFORCE cannot train differentiation.
+    # floor>0 injects a non-cancelable mode contrast even when w~0.5.
+    # Default 0.0 = legacy composition, bit-identical backward compat.
+    mode_separation_floor: float = 0.0
+    # P1 training aux: penalize discriminator w near 0.5 (flat mixture).
+    # Subtracted from the experiment loss (maximize |w-0.5|). Default 0.
+    p1_w_deviation_aux_weight: float = 0.0
 
 
 @dataclass
@@ -582,6 +594,9 @@ class GatedPolicy(nn.Module):
         # Composed gated bias. Use w_tensor (not float w) so the gradient
         # path through the discriminator is preserved when grad is enabled.
         gated_bias_raw = w_tensor * head_0_raw + (1.0 - w_tensor) * head_1_raw
+        _floor = float(self.config.mode_separation_floor)
+        if _floor > 0.0:
+            gated_bias_raw = gated_bias_raw + _floor * (head_0_raw - head_1_raw)
 
         # INV-074 / MECH-334: post-crystallization plastic channel
         # (Nikishin et al. 2023). forward = frozen_gated(x) +
@@ -611,6 +626,25 @@ class GatedPolicy(nn.Module):
             head_0_bias=head_0_raw,
             head_1_bias=head_1_raw,
         )
+
+    def p1_training_auxiliary_loss(
+        self,
+        gating_weight_tensor: torch.Tensor,
+    ) -> torch.Tensor:
+        """Optional P1 aux terms for outcome-coupled GatedPolicy training.
+
+        Applied on the experiment loss (minimize total loss). All weights
+        default to 0 so the default path is bit-identical.
+
+        w_deviation: maximize |w - 0.5| so the composed bias retains a
+        mode-contrast channel under differential-head reparameterization.
+        """
+        aux = torch.zeros((), device=gating_weight_tensor.device)
+        w_dev_w = float(self.config.p1_w_deviation_aux_weight)
+        if w_dev_w > 0.0:
+            w_scalar = gating_weight_tensor.reshape(-1)[0]
+            aux = aux - w_dev_w * (w_scalar - 0.5).pow(2)
+        return aux
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -642,4 +676,5 @@ class GatedPolicy(nn.Module):
             "n_frozen_params": self._n_frozen_params,
             "expansion_active": self.expansion is not None,
             "use_differential_heads": self._use_diff,
+            "mode_separation_floor": float(self.config.mode_separation_floor),
         }

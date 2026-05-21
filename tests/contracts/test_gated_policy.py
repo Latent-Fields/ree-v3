@@ -385,3 +385,50 @@ def test_c6_first_action_onehot_augmentation():
     assert out_none.gated_score_bias.shape == (K,), (
         f"C6e: output shape must still be ({K},) on None fallback."
     )
+
+
+# ----------------------------------------------------------------------
+# C7 mode_separation_floor: composed bias keeps contrast at w=0.5
+# ----------------------------------------------------------------------
+def test_c7_mode_separation_floor_preserves_contrast_at_neutral_w():
+    """C7: floor adds non-cancelable head contrast when w=0.5 on same weights."""
+    torch.manual_seed(0)
+    world_dim, self_dim, harm_a_dim = 32, 16, 16
+    K = 8
+    floor = 0.25
+    cfg = GatedPolicyConfig(
+        use_gated_policy=True,
+        use_differential_heads=True,
+        differential_bias_scale=0.1,
+        bias_scale=10.0,
+        mode_separation_floor=0.0,
+    )
+    gp = GatedPolicy(world_dim=world_dim, self_dim=self_dim,
+                     harm_a_dim=harm_a_dim, config=cfg)
+
+    cand = torch.randn(K, world_dim)
+    zw = torch.randn(1, world_dim)
+    zs = torch.randn(1, self_dim)
+    za = torch.randn(1, harm_a_dim)
+
+    with torch.no_grad():
+        for layer in gp.discriminator:
+            if isinstance(layer, torch.nn.Linear):
+                layer.weight.zero_()
+                layer.bias.zero_()
+        out_off = gp(z_world=zw, z_self=zs, z_harm_a=za,
+                     candidate_features=cand, simulation_mode=False)
+        gp.config.mode_separation_floor = floor
+        out_on = gp(z_world=zw, z_self=zs, z_harm_a=za,
+                    candidate_features=cand, simulation_mode=False)
+
+    assert abs(out_off.gating_weight - 0.5) < 0.01
+    delta = (out_on.gated_score_bias - out_off.gated_score_bias).abs().mean().item()
+    expected = floor * (out_off.head_0_bias - out_off.head_1_bias).abs().mean().item()
+    assert delta > 1e-4, (
+        f"C7: mode_separation_floor did not change composed bias at w=0.5 "
+        f"(mean_delta={delta:.6f})"
+    )
+    assert abs(delta - expected) < 1e-3, (
+        f"C7: composed delta {delta:.6f} != floor*(h0-h1) {expected:.6f}"
+    )

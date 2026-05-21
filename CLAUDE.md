@@ -463,6 +463,20 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   (workstream A; not applied this session). See ARC-062, ARC-063, MECH-309,
   MECH-333, MECH-334, INV-074, SD-054, rule_apprehension_layer.md.
 
+## ARC-062 GAP-B mode-separation floor (2026-05-20)
+- Follow-on to differential-heads (V3-EXQ-543i autopsy): at discriminator w~0.5
+  the composed gated bias is base only -- delta_hat cancels in
+  base + (2w-1)*delta_hat, so REINFORCE cannot train differentiation.
+- Fix: GatedPolicyConfig.mode_separation_floor (default 0.0, bit-identical OFF).
+  Composed bias becomes w*h0 + (1-w)*h1 + floor*(h0-h1). With differential
+  heads this injects a non-cancelable mode contrast even when w=0.5.
+- Optional P1 aux: p1_w_deviation_aux_weight penalizes w near 0.5 during
+  outcome-coupled training (gated_policy.p1_training_auxiliary_loss).
+- REEConfig: gated_policy_mode_separation_floor,
+  gated_policy_p1_w_deviation_aux_weight (default 0).
+- Validation: V3-EXQ-543k (supersedes 543i; same 12-arm design + floor/aux on
+  gated arms; K_IDENTICAL_RUNS=3 basin-stability gate; manifest hostname).
+
 ## SD-018: Resource Proximity Supervision (2026-04-07)
 - SD-018: encoder.resource_proximity_supervision — IMPLEMENTED 2026-04-07.
   Auxiliary Sigmoid regression head on z_world predicting max(resource_field_view)

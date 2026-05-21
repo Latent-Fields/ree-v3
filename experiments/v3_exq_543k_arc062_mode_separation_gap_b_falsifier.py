@@ -1,120 +1,18 @@
 #!/opt/local/bin/python3
-"""V3-EXQ-543i: ARC-062 differential-heads falsifier. Supersedes 543h AND 543g.
+"""V3-EXQ-543k: ARC-062 GAP-B mode-separation floor falsifier. Supersedes 543i.
 
-EXPERIMENT_PURPOSE = evidence. Single-variable test of whether a structural
-inductive bias (the ARC-062 base + candidate-axis-norm-pinned differential
-head reparameterization, GatedPolicyConfig.use_differential_heads, landed
-2026-05-18) escapes the monomodal-collapse equilibrium MECH-309 predicts.
+EXPERIMENT_PURPOSE = evidence. Post-543i substrate retest: mode_separation_floor
+on composed gated bias plus optional P1 w-deviation aux so discriminator w~0.5
+does not cancel differential-head contrast under outcome-coupled REINFORCE.
 
-WHY (failure_autopsy_V3-EXQ-543h_2026-05-18 + cross-machine 543g replication):
-  the SAME 543g config landed gating-ACTIVE on host-A (_144716Z) but INERT
-  (n_inert_gating_seeds=3, behavioral-divergence TV<0.05) on cloud-3
-  (_191536Z) AND cloud-4 (543h xtal-OFF). head_0==head_1 collapse is the
-  cross-machine COMMON attractor; 543g _144716Z "weakens ARC-062" is a 1/3
-  minority lucky-basin artifact (so 543g overall non_contributory); 543h is
-  non_contributory (crystallize() froze an already-collapsed policy, so
-  MECH-334 was never exercised). The differentiated-heads state is a flat /
-  saddle equilibrium under outcome-coupled REINFORCE: head_init_bias_offset
-  is softmax-invisible and the removed head_div term was softmax-cancelable.
+WHY (failure_autopsy_V3-EXQ-543i_2026-05-19): use_differential_heads alone did NOT
+stabilize basin selection. GAP-B adds floor*(h0-h1) on composed output and P1 aux.
 
-THE FIX UNDER TEST (ree_core/policy/gated_policy.py, use_differential_heads):
-  heads are synthesized as base(x) +/- delta_hat where
-  delta_hat = differential_bias_scale * delta(x) / (||delta(x)||_K + eps),
-  the candidate-axis L2 norm pinned to differential_bias_scale=0.1. delta==0
-  (the inert collapse) is a STRUCTURAL non-equilibrium: delta_hat depends
-  only on delta's DIRECTION (scale-invariant -> zero loss-gradient on
-  ||delta||) and at w=0.5 d(gated)/dw = 2*delta_hat != 0 gives REINFORCE a
-  non-vanishing escape gradient. NOT the removed head_div term (that was a
-  soft raw-space penalty satisfiable by softmax-canceling anti-symmetric
-  offsets; delta_hat is a unit-norm direction over candidates added to a
-  shared base, so it necessarily changes the candidate ranking at the
-  gating extremes and cannot be softmax-canceled).
+Design: same 12-arm grid as 543i. Gated arms: floor=0.25, p1_w_deviation_aux=0.1.
+K_IDENTICAL_RUNS=3 per (arm, seed) basin-stability gate; hostname in manifest.
 
-The P1 outcome-coupled REINFORCE loss (head_div removed, disc_var@0.1),
-P0=40/P1=60/P2=8, seeds [0,1,2], INERT_GATING_THRESHOLD=0.05, SD-054
-bipartite env, GAP-B option-2 one-hot head input, and the
-crystallize_at_phase3 closure are ALL BYTE-IDENTICAL to 543h. The ONLY
-varied factor across the matched diff-OFF/diff-ON gated pairs is
-use_differential_heads -- a clean single-variable structure-vs-MECH-309
-test. Deliberately NO divergence regularizer or other loss change (that
-confounds the test and is the failed/contradicting path).
-
-CRYSTALLIZE FACTOR (retained from 543h, unchanged): on xtal-ON arms, at
-  CRYSTALLIZE_P1_OPEN_FRACTION of P1 the INV-074/MECH-334 closure fires --
-  agent.gated_policy.crystallize() freezes the live scoring modules (under
-  the differential reparam: base+delta+discriminator) and adds a zero-init
-  plastic expansion MLP (Nikishin 2023; forward = frozen_gated(x) +
-  expansion(x.detach())); agent.residue_field.snapshot_ewc_anchor() +
-  ewc_penalty() (Kirkpatrick 2017, lambda=RESIDUE_EWC_LAMBDA) added to P1
-  loss; REINFORCE optimizer rebuilt to expansion_parameters() only. Same
-  SCHEDULER-GATE ADAPTATION and MECH-314 NOVELTY-ONLY pre-check as 543h.
-  Crystallization is only MEANINGFULLY testable on the diff-ON arms (a
-  functional, non-collapsed policy for the closure to crystallize); on
-  diff-OFF it reproduces the 543h "froze a collapsed policy" non-result.
-
-Design: 12-arm pruned. Tuple = (use_gated, use_dacc, use_xtal, use_diff).
---------------------------------------------------------
-12 arms x 3 seeds = 36 runs. ARM_0..ARM_7 = the EXACT 543h 2x2x2 with
-use_differential_heads OFF (full supersession + the diff-OFF repro/sanity
-baseline -- ARM_2/3/6/7 MUST reproduce the cross-machine inert collapse).
-ARM_8..ARM_11 = the 4 gated arms with use_differential_heads ON (the
-PRIMARY test). The 4 non-gated diff-ON permutations are omitted (diff is a
-structural no-op without a GatedPolicy -- bit-identical to ARM_0/1/4/5).
-  ARM_0_baseline            : gated OFF dacc OFF xtal OFF diff OFF (=543h)
-  ARM_1_dacc_only           : gated OFF dacc ON  xtal OFF diff OFF
-  ARM_2_gated_only          : gated ON  dacc OFF xtal OFF diff OFF
-  ARM_3_both                : gated ON  dacc ON  xtal OFF diff OFF
-  ARM_4_baseline_xtal       : gated OFF dacc OFF xtal ON  diff OFF
-  ARM_5_dacc_only_xtal      : gated OFF dacc ON  xtal ON  diff OFF
-  ARM_6_gated_only_xtal     : gated ON  dacc OFF xtal ON  diff OFF
-  ARM_7_both_xtal           : gated ON  dacc ON  xtal ON  diff OFF
-  ARM_8_gated_only_diff     : gated ON  dacc OFF xtal OFF diff ON
-  ARM_9_both_diff           : gated ON  dacc ON  xtal OFF diff ON
-  ARM_10_gated_only_xtal_diff: gated ON dacc OFF xtal ON  diff ON
-  ARM_11_both_xtal_diff     : gated ON  dacc ON  xtal ON  diff ON
-Matched diff-OFF/diff-ON gated pairs: 2<->8, 3<->9, 6<->10, 7<->11. The
-ONLY varied factor within each pair is use_differential_heads.
-
-Pre-registered acceptance (PRIMARY = differential-heads escape)
--------------------------
-  diff_on_escape               : ALL 4 diff-ON gated arms (8,9,10,11) have
-                                 n_inert_gating_seeds == 0.
-  diff_off_reproduced_collapse : ALL 4 matched diff-OFF gated arms
-                                 (2,3,6,7) have n_inert_gating_seeds >= 2.
-  c2c3_on_pass                 : C2 state-dependence AND C3 risk-type
-                                 dissociation PASS on the primary diff-ON
-                                 arm (ARM_8) vs ARM_0 (guards against
-                                 forced-but-misrouted differentiation: the
-                                 norm pin forces SOME modal split, so the
-                                 discriminator must route w by CONTEXT, not
-                                 merely make the heads differ).
-  PASS = diff_on_escape AND diff_off_reproduced_collapse AND c2c3_on_pass.
-  CROSS-MACHINE: a single-machine PASS is PROVISIONAL. Governance requires
-  n_inert==0 confirmation on >=2 machines before this counts as escape --
-  the 543g cross-machine bistability (ACTIVE host-A / INERT cloud-3+cloud-4)
-  is precisely the failure mode under test. machine_affinity = any.
-  CONTEXT (supersession continuity, reported, NOT pass-gating): the full
-  543h legacy grid (D2_xtal, repro_543g, D1/D3/D4, C2/C3/C4, F1/F2) on
-  ARM_0..ARM_7.
-
-Interpretation grid (one row per outcome -> next action):
-  (a) diff_off_reproduced_collapse AND diff_on_escape AND c2c3_on_pass
-      -> the structural inductive bias is a SUFFICIENT rule-apprehension
-         slot. {ARC-062 supports; MECH-309 weakens (bounded -- collapse is
-         the equilibrium only for UNSTRUCTURED parametric policies);
-         INV-074 supports, MECH-334 supports (crystallization now testable
-         on a functional policy via ARM_10/11)}. PASS.
-  (e) diff_off_reproduced_collapse AND NOT (diff_on_escape AND c2c3_on_pass)
-      -> collapse survives a structural non-equilibrium (or differentiates
-         but mis-routes) -> the weak reading is insufficient; a genuine
-         rule-apprehender (ARC-063, distributed CandidateRule field, V4)
-         is required. {MECH-309 supports (STRONG confirmation); ARC-062
-         weakens; INV-074/MECH-334 non_contributory (still untestable)}.
-         FAIL.
-  (c) NOT diff_off_reproduced_collapse
-      -> diff-OFF gated arms did not reproduce the collapse: substrate /
-         seed drift; nothing cleanly attributable. {all non_contributory}.
-         FAIL. (Identical logic to the 543h autopsy branch (c).)
+PASS = basin_stable AND diff_on_escape AND diff_off_reproduced_collapse AND c2c3_on_pass.
+No per-claim direction unless basin_stable.
 
 SLEEP DRIVER: not applicable (no sleep loop in this experiment).
 """
@@ -124,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import socket
 import sys
 import time
 from datetime import datetime
@@ -148,15 +47,15 @@ from experiment_protocol import emit_outcome
 from infant_curriculum import InfantCurriculumScheduler
 
 
-EXPERIMENT_TYPE = "v3_exq_543i_arc062_differential_heads_falsifier"
+EXPERIMENT_TYPE = "v3_exq_543k_arc062_mode_separation_gap_b_falsifier"
 EXPERIMENT_PURPOSE = "evidence"
-QUEUE_ID = "V3-EXQ-543i"
+QUEUE_ID = "V3-EXQ-543k"
 # Supersedes BOTH predecessors: 543h (which itself supersedes 543g). The
 # cross-machine autopsy (failure_autopsy_V3-EXQ-543h_2026-05-18) established
 # 543g _144716Z "weakens" is a 1/3 minority-basin artifact and 543h is
 # non_contributory; 543i is the corrective single-variable test.
-SUPERSEDES = "V3-EXQ-543h"
-SUPERSEDES_CHAIN = ["V3-EXQ-543h", "V3-EXQ-543g"]
+SUPERSEDES = "V3-EXQ-543i"
+SUPERSEDES_CHAIN = ["V3-EXQ-543i", "V3-EXQ-543h", "V3-EXQ-543g"]
 CLAIM_IDS = ["ARC-062", "MECH-309", "INV-074", "MECH-334"]
 # V3-EXQ-543i differential-heads escape criterion: a diff-ON gated arm
 # ESCAPES collapse iff zero of its seeds are inert.
@@ -165,6 +64,10 @@ DIFF_ON_ESCAPE_MAX_INERT_SEEDS = 0
 # at least this many seeds inert. If diff-OFF is NOT inert -> substrate/
 # seed drift -> non_contributory (543h branch-(c) logic).
 DIFF_OFF_REPRO_MIN_INERT_SEEDS = 2
+
+MODE_SEPARATION_FLOOR = 0.25
+P1_W_DEVIATION_AUX_WEIGHT = 0.1
+K_IDENTICAL_RUNS = 3
 
 # Pre-registered cross-arm attribution thresholds (unchanged from 543d/543e/543f/g).
 D1_DACC_ALONE_DELTA = 0.10
@@ -426,6 +329,9 @@ def _make_agent_and_env(
     # (single clean build -- no rebuild, no RNG offset vs the diff-OFF arm).
     config.gated_policy_use_differential_heads = bool(differential_heads)
     config.gated_policy_differential_bias_scale = 0.1
+    if use_gated_policy:
+        config.gated_policy_mode_separation_floor = MODE_SEPARATION_FLOOR
+        config.gated_policy_p1_w_deviation_aux_weight = P1_W_DEVIATION_AUX_WEIGHT
 
     agent = REEAgent(config)
     return agent, env
@@ -539,6 +445,14 @@ def _preflight_check() -> None:
         "PREFLIGHT FAIL: differential_bias_scale={} (expected 0.1)".format(_dbs)
     )
 
+
+    agent_floor, _env_fl = _make_agent_and_env(
+        0, use_gated_policy=True, use_dacc=False,
+        dacc_suppression_weight=0.0, differential_heads=True,
+    )
+    assert abs(agent_floor.gated_policy.config.mode_separation_floor - MODE_SEPARATION_FLOOR) < 1e-9
+    assert abs(agent_floor.gated_policy.config.p1_w_deviation_aux_weight - P1_W_DEVIATION_AUX_WEIGHT) < 1e-9
+    del agent_floor, _env_fl
     del agent_arm1, agent_arm2, _env1, _env2, agent_xtal, _env_x
     del agent_diff_off, _env_do, agent_diff_on, _env_di
     print(
@@ -870,6 +784,11 @@ def _compute_outcome_coupled_loss(
 
     # Maximize disc_var (encourages discriminator variance) while minimizing REINFORCE loss.
     loss = reinforce_loss - LAMBDA_DISC_VAR * disc_var_term
+    if (
+        float(getattr(agent.gated_policy.config, "p1_w_deviation_aux_weight", 0.0)) > 0.0
+        and len(disc_w_values) > 0
+    ):
+        loss = loss + agent.gated_policy.p1_training_auxiliary_loss(disc_w_values[-1])
     return loss, float(reinforce_loss.detach().item()), float(disc_var_term.detach().item())
 
 
@@ -1583,6 +1502,31 @@ def run_arm_seed(
 # Acceptance computation
 # ---------------------------------------------------------------------------
 
+
+def _consensus_seed_result(k_runs: List[Dict]) -> Dict:
+    inert_flags = [bool(r.get("p1_inert_gating_detected", False)) for r in k_runs]
+    consensus_inert = inert_flags[0] if len(set(inert_flags)) == 1 else None
+    out = dict(k_runs[-1])
+    if consensus_inert is not None:
+        out["p1_inert_gating_detected"] = consensus_inert
+    out["k_identical_runs"] = int(len(k_runs))
+    out["k_inert_flags"] = inert_flags
+    out["k_basin_unanimous"] = bool(len(set(inert_flags)) == 1)
+    return out
+
+
+def _basin_stable_all_gated(seed_results_by_arm: Dict[str, List[Dict]]) -> bool:
+    gated = (
+        "ARM_2_gated_only", "ARM_3_both", "ARM_6_gated_only_xtal", "ARM_7_both_xtal",
+        "ARM_8_gated_only_diff", "ARM_9_both_diff",
+        "ARM_10_gated_only_xtal_diff", "ARM_11_both_xtal_diff",
+    )
+    return all(
+        all(bool(r.get("k_basin_unanimous", True)) for r in seed_results_by_arm.get(lbl, []))
+        for lbl in gated
+    )
+
+
 def _aggregate_arm(seed_results: List[Dict]) -> Dict:
     rfs = [r["mean_reef_fraction"] for r in seed_results]
     rhos = [r["rho_drive_vs_reef"] for r in seed_results]
@@ -1894,7 +1838,15 @@ def _compute_per_claim_direction(acceptance: Dict) -> Tuple[str, Dict[str, str],
     escape = acceptance["diff_on_escape"]
     c2c3 = acceptance["c2c3_on_pass"]
 
-    if not repro:
+    basin_stable = bool(acceptance.get("basin_stable", False))
+    if not basin_stable:
+        outcome = "FAIL"
+        per_claim = {
+            "ARC-062": "non_contributory", "MECH-309": "non_contributory",
+            "INV-074": "non_contributory", "MECH-334": "non_contributory",
+        }
+        branch = "b_basin_unstable_nondeterministic_no_directional_read"
+    elif not repro:
         outcome = "FAIL"
         per_claim = {
             "ARC-062": "non_contributory", "MECH-309": "non_contributory",
@@ -1968,7 +1920,7 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> Dict:
     ]
 
     print(
-        f"[V3-EXQ-543i] ARC-062 differential-heads Falsifier"
+        f"[V3-EXQ-543k] ARC-062 differential-heads Falsifier"
         f" (use_differential_heads x the 543h 2x2x2; outcome-coupled"
         f" REINFORCE P1 loss UNCHANGED; 12 arms; supersedes 543g+543h)"
         f"  seeds={seeds}  dry_run={dry_run}",
@@ -1978,22 +1930,33 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> Dict:
     seed_results_by_arm: Dict[str, List[Dict]] = {a[0]: [] for a in arms}
     for seed in seeds:
         for arm_label, use_gated, use_dacc, use_xtal, use_diff in arms:
-            r = run_arm_seed(
-                arm_label,
-                use_gated_policy=use_gated,
-                use_dacc=use_dacc,
-                seed=seed,
-                dry_run=dry_run,
-                crystallize=use_xtal,
-                differential_heads=use_diff,
-            )
-            seed_results_by_arm[arm_label].append(r)
+            k_runs: List[Dict] = []
+            for _k in range(K_IDENTICAL_RUNS):
+                k_runs.append(
+                    run_arm_seed(
+                        arm_label,
+                        use_gated_policy=use_gated,
+                        use_dacc=use_dacc,
+                        seed=seed,
+                        dry_run=dry_run,
+                        crystallize=use_xtal,
+                        differential_heads=use_diff,
+                    )
+                )
+            seed_results_by_arm[arm_label].append(_consensus_seed_result(k_runs))
 
     arm_summaries = {
         arm_label: _aggregate_arm(seed_results_by_arm[arm_label])
         for arm_label, *_ in arms
     }
     acceptance = _compute_acceptance(arm_summaries)
+
+    acceptance["basin_stable"] = _basin_stable_all_gated(seed_results_by_arm)
+    acceptance["overall_pass"] = bool(
+        acceptance.get("diff_primary_pass")
+        and acceptance["basin_stable"]
+    )
+    acceptance["diff_primary_pass"] = acceptance["overall_pass"]
 
     return {
         "arm_summaries": arm_summaries,
@@ -2033,6 +1996,10 @@ def write_manifest(result: Dict, dry_run: bool, elapsed: float) -> Tuple[Path, s
         "supersedes_chain": SUPERSEDES_CHAIN,
         "architecture_epoch": "ree_hybrid_guardrails_v1",
         "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+        "hostname": socket.gethostname(),
+        "mode_separation_floor": MODE_SEPARATION_FLOOR,
+        "p1_w_deviation_aux_weight": P1_W_DEVIATION_AUX_WEIGHT,
+        "k_identical_runs": K_IDENTICAL_RUNS,
         "experiment_purpose": EXPERIMENT_PURPOSE,
         "claim_ids": CLAIM_IDS,
         "outcome": outcome,
@@ -2112,7 +2079,7 @@ if __name__ == "__main__":
     out_path, outcome = write_manifest(result, args.dry_run, elapsed)
 
     acc = result["acceptance"]
-    print("\n=== V3-EXQ-543i SUMMARY ===", flush=True)
+    print("\n=== V3-EXQ-543k SUMMARY ===", flush=True)
     rfa = acc["reef_fraction_per_arm"]
     print(
         f"  reef_fraction OFF: "
@@ -2131,6 +2098,7 @@ if __name__ == "__main__":
         flush=True,
     )
     print(
+        f"  basin_stable={acc.get('basin_stable')}"
         f"  [PRIMARY] diff_primary_pass={acc['diff_primary_pass']}"
         f"  | diff_on_escape={acc['diff_on_escape']}"
         f"  diff_off_reproduced_collapse={acc['diff_off_reproduced_collapse']}"

@@ -1573,6 +1573,13 @@ class REEConfig:
     # Plastic expansion-MLP hidden width (Nikishin 2023 fresh-layer
     # channel added at crystallization). Mirrors gated_policy_head_hidden.
     gated_policy_crystallize_expansion_hidden: int = 32
+    # ARC-062 differential-heads reparameterization (MECH-333). Default False.
+    gated_policy_use_differential_heads: bool = False
+    gated_policy_differential_bias_scale: float = 0.1
+    # ARC-062 GAP-B mode-separation floor (543i autopsy). Default 0 = off.
+    gated_policy_mode_separation_floor: float = 0.0
+    # P1 aux: penalize discriminator w near 0.5 during outcome-coupled train.
+    gated_policy_p1_w_deviation_aux_weight: float = 0.0
     # MECH-334 residue-field EWC penalty weight (passed to
     # ResidueConfig.ewc_lambda when crystallize_at_phase3=True). 0.0 =
     # anchor captured but penalty contributes nothing (safe default).

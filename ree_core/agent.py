@@ -557,6 +557,12 @@ class REEAgent(nn.Module):
                 differential_bias_scale=getattr(
                     config, "gated_policy_differential_bias_scale", 0.1
                 ),
+                mode_separation_floor=getattr(
+                    config, "gated_policy_mode_separation_floor", 0.0
+                ),
+                p1_w_deviation_aux_weight=getattr(
+                    config, "gated_policy_p1_w_deviation_aux_weight", 0.0
+                ),
             )
             self.gated_policy = GatedPolicy(
                 world_dim=config.latent.world_dim,
