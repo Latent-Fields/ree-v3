@@ -81,26 +81,6 @@
       "claim_id": "ARC-046",
       "note": "infant_substrate:GAP-14 closure. PASS confirms ARC-046 (phased residue accumulation via curriculum); unblocks DEV-NEED-008. Phase-2 cutover interrupted Mac run (~62%); no _partial checkpoint -- full rerun.",
       "claimed_by": null
-    },
-    {
-      "queue_id": "V3-EXQ-606a",
-      "title": "ARC-064 GAP-I MECH-318 empirical gate (543k-gated rerun)",
-      "experiment_type": "v3_exq_606a_arc064_gap_i_mech318_multi_rule_empirical_gate",
-      "script": "experiments/v3_exq_606a_arc064_gap_i_mech318_multi_rule_empirical_gate.py",
-      "priority": 6,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 150,
-      "episodes_per_run": 76,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_ids": [
-        "MECH-318"
-      ],
-      "gates_on": "V3-EXQ-543k",
-      "supersedes": "V3-EXQ-606",
-      "note": "IGW-20260521-004 GAP-I: supersedes premature V3-EXQ-606 (20260521T090253Z). Hard startup gate requires V3-EXQ-543k contributory PASS manifest. 3 arms x 3 seeds; episode-boundary multi-rule axis alternation. validate_experiments + validate_queue + dry-run OK 2026-05-21T13:36Z.",
-      "claimed_by": null
     }
   ]
 }
