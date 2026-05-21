@@ -10,6 +10,7 @@
     {
       "queue_id": "V3-EXQ-590a",
       "title": "EXQ-ISEF-004 rerun: novelty bonus Goldilocks calibration with checkpoint/resume",
+      "checkpoint_resumable": true,
       "experiment_type": "v3_exq_590_isef004_novelty_bonus_goldilocks",
       "script": "experiments/v3_exq_590_isef004_novelty_bonus_goldilocks_v3.py",
       "priority": 100,

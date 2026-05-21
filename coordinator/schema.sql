@@ -39,12 +39,14 @@ CREATE TABLE IF NOT EXISTS results (
 
 -- One row per machine. PK = machine.
 CREATE TABLE IF NOT EXISTS heartbeats (
-    machine       TEXT PRIMARY KEY,
-    last_seen     TEXT NOT NULL,           -- ISO-8601 UTC
-    state         TEXT,
-    current_exq   TEXT,
-    progress_json TEXT,
-    gpu_json      TEXT
+    machine             TEXT PRIMARY KEY,
+    last_seen           TEXT NOT NULL,     -- ISO-8601 UTC
+    state               TEXT,
+    current_exq         TEXT,
+    progress_json       TEXT,
+    gpu_json            TEXT,
+    seconds_elapsed     INTEGER,
+    seconds_remaining   INTEGER
 );
 
 -- Pending + recent remote-control commands.

@@ -23,13 +23,30 @@ def connect(db_path):
     conn = sqlite3.connect(db_path, timeout=30.0, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=30000")
+    _migrate_heartbeats(conn)
     return conn
+
+
+def _migrate_heartbeats(conn):
+    """Additive columns for Phase-2 progress time estimates."""
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='heartbeats'"
+    ).fetchone():
+        return
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(heartbeats)")}
+    if "seconds_elapsed" not in cols:
+        conn.execute(
+            "ALTER TABLE heartbeats ADD COLUMN seconds_elapsed INTEGER")
+    if "seconds_remaining" not in cols:
+        conn.execute(
+            "ALTER TABLE heartbeats ADD COLUMN seconds_remaining INTEGER")
 
 
 def init_db(db_path):
     conn = connect(db_path)
     with open(SCHEMA_PATH, "r", encoding="utf-8") as fh:
         conn.executescript(fh.read())
+    _migrate_heartbeats(conn)
     conn.close()
 
 
@@ -359,17 +376,22 @@ def record_result(conn, run_id, queue_id, machine, outcome,
     return True
 
 
-def upsert_heartbeat(conn, machine, state, current_exq, progress, gpu):
+def upsert_heartbeat(conn, machine, state, current_exq, progress, gpu,
+                     seconds_elapsed=None, seconds_remaining=None):
     conn.execute(
         """
         INSERT INTO heartbeats
-          (machine, last_seen, state, current_exq, progress_json, gpu_json)
-        VALUES (?,?,?,?,?,?)
+          (machine, last_seen, state, current_exq, progress_json, gpu_json,
+           seconds_elapsed, seconds_remaining)
+        VALUES (?,?,?,?,?,?,?,?)
         ON CONFLICT(machine) DO UPDATE SET
           last_seen=excluded.last_seen, state=excluded.state,
           current_exq=excluded.current_exq,
-          progress_json=excluded.progress_json, gpu_json=excluded.gpu_json
+          progress_json=excluded.progress_json, gpu_json=excluded.gpu_json,
+          seconds_elapsed=excluded.seconds_elapsed,
+          seconds_remaining=excluded.seconds_remaining
         """,
         (machine, utcnow(), state, current_exq,
-         json.dumps(progress or {}), json.dumps(gpu or {})),
+         json.dumps(progress or {}), json.dumps(gpu or {}),
+         seconds_elapsed, seconds_remaining),
     )

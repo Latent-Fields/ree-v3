@@ -24,6 +24,8 @@ Supported command kinds (phase 2):
   force_stop    -- kill current experiment process and exit.
   pause         -- runner stays alive but skips picking up new experiments.
   resume        -- clear pause state.
+  suspend       -- terminate current experiment; keep partial checkpoint if any.
+  resume_run    -- clear pause; on next pick, resume checkpointed EXQ (--resume).
   kick          -- args.queue_id moved to head of queue (front-of-line).
   release_claim -- args.queue_id has its claimed_by cleared (recovery).
 
@@ -60,7 +62,8 @@ HEARTBEAT_SUBPATH = Path("evidence") / "experiments" / "runner_heartbeats"
 COMMANDS_SUBPATH = Path("evidence") / "experiments" / "runner_commands"
 
 VALID_COMMAND_KINDS = (
-    "stop", "force_stop", "pause", "resume", "kick", "release_claim",
+    "stop", "force_stop", "pause", "resume", "suspend", "resume_run",
+    "kick", "release_claim",
 )
 
 # Keep the last N done/failed commands in the file; older ones are pruned to
@@ -183,7 +186,9 @@ def write_heartbeat(
     # to the coordinator alongside the existing file write. Best-effort.
     coordinator_client.report_heartbeat(
         machine, state, current_exq, payload.get("progress"),
-        payload.get("gpu"))
+        payload.get("gpu"),
+        seconds_elapsed=payload.get("seconds_elapsed"),
+        seconds_remaining=payload.get("seconds_remaining"))
     return path
 
 
@@ -540,6 +545,8 @@ def process_pending_commands(
     drain_flag: list,
     pause_flag: list,
     force_stop_flag: list,
+    suspend_flag: list,
+    resume_run_target: list,
     current_proc: list,
     auto_sync: bool = False,
 ) -> list[dict]:
@@ -596,6 +603,24 @@ def process_pending_commands(
             elif kind == "resume":
                 pause_flag.clear()
                 note = "resumed"
+            elif kind == "suspend":
+                if current_proc:
+                    if not suspend_flag:
+                        suspend_flag.append(True)
+                    note = "suspend requested (terminate current run)"
+                else:
+                    note = "no active proc; suspend is a no-op until a run starts"
+            elif kind == "resume_run":
+                pause_flag.clear()
+                resume_run_target.clear()
+                qid = args.get("queue_id")
+                if qid:
+                    resume_run_target.append(str(qid))
+                note = (
+                    f"resume_run queued for {qid}"
+                    if qid
+                    else "resume_run queued (next checkpointed item)"
+                )
             elif kind == "kick":
                 qid = args.get("queue_id")
                 if not qid:

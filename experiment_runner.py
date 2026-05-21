@@ -66,6 +66,14 @@ except Exception as _rrc_exc:
     _rrc = None
     _rrc_import_error = _rrc_exc
 
+try:
+    import runner_checkpoint as _rckpt
+except Exception as _rckpt_exc:
+    _rckpt = None
+    _rckpt_import_error = _rckpt_exc
+else:
+    _rckpt_import_error = None
+
 REPO_ROOT = Path(__file__).resolve().parent
 QUEUE_FILE = REPO_ROOT / "experiment_queue.json"
 PID_FILE = REPO_ROOT / "runner.pid"
@@ -1112,6 +1120,7 @@ def _read_sentinel(signal_dir: Path | None, queue_id: str) -> dict | None:
 def run_experiment(item: dict, status: dict, status_path: Path, calibration: dict,
                    script_timing: dict | None = None,
                    proc_ref: list | None = None,
+                   suspend_flag: list | None = None,
                    auto_sync: bool = False,
                    ree_assembly_path: Path | None = None,
                    remote_control: bool = False,
@@ -1126,7 +1135,15 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     raw_args = item.get("args", [])
     if isinstance(raw_args, str):
         raw_args = shlex.split(raw_args)
-    args = [sys.executable, "-u", str(script)] + raw_args
+    args = [sys.executable, "-u", str(script)] + list(raw_args)
+    if _rckpt is not None and "--no-resume" not in args:
+        for extra in _rckpt.resume_args_for_item(item, ree_assembly_path):
+            if extra == "--resume":
+                if "--resume" not in args:
+                    args.append(extra)
+            elif extra.startswith("--checkpoint-path="):
+                if not any(a.startswith("--checkpoint-path=") for a in args):
+                    args.append(extra)
 
     signal_dir = _resolve_signal_dir(ree_assembly_path)
     queue_id = item.get("queue_id", "")
@@ -1334,6 +1351,14 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             _sync_thread.start()
 
         for line in proc.stdout:
+            if suspend_flag:
+                print("[runner] suspend requested -- terminating experiment",
+                      flush=True)
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+                break
             line = line.rstrip()
             print(line, flush=True)
 
@@ -1416,6 +1441,26 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         proc.wait()
         exit_code = proc.returncode
         result_info["exit_code"] = exit_code
+
+        if suspend_flag and _rckpt is not None and ree_assembly_path:
+            suspend_flag.clear()
+            exp_type = _rckpt.experiment_type_for_item(item)
+            ckpt_path = _rckpt.partial_checkpoint_path(
+                ree_assembly_path, queue_id, exp_type)
+            payload = _rckpt.load_partial_checkpoint(ckpt_path, queue_id)
+            if _rckpt.is_resumable_partial(payload):
+                result_info["result"] = "SUSPENDED"
+                result_info["result_summary"] = (
+                    f"Suspended with partial checkpoint at {ckpt_path}")
+                result_info["checkpoint_path"] = str(ckpt_path)
+            else:
+                result_info["result"] = "ERROR"
+                result_info["result_summary"] = (
+                    "Suspend requested but no resumable partial checkpoint "
+                    f"(looked for {ckpt_path})")
+            result_info["completed_at"] = now_utc()
+            result_info["actual_secs"] = round(time.monotonic() - started_at, 1)
+            return result_info
 
         # Sentinel file authoritatively determines outcome (replaces fragile
         # stdout-regex scraping that caused 2026-05-08 silent drops). The
@@ -1613,6 +1658,8 @@ def main():
     _drain_flag: list[bool] = []           # non-empty -> drain requested
     _current_proc: list[subprocess.Popen] = []  # 0 or 1 elements
     _pause_flag: list[bool] = []           # non-empty -> remote pause requested
+    _suspend_flag: list[bool] = []        # non-empty -> terminate run, save partial
+    _resume_run_target: list[str] = []    # optional queue_id for resume_run cmd
     _force_stop_flag: list[bool] = []      # non-empty -> remote force_stop requested
     _sigint_force_armed: list[bool] = []   # non-empty -> next SIGINT force-stops
 
@@ -1772,6 +1819,8 @@ def main():
                 drain_flag=_drain_flag,
                 pause_flag=_pause_flag,
                 force_stop_flag=_force_stop_flag,
+                suspend_flag=_suspend_flag,
+                resume_run_target=_resume_run_target,
                 current_proc=_current_proc,
                 auto_sync=args.auto_sync,
             )
@@ -1791,6 +1840,24 @@ def main():
             if _pause_flag:
                 break  # paused: don't pick up new experiments this pass
             queue_id = item["queue_id"]
+
+            if _resume_run_target and queue_id != _resume_run_target[0]:
+                continue
+
+            if item.get("status") == "suspended":
+                if not _resume_run_target or queue_id != _resume_run_target[0]:
+                    continue
+                try:
+                    qdata = json.loads(QUEUE_FILE.read_text())
+                    for qi in qdata.get("items", []):
+                        if qi.get("queue_id") == queue_id:
+                            qi["status"] = "pending"
+                            break
+                    QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                    item = next(i for i in qdata["items"] if i["queue_id"] == queue_id)
+                except Exception as _re:
+                    print(f"[runner] warn: could not reopen suspended {queue_id}: {_re}",
+                          flush=True)
 
             if queue_id in completed_ids:
                 continue
@@ -1885,6 +1952,7 @@ def main():
             try:
                 result = run_experiment(item, status, status_path, calibration, script_timing,
                                         proc_ref=_current_proc,
+                                        suspend_flag=_suspend_flag,
                                         auto_sync=args.auto_sync,
                                         ree_assembly_path=ree_assembly_path,
                                         remote_control=args.remote_control,
@@ -1901,6 +1969,32 @@ def main():
                 continue
             ran_any = True
             _current_claim.clear()  # no longer running this experiment
+            if _resume_run_target:
+                _resume_run_target.clear()
+
+            if result.get("result") == "SUSPENDED":
+                print(f"[runner] {queue_id} suspended -- checkpoint kept, "
+                      "claim retained; draining for runner restart", flush=True)
+                try:
+                    qdata = json.loads(QUEUE_FILE.read_text())
+                    for qi in qdata.get("items", []):
+                        if qi.get("queue_id") == queue_id:
+                            qi["status"] = "suspended"
+                            if result.get("checkpoint_path"):
+                                qi["checkpoint_path"] = result["checkpoint_path"]
+                            qi["suspended_at"] = now_utc()
+                            break
+                    QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                    if args.auto_sync:
+                        git_push_queue()
+                except Exception as _se:
+                    print(f"[runner] warn: could not mark {queue_id} suspended: {_se}",
+                          flush=True)
+                status["current"] = None
+                write_status(status, status_path)
+                if not _drain_flag:
+                    _drain_flag.append(True)
+                break
 
             # Collect output file for selective git staging
             if result.get("output_file"):

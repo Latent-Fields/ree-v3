@@ -181,7 +181,8 @@ class Handler(BaseHTTPRequestHandler):
                 machines = []
                 for r in conn.execute(
                     "SELECT machine, last_seen, state, current_exq, "
-                    "progress_json FROM heartbeats ORDER BY machine"
+                    "progress_json, seconds_elapsed, seconds_remaining "
+                    "FROM heartbeats ORDER BY machine"
                 ).fetchall():
                     row = dict(r)
                     raw_pj = row.pop("progress_json", None)
@@ -279,7 +280,9 @@ class Handler(BaseHTTPRequestHandler):
                 db.upsert_heartbeat(
                     conn, body.get("machine") or machine_tok,
                     body.get("state"), body.get("current_exq"),
-                    body.get("progress"), body.get("gpu"))
+                    body.get("progress"), body.get("gpu"),
+                    body.get("seconds_elapsed"),
+                    body.get("seconds_remaining"))
             finally:
                 conn.close()
             self._send(200, {"ok": True})

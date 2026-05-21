@@ -22,7 +22,7 @@ QUEUE_FILE = Path(__file__).resolve().parent / "experiment_queue.json"
 # ------------------------------------------------------------------
 # Valid values for enum fields
 # ------------------------------------------------------------------
-VALID_STATUSES = {"pending", "claimed", "failed"}
+VALID_STATUSES = {"pending", "claimed", "failed", "suspended"}
 VALID_AFFINITIES = {"any", "DLAPTOP-4.local", "Daniel-PC", "EWIN-PC", "ree-cloud-1", "ree-cloud-2", "ree-cloud-3", "ree-cloud-4"}
 
 # queue_id must match: V3-EXQ-<digits>[optional letter][optional -<letter>]
@@ -65,6 +65,11 @@ ITEM_OPTIONAL = [
     ("claimed_by", False, (dict, type(None))),
     ("machine_affinity_note", False, str),
     ("force_rerun", False, bool),
+    ("experiment_type", False, str),
+    ("checkpoint_resumable", False, bool),
+    ("checkpoint_experiment_type", False, str),
+    ("checkpoint_path", False, str),
+    ("suspended_at", False, str),
 ]
 
 

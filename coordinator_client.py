@@ -131,12 +131,17 @@ def release_claim(queue_id, machine):
                                     "machine": machine})
 
 
-def report_heartbeat(machine, state, current_exq, progress, gpu):
+def report_heartbeat(machine, state, current_exq, progress, gpu, *,
+                     seconds_elapsed=None, seconds_remaining=None):
     if not _ENABLED:
         return None
-    return _post("/heartbeat", {"machine": machine, "state": state,
-                                "current_exq": current_exq,
-                                "progress": progress, "gpu": gpu})
+    body = {"machine": machine, "state": state,
+            "current_exq": current_exq, "progress": progress, "gpu": gpu}
+    if seconds_elapsed is not None:
+        body["seconds_elapsed"] = seconds_elapsed
+    if seconds_remaining is not None:
+        body["seconds_remaining"] = seconds_remaining
+    return _post("/heartbeat", body)
 
 
 def report_status(machine, status_obj):
