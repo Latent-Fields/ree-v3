@@ -914,6 +914,25 @@ def write_status(status: dict, path: Path) -> None:
         tmp.replace(path)  # replace() is atomic on Unix and works on Windows (unlike rename)
 
 
+def item_has_force_rerun(item: dict) -> bool:
+    """True when queue item requests an intentional re-run under the same queue_id."""
+    return item.get("force_rerun") is True
+
+
+def should_skip_as_completed(item: dict, completed_ids: set) -> bool:
+    """True if this queue item should be skipped due to a prior completion record.
+
+    force_rerun items stay eligible even when queue_id appears in completed_ids
+    (local runner_status or peer machines). Mirrors validate_queue.py guard.
+    """
+    queue_id = item.get("queue_id")
+    if not queue_id:
+        return True
+    if item_has_force_rerun(item):
+        return False
+    return queue_id in completed_ids
+
+
 def merge_peer_status(status_path: Path) -> set:
     """Merge all per-machine runner_status files into the monolithic runner_status.json.
 
@@ -1796,10 +1815,22 @@ def main():
 
     # Include peer-machine completed IDs so we never re-run an experiment
     # another machine already finished (extra safety net beyond queue removal).
+    # force_rerun items bypass this skip (see should_skip_as_completed).
     completed_ids = {c["queue_id"] for c in existing_completed} | _peer_ids
+    force_rerun_by_id = {
+        i["queue_id"]: i.get("force_rerun")
+        for i in items
+        if i.get("queue_id")
+    }
 
-    # Prune already-completed items from queue display
-    status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] not in completed_ids]
+    # Prune already-completed items from queue display (keep force_rerun items visible)
+    status["queue"] = [
+        qi for qi in status["queue"]
+        if not should_skip_as_completed(
+            {**qi, "force_rerun": force_rerun_by_id.get(qi.get("queue_id"))},
+            completed_ids,
+        )
+    ]
     write_status(status, status_path)
 
     # Collect output files written during this pass so git_push_results can
@@ -1859,8 +1890,11 @@ def main():
                     print(f"[runner] warn: could not reopen suspended {queue_id}: {_re}",
                           flush=True)
 
-            if queue_id in completed_ids:
+            if should_skip_as_completed(item, completed_ids):
                 continue
+            if item_has_force_rerun(item) and queue_id in completed_ids:
+                print(f"[runner] force_rerun: {queue_id} -- running again despite "
+                      f"prior completion record", flush=True)
 
             # Skip experiments that previously failed (scientific FAIL -- not retried automatically).
             # On first encounter: log clearly, move to completed list, and remove from queue file
@@ -2250,7 +2284,10 @@ def main():
         if args.remote_control and _rrc is not None and ree_assembly_path:
             queue_pending = [
                 qi for qi in status.get("queue", [])
-                if qi.get("queue_id") not in completed_ids
+                if not should_skip_as_completed(
+                    {**qi, "force_rerun": force_rerun_by_id.get(qi.get("queue_id"))},
+                    completed_ids,
+                )
             ]
             head_id = queue_pending[0]["queue_id"] if queue_pending else None
             recent = status.get("completed", [])[-5:]
@@ -2287,8 +2324,13 @@ def main():
         calibration = queue_data.get("calibration", {})
         items = queue_data.get("items", [])
         items.sort(key=lambda x: x.get("priority", 0), reverse=True)
+        force_rerun_by_id = {
+            i["queue_id"]: i.get("force_rerun")
+            for i in items
+            if i.get("queue_id")
+        }
 
-        new_pending = [i for i in items if i["queue_id"] not in completed_ids]
+        new_pending = [i for i in items if not should_skip_as_completed(i, completed_ids)]
         if new_pending:
             print(f"[runner] Found {len(new_pending)} new item(s): "
                   f"{[i['queue_id'] for i in new_pending]}", flush=True)
