@@ -83,27 +83,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-603",
-      "title": "Q-045 MECH-313 vs MECH-260 four-arm anti-monostrategy ablation",
-      "experiment_type": "v3_exq_603_q045_mech313_mech260_four_arm_ablation",
-      "script": "experiments/v3_exq_603_q045_mech313_mech260_four_arm_ablation.py",
-      "priority": 7,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 180,
-      "episodes_per_run": 30,
-      "seeds": 3,
-      "conditions": 4,
-      "claim_ids": [
-        "Q-045",
-        "MECH-313",
-        "MECH-260"
-      ],
-      "backlog_id": "EVB-0231",
-      "note": "IGW-20260521-003 GAP-H: re-queued 2026-05-21 after queue auto-prune without run (604/605 FAIL non_contributory substrate_ceiling landed). SD-054 reef + gated-policy + SP-CEM. 4 arms. PASS=C2 mutually load-bearing. validate_experiments + dry-run OK 2026-05-21T13:36Z.",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-606a",
       "title": "ARC-064 GAP-I MECH-318 empirical gate (543k-gated rerun)",
       "experiment_type": "v3_exq_606a_arc064_gap_i_mech318_multi_rule_empirical_gate",
