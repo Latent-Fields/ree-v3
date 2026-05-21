@@ -22,6 +22,11 @@ from ree_core.regulators.broadcast_override import (
     BroadcastOverrideConfig,
     BroadcastOverrideRegulator,
 )
+from ree_core.regulators.lpb_interoceptive_routing import (
+    LPBInteroceptiveRoutingConfig,
+    LPBInteroceptiveRoutingOutput,
+    LPBInteroceptiveRouter,
+)
 from ree_core.regulators.mech295_liking_bridge import (
     MECH295LikingBridge,
     MECH295LikingBridgeConfig,
@@ -44,6 +49,9 @@ __all__ = [
     "InvalidationTrigger",
     "BroadcastOverrideConfig",
     "BroadcastOverrideRegulator",
+    "LPBInteroceptiveRoutingConfig",
+    "LPBInteroceptiveRoutingOutput",
+    "LPBInteroceptiveRouter",
     "MECH295LikingBridge",
     "MECH295LikingBridgeConfig",
     "MECH295LikingBridgeOutput",

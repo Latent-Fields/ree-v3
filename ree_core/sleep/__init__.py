@@ -33,6 +33,10 @@ from ree_core.sleep.self_model_aggregator import (
     SelfModelAggregator,
     SelfModelAggregatorConfig,
 )
+from ree_core.sleep.sleep_onset_gate import (
+    SleepOnsetGateConfig,
+    evaluate_sleep_onset_permit,
+)
 
 __all__ = [
     "BayesianAggregator",
@@ -48,4 +52,6 @@ __all__ = [
     "RoutedEvent",
     "SelfModelAggregator",
     "SelfModelAggregatorConfig",
+    "SleepOnsetGateConfig",
+    "evaluate_sleep_onset_permit",
 ]

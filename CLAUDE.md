@@ -2860,6 +2860,18 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     salience signal slot is no-op; goal seeding multiplier=1.0. 95/95
     contracts PASS with flag OFF (bit-identical to pre-SD-037 HEAD,
     2026-04-25).
+  MECH-282 (LPB interoceptive routing) -- IMPLEMENTED 2026-05-21.
+    Module: ree_core/regulators/lpb_interoceptive_routing.py (LPBInteroceptiveRouter).
+    Config: REEConfig.use_lpb_interoceptive_routing (bool, default False),
+      lpb_intero_z_dim (16), lpb_drive_weight, lpb_resource_weight.
+    Data flow: harm_obs resource slice zeroed before HarmEncoder -> z_harm (external);
+      drive_level + harm_obs_a resource EMA -> z_harm_intero (non-trainable broadcast).
+    SD-037 coupling: when both flags on, BroadcastOverrideRegulator.tick uses
+      lpb_split_recruitment (intero drives override; external drives PAG freeze proxy).
+    Backward compatible: flag OFF -> agent.lpb_router is None; z_harm_intero None.
+    Validation experiment: V3-EXQ-600 queued (3-arm substrate diagnostic).
+    See MECH-282, SD-037 design doc section MECH-282.
+
   Activation smoke (2026-04-25):
     Flag OFF: agent.broadcast_override is None.
     Flag ON: regulator instantiates with default config; one tick at
@@ -2892,10 +2904,34 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     (2026-05-08; override_mean>0.30, PAG release ratio 1.875x).
     V3-EXQ-483/483a FAIL behavioural (approach_commit=0 all arms).
     Tier-1 evidence: V3-EXQ-483c queued (GAP-4 fishtank factorial).
-    MECH-282/MECH-286 not in SD-037 landing scope.
+    MECH-282 not in SD-037 landing scope; MECH-286 landed separately 2026-05-21.
   Design doc: REE_assembly/docs/architecture/sd_037_broadcast_override_regulator.md
   Lit-pull: REE_assembly/evidence/literature/targeted_review_orexin_kinetics/
   See SD-037, SD-036, MECH-279, SD-012, SD-032a, MECH-261, MECH-094.
+
+## MECH-286: Override-Gated Sleep Onset (2026-05-21)
+- MECH-286: sleep.override_gated_state_transition -- IMPLEMENTED 2026-05-21.
+  Module: ree_core/sleep/sleep_onset_gate.py (evaluate_sleep_onset_permit,
+  SleepOnsetGateConfig). Wake-stability axis of SD-037: the same override_signal
+  that gates drive->z_goal seeding also gates wake->offline transition in
+  SleepLoopManager._run_cycle (before run_sleep_cycle / cycle_index advance).
+  Joint permit (all required):
+    override_signal < mech286_theta_sleep_permit
+    AND max(MECH-284 region staleness snapshot) > mech286_theta_sleep_recruit
+    AND z_harm_a.norm() < mech286_threat_tonic_threshold
+  When blocked: episodes_since_sleep counter reset, cycle_index unchanged,
+  last_metrics carry mech286_* diagnostics with mech286_sleep_permitted=0.
+  Config: REEConfig.use_mech286_sleep_onset_gate (bool, default False).
+    mech286_theta_sleep_permit (0.5), mech286_theta_sleep_recruit (0.3),
+    mech286_threat_tonic_threshold (0.4).
+  Backward compatible: flag OFF preserves deterministic K-episode sleep firing.
+  Hyperarousal lesion test requires use_broadcast_override=True;
+  staleness leg requires use_staleness_accumulator=True.
+  MECH-094: gate evaluated only at episode boundary via notify_episode_end
+  (waking state), not during replay/simulation ticks.
+  No trainable parameters. No phased training.
+  Validation experiment: V3-EXQ-599 queued (3-arm substrate diagnostic).
+  See SD-037, MECH-284, MECH-285, MECH-272, MECH-281 (sibling motor axis).
 
 ## Sleep Aggregation Cluster Phase A: Scaffolding (2026-04-25)
 - Sleep cluster Phase A: scaffold ree_core/sleep/ package -- IMPLEMENTED 2026-04-25.

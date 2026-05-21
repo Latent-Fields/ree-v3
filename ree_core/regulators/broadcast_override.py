@@ -153,18 +153,31 @@ class BroadcastOverrideRegulator:
         drive_level: float,
         z_harm_norm: float,
         simulation_mode: bool = False,
+        z_harm_intero_norm: Optional[float] = None,
+        lpb_split_recruitment: bool = False,
     ) -> float:
         """Advance state and return the new override_signal.
 
         Args:
             drive_level: SD-012 homeostatic depletion in [0, 1].
-            z_harm_norm: Current waking z_harm magnitude (e.g.
-                LatentState.z_harm.norm().item()). Pass 0.0 if z_harm
-                is unavailable; the threat window degrades gracefully.
+            z_harm_norm: Current waking external-threat magnitude (e.g.
+                LatentState.z_harm.norm().item() or LPB external scalar).
+                Pass 0.0 if z_harm is unavailable; the threat window degrades
+                gracefully. When lpb_split_recruitment is True this tracks
+                external threat only (freeze/avoidance path), not override
+                recruitment.
             simulation_mode: MECH-094 hypothesis-tag equivalent. True ->
                 return the cached override_signal unchanged and do not
                 advance counters / threat window. Replay / DMN content
                 must not recruit the override system.
+            z_harm_intero_norm: MECH-282 interoceptive distress magnitude in
+                [0, 1]. When lpb_split_recruitment is True, the sustained-
+                threat window uses this signal instead of z_harm_norm so
+                override recruitment is driven by metabolic distress + drive,
+                not external predator proximity.
+            lpb_split_recruitment: MECH-282 coupling flag. True -> intero
+                magnitude feeds the sigmoid harm_weight term; external
+                magnitude is ignored for override recruitment.
 
         Returns:
             override_signal in [0, 1].
@@ -178,8 +191,14 @@ class BroadcastOverrideRegulator:
         self._n_ticks += 1
 
         # Sustained-threat normalised magnitude in [0, 1]:
-        # rolling-mean(z_harm_norm) / threshold, clipped at 1.0.
-        self._threat_window.append(float(z_harm_norm))
+        # rolling-mean(threat_input) / threshold, clipped at 1.0.
+        # MECH-282: interoceptive distress recruits override; external threat
+        # does not (external still available via z_harm_norm for diagnostics).
+        if lpb_split_recruitment and z_harm_intero_norm is not None:
+            threat_input = float(z_harm_intero_norm)
+        else:
+            threat_input = float(z_harm_norm)
+        self._threat_window.append(threat_input)
         if len(self._threat_window) > 0:
             mean_threat = sum(self._threat_window) / float(len(self._threat_window))
         else:

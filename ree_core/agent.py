@@ -99,6 +99,9 @@ from ree_core.regulators import (
     GABAergicDecayRegulator,
     BroadcastOverrideConfig,
     BroadcastOverrideRegulator,
+    LPBInteroceptiveRouter,
+    LPBInteroceptiveRoutingConfig,
+    LPBInteroceptiveRoutingOutput,
     MECH295LikingBridge,
     MECH295LikingBridgeConfig,
     SimulationModeRuleGate,
@@ -881,6 +884,18 @@ class REEAgent(nn.Module):
                     ),
                 }
 
+        # MECH-282: LPB interoceptive harm routing (parallel to external z_harm).
+        self.lpb_router: Optional[LPBInteroceptiveRouter] = None
+        self._lpb_last_output: Optional[LPBInteroceptiveRoutingOutput] = None
+        if getattr(config, "use_lpb_interoceptive_routing", False):
+            lpb_cfg = LPBInteroceptiveRoutingConfig(
+                enabled=True,
+                intero_z_dim=int(getattr(config, "lpb_intero_z_dim", 16)),
+                drive_weight=float(getattr(config, "lpb_drive_weight", 1.0)),
+                resource_weight=float(getattr(config, "lpb_resource_weight", 1.0)),
+            )
+            self.lpb_router = LPBInteroceptiveRouter(lpb_cfg)
+
         # MECH-295: drive -> liking-stream -> approach_cue bridge (weak reading).
         # The bridge wires SD-012 drive amplification through the liking-stream
         # (anticipatory write at the goal location, gated by drive * z_goal_norm)
@@ -1479,6 +1494,10 @@ class REEAgent(nn.Module):
         if self.broadcast_override is not None:
             self.broadcast_override.reset()
 
+        if self.lpb_router is not None:
+            self.lpb_router.reset()
+        self._lpb_last_output = None
+
         # MECH-295: reset bridge per-tick diagnostic cache. Fire counters
         # persist across reset so end-of-run reporting reflects the full
         # session.
@@ -1752,14 +1771,35 @@ class REEAgent(nn.Module):
         vol_signal = None
         if self.config.latent.volatility_signal_dim > 0:
             vol_signal = self.e3.volatility_estimate
+        harm_for_encoder = obs_harm
+        if self.lpb_router is not None and obs_harm is not None:
+            harm_for_encoder = self.lpb_router.mask_external_harm_obs(obs_harm)
         new_latent = self.latent_stack.encode(
             enc_combined, self._current_latent,
             prev_action=self._last_action,
-            harm_obs=obs_harm,       # SD-010: nociceptive stream (None = disabled)
+            harm_obs=harm_for_encoder,  # SD-010 / MECH-282 external-only when LPB on
             harm_obs_a=obs_harm_a,   # SD-011: affective harm stream (None = disabled)
             harm_history=obs_harm_history,  # SD-011 second source (None = disabled)
             volatility_signal=vol_signal,
         )
+
+        # MECH-282: LPB interoceptive channel (non-trainable routing).
+        self._lpb_last_output = None
+        if self.lpb_router is not None:
+            lpb_drive = 0.0
+            if self.goal_state is not None:
+                lpb_drive = float(
+                    getattr(self.goal_state, "_last_drive_level", 0.0)
+                )
+            self._lpb_last_output = self.lpb_router.tick(
+                drive_level=lpb_drive,
+                harm_obs=obs_harm,
+                harm_obs_a=obs_harm_a,
+                device=self.device,
+                batch_size=new_latent.z_self.shape[0],
+                simulation_mode=bool(getattr(new_latent, "hypothesis_tag", False)),
+            )
+            new_latent.z_harm_intero = self._lpb_last_output.z_harm_intero
 
         # MECH-095: resolve the TPJ efference-copy comparison for the most
         # recently executed action. Runs immediately after encoding so the
@@ -1821,12 +1861,21 @@ class REEAgent(nn.Module):
                     getattr(self.goal_state, "_last_drive_level", 0.0)
                 )
             override_z_harm = 0.0
-            if new_latent.z_harm is not None:
+            if self._lpb_last_output is not None:
+                override_z_harm = float(self._lpb_last_output.external_magnitude)
+            elif new_latent.z_harm is not None:
                 override_z_harm = float(new_latent.z_harm.norm().item())
+            intero_norm = None
+            lpb_split = False
+            if self._lpb_last_output is not None:
+                intero_norm = float(self._lpb_last_output.intero_magnitude)
+                lpb_split = True
             self.broadcast_override.tick(
                 drive_level=override_drive,
                 z_harm_norm=override_z_harm,
                 simulation_mode=bool(getattr(new_latent, "hypothesis_tag", False)),
+                z_harm_intero_norm=intero_norm,
+                lpb_split_recruitment=lpb_split,
             )
 
         # SD-032c: tick the AIC-analog interoceptive-salience module.
@@ -3502,7 +3551,12 @@ class REEAgent(nn.Module):
         # output without updating internal counters. select_action() runs on
         # the waking path so hypothesis_tag is False here.
         if self.pag_freeze_gate is not None:
-            if z_harm_a is not None:
+            if (
+                self._lpb_last_output is not None
+                and getattr(self.config, "use_lpb_interoceptive_routing", False)
+            ):
+                pag_z_norm = float(self._lpb_last_output.external_magnitude)
+            elif z_harm_a is not None:
                 pag_z_norm = float(z_harm_a.detach().norm().item())
             else:
                 pag_z_norm = 0.0

@@ -188,6 +188,17 @@ class SleepLoopManager:
             self.state.episodes_since_sleep = 0
             return None
 
+        # MECH-286: override-gated sleep recruitment (orexin wake-stability axis).
+        if getattr(agent.config, "use_mech286_sleep_onset_gate", False):
+            from ree_core.sleep.sleep_onset_gate import evaluate_sleep_onset_permit
+
+            permitted, gate_metrics = evaluate_sleep_onset_permit(agent)
+            if not permitted:
+                self.state.episodes_since_sleep = 0
+                blocked = dict(gate_metrics)
+                self.state.last_metrics = blocked
+                return blocked
+
         self.state.reset_for_new_cycle(self.state.cycle_index + 1)
 
         # Phase B: SLEEP_ENTRY -- freeze the staleness snapshot ONCE per
@@ -374,6 +385,12 @@ class SleepLoopManager:
                 writeback_metrics["mech204_recalibration_fired"] = 0.0
 
         merged = dict(metrics)
+        if getattr(agent.config, "use_mech286_sleep_onset_gate", False):
+            from ree_core.sleep.sleep_onset_gate import evaluate_sleep_onset_permit
+
+            _, gate_metrics = evaluate_sleep_onset_permit(agent)
+            merged.update(gate_metrics)
+            merged["mech286_sleep_permitted"] = 1.0
         merged.update(sampler_metrics)
         if self.routing_gate is not None:
             merged.update(self.routing_gate.get_metrics())

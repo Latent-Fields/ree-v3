@@ -1936,6 +1936,20 @@ class REEConfig:
     override_goal_seeding_gain: float = 2.0
 
     # ----------------------------------------------------------------
+    # MECH-282: LPB interoceptive harm routing
+    # ----------------------------------------------------------------
+    # Master switch. When True, REEAgent instantiates LPBInteroceptiveRouter,
+    # masks resource-field channels out of harm_obs before HarmEncoder (external
+    # threat only in z_harm), and populates LatentState.z_harm_intero from
+    # drive_level + harm_obs_a resource slice. With use_broadcast_override=True,
+    # override recruitment uses intero magnitude; external magnitude feeds PAG
+    # freeze duration when use_pag_freeze_gate=True.
+    use_lpb_interoceptive_routing: bool = False
+    lpb_intero_z_dim: int = 16
+    lpb_drive_weight: float = 1.0
+    lpb_resource_weight: float = 1.0
+
+    # ----------------------------------------------------------------
     # Sleep-aggregation cluster (MECH-272 / MECH-273 / MECH-275 / MECH-285)
     # ----------------------------------------------------------------
     # GAP-3 unified cluster master flag. The Phase A-E surface is gated by
@@ -2116,6 +2130,20 @@ class REEConfig:
     # touched by replay during the cycle. 1.0 = no decay; 0.5 = halve
     # staleness on replayed regions; 0.0 = clear them entirely.
     mech273_partial_decay_factor: float = 0.5
+
+    # MECH-286: override-gated sleep-mode entry (SD-037 wake-stability axis).
+    # When True (and use_sleep_loop is True), SleepLoopManager evaluates
+    # joint permit conditions before run_sleep_cycle: override_signal below
+    # theta_sleep_permit, MECH-284 max region staleness above
+    # theta_sleep_recruit, z_harm_a tonic below threat_tonic_threshold.
+    # Blocked cycles reset the K-episode counter and return gate diagnostics
+    # without advancing cycle_index. Requires use_staleness_accumulator for
+    # the staleness leg; use_broadcast_override for hyperarousal lesion tests.
+    # Bit-identical OFF preserved.
+    use_mech286_sleep_onset_gate: bool = False
+    mech286_theta_sleep_permit: float = 0.5
+    mech286_theta_sleep_recruit: float = 0.3
+    mech286_threat_tonic_threshold: float = 0.4
 
     # ----------------------------------------------------------------
     # MECH-295: drive -> liking-stream -> approach_cue bridge (weak reading)
@@ -2658,6 +2686,11 @@ class REEConfig:
         override_sustained_threat_threshold: float = 0.4,
         override_decay_rate: float = 0.05,
         override_goal_seeding_gain: float = 2.0,
+        # MECH-282: LPB interoceptive harm routing
+        use_lpb_interoceptive_routing: bool = False,
+        lpb_intero_z_dim: int = 16,
+        lpb_drive_weight: float = 1.0,
+        lpb_resource_weight: float = 1.0,
         # MECH-269 / MECH-287 / MECH-288: V_s invalidation runtime (Phase 1 + 2)
         use_per_stream_vs: bool = False,
         use_event_segmenter: bool = False,
@@ -2770,6 +2803,11 @@ class REEConfig:
         mech273_offline_lr_scale: float = 0.1,
         mech273_offline_n_steps: int = 100,
         mech273_partial_decay_factor: float = 0.5,
+        # MECH-286: override-gated sleep onset
+        use_mech286_sleep_onset_gate: bool = False,
+        mech286_theta_sleep_permit: float = 0.5,
+        mech286_theta_sleep_recruit: float = 0.3,
+        mech286_threat_tonic_threshold: float = 0.4,
         # MECH-295: drive -> liking-stream -> approach_cue bridge
         use_mech295_liking_bridge: bool = False,
         mech295_drive_to_liking_gain: float = 1.0,
@@ -3199,6 +3237,11 @@ class REEConfig:
         config.override_decay_rate = override_decay_rate
         config.override_goal_seeding_gain = override_goal_seeding_gain
 
+        config.use_lpb_interoceptive_routing = use_lpb_interoceptive_routing
+        config.lpb_intero_z_dim = lpb_intero_z_dim
+        config.lpb_drive_weight = lpb_drive_weight
+        config.lpb_resource_weight = lpb_resource_weight
+
         # MECH-269 / MECH-287 / MECH-288: V_s invalidation runtime Phase 1 + 2 flags
         config.hippocampal.use_per_stream_vs = use_per_stream_vs
         config.hippocampal.use_event_segmenter = use_event_segmenter
@@ -3306,6 +3349,12 @@ class REEConfig:
         config.mech273_offline_lr_scale = mech273_offline_lr_scale
         config.mech273_offline_n_steps = mech273_offline_n_steps
         config.mech273_partial_decay_factor = mech273_partial_decay_factor
+
+        # MECH-286: override-gated sleep onset
+        config.use_mech286_sleep_onset_gate = use_mech286_sleep_onset_gate
+        config.mech286_theta_sleep_permit = mech286_theta_sleep_permit
+        config.mech286_theta_sleep_recruit = mech286_theta_sleep_recruit
+        config.mech286_threat_tonic_threshold = mech286_threat_tonic_threshold
 
         # MECH-295: drive -> liking-stream -> approach_cue bridge
         config.use_mech295_liking_bridge = use_mech295_liking_bridge

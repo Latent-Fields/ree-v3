@@ -759,6 +759,7 @@ class LatentState:
     resource_prox_pred_r: Optional[torch.Tensor] = None  # SD-015 aux head [batch, 1]; None if disabled
     identity_logits: Optional[torch.Tensor] = None  # SD-049 Phase 2 identity-classifier raw logits [batch, n_resource_types]; None if not enabled
     z_harm_un: Optional[torch.Tensor] = None  # SD-019a harm_unpleasantness_channel [batch, harm_dim]; EMA of z_harm_s, NOT modulated by controllability
+    z_harm_intero: Optional[torch.Tensor] = None  # MECH-282 LPB interoceptive distress [batch, lpb_intero_z_dim]
 
     def to_tensor(self) -> torch.Tensor:
         """Concatenate all channels into a single tensor (excludes z_harm)."""
@@ -791,6 +792,7 @@ class LatentState:
             resource_prox_pred_r=self.resource_prox_pred_r.detach() if self.resource_prox_pred_r is not None else None,
             identity_logits=self.identity_logits.detach() if self.identity_logits is not None else None,
             z_harm_un=self.z_harm_un.detach() if self.z_harm_un is not None else None,
+            z_harm_intero=self.z_harm_intero.detach() if self.z_harm_intero is not None else None,
         )
 
 
