@@ -59,29 +59,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-604",
-      "title": "Q-044 MECH-314a/b/c sub-flavour independence ablation",
-      "experiment_type": "v3_exq_604_q044_mech314_subflavour_three_arm_ablation",
-      "script": "experiments/v3_exq_604_q044_mech314_subflavour_three_arm_ablation.py",
-      "priority": 7,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 180,
-      "episodes_per_run": 30,
-      "seeds": 3,
-      "conditions": 4,
-      "claim_ids": [
-        "Q-044",
-        "MECH-314",
-        "MECH-314a",
-        "MECH-314b",
-        "MECH-314c"
-      ],
-      "backlog_id": "EVB-0230",
-      "note": "IGW-20260521-003 GAP-H: all-ON baseline + three single-flavour-OFF arms. Elevated curiosity scale (5x). PASS=distinct ablation signatures. validate_experiments + dry-run OK.",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-605",
       "title": "Q-043 MECH-313 vs MECH-314 weight calibration sweep",
       "experiment_type": "v3_exq_605_q043_noise_floor_curiosity_weight_sweep",
