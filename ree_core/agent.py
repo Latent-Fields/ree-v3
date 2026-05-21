@@ -47,7 +47,11 @@ from ree_core.predictors.e1_deep import E1DeepPredictor
 from ree_core.predictors.e2_fast import E2FastPredictor, Trajectory
 from ree_core.predictors.e3_selector import E3TrajectorySelector
 from ree_core.residue.field import ResidueField
+from ree_core.hippocampal.ghost_goal_bank import PersistenceAppraisal
 from ree_core.hippocampal.module import HippocampalModule
+from ree_core.hippocampal.persistence_appraisal_compute import (
+    compute_agent_persistence_appraisal,
+)
 from ree_core.heartbeat.clock import MultiRateClock
 from ree_core.heartbeat.beta_gate import BetaGate
 from ree_core.neuromodulation.serotonin import SerotoninModule
@@ -1240,6 +1244,8 @@ class REEAgent(nn.Module):
 
         # MECH-057a: cached E3 candidates for action-loop gate
         self._committed_candidates: Optional[List[Trajectory]] = None
+        # MECH-340 / Q-053: last appraisal passed into ghost bank (diagnostics).
+        self._last_persistence_appraisal: Optional[PersistenceAppraisal] = None
         self._last_candidate_support_preflight: Dict[str, Any] = {}
         # Last selected action (held between E3 ticks)
         self._last_action: Optional[torch.Tensor] = None
@@ -1366,6 +1372,7 @@ class REEAgent(nn.Module):
         self._step_count = 0
         self._harm_this_episode = 0.0
         self._committed_candidates = None
+        self._last_persistence_appraisal = None
         self._harm_replay_buffer = []
         self._last_action = None
         self._last_e3_selection_result = None
@@ -2436,6 +2443,49 @@ class REEAgent(nn.Module):
 
         return e1_prior
 
+    def _compute_persistence_appraisal(
+        self, z_world: torch.Tensor
+    ) -> Optional[PersistenceAppraisal]:
+        """MECH-340 / Q-053: one-shot persistence gate inputs for ghost bank.
+
+        Returns None when the MECH-340 gate is off (rank() uses the
+        configured missing-appraisal default). When on, maps goal proximity,
+        prior hippocampal completion, and E3 commitment into
+        control_efficacy / goal_unattainability (not staleness / failure).
+        """
+        bank_cfg = getattr(
+            getattr(self.hippocampal, "config", None),
+            "ghost_goal_bank_config",
+            None,
+        )
+        if bank_cfg is None or not bool(
+            getattr(bank_cfg, "use_persistence_efficacy_gate", False)
+        ):
+            self._last_persistence_appraisal = None
+            return None
+
+        goal_active = (
+            self.goal_state is not None and self.goal_state.is_active()
+        )
+        proximity: Optional[float] = None
+        if goal_active:
+            prox_t = self.goal_state.goal_proximity(z_world)
+            proximity = float(prox_t.mean().item())
+
+        commit_state = self.e3.get_commitment_state()
+        appraisal = compute_agent_persistence_appraisal(
+            goal_active=goal_active,
+            goal_proximity=proximity,
+            prior_completion_signal=float(
+                getattr(self.hippocampal, "_last_completion_signal", 0.0)
+            ),
+            e3_is_committed=bool(commit_state.get("is_committed", False)),
+            e3_committed_now=bool(commit_state.get("committed_now", False)),
+            cfg=self.hippocampal.config.persistence_appraisal_compute,
+        )
+        self._last_persistence_appraisal = appraisal
+        return appraisal
+
     def _e3_tick(
         self,
         latent_state: LatentState,
@@ -2464,6 +2514,7 @@ class REEAgent(nn.Module):
             if (self.goal_state is not None and self.goal_state.is_active())
             else None
         )
+        _persistence_appraisal = self._compute_persistence_appraisal(z_world_for_e3)
         candidates = self.hippocampal.propose_trajectories(
             z_world=z_world_for_e3,
             z_self=latent_state.z_self,
@@ -2471,6 +2522,7 @@ class REEAgent(nn.Module):
             e1_prior=e1_prior,
             action_bias=self._cue_action_bias,
             current_z_goal=_current_z_goal,
+            persistence_appraisal=_persistence_appraisal,
         )
         self._committed_candidates = candidates
 

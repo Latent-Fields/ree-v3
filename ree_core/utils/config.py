@@ -687,6 +687,17 @@ class GhostGoalBankConfig:
 
 
 @dataclass
+class PersistenceAppraisalComputeConfig:
+    """Q-053 agent-side mapping into PersistenceAppraisal (MECH-340 consumer).
+
+    Used by REEAgent when GhostGoalBankConfig.use_persistence_efficacy_gate
+    is True. One-shot signals only; see persistence_appraisal_compute.py.
+    """
+    completion_weight: float = 0.6
+    commitment_weight: float = 0.4
+
+
+@dataclass
 class HippocampalConfig:
     """Configuration for HippocampalModule.
 
@@ -929,6 +940,10 @@ class HippocampalConfig:
     use_mech292_ghost_bank: bool = False
     ghost_goal_bank_config: GhostGoalBankConfig = field(
         default_factory=GhostGoalBankConfig
+    )
+    # Q-053: agent computes PersistenceAppraisal when MECH-340 gate is on.
+    persistence_appraisal_compute: PersistenceAppraisalComputeConfig = field(
+        default_factory=PersistenceAppraisalComputeConfig
     )
 
     # MECH-293: waking ghost-goal probe search (read-side consumer of

@@ -52,9 +52,10 @@ license falls below persistence_floor. The license is:
 
 It deliberately does NOT read recoverability, staleness, wanting, or any
 accumulated-failure proxy (Maier & Seligman / Bouton / Husain hard
-negatives). Agent wiring of the appraisal is deferred; when the gate is
-on but appraisal is None, persistence_default_when_appraisal_missing
-applies (default 1.0 -> bit-identical until a consumer passes appraisal).
+negatives). REEAgent computes the appraisal via
+persistence_appraisal_compute when the gate is on; when the gate is on
+but appraisal is None, persistence_default_when_appraisal_missing
+applies (default 1.0).
 
 Architectural commitments (from MECH-292 spec):
   - The goal_match_floor is the rumination guard: anchors with no payload

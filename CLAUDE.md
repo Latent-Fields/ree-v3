@@ -3586,9 +3586,13 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     exclude anchor when license < persistence_floor (SD-039 trace preserved)
   Config: GhostGoalBankConfig.use_persistence_efficacy_gate (default False),
     persistence_floor (0.05),
-    persistence_default_when_appraisal_missing (1.0). Agent appraisal
-    computation deferred (Q-053); missing appraisal with gate on uses default
-    1.0 until wired. Reengagement-coupled disengagement STATE deferred.
+    persistence_default_when_appraisal_missing (1.0).
+  Q-053 agent wiring (2026-05-21): REEAgent._compute_persistence_appraisal()
+    maps prior hippocampal completion + E3 commitment -> control_efficacy;
+    1 - goal_proximity -> goal_unattainability (one-shot; not staleness /
+    failure). persistence_appraisal_compute.py + HippocampalConfig block;
+    threaded through propose_trajectories / MECH-293 ghost branch.
+    Reengagement-coupled disengagement STATE still deferred.
   Backward compatible: gate off -> rank() ignores appraisal, bit-identical.
   MECH-094: read-only; no write path.
   Validation: V3-EXQ-607 queued (diagnostic, priority 10;

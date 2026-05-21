@@ -863,6 +863,7 @@ class HippocampalModule(nn.Module):
         action_bias: Optional[torch.Tensor] = None,
         operating_mode: Optional[Dict[str, float]] = None,
         current_z_goal: Optional[torch.Tensor] = None,
+        persistence_appraisal: Optional[PersistenceAppraisal] = None,
     ) -> List[Trajectory]:
         """
         Propose candidate trajectories via terrain-guided CEM in action-object space.
@@ -912,6 +913,8 @@ class HippocampalModule(nn.Module):
             operating_mode: Dict[str, float] (mode -> prob) or None (MECH-267)
             current_z_goal: [batch, goal_dim] or None (MECH-293; consumed by
                             MECH-292 ghost-goal bank ranking)
+            persistence_appraisal: optional MECH-340 global gate inputs
+                            (REEAgent supplies when gate enabled)
 
         Returns:
             List of Trajectory objects
@@ -1144,6 +1147,7 @@ class HippocampalModule(nn.Module):
                 z_self=z_self,
                 e1_prior=e1_prior,
                 action_bias=action_bias,
+                persistence_appraisal=persistence_appraisal,
             )
             if ghost_candidates:
                 all_trajectories = self._mix_value_flat_with_ghost(
