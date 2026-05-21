@@ -39,28 +39,6 @@
       "claim_id": "ARC-046",
       "note": "infant_substrate:GAP-14 closure. PASS confirms ARC-046 (phased residue accumulation via curriculum); unblocks DEV-NEED-008. Phase-2 cutover interrupted Mac run (~62%); no _partial checkpoint -- full rerun.",
       "claimed_by": null
-    },
-    {
-      "queue_id": "V3-EXQ-605",
-      "title": "Q-043 MECH-313 vs MECH-314 weight calibration sweep",
-      "experiment_type": "v3_exq_605_q043_noise_floor_curiosity_weight_sweep",
-      "script": "experiments/v3_exq_605_q043_noise_floor_curiosity_weight_sweep.py",
-      "priority": 7,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 240,
-      "episodes_per_run": 30,
-      "seeds": 3,
-      "conditions": 9,
-      "claim_ids": [
-        "Q-043",
-        "ARC-065",
-        "MECH-313",
-        "MECH-314"
-      ],
-      "backlog_id": "EVB-0229",
-      "note": "IGW-20260521-003 GAP-H: 3x3 grid (noise_floor_alpha x curiosity scale). Pareto calibration zone + entropy/reef tradeoff. validate_experiments + dry-run OK.",
-      "claimed_by": null
     }
   ]
 }
