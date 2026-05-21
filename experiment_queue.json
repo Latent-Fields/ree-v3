@@ -41,24 +41,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-599",
-      "title": "MECH-286 override-gated sleep-onset substrate validation",
-      "experiment_type": "v3_exq_599_mech286_sleep_onset_gate_validation",
-      "script": "experiments/v3_exq_599_mech286_sleep_onset_gate_validation.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 15,
-      "episodes_per_run": 1,
-      "seeds": 1,
-      "conditions": 3,
-      "claim_ids": [
-        "MECH-286"
-      ],
-      "note": "Substrate diagnostic: gate OFF fires sleep at K=1; gate ON permissive permits; gate ON saturated override blocks (hyperarousal lesion). Requires use_sleep_loop + use_staleness_accumulator; hyperarousal arm uses use_broadcast_override. validate_queue + dry-run OK.",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-600",
       "title": "MECH-282 LPB interoceptive harm routing substrate diagnostic",
       "experiment_type": "v3_exq_600_mech282_lpb_interoceptive_routing_diag",
