@@ -50,6 +50,7 @@ EXPERIMENT_TYPE = "v3_exq_598_gap1_sd033a_bias_head_trainable_ablation"
 EXPERIMENT_PURPOSE = "evidence"
 QUEUE_ID = "V3-EXQ-598"
 GATES_ON_EXQ = "V3-EXQ-543k"
+NON_CONTRIBUTORY_DIRECTIONS = frozenset({"non_contributory", "superseded"})
 CLAIM_IDS = ["SD-033a"]
 
 SELF_DIM = 8
@@ -166,6 +167,56 @@ def _make_agent(seed: int, train_rule_bias_head: bool) -> Tuple[REEAgent, Causal
     config.gated_policy_p1_w_deviation_aux_weight = P1_W_DEVIATION_AUX_WEIGHT
     agent = REEAgent(config)
     return agent, env
+
+
+def _require_scientific_gate(gate_exq: str, skip: bool) -> None:
+    if skip:
+        print(
+            f"Scientific gate SKIPPED (--skip-scientific-gate): {gate_exq}",
+            flush=True,
+        )
+        return
+    ev_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
+    best_ts = ""
+    best_label = ""
+    best_outcome = ""
+    best_direction = ""
+    token = gate_exq.replace("V3-EXQ-", "").lower()
+    for path in sorted(ev_dir.glob("*.json")):
+        if path.name.startswith("_"):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        qid = str(data.get("queue_id") or "")
+        etype = str(data.get("experiment_type") or "")
+        if qid != gate_exq and token not in etype and token not in path.name:
+            continue
+        if data.get("dry_run"):
+            continue
+        ts = str(data.get("timestamp_utc") or data.get("run_id") or "")
+        if ts >= best_ts:
+            best_ts = ts
+            best_label = path.name
+            best_outcome = str(data.get("outcome") or "").upper()
+            best_direction = str(data.get("evidence_direction") or "").lower()
+    if not best_label:
+        raise RuntimeError(
+            f"Scientific gate blocked: no non-dry-run manifest for {gate_exq}. "
+            f"Run {gate_exq} to contributory PASS before {QUEUE_ID}."
+        )
+    if best_outcome != "PASS" or best_direction in NON_CONTRIBUTORY_DIRECTIONS:
+        raise RuntimeError(
+            f"Scientific gate blocked: {gate_exq} latest={best_label} "
+            f"outcome={best_outcome} evidence_direction={best_direction}. "
+            f"Need contributory PASS before {QUEUE_ID}."
+        )
+    print(
+        f"Scientific gate PASS: {gate_exq} from {best_label} "
+        f"(outcome={best_outcome}, direction={best_direction})",
+        flush=True,
+    )
 
 
 def _preflight() -> None:
@@ -610,9 +661,16 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--seeds", type=int, nargs="*", default=None)
+    parser.add_argument(
+        "--skip-scientific-gate",
+        action="store_true",
+        help="Smoke/dry-run only: do not require V3-EXQ-543k contributory PASS manifest.",
+    )
     args = parser.parse_args()
     t0 = time.time()
     _preflight()
+    if not args.dry_run:
+        _require_scientific_gate(GATES_ON_EXQ, args.skip_scientific_gate)
     result = run(seeds=args.seeds, dry_run=args.dry_run)
     elapsed = time.time() - t0
     out_path, outcome = write_manifest(result, args.dry_run, elapsed)

@@ -295,7 +295,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             print(f"Seed {seed} Condition {arm['arm']}", flush=True)
             cell = _run_arm_seed(arm, seed, episodes, steps)
             rows.append(cell)
-            print("verdict: PASS", flush=True)
+            print("verdict: PASS", flush=True)  # run unit complete (aggregate PASS/FAIL at end)
 
     summary = _evaluate(rows)
     outcome = "PASS" if summary["overall_pass"] else "FAIL"
