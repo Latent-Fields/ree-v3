@@ -2,6 +2,8 @@
 
 Active V3 implementation substrate for REE. Primary development target as of 2026-03-18 following formal V3 transition triggered by V2 hard-stop criteria.
 
+**How this repo fits the program:** Experiments run here; manifests and governance live in `REE_assembly`. Read [START_HERE_HOW_REE_DEVELOPS.md](../REE_assembly/docs/START_HERE_HOW_REE_DEVELOPS.md) for the full claim-to-evidence loop and Explorer orientation.
+
 ## What V3 Is Proving
 
 V3 is not trying to prove full ethical agency. It is proving the prerequisites
