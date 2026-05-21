@@ -71,24 +71,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-606a",
-      "title": "ARC-064 GAP-I MECH-318 multi-rule empirical gate",
-      "experiment_type": "v3_exq_606a_arc064_gap_i_mech318_multi_rule_empirical_gate",
-      "script": "experiments/v3_exq_606a_arc064_gap_i_mech318_multi_rule_empirical_gate.py",
-      "priority": 8,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 90,
-      "episodes_per_run": 76,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_id": "MECH-318",
-      "supersedes": "V3-EXQ-606",
-      "note": "arc_062 GAP-I. Supersedes premature 606. 3-arm cluster x multi-rule axis alternation. Hard gate: V3-EXQ-543k contributory PASS. Priority 8 after 598/603. Re-queued 2026-05-21T14:37Z.",
-      "force_rerun": true,
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-591",
       "title": "EXQ-ISEF-005: 4-phase infant curriculum vs flat parameter baselines (GAP-14)",
       "experiment_type": "v3_exq_591_isef005_curriculum_vs_flat",
