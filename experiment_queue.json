@@ -59,27 +59,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-600a",
-      "title": "MECH-282 LPB interoceptive routing diagnostic (emit_outcome fix)",
-      "experiment_type": "v3_exq_600a_mech282_lpb_interoceptive_routing_diag",
-      "script": "experiments/v3_exq_600a_mech282_lpb_interoceptive_routing_diag.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 2,
-      "episodes_per_run": 1,
-      "seeds": 1,
-      "conditions": 3,
-      "claim_ids": [
-        "MECH-282",
-        "SD-037"
-      ],
-      "supersedes": "V3-EXQ-600",
-      "experiment_purpose": "diagnostic",
-      "note": "Fix V3-EXQ-600 ERROR (emit_outcome API mismatch; substrate PASS). Manifest + runner sentinel per experiment_protocol.",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-607",
       "title": "MECH-340 persistence/efficacy gate substrate validation",
       "experiment_type": "v3_exq_607_mech340_persistence_efficacy_gate_validation",
