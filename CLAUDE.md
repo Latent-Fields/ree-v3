@@ -2888,9 +2888,11 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   MECH-094: simulation_mode argument on tick(); when True, cached
     signal returned unchanged and no state advances. Replay / DMN
     content cannot recruit the override system.
-  Validation experiment: V3-EXQ-483 queued (4-arm factorial
-    {SD-036, SD-037} x {OFF, ON}, 3 seeds, ~50 min/arm; PWS /
-    narcolepsy acceptance criteria from lit-pull synthesis).
+  Validation experiment: V3-EXQ-483b PASS substrate-readiness
+    (2026-05-08; override_mean>0.30, PAG release ratio 1.875x).
+    V3-EXQ-483/483a FAIL behavioural (approach_commit=0 all arms).
+    Tier-1 evidence: V3-EXQ-483c queued (GAP-4 fishtank factorial).
+    MECH-282/MECH-286 not in SD-037 landing scope.
   Design doc: REE_assembly/docs/architecture/sd_037_broadcast_override_regulator.md
   Lit-pull: REE_assembly/evidence/literature/targeted_review_orexin_kinetics/
   See SD-037, SD-036, MECH-279, SD-012, SD-032a, MECH-261, MECH-094.
