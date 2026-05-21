@@ -27,24 +27,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-471a",
-      "title": "EXQ-471 catatonic-lock Tier-1 retest under GAP-4 substrate",
-      "experiment_type": "v3_exq_471a_catatonic_lock_gap4_tier1",
-      "script": "experiments/v3_exq_471a_catatonic_lock_gap4_tier1.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 120,
-      "episodes_per_run": 60,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_ids": [
-        "Q-040"
-      ],
-      "note": "goal_pipeline:GAP-4 Tier-1 cohort. Same 2-arm legacy vs gap4 design as 490g on fishtank env; Q-040 catatonic-lock factorial under corrected harness.",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-590a",
       "title": "EXQ-ISEF-004 rerun: novelty bonus Goldilocks calibration with checkpoint/resume",
       "experiment_type": "v3_exq_590_isef004_novelty_bonus_goldilocks",
