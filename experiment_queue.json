@@ -26,27 +26,6 @@
       "claimed_by": null
     },
     {
-      "queue_id": "V3-EXQ-592",
-      "title": "GAP-11 pilot: committed-mode curriculum harness validation (EXP-0157)",
-      "experiment_type": "v3_exq_592_gap11_pilot_committed_mode_curriculum",
-      "script": "experiments/v3_exq_592_gap11_pilot_committed_mode_curriculum.py",
-      "priority": 3,
-      "machine_affinity": "DLAPTOP-4.local",
-      "status": "claimed",
-      "estimated_minutes": 60,
-      "episodes_per_run": 400,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_id": "MECH-090",
-      "experiment_purpose": "diagnostic",
-      "supersedes": "V3-EXQ-461",
-      "note": "commitment_closure:GAP-11 / IGW-008. Re-queued 2026-05-21: removed from queue by cloud auto-prune without runner_status or evidence (never executed). 3 arms x 3 seeds: EMERGENT, FORCED_RV, STARVED. C1/C2 committed steps/ep>100; C3 starved abort gate. PASS unblocks Phase 4/5 *b cohort (460b/461/463b/464b/466b/467b/468b). Dry-run smoke 2026-05-21 exit 0.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-21T14:27:03.890305+00:00"
-      }
-    },
-    {
       "queue_id": "V3-EXQ-543k",
       "title": "ARC-062 GAP-B mode-separation floor falsifier (post-543i substrate)",
       "experiment_type": "v3_exq_543k_arc062_mode_separation_gap_b_falsifier",
