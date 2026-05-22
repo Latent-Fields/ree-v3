@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-22
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-19)
+## 0. Current V3 State (2026-05-22)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -111,6 +111,12 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | ARC-065 SP-CEM main-path default | Support-preserving + stratified CEM ("SP-CEM") flipped to the main-agent action-path default (6 HippocampalConfig + REEConfig.from_dims defaults: use_support_preserving_cem False->True, support_preserving_stratified_elites False->True, support_preserving_ao_std_floor 0.0->0.2). INTENTIONAL non-no-op default change (the one deliberate departure from the implement-substrate no-op rule) -- the legacy collapsing CEM produced the monostrategy that left SD-029 / ARC-062 Rung 2 / goal_pipeline GAP-2/4 / self_attribution GAP-1/2/3 non_contributory. Bit-identical legacy opt-out by explicitly pinning the three flags. Evidence: V3-EXQ-567 PASS 2026-05-15 (selected_action_entropy 0.0124 -> 0.4965). | Main-path default landed 2026-05-17; V3-EXQ-583 3-arm default-wiring equivalence PASS 2026-05-17T09:25Z (ARM_default == ARM_explicit_on within 1e-9, both >> ARM_explicit_off); claims.yaml ARC-065 implementation_note (NOT promoted -- promotion is Rung-1 matched-entropy governance gated on V3-EXQ-569) |
 | INV-074 / MECH-333 / MECH-334 (ARC-075) | Phase-3 plasticity-injection crystallization + EWC residue write-protect. GatedPolicy.crystallize() freezes head_0/head_1/discriminator + adds a fresh plastic expansion MLP (zero-init last Linear so output bit-identical at the transition instant; forward = frozen_gated(x) + expansion(x.detach())); ResidueField.snapshot_ewc_anchor() + ewc_penalty() write-protect established basins (Kirkpatrick 2017 EWC, NOT a hard freeze); InfantCurriculumScheduler on_phase3_entry fire-once hook. REEConfig.crystallize_at_phase3 default OFF (bit-identical; 484/484 contracts PASS). Nikishin 2023 plasticity injection + Kirkpatrick 2017 EWC. | Implemented 2026-05-17 (ree-v3 f8b93e3); validation V3-EXQ-543h 2x2x2 (use_gated_policy x use_dacc x crystallize_at_phase3, supersedes V3-EXQ-543g) queued |
 | ARC-062 GatedPolicy differential-heads robustness fix | policy.gated_policy two-head reparameterization. Motivated by the V3-EXQ-543h failure autopsy + cross-machine 543g replication (same config landed gating-ACTIVE on host-A but INERT on cloud-3 AND cloud-4; head_0==head_1 collapse is the common cross-machine attractor). When gated_policy_use_differential_heads=True the two heads are SYNTHESIZED as a shared trunk plus a candidate-axis-norm-pinned differential (base +/- delta_hat; delta_hat = differential_bias_scale * delta / (||delta||_K + 1e-8)) so head collapse is a non-equilibrium: delta==0 is structurally unreachable (scale-invariant normalization zeroes the magnitude gradient) and at w=0.5 d(gated)/dw = 2*delta_hat != 0 by the norm pin. crystallize() freezes (base, delta, discriminator). Config GatedPolicyConfig.use_differential_heads (default False -> two independent heads, bit-identical pre-fix path) + .differential_bias_scale (default 0.1). | Implemented 2026-05-18; validation V3-EXQ-543i (supersedes 543g+543h) FAILed branch e (MECH-309 supports / ARC-062 weakens; all 4 diff-ON gated arms 3/3 inert) on a SINGLE machine (Mac); 2026-05-18 governance cycle marked the 543f x4 / 543g / 543h x2 cluster evidence_direction=superseded by 543i + epistemic_category=substrate_ceiling; V3-EXQ-543j byte-identical cross-machine confirmation (pinned ree-cloud-4) queued -- ARC-062/MECH-309 governance gated on it |
+| SD-055 | hippocampal.differentiable_cem_selection -- softmax(-score/T)-weighted differentiable ao_mean/ao_std over all CEM candidates (legacy argsort-elite path bit-identical default); restores gradient through the CEM argmax severed for SD-016 cue_action_proj (EXP-0155 / EXQ-449). HippocampalConfig.use_differentiable_cem default False. | Implemented 2026-05-15 (V3-EXQ-568 PASS substrate-readiness, grad_max=372; non_contributory -- does not validate cue-conditioned behavioural divergence) |
+| MECH-339 | hippocampal.composite_retrieval_cue_outshining_gate -- ARC-078 Constraint 1: GhostGoalBank composite cue adds an arousal-tag context channel to the z_goal-cosine match, combined by an outshining gate (a strong direct goal_match suppresses the context channel, Smith & Vela 2001). GhostGoalBankConfig.use_composite_cue_outshining default False; context_weight default 0.0 -- bit-identical OFF. | Implemented 2026-05-19 (V3-EXQ-594 diagnostic queued, smoke 4/4) |
+| ARC-062 GAP-B mode-separation floor | gated_policy.mode_separation_floor -- composed bias becomes w*h0 + (1-w)*h1 + floor*(h0-h1) so a non-cancelable mode contrast survives at discriminator w~0.5 (the V3-EXQ-543i autopsy gap where delta_hat cancels in base + (2w-1)*delta_hat); optional p1_w_deviation_aux penalizes w near 0.5. GatedPolicyConfig.mode_separation_floor default 0.0 -- bit-identical OFF. | Implemented 2026-05-20; validation V3-EXQ-543k (supersedes 543i; 12-arm + floor/aux on gated arms, K=3 basin-stability gate) re-queued with force_rerun, in flight |
+| MECH-282 | regulators.lpb_interoceptive_routing -- LPBInteroceptiveRouter splits harm into z_harm (external; resource slice zeroed before HarmEncoder) and a non-trainable z_harm_intero broadcast (drive_level + harm_obs_a resource EMA); SD-037 coupling routes intero -> override, external -> PAG freeze proxy when both flags on. REEConfig.use_lpb_interoceptive_routing default False. | Implemented 2026-05-21 (V3-EXQ-600 3-arm substrate diagnostic queued) |
+| MECH-286 | sleep.override_gated_state_transition -- wake-stability axis of SD-037: wake->offline transition in SleepLoopManager gated by a joint permit (override_signal below threshold AND max region-staleness above recruit AND z_harm_a.norm() below tonic threshold); blocked entry resets episodes_since_sleep. REEConfig.use_mech286_sleep_onset_gate default False -- preserves deterministic K-episode firing. | Implemented 2026-05-21 (V3-EXQ-599 3-arm substrate diagnostic queued) |
+| MECH-340 (+ Q-053 wiring) | hippocampal.persistence_efficacy_gate -- ARC-079 / Q-053 front-runner: GhostGoalBank entry persistence as a MECH-293 re-probe target is gated; disengagement is the default when license = control_efficacy * (1 - goal_unattainability) < persistence_floor (SD-039 trace preserved). Q-053 agent wiring (2026-05-21) maps prior hippocampal completion + E3 commitment -> control_efficacy and one-shot 1 - goal_proximity -> goal_unattainability. GhostGoalBankConfig.use_persistence_efficacy_gate default False. | Implemented 2026-05-21 (V3-EXQ-607 diagnostic queued; contracts 8/8 + dry-run PASS) |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -129,6 +135,46 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-05-22T01:10Z nightly read.** Central
+  `evidence/experiments/runner_status.json` reports **749 cumulative
+  completions** (176 PASS / 301 FAIL / 79 ERROR / 193 UNKNOWN);
+  last_updated 2026-05-21T14:26:59Z -- the central file lags the
+  per-machine `runner_status/<hostname>.json` writes. +26 central
+  completions since the 2026-05-19T01:10Z nightly read (+10 PASS /
+  +14 FAIL / +2 ERROR / +0 UNKNOWN). **Pending review queue
+  (regenerated 2026-05-21T13:02:46Z; last review 2026-05-21T12:59:23Z)
+  reads 0 items**, but +13 runner completions (including V3-EXQ-543k)
+  have landed since that regeneration and a governance cycle is in
+  flight at this read -- treat 0 as stale. **Currently queued
+  (`experiment_queue.json`): 3 items** -- V3-EXQ-590a (EXQ-ISEF-004
+  novelty-bonus Goldilocks calibration, MECH-314, checkpoint-resumable,
+  pinned ree-cloud-3, priority 100; partial 1/15 runs saved), V3-EXQ-543k
+  (ARC-062 GAP-B mode-separation-floor falsifier, supersedes 543i,
+  force_rerun, unclaimed), V3-EXQ-591 (EXQ-ISEF-005 4-phase infant
+  curriculum vs flat baselines, ARC-046, claimed DLAPTOP-4.local).
+  2026-05-19 -> 2026-05-22 substrate / governance wave: (1) **MECH-282
+  LPB interoceptive routing**, **MECH-286 override-gated sleep onset**,
+  and **MECH-340 persistence/efficacy gate** (+ Q-053 agent-side
+  control-efficacy / goal-unattainability appraisal wiring) landed
+  2026-05-21, all bit-identical OFF; validation V3-EXQ-599 / 600 / 607
+  queued. (2) **ARC-062 GAP-B mode-separation floor** landed 2026-05-20;
+  V3-EXQ-543k re-queued with force_rerun after a ree-cloud-4 FAIL with
+  no central manifest (failure autopsy: 543i manifest mis-filed under
+  the 543k slot). (3) **Q-043/044/045 EXQs 603/604/605** ran off-queue
+  (604/605 FAIL); **V3-EXQ-597b** MECH-258 C2-telemetry revalidation and
+  **V3-EXQ-598/606a** GAP-B-gated experiments queued. (4) **Coordinator
+  Phase-2 cutover** 2026-05-21 -- hub + Mac + ree-cloud-1..4 flipped to
+  `COORDINATION_MODE=coordinator`; **Phase-3 cutover substrate**
+  (PHASE3_CUTOVER.md + preflight/verify + sync_daemon scaffold) designed
+  the same day; fleet pause + runner suspend/resume landed. (5)
+  Governance walks 2026-05-21 cleared 13 pending (543j/543i/595/597/598/
+  604/605 non_contributory; 599/600 ERROR ack); pending_review driven to
+  0 twice. Bottleneck: **EXQ-ISEF-004/005 (V3-EXQ-590a + 591)** remain
+  the load-bearing developmental warm-start gate for the ARC-065
+  diversity narrative and the deferred Q-043/044/045 + INV-049 retests;
+  **ARC-062 / MECH-309** stays substrate_ceiling-framed with the
+  GAP-B mode-separation-floor falsifier V3-EXQ-543k still in flight.
+  Historical context preserved below.
 - **2026-05-19T01:10Z nightly read.** Central
   `evidence/experiments/runner_status.json` reports **723 cumulative
   completions** (166 PASS / 287 FAIL / 77 ERROR / 193 UNKNOWN);
