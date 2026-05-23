@@ -41,7 +41,7 @@
       "note": "infant_substrate:GAP-14 closure. PASS confirms ARC-046 (phased residue accumulation via curriculum); unblocks DEV-NEED-008. Phase-2 cutover interrupted Mac run (~62%); no _partial checkpoint -- full rerun.",
       "claimed_by": {
         "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-21T15:51:02.001611+00:00"
+        "claimed_at": "2026-05-23T21:06:24.782741+00:00"
       }
     }
   ]
