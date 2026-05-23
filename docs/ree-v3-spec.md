@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-22
+**Last updated:** 2026-05-23
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-22)
+## 0. Current V3 State (2026-05-23)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -135,23 +135,34 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **2026-05-22T01:10Z nightly read.** Central
+- **2026-05-23T01:10Z nightly read.** Central
   `evidence/experiments/runner_status.json` reports **749 cumulative
   completions** (176 PASS / 301 FAIL / 79 ERROR / 193 UNKNOWN);
-  last_updated 2026-05-21T14:26:59Z -- the central file lags the
-  per-machine `runner_status/<hostname>.json` writes. +26 central
-  completions since the 2026-05-19T01:10Z nightly read (+10 PASS /
-  +14 FAIL / +2 ERROR / +0 UNKNOWN). **Pending review queue
-  (regenerated 2026-05-21T13:02:46Z; last review 2026-05-21T12:59:23Z)
-  reads 0 items**, but +13 runner completions (including V3-EXQ-543k)
-  have landed since that regeneration and a governance cycle is in
-  flight at this read -- treat 0 as stale. **Currently queued
-  (`experiment_queue.json`): 3 items** -- V3-EXQ-590a (EXQ-ISEF-004
-  novelty-bonus Goldilocks calibration, MECH-314, checkpoint-resumable,
-  pinned ree-cloud-3, priority 100; partial 1/15 runs saved), V3-EXQ-543k
-  (ARC-062 GAP-B mode-separation-floor falsifier, supersedes 543i,
-  force_rerun, unclaimed), V3-EXQ-591 (EXQ-ISEF-005 4-phase infant
-  curriculum vs flat baselines, ARC-046, claimed DLAPTOP-4.local).
+  last_updated 2026-05-21T14:26:59Z -- the central file is now ~35h
+  stale (Phase-2 coordinator cutover; per-machine `runner_status/<hostname>.json`
+  files carry the live writes). **No change in the central totals since
+  the 2026-05-22T01:10Z nightly read** -- the runs that completed in the
+  intervening 24h appear in `pending_review.md` and on per-machine status
+  files but have not yet been merged into the central index. **Pending
+  review queue (regenerated 2026-05-22T05:31:18Z; last review
+  2026-05-22T05:30:55Z) reads 10 items** -- 5 PASS (V3-EXQ-601 x2
+  MECH-269b-followup-A staleness gate, V3-EXQ-599a MECH-286 sleep-onset
+  gate, V3-EXQ-600a MECH-282 LPB interoceptive routing, V3-EXQ-607
+  MECH-340 persistence/efficacy gate -- the 2026-05-21 substrate
+  diagnostics PASSing in turn), 3 FAIL (V3-EXQ-597b MECH-258 PE-vs-raw
+  post-SP-CEM, V3-EXQ-603 x2 Q-045 MECH-313/MECH-260 collapse falsifier),
+  2 runner-only ERROR (V3-EXQ-606a ARC-064 GAP-I, V3-EXQ-598 SD-033a
+  bias-head ablation). The active governance cycle `governance-20260522T032251Z`
+  has not yet walked these. **Currently queued (`experiment_queue.json`):
+  2 items** -- V3-EXQ-590a (EXQ-ISEF-004 novelty-bonus Goldilocks
+  calibration, MECH-314, checkpoint-resumable, pinned ree-cloud-3,
+  priority 100; partial 1/15 runs saved) + V3-EXQ-591 (EXQ-ISEF-005
+  4-phase infant curriculum vs flat baselines, ARC-046, claimed
+  DLAPTOP-4.local). V3-EXQ-543k drained out of the queue this window
+  -- the 2026-05-21T14:13Z force_rerun re-queue is no longer present
+  but no fresh 543k manifest appears in `pending_review.md` either
+  (its remote fate is opaque from the central indices pending the
+  next governance walk).
   2026-05-19 -> 2026-05-22 substrate / governance wave: (1) **MECH-282
   LPB interoceptive routing**, **MECH-286 override-gated sleep onset**,
   and **MECH-340 persistence/efficacy gate** (+ Q-053 agent-side
