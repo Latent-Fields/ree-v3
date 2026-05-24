@@ -43,6 +43,22 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-23T21:06:24.782741+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-603a",
+      "title": "Q-045 MECH-313 vs MECH-260 four-arm ablation (603 measurement-gap repair)",
+      "experiment_type": "v3_exq_603a_q045_mech313_mech260_four_arm_ablation",
+      "script": "experiments/v3_exq_603a_q045_mech313_mech260_four_arm_ablation.py",
+      "priority": 7,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 240,
+      "episodes_per_run": 30,
+      "seeds": 3,
+      "conditions": 4,
+      "supersedes": "V3-EXQ-603",
+      "claim_ids": ["Q-045", "MECH-313", "MECH-260"],
+      "note": "Repair of V3-EXQ-603: select_action() path with obs_harm_a + use_affective_harm_stream; FIFO_WARMUP_STEPS=75 before entropy; evidence_direction vs ARM_0. 603b 8-cell LC sweep deferred."
     }
   ]
 }
