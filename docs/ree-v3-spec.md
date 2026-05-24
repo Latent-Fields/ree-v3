@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-24
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-23)
+## 0. Current V3 State (2026-05-24)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -135,6 +135,55 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-05-24T01:10Z nightly read.** Central
+  `evidence/experiments/runner_status.json` reports **753 cumulative
+  completions** (176 PASS / 303 FAIL / 81 ERROR / 193 UNKNOWN);
+  last_updated 2026-05-23T21:06:24Z -- the central file is now ~4h
+  fresh at this read (a sharp improvement over yesterday's ~35h stale;
+  the central-index merge is catching up post Phase-2 coordinator
+  cutover). +4 cumulative completions since the 2026-05-23T01:10Z
+  nightly read (+0 PASS / +2 FAIL / +2 ERROR / +0 UNKNOWN). **Pending
+  review queue (regenerated 2026-05-23T22:03:10Z; last review
+  2026-05-23T21:57:44Z) reads 6 items** -- 0 PASS, 4 FAIL (V3-EXQ-483c
+  SD-037 broadcast-override GAP-4 tier-1, V3-EXQ-597b MECH-258 PE-vs-raw
+  post-SP-CEM, V3-EXQ-603 x2 Q-045 MECH-313/MECH-260 collapse falsifier),
+  2 runner-only ERROR (V3-EXQ-606a ARC-064 GAP-I, V3-EXQ-598 SD-033a
+  bias-head ablation). The 5 substrate PASSes from yesterday's snapshot
+  (V3-EXQ-601 x2 MECH-269b-followup-A staleness gate, V3-EXQ-599a
+  MECH-286, V3-EXQ-600a MECH-282, V3-EXQ-607 MECH-340) have been moved
+  into `reviewed_run_ids` -- the 2026-05-21 substrate-validation
+  diagnostic battery is now fully governance-cleared. **Currently
+  queued (`experiment_queue.json`): 2 items unchanged from yesterday**
+  -- V3-EXQ-590a (EXQ-ISEF-004 novelty-bonus Goldilocks calibration,
+  MECH-314, checkpoint-resumable, pinned ree-cloud-3, priority 100;
+  partial 1/15 runs saved; unclaimed at this read) + V3-EXQ-591
+  (EXQ-ISEF-005 4-phase infant curriculum vs flat baselines, ARC-046,
+  claimed DLAPTOP-4.local 2026-05-23T21:06Z).
+  2026-05-23 governance / infra wave (no SD/MECH landings; tooling
+  only): (1) **Governance verification gate** (REE_assembly
+  `scripts/verify_governance_cycle.py` + `generate_governance_handoff.py`
+  + `evidence/verification/` + `evidence/handoffs/` + docs landed
+  2026-05-23T20:38Z, master a686bfbc66) -- additive safety layer with
+  7 checks, JSON report + Markdown handoff. Current gate result: FAIL
+  with 1 BLOCK (V3-EXQ-543k drained without manifest) and 2 WARN (the
+  now-resolved 54h central-runner_status staleness; ree-cloud-1
+  heartbeat divergence). (2) **Shadow coordinator stale-machine TTL
+  fix** in serve.py (2026-05-23T21:15Z, master 418c79ca4f) -- 6h TTL
+  filter on `read_machines()` + `read_shadow_status()` so stale
+  machines are excluded from the dashboards. (3) **Failure-autopsy
+  sessions opened** 2026-05-23T22:14-22:36Z for V3-EXQ-597b
+  (MECH-258 measurement gap), V3-EXQ-483c (SD-037 / MECH-280 /
+  MECH-281 dACC measurement gap), V3-EXQ-603 (Q-045 / MECH-313 /
+  MECH-260 measurement gap), and `/diagnose-errors` for V3-EXQ-606a +
+  V3-EXQ-598 (re-queue as 606b / 598a). The night's pending_review is
+  being actively triaged. No new SD / MECH / ARC / Q landings since
+  the 2026-05-22T01:10Z snapshot -- the substrate state is unchanged.
+  Bottleneck: **EXQ-ISEF-004/005 (V3-EXQ-590a + 591)** remain the
+  load-bearing developmental warm-start gate for the ARC-065 diversity
+  narrative and the deferred Q-043/044/045 + INV-049 retests;
+  **ARC-062 / MECH-309** stays substrate_ceiling-framed with the
+  V3-EXQ-543k drained-without-manifest BLOCK flagged by the new
+  governance verification gate. Historical context preserved below.
 - **2026-05-23T01:10Z nightly read.** Central
   `evidence/experiments/runner_status.json` reports **749 cumulative
   completions** (176 PASS / 301 FAIL / 79 ERROR / 193 UNKNOWN);
