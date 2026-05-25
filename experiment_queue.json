@@ -27,19 +27,19 @@
     },
     {
       "queue_id": "V3-EXQ-603b",
-      "title": "Q-045 MECH-313 vs MECH-260 four-arm ablation (cumulative-FIFO retest)",
+      "title": "Q-045 MECH-313 vs MECH-260 four-arm ablation (500-step retest)",
       "experiment_type": "v3_exq_603b_q045_mech313_mech260_four_arm_ablation",
       "script": "experiments/v3_exq_603b_q045_mech313_mech260_four_arm_ablation.py",
       "priority": 150,
       "machine_affinity": "any",
       "status": "pending",
-      "estimated_minutes": 90,
+      "estimated_minutes": 180,
       "episodes_per_run": 30,
       "seeds": 3,
       "conditions": 4,
       "claim_id": "Q-045",
       "supersedes": "V3-EXQ-603a",
-      "note": "arc_062_rule_apprehension:GAP-H / IGW-20260521-003. Supersedes V3-EXQ-603a (measurement_gap): 603a's call-path fix landed (mech260_operative_all_seeds=true) but per-episode FIFO_WARMUP_STEPS=75 left 2/3 seeds at measured_steps=0 because seeds 42/44 collapsed into ~14-step early-termination episodes. 603b: (Fix 4) cumulative-steps warmup matching the cross-episode dACC._action_history deque, (Fix 5) per-seed min-measured-steps admission gate (40) excluding zero-data seeds from the entropy mean rather than averaging 0 in, (Fix 6) FIFO threshold 75 -> 50 (still in pre-registered Kennerley/SD-054 band [50,100]).",
+      "note": "arc_062_rule_apprehension:GAP-H / IGW-20260521-003. Supersedes V3-EXQ-603a (measurement_gap). Per failure-autopsy V3-EXQ-603 retest spec: copy 603a, bump STEPS_PER_EPISODE 200 -> 500 so short-lived episodes get headroom to surpass the pre-registered 75-step FIFO warmup. KEEP FIFO_WARMUP_STEPS=75 and per-episode warmup gate. KEEP all 4 arms + ARM-vs-ARM_0 logic. The 8-cell-design extension in the autopsy artifact is held out of scope for this iteration. claim_ids: Q-045, MECH-313, MECH-260.",
       "claimed_by": null
     },
     {

@@ -5,79 +5,53 @@ Supersedes V3-EXQ-603a (measurement_gap).
 
 IGW-20260521-003 / arc_062_rule_apprehension:GAP-H.
 
-Root cause of V3-EXQ-603a (failure-autopsy + governance-603-manifests interactive,
+Root cause of V3-EXQ-603a (failure autopsy + governance-603-manifests interactive,
 2026-05-25): 603a's call-path fix landed cleanly (mech260_operative_all_seeds=true,
-dACC FIFO + suppression both wired), BUT 2 of 3 seeds (42, 44) produced measured_steps=0
-because the FIFO_WARMUP_STEPS=75 gate was applied PER-EPISODE while seeds 42/44
-collapsed into early-termination episodes (~14 steps/ep across 30 episodes for seed 42,
-~14.5 for seed 44; total_steps ~423 and ~436). With no per-episode cumulative reset on
-the dACC.._action_history deque (cross-episode by construction in DACCAdaptiveControl),
-the per-episode gate was the wrong abstraction. Mean entropy was therefore driven by
-two zero seeds; only seed 43 (which produced normal-length episodes of ~158 steps/ep)
-yielded interpretable data, leaving the comparison structurally underpowered with
-N=1 effective seed.
+dACC FIFO + suppression both wired). BUT 2 of 3 seeds (42, 44) produced
+measured_steps=0 because the per-episode FIFO_WARMUP_STEPS=75 gate was never
+cleared -- those seeds averaged ~14 steps/episode (total_steps ~423 and ~436
+across 30 episodes), well below the 75-step warmup. Mean entropy was therefore
+driven by two zero seeds; only seed 43 (which produced normal ~158-step episodes)
+yielded interpretable data, leaving the comparison structurally underpowered
+with N=1 effective seed.
 
-Fixes applied vs V3-EXQ-603a:
-  Fix 1 (retained from 603a): Training loop uses sense()+generate()+select_action()
-    via _select_action_with_harm(), passing obs_harm_a so z_harm_a is set and
+Fix applied vs V3-EXQ-603a (per failure-autopsy V3-EXQ-603 retest spec):
+  STEPS_PER_EPISODE raised 200 -> 500. The expectation is that the longer
+  per-episode step budget gives episodes more headroom to reach beyond the
+  75-step FIFO warmup so the per-episode entropy measurement window opens
+  cleanly across all seeds + arms. Everything else from 603a is held fixed:
+  FIFO_WARMUP_STEPS=75 (pre-registered Kennerley / SD-054 gate, unchanged),
+  per-episode warmup gate (step_in_ep >= fifo_warmup_steps, unchanged),
+  same 4-arm design, same evidence_direction_per_claim ARM-vs-ARM_0 logic.
+
+  Note: the 8-cell-design reference in the failure-autopsy artifact is a
+  separate future extension, NOT the 603b retest -- explicitly held out of
+  scope this iteration per the autopsy spec.
+
+Fixes retained from 603a (unchanged):
+  Fix 1: Training loop uses sense()+generate()+select_action() via
+    _select_action_with_harm(), passing obs_harm_a so z_harm_a is set and
     select_action() calls dacc.record_action() each step.
-  Fix 2 (RETAINED FROM 603a, KEPT INTACT): use_affective_harm_stream=True +
-    harm_obs_a_dim=50 + harm_history_len=10.
-  Fix 3 (RETAINED FROM 603a): evidence_direction_per_claim compares each arm vs
-    ARM_0 baseline, not arm vs arm.
-  Fix 4 (NEW IN 603b): CUMULATIVE FIFO warmup. The gate is now
-    "if total_steps_global >= FIFO_WARMUP_STEPS" rather than
-    "if step_in_ep >= FIFO_WARMUP_STEPS". The dACC._action_history deque is
-    cross-episode by construction (no per-episode reset hook), so the cumulative
-    metric matches what the dACC actually does internally.
-  Fix 5 (NEW IN 603b): Per-seed minimum-measured-steps guard. Seeds with
-    measured_steps < MIN_MEASURED_STEPS_PER_SEED are EXCLUDED from the per-arm
-    entropy mean rather than averaged in at 0.0. fifo_temporal_gate_ok_all becomes
-    "every seed in every arm cleared the minimum"; arms with too-few-clearing-seeds
-    are reported but flagged measurement_gap.
-  Fix 6 (NEW IN 603b): FIFO_WARMUP_STEPS lowered from 75 to 50, still within the
-    pre-registered Kennerley / SD-054 band [50, 100] (SD-054 plan-doc). 50 also
-    clears the 2 * DACC_SUPPRESSION_MEMORY (=16) sanity floor inherited from 603a.
+  Fix 2: FIFO_WARMUP_STEPS=75 -- pre-registered Kennerley / SD-054 temporal-
+    horizon gate. Action counts for acceptance exclude the first 75 steps
+    of each episode.
+  Fix 3: evidence_direction_per_claim compares each arm vs ARM_0 baseline,
+    not arm vs arm.
 
-SD-054 bipartite reef env + ARC-062 gated-policy ON + main-path SP-CEM (config
-inherited from 603a unchanged; see "Inherited config" block).
+SD-054 bipartite reef env + ARC-062 gated-policy ON + main-path SP-CEM.
 
-Arms (unchanged from 603a):
+Arms:
   ARM_0_both_off   -- control (expected collapse / low diversity)
   ARM_1_mech313    -- use_noise_floor only
   ARM_2_mech260    -- use_dacc only (MECH-260 pathway)
   ARM_3_both_on    -- MECH-313 + MECH-260
 
-Pre-registered PASS criteria (Q-045 mutually load-bearing; ENTROPY_MARGIN unchanged
-from 603a; cumulative warmup is a measurement-discipline change, NOT a hypothesis
-change):
+Pre-registered PASS (Q-045 mutually load-bearing):
   C1: ARM_3 entropy > ARM_0 + ENTROPY_MARGIN
   C2: ARM_3 entropy > max(ARM_1, ARM_2) + ENTROPY_MARGIN
   C3: ARM_1 entropy > ARM_0 AND ARM_2 entropy > ARM_0
-  PASS if C2. FAIL otherwise.
 
-Interpretation grid for outcomes (decision policy on read-out):
-  - C2 PASS + every seed in every arm cleared MIN_MEASURED_STEPS_PER_SEED:
-    Q-045 mutually load-bearing reading supported; MECH-313 + MECH-260 confirmed
-    distinct and complementary. Promote both substrates' diagnostic-evidence
-    weight; do not collapse the claims.
-  - C2 PASS but >=1 seed in any arm missed MIN_MEASURED_STEPS_PER_SEED:
-    Provisional support; record as PASS-with-caveat and re-run with longer
-    episodes or higher MIN_MEASURED_STEPS_PER_SEED threshold (substrate finding,
-    not a tuning failure).
-  - C2 FAIL but C1 + C3 both PASS:
-    Substrates are individually distinguishable but not mutually load-bearing.
-    Indicates MECH-313 and MECH-260 partially redundant -- proceed to /failure-
-    autopsy for collapse-or-separate decision (Q-045 specifically asks this).
-  - C1 FAIL across the board:
-    Neither substrate moved entropy detectably above baseline.
-    Two possibilities: ARM_0 already saturated to the substrate ceiling (unlikely
-    given ARC-062 GAP-B FAIL signature), or the env config produces too-short
-    episodes for entropy to develop. Re-route to /diagnose-errors before re-tuning.
-  - fifo_temporal_gate_ok_all=False for the WHOLE table:
-    Same measurement-gap signature as 603a. Indicates the env config itself
-    cannot deliver enough steps -- substrate-finding, escalate as substrate
-    issue, do NOT re-tune.
+PASS if C2. FAIL otherwise (still records per-arm directions).
 
 claim_ids: Q-045, MECH-313, MECH-260
 experiment_purpose: evidence
@@ -117,18 +91,15 @@ EXPERIMENT_PURPOSE = "evidence"
 
 SEEDS = [42, 43, 44]
 EVAL_EPISODES = 30
-STEPS_PER_EPISODE = 200
+# 603b fix: 200 -> 500. Gives short-lived episodes more headroom to surpass the
+# pre-registered 75-step FIFO warmup so the per-episode entropy window opens for
+# all seeds, not just seed 43.
+STEPS_PER_EPISODE = 500
 
-# Fix 6: FIFO_WARMUP_STEPS lowered from 75 (603a) to 50; still within pre-registered
-# Kennerley / SD-054 band [50, 100] and above 2 * DACC_SUPPRESSION_MEMORY=16.
-FIFO_WARMUP_STEPS = 50
+# Kennerley / SD-054 temporal-horizon gate (lit-pull R5): FIFO must fill before measure.
+# Unchanged from 603a -- the warmup threshold is pre-registered.
+FIFO_WARMUP_STEPS = 75
 DACC_SUPPRESSION_MEMORY = 8
-
-# Fix 5: per-seed minimum measured steps before that seed's entropy is admitted.
-# Threshold chosen to leave ~5x DACC_SUPPRESSION_MEMORY of measured action evidence
-# above the FIFO warmup before counting the seed (the dACC suppression FIFO needs
-# enough above-warmup steps for its anti-recency signal to become observable).
-MIN_MEASURED_STEPS_PER_SEED = 40
 
 DRY_RUN_SEEDS = [42]
 DRY_RUN_EPISODES = 2
@@ -140,8 +111,6 @@ WORLD_DIM = 32
 HARM_A_DIM = 16
 HARM_HISTORY_LEN = 10
 
-# Inherited config (unchanged from V3-EXQ-603a; bipartite reef + food-attracted hazards
-# from SD-054 + ARC-062 gated policy ON + main-path SP-CEM).
 ENV_KWARGS = dict(
     size=12,
     num_hazards=4,
@@ -320,7 +289,7 @@ def _run_arm_seed(
 
     action_counts: Counter = Counter()
     reef_steps = 0
-    total_steps = 0  # cumulative across episodes (Fix 4 reference for warmup gate)
+    total_steps = 0
     measured_steps = 0
     reef_cells = set()
     max_dacc_history = 0
@@ -366,11 +335,7 @@ def _run_arm_seed(
                 action_onehot = action
                 idx = int(action.argmax(dim=-1).item())
 
-            # Fix 4: CUMULATIVE step gate. total_steps is the global cross-episode
-            # counter; the dACC._action_history deque is cross-episode by construction
-            # (DACCAdaptiveControl does not reset on env.reset()), so this is the
-            # correct abstraction. step_in_ep ignored for the gate.
-            if total_steps >= fifo_warmup_steps:
+            if step_in_ep >= fifo_warmup_steps:
                 action_counts[idx] += 1
                 measured_steps += 1
 
@@ -392,13 +357,9 @@ def _run_arm_seed(
     entropy = _entropy(action_counts)
     reef_fraction = reef_steps / max(total_steps, 1)
     steps_per_ep_measured = measured_steps / max(episodes, 1)
-    # Fix 5: per-seed gate -- this seed only contributes to per-arm entropy mean if
-    # its measured_steps cleared MIN_MEASURED_STEPS_PER_SEED. Reported here; the
-    # aggregator in _evaluate() honours it.
-    seed_admitted = measured_steps >= MIN_MEASURED_STEPS_PER_SEED
     fifo_gate_ok = (
         fifo_warmup_steps >= 2 * DACC_SUPPRESSION_MEMORY
-        and seed_admitted
+        and steps_per_ep_measured >= (steps_per_episode - fifo_warmup_steps) * 0.9
     )
 
     out: Dict[str, Any] = {
@@ -409,9 +370,6 @@ def _run_arm_seed(
         "total_steps": int(total_steps),
         "measured_steps": int(measured_steps),
         "fifo_warmup_steps": int(fifo_warmup_steps),
-        "warmup_metric": "cumulative",
-        "min_measured_steps_threshold": int(MIN_MEASURED_STEPS_PER_SEED),
-        "seed_admitted": bool(seed_admitted),
         "steps_per_episode_measured_mean": round(steps_per_ep_measured, 2),
         "fifo_temporal_gate_ok": bool(fifo_gate_ok),
         "unique_actions": len(action_counts),
@@ -435,31 +393,14 @@ def _evaluate(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     for row in rows:
         by_arm.setdefault(row["arm"], []).append(row)
 
-    def admitted_mean_entropy(arm_name: str) -> Dict[str, Any]:
-        """Fix 5: average only over seeds that cleared MIN_MEASURED_STEPS_PER_SEED."""
-        all_rows = by_arm.get(arm_name, [])
-        admitted = [r for r in all_rows if r.get("seed_admitted", False)]
-        if not admitted:
-            return {
-                "mean": 0.0,
-                "n_admitted": 0,
-                "n_total": len(all_rows),
-                "admitted_seeds": [],
-            }
-        vals = [r["selected_action_entropy"] for r in admitted]
-        return {
-            "mean": float(sum(vals) / len(vals)),
-            "n_admitted": len(admitted),
-            "n_total": len(all_rows),
-            "admitted_seeds": sorted(r["seed"] for r in admitted),
-        }
+    def mean_entropy(arm_name: str) -> float:
+        vals = [r["selected_action_entropy"] for r in by_arm.get(arm_name, [])]
+        return float(sum(vals) / len(vals)) if vals else 0.0
 
-    arm0 = admitted_mean_entropy("ARM_0_both_off")
-    arm1 = admitted_mean_entropy("ARM_1_mech313_only")
-    arm2 = admitted_mean_entropy("ARM_2_mech260_only")
-    arm3 = admitted_mean_entropy("ARM_3_both_on")
-
-    e0, e1, e2, e3 = arm0["mean"], arm1["mean"], arm2["mean"], arm3["mean"]
+    e0 = mean_entropy("ARM_0_both_off")
+    e1 = mean_entropy("ARM_1_mech313_only")
+    e2 = mean_entropy("ARM_2_mech260_only")
+    e3 = mean_entropy("ARM_3_both_on")
 
     c1 = e3 > e0 + ENTROPY_MARGIN
     c2 = e3 > max(e1, e2) + ENTROPY_MARGIN
@@ -473,30 +414,17 @@ def _evaluate(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     )
     fifo_ok_all = all(r.get("fifo_temporal_gate_ok", False) for r in rows)
 
-    # Per-arm admission accounting (Fix 5 disclosure).
-    arm_admission = {
-        "ARM_0_both_off": arm0,
-        "ARM_1_mech313_only": arm1,
-        "ARM_2_mech260_only": arm2,
-        "ARM_3_both_on": arm3,
-    }
-    # All arms must have at least 1 admitted seed for the entropy comparison to be
-    # interpretable at all.
-    all_arms_have_admitted = all(a["n_admitted"] >= 1 for a in arm_admission.values())
-
     return {
         "entropy_ARM_0": round(e0, 6),
         "entropy_ARM_1": round(e1, 6),
         "entropy_ARM_2": round(e2, 6),
         "entropy_ARM_3": round(e3, 6),
-        "c1_both_beats_off": bool(c1),
-        "c2_mutually_load_bearing": bool(c2),
-        "c3_each_alone_beats_off": bool(c3),
-        "mech260_operative_all_seeds": bool(mech260_operative_all),
-        "fifo_temporal_gate_ok_all": bool(fifo_ok_all),
-        "all_arms_have_admitted_seed": bool(all_arms_have_admitted),
-        "arm_admission": arm_admission,
-        "overall_pass": bool(c2 and all_arms_have_admitted),
+        "c1_both_beats_off": c1,
+        "c2_mutually_load_bearing": c2,
+        "c3_each_alone_beats_off": c3,
+        "mech260_operative_all_seeds": mech260_operative_all,
+        "fifo_temporal_gate_ok_all": fifo_ok_all,
+        "overall_pass": bool(c2),
     }
 
 
@@ -505,10 +433,6 @@ def _evidence_direction_per_claim(summary: Dict[str, Any]) -> Dict[str, str]:
     e0 = summary["entropy_ARM_0"]
     e1 = summary["entropy_ARM_1"]
     e2 = summary["entropy_ARM_2"]
-
-    # If any arm has zero admitted seeds, the comparison is not interpretable.
-    if not summary.get("all_arms_have_admitted_seed", True):
-        return {"Q-045": "non_contributory", "MECH-313": "non_contributory", "MECH-260": "non_contributory"}
 
     if summary["c2_mutually_load_bearing"]:
         q045 = "supports"
@@ -537,9 +461,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     seeds = DRY_RUN_SEEDS if dry_run else SEEDS
     episodes = DRY_RUN_EPISODES if dry_run else EVAL_EPISODES
     steps = DRY_RUN_STEPS if dry_run else STEPS_PER_EPISODE
-    # Dry-run uses a tiny warmup since DRY_RUN_STEPS=50 is the per-episode budget
-    # and we want SOME measured steps even at dry-run scale.
-    warmup = FIFO_WARMUP_STEPS if not dry_run else 5
+    warmup = min(FIFO_WARMUP_STEPS, max(0, steps - 1)) if not dry_run else 2
 
     rows: List[Dict[str, Any]] = []
     for arm in ARMS:
@@ -573,13 +495,12 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "summary": summary,
         "arm_results": rows,
         "fifo_warmup_steps": warmup,
-        "warmup_metric": "cumulative",
-        "min_measured_steps_threshold": int(MIN_MEASURED_STEPS_PER_SEED),
+        "steps_per_episode": int(steps),
         "fixes_applied": [
             "Fix1 (from 603a): select_action() path with obs_harm_a + use_affective_harm_stream",
-            f"Fix4 (NEW): CUMULATIVE FIFO warmup, threshold={FIFO_WARMUP_STEPS}",
-            f"Fix5 (NEW): per-seed admission gate, threshold={MIN_MEASURED_STEPS_PER_SEED}; seeds below excluded from arm mean",
-            "Fix6 (NEW): FIFO_WARMUP_STEPS 75 -> 50 (pre-registered band [50,100])",
+            f"Fix2 (from 603a): FIFO_WARMUP_STEPS={FIFO_WARMUP_STEPS} before entropy measurement",
+            "Fix3 (from 603a): evidence_direction_per_claim vs ARM_0 baseline",
+            f"Fix7 (NEW in 603b): STEPS_PER_EPISODE 200 -> {STEPS_PER_EPISODE} so short-lived episodes can surpass the pre-registered 75-step warmup",
         ],
     }
 
