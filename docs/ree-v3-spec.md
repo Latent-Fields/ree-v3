@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-24
+**Last updated:** 2026-05-25
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-24)
+## 0. Current V3 State (2026-05-25)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -135,6 +135,67 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-05-25T01:10Z nightly read.** Central
+  `evidence/experiments/runner_status.json` reports **753 cumulative
+  completions UNCHANGED** (176 PASS / 303 FAIL / 81 ERROR / 193 UNKNOWN);
+  last_updated 2026-05-23T21:06:24Z -- **no change from yesterday's
+  central index** (the file has been static for ~52h at this read;
+  the Phase-2 coordinator -> central-index merge that caught up
+  briefly yesterday has stalled again; per-machine
+  `runner_status/<hostname>.json` files carry the live writes).
+  **Pending review queue (regenerated 2026-05-24T19:20:42Z; last review
+  2026-05-24T18:16:00Z) reads 0 items** -- the 6 items from yesterday's
+  snapshot (4 FAIL: V3-EXQ-483c / V3-EXQ-597b / V3-EXQ-603 x2; 2
+  ERROR: V3-EXQ-606a / V3-EXQ-598) have all been governance-cleared
+  via the day's failure-autopsy / diagnose-errors sessions. **Currently
+  queued (`experiment_queue.json`): 2 items unchanged from yesterday**
+  -- V3-EXQ-590a (EXQ-ISEF-004 novelty-bonus Goldilocks calibration,
+  MECH-314, checkpoint-resumable, pinned ree-cloud-3, priority 100;
+  partial 1/15 runs saved; unclaimed at this read) + V3-EXQ-591
+  (EXQ-ISEF-005 4-phase infant curriculum vs flat baselines, ARC-046,
+  claim record DLAPTOP-4.local 2026-05-23T21:06:24Z unchanged for ~28h
+  -- worth verifying the claim has not gone stale).
+  2026-05-24 governance / queue-staging wave (no SD/MECH landings;
+  scientific-disposition + queue-staging only): (1) **All 6 pending
+  items closed as non_contributory**: V3-EXQ-603 interactive gate
+  confirmed all three claims (MECH-260/MECH-313/Q-045) NC (MECH-260
+  "weakens" is a call-path measurement artefact -- act_with_split_obs
+  bypasses select_action() where dacc.record_action() fires; FIFO
+  permanently empty; ARM_2==ARM_0 to 6 d.p.); V3-EXQ-483c SD-037 GAP-4
+  tier-1 NC (use_dacc=True omitted from all 4 arm configs; agent.dacc
+  is None; _dacc_bias_norm returns 0.0); V3-EXQ-597b MECH-258 NC
+  (dacc_suppression_weight=4.0 dominated pre-clip bias, diluting PE
+  signal; post-clip constant at 2.0 eliminated behavioural contrast);
+  V3-EXQ-606a + V3-EXQ-598 ERROR root-caused to a git-sync gap on
+  ree-cloud-2 (no code bugs). (2) **Six fix-and-retest queue-experiment
+  sessions launched** (still active at the time of this read): V3-EXQ-603a
+  (Q-045/MECH-313/MECH-260 call-path fix -- select_action+obs_harm_a+
+  affective stream + FIFO warmup 75); V3-EXQ-483d (SD-037 broadcast
+  GAP-4 with PAG/override_signal C2 + goal_norm_peak C3); V3-EXQ-543l
+  (ARC-062 GAP-B mode-separation-floor successor with floor 0.25 -> 0.5
+  and P1_W_DEVIATION_AUX_WEIGHT 0.1 -> 0.3); V3-EXQ-608 (MECH-319 GAP-K
+  simulation-mode rule-write-gate falsifier with explicit dream replay
+  loop); V3-EXQ-588b (goal-seeding pipeline diagnostic post-588 autopsy);
+  V3-EXQ-598b (commitment_closure GAP-1 SD-033a bias-head trainable
+  ablation gated on V3-EXQ-543l). V3-EXQ-606b held off the queue per
+  user (no V3-EXQ-543k contributory successor exists). (3) **Closure-map
+  audit + plan-frontmatter sync** -- serve.py CLOSURE_KNOWN_PLANS +2
+  (arc_062_rule_apprehension, infant_substrate); plan frontmatter synced
+  across arc_062 GAP-B/C/D/H/K, commitment_closure GAP-1, sleep_substrate
+  GAP-2, goal_pipeline GAP-4.
+  No new SD / MECH / ARC / Q landings since the 2026-05-22T01:10Z
+  snapshot -- the substrate state is unchanged for the third nightly
+  read in a row.
+  Bottleneck: **EXQ-ISEF-004/005 (V3-EXQ-590a + 591)** remain the
+  load-bearing developmental warm-start gate for the ARC-065 diversity
+  narrative and the deferred Q-043/044/045 + INV-049 retests, with
+  V3-EXQ-591's day-old unchanged claim record worth a manual check.
+  **ARC-062 / MECH-309** stays substrate_ceiling-framed; V3-EXQ-543l
+  (the new force-escalated GAP-B falsifier successor) is the active
+  test. The previous-snapshot V3-EXQ-543k drained-without-manifest BLOCK
+  is now superseded by the 543l queue-staging (the governance verification
+  gate will still flag 543k as a historical incident until its disposition
+  is formally recorded). Historical context preserved below.
 - **2026-05-24T01:10Z nightly read.** Central
   `evidence/experiments/runner_status.json` reports **753 cumulative
   completions** (176 PASS / 303 FAIL / 81 ERROR / 193 UNKNOWN);
