@@ -8,6 +8,23 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-543l",
+      "title": "ARC-062 GAP-B mode-separation falsifier (escalated floor 0.5 / aux 0.3)",
+      "experiment_type": "v3_exq_543l_arc062_mode_separation_gap_b_falsifier",
+      "script": "experiments/v3_exq_543l_arc062_mode_separation_gap_b_falsifier.py",
+      "priority": 200,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 1200,
+      "episodes_per_run": 108,
+      "seeds": 3,
+      "conditions": 12,
+      "claim_id": "ARC-062",
+      "supersedes": "V3-EXQ-543k",
+      "note": "arc_062_rule_apprehension:GAP-B / IGW-20260525-004 unblock. Supersedes V3-EXQ-543k (FAIL/mixed 2026-05-22T091714Z; ARC-062 weakens). 12-arm grid, env config, K_IDENTICAL_RUNS=3 basin-stability gate, acceptance criteria, manifest shape, and outcome-coupled REINFORCE P1 loss are byte-identical to 543k. ONLY varied factors: MODE_SEPARATION_FLOOR 0.25 -> 0.5 and P1_W_DEVIATION_AUX_WEIGHT 0.1 -> 0.3 on the gated arms (within the GAP-B design envelope per arc_062_rule_apprehension_plan.md decision-log 2026-05-20). PRIMARY = basin_stable AND diff_on_escape AND diff_off_reproduced_collapse AND c2c3_on_pass. Contributory PASS unblocks GAP-C/D (commitment_closure GAP-1 / V3-EXQ-598/598a/598b) and GAP-I (V3-EXQ-606b), which are all HELD pending this result. Yesterday's queue-experiment-543l-20260524T101523Z claim produced nothing (script + queue entry both absent); this is a fresh build from the 543k base. claim_ids: ARC-062, MECH-309, INV-074, MECH-334. estimated_minutes from 543k actual elapsed (~1121 min on ree-cloud-4).",
+      "claimed_by": null
+    },
+    {
       "queue_id": "V3-EXQ-603b",
       "title": "Q-045 MECH-313 vs MECH-260 four-arm ablation (500-step + reduced hazard_harm)",
       "experiment_type": "v3_exq_603b_q045_mech313_mech260_four_arm_ablation",
