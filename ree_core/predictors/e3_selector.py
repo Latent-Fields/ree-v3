@@ -541,14 +541,19 @@ class E3TrajectorySelector(nn.Module):
         z_harm_a: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
-        Total score J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ) - β·B(ζ) - η·novelty.
+        Total score J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ) - β·B(ζ).
         Lower is better.
 
         - F(ζ): reality cost (smoothness + viability)
         - M(ζ): ethical cost via harm_eval (NoGo channel, D2 pathway)
         - Φ_R(ζ): residue field cost
         - B(ζ): benefit score (Go channel, D1 pathway) — subtracted when enabled
-        - novelty: E1 error EMA bonus — subtracted when novelty_bonus_weight > 0
+
+        Per-candidate novelty / curiosity / liking / dACC biases enter via the
+        score_bias kwarg of select() (composed in REEAgent.select_action), NOT
+        inside score_trajectory. The legacy MECH-111 broadcast novelty branch
+        was deleted 2026-05-25; see
+        evidence/planning/v3_exq_571_root_cause_2026-05-25.md.
 
         M(ζ) evaluation priority:
         1. harm_forward_model + z_harm_s_current (SD-011/ARC-033, preferred)
@@ -569,7 +574,14 @@ class E3TrajectorySelector(nn.Module):
             m = self.compute_ethical_cost(trajectory)
         phi = self.compute_residue_cost(trajectory)
 
-        # V3-EXQ-571: component trackers (used only when e3_score_decomp_enabled)
+        # V3-EXQ-571: component trackers (used only when e3_score_decomp_enabled).
+        # _dc_novelty_w is retained at 0.0 for backward-compat with the
+        # last_score_decomp schema; the MECH-111 broadcast branch that
+        # populated it was deleted 2026-05-25 (dead-by-construction --
+        # uniform scalar shift is argmin-invariant). MECH-314a is the
+        # per-candidate replacement, composed into score_bias at the
+        # select() call site rather than inside score_trajectory.
+        # See evidence/planning/v3_exq_571_root_cause_2026-05-25.md.
         _dc_benefit_w = 0.0
         _dc_novelty_w = 0.0
         _dc_goal_w = 0.0
@@ -602,15 +614,6 @@ class E3TrajectorySelector(nn.Module):
             score = score - self.config.benefit_weight * b
             if self.e3_score_decomp_enabled:
                 _dc_benefit_w = float((self.config.benefit_weight * b).detach().mean().item())
-
-        # MECH-111: novelty bonus — subtract EMA novelty signal
-        if self.config.novelty_bonus_weight > 0.0:
-            # Scalar EMA novelty applies uniformly across trajectory batch dim
-            device = score.device
-            novelty_bonus = torch.tensor(self._novelty_ema, device=device)
-            score = score - self.config.novelty_bonus_weight * novelty_bonus
-            if self.e3_score_decomp_enabled:
-                _dc_novelty_w = float(self.config.novelty_bonus_weight * self._novelty_ema)
 
         # MECH-112 / MECH-117: wanting signal via z_goal distance
         if (goal_state is not None
