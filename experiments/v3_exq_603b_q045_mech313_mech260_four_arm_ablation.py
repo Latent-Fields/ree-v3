@@ -15,28 +15,64 @@ driven by two zero seeds; only seed 43 (which produced normal ~158-step episodes
 yielded interpretable data, leaving the comparison structurally underpowered
 with N=1 effective seed.
 
-Fix applied vs V3-EXQ-603a (per failure-autopsy V3-EXQ-603 retest spec):
-  STEPS_PER_EPISODE raised 200 -> 500. The expectation is that the longer
-  per-episode step budget gives episodes more headroom to reach beyond the
-  75-step FIFO warmup so the per-episode entropy measurement window opens
-  cleanly across all seeds + arms. Everything else from 603a is held fixed:
-  FIFO_WARMUP_STEPS=75 (pre-registered Kennerley / SD-054 gate, unchanged),
-  per-episode warmup gate (step_in_ep >= fifo_warmup_steps, unchanged),
-  same 4-arm design, same evidence_direction_per_claim ARM-vs-ARM_0 logic.
+Fixes applied vs V3-EXQ-603a:
+  Fix A (per failure-autopsy V3-EXQ-603 retest spec, Section 11):
+    STEPS_PER_EPISODE raised 200 -> 500. The autopsy spec's prescription;
+    gives the outer-loop step budget more headroom for episodes that
+    survive longer than 75 steps.
 
-  Note: the 8-cell-design reference in the failure-autopsy artifact is a
-  separate future extension, NOT the 603b retest -- explicitly held out of
-  scope this iteration per the autopsy spec.
+    Note: the 8-cell-design reference in the failure-autopsy artifact is a
+    separate future extension, NOT the 603b retest -- explicitly held out
+    of scope per the autopsy spec.
 
-Fixes retained from 603a (unchanged):
-  Fix 1: Training loop uses sense()+generate()+select_action() via
-    _select_action_with_harm(), passing obs_harm_a so z_harm_a is set and
-    select_action() calls dacc.record_action() each step.
-  Fix 2: FIFO_WARMUP_STEPS=75 -- pre-registered Kennerley / SD-054 temporal-
-    horizon gate. Action counts for acceptance exclude the first 75 steps
-    of each episode.
-  Fix 3: evidence_direction_per_claim compares each arm vs ARM_0 baseline,
-    not arm vs arm.
+  Fix B (env-side reach extension, added 2026-05-25T06:05Z after env-code
+  review):
+    hazard_harm 0.05 -> 0.02. Read of causal_grid_world.py:2024 confirmed
+    env terminates on `agent_health <= 0 OR env.steps >= 500`. The 603a
+    short-life seeds (42/44, ~14 steps/ep) died from health depletion via
+    repeated hazard contact, NOT from the script's outer step cap. Bumping
+    STEPS_PER_EPISODE alone (Fix A) cannot extend an agent that runs out
+    of vitality reserve at step ~14. Lowering hazard_harm 2.5x lets the
+    agent survive ~35-50 contact steps before death (typical contact rate)
+    instead of ~14-20, well past the 75-step FIFO warmup.
+
+    Rationale for not compromising the experiment's dependent variable:
+    hazard_harm scales agent_health depletion ONLY. The latent harm signals
+    that drive every substrate the experiment is testing read independent
+    paths --
+      z_harm_s (SD-010): HarmEncoder(harm_obs) where harm_obs is the env
+        proximity field, scaled by proximity_harm_scale (UNCHANGED at 0.1);
+      z_harm_a (SD-011): AffectiveHarmEncoder(harm_obs_a, harm_history),
+        EMA over the affective stream (UNCHANGED);
+      AIC urgency (SD-032c), MECH-091 interrupt, MECH-302 suffering
+        comparator all read z_harm_a -- unaffected by hazard_harm;
+      dACC anti-recency (MECH-260) reads action FIFO -- no harm-magnitude
+        dependency;
+      MECH-313 noise floor: state-independent.
+    Biological framing: raising lethality threshold without anesthetizing
+    nociception. REE substrate already carries this distinction (z_harm_un
+    SD-019a unpleasantness, z_harm_a SD-019b suffering -- both distinct
+    from agent_health vitality reserve). The agent still INTEROCEPTS the
+    damage via obs_body[2]=agent_health (UNCHANGED computation), just over
+    a longer integration window before death.
+
+    Methodological benefit: in 603a the env-side mortality at step ~14 was
+    confounded with the policy-side measurement target (action-class entropy
+    under monostrategy-locked policies walking into hazards -- exactly the
+    phenomenon ARC-062 / MECH-260 / MECH-313 address). The lower hazard_harm
+    isolates the policy-side signal from the survival confound. Contact rate
+    feeding the latent signals is preserved; only the integral over contacts
+    before death changes.
+
+  Fixes retained from 603a (unchanged):
+    Fix 1: Training loop uses sense()+generate()+select_action() via
+      _select_action_with_harm(), passing obs_harm_a so z_harm_a is set and
+      select_action() calls dacc.record_action() each step.
+    Fix 2: FIFO_WARMUP_STEPS=75 -- pre-registered Kennerley / SD-054 gate.
+    Fix 3: evidence_direction_per_claim compares each arm vs ARM_0 baseline.
+
+(Fixes 1-3 retained from 603a are documented above under "Fixes retained
+from 603a".)
 
 SD-054 bipartite reef env + ARC-062 gated-policy ON + main-path SP-CEM.
 
@@ -115,7 +151,12 @@ ENV_KWARGS = dict(
     size=12,
     num_hazards=4,
     num_resources=5,
-    hazard_harm=0.05,
+    # 603b Fix B: 0.05 -> 0.02. Lowers agent_health depletion per hazard contact so
+    # seeds 42/44 can survive past the 75-step FIFO warmup. Decoupled from latent
+    # harm signals: z_harm_s reads harm_obs (proximity field, scaled by
+    # proximity_harm_scale UNCHANGED at 0.1); z_harm_a EMA over harm_obs_a UNCHANGED.
+    # See module docstring Fix B for full decoupling rationale.
+    hazard_harm=0.02,
     env_drift_interval=5,
     env_drift_prob=0.1,
     proximity_harm_scale=0.1,
@@ -500,7 +541,8 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "Fix1 (from 603a): select_action() path with obs_harm_a + use_affective_harm_stream",
             f"Fix2 (from 603a): FIFO_WARMUP_STEPS={FIFO_WARMUP_STEPS} before entropy measurement",
             "Fix3 (from 603a): evidence_direction_per_claim vs ARM_0 baseline",
-            f"Fix7 (NEW in 603b): STEPS_PER_EPISODE 200 -> {STEPS_PER_EPISODE} so short-lived episodes can surpass the pre-registered 75-step warmup",
+            f"Fix A (NEW in 603b, autopsy spec): STEPS_PER_EPISODE 200 -> {STEPS_PER_EPISODE}",
+            "Fix B (NEW in 603b, env-side reach): hazard_harm 0.05 -> 0.02 so seeds 42/44 survive past warmup; latent harm signals (z_harm_s/z_harm_a) decoupled and unaffected",
         ],
     }
 
