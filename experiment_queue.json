@@ -8,23 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-603b",
-      "title": "Q-045 MECH-313 vs MECH-260 four-arm ablation (500-step + reduced hazard_harm)",
-      "experiment_type": "v3_exq_603b_q045_mech313_mech260_four_arm_ablation",
-      "script": "experiments/v3_exq_603b_q045_mech313_mech260_four_arm_ablation.py",
-      "priority": 150,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 180,
-      "episodes_per_run": 30,
-      "seeds": 3,
-      "conditions": 4,
-      "claim_id": "Q-045",
-      "supersedes": "V3-EXQ-603a",
-      "note": "arc_062_rule_apprehension:GAP-H / IGW-20260521-003. Supersedes V3-EXQ-603a (measurement_gap). Two-fix retest: (Fix A, per failure-autopsy V3-EXQ-603 retest spec section 11) STEPS_PER_EPISODE 200 -> 500; (Fix B, env-side reach extension added after env-code review of causal_grid_world.py:2024) hazard_harm 0.05 -> 0.02. Read confirmed env terminates on agent_health <= 0 OR env.steps >= 500; seeds 42/44 in 603a died at step ~14 from health depletion, NOT step-cap. Queue calibration note documents that hazard_harm=0.02 yields ~182-step episodes vs ~18 at 0.5, well past the 75-step FIFO warmup. Decoupled from latent harm signals: z_harm_s reads harm_obs (proximity field, scaled by proximity_harm_scale UNCHANGED), z_harm_a EMA over harm_obs_a UNCHANGED; AIC / MECH-091 / MECH-302 / dACC anti-recency / MECH-313 all read independent paths. Biological framing: raising lethality threshold without anesthetizing nociception. KEEP FIFO_WARMUP_STEPS=75 + per-episode gate + 4 arms + ARM-vs-ARM_0. 8-cell-design reference in autopsy artifact held out of scope. claim_ids: Q-045, MECH-313, MECH-260.",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-591",
       "title": "EXQ-ISEF-005: 4-phase infant curriculum vs flat parameter baselines (GAP-14)",
       "experiment_type": "v3_exq_591_isef005_curriculum_vs_flat",
