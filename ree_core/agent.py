@@ -3434,6 +3434,37 @@ class REEAgent(nn.Module):
         if self.e3.e3_score_decomp_enabled:
             def _bdc_mean(t: "Optional[torch.Tensor]") -> float:
                 return float(t.mean().item()) if t is not None else 0.0
+
+            # Governance disposition #3 from
+            # evidence/planning/v3_exq_571_root_cause_2026-05-25.md: the
+            # channel-keyed mean collapses [K] per-candidate bias vectors and
+            # reads ~0 whenever cross-K spread varies on a stationary mean.
+            # Surface the spread directly via per-channel std_across_K +
+            # bias_range_mean. Existing channel-keyed mean float preserved so
+            # current consumers (e.g. EXQ-571 BIAS_COMPONENTS reader) keep
+            # working bit-identically.
+            def _bdc_std(t: "Optional[torch.Tensor]") -> float:
+                if t is None:
+                    return 0.0
+                flat = t.reshape(-1)
+                if flat.numel() < 2:
+                    return 0.0
+                return float(flat.std(unbiased=False).item())
+
+            def _bdc_range_mean(t: "Optional[torch.Tensor]") -> float:
+                if t is None:
+                    return 0.0
+                # Average max-minus-min over batch dim when present, else
+                # global range. _bdc_* tensors are typically [K] (one
+                # candidate vector per channel); for [batch, K] inputs we
+                # average per-row ranges.
+                if t.dim() >= 2:
+                    rng = t.amax(dim=-1) - t.amin(dim=-1)
+                    return float(rng.mean().item())
+                if t.numel() == 0:
+                    return 0.0
+                return float((t.max() - t.min()).item())
+
             self._last_score_bias_decomp = {
                 "dacc": _bdc_mean(_bdc_dacc),
                 "lateral_pfc": _bdc_mean(_bdc_lpfc),
@@ -3445,6 +3476,24 @@ class REEAgent(nn.Module):
                 "forced": _bdc_mean(_bdc_forced),
                 "noise_floor_temp": float(effective_temperature),
                 "total_bias": _bdc_mean(self._last_e3_score_bias),
+                "dacc_std_across_K": _bdc_std(_bdc_dacc),
+                "lateral_pfc_std_across_K": _bdc_std(_bdc_lpfc),
+                "ofc_std_across_K": _bdc_std(_bdc_ofc),
+                "gated_policy_std_across_K": _bdc_std(_bdc_gp),
+                "mech295_liking_std_across_K": _bdc_std(_bdc_m295),
+                "curiosity_std_across_K": _bdc_std(_bdc_curiosity),
+                "tonic_vigor_std_across_K": _bdc_std(_bdc_vigor),
+                "forced_std_across_K": _bdc_std(_bdc_forced),
+                "total_bias_std_across_K": _bdc_std(self._last_e3_score_bias),
+                "dacc_bias_range_mean": _bdc_range_mean(_bdc_dacc),
+                "lateral_pfc_bias_range_mean": _bdc_range_mean(_bdc_lpfc),
+                "ofc_bias_range_mean": _bdc_range_mean(_bdc_ofc),
+                "gated_policy_bias_range_mean": _bdc_range_mean(_bdc_gp),
+                "mech295_liking_bias_range_mean": _bdc_range_mean(_bdc_m295),
+                "curiosity_bias_range_mean": _bdc_range_mean(_bdc_curiosity),
+                "tonic_vigor_bias_range_mean": _bdc_range_mean(_bdc_vigor),
+                "forced_bias_range_mean": _bdc_range_mean(_bdc_forced),
+                "total_bias_bias_range_mean": _bdc_range_mean(self._last_e3_score_bias),
             }
         result = self.e3.select(
             candidates, effective_temperature,
