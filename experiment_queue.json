@@ -8,20 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-609",
-      "title": "V3-EXQ-609 E3 per-candidate bias spread decomp (EXQ-571 methodology fix)",
-      "experiment_type": "v3_exq_609_e3_score_per_candidate_spread_decomp",
-      "script": "experiments/v3_exq_609_e3_score_per_candidate_spread_decomp.py",
-      "priority": 200,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 15,
-      "episodes_per_run": 200,
-      "seeds": 3,
-      "conditions": 2,
-      "note": "Diagnostic methodology fork of V3-EXQ-571 (NOT a supersede -- different scientific question records different measurements per CLAUDE.md EXQ Versioning). Per governance disposition #3 of REE_assembly/evidence/planning/v3_exq_571_root_cause_2026-05-25.md (commit a79915151b on master): EXQ-571's mean-collapsed bias_fraction_curiosity=0.0 headline was right for the wrong reason; the diagnostic recorded only per-channel MEAN across the [K] bias vector, masking the actual question 'does this channel produce a per-candidate vector with non-zero spread within each step?' EXQ-609 reads the sibling-session-extended per-channel std_across_K + bias_range_mean keys (sibling claim: exq571-decomp-per-channel-spread-20260526T070807Z, ree-v3/ree_core/agent.py edit -- already live on disk, verified by dry-run) and classifies each of 8 per-channel bias components into substrate states {state_A_zero_emission (mean==0 AND std==0), state_B_methodology_mismatch (mean!=0 AND std==0 -- argmin-invariant broadcast; what EXQ-571 mis-read as 'channel propagating'), state_C_per_candidate_signal (std>0 -- can shift argmin), state_unknown_no_substrate (sibling keys absent)}. New metrics per channel: bias_inter_candidate_spread_mean, bias_inter_candidate_range_mean. Arms match EXQ-571 (ARM_0 baseline / ARM_1 diversity_stack). EXPERIMENT_PURPOSE=diagnostic, claim_ids=[], evidence_direction=diagnostic (excluded from confidence/conflict scoring). 3 seeds x 200 steps x 2 arms x 8x8 gridworld; no training, no env reset cost beyond gridworld stepping; ~15 min on Mac. Dry-run smoke PASS (5 ticks x 3 seeds x 2 arms): sibling_substrate_present=True, ARM_1 curiosity mean=-0.025 std=0.0 correctly classified state_B_methodology_mismatch, methodology-mismatch warning fires, census recommendation 0 state_C / 1 state_B / 7 state_A. Pre-flight 7/7 + contracts 506/506 PASS. validate_experiments OK. ASCII-clean. Reads agent.e3.last_score_decomp, agent.e3.last_scores, agent._last_score_bias_decomp; instrumentation toggle agent.e3.e3_score_decomp_enabled set True per arm. PASS gate: both arms collect decomp data and sibling-substrate detection succeeds (or correctly falls back to state_unknown_no_substrate if sibling rolls back). See finding doc for full root cause + canonical empirical drivers (residue-seeded saturation case)."
-    },
-    {
       "queue_id": "V3-EXQ-591",
       "title": "EXQ-ISEF-005: 4-phase infant curriculum vs flat parameter baselines (GAP-14)",
       "experiment_type": "v3_exq_591_isef005_curriculum_vs_flat",
