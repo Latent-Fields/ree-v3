@@ -9,8 +9,15 @@ store, the experiment-queue mutex, and a live heartbeat bus. The recurring
 failure is `git pull --rebase --autostash` on a 1-minute timer fighting
 uncommitted local edits and silently stashing/reverting them (incidents:
 2026-04-29 EXQ-232, 2026-05-08 substrate_queue.json, 2026-05-10 MECH-314/318,
-2026-05-18 e154c853 governance regen). The fix is to move *coordination* off
-git entirely and let git only store committed evidence.
+2026-05-18 e154c853 governance regen, 2026-05-26 serve.py shadow-status
+fix -- an uncommitted edit to `REE_assembly/serve.py` was silently
+reverted between Edit and `git diff`; the heartbeat's active-claim safeguard
+only covers the `evidence/` prefix, so any edit to root-level files such
+as `serve.py`, `experiment_runner.py`, `runner_remote_control.py` or
+`scripts/*` is unprotected while uncommitted -- the safeguard's *scope*
+is still narrower than the *blast radius* of the autostash mechanism).
+The fix is to move *coordination* off git entirely and let git only store
+committed evidence.
 
 ## Architecture (target end-state)
 
