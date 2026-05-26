@@ -6,25 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-591",
-      "title": "EXQ-ISEF-005: 4-phase infant curriculum vs flat parameter baselines (GAP-14)",
-      "experiment_type": "v3_exq_591_isef005_curriculum_vs_flat",
-      "script": "experiments/v3_exq_591_isef005_curriculum_vs_flat_v3.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "status": "claimed",
-      "estimated_minutes": 120,
-      "episodes_per_run": 2000,
-      "seeds": 5,
-      "conditions": 3,
-      "claim_id": "ARC-046",
-      "note": "infant_substrate:GAP-14 closure. PASS confirms ARC-046 (phased residue accumulation via curriculum); unblocks DEV-NEED-008. Phase-2 cutover interrupted Mac run (~62%); no _partial checkpoint -- full rerun.",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-23T21:06:24.782741+00:00"
-      }
-    }
-  ]
+  "items": []
 }
