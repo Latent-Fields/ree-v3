@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-608",
-      "title": "MECH-341 E3 score-collapse diagnostic (P2 of behavioral_diversity_isolation_plan)",
-      "experiment_type": "v3_exq_608_mech341_e3_score_collapse_diagnostic",
-      "script": "experiments/v3_exq_608_mech341_e3_score_collapse_diagnostic.py",
-      "priority": 250,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 180,
-      "episodes_per_run": 100,
-      "seeds": 3,
-      "conditions": 1,
-      "claim_id": "MECH-341",
-      "note": "P2 diagnostic for behavioral_diversity_isolation_plan.md (registered 2026-05-25). Instrumentation-only single-arm run on main-path config (SP-CEM + MECH-313 noise floor + V_s + SD-054 reef + z_goal + drive_weight=2.0; matches V3-EXQ-543k / V3-EXQ-605 wiring). 3 seeds (42/43/44) x 100 ep (60 P0 warmup + 40 P1 measurement) x 200 steps. NO substrate change -- script only adds per-tick logging of (a) pre-E3 CEM candidate trajectory_class_count, (b) per-class E3 score stats (mean/std/n) read from agent.e3.last_scores, (c) post-E3 selected class (argmin of last_scores -- E3's own pick, BEFORE noise-floor / commitment), (d) score_top2_class_gap on per-class means, (e) committed class from action.argmax. Decision-rule output: applies R2.a (frac_pre_ge2 >= 0.5 AND frac_e3_collapse >= 0.8 -> theory 2 confirmed, MECH-341 substrate work justified; near-tie-vs-large-gap chooses MECH-341 design option) vs R2.b (frac_e3_collapse < 0.5 -> theory 2 not load-bearing, no substrate work triggered) vs inconclusive vs low_precondition (re-evaluate theory 1 via V3-EXQ-569 first). EXPERIMENT_PURPOSE=diagnostic, evidence_direction=non_contributory (excluded from confidence/conflict scoring). claim_ids=[MECH-341]. PASS gate: instrumentation present + >=2/3 seeds reach P1 completion + interpretation label fires unambiguously (not no_pre_ge2_measurements). Pre-warm regime adopts autopsy V3-EXQ-603b finding (60 ep P0 to populate residue/EWMA/V_s before measurement). validate_experiments OK; validate_queue OK; dry-run smoke (1 seed / 4 ep / 30 steps) PASS with interpretation label populated. See REE_assembly/evidence/planning/behavioral_diversity_isolation_plan.md and claims.yaml MECH-341.",
-      "claimed_by": null
-    },
-    {
       "queue_id": "V3-EXQ-603b",
       "title": "Q-045 MECH-313 vs MECH-260 four-arm ablation (500-step + reduced hazard_harm)",
       "experiment_type": "v3_exq_603b_q045_mech313_mech260_four_arm_ablation",
