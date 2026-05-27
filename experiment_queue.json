@@ -6,5 +6,32 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-603c",
+      "title": "Q-045 / MECH-313 / MECH-260 four-arm anti-monostrategy ablation with P0/P1 phased training",
+      "experiment_type": "v3_exq_603c_q045_mech313_mech260_phased_training",
+      "script": "experiments/v3_exq_603c_q045_mech313_mech260_phased_training.py",
+      "claim_id": "Q-045",
+      "supersedes": "V3-EXQ-603b",
+      "priority": 250,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 360,
+      "episodes_per_run": 150,
+      "seeds": 3,
+      "conditions": 4,
+      "note": "Autopsy V3-EXQ-603b section 9 routing: adds P0 (100 ep E1+E2 warmup on easy env, reef-on bipartite-off no food-attraction) + P1 (50 ep consolidation on target SD-054-enriched env) + Fix D pre-P2 survival gate (median ep length >= 75 over last 10 P1 episodes); P2 unchanged from 603b. If most cells abort at P0 or fail Fix D, routes Q-045 to substrate_conditional pending V4 substrate."
+    },
+    {
+      "queue_id": "V3-EXQ-610",
+      "script": "experiments/v3_exq_610_inv074_crystallization_necessity.py",
+      "claim_id": "INV-074",
+      "backlog_id": "EVB-0270",
+      "priority": 28,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180
+    }
+  ]
 }
