@@ -330,6 +330,67 @@ class ShutdownNotifyHTTPTest(unittest.TestCase):
         m = {x["machine"]: x for x in jb["machines"]}["ree-cloud-2"]
         self.assertEqual(m["lifecycle_state"], "live")
 
+    def test_coordinator_client_report_shutdown_e2e(self):
+        # Mirrors the runner's import path: drive coordinator_client at
+        # the same level the runner does, against this live app.py.
+        import importlib
+        # Import from the ree-v3 root, not coordinator/. The runner imports
+        # coordinator_client from its own working directory.
+        root = HERE.parent
+        sys.path.insert(0, str(root))
+        try:
+            os.environ["COORDINATION_MODE"] = "shadow"
+            os.environ["COORDINATOR_URL"] = self._base
+            os.environ["COORDINATOR_TOKEN"] = "tok-cloud-4"
+            if "coordinator_client" in sys.modules:
+                cc = importlib.reload(sys.modules["coordinator_client"])
+            else:
+                import coordinator_client as cc
+            self.assertTrue(cc.enabled())
+            r = cc.report_shutdown(
+                machine="ree-cloud-runner-test",
+                reason="runner_drain_complete")
+            self.assertIsNotNone(r)
+            self.assertTrue(r["ok"])
+            self.assertEqual(r["machine"], "ree-cloud-runner-test")
+            self.assertEqual(r["reason"], "runner_drain_complete")
+            # And confirm /shadow/status reflects the announcement.
+            st, jb = _http(
+                "GET", self._base + "/shadow/status", token="tok-cloud-4")
+            machines = {m["machine"]: m for m in jb["machines"]}
+            self.assertIn("ree-cloud-runner-test", machines)
+            self.assertEqual(
+                machines["ree-cloud-runner-test"]["lifecycle_state"],
+                "gracefully_offline")
+        finally:
+            for k in ("COORDINATION_MODE", "COORDINATOR_URL",
+                      "COORDINATOR_TOKEN"):
+                os.environ.pop(k, None)
+            if str(root) in sys.path:
+                sys.path.remove(str(root))
+
+    def test_coordinator_client_report_shutdown_disabled_in_git_mode(self):
+        # COORDINATION_MODE=git (the default for workers not yet on shadow)
+        # must make report_shutdown a no-op returning None, never raising.
+        import importlib
+        root = HERE.parent
+        sys.path.insert(0, str(root))
+        try:
+            os.environ["COORDINATION_MODE"] = "git"
+            os.environ.pop("COORDINATOR_URL", None)
+            os.environ.pop("COORDINATOR_TOKEN", None)
+            if "coordinator_client" in sys.modules:
+                cc = importlib.reload(sys.modules["coordinator_client"])
+            else:
+                import coordinator_client as cc
+            self.assertFalse(cc.enabled())
+            r = cc.report_shutdown(machine="x", reason="y")
+            self.assertIsNone(r)
+        finally:
+            os.environ.pop("COORDINATION_MODE", None)
+            if str(root) in sys.path:
+                sys.path.remove(str(root))
+
     def test_bad_body_returns_400(self):
         # Bearer ok but JSON missing -> 400.
         req = urllib.request.Request(

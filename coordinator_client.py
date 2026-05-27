@@ -150,6 +150,28 @@ def report_status(machine, status_obj):
     return _post("/status", {"machine": machine, "status": status_obj})
 
 
+def report_shutdown(machine, reason=None, expected_wake_condition=None):
+    """Announce an intentional shutdown so the coordinator can return
+    lifecycle_state=gracefully_offline for this machine on /shadow/status
+    until heartbeats resume.
+
+    Best-effort: failures are logged but never raise. The runner is in
+    the middle of exiting; an HTTP retry loop would just hold up the
+    shutdown for a coordinator that's already unreachable.
+
+    No-op when COORDINATION_MODE is unset/git (workers not in the
+    coordinator state graph have nothing to announce).
+    """
+    if not _ENABLED:
+        return None
+    body = {"machine": machine}
+    if reason is not None:
+        body["reason"] = reason
+    if expected_wake_condition is not None:
+        body["expected_wake_condition"] = expected_wake_condition
+    return _post("/shutdown_notify", body)
+
+
 def report_result(queue_id, run_id, manifest_path, outcome, machine):
     """Ship the manifest bytes to the coordinator. Idempotent on run_id
     server-side, so a replay after a partition is a harmless no-op."""

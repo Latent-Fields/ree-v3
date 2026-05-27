@@ -1682,8 +1682,22 @@ def main():
     _force_stop_flag: list[bool] = []      # non-empty -> remote force_stop requested
     _sigint_force_armed: list[bool] = []   # non-empty -> next SIGINT force-stops
 
+    def _announce_intentional_shutdown(reason: str) -> None:
+        """Best-effort POST /shutdown_notify. coordinator_client swallows
+        every error in _post, so this never raises. No-op when the runner
+        is in git-mode (worker not in the coordinator state graph)."""
+        try:
+            coordinator_client.report_shutdown(
+                machine=machine, reason=reason)
+        except Exception:
+            # Defense in depth -- coordinator_client already swallows
+            # exceptions; this catch is for an import-time failure or
+            # similar that wouldn't go through _post.
+            pass
+
     def _do_immediate_exit() -> None:
         """Final cleanup steps shared by both force-exit and post-drain exit."""
+        _announce_intentional_shutdown("runner_signal_exit")
         if args.auto_sync and _current_claim:
             release_active_claim(QUEUE_FILE, _current_claim[0], machine)
         if status_path.exists():
@@ -2358,6 +2372,14 @@ def main():
     write_status(status, status_path)
     if _drain_flag:
         print("[runner] Graceful drain complete. Exiting.", flush=True)
+        # Drain was signal-induced -- announce intentional shutdown so the
+        # coordinator returns lifecycle_state=gracefully_offline (the
+        # scaler workflow's pre-shutdown announce is the primary signal;
+        # this fires for paths the scaler doesn't see: manual systemctl
+        # stop, SSH-issued shutdown, remote /api/machines/.../command
+        # stop). NOT announced for natural queue exhaustion (--once mode)
+        # because the machine is staying up, only the process is exiting.
+        _announce_intentional_shutdown("runner_drain_complete")
     else:
         print("[runner] Queue exhausted. Runner idle.", flush=True)
 
