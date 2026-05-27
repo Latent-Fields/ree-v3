@@ -189,6 +189,14 @@ def phase3_git_writer(
         clean up unexpected dirt).
       - Never calls `git pull --rebase --autostash`. A non-fast-forward
         push fails the tick loudly and leaves the spool intact for retry.
+      - Before marking results.committed_at on a "no new diff" tick, checks
+        `git rev-list --count origin/<branch>..HEAD`. The diff-cached
+        short-circuit only fires when ahead==0 (bytes truly on origin);
+        ahead>0 forces a push of the unpushed local commit first, or
+        refuses the tick if that push is still rejected. Without this
+        guard a rejected-push tick followed by a no-operator-action tick
+        would silently drain the spool without origin ever receiving the
+        bytes.
       - Batched to PHASE3_BATCH_SIZE manifests per tick; the rest land in
         subsequent ticks.
 
@@ -292,12 +300,56 @@ def phase3_git_writer(
         diff = _git(asm, "diff", "--cached", "--quiet", check=False,
                     timeout=10)
         if diff.returncode == 0:
-            # `git add` succeeded but the file is byte-identical to what's
-            # already committed (would be a re-spool of a committed run).
-            # Mark committed_at and drop the spool entries; nothing to push.
-            sys.stdout.write(
-                "[phase3] batch already on tree (no new diff); marking "
-                "%d row(s) committed without a push\n" % len(staged))
+            # `git add` produced no diff. Two cases are indistinguishable
+            # from `git diff --cached` alone:
+            #   (a) bytes already on origin (true idempotent re-spool of
+            #       a previously-committed-and-pushed run), OR
+            #   (b) bytes live in an UNPUSHED local commit -- the tick
+            #       after a rejected push (Phase 3 explicitly retires
+            #       autostash, so a rejected push leaves the local
+            #       commit in HEAD with no operator intervention).
+            # Marking committed_at in case (b) without a push is unsafe:
+            # the DB says "done" but origin never received the bytes.
+            # `git rev-list --count origin/<branch>..HEAD` distinguishes:
+            # 0 -> case (a); >0 -> case (b), must push before marking.
+            ahead = _git(
+                asm, "rev-list", "--count",
+                "origin/" + PHASE3_ASSEMBLY_BRANCH + "..HEAD",
+                check=False, timeout=10)
+            if ahead.returncode != 0:
+                sys.stderr.write(
+                    "[phase3] refusing to mark committed: rev-list "
+                    "ahead-count failed (%s). Spool retained.\n" % (
+                        ahead.stderr.strip()[:240]))
+                return False
+            ahead_count = ahead.stdout.strip()
+            if ahead_count and ahead_count != "0":
+                # Case (b): push the existing unpushed commit. If push
+                # fails (still non-FF), refuse to mark -- the spool
+                # entry survives for the next tick.
+                push = _git(
+                    asm, "push", "origin",
+                    "HEAD:" + PHASE3_ASSEMBLY_BRANCH,
+                    timeout=60, check=False)
+                if push.returncode != 0:
+                    sys.stderr.write(
+                        "[phase3] push REJECTED for unpushed local "
+                        "commit: %s. NOT marking committed_at; spool "
+                        "retained. Operator must investigate (non-"
+                        "fast-forward = hub is behind origin; resolve "
+                        "by hand).\n" % (push.stderr.strip()[:240]))
+                    return False
+                sys.stdout.write(
+                    "[phase3] pushed unpushed local commit (HEAD was %s "
+                    "ahead of origin/%s); %d row(s) committed\n" % (
+                        ahead_count, PHASE3_ASSEMBLY_BRANCH, len(staged)))
+            else:
+                # Case (a): true idempotent re-spool. ahead == 0 means
+                # the bytes really are on origin already.
+                sys.stdout.write(
+                    "[phase3] batch already on tree and on origin "
+                    "(ahead==0); marking %d row(s) committed without "
+                    "a push\n" % len(staged))
         else:
             _git(asm, "commit", "-m", commit_msg, timeout=20, check=True)
             push = _git(
