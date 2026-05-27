@@ -32,6 +32,7 @@ import sys
 import time
 
 import db
+import manifest_spool
 
 DEFAULT_QUEUE = os.path.join(
     os.path.dirname(__file__), "..", "experiment_queue.json")
@@ -128,6 +129,42 @@ PHASE3_QUEUE_FILE = os.environ.get(
     "COORDINATOR_QUEUE_FILE", DEFAULT_QUEUE)
 
 
+# Max manifests to write+commit per writer tick. Bounds tick latency and
+# limits worst-case rollback if a push fails (we ROLLBACK committed_at for
+# the unpushed batch, then retry).
+PHASE3_BATCH_SIZE = int(os.environ.get("PHASE3_BATCH_SIZE", "32"))
+
+# Default branch on the hub's REE_assembly checkout. Override via env if the
+# hub is ever moved to a non-master deploy layout.
+PHASE3_ASSEMBLY_BRANCH = os.environ.get("PHASE3_ASSEMBLY_BRANCH", "master")
+
+
+def _git(repo, *args, timeout=30, check=True):
+    """Run git in repo. Returns CompletedProcess. capture_output=True so
+    nothing leaks to stdout/stderr unless we choose to log it."""
+    return subprocess.run(
+        ["git", "-C", repo, *args],
+        capture_output=True, text=True, timeout=timeout, check=check,
+    )
+
+
+def _hub_working_tree_clean(repo):
+    """Phase 3 explicitly retires autostash, so the writer refuses to
+    operate on a dirty tree -- any uncommitted edit on the hub checkout
+    must be resolved by a human, not silently stashed. Returns (clean,
+    reason). reason is a one-line string when clean=False."""
+    try:
+        out = _git(repo, "status", "--porcelain", check=True).stdout
+    except subprocess.CalledProcessError as exc:
+        return (False, "git status failed: %r" % exc)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return (False, "git status error: %r" % exc)
+    if out.strip():
+        first = out.strip().splitlines()[0]
+        return (False, "dirty working tree: %s" % first[:120])
+    return (True, "")
+
+
 def phase3_git_writer(
     conn,
     queue_path,
@@ -137,20 +174,36 @@ def phase3_git_writer(
 ):
     """Sole git writer tick (Phase 3).
 
-    Safe no-op while PHASE3_GIT_WRITER_READY is False: logs intent and
-    returns False so main() refuses authoritative mode.
+    Reads pending manifests from the filesystem spool, writes them under
+    REE_assembly/evidence/experiments/, commits, and pushes. Marks
+    `results.committed_at` only after a successful push so a crash midway
+    leaves the manifest available for the next tick (idempotent retry).
 
-    Planned steps (TODO -- implement in order):
-      1. SELECT results WHERE committed_at IS NULL ORDER BY received_at
-      2. Write manifest bytes to evidence/experiments/... (idempotent paths)
-      3. git add/commit/push REE_assembly (no pull --rebase --autostash)
-      4. UPDATE results SET committed_at for shipped run_ids
-      5. Snapshot queue removals/completions -> experiment_queue.json + push
-         ree-v3 main (or hub queue checkout per deploy layout)
-      6. Write derived runner_heartbeats/*.json + runner_status from DB
-         (replaces per-runner git heartbeat push)
+    SAFETY:
+      - PHASE3_GIT_WRITER_READY is checked at every entry. While False the
+        writer logs intent and returns False; main()'s authoritative-mode
+        loop then refuses to advance, so no git writes can happen even if
+        the operator flips SYNC_MODE prematurely.
+      - Refuses to operate on a dirty REE_assembly working tree (the whole
+        point of Phase 3 is to retire the autostash war; a human must
+        clean up unexpected dirt).
+      - Never calls `git pull --rebase --autostash`. A non-fast-forward
+        push fails the tick loudly and leaves the spool intact for retry.
+      - Batched to PHASE3_BATCH_SIZE manifests per tick; the rest land in
+        subsequent ticks.
 
     Returns True only when a full tick completed (or dry_run simulated).
+    Returns False when the writer stub guard is active, the tree is dirty,
+    or the spool is empty (nothing to do -- the daemon is idle).
+
+    Out-of-scope for this sketch (deferred TODO):
+      - Step 5: snapshot completed queue items from `experiments` table
+        into the ree-v3 checkout's experiment_queue.json and push.
+      - Step 6: write derived runner_heartbeats/*.json + runner_status/
+        from the heartbeats table (replaces the per-runner git heartbeat
+        push that runner_remote_control.push_heartbeat does today).
+      Both extensions live in this same function once the results path is
+      validated under a test fleet.
     """
     asm = ree_assembly_path or PHASE3_REE_ASSEMBLY
     if not PHASE3_GIT_WRITER_READY:
@@ -158,20 +211,141 @@ def phase3_git_writer(
             "[phase3] git writer stub (PHASE3_GIT_WRITER_READY=False); "
             "no git writes performed\n")
         return False
+
+    # Spool is the prerequisite. Without it /result has no bytes to
+    # commit; refusing is louder than producing empty ticks forever.
+    if manifest_spool.spool_root() is None:
+        sys.stderr.write(
+            "[phase3] COORDINATOR_SPOOL_DIR unset; refusing -- /result "
+            "is not persisting manifest bytes, so nothing to commit\n")
+        return False
+
+    pending_ids = list(manifest_spool.list_pending_run_ids())
+    if not pending_ids:
+        return True  # idle tick is a successful no-op
+
+    batch = pending_ids[:PHASE3_BATCH_SIZE]
+
     if dry_run:
         sys.stdout.write(
-            "[phase3] dry_run tick (writer ready but no filesystem/git IO)\n")
+            "[phase3] dry_run tick: %d pending, would commit %d\n" % (
+                len(pending_ids), len(batch)))
         return True
-    # TODO step 1: pending = conn.execute(
-    #     "SELECT run_id, queue_id, manifest ... FROM results "
-    #     "WHERE committed_at IS NULL ...").fetchall()
-    # TODO step 2-3: write manifests under asm / commit / push master
-    # TODO step 4: mark committed_at
-    # TODO step 5: queue snapshot from experiments table -> queue_path
-    # TODO step 6: derived telemetry files under asm/evidence/experiments/
-    sys.stderr.write(
-        "[phase3] PHASE3_GIT_WRITER_READY=True but body not implemented\n")
-    return False
+
+    clean, reason = _hub_working_tree_clean(asm)
+    if not clean:
+        sys.stderr.write(
+            "[phase3] refusing tick: REE_assembly at %s is %s. Phase 3 "
+            "does NOT autostash -- resolve the dirt by hand, then the "
+            "next tick will retry.\n" % (asm, reason))
+        return False
+
+    # Stage 1: write manifests onto the working tree and stage them.
+    staged = []  # list of (run_id, relpath) successfully written
+    for run_id in batch:
+        raw = manifest_spool.read_manifest(run_id)
+        meta = manifest_spool.read_meta(run_id) or {}
+        if raw is None:
+            sys.stderr.write(
+                "[phase3] WARN missing manifest bytes for %s; skipping\n"
+                % run_id)
+            continue
+        try:
+            manifest_doc = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            manifest_doc = {}
+        # Prefer the meta sidecar's hint (runner-supplied at /result time);
+        # fall back to the manifest body; finally to the run_id default.
+        hint = meta.get("manifest_relpath") or manifest_doc.get(
+            "manifest_relpath")
+        try:
+            relpath = manifest_spool.derive_evidence_relpath(
+                run_id, {"manifest_relpath": hint} if hint else manifest_doc)
+        except ValueError as exc:
+            sys.stderr.write(
+                "[phase3] WARN derive_evidence_relpath rejected %s: %s\n"
+                % (run_id, exc))
+            continue
+        target = os.path.join(asm, relpath)
+        target_dir = os.path.dirname(target)
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+            with open(target, "wb") as fh:
+                fh.write(raw)
+            _git(asm, "add", relpath, timeout=15, check=True)
+            staged.append((run_id, relpath))
+        except (OSError, subprocess.CalledProcessError,
+                subprocess.TimeoutExpired) as exc:
+            sys.stderr.write(
+                "[phase3] WARN stage failed for %s -> %s: %r\n" % (
+                    run_id, relpath, exc))
+
+    if not staged:
+        sys.stderr.write(
+            "[phase3] no manifests staged this tick; nothing to commit\n")
+        return False
+
+    # Stage 2: single commit + single push for the whole batch.
+    today = db.utcnow()[:10]
+    commit_msg = "phase3: %d v3 result manifest(s) %s" % (len(staged), today)
+    try:
+        diff = _git(asm, "diff", "--cached", "--quiet", check=False,
+                    timeout=10)
+        if diff.returncode == 0:
+            # `git add` succeeded but the file is byte-identical to what's
+            # already committed (would be a re-spool of a committed run).
+            # Mark committed_at and drop the spool entries; nothing to push.
+            sys.stdout.write(
+                "[phase3] batch already on tree (no new diff); marking "
+                "%d row(s) committed without a push\n" % len(staged))
+        else:
+            _git(asm, "commit", "-m", commit_msg, timeout=20, check=True)
+            push = _git(
+                asm, "push", "origin", "HEAD:" + PHASE3_ASSEMBLY_BRANCH,
+                timeout=60, check=False)
+            if push.returncode != 0:
+                sys.stderr.write(
+                    "[phase3] push REJECTED: %s. NOT marking committed_at; "
+                    "spool retained for retry on the next tick. Operator "
+                    "must investigate (non-fast-forward = hub is behind "
+                    "origin; resolve by hand).\n" % (push.stderr.strip()[:240]))
+                return False
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        sys.stderr.write("[phase3] git commit/push error: %r\n" % exc)
+        return False
+
+    # Stage 3: mark DB committed + delete spool entries. Order matters:
+    # update DB first (cheap, atomic) before deleting bytes from disk so a
+    # crash between the two leaves the spool entries that the next tick
+    # will re-process as if they were uncommitted, which `git add` will
+    # detect as no-diff and short-circuit (the idempotent-already-on-tree
+    # branch above).
+    now = db.utcnow()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.executemany(
+            "UPDATE results SET committed_at=? WHERE run_id=? "
+            "AND committed_at IS NULL",
+            [(now, run_id) for run_id, _ in staged],
+        )
+        conn.execute("COMMIT")
+    except Exception as exc:  # noqa: BLE001 -- daemon must not die
+        sys.stderr.write(
+            "[phase3] WARN committed_at update failed: %r. Spool retained; "
+            "next tick will replay idempotently.\n" % exc)
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+    for run_id, _ in staged:
+        manifest_spool.delete_manifest(run_id)
+
+    sys.stdout.write(
+        "[phase3] committed %d manifest(s) (%d remaining in spool)\n" % (
+            len(staged), max(0, len(pending_ids) - len(staged))))
+    return True
 
 
 def main():

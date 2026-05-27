@@ -34,6 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import db
+import manifest_spool
 
 MAX_BODY = 32 * 1024 * 1024  # 32MB; observed max manifest ~7MB
 
@@ -319,6 +320,20 @@ class Handler(BaseHTTPRequestHandler):
                     manifest.get("outcome"), sha, len(raw))
             finally:
                 conn.close()
+            # Phase 3 prep: when COORDINATOR_SPOOL_DIR is set, persist the
+            # raw manifest bytes so sync_daemon's phase3_git_writer can
+            # commit them into REE_assembly later. Unset by default ->
+            # bit-identical to Phase 2. Spool failures do not fail the
+            # POST; the runner's own evidence/ checkout is still the
+            # authoritative copy under Phase 2 semantics.
+            if fresh:
+                manifest_spool.write_manifest(
+                    run_id, raw,
+                    manifest_relpath=manifest.get("manifest_relpath") if
+                        isinstance(manifest, dict) else None,
+                    received_at=db.utcnow(),
+                    sha256_hex=sha,
+                )
             self._send(200, {"ok": True, "run_id": run_id,
                              "idempotent_noop": (not fresh)})
             return

@@ -23,6 +23,63 @@ implemented, `PHASE3_GIT_WRITER_READY` is deliberately set `True`, and both
 Phase 3 is **not** a config flip alone: `sync_daemon.py` must implement the
 git writer loop before `SYNC_MODE=authoritative` is safe.
 
+### Required env knobs (Phase 3 only; unset = Phase 2 default = bit-identical)
+
+| Knob | Process | Purpose |
+|------|---------|---------|
+| `COORDINATOR_SPOOL_DIR` | coordinator (`app.py`) | Directory where `POST /result` persists raw manifest bytes for later commit. Unset -> bytes are dropped after metadata-record (Phase 2 behaviour). |
+| `COORDINATOR_SPOOL_DIR` | sync_daemon (same dir) | Source the writer reads pending manifests from. Without it the writer refuses to run even with `PHASE3_GIT_WRITER_READY=True`. |
+| `PHASE3_REE_ASSEMBLY` | sync_daemon | Path to the hub's REE_assembly checkout (default `/home/ree/REE_Working/REE_assembly`). |
+| `PHASE3_ASSEMBLY_BRANCH` | sync_daemon | Target branch on origin (default `master`). |
+| `PHASE3_BATCH_SIZE` | sync_daemon | Max manifests committed per tick (default 32; bounds tick latency and rollback blast radius). |
+
+The `PHASE3_GIT_WRITER_READY` constant in `sync_daemon.py` is the explicit
+implementation flag. It stays `False` until the writer body has been
+exercised against a test fleet; flipping it to `True` is a deliberate code
+change reviewed in a separate commit, not a config tweak.
+
+### Writer behaviour (current sketch, 2026-05-27)
+
+`phase3_git_writer()` already implements steps 1-4 of the planned tick:
+
+1. **Read pending.** `manifest_spool.list_pending_run_ids()` enumerates
+   run_ids that have both `<run_id>.json` and `<run_id>.meta.json` on the
+   spool (atomicity-preserving; orphaned `.tmp` files are ignored).
+2. **Stage.** For each manifest in the batch, derive the
+   `evidence/experiments/...` target path (manifest_relpath hint
+   preferred, default `evidence/experiments/<run_id>.json` otherwise),
+   write the bytes, `git add` the file.
+3. **Commit + push.** Single commit per tick (`phase3: N v3 result
+   manifest(s) <date>`), single push `HEAD:<branch>`. **Never** runs
+   `git pull --rebase --autostash` -- a non-fast-forward push fails
+   the tick loudly and leaves the spool intact for the next attempt.
+4. **Reconcile.** On successful push, `UPDATE results SET committed_at`
+   for the batch and `manifest_spool.delete_manifest()` for each entry.
+
+Refuses to run when any of these is true:
+
+- `PHASE3_GIT_WRITER_READY=False` (the default).
+- `COORDINATOR_SPOOL_DIR` is unset (nothing to commit).
+- The REE_assembly working tree on the hub is dirty (operator must
+  investigate; Phase 3 deliberately retires autostash).
+- `git push` is rejected (probably non-fast-forward; hub is behind
+  origin; operator must `git pull --ff-only` by hand).
+
+Idle ticks (spool empty) return `True` immediately as a successful no-op.
+
+### Deferred to follow-up PRs
+
+Steps 5 and 6 from PLAN.md are not yet in the sketch:
+
+- **Queue snapshot** -- materialise completed/removed entries from the
+  `experiments` table into `experiment_queue.json` and push `ree-v3`.
+  Touches the ree-v3 checkout on the hub; will land once the results-side
+  path has soaked.
+- **Derived heartbeats** -- write `evidence/experiments/runner_heartbeats/*.json`
+  and `runner_status/*.json` from the `heartbeats` table, replacing the
+  per-runner `runner_remote_control.push_heartbeat` git push (the original
+  autostash-war bug source).
+
 ---
 
 ## Preconditions checklist (machine-readable categories)
