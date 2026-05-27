@@ -220,13 +220,67 @@ esac
 WRAP
 sudo chmod 755 /usr/local/bin/scaler_announce_wrapper.sh
 
-# Replace the plain authorized_keys line with a forced-command one:
-sudo sed -i '/scaler_key/d' /home/ree/.ssh/authorized_keys
+# Replace the plain authorized_keys line with a forced-command one.
+# Match by the pubkey body, not the comment -- the comment depends on
+# whatever `-C` value the ssh-keygen step used ("github-scaler" in step
+# 4 above, but historical installs may have used "scaler_key"). The key
+# body is the unforgeable handle. We build the new file in a temp path,
+# sanity-check it (scaler key still present, forced-command line
+# present, non-scaler key count preserved), then move it into place.
+KEY_BODY=$(awk '{print $2}' ~/scaler_key.pub)
+AUTH=/home/ree/.ssh/authorized_keys
+sudo cp -a "$AUTH" "${AUTH}.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+sudo grep -v "$KEY_BODY" "$AUTH" > /tmp/authorized_keys.new
 echo 'command="/usr/local/bin/scaler_announce_wrapper.sh",no-pty,no-agent-forwarding,no-X11-forwarding,no-port-forwarding '"$(cat ~/scaler_key.pub)" \
-  | sudo tee -a /home/ree/.ssh/authorized_keys
+  >> /tmp/authorized_keys.new
+# Sanity: exactly one line with the scaler key body, exactly one
+# forced-command line, and the same number of other ssh- lines as
+# before. Bail without touching authorized_keys if any check fails.
+test "$(grep -c "$KEY_BODY" /tmp/authorized_keys.new)" = "1"
+test "$(grep -c scaler_announce_wrapper.sh /tmp/authorized_keys.new)" = "1"
+test "$(sudo grep -v "$KEY_BODY" "$AUTH" | grep -c '^ssh-')" \
+   = "$(grep -v "$KEY_BODY" /tmp/authorized_keys.new | grep -c '^ssh-')"
+sudo install -m 600 -o ree -g ree /tmp/authorized_keys.new "$AUTH"
+rm -f /tmp/authorized_keys.new
 ```
 
 The helper itself remains unchanged; the wrapper just gates it.
+
+Verify the hardening from a workstation that holds the scaler private key:
+
+```
+# 1. Arbitrary commands rejected.
+ssh -i ~/scaler_key ree@<hub> 'hostname'
+#   -> "unauthorized command: hostname", exit 1.
+
+# 2. Bad affinity rejected by the wrapper's regex.
+ssh -i ~/scaler_key ree@<hub> \
+    "/usr/local/bin/coordinator_announce_shutdown.sh 'evil; rm -rf /'"
+#   -> "bad affinity", exit 2.
+
+# 3. Well-formed affinity accepted. IMPORTANT: use a synthetic label
+#    (e.g. 'verify-test-001'), not a real fleet member -- the helper
+#    actually POSTs /shutdown_notify and will mark a real worker as
+#    gracefully_offline. The wrapper's regex behaviour is identical for
+#    any string matching [A-Za-z0-9._-]+.
+ssh -i ~/scaler_key ree@<hub> \
+    "/usr/local/bin/coordinator_announce_shutdown.sh 'verify-test-001'"
+#   -> "announce_shutdown: posted machine=verify-test-001 ...", exit 0.
+```
+
+The synthetic label leaves a phantom row in the coordinator's `heartbeats`
+table (`lifecycle_state=gracefully_offline`, no real heartbeat). It is
+inert -- won't be claimed, won't run experiments -- but if you want to
+clean it up:
+
+```
+ssh ree@<hub> 'set -eu
+. /etc/ree-coordinator.env
+python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); \
+  c.execute(\"DELETE FROM heartbeats WHERE machine=?\", (\"verify-test-001\",)); \
+  c.commit()" "$COORDINATOR_DB"
+'
+```
 
 GitHub repo secrets / variables (Settings -> Secrets and variables ->
 Actions):
