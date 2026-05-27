@@ -48,6 +48,17 @@ STALE_HOURS = float(os.environ.get("COORDINATOR_STALE_HOURS", "6"))
 HEARTBEAT_FRESH_SECONDS = int(
     os.environ.get("COORDINATOR_HEARTBEAT_FRESH_SECONDS", "900")
 )
+# Lifecycle state thresholds (Phase 3 readiness). The "live" window is
+# generous (covers brief network blips between heartbeats). The watchdog
+# window bounds how long a graceful shutdown stays "gracefully_offline"
+# before escalating to "stale" -- a machine that announced it was going
+# down and never came back IS a stale machine, regardless of intent.
+LIFECYCLE_LIVE_SECONDS = int(
+    os.environ.get("COORDINATOR_LIFECYCLE_LIVE_SECONDS", "300")
+)
+LIFECYCLE_STALE_AFTER_DAYS = float(
+    os.environ.get("COORDINATOR_LIFECYCLE_STALE_AFTER_DAYS", "7")
+)
 MODE = os.environ.get("COORDINATOR_MODE", "shadow")
 
 _tokens_lock = threading.Lock()
@@ -180,9 +191,13 @@ class Handler(BaseHTTPRequestHandler):
                 nexp = conn.execute(
                     "SELECT COUNT(*) c FROM experiments").fetchone()["c"]
                 machines = []
+                stale_after_seconds = (
+                    LIFECYCLE_STALE_AFTER_DAYS * 86400.0)
                 for r in conn.execute(
                     "SELECT machine, last_seen, state, current_exq, "
-                    "progress_json, seconds_elapsed, seconds_remaining "
+                    "progress_json, seconds_elapsed, seconds_remaining, "
+                    "last_shutdown_at, shutdown_reason, "
+                    "expected_wake_condition "
                     "FROM heartbeats ORDER BY machine"
                 ).fetchall():
                     row = dict(r)
@@ -193,6 +208,12 @@ class Handler(BaseHTTPRequestHandler):
                             if isinstance(raw_pj, str) and raw_pj else {})
                     except (TypeError, ValueError):
                         row["progress"] = {}
+                    row["lifecycle_state"] = db.lifecycle_state(
+                        row.get("last_seen"),
+                        row.get("last_shutdown_at"),
+                        live_threshold_seconds=LIFECYCLE_LIVE_SECONDS,
+                        stale_after_seconds=stale_after_seconds,
+                    )
                     machines.append(row)
                 recent = [dict(r) for r in conn.execute(
                     "SELECT queue_id, machine, git_verdict, coord_verdict, "
@@ -295,6 +316,41 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "bad body"})
                 return
             self._send(200, {"ok": True})
+            return
+
+        if path == "/shutdown_notify":
+            # A machine (or the scaler workflow on its behalf) announces an
+            # intentional shutdown. Lets /shadow/status return
+            # lifecycle_state="gracefully_offline" instead of "stale" until
+            # the watchdog window expires (LIFECYCLE_STALE_AFTER_DAYS).
+            #
+            # Auth: bearer token. body.machine defaults to the token's
+            # machine label, so a per-machine token can only announce for
+            # itself. The scaler workflow uses a coordinator-side token
+            # tagged for that purpose and MAY post on behalf of any
+            # machine (no per-machine restriction beyond having a valid
+            # token -- the trust model is "GitHub Actions secrets =
+            # coordinator-level trust", same as the cloud-scaler.yml
+            # already enjoys via HCLOUD_TOKEN).
+            if body is None:
+                self._send(400, {"error": "bad body"})
+                return
+            machine = body.get("machine") or machine_tok
+            if not machine:
+                self._send(400, {"error": "machine required"})
+                return
+            reason = body.get("reason")
+            wake = body.get("expected_wake_condition")
+            conn = db.connect(DB_PATH)
+            try:
+                db.record_shutdown_notice(
+                    conn, machine, reason=reason,
+                    expected_wake_condition=wake)
+            finally:
+                conn.close()
+            self._send(200, {"ok": True, "machine": machine,
+                             "reason": reason,
+                             "expected_wake_condition": wake})
             return
 
         if path == "/result":

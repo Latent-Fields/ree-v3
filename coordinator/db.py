@@ -28,7 +28,8 @@ def connect(db_path):
 
 
 def _migrate_heartbeats(conn):
-    """Additive columns for Phase-2 progress time estimates."""
+    """Additive columns for Phase-2 progress time estimates and the
+    Phase-3 lifecycle-state shutdown_notify fields."""
     if not conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='heartbeats'"
     ).fetchone():
@@ -40,6 +41,15 @@ def _migrate_heartbeats(conn):
     if "seconds_remaining" not in cols:
         conn.execute(
             "ALTER TABLE heartbeats ADD COLUMN seconds_remaining INTEGER")
+    if "last_shutdown_at" not in cols:
+        conn.execute(
+            "ALTER TABLE heartbeats ADD COLUMN last_shutdown_at TEXT")
+    if "shutdown_reason" not in cols:
+        conn.execute(
+            "ALTER TABLE heartbeats ADD COLUMN shutdown_reason TEXT")
+    if "expected_wake_condition" not in cols:
+        conn.execute(
+            "ALTER TABLE heartbeats ADD COLUMN expected_wake_condition TEXT")
 
 
 def init_db(db_path):
@@ -395,3 +405,84 @@ def upsert_heartbeat(conn, machine, state, current_exq, progress, gpu,
          json.dumps(progress or {}), json.dumps(gpu or {}),
          seconds_elapsed, seconds_remaining),
     )
+
+
+_NEVER_HEARTBEATED_SENTINEL = "1970-01-01T00:00:00Z"
+
+
+def record_shutdown_notice(conn, machine, reason=None,
+                           expected_wake_condition=None):
+    """Record an intentional shutdown for `machine`.
+
+    Sets last_shutdown_at to now, plus optional reason and wake-condition.
+    Creates a heartbeat row if none exists yet (the scaler workflow can
+    announce a shutdown for a machine that hasn't checked in yet, e.g.
+    on first provisioning). Idempotent on repeated calls -- each call
+    overwrites the prior shutdown notice for that machine.
+
+    Contract for `last_seen`: it represents the most recent HEARTBEAT,
+    not "most recent write to this row." A shutdown_notify is not a
+    heartbeat (the machine is announcing it's about to be unreachable),
+    so:
+      - On UPDATE: last_seen is preserved (the existing heartbeat
+        timestamp keeps its meaning).
+      - On INSERT (fresh row, machine never heartbeated): last_seen is
+        set to a sentinel epoch value so lifecycle_state computes
+        "gracefully_offline" correctly instead of mistaking the row
+        creation for liveness. Sentinel is well below any plausible
+        live_threshold_seconds. NOT NULL constraint on last_seen is
+        preserved (existing production DBs continue to work without
+        a table rebuild).
+    """
+    now = utcnow()
+    conn.execute(
+        """
+        INSERT INTO heartbeats
+          (machine, last_seen, last_shutdown_at, shutdown_reason,
+           expected_wake_condition)
+        VALUES (?,?,?,?,?)
+        ON CONFLICT(machine) DO UPDATE SET
+          last_shutdown_at=excluded.last_shutdown_at,
+          shutdown_reason=excluded.shutdown_reason,
+          expected_wake_condition=excluded.expected_wake_condition
+        """,
+        (machine, _NEVER_HEARTBEATED_SENTINEL, now, reason,
+         expected_wake_condition),
+    )
+
+
+def lifecycle_state(last_seen, last_shutdown_at, *,
+                    live_threshold_seconds,
+                    stale_after_seconds):
+    """Derive {live, gracefully_offline, stale} from heartbeat + shutdown
+    timestamps. Pure function; called by /shadow/status read path.
+
+      live                -- heartbeat within live_threshold_seconds.
+      gracefully_offline  -- a shutdown_notify newer than the last heartbeat
+                             AND within the stale_after_seconds watchdog
+                             window. The machine intentionally went away.
+      stale               -- no fresh heartbeat AND either no shutdown_notify
+                             or it predates the heartbeat OR the watchdog
+                             window has expired. Operator should look.
+
+    Both timestamps are ISO-8601 strings or None.
+    """
+    now = datetime.now(timezone.utc)
+    seen_dt = _parse_utc(last_seen)
+    shutdown_dt = _parse_utc(last_shutdown_at)
+
+    if seen_dt is not None:
+        age = (now - seen_dt).total_seconds()
+        if age <= live_threshold_seconds:
+            return "live"
+
+    if shutdown_dt is not None:
+        # Graceful only when the shutdown is the MOST RECENT event for this
+        # machine. If the heartbeat is newer, the machine came back online
+        # after the shutdown and is now just stale-running (or stale-dead).
+        if seen_dt is None or shutdown_dt >= seen_dt:
+            since_shutdown = (now - shutdown_dt).total_seconds()
+            if since_shutdown <= stale_after_seconds:
+                return "gracefully_offline"
+
+    return "stale"

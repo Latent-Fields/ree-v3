@@ -38,15 +38,24 @@ CREATE TABLE IF NOT EXISTS results (
 );
 
 -- One row per machine. PK = machine.
+-- `state` is the runner-process state (idle/running/draining). The
+-- lifecycle_state (live/gracefully_offline/stale) is derived at read time
+-- in /shadow/status from (last_seen, last_shutdown_at) -- not stored.
+-- last_shutdown_at + shutdown_reason + expected_wake_condition are set by
+-- POST /shutdown_notify. They survive across heartbeats so a machine that
+-- boots, runs, and shuts down again carries the latest cycle's record.
 CREATE TABLE IF NOT EXISTS heartbeats (
-    machine             TEXT PRIMARY KEY,
-    last_seen           TEXT NOT NULL,     -- ISO-8601 UTC
-    state               TEXT,
-    current_exq         TEXT,
-    progress_json       TEXT,
-    gpu_json            TEXT,
-    seconds_elapsed     INTEGER,
-    seconds_remaining   INTEGER
+    machine                 TEXT PRIMARY KEY,
+    last_seen               TEXT NOT NULL,     -- ISO-8601 UTC
+    state                   TEXT,
+    current_exq             TEXT,
+    progress_json           TEXT,
+    gpu_json                TEXT,
+    seconds_elapsed         INTEGER,
+    seconds_remaining       INTEGER,
+    last_shutdown_at        TEXT,              -- ISO-8601 UTC, nullable
+    shutdown_reason         TEXT,              -- free text, nullable
+    expected_wake_condition TEXT               -- free text, nullable
 );
 
 -- Pending + recent remote-control commands.
