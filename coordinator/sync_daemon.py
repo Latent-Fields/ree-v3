@@ -189,13 +189,19 @@ def phase3_git_writer(
         clean up unexpected dirt).
       - Never calls `git pull --rebase --autostash`. A non-fast-forward
         push fails the tick loudly and leaves the spool intact for retry.
-      - Before marking results.committed_at on a "no new diff" tick, checks
+      - Before marking results.committed_at on a "no new diff" tick, runs
+        `git fetch --quiet origin <branch>` then checks
         `git rev-list --count origin/<branch>..HEAD`. The diff-cached
         short-circuit only fires when ahead==0 (bytes truly on origin);
         ahead>0 forces a push of the unpushed local commit first, or
-        refuses the tick if that push is still rejected. Without this
-        guard a rejected-push tick followed by a no-operator-action tick
-        would silently drain the spool without origin ever receiving the
+        refuses the tick if that push is still rejected. The pre-fetch
+        is load-bearing: rev-list reads the local remote-tracking ref,
+        and a stale ref would let ahead==0 lie (writer would drain the
+        spool against a stale view of origin while bytes never reach
+        the remote). Fetch failure refuses the tick rather than
+        proceeding with a possibly-stale ref. Without this guard a
+        rejected-push tick followed by a no-operator-action tick would
+        silently drain the spool without origin ever receiving the
         bytes.
       - Batched to PHASE3_BATCH_SIZE manifests per tick; the rest land in
         subsequent ticks.
@@ -310,8 +316,22 @@ def phase3_git_writer(
             #       commit in HEAD with no operator intervention).
             # Marking committed_at in case (b) without a push is unsafe:
             # the DB says "done" but origin never received the bytes.
-            # `git rev-list --count origin/<branch>..HEAD` distinguishes:
-            # 0 -> case (a); >0 -> case (b), must push before marking.
+            # `git rev-list --count origin/<branch>..HEAD` distinguishes,
+            # BUT it reads the local remote-tracking ref -- if origin has
+            # been advanced externally since the last fetch, the ref is
+            # stale and ahead==0 lies. Refresh the ref first; refuse the
+            # tick on fetch failure (better to retry next tick than mark
+            # committed against a stale view of origin).
+            fetched = _git(
+                asm, "fetch", "--quiet", "origin", PHASE3_ASSEMBLY_BRANCH,
+                check=False, timeout=30)
+            if fetched.returncode != 0:
+                sys.stderr.write(
+                    "[phase3] refusing to mark committed: fetch origin "
+                    "%s failed (%s). Spool retained for next tick.\n" % (
+                        PHASE3_ASSEMBLY_BRANCH,
+                        fetched.stderr.strip()[:240]))
+                return False
             ahead = _git(
                 asm, "rev-list", "--count",
                 "origin/" + PHASE3_ASSEMBLY_BRANCH + "..HEAD",

@@ -273,6 +273,103 @@ class NonFastForwardRejectionTest(_WriterFixture):
         self.assertEqual(self._spool_ids(), [])
 
 
+class StaleOriginRefTest(_WriterFixture):
+    """HIGH-1 from the 2026-05-27 review: phase3_git_writer's
+    ahead-of-origin guard reads the LOCAL remote-tracking ref
+    `origin/<branch>` without fetching first. If origin has been advanced
+    or force-pushed externally since the hub's last fetch, the local ref
+    is stale and `rev-list origin/<branch>..HEAD` lies (returns 0 when
+    the writer's commit actually isn't on origin anymore).
+
+    Setup: writer pushes successfully (tick 1), then an external party
+    force-pushes the bare remote to a different history that no longer
+    contains the writer's commit. The same manifest re-spools
+    (simulating a duplicate /result POST or a crash-before-delete).
+
+    Without the pre-fetch fix:
+      - rev-list returns 0 (local origin/master still points at the
+        writer's commit), writer marks committed without push, drains
+        spool. Bytes are no longer on origin -- silent failure.
+
+    With the fix:
+      - fetch refreshes the ref, rev-list returns 1, writer attempts to
+        push HEAD, push fails (non-FF vs the force-pushed remote), writer
+        refuses the tick. Spool retained, committed_at unset by THIS
+        tick (the prior tick 1 already set it, so we check spool +
+        absence of bytes on origin instead).
+    """
+
+    def _force_remote_to_independent_history(self):
+        """Force-push the bare remote to a sibling-built history that
+        does NOT contain the writer's commit. After this, the writer's
+        local origin/master ref still points at the writer's commit
+        (the successful push from tick 1 set it), but origin's actual
+        master is at a different SHA."""
+        sibling = pathlib.Path(self._tmp) / "force_sibling"
+        sibling.mkdir()
+        _git(self._tmp, "init", "-q", "-b", "master", str(sibling))
+        _git(sibling, "config", "user.email", "force@example")
+        _git(sibling, "config", "user.name", "force")
+        (sibling / "external.txt").write_text("force-push payload\n")
+        _git(sibling, "add", "external.txt")
+        _git(sibling, "commit", "-q", "-m", "external force push")
+        _git(sibling, "remote", "add", "origin", str(self._remote))
+        # Force-push: replace bare remote's master with this independent
+        # history. The writer's commit is no longer reachable from
+        # origin/master on the remote.
+        _git(sibling, "push", "-q", "--force", "origin", "master")
+
+    def test_stale_origin_ref_does_not_drain_spool(self):
+        run_id = "v3_smoke_stale_ref"
+        raw = _spool_manifest(run_id, "V3-EXQ-STALE", self._conn)
+
+        # Tick 1: clean push to bare remote. After this, the writer's
+        # local origin/master is freshly updated by the successful push.
+        self.assertTrue(self._run_writer())
+        self.assertIn(
+            "evidence/experiments/%s.json" % run_id,
+            self._origin_log())
+        self.assertIsNotNone(self._committed_at(run_id))
+        self.assertEqual(self._spool_ids(), [])
+
+        # External actor force-pushes the bare remote. The writer's
+        # local origin/master ref is now stale -- it still points at
+        # the writer's commit, but the bare remote does not.
+        self._force_remote_to_independent_history()
+
+        # Re-spool the same manifest. Simulates a duplicate POST /result,
+        # or a prior tick that committed_at-marked but crashed before
+        # delete_manifest. Clear committed_at so the writer would try to
+        # mark it again (tick 2 has work to do).
+        manifest_spool.write_manifest(
+            run_id, raw,
+            received_at="2026-05-27T20:00:00Z", sha256_hex="sha")
+        self._conn.execute(
+            "UPDATE results SET committed_at=NULL WHERE run_id=?",
+            (run_id,))
+        self.assertEqual(self._spool_ids(), [run_id])
+        self.assertIsNone(self._committed_at(run_id))
+
+        # Tick 2 with the fix in place: fetch refreshes the ref, ahead>0
+        # detected, push attempted, push fails non-FF, writer refuses.
+        # The spool entry survives; the writer's commit is NOT on origin.
+        result = self._run_writer()
+        self.assertFalse(
+            result,
+            "writer must refuse tick when stale ref reveals ahead>0 "
+            "and push fails")
+        self.assertNotIn(
+            "evidence/experiments/%s.json" % run_id,
+            self._origin_log(),
+            "manifest must not be on the (force-pushed) origin")
+        self.assertIsNone(
+            self._committed_at(run_id),
+            "writer must not mark committed when push fails")
+        self.assertIn(
+            run_id, self._spool_ids(),
+            "spool entry must survive the refused tick")
+
+
 class BatchBoundaryTest(_WriterFixture):
     """PHASE3_BATCH_SIZE bounds tick latency. 33 pending -> 32 committed
     on tick 1 + 1 retained for tick 2."""
