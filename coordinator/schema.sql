@@ -55,7 +55,14 @@ CREATE TABLE IF NOT EXISTS heartbeats (
     seconds_remaining       INTEGER,
     last_shutdown_at        TEXT,              -- ISO-8601 UTC, nullable
     shutdown_reason         TEXT,              -- free text, nullable
-    expected_wake_condition TEXT               -- free text, nullable
+    expected_wake_condition TEXT,              -- free text, nullable
+    -- PLAN.md step 6: full payloads from the runner so sync_daemon can
+    -- materialise rich runner_heartbeats/*.json and runner_status/*.json
+    -- files in REE_assembly. Populated by POST /heartbeat (payload field)
+    -- and POST /status (body). Stored verbatim as JSON text; the writer
+    -- writes them out byte-for-byte preserving operator-visible shape.
+    heartbeat_payload_json  TEXT,              -- nullable: old clients
+    status_payload_json     TEXT               -- nullable: ditto
 );
 
 -- Pending + recent remote-control commands.

@@ -2280,10 +2280,26 @@ def main():
             # status entry permanently (406a/429a/430a on 2026-04-18).
             if args.auto_sync and ree_assembly_path:
                 git_push_status(ree_assembly_path, status_path, queue_id)
-                # SHADOW (no-op unless COORDINATION_MODE=shadow)
+                # SHADOW (no-op unless COORDINATION_MODE=shadow).
+                # PLAN.md step 6: send the FULL status file content so
+                # sync_daemon can materialise runner_status/<machine>.json
+                # from the coordinator DB. Falls back to the legacy stub
+                # if the local file is unreadable for any reason -- the
+                # coordinator's record_status_payload tolerates either
+                # shape (both are dicts; the writer prefers the rich
+                # form when present).
+                full_status = None
+                try:
+                    if status_path.exists():
+                        full_status = json.loads(status_path.read_text())
+                except (OSError, ValueError):
+                    full_status = None
                 coordinator_client.report_status(
-                    machine, {"last_completed": queue_id,
-                              "result": result["result"]})
+                    machine,
+                    full_status if isinstance(full_status, dict) else {
+                        "last_completed": queue_id,
+                        "result": result["result"],
+                    })
 
             # Push results BEFORE queue removal. Otherwise a Hetzner-style
             # mid-pass shutdown between queue-push and end-of-pass results-push

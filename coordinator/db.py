@@ -50,6 +50,12 @@ def _migrate_heartbeats(conn):
     if "expected_wake_condition" not in cols:
         conn.execute(
             "ALTER TABLE heartbeats ADD COLUMN expected_wake_condition TEXT")
+    if "heartbeat_payload_json" not in cols:
+        conn.execute(
+            "ALTER TABLE heartbeats ADD COLUMN heartbeat_payload_json TEXT")
+    if "status_payload_json" not in cols:
+        conn.execute(
+            "ALTER TABLE heartbeats ADD COLUMN status_payload_json TEXT")
 
 
 def init_db(db_path):
@@ -387,23 +393,85 @@ def record_result(conn, run_id, queue_id, machine, outcome,
 
 
 def upsert_heartbeat(conn, machine, state, current_exq, progress, gpu,
-                     seconds_elapsed=None, seconds_remaining=None):
+                     seconds_elapsed=None, seconds_remaining=None,
+                     payload_json=None):
+    """Upsert per-machine heartbeat row. `payload_json` is the full
+    runner-side payload (already JSON-stringified by the caller, or None
+    to leave the column unchanged on update / NULL on insert).
+
+    PLAN.md step 6 wires this payload through sync_daemon's
+    phase3_heartbeat_writer so the runner can stop git-pushing
+    runner_heartbeats/*.json directly. None is the legacy path (old
+    runners that don't send the rich payload); the coordinator still
+    stores the structured fields and lifecycle_state remains derivable.
+    """
+    # On update, leave heartbeat_payload_json unchanged when caller passes
+    # None (so structured-field-only POSTs from legacy clients don't
+    # clobber a payload sent by a newer client on a different tick).
+    if payload_json is None:
+        conn.execute(
+            """
+            INSERT INTO heartbeats
+              (machine, last_seen, state, current_exq, progress_json,
+               gpu_json, seconds_elapsed, seconds_remaining)
+            VALUES (?,?,?,?,?,?,?,?)
+            ON CONFLICT(machine) DO UPDATE SET
+              last_seen=excluded.last_seen, state=excluded.state,
+              current_exq=excluded.current_exq,
+              progress_json=excluded.progress_json,
+              gpu_json=excluded.gpu_json,
+              seconds_elapsed=excluded.seconds_elapsed,
+              seconds_remaining=excluded.seconds_remaining
+            """,
+            (machine, utcnow(), state, current_exq,
+             json.dumps(progress or {}), json.dumps(gpu or {}),
+             seconds_elapsed, seconds_remaining),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO heartbeats
+              (machine, last_seen, state, current_exq, progress_json,
+               gpu_json, seconds_elapsed, seconds_remaining,
+               heartbeat_payload_json)
+            VALUES (?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(machine) DO UPDATE SET
+              last_seen=excluded.last_seen, state=excluded.state,
+              current_exq=excluded.current_exq,
+              progress_json=excluded.progress_json,
+              gpu_json=excluded.gpu_json,
+              seconds_elapsed=excluded.seconds_elapsed,
+              seconds_remaining=excluded.seconds_remaining,
+              heartbeat_payload_json=excluded.heartbeat_payload_json
+            """,
+            (machine, utcnow(), state, current_exq,
+             json.dumps(progress or {}), json.dumps(gpu or {}),
+             seconds_elapsed, seconds_remaining, payload_json),
+        )
+
+
+def record_status_payload(conn, machine, payload_json):
+    """Store the runner's full status-file payload for `machine`.
+
+    PLAN.md step 6: replaces experiment_runner.git_push_status as the
+    transport for runner_status/<machine>.json. Sync_daemon materialises
+    the file from this column on each authoritative tick.
+
+    Like record_shutdown_notice, creates a heartbeat row if none exists
+    yet (the runner might post status from a machine that hasn't sent
+    a heartbeat tick yet on first boot). Uses the
+    _NEVER_HEARTBEATED_SENTINEL for last_seen so lifecycle_state stays
+    correct -- status payload is not a heartbeat.
+    """
     conn.execute(
         """
         INSERT INTO heartbeats
-          (machine, last_seen, state, current_exq, progress_json, gpu_json,
-           seconds_elapsed, seconds_remaining)
-        VALUES (?,?,?,?,?,?,?,?)
+          (machine, last_seen, status_payload_json)
+        VALUES (?,?,?)
         ON CONFLICT(machine) DO UPDATE SET
-          last_seen=excluded.last_seen, state=excluded.state,
-          current_exq=excluded.current_exq,
-          progress_json=excluded.progress_json, gpu_json=excluded.gpu_json,
-          seconds_elapsed=excluded.seconds_elapsed,
-          seconds_remaining=excluded.seconds_remaining
+          status_payload_json=excluded.status_payload_json
         """,
-        (machine, utcnow(), state, current_exq,
-         json.dumps(progress or {}), json.dumps(gpu or {}),
-         seconds_elapsed, seconds_remaining),
+        (machine, _NEVER_HEARTBEATED_SENTINEL, payload_json),
     )
 
 

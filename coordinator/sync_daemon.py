@@ -265,6 +265,21 @@ PHASE3_QUEUE_RELPATH = _validate_repo_relpath(
     os.environ.get("PHASE3_QUEUE_RELPATH", "experiment_queue.json"),
     "PHASE3_QUEUE_RELPATH", "experiment_queue.json")
 
+
+# PLAN.md step 6: derived heartbeats + runner_status writeback. The writer
+# materialises evidence/experiments/runner_heartbeats/<machine>.json AND
+# runner_status/<machine>.json from rows in the heartbeats table, replacing
+# the per-runner runner_remote_control.push_heartbeat git push (the original
+# autostash-war bug source). Gated by its OWN flag so the heartbeat cutover
+# can stage separately from result + queue cutovers.
+PHASE3_HEARTBEAT_WRITER_READY = False
+
+# Subdirectories (relative to REE_assembly) where the writer materialises
+# the per-machine files. Match the existing legacy layout that explorer
+# + scaler workflow + governance scripts already read.
+PHASE3_HEARTBEATS_RELDIR = "evidence/experiments/runner_heartbeats"
+PHASE3_STATUS_RELDIR = "evidence/experiments/runner_status"
+
 # Default branch on the hub's REE_assembly checkout. Override via env if the
 # hub is ever moved to a non-master deploy layout.
 PHASE3_ASSEMBLY_BRANCH = _validate_branch_name(
@@ -330,6 +345,7 @@ def _hub_working_tree_clean(repo):
 # scoped to the right namespace.
 _PHASE3_COMMIT_PREFIX = "phase3: "
 _PHASE3_QUEUE_COMMIT_PREFIX = "phase3-queue: "
+_PHASE3_HEARTBEAT_COMMIT_PREFIX = "phase3-heartbeats: "
 
 
 def _check_ahead_writer_authored(repo, branch, prefix=_PHASE3_COMMIT_PREFIX):
@@ -977,6 +993,285 @@ def phase3_queue_writer(
     return True
 
 
+def _atomic_write_text(target_path, text):
+    """Atomic working-tree write (tmp + fsync + os.replace). Returns
+    True on success, False on OSError. Matches the LOW-2 pattern in
+    phase3_git_writer."""
+    tmp = target_path + ".phase3.tmp"
+    try:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, target_path)
+        return True
+    except OSError as exc:
+        sys.stderr.write(
+            "[phase3-heartbeats] WARN write failed for %s: %r\n" % (
+                target_path, exc))
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return False
+
+
+def _safe_machine_filename(machine):
+    """Defensive normalisation for the per-machine output filename.
+
+    Accept alphanumeric + dot + dash + underscore (matches the existing
+    experiment_runner convention for status filenames). Reject anything
+    that would let a hostile heartbeat write outside the target
+    subdirectory:
+      - empty string
+      - the bare current/parent indicators "." or ".."
+      - ANY string containing the path-traversal sequence ".." (catches
+        cases like "../escape" where character-stripping otherwise
+        leaves "..escape" still containing a traversal token)
+      - leading dot (hidden-file convention; not a real machine name and
+        confuses ls/glob)
+    """
+    if not machine or not isinstance(machine, str):
+        return None
+    cleaned = "".join(
+        c for c in machine if c.isalnum() or c in ("-", "_", "."))
+    if not cleaned:
+        return None
+    if cleaned in (".", ".."):
+        return None
+    if ".." in cleaned:
+        return None
+    if cleaned.startswith("."):
+        return None
+    return cleaned
+
+
+def phase3_heartbeat_writer(
+    conn,
+    *,
+    ree_assembly_path=None,
+    branch=None,
+):
+    """PLAN.md step 6: materialise runner_heartbeats/<machine>.json and
+    runner_status/<machine>.json from the coordinator's heartbeats
+    table into the hub's REE_assembly checkout, commit + push.
+
+    Pairs with phase3_git_writer + phase3_queue_writer to give
+    sync_daemon sole-writer authority across both coordination repos.
+
+    Same safety contract as the queue writer:
+      - PHASE3_HEARTBEAT_WRITER_READY gates execution (False -> stub).
+      - Dirty-tree refusal.
+      - Fetch-before-push + ahead-of-origin guard + foreign-commit
+        check (`phase3-heartbeats: ` prefix).
+      - Atomic per-file write (tmp + fsync + os.replace).
+      - Idempotent no-op when every file matches what's already in HEAD.
+      - Never raises.
+
+    Per-machine output is byte-for-byte the JSON payload the runner
+    POSTed: the coordinator stored heartbeat_payload_json and
+    status_payload_json verbatim, so consumers (explorer, scaler
+    workflow, governance) see exactly the shape they did under the
+    runner's old git push -- only the transport changed.
+
+    Rows whose payload columns are NULL (legacy clients that haven't
+    been updated to send the rich payload yet) are SKIPPED for the
+    file write. Their structured columns still drive lifecycle_state
+    via /shadow/status -- they just don't generate a per-machine file
+    until the runner is updated.
+    """
+    asm = ree_assembly_path or PHASE3_REE_ASSEMBLY
+    br = branch or PHASE3_ASSEMBLY_BRANCH
+
+    if not PHASE3_HEARTBEAT_WRITER_READY:
+        sys.stderr.write(
+            "[phase3-heartbeats] writer stub "
+            "(PHASE3_HEARTBEAT_WRITER_READY=False); no git writes performed\n")
+        return False
+
+    # Collect what the DB has. Each row may have either or both payload
+    # columns populated; if NEITHER, skip (nothing to materialise).
+    rows = conn.execute(
+        "SELECT machine, heartbeat_payload_json, status_payload_json "
+        "FROM heartbeats "
+        "WHERE heartbeat_payload_json IS NOT NULL "
+        "   OR status_payload_json IS NOT NULL"
+    ).fetchall()
+    if not rows:
+        # No machine has sent a payload yet (e.g. mid-transition); nothing
+        # to write. Return True (idle no-op) so the main loop doesn't
+        # treat it as a failure.
+        return True
+
+    # Stage each per-machine file. Skip + warn on unsafe machine names
+    # (defence-in-depth; coordinator auth already rejects bad tokens).
+    pending_writes = []   # list of (relpath, text)
+    for r in rows:
+        safe = _safe_machine_filename(r["machine"])
+        if not safe:
+            sys.stderr.write(
+                "[phase3-heartbeats] WARN skipping unsafe machine name %r\n"
+                % (r["machine"],))
+            continue
+        for kind, reldir, column in (
+            ("heartbeat", PHASE3_HEARTBEATS_RELDIR,
+             "heartbeat_payload_json"),
+            ("status", PHASE3_STATUS_RELDIR, "status_payload_json"),
+        ):
+            raw = r[column]
+            if not raw:
+                continue
+            # Pretty-print so the file diff is meaningful + matches the
+            # runner's existing on-disk format (json.dumps(payload, indent=2)
+            # + "\n").
+            try:
+                doc = json.loads(raw)
+            except (ValueError, TypeError):
+                sys.stderr.write(
+                    "[phase3-heartbeats] WARN skipping %s/%s: stored "
+                    "%s is not valid JSON\n" % (
+                        reldir, safe, column))
+                continue
+            text = json.dumps(doc, indent=2) + "\n"
+            rel = "%s/%s.json" % (reldir, safe)
+            pending_writes.append((rel, text))
+
+    if not pending_writes:
+        return True
+
+    # Compare each against working tree -- skip writes when content
+    # matches (idempotent no-op preserves the per-tick rhythm without
+    # creating empty commits).
+    actually_changed = []
+    for rel, text in pending_writes:
+        target = os.path.join(asm, rel)
+        if os.path.exists(target):
+            try:
+                with open(target, "r", encoding="utf-8") as fh:
+                    if fh.read() == text:
+                        continue
+            except OSError:
+                pass
+        actually_changed.append((rel, text))
+
+    if not actually_changed:
+        return True
+
+    clean, reason = _hub_working_tree_clean(asm)
+    if not clean:
+        sys.stderr.write(
+            "[phase3-heartbeats] refusing tick: REE_assembly at %s is "
+            "%s. Phase 3 does NOT autostash -- resolve the dirt by "
+            "hand.\n" % (asm, reason))
+        return False
+
+    # Atomic writes + git add. Track what successfully staged so a
+    # partial failure doesn't poison the commit.
+    staged = []
+    for rel, text in actually_changed:
+        target = os.path.join(asm, rel)
+        if not _atomic_write_text(target, text):
+            continue
+        try:
+            _git(asm, "add", rel, timeout=15, check=True)
+            staged.append(rel)
+        except (subprocess.CalledProcessError,
+                subprocess.TimeoutExpired) as exc:
+            sys.stderr.write(
+                "[phase3-heartbeats] WARN git add failed for %s: %r\n" % (
+                    rel, exc))
+
+    if not staged:
+        sys.stderr.write(
+            "[phase3-heartbeats] no files staged this tick; skipping\n")
+        return False
+
+    today = db.utcnow()[:10]
+    commit_msg = "%s%d telemetry file(s) %s" % (
+        _PHASE3_HEARTBEAT_COMMIT_PREFIX, len(staged), today)
+
+    try:
+        fetched = _git(
+            asm, "fetch", "--quiet", "origin", br,
+            check=False, timeout=30)
+        if fetched.returncode != 0:
+            sys.stderr.write(
+                "[phase3-heartbeats] refusing tick: fetch origin %s "
+                "failed (%s). Working tree retained for next tick.\n" % (
+                    br, fetched.stderr.strip()[:240]))
+            return False
+
+        diff = _git(asm, "diff", "--cached", "--quiet",
+                    check=False, timeout=10)
+        if diff.returncode == 0:
+            # No-diff path (same as result/queue writers): check ahead-of-
+            # origin to distinguish "bytes already on origin" from
+            # "unpushed local commit".
+            ahead = _git(
+                asm, "rev-list", "--count",
+                "origin/" + br + "..HEAD",
+                check=False, timeout=10)
+            if ahead.returncode != 0:
+                sys.stderr.write(
+                    "[phase3-heartbeats] refusing tick: rev-list "
+                    "failed (%s).\n" % ahead.stderr.strip()[:240])
+                return False
+            ahead_count = ahead.stdout.strip()
+            if ahead_count and ahead_count != "0":
+                ok, foreign = _check_ahead_writer_authored(
+                    asm, br, prefix=_PHASE3_HEARTBEAT_COMMIT_PREFIX)
+                if not ok:
+                    sys.stderr.write(
+                        "[phase3-heartbeats] refusing tick: %d foreign "
+                        "commit(s) in origin/%s..HEAD that the heartbeat "
+                        "writer did not author: %s.\n" % (
+                            len(foreign), br, foreign))
+                    return False
+                push = _git(
+                    asm, "push", "origin", "HEAD:" + br,
+                    timeout=60, check=False)
+                if push.returncode != 0:
+                    sys.stderr.write(
+                        "[phase3-heartbeats] push REJECTED for unpushed "
+                        "local commit: %s.\n" %
+                        push.stderr.strip()[:240])
+                    return False
+                sys.stdout.write(
+                    "[phase3-heartbeats] pushed unpushed local commit "
+                    "(HEAD was %s ahead of origin/%s)\n" % (ahead_count, br))
+                return True
+            # ahead == 0: idempotent re-spool, already on origin.
+            return True
+
+        _git(asm, "commit", "-m", commit_msg, timeout=20, check=True)
+        ok, foreign = _check_ahead_writer_authored(
+            asm, br, prefix=_PHASE3_HEARTBEAT_COMMIT_PREFIX)
+        if not ok:
+            sys.stderr.write(
+                "[phase3-heartbeats] refusing tick: writer's commit landed "
+                "but %d foreign commit(s) are ahead of origin/%s: %s.\n" % (
+                    len(foreign), br, foreign))
+            return False
+        push = _git(
+            asm, "push", "origin", "HEAD:" + br,
+            timeout=60, check=False)
+        if push.returncode != 0:
+            sys.stderr.write(
+                "[phase3-heartbeats] push REJECTED: %s. Working tree "
+                "commit retained for retry.\n" %
+                push.stderr.strip()[:240])
+            return False
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        sys.stderr.write(
+            "[phase3-heartbeats] git commit/push error: %r\n" % exc)
+        return False
+
+    sys.stdout.write(
+        "[phase3-heartbeats] pushed %d telemetry file(s)\n" % len(staged))
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--queue", default=os.environ.get(
@@ -1034,6 +1329,16 @@ def main():
                 except Exception as exc:  # noqa: BLE001
                     sys.stderr.write(
                         "[sync] phase3_queue_writer error "
+                        "(non-fatal): %r\n" % exc)
+                # PLAN.md step 6: materialise runner_heartbeats/*.json
+                # and runner_status/*.json from heartbeat_payload_json /
+                # status_payload_json columns. Gated by its own
+                # PHASE3_HEARTBEAT_WRITER_READY flag; non-fatal.
+                try:
+                    phase3_heartbeat_writer(conn)
+                except Exception as exc:  # noqa: BLE001
+                    sys.stderr.write(
+                        "[sync] phase3_heartbeat_writer error "
                         "(non-fatal): %r\n" % exc)
             finally:
                 conn.close()

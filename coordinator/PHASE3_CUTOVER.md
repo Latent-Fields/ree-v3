@@ -38,6 +38,7 @@ git writer loop before `SYNC_MODE=authoritative` is safe.
 | `PHASE3_QUEUE_WRITER_READY` | sync_daemon | Implementation flag for the queue snapshot writer. Independent of `PHASE3_GIT_WRITER_READY` so result-cutover and queue-cutover can stage separately. Default `False` -> writer stub-skips with a log line. Flip to `True` only after review + paired with `PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1` on every worker. |
 | `PHASE3_REE_V3` | sync_daemon | Path to the hub's ree-v3 checkout (default `/home/ree/REE_Working/ree-v3`). Where the queue writer commits + pushes from. |
 | `PHASE3_REE_V3_BRANCH` | sync_daemon | Branch on ree-v3's origin (default `main`). |
+| `PHASE3_HEARTBEAT_WRITER_READY` | sync_daemon | Implementation flag for the heartbeat + status writer. Independent flag again. Default `False` -> writer stub-skips. Flip to `True` only after every worker is running a `coordinator_client` that sends the rich payload (PLAN.md step 6) AND `PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH=1` is set on every worker. Old clients (no payload) leave their column NULL and the writer silently skips them; if you flip this flag without rolling out the new client, the affected machines stop producing heartbeat files entirely. |
 
 The `PHASE3_GIT_WRITER_READY` constant in `sync_daemon.py` is the explicit
 implementation flag. It stays `False` until the writer body has been
@@ -73,26 +74,32 @@ Refuses to run when any of these is true:
 
 Idle ticks (spool empty) return `True` immediately as a successful no-op.
 
-### Deferred to follow-up PRs
-
-Step 6 from PLAN.md is not yet in the sketch:
-
-- **Derived heartbeats** -- write `evidence/experiments/runner_heartbeats/*.json`
-  and `runner_status/*.json` from the `heartbeats` table, replacing the
-  per-runner `runner_remote_control.push_heartbeat` git push (the original
-  autostash-war bug source).
+### PLAN.md steps 4, 5, 6 all landed
 
 Step 5 (**queue snapshot writeback**) LANDED 2026-05-27 alongside the
 authoritative-mode reconcile `upsert_only=True` semantics. `phase3_queue_writer`
 materialises pending/claimed items from the `experiments` table into
 `experiment_queue.json` on the hub's ree-v3 checkout and pushes `origin/main`.
-Gated by its own `PHASE3_QUEUE_WRITER_READY` flag (independent of the result
-writer's flag so the two cutovers can stage separately). Operator hand-edits
+Gated by its own `PHASE3_QUEUE_WRITER_READY` flag. Operator hand-edits
 to `experiment_queue.json` under the queue-writer regime MUST be additions
 only -- use `POST /queue/remove` via the coordinator API to drop items, since
 items missing from the file are NOT deleted from the DB (the DB row's
 `status='completed'` is the authoritative "this was done" record and must
 survive the writeback round-trip).
+
+Step 6 (**derived heartbeats + runner_status writeback**) LANDED 2026-05-27.
+`phase3_heartbeat_writer` materialises `evidence/experiments/runner_heartbeats/
+<machine>.json` AND `evidence/experiments/runner_status/<machine>.json` from
+`heartbeat_payload_json` and `status_payload_json` columns on the `heartbeats`
+table. Gated by `PHASE3_HEARTBEAT_WRITER_READY` (independent flag). Payloads
+travel runner -> coordinator via the extended POST `/heartbeat` (added
+`payload` field) and POST `/status` (now persists the full body, was
+receipt-only). The writer outputs the stored payload byte-for-byte so
+consumers (explorer, cloud-scaler workflow, governance) see the same
+file shape they did under the runner's old git push -- only the transport
+changed. Legacy clients that don't send a payload (older `coordinator_client`
+versions) leave their column NULL and are silently skipped by the writer;
+their `lifecycle_state` still derives from the structured columns.
 
 ---
 

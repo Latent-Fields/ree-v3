@@ -184,11 +184,17 @@ def write_heartbeat(
         return None
     # SHADOW (no-op unless COORDINATION_MODE=shadow): mirror the heartbeat
     # to the coordinator alongside the existing file write. Best-effort.
+    # `payload=payload` is the PLAN.md step 6 wiring: the same dict that
+    # just got written to runner_heartbeats/<machine>.json travels to the
+    # coordinator so sync_daemon can materialise the file in REE_assembly
+    # from the DB. Until step 6 is enabled (PHASE3_HEARTBEAT_WRITER_READY)
+    # this is a no-op payload stored alongside structured fields.
     coordinator_client.report_heartbeat(
         machine, state, current_exq, payload.get("progress"),
         payload.get("gpu"),
         seconds_elapsed=payload.get("seconds_elapsed"),
-        seconds_remaining=payload.get("seconds_remaining"))
+        seconds_remaining=payload.get("seconds_remaining"),
+        payload=payload)
     return path
 
 

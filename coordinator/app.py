@@ -297,6 +297,15 @@ class Handler(BaseHTTPRequestHandler):
             if body is None:
                 self._send(400, {"error": "bad body"})
                 return
+            # PLAN.md step 6: clients may include `payload` (the full
+            # runner-side dict that gets written to runner_heartbeats/
+            # <machine>.json) so sync_daemon can materialise the file
+            # from the coordinator DB. Old clients omit it -- the column
+            # stays whatever it was (None on first insert, unchanged on
+            # update) and the structured fields cover lifecycle state.
+            payload = body.get("payload")
+            payload_json = (json.dumps(payload, sort_keys=False)
+                            if isinstance(payload, dict) else None)
             conn = db.connect(DB_PATH)
             try:
                 db.upsert_heartbeat(
@@ -304,17 +313,34 @@ class Handler(BaseHTTPRequestHandler):
                     body.get("state"), body.get("current_exq"),
                     body.get("progress"), body.get("gpu"),
                     body.get("seconds_elapsed"),
-                    body.get("seconds_remaining"))
+                    body.get("seconds_remaining"),
+                    payload_json=payload_json)
             finally:
                 conn.close()
             self._send(200, {"ok": True})
             return
 
         if path == "/status":
-            # Status blob is regenerable telemetry; record receipt only.
+            # PLAN.md step 6: store the full status payload so
+            # sync_daemon can materialise runner_status/<machine>.json
+            # from the DB. Body may be the bare payload dict OR
+            # {machine, status: {...}} (coordinator_client's existing
+            # report_status wrapper).
             if body is None:
                 self._send(400, {"error": "bad body"})
                 return
+            machine = body.get("machine") or machine_tok
+            payload = body.get("status") if "status" in body else body
+            if not isinstance(payload, dict):
+                self._send(400, {"error": "status payload must be dict"})
+                return
+            conn = db.connect(DB_PATH)
+            try:
+                db.record_status_payload(
+                    conn, machine,
+                    json.dumps(payload, sort_keys=False))
+            finally:
+                conn.close()
             self._send(200, {"ok": True})
             return
 

@@ -132,7 +132,18 @@ def release_claim(queue_id, machine):
 
 
 def report_heartbeat(machine, state, current_exq, progress, gpu, *,
-                     seconds_elapsed=None, seconds_remaining=None):
+                     seconds_elapsed=None, seconds_remaining=None,
+                     payload=None):
+    """Report a heartbeat tick to the coordinator.
+
+    `payload` (optional) is the full runner-side dict written to
+    `runner_heartbeats/<machine>.json`. Send it under PLAN.md step 6
+    so sync_daemon can materialise the rich file from the coordinator
+    DB and the runner can stop git-pushing it directly. None is the
+    legacy path: the structured fields still flow, only the rich
+    payload is missing (lifecycle_state remains derivable from the
+    structured columns).
+    """
     if not _ENABLED:
         return None
     body = {"machine": machine, "state": state,
@@ -141,6 +152,8 @@ def report_heartbeat(machine, state, current_exq, progress, gpu, *,
         body["seconds_elapsed"] = seconds_elapsed
     if seconds_remaining is not None:
         body["seconds_remaining"] = seconds_remaining
+    if payload is not None:
+        body["payload"] = payload
     return _post("/heartbeat", body)
 
 
