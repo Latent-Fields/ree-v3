@@ -291,15 +291,47 @@ class ShutdownNotifyHTTPTest(unittest.TestCase):
         self.assertEqual(
             m["expected_wake_condition"], "claimable>0")
 
-    def test_post_defaults_machine_to_token_label(self):
-        # No body.machine -> falls back to the token's machine label.
+    def test_post_requires_explicit_machine_field(self):
+        # The token's machine label is NEVER substituted. A probe with no
+        # machine field used to write a stray heartbeat row for the token's
+        # label (e.g. the scaler token created a "scaler" row); the
+        # endpoint now demands an explicit machine.
         st, jb = _http(
             "POST", self._base + "/shutdown_notify",
             token="tok-cloud-4",
             body={"reason": "systemd_sigterm"})
-        self.assertEqual(st, 200)
-        self.assertEqual(jb["machine"], "ree-cloud-4")
-        self.assertEqual(jb["reason"], "systemd_sigterm")
+        self.assertEqual(st, 400)
+        self.assertEqual(jb["error"], "machine required")
+
+    def test_post_empty_body_rejected(self):
+        # Empty body (zero bytes) -> 400. Previously this returned 200
+        # because _json_body() coerces empty to {} and the token-fallback
+        # fired, writing a stray row for the token's machine label.
+        req = urllib.request.Request(
+            self._base + "/shutdown_notify",
+            data=b"",
+            headers={"Authorization": "Bearer tok-scaler",
+                     "Content-Type": "application/json"},
+            method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                self.fail("expected HTTPError, got %d" % r.status)
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 400)
+
+    def test_post_empty_object_body_rejected(self):
+        st, jb = _http(
+            "POST", self._base + "/shutdown_notify",
+            token="tok-scaler", body={})
+        self.assertEqual(st, 400)
+        self.assertEqual(jb["error"], "machine required")
+
+    def test_post_body_missing_machine_rejected(self):
+        st, jb = _http(
+            "POST", self._base + "/shutdown_notify",
+            token="tok-scaler", body={"reason": "x"})
+        self.assertEqual(st, 400)
+        self.assertEqual(jb["error"], "machine required")
 
     def test_heartbeat_after_shutdown_returns_live(self):
         # Announce shutdown, then heartbeat -> machine is back; lifecycle

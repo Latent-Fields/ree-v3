@@ -324,9 +324,12 @@ class Handler(BaseHTTPRequestHandler):
             # lifecycle_state="gracefully_offline" instead of "stale" until
             # the watchdog window expires (LIFECYCLE_STALE_AFTER_DAYS).
             #
-            # Auth: bearer token. body.machine defaults to the token's
-            # machine label, so a per-machine token can only announce for
-            # itself. The scaler workflow uses a coordinator-side token
+            # Auth: bearer token. body.machine is REQUIRED -- the token's
+            # machine label is never substituted. Empty bodies were
+            # creating stray heartbeat rows for the token label (e.g. a
+            # probe with no body via the scaler token wrote a "scaler"
+            # row), so the endpoint now demands an explicit machine
+            # field. The scaler workflow uses a coordinator-side token
             # tagged for that purpose and MAY post on behalf of any
             # machine (no per-machine restriction beyond having a valid
             # token -- the trust model is "GitHub Actions secrets =
@@ -335,8 +338,11 @@ class Handler(BaseHTTPRequestHandler):
             if body is None:
                 self._send(400, {"error": "bad body"})
                 return
-            machine = body.get("machine") or machine_tok
-            if not machine:
+            if not isinstance(body, dict):
+                self._send(400, {"error": "machine required"})
+                return
+            machine = body.get("machine")
+            if not machine or not isinstance(machine, str):
                 self._send(400, {"error": "machine required"})
                 return
             reason = body.get("reason")
