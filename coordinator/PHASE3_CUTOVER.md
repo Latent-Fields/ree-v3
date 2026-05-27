@@ -33,8 +33,11 @@ git writer loop before `SYNC_MODE=authoritative` is safe.
 | `PHASE3_ASSEMBLY_BRANCH` | sync_daemon | Target branch on origin (default `master`). |
 | `PHASE3_BATCH_SIZE` | sync_daemon | Max manifests committed per tick (default 32; bounds tick latency and rollback blast radius). |
 | `PHASE3_DISABLE_RUNNER_RESULT_PUSH` | runner (`experiment_runner.py`) | When `1`, `git_push_results` is a no-op -- sync_daemon's writer owns result commits. Set on every worker BEFORE flipping `PHASE3_GIT_WRITER_READY=True`; running both is unsafe (autostash race). |
-| `PHASE3_DISABLE_RUNNER_QUEUE_PUSH` | runner | When `1`, `git_push_queue` is a no-op -- sync_daemon's queue snapshot writeback (PLAN.md step 5) owns it. **Do not set until step 5 is wired**, or queue updates stop reaching origin. |
+| `PHASE3_DISABLE_RUNNER_QUEUE_PUSH` | runner | When `1`, `git_push_queue` is a no-op -- sync_daemon's queue snapshot writeback (PLAN.md step 5) owns it. Set on every worker BEFORE flipping `PHASE3_QUEUE_WRITER_READY=True`. **Do not set if `PHASE3_QUEUE_WRITER_READY` is still False**, or queue updates stop reaching origin entirely. |
 | `PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH` | runner + `runner_remote_control.py` | When `1`, `push_heartbeat`, `push_commands`, AND `git_push_status` are no-ops -- sync_daemon's derived-heartbeats writeback (PLAN.md step 6) owns them. **Do not set until step 6 is wired**, or heartbeats / commands / per-machine status stop reaching origin. |
+| `PHASE3_QUEUE_WRITER_READY` | sync_daemon | Implementation flag for the queue snapshot writer. Independent of `PHASE3_GIT_WRITER_READY` so result-cutover and queue-cutover can stage separately. Default `False` -> writer stub-skips with a log line. Flip to `True` only after review + paired with `PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1` on every worker. |
+| `PHASE3_REE_V3` | sync_daemon | Path to the hub's ree-v3 checkout (default `/home/ree/REE_Working/ree-v3`). Where the queue writer commits + pushes from. |
+| `PHASE3_REE_V3_BRANCH` | sync_daemon | Branch on ree-v3's origin (default `main`). |
 
 The `PHASE3_GIT_WRITER_READY` constant in `sync_daemon.py` is the explicit
 implementation flag. It stays `False` until the writer body has been
@@ -72,16 +75,24 @@ Idle ticks (spool empty) return `True` immediately as a successful no-op.
 
 ### Deferred to follow-up PRs
 
-Steps 5 and 6 from PLAN.md are not yet in the sketch:
+Step 6 from PLAN.md is not yet in the sketch:
 
-- **Queue snapshot** -- materialise completed/removed entries from the
-  `experiments` table into `experiment_queue.json` and push `ree-v3`.
-  Touches the ree-v3 checkout on the hub; will land once the results-side
-  path has soaked.
 - **Derived heartbeats** -- write `evidence/experiments/runner_heartbeats/*.json`
   and `runner_status/*.json` from the `heartbeats` table, replacing the
   per-runner `runner_remote_control.push_heartbeat` git push (the original
   autostash-war bug source).
+
+Step 5 (**queue snapshot writeback**) LANDED 2026-05-27 alongside the
+authoritative-mode reconcile `upsert_only=True` semantics. `phase3_queue_writer`
+materialises pending/claimed items from the `experiments` table into
+`experiment_queue.json` on the hub's ree-v3 checkout and pushes `origin/main`.
+Gated by its own `PHASE3_QUEUE_WRITER_READY` flag (independent of the result
+writer's flag so the two cutovers can stage separately). Operator hand-edits
+to `experiment_queue.json` under the queue-writer regime MUST be additions
+only -- use `POST /queue/remove` via the coordinator API to drop items, since
+items missing from the file are NOT deleted from the DB (the DB row's
+`status='completed'` is the authoritative "this was done" record and must
+survive the writeback round-trip).
 
 ---
 
