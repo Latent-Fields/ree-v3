@@ -563,5 +563,111 @@ class MetaHintHonouredTest(_WriterFixture):
         self.assertIsNotNone(self._committed_at(run_id))
 
 
+class MissingResultsRowTest(_WriterFixture):
+    """MED-1 from the 2026-05-27 review: a spool entry without a
+    matching `results` row produced a silent rowcount-0 UPDATE and the
+    spool was dropped anyway. Bytes reached origin, DB had no record.
+
+    Fix surfaces a per-tick WARN naming the missing run_ids while still
+    proceeding (bytes ARE on origin; retaining the spool would loop
+    indefinitely). This test verifies both: warning surfaces, spool
+    drains, push happens.
+    """
+
+    def test_spool_without_results_row_warns_and_drains(self):
+        # Write a manifest into the spool WITHOUT calling db.record_result.
+        run_id = "v3_smoke_med1_no_row"
+        raw = json.dumps({"run_id": run_id, "outcome": "PASS",
+                          "machine": "test"}).encode("utf-8")
+        manifest_spool.write_manifest(
+            run_id, raw,
+            received_at="2026-05-27T22:00:00Z", sha256_hex="sha")
+        self.assertEqual(self._spool_ids(), [run_id])
+        # No row in results yet.
+        self.assertIsNone(self._committed_at(run_id))
+        row = self._conn.execute(
+            "SELECT 1 FROM results WHERE run_id=?", (run_id,)).fetchone()
+        self.assertIsNone(row, "precondition: results row absent")
+
+        # Capture stderr so we can verify the WARN surfaces.
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            result = self._run_writer()
+        stderr = buf.getvalue()
+
+        self.assertTrue(result, "tick should succeed (bytes reach origin)")
+        self.assertIn("invariant violation", stderr)
+        self.assertIn(run_id, stderr)
+        # Bytes ARE on origin.
+        self.assertIn(
+            "evidence/experiments/%s.json" % run_id, self._origin_log())
+        # Spool drained.
+        self.assertEqual(self._spool_ids(), [])
+        # Row still absent (writer doesn't backfill); UPDATE no-oped.
+        row = self._conn.execute(
+            "SELECT 1 FROM results WHERE run_id=?", (run_id,)).fetchone()
+        self.assertIsNone(row)
+
+
+class BatchSizeValidationTest(unittest.TestCase):
+    """MED-2: PHASE3_BATCH_SIZE=0 or negative used to slice an empty
+    batch from a non-empty spool, then refuse with the misleading
+    "no manifests staged" message. _validate_batch_size now catches
+    invalid values at module load and falls back to default 32 with a
+    loud warning.
+    """
+
+    def test_default_when_unset(self):
+        self.assertEqual(sync_daemon._validate_batch_size("32"), 32)
+
+    def test_explicit_positive(self):
+        self.assertEqual(sync_daemon._validate_batch_size("64"), 64)
+        self.assertEqual(sync_daemon._validate_batch_size("1"), 1)
+
+    def test_zero_falls_back(self):
+        self.assertEqual(sync_daemon._validate_batch_size("0"), 32)
+
+    def test_negative_falls_back(self):
+        self.assertEqual(sync_daemon._validate_batch_size("-5"), 32)
+
+    def test_non_integer_falls_back(self):
+        self.assertEqual(sync_daemon._validate_batch_size("abc"), 32)
+        self.assertEqual(sync_daemon._validate_batch_size(""), 32)
+        self.assertEqual(sync_daemon._validate_batch_size(None), 32)
+
+    def test_custom_default(self):
+        self.assertEqual(
+            sync_daemon._validate_batch_size("bogus", default=100), 100)
+
+
+class AtomicWorkingTreeWriteTest(_WriterFixture):
+    """LOW-2: the writer's working-tree manifest write was not atomic
+    (plain `open(target, "wb").write(raw)`), so a mid-write crash could
+    leave a truncated file that the immediately-following `git add`
+    would happily stage. Fix uses tmp + os.replace.
+
+    Hard to inject a real crash mid-write in a unit test, so this
+    test verifies the observable side effects of the new path:
+      - no `.phase3.tmp` file is left behind after a successful tick
+      - the written file's bytes equal the spool's raw payload
+    """
+
+    def test_no_tmp_file_left_after_successful_tick(self):
+        run_id = "v3_smoke_low2_atomic"
+        raw = _spool_manifest(run_id, "V3-EXQ-LOW2", self._conn)
+        self.assertTrue(self._run_writer())
+        # Working tree should have the canonical file but no .phase3.tmp.
+        evidence_dir = self._repo / "evidence" / "experiments"
+        files = list(evidence_dir.iterdir())
+        names = [f.name for f in files]
+        self.assertIn("%s.json" % run_id, names)
+        self.assertNotIn("%s.json.phase3.tmp" % run_id, names)
+        # Bytes round-trip cleanly.
+        self.assertEqual(
+            (evidence_dir / ("%s.json" % run_id)).read_bytes(), raw)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -131,8 +131,29 @@ PHASE3_QUEUE_FILE = os.environ.get(
 
 # Max manifests to write+commit per writer tick. Bounds tick latency and
 # limits worst-case rollback if a push fails (we ROLLBACK committed_at for
-# the unpushed batch, then retry).
-PHASE3_BATCH_SIZE = int(os.environ.get("PHASE3_BATCH_SIZE", "32"))
+# the unpushed batch, then retry). Must be >0; an operator setting it to
+# 0 or negative via env override would produce silently misleading
+# refusals (writer slices an empty batch out of a non-empty spool, hits
+# "no manifests staged" and refuses for the wrong reason). Validate at
+# module load and fall back to the default with a loud log.
+def _validate_batch_size(raw, default=32):
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        sys.stderr.write(
+            "[phase3] PHASE3_BATCH_SIZE=%r is not an integer; "
+            "using default %d\n" % (raw, default))
+        return default
+    if v <= 0:
+        sys.stderr.write(
+            "[phase3] PHASE3_BATCH_SIZE=%d is not > 0; using default %d\n"
+            % (v, default))
+        return default
+    return v
+
+
+PHASE3_BATCH_SIZE = _validate_batch_size(
+    os.environ.get("PHASE3_BATCH_SIZE", "32"))
 
 # Default branch on the hub's REE_assembly checkout. Override via env if the
 # hub is ever moved to a non-master deploy layout.
@@ -325,10 +346,18 @@ def phase3_git_writer(
             continue
         target = os.path.join(asm, relpath)
         target_dir = os.path.dirname(target)
+        # Atomic write: tmp file + os.replace. A crash mid-`fh.write`
+        # otherwise leaves a truncated file that the immediately-following
+        # `git add` would happily stage. Tmp+rename mirrors the spool
+        # writer's atomic semantics.
+        tmp_target = target + ".phase3.tmp"
         try:
             os.makedirs(target_dir, exist_ok=True)
-            with open(target, "wb") as fh:
+            with open(tmp_target, "wb") as fh:
                 fh.write(raw)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_target, target)
             _git(asm, "add", relpath, timeout=15, check=True)
             staged.append((run_id, relpath))
         except (OSError, subprocess.CalledProcessError,
@@ -336,6 +365,15 @@ def phase3_git_writer(
             sys.stderr.write(
                 "[phase3] WARN stage failed for %s -> %s: %r\n" % (
                     run_id, relpath, exc))
+            # Best-effort cleanup of the tmp file. A leftover .phase3.tmp
+            # in evidence/experiments/ is harmless (git ignores it via
+            # the gitignore on .tmp; even unignored it doesn't affect
+            # the next tick because we use a fresh tmp path), but
+            # tidiness wins.
+            try:
+                os.unlink(tmp_target)
+            except OSError:
+                pass
 
     if not staged:
         sys.stderr.write(
@@ -477,7 +515,25 @@ def phase3_git_writer(
     # will re-process as if they were uncommitted, which `git add` will
     # detect as no-diff and short-circuit (the idempotent-already-on-tree
     # branch above).
+    #
+    # MED-1 from the 2026-05-27 review: `UPDATE ... WHERE committed_at
+    # IS NULL` returns rowcount 0 both when the row exists but is
+    # already marked AND when the row is missing entirely. The second
+    # case is an invariant violation -- bytes reached origin via the
+    # writer's push but the DB has no record of the run. Surface it
+    # loudly with a per-run WARN, but still proceed to drop the spool:
+    # bytes ARE on origin, retaining the spool would replay forever
+    # against the same missing-row condition.
     now = db.utcnow()
+    pre_existing = {
+        row["run_id"]
+        for row in conn.execute(
+            "SELECT run_id FROM results WHERE run_id IN (%s)" % (
+                ",".join("?" * len(staged))),
+            [run_id for run_id, _ in staged]).fetchall()
+    }
+    missing = [run_id for run_id, _ in staged
+               if run_id not in pre_existing]
     try:
         conn.execute("BEGIN IMMEDIATE")
         conn.executemany(
@@ -495,6 +551,16 @@ def phase3_git_writer(
         except Exception:  # noqa: BLE001
             pass
         return False
+    if missing:
+        sys.stderr.write(
+            "[phase3] WARN invariant violation: %d manifest(s) reached "
+            "origin via this commit but have no `results` row in the "
+            "coordinator DB: %s. Spool will be drained (bytes ARE on "
+            "origin); the DB/origin mismatch needs operator audit. "
+            "Likely causes: POST /result wrote spool bytes before "
+            "`db.record_result` recorded the row, or the row was "
+            "deleted out-of-band.\n" % (
+                len(missing), missing[:5]))
 
     for run_id, _ in staged:
         manifest_spool.delete_manifest(run_id)
