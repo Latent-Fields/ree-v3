@@ -32,6 +32,9 @@ git writer loop before `SYNC_MODE=authoritative` is safe.
 | `PHASE3_REE_ASSEMBLY` | sync_daemon | Path to the hub's REE_assembly checkout (default `/home/ree/REE_Working/REE_assembly`). |
 | `PHASE3_ASSEMBLY_BRANCH` | sync_daemon | Target branch on origin (default `master`). |
 | `PHASE3_BATCH_SIZE` | sync_daemon | Max manifests committed per tick (default 32; bounds tick latency and rollback blast radius). |
+| `PHASE3_DISABLE_RUNNER_RESULT_PUSH` | runner (`experiment_runner.py`) | When `1`, `git_push_results` is a no-op -- sync_daemon's writer owns result commits. Set on every worker BEFORE flipping `PHASE3_GIT_WRITER_READY=True`; running both is unsafe (autostash race). |
+| `PHASE3_DISABLE_RUNNER_QUEUE_PUSH` | runner | When `1`, `git_push_queue` is a no-op -- sync_daemon's queue snapshot writeback (PLAN.md step 5) owns it. **Do not set until step 5 is wired**, or queue updates stop reaching origin. |
+| `PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH` | runner + `runner_remote_control.py` | When `1`, `push_heartbeat`, `push_commands`, AND `git_push_status` are no-ops -- sync_daemon's derived-heartbeats writeback (PLAN.md step 6) owns them. **Do not set until step 6 is wired**, or heartbeats / commands / per-machine status stop reaching origin. |
 
 The `PHASE3_GIT_WRITER_READY` constant in `sync_daemon.py` is the explicit
 implementation flag. It stays `False` until the writer body has been
@@ -131,8 +134,8 @@ git-pushing results/heartbeats):
 | **hub** | `hub_sync_mode_authoritative` | `SYNC_MODE=authoritative` on hub |
 | **hub** | `sync_daemon_phase3_tick` | sync_daemon running; log shows phase3 tick (not stub refusal) |
 | **hub** | `hub_git_writer_only` | Recent `REE_assembly` commits attributable to sync_daemon path only |
-| **fleet** | `workers_no_result_git_push` | Runners not calling `git_push_results` / `git_push_queue` for coordination |
-| **fleet** | `heartbeat_git_retired` | `push_heartbeat` git path disabled or no-op under Phase 3 |
+| **fleet** | `workers_no_result_git_push` | Every worker's runner env has `PHASE3_DISABLE_RUNNER_RESULT_PUSH=1`; recent runner logs show `[runner] phase3 gate: skipping git_push_results` |
+| **fleet** | `heartbeat_git_retired` | When step 6 has landed: every worker has `PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH=1`; recent `runner_remote_control` logs show the gate-active line. SKIP until step 6 is wired. |
 | **data** | `results_drained` | `results.committed_at` populated for pending rows (no stuck spool) |
 | **data** | `queue_snapshot_fresh` | `experiment_queue.json` on origin matches coordinator removals |
 | **explorer** | `derived_heartbeats` | `runner_heartbeats/*.json` updating without per-runner git push |
@@ -162,7 +165,16 @@ brings them up and pauses the scaler so they stay up through the window.
 3. Drain fleet (same discipline as `deploy/phase2_cutover.sh`)
 4. `deploy/phase3_cutover.sh` (calls preflight; refuses if not green)
 5. Hub: set `SYNC_MODE=authoritative`, enable writer, restart sync_daemon
-6. Workers: disable git result/queue/heartbeat pushes (env flags TBD in code)
+6. Workers: set `PHASE3_DISABLE_RUNNER_RESULT_PUSH=1` in each worker's
+   runner env (e.g. `/etc/systemd/system/ree-runner.service.d/shadow.conf`
+   on the clouds) and restart the runner. This MUST happen alongside the
+   `PHASE3_GIT_WRITER_READY=True` flip on the hub -- running both the
+   writer AND the runner's `git_push_results` is the autostash-war
+   scenario Phase 3 exists to prevent. Do NOT set
+   `PHASE3_DISABLE_RUNNER_QUEUE_PUSH` or
+   `PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH` -- those gates exist for the
+   later steps 5/6 cutovers and would stop their respective artifacts
+   from reaching origin until those writers land.
 7. `phase3_verify.py` -> exit 0
 8. `deploy/phase3_release_fleet.sh` -> re-enables `cloud-scaler.yml`. Run
    this ONLY after verify is all PASS; if verify fails, leave the scaler
@@ -217,7 +229,15 @@ Until engineering sign-off on `phase3_git_writer`:
   (`phase3_preflight.py --dry-run` only)
 - Do **not** mix fleet modes: one `COORDINATION_MODE` for all experiment hosts
 - Do **not** disable runner git pushes while hub is still `SYNC_MODE=coordinator`
-  (would stall results with no writer)
+  (would stall results with no writer). The flip from
+  `PHASE3_DISABLE_RUNNER_RESULT_PUSH=0` (Phase 2) to `=1` must happen
+  in the same maintenance window as the hub's writer-ready flag flip.
+- Do **not** set `PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1` or
+  `PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH=1` before PLAN.md steps 5 and 6
+  are wired in `sync_daemon.phase3_git_writer`. Those gates assume a
+  sync_daemon counterpart exists to publish what the runner stops
+  pushing; setting them prematurely means the queue / heartbeats /
+  commands / per-machine status stop reaching origin entirely.
 - Do **not** run `deploy/phase3_wake_fleet.sh` outside a real or rehearsed
   cutover window -- it disables the cloud-scaler workflow, which pauses
   ALL scaling decisions. Leaving the scaler disabled past the cutover
@@ -248,6 +268,13 @@ Until engineering sign-off on `phase3_git_writer`:
   `POST /shutdown_notify` + lifecycle_state on `/shadow/status` landed
   (0e4a815); cloud-scaler workflow announces shutdowns (dda047b); runner
   SIGTERM handler announces (f0568b4); cutover playbook gains wake/release
-  fleet pair. `PHASE3_GIT_WRITER_READY` still `False` -- writer
-  implementation review + steps 5-6 of PLAN.md (queue-snapshot writeback,
-  derived heartbeats) are the remaining blockers before flipping.
+  fleet pair (2e5e991); preflight reads lifecycle_state instead of SSH
+  (90035e5); writer review HIGH-1 stale-origin fix (f95f9db) +
+  HIGH-2 foreign-commit-rejection fix (043e06e); runner-push gating
+  env flags wired (this commit).
+- `PHASE3_GIT_WRITER_READY` still `False` -- remaining blockers before
+  flipping: writer-implementation human sign-off post-fix, plus
+  PLAN.md steps 5-6 (queue-snapshot writeback, derived heartbeats).
+  The result-push gate's runner counterpart is ready; the queue and
+  heartbeat gates exist as scaffolding but their sync_daemon
+  counterparts are NOT yet implemented.

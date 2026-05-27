@@ -490,8 +490,36 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
     return False
 
 
+# --- Phase 3 runner-push gates --------------------------------------------
+# When PHASE3_GIT_WRITER_READY=True on the hub, sync_daemon becomes the sole
+# writer to REE_assembly. The runner's existing per-result / per-queue /
+# per-heartbeat git pushes do `git pull --rebase --autostash` and would
+# fight the writer for the index -- exactly the autostash mechanism Phase 3
+# exists to retire. These three env flags gate the runner-side pushes;
+# default OFF means current Phase 2 behaviour (push as today). Each flag
+# should be flipped to "1" only after its sync_daemon counterpart is wired:
+#   PHASE3_DISABLE_RUNNER_RESULT_PUSH    -> sync_daemon.phase3_git_writer
+#                                          (LANDED 2026-05-27; writer-ready
+#                                          flag still False pending review)
+#   PHASE3_DISABLE_RUNNER_QUEUE_PUSH     -> PLAN.md step 5 queue snapshot
+#                                          writeback (NOT YET WIRED)
+#   PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH -> PLAN.md step 6 derived
+#                                          heartbeats + runner_status
+#                                          writeback (NOT YET WIRED)
+# Setting a flag whose sync_daemon counterpart isn't implemented yet means
+# that artifact stops reaching origin entirely.
+
+def _phase3_gate(env_name: str) -> bool:
+    """Truthy when the env var is '1', 'true', or 'yes' (case-insensitive)."""
+    return os.environ.get(env_name, "").strip().lower() in ("1", "true", "yes")
+
+
 def git_push_queue() -> None:
     """Stage, commit, and push experiment_queue.json to ree-v3. Warns on failure."""
+    if _phase3_gate("PHASE3_DISABLE_RUNNER_QUEUE_PUSH"):
+        print("[runner] phase3 gate: skipping git_push_queue "
+              "(sync_daemon owns queue snapshot writeback)", flush=True)
+        return
     try:
         subprocess.run(
             ["git", "add", "experiment_queue.json"],
@@ -521,7 +549,18 @@ def git_push_results(ree_assembly_path: Path, result_files: list[str] | None = N
     unrelated files from concurrent Claude sessions.
 
     Warns on failure; never raises.
+
+    Phase 3: when PHASE3_DISABLE_RUNNER_RESULT_PUSH=1, becomes a no-op.
+    sync_daemon's phase3_git_writer takes over publishing manifests via
+    its own commit + push (no autostash). The runner still spools the
+    manifest into the coordinator (POST /result writes spool bytes when
+    COORDINATOR_SPOOL_DIR is set on the hub), so the bytes still reach
+    origin -- just via the writer instead of the runner.
     """
+    if _phase3_gate("PHASE3_DISABLE_RUNNER_RESULT_PUSH"):
+        print("[runner] phase3 gate: skipping git_push_results "
+              "(sync_daemon writer owns result commits)", flush=True)
+        return
     try:
         if result_files:
             # Selective staging: only the files the runner actually wrote
@@ -570,7 +609,16 @@ def git_push_status(ree_assembly_path: Path, status_path: Path, queue_id: str) -
     other machines see "queue shrunk" with no record of what ran.
 
     Warns on failure; never raises.
+
+    Phase 3: gated by PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH (status writes
+    are derived from the same table sync_daemon's step-6 writeback owns).
+    Setting the gate before step 6 is wired stops status from reaching
+    origin entirely.
     """
+    if _phase3_gate("PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH"):
+        # No log here -- this is called per-completion and would be
+        # noisy. The push_heartbeat gate prints once per tick already.
+        return
     try:
         rel = str(status_path.relative_to(ree_assembly_path))
         subprocess.run(

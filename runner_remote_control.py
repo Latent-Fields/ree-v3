@@ -364,6 +364,27 @@ def _push_telemetry_file(
         print(f"[remote-control] {label} push error: {exc}", flush=True)
 
 
+# Phase 3 gate for heartbeat AND commands push paths. When sync_daemon's
+# PLAN.md step 6 (derived heartbeats + runner_status writeback) is wired,
+# operators set this env var to 1 on each worker to stop the per-tick
+# pull --rebase --autostash that has been the source of the autostash-war
+# incidents. Default OFF preserves Phase 2 behaviour. Wired symmetrically
+# in experiment_runner.git_push_status (per-completion status push).
+_HEARTBEAT_GATE_LOGGED = [False]  # one-element mutable for module-level state
+
+
+def _phase3_heartbeat_gated() -> bool:
+    enabled = os.environ.get(
+        "PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH", "").strip().lower() in (
+            "1", "true", "yes")
+    if enabled and not _HEARTBEAT_GATE_LOGGED[0]:
+        print("[remote-control] phase3 gate active: heartbeat + commands "
+              "git pushes will be skipped (sync_daemon step 6 owns "
+              "derived heartbeats once wired)", flush=True)
+        _HEARTBEAT_GATE_LOGGED[0] = True
+    return enabled
+
+
 def push_heartbeat(ree_assembly_path: Path, path: Path) -> None:
     """Commit + push a single heartbeat file. Best-effort, never raises.
 
@@ -376,7 +397,13 @@ def push_heartbeat(ree_assembly_path: Path, path: Path) -> None:
     uncommitted edits are left untouched. Heartbeats resume on the next tick
     once the claim closes. See _push_telemetry_file for the (rebase-free)
     git strategy.
+
+    Phase 3: gated by PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH. When that env
+    var is 1, the entire push path is skipped -- sync_daemon's step-6
+    writeback (when wired) takes over derived heartbeat publication.
     """
+    if _phase3_heartbeat_gated():
+        return
     if not path or not path.exists():
         return
     if _active_claim_on_evidence_dir(ree_assembly_path):
@@ -447,7 +474,13 @@ def push_commands(ree_assembly_path: Path, path: Path, label: str = "commands") 
     Same active-TASK_CLAIMS protection as push_heartbeat -- skip the entire
     push if a Claude session is mid-edit on any REE_assembly/evidence/
     subdir, to avoid autostash interactions destabilising uncommitted edits.
+
+    Phase 3: gated by the same PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH env
+    var as push_heartbeat (commands and heartbeats live in the same
+    runner_commands / runner_heartbeats layer, both retired by step 6).
     """
+    if _phase3_heartbeat_gated():
+        return
     if not path or not path.exists():
         return
     if _active_claim_on_evidence_dir(ree_assembly_path):
