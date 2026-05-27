@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-25
+**Last updated:** 2026-05-27
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-25)
+## 0. Current V3 State (2026-05-27)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -135,6 +135,86 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-05-27T01:10Z nightly read.** Central
+  `evidence/experiments/runner_status.json` reports **753 cumulative
+  completions UNCHANGED** (176 PASS / 303 FAIL / 81 ERROR / 193 UNKNOWN);
+  last_updated 2026-05-23T21:06:24Z -- the central file has now been
+  static for **~76h** (~3.2 days; the Phase-2 coordinator -> central-index
+  merge is wedged again, longest stall of the cycle). Per-machine
+  `runner_status/<hostname>.json` files carry the live writes;
+  cross-machine aggregate at this read: DLAPTOP-4.local 592 +
+  ree-cloud-1 243 + ree-cloud-2 184 + ree-cloud-3 142 +
+  ree-cloud-4 141 + ree-worker-3 133 + EWIN-PC 77 + Daniel-PC 28 =
+  **1540 cumulative across hosts** (+0 reported by central). DLAPTOP-4.local
+  is the only host with a fresh heartbeat (2026-05-27T01:11Z); ree-cloud-3
+  last wrote 2026-05-26T07:24Z (~18h ago); the other 6 hosts last wrote
+  between 2026-04-10 (Daniel-PC) and 2026-05-21 (ree-cloud-1/2/4) --
+  effectively only Mac + cloud-3 are still in active production.
+  **Pending review queue (pending_review.md regenerated 2026-05-25T09:06Z;
+  last review 2026-05-25T08:56Z) reads 0 items** but is now **stale** --
+  ~5 new V3 manifests have landed in the intervening 40h (V3-EXQ-543l
+  PASS 2026-05-26T02:30Z evidence_direction=mixed; V3-EXQ-608 PASS
+  2026-05-26T02:58Z interpretation_label=R2a_e3_collapse_confirmed_large_gap
+  on all 3 seeds; V3-EXQ-603/603a/603b retest manifests; V3-EXQ-609
+  diagnostic 2026-05-26T07:24Z claim_ids=[]) that the active
+  `governance-20260526T230808Z` cycle (started 2026-05-26T23:08Z, still
+  listed `status: active` in TASK_CLAIMS.json at this read) will walk.
+  **Currently queued (`experiment_queue.json`): 0 items (`items: []`).**
+  The entire 6-entry fix-and-retest cohort queued 2026-05-25 (V3-EXQ-603a,
+  V3-EXQ-543l, V3-EXQ-608, V3-EXQ-588b, V3-EXQ-598b, V3-EXQ-483d) has
+  drained; V3-EXQ-543l + 608 wrote manifests; the others' fates will be
+  resolved by the active governance walk. V3-EXQ-590a / 591 (the
+  EXQ-ISEF-004/005 cohort that has been the load-bearing bottleneck for
+  the prior three snapshots) **also no longer appear in the queue** --
+  the explicit-rescue checkpoint-resumable V3-EXQ-590a single-host pin
+  appears to have been pruned without a fresh manifest at this read,
+  warranting a separate diagnostic pass.
+  Substrate edits in ree-v3 since the 2026-05-25 snapshot (no new
+  SD/MECH/ARC/Q claim landings; instrumentation + dead-branch cleanup
+  only): (1) **MECH-111 dead-branch deletion** (ree-v3 099743e) in
+  `ree_core/predictors/e3_selector.py:606-613` -- pure-cleanup of the
+  uniform-scalar-shift broadcast novelty branch confirmed argmin-invariant
+  by the 2026-05-25 MECH-314a propagation root-cause investigation
+  (driver verified bit-identical pre/post behaviour); (2) **EXQ-571
+  decomp per-channel `std_across_K` + `bias_range_mean` instrumentation
+  keys** (ree-v3 5c84a4d) on `ree_core/agent.py` -- additive instrumentation
+  surfacing per-candidate spread that the EXQ-571 mean-collapse metric
+  obscured (read by V3-EXQ-609); the same 2026-05-25 investigation
+  identified the **upstream E2 world-forward per-candidate z_world collapse**
+  (`cand_world_pairwise_dist=0.0000` across K=32) as the structural
+  blocker on MECH-314a / MECH-320 / MECH-295 / SD-033a / SD-033b
+  bias-channel diversity, captured in
+  `REE_assembly/evidence/planning/v3_exq_571_root_cause_2026-05-25.md`.
+  (3) **Governance dispositions landed against the V3-EXQ-571 finding**:
+  ARC-065 + MECH-314 `failure_record[0].metric` corrected in
+  `substrate_queue.json` (REE_assembly 683c252158); Q-044 `blocked_by:
+  [e2_world_forward_first_action_preservation]` + dated blocker
+  appendix (REE_assembly 2eb5252f3f); MECH-314a Phase-2 novelty-source
+  design doc + design_question entry in substrate_queue (REE_assembly
+  5ec31e39c8 + 039e195637).
+  Bottleneck: the **upstream E2 world-forward per-candidate z_world
+  collapse** is now the structural root cause of the score_bias-chain
+  flatness that has held ARC-065 (MECH-314a/b/c) + ARC-066 (MECH-320)
+  + ARC-062 GAP-B (gated_policy heads) + MECH-295 / SD-033a/b at
+  non_contributory across the diversity cluster; the V3-EXQ-571 finding
+  doc enumerates four forward paths (rolling z_world visitation buffer
+  Option A as recommended Phase-1 caveat, first-action one-hot bypass
+  per existing GAP-B fix, candidate-pool relative rank, hybrid harm +
+  visitation -- with action-object-identity at proposer stage surfaced
+  as Option F during evaluation). **ARC-062 / MECH-309** now has its
+  first contributory-direction manifest in the cluster: **V3-EXQ-543l**
+  PASS 2026-05-26T02:30Z with `evidence_direction=mixed` and
+  `claim_ids=[ARC-062, MECH-309, INV-074, MECH-334]` (governance
+  disposition deferred to the in-flight cycle). **V3-EXQ-608 P2 PASS
+  2026-05-26T02:58Z** confirmed the R2.a "e3_collapse_confirmed_large_gap"
+  interpretation across all 3 seeds (frac_pre_ge2=1.0,
+  frac_e3_collapse_above_eps=0.858, mean_top2_class_gap=0.378) and
+  triggered the MECH-341 Phase-3 substrate-design phase per the
+  `behavioral_diversity_isolation_plan.md` decision rules. **V3-EXQ-543k
+  disposition recording** (the 2026-05-21 drained-without-manifest BLOCK
+  flagged by the governance verification gate) **remains outstanding**
+  -- 543l does not formally close 543k's audit record. Historical
+  context preserved below.
 - **2026-05-25T01:10Z nightly read.** Central
   `evidence/experiments/runner_status.json` reports **753 cumulative
   completions UNCHANGED** (176 PASS / 303 FAIL / 81 ERROR / 193 UNKNOWN);
