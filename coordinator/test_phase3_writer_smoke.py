@@ -58,16 +58,22 @@ def _bare_remote(parent):
     return remote
 
 
-def _seeded_clone(parent, remote, name="asm"):
+def _seeded_clone(parent, remote, name="asm", seed_msg="seed"):
     """Init a working clone, seed with a README, push so origin/master
-    points to a real commit."""
+    points to a real commit.
+
+    `seed_msg` defaults to a non-`phase3: `-prefixed subject so the
+    foreign-commit check sees the seed as foreign in tests that probe
+    that path. StaleOriginRefTest overrides this to use a writer-
+    authored subject so the seed clears _check_ahead_writer_authored
+    and the non-FF rejection path is the one actually exercised."""
     repo = pathlib.Path(parent) / name
     subprocess.run(["git", "init", "-q", "-b", "master", str(repo)], check=True)
     _git(repo, "config", "user.email", "test@example")
     _git(repo, "config", "user.name", "test")
     (repo / "README.md").write_text("seed\n")
     _git(repo, "add", "README.md")
-    _git(repo, "commit", "-q", "-m", "seed")
+    _git(repo, "commit", "-q", "-m", seed_msg)
     _git(repo, "remote", "add", "origin", str(remote))
     _git(repo, "push", "-q", "origin", "master")
     return repo
@@ -99,12 +105,21 @@ class _WriterFixture(unittest.TestCase):
     """Common per-test scaffolding: bare-remote + working clone + DB +
     spool root. tearDown restores env to whatever it was before."""
 
+    # Subclasses override to control the seed commit's subject (see
+    # LOW-A from the 2026-05-27 review: StaleOriginRefTest needs the
+    # seed to be writer-authored so it doesn't get caught by the
+    # foreign-commit check before reaching the non-FF push path it
+    # claims to exercise).
+    SEED_MSG = "seed"
+
     def setUp(self):
         self._tmp = tempfile.mkdtemp(prefix="phase3_smoke_")
         self._saved_spool = os.environ.get("COORDINATOR_SPOOL_DIR")
         os.environ["COORDINATOR_SPOOL_DIR"] = self._tmp
         self._remote = _bare_remote(self._tmp)
-        self._repo = _seeded_clone(self._tmp, self._remote, name="asm")
+        self._repo = _seeded_clone(
+            self._tmp, self._remote, name="asm",
+            seed_msg=self.SEED_MSG)
         self._dbpath = os.path.join(self._tmp, "coord.db")
         db.init_db(self._dbpath)
         self._conn = db.connect(self._dbpath)
@@ -403,6 +418,15 @@ class StaleOriginRefTest(_WriterFixture):
         absence of bytes on origin instead).
     """
 
+    # LOW-A from the 2026-05-27 review: author the seed commit with the
+    # writer's prefix so the foreign-commit check (HIGH-2) does NOT
+    # catch the seed as foreign in tick 2. Without this override the
+    # test still passes -- but via the wrong protection: the foreign-
+    # check refuses before the non-FF push is ever attempted, so the
+    # stale-ref ahead-of-origin guard this test docstring describes is
+    # not the one actually exercised.
+    SEED_MSG = "phase3: seed"
+
     def _force_remote_to_independent_history(self):
         """Force-push the bare remote to a sibling-built history that
         does NOT contain the writer's commit. After this, the writer's
@@ -667,6 +691,106 @@ class AtomicWorkingTreeWriteTest(_WriterFixture):
         # Bytes round-trip cleanly.
         self.assertEqual(
             (evidence_dir / ("%s.json" % run_id)).read_bytes(), raw)
+
+
+class EnvKnobValidationTest(unittest.TestCase):
+    """LOW-C: extend _validate_batch_size's pattern to the other env
+    knobs that can silently misdirect the writer when malformed."""
+
+    def test_branch_name_default_when_blank(self):
+        self.assertEqual(
+            sync_daemon._validate_branch_name(
+                "", "PHASE3_ASSEMBLY_BRANCH", "master"),
+            "master")
+        self.assertEqual(
+            sync_daemon._validate_branch_name(
+                "   ", "PHASE3_ASSEMBLY_BRANCH", "master"),
+            "master")
+
+    def test_branch_name_rejects_whitespace_and_separators(self):
+        self.assertEqual(
+            sync_daemon._validate_branch_name(
+                "feature branch", "PHASE3_ASSEMBLY_BRANCH", "master"),
+            "master")
+        self.assertEqual(
+            sync_daemon._validate_branch_name(
+                "refs/heads/main", "PHASE3_ASSEMBLY_BRANCH", "master"),
+            "master")
+        self.assertEqual(
+            sync_daemon._validate_branch_name(
+                "back\\slash", "PHASE3_ASSEMBLY_BRANCH", "master"),
+            "master")
+
+    def test_branch_name_accepts_valid(self):
+        self.assertEqual(
+            sync_daemon._validate_branch_name(
+                "main", "PHASE3_REE_V3_BRANCH", "main"),
+            "main")
+        self.assertEqual(
+            sync_daemon._validate_branch_name(
+                "  master  ", "PHASE3_ASSEMBLY_BRANCH", "main"),
+            "master")
+        self.assertEqual(
+            sync_daemon._validate_branch_name(
+                "feature-x.1", "PHASE3_REE_V3_BRANCH", "main"),
+            "feature-x.1")
+
+    def test_repo_relpath_default_when_blank(self):
+        self.assertEqual(
+            sync_daemon._validate_repo_relpath(
+                "", "PHASE3_QUEUE_RELPATH", "experiment_queue.json"),
+            "experiment_queue.json")
+
+    def test_repo_relpath_rejects_absolute(self):
+        self.assertEqual(
+            sync_daemon._validate_repo_relpath(
+                "/etc/passwd", "PHASE3_QUEUE_RELPATH", "experiment_queue.json"),
+            "experiment_queue.json")
+
+    def test_repo_relpath_rejects_parent_escape(self):
+        self.assertEqual(
+            sync_daemon._validate_repo_relpath(
+                "../outside.json", "PHASE3_QUEUE_RELPATH",
+                "experiment_queue.json"),
+            "experiment_queue.json")
+        self.assertEqual(
+            sync_daemon._validate_repo_relpath(
+                "evidence/../../escape.json", "PHASE3_QUEUE_RELPATH",
+                "experiment_queue.json"),
+            "experiment_queue.json")
+
+    def test_repo_relpath_accepts_nested_subdir(self):
+        self.assertEqual(
+            sync_daemon._validate_repo_relpath(
+                "evidence/experiments/queue.json", "PHASE3_QUEUE_RELPATH",
+                "experiment_queue.json"),
+            "evidence/experiments/queue.json")
+
+    def test_float_default_when_unparseable(self):
+        self.assertEqual(
+            sync_daemon._validate_float(
+                "abc", "SYNC_INTERVAL", 60.0),
+            60.0)
+        self.assertEqual(
+            sync_daemon._validate_float(
+                None, "SYNC_INTERVAL", 60.0),
+            60.0)
+
+    def test_float_rejects_non_positive(self):
+        self.assertEqual(
+            sync_daemon._validate_float("0", "SYNC_INTERVAL", 60.0),
+            60.0)
+        self.assertEqual(
+            sync_daemon._validate_float("-5", "SYNC_INTERVAL", 60.0),
+            60.0)
+
+    def test_float_accepts_valid(self):
+        self.assertEqual(
+            sync_daemon._validate_float("30", "SYNC_INTERVAL", 60.0),
+            30.0)
+        self.assertEqual(
+            sync_daemon._validate_float("0.5", "SYNC_INTERVAL", 60.0),
+            0.5)
 
 
 if __name__ == "__main__":

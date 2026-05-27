@@ -152,6 +152,13 @@ PHASE3_QUEUE_FILE = os.environ.get(
 # refusals (writer slices an empty batch out of a non-empty spool, hits
 # "no manifests staged" and refuses for the wrong reason). Validate at
 # module load and fall back to the default with a loud log.
+#
+# LOW-B note: env validation runs at MODULE IMPORT. Setting PHASE3_*
+# env vars (this one, and the branch / relpath / interval validators
+# below) after `import sync_daemon` is silently ignored. The daemon's
+# main() reads the validated module-level constants. Operators must
+# set the env in the systemd unit / launcher, before the Python
+# process starts.
 def _validate_batch_size(raw, default=32):
     try:
         v = int(raw)
