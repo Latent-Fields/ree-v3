@@ -165,6 +165,40 @@ def _hub_working_tree_clean(repo):
     return (True, "")
 
 
+# Every writer-authored commit's message starts with this prefix; see
+# the commit_msg construction inside phase3_git_writer. The foreign-
+# commit check uses prefix membership to gate pushes -- the writer
+# refuses to publish any commit it did not author.
+_PHASE3_COMMIT_PREFIX = "phase3: "
+
+
+def _check_ahead_writer_authored(repo, branch):
+    """Inspect every commit reachable from HEAD but not origin/<branch>.
+
+    Returns (ok, detail). ok=True iff every such commit's subject starts
+    with `_PHASE3_COMMIT_PREFIX` (i.e. was authored by this writer).
+    detail is a list of up to three foreign subject lines when ok=False,
+    or a single-element list with the git-log failure message when the
+    log itself errored.
+
+    Caller is expected to have refreshed origin/<branch> via `git fetch`
+    immediately before this call -- a stale ref would over-count ahead
+    commits (false positives) for the foreign check.
+    """
+    log = _git(
+        repo, "log", "--format=%s",
+        "origin/" + branch + "..HEAD",
+        check=False, timeout=10)
+    if log.returncode != 0:
+        return (False, ["<git-log-failed: %s>"
+                        % log.stderr.strip()[:120]])
+    foreign = [
+        line for line in log.stdout.splitlines()
+        if line and not line.startswith(_PHASE3_COMMIT_PREFIX)
+    ]
+    return (not foreign, foreign[:3])
+
+
 def phase3_git_writer(
     conn,
     queue_path,
@@ -203,6 +237,15 @@ def phase3_git_writer(
         rejected-push tick followed by a no-operator-action tick would
         silently drain the spool without origin ever receiving the
         bytes.
+      - Before EVERY push, verifies that every commit in
+        origin/<branch>..HEAD was writer-authored (subject starts with
+        the `phase3: ` prefix). If any foreign commit is found (operator
+        hand-edit on the hub, accidental tooling commit, force-push
+        residue), the writer refuses to push and retains the spool. The
+        post-cutover invariant "all REE_assembly commits attributable to
+        sync_daemon" depends on this check; without it, an unpushed
+        operator commit between origin/<branch> and HEAD would be
+        published silently by the writer.
       - Batched to PHASE3_BATCH_SIZE manifests per tick; the rest land in
         subsequent ticks.
 
@@ -303,6 +346,29 @@ def phase3_git_writer(
     today = db.utcnow()[:10]
     commit_msg = "phase3: %d v3 result manifest(s) %s" % (len(staged), today)
     try:
+        # Refresh origin/<branch> once at the top of the push-decision
+        # block. Both the ahead-of-origin guard (HIGH-1) and the
+        # writer-authored-only push guard (HIGH-2) need an accurate
+        # remote-tracking ref:
+        #   - HIGH-1: a stale ref would let `ahead==0` lie in case (a),
+        #     draining the spool against a stale view of origin.
+        #   - HIGH-2: a stale ref over-counts ahead commits, false-
+        #     positiving the foreign-commit check (refusing legitimate
+        #     work). Fetching first keeps the check on the correct
+        #     reference set.
+        # Fetch failure refuses the tick rather than proceeding with a
+        # possibly-stale ref.
+        fetched = _git(
+            asm, "fetch", "--quiet", "origin", PHASE3_ASSEMBLY_BRANCH,
+            check=False, timeout=30)
+        if fetched.returncode != 0:
+            sys.stderr.write(
+                "[phase3] refusing tick: fetch origin %s failed (%s). "
+                "Spool retained for next tick.\n" % (
+                    PHASE3_ASSEMBLY_BRANCH,
+                    fetched.stderr.strip()[:240]))
+            return False
+
         diff = _git(asm, "diff", "--cached", "--quiet", check=False,
                     timeout=10)
         if diff.returncode == 0:
@@ -316,22 +382,8 @@ def phase3_git_writer(
             #       commit in HEAD with no operator intervention).
             # Marking committed_at in case (b) without a push is unsafe:
             # the DB says "done" but origin never received the bytes.
-            # `git rev-list --count origin/<branch>..HEAD` distinguishes,
-            # BUT it reads the local remote-tracking ref -- if origin has
-            # been advanced externally since the last fetch, the ref is
-            # stale and ahead==0 lies. Refresh the ref first; refuse the
-            # tick on fetch failure (better to retry next tick than mark
-            # committed against a stale view of origin).
-            fetched = _git(
-                asm, "fetch", "--quiet", "origin", PHASE3_ASSEMBLY_BRANCH,
-                check=False, timeout=30)
-            if fetched.returncode != 0:
-                sys.stderr.write(
-                    "[phase3] refusing to mark committed: fetch origin "
-                    "%s failed (%s). Spool retained for next tick.\n" % (
-                        PHASE3_ASSEMBLY_BRANCH,
-                        fetched.stderr.strip()[:240]))
-                return False
+            # `git rev-list --count origin/<branch>..HEAD` distinguishes
+            # the two (fresh ref guaranteed by the fetch above).
             ahead = _git(
                 asm, "rev-list", "--count",
                 "origin/" + PHASE3_ASSEMBLY_BRANCH + "..HEAD",
@@ -344,9 +396,24 @@ def phase3_git_writer(
                 return False
             ahead_count = ahead.stdout.strip()
             if ahead_count and ahead_count != "0":
-                # Case (b): push the existing unpushed commit. If push
-                # fails (still non-FF), refuse to mark -- the spool
-                # entry survives for the next tick.
+                # Case (b): push the existing unpushed commit -- BUT
+                # only if every ahead commit is writer-authored. A
+                # foreign commit (operator hand-edit, accidental tooling
+                # commit) must not be published under sync_daemon's
+                # authority; refuse and let the operator investigate.
+                ok, foreign = _check_ahead_writer_authored(
+                    asm, PHASE3_ASSEMBLY_BRANCH)
+                if not ok:
+                    sys.stderr.write(
+                        "[phase3] refusing tick: %d foreign commit(s) "
+                        "in origin/%s..HEAD that the writer did not "
+                        "author: %s. NOT marking committed_at; spool "
+                        "retained. Operator must investigate (do not "
+                        "let the writer publish unrelated commits under "
+                        "sync_daemon's authority).\n" % (
+                            len(foreign), PHASE3_ASSEMBLY_BRANCH,
+                            foreign))
+                    return False
                 push = _git(
                     asm, "push", "origin",
                     "HEAD:" + PHASE3_ASSEMBLY_BRANCH,
@@ -372,6 +439,24 @@ def phase3_git_writer(
                     "a push\n" % len(staged))
         else:
             _git(asm, "commit", "-m", commit_msg, timeout=20, check=True)
+            # After the writer's own commit lands, origin/<branch>..HEAD
+            # includes the writer's commit (matches phase3: prefix) plus
+            # any operator commits that were already ahead of origin.
+            # Refuse the push if any foreign commit would be carried
+            # along. The writer's commit remains in local HEAD; the next
+            # tick will re-enter via case (b) and refuse again until the
+            # operator resolves the foreign commit.
+            ok, foreign = _check_ahead_writer_authored(
+                asm, PHASE3_ASSEMBLY_BRANCH)
+            if not ok:
+                sys.stderr.write(
+                    "[phase3] refusing tick: writer's commit landed but "
+                    "%d foreign commit(s) are ahead of origin/%s and "
+                    "would be carried by the push: %s. NOT marking "
+                    "committed_at; spool retained. Operator must "
+                    "resolve the foreign commit(s) before next tick.\n"
+                    % (len(foreign), PHASE3_ASSEMBLY_BRANCH, foreign))
+                return False
             push = _git(
                 asm, "push", "origin", "HEAD:" + PHASE3_ASSEMBLY_BRANCH,
                 timeout=60, check=False)

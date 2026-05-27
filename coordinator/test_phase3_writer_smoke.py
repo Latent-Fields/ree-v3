@@ -273,6 +273,110 @@ class NonFastForwardRejectionTest(_WriterFixture):
         self.assertEqual(self._spool_ids(), [])
 
 
+class ForeignCommitRejectionTest(_WriterFixture):
+    """HIGH-2 from the 2026-05-27 review: the writer's push must publish
+    ONLY writer-authored commits. An operator hand-commit on the hub's
+    master (between two writer ticks) would otherwise get carried along
+    with the writer's next push, attributing it to sync_daemon and
+    breaking the post-cutover invariant "all REE_assembly commits
+    attributable to the sync_daemon path."
+
+    Two scenarios -- the foreign commit can be ahead of origin via
+    either path:
+      - new-commit branch (`else` arm): writer commits its own work on
+        top of an existing operator commit; push would carry both.
+      - diff-cached short-circuit case (b): a re-spool tick sees no
+        diff, ahead>0 (the operator commit alone), would push the
+        operator commit.
+
+    Both scenarios are tested here.
+    """
+
+    def _operator_commits_on_hub(self, message="operator hand edit"):
+        """Add an empty commit on the hub's working clone (not pushed).
+        Simulates an operator hand-edit between writer ticks."""
+        _git(self._repo, "config", "user.email", "operator@example")
+        _git(self._repo, "config", "user.name", "operator")
+        _git(self._repo, "commit", "--allow-empty", "-m", message)
+
+    def test_else_branch_refuses_when_operator_commit_is_ahead(self):
+        # Tick 1: clean push.
+        run_id_1 = "v3_smoke_h2_else_1"
+        _spool_manifest(run_id_1, "V3-EXQ-H2A", self._conn)
+        self.assertTrue(self._run_writer())
+        self.assertIn(
+            "evidence/experiments/%s.json" % run_id_1, self._origin_log())
+
+        # Operator-authored commit lands on hub master, NOT pushed.
+        self._operator_commits_on_hub("operator hand edit while writer idle")
+
+        # Tick 2: new manifest -> else branch -> writer commits + tries
+        # to push. Foreign-check must catch the operator commit between
+        # origin and the writer's new commit.
+        run_id_2 = "v3_smoke_h2_else_2"
+        _spool_manifest(run_id_2, "V3-EXQ-H2B", self._conn)
+        result = self._run_writer()
+
+        self.assertFalse(
+            result,
+            "writer must refuse to push when operator commit is ahead")
+        # manifest #2 still in spool; its committed_at unset.
+        self.assertIn(run_id_2, self._spool_ids())
+        self.assertIsNone(self._committed_at(run_id_2))
+        # manifest #1 still committed_at-marked from tick 1.
+        self.assertIsNotNone(self._committed_at(run_id_1))
+        # Origin master must NOT have manifest #2 OR the operator commit.
+        log = self._origin_log()
+        self.assertNotIn(
+            "evidence/experiments/%s.json" % run_id_2, log,
+            "writer's manifest #2 must not be on origin")
+        operator_on_origin = _git(
+            self._remote, "log", "--format=%s", "master",
+        ).stdout
+        self.assertNotIn(
+            "operator hand edit", operator_on_origin,
+            "operator commit must not be on origin")
+
+    def test_case_b_refuses_when_foreign_commit_is_the_unpushed_one(self):
+        # Tick 1: clean push.
+        run_id = "v3_smoke_h2_caseb"
+        raw = _spool_manifest(run_id, "V3-EXQ-H2C", self._conn)
+        self.assertTrue(self._run_writer())
+        self.assertEqual(self._spool_ids(), [])
+
+        # Re-spool the same manifest (duplicate POST /result simulation),
+        # plus operator commit lands ahead of origin.
+        manifest_spool.write_manifest(
+            run_id, raw,
+            received_at="2026-05-27T21:00:00Z", sha256_hex="sha")
+        self._conn.execute(
+            "UPDATE results SET committed_at=NULL WHERE run_id=?",
+            (run_id,))
+        self._operator_commits_on_hub("operator hand edit pre case-b")
+
+        # Tick 2: writes file (already on HEAD via writer's tick-1
+        # commit), git add no-diff, fetch refreshes ref, rev-list ahead
+        # = 1 (the operator commit), case (b) entered. Foreign-check
+        # must catch it.
+        result = self._run_writer()
+
+        self.assertFalse(
+            result,
+            "writer must refuse case (b) push when ahead commit is foreign")
+        self.assertIn(
+            run_id, self._spool_ids(),
+            "spool entry must survive the refused tick")
+        self.assertIsNone(
+            self._committed_at(run_id),
+            "writer must not mark committed when push refused")
+        # Operator commit must NOT be on origin.
+        origin_log = _git(
+            self._remote, "log", "--format=%s", "master",
+        ).stdout
+        self.assertNotIn(
+            "operator hand edit pre case-b", origin_log)
+
+
 class StaleOriginRefTest(_WriterFixture):
     """HIGH-1 from the 2026-05-27 review: phase3_git_writer's
     ahead-of-origin guard reads the LOCAL remote-tracking ref
