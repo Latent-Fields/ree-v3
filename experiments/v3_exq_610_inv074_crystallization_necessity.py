@@ -3,7 +3,7 @@
 
 EXPERIMENT_PURPOSE = "evidence"
 
-Claims: INV-074 (primary), MECH-334, MECH-333
+Claims: INV-074 (primary), MECH-334, MECH-333, MECH-341
 
 Design
 ------
@@ -11,18 +11,26 @@ Design
 crystallization is NECESSARY for diversity persistence post-Phase-3.
 
 Hypothesis from EVB-0270: Diversity mechanisms (MECH-313 noise_floor, MECH-260
-dACC) establish behavioral diversity during Phases 0-2 via exploration bias.
+dACC, MECH-341 E3 score diversity preservation) establish behavioral diversity
+during Phases 0-2 via exploration bias and Layer-B scoring diversity preservation.
 Without crystallization, these diversity-preserving pathways degrade during
 Phase 3 when the forward model consolidates (F-error-driven signals decay, and
 routed gradients overwrite the established discrimination). WITH crystallization,
 the Phase-3 closure (gated_policy.crystallize() + residue EWC) protects the
 discrimination established during the open window, preserving diversity.
 
+SUBSTRATE DEPENDENCIES (2026-05-27 retest):
+  - MECH-341 (E3 score diversity preservation) landed 2026-05-27 commit 547faa3.
+    This addresses the Layer-B collapse that prevented diversity from manifesting
+    in prior experiments (V3-EXQ-543{f,g,h,i,j,k,l}). INV-074 was marked
+    pending_retest_after_substrate on 2026-05-18 due to substrate_ceiling.
+    This experiment is the retest with MECH-341 enabled.
+
 Arms
 ----
   ARM_0 (control): crystallize_at_phase3=FALSE
-    - Diversity mechanisms active (MECH-313, MECH-260, gated_policy with
-      differential_heads for ARC-062 fix)
+    - Diversity mechanisms active (MECH-313, MECH-260, MECH-341, gated_policy
+      with differential_heads for ARC-062 fix)
     - No crystallization -> diversity should COLLAPSE post-Phase-3 (INV-074
       predicts established discrimination is overwritten as F consolidates)
 
@@ -35,8 +43,9 @@ Both arms:
   - infant_curriculum=True, 4-phase training (Phases 0-3)
   - use_gated_policy=True, use_differential_heads=True (ARC-062 differential
     heads fix for heterosynaptic competition)
-  - MECH-313 (noise_floor) + MECH-260 (dACC anti-recency) both enabled
-    (F-robust diversity signals per critical_period_crystallization.md)
+  - MECH-313 (noise_floor) + MECH-260 (dACC anti-recency) + MECH-341 (E3 score
+    diversity preservation) all enabled (F-robust diversity signals per
+    critical_period_crystallization.md)
   - 3 matched seeds (42, 43, 44)
 
 Metrics
@@ -116,7 +125,7 @@ from infant_curriculum import InfantCurriculumScheduler
 EXPERIMENT_TYPE = "v3_exq_610_inv074_crystallization_necessity"
 EXPERIMENT_PURPOSE = "evidence"
 QUEUE_ID = "V3-EXQ-610"
-CLAIM_IDS = ["INV-074", "MECH-334", "MECH-333"]
+CLAIM_IDS = ["INV-074", "MECH-334", "MECH-333", "MECH-341"]
 BACKLOG_ID = "EVB-0270"
 
 # Env config: simple grid with hazards + resources for diversity opportunity.
@@ -294,6 +303,10 @@ def _make_agent_and_env(
         # MECH-313 noise floor.
         use_noise_floor=True,
         noise_floor_weight=NOISE_FLOOR_WEIGHT,
+        # MECH-341 E3 score diversity preservation (Layer-B fix; critical for INV-074).
+        use_e3_score_diversity=True,
+        use_e3_diversity_entropy_bonus=True,
+        use_e3_diversity_stratified_select=False,  # Use option 1 (entropy bonus).
         # Crystallization kwargs (ARM_1 only; empty dict on ARM_0).
         **xtal_kwargs,
     )
