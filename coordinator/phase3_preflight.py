@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sqlite3
 import subprocess
 import sys
@@ -36,8 +35,18 @@ DEFAULT_ENV = DEFAULT_BASE / "REE_assembly" / "coordinator.env"
 SCHEMA_PATH = HERE / "schema.sql"
 
 CLOUD_HOSTS = ("ree-cloud-1", "ree-cloud-2", "ree-cloud-3", "ree-cloud-4")
-# Mac runner is often serve-managed; cloud systemd drop-ins are the gate.
-FLEET_SSH_HOSTS = CLOUD_HOSTS
+# Expected lifecycle peers on /shadow/status. The Mac (DLAPTOP-4.local) is
+# included because the operator runs this script on the Mac, so it MUST be
+# heartbeating to the coordinator. ree-cloud-4 is in shutdown-only mode by
+# default and may legitimately be gracefully_offline outside a cutover
+# window -- the fleet_lifecycle check accepts that.
+EXPECTED_LIFECYCLE_PEERS = (
+    "DLAPTOP-4.local",
+    "ree-cloud-1",
+    "ree-cloud-2",
+    "ree-cloud-3",
+    "ree-cloud-4",
+)
 HUB_WG = "10.8.0.1"
 DEFAULT_SSH_HOSTS = {
     "ree-cloud-1": "91.98.130.117",
@@ -164,11 +173,59 @@ def _import_sync_daemon_ready() -> tuple[bool, str]:
         return False, "sync_daemon import failed: %r" % exc
 
 
+def _evaluate_fleet_lifecycle(machines: list[dict],
+                              *, cutover_window: bool) -> tuple[str, str, dict]:
+    """Inspect /shadow/status machines list against EXPECTED_LIFECYCLE_PEERS.
+
+    Returns (status, message, detail). status is PASS/FAIL.
+
+    Policy:
+      - steady state (cutover_window=False): each expected peer must be
+        `live` OR `gracefully_offline`. `stale` or missing rows FAIL --
+        a peer not heartbeating and never announced an intentional
+        shutdown is exactly the silent-failure case the operator needs
+        to investigate.
+      - cutover window (cutover_window=True): each expected peer must
+        be `live`. `gracefully_offline` is rejected (the wake_fleet
+        helper exits when everyone is live; getting here with anyone
+        gracefully_offline means wake didn't actually wake them OR they
+        re-shut between wake and preflight). `stale` and missing also
+        FAIL.
+    """
+    by_machine = {m.get("machine"): m for m in machines}
+    accepted = ("live",) if cutover_window else ("live", "gracefully_offline")
+    bad: list[str] = []
+    summary: dict[str, str] = {}
+    for peer in EXPECTED_LIFECYCLE_PEERS:
+        m = by_machine.get(peer)
+        if m is None:
+            summary[peer] = "missing"
+            bad.append("%s=missing" % peer)
+            continue
+        state = m.get("lifecycle_state") or "unknown"
+        summary[peer] = state
+        if state not in accepted:
+            bad.append("%s=%s" % (peer, state))
+    if bad:
+        mode_label = "cutover" if cutover_window else "steady-state"
+        return ("FAIL",
+                "%s policy violated: %s" % (mode_label, ", ".join(bad)),
+                {"per_machine": summary, "cutover_window": cutover_window,
+                 "accepted": list(accepted)})
+    mode_label = "cutover" if cutover_window else "steady-state"
+    return ("PASS",
+            "%s policy OK across %d expected peer(s)" % (
+                mode_label, len(EXPECTED_LIFECYCLE_PEERS)),
+            {"per_machine": summary, "cutover_window": cutover_window,
+             "accepted": list(accepted)})
+
+
 def run_preflight(
     *,
     env_file: Path | None = None,
     dry_run: bool = False,
     mock: bool = False,
+    cutover_window: bool = False,
     quiet: bool = False,
 ) -> dict:
     """Run all pre-cutover checks. Returns a serialisable summary dict."""
@@ -213,12 +270,21 @@ def run_preflight(
 
         st, body, err = _http_get(url, token, "/shadow/status")
         if st == 200 and body:
+            machines = body.get("machines") or []
             add("coordinator_api", "reachability", "PASS",
-                "shadow/status ok (%d machines)" % len(
-                    body.get("machines") or []))
+                "shadow/status ok (%d machines)" % len(machines))
+            # Lifecycle policy across the expected fleet. Replaces the
+            # legacy SSH-based coordination_mode_uniform check, which
+            # produced false positives on surge-only workers
+            # (cloud-4 SSH_FAIL even when its absence was intentional).
+            status, msg, detail = _evaluate_fleet_lifecycle(
+                machines, cutover_window=cutover_window)
+            add("fleet_lifecycle", "fleet", status, msg, **detail)
         else:
             add("coordinator_api", "reachability", "FAIL",
                 "shadow/status failed: %s" % (err or st))
+            add("fleet_lifecycle", "fleet", "SKIP",
+                "shadow/status unavailable -- cannot evaluate lifecycle")
 
     # --- soak (Phase 2 metrics) ---
     if mock:
@@ -257,8 +323,9 @@ def run_preflight(
             "dry-run/mock: skip hub git status")
         add("orphaned_claims", "data", "SKIP",
             "dry-run/mock: skip hub DB query")
-        add("coordination_mode_uniform", "fleet", "SKIP",
-            "dry-run/mock: skip fleet SSH")
+        # fleet_lifecycle is the new lifecycle-aware fleet check; it runs
+        # in the HTTP block above (gated by mock). No SSH stand-in here.
+        pass
     else:
         ok, out, err = _ssh_run(
             hub_ssh, ssh_user,
@@ -337,31 +404,11 @@ def run_preflight(
             add("orphaned_claims", "data", "PASS",
                 "no stale claimed rows in hub DB")
 
-        modes: dict[str, str] = {}
-        for host in FLEET_SSH_HOSTS:
-            h = ssh_hosts.get(host, DEFAULT_SSH_HOSTS.get(host, host))
-            dropin = (
-                "/etc/systemd/system/ree-runner.service.d/shadow.conf"
-            )
-            ok, out, err = _ssh_run(
-                h, ssh_user,
-                "grep -E 'COORDINATION_MODE=' %s 2>/dev/null || echo MISSING"
-                % dropin,
-                dry_run=False)
-            if ok:
-                m = re.search(r"COORDINATION_MODE=(\w+)", out)
-                modes[host] = m.group(1) if m else "MISSING"
-            else:
-                modes[host] = "SSH_FAIL"
-
-        bad = {h: m for h, m in modes.items()
-               if m not in ("coordinator",)}
-        if bad:
-            add("coordination_mode_uniform", "fleet", "FAIL",
-                "mixed or non-coordinator modes: %s" % bad)
-        else:
-            add("coordination_mode_uniform", "fleet", "PASS",
-                "all fleet hosts COORDINATION_MODE=coordinator")
+        # The legacy SSH-based COORDINATION_MODE probe used to live here.
+        # Replaced by fleet_lifecycle, which reads /shadow/status -- a
+        # peer that's not in coordinator mode won't heartbeat, so the
+        # lifecycle check catches the same failure mode without
+        # SSH-pinging surge-only boxes that may legitimately be off.
 
     required_fail = [c for c in checks if c.status == "FAIL"]
     required_warn = [c for c in checks if c.status == "WARN"]
@@ -443,6 +490,10 @@ def main() -> int:
                     help="skip SSH probes; local checks only")
     ap.add_argument("--mock", action="store_true",
                     help="skip live HTTP/SSH (tests)")
+    ap.add_argument("--cutover-window", action="store_true",
+                    help="strict fleet_lifecycle policy: require live for "
+                         "every expected peer (use after phase3_wake_fleet.sh "
+                         "has run successfully; rejects gracefully_offline).")
     ap.add_argument("--json", action="store_true",
                     help="emit JSON summary on stdout")
     args = ap.parse_args()
@@ -456,6 +507,7 @@ def main() -> int:
         env_file=env_path,
         dry_run=args.dry_run,
         mock=args.mock,
+        cutover_window=args.cutover_window,
     )
 
     if args.json:

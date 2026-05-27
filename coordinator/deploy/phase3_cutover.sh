@@ -27,8 +27,10 @@ if [[ ! -f "$PREFLIGHT" ]]; then
   exit 1
 fi
 
-echo "=== Phase 3 cutover: preflight (required) ==="
-PREF_ARGS=()
+echo "=== Phase 3 cutover: preflight (required, cutover-window strict) ==="
+# --cutover-window requires fleet_lifecycle=live for every expected peer.
+# phase3_wake_fleet.sh must have run successfully before this.
+PREF_ARGS=(--cutover-window)
 [[ "$DRY_RUN" -eq 1 ]] && PREF_ARGS+=(--dry-run)
 if ! "$PYTHON" "$PREFLIGHT" "${PREF_ARGS[@]}"; then
   echo "ERROR: phase3_preflight failed -- aborting cutover" >&2
