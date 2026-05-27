@@ -24,7 +24,7 @@ hypothesis — see ARCHITECTURE NOTE below. All weights are placeholder.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Tuple
+from typing import Any, List, Optional, Dict, Tuple
 
 import torch
 import torch.nn as nn
@@ -657,6 +657,7 @@ class E3TrajectorySelector(nn.Module):
         harm_forward_model: Optional["nn.Module"] = None,
         z_harm_s_current: Optional[torch.Tensor] = None,
         score_bias: Optional[torch.Tensor] = None,
+        score_diversity: Optional[Any] = None,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -687,6 +688,12 @@ class E3TrajectorySelector(nn.Module):
                                     Added directly to per-candidate scores before softmax.
                                     Sign convention: lower is better (favourable bias is
                                     negative). None means no bias (backward compat default).
+            score_diversity:        MECH-341 substrate handle (Optional). When supplied,
+                                    apply_entropy_bonus is composed into scores after
+                                    score_bias (Option 1, post-bias-chain), and
+                                    stratified_select replaces argmin in the committed
+                                    selection path (Option 2). None means no MECH-341
+                                    intervention (backward compat default).
 
         Returns:
             SelectionResult
@@ -738,6 +745,19 @@ class E3TrajectorySelector(nn.Module):
                     scale = raw_score_range / bias_range
                     bias_tensor = bias_tensor * scale
             scores = scores + bias_tensor
+
+        # MECH-341 Option 1 (entropy bonus): per-candidate POSITIVE bias on
+        # first-action classes over-represented in the pool. Composed AFTER
+        # the dACC / lateral_pfc / ofc / mech295 / curiosity / tonic_vigor
+        # score_bias chain and BEFORE last_scores / softmax so diagnostics
+        # capture the post-MECH-341 scores. Bit-identical when score_diversity
+        # is None or its use_entropy_bonus sub-flag is False. See MECH-341
+        # / behavioral_diversity_isolation_plan.md / V3-EXQ-608 routing.
+        if score_diversity is not None:
+            mech341_bonus = score_diversity.apply_entropy_bonus(
+                scores=scores, candidates=candidates, simulation_mode=False
+            )
+            scores = scores + mech341_bonus
 
         # V3-EXQ-563c: score / bias diagnostics (pre-softmax, post-bias).
         bias_detached = (
@@ -808,7 +828,23 @@ class E3TrajectorySelector(nn.Module):
         else:
             committed = self._running_variance < effective_threshold
         if committed:
-            selected_idx = int(scores.argmin().item())
+            # MECH-341 Option 2 (class-stratified selection): replace argmin
+            # with softmax-sampling across first-action-class representatives
+            # whenever the pool admits stratification. Forces >= 2 first-
+            # action classes to survive the selection step when the proposer
+            # supplied >= 2 classes. Falls through to legacy argmin when the
+            # substrate is disabled, when sub-flag is False, or when the
+            # pool has too few unique classes. See MECH-341 /
+            # behavioral_diversity_isolation_plan.md / V3-EXQ-608 routing.
+            stratified_idx: Optional[int] = None
+            if score_diversity is not None:
+                stratified_idx = score_diversity.stratified_select(
+                    scores=scores, candidates=candidates, simulation_mode=False
+                )
+            if stratified_idx is not None:
+                selected_idx = int(stratified_idx)
+            else:
+                selected_idx = int(scores.argmin().item())
         else:
             selected_idx = int(torch.multinomial(probs, 1).item())
 

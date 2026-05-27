@@ -1733,6 +1733,35 @@ class REEConfig:
     tonic_vigor_v_t_floor: float = 0.0
 
     # ----------------------------------------------------------------
+    # MECH-341: e3_scoring_preserves_trajectory_class_diversity. Layer-B
+    # diversity-preservation substrate. Triggered by V3-EXQ-608 P2 majority
+    # R2a_e3_collapse_confirmed_large_gap finding (2026-05-26): CEM delivers
+    # >=2 first-action classes (frac_pre_ge2=1.0) but E3 scoring collapses
+    # to single class with mean_top2_class_gap 0.27-0.60 (large-gap, rules
+    # out option 3 jittered tie-breaking). Two sub-flavours under one master,
+    # mirroring MECH-314a/b/c precedent so Q-054 falsifier can dissociate
+    # which one carries the load.
+    #   Option 1 (entropy_bonus): per-candidate POSITIVE bias on candidates
+    #     whose first-action class is over-represented in the pool.
+    #     Composed into scores AFTER existing score_bias chain (dACC /
+    #     lateral_pfc / ofc / mech295 / curiosity / tonic_vigor) and BEFORE
+    #     softmax. Penalises homogenisation at the scoring step.
+    #   Option 2 (stratified_select): partition candidates by first-action
+    #     class, pick argmin within each class, sample across class-
+    #     representatives via softmax. Replaces argmin in the committed
+    #     selection path. Forces >= 2-class survival whenever the pool has
+    #     >= 2 first-action classes.
+    # Both sub-flavours bit-identical OFF by default. Behavioural validation
+    # via R2.c rule in behavioral_diversity_isolation_plan.md.
+    use_e3_score_diversity: bool = False
+    use_e3_diversity_entropy_bonus: bool = True
+    use_e3_diversity_stratified_select: bool = True
+    e3_diversity_entropy_lambda: float = 0.05
+    e3_diversity_entropy_bias_scale: float = 0.1
+    e3_diversity_stratified_temperature: float = 1.0
+    e3_diversity_min_classes_for_stratification: int = 2
+
+    # ----------------------------------------------------------------
     # V3-EXQ-563 diagnostic: forced_score_bias_per_class.
     # Hard-injects a per-action-class score bias vector, bypassing all
     # naturalistic signal generation (MECH-313/314/320). Used to verify
@@ -2638,6 +2667,16 @@ class REEConfig:
         # V3-EXQ-563: forced floor on v_t; bypasses sign/scale gate for
         # actuator tests. Default 0.0 = standard behaviour.
         tonic_vigor_v_t_floor: float = 0.0,
+        # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
+        # class_diversity. Master + two togglable sub-flavours per V3-EXQ-608
+        # R2a_e3_collapse_confirmed_large_gap routing (options 1 + 2).
+        use_e3_score_diversity: bool = False,
+        use_e3_diversity_entropy_bonus: bool = True,
+        use_e3_diversity_stratified_select: bool = True,
+        e3_diversity_entropy_lambda: float = 0.05,
+        e3_diversity_entropy_bias_scale: float = 0.1,
+        e3_diversity_stratified_temperature: float = 1.0,
+        e3_diversity_min_classes_for_stratification: int = 2,
         # V3-EXQ-563: hard-inject per-class score bias after all naturalistic
         # signal generation. None = disabled (standard behaviour).
         forced_score_bias_per_class: Optional[List[float]] = None,
@@ -3189,6 +3228,17 @@ class REEConfig:
         config.tonic_vigor_form = tonic_vigor_form
         config.tonic_vigor_noop_class = tonic_vigor_noop_class
         config.tonic_vigor_v_t_floor = tonic_vigor_v_t_floor
+
+        # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
+        # class_diversity
+        config.use_e3_score_diversity = use_e3_score_diversity
+        config.use_e3_diversity_entropy_bonus = use_e3_diversity_entropy_bonus
+        config.use_e3_diversity_stratified_select = use_e3_diversity_stratified_select
+        config.e3_diversity_entropy_lambda = e3_diversity_entropy_lambda
+        config.e3_diversity_entropy_bias_scale = e3_diversity_entropy_bias_scale
+        config.e3_diversity_stratified_temperature = e3_diversity_stratified_temperature
+        config.e3_diversity_min_classes_for_stratification = e3_diversity_min_classes_for_stratification
+
         config.forced_score_bias_per_class = forced_score_bias_per_class
 
         # MECH-319: simulation_mode_rule_write_gate

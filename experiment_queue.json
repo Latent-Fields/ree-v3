@@ -49,6 +49,21 @@
       "seeds": 3,
       "conditions": 2,
       "note": "Routing per failure_autopsy_V3-EXQ-543l_2026-05-27 sections 7+9: substrate-enrichment-first reading -- the GAP-C/D substrate (discriminator -> SD-033a rule_state + rule_bias_head trainable in P1 optimiser, both landed 2026-05-17) is the routing consumer 543l's shared-return REINFORCE could not supply alone. 2-arm ablation (frozen-zero vs trainable bias head) on ARC-062 + SD-054 bipartite stack with SP-CEM + differential heads + mode_separation_floor=0.25 + P1_W_DEVIATION_AUX_WEIGHT=0.1. Claim_ids=[SD-033a, MECH-262] (SD-034 NOT tagged: closure_operator not exercised by 2-arm ablation; would need closure-pulse metrics + use_closure_operator=True). Acceptance: C1 frozen silent (SD-033a baseline), C2 trainable nonzero (SD-033a trainable substrate), C3 trainable not monomodal (MECH-262 rule-selective persistence). Per-claim direction emitted. Permissive gate: any V3-EXQ-543l manifest with outcome in {PASS, FAIL} clears (543l ran FAIL/mixed 2026-05-26 -- clears). Contributory PASS predicts substrate-enrichment reading (substrate-enrichment correctly rescues differentiation); FAIL/weakens routes to ARC-063 V4 lit-pull + design session (test-design-ceiling reading: REINFORCE on shared return is structurally insufficient). Supersedes V3-EXQ-598a (which ERRORed cloud-sync gap 2026-05-21 and never ran)."
+    },
+    {
+      "queue_id": "V3-EXQ-611",
+      "title": "MECH-341 substrate-readiness 4-arm ablation (ALL_OFF / OPT1_ONLY / OPT2_ONLY / BOTH_ON)",
+      "experiment_type": "v3_exq_611_mech341_substrate_readiness_4arm",
+      "script": "experiments/v3_exq_611_mech341_substrate_readiness_4arm.py",
+      "claim_id": "MECH-341",
+      "priority": 260,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "episodes_per_run": 50,
+      "seeds": 3,
+      "conditions": 4,
+      "note": "Substrate-readiness diagnostic for MECH-341 landing 2026-05-27. 4-arm ablation across master switch + sub-flavours (ALL_OFF / OPT1_ONLY entropy bonus / OPT2_ONLY stratified select / BOTH_ON). Reuses V3-EXQ-608 env config + metric stack so ARM_0 results are directly comparable to the EXQ-608 manifest. Acceptance: C1 substrate fires in ON arms (n_entropy_bonus_fired / n_stratified_fired > 0); C2 ARM_0 reproduces R2a_e3_collapse_confirmed_large_gap majority; C3 at least one of ARM_1/ARM_2 produces selected_classes_count >= 2 with frac_pre_ge2 >= 0.5; R2.c readiness: ARM_2 or ARM_3 clears selected_class_entropy threshold 0.3 nats. PASS routes governance to queue B_only / ablate_B / ALL_ON behavioural successor per behavioral_diversity_isolation_plan.md. experiment_purpose=diagnostic; evidence_direction=non_contributory; not weighted in confidence/conflict scoring per Phase-3 governance rules."
     }
   ]
 }

@@ -45,6 +45,10 @@ from ree_core.goal import GoalState
 from ree_core.latent.theta_buffer import ThetaBuffer
 from ree_core.predictors.e1_deep import E1DeepPredictor
 from ree_core.predictors.e2_fast import E2FastPredictor, Trajectory
+from ree_core.predictors.e3_score_diversity import (
+    E3ScoreDiversity,
+    build_from_ree_config as build_e3_score_diversity_from_ree_config,
+)
 from ree_core.predictors.e3_selector import E3TrajectorySelector
 from ree_core.residue.field import ResidueField
 from ree_core.hippocampal.ghost_goal_bank import PersistenceAppraisal
@@ -659,6 +663,20 @@ class REEAgent(nn.Module):
                 v_t_floor=getattr(config, "tonic_vigor_v_t_floor", 0.0),
             )
             self.tonic_vigor = TonicVigor(config=tv_cfg)
+
+        # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
+        # class_diversity. Layer-B diversity-preservation substrate triggered
+        # by V3-EXQ-608 P2 R2a_e3_collapse_confirmed_large_gap finding
+        # (2026-05-26): CEM delivers >=2 first-action classes but E3 scoring
+        # collapses to a single class with large score gap (rules out option
+        # 3 jittered tie-breaking; routes to options 1+2). Two togglable sub-
+        # flavours under one master per behavioral_diversity_isolation_plan.md
+        # "Substrate design options" section. Bit-identical baseline when
+        # use_e3_score_diversity=False. See ree_core/predictors/e3_score_diversity.py
+        # and REE_assembly/docs/architecture/mech_341_e3_score_diversity_preservation.md.
+        self.score_diversity: Optional[E3ScoreDiversity] = (
+            build_e3_score_diversity_from_ree_config(config)
+        )
 
         # MECH-319 (arc_062 GAP-K): simulation_mode_rule_write_gate.
         # Substrate-level instantiation of MECH-094 at the rule-arbitration
@@ -1464,6 +1482,8 @@ class REEAgent(nn.Module):
             self.curiosity.reset()
         if self.tonic_vigor is not None:
             self.tonic_vigor.reset()
+        if self.score_diversity is not None:
+            self.score_diversity.reset()
 
         # MECH-319: reset simulation-mode rule-gate diagnostic counters on
         # episode boundary. The gate has no persistent state across ticks
@@ -3502,6 +3522,7 @@ class REEAgent(nn.Module):
             sweep_threshold_reduction=sweep_reduction,
             z_harm_a=z_harm_a,
             score_bias=dacc_score_bias,
+            score_diversity=self.score_diversity,
         )
         self._last_e3_selection_result = result
         action = result.selected_action
