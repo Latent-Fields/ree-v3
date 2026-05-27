@@ -154,6 +154,106 @@ or `git`, and set ree-cloud-1 back to `COORDINATOR_MODE=shadow` /
 Phase 3 (result cutover, sync_daemon as sole git writer) is described in
 `../PLAN.md` and is deliberately NOT enabled by this runbook.
 
+## Scaler shutdown announcer (optional)
+
+`ree-v3/.github/workflows/cloud-scaler.yml` can announce intentional
+shutdowns to the coordinator via `POST /shutdown_notify`, so that
+`/shadow/status` returns `lifecycle_state=gracefully_offline` (not
+`stale`) for surge-pool workers between active windows. Without this
+the scaler still works -- surge-only boxes just show as `stale` in
+the explorer + preflight until the 7-day watchdog window expires.
+
+One-time setup on ree-cloud-1:
+
+```
+# 1. Install the helper (run as a sudo-capable user on cloud-1)
+sudo cp coordinator_announce_shutdown.sh /usr/local/bin/
+sudo chmod 755 /usr/local/bin/coordinator_announce_shutdown.sh
+
+# 2. Mint a dedicated scaler token (revocable independently of worker
+#    tokens). Add to tokens.json (next to app.py):
+/opt/local/bin/python3 gen_token.py scaler        # prints the token
+# Manually paste the {token: "scaler"} line into tokens.json, restart
+# the coordinator:
+sudo systemctl restart ree-coordinator
+
+# 3. Add the token to /etc/ree-coordinator.env so the helper can read it:
+sudoedit /etc/ree-coordinator.env
+# add line:
+#   COORDINATOR_SCALER_TOKEN=<the token from step 2>
+
+# 4. Generate an SSH keypair dedicated to the scaler (so it can be
+#    revoked without disturbing the operator's own access):
+ssh-keygen -t ed25519 -f ~/scaler_key -N "" -C "github-scaler"
+
+# 5. Authorize the scaler key on the ree user. V1 grants shell access
+#    on the ree account (same trust level as the HCLOUD_TOKEN secret
+#    which can already spin up arbitrary Hetzner machines). See
+#    "Hardening (optional)" below to lock the key to a forced command.
+cat ~/scaler_key.pub | sudo tee -a /home/ree/.ssh/authorized_keys
+```
+
+### Hardening (optional)
+
+V1 above gives the scaler SSH key full shell access to the ree user.
+Lock it down to ONLY the announcer with a wrapper that parses
+`$SSH_ORIGINAL_COMMAND`, validates the argument, and exec's the helper:
+
+```
+sudo tee /usr/local/bin/scaler_announce_wrapper.sh <<'WRAP'
+#!/bin/bash
+# Forced-command wrapper. Accepts only:
+#   /usr/local/bin/coordinator_announce_shutdown.sh <affinity>
+# Anything else exits non-zero.
+set -eu
+cmd=${SSH_ORIGINAL_COMMAND:-}
+case "$cmd" in
+  "/usr/local/bin/coordinator_announce_shutdown.sh '"*"'")
+    aff=${cmd#"/usr/local/bin/coordinator_announce_shutdown.sh '"}
+    aff=${aff%"'"}
+    case "$aff" in
+      *[!A-Za-z0-9._-]*) echo "bad affinity" >&2; exit 2 ;;
+    esac
+    exec /usr/local/bin/coordinator_announce_shutdown.sh "$aff" ;;
+  *) echo "unauthorized command: $cmd" >&2; exit 1 ;;
+esac
+WRAP
+sudo chmod 755 /usr/local/bin/scaler_announce_wrapper.sh
+
+# Replace the plain authorized_keys line with a forced-command one:
+sudo sed -i '/scaler_key/d' /home/ree/.ssh/authorized_keys
+echo 'command="/usr/local/bin/scaler_announce_wrapper.sh",no-pty,no-agent-forwarding,no-X11-forwarding,no-port-forwarding '"$(cat ~/scaler_key.pub)" \
+  | sudo tee -a /home/ree/.ssh/authorized_keys
+```
+
+The helper itself remains unchanged; the wrapper just gates it.
+
+GitHub repo secrets / variables (Settings -> Secrets and variables ->
+Actions):
+
+| Kind | Name | Value |
+|------|------|-------|
+| Secret | `HUB_SSH_KEY` | contents of `~/scaler_key` (the private key) |
+| Secret | `HUB_SSH_HOST_KEY` (optional) | output of `ssh-keyscan -t ed25519 <hub-public-ip>` |
+| Variable | `HUB_SSH_USER` (optional, defaults to `ree`) | the SSH user on the hub |
+| Variable | `HUB_SSH_HOST` (optional, defaults to `91.98.130.117`) | the hub's public IP |
+
+Verify end-to-end after setup:
+
+```
+# From the GitHub Actions tab: run cloud-scaler.yml manually via
+# workflow_dispatch on an idle window. Step "Set up hub SSH key" should
+# log "HUB_SSH_READY=1". If a shutdown fires, the next-tick check_shadow
+# should report the just-shut-down worker as gracefully_offline:
+ssh ree@<hub> "curl -s -H 'Authorization: Bearer $COORDINATOR_LOCAL_TOKEN' \
+    http://10.8.0.1:8787/shadow/status" | jq '.machines[] | {machine, lifecycle_state}'
+```
+
+The announcement is **best-effort**: any failure in the SSH/curl path is
+logged but does NOT block the underlying `hcloud server shutdown`. The
+runner's own SIGTERM handler is an independent fallback path (a future
+PR -- see `../PHASE3_CUTOVER.md` follow-ups).
+
 ## Starting from the explorer (the button)
 
 Instead of starting each runner by hand, the REE explorer has a "Shadow

@@ -42,9 +42,43 @@ jobs:
           sparse-checkout: evidence/experiments/runner_heartbeats
           path: ree-assembly
 
+      - name: Set up hub SSH key (best-effort shutdown_notify announcer)
+        # Optional: when HUB_SSH_KEY is set, the scaler can SSH into the
+        # coordinator hub and POST /shutdown_notify before issuing
+        # `hcloud server shutdown`. This lets /shadow/status return
+        # lifecycle_state=gracefully_offline instead of stale for surge-
+        # pool workers, so preflight gates and the explorer UI distinguish
+        # "intentionally offline" from "silent failure."
+        # Without HUB_SSH_KEY the workflow runs exactly as before
+        # (shutdown announcement skipped; lifecycle_state stays stale until
+        # the watchdog window expires).
+        env:
+          HUB_SSH_KEY: ${{ secrets.HUB_SSH_KEY }}
+        run: |
+          if [ -z "${HUB_SSH_KEY:-}" ]; then
+            echo "[scaler] HUB_SSH_KEY not configured -- shutdown_notify announces will be skipped"
+            echo "HUB_SSH_READY=0" >> $GITHUB_ENV
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$HUB_SSH_KEY" > ~/.ssh/hub_key
+          chmod 600 ~/.ssh/hub_key
+          # Pin hub host key to avoid TOFU on every run; HUB_SSH_HOST_KEY
+          # secret holds one or more lines from `ssh-keyscan <hub-ip>`.
+          # When absent we fall back to StrictHostKeyChecking=no -- this
+          # workflow's threat model already trusts the GH-secrets surface;
+          # the announcement payload itself is non-sensitive.
+          if [ -n "${{ secrets.HUB_SSH_HOST_KEY }}" ]; then
+            printf '%s\n' "${{ secrets.HUB_SSH_HOST_KEY }}" >> ~/.ssh/known_hosts
+            chmod 600 ~/.ssh/known_hosts
+          fi
+          echo "HUB_SSH_READY=1" >> $GITHUB_ENV
+
       - name: Check queue + heartbeats and scale cloud workers
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          HUB_SSH_USER: ${{ vars.HUB_SSH_USER || 'ree' }}
+          HUB_SSH_HOST: ${{ vars.HUB_SSH_HOST || '91.98.130.117' }}
         run: |
           set -euo pipefail
 
@@ -161,6 +195,21 @@ jobs:
               echo "  -> queue has work but $SERVER_NAME is shutdown-only (manual start required)"
             elif [ "$CLAIMABLE" -eq 0 ] && [ "$STATUS" = "running" ] && [ "$IDLE_OK" = "1" ]; then
               echo "  -> no matching work AND runner idle past grace window, shutting down $SERVER_NAME"
+              # Announce shutdown to the coordinator BEFORE issuing hcloud
+              # shutdown, so lifecycle_state flips to gracefully_offline
+              # immediately rather than waiting on the runner's SIGTERM
+              # handler (which would miss this signal if the runner is
+              # already crashed). Best-effort: a failed announcement does
+              # NOT block the actual shutdown.
+              if [ "${HUB_SSH_READY:-0}" = "1" ]; then
+                ssh -o StrictHostKeyChecking=accept-new \
+                    -o ConnectTimeout=10 -o BatchMode=yes \
+                    -i ~/.ssh/hub_key \
+                    "${HUB_SSH_USER}@${HUB_SSH_HOST}" \
+                    "/usr/local/bin/coordinator_announce_shutdown.sh '$AFFINITY'" \
+                    && echo "    [scaler] announced shutdown_notify for $AFFINITY" \
+                    || echo "    [scaler] WARN: shutdown_notify announce failed for $AFFINITY (proceeding)"
+              fi
               # shutdown (not poweroff) so systemd sends SIGTERM for graceful drain
               hcloud server shutdown "$SERVER_NAME"
             else
