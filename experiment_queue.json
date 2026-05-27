@@ -18,23 +18,6 @@
       "estimated_minutes": 180
     },
     {
-      "queue_id": "V3-EXQ-598b",
-      "title": "ARC-062 / commitment_closure GAP-1 SD-033a bias-head trainable ablation (post-543l autopsy substrate-enrichment routing)",
-      "experiment_type": "v3_exq_598b_gap1_sd033a_bias_head_trainable_ablation",
-      "script": "experiments/v3_exq_598b_gap1_sd033a_bias_head_trainable_ablation.py",
-      "claim_id": "SD-033a",
-      "supersedes": "V3-EXQ-598a",
-      "gates_on_exq": "V3-EXQ-543l",
-      "priority": 240,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 80,
-      "episodes_per_run": 96,
-      "seeds": 3,
-      "conditions": 2,
-      "note": "Routing per failure_autopsy_V3-EXQ-543l_2026-05-27 sections 7+9: substrate-enrichment-first reading -- the GAP-C/D substrate (discriminator -> SD-033a rule_state + rule_bias_head trainable in P1 optimiser, both landed 2026-05-17) is the routing consumer 543l's shared-return REINFORCE could not supply alone. 2-arm ablation (frozen-zero vs trainable bias head) on ARC-062 + SD-054 bipartite stack with SP-CEM + differential heads + mode_separation_floor=0.25 + P1_W_DEVIATION_AUX_WEIGHT=0.1. Claim_ids=[SD-033a, MECH-262] (SD-034 NOT tagged: closure_operator not exercised by 2-arm ablation; would need closure-pulse metrics + use_closure_operator=True). Acceptance: C1 frozen silent (SD-033a baseline), C2 trainable nonzero (SD-033a trainable substrate), C3 trainable not monomodal (MECH-262 rule-selective persistence). Per-claim direction emitted. Permissive gate: any V3-EXQ-543l manifest with outcome in {PASS, FAIL} clears (543l ran FAIL/mixed 2026-05-26 -- clears). Contributory PASS predicts substrate-enrichment reading (substrate-enrichment correctly rescues differentiation); FAIL/weakens routes to ARC-063 V4 lit-pull + design session (test-design-ceiling reading: REINFORCE on shared return is structurally insufficient). Supersedes V3-EXQ-598a (which ERRORed cloud-sync gap 2026-05-21 and never ran)."
-    },
-    {
       "queue_id": "V3-EXQ-611",
       "title": "MECH-341 substrate-readiness 4-arm ablation (ALL_OFF / OPT1_ONLY / OPT2_ONLY / BOTH_ON)",
       "experiment_type": "v3_exq_611_mech341_substrate_readiness_4arm",
