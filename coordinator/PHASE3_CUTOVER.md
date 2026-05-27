@@ -145,15 +145,45 @@ landed (see file header). Re-run verify until all required IDs are PASS.
 
 ## Cutover procedure (operator)
 
-1. `phase3_preflight.py` -> exit 0
-2. Drain fleet (same discipline as `deploy/phase2_cutover.sh`)
-3. `deploy/phase3_cutover.sh` (calls preflight; refuses if not green)
-4. Hub: set `SYNC_MODE=authoritative`, enable writer, restart sync_daemon
-5. Workers: disable git result/queue/heartbeat pushes (env flags TBD in code)
-6. `phase3_verify.py` -> exit 0
-7. Resume runners; watch manifests and queue on origin for one full EXQ
+The cutover window assumes every expected peer is `lifecycle_state=live`
+on `/shadow/status` (which lets the post-Phase-3 preflight semantics gate
+on positive signal instead of SSH-pinging). Surge-only workers (today
+`ree-cloud-4`) are powered off most of the time; the wake-fleet helper
+brings them up and pauses the scaler so they stay up through the window.
 
-**Script entry:** `ree-v3/coordinator/deploy/phase3_cutover.sh`
+1. `deploy/phase3_wake_fleet.sh` -> disables the `cloud-scaler.yml`
+   workflow, powers on any offline cloud worker via `hcloud`, polls
+   `/shadow/status` until every expected peer (ree-cloud-1..4 +
+   DLAPTOP-4.local) shows `lifecycle_state=live`. Exits 0 when ready,
+   non-zero on timeout. Requires `HCLOUD_TOKEN` env var; reads
+   `COORDINATOR_URL` + `COORDINATOR_LOCAL_TOKEN` from
+   `REE_assembly/coordinator.env`.
+2. `phase3_preflight.py` -> exit 0
+3. Drain fleet (same discipline as `deploy/phase2_cutover.sh`)
+4. `deploy/phase3_cutover.sh` (calls preflight; refuses if not green)
+5. Hub: set `SYNC_MODE=authoritative`, enable writer, restart sync_daemon
+6. Workers: disable git result/queue/heartbeat pushes (env flags TBD in code)
+7. `phase3_verify.py` -> exit 0
+8. `deploy/phase3_release_fleet.sh` -> re-enables `cloud-scaler.yml`. Run
+   this ONLY after verify is all PASS; if verify fails, leave the scaler
+   paused while rolling back.
+9. Resume runners; watch manifests and queue on origin for one full EXQ
+
+**Script entry:** `ree-v3/coordinator/deploy/phase3_cutover.sh`.
+**Wake / release pair:** `deploy/phase3_wake_fleet.sh` +
+`deploy/phase3_release_fleet.sh`.
+
+### Why scaler-pause instead of marker-queue-entries
+
+Earlier design considered seeding the queue with `machine_affinity=
+ree-cloud-4` markers to keep cloud-4's claimable count > 0 (preventing
+the scaler from shutting it down). That works but introduces a window
+where a real runner could claim and execute the marker mid-cutover.
+Pausing the scaler workflow via `gh workflow disable` is cleaner: one
+command, no queue mutation, and the pause covers all scaler decisions
+(not just cloud-4's). The 15-minute scheduled cron simply doesn't fire
+during the window. Re-enable post-verify and the scaler resumes its
+next decision cycle.
 
 ---
 
@@ -188,6 +218,10 @@ Until engineering sign-off on `phase3_git_writer`:
 - Do **not** mix fleet modes: one `COORDINATION_MODE` for all experiment hosts
 - Do **not** disable runner git pushes while hub is still `SYNC_MODE=coordinator`
   (would stall results with no writer)
+- Do **not** run `deploy/phase3_wake_fleet.sh` outside a real or rehearsed
+  cutover window -- it disables the cloud-scaler workflow, which pauses
+  ALL scaling decisions. Leaving the scaler disabled past the cutover
+  window means workers won't auto-start when the queue grows.
 
 ---
 
@@ -195,9 +229,11 @@ Until engineering sign-off on `phase3_git_writer`:
 
 | Tool | Role |
 |------|------|
+| `deploy/phase3_wake_fleet.sh` | Pre-cutover prep: pauses scaler, wakes offline workers, waits for lifecycle=live across the fleet |
 | `phase3_preflight.py` | Pre-cutover gate (exit 0/1) |
 | `phase3_verify.py` | Post-cutover gate (exit 0/1; SKIP until implemented) |
 | `deploy/phase3_cutover.sh` | Drains + hub flip; **refuses** if preflight fails |
+| `deploy/phase3_release_fleet.sh` | Post-verify: re-enables scaler workflow |
 | `sync_daemon.phase3_git_writer()` | Sole writer implementation (stub) |
 | `GET /api/coordinator/phase3/preflight` | Read-only summary in Explorer (serve.py) |
 
@@ -208,3 +244,10 @@ Until engineering sign-off on `phase3_git_writer`:
 - 2026-05-21: Phase 3 **substrate only** (this doc, preflight/verify CLIs,
   cutover script shell, sync_daemon scaffold). Phase 2 remains live.
   **Not safe to cut over.**
+- 2026-05-27: writer ahead-of-origin guard landed (2b13f68);
+  `POST /shutdown_notify` + lifecycle_state on `/shadow/status` landed
+  (0e4a815); cloud-scaler workflow announces shutdowns (dda047b); runner
+  SIGTERM handler announces (f0568b4); cutover playbook gains wake/release
+  fleet pair. `PHASE3_GIT_WRITER_READY` still `False` -- writer
+  implementation review + steps 5-6 of PLAN.md (queue-snapshot writeback,
+  derived heartbeats) are the remaining blockers before flipping.
