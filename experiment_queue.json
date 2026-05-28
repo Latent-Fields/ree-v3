@@ -41,6 +41,18 @@
         "claimed_at": "2026-05-28T17:24:31.161445+00:00"
       },
       "experiment_type": "v3_exq_612_phase3_cutover_smoke"
+    },
+    {
+      "queue_id": "V3-EXQ-612c",
+      "script": "experiments/v3_exq_612_phase3_cutover_smoke.py",
+      "priority": 1,
+      "machine_affinity": "ree-cloud-2",
+      "status": "pending",
+      "estimated_minutes": 1,
+      "title": "Phase 3 E2E smoke (verdict sentinel fix retry)",
+      "experiment_type": "v3_exq_612_phase3_cutover_smoke",
+      "supersedes": "V3-EXQ-612b",
+      "note": "V3-EXQ-612b ran fine on cloud-2 but the script lacked the verdict: PASS stdout sentinel so the runner classified ERROR and skipped report_result. Script now prints verdict: PASS."
     }
   ]
 }

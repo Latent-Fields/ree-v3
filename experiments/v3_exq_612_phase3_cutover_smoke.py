@@ -150,6 +150,10 @@ def main() -> int:
     print(f"[{EXPERIMENT_TYPE}] result={manifest['result']} "
           f"steps={total_steps} elapsed={elapsed:.1f}s", flush=True)
 
+    # Runner-readable verdict sentinel (experiment_runner.py:101 RE_VERDICT).
+    # Without this the runner classifies the run as ERROR even on clean exit.
+    print(f"verdict: {manifest['result']}", flush=True)
+
     # Print V3 completion sentinel that the runner watches for on stdout.
     print(f"[v3_complete] {run_id}", flush=True)
     return 0 if manifest["result"] == "PASS" else 1
