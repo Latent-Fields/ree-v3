@@ -170,6 +170,12 @@ def write_heartbeat(
         "runner_pid": runner_pid if runner_pid is not None else os.getpid(),
         "runner_version": runner_version,
         "gpu": _gpu_info(),
+        # Surface the runner's coordinator state so cross-machine audits
+        # (and the /queue-experiment skill's post-push check) can detect
+        # workers stuck in git mode without an SSH round-trip. Absent on
+        # pre-2026-05-28 runners; readers should treat the missing field
+        # as "git" + "unknown runner version, please restart".
+        "coordination_mode": os.environ.get("COORDINATION_MODE", "git"),
         "schema_version": "v1",
     }
     if extra:
