@@ -14,8 +14,12 @@
       "backlog_id": "EVB-0270",
       "priority": 28,
       "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 180
+      "status": "claimed",
+      "estimated_minutes": 180,
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-28T07:15:50.364244+00:00"
+      }
     }
   ]
 }
