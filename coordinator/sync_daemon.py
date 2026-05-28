@@ -154,7 +154,7 @@ def reconcile_once(conn, queue_path, *, claim_authority="git",
 
 # Set True only after phase3_git_writer steps 1-6 are implemented and
 # phase3_preflight.py + phase3_verify.py pass on the live fleet.
-PHASE3_GIT_WRITER_READY = False
+PHASE3_GIT_WRITER_READY = True
 
 # Hub paths (override via env when deploying). PHASE3_REE_ASSEMBLY and
 # PHASE3_REE_V3 are validated below, AFTER the _validate_* helpers are
@@ -298,7 +298,7 @@ def _validate_float(raw, env_name, default):
 # and queue-cutover can be staged separately. Default False until the
 # implementation is reviewed AND the runner-side
 # PHASE3_DISABLE_RUNNER_QUEUE_PUSH flag is set on every worker.
-PHASE3_QUEUE_WRITER_READY = False
+PHASE3_QUEUE_WRITER_READY = True
 
 # Hub paths for the queue writer. ree-v3 checkout is separate from the
 # REE_assembly checkout used by the result writer.
@@ -327,7 +327,7 @@ PHASE3_REE_ASSEMBLY = _validate_abs_repo_path(
 # the per-runner runner_remote_control.push_heartbeat git push (the original
 # autostash-war bug source). Gated by its OWN flag so the heartbeat cutover
 # can stage separately from result + queue cutovers.
-PHASE3_HEARTBEAT_WRITER_READY = False
+PHASE3_HEARTBEAT_WRITER_READY = True
 
 # Subdirectories (relative to REE_assembly) where the writer materialises
 # the per-machine files. Match the existing legacy layout that explorer
