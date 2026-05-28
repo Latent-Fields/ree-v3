@@ -6,5 +6,17 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-612",
+      "script": "experiments/v3_exq_612_phase3_cutover_smoke.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 1,
+      "title": "Phase 3 cutover end-to-end smoke",
+      "experiment_type": "v3_exq_612_phase3_cutover_smoke",
+      "note": "Trivial smoke -- drives the claim->result->writer->queue-writer Phase 3 cycle. Run once on 2026-05-28 cutover day; not a scientific test."
+    }
+  ]
 }
