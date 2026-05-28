@@ -26,6 +26,18 @@
         "machine": "DLAPTOP-4.local",
         "claimed_at": "2026-05-28T17:26:40.517271+00:00"
       }
+    },
+    {
+      "queue_id": "V3-EXQ-612b",
+      "script": "experiments/v3_exq_612_phase3_cutover_smoke.py",
+      "priority": 1,
+      "machine_affinity": "ree-cloud-2",
+      "status": "pending",
+      "estimated_minutes": 1,
+      "title": "Phase 3 cutover end-to-end smoke (cloud-2 retry)",
+      "experiment_type": "v3_exq_612_phase3_cutover_smoke",
+      "supersedes": "V3-EXQ-612",
+      "note": "V3-EXQ-612 was run by Mac at 17:25 but Mac runner had no COORDINATION_MODE env so report_result was a no-op. Retry on cloud-2 which has the proper env to demonstrate the full Phase 3 cycle."
     }
   ]
 }
