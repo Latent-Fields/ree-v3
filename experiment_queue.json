@@ -12,11 +12,15 @@
       "script": "experiments/v3_exq_612_phase3_cutover_smoke.py",
       "priority": 1,
       "machine_affinity": "DLAPTOP-4.local",
-      "status": "pending",
+      "status": "claimed",
       "estimated_minutes": 1,
       "title": "Phase 3 cutover end-to-end smoke",
       "experiment_type": "v3_exq_612_phase3_cutover_smoke",
-      "note": "Trivial smoke -- drives the claim->result->writer->queue-writer Phase 3 cycle. Run once on 2026-05-28 cutover day; not a scientific test."
+      "note": "Trivial smoke -- drives the claim->result->writer->queue-writer Phase 3 cycle. Run once on 2026-05-28 cutover day; not a scientific test.",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-28T17:24:31.161445+00:00"
+      }
     }
   ]
 }
