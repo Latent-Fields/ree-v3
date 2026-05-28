@@ -53,6 +53,18 @@
       "experiment_type": "v3_exq_612_phase3_cutover_smoke",
       "supersedes": "V3-EXQ-612b",
       "note": "V3-EXQ-612b ran fine on cloud-2 but the script lacked the verdict: PASS stdout sentinel so the runner classified ERROR and skipped report_result. Script now prints verdict: PASS."
+    },
+    {
+      "queue_id": "V3-EXQ-612d",
+      "script": "experiments/v3_exq_612_phase3_cutover_smoke.py",
+      "priority": 1,
+      "machine_affinity": "ree-cloud-3",
+      "status": "pending",
+      "estimated_minutes": 1,
+      "title": "Phase 3 E2E smoke (emit_outcome sentinel)",
+      "experiment_type": "v3_exq_612_phase3_cutover_smoke",
+      "supersedes": "V3-EXQ-612c",
+      "note": "V3-EXQ-612c manifest path was empty in runner because the script did not call experiment_protocol.emit_outcome. Now wired. Targeting cloud-3 (cloud-2 was failed-state-revived). Single try, then stop chasing the E2E demo if this fails."
     }
   ]
 }

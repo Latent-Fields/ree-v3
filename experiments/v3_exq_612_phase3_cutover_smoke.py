@@ -45,6 +45,7 @@ writer's job to demonstrate.
 """
 
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -53,6 +54,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
+from experiment_protocol import emit_outcome
 
 
 EXPERIMENT_TYPE = "v3_exq_612_phase3_cutover_smoke"
@@ -151,11 +153,22 @@ def main() -> int:
           f"steps={total_steps} elapsed={elapsed:.1f}s", flush=True)
 
     # Runner-readable verdict sentinel (experiment_runner.py:101 RE_VERDICT).
-    # Without this the runner classifies the run as ERROR even on clean exit.
     print(f"verdict: {manifest['result']}", flush=True)
 
     # Print V3 completion sentinel that the runner watches for on stdout.
     print(f"[v3_complete] {run_id}", flush=True)
+
+    # Canonical runner-conformance sentinel: tells the runner WHERE the
+    # manifest is so report_result() can ship the bytes to the coordinator.
+    # Without this, the runner's "manifest '' is missing" warning fires and
+    # the result never reaches the spool.
+    emit_outcome(
+        outcome=manifest["result"],
+        manifest_path=out_path,
+        run_id=run_id,
+        queue_id=os.environ.get("REE_QUEUE_ID"),
+    )
+
     return 0 if manifest["result"] == "PASS" else 1
 
 
