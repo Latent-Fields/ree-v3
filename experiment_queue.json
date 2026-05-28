@@ -19,7 +19,7 @@
       "note": "Trivial smoke -- drives the claim->result->writer->queue-writer Phase 3 cycle. Run once on 2026-05-28 cutover day; not a scientific test.",
       "claimed_by": {
         "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-28T17:24:31.161445+00:00"
+        "claimed_at": "2026-05-28T17:25:35.138365+00:00"
       }
     }
   ]
