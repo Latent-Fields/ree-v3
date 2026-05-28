@@ -14,6 +14,7 @@ Exit codes:
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -134,6 +135,25 @@ def _type_name(t) -> str:
     if isinstance(t, tuple):
         return "/".join(x.__name__ for x in t if x is not type(None))
     return t.__name__
+
+
+def _is_tracked(repo_root: Path, rel_path: str) -> bool:
+    # Returns True iff `rel_path` is tracked in the git index at repo_root.
+    # If git is unavailable (no .git, no git binary), we fail-open: return
+    # True so non-git checkouts (e.g. fresh tarball extractions in CI sanity
+    # checks) do not spuriously fail validation. The real production path
+    # always has git.
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", rel_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return True  # fail-open when git is unavailable
+    return result.returncode == 0
 
 
 def _validate_run_axis(prefix: str, field_name: str, value, elem_type) -> list[str]:
@@ -294,13 +314,26 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
         if "conditions" in item:
             errors.extend(_validate_run_axis(prefix, "conditions", item["conditions"], str))
 
-        # script field -- warn (not error) if the file does not exist
+        # script field -- require the file to be both on disk AND tracked in git.
+        # An untracked-but-on-disk script passes Path.exists() in the producer's
+        # checkout but fails on every consumer that pulls the queue (the 2026-05-27
+        # ree-cloud-1/2/3 fleet wedge: V3-EXQ-610 queue entry committed without its
+        # script via a parallel-session in-file edit; producer's validate passed
+        # because the untracked script existed on disk locally; every cloud worker
+        # crashed at startup). git ls-files is the authoritative check.
         script_val = item.get("script")
         if isinstance(script_val, str):
             script_path = queue_path.parent / script_val
             if not script_path.exists():
                 errors.append(
-                    f"{prefix}: script file not found: {script_val}"
+                    f"{prefix}: script file not found on disk: {script_val}"
+                )
+            elif not _is_tracked(queue_path.parent, script_val):
+                errors.append(
+                    f"{prefix}: script file exists on disk but is not tracked in "
+                    f"git (untracked or ignored): {script_val}. Run `git add "
+                    f"{script_val}` in the same commit as the queue entry to "
+                    f"prevent pulling consumers from crashing at validate startup."
                 )
             else:
                 # Manifest-writing scripts must print the runner-matching save line.

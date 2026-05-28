@@ -21,6 +21,10 @@
 Description=REE Experiment Runner (auto-sync cloud worker)
 After=network-online.target
 Wants=network-online.target
+# StartLimit* belong in [Unit] in modern systemd (>= v229). See [Service]
+# Restart= block below for the rationale on these specific values.
+StartLimitBurst=5
+StartLimitIntervalSec=900
 
 [Service]
 Type=simple
@@ -32,8 +36,20 @@ ExecStart=/home/<user>/.venv/ree/bin/python3 experiment_runner.py --auto-sync --
 TimeoutStopSec=600
 KillSignal=SIGTERM
 
-# Do not auto-restart -- the GitHub Actions auto-scaler manages lifecycle
-Restart=no
+# Auto-restart on non-zero exit, capped to prevent infinite tight loop.
+# Rationale: the 2026-05-27 ree-cloud-1/2/3 fleet wedge -- V3-EXQ-610 queue entry
+# was pushed without its script (producer-side atomicity violation in commit
+# a7888df), validate_queue.py crashed all three runners with exit code 1, and
+# the prior Restart=no policy left them dead for ~24h until manual restart.
+# Restart=on-failure means a transient bad-queue commit self-heals in ~60s
+# when the producer pushes the missing script. The StartLimit* cap means a
+# persistent bad commit fails the unit loudly within 15min (5 retries x 60s),
+# so heartbeat freshness alarms still fire instead of getting masked by
+# infinite restart churn.
+# SIGTERM (graceful drain on shutdown) is NOT treated as failure; the
+# auto-scaler still owns clean lifecycle transitions.
+Restart=on-failure
+RestartSec=60
 
 # Logging
 StandardOutput=journal
