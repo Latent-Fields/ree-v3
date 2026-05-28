@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-27
+**Last updated:** 2026-05-28
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -117,6 +117,7 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | MECH-282 | regulators.lpb_interoceptive_routing -- LPBInteroceptiveRouter splits harm into z_harm (external; resource slice zeroed before HarmEncoder) and a non-trainable z_harm_intero broadcast (drive_level + harm_obs_a resource EMA); SD-037 coupling routes intero -> override, external -> PAG freeze proxy when both flags on. REEConfig.use_lpb_interoceptive_routing default False. | Implemented 2026-05-21 (V3-EXQ-600 3-arm substrate diagnostic queued) |
 | MECH-286 | sleep.override_gated_state_transition -- wake-stability axis of SD-037: wake->offline transition in SleepLoopManager gated by a joint permit (override_signal below threshold AND max region-staleness above recruit AND z_harm_a.norm() below tonic threshold); blocked entry resets episodes_since_sleep. REEConfig.use_mech286_sleep_onset_gate default False -- preserves deterministic K-episode firing. | Implemented 2026-05-21 (V3-EXQ-599 3-arm substrate diagnostic queued) |
 | MECH-340 (+ Q-053 wiring) | hippocampal.persistence_efficacy_gate -- ARC-079 / Q-053 front-runner: GhostGoalBank entry persistence as a MECH-293 re-probe target is gated; disengagement is the default when license = control_efficacy * (1 - goal_unattainability) < persistence_floor (SD-039 trace preserved). Q-053 agent wiring (2026-05-21) maps prior hippocampal completion + E3 commitment -> control_efficacy and one-shot 1 - goal_proximity -> goal_unattainability. GhostGoalBankConfig.use_persistence_efficacy_gate default False. | Implemented 2026-05-21 (V3-EXQ-607 diagnostic queued; contracts 8/8 + dry-run PASS) |
+| MECH-341 (ARC-065 Layer-B child) | ethics_engine_3.scoring_trajectory_class_diversity_preservation -- new ree_core/predictors/e3_score_diversity.py module (E3ScoreDiversity + E3ScoreDiversityConfig + E3ScoreDiversityDiagnostics + build_from_ree_config). Layer-B (post-CEM scoring) diversity-preservation substrate triggered by V3-EXQ-608 P2 (2026-05-26T02:58Z) majority R2a_e3_collapse_confirmed_large_gap on the diversity-cluster isolation plan. Two togglable sub-flavours under one master, MECH-314a/b/c-style: Option 1 entropy_bonus (per-candidate positive bias proportional to the candidate's first-action class frequency, composed AFTER the dACC / lateral_pfc / ofc / mech295 / curiosity / tonic_vigor score_bias chain and BEFORE last_scores / softmax) + Option 2 stratified_select (partition by first-action class, argmin within class, softmax-sample across class-representatives at stratified_temperature; replaces argmin in the committed-path selection at e3_selector.py:811-820; falls through when fewer than min_classes_for_stratification unique classes are present). Pure-arithmetic regulator (no nn.Module inheritance, no learned parameters); sibling to MECH-313 NoiseFloor + MECH-314 StructuredCuriosity + MECH-320 TonicVigor. REEConfig.use_e3_score_diversity master + sub-knobs (use_e3_diversity_entropy_bonus, use_e3_diversity_stratified_select, e3_diversity_entropy_lambda 0.05, e3_diversity_entropy_bias_scale 0.1, e3_diversity_stratified_temperature 1.0, e3_diversity_min_classes_for_stratification 2) all default bit-identical OFF. 506/506 contracts + 7/7 preflight PASS with master OFF (regression-clean 2026-05-27). | Implemented 2026-05-27 (ree-v3 547faa3); design doc REE_assembly/docs/architecture/mech_341_e3_score_diversity_preservation.md; validation V3-EXQ-611 queued priority 260 (4-arm ALL_OFF / OPT1_ONLY / OPT2_ONLY / BOTH_ON substrate-readiness diagnostic on the EXQ-608 env + metric stack; estimated_minutes=150); behavioural validation V3-EXQ-611 successor deferred per R2.c rule on isolation plan |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -135,6 +136,88 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-05-28T01:10Z nightly read.** Central
+  `evidence/experiments/runner_status.json` reports **756 cumulative
+  completions (+3 since 2026-05-27T01:10Z read)** (178 PASS / 304 FAIL
+  / 81 ERROR / 193 UNKNOWN); last_updated 2026-05-27T18:05:04Z -- the
+  central file is now ~7h fresh at this read (a sharp improvement over
+  the prior ~76h stall; the Phase-2 coordinator -> central-index merge
+  has caught up after the 2026-05-27 governance cycle staging). +3
+  central completions resolve to V3-EXQ-543j / 588b / 524a / 543k /
+  490g (the cluster the governance pending-walk dispositioned this
+  morning is now reflected). Cross-machine per-host aggregate at this
+  read: DLAPTOP-4.local 595 (+3 since yesterday; latest V3-EXQ-611
+  2026-05-27T13:02Z) + ree-cloud-1 243 (stale) + ree-cloud-2 184
+  (stale) + ree-cloud-3 142 (latest V3-EXQ-609 2026-05-26T07:24Z,
+  unchanged) + ree-cloud-4 141 (stale) + ree-worker-3 133 (stale) +
+  EWIN-PC 77 (stale) + Daniel-PC 28 (stale) = **1543 cumulative across
+  hosts** (+3 since yesterday's 1540). The fleet contraction trend
+  noted yesterday continues: only DLAPTOP-4.local wrote within the last
+  24h; ree-cloud-3 is at ~42h stale and the other six hosts at days /
+  weeks. **Pending review queue (regenerated 2026-05-27T17:40:25Z;
+  last review 2026-05-27T17:35Z) reads 1 item** -- V3-EXQ-598b
+  (commitment_closure GAP-1 SD-033a bias-head trainable ablation,
+  claim_ids=[MECH-262, SD-033a]), FAIL completed 2026-05-27T12:03Z,
+  evidence_direction=does_not_support; the runner finished the
+  ARM_0 frozen / ARM_1 trainable comparison and the permissive gate
+  (manifest exists + outcome in {PASS, FAIL}) holds, so the disposition
+  routes through the next governance pending walk rather than via
+  `/failure-autopsy`. **Currently queued
+  (`experiment_queue.json`): 1 item** -- V3-EXQ-610
+  `v3_exq_610_inv074_crystallization_necessity.py` (INV-074, priority
+  28, machine_affinity=any, estimated_minutes=180); this is the
+  IGW-20260527-027 INV-074 retest-after-substrate (MECH-341 flags
+  active per the 2026-05-27 IGW-027 close) -- V3-EXQ-611 (MECH-341
+  4-arm substrate-readiness) does NOT appear in `items[]` at this
+  read despite being queued at priority 260 in the MECH-341 session
+  close note; worth a manual re-check whether 611 was drained or
+  was never persisted, since priority 260 should run before priority
+  28. Substrate landings since the 2026-05-27T01:10Z snapshot
+  (single major substrate-side claim landed today):
+  (1) **MECH-341 e3_scoring_preserves_trajectory_class_diversity**
+  (ree-v3 547faa3) -- Layer-B post-CEM diversity-preservation
+  substrate; togglable entropy-bonus + stratified-select sub-flavours;
+  pure-arithmetic regulator sibling to MECH-313/314/320; bit-identical
+  OFF default; 506/506 contracts + 7/7 preflight PASS; design doc
+  REE_assembly/docs/architecture/mech_341_e3_score_diversity_preservation.md
+  + claims.yaml implementation_note + behavioral_diversity_isolation_plan.md
+  status-table update + V3-EXQ-611 4-arm validation queued. (2)
+  **Governance cycle 2026-05-27** (REE_assembly 4856a3dcdb +
+  correction ac56ba507b) -- 6-pending walk: V3-EXQ-543l per-claim
+  4-split governance-stamped (ARC-062 weakens narrow_supports_flag /
+  MECH-309 supports first trained-policy entry / INV-074 + MECH-334
+  non_contributory missing-prerequisite); V3-EXQ-591 manifest
+  does_not_support -> non_contributory cluster-uniform 4th member
+  (ARC-046 NOT weakened); V3-EXQ-603c cluster-absorbed into 591
+  autopsy; Q-045 / MECH-313 / MECH-260 routed substrate_ceiling V3
+  (NOT substrate_conditional V4 -- user-flagged correction). substrate_queue
+  extended with ARC-046 (InfantCurriculumScheduler Phase-0 exit-gate
+  fix per V3-EXQ-591 autopsy) + MECH-341 (entropy_bonus_scale retune
+  + stratified trigger condition revision) entries. (3) Closure-drift
+  /governance step + lint script (REE_assembly 01e5f79e7d) + brain-map
+  prefix mapping + 4 new regions + validator tightening (REE_assembly
+  4039a0dbaa, governance.sh Step 3d). (4) Failure-autopsy artifacts
+  V3-EXQ-543l (REE_assembly 72bab05c93) + V3-EXQ-591 (REE_assembly
+  cfedfd1353).
+  Bottleneck: the **upstream E2 world-forward per-candidate z_world
+  collapse** identified in the 2026-05-25 V3-EXQ-571 root-cause
+  investigation remains the structural root cause of the score_bias-chain
+  flatness; the MECH-341 substrate landing today addresses the
+  Layer-B (E3 scoring) symptom but does not remove the Layer-A
+  (E2 forward-model collapse) cause. The 2026-05-27 governance cycle's
+  reclassification of Q-045 / MECH-313 / MECH-260 to substrate_ceiling
+  V3 (vs the initial substrate_conditional V4 stamping the user
+  corrected mid-cycle) is the most consequential governance act of
+  the cycle: it keeps the diversity cluster as a V3-scoped substrate-
+  enrichment problem rather than punting it to V4. **ARC-062 / MECH-309**
+  picked up its first contributory trained-policy entry today
+  (V3-EXQ-543l per-claim split: MECH-309 supports; ARC-062 weakens
+  narrow_supports_flag), and V3-EXQ-598b's FAIL pending review will
+  resolve whether the next-action substrate-enrichment pass is the
+  ARC-046 InfantCurriculumScheduler Phase-0 exit gate or the
+  MECH-341 entropy retune. The V3-EXQ-543k disposition gap (carried
+  forward from the 2026-05-21 drained-without-manifest BLOCK) remains
+  outstanding; not closed by either failure-autopsy today.
 - **2026-05-27T01:10Z nightly read.** Central
   `evidence/experiments/runner_status.json` reports **753 cumulative
   completions UNCHANGED** (176 PASS / 303 FAIL / 81 ERROR / 193 UNKNOWN);
