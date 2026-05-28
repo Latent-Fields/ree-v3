@@ -846,7 +846,28 @@ class E3TrajectorySelector(nn.Module):
             else:
                 selected_idx = int(scores.argmin().item())
         else:
-            selected_idx = int(torch.multinomial(probs, 1).item())
+            # MECH-341 retune (2026-05-28): apply stratified_select on the
+            # uncommitted branch too. V3-EXQ-611 (2026-05-27) showed
+            # n_stratified_fired=0 across all 3 seeds because the committed
+            # branch was never entered in the validation episodes; the prior
+            # implementation gated Option-2 to committed selection only. The
+            # categorical-preservation semantic applies equally to the
+            # uncommitted (multinomial) path: when the pool admits >= 2
+            # first-action classes, sample across class-representatives
+            # rather than across raw softmax probabilities. Bit-identical
+            # when score_diversity is None or when the sub-flavour flag is
+            # False (stratified_select returns None; legacy multinomial path
+            # taken). MECH-094 preserved by simulation_mode=False kwarg.
+            # Falsifier: V3-EXQ-611b 6-arm retune sweep.
+            stratified_idx = None
+            if score_diversity is not None:
+                stratified_idx = score_diversity.stratified_select(
+                    scores=scores, candidates=candidates, simulation_mode=False
+                )
+            if stratified_idx is not None:
+                selected_idx = int(stratified_idx)
+            else:
+                selected_idx = int(torch.multinomial(probs, 1).item())
 
         # V3-EXQ-571: record which candidate was selected into decomp dict.
         if self.e3_score_decomp_enabled and self.last_score_decomp:
