@@ -8,18 +8,23 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-612",
-      "script": "experiments/v3_exq_612_phase3_cutover_smoke.py",
-      "priority": 1,
+      "queue_id": "V3-EXQ-611b",
+      "script": "experiments/v3_exq_611b_mech341_retune_6arm.py",
+      "priority": 250,
       "machine_affinity": "DLAPTOP-4.local",
       "status": "claimed",
-      "estimated_minutes": 1,
-      "title": "Phase 3 cutover end-to-end smoke",
-      "experiment_type": "v3_exq_612_phase3_cutover_smoke",
-      "note": "Trivial smoke -- drives the claim->result->writer->queue-writer Phase 3 cycle. Run once on 2026-05-28 cutover day; not a scientific test.",
+      "estimated_minutes": 200,
+      "title": "MECH-341 retune 6-arm validation (supersedes V3-EXQ-611)",
+      "experiment_type": "v3_exq_611b_mech341_retune_6arm",
+      "claim_ids": [
+        "MECH-341"
+      ],
+      "experiment_purpose": "diagnostic",
+      "supersedes": "V3-EXQ-611",
+      "note": "MECH-341 retune validation. Substrate change: e3_selector.py applies stratified_select on the uncommitted (multinomial) branch too (was committed-only); fixes V3-EXQ-611 n_stratified_fired=0 across all 3 seeds. 6-arm factorial: 3 option groups (OPT1_only/OPT2_only/BOTH) x 2 entropy_bias_scale values (1.0/2.0). PASS gate: C1 (stratified fires across all OPT2/BOTH seeds) AND (C2 bonus scale-commensurate OR C3 substrate produces selected-class diversity). NO config default changes per implement-substrate skill rule -- scales passed via cfg_overrides. ALL_OFF baseline established by V3-EXQ-611 manifest already on origin/master. See substrate_queue.json MECH-341 retune entry + behavioral_diversity_isolation_plan.md R2.c rule.",
       "claimed_by": {
         "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-28T17:25:35.138365+00:00"
+        "claimed_at": "2026-05-28T17:26:40.517271+00:00"
       }
     }
   ]
