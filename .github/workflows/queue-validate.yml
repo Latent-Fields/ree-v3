@@ -1,0 +1,54 @@
+name: Queue Validation
+# Post-push belt-and-suspenders for the 2026-05-27 fleet-wedge atomicity hole.
+#
+# Root cause that motivated this workflow: commit a7888df pushed the V3-EXQ-610
+# queue entry without its script. The producer's local validate_queue.py
+# passed because the script existed on disk as an untracked file from a
+# parallel session. Every ree-cloud-* worker then pulled and crashed at
+# validate_queue exit 1 with Restart=no.
+#
+# Defence in depth:
+#   - Skill-side audit (/queue-experiment Step 5/8)        -- producer behavioural fix
+#   - validate_queue.py git ls-files --error-unmatch check -- producer technical fix
+#   - THIS workflow                                        -- post-push fail-fast
+#   - ree-runner.service Restart=on-failure                -- consumer self-heal
+#
+# What this workflow does: fresh-clone ree-v3 in a clean Ubuntu image (no
+# untracked files from any session), run validate_queue.py, fail the action
+# loudly if it errors. Catches the V3-EXQ-610 scenario *before* the cloud
+# workers' next pull, so the operator gets a red X on the push commit
+# instead of a silent fleet wedge.
+#
+# Runs on every push to main and on PRs. Cheap (< 30s).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fresh checkout (full repo, no sparse, no cached working tree)
+        uses: actions/checkout@v4
+        with:
+          # No sparse-checkout: we need both experiment_queue.json AND every
+          # experiments/v3_exq_*.py script the queue references to actually
+          # be present in the index. The fleet wedge would have been caught
+          # here because the V3-EXQ-610 script was missing from the tracked
+          # tree.
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run validate_queue.py against the freshly-cloned tree
+        run: |
+          python3 validate_queue.py
+          echo "Queue validation passed against a fresh clone (no producer-side untracked-file leak)."
