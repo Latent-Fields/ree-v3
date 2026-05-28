@@ -482,6 +482,95 @@ def _check_ahead_writer_authored(repo, branch,
     return (not foreign, foreign[:3])
 
 
+def _sync_to_origin(repo, branch, log_prefix):
+    """Fetch origin/<branch>, then if local HEAD is BEHIND origin, rebase
+    the writer-authored ahead commits on top of refreshed origin. Returns
+    (ok, reason); ok=False means the caller must refuse the tick.
+
+    Why this helper exists:
+    Between two writer ticks, an unrelated commit can land on origin --
+    a Claude session closing a TASK_CLAIMS entry, a lit-pull synthesis
+    push, a runner claim during the legacy-push transition window. The
+    next writer tick's local HEAD is then both AHEAD (its own
+    retained-for-retry phase3-* commits) AND BEHIND (origin has new
+    work). Without this absorb step `git push` rejects non-FF on every
+    tick and the spool grows forever. That is exactly the failure mode
+    we observed live on 2026-05-28 ~16:25Z..17:36Z, where REE_assembly
+    sat ahead 7 / behind 2 and ree-v3 ahead 4 / behind 6 for ~70
+    minutes while phase3_git_writer + phase3_queue_writer + phase3_
+    heartbeat_writer all logged push REJECTED on a fixed cadence.
+
+    Why this is safe -- and is NOT the `git pull --rebase --autostash`
+    pattern Phase 3 retires:
+      1. The caller has already passed `_hub_working_tree_clean`, so
+         there is nothing to autostash. `git rebase` without
+         --autostash refuses on a dirty tree, double-enforcing the
+         clean-tree precondition.
+      2. `_check_ahead_writer_authored` ensures every commit being
+         rebased was authored by some phase3 writer. A foreign commit
+         (operator hand-edit, accidental tooling commit) refuses the
+         tick instead of getting rebased under the writer's authority.
+      3. On rebase failure (content conflict against an origin commit
+         that touched the same files), we `git rebase --abort` and
+         refuse. The tree is restored. The next tick re-materialises
+         from DB / replays from spool and tries again. We never silently
+         resolve conflicts or drop work.
+
+    Idle no-op path: when behind_count == 0 (we're up to date with
+    origin, or ahead-only), the helper returns ok immediately. The
+    existing fetch + ahead-of-origin guard in the caller's push block
+    handles the ahead-only case (a rejected push followed by a
+    no-operator-action tick is the case the 2026-05-27 HIGH-1 guard
+    already covered).
+    """
+    fetched = _git(
+        repo, "fetch", "--quiet", "origin", branch,
+        check=False, timeout=30)
+    if fetched.returncode != 0:
+        return (False, "fetch origin %s failed: %s" % (
+            branch, fetched.stderr.strip()[:240]))
+    behind = _git(
+        repo, "rev-list", "--count", "HEAD..origin/" + branch,
+        check=False, timeout=10)
+    if behind.returncode != 0:
+        return (False, "rev-list behind-count failed: %s" % (
+            behind.stderr.strip()[:240]))
+    behind_count = behind.stdout.strip()
+    if not behind_count or behind_count == "0":
+        return (True, "")
+    # Behind > 0. Validate ahead commits are writer-authored BEFORE
+    # touching HEAD -- a foreign commit ahead means the operator has
+    # work that the writer must not rebase under its own authority.
+    ok, foreign = _check_ahead_writer_authored(repo, branch)
+    if not ok:
+        return (False,
+                "behind origin/%s by %s commit(s) AND %d foreign "
+                "commit(s) ahead (%s); operator must resolve before the "
+                "writer can rebase" % (
+                    branch, behind_count, len(foreign), foreign))
+    rebased = _git(
+        repo, "rebase", "origin/" + branch,
+        check=False, timeout=60)
+    if rebased.returncode != 0:
+        # Conflict against an origin commit that touched the same path
+        # the writer's commit modified. Abort cleanly and surface --
+        # the operator gets to decide whether to drop the stale writer
+        # commits (the safe default, since they're regeneratable from
+        # DB / spool) or to merge by hand.
+        _git(repo, "rebase", "--abort", check=False, timeout=10)
+        return (False,
+                "rebase onto origin/%s failed (%s); rebase aborted, "
+                "spool / DB state intact. Operator may need to resolve "
+                "conflicts by hand or `git reset --hard origin/%s` to "
+                "drop the stale writer commits (they will be "
+                "regenerated on the next tick)." % (
+                    branch, rebased.stderr.strip()[:240], branch))
+    sys.stdout.write(
+        "%s rebased %s writer-authored commit(s) onto refreshed "
+        "origin/%s\n" % (log_prefix, behind_count, branch))
+    return (True, "")
+
+
 def phase3_git_writer(
     conn,
     queue_path,
@@ -578,6 +667,16 @@ def phase3_git_writer(
             "[phase3] refusing tick: REE_assembly at %s is %s. Phase 3 "
             "does NOT autostash -- resolve the dirt by hand, then the "
             "next tick will retry.\n" % (asm, reason))
+        return False
+
+    # Absorb any unrelated commits that landed on origin between writer
+    # ticks. The clean-tree check above is the precondition; without
+    # this the writer wedges as soon as origin advances by even one
+    # commit (see _sync_to_origin docstring).
+    synced, reason = _sync_to_origin(asm, PHASE3_ASSEMBLY_BRANCH, "[phase3]")
+    if not synced:
+        sys.stderr.write(
+            "[phase3] refusing tick: %s. Spool retained.\n" % reason)
         return False
 
     # Stage 1: write manifests onto the working tree and stage them.
@@ -992,8 +1091,29 @@ def phase3_queue_writer(
 
     target = os.path.join(repo, rel)
 
-    # Read current file to preserve calibration block and to compare for
-    # idempotent no-op when DB-materialised view matches.
+    # Sequence must be: clean-tree precondition -> absorb origin moves
+    # (rebase writer-authored commits) -> read current file -> materialise
+    # from DB -> idempotency check -> write. Reading the file before the
+    # rebase risks comparing against pre-rebase content and either
+    # over-writing fresh origin content with a stale DB view or
+    # false-positiving the idempotent no-op against post-rebase content.
+    clean, reason = _hub_working_tree_clean(repo)
+    if not clean:
+        sys.stderr.write(
+            "[phase3-queue] refusing tick: %s at %s is %s. Phase 3 "
+            "does NOT autostash -- resolve the dirt by hand, then the "
+            "next tick will retry.\n" % (rel, repo, reason))
+        return False
+
+    synced, reason = _sync_to_origin(repo, br, "[phase3-queue]")
+    if not synced:
+        sys.stderr.write(
+            "[phase3-queue] refusing tick: %s. Working tree intact.\n"
+            % reason)
+        return False
+
+    # Read current file (post-sync) to preserve calibration block and to
+    # compare for idempotent no-op when DB-materialised view matches.
     current_text = None
     current_calibration = {}
     if os.path.exists(target):
@@ -1031,14 +1151,6 @@ def phase3_queue_writer(
     # Idempotent no-op when content matches.
     if current_text is not None and current_text == new_text:
         return True
-
-    clean, reason = _hub_working_tree_clean(repo)
-    if not clean:
-        sys.stderr.write(
-            "[phase3-queue] refusing tick: %s at %s is %s. Phase 3 "
-            "does NOT autostash -- resolve the dirt by hand, then the "
-            "next tick will retry.\n" % (rel, repo, reason))
-        return False
 
     # Atomic write to the working tree.
     tmp_target = target + ".phase3.tmp"
@@ -1300,6 +1412,26 @@ def phase3_heartbeat_writer(
     if not pending_writes:
         return True
 
+    # Sequence: clean-tree precondition -> absorb origin moves (rebase
+    # writer-authored heartbeat commits) -> recompute actually_changed
+    # against the post-rebase working tree. Doing the comparison BEFORE
+    # the sync would either false-positive (working tree matches origin
+    # for some files but our retained-for-retry commit is the only
+    # reason) or false-negative on files origin updated in between.
+    clean, reason = _hub_working_tree_clean(asm)
+    if not clean:
+        sys.stderr.write(
+            "[phase3-heartbeats] refusing tick: REE_assembly at %s is "
+            "%s. Phase 3 does NOT autostash -- resolve the dirt by "
+            "hand.\n" % (asm, reason))
+        return False
+
+    synced, reason = _sync_to_origin(asm, br, "[phase3-heartbeats]")
+    if not synced:
+        sys.stderr.write(
+            "[phase3-heartbeats] refusing tick: %s.\n" % reason)
+        return False
+
     # Compare each against working tree -- skip writes when content
     # matches (idempotent no-op preserves the per-tick rhythm without
     # creating empty commits).
@@ -1317,14 +1449,6 @@ def phase3_heartbeat_writer(
 
     if not actually_changed:
         return True
-
-    clean, reason = _hub_working_tree_clean(asm)
-    if not clean:
-        sys.stderr.write(
-            "[phase3-heartbeats] refusing tick: REE_assembly at %s is "
-            "%s. Phase 3 does NOT autostash -- resolve the dirt by "
-            "hand.\n" % (asm, reason))
-        return False
 
     # Atomic writes + git add. Track what successfully staged so a
     # partial failure doesn't poison the commit. On git-add failure the
