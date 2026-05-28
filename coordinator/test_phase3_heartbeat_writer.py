@@ -270,6 +270,33 @@ class ForeignCommitRefusal(_Fixture):
         self.assertFalse(result, "must refuse to push foreign commit")
 
 
+class SiblingWriterCommitTolerated(_Fixture):
+    """Regression: heartbeat writer and result writer share REE_assembly.
+    A leftover commit from the OTHER phase3 writer (e.g. a `phase3: ...`
+    commit retained after a transient push failure on the result writer)
+    must NOT be treated as foreign by the heartbeat writer's check, or
+    the two writers permanently deadlock each other."""
+
+    def test_result_writer_commit_does_not_block_heartbeat_push(self):
+        # Simulate a stuck result-writer commit ahead of origin (push
+        # failed on a prior tick; commit retained in local HEAD).
+        _git(self._repo, "config", "user.email", "phase3@example")
+        _git(self._repo, "config", "user.name", "phase3")
+        _git(self._repo, "commit", "--allow-empty", "-m",
+             "phase3: 1 v3 result manifest(s) 2026-05-28")
+        # Now run the heartbeat writer. It must tolerate the sibling
+        # writer's leftover commit AND push its own new telemetry.
+        self._seed_heartbeat("ree-cloud-1")
+        result = self._run()
+        self.assertTrue(
+            result,
+            "heartbeat writer must accept sibling result-writer's commit "
+            "as writer-authored (shared REE_assembly repo)")
+        # And the telemetry file landed.
+        self.assertIsNotNone(self._origin_blob(
+            "evidence/experiments/runner_heartbeats/ree-cloud-1.json"))
+
+
 # ---------------------------------------------------------------------------
 # DB helper sanity (no writer involvement)
 # ---------------------------------------------------------------------------

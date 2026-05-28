@@ -958,7 +958,10 @@ def write_status(status: dict, path: Path) -> None:
     with _write_status_lock:
         tmp = path.with_suffix(".tmp")
         status["last_updated"] = now_utc()
-        tmp.write_text(json.dumps(status, indent=2))
+        # Pin encoding so cross-platform readers (sync_daemon reads on
+        # Linux; runners write on Mac/Windows) interpret the bytes the
+        # same way the writer produced them.
+        tmp.write_text(json.dumps(status, indent=2), encoding="utf-8")
         tmp.replace(path)  # replace() is atomic on Unix and works on Windows (unlike rename)
 
 
@@ -2291,8 +2294,13 @@ def main():
                 full_status = None
                 try:
                     if status_path.exists():
-                        full_status = json.loads(status_path.read_text())
-                except (OSError, ValueError):
+                        full_status = json.loads(
+                            status_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError, UnicodeDecodeError):
+                    # UnicodeDecodeError catches the Windows-runner case
+                    # where the platform default text encoding doesn't
+                    # match the UTF-8 write_status produced. Stub fallback
+                    # below preserves the legacy report shape.
                     full_status = None
                 coordinator_client.report_status(
                     machine,

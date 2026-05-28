@@ -118,14 +118,33 @@ def reconcile_once(conn, queue_path, *, claim_authority="git",
             db.upsert_experiment(
                 conn, item, preserve_claim=(claim_authority == "coordinator"))
 
+        stale = set(mirror) - set(items)
         if not upsert_only:
             # Items no longer in the queue file have been completed/removed
             # by the authoritative path; drop them from the mirror so the
             # coordinator does not hand them out.
-            stale = set(mirror) - set(items)
             for qid in stale:
                 conn.execute(
                     "DELETE FROM experiments WHERE queue_id=?", (qid,))
+        elif stale:
+            # Phase 3 authoritative path: file is a DERIVED view, so items
+            # missing from the file must NOT be deleted from the DB (the
+            # row may be claimed/running/completed and the file just hasn't
+            # caught up yet). But surface the silent revert: an operator
+            # hand-edit removing a pending item will reappear in the file
+            # on the next phase3_queue_writer tick with no signal. WARN
+            # cheaply lists what was preserved so the operator can spot
+            # an unintended revert in the log.
+            non_terminal = [
+                qid for qid in stale
+                if mirror[qid]["status"] not in ("completed", "failed")
+            ]
+            if non_terminal:
+                sys.stderr.write(
+                    "[sync] upsert_only: %d non-terminal item(s) missing "
+                    "from queue file are PRESERVED in DB (use "
+                    "POST /queue/remove to drop): %s\n" % (
+                        len(non_terminal), non_terminal[:5]))
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
@@ -137,10 +156,9 @@ def reconcile_once(conn, queue_path, *, claim_authority="git",
 # phase3_preflight.py + phase3_verify.py pass on the live fleet.
 PHASE3_GIT_WRITER_READY = False
 
-# Hub paths (override via env when deploying).
-PHASE3_REE_ASSEMBLY = os.environ.get(
-    "PHASE3_REE_ASSEMBLY",
-    "/home/ree/REE_Working/REE_assembly")
+# Hub paths (override via env when deploying). PHASE3_REE_ASSEMBLY and
+# PHASE3_REE_V3 are validated below, AFTER the _validate_* helpers are
+# defined (top-to-bottom Python module execution).
 PHASE3_QUEUE_FILE = os.environ.get(
     "COORDINATOR_QUEUE_FILE", DEFAULT_QUEUE)
 
@@ -195,6 +213,36 @@ def _validate_branch_name(raw, env_name, default):
         sys.stderr.write(
             "[phase3] %s=%r contains whitespace or path separator; "
             "using default %r\n" % (env_name, raw, default))
+        return default
+    return s
+
+
+def _validate_abs_repo_path(raw, env_name, default):
+    """Repo checkout absolute paths: non-empty, no embedded whitespace,
+    absolute (POSIX) or default. The writer runs `git` with cwd=this; an
+    empty or whitespace-only env override would silently target the
+    daemon's cwd and write to whatever happened to be checked out there.
+    Falls back to the documented default with a stderr warning.
+
+    Existence is NOT checked here -- the writer's `_hub_working_tree_clean`
+    + `git fetch` give clearer per-tick failures with the actual git error
+    output, and a path that doesn't exist YET (e.g. fresh deploy before
+    the checkout is created) shouldn't refuse module import."""
+    if not isinstance(raw, str) or not raw.strip():
+        sys.stderr.write(
+            "[phase3] %s=%r is empty/blank; using default %r\n"
+            % (env_name, raw, default))
+        return default
+    s = raw.strip()
+    if any(c.isspace() for c in s):
+        sys.stderr.write(
+            "[phase3] %s=%r contains whitespace; using default %r\n"
+            % (env_name, raw, default))
+        return default
+    if not os.path.isabs(s):
+        sys.stderr.write(
+            "[phase3] %s=%r is not absolute; using default %r\n"
+            % (env_name, raw, default))
         return default
     return s
 
@@ -254,9 +302,9 @@ PHASE3_QUEUE_WRITER_READY = False
 
 # Hub paths for the queue writer. ree-v3 checkout is separate from the
 # REE_assembly checkout used by the result writer.
-PHASE3_REE_V3 = os.environ.get(
-    "PHASE3_REE_V3",
-    "/home/ree/REE_Working/ree-v3")
+PHASE3_REE_V3 = _validate_abs_repo_path(
+    os.environ.get("PHASE3_REE_V3", "/home/ree/REE_Working/ree-v3"),
+    "PHASE3_REE_V3", "/home/ree/REE_Working/ree-v3")
 PHASE3_REE_V3_BRANCH = _validate_branch_name(
     os.environ.get("PHASE3_REE_V3_BRANCH", "main"),
     "PHASE3_REE_V3_BRANCH", "main")
@@ -264,6 +312,13 @@ PHASE3_REE_V3_BRANCH = _validate_branch_name(
 PHASE3_QUEUE_RELPATH = _validate_repo_relpath(
     os.environ.get("PHASE3_QUEUE_RELPATH", "experiment_queue.json"),
     "PHASE3_QUEUE_RELPATH", "experiment_queue.json")
+
+# REE_assembly checkout path (result writer + heartbeat writer share it).
+# Same validation as PHASE3_REE_V3; deferred to here so the helper exists.
+PHASE3_REE_ASSEMBLY = _validate_abs_repo_path(
+    os.environ.get("PHASE3_REE_ASSEMBLY",
+                   "/home/ree/REE_Working/REE_assembly"),
+    "PHASE3_REE_ASSEMBLY", "/home/ree/REE_Working/REE_assembly")
 
 
 # PLAN.md step 6: derived heartbeats + runner_status writeback. The writer
@@ -311,6 +366,36 @@ def _fsync_dir(path):
         os.close(fd)
 
 
+def _revert_target_to_head(repo, relpath, target):
+    """Best-effort rollback after a `git add` failure.
+
+    The atomic write already replaced the working-tree file with the new
+    content. If `git add` then fails (out of disk, EAGAIN, permission
+    glitch on the .git/index lockfile, ...) the working tree is dirty and
+    blocks the next tick's clean-tree check, stalling the writer until
+    operator intervention.
+
+    First try `git checkout HEAD -- <relpath>` to restore the pre-write
+    content (the common case: we were updating an existing tracked file).
+    If that fails (e.g. brand-new file with no HEAD blob to restore), fall
+    back to `os.unlink(target)` to leave the working tree clean.
+
+    Both steps are best-effort: if BOTH fail, the leak is the same as
+    pre-fix behaviour. Never raises."""
+    try:
+        result = _git(
+            repo, "checkout", "HEAD", "--", relpath,
+            check=False, timeout=10)
+        if result.returncode == 0:
+            return
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        pass
+    try:
+        os.unlink(target)
+    except OSError:
+        pass
+
+
 def _git(repo, *args, timeout=30, check=True):
     """Run git in repo. Returns CompletedProcess. capture_output=True so
     nothing leaks to stdout/stderr unless we choose to log it."""
@@ -338,32 +423,50 @@ def _hub_working_tree_clean(repo):
 
 
 # Every writer-authored commit's message starts with one of these prefixes;
-# see the commit_msg construction inside phase3_git_writer (results) and
-# phase3_queue_writer (queue snapshot). The foreign-commit check uses prefix
-# membership to gate pushes -- the writer refuses to publish any commit it
-# did not author. Each writer has its own prefix so a per-repo check is
-# scoped to the right namespace.
+# see commit_msg construction inside phase3_git_writer (results),
+# phase3_queue_writer (queue snapshot), and phase3_heartbeat_writer
+# (telemetry). The foreign-commit check uses prefix membership to gate
+# pushes -- the writer refuses to publish any commit no phase3 writer
+# authored. Each writer has its own prefix for log readability + audit
+# (`git log --grep=phase3-heartbeats:` answers "what did the heartbeat
+# writer do today?").
 _PHASE3_COMMIT_PREFIX = "phase3: "
 _PHASE3_QUEUE_COMMIT_PREFIX = "phase3-queue: "
 _PHASE3_HEARTBEAT_COMMIT_PREFIX = "phase3-heartbeats: "
 
+# The foreign-commit check accepts any of these prefixes -- the result
+# writer and heartbeat writer share REE_assembly, so each must tolerate
+# the other's unpushed commit (which can happen after a transient push
+# failure). Treating sibling-writer commits as "foreign" caused a permanent
+# deadlock: each writer rejected the other's leftover commit on every
+# subsequent tick. ADDING A NEW PHASE3 WRITER? Add its prefix here, or the
+# deadlock comes back.
+_PHASE3_WRITER_PREFIXES = (
+    _PHASE3_COMMIT_PREFIX,
+    _PHASE3_QUEUE_COMMIT_PREFIX,
+    _PHASE3_HEARTBEAT_COMMIT_PREFIX,
+)
 
-def _check_ahead_writer_authored(repo, branch, prefix=_PHASE3_COMMIT_PREFIX):
+
+def _check_ahead_writer_authored(repo, branch,
+                                 prefixes=_PHASE3_WRITER_PREFIXES):
     """Inspect every commit reachable from HEAD but not origin/<branch>.
 
     Returns (ok, detail). ok=True iff every such commit's subject starts
-    with `prefix` (i.e. was authored by the relevant writer). detail is a
-    list of up to three foreign subject lines when ok=False, or a
-    single-element list with the git-log failure message when the log
-    itself errored.
+    with one of `prefixes` (i.e. was authored by SOME phase3 writer).
+    detail is a list of up to three foreign subject lines when ok=False,
+    or a single-element list with the git-log failure message when the
+    log itself errored.
 
     Caller is expected to have refreshed origin/<branch> via `git fetch`
     immediately before this call -- a stale ref would over-count ahead
     commits (false positives) for the foreign check.
 
-    `prefix` parameter lets the queue writer (`phase3-queue: `) and result
-    writer (`phase3: `) share this check while owning distinct repos /
-    commit-message namespaces.
+    `prefixes` defaults to the full writer-authored set so that two
+    writers sharing a repo (result + heartbeat both push to REE_assembly)
+    do not treat each other's unpushed commits as foreign. Pass a
+    narrower tuple only when the caller deliberately wants to scope
+    "authored by THIS writer" -- e.g. an audit tool.
     """
     log = _git(
         repo, "log", "--format=%s",
@@ -374,7 +477,7 @@ def _check_ahead_writer_authored(repo, branch, prefix=_PHASE3_COMMIT_PREFIX):
                         % log.stderr.strip()[:120]])
     foreign = [
         line for line in log.stdout.splitlines()
-        if line and not line.startswith(prefix)
+        if line and not any(line.startswith(p) for p in prefixes)
     ]
     return (not foreign, foreign[:3])
 
@@ -510,6 +613,7 @@ def phase3_git_writer(
         # `git add` would happily stage. Tmp+rename mirrors the spool
         # writer's atomic semantics.
         tmp_target = target + ".phase3.tmp"
+        target_replaced = False
         try:
             os.makedirs(target_dir, exist_ok=True)
             with open(tmp_target, "wb") as fh:
@@ -517,23 +621,30 @@ def phase3_git_writer(
                 fh.flush()
                 os.fsync(fh.fileno())
             os.replace(tmp_target, target)
+            target_replaced = True
             _fsync_dir(target_dir)
-            _git(asm, "add", relpath, timeout=15, check=True)
-            staged.append((run_id, relpath))
-        except (OSError, subprocess.CalledProcessError,
-                subprocess.TimeoutExpired) as exc:
+        except OSError as exc:
             sys.stderr.write(
-                "[phase3] WARN stage failed for %s -> %s: %r\n" % (
+                "[phase3] WARN atomic write failed for %s -> %s: %r\n" % (
                     run_id, relpath, exc))
-            # Best-effort cleanup of the tmp file. A leftover .phase3.tmp
-            # in evidence/experiments/ is harmless (git ignores it via
-            # the gitignore on .tmp; even unignored it doesn't affect
-            # the next tick because we use a fresh tmp path), but
-            # tidiness wins.
+            # Best-effort cleanup of the tmp file. Target was NOT replaced
+            # (os.replace ran last in the try block); nothing to revert.
             try:
                 os.unlink(tmp_target)
             except OSError:
                 pass
+            continue
+        try:
+            _git(asm, "add", relpath, timeout=15, check=True)
+            staged.append((run_id, relpath))
+        except (subprocess.CalledProcessError,
+                subprocess.TimeoutExpired) as exc:
+            sys.stderr.write(
+                "[phase3] WARN git add failed for %s -> %s: %r. "
+                "Reverting working-tree write to keep the next tick's "
+                "clean-tree check passing.\n" % (run_id, relpath, exc))
+            if target_replaced:
+                _revert_target_to_head(asm, relpath, target)
 
     if not staged:
         sys.stderr.write(
@@ -605,8 +716,7 @@ def phase3_git_writer(
                 # commit) must not be published under sync_daemon's
                 # authority; refuse and let the operator investigate.
                 ok, foreign = _check_ahead_writer_authored(
-                    asm, PHASE3_ASSEMBLY_BRANCH,
-                    prefix=_PHASE3_COMMIT_PREFIX)
+                    asm, PHASE3_ASSEMBLY_BRANCH)
                 if not ok:
                     sys.stderr.write(
                         "[phase3] refusing tick: %d foreign commit(s) "
@@ -737,6 +847,55 @@ def phase3_git_writer(
     return True
 
 
+# Canonical key order for items emitted in experiment_queue.json. Stored
+# `item_json` blobs are written with sort_keys=True (db.upsert_experiment),
+# so the loaded dict has alphabetical keys; writing the materialised file
+# without re-ordering would land an "every item reordered" diff on the
+# first Phase 3 cutover commit and lose operator-meaningful field grouping
+# (identifier -> executable -> scheduling -> claim -> state). This list is
+# the operator-visible shape contract; do NOT reorder casually -- any
+# change here produces another full-rewrite commit on every queue file
+# already on origin. Unknown keys (forward-compat custom fields) land
+# alphabetically AFTER this canonical block.
+_QUEUE_ITEM_KEY_ORDER = (
+    # 1. Identity
+    "queue_id",
+    "title",
+    "description",
+    # 2. Executable
+    "script",
+    # 3. Scheduling
+    "priority",
+    "machine_affinity",
+    "estimated_minutes",
+    # 4. Provenance / lineage
+    "supersedes",
+    "claim_id",
+    "backlog_id",
+    # 5. Operator flags
+    "force_rerun",
+    "note",
+    # 6. Coordinator-managed state (overlaid below from live DB columns)
+    "status",
+    "claimed_by",
+)
+
+
+def _canonicalise_queue_item(item):
+    """Return `item` with keys in _QUEUE_ITEM_KEY_ORDER first, then any
+    unknown keys alphabetically. Keys absent from `item` are skipped (not
+    inserted as None) so the materialised file is shape-faithful to what
+    the operator originally wrote."""
+    canonical = {}
+    for k in _QUEUE_ITEM_KEY_ORDER:
+        if k in item:
+            canonical[k] = item[k]
+    for k in sorted(item.keys()):
+        if k not in canonical:
+            canonical[k] = item[k]
+    return canonical
+
+
 def _materialise_queue_from_db(conn, current_calibration):
     """Build the canonical experiment_queue.json content from DB rows.
 
@@ -748,7 +907,10 @@ def _materialise_queue_from_db(conn, current_calibration):
     live DB columns (status, claimed_by_machine, claimed_at) overlaid:
     item_json preserves the operator-supplied fields (script, priority,
     machine_affinity, etc.) verbatim, while the DB columns hold the
-    coordinator-managed state.
+    coordinator-managed state. Keys are then reordered into the
+    _QUEUE_ITEM_KEY_ORDER canonical shape so per-tick claim/release
+    transitions don't produce noisy "claimed_by appeared at end of dict"
+    diffs.
 
     `current_calibration` is preserved verbatim from the existing file --
     the DB doesn't store calibration data so we must round-trip it.
@@ -786,7 +948,7 @@ def _materialise_queue_from_db(conn, current_calibration):
             }
         else:
             item.pop("claimed_by", None)
-        items.append(item)
+        items.append(_canonicalise_queue_item(item))
     return {
         "schema_version": "v1",
         "calibration": current_calibration or {},
@@ -935,13 +1097,12 @@ def phase3_queue_writer(
                 return False
             ahead_count = ahead.stdout.strip()
             if ahead_count and ahead_count != "0":
-                ok, foreign = _check_ahead_writer_authored(
-                    repo, br, prefix=_PHASE3_QUEUE_COMMIT_PREFIX)
+                ok, foreign = _check_ahead_writer_authored(repo, br)
                 if not ok:
                     sys.stderr.write(
                         "[phase3-queue] refusing tick: %d foreign "
-                        "commit(s) in origin/%s..HEAD that the queue "
-                        "writer did not author: %s. Operator must "
+                        "commit(s) in origin/%s..HEAD that no phase3 "
+                        "writer authored: %s. Operator must "
                         "investigate.\n" % (
                             len(foreign), br, foreign))
                     return False
@@ -964,8 +1125,7 @@ def phase3_queue_writer(
 
         # diff.returncode != 0: there's a real change to commit.
         _git(repo, "commit", "-m", commit_msg, timeout=20, check=True)
-        ok, foreign = _check_ahead_writer_authored(
-            repo, br, prefix=_PHASE3_QUEUE_COMMIT_PREFIX)
+        ok, foreign = _check_ahead_writer_authored(repo, br)
         if not ok:
             sys.stderr.write(
                 "[phase3-queue] refusing tick: writer's commit landed "
@@ -1167,7 +1327,9 @@ def phase3_heartbeat_writer(
         return False
 
     # Atomic writes + git add. Track what successfully staged so a
-    # partial failure doesn't poison the commit.
+    # partial failure doesn't poison the commit. On git-add failure the
+    # working-tree write has already landed, so revert to HEAD content to
+    # keep the next tick's clean-tree check passing.
     staged = []
     for rel, text in actually_changed:
         target = os.path.join(asm, rel)
@@ -1179,8 +1341,10 @@ def phase3_heartbeat_writer(
         except (subprocess.CalledProcessError,
                 subprocess.TimeoutExpired) as exc:
             sys.stderr.write(
-                "[phase3-heartbeats] WARN git add failed for %s: %r\n" % (
-                    rel, exc))
+                "[phase3-heartbeats] WARN git add failed for %s: %r. "
+                "Reverting working-tree write to keep the next tick's "
+                "clean-tree check passing.\n" % (rel, exc))
+            _revert_target_to_head(asm, rel, target)
 
     if not staged:
         sys.stderr.write(
@@ -1219,13 +1383,12 @@ def phase3_heartbeat_writer(
                 return False
             ahead_count = ahead.stdout.strip()
             if ahead_count and ahead_count != "0":
-                ok, foreign = _check_ahead_writer_authored(
-                    asm, br, prefix=_PHASE3_HEARTBEAT_COMMIT_PREFIX)
+                ok, foreign = _check_ahead_writer_authored(asm, br)
                 if not ok:
                     sys.stderr.write(
                         "[phase3-heartbeats] refusing tick: %d foreign "
-                        "commit(s) in origin/%s..HEAD that the heartbeat "
-                        "writer did not author: %s.\n" % (
+                        "commit(s) in origin/%s..HEAD that no phase3 "
+                        "writer authored: %s.\n" % (
                             len(foreign), br, foreign))
                     return False
                 push = _git(
@@ -1245,12 +1408,12 @@ def phase3_heartbeat_writer(
             return True
 
         _git(asm, "commit", "-m", commit_msg, timeout=20, check=True)
-        ok, foreign = _check_ahead_writer_authored(
-            asm, br, prefix=_PHASE3_HEARTBEAT_COMMIT_PREFIX)
+        ok, foreign = _check_ahead_writer_authored(asm, br)
         if not ok:
             sys.stderr.write(
                 "[phase3-heartbeats] refusing tick: writer's commit landed "
-                "but %d foreign commit(s) are ahead of origin/%s: %s.\n" % (
+                "but %d foreign commit(s) are ahead of origin/%s and no "
+                "phase3 writer authored them: %s.\n" % (
                     len(foreign), br, foreign))
             return False
         push = _git(
@@ -1316,7 +1479,19 @@ def main():
                     sys.stderr.write(
                         "[sync] authoritative reconcile error "
                         "(non-fatal): %r\n" % exc)
-                ok = phase3_git_writer(conn, args.queue)
+                # phase3_git_writer claims to never raise, but defensive
+                # wrap matches the queue + heartbeat writer pattern. On
+                # an unexpected raise default ok=False so the `if not ok`
+                # below trips and the daemon exits with code 2 (the
+                # result writer is the cutover gate -- if it goes off
+                # the rails we want loud failure, not silent skip).
+                try:
+                    ok = phase3_git_writer(conn, args.queue)
+                except Exception as exc:  # noqa: BLE001
+                    sys.stderr.write(
+                        "[sync] phase3_git_writer raised (unexpected): %r. "
+                        "Treating as not-ready; daemon will exit.\n" % exc)
+                    ok = False
                 # phase3_queue_writer is independent of the result writer;
                 # gated by its own PHASE3_QUEUE_WRITER_READY flag. When
                 # the flag is False the function logs the stub message
