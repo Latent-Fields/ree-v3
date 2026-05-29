@@ -136,8 +136,21 @@ def write_heartbeat(
     for cloud workers (parity with the local card sourced from the
     per-machine runner_status.json file). They are all optional; idle-tick
     heartbeats omit them and the explorer falls back to the bare state.
+
+    Phase 3 _WRITE gate (hub co-location): when
+    PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1, skip BOTH the local file
+    write AND the coordinator POST. The hub's sync_daemon.phase3_heartbeat_writer
+    materialises the canonical file from the heartbeats table for every
+    other machine; if cloud-1 (the hub) writes from its own runner, it
+    dirties the writer's checkout. Setting this flag on the hub is what
+    lets cloud-1's runner come back online after the 2026-05-28 cutover
+    workaround of `systemctl disable ree-runner`.
     """
     if not ree_assembly_path or not ree_assembly_path.is_dir():
+        return None
+
+    # Phase 3 _WRITE gate -- hub co-location safeguard.
+    if _phase3_heartbeat_write_gated():
         return None
 
     hb_dir = ree_assembly_path / HEARTBEAT_SUBPATH
@@ -382,10 +395,25 @@ def _push_telemetry_file(
 # pull --rebase --autostash that has been the source of the autostash-war
 # incidents. Default OFF preserves Phase 2 behaviour. Wired symmetrically
 # in experiment_runner.git_push_status (per-completion status push).
+#
+# Phase 3 hub co-location: the _PUSH gate disables only the git push,
+# not the local file write. On the hub VM (ree-cloud-1) -- which is
+# both the writer host AND a worker -- the runner's local heartbeat
+# file write dirties the same REE_assembly checkout the writer is
+# trying to publish from, which breaks the writer's clean-tree refusal.
+# The _WRITE gate (added 2026-05-29) suppresses the file write too,
+# letting the cloud-1 runner come back online without breaking the
+# writer. Set on the hub only -- other workers don't need it because
+# their REE_assembly checkout is separate from the hub's.
 _HEARTBEAT_GATE_LOGGED = [False]  # one-element mutable for module-level state
+_HEARTBEAT_WRITE_GATE_LOGGED = [False]
 
 
 def _phase3_heartbeat_gated() -> bool:
+    # WRITE implies PUSH: if the local file write is gated, there is
+    # nothing on disk to push and the push path must also short-circuit.
+    if _phase3_heartbeat_write_gated():
+        return True
     enabled = os.environ.get(
         "PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH", "").strip().lower() in (
             "1", "true", "yes")
@@ -394,6 +422,29 @@ def _phase3_heartbeat_gated() -> bool:
               "git pushes will be skipped (sync_daemon step 6 owns "
               "derived heartbeats once wired)", flush=True)
         _HEARTBEAT_GATE_LOGGED[0] = True
+    return enabled
+
+
+def _phase3_heartbeat_write_gated() -> bool:
+    """Phase 3 _WRITE gate: suppresses the local heartbeat file write too.
+
+    For the hub VM co-location case (ree-cloud-1 = hub + worker). On
+    other workers leave this OFF; their local writes don't affect the
+    writer's REE_assembly checkout.
+
+    Implies _PUSH gating: writing to a tmp file we never rename and
+    then trying to push is incoherent, so callers should treat WRITE
+    as a strict-superset of PUSH.
+    """
+    enabled = os.environ.get(
+        "PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE", "").strip().lower() in (
+            "1", "true", "yes")
+    if enabled and not _HEARTBEAT_WRITE_GATE_LOGGED[0]:
+        print("[remote-control] phase3 gate active: heartbeat + commands "
+              "FILE WRITES will be skipped (hub co-location -- "
+              "sync_daemon owns derived heartbeats; coordinator owns "
+              "command-channel writeback)", flush=True)
+        _HEARTBEAT_WRITE_GATE_LOGGED[0] = True
     return enabled
 
 
@@ -460,6 +511,13 @@ def read_commands_file(ree_assembly_path: Path, machine: str) -> dict:
 def write_commands_file(ree_assembly_path: Path, machine: str, data: dict) -> Path | None:
     """Atomic write of the commands file. Prunes done/failed history to the
     most recent MAX_HISTORY_PER_FILE entries.
+
+    Phase 3 _WRITE gate (hub co-location): when
+    PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1, skip the local file write.
+    The coordinator's commands API is the source of truth on the hub
+    (commands are fetched via coordinator_client.fetch_commands, not by
+    polling this file). The legacy file path is preserved as a transport
+    on workers that don't have the WRITE flag set.
     """
     cmds = data.get("commands", [])
     pending = [c for c in cmds if c.get("status") in ("pending", "ack")]
@@ -467,6 +525,10 @@ def write_commands_file(ree_assembly_path: Path, machine: str, data: dict) -> Pa
     if len(history) > MAX_HISTORY_PER_FILE:
         history = history[-MAX_HISTORY_PER_FILE:]
     data["commands"] = pending + history
+
+    # Phase 3 _WRITE gate -- hub co-location safeguard.
+    if _phase3_heartbeat_write_gated():
+        return None
 
     path = commands_path(ree_assembly_path, machine)
     try:
