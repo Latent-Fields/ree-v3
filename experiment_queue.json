@@ -92,6 +92,26 @@
       "note": "V3-EXQ-612b ran fine on cloud-2 but the script lacked the verdict: PASS stdout sentinel so the runner classified ERROR and skipped report_result. Script now prints verdict: PASS.",
       "status": "pending",
       "experiment_type": "v3_exq_612_phase3_cutover_smoke"
+    },
+    {
+      "queue_id": "V3-EXQ-569b",
+      "title": "SD-056 action-contrastive matched-entropy FP-2 falsifier (GAP-A, A_only; observation-anchored fix)",
+      "script": "experiments/v3_exq_569b_sd056_action_contrastive_diversity_falsifier.py",
+      "experiment_type": "v3_exq_569b_sd056_action_contrastive_diversity_falsifier",
+      "priority": 300,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "supersedes": "V3-EXQ-569a",
+      "claim_id": "ARC-065",
+      "claim_ids": [
+        "ARC-065",
+        "MECH-341"
+      ],
+      "seeds": 3,
+      "conditions": 5,
+      "episodes_per_run": 50,
+      "status": "pending",
+      "note": "Supersedes V3-EXQ-569a (crashed twice with RuntimeError: probability tensor contains inf/nan/<0 at e3_selector.py:870 inside torch.multinomial; cloud-2 ARM_1_W001 and DLAPTOP-4 ARM_2_W005). Root cause: _e2_contrastive_step used self-anchored InfoNCE targets (targets = e2.world_forward(...).detach()), creating a non-stationary objective that drove E2 weights to Inf and produced NaN softmax probs. Fix: observation-anchored targets via a rolling buffer of (z_world_0, action_taken, z_world_1_observed) triples captured each env tick; contrastive step samples K class-diverse triples and trains against real next-states. Matches contract-test target-construction pattern. Belt-and-braces: non-finite-loss skip, grad-norm clip 1.0. Smoke --dry-run 5/5 arms clean. Same arms + acceptance criteria as 569a; GAP-A behavioural-diversity isolation Theory 1 / Layer A load-bearing falsifier (behavioral_diversity_isolation_plan.md GAP-A node)."
     }
   ]
 }
