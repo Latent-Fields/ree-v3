@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-28
+**Last updated:** 2026-05-29
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -117,7 +117,8 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | MECH-282 | regulators.lpb_interoceptive_routing -- LPBInteroceptiveRouter splits harm into z_harm (external; resource slice zeroed before HarmEncoder) and a non-trainable z_harm_intero broadcast (drive_level + harm_obs_a resource EMA); SD-037 coupling routes intero -> override, external -> PAG freeze proxy when both flags on. REEConfig.use_lpb_interoceptive_routing default False. | Implemented 2026-05-21 (V3-EXQ-600 3-arm substrate diagnostic queued) |
 | MECH-286 | sleep.override_gated_state_transition -- wake-stability axis of SD-037: wake->offline transition in SleepLoopManager gated by a joint permit (override_signal below threshold AND max region-staleness above recruit AND z_harm_a.norm() below tonic threshold); blocked entry resets episodes_since_sleep. REEConfig.use_mech286_sleep_onset_gate default False -- preserves deterministic K-episode firing. | Implemented 2026-05-21 (V3-EXQ-599 3-arm substrate diagnostic queued) |
 | MECH-340 (+ Q-053 wiring) | hippocampal.persistence_efficacy_gate -- ARC-079 / Q-053 front-runner: GhostGoalBank entry persistence as a MECH-293 re-probe target is gated; disengagement is the default when license = control_efficacy * (1 - goal_unattainability) < persistence_floor (SD-039 trace preserved). Q-053 agent wiring (2026-05-21) maps prior hippocampal completion + E3 commitment -> control_efficacy and one-shot 1 - goal_proximity -> goal_unattainability. GhostGoalBankConfig.use_persistence_efficacy_gate default False. | Implemented 2026-05-21 (V3-EXQ-607 diagnostic queued; contracts 8/8 + dry-run PASS) |
-| MECH-341 (ARC-065 Layer-B child) | ethics_engine_3.scoring_trajectory_class_diversity_preservation -- new ree_core/predictors/e3_score_diversity.py module (E3ScoreDiversity + E3ScoreDiversityConfig + E3ScoreDiversityDiagnostics + build_from_ree_config). Layer-B (post-CEM scoring) diversity-preservation substrate triggered by V3-EXQ-608 P2 (2026-05-26T02:58Z) majority R2a_e3_collapse_confirmed_large_gap on the diversity-cluster isolation plan. Two togglable sub-flavours under one master, MECH-314a/b/c-style: Option 1 entropy_bonus (per-candidate positive bias proportional to the candidate's first-action class frequency, composed AFTER the dACC / lateral_pfc / ofc / mech295 / curiosity / tonic_vigor score_bias chain and BEFORE last_scores / softmax) + Option 2 stratified_select (partition by first-action class, argmin within class, softmax-sample across class-representatives at stratified_temperature; replaces argmin in the committed-path selection at e3_selector.py:811-820; falls through when fewer than min_classes_for_stratification unique classes are present). Pure-arithmetic regulator (no nn.Module inheritance, no learned parameters); sibling to MECH-313 NoiseFloor + MECH-314 StructuredCuriosity + MECH-320 TonicVigor. REEConfig.use_e3_score_diversity master + sub-knobs (use_e3_diversity_entropy_bonus, use_e3_diversity_stratified_select, e3_diversity_entropy_lambda 0.05, e3_diversity_entropy_bias_scale 0.1, e3_diversity_stratified_temperature 1.0, e3_diversity_min_classes_for_stratification 2) all default bit-identical OFF. 506/506 contracts + 7/7 preflight PASS with master OFF (regression-clean 2026-05-27). | Implemented 2026-05-27 (ree-v3 547faa3); design doc REE_assembly/docs/architecture/mech_341_e3_score_diversity_preservation.md; validation V3-EXQ-611 queued priority 260 (4-arm ALL_OFF / OPT1_ONLY / OPT2_ONLY / BOTH_ON substrate-readiness diagnostic on the EXQ-608 env + metric stack; estimated_minutes=150); behavioural validation V3-EXQ-611 successor deferred per R2.c rule on isolation plan |
+| MECH-341 (ARC-065 Layer-B child) | ethics_engine_3.scoring_trajectory_class_diversity_preservation -- new ree_core/predictors/e3_score_diversity.py module (E3ScoreDiversity + E3ScoreDiversityConfig + E3ScoreDiversityDiagnostics + build_from_ree_config). Layer-B (post-CEM scoring) diversity-preservation substrate triggered by V3-EXQ-608 P2 (2026-05-26T02:58Z) majority R2a_e3_collapse_confirmed_large_gap on the diversity-cluster isolation plan. Two togglable sub-flavours under one master, MECH-314a/b/c-style: Option 1 entropy_bonus (per-candidate positive bias proportional to the candidate's first-action class frequency, composed AFTER the dACC / lateral_pfc / ofc / mech295 / curiosity / tonic_vigor score_bias chain and BEFORE last_scores / softmax) + Option 2 stratified_select (partition by first-action class, argmin within class, softmax-sample across class-representatives at stratified_temperature; replaces argmin in the committed-path selection at e3_selector.py:811-820; falls through when fewer than min_classes_for_stratification unique classes are present). Pure-arithmetic regulator (no nn.Module inheritance, no learned parameters); sibling to MECH-313 NoiseFloor + MECH-314 StructuredCuriosity + MECH-320 TonicVigor. REEConfig.use_e3_score_diversity master + sub-knobs (use_e3_diversity_entropy_bonus, use_e3_diversity_stratified_select, e3_diversity_entropy_lambda 0.05, e3_diversity_entropy_bias_scale 0.1, e3_diversity_stratified_temperature 1.0, e3_diversity_min_classes_for_stratification 2) all default bit-identical OFF. 506/506 contracts + 7/7 preflight PASS with master OFF (regression-clean 2026-05-27). **Retune landed 2026-05-28 (ree-v3 e02e77f)**: stratified_select call-site expanded from committed-only to BOTH committed and uncommitted branches (V3-EXQ-611 ARM_2 measured n_stratified_fired=0 because the committed branch was never entered during validation; bit-identical when score_diversity is None or sub-flag is False). V3-EXQ-611b 6-arm parameter sweep queued (3 option groups x 2 entropy_bias_scale values 1.0/2.0; runner-claimed DLAPTOP-4.local 2026-05-28T17:26Z). | Implemented 2026-05-27 (ree-v3 547faa3); retune 2026-05-28 (ree-v3 e02e77f); design doc REE_assembly/docs/architecture/mech_341_e3_score_diversity_preservation.md; V3-EXQ-611 substrate-readiness FAIL 2026-05-27T13:02Z (call-site / scale gaps motivated retune); V3-EXQ-611b retune validation in flight at this snapshot |
+| MECH-090 R-c commit-entry readiness conjunction | control_plane.beta_gate.commit_entry_readiness_conjunction -- BetaGate.should_admit_elevation predicate added (margin = sorted(scores)[1] - sorted(scores)[0]; admits iff margin >= commit_readiness_floor). Resolves commitment_closure_plan.md GAP-4 at the substrate-readiness level after V3-EXQ-592 seed 42 (2026-05-21) showed the legacy rv-only commit-entry predicate is satisfiable by degenerate trivial-predictability (rv=2.7e-5 with nav_competence=0.0). Reading R-c single-gate conjunction (synthesis-strongest) per REE_assembly/evidence/literature/targeted_review_connectome_mech_090/synthesis.md (commit 9e68c5ca8a, 28 entries), anchored on Cisek & Kalaska 2010 affordance-competition + Hanes & Schall 1996 FEF accumulator-to-threshold + Roesch / Calu / Schoenbaum 2007 dopaminergic readiness signal. R-a (rv-only is correct) not defensible post-pass; R-b (rv-only entry + downstream propagation gate, Tandetnik 2021) retained as fallback if validation fails. Knobs on HeartbeatConfig (NOT surfaced through REEConfig.from_dims to avoid concurrent-session signature conflict with MECH-341 retune): use_commit_readiness_gate (default False; bit-identical OFF master), commit_readiness_floor (0.05; Q-053-style calibration is a follow-on), commit_readiness_strict_single_candidate (False; permissive single-candidate handling). Per-episode diagnostics on BetaGate.get_state: mech090_n_elevation_admitted / _blocked / _single_candidate / _last_readiness_score_margin. MECH-094 N/A (control-state-transition predicate; no simulation-write surface). 506/506 contracts PASS with master OFF + 7 unit tests on the BetaGate primitive PASS. | Implemented 2026-05-28 (per ree-v3 CLAUDE.md MECH-090 section); validation V3-EXQ-592b queued as 2-arm diagnostic (ARM_0 GATED at floor=0.05 expecting total_committed_steps=0 + mech090_n_elevation_blocked >= 1; ARM_1 GATED_FORCED_READY with experiment-side score_bias injection forcing margin >= 0.10 expecting total_committed_steps > 0 + mech090_n_elevation_admitted >= 1); joint PASS clears commitment_closure:GAP-4 partial -> done |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -136,6 +137,89 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-05-29T01:10Z nightly read.** Central
+  `evidence/experiments/runner_status.json` reports **761 cumulative
+  completions (+5 since 2026-05-28T01:10Z read)** (178 PASS / 307 FAIL
+  / 83 ERROR / 193 UNKNOWN; deltas: PASS +0, FAIL +3, ERROR +2, UNKNOWN
+  +0); last_updated 2026-05-28T17:26:40.076023Z -- ~7h45m fresh at this
+  read. The Phase-2 coordinator -> central-index merge remains caught up
+  from yesterday's improvement. **Pending review queue (regenerated
+  2026-05-27T17:40:25Z; last review 2026-05-27T17:35Z) reads 1 item
+  unchanged from yesterday** -- V3-EXQ-598b (commitment_closure GAP-1
+  SD-033a bias-head trainable ablation, claim_ids=[MECH-262, SD-033a]),
+  FAIL completed 2026-05-27T12:03Z, evidence_direction=does_not_support.
+  No fresh failure-autopsy yet against 598b; queued for the next
+  governance pending walk. **Currently queued (`experiment_queue.json`):
+  3 items, all Phase-3 cutover smoke** -- V3-EXQ-612 (DLAPTOP-4.local
+  claimed 2026-05-28T17:24Z), V3-EXQ-612c (ree-cloud-2 pending,
+  supersedes 612b which lacked the `verdict: PASS` stdout sentinel),
+  V3-EXQ-612d (ree-cloud-3 pending, supersedes 612c after emit_outcome
+  wiring fix). The MECH-090 R-c readiness conjunction validation
+  V3-EXQ-592b and the MECH-341 retune validation V3-EXQ-611b that the
+  2026-05-28 substrate-landing sessions queued do NOT appear in
+  `items[]` at this read -- both were runner-claimed earlier in the day
+  (611b on DLAPTOP-4.local @17:26:40Z per the MECH-341 retune session
+  close note; 592b similarly claimed for execution by the active
+  MECH-090 R-c session). Substrate landings since the 2026-05-28T01:10Z
+  snapshot: (1) **MECH-090 R-c commit-entry readiness conjunction**
+  (per ree-v3 CLAUDE.md MECH-090 section, landed 2026-05-28 in the
+  active `implement-substrate-mech090-rc-conjunction` session) --
+  BetaGate.should_admit_elevation gate at the two beta_gate.elevate()
+  call sites in REEAgent.select_action; reading R-c single-gate
+  conjunction strongest per the 28-entry MECH-090 lit synthesis (commit
+  9e68c5ca8a) with R-b Tandetnik 2021 retained as fallback; bit-
+  identical OFF default; V3-EXQ-592b 2-arm GATED / GATED_FORCED_READY
+  validation queued. (2) **MECH-341 retune** (ree-v3 e02e77f) --
+  stratified_select call-site expanded from committed-only to BOTH
+  committed and uncommitted branches in `ree_core/predictors/e3_selector.py`;
+  resolves V3-EXQ-611 ARM_2 n_stratified_fired=0 zero-fires failure
+  (committed branch was never entered during the validation episodes);
+  V3-EXQ-611b 6-arm factorial parameter sweep queued (3 option groups x
+  2 entropy_bias_scale values 1.0/2.0). (3) **coord-env runner-start
+  fix** (REE_assembly fc08812b62 + ree-v3 9fc0e02) -- serve.py
+  start_runner() default-injects shadow env (COORDINATION_MODE +
+  COORDINATOR_URL + COORDINATOR_TOKEN) from coordinator.env when
+  extra_env is None and env file is configured; runner_remote_control.py
+  write_heartbeat surfaces coordination_mode field auto-read from
+  os.environ for cross-machine status visibility without SSH audit;
+  /queue-experiment skill (both .claude/ and .agents/ mirrors) +
+  cloud_workers.md gain a verification step warning if any active
+  runner is in git mode or missing the field. (4) **E2 action-conditional
+  divergence substrate-design memo** (REE_assembly 7cb1200332) -- lever
+  B contrastive next-state (InfoNCE-style auxiliary on E2.world_forward
+  with K-1 in-batch negatives drawn from sibling CEM candidates with
+  different first-actions) chosen over PLSM (lever A) and SWIRL (lever
+  C) per the 2026-05-28 lit-pull SYNTHESIS verdict (REE_assembly
+  04bc1f3727; 6 entries balanced across ML world-model + biology
+  forward-model literatures, lit_conf 0.78); decision deferred to a
+  separate /implement-substrate session. (5) **E2 action-conditional
+  divergence lit-pull** (REE_assembly 04bc1f3727) -- 6-entry SYNTHESIS
+  on the V3-EXQ-571 root-cause finding (E2 world-forward per-candidate
+  signal collapse, `cand_world_pairwise_dist=0.0`); verdict: option (ii)
+  fix E2 is the architecturally faithful target; option (i) GAP-B
+  one-hot bypass is a tactical alternative; methodological gap surfaced
+  (no published paper reports per-action pairwise distance between
+  predicted latents as headline metric -- REE could publish the
+  `cand_world_pairwise_dist` diagnostic as a standalone contribution).
+  (6) **IGW housekeeping batch** -- IGW-008 GAP-A plan resync
+  (behavioral_diversity_isolation_plan.md row 1 status partial ->
+  blocked_pending_substrate); IGW-010 GAP-C plan-doc refresh + workset
+  regen (row 3 in_progress -> blocked_pending_substrate per V3-EXQ-603c
+  FAIL + V3-EXQ-611 FAIL cluster-absorbed into V3-EXQ-591 autopsy);
+  IGW-011 GAP-D doc-sync + R4.b flag (row 4 in_progress ->
+  pending_governance_stamp). Bottleneck: the **upstream E2 world-forward
+  per-candidate z_world collapse** identified in the 2026-05-25
+  V3-EXQ-571 root-cause investigation remains the structural root cause
+  of the score_bias-chain flatness; the E2 action-divergence design memo
+  (2026-05-28) makes lever B (contrastive next-state via InfoNCE) the
+  plan-of-record fix; landing it is the next /implement-substrate
+  session-of-record after V3-EXQ-611b and V3-EXQ-592b return validation
+  signal. **MECH-341 substrate retune** and **MECH-090 R-c readiness
+  conjunction** today both address Layer-B (post-CEM scoring) and the
+  commit-entry predicate respectively, but neither removes the Layer-A
+  (E2 forward-model collapse) cause flagged as the root structural
+  blocker by the V3-EXQ-571 investigation. The V3-EXQ-543k disposition
+  gap (carried forward from 2026-05-21) remains outstanding.
 - **2026-05-28T01:10Z nightly read.** Central
   `evidence/experiments/runner_status.json` reports **756 cumulative
   completions (+3 since 2026-05-27T01:10Z read)** (178 PASS / 304 FAIL
