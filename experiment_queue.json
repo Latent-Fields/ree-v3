@@ -72,22 +72,6 @@
       ],
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_610a_inv074_crystallization_necessity"
-    },
-    {
-      "queue_id": "V3-EXQ-612c",
-      "title": "Phase 3 E2E smoke (verdict sentinel fix retry)",
-      "script": "experiments/v3_exq_612_phase3_cutover_smoke.py",
-      "priority": 1,
-      "machine_affinity": "ree-cloud-2",
-      "estimated_minutes": 1,
-      "supersedes": "V3-EXQ-612b",
-      "note": "V3-EXQ-612b ran fine on cloud-2 but the script lacked the verdict: PASS stdout sentinel so the runner classified ERROR and skipped report_result. Script now prints verdict: PASS.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-29T21:46:08Z"
-      },
-      "experiment_type": "v3_exq_612_phase3_cutover_smoke"
     }
   ]
 }
