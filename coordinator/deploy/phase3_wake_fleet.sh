@@ -118,18 +118,27 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 deadline=$(($(date +%s) + TIMEOUT_SECONDS))
+FLEET_LIVE=0
+EVER_PARSED_RESPONSE=0
+LAST_PENDING=""
 while true; do
   SNAPSHOT=$(curl -fsS -H "Authorization: Bearer $COORDINATOR_LOCAL_TOKEN" \
                  "$COORDINATOR_URL/shadow/status" 2>/dev/null) || {
     echo "  WARN: /shadow/status unreachable; retrying"
+    if [[ $(date +%s) -ge $deadline ]]; then
+      break
+    fi
     sleep "$POLL_INTERVAL"
-    [[ $(date +%s) -lt $deadline ]] || break
     continue
   }
   # Build a "needed but not-live" list. Mac (DLAPTOP-4.local) is also
   # required and IS expected to be live on the operator's machine
   # because they're running this script there.
-  PENDING=$(echo "$SNAPSHOT" | "$PYTHON" -c "
+  # NOTE: parse via `if ! VAR=$(...)` so an unparseable JSON response does
+  # NOT silently produce an empty PENDING -- the empty-pending branch below
+  # treats empty as "all live", which combined with a python KeyError /
+  # JSONDecodeError would be a second false-positive path.
+  if ! PENDING=$(echo "$SNAPSHOT" | "$PYTHON" -c "
 import json, sys
 d = json.load(sys.stdin)
 needed = {'ree-cloud-1','ree-cloud-2','ree-cloud-3','ree-cloud-4','DLAPTOP-4.local'}
@@ -140,22 +149,50 @@ for n in sorted(needed):
     if state != 'live':
         pending.append(f'{n}={state}')
 print('|'.join(pending))
-")
+" 2>/dev/null); then
+    echo "  WARN: /shadow/status returned unparseable response; retrying"
+    if [[ $(date +%s) -ge $deadline ]]; then
+      break
+    fi
+    sleep "$POLL_INTERVAL"
+    continue
+  fi
+  EVER_PARSED_RESPONSE=1
+  LAST_PENDING="$PENDING"
   if [[ -z "$PENDING" ]]; then
     echo "  all expected peers live; fleet ready"
+    FLEET_LIVE=1
     break
   fi
   echo "  pending: ${PENDING//|/, }   (deadline in $((deadline - $(date +%s)))s)"
   if [[ $(date +%s) -ge $deadline ]]; then
-    echo "ERROR: timeout waiting for fleet to come live" >&2
-    echo "  remaining: ${PENDING//|/, }" >&2
-    exit 2
+    break
   fi
   sleep "$POLL_INTERVAL"
 done
 
 echo
 echo "=== Wake complete ==="
-echo "  Fleet is live. Run phase3_preflight.py next."
-echo "  After phase3_verify.py PASSes, run phase3_release_fleet.sh to"
-echo "  re-enable the cloud-scaler workflow."
+if [[ "$FLEET_LIVE" -eq 1 ]]; then
+  echo "  RESULT: fleet truly live -- all expected peers confirmed lifecycle_state=live"
+  echo "  Run phase3_preflight.py next."
+  echo "  After phase3_verify.py PASSes, run phase3_release_fleet.sh to"
+  echo "  re-enable the cloud-scaler workflow."
+  exit 0
+elif [[ "$EVER_PARSED_RESPONSE" -eq 0 ]]; then
+  echo "  RESULT: exiting on polling failure -- coordinator never responded with a parseable status" >&2
+  echo "  $COORDINATOR_URL/shadow/status was unreachable (or unparseable) for the entire ${TIMEOUT_SECONDS}s window." >&2
+  echo "  Likely causes: coordinator process down, hub WireGuard tunnel broken, or wrong COORDINATOR_URL." >&2
+  echo "  DO NOT proceed to phase3_preflight.py until the coordinator is reachable." >&2
+  exit 3
+else
+  if [[ -n "$LAST_PENDING" ]]; then
+    N_PENDING=$(echo -n "$LAST_PENDING" | awk -F'|' '{print NF}')
+  else
+    N_PENDING="unknown"
+  fi
+  echo "  RESULT: exiting on timeout -- ${N_PENDING} peer(s) never confirmed live within ${TIMEOUT_SECONDS}s" >&2
+  echo "  pending at deadline: ${LAST_PENDING//|/, }" >&2
+  echo "  DO NOT proceed to phase3_preflight.py with peers not live." >&2
+  exit 2
+fi
