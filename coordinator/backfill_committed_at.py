@@ -90,11 +90,16 @@ def _manifest_candidates(assembly_root, queue_id):
         # Subdir. Either it's the `_partial/` parent or a per-EXQ dir.
         # For _partial/ we recurse one level; for others we look directly.
         if entry == "_partial":
+            # Walk every _partial subdir and check files by name. The
+            # subdir name is usually the *parent* EXQ (e.g.
+            # v3_exq_590_isef004_novelty_bonus_goldilocks/) while the
+            # file inside is the LETTERED iteration (V3-EXQ-590a.json),
+            # so requiring the subdir name to contain the needle would
+            # miss the annotated-partial layout entirely (the original
+            # motivation for V3-EXQ-590a being unresolved on first pass).
             for sub in os.listdir(full):
                 subdir = os.path.join(full, sub)
                 if not os.path.isdir(subdir):
-                    continue
-                if not (nneedle in _norm(sub)):
                     continue
                 for name in os.listdir(subdir):
                     sub_full = os.path.join(subdir, name)
