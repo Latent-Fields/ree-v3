@@ -42,6 +42,26 @@
       "note": "V3-EXQ-612b ran fine on cloud-2 but the script lacked the verdict: PASS stdout sentinel so the runner classified ERROR and skipped report_result. Script now prints verdict: PASS.",
       "status": "pending",
       "experiment_type": "v3_exq_612_phase3_cutover_smoke"
+    },
+    {
+      "queue_id": "V3-EXQ-569a",
+      "title": "SD-056 action-contrastive matched-entropy FP-2 falsifier (GAP-A, A_only)",
+      "experiment_type": "v3_exq_569a_sd056_action_contrastive_diversity_falsifier",
+      "script": "experiments/v3_exq_569a_sd056_action_contrastive_diversity_falsifier.py",
+      "claim_id": "ARC-065",
+      "claim_ids": [
+        "ARC-065",
+        "MECH-341"
+      ],
+      "supersedes": "V3-EXQ-569",
+      "priority": 300,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180,
+      "episodes_per_run": 50,
+      "seeds": 3,
+      "conditions": 5,
+      "note": "GAP-A behavioural diversity isolation Theory 1 / Layer A load-bearing falsifier. Tests whether SD-056 (ree-v3 main 041a974 + V3-EXQ-613 PASS) propagates per-candidate z_world variance through to action-class diversity. A_only design -- MECH-341 (Layer B) OFF, MECH-313 (Layer C) OFF. Plan-of-record: REE_assembly/evidence/planning/behavioral_diversity_isolation_plan.md GAP-A node."
     }
   ]
 }
