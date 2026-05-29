@@ -41,7 +41,11 @@
       "supersedes": "V3-EXQ-490g",
       "claim_id": "MECH-295",
       "note": "goal_pipeline:GAP-4 closure-load-bearing experiment. Supersedes V3-EXQ-490g (FAILed 2026-05-21 on the un-rebuilt library; agent.dacc=None across arms despite gap4_operating=True per the 2026-05-29 V3-EXQ-490g-cohort autopsy Fork A). Runs under the rebuilt Tier-1 library (commit-pending): (1) cfg.use_dacc=True is now unconditional in build_config so both arms get dACC instantiation, and (2) evaluate_tier1_cohort C3_lift_vs_baseline default metric is goal_norm_peak delta vs baseline (substrate-side, cross-claim-comparable; range 0.09-0.36 observed on 483c/524a). approach_commit_rate retained as a legacy debug knob (saturates at 1.0 in OFF_OFF baseline under drive_floor=0.9 + goal_stream + reef). 2 arms x 3 seeds (ARM_0_legacy_collapsed vs ARM_1_gap4_operating). Acceptance: C1 bridge_cue_fires + C2 dacc_bias_nonzero_steps + C3 approach_commit_steps + C4 goal_active_fraction + C3_lift_vs_baseline on goal_norm_peak delta (TIER1_GOAL_NORM_PEAK_DELTA=0.01) -- ARM_1 must beat ARM_0 on 2/3 seeds. PASS routes goal_pipeline:GAP-4 toward closure. FAIL-with-C2-only routes to /diagnose-errors on SD-032b dACC bundle population (see script docstring for full interpretation grid). Dry-run smoke 2026-05-29: wiring intact, acceptance dict populates goal_norm_peak_delta metric correctly, dry-run outcome FAIL at single seed (expected). experiment_purpose=evidence. Plan-of-record: REE_assembly/evidence/planning/goal_pipeline_plan.md GAP-4 row + REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-490g-cohort_2026-05-29.md Fork A.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-29T20:11:45Z"
+      },
       "claim_ids": [
         "MECH-295"
       ],
