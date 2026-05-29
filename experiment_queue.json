@@ -41,6 +41,19 @@
       "note": "Re-queue of V3-EXQ-544 (ran 2026-05-10T10:44:59Z on DLAPTOP-4.local, runner-classified ERROR via stale 'No runner sentinel emitted' path; on-disk manifest at evidence/experiments/v3_exq_544_mech313_noise_floor_substrate_readiness_v3_20260510T104458Z.json carries result=PASS for all 5 UC sub-tests). Script unchanged from predecessor; this re-queue produces a clean PASS record via the current experiment_protocol.emit_outcome sentinel handshake. Per IGW-20260529-029. Smoke 2026-05-29T06:23:34Z PASS 5/5. Expected runtime ~3 sec (substrate-readiness diagnostic; pure CPU arithmetic + a single REEAgent boot + 5 small probe calls)."
     },
     {
+      "queue_id": "V3-EXQ-613",
+      "title": "SD-056 (e2.action_conditional_divergence_contrastive) substrate-readiness diagnostic",
+      "script": "experiments/v3_exq_613_sd056_e2_action_contrastive_substrate_readiness.py",
+      "priority": 240,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 1,
+      "status": "pending",
+      "claim_ids": [],
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_613_sd056_e2_action_contrastive_substrate_readiness",
+      "note": "Substrate-readiness validation for SD-056 (E2 world_forward auxiliary InfoNCE contrastive loss) landed 2026-05-29 via /implement-substrate. Five sub-tests UC1-UC5: module surface (4 config knobs + 2 E2 helpers + simulation_mode kwarg), master-OFF backward-compat (3-seed bit-identical world_forward equivalence), cand_world_pairwise_dist direction-of-change after 200 SGD steps (load-bearing PASS condition per design memo; threshold >= 0.05 normalised units), held-out contrastive-task accuracy > 50% (random baseline 1/K=12.5% for K=8), MECH-094 simulation gate (returns tensor(0.0); subsequent waking backward() still flows gradient). claim_ids=[] -- substrate-readiness diagnostic does NOT weight SD-056 confidence directly per Phase-3 governance rules. Behavioural validation V3-EXQ-569a (matched-entropy FP-2 falsifier on the fixed substrate; GAP-A R1.a/R1.b decision rule per evidence/planning/behavioral_diversity_isolation_plan.md) queued separately per plan-of-record sequencing in evidence/planning/e2_action_divergence_substrate_design.md. Predecessor design-memo session: e2-action-divergence-design-memo-20260528T174310Z. Smoke 2026-05-29 PASS 5/5 (~30 sec, manifests scrubbed; runner will write the canonical PASS manifest)."
+    },
+    {
       "queue_id": "V3-EXQ-610a",
       "title": "INV-074 crystallization necessity test (re-queue of V3-EXQ-610 with corrected runtime estimate)",
       "script": "experiments/v3_exq_610a_inv074_crystallization_necessity.py",

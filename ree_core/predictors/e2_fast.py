@@ -196,6 +196,186 @@ class E2FastPredictor(nn.Module):
         delta = self.world_transition(z_a)
         return z_world + delta
 
+    def cand_world_pairwise_dist(
+        self,
+        z_world_0: torch.Tensor,
+        candidate_actions: torch.Tensor,
+    ) -> torch.Tensor:
+        """SD-056 diagnostic: mean pairwise L2 between K predicted z_world_1 outputs.
+
+        For a batch of K CEM candidates sharing z_world_0 but differing in
+        first action a_i, predict K z_world_1[i] via world_forward and return
+        the mean pairwise L2 distance across the K predictions. Headline
+        metric for V3-EXQ-571 root-cause / SD-056 substrate-readiness; named
+        by the 2026-05-28 lit-pull SYNTHESIS verdict 3 as a methodological
+        gap worth publishing as a standalone diagnostic.
+
+        Under the pre-SD-056 substrate this returns ~0.0 across K candidates
+        differing only in first action (V3-EXQ-571 measurement, 2026-05-16).
+        After SD-056 training under contrastive loss it should rise above the
+        substrate-readiness threshold (calibrated by V3-EXQ-NEW-1).
+
+        Args:
+            z_world_0:         [world_dim] OR [1, world_dim] starting state
+            candidate_actions: [K, action_dim] action batch (typically first-step
+                               actions from K sibling CEM candidates)
+
+        Returns:
+            0-d Tensor: mean pairwise L2 distance across K predictions.
+            Returns tensor(0.0) on K < 2 (no pairs).
+        """
+        if candidate_actions.dim() != 2:
+            raise ValueError(
+                f"candidate_actions must be [K, action_dim]; got shape "
+                f"{tuple(candidate_actions.shape)}"
+            )
+        K = candidate_actions.shape[0]
+        if K < 2:
+            return torch.zeros((), device=candidate_actions.device,
+                               dtype=candidate_actions.dtype)
+        if z_world_0.dim() == 1:
+            z0 = z_world_0.unsqueeze(0).expand(K, -1)
+        elif z_world_0.dim() == 2 and z_world_0.shape[0] == 1:
+            z0 = z_world_0.expand(K, -1)
+        elif z_world_0.dim() == 2 and z_world_0.shape[0] == K:
+            z0 = z_world_0
+        else:
+            raise ValueError(
+                f"z_world_0 must be [world_dim] OR [1, world_dim] OR [K, world_dim]; "
+                f"got shape {tuple(z_world_0.shape)} with K={K}"
+            )
+        preds = self.world_forward(z0, candidate_actions)  # [K, world_dim]
+        dists = torch.cdist(preds, preds)  # [K, K]
+        K_int = int(K)
+        eye = torch.eye(K_int, dtype=torch.bool, device=preds.device)
+        off_diag = dists[~eye]
+        return off_diag.mean()
+
+    def world_forward_contrastive_loss(
+        self,
+        z_world_0: torch.Tensor,
+        actions: torch.Tensor,
+        z_world_1_targets: torch.Tensor,
+        weight: Optional[float] = None,
+        temperature: Optional[float] = None,
+        min_batch_classes: Optional[int] = None,
+        simulation_mode: bool = False,
+    ) -> torch.Tensor:
+        """SD-056 auxiliary InfoNCE contrastive loss on world_forward.
+
+        For K sibling CEM candidates sharing z_world_0 but differing in
+        first action a_i, enforce that predicted z_world_1[i] is closer to
+        target i than to target j != i in latent L2:
+
+            logits[i, j] = -||pred_j - target_i||^2 / tau
+            L_contrast = cross_entropy(logits, label=arange(K))
+
+        Asymmetric anchor-to-prediction form per the design memo
+        (REE_assembly/evidence/planning/e2_action_divergence_substrate_design.md):
+        symmetric InfoNCE doubles cost without architectural gain.
+
+        Helper does NOT modify autograd state externally; caller is
+        responsible for adding `weight * L_contrast` to the total E2 loss
+        and backpropping. Negatives are computed within this method by
+        running world_forward over the K actions (sibling-CEM-candidate
+        negatives are informative by construction).
+
+        Returns tensor(0.0) when:
+            (a) simulation_mode=True (MECH-094 standard pattern -- replay /
+                DMN training paths cannot recruit the contrastive signal);
+            (b) K < 2 (no negatives);
+            (c) fewer than min_batch_classes distinct first-action classes
+                in the batch (degenerate; would produce uninformative
+                gradients).
+
+        Args:
+            z_world_0:         [world_dim] OR [1, world_dim] OR [K, world_dim]
+            actions:           [K, action_dim]; argmax over last dim taken as
+                               the first-action class for the min_batch_classes
+                               floor check.
+            z_world_1_targets: [K, world_dim] -- observed next-state targets
+                               for each (z_world_0, a_i) pair.
+            weight:            optional override for w_contrast scaling. The
+                               helper returns the unweighted CE; caller scales
+                               by config.e2.e2_action_contrastive_weight when
+                               composing into L_E2. Argument retained for
+                               caller-side override convenience.
+            temperature:       optional InfoNCE tau override.
+            min_batch_classes: optional first-action-class-floor override.
+            simulation_mode:   MECH-094 gate. True -> tensor(0.0); no state
+                               advance (helper is stateless beyond the
+                               weights it shares with world_forward).
+
+        Returns:
+            0-d Tensor: contrastive loss (unweighted CE). Caller multiplies
+            by w_contrast before adding to L_E2.
+        """
+        device = actions.device
+        dtype = z_world_1_targets.dtype
+
+        if simulation_mode:
+            return torch.zeros((), device=device, dtype=dtype)
+
+        if actions.dim() != 2:
+            raise ValueError(
+                f"actions must be [K, action_dim]; got shape {tuple(actions.shape)}"
+            )
+        K = actions.shape[0]
+        if K < 2:
+            return torch.zeros((), device=device, dtype=dtype)
+        if z_world_1_targets.dim() != 2 or z_world_1_targets.shape[0] != K:
+            raise ValueError(
+                f"z_world_1_targets must be [K, world_dim] with K={K}; got "
+                f"shape {tuple(z_world_1_targets.shape)}"
+            )
+
+        cfg = self.config
+        if temperature is None:
+            temperature = float(getattr(cfg, "e2_action_contrastive_temperature", 0.1))
+        if min_batch_classes is None:
+            min_batch_classes = int(
+                getattr(cfg, "e2_action_contrastive_min_batch_classes", 2)
+            )
+        # Note: `weight` is accepted for API symmetry but the helper returns
+        # the unweighted CE -- caller composes weight at the loss-summation
+        # site (matches the SD-019 / MECH-258 / MECH-273 pattern of
+        # auxiliary-loss helpers returning unweighted terms).
+
+        # Min-batch-classes floor: count distinct first-action classes (argmax
+        # over action_dim). One-hot inputs collapse to integer class labels;
+        # continuous actions still produce class labels via argmax (the
+        # min_batch_classes guard is structural -- it would not fire on a
+        # well-formed K-candidate sibling batch).
+        first_action_classes = actions.argmax(dim=-1)  # [K]
+        n_classes = int(first_action_classes.unique().numel())
+        if n_classes < int(min_batch_classes):
+            return torch.zeros((), device=device, dtype=dtype)
+
+        # Broadcast z_world_0 to [K, world_dim] so world_forward sees K
+        # candidates with shared starting state but distinct actions.
+        if z_world_0.dim() == 1:
+            z0 = z_world_0.unsqueeze(0).expand(K, -1)
+        elif z_world_0.dim() == 2 and z_world_0.shape[0] == 1:
+            z0 = z_world_0.expand(K, -1)
+        elif z_world_0.dim() == 2 and z_world_0.shape[0] == K:
+            z0 = z_world_0
+        else:
+            raise ValueError(
+                f"z_world_0 must be [world_dim] OR [1, world_dim] OR [K, world_dim]; "
+                f"got shape {tuple(z_world_0.shape)} with K={K}"
+            )
+
+        preds = self.world_forward(z0, actions)  # [K, world_dim]
+
+        # logits[i, j] = -||pred_j - target_i||^2 / tau
+        # cdist^2 in [K (targets), K (preds)] form (anchors index i, preds index j).
+        diffs = preds.unsqueeze(0) - z_world_1_targets.unsqueeze(1)  # [K, K, world_dim]
+        sq_dists = diffs.pow(2).sum(dim=-1)  # [K, K]
+        logits = -sq_dists / float(temperature)
+
+        labels = torch.arange(K, device=device)
+        return F.cross_entropy(logits, labels)
+
     def action_object(
         self,
         z_world: torch.Tensor,

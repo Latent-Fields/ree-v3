@@ -272,6 +272,14 @@ class E2Config:
     action_object_dim: int = 16    # SD-004: compressed world-effect action object dim
     learning_rate: float = 3e-4
 
+    # SD-056: action-conditional divergence preservation via auxiliary InfoNCE
+    # contrastive loss on world_forward. Default OFF -- bit-identical to pre-SD-056.
+    # See REE_assembly/docs/architecture/sd_056_e2_action_conditional_divergence.md.
+    e2_action_contrastive_enabled: bool = False
+    e2_action_contrastive_weight: float = 0.01
+    e2_action_contrastive_temperature: float = 0.1
+    e2_action_contrastive_min_batch_classes: int = 2
+
 
 @dataclass
 class E3Config:
@@ -2619,6 +2627,12 @@ class REEConfig:
         schema_wanting_gain: float = 0.5,
         # ARC-033: E2_harm_s forward model (sensory-discriminative harm stream predictor)
         use_e2_harm_s_forward: bool = False,
+        # SD-056: E2 action-conditional divergence preservation
+        # (auxiliary InfoNCE contrastive loss on world_forward)
+        e2_action_contrastive_enabled: bool = False,
+        e2_action_contrastive_weight: float = 0.01,
+        e2_action_contrastive_temperature: float = 0.1,
+        e2_action_contrastive_min_batch_classes: int = 2,
         # SD-022: directional limb damage
         limb_damage_enabled: bool = False,
         damage_increment: float = 0.15,
@@ -3164,6 +3178,14 @@ class REEConfig:
 
         # ARC-033: E2_harm_s forward model
         config.latent.use_e2_harm_s_forward = use_e2_harm_s_forward
+
+        # SD-056: E2 action-conditional divergence contrastive substrate.
+        # Knobs land on config.e2 (E2Config); helpers live on E2FastPredictor.
+        # Default OFF preserves bit-identical existing-experiment behaviour.
+        config.e2.e2_action_contrastive_enabled = e2_action_contrastive_enabled
+        config.e2.e2_action_contrastive_weight = e2_action_contrastive_weight
+        config.e2.e2_action_contrastive_temperature = e2_action_contrastive_temperature
+        config.e2.e2_action_contrastive_min_batch_classes = e2_action_contrastive_min_batch_classes
 
         # SD-022: directional limb damage dim adjustments.
         # When enabled: harm_obs_a_dim is re-sourced from body damage state (7 dims).
