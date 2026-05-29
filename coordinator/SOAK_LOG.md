@@ -79,6 +79,20 @@ Maintenance cutover executed from Mac:
 Git still authoritative for results/status/queue commits until Phase 3.
 Daniel-PC / EWIN-PC remain manual (git-only if started).
 
+## Phase-3 cutover incident (2026-05-28): scaler powered off the hub
+
+During the Phase-3 cutover, `.github/workflows/cloud-scaler.yml` powered
+OFF `ree-worker-1` even though that VM is the coordinator hub
+(`ree-coordinator` + `ree-sync-daemon` at 10.8.0.1:8787). Cause: cloud-1's
+`ree-runner` had been `systemctl disable`d (separate hub/runner
+co-location fix), so the scaler's heartbeat/queue gate read the VM as an
+idle worker and issued `hcloud server shutdown`. Effect: full outage of
+the coordinator + writers. Recovery: `hcloud server poweron ree-worker-1`
++ manually disable the cloud-scaler workflow. Fix: added explicit
+`HUB_NAME=ree-worker-1` guard at the top of the per-worker loop in
+cloud-scaler.yml so the hub is never considered for power-on/shutdown.
+Update HUB_NAME if the hub VM ever moves.
+
 ## Go / no-go reading rule
 
 `adjusted_divergences = raw_divergences - (rows matching E1...En)`.

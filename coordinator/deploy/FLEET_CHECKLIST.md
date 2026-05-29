@@ -95,6 +95,7 @@ Per-worker: set `COORDINATION_MODE=shadow` or remove drop-in; hub:
 - Stale `stop` in `runner_commands/<machine>.json` can exit runners before first claim; clear pending commands.
 - Coordinator claim can stick on wrong host until `POST /claim/release` + runner stop on that host.
 - Partial checkpoints (e.g. V3-EXQ-590a `_partial/`) are **per-machine**; pin `machine_affinity` before resume.
+- **Hub VM must never be powered off by the cloud-scaler.** `ree-worker-1` runs `ree-coordinator` + `ree-sync-daemon`; the 2026-05-28 cutover-day outage was triggered by the scaler shutting down the hub after cloud-1's `ree-runner` was disabled. `.github/workflows/cloud-scaler.yml` now has a `HUB_NAME=ree-worker-1` guard at the top of the per-worker loop -- if the hub VM ever moves (rename, migration, second hub), update `HUB_NAME` in that workflow in the same change. See `coordinator/SOAK_LOG.md` "Phase-3 cutover incident (2026-05-28)".
 
 ---
 

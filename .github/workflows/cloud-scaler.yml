@@ -26,6 +26,17 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   IDLE_GRACE_MIN: 20          # min minutes since last completed before shutdown
   HEARTBEAT_FRESH_MIN: 5      # heartbeat must be at most this many minutes stale
+  # The coordinator hub VM must NEVER be considered for shutdown by the scaler.
+  # ree-worker-1 runs ree-coordinator + ree-sync-daemon at 10.8.0.1:8787 (the
+  # Phase-3 git writer hub). On 2026-05-28 the scaler powered the hub off
+  # because cloud-1's ree-runner was systemctl-disabled (separate hub/runner
+  # co-location fix), so the scaler saw the VM as an idle worker. Recovery
+  # required `hcloud server poweron ree-worker-1` + manually disabling this
+  # workflow. The HUB_NAME guard in the loop body skips the hub before any
+  # shutdown decision can be made. If the hub ever moves to a different VM,
+  # update HUB_NAME here AND on the hub VM itself (hostname + coordinator/
+  # sync-daemon systemd units).
+  HUB_NAME: ree-worker-1
 
 jobs:
   scale:
@@ -99,6 +110,15 @@ jobs:
           for entry in "${WORKERS[@]}"; do
             IFS=: read -r SERVER_NAME AFFINITY MODE <<< "$entry"
             MODE="${MODE:-full}"
+
+            # HUB GUARD: the coordinator hub VM must never be powered off by
+            # the scaler. Skip the entire iteration -- no status read, no
+            # power-on, no shutdown decision. See env.HUB_NAME comment above
+            # for the 2026-05-28 incident this guards against.
+            if [ "$SERVER_NAME" = "$HUB_NAME" ]; then
+              echo "[$SERVER_NAME affinity=$AFFINITY] HUB_NAME match -- scaler skips hub VM (no power-on, no shutdown)"
+              continue
+            fi
 
             # Count pending items this worker could claim (its affinity or "any")
             CLAIMABLE=$(AFFINITY="$AFFINITY" python3 -c "
