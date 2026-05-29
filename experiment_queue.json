@@ -17,7 +17,11 @@
       "supersedes": "V3-EXQ-611b",
       "claim_id": "MECH-341",
       "note": "V3-EXQ-611b ran on DLAPTOP-4.local 2026-05-28T17:26:42Z -> 18:14:45Z; runner cache reports PASS (C1=True C2=False C3=True R2c=True, 18/18). Result manifest missing from REE_assembly/evidence/experiments/, absent from coordinator DB results, sentinel _runner_signals/V3-EXQ-611b.json missing. Canonical heartbeat-autostash-silent-revert pattern (DLAPTOP-4 coordination_mode=shadow at the time). 611c is a bit-identical re-run on the same MECH-341 retune substrate to recover the manifest. Plan-of-record: REE_assembly/evidence/planning/behavioral_diversity_isolation_plan.md GAP-B (NEXT step (2) is gated on this manifest landing). experiment_purpose=diagnostic.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-29T17:33:40Z"
+      },
       "claim_ids": [
         "MECH-341"
       ],
