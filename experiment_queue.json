@@ -8,38 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-592b",
-      "title": "MECH-090 R-c commit-readiness gate validation (commitment_closure:GAP-4 substrate)",
-      "script": "experiments/v3_exq_592b_mech090_commit_readiness_gate_validation.py",
-      "priority": 240,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "note": "Falsifier-grade 2-arm diagnostic for the MECH-090 R-c commit-entry readiness conjunction substrate landed 2026-05-28 (commitment_closure_plan.md GAP-4; ree-v3/ree_core/heartbeat/beta_gate.py + ree-v3/ree_core/agent.py + ree-v3/ree_core/utils/config.py). ARM_0 GATED: V3-EXQ-592 EMERGENT-arm curriculum with use_commit_readiness_gate=True + floor=0.05. Acceptance: at least 1 seed in 3 shows mech090_n_elevation_blocked >= 1 AND total_committed_steps == 0 AND running_variance < commitment_threshold (confirming gate is the load-bearing block on the degenerate basin). ARM_1 GATED_FORCED_READY: clone trained agent + force rv=0.001 + gate ON. Acceptance: at least 2 seeds in 3 show mech090_n_elevation_admitted >= 1 AND total_committed_steps > 0 (confirming gate does not permanently lock out commitment when readiness clears). Joint PASS unblocks commitment_closure:GAP-4 (partial -> done substrate-side) and queues Phase 4/5 *b cohort (460b/461/463b/464b/466b/467b/468b). Joint FAIL routes per the experiment-script docstring interpretation grid. Predecessor synthesis: REE_assembly/evidence/literature/targeted_review_connectome_mech_090/synthesis.md commit 9e68c5ca8a. Predecessor session: implement-substrate-mech090-commit-predicate-20260528T172800Z. Smoke verified 2026-05-29 dry-run --seeds 42: wiring intact, gate ON propagates, diagnostics populated, margins computed (ARM_0 margin=0.7977 ARM_1 margin=0.1285 on short budget -- degenerate basin not reproduced at dry-run scale, full 400-ep P0 budget required).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-29T07:23:17Z"
-      },
-      "claim_ids": [
-        "MECH-090"
-      ],
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_592b_mech090_commit_readiness_gate_validation"
-    },
-    {
-      "queue_id": "V3-EXQ-613",
-      "title": "SD-056 (e2.action_conditional_divergence_contrastive) substrate-readiness diagnostic",
-      "script": "experiments/v3_exq_613_sd056_e2_action_contrastive_substrate_readiness.py",
-      "priority": 240,
-      "machine_affinity": "DLAPTOP-4.local",
-      "estimated_minutes": 1,
-      "note": "Substrate-readiness validation for SD-056 (E2 world_forward auxiliary InfoNCE contrastive loss) landed 2026-05-29 via /implement-substrate. Five sub-tests UC1-UC5: module surface (4 config knobs + 2 E2 helpers + simulation_mode kwarg), master-OFF backward-compat (3-seed bit-identical world_forward equivalence), cand_world_pairwise_dist direction-of-change after 200 SGD steps (load-bearing PASS condition per design memo; threshold >= 0.05 normalised units), held-out contrastive-task accuracy > 50% (random baseline 1/K=12.5% for K=8), MECH-094 simulation gate (returns tensor(0.0); subsequent waking backward() still flows gradient). claim_ids=[] -- substrate-readiness diagnostic does NOT weight SD-056 confidence directly per Phase-3 governance rules. Behavioural validation V3-EXQ-569a (matched-entropy FP-2 falsifier on the fixed substrate; GAP-A R1.a/R1.b decision rule per evidence/planning/behavioral_diversity_isolation_plan.md) queued separately per plan-of-record sequencing in evidence/planning/e2_action_divergence_substrate_design.md. Predecessor design-memo session: e2-action-divergence-design-memo-20260528T174310Z. Smoke 2026-05-29 PASS 5/5 (~30 sec, manifests scrubbed; runner will write the canonical PASS manifest).",
-      "status": "pending",
-      "claim_ids": [],
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_613_sd056_e2_action_contrastive_substrate_readiness"
-    },
-    {
       "queue_id": "V3-EXQ-544a",
       "title": "MECH-313 (ARC-065) stochastic_noise_floor substrate-readiness diagnostic (re-queue of V3-EXQ-544)",
       "script": "experiments/v3_exq_544a_mech313_noise_floor_substrate_readiness.py",
