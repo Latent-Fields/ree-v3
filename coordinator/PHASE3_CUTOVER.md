@@ -281,7 +281,6 @@ Until engineering sign-off on `phase3_git_writer`:
 
 - 2026-05-21: Phase 3 **substrate only** (this doc, preflight/verify CLIs,
   cutover script shell, sync_daemon scaffold). Phase 2 remains live.
-  **Not safe to cut over.**
 - 2026-05-27: writer ahead-of-origin guard landed (2b13f68);
   `POST /shutdown_notify` + lifecycle_state on `/shadow/status` landed
   (0e4a815); cloud-scaler workflow announces shutdowns (dda047b); runner
@@ -289,10 +288,46 @@ Until engineering sign-off on `phase3_git_writer`:
   fleet pair (2e5e991); preflight reads lifecycle_state instead of SSH
   (90035e5); writer review HIGH-1 stale-origin fix (f95f9db) +
   HIGH-2 foreign-commit-rejection fix (043e06e); runner-push gating
-  env flags wired (this commit).
-- `PHASE3_GIT_WRITER_READY` still `False` -- remaining blockers before
-  flipping: writer-implementation human sign-off post-fix, plus
-  PLAN.md steps 5-6 (queue-snapshot writeback, derived heartbeats).
-  The result-push gate's runner counterpart is ready; the queue and
-  heartbeat gates exist as scaffolding but their sync_daemon
-  counterparts are NOT yet implemented.
+  env flags wired (8e70760); `phase3_queue_writer` step 5 landed
+  (a0b9da1); `phase3_heartbeat_writer` step 6 landed (0052a16);
+  writer review followups (86430b7); cross-writer sibling tolerance +
+  git-add rollback + canonical queue keys (edb1d06); queue atomicity
+  fixes B+D + ree-runner Restart=on-failure (5b7ddef); post-push queue
+  CI workflow (1b92f8d).
+- 2026-05-28 -- 2026-05-29: **CUTOVER LANDED**. All three writer-ready
+  flags flipped True (commit `d98f9a5`). Hub `SYNC_MODE=authoritative`
+  with `--i-understand-phase3`. All worker runner-push gates set
+  (`PHASE3_DISABLE_RUNNER_*_PUSH=1`). End-to-end cycle proved on
+  V3-EXQ-612d: cloud-3 ran the smoke + posted `/result`, manifest
+  spooled, `phase3_git_writer` committed (`8ae3d972de phase3: 1 v3
+  result manifest(s) 2026-05-29`), `phase3_queue_writer` cleared the
+  item, `phase3_heartbeat_writer` continued ticking throughout
+  (~30+ commits visible on origin/master in `phase3-heartbeats:`).
+
+### Phase 3 live -- known follow-ups
+
+Four issues surfaced during cutover; chips filed for each. Until they
+land, treat the workaround in column 3 as the operational rule.
+
+| # | Issue | Workaround |
+|---|-------|-----------|
+| 1 | **cloud-scaler can power off the hub VM** (`ree-worker-1`). The scaler treats it as a regular worker. Powered off the hub mid-cutover; required `hcloud server poweron ree-worker-1` + workflow disable | `cloud-scaler.yml` workflow is currently disabled. Re-enable only after the hub-protection guard lands. |
+| 2 | **Hub co-location**: cloud-1's runner writes heartbeat / status files locally to the hub's REE_assembly checkout, which the writer is trying to keep clean. The current `PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH` gate only disables the push, not the local write. | The cloud-1 runner is `systemctl stop && systemctl disable`-d. Fleet is operating without a cloud-1 runner. Re-enable after a new `PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE` flag lands. |
+| 3 | **Legacy claim-push isn't gated** under Phase 3. `experiment_runner.claim_queue_item()` (line ~795) does its own commit+push outside `git_push_queue()`, so `claim: V3-EXQ-XXX` commits still land on `ree-v3/main` despite the env flag. | Cosmetic noise. No operational impact. |
+| 4 | **Non-atomic queue file rewrite** caused cloud-2 to crashloop on `json.decoder.JSONDecodeError` from literal `<<<<<<< Updated upstream` markers left by a concurrent `git pull` race. `Restart=on-failure + StartLimitBurst=5` then killed the unit. | If a worker goes dead-with-failed-state, `git reset --hard origin/main` on its checkout + `systemctl reset-failed ree-runner && systemctl start ree-runner`. |
+| 5 | **phase3_verify.py** post-cutover stub checks (7 of them) return FAIL instead of SKIP / PASS when `--expect-cutover` and writers are True. | Treat the FAILs as known tool gaps. Use the manual verification path: writer commits on origin (`phase3:`, `phase3-queue:`, `phase3-heartbeats:` prefixes), DB results table populated, queue file matches DB state. |
+
+### Operator gotchas (Phase 3 live)
+
+- **Never run a runner on the hub VM.** The runner writes heartbeat
+  files into the same REE_assembly checkout the writer publishes from.
+  Co-tenancy breaks the writer's clean-tree refusal.
+- **The hub repo will sometimes diverge from origin** because the
+  writer doesn't `git pull --rebase` by design (autostash is retired).
+  When operator-side IGW commits land between writer ticks, the hub's
+  local commits don't FF onto origin. Manual fix: SSH to hub,
+  `git -C ~/REE_Working/REE_assembly pull --rebase origin master`
+  (and similar for `ree-v3`). Writers resume on next tick.
+- **Watch the scaler workflow.** While the hub-protection chip isn't
+  landed, leave `cloud-scaler.yml` disabled to avoid the 2026-05-28
+  hub-shutdown incident.
