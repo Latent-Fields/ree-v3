@@ -60,6 +60,15 @@ def _manifest_candidates(assembly_root, queue_id):
     """
     needle = queue_id.lower().replace("v3-exq-", "v3_exq_").replace(
         "exq-", "exq_")
+
+    def _norm(s):
+        # File / dir names in the evidence tree mix `-` and `_` (e.g.
+        # V3-EXQ-590a.json sits in v3_exq_590_..._goldilocks/). Treat
+        # the two as interchangeable for matching so the queue_id
+        # needle hits whichever variant the operator used.
+        return s.lower().replace("-", "_")
+
+    nneedle = _norm(needle)
     flat = os.path.join(assembly_root, "evidence", "experiments")
     candidates = []
     if not os.path.isdir(flat):
@@ -73,7 +82,7 @@ def _manifest_candidates(assembly_root, queue_id):
     for entry in os.listdir(flat):
         full = os.path.join(flat, entry)
         if os.path.isfile(full):
-            if entry.endswith(".json") and needle in entry.lower():
+            if entry.endswith(".json") and nneedle in _norm(entry):
                 candidates.append(os.path.relpath(full, assembly_root))
             continue
         if not os.path.isdir(full):
@@ -85,22 +94,22 @@ def _manifest_candidates(assembly_root, queue_id):
                 subdir = os.path.join(full, sub)
                 if not os.path.isdir(subdir):
                     continue
-                if not (needle in sub.lower()):
+                if not (nneedle in _norm(sub)):
                     continue
                 for name in os.listdir(subdir):
                     sub_full = os.path.join(subdir, name)
                     if (os.path.isfile(sub_full) and name.endswith(".json")
-                            and (needle in name.lower()
-                                 or needle in sub.lower())):
+                            and (nneedle in _norm(name)
+                                 or nneedle in _norm(sub))):
                         candidates.append(
                             os.path.relpath(sub_full, assembly_root))
             continue
         # Per-EXQ subdir: match on dir name or file name.
-        if needle in entry.lower():
+        if nneedle in _norm(entry):
             for name in os.listdir(full):
                 sub_full = os.path.join(full, name)
                 if (os.path.isfile(sub_full) and name.endswith(".json")
-                        and needle in name.lower()):
+                        and nneedle in _norm(name)):
                     candidates.append(
                         os.path.relpath(sub_full, assembly_root))
     return candidates
