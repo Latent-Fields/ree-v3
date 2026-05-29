@@ -1967,8 +1967,21 @@ def main():
     # stage them selectively instead of sweeping evidence/experiments/.
     _result_files_this_pass: list[str] = []
 
+    # Reset every outer pass. Three downstream paths (INFRA-CRASH,
+    # UNKNOWN-result, manifest-missing) want to skip a queue item for the
+    # rest of the current pass while leaving it in the queue for later. Use
+    # this per-pass set instead of completed_ids -- adding to completed_ids
+    # poisons the runner's in-memory view of the queue for its entire
+    # lifetime, so a worker that hits one of those paths silently stops
+    # considering the item even after the underlying issue is fixed or the
+    # entry is re-queued. Reproduced on ree-cloud-2 / 2026-05-29 when 569a
+    # and 612c both hit manifest-missing and the runner then sat idle
+    # despite 612c carrying its affinity.
+    _pass_skip: set[str] = set()
+
     while True:
         ran_any = False
+        _pass_skip.clear()
 
         # Drain any pending remote-control commands at the top of each pass
         # (before claiming the next experiment). Commands like 'stop', 'pause',
@@ -2001,6 +2014,13 @@ def main():
             if _pause_flag:
                 break  # paused: don't pick up new experiments this pass
             queue_id = item["queue_id"]
+
+            if queue_id in _pass_skip:
+                # Earlier this pass we hit a "leave-in-queue" outcome on this
+                # item (manifest missing, infra crash with no sentinel, or
+                # UNKNOWN result). Skip it for the rest of this pass and let
+                # the next loop tick re-evaluate.
+                continue
 
             if _resume_run_target and queue_id != _resume_run_target[0]:
                 continue
@@ -2201,7 +2221,7 @@ def main():
                 )
                 if args.auto_sync:
                     release_active_claim(QUEUE_FILE, queue_id, machine)
-                completed_ids.add(queue_id)  # don't re-pick this pass
+                _pass_skip.add(queue_id)  # don't re-pick this pass
                 status["current"] = None
                 write_status(status, status_path)
                 continue
@@ -2298,7 +2318,7 @@ def main():
                       flush=True)
                 if args.auto_sync:
                     release_active_claim(QUEUE_FILE, queue_id, machine)
-                completed_ids.add(queue_id)  # don't re-pick this pass
+                _pass_skip.add(queue_id)  # don't re-pick this pass
                 status["current"] = None
                 write_status(status, status_path)
                 continue
@@ -2315,7 +2335,7 @@ def main():
                       flush=True)
                 if args.auto_sync:
                     release_active_claim(QUEUE_FILE, queue_id, machine)
-                completed_ids.add(queue_id)
+                _pass_skip.add(queue_id)  # don't re-pick this pass
                 status["current"] = None
                 write_status(status, status_path)
                 continue
