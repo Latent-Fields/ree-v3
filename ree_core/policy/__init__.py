@@ -8,6 +8,10 @@ CandidateRule field) would also land in this package.
 See evidence/planning/arc_062_rule_apprehension_plan.md for the closure plan.
 """
 
+from ree_core.policy.commit_readiness import (
+    CommitReadiness,
+    CommitReadinessConfig,
+)
 from ree_core.policy.gated_policy import (
     GatedPolicy,
     GatedPolicyConfig,
@@ -28,6 +32,8 @@ from ree_core.policy.tonic_vigor import (
 )
 
 __all__ = [
+    "CommitReadiness",
+    "CommitReadinessConfig",
     "GatedPolicy",
     "GatedPolicyConfig",
     "GatedPolicyOutput",
