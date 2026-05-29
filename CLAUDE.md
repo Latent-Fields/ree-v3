@@ -5530,3 +5530,175 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   use_dacc x crystallize_at_phase3; supersedes V3-EXQ-543g).
   Design doc: REE_assembly/docs/architecture/critical_period_crystallization.md.
   See INV-074, MECH-333, MECH-334, ARC-075, Q-052; arc_062 GAP-B.
+
+## MECH-090 Commit-Entry Predicate: R-c single-gate readiness conjunction (2026-05-28)
+- MECH-090 (commit-entry predicate amendment): control_plane.beta_gate.commit_entry_readiness_conjunction
+  -- IMPLEMENTED 2026-05-28. Closes commitment_closure_plan.md GAP-4 at the
+  substrate-readiness level (behavioural validation pending V3-EXQ-592b PASS).
+  Module: ree_core/heartbeat/beta_gate.py (BetaGate.should_admit_elevation +
+  __init__ kwargs use_commit_readiness_gate / commit_readiness_floor /
+  commit_readiness_strict_single_candidate; get_state / reset extended with
+  mech090_n_elevation_admitted / _blocked / _single_candidate /
+  _last_readiness_score_margin diagnostics). ree_core/agent.py: BetaGate
+  construction at REEAgent.__init__ forwards the three knobs via getattr
+  fallback (config.heartbeat.use_commit_readiness_gate etc., default False)
+  so the from_dims signature is unchanged. The two beta_gate.elevate() call
+  sites in REEAgent.select_action (bistable branch + legacy branch) compute
+  _readiness_margin and _n_candidates once from result.scores (REE
+  lower-is-better -> margin = sorted(scores)[1] - sorted(scores)[0]) and
+  guard the elevate call with should_admit_elevation. Bistable branch:
+  gate consulted only on the not-yet-elevated transition tick. Legacy
+  branch: gate consulted every committed tick (legacy semantic is per-tick
+  re-evaluation); gate block treats the tick as effectively uncommitted
+  (releases any prior elevation, single-stage by design).
+  Reading: R-c single-gate conjunction (synthesis-strongest) per
+  REE_assembly/evidence/literature/targeted_review_connectome_mech_090/
+  synthesis.md (commit 9e68c5ca8a, 2026-05-28). Anchored on Cisek &
+  Kalaska 2010 (affordance-competition), Hanes & Schall 1996 (FEF
+  accumulator-to-threshold), Roesch / Calu / Schoenbaum 2007 (dopaminergic
+  readiness signal). R-a (rv-only is correct) not defensible post-pass;
+  R-b (rv-only entry + downstream propagation gate) retained as fallback
+  if validation fails. Tandetnik 2021 (frontal-lesion dissociation) is
+  R-b's anchor and is preserved as the fallback architecture.
+  Config (HeartbeatConfig, ree_core/utils/config.py): use_commit_readiness_gate
+  (bool, default False; bit-identical OFF master), commit_readiness_floor
+  (float, default 0.05 -- small relative to EXQ-608 mean_top2_class_gap range
+  0.27-1.96; Q-053-style calibration is a follow-on, not a precondition for
+  landing), commit_readiness_strict_single_candidate (bool, default False;
+  permissive single-candidate handling, strict-mode is diagnostic-only).
+  All knobs NOT surfaced through REEConfig.from_dims (matches the existing
+  beta_gate_bistable precedent -- callers set config.heartbeat.use_commit_readiness_gate
+  directly; keeps from_dims signature unchanged to avoid concurrent-session
+  conflict with the MECH-341 retune signature).
+  Data flow: e3.select() -> E3SelectionResult.scores [K] + .committed bool ->
+  agent.py: if result.committed and use_commit_readiness_gate:
+  _readiness_margin = sorted(scores)[1] - sorted(scores)[0],
+  _n_candidates = K -> bistable branch (if not is_elevated) or legacy branch
+  (every committed tick) -> beta_gate.should_admit_elevation(margin,
+  n_candidates) -> elevate() admitted iff margin >= floor.
+  Diagnostics on BetaGate.get_state(): mech090_n_elevation_admitted /
+  _blocked / _single_candidate / _last_readiness_score_margin all reset
+  per-episode in BetaGate.reset(). V3-EXQ-592b reads these for the
+  acceptance criteria.
+  Backward compatible: use_commit_readiness_gate=False by default;
+  should_admit_elevation returns True unconditionally without incrementing
+  counters; agent.py skips the margin computation block entirely when the
+  master flag is off (committed=True alone never enters the readiness branch).
+  506/506 contracts PASS with master OFF (regression-clean 2026-05-28). 7
+  unit tests on the BetaGate primitive (default no-op, gate ON admit / block,
+  single-candidate permissive / strict, reset clears, backward-compat
+  elevate/propagate/release) all PASS.
+  MECH-094: N/A. The gate is a control-state-transition predicate at waking
+  action selection; reads E3 scores; writes only the beta-elevation event,
+  not memory content. No simulation-write surface. The match the SD-035 /
+  MECH-279 / MECH-313 / MECH-314 / MECH-319 / MECH-320 / MECH-341 pattern.
+  Phased training: N/A (pure arithmetic regulator; no learned parameters;
+  no gradient flow).
+  Validation experiment: V3-EXQ-592b queued as 2-arm diagnostic. ARM_0 GATED:
+  use_commit_readiness_gate=True, floor=0.05, same env+seed (42) as
+  V3-EXQ-592. Acceptance: total_committed_steps == 0 AND
+  mech090_n_elevation_blocked >= 1 AND running_variance < commitment_threshold
+  at some point during the run (confirming the gate is the load-bearing
+  block). ARM_1 GATED_FORCED_READY: same gate config with experiment-side
+  score_bias injection forcing margin >= 0.10 by construction. Acceptance:
+  total_committed_steps > 0 AND mech090_n_elevation_admitted >= 1
+  (confirming the gate does not permanently lock out commitment when
+  readiness clears). Joint PASS = commitment_closure:GAP-4 partial -> done.
+  Design doc: REE_assembly/docs/architecture/mech_090_commit_entry_predicate.md
+  Predecessor synthesis: REE_assembly/evidence/literature/targeted_review_connectome_mech_090/synthesis.md
+  See MECH-090 (parent claim), MECH-091 (urgency interrupt; orthogonal release-side
+  override; unaffected), ARC-028 + MECH-105 (hippocampal-BetaGate completion
+  coupling; release side; unaffected), SD-034 / MECH-266 / MECH-267 / MECH-268
+  (downstream behavioural arms; transitively unblocked via GAP-4),
+  commitment_closure:GAP-4 (the closure-plan gap this amendment resolves),
+  Cisek & Kalaska 2010 + Hanes & Schall 1996 + Roesch / Calu / Schoenbaum 2007
+  (literature anchors R1/R2/R3), Tandetnik 2021 (R-b fallback anchor),
+  MECH-094 (call-site scoping; not applicable).
+
+## MECH-090 R-c continuation: nav_competence axis (2026-05-29)
+- MECH-090 R-c continuation: control_plane.beta_gate.commit_entry_readiness_
+  conjunction.nav_competence -- IMPLEMENTED 2026-05-29 (commitment_closure:GAP-4
+  substrate landing pass 2 of 2; behavioural validation still pending V3-EXQ-592b
+  PASS). The 2026-05-28 landing implemented the WITHIN-TICK DECISIVENESS axis
+  (per-candidate score margin -- Hanes & Schall 1996 reading). This pass adds
+  the ACROSS-TICK MOTOR-PROGRAM READINESS axis (Cisek & Kalaska 2010 affordance-
+  preparation + Roesch / Calu / Schoenbaum 2007 dopaminergic readiness). Both
+  axes are R-c readings; both can be enabled/disabled independently; they
+  AND-compose at both elevate sites.
+  Module: ree_core/policy/commit_readiness.py (CommitReadiness +
+  CommitReadinessConfig). Pure-arithmetic regulator (no nn.Module, no learned
+  params), sibling pattern to MECH-313 NoiseFloor / MECH-320 TonicVigor.
+  Maintains a [0, 1] readiness EMA over per-tick outcome signals plus an
+  explicit notify_outcome(value) harness-push seam. Initial value 1.0
+  (fail-open). MECH-094 standard simulation_mode pattern.
+  Wiring (ree_core/agent.py): REEAgent.__init__ instantiates self.commit_
+  readiness when config.use_commit_readiness=True (auto-armed by __post_init__ /
+  from_dims OR-only resolver when use_mech090_readiness_conjunction=True).
+  REEAgent.select_action computes _readiness_admits =
+  commit_readiness.is_above_floor(mech090_readiness_floor) once at the top
+  of the beta-gate block and AND-composes with the existing
+  should_admit_elevation(score_margin, K) at BOTH call sites (bistable +
+  legacy). Block diagnostics advance via commit_readiness.notify_block() at
+  the source. REEAgent.reset calls commit_readiness.reset() per-episode.
+  Per-tick outcome-signal source (Phase 1): the experiment harness pushes via
+  commit_readiness.notify_outcome(value). The substrate-side seam is wired;
+  the harness is responsible for the per-tick update. committed_mode_curriculum.py
+  pushes its probe-derived nav_competence via this seam. Phase 2 follow-on
+  (separate /implement-substrate pass): wire an env-emitted
+  "mech090_readiness_outcome" key reading in agent.sense() so the substrate
+  advances readiness automatically without harness involvement.
+  Config (REEConfig + from_dims, in contrast with the prior session's
+  HeartbeatConfig-resident score_margin gate flags):
+  use_mech090_readiness_conjunction (bool, default False; bit-identical OFF),
+  mech090_readiness_floor (float, default 0.3 -- mid-low floor that V3-EXQ-
+  592 seed 42's nav_competence=0.0 clearly fails to clear; calibratable),
+  use_commit_readiness (bool, default False; auto-armed True via the
+  OR-only resolver when the conjunction flag is on),
+  commit_readiness_window (int, default 20; informational, alpha is the
+  load-bearing knob), commit_readiness_ema_alpha (float, default 0.1;
+  ~10-tick half-life), commit_readiness_initial (float, default 1.0;
+  fail-open).
+  Backward compatible: 523/523 contracts PASS (506 prior + 17 new MECH-090
+  R-c-nav-competence contracts) with both R-c master flags OFF. Master-OFF
+  construction produces agent.commit_readiness=None and the agent runs
+  bit-identical to pre-amendment. Master-ON with default
+  commit_readiness_initial=1.0 produces readiness == 1.0 on first tick, so
+  the conjunction admits while the EMA has no real outcome data (fail-open).
+  The conjunction begins blocking only once notify_outcome (harness) pushes
+  a low value or update drives the EMA below the floor via real outcome
+  signals.
+  Composition with the score_margin gate (both at both elevate sites):
+    _readiness_margin = sorted(scores)[1] - sorted(scores)[0]    (existing)
+    _readiness_admits = commit_readiness.is_above_floor(floor)   (NEW)
+                        when use_mech090_readiness_conjunction
+                        else True (legacy bit-identical)
+    elevation admitted iff:
+        result.committed
+        AND BetaGate.should_admit_elevation(margin, K)   (existing)
+        AND _readiness_admits                            (NEW)
+  Phased training: N/A (pure-arithmetic regulator; no learned parameters;
+  no gradient flow; no encoder head).
+  MECH-094: standard simulation_mode pattern. update(simulation_mode=True)
+  and notify_outcome(value, simulation_mode=True) return without advancing
+  the readiness EMA. Gate decisions at waking action-selection only; the
+  substrate is read-only over commit_readiness state at the elevate sites
+  and writes only a control-state transition.
+  Validation continuation: V3-EXQ-592b grid extended to 4 arms (ARM_2
+  GATED_NAV_COMP_ON: nav_competence gate alone; ARM_3 GATED_BOTH_ON: both
+  R-c gates active; ARM_4 BOTH_GATES_OFF_HARNESS_FORCES_READY: rv-only
+  baseline with harness pushing notify_outcome(1.0) each tick). Falsifier
+  grid: see design doc "R-c amendment continued / Falsifiability" section
+  for the four orthogonal outcomes (which-axis-carries-the-load discrimination).
+  Design doc: REE_assembly/docs/architecture/mech_090_commit_entry_predicate.md
+  (R-c continuation section appended 2026-05-29).
+  See MECH-090 (this claim's predecessor pass: within-tick decisiveness axis
+  landed 2026-05-28 via BetaGate.should_admit_elevation + HeartbeatConfig
+  flags), MECH-091 (urgency interrupt; orthogonal release-side override),
+  ARC-028 + MECH-105 (hippocampal-BetaGate completion coupling; release side),
+  SD-034 / MECH-266 / MECH-267 / MECH-268 (downstream behavioural arms;
+  transitively unblocked via GAP-4), commitment_closure:GAP-4 (the closure-
+  plan gap this two-pass amendment resolves), Cisek & Kalaska 2010 (across-
+  tick affordance-preparation anchor), Roesch / Calu / Schoenbaum 2007
+  (dopaminergic readiness anchor), MECH-313 NoiseFloor / MECH-320 TonicVigor
+  (sibling pure-arithmetic regulators in ree_core/policy/), MECH-094
+  (simulation_mode argument standard pattern).

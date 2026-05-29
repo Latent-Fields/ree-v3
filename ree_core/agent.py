@@ -79,6 +79,8 @@ from ree_core.pfc import LateralPFCAnalog, OFCAnalog
 from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
 from ree_core.pfc.ofc_analog import OFCConfig
 from ree_core.policy import (
+    CommitReadiness,
+    CommitReadinessConfig,
     GatedPolicy,
     GatedPolicyConfig,
     NoiseFloor,
@@ -263,8 +265,25 @@ class REEAgent(nn.Module):
             buffer_size=config.heartbeat.theta_buffer_size,
         )
 
-        # MECH-090: BetaGate for policy propagation
-        self.beta_gate = BetaGate()
+        # MECH-090: BetaGate for policy propagation. MECH-090 R-c commit-entry
+        # readiness conjunction knobs are read from HeartbeatConfig and forwarded
+        # to the gate so should_admit_elevation() can implement the predicate
+        # (default no-op when use_commit_readiness_gate=False).
+        # See HeartbeatConfig in ree_core/utils/config.py and
+        # REE_assembly/docs/architecture/mech_090_commit_entry_predicate.md.
+        self.beta_gate = BetaGate(
+            use_commit_readiness_gate=getattr(
+                config.heartbeat, "use_commit_readiness_gate", False
+            ),
+            commit_readiness_floor=getattr(
+                config.heartbeat, "commit_readiness_floor", 0.05
+            ),
+            commit_readiness_strict_single_candidate=getattr(
+                config.heartbeat,
+                "commit_readiness_strict_single_candidate",
+                False,
+            ),
+        )
 
         # MECH-203/204: serotonergic neuromodulation (sleep + benefit-salience)
         self.serotonin = SerotoninModule(config.serotonin)
@@ -598,6 +617,35 @@ class REEAgent(nn.Module):
                 noise_floor_min_temperature=config.noise_floor_min_temperature,
             )
             self.noise_floor = NoiseFloor(config=nf_cfg)
+
+        # MECH-090 R-c conjunction: commit-entry readiness signal. Adds a
+        # readiness_above_floor conjunction to the rv-only BetaGate commit-
+        # entry predicate. CommitReadiness maintains an EMA over per-tick
+        # outcome signals (env-emitted resource contacts by default; harness
+        # may override via notify_outcome). The conjunction wraps the two
+        # beta_gate.elevate() call sites in select_action(); the
+        # BetaGate.elevate() signature is unchanged. See
+        # ree_core/policy/commit_readiness.py and
+        # REE_assembly/docs/architecture/mech_090_commit_entry_predicate.md.
+        # Bit-identical baseline when use_commit_readiness=False AND
+        # use_mech090_readiness_conjunction=False; the conjunction master
+        # flag auto-arms use_commit_readiness via REEConfig.__post_init__ /
+        # from_dims, so callers only set the conjunction flag.
+        self.commit_readiness: Optional[CommitReadiness] = None
+        if getattr(config, "use_commit_readiness", False):
+            cr_cfg = CommitReadinessConfig(
+                use_commit_readiness=True,
+                commit_readiness_window=getattr(
+                    config, "commit_readiness_window", 20
+                ),
+                commit_readiness_ema_alpha=getattr(
+                    config, "commit_readiness_ema_alpha", 0.1
+                ),
+                commit_readiness_initial=getattr(
+                    config, "commit_readiness_initial", 1.0
+                ),
+            )
+            self.commit_readiness = CommitReadiness(config=cr_cfg)
 
         # MECH-314 (ARC-065): structured_curiosity_bonus (frontopolar / EFE
         # analog). State-DEPENDENT score-bias on E3 candidate scoring.
@@ -1484,6 +1532,14 @@ class REEAgent(nn.Module):
             self.tonic_vigor.reset()
         if self.score_diversity is not None:
             self.score_diversity.reset()
+
+        # MECH-090 R-c conjunction: reset commit-entry readiness EMA + per-
+        # episode diagnostic counters. readiness returns to
+        # commit_readiness_initial (default 1.0, fail-open) so a fresh
+        # episode starts with the conjunction reducing to rv-only behaviour
+        # until real outcome data has been collected.
+        if self.commit_readiness is not None:
+            self.commit_readiness.reset()
 
         # MECH-319: reset simulation-mode rule-gate diagnostic counters on
         # episode boundary. The gate has no persistent state across ticks
@@ -3558,12 +3614,76 @@ class REEAgent(nn.Module):
 
         # MECH-090: gate policy propagation based on beta state.
         bistable = self.config.heartbeat.beta_gate_bistable
+        # MECH-090 R-c commit-entry readiness conjunction (2026-05-28).
+        # Per-candidate first-action margin off the post-bias E3 scores
+        # (REE lower-is-better -> winner = argmin, margin = sorted[1] - sorted[0]).
+        # When use_commit_readiness_gate=False the gate returns True
+        # unconditionally and the rv-only legacy path is bit-identical.
+        # See HeartbeatConfig + ree_core/heartbeat/beta_gate.py.
+        _readiness_margin: Optional[float] = None
+        _n_candidates: int = 0
+        if (
+            result.committed
+            and getattr(
+                self.config.heartbeat, "use_commit_readiness_gate", False
+            )
+        ):
+            try:
+                _scores = result.scores.detach()
+                _n_candidates = int(_scores.numel())
+                if _n_candidates >= 2:
+                    _sorted, _ = torch.sort(_scores)
+                    _readiness_margin = float(_sorted[1].item() - _sorted[0].item())
+            except (AttributeError, RuntimeError, TypeError):
+                # Fall-through: should_admit_elevation receives None + 0
+                # and the permissive single-candidate path admits.
+                _readiness_margin = None
+                _n_candidates = 0
+        # MECH-090 R-c readiness-conjunction (nav_competence axis, 2026-05-28).
+        # Composes WITH the score_margin gate via AND: both gates must admit
+        # for elevation. score_margin is the within-tick decisiveness reading
+        # (Hanes & Schall 1996); CommitReadiness is the across-tick motor-
+        # program readiness reading (Cisek-Kalaska affordance + Roesch
+        # premature-commit pathology). With use_mech090_readiness_conjunction
+        # =False, _readiness_admits returns True unconditionally and the
+        # combined predicate reduces to the score_margin gate (or rv-only when
+        # both flags are off). See ree_core/policy/commit_readiness.py.
+        _readiness_admits: bool = (
+            self.commit_readiness.is_above_floor(
+                float(getattr(self.config, "mech090_readiness_floor", 0.3))
+            )
+            if (
+                self.commit_readiness is not None
+                and getattr(
+                    self.config, "use_mech090_readiness_conjunction", False
+                )
+                and result.committed
+            )
+            else True
+        )
+        # MECH-090 R-c diagnostic: count blocks at the source. Only fires
+        # when the readiness conjunction was actually consulted AND returned
+        # False (the rv-low signal would have elevated under rv-only). The
+        # counter lives on the CommitReadiness module via notify_block.
+        if (
+            not _readiness_admits
+            and self.commit_readiness is not None
+            and result.committed
+        ):
+            self.commit_readiness.notify_block()
         if bistable:
             # Bistable latch: only elevate on commit ENTRY (not every tick).
             # Release is triggered by hippocampal completion signal in _e3_tick(),
             # not by variance re-evaluation. This prevents flickering when variance
             # hovers near the commit threshold.
-            if result.committed and not self.beta_gate.is_elevated:
+            if (
+                result.committed
+                and not self.beta_gate.is_elevated
+                and self.beta_gate.should_admit_elevation(
+                    score_margin=_readiness_margin, n_candidates=_n_candidates
+                )
+                and _readiness_admits
+            ):
                 self.beta_gate.elevate()
                 self._committed_step_idx = 0  # reset step counter on new commitment
                 # MECH-269 / MECH-090: snapshot active anchor keys at commit entry.
@@ -3600,7 +3720,22 @@ class REEAgent(nn.Module):
             # If committed and beta already elevated: no-op (stay latched).
         else:
             # Legacy behavior (backward compat): re-evaluate every E3 tick.
-            if result.committed:
+            # MECH-090 R-c: an effective_committed conjunction of the rv-low
+            # signal (result.committed) AND the readiness gate. With
+            # use_commit_readiness_gate=False, should_admit_elevation
+            # returns True unconditionally so effective_committed == result.committed
+            # and the legacy path is bit-identical.
+            _legacy_admit = (
+                (
+                    self.beta_gate.should_admit_elevation(
+                        score_margin=_readiness_margin, n_candidates=_n_candidates
+                    )
+                    and _readiness_admits
+                )
+                if result.committed
+                else True
+            )
+            if result.committed and _legacy_admit:
                 # Fix: reset on EVERY E3 commit, not only on uncommitted->committed
                 # transition. In non-bistable mode E3 re-selects a trajectory on every
                 # E3 tick, so the counter must restart from 0 each time -- otherwise it

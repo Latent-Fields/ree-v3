@@ -1072,6 +1072,38 @@ class HeartbeatConfig:
     #   Required for SD-021 (descending pain modulation) and proper MECH-090 dynamics.
     beta_gate_bistable: bool = False
 
+    # MECH-090 commit-entry readiness conjunction (commitment_closure:GAP-4).
+    # Synthesis: REE_assembly/evidence/literature/targeted_review_connectome_mech_090/
+    # synthesis.md (2026-05-28, lit-pull commit 9e68c5ca8a). R-c single-gate
+    # conjunction reading: BetaGate entry requires precision-low AND motor-program
+    # readiness above floor. V3-EXQ-592 seed 42 showed rv-only is satisfiable by
+    # degenerate trivial-predictability (rv=2.7e-5 at nav_competence=0.0).
+    # Cisek-Kalaska 2010 affordance-competition + Hanes-Schall 1996 accumulator-
+    # to-threshold + Roesch-Calu-Schoenbaum 2007 readiness signal.
+    # False (default): legacy rv-only entry. beta_gate.elevate() fires whenever
+    #   E3SelectionResult.committed is True. Bit-identical to pre-MECH-090-R-c.
+    # True: agent.py guards elevate() with
+    #   should_admit_elevation(score_margin) -- elevation is blocked when the
+    #   per-candidate E3 score margin (top1 - top2 over result.scores;
+    #   lower-is-better so winner is argmin and margin = second_min - min)
+    #   falls below commit_readiness_floor. Pure single-stage gate.
+    use_commit_readiness_gate: bool = False
+    # Floor on the per-candidate first-action margin (REE lower-is-better, so the
+    # selected score is the minimum; margin = scores.sort()[1] - scores.min()).
+    # Default 0.05 is small relative to the EXQ-608 mean_top2_class_gap range
+    # 0.27-1.96 seen in unaugmented baselines, so the gate fires only on
+    # genuinely degenerate near-tie scoring (V3-EXQ-592 seed-42 signature).
+    # Q-053-style calibration is a follow-on substrate task, not a precondition
+    # for the substrate landing.
+    commit_readiness_floor: float = 0.05
+    # When the candidate pool collapses to a single trajectory (top-k=1; some
+    # ablation arms), the score-margin is undefined. False (default):
+    # treat single-candidate ticks as readiness-above-floor (permissive, so
+    # the legacy single-trajectory path still elevates). True: treat as
+    # readiness-below-floor (strict, forces multi-candidate pools).
+    # Diagnostic only -- production substrate stays permissive.
+    commit_readiness_strict_single_candidate: bool = False
+
 
 @dataclass
 class EnvironmentConfig:
@@ -1762,6 +1794,47 @@ class REEConfig:
     e3_diversity_min_classes_for_stratification: int = 2
 
     # ----------------------------------------------------------------
+    # MECH-090 R-c conjunction: commit-entry predicate amendment from
+    # rv-only to rv_low AND readiness_above_floor. Reading R-c per the
+    # 2026-05-28 lit-pull synthesis (REE_assembly/evidence/literature/
+    # targeted_review_connectome_mech_090/synthesis.md, commit 9e68c5ca8a;
+    # Hanes & Schall 1996 accumulator-to-threshold + Cisek & Kalaska 2010
+    # affordance competition + Roesch/Calu/Schoenbaum 2007 premature-
+    # commit pathology -- all three load-bearing). Precipitating finding:
+    # V3-EXQ-592 seed 42 (running_variance 2.7e-5 / nav_competence 0.0)
+    # showed the agent satisfied the rv-only gate via degenerate trivial-
+    # predictability. Substrate amendment lives at the BetaGate.elevate()
+    # call sites in REEAgent.select_action (NOT in BetaGate.elevate
+    # itself; that signature is preserved). See
+    # REE_assembly/docs/architecture/mech_090_commit_entry_predicate.md
+    # and ree_core/policy/commit_readiness.py.
+    use_mech090_readiness_conjunction: bool = False
+    # Readiness floor for the conjunction. Calibratable; lit-pull does
+    # not pin a magnitude. Default 0.3 is the mid-low floor that V3-EXQ-
+    # 592 seed 42's nav_competence=0.0 clearly fails to clear; a competent
+    # agent reaching success rate >=30% clears. Validation experiment
+    # V3-EXQ-592b sweeps this.
+    mech090_readiness_floor: float = 0.3
+    # CommitReadiness module master. Default False. Auto-armed True in
+    # __post_init__ when use_mech090_readiness_conjunction is True (the
+    # conjunction needs the readiness signal to consult). Setting this
+    # True without the conjunction flag instantiates the module as a
+    # passive diagnostic (readiness EMA advances but no commit-entry
+    # gate consumes it).
+    use_commit_readiness: bool = False
+    # Nominal effective half-life (ticks) the EMA alpha targets.
+    # Informational; alpha is the load-bearing knob. Default 20.
+    commit_readiness_window: int = 20
+    # Readiness EMA update rate. Default 0.1 (~10-tick half-life on the
+    # EMA itself). Future Q-claim may sweep this.
+    commit_readiness_ema_alpha: float = 0.1
+    # Initial readiness value at construction / per-episode reset.
+    # Default 1.0 (fail-open: an agent with no outcome history defaults
+    # to "ready" so the conjunction reduces to rv-only behaviour until
+    # real outcome data has been collected).
+    commit_readiness_initial: float = 1.0
+
+    # ----------------------------------------------------------------
     # V3-EXQ-563 diagnostic: forced_score_bias_per_class.
     # Hard-injects a per-action-class score bias vector, bypassing all
     # naturalistic signal generation (MECH-313/314/320). Used to verify
@@ -2354,6 +2427,14 @@ class REEConfig:
         if self.use_sleep_aggregation_cluster:
             self.enable_sleep_aggregation_cluster()
 
+        # MECH-090 R-c conjunction master flag resolver. OR-only: when
+        # the conjunction is enabled, the CommitReadiness module must be
+        # instantiated (the gate has no readiness signal to consult
+        # otherwise). Explicit use_commit_readiness=True without the
+        # conjunction continues to work (passive diagnostic mode).
+        if self.use_mech090_readiness_conjunction:
+            self.use_commit_readiness = True
+
     def enable_sleep_aggregation_cluster(self) -> "REEConfig":
         """Enable the full Phase A-E sleep-aggregation cluster (GAP-3).
 
@@ -2677,6 +2758,16 @@ class REEConfig:
         e3_diversity_entropy_bias_scale: float = 0.1,
         e3_diversity_stratified_temperature: float = 1.0,
         e3_diversity_min_classes_for_stratification: int = 2,
+        # MECH-090 R-c conjunction (commitment_closure GAP-4): commit-entry
+        # predicate amendment from rv-only to rv_low AND
+        # readiness_above_floor. See ree_core/policy/commit_readiness.py and
+        # REE_assembly/docs/architecture/mech_090_commit_entry_predicate.md.
+        use_mech090_readiness_conjunction: bool = False,
+        mech090_readiness_floor: float = 0.3,
+        use_commit_readiness: bool = False,
+        commit_readiness_window: int = 20,
+        commit_readiness_ema_alpha: float = 0.1,
+        commit_readiness_initial: float = 1.0,
         # V3-EXQ-563: hard-inject per-class score bias after all naturalistic
         # signal generation. None = disabled (standard behaviour).
         forced_score_bias_per_class: Optional[List[float]] = None,
@@ -3238,6 +3329,21 @@ class REEConfig:
         config.e3_diversity_entropy_bias_scale = e3_diversity_entropy_bias_scale
         config.e3_diversity_stratified_temperature = e3_diversity_stratified_temperature
         config.e3_diversity_min_classes_for_stratification = e3_diversity_min_classes_for_stratification
+
+        # MECH-090 R-c conjunction: commit-entry readiness signal
+        config.use_mech090_readiness_conjunction = use_mech090_readiness_conjunction
+        config.mech090_readiness_floor = mech090_readiness_floor
+        config.use_commit_readiness = use_commit_readiness
+        config.commit_readiness_window = commit_readiness_window
+        config.commit_readiness_ema_alpha = commit_readiness_ema_alpha
+        config.commit_readiness_initial = commit_readiness_initial
+        # __post_init__ auto-arm: when the conjunction is enabled, the
+        # readiness module must be instantiated. from_dims sets fields
+        # AFTER cls(), so __post_init__ ran before this assignment --
+        # re-apply the OR-only resolver here so factory-built configs
+        # behave identically to direct-construction configs.
+        if use_mech090_readiness_conjunction:
+            config.use_commit_readiness = True
 
         config.forced_score_bias_per_class = forced_score_bias_per_class
 
