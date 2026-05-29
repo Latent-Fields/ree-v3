@@ -28,6 +28,64 @@ Read this instead of scattered runbook fragments. Technical plan:
 
 ---
 
+## Coordination panel (Explorer)
+
+The bottom-right card in the explorer was renamed from "Shadow Coordination"
+to "Coordination" on 2026-05-29 (REE_assembly commit `096e01f6`) and gained a
+writer-health subsection. Under Phase 3, this is the place to watch the three
+`sync_daemon` writers that are now the sole producers of coordination data on
+git (`phase3_git_writer` for results, `phase3_queue_writer` for the queue
+snapshot, `phase3_heartbeat_writer` for heartbeats + status -- see
+`PHASE3_CUTOVER.md` Status section).
+
+Backed by `GET /api/coordinator/phase3/writers` in `REE_assembly/serve.py`
+(`run_phase3_writers_summary`). The panel polls every **15s**; the endpoint
+caches **60s** and re-runs a single SSH to the hub. Apparent age in the rows
+can therefore lag the hub by up to ~75s -- a row that just turned yellow may
+already be green on the hub.
+
+### What each row shows
+
+Each of the three writer rows reports:
+
+| Field | Meaning |
+|-------|---------|
+| `sha10` | First 10 chars of the most recent writer commit on the relevant branch (`origin/master` for git_writer + heartbeat_writer; `origin/main` for queue_writer). Searched by commit-message prefix: `phase3:`, `phase3-queue:`, `phase3-heartbeats:`. |
+| `committed_at` / `age_s` | Author timestamp of that commit; age in seconds since now. |
+| `color` | **green** = age < 5 min (writer ticked recently). **yellow** = 5-15 min (worth a glance; idle queue is fine here, but heartbeat_writer should never be this old). **red** = > 15 min (something is wrong; see trouble-tree below). |
+| `status` | Derived from the last few lines of `sudo journalctl -u ree-sync-daemon -n 3` on the hub. One of: `idle` (nothing to commit this tick), `committing` (mid-tick), `push-rejected` (non-FF push to origin; writer is wedged), `refusing` (clean-tree check tripped -- dirty REE_assembly working tree on the hub), `rebase-conflict` (the autostash failure mode -- there should be no autostash under Phase 3, but operator-side rebases can still leave the tree wedged). |
+
+Outside the three rows:
+
+- `spool_pending` -- count of files in `/home/ree/coordinator-spool/pending/`
+  on the hub. **0 or 1 in steady state.** Persistently > 5 means the writer
+  is not draining the spool (paired with a stale `git_writer` row this is
+  the classic push-rejected loop).
+- `journal_tail` -- the last few `sync_daemon` log lines, surfaced in the
+  panel's tooltip so you do not need to SSH for the common diagnosis.
+- `hub_reachable` -- `false` plus an `error` string when the SSH to
+  `ree@91.98.130.117` (over WireGuard 10.8.0.1) failed. The panel renders
+  all three rows grey in this case; no writer data is available.
+
+### What to do when a row goes red
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `git_writer` or `queue_writer` SHA stale (red), spool_pending climbing | Writer wedged in **push-rejected loop** -- operator-side IGW commits landed between writer ticks, so the hub's local writer commits no longer fast-forward onto origin. The Phase-3 writer deliberately does **not** `git pull --rebase --autostash`, so it just keeps failing the push. | SSH to the hub and FF-rebase by hand: `git -C ~/REE_Working/REE_assembly pull --rebase origin master` (and `git -C ~/REE_Working/ree-v3 pull --rebase origin main` for `queue_writer`). Writers resume on the next tick (~60s). |
+| Persistent `rebase-conflict` status | Autostash-style wedge -- a manual rebase on the hub hit a conflict (e.g. the runner_heartbeats/*.json collision class CLAUDE.md describes). The writer cannot commit until the working tree is clean. | SSH to the hub, **inspect the conflict** -- do NOT blindly `git checkout --ours` or `--theirs`. The heartbeat-file collision is usually safe to resolve in favour of the newer runner-written snapshot (the runner overwrites it on next tick), but other paths (claims.yaml, planning docs, manifests) can hide real edits. Resolve, `git rebase --continue`, then leave the tree clean. |
+| `refusing` status with clean `journal_tail` | Hub's `REE_assembly` working tree is dirty -- something (a runner co-tenant, an interactive session) left files modified. Phase 3 writer refuses rather than autostashing. | SSH to the hub, `git -C ~/REE_Working/REE_assembly status`. Find the source. **Never run a runner on the hub VM** (`ree-cloud-1`) -- its co-tenant heartbeat writes break the clean-tree check. Cloud-1's runner is currently `systemctl disable`-d for this reason. |
+| `spool_pending` elevated but writer SHA is recent | Writer is committing but falling behind -- batch size too small for the inbound rate, or the hub is doing one-commit-per-manifest. | Check `journal_tail`; usually self-corrects. If sustained, raise `PHASE3_BATCH_SIZE` on the hub (default 32). |
+| `hub_reachable: false` | WireGuard down on the Mac, or the SSH key is no longer accepted by `ree@91.98.130.117`. | `wg show` on the Mac (`wg-quick up wg0` if down); `ssh ree@10.8.0.1 true` to test the key; check `coordinator.env` for the hub host override. |
+| `heartbeat_writer` stale AND `spool_pending` climbing AND no manual operator activity | **Cloud-scaler powered off the hub VM.** The scaler treats `ree-worker-1` as a regular worker and can shut it down when idle. This is the 2026-05-28 incident class. | Confirm with `hcloud server list | grep ree-worker-1`; if off, `hcloud server poweron ree-worker-1`. The `cloud-scaler.yml` workflow should already be `disabled_manually` -- if it is not, disable it via `gh workflow disable`. Re-enable only after the hub-protection guard chip lands. |
+
+The Coordination panel is the operational watchpoint for the cloud-scaler-vs-hub
+failure mode until that guard chip is in place: the signature is a stale
+`heartbeat_writer` row combined with a growing `spool_pending` counter, even
+though the panel itself stays reachable from the Mac (the explorer's SSH does
+not transit the hub VM).
+
+---
+
 ## Your mental model (correct)
 
 You expected three simple stages:
