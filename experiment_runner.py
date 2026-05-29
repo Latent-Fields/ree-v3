@@ -2249,6 +2249,38 @@ def main():
                 status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] != queue_id]
                 status["current"] = None
                 write_status(status, status_path)
+                # V3-EXQ-592b autopsy fix (2026-05-29): when an ERROR result
+                # claims a manifest (output_file non-empty), enforce the same
+                # manifest-existence contract the PASS branch uses (line ~2331).
+                # An ERROR with empty output_file is a normal script crash and
+                # the existing flow proceeds to queue removal. An ERROR that
+                # NAMES a manifest but the manifest is missing on disk is the
+                # FAIL/ERROR-class counterpart of the line-1394 UNKNOWN bug;
+                # leave the queue entry in place for operator investigation.
+                _err_manifest_str = result.get("output_file") or ""
+                if _err_manifest_str and not _result_manifest_exists(result):
+                    print(f"[runner] WARN: {queue_id} reports ERROR but manifest "
+                          f"{_err_manifest_str!r} is missing on disk or empty. "
+                          f"Leaving in queue; investigate before requeueing.",
+                          flush=True)
+                    if args.auto_sync:
+                        release_active_claim(QUEUE_FILE, queue_id, machine)
+                    _pass_skip.add(queue_id)
+                    continue
+                # Ship manifest BEFORE queue removal (mirrors PASS branch at
+                # line ~2397-2412). When output_file is non-empty and the
+                # manifest exists, push it to REE_assembly and report to the
+                # coordinator so the manifest reaches origin/master before the
+                # queue removal commits the experiment as "done".
+                if args.auto_sync and ree_assembly_path and _err_manifest_str:
+                    try:
+                        git_push_results(ree_assembly_path, [result["output_file"]])
+                    except Exception as _re:
+                        print(f"[runner] warn: per-experiment ERROR results push "
+                              f"failed for {queue_id}: {_re}", flush=True)
+                    coordinator_client.report_result(
+                        queue_id, result.get("run_id"),
+                        result["output_file"], result["result"], machine)
                 try:
                     qdata = json.loads(QUEUE_FILE.read_text())
                     qdata["items"] = [qi for qi in qdata.get("items", [])
@@ -2288,6 +2320,36 @@ def main():
                 status["queue"] = [qi for qi in status["queue"] if qi["queue_id"] != queue_id]
                 status["current"] = None
                 write_status(status, status_path)
+                # V3-EXQ-592b autopsy fix (2026-05-29): the FAIL branch
+                # previously skipped the manifest-existence check, the
+                # git_push_results call, and coordinator_client.report_result
+                # that the PASS branch runs (line ~2326-2412). The 592b
+                # silent-drop on DLAPTOP-4 2026-05-29T08:32:39Z went straight
+                # from completed list append to report_queue_remove with no
+                # manifest reaching origin/master and an empty coordinator
+                # results row. Enforce the same manifest contract as PASS:
+                # missing manifest leaves the queue entry in place for
+                # operator investigation; present manifest is shipped before
+                # the queue removal commits the experiment as "done".
+                _fail_manifest_str = result.get("output_file") or ""
+                if not _result_manifest_exists(result):
+                    print(f"[runner] WARN: {queue_id} reports FAIL but manifest "
+                          f"{_fail_manifest_str!r} is missing on disk or empty. "
+                          f"Leaving in queue; investigate before requeueing.",
+                          flush=True)
+                    if args.auto_sync:
+                        release_active_claim(QUEUE_FILE, queue_id, machine)
+                    _pass_skip.add(queue_id)
+                    continue
+                if args.auto_sync and ree_assembly_path:
+                    try:
+                        git_push_results(ree_assembly_path, [result["output_file"]])
+                    except Exception as _re:
+                        print(f"[runner] warn: per-experiment FAIL results push "
+                              f"failed for {queue_id}: {_re}", flush=True)
+                    coordinator_client.report_result(
+                        queue_id, result.get("run_id"),
+                        result["output_file"], result["result"], machine)
                 try:
                     qdata = json.loads(QUEUE_FILE.read_text())
                     qdata["items"] = [qi for qi in qdata.get("items", [])
