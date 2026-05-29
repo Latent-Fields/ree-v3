@@ -55,11 +55,7 @@
       "supersedes": "V3-EXQ-569",
       "claim_id": "ARC-065",
       "note": "GAP-A behavioural diversity isolation Theory 1 / Layer A load-bearing falsifier. Tests whether SD-056 (ree-v3 main 041a974 + V3-EXQ-613 PASS) propagates per-candidate z_world variance through to action-class diversity. A_only design -- MECH-341 (Layer B) OFF, MECH-313 (Layer C) OFF. Plan-of-record: REE_assembly/evidence/planning/behavioral_diversity_isolation_plan.md GAP-A node.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-05-29T16:23:12Z"
-      },
+      "status": "pending",
       "claim_ids": [
         "ARC-065",
         "MECH-341"
