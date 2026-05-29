@@ -562,17 +562,61 @@ def _sync_to_origin(repo, branch, log_prefix):
         check=False, timeout=60)
     if rebased.returncode != 0:
         # Conflict against an origin commit that touched the same path
-        # the writer's commit modified. Abort cleanly and surface --
-        # the operator gets to decide whether to drop the stale writer
-        # commits (the safe default, since they're regeneratable from
-        # DB / spool) or to merge by hand.
+        # the writer's commit modified. Abort cleanly. Then either
+        # auto-recover (opt-in via env) or surface and refuse.
         _git(repo, "rebase", "--abort", check=False, timeout=10)
+        # Opt-in self-heal: PHASE3_AUTO_RESET_ON_REBASE_CONFLICT=1 lets
+        # the writer drop its own writer-authored stale ahead commits
+        # via `git reset --hard origin/<branch>` and recover on the next
+        # tick by re-materialising the same content from DB/spool. This
+        # is the behaviour the abort message has always recommended; the
+        # env gates it because trust-in-regeneration is a per-deployment
+        # operator decision, not a structural property of the writer.
+        # Safe preconditions already satisfied at this call site:
+        #   - clean tree (caller passed _hub_working_tree_clean)
+        #   - all ahead commits writer-authored (foreign-check above)
+        # so the hard-reset only drops content this writer can re-emit.
+        # Motivating incident: 2026-05-29 06:06-06:49 UTC, 42 consecutive
+        # rebase-conflict aborts on ree-v3 main against operator commits
+        # landing every minute; writer wedged until the operator stream
+        # quieted. With auto-reset the wedge is at-most-one tick.
+        auto_reset = os.environ.get(
+            "PHASE3_AUTO_RESET_ON_REBASE_CONFLICT", "0").strip() in (
+                "1", "true", "TRUE", "yes", "YES")
+        if auto_reset:
+            reset = _git(
+                repo, "reset", "--hard", "origin/" + branch,
+                check=False, timeout=30)
+            if reset.returncode != 0:
+                return (False,
+                        "rebase onto origin/%s failed (%s); "
+                        "PHASE3_AUTO_RESET_ON_REBASE_CONFLICT set but "
+                        "`git reset --hard origin/%s` also failed (%s); "
+                        "tree may be in an unexpected state, operator "
+                        "must investigate." % (
+                            branch, rebased.stderr.strip()[:240],
+                            branch, reset.stderr.strip()[:240]))
+            sys.stderr.write(
+                "%s rebase onto origin/%s failed; "
+                "PHASE3_AUTO_RESET_ON_REBASE_CONFLICT dropped %s "
+                "writer-authored commit(s) via `git reset --hard "
+                "origin/%s`; next tick will re-materialise from DB / "
+                "spool. (rebase stderr: %s)\n" % (
+                    log_prefix, branch, ahead_count, branch,
+                    rebased.stderr.strip()[:240]))
+            # Successful reset == we are now at origin/<branch>. Return
+            # ok so the caller proceeds; the materialise step then
+            # re-emits the dropped content.
+            return (True, "")
         return (False,
                 "rebase onto origin/%s failed (%s); rebase aborted, "
                 "spool / DB state intact. Operator may need to resolve "
                 "conflicts by hand or `git reset --hard origin/%s` to "
                 "drop the stale writer commits (they will be "
-                "regenerated on the next tick)." % (
+                "regenerated on the next tick). Set "
+                "PHASE3_AUTO_RESET_ON_REBASE_CONFLICT=1 to make the "
+                "writer perform the same reset automatically on "
+                "conflict." % (
                     branch, rebased.stderr.strip()[:240], branch))
     sys.stdout.write(
         "%s absorbed %s origin commit(s) by rebasing %s "
