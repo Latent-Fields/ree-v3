@@ -8,6 +8,25 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-611c",
+      "title": "MECH-341 retune 6-arm validation (manifest-recovery re-run of V3-EXQ-611b)",
+      "script": "experiments/v3_exq_611c_mech341_retune_6arm.py",
+      "priority": 310,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 50,
+      "supersedes": "V3-EXQ-611b",
+      "claim_id": "MECH-341",
+      "note": "V3-EXQ-611b ran on DLAPTOP-4.local 2026-05-28T17:26:42Z -> 18:14:45Z; runner cache reports PASS (C1=True C2=False C3=True R2c=True, 18/18). Result manifest missing from REE_assembly/evidence/experiments/, absent from coordinator DB results, sentinel _runner_signals/V3-EXQ-611b.json missing. Canonical heartbeat-autostash-silent-revert pattern (DLAPTOP-4 coordination_mode=shadow at the time). 611c is a bit-identical re-run on the same MECH-341 retune substrate to recover the manifest. Plan-of-record: REE_assembly/evidence/planning/behavioral_diversity_isolation_plan.md GAP-B (NEXT step (2) is gated on this manifest landing). experiment_purpose=diagnostic.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-341"
+      ],
+      "conditions": 6,
+      "episodes_per_run": 50,
+      "experiment_type": "v3_exq_611c_mech341_retune_6arm",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-569a",
       "title": "SD-056 action-contrastive matched-entropy FP-2 falsifier (GAP-A, A_only)",
       "script": "experiments/v3_exq_569a_sd056_action_contrastive_diversity_falsifier.py",
@@ -66,25 +85,6 @@
       "note": "V3-EXQ-612b ran fine on cloud-2 but the script lacked the verdict: PASS stdout sentinel so the runner classified ERROR and skipped report_result. Script now prints verdict: PASS.",
       "status": "pending",
       "experiment_type": "v3_exq_612_phase3_cutover_smoke"
-    },
-    {
-      "queue_id": "V3-EXQ-611c",
-      "title": "MECH-341 retune 6-arm validation (manifest-recovery re-run of V3-EXQ-611b)",
-      "script": "experiments/v3_exq_611c_mech341_retune_6arm.py",
-      "priority": 310,
-      "machine_affinity": "DLAPTOP-4.local",
-      "estimated_minutes": 50,
-      "supersedes": "V3-EXQ-611b",
-      "claim_id": "MECH-341",
-      "note": "V3-EXQ-611b ran on DLAPTOP-4.local 2026-05-28T17:26:42Z -> 18:14:45Z; runner cache reports PASS (C1=True C2=False C3=True R2c=True, 18/18). Result manifest missing from REE_assembly/evidence/experiments/, absent from coordinator DB results, sentinel _runner_signals/V3-EXQ-611b.json missing. Canonical heartbeat-autostash-silent-revert pattern (DLAPTOP-4 coordination_mode=shadow at the time). 611c is a bit-identical re-run on the same MECH-341 retune substrate to recover the manifest. Plan-of-record: REE_assembly/evidence/planning/behavioral_diversity_isolation_plan.md GAP-B (NEXT step (2) is gated on this manifest landing). experiment_purpose=diagnostic.",
-      "status": "pending",
-      "claim_ids": [
-        "MECH-341"
-      ],
-      "conditions": 6,
-      "episodes_per_run": 50,
-      "experiment_type": "v3_exq_611c_mech341_retune_6arm",
-      "seeds": 3
     }
   ]
 }
