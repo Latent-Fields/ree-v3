@@ -15,12 +15,16 @@
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 180,
       "note": "Falsifier-grade 2-arm diagnostic for the MECH-090 R-c commit-entry readiness conjunction substrate landed 2026-05-28 (commitment_closure_plan.md GAP-4; ree-v3/ree_core/heartbeat/beta_gate.py + ree-v3/ree_core/agent.py + ree-v3/ree_core/utils/config.py). ARM_0 GATED: V3-EXQ-592 EMERGENT-arm curriculum with use_commit_readiness_gate=True + floor=0.05. Acceptance: at least 1 seed in 3 shows mech090_n_elevation_blocked >= 1 AND total_committed_steps == 0 AND running_variance < commitment_threshold (confirming gate is the load-bearing block on the degenerate basin). ARM_1 GATED_FORCED_READY: clone trained agent + force rv=0.001 + gate ON. Acceptance: at least 2 seeds in 3 show mech090_n_elevation_admitted >= 1 AND total_committed_steps > 0 (confirming gate does not permanently lock out commitment when readiness clears). Joint PASS unblocks commitment_closure:GAP-4 (partial -> done substrate-side) and queues Phase 4/5 *b cohort (460b/461/463b/464b/466b/467b/468b). Joint FAIL routes per the experiment-script docstring interpretation grid. Predecessor synthesis: REE_assembly/evidence/literature/targeted_review_connectome_mech_090/synthesis.md commit 9e68c5ca8a. Predecessor session: implement-substrate-mech090-commit-predicate-20260528T172800Z. Smoke verified 2026-05-29 dry-run --seeds 42: wiring intact, gate ON propagates, diagnostics populated, margins computed (ARM_0 margin=0.7977 ARM_1 margin=0.1285 on short budget -- degenerate basin not reproduced at dry-run scale, full 400-ep P0 budget required).",
-      "status": "pending",
+      "status": "claimed",
       "claim_ids": [
         "MECH-090"
       ],
       "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_592b_mech090_commit_readiness_gate_validation"
+      "experiment_type": "v3_exq_592b_mech090_commit_readiness_gate_validation",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-29T06:05:27.613522+00:00"
+      }
     }
   ]
 }
