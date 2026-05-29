@@ -912,10 +912,27 @@ def acquire_claim(queue_file: Path, queue_id: str, machine: str) -> str:
         return coordinator_client.claim(queue_id, machine)
 
     claim_result = attempt_claim(queue_file, queue_id, machine)
-    # SHADOW (no-op unless COORDINATION_MODE=shadow): report the git
-    # verdict so the coordinator can compare its own atomic-claim logic
-    # against git's. git stays authoritative outside coordinator mode.
-    coordinator_client.report_claim(queue_id, machine, claim_result)
+    # SHADOW: report the git verdict so the coordinator can compare its
+    # own atomic-claim logic against git's. Under Phase 3 the local
+    # heartbeat files that drive _is_stale_claim are materialised by the
+    # hub's sync_daemon and can lag the DB by minutes; the legacy git
+    # path can then take a "stale" claim that the writer-authoritative
+    # DB still considers active. When the shadow report comes back with
+    # coord_verdict="already_claimed" against our local "ok", believe
+    # the coordinator and release the local claim before the runner
+    # spawns a duplicate experiment process.
+    report = coordinator_client.report_claim(queue_id, machine, claim_result)
+    if (claim_result == "ok"
+            and report is not None
+            and report.get("verdict") == "already_claimed"):
+        print(f"[runner] coordinator says {queue_id} already_claimed; "
+              f"releasing local claim and yielding", flush=True)
+        try:
+            release_claim(queue_file, queue_id, machine)
+        except Exception as exc:  # noqa: BLE001 -- best-effort rollback
+            print(f"[runner] local release after divergence "
+                  f"failed ({queue_id}): {exc}", flush=True)
+        return "already_claimed"
     return claim_result
 
 
