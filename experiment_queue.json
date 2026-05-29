@@ -39,7 +39,11 @@
       "estimated_minutes": 60,
       "claim_id": "MECH-341",
       "note": "Phase P3 behavioural falsifier per behavioral_diversity_isolation_plan.md GAP-B NEXT step (2). 3 arms isolating the 4-substrate stack on SD-054 bipartite reef env (same env as V3-EXQ-611/611b/611c): ARM_0_B_only (only MECH-341 ON), ARM_1_ablate_B (A+C+D ON, B OFF), ARM_2_ALL_ON (all four). V_s scope = minimal (use_per_stream_vs + use_vs_rollout_gating; no anchor sets / staleness / event segmenter / invalidation trigger). MECH-341 sub-flavours: both ON at entropy_bias_scale=2.0 (611b retune sweep target). MECH-313: alpha=0.1 (V3-EXQ-544 PASS default). V_s gate: 0.5 snapshot refresh / 0.4 e1 threshold (V3-EXQ-601 PASS defaults). 3 seeds, P0=30 + P1=60, 200 steps/ep. Acceptance: C1 (R2.c -- B_only majority rung1 PASS) OR (C2 (ALL_ON entropy - ablate_B entropy >= 0.1) AND C3 (ALL_ON majority rung1 PASS)). experiment_purpose=evidence. Multi-claim direction reads off interpretation grid (4 rows). Priority 305 sits below V3-EXQ-611c (310) so 611c runs first; same DLAPTOP-4.local affinity. Cross-link: arc_062_rule_apprehension:GAP-B (V3-EXQ-543l successor cohort). Dry-run smoke: 3/3 arms x 1 seed x P0=2/P1=2/30 steps complete, all verdict lines emitted, multi-claim direction logic verified, validate_experiments.py PASS, validate_queue.py PASS.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-05-29T17:42:54Z"
+      },
       "claim_ids": [
         "MECH-341",
         "ARC-065"
