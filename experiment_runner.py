@@ -747,6 +747,26 @@ def _git_undo_last_commit(repo: Path) -> None:
                    cwd=str(repo), capture_output=True)
 
 
+def _atomic_write_queue(path: Path, data: dict, trailing_newline: bool = True) -> None:
+    """Atomically write JSON to a queue file via tmp+os.replace.
+
+    Avoids the partial-read race that produced the 2026-05-28 cloud-2
+    crashloop: write_text() opens+truncates+writes, so a concurrent
+    `git pull` reader can see an empty / partial file -- and worse, if
+    git pull writes conflict markers into the file, the runner's next
+    json.loads fails (Expecting ',' delimiter: line 23 column 1).
+
+    tmp.replace(path) is atomic on POSIX and works on Windows (unlike
+    rename), matching the write_status() pattern already in this module.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    payload = json.dumps(data, indent=2)
+    if trailing_newline:
+        payload += "\n"
+    tmp.write_text(payload, encoding="utf-8")
+    tmp.replace(path)
+
+
 def attempt_claim(queue_file: Path, queue_id: str, machine: str
                   ) -> str:  # "ok" | "already_claimed" | "error"
     """
@@ -758,14 +778,24 @@ def attempt_claim(queue_file: Path, queue_id: str, machine: str
       3. Write claim, commit, push
       4. If push rejected (non-fast-forward) -> undo commit, return "already_claimed"
       5. On unrelated error -> return "error" (runner proceeds anyway)
+
+    Phase 3: when PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1, the coordinator's
+    /claim endpoint owns claim arbitration (via acquire_claim ->
+    coordinator_client.claim); the git-push-as-mutex path is legacy
+    infrastructure that races sync_daemon for the ree-v3 main index.
+    Under the gate, skip the git pull / commit / push entirely. The
+    local queue file is still updated (atomically) because the runner
+    reads from it on subsequent ticks, but no commit reaches origin.
     """
     repo = queue_file.parent
+    phase3_gated = _phase3_gate("PHASE3_DISABLE_RUNNER_QUEUE_PUSH")
     try:
-        # 1. Pull latest
-        r = subprocess.run(["git", "pull", "--ff-only"],
-                           cwd=str(repo), capture_output=True, text=True, timeout=30)
-        if r.returncode != 0:
-            print(f"[runner] claim pull warn ({queue_id}): {r.stderr.strip()}", flush=True)
+        # 1. Pull latest (skipped under Phase 3 -- sync_daemon owns refresh)
+        if not phase3_gated:
+            r = subprocess.run(["git", "pull", "--ff-only"],
+                               cwd=str(repo), capture_output=True, text=True, timeout=30)
+            if r.returncode != 0:
+                print(f"[runner] claim pull warn ({queue_id}): {r.stderr.strip()}", flush=True)
 
         # 2. Load fresh queue
         data = json.loads(queue_file.read_text())
@@ -781,12 +811,18 @@ def attempt_claim(queue_file: Path, queue_id: str, machine: str
         if not _affinity_matches(item, machine):
             return "already_claimed"
 
-        # 3. Write claim
+        # 3. Write claim atomically (replaces non-atomic write_text)
         item["claimed_by"] = {"machine": machine, "claimed_at": now_utc()}
         item["status"] = "claimed"
-        queue_file.write_text(json.dumps(data, indent=2))
+        _atomic_write_queue(queue_file, data)
 
-        # 4. Commit + push
+        if phase3_gated:
+            # Local file written; coordinator owns the race resolution
+            # (acquire_claim called coordinator_client.claim before us, or
+            # will via the shadow-report path). No commit reaches origin.
+            return "ok"
+
+        # 4. Commit + push (legacy git-as-mutex path)
         subprocess.run(["git", "add", queue_file.name],
                        cwd=str(repo), capture_output=True, check=True)
         subprocess.run(["git", "commit", "-m", f"claim: {queue_id} -> {machine}"],
@@ -809,10 +845,11 @@ def attempt_claim(queue_file: Path, queue_id: str, machine: str
 
     except Exception as e:
         print(f"[runner] claim exception ({queue_id}): {e}", flush=True)
-        try:
-            _git_undo_last_commit(repo)
-        except Exception:
-            pass
+        if not phase3_gated:
+            try:
+                _git_undo_last_commit(repo)
+            except Exception:
+                pass
         return "error"
 
 
@@ -820,11 +857,18 @@ def release_claim(queue_file: Path, queue_id: str, machine: str) -> None:
     """
     Release a claim on shutdown so another machine can pick up the experiment.
     Best-effort -- warns on failure but never raises.
+
+    Phase 3: when PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1, skip the git
+    pull / commit / push. The local queue file is updated atomically
+    so the runner doesn't act on a stale local claim; coordinator-side
+    release is owned by release_active_claim -> coordinator_client.
     """
     repo = queue_file.parent
+    phase3_gated = _phase3_gate("PHASE3_DISABLE_RUNNER_QUEUE_PUSH")
     try:
-        subprocess.run(["git", "pull", "--ff-only"],
-                       cwd=str(repo), capture_output=True, timeout=30)
+        if not phase3_gated:
+            subprocess.run(["git", "pull", "--ff-only"],
+                           cwd=str(repo), capture_output=True, timeout=30)
         data = json.loads(queue_file.read_text())
         changed = False
         for item in data.get("items", []):
@@ -837,7 +881,11 @@ def release_claim(queue_file: Path, queue_id: str, machine: str) -> None:
                 break
         if not changed:
             return
-        queue_file.write_text(json.dumps(data, indent=2))
+        _atomic_write_queue(queue_file, data)
+        if phase3_gated:
+            print(f"[runner] Released local claim on {queue_id} "
+                  f"(phase3: no commit/push)", flush=True)
+            return
         subprocess.run(["git", "add", queue_file.name],
                        cwd=str(repo), capture_output=True)
         subprocess.run(["git", "commit", "-m",
@@ -1949,7 +1997,7 @@ def main():
                         if qi.get("queue_id") == queue_id:
                             qi["status"] = "pending"
                             break
-                    QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                    _atomic_write_queue(QUEUE_FILE, qdata)
                     item = next(i for i in qdata["items"] if i["queue_id"] == queue_id)
                 except Exception as _re:
                     print(f"[runner] warn: could not reopen suspended {queue_id}: {_re}",
@@ -1992,7 +2040,7 @@ def main():
                         qdata = json.loads(QUEUE_FILE.read_text())
                         qdata["items"] = [qi for qi in qdata.get("items", [])
                                           if qi.get("queue_id") != queue_id]
-                        QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                        _atomic_write_queue(QUEUE_FILE, qdata)
                         if args.auto_sync:
                             git_push_queue()
                     except Exception as _qe:
@@ -2083,7 +2131,7 @@ def main():
                                 qi["checkpoint_path"] = result["checkpoint_path"]
                             qi["suspended_at"] = now_utc()
                             break
-                    QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                    _atomic_write_queue(QUEUE_FILE, qdata)
                     if args.auto_sync:
                         git_push_queue()
                 except Exception as _se:
@@ -2168,7 +2216,7 @@ def main():
                     qdata = json.loads(QUEUE_FILE.read_text())
                     qdata["items"] = [qi for qi in qdata.get("items", [])
                                       if qi.get("queue_id") != queue_id]
-                    QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                    _atomic_write_queue(QUEUE_FILE, qdata)
                     if args.auto_sync:
                         git_push_queue()
                 except Exception as _qe:
@@ -2207,7 +2255,7 @@ def main():
                     qdata = json.loads(QUEUE_FILE.read_text())
                     qdata["items"] = [qi for qi in qdata.get("items", [])
                                       if qi.get("queue_id") != queue_id]
-                    QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                    _atomic_write_queue(QUEUE_FILE, qdata)
                     if args.auto_sync:
                         git_push_queue()
                 except Exception as _qe:
@@ -2333,7 +2381,7 @@ def main():
                 qdata = json.loads(QUEUE_FILE.read_text())
                 qdata["items"] = [qi for qi in qdata.get("items", [])
                                    if qi.get("queue_id") != queue_id]
-                QUEUE_FILE.write_text(json.dumps(qdata, indent=2) + "\n")
+                _atomic_write_queue(QUEUE_FILE, qdata)
                 if args.auto_sync:
                     git_push_queue()
             except Exception as _qe:
