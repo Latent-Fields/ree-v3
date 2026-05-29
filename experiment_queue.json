@@ -66,7 +66,11 @@
       "supersedes": "V3-EXQ-610",
       "backlog_id": "EVB-0270",
       "note": "Re-queue of V3-EXQ-610 (ran 2026-05-27T18:05:04Z on DLAPTOP-4.local, runner-classified ERROR via exit code -15 SIGTERM after actual_secs=47729.4 / 13.25h vs 180min estimate; no on-disk manifest, no code crash). Predecessor ran ARM_0_control to completion across all 3 seeds (verified ep 2500/2500 phase=3 log lines), then started ARM_1_test seed=42 and reached ep 2100/2500 phase=3 before SIGTERM. Script byte-identical to predecessor except EXPERIMENT_TYPE/QUEUE_ID/SUPERSEDES updated and stdout tags refreshed to [V3-EXQ-610a]; manifest now carries supersedes='V3-EXQ-610' so governance can mark the predecessor manifest superseded (no predecessor manifest exists; supersession is for queue-side traceability). estimated_minutes=800 (~13.5h) calibrated to predecessor actual_secs. Per IGW-20260529-030. Smoke 2026-05-29T06:25Z PASS (5 eps/arm/seed, ARM_0 + ARM_1 wiring intact, verdict line emitted). Substrate dependency MECH-341 landed 2026-05-27 commit 547faa3.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-05-29T07:24:37Z"
+      },
       "claim_ids": [
         "INV-074",
         "MECH-334",
