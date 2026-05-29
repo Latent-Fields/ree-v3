@@ -8,6 +8,48 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-490h",
+      "title": "MECH-295 drive->liking->approach cascade Tier-1 retest (post-library-rebuild)",
+      "script": "experiments/v3_exq_490h_mech295_cascade_gap4_tier1.py",
+      "priority": 295,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "supersedes": "V3-EXQ-490g",
+      "claim_id": "MECH-295",
+      "note": "goal_pipeline:GAP-4 closure-load-bearing experiment. Supersedes V3-EXQ-490g (FAILed 2026-05-21 on the un-rebuilt library; agent.dacc=None across arms despite gap4_operating=True per the 2026-05-29 V3-EXQ-490g-cohort autopsy Fork A). Runs under the rebuilt Tier-1 library (commit-pending): (1) cfg.use_dacc=True is now unconditional in build_config so both arms get dACC instantiation, and (2) evaluate_tier1_cohort C3_lift_vs_baseline default metric is goal_norm_peak delta vs baseline (substrate-side, cross-claim-comparable; range 0.09-0.36 observed on 483c/524a). approach_commit_rate retained as a legacy debug knob (saturates at 1.0 in OFF_OFF baseline under drive_floor=0.9 + goal_stream + reef). 2 arms x 3 seeds (ARM_0_legacy_collapsed vs ARM_1_gap4_operating). Acceptance: C1 bridge_cue_fires + C2 dacc_bias_nonzero_steps + C3 approach_commit_steps + C4 goal_active_fraction + C3_lift_vs_baseline on goal_norm_peak delta (TIER1_GOAL_NORM_PEAK_DELTA=0.01) -- ARM_1 must beat ARM_0 on 2/3 seeds. PASS routes goal_pipeline:GAP-4 toward closure. FAIL-with-C2-only routes to /diagnose-errors on SD-032b dACC bundle population (see script docstring for full interpretation grid). Dry-run smoke 2026-05-29: wiring intact, acceptance dict populates goal_norm_peak_delta metric correctly, dry-run outcome FAIL at single seed (expected). experiment_purpose=evidence. Plan-of-record: REE_assembly/evidence/planning/goal_pipeline_plan.md GAP-4 row + REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-490g-cohort_2026-05-29.md Fork A.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-295"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 60,
+      "experiment_type": "v3_exq_490h_mech295_cascade_gap4_tier1",
+      "experiment_purpose": "evidence",
+      "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-483d",
+      "title": "SD-037 broadcast override GAP-4 Tier-1 retest with PAG/override_signal C2",
+      "script": "experiments/v3_exq_483d_sd037_broadcast_gap4_override_signal.py",
+      "priority": 290,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "supersedes": "V3-EXQ-483c",
+      "claim_id": "SD-037",
+      "note": "SD-037 broadcast override 4-arm factorial (GABA suppress ON/OFF x broadcast override ON/OFF) under rebuilt GAP-4 Tier-1 library. Supersedes V3-EXQ-483c (FAILed 2026-05-21; autopsy: C2_dacc_bias=0 across all 12 runs because agent.dacc=None; C3_lift on approach_commit_rate hit OFF_OFF ceiling 1.0). 483d redesign per 2026-05-24 autopsy + 2026-05-29 cluster autopsy Fork A: (a) C2 replaced with override_signal_nonzero_steps (counts steps where broadcast_override.override_signal > 1e-3 in ON arms; OFF arms have broadcast_override=None so signal is 0 by construction -- directly measures SD-037's primary PAG pathway, not the dACC secondary), (b) C3_lift replaced with goal_norm_peak delta vs baseline (TIER1_GOAL_NORM_PEAK_DELTA=0.01 per-seed), (c) extra_config={use_dacc:True} explicit on every arm (redundant with the rebuilt library default but kept for clarity per 483d docstring). 4 arms x 3 seeds. Acceptance: C1 bridge_cue_fires + C2 override_signal_nonzero_steps>=10 + C3 approach_commit_steps + C4 goal_active_fraction on >=2/3 seeds, PLUS C3_lift_vs_baseline on goal_norm_peak. Dry-run smoke 2026-05-29 at 1 seed: OFF_ON + ON_ON PASS individual verdicts (override_signal C2 firing as designed); OFF_OFF + ON_OFF FAIL (no broadcast_override -- expected). Per-claim direction: SD-037 supports on PASS / weakens on FAIL; MECH-280, MECH-281 unknown (PAG wiring confirmed by 483b 1.875x release ratio; this experiment does not test those directly). Plan-of-record: REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-483c_2026-05-23.md + failure_autopsy_V3-EXQ-490g-cohort_2026-05-29.md Fork A.",
+      "status": "pending",
+      "claim_ids": [
+        "SD-037",
+        "MECH-280",
+        "MECH-281"
+      ],
+      "conditions": 4,
+      "episodes_per_run": 60,
+      "experiment_type": "v3_exq_483d_sd037_broadcast_gap4_override_signal",
+      "experiment_purpose": "evidence",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-569a",
       "title": "SD-056 action-contrastive matched-entropy FP-2 falsifier (GAP-A, A_only)",
       "script": "experiments/v3_exq_569a_sd056_action_contrastive_diversity_falsifier.py",
@@ -17,11 +59,8 @@
       "supersedes": "V3-EXQ-569",
       "claim_id": "ARC-065",
       "note": "GAP-A behavioural diversity isolation Theory 1 / Layer A load-bearing falsifier. Tests whether SD-056 (ree-v3 main 041a974 + V3-EXQ-613 PASS) propagates per-candidate z_world variance through to action-class diversity. A_only design -- MECH-341 (Layer B) OFF, MECH-313 (Layer C) OFF. Plan-of-record: REE_assembly/evidence/planning/behavioral_diversity_isolation_plan.md GAP-A node.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-29T19:37:44Z"
-      },
+      "status": "pending",
+      "claimed_by": null,
       "claim_ids": [
         "ARC-065",
         "MECH-341"

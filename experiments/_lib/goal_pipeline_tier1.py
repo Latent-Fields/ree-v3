@@ -5,6 +5,25 @@ Operating substrate (post GAP-3 / V3-EXQ-582a):
   drive_floor=0.9, drive_ema_alpha=1.0 (Option 1 OFF),
   REEConfig.goal_stream() bundle (MECH-307 + MECH-295 + schema wanting),
   post-540e relaxed MECH-295 activation floors, use_dacc=True.
+
+2026-05-29 rebuild (post V3-EXQ-490g-cohort autopsy Fork A):
+  - cfg.use_dacc=True is now UNCONDITIONAL in build_config (was nested in the
+    gap4_operating=True branch only). Closes the 483c primary diagnosis:
+    agent.dacc=None across all 12 runs because callers used gap4_operating
+    arms but downstream config wiring left use_dacc unset under the
+    REEConfig.goal_stream + arm.extra_config composition path. Every cohort
+    experiment now gets dACC instantiation without per-script opt-in.
+  - evaluate_tier1_cohort C3_lift_vs_baseline metric DEFAULT switched from
+    approach_commit_rate (saturates at 1.0 in OFF_OFF baseline under
+    drive_floor=0.9 + goal_stream + reef -- no headroom for lift per 483c
+    OFF_OFF=ON_OFF=1.0 byte-identical observation) to goal_norm_peak delta
+    (substrate-side, cross-claim-comparable; 483c/524a manifests show
+    range 0.09-0.36 under realistic substrate firing).
+  - SD-037-specific scripts can override via c3_lift_metric=
+    "override_signal_nonzero_steps" at the evaluate_tier1_cohort call site
+    -- measures the primary PAG override pathway directly. eval_tier1 now
+    populates this metric automatically (broadcast_override.override_signal
+    > 1e-3 step count).
 """
 
 from __future__ import annotations
@@ -44,6 +63,14 @@ TIER1_DACC_BIAS_MIN = 1
 TIER1_APPROACH_COMMIT_MIN = 1
 TIER1_GOAL_ACTIVE_FRAC_MIN = 0.05
 TIER1_SEEDS_PASS_MIN = 2
+# Default C3_lift_vs_baseline metric is goal_norm_peak delta -- substrate-side,
+# cross-claim-comparable. approach_commit_rate saturates at 1.0 in OFF_OFF
+# baseline under drive_floor=0.9 + goal_stream + reef (per 483c/524a autopsies),
+# so it has no headroom. Per-script callers can override c3_lift_metric to
+# "override_signal_nonzero_steps" (SD-037-specific) at the call site.
+TIER1_GOAL_NORM_PEAK_DELTA = 0.01
+TIER1_OVERRIDE_SIGNAL_DELTA = 1
+DEFAULT_C3_LIFT_METRIC = "goal_norm_peak_delta"
 
 ENV_FISHTANK_KWARGS: Dict[str, Any] = dict(
     size=10,
@@ -133,7 +160,6 @@ def build_config(env: CausalGridWorldV2, arm: ArmSpec) -> REEConfig:
         cfg.mech295_min_z_goal_norm_to_fire = 0.005
         cfg.mech295_drive_to_liking_gain = 2.0
         cfg.mech295_liking_to_approach_cue_gain = 0.5
-        cfg.use_dacc = True
         cfg.use_e2_harm_a = True
         cfg.residue.valence_enabled = True
     else:
@@ -174,6 +200,13 @@ def build_config(env: CausalGridWorldV2, arm: ArmSpec) -> REEConfig:
     cfg.heartbeat.beta_gate_bistable = True
     cfg.harm_descending_mod_enabled = True
     cfg.descending_attenuation_factor = 0.5
+    # use_dacc is the GAP-4 cohort default per the 2026-05-29 V3-EXQ-490g-cohort
+    # autopsy Fork A library rebuild. Closes the 483c primary diagnosis (agent.dacc
+    # is None -> C2_dacc_bias=0 unconditionally). Applies to both gap4_operating
+    # branches so every cohort experiment gets dACC instantiation without per-script
+    # opt-in. arm.extra_config can still override (e.g. {"use_dacc": False} for an
+    # ablation arm).
+    cfg.use_dacc = True
     cfg.use_gabaergic_decay = bool(arm.use_gabaergic_decay)
     cfg.use_pag_freeze_gate = bool(arm.use_pag_freeze_gate)
     cfg.use_broadcast_override = bool(arm.use_broadcast_override)
@@ -216,6 +249,14 @@ def _dacc_bias_norm(agent: REEAgent) -> float:
         return float(torch.as_tensor(sb).norm().item())
     except Exception:
         return 0.0
+
+
+def _override_signal_value(agent: REEAgent) -> float:
+    """SD-037 BroadcastOverrideRegulator override_signal readout; 0.0 in OFF arms."""
+    bo = getattr(agent, "broadcast_override", None)
+    if bo is None:
+        return 0.0
+    return float(getattr(bo, "override_signal", 0.0))
 
 
 def _entropy(counts: Dict[int, int]) -> float:
@@ -359,6 +400,7 @@ def eval_tier1(
         "approach_commit_steps": 0,
         "total_eval_steps": 0,
         "dacc_bias_nonzero_steps": 0,
+        "override_signal_nonzero_steps": 0,
         "bridge_cue_fires": 0,
         "bridge_write_fires": 0,
         "goal_active_steps": 0,
@@ -372,6 +414,8 @@ def eval_tier1(
             metrics["approach_commit_steps"] += 1
         if _dacc_bias_norm(agent) > 1e-6:
             metrics["dacc_bias_nonzero_steps"] += 1
+        if _override_signal_value(agent) > 1e-3:
+            metrics["override_signal_nonzero_steps"] += 1
         if agent.goal_state is not None and agent.goal_state.is_active():
             metrics["goal_active_steps"] += 1
         br = getattr(agent, "mech295_bridge", None)
@@ -424,13 +468,61 @@ def tier1_seed_pass(metrics: Dict[str, Any]) -> Dict[str, bool]:
     }
 
 
+def _c3_lift_compare(
+    gap4_row: Dict[str, Any],
+    base_row: Dict[str, Any],
+    metric: str,
+) -> bool:
+    """Per-seed C3 lift predicate. Caller chooses the metric per call site.
+
+    Supported metrics:
+      "goal_norm_peak_delta" (default): substrate-side, cross-claim-comparable.
+          PASS when gap4.goal_norm_peak > base.goal_norm_peak + TIER1_GOAL_NORM_PEAK_DELTA.
+          Has headroom because GAP-4 operating substrate amplifies seeding
+          (range 0.09-0.36 observed on 483c/524a per the 2026-05-29 cluster
+          autopsy) while OFF_OFF lacks the bridge / amplification stack.
+      "override_signal_nonzero_steps": SD-037-specific.
+          PASS when gap4.override_signal_nonzero_steps > base.override_signal_nonzero_steps
+          + TIER1_OVERRIDE_SIGNAL_DELTA. OFF arms have broadcast_override=None
+          so signal is 0 by construction; cleanly discriminative for SD-037
+          ON arms.
+      "approach_commit_rate": LEGACY. Saturates at 1.0 in OFF_OFF baseline
+          under drive_floor=0.9 + goal_stream + reef (per 483c/524a autopsies).
+          No headroom for lift. Retained only for back-compat / debugging.
+    """
+    if metric == "goal_norm_peak_delta":
+        return float(gap4_row.get("goal_norm_peak", 0.0)) > (
+            float(base_row.get("goal_norm_peak", 0.0)) + TIER1_GOAL_NORM_PEAK_DELTA
+        )
+    if metric == "override_signal_nonzero_steps":
+        return int(gap4_row.get("override_signal_nonzero_steps", 0)) > (
+            int(base_row.get("override_signal_nonzero_steps", 0)) + TIER1_OVERRIDE_SIGNAL_DELTA
+        )
+    if metric == "approach_commit_rate":
+        return float(gap4_row.get("approach_commit_rate", 0)) > float(
+            base_row.get("approach_commit_rate", 0)
+        )
+    raise ValueError(
+        "Unknown c3_lift_metric '{}'. Supported: goal_norm_peak_delta, "
+        "override_signal_nonzero_steps, approach_commit_rate.".format(metric)
+    )
+
+
 def evaluate_tier1_cohort(
     rows: List[Dict[str, Any]],
     *,
     gap4_arm_id: str,
     baseline_arm_id: Optional[str] = None,
+    c3_lift_metric: str = DEFAULT_C3_LIFT_METRIC,
 ) -> Dict[str, Any]:
-    """PASS when gap4 arm clears C1-C4 in >= TIER1_SEEDS_PASS_MIN seeds and beats baseline on C3 if set."""
+    """PASS when gap4 arm clears C1-C4 in >= TIER1_SEEDS_PASS_MIN seeds and beats baseline on C3 if set.
+
+    c3_lift_metric default is "goal_norm_peak_delta" (substrate-side,
+    cross-claim-comparable; chosen post-2026-05-29 V3-EXQ-490g-cohort autopsy
+    after approach_commit_rate was shown to ceiling-saturate). SD-037-specific
+    scripts should pass c3_lift_metric="override_signal_nonzero_steps" to
+    measure the primary PAG override pathway directly. See _c3_lift_compare.
+    """
     gap4_rows = [r for r in rows if r.get("arm") == gap4_arm_id]
     base_rows = [r for r in rows if r.get("arm") == baseline_arm_id] if baseline_arm_id else []
 
@@ -441,14 +533,14 @@ def evaluate_tier1_cohort(
     c4 = sum(1 for p in per_seed if p["C4_goal_active"]) >= TIER1_SEEDS_PASS_MIN
 
     c3_lift = True
+    lifts = 0
     if baseline_arm_id and base_rows:
-        lifts = 0
         for g in gap4_rows:
             seed = g.get("seed")
             b = next((x for x in base_rows if x.get("seed") == seed), None)
             if b is None:
                 continue
-            if float(g.get("approach_commit_rate", 0)) > float(b.get("approach_commit_rate", 0)):
+            if _c3_lift_compare(g, b, c3_lift_metric):
                 lifts += 1
         c3_lift = lifts >= TIER1_SEEDS_PASS_MIN
 
@@ -459,6 +551,8 @@ def evaluate_tier1_cohort(
         "C2_dacc_bias": c2,
         "C3_approach_commit": c3_direct,
         "C3_lift_vs_baseline": c3_lift,
+        "C3_lift_count": lifts,
+        "C3_lift_metric": c3_lift_metric,
         "C4_goal_active": c4,
         "gap4_arm_id": gap4_arm_id,
         "baseline_arm_id": baseline_arm_id,
