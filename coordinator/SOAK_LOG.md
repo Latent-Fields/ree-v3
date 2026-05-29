@@ -100,3 +100,23 @@ Advance past Phase 1 only when `adjusted_divergences` is at/near 0 over
 several days of real multi-machine load AND every non-E* row was
 individually root-caused. If a row's signature does not match an
 explained class, it is unexplained -- do NOT cut over.
+
+## Phase 3 LIVE (2026-05-29)
+
+Cutover landed across 2026-05-28 / 2026-05-29. All three writers
+(`phase3_git_writer`, `phase3_queue_writer`, `phase3_heartbeat_writer`)
+ticking on origin. Hub `SYNC_MODE=authoritative` + `--i-understand-phase3`.
+End-to-end cycle proved on V3-EXQ-612d (manifest committed by writer at
+`8ae3d972de phase3: 1 v3 result manifest(s) 2026-05-29`).
+
+Cutover history + 9 anomalies + 4 follow-up chips + operator gotchas:
+see `PHASE3_CUTOVER.md` Status section.
+
+Operational state right now:
+- `cloud-scaler.yml`: `disabled_manually` (workflow). The HUB_NAME guard
+  is now committed (`ee8d91a`) and on origin, so re-enabling is safe;
+  pending operator decision.
+- `ree-cloud-1` `ree-runner`: `systemctl disable`-d. Re-enable only after
+  `PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE` flag lands.
+- Hub repos: occasional manual `git pull --rebase` reconcile required
+  when operator-side commits land between writer ticks.

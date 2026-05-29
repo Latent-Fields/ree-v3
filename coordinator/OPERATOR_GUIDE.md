@@ -1,5 +1,28 @@
 # Shadow coordination -- operator guide (Daniel)
 
+> **Phase 3 LIVE as of 2026-05-29.** The rest of this guide describes the
+> Phase-1 shadow workflow and remains accurate for historical / rollback
+> contexts, but is no longer the operational doc-of-record. For the live
+> coordinator + writer architecture, the cutover history, the known
+> follow-ups, and the operator gotchas, read:
+> - `PHASE3_CUTOVER.md` Status section (what's true on origin now)
+> - `REE_Working/CLAUDE.md` Coordinator (Phase 3 -- live) section
+>   (per-session orientation, writer-health verification snippet)
+>
+> Three rules in force until the follow-up chips land:
+> 1. **Never run a runner on the hub VM** (`ree-cloud-1`). Its
+>    `ree-runner` is `systemctl disable`-d. Re-enable only after a
+>    `PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE` flag lands.
+> 2. **Watch the cloud-scaler workflow.** It treats the hub like a
+>    regular worker and can power it off. Currently
+>    `disabled_manually`. Re-enable only after a hub-protection
+>    guard lands.
+> 3. **The hub repo will sometimes diverge from origin** because the
+>    writer doesn't `git pull --rebase` by design. When operator-side
+>    commits land between writer ticks, reconcile by hand:
+>    `git -C ~/REE_Working/REE_assembly pull --rebase origin master`
+>    (and similar for `ree-v3`). Writers resume on the next tick.
+
 Read this instead of scattered runbook fragments. Technical plan:
 `PLAN.md`. Machine checklist: `deploy/FLEET_CHECKLIST.md`.
 

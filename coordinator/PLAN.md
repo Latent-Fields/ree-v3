@@ -148,3 +148,29 @@ cleanup, not migration-critical.
   when the owner has a fresh heartbeat for the same `queue_id`. This was a
   cutover blocker: `V3-EXQ-591` showed duplicate execution after the fixed
   six-hour TTL expired during a legitimate multi-day run.
+- 2026-05-27: `phase3_queue_writer` (PLAN.md step 5) LANDED (commit a0b9da1).
+  `phase3_heartbeat_writer` (PLAN.md step 6) LANDED (commit 0052a16). Hub
+  `sync_daemon.py` now materialises `experiment_queue.json` (ree-v3) and
+  `runner_heartbeats/*.json` + `runner_status/*.json` (REE_assembly) from
+  the DB as derived views. Both writers gated by their own
+  `PHASE3_QUEUE_WRITER_READY` / `PHASE3_HEARTBEAT_WRITER_READY` flags
+  (still `False` at this point pending the result-writer sign-off).
+- 2026-05-28 / 2026-05-29: **Phase 3 cutover LANDED.** All three
+  writer-ready flags flipped True on `ree-v3` `d98f9a5`. Hub
+  `SYNC_MODE=authoritative` with `--i-understand-phase3` via
+  `/etc/systemd/system/ree-sync-daemon.service.d/phase3.conf`. All worker
+  runner-push gates set (`PHASE3_DISABLE_RUNNER_RESULT_PUSH=1`,
+  `_QUEUE_PUSH=1`, `_HEARTBEAT_PUSH=1` via `shadow.conf`). End-to-end
+  cycle proved on V3-EXQ-612d (ran on ree-cloud-3, manifest committed
+  by writer at `8ae3d972de phase3: 1 v3 result manifest(s) 2026-05-29`).
+  Full cutover details, anomalies, operator gotchas, and known follow-ups
+  in `PHASE3_CUTOVER.md` Status section. **Step 7 (Phase-4 cleanup) is the
+  remaining open work**: gate the legacy `claim_queue_item` git push under
+  Phase 3; retire `runner_remote_control.push_heartbeat` once the
+  `PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE` flag lands and cloud-1's runner
+  can re-enable; optionally point `serve.py` `/machines` panel at the
+  coordinator API; delete the now-dead Phase-2 shadow code paths.
+  Operational rules in force until follow-ups land: `cloud-scaler.yml`
+  workflow stays `disabled_manually`; cloud-1's `ree-runner` stays
+  `systemctl disable`-d; hub repos require occasional manual
+  `git pull --rebase` reconcile.
