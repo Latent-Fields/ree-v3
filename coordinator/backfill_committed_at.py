@@ -61,31 +61,48 @@ def _manifest_candidates(assembly_root, queue_id):
     needle = queue_id.lower().replace("v3-exq-", "v3_exq_").replace(
         "exq-", "exq_")
     flat = os.path.join(assembly_root, "evidence", "experiments")
-    partial = os.path.join(flat, "_partial")
     candidates = []
-    if os.path.isdir(flat):
-        for name in os.listdir(flat):
-            full = os.path.join(flat, name)
-            if not os.path.isfile(full):
-                continue
-            if not name.endswith(".json"):
-                continue
-            if needle in name.lower():
+    if not os.path.isdir(flat):
+        return candidates
+    # Three layouts seen in the wild:
+    #   evidence/experiments/<file>.json                 -- flat manifest
+    #   evidence/experiments/<dir>/<file>.json           -- per-EXQ subdir
+    #   evidence/experiments/_partial/<dir>/<file>.json  -- annotated partial
+    # Walk all three. Match on either the immediate file name or the
+    # parent subdir name containing `needle`.
+    for entry in os.listdir(flat):
+        full = os.path.join(flat, entry)
+        if os.path.isfile(full):
+            if entry.endswith(".json") and needle in entry.lower():
                 candidates.append(os.path.relpath(full, assembly_root))
-    if os.path.isdir(partial):
-        for sub in os.listdir(partial):
-            subdir = os.path.join(partial, sub)
-            if not os.path.isdir(subdir):
-                continue
-            for name in os.listdir(subdir):
-                full = os.path.join(subdir, name)
-                if not os.path.isfile(full):
+            continue
+        if not os.path.isdir(full):
+            continue
+        # Subdir. Either it's the `_partial/` parent or a per-EXQ dir.
+        # For _partial/ we recurse one level; for others we look directly.
+        if entry == "_partial":
+            for sub in os.listdir(full):
+                subdir = os.path.join(full, sub)
+                if not os.path.isdir(subdir):
                     continue
-                if not name.endswith(".json"):
+                if not (needle in sub.lower()):
                     continue
-                if needle in name.lower() or needle in sub.lower():
+                for name in os.listdir(subdir):
+                    sub_full = os.path.join(subdir, name)
+                    if (os.path.isfile(sub_full) and name.endswith(".json")
+                            and (needle in name.lower()
+                                 or needle in sub.lower())):
+                        candidates.append(
+                            os.path.relpath(sub_full, assembly_root))
+            continue
+        # Per-EXQ subdir: match on dir name or file name.
+        if needle in entry.lower():
+            for name in os.listdir(full):
+                sub_full = os.path.join(full, name)
+                if (os.path.isfile(sub_full) and name.endswith(".json")
+                        and needle in name.lower()):
                     candidates.append(
-                        os.path.relpath(full, assembly_root))
+                        os.path.relpath(sub_full, assembly_root))
     return candidates
 
 
