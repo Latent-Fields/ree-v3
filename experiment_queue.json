@@ -8,28 +8,24 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-612c",
-      "script": "experiments/v3_exq_612_phase3_cutover_smoke.py",
-      "priority": 1,
-      "machine_affinity": "ree-cloud-2",
-      "status": "pending",
-      "estimated_minutes": 1,
-      "title": "Phase 3 E2E smoke (verdict sentinel fix retry)",
-      "experiment_type": "v3_exq_612_phase3_cutover_smoke",
-      "supersedes": "V3-EXQ-612b",
-      "note": "V3-EXQ-612b ran fine on cloud-2 but the script lacked the verdict: PASS stdout sentinel so the runner classified ERROR and skipped report_result. Script now prints verdict: PASS."
-    },
-    {
-      "queue_id": "V3-EXQ-612d",
-      "script": "experiments/v3_exq_612_phase3_cutover_smoke.py",
-      "priority": 1,
-      "machine_affinity": "ree-cloud-3",
-      "status": "pending",
-      "estimated_minutes": 1,
-      "title": "Phase 3 E2E smoke (emit_outcome sentinel)",
-      "experiment_type": "v3_exq_612_phase3_cutover_smoke",
-      "supersedes": "V3-EXQ-612c",
-      "note": "V3-EXQ-612c manifest path was empty in runner because the script did not call experiment_protocol.emit_outcome. Now wired. Targeting cloud-3 (cloud-2 was failed-state-revived). Single try, then stop chasing the E2E demo if this fails."
+      "queue_id": "V3-EXQ-611b",
+      "title": "MECH-341 retune 6-arm validation (supersedes V3-EXQ-611)",
+      "script": "experiments/v3_exq_611b_mech341_retune_6arm.py",
+      "priority": 250,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 200,
+      "supersedes": "V3-EXQ-611",
+      "note": "MECH-341 retune validation. Substrate change: e3_selector.py applies stratified_select on the uncommitted (multinomial) branch too (was committed-only); fixes V3-EXQ-611 n_stratified_fired=0 across all 3 seeds. 6-arm factorial: 3 option groups (OPT1_only/OPT2_only/BOTH) x 2 entropy_bias_scale values (1.0/2.0). PASS gate: C1 (stratified fires across all OPT2/BOTH seeds) AND (C2 bonus scale-commensurate OR C3 substrate produces selected-class diversity). NO config default changes per implement-substrate skill rule -- scales passed via cfg_overrides. ALL_OFF baseline established by V3-EXQ-611 manifest already on origin/master. See substrate_queue.json MECH-341 retune entry + behavioral_diversity_isolation_plan.md R2.c rule.",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-28T17:26:40.517271+00:00"
+      },
+      "claim_ids": [
+        "MECH-341"
+      ],
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_611b_mech341_retune_6arm"
     },
     {
       "queue_id": "V3-EXQ-592b",
@@ -38,13 +34,40 @@
       "priority": 240,
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 180,
+      "note": "Falsifier-grade 2-arm diagnostic for the MECH-090 R-c commit-entry readiness conjunction substrate landed 2026-05-28 (commitment_closure_plan.md GAP-4; ree-v3/ree_core/heartbeat/beta_gate.py + ree-v3/ree_core/agent.py + ree-v3/ree_core/utils/config.py). ARM_0 GATED: V3-EXQ-592 EMERGENT-arm curriculum with use_commit_readiness_gate=True + floor=0.05. Acceptance: at least 1 seed in 3 shows mech090_n_elevation_blocked >= 1 AND total_committed_steps == 0 AND running_variance < commitment_threshold (confirming gate is the load-bearing block on the degenerate basin). ARM_1 GATED_FORCED_READY: clone trained agent + force rv=0.001 + gate ON. Acceptance: at least 2 seeds in 3 show mech090_n_elevation_admitted >= 1 AND total_committed_steps > 0 (confirming gate does not permanently lock out commitment when readiness clears). Joint PASS unblocks commitment_closure:GAP-4 (partial -> done substrate-side) and queues Phase 4/5 *b cohort (460b/461/463b/464b/466b/467b/468b). Joint FAIL routes per the experiment-script docstring interpretation grid. Predecessor synthesis: REE_assembly/evidence/literature/targeted_review_connectome_mech_090/synthesis.md commit 9e68c5ca8a. Predecessor session: implement-substrate-mech090-commit-predicate-20260528T172800Z. Smoke verified 2026-05-29 dry-run --seeds 42: wiring intact, gate ON propagates, diagnostics populated, margins computed (ARM_0 margin=0.7977 ARM_1 margin=0.1285 on short budget -- degenerate basin not reproduced at dry-run scale, full 400-ep P0 budget required).",
       "status": "pending",
       "claim_ids": [
         "MECH-090"
       ],
       "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_592b_mech090_commit_readiness_gate_validation",
-      "note": "Falsifier-grade 2-arm diagnostic for the MECH-090 R-c commit-entry readiness conjunction substrate landed 2026-05-28 (commitment_closure_plan.md GAP-4; ree-v3/ree_core/heartbeat/beta_gate.py + ree-v3/ree_core/agent.py + ree-v3/ree_core/utils/config.py). ARM_0 GATED: V3-EXQ-592 EMERGENT-arm curriculum with use_commit_readiness_gate=True + floor=0.05. Acceptance: at least 1 seed in 3 shows mech090_n_elevation_blocked >= 1 AND total_committed_steps == 0 AND running_variance < commitment_threshold (confirming gate is the load-bearing block on the degenerate basin). ARM_1 GATED_FORCED_READY: clone trained agent + force rv=0.001 + gate ON. Acceptance: at least 2 seeds in 3 show mech090_n_elevation_admitted >= 1 AND total_committed_steps > 0 (confirming gate does not permanently lock out commitment when readiness clears). Joint PASS unblocks commitment_closure:GAP-4 (partial -> done substrate-side) and queues Phase 4/5 *b cohort (460b/461/463b/464b/466b/467b/468b). Joint FAIL routes per the experiment-script docstring interpretation grid. Predecessor synthesis: REE_assembly/evidence/literature/targeted_review_connectome_mech_090/synthesis.md commit 9e68c5ca8a. Predecessor session: implement-substrate-mech090-commit-predicate-20260528T172800Z. Smoke verified 2026-05-29 dry-run --seeds 42: wiring intact, gate ON propagates, diagnostics populated, margins computed (ARM_0 margin=0.7977 ARM_1 margin=0.1285 on short budget -- degenerate basin not reproduced at dry-run scale, full 400-ep P0 budget required)."
+      "experiment_type": "v3_exq_592b_mech090_commit_readiness_gate_validation"
+    },
+    {
+      "queue_id": "V3-EXQ-612",
+      "title": "Phase 3 cutover end-to-end smoke",
+      "script": "experiments/v3_exq_612_phase3_cutover_smoke.py",
+      "priority": 1,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 1,
+      "note": "Trivial smoke -- drives the claim->result->writer->queue-writer Phase 3 cycle. Run once on 2026-05-28 cutover day; not a scientific test.",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-28T17:24:31.161445+00:00"
+      },
+      "experiment_type": "v3_exq_612_phase3_cutover_smoke"
+    },
+    {
+      "queue_id": "V3-EXQ-612c",
+      "title": "Phase 3 E2E smoke (verdict sentinel fix retry)",
+      "script": "experiments/v3_exq_612_phase3_cutover_smoke.py",
+      "priority": 1,
+      "machine_affinity": "ree-cloud-2",
+      "estimated_minutes": 1,
+      "supersedes": "V3-EXQ-612b",
+      "note": "V3-EXQ-612b ran fine on cloud-2 but the script lacked the verdict: PASS stdout sentinel so the runner classified ERROR and skipped report_result. Script now prints verdict: PASS.",
+      "status": "pending",
+      "experiment_type": "v3_exq_612_phase3_cutover_smoke"
     }
   ]
 }
