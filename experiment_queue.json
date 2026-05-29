@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-569a",
-      "title": "SD-056 action-contrastive matched-entropy FP-2 falsifier (GAP-A, A_only)",
-      "script": "experiments/v3_exq_569a_sd056_action_contrastive_diversity_falsifier.py",
-      "priority": 300,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "supersedes": "V3-EXQ-569",
-      "claim_id": "ARC-065",
-      "note": "GAP-A behavioural diversity isolation Theory 1 / Layer A load-bearing falsifier. Tests whether SD-056 (ree-v3 main 041a974 + V3-EXQ-613 PASS) propagates per-candidate z_world variance through to action-class diversity. A_only design -- MECH-341 (Layer B) OFF, MECH-313 (Layer C) OFF. Plan-of-record: REE_assembly/evidence/planning/behavioral_diversity_isolation_plan.md GAP-A node.",
-      "status": "pending",
-      "claim_ids": [
-        "ARC-065",
-        "MECH-341"
-      ],
-      "conditions": 5,
-      "episodes_per_run": 50,
-      "experiment_type": "v3_exq_569a_sd056_action_contrastive_diversity_falsifier",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-490h",
       "title": "MECH-295 drive->liking->approach cascade Tier-1 retest (post-library-rebuild)",
       "script": "experiments/v3_exq_490h_mech295_cascade_gap4_tier1.py",
