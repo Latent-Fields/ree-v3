@@ -1796,8 +1796,8 @@ class REEConfig:
     use_e3_score_diversity: bool = False
     use_e3_diversity_entropy_bonus: bool = True
     use_e3_diversity_stratified_select: bool = True
-    e3_diversity_entropy_lambda: float = 0.05
-    e3_diversity_entropy_bias_scale: float = 0.1
+    e3_diversity_entropy_lambda: float = 0.5
+    e3_diversity_entropy_bias_scale: float = 1.0
     e3_diversity_stratified_temperature: float = 1.0
     e3_diversity_min_classes_for_stratification: int = 2
 
@@ -2768,8 +2768,8 @@ class REEConfig:
         use_e3_score_diversity: bool = False,
         use_e3_diversity_entropy_bonus: bool = True,
         use_e3_diversity_stratified_select: bool = True,
-        e3_diversity_entropy_lambda: float = 0.05,
-        e3_diversity_entropy_bias_scale: float = 0.1,
+        e3_diversity_entropy_lambda: float = 0.5,
+        e3_diversity_entropy_bias_scale: float = 1.0,
         e3_diversity_stratified_temperature: float = 1.0,
         e3_diversity_min_classes_for_stratification: int = 2,
         # MECH-090 R-c conjunction (commitment_closure GAP-4): commit-entry

@@ -67,8 +67,8 @@ class E3ScoreDiversityConfig:
 
     use_entropy_bonus: bool = True
     use_stratified_select: bool = True
-    entropy_lambda: float = 0.05
-    entropy_bias_scale: float = 0.1
+    entropy_lambda: float = 0.5
+    entropy_bias_scale: float = 1.0
     stratified_temperature: float = 1.0
     min_classes_for_stratification: int = 2
 
@@ -320,9 +320,9 @@ def build_from_ree_config(ree_config) -> Optional[E3ScoreDiversity]:
         use_stratified_select=getattr(
             ree_config, "use_e3_diversity_stratified_select", True
         ),
-        entropy_lambda=getattr(ree_config, "e3_diversity_entropy_lambda", 0.05),
+        entropy_lambda=getattr(ree_config, "e3_diversity_entropy_lambda", 0.5),
         entropy_bias_scale=getattr(
-            ree_config, "e3_diversity_entropy_bias_scale", 0.1
+            ree_config, "e3_diversity_entropy_bias_scale", 1.0
         ),
         stratified_temperature=getattr(
             ree_config, "e3_diversity_stratified_temperature", 1.0
