@@ -8,23 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-544a",
-      "title": "MECH-313 (ARC-065) stochastic_noise_floor substrate-readiness diagnostic (re-queue of V3-EXQ-544)",
-      "script": "experiments/v3_exq_544a_mech313_noise_floor_substrate_readiness.py",
-      "priority": 200,
-      "machine_affinity": "DLAPTOP-4.local",
-      "estimated_minutes": 1,
-      "supersedes": "V3-EXQ-544",
-      "note": "Re-queue of V3-EXQ-544 (ran 2026-05-10T10:44:59Z on DLAPTOP-4.local, runner-classified ERROR via stale 'No runner sentinel emitted' path; on-disk manifest at evidence/experiments/v3_exq_544_mech313_noise_floor_substrate_readiness_v3_20260510T104458Z.json carries result=PASS for all 5 UC sub-tests). Script unchanged from predecessor; this re-queue produces a clean PASS record via the current experiment_protocol.emit_outcome sentinel handshake. Per IGW-20260529-029. Smoke 2026-05-29T06:23:34Z PASS 5/5. Expected runtime ~3 sec (substrate-readiness diagnostic; pure CPU arithmetic + a single REEAgent boot + 5 small probe calls).",
-      "status": "pending",
-      "claim_ids": [
-        "MECH-313",
-        "ARC-065"
-      ],
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_544a_mech313_noise_floor_substrate_readiness"
-    },
-    {
       "queue_id": "V3-EXQ-610a",
       "title": "INV-074 crystallization necessity test (re-queue of V3-EXQ-610 with corrected runtime estimate)",
       "script": "experiments/v3_exq_610a_inv074_crystallization_necessity.py",
