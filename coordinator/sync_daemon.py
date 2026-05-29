@@ -548,6 +548,15 @@ def _sync_to_origin(repo, branch, log_prefix):
                 "commit(s) ahead (%s); operator must resolve before the "
                 "writer can rebase" % (
                     branch, behind_count, len(foreign), foreign))
+    # Record the writer-authored ahead count BEFORE the rebase so the
+    # success log line states what was rebased rather than what was
+    # absorbed. (behind_count is the count of new origin commits we're
+    # catching up to; ahead_count is the count of writer-authored
+    # commits being replayed on top.)
+    ahead = _git(
+        repo, "rev-list", "--count", "origin/" + branch + "..HEAD",
+        check=False, timeout=10)
+    ahead_count = ahead.stdout.strip() if ahead.returncode == 0 else "?"
     rebased = _git(
         repo, "rebase", "origin/" + branch,
         check=False, timeout=60)
@@ -566,8 +575,9 @@ def _sync_to_origin(repo, branch, log_prefix):
                 "regenerated on the next tick)." % (
                     branch, rebased.stderr.strip()[:240], branch))
     sys.stdout.write(
-        "%s rebased %s writer-authored commit(s) onto refreshed "
-        "origin/%s\n" % (log_prefix, behind_count, branch))
+        "%s absorbed %s origin commit(s) by rebasing %s "
+        "writer-authored commit(s) onto refreshed origin/%s\n" % (
+            log_prefix, behind_count, ahead_count, branch))
     return (True, "")
 
 
