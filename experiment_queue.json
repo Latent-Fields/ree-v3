@@ -65,7 +65,11 @@
       "supersedes": "V3-EXQ-483c",
       "claim_id": "SD-037",
       "note": "SD-037 broadcast override 4-arm factorial (GABA suppress ON/OFF x broadcast override ON/OFF) under rebuilt GAP-4 Tier-1 library. Supersedes V3-EXQ-483c (FAILed 2026-05-21; autopsy: C2_dacc_bias=0 across all 12 runs because agent.dacc=None; C3_lift on approach_commit_rate hit OFF_OFF ceiling 1.0). 483d redesign per 2026-05-24 autopsy + 2026-05-29 cluster autopsy Fork A: (a) C2 replaced with override_signal_nonzero_steps (counts steps where broadcast_override.override_signal > 1e-3 in ON arms; OFF arms have broadcast_override=None so signal is 0 by construction -- directly measures SD-037's primary PAG pathway, not the dACC secondary), (b) C3_lift replaced with goal_norm_peak delta vs baseline (TIER1_GOAL_NORM_PEAK_DELTA=0.01 per-seed), (c) extra_config={use_dacc:True} explicit on every arm (redundant with the rebuilt library default but kept for clarity per 483d docstring). 4 arms x 3 seeds. Acceptance: C1 bridge_cue_fires + C2 override_signal_nonzero_steps>=10 + C3 approach_commit_steps + C4 goal_active_fraction on >=2/3 seeds, PLUS C3_lift_vs_baseline on goal_norm_peak. Dry-run smoke 2026-05-29 at 1 seed: OFF_ON + ON_ON PASS individual verdicts (override_signal C2 firing as designed); OFF_OFF + ON_OFF FAIL (no broadcast_override -- expected). Per-claim direction: SD-037 supports on PASS / weakens on FAIL; MECH-280, MECH-281 unknown (PAG wiring confirmed by 483b 1.875x release ratio; this experiment does not test those directly). Plan-of-record: REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-483c_2026-05-23.md + failure_autopsy_V3-EXQ-490g-cohort_2026-05-29.md Fork A.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-29T20:17:11Z"
+      },
       "claim_ids": [
         "SD-037",
         "MECH-280",
