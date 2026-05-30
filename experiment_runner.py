@@ -105,6 +105,7 @@ RE_RUN_DONE_PATTERNS = [
 RE_STATUS_LINE = re.compile(r'^Status:\s+(PASS|FAIL)')
 RE_EXQ_VERDICT = re.compile(r'\[EXQ-[\w-]+\]\s+(PASS|FAIL)')
 RE_DONE_OUTCOME = re.compile(r'Done\.\s+Outcome:\s+(PASS|FAIL)')
+RE_BARE_OUTCOME = re.compile(r'(?im)^outcome:\s+(PASS|FAIL)\b')
 RE_EXQ_BANNER = re.compile(r'===\s+(?:V3-)?EXQ-[\w-]+\s+(PASS|FAIL)\s*===')
 RE_EXQ_DASHED_OUTCOME = re.compile(
     r'(?:V3-)?EXQ-[\w-]+\s+\([^)]+\)\s+--\s+(PASS|FAIL)\s+in'
@@ -1549,17 +1550,20 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             _done_m = RE_DONE_OUTCOME.search(line)
             _banner_m = RE_EXQ_BANNER.search(line)
             _dashed_m = RE_EXQ_DASHED_OUTCOME.search(line)
+            _bare_m = RE_BARE_OUTCOME.match(line)
             if "verdict: PASS" in line or (RE_STATUS_LINE.match(line) and "PASS" in line) \
                     or (_exq_m and _exq_m.group(1) == "PASS") \
                     or (_done_m and _done_m.group(1) == "PASS") \
                     or (_banner_m and _banner_m.group(1) == "PASS") \
-                    or (_dashed_m and _dashed_m.group(1) == "PASS"):
+                    or (_dashed_m and _dashed_m.group(1) == "PASS") \
+                    or (_bare_m and _bare_m.group(1) == "PASS"):
                 result_info["result"] = "PASS"
             elif "verdict: FAIL" in line or (RE_STATUS_LINE.match(line) and "FAIL" in line) \
                     or (_exq_m and _exq_m.group(1) == "FAIL") \
                     or (_done_m and _done_m.group(1) == "FAIL") \
                     or (_banner_m and _banner_m.group(1) == "FAIL") \
-                    or (_dashed_m and _dashed_m.group(1) == "FAIL"):
+                    or (_dashed_m and _dashed_m.group(1) == "FAIL") \
+                    or (_bare_m and _bare_m.group(1) == "FAIL"):
                 result_info["result"] = "FAIL"
 
             stripped = line.strip()
