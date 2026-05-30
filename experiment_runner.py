@@ -2001,6 +2001,13 @@ def main():
                 resume_run_target=_resume_run_target,
                 current_proc=_current_proc,
                 auto_sync=args.auto_sync,
+                # `reclassify` needs to mutate status["completed"] and
+                # rewrite runner_status.<machine>.json atomically. The
+                # next heartbeat POST carries the corrected payload to
+                # the coordinator.
+                status_ref=status,
+                status_path=status_path,
+                write_status_fn=write_status,
             )
             if _force_stop_flag:
                 print("[runner] Remote force_stop received -- exiting.", flush=True)

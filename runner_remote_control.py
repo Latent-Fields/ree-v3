@@ -64,6 +64,19 @@ COMMANDS_SUBPATH = Path("evidence") / "experiments" / "runner_commands"
 VALID_COMMAND_KINDS = (
     "stop", "force_stop", "pause", "resume", "suspend", "resume_run",
     "kick", "release_claim",
+    # reclassify: fix a runner_status entry that was misclassified at
+    # ingest time (canonical example: V3-EXQ-517c, runner declared
+    # ERROR despite the script emitting "outcome: PASS" on stdout). Args:
+    #   queue_id  (str, required) -- entry to mutate in status["completed"]
+    #   result    (str, required) -- new value: "PASS" | "FAIL" | "ERROR"
+    #   output_file (str, optional) -- repo-relative manifest path to record
+    #   note      (str, optional) -- free-text added to result_summary
+    # Effect: in-memory status["completed"] entry is mutated, local
+    # runner_status.json is rewritten atomically, the next heartbeat tick
+    # POSTs the corrected status_payload_json to the coordinator, the hub's
+    # phase3_heartbeat_writer materialises the corrected per-machine file
+    # on origin/master.
+    "reclassify",
 )
 
 # Keep the last N done/failed commands in the file; older ones are pruned to
@@ -657,6 +670,76 @@ def _release_claim_in_queue(queue_file: Path, queue_id: str) -> tuple[bool, str]
         return False, f"release_claim error: {exc}"
 
 
+def _apply_reclassify(
+    status_ref: dict,
+    status_path: Path,
+    write_status_fn,
+    args: dict,
+    machine: str,
+) -> tuple[bool, str]:
+    """Mutate status['completed'] to fix a misclassified entry, then
+    atomically rewrite the local runner_status.json.
+
+    Returns (ok, note). On ok=True the next heartbeat POST will carry the
+    corrected status_payload_json -- no further action required.
+
+    Refuses when the entry is missing or the requested result is not in
+    {PASS, FAIL, ERROR}. Idempotent: if the entry already has the
+    requested result, no write is performed and ok=True with a "no-op"
+    note.
+    """
+    qid = args.get("queue_id")
+    new_result = (args.get("result") or "").upper()
+    if not qid:
+        return (False, "missing args.queue_id")
+    if new_result not in ("PASS", "FAIL", "ERROR"):
+        return (False,
+                f"invalid args.result {args.get('result')!r}; "
+                "expected PASS / FAIL / ERROR")
+    if status_ref is None or status_path is None or write_status_fn is None:
+        return (False,
+                "runner did not pass status context; cannot reclassify "
+                "(caller may be on an older runner_remote_control API)")
+
+    completed = status_ref.get("completed")
+    if not isinstance(completed, list):
+        return (False, "status['completed'] missing or wrong shape")
+
+    entry = next((e for e in completed
+                  if isinstance(e, dict) and e.get("queue_id") == qid),
+                 None)
+    if entry is None:
+        return (False, f"no completed entry for {qid}")
+
+    prior = entry.get("result", "")
+    if prior == new_result:
+        return (True, f"already {new_result}; no-op")
+
+    note_extra = args.get("note") or ""
+    new_summary = (
+        f"Reclassified {prior or '?'}->{new_result} via remote-control "
+        f"at {_now_utc()} on {machine}"
+        + (f": {note_extra}" if note_extra else "")
+    )
+
+    entry["result"] = new_result
+    entry["result_summary"] = new_summary
+    if args.get("output_file"):
+        entry["output_file"] = str(args["output_file"])
+
+    try:
+        write_status_fn(status_ref, status_path)
+    except Exception as exc:  # noqa: BLE001
+        # Roll back the in-memory mutation so the runner's internal
+        # state stays consistent with what's on disk.
+        entry["result"] = prior
+        return (False, f"write_status failed: {exc}")
+
+    return (True,
+            f"reclassified {qid}: {prior or '?'}->{new_result} "
+            "(next heartbeat will propagate)")
+
+
 def process_pending_commands(
     ree_assembly_path: Path,
     machine: str,
@@ -669,6 +752,9 @@ def process_pending_commands(
     resume_run_target: list,
     current_proc: list,
     auto_sync: bool = False,
+    status_ref: dict | None = None,
+    status_path: Path | None = None,
+    write_status_fn=None,
 ) -> list[dict]:
     """Drain pending commands and execute them. Mutates the runner's flag
     lists (used as mutable references) and returns the processed commands
@@ -678,6 +764,11 @@ def process_pending_commands(
     same convention experiment_runner.py already uses for _drain_flag,
     _current_proc, etc. Setting drain_flag.append(True) requests a graceful
     drain on the next loop iteration.
+
+    `status_ref`, `status_path`, `write_status_fn` are optional context
+    used only by the `reclassify` command kind. When omitted, reclassify
+    commands fail with a clear error; all other kinds are unaffected so
+    older callers continue to work.
     """
     data = read_commands_file(ree_assembly_path, machine)
     cmds = data.get("commands", [])
@@ -755,6 +846,10 @@ def process_pending_commands(
                     note = "missing args.queue_id"
                 else:
                     ok, note = _release_claim_in_queue(queue_file, qid)
+            elif kind == "reclassify":
+                ok, note = _apply_reclassify(
+                    status_ref, status_path, write_status_fn,
+                    args, machine)
             else:
                 ok = False
                 note = f"unsupported kind: {kind!r}"

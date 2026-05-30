@@ -448,6 +448,80 @@ _PHASE3_WRITER_PREFIXES = (
 )
 
 
+# Per-writer guard paths (repo-relative). Mirror of the runner-side
+# _active_claim_on_evidence_dir pattern in runner_remote_control.py, but
+# path-prefix matched (more surgical than substring) and scoped per
+# writer so a claim on evidence/planning/ does not pause the heartbeat
+# writer that only touches evidence/experiments/runner_*.
+#
+# The repo prefix layer is how we translate TASK_CLAIMS.json resource
+# strings (which use REE_Working-rooted paths like
+# "REE_assembly/evidence/experiments/runner_status.json") into the
+# repo-relative paths each writer actually touches.
+_WRITER_GUARD_REPO_PREFIXES = {
+    "phase3_git_writer":        ("REE_assembly/",),
+    "phase3_queue_writer":      ("ree-v3/",),
+    "phase3_heartbeat_writer":  ("REE_assembly/",),
+}
+_WRITER_GUARD_PATHS = {
+    "phase3_git_writer":        ("evidence/experiments/",),
+    "phase3_queue_writer":      ("experiment_queue.json",),
+    "phase3_heartbeat_writer":  (
+        "evidence/experiments/runner_heartbeats/",
+        "evidence/experiments/runner_status/",
+        "evidence/experiments/runner_status.json",
+    ),
+}
+
+
+def _active_claim_blocks_writer(writer_name, ree_working_path):
+    """Best-effort guard. True iff REE_Working/TASK_CLAIMS.json holds an
+    active claim whose `resources` list matches this writer's write-path
+    prefixes (per `_WRITER_GUARD_PATHS`).
+
+    Mirrors runner_remote_control._active_claim_on_evidence_dir but
+    (a) path-prefix matched, so the guard is per-writer rather than
+    "any evidence/ touch", and (b) scoped to the umbrella TASK_CLAIMS
+    file at REE_Working root (ree_working_path).
+
+    Returns False on every error path -- the guard never blocks the
+    writer from running because the guard itself misbehaved. A stale
+    TASK_CLAIMS snapshot (the hub may not pull the umbrella on every
+    tick) just means the guard activates one tick late, which is fine:
+    the session that opens the claim can wait a tick to confirm the
+    writer has paused before editing.
+
+    `ree_working_path` is the directory containing TASK_CLAIMS.json --
+    typically `os.path.dirname(PHASE3_REE_ASSEMBLY)` on the hub.
+    """
+    try:
+        repo_prefixes = _WRITER_GUARD_REPO_PREFIXES[writer_name]
+        write_prefixes = _WRITER_GUARD_PATHS[writer_name]
+    except KeyError:
+        return False
+    try:
+        claims_path = os.path.join(ree_working_path, "TASK_CLAIMS.json")
+        if not os.path.exists(claims_path):
+            return False
+        with open(claims_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for entry in data.get("claims", []):
+            if entry.get("status") != "active":
+                continue
+            for res in entry.get("resources", []):
+                if not isinstance(res, str):
+                    continue
+                for repo_prefix in repo_prefixes:
+                    if not res.startswith(repo_prefix):
+                        continue
+                    rel = res[len(repo_prefix):]
+                    if any(rel.startswith(wp) for wp in write_prefixes):
+                        return True
+        return False
+    except Exception:
+        return False
+
+
 def _check_ahead_writer_authored(repo, branch,
                                  prefixes=_PHASE3_WRITER_PREFIXES):
     """Inspect every commit reachable from HEAD but not origin/<branch>.
@@ -694,6 +768,17 @@ def phase3_git_writer(
             "[phase3] git writer stub (PHASE3_GIT_WRITER_READY=False); "
             "no git writes performed\n")
         return False
+
+    # Claim-guard: pause when an operator session has an active
+    # TASK_CLAIMS entry covering paths this writer touches. Returns
+    # True (idle, not a failure) so the main loop schedules another
+    # tick when the claim closes. See _active_claim_blocks_writer.
+    if _active_claim_blocks_writer(
+            "phase3_git_writer", os.path.dirname(asm)):
+        sys.stderr.write(
+            "[phase3] claim-guard active on evidence/experiments/; "
+            "skipping result-writer tick\n")
+        return True
 
     # Spool is the prerequisite. Without it /result has no bytes to
     # commit; refusing is louder than producing empty ticks forever.
@@ -1143,6 +1228,17 @@ def phase3_queue_writer(
             "(PHASE3_QUEUE_WRITER_READY=False); no git writes performed\n")
         return False
 
+    # Claim-guard: pause when an operator session has an active
+    # TASK_CLAIMS entry covering ree-v3/experiment_queue.json. Returns
+    # True (idle, not a failure) so the main loop schedules another
+    # tick when the claim closes. See _active_claim_blocks_writer.
+    if _active_claim_blocks_writer(
+            "phase3_queue_writer", os.path.dirname(repo)):
+        sys.stderr.write(
+            "[phase3-queue] claim-guard active on experiment_queue.json; "
+            "skipping queue-writer tick\n")
+        return True
+
     target = os.path.join(repo, rel)
 
     # Sequence must be: clean-tree precondition -> absorb origin moves
@@ -1415,6 +1511,18 @@ def phase3_heartbeat_writer(
             "[phase3-heartbeats] writer stub "
             "(PHASE3_HEARTBEAT_WRITER_READY=False); no git writes performed\n")
         return False
+
+    # Claim-guard: pause when an operator session has an active
+    # TASK_CLAIMS entry covering runner_heartbeats/, runner_status/, or
+    # runner_status.json. Returns True (idle, not a failure) so the main
+    # loop schedules another tick when the claim closes. See
+    # _active_claim_blocks_writer.
+    if _active_claim_blocks_writer(
+            "phase3_heartbeat_writer", os.path.dirname(asm)):
+        sys.stderr.write(
+            "[phase3-heartbeats] claim-guard active on runner_heartbeats/"
+            " or runner_status/; skipping heartbeat-writer tick\n")
+        return True
 
     # Collect what the DB has. Each row may have either or both payload
     # columns populated; if NEITHER, skip (nothing to materialise).
