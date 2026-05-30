@@ -8,6 +8,22 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-490j",
+      "title": "MECH-295 cascade GAP-4 Tier-1 retest with TRUE severed-bridge baseline + direct bridge-magnitude probe (supersedes V3-EXQ-490i)",
+      "script": "experiments/v3_exq_490j_mech295_cascade_gap4_tier1_severed_bridge_baseline.py",
+      "priority": 350,
+      "machine_affinity": "any",
+      "estimated_minutes": 250,
+      "supersedes": "V3-EXQ-490i",
+      "claim_id": "MECH-295",
+      "note": "Successor to V3-EXQ-490i per failure_autopsy_V3-EXQ-490i_2026-05-30 (REE_assembly bcdf9e2a0c). The 490i manifest FAILed with evidence_direction=weakens but the MECH-295 behavioural sign-test (approach_commit_rate ARM_1 vs ARM_0) PASSed in 3/3 seeds; the two roll-up failures were NOT MECH-295 falsifications: (i) C3_lift_vs_baseline FAIL = metric-design contamination (490i used goal_norm_peak delta with ARM_0_legacy_collapsed keeping z_goal_enabled=True; seed-7 ARM_0 spiked to 12.49 ~50x the other seeds and dominated cross-seed comparison); (ii) C2 dacc_bias=0 across ARM_1 = separate SD-032b consumer-pathway wiring gap routed to /diagnose-errors. 490j corrections (user-confirmed 2026-05-30T19:43Z): (a) ARM_0_severed_bridge sets cfg.goal.z_goal_enabled=False post-build so the bridge is structurally unable to fire; (b) direct bridge-magnitude probe replaces contaminated goal_norm_peak delta -- substrate-side proxy now measures the bridge's load-bearing arithmetic via per-tick anticipatory liking write magnitude + per-tick approach-cue score_bias magnitude + bridge_cue_fires + bridge_write_fires (the behavioural sign-test approach_commit_rate ARM_1 vs ARM_0 is RETAINED as a parallel acceptance criterion -- it is the claim entry's primary falsifiable test); (c) fixed total_eval_step_budget=900 per (seed, arm) replacing 490i's wildly-uncalibrated 59-2000 step variance; (d) pre-registered interpretation grid in the script docstring covers composite-FAIL cells (e.g. C3 FAIL + C8 FAIL + C9 FAIL routes to /failure-autopsy; C6 OR C7 FAIL routes to /diagnose-errors substrate-wiring; ARM_0 sentinel contamination routes to /failure-autopsy on the severed-bridge contract), not just single-criterion rows. C2 dacc_bias remains a DIAGNOSTIC-only metric (NOT gating) for the parallel /diagnose-errors session to consume. claim_ids=[MECH-295] only per the claim_ids accuracy rule -- the cascade test does not test MECH-269b / ARC-030 / MECH-117 / Q-040 at this metric resolution. 2 arms x 3 seeds (42/7/19); warmup=50 ep, eval=900 fixed step budget per arm. Estimated 250 min based on 490i's 15205s/3-seeds at the same scale. Smoke 2026-05-30T23:20Z: severed_bridge_sentinel_clean=True (ARM_0 cue_fires=0 write_fires=0 confirmed); ARM_1 bridge_cue_fires=17 + bridge_write_fires=74 at 80-step dry-run budget; per_seed_arm1_checks C1/C3/C4/C5/C6/C7/C9 PASS for seed 42 at dry-run scale (C8 borderline at dry-run, expected to clear at full warmup + 900-step budget). validate_experiments.py PASS. validate_queue.py to follow.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 50,
+      "experiment_type": "v3_exq_490j_mech295_cascade_gap4_tier1_severed_bridge_baseline",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-519b",
       "title": "SD-051/MECH-304 conditioned safety store substrate readiness (curriculum-aware re-letter; supersedes V3-EXQ-519)",
       "script": "experiments/v3_exq_519b_sd051_conditioned_safety_store_readiness.py",
