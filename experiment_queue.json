@@ -6,5 +6,26 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-569c",
+      "title": "SD-056 action-contrastive matched-entropy FP-2 falsifier (GAP-A, A_only; re-queue of 569b)",
+      "script": "experiments/v3_exq_569c_sd056_action_contrastive_diversity_falsifier.py",
+      "experiment_type": "v3_exq_569c_sd056_action_contrastive_diversity_falsifier",
+      "priority": 300,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "supersedes": "V3-EXQ-569b",
+      "claim_id": "ARC-065",
+      "claim_ids": [
+        "ARC-065",
+        "MECH-341"
+      ],
+      "seeds": 3,
+      "conditions": 5,
+      "episodes_per_run": 50,
+      "status": "pending",
+      "note": "Re-queue of V3-EXQ-569b which never actually executed. cloud-4 claimed 569b at 2026-05-29T21:11:24Z; ~65 seconds later cloud-4's ree-runner.service was systemctl-restarted (to pick up the new PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1 env var). systemd's cgroup-kill SIGTERM'd the experiment subprocess; Python exit 143; no sentinel; runner's ERROR-result branch removed 569b from queue and POST /queue/remove'd it. No manifest, no governance evidence. 569c is bit-identical: same script body (observation-anchored InfoNCE targets via rolling buffer, grad-clip 1.0, non-finite-loss skip), same 5 arms (ARM_0_OFF / ARM_1_W001 / ARM_2_W005 / ARM_3_W020 / ARM_4_MATCHED_NOISE), same acceptance criteria (C1 cand_world_pairwise_dist>0.05, C2 candidate first-action entropy>matched-noise, C3 selected-action entropy lift). claim_ids unchanged. New ID avoids the silent-skip-by-completed-list pattern on whatever worker still has 569b in its persisted runner_status."
+    }
+  ]
 }
