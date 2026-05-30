@@ -8,6 +8,22 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-490j",
+      "title": "MECH-295 cascade GAP-4 Tier-1 retest with TRUE severed-bridge baseline + direct bridge-magnitude probe (supersedes V3-EXQ-490i)",
+      "script": "experiments/v3_exq_490j_mech295_cascade_gap4_tier1_severed_bridge_baseline.py",
+      "priority": 350,
+      "machine_affinity": "any",
+      "estimated_minutes": 250,
+      "supersedes": "V3-EXQ-490i",
+      "claim_id": "MECH-295",
+      "note": "Successor to V3-EXQ-490i per failure_autopsy_V3-EXQ-490i_2026-05-30 (REE_assembly bcdf9e2a0c). 490i FAILed evidence_direction=weakens but MECH-295 behavioural sign-test passed 3/3 seeds; two roll-up failures were not MECH-295 falsifications: (i) C3_lift_vs_baseline=metric contamination (goal_norm_peak delta; ARM_0 z_goal_enabled=True; seed-7 spike 50x); (ii) C2 dacc_bias=0=SD-032b consumer-wiring gap routed to /diagnose-errors. 490j: (a) ARM_0_severed_bridge sets cfg.goal.z_goal_enabled=False; (b) direct bridge-magnitude probe replaces goal_norm_peak delta (per-tick anticipatory liking write + per-tick approach-cue score_bias magnitude + bridge_cue_fires + bridge_write_fires); (c) fixed 900-step total budget per (seed, arm) replacing 490i 59-2000 variance; (d) composite-cell interpretation grid in script docstring (9 rows, C3/C8/C9 composite -> /failure-autopsy; C6/C7 -> /diagnose-errors substrate-wiring; ARM_0 sentinel -> /failure-autopsy on severed-bridge contract). Behavioural sign-test retained as parallel acceptance criterion. C2 dacc_bias diagnostic-only. claim_ids=[MECH-295]. experiment_purpose=evidence. Smoke 2026-05-30T23:20Z: severed_bridge_sentinel_clean=True, ARM_1 cue 17 / write 74 at 80-step dry-run. validate_experiments + validate_queue PASS. NOTE: queue file commit 2aa5916 was overwritten by phase3-queue snapshot fbbe865; entry inserted directly into coordinator DB to recover.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 50,
+      "experiment_type": "v3_exq_490j_mech295_cascade_gap4_tier1_severed_bridge_baseline",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-519b",
       "title": "SD-051/MECH-304 conditioned safety store substrate readiness (curriculum-aware re-letter; supersedes V3-EXQ-519)",
       "script": "experiments/v3_exq_519b_sd051_conditioned_safety_store_readiness.py",
