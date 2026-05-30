@@ -26,25 +26,6 @@
       ],
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_592c_mech090_commit_readiness_gate_validation"
-    },
-    {
-      "queue_id": "V3-EXQ-610a",
-      "title": "INV-074 plasticity crystallization necessity retest with MECH-341 substrate",
-      "script": "experiments/v3_exq_610a_inv074_crystallization_necessity.py",
-      "priority": 200,
-      "machine_affinity": "any",
-      "estimated_minutes": 800,
-      "supersedes": "V3-EXQ-610",
-      "note": "Retest of INV-074 after MECH-341 (E3 score diversity preservation) implementation and retune (2026-05-27/2026-05-30). Tests whether plasticity crystallization at Phase 3 is NECESSARY for diversity persistence. ARM_0 (control): diversity mechanisms (MECH-313, MECH-260, MECH-341, gated_policy) but NO crystallization -> should show collapse. ARM_1 (test): same mechanisms PLUS crystallization_at_phase3=TRUE -> should preserve diversity. PASS if ARM_1 preserves diversity (+0.10 entropy advantage) AND ARM_0 shows collapse (-0.10 from phase2 to phase3) AND both show diversity at Phase 2 (>0.4 entropy). Supersedes V3-EXQ-610 which was killed by SIGTERM after 13.25h due to underestimated runtime (180min vs actual 800min). Substrate dependencies: MECH-341 (IMPLEMENTED 2026-05-27, retuned 2026-05-30), ARC-062 gated_policy (IMPLEMENTED 2026-05-09), MECH-313 noise_floor (IMPLEMENTED 2026-05-10), MECH-260 dACC (IMPLEMENTED 2026-04-19), MECH-334 crystallization (IMPLEMENTED). Smoke test PASS 2026-05-30 (dry-run seed 42). Queued via IGW-20260530-038 auto-spawn for pending_retest_after_substrate=true on INV-074.",
-      "status": "pending",
-      "claim_ids": [
-        "INV-074",
-        "MECH-334",
-        "MECH-333",
-        "MECH-341"
-      ],
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_610a_inv074_crystallization_necessity"
     }
   ]
 }
