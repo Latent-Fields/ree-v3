@@ -312,7 +312,7 @@ land, treat the workaround in column 3 as the operational rule.
 
 | # | Issue | Workaround |
 |---|-------|-----------|
-| 1 | **cloud-scaler can power off the hub VM** (`ree-worker-1`). The scaler treats it as a regular worker. Powered off the hub mid-cutover; required `hcloud server poweron ree-worker-1` + workflow disable | `cloud-scaler.yml` workflow is currently disabled. Re-enable only after the hub-protection guard lands. |
+| 1 | **cloud-scaler interaction with the hub VM + mid-claim workers.** Without guards the scaler treats the hub as a regular worker (can power it off) and can shut down a worker mid-experiment when the heartbeat is stale even though it holds an active claim. | RESOLVED. `cloud-scaler.yml` is enabled with three layers: (a) `HUB_NAME=ree-worker-1` skip so the scaler never touches the hub; (b) `HELD_BY_SELF` invariant — a worker with any `status==claimed` item where `claimed_by.machine == its affinity` is never shut down, even when `idle_ok=1 reason=heartbeat_stale`; (c) runner SIGTERM mitigation — `_transient_exit_codes` covers `{137,-9,-11,-15,143}` so a shutdown-during-experiment is intercepted as an infra-crash (no phantom completion row, claim released to coordinator). |
 | 2 | **Hub co-location**: cloud-1's runner writes heartbeat / status files locally to the hub's REE_assembly checkout, which the writer is trying to keep clean. The current `PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH` gate only disables the push, not the local write. **Fix landed 2026-05-29**: new `PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE` flag suppresses heartbeat + commands file writes. | To re-enable cloud-1 as a worker: add `Environment="PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1"` to `/etc/systemd/system/ree-runner.service.d/shadow.conf` on cloud-1, then `systemctl daemon-reload && systemctl enable ree-runner && systemctl start ree-runner`. |
 | 3 | **Legacy claim-push isn't gated** under Phase 3. `experiment_runner.claim_queue_item()` (line ~795) does its own commit+push outside `git_push_queue()`, so `claim: V3-EXQ-XXX` commits still land on `ree-v3/main` despite the env flag. | Cosmetic noise. No operational impact. |
 | 4 | **Non-atomic queue file rewrite** caused cloud-2 to crashloop on `json.decoder.JSONDecodeError` from literal `<<<<<<< Updated upstream` markers left by a concurrent `git pull` race. `Restart=on-failure + StartLimitBurst=5` then killed the unit. | If a worker goes dead-with-failed-state, `git reset --hard origin/main` on its checkout + `systemctl reset-failed ree-runner && systemctl start ree-runner`. |
@@ -329,6 +329,7 @@ land, treat the workaround in column 3 as the operational rule.
   local commits don't FF onto origin. Manual fix: SSH to hub,
   `git -C ~/REE_Working/REE_assembly pull --rebase origin master`
   (and similar for `ree-v3`). Writers resume on next tick.
-- **Watch the scaler workflow.** While the hub-protection chip isn't
-  landed, leave `cloud-scaler.yml` disabled to avoid the 2026-05-28
-  hub-shutdown incident.
+- **Watch the scaler workflow.** `cloud-scaler.yml` is enabled with three
+  protection layers (HUB_NAME hub skip; HELD_BY_SELF active-claim guard;
+  runner SIGTERM mitigation via `_transient_exit_codes`). See umbrella
+  `CLAUDE.md` Coordinator (Phase 3) section for the operator description.
