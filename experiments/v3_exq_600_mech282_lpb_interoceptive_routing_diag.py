@@ -215,11 +215,8 @@ def main(dry_run: bool = False) -> None:
     print("  acceptance:", eval_out)
     if not dry_run:
         emit_outcome(
-            experiment_type=EXPERIMENT_TYPE,
-            claim_ids=CLAIM_IDS,
             outcome=eval_out["verdict"],
-            metrics={"arms": results, "acceptance": eval_out},
-            experiment_purpose=EXPERIMENT_PURPOSE,
+            queue_id=QUEUE_ID,
         )
 
 

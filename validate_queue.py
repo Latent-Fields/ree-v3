@@ -39,6 +39,28 @@ RE_QUEUE_ID = re.compile(r"^V3-EXQ-\d+[a-z]?(-[a-z])?$|^V3-ONBOARD-smoke-.+$")
 # Historical incident: V3-EXQ-325b/325c (2026-04-18/19) used 'Results -> {path}'.
 RE_SAVED_TO_IN_SCRIPT = re.compile(r"Result (?:pack )?written to")
 
+# Regression guard against the 2026-05-29 emit_outcome copy-paste bug.
+# emit_outcome() in experiment_protocol.py accepts only: outcome, manifest_path,
+# run_id, queue_id, exit_reason, extra, signal_dir. Six scripts copy-pasted
+# extra kwargs (experiment_type, claim_ids, evidence_direction, results,
+# metrics, experiment_purpose, architecture_epoch) that the function has
+# never accepted -- the call crashes with TypeError AFTER the manifest is
+# written, so the runner classifies ERROR and the Phase 3 writer never
+# ingests the result. Canonical incident: V3-EXQ-610a 2026-05-29T22:44Z
+# on ree-cloud-3 (manifest preserved as .bak.20260530, rescued via the
+# 2026-05-30 sweep). Pattern is permissive of valid kwargs but flags the
+# disallowed ones.
+RE_EMIT_OUTCOME_CALL = re.compile(r"emit_outcome\s*\([^)]*\)", re.DOTALL)
+EMIT_OUTCOME_DISALLOWED_KWARGS = (
+    "experiment_type",
+    "claim_ids",
+    "evidence_direction",
+    "results",
+    "metrics",
+    "experiment_purpose",
+    "architecture_epoch",
+)
+
 # ------------------------------------------------------------------
 # Field specs: (field_name, required, expected_type_or_None_for_any)
 # ------------------------------------------------------------------
@@ -352,6 +374,26 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                         f"RE_SAVED_TO will not capture output_file. "
                         f"Add: print(f\"Result written to: {{out_path}}\", flush=True)"
                     )
+
+                # Regression guard: emit_outcome() must not be called with
+                # disallowed kwargs (see RE_EMIT_OUTCOME_CALL above).
+                for call_match in RE_EMIT_OUTCOME_CALL.finditer(source):
+                    call_text = call_match.group(0)
+                    for bad_kwarg in EMIT_OUTCOME_DISALLOWED_KWARGS:
+                        if re.search(rf"\b{bad_kwarg}\s*=", call_text):
+                            errors.append(
+                                f"{prefix}: script {script_val} calls "
+                                f"emit_outcome({bad_kwarg}=...) but the "
+                                f"function never accepted this kwarg. "
+                                f"emit_outcome's signature is "
+                                f"(outcome, manifest_path, *, run_id, "
+                                f"queue_id, exit_reason, extra, signal_dir). "
+                                f"Drop the disallowed kwarg(s); the call "
+                                f"will crash AFTER the manifest is written "
+                                f"and the runner will mis-classify ERROR "
+                                f"(canonical incident: V3-EXQ-610a 2026-05-29)."
+                            )
+                            break  # one error per call site is enough
 
         # Silent re-queue guard: queue_id must not already have a completion
         # record in any per-machine runner_status file, unless force_rerun=true.

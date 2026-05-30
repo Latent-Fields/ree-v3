@@ -757,12 +757,9 @@ def main(dry_run: bool = False):
     print(f"[{EXPERIMENT_TYPE}] wrote {manifest_path}", flush=True)
 
     emit_outcome(
-        run_id=run_id,
         outcome=outcome,
-        experiment_type=EXPERIMENT_TYPE,
+        run_id=run_id,
         queue_id=QUEUE_ID,
-        claim_ids=CLAIM_IDS,
-        evidence_direction=direction,
     )
     return 0
 

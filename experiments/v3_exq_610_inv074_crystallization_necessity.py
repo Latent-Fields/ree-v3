@@ -786,7 +786,6 @@ def main(dry_run: bool = False) -> None:
 
         # Emit outcome sentinel.
         emit_outcome(
-            experiment_type=EXPERIMENT_TYPE,
             outcome=eval_out["verdict"],
             manifest_path=manifest_path,
             run_id=run_id,

@@ -154,14 +154,9 @@ def main() -> None:
         return
 
     emit_outcome(
-        experiment_type=EXPERIMENT_TYPE,
-        queue_id=QUEUE_ID,
-        claim_ids=CLAIM_IDS,
         outcome=outcome,
         run_id=f"{EXPERIMENT_TYPE}_{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}_v3",
-        architecture_epoch="ree_hybrid_guardrails_v1",
-        results={"arm_results": results, "verdict": verdict},
-        experiment_purpose=EXPERIMENT_PURPOSE,
+        queue_id=QUEUE_ID,
     )
 
 
