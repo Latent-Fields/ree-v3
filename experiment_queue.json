@@ -8,6 +8,26 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-614a",
+      "title": "MECH-341 GAP-B Phase P3 behavioural falsifier B_only/ablate_B/ALL_ON (re-queue of 614 post manifest-pipeline silent-drop fix)",
+      "script": "experiments/v3_exq_614a_mech341_p3_behavioural_falsifier_3arm.py",
+      "priority": 320,
+      "machine_affinity": "any",
+      "estimated_minutes": 60,
+      "supersedes": "V3-EXQ-614",
+      "claim_id": "MECH-341",
+      "note": "Re-queue of V3-EXQ-614 (queued 2026-05-29T17:00Z, ree-v3 commit 62c45e9). Coordinator DB marks V3-EXQ-614 status=completed at 2026-05-29T19:13:19Z (updated_at; claimed_by_machine=None, claimed_at=None for that row); results table has zero rows for V3-EXQ-614 and no manifest landed under REE_assembly/evidence/experiments/. Third member of the 2026-05-30 manifest-pipeline silent-drop cluster alongside V3-EXQ-490h -> 490i + V3-EXQ-592b -> 592c (cluster autopsy at REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-490h-V3-EXQ-592b_2026-05-30.md, amended this session with V3-EXQ-614 absorption). Runner-side fix at ree-v3 commit 41c3411 'runner: fix V3-EXQ-592b FAIL/ERROR silent-drop' landed AFTER V3-EXQ-614 had already vanished, so the bug is fixed and 614a runs against the new runner. Bit-identical script body to V3-EXQ-614; only EXPERIMENT_TYPE / QUEUE_ID / SUPERSEDES constants + docstring header change. claim_ids unchanged (MECH-341 + ARC-065) -- the science is identical; only the pipeline bug was the difference. Priority 320 (above V3-EXQ-569c GAP-A re-queue prio 300 + V3-EXQ-490i Tier-1 retest prio 250) because GAP-B is load-bearing for MECH-341 promotion and 614a is the gate. Smoke-tested 2026-05-30T06:41Z dry-run 3/3 arms PASSed. Closes behavioral_diversity_isolation_plan.md GAP-B at the behavioural-validation layer on PASS.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-341",
+        "ARC-065"
+      ],
+      "conditions": 3,
+      "episodes_per_run": 90,
+      "experiment_type": "v3_exq_614a_mech341_p3_behavioural_falsifier_3arm",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-569c",
       "title": "SD-056 action-contrastive matched-entropy FP-2 falsifier (GAP-A, A_only; re-queue of 569b)",
       "script": "experiments/v3_exq_569c_sd056_action_contrastive_diversity_falsifier.py",
@@ -50,26 +70,6 @@
         "MECH-295"
       ],
       "experiment_type": "v3_exq_490i_mech295_cascade_gap4_tier1"
-    },
-    {
-      "queue_id": "V3-EXQ-614a",
-      "title": "MECH-341 GAP-B Phase P3 behavioural falsifier B_only/ablate_B/ALL_ON (re-queue of 614 post manifest-pipeline silent-drop fix)",
-      "script": "experiments/v3_exq_614a_mech341_p3_behavioural_falsifier_3arm.py",
-      "priority": 320,
-      "machine_affinity": "any",
-      "estimated_minutes": 60,
-      "supersedes": "V3-EXQ-614",
-      "claim_id": "MECH-341",
-      "claim_ids": [
-        "MECH-341",
-        "ARC-065"
-      ],
-      "experiment_type": "v3_exq_614a_mech341_p3_behavioural_falsifier_3arm",
-      "conditions": 3,
-      "episodes_per_run": 90,
-      "seeds": 3,
-      "status": "pending",
-      "note": "Re-queue of V3-EXQ-614 (queued 2026-05-29T17:00Z, ree-v3 commit 62c45e9). Coordinator DB marks V3-EXQ-614 status=completed at 2026-05-29T19:13:19Z (updated_at; claimed_by_machine=None, claimed_at=None for that row); results table has zero rows for V3-EXQ-614 and no manifest landed under REE_assembly/evidence/experiments/. Third member of the 2026-05-30 manifest-pipeline silent-drop cluster alongside V3-EXQ-490h -> 490i + V3-EXQ-592b -> 592c (cluster autopsy at REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-490h-V3-EXQ-592b_2026-05-30.md, amended this session with V3-EXQ-614 absorption). Runner-side fix at ree-v3 commit 41c3411 'runner: fix V3-EXQ-592b FAIL/ERROR silent-drop' landed AFTER V3-EXQ-614 had already vanished, so the bug is fixed and 614a runs against the new runner. Bit-identical script body to V3-EXQ-614; only EXPERIMENT_TYPE / QUEUE_ID / SUPERSEDES constants + docstring header change. claim_ids unchanged (MECH-341 + ARC-065) -- the science is identical; only the pipeline bug was the difference. Priority 320 (above V3-EXQ-569c GAP-A re-queue prio 300 + V3-EXQ-490i Tier-1 retest prio 250) because GAP-B is load-bearing for MECH-341 promotion and 614a is the gate. Smoke-tested 2026-05-30T06:41Z dry-run 3/3 arms PASSed. Closes behavioral_diversity_isolation_plan.md GAP-B at the behavioural-validation layer on PASS."
     }
   ]
 }
