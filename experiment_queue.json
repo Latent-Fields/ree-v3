@@ -17,7 +17,11 @@
       "supersedes": "V3-EXQ-614",
       "claim_id": "MECH-341",
       "note": "Re-queue of V3-EXQ-614 (queued 2026-05-29T17:00Z, ree-v3 commit 62c45e9). Coordinator DB marks V3-EXQ-614 status=completed at 2026-05-29T19:13:19Z (updated_at; claimed_by_machine=None, claimed_at=None for that row); results table has zero rows for V3-EXQ-614 and no manifest landed under REE_assembly/evidence/experiments/. Third member of the 2026-05-30 manifest-pipeline silent-drop cluster alongside V3-EXQ-490h -> 490i + V3-EXQ-592b -> 592c (cluster autopsy at REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-490h-V3-EXQ-592b_2026-05-30.md, amended this session with V3-EXQ-614 absorption). Runner-side fix at ree-v3 commit 41c3411 'runner: fix V3-EXQ-592b FAIL/ERROR silent-drop' landed AFTER V3-EXQ-614 had already vanished, so the bug is fixed and 614a runs against the new runner. Bit-identical script body to V3-EXQ-614; only EXPERIMENT_TYPE / QUEUE_ID / SUPERSEDES constants + docstring header change. claim_ids unchanged (MECH-341 + ARC-065) -- the science is identical; only the pipeline bug was the difference. Priority 320 (above V3-EXQ-569c GAP-A re-queue prio 300 + V3-EXQ-490i Tier-1 retest prio 250) because GAP-B is load-bearing for MECH-341 promotion and 614a is the gate. Smoke-tested 2026-05-30T06:41Z dry-run 3/3 arms PASSed. Closes behavioral_diversity_isolation_plan.md GAP-B at the behavioural-validation layer on PASS.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-05-30T06:47:31Z"
+      },
       "claim_ids": [
         "MECH-341",
         "ARC-065"
