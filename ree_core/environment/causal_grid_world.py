@@ -161,6 +161,26 @@ class CausalGridWorld:
         scheduled_external_hazard_interval: int = 50,
         scheduled_external_hazard_prob: float = 0.5,
         scheduled_external_hazard_adjacent_only: bool = True,
+        # SD-022 scheduled-injection extension (MECH-302 unblock, 2026-05-30).
+        # Direct limb-damage injection that does not depend on agent action.
+        # Every scheduled_limb_damage_interval steps, with probability
+        # scheduled_limb_damage_prob, adds scheduled_limb_damage_magnitude to
+        # one (or all) limbs in self.limb_damage (post-clamp to [0,1]). Purpose:
+        # supply periodic damage-accumulation -> heal trajectories so the
+        # MECH-302 SufferingDerivativeComparator has detectable suffering
+        # signals regardless of a trained avoidance policy. Distinct from
+        # SD-029 scheduled_external_hazard (which relocates a hazard adjacent
+        # to the agent and depends on hazard-contact to inflict damage) and
+        # from SD-022's contact-driven damage_increment path (which depends on
+        # the agent moving into a hazard). Curriculum-level fix; orthogonal to
+        # SD-029. Requires limb_damage_enabled=True (precondition raises
+        # ValueError on construction otherwise). Disabled by default
+        # (backward compat). See failure_autopsy_V3-EXQ-517b_2026-05-30.{md,json}.
+        scheduled_limb_damage_enabled: bool = False,
+        scheduled_limb_damage_interval: int = 50,
+        scheduled_limb_damage_prob: float = 0.5,
+        scheduled_limb_damage_magnitude: float = 0.4,
+        scheduled_limb_damage_limb_selection: str = "random",
         # SD-047: multi-source environmental dynamics.
         # Three concurrent stochastic event sources at distinct spatial / temporal scales,
         # each agent-independent. Provides the textured causal background that
@@ -473,6 +493,33 @@ class CausalGridWorld:
         self.scheduled_external_hazard_adjacent_only = scheduled_external_hazard_adjacent_only
         self._external_hazard_event_count: int = 0
         self._last_external_hazard_step: int = -1
+
+        # SD-022 scheduled-injection extension (MECH-302 unblock, 2026-05-30).
+        # Precondition: scheduled_limb_damage_enabled requires limb_damage_enabled.
+        # Loud-not-silent: a ValueError here is preferred over the silent no-op
+        # the code would otherwise produce (the comparator would never fire
+        # because limb_damage stays at zero with limb_damage_enabled=False).
+        if scheduled_limb_damage_enabled and not limb_damage_enabled:
+            raise ValueError(
+                "scheduled_limb_damage_enabled=True requires limb_damage_enabled=True. "
+                "Set limb_damage_enabled=True (SD-022 substrate) before enabling the "
+                "scheduled-injection curriculum."
+            )
+        if scheduled_limb_damage_limb_selection not in ("random", "all"):
+            raise ValueError(
+                "scheduled_limb_damage_limb_selection must be 'random' or 'all'; "
+                "got {!r}".format(scheduled_limb_damage_limb_selection)
+            )
+        self.scheduled_limb_damage_enabled = scheduled_limb_damage_enabled
+        self.scheduled_limb_damage_interval = scheduled_limb_damage_interval
+        self.scheduled_limb_damage_prob = scheduled_limb_damage_prob
+        self.scheduled_limb_damage_magnitude = scheduled_limb_damage_magnitude
+        self.scheduled_limb_damage_limb_selection = scheduled_limb_damage_limb_selection
+        self._scheduled_limb_damage_event_count: int = 0
+        self._scheduled_limb_damage_last_step: int = -1
+        self._scheduled_limb_damage_last_limb_idx: int = -1
+        self._scheduled_limb_damage_last_magnitude: float = 0.0
+        self._scheduled_limb_damage_injected_this_step: bool = False
 
         # SD-047: multi-source environmental dynamics state.
         self.multi_source_dynamics_enabled = multi_source_dynamics_enabled
@@ -1100,6 +1147,12 @@ class CausalGridWorld:
         # SD-029: per-episode external hazard counter.
         self._external_hazard_event_count = 0
         self._last_external_hazard_step = -1
+        # SD-022 scheduled-injection extension: per-episode counter reset.
+        self._scheduled_limb_damage_event_count = 0
+        self._scheduled_limb_damage_last_step = -1
+        self._scheduled_limb_damage_last_limb_idx = -1
+        self._scheduled_limb_damage_last_magnitude = 0.0
+        self._scheduled_limb_damage_injected_this_step = False
         # SD-047: per-episode multi-source counters reset.
         self._multi_source_n_env_events = 0
         self._multi_source_n_agent_events = 0
@@ -1261,6 +1314,14 @@ class CausalGridWorld:
         # SD-029: per-episode external hazard counter.
         self._external_hazard_event_count = 0
         self._last_external_hazard_step = -1
+        # SD-022 scheduled-injection extension: per-episode counter reset
+        # (mirrors the SD-029 reset_to bypass pattern; scripted-eval comparator
+        # harnesses still benefit from a clean zero-state on per-episode signals).
+        self._scheduled_limb_damage_event_count = 0
+        self._scheduled_limb_damage_last_step = -1
+        self._scheduled_limb_damage_last_limb_idx = -1
+        self._scheduled_limb_damage_last_magnitude = 0.0
+        self._scheduled_limb_damage_injected_this_step = False
         # SD-047: scripted-eval reset path leaves multi-source state OFF; experiments
         # using reset_to() are SD-029 / EXQ-433a comparator harnesses that intentionally
         # bypass multi-source dynamics for clean self-vs-externally-caused tagging.
@@ -1857,6 +1918,34 @@ class CausalGridWorld:
             ):
                 self._compute_proximity_fields()
 
+        # SD-022 scheduled-injection extension (MECH-302 unblock, 2026-05-30).
+        # Direct limb-damage injection that does not depend on agent action or
+        # hazard contact. Every scheduled_limb_damage_interval steps, with
+        # probability scheduled_limb_damage_prob, add scheduled_limb_damage_magnitude
+        # to one limb (random) or all four limbs (uniform). limb_damage is clamped
+        # to [0, 1] by the per-limb min(1.0, ...) bound below, matching the existing
+        # SD-022 contact-damage path semantics.
+        # Structurally cloned from the SD-029 scheduled-injection gate; fully gated
+        # by the master switch (zero RNG, zero state change when disabled).
+        # Fires BEFORE the SD-029 block so the two curricula are orthogonal.
+        # See failure_autopsy_V3-EXQ-517b_2026-05-30.{md,json}.
+        self._scheduled_limb_damage_injected_this_step = False
+        if (
+            self.scheduled_limb_damage_enabled
+            and self.steps > 0
+            and (self.steps % self.scheduled_limb_damage_interval == 0)
+            and self._rng.random() < self.scheduled_limb_damage_prob
+        ):
+            limb_idx = self._inject_scheduled_limb_damage()
+            if limb_idx is not None:
+                self._scheduled_limb_damage_injected_this_step = True
+                self._scheduled_limb_damage_event_count += 1
+                self._scheduled_limb_damage_last_step = self.steps
+                self._scheduled_limb_damage_last_limb_idx = limb_idx
+                self._scheduled_limb_damage_last_magnitude = float(
+                    self.scheduled_limb_damage_magnitude
+                )
+
         # SD-029: scheduled external-hazard injection (balanced curriculum).
         # Deterministically scheduled "externally-caused" hazard events that are
         # independent of the agent's action. When enabled, every
@@ -2063,6 +2152,14 @@ class CausalGridWorld:
             # SD-029 balanced curriculum tags (always present; 0 when disabled).
             "external_hazard_injected": bool(external_hazard_injected),
             "external_hazard_event_count": int(self._external_hazard_event_count),
+            # SD-022 scheduled-injection extension tags (always present; 0 / False when disabled).
+            "scheduled_limb_damage_enabled": bool(self.scheduled_limb_damage_enabled),
+            "scheduled_limb_damage_injected_this_step": bool(
+                self._scheduled_limb_damage_injected_this_step
+            ),
+            "scheduled_limb_damage_event_count": int(self._scheduled_limb_damage_event_count),
+            "scheduled_limb_damage_last_limb_idx": int(self._scheduled_limb_damage_last_limb_idx),
+            "scheduled_limb_damage_last_magnitude": float(self._scheduled_limb_damage_last_magnitude),
             # SD-047 multi-source tags (always present; 0 / False when disabled).
             "multi_source_dynamics_enabled": bool(self.multi_source_dynamics_enabled),
             "multi_source_intensity_scale": float(self.multi_source_intensity_scale),
@@ -3611,6 +3708,47 @@ class CausalGridWorld:
             self.grid[tx, ty] = self.ENTITY_TYPES["hazard"]
             self.hazards.append([tx, ty])
         return True
+
+    def _inject_scheduled_limb_damage(self) -> Optional[int]:
+        """
+        SD-022 scheduled-injection extension (MECH-302 unblock, 2026-05-30):
+        inject damage directly into self.limb_damage at a curriculum-determined
+        cadence, independent of agent action or hazard contact.
+
+        Distinct from the SD-022 contact-driven path: this method does NOT
+        require the agent to enter a hazard cell. It simulates allostatic /
+        externally-imposed limb damage (e.g., chronic tissue insult, scheduled
+        injury) and supplies the comparator with detectable suffering ->
+        recovery trajectories regardless of a trained avoidance policy.
+
+        Behaviour by limb_selection:
+            "random" -- pick one of the 4 limbs uniformly at random and add
+                        scheduled_limb_damage_magnitude to it.
+            "all"    -- add scheduled_limb_damage_magnitude to all four limbs.
+
+        Clamping: the existing SD-022 contact-path uses min(1.0, ...); this
+        helper does the same so limb_damage stays in [0, 1].
+
+        Returns the limb index that was damaged (0..3 for "random"; -1 for
+        "all" since multiple limbs were affected). Returns None only on an
+        unrecognised limb_selection value (defensive; precondition in __init__
+        already rejects bad values).
+        """
+        if self.scheduled_limb_damage_limb_selection == "random":
+            limb_idx = int(self._rng.integers(0, 4))
+            self.limb_damage[limb_idx] = min(
+                1.0,
+                float(self.limb_damage[limb_idx])
+                + float(self.scheduled_limb_damage_magnitude),
+            )
+            return limb_idx
+        if self.scheduled_limb_damage_limb_selection == "all":
+            mag = float(self.scheduled_limb_damage_magnitude)
+            for i in range(4):
+                self.limb_damage[i] = min(1.0, float(self.limb_damage[i]) + mag)
+            return -1
+        # Defensive: __init__ precondition should prevent this branch.
+        return None
 
     def _inject_counter_evidence(self) -> bool:
         """
