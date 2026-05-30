@@ -265,6 +265,18 @@ class Handler(BaseHTTPRequestHandler):
                     real = db.try_claim(
                         conn, qid, machine, STALE_HOURS,
                         HEARTBEAT_FRESH_SECONDS)
+                    # Phase 3: claim_log is the audit trail for who tried to
+                    # claim what + the coordinator's verdict. The shadow path
+                    # above logs evaluate_claim's predicted verdict; under
+                    # MODE=coordinator the actually-applied verdict from
+                    # try_claim is what we want to record. git_verdict is
+                    # None (no git-side mutex consulted on the authoritative
+                    # path; the legacy runner-side `claim:` commit is a
+                    # separate, advisory channel). detail='phase3_only'
+                    # marks rows that came in via the Phase 3 endpoint so
+                    # mixed-mode periods are distinguishable post-hoc.
+                    db.log_claim(conn, qid, machine, None, real,
+                                 detail="phase3_only")
                     self._send(200, {"verdict": real,
                                      "authoritative": True})
             finally:
