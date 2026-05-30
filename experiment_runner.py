@@ -2194,16 +2194,25 @@ def main():
                 )
                 script_timing = load_script_timing()
 
-            # Detect transient infrastructure crashes (OOM, SIGKILL) vs genuine script
-            # errors. Exit code 137 = SIGKILL on Linux (OOM-killer). Negative codes =
-            # killed by signal directly. These must NOT permanently remove the queue
-            # item -- release the claim so another machine (or the next pass) can retry.
+            # Detect transient infrastructure crashes (OOM, SIGKILL, SIGTERM) vs
+            # genuine script errors. Exit code 137 = SIGKILL on Linux (OOM-killer).
+            # Negative codes = killed by signal directly. 143 = SIGTERM as reported
+            # by shell wrappers (128 + 15). These must NOT permanently remove the
+            # queue item -- release the claim so another machine (or the next pass)
+            # can retry.
             # Root cause: Hetzner CX22 2-shared-vCPU OOM kills emit code 137; the
             # script dies before emit_outcome() runs, so no sentinel is written, which
             # caused the belt-and-braces block to convert UNKNOWN -> ERROR, and the
             # ERROR path below to permanently drop the experiment. This block intercepts
             # that case before it reaches the permanent-removal path.
-            _transient_exit_codes = {137, -9, -11}  # SIGKILL (OOM), SIGKILL direct, SIGSEGV
+            # SIGTERM addendum (2026-05-30 fleet incident): cloud-scaler killed
+            # ree-cloud-2 and ree-cloud-3 mid-experiment via systemd SIGTERM. The
+            # subprocesses returned exit_code=-15 (or 143), which previously fell
+            # through to the ERROR branch and wrote a phantom completion row with
+            # no manifest, then tripped preflight test_queue_integrity.py on the
+            # next boot and blocked startup. Treating -15/143 as infra-crash (no
+            # completion written, claim released) is the SIGTERM-mid-experiment fix.
+            _transient_exit_codes = {137, -9, -11, -15, 143}  # SIGKILL (OOM), SIGKILL direct, SIGSEGV, SIGTERM (neg), SIGTERM (shell)
             _run_exit_code = result.get("exit_code")
             _run_has_sentinel = result.get("has_sentinel", False)
             _is_infra_crash = (
@@ -2213,10 +2222,11 @@ def main():
                 and not _run_has_sentinel  # only when script never called emit_outcome
             )
             if _is_infra_crash:
+                _crash_kind = "SIGTERM" if _run_exit_code in (-15, 143) else "OOM/SIGKILL"
                 print(
                     f"[runner] INFRA-CRASH: {queue_id} exit={_run_exit_code} "
-                    f"(likely OOM/SIGKILL); leaving in queue, releasing claim. "
-                    f"actual_secs={result.get('actual_secs')}",
+                    f"(likely {_crash_kind}); leaving in queue, releasing claim, "
+                    f"no completion written. actual_secs={result.get('actual_secs')}",
                     flush=True,
                 )
                 if args.auto_sync:
