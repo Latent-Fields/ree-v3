@@ -30,6 +30,38 @@
       "episodes_per_run": 50,
       "experiment_type": "v3_exq_569c_sd056_action_contrastive_diversity_falsifier",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-490i",
+      "title": "MECH-295 drive->liking->approach cascade Tier-1 retest (re-queue of 490h post runner FAIL-branch fix)",
+      "script": "experiments/v3_exq_490i_mech295_cascade_gap4_tier1.py",
+      "experiment_type": "v3_exq_490i_mech295_cascade_gap4_tier1",
+      "priority": 250,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "supersedes": "V3-EXQ-490h",
+      "claim_id": "MECH-295",
+      "claim_ids": [
+        "MECH-295"
+      ],
+      "status": "pending",
+      "note": "Re-queue of V3-EXQ-490h which ran to completion on ree-cloud-2 2026-05-29T20:11Z-21:46Z (elapsed 5662s; runner sentinel reported FAIL) but lost its manifest to the FAIL-branch silent-drop bug fixed at ree-v3 commit 41c3411 (2026-05-29T21:24Z UTC). Bit-identical script body; only the EXPERIMENT_TYPE / QUEUE_ID / SUPERSEDES constants and docstring change. The runner restart-induced REE_assembly git pull cycle clobbered the untracked manifest before it was pushed. See autopsy artifact REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-490h-V3-EXQ-592b_2026-05-30.md. claim_ids unchanged from predecessor -- the science is identical; only the pipeline bug was the difference."
+    },
+    {
+      "queue_id": "V3-EXQ-592c",
+      "title": "MECH-090 R-c commit-readiness gate validation (re-queue of 592b post runner FAIL-branch fix)",
+      "script": "experiments/v3_exq_592c_mech090_commit_readiness_gate_validation.py",
+      "experiment_type": "v3_exq_592c_mech090_commit_readiness_gate_validation",
+      "priority": 240,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "supersedes": "V3-EXQ-592b",
+      "claim_id": "MECH-090",
+      "claim_ids": [
+        "MECH-090"
+      ],
+      "status": "pending",
+      "note": "Re-queue of V3-EXQ-592b which ran to completion on DLAPTOP-4.local 2026-05-29T07:23Z-08:32Z (elapsed 4163s; runner sentinel ARM_0=0/3 ARM_1=0/3 joint-FAIL) but lost its manifest to the FAIL-branch silent-drop bug fixed at ree-v3 commit 41c3411 (2026-05-29T21:24Z UTC). The runner.log shows the script's 'Evidence written -> ...v3_exq_592b...20260529T083239Z_v3.json' line but the subsequent runner-restart-induced REE_assembly autostash + recovery cycle clobbered the untracked manifest before report_result was called. See autopsy artifact REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-490h-V3-EXQ-592b_2026-05-30.md. claim_ids unchanged from predecessor -- the science (R-c falsifier-grade 2-arm diagnostic on the MECH-090 commit-entry readiness conjunction substrate) is identical; only the pipeline bug was the difference."
     }
   ]
 }

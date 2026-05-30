@@ -2,41 +2,20 @@
 """
 V3-EXQ-592c: MECH-090 R-c commit-entry readiness conjunction substrate validation.
 
-Re-run of V3-EXQ-592b after the 2026-05-29T08:32:39Z silent-drop on
-DLAPTOP-4.local. V3-EXQ-592b's runner_status entry records a FAIL verdict at
-4162s with a "[experiment_protocol] sentinel written:" log line, but the
-sentinel (REE_assembly/evidence/experiments/_runner_signals/V3-EXQ-592b.json),
-the manifest (v3_exq_592b_mech090_commit_readiness_gate_validation/...
-20260529T083239Z_v3.json), the coordinator results table row, the coordinator
-spool entry, and the REE_assembly origin/master git history all show no
-trace of the manifest. Coordinator experiments table marks 592b completed
-(updated_at 2026-05-29T08:32:43Z) because report_queue_remove fired, but
-report_result was never called.
-
-Root cause identified in ree-v3/experiment_runner.py FAIL branch
-(lines 2267-2305) and ERROR branch (lines 2229-2265): unlike the PASS branch
-at 2326-2410, neither early-return branch calls _result_manifest_exists,
-git_push_results, or coordinator_client.report_result. Only
-report_queue_remove fires, which is why the coordinator experiments row is
-marked completed but the results table is empty and no manifest is pushed.
-This is the FAIL/ERROR-class manifestation of the same silent-drop family
-as the line-1394 UNKNOWN bug fixed 2026-05-08 (which only retrofitted the
-success branch).
-
-The runner-code fix is a separate /implement-substrate concern and does not
-gate this experiment. V3-EXQ-592c reruns the science on ree-cloud-3
-(machine_affinity) to (a) actually validate MECH-090 R-c independently of
-the DLAPTOP-4-local incident, and (b) help distinguish whether 592b's
-manifest was never written by the script (the runner bug then loses it
-silently downstream) vs whether it was written and lost to a DLAPTOP-4
-filesystem path -- if cloud-3 PASSes, the success branch persists the
-manifest end-to-end and the substrate question is answered regardless of
-the runner-bug fix; if cloud-3 FAILs, the same runner-bug silent-drop will
-hit but the per-machine difference rules out a Mac-only filesystem cause
-and routes to /failure-autopsy V3-EXQ-592c.
-
-Original docstring (substrate-validation logic, identical to V3-EXQ-592b):
--------------------------------------------------------------------------
+Supersedes V3-EXQ-592b (bit-identical scientific re-run). V3-EXQ-592b ran to
+completion on DLAPTOP-4.local 2026-05-29T08:32:39Z (elapsed 4163s, joint-FAIL
+with ARM_0=0/3 and ARM_1=0/3 per runner sentinel) but its manifest never
+reached disk or the coordinator `results` table. Root cause is a
+runner-pipeline bug (FAIL branch of ree-v3/experiment_runner.py:2299-2367
+skipped git_push_results + coordinator_client.report_result before the
+2026-05-29 fix at commit 41c3411; the runner.log shows the script's "Evidence
+written -> ..." line but a subsequent runner-restart-induced REE_assembly
+pull autostash + recovery cycle clobbered the untracked manifest), NOT a
+script-level issue. See autopsy artifact
+REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-490h-V3-EXQ-592b_2026-05-30.md.
+This re-run is on the post-fix runner code; nothing in the experiment itself
+has changed and the joint-PASS / single-arm-FAIL Interpretation grid below
+applies as written.
 
 Falsifier-grade 2-arm diagnostic for the commit-entry readiness gate landed
 2026-05-28 (commitment_closure_plan.md GAP-4; see design doc
@@ -90,8 +69,8 @@ Interpretation grid:
                                             | and verify result.scores -> margin
                                             | computation at the elevate sites.
 
-Supersedes: V3-EXQ-592b (silent-dropped 2026-05-29T08:32:39Z; see header
-  above). V3-EXQ-592 remains the curriculum-harness validation; this is the
+Supersedes: V3-EXQ-592b (post-runner-pipeline-fix re-run; see top-of-file
+  note). V3-EXQ-592 remains the curriculum-harness validation; this is the
   conjunction-substrate validation that closes the gap V3-EXQ-592 surfaced.
 
 Predecessor synthesis: REE_assembly/evidence/literature/targeted_review_
@@ -132,7 +111,6 @@ from ree_core.utils.config import REEConfig  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_592c_mech090_commit_readiness_gate_validation"
 QUEUE_ID = "V3-EXQ-592c"
-SUPERSEDES = "V3-EXQ-592b"
 CLAIM_IDS: List[str] = ["MECH-090"]
 ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"
 EXPERIMENT_PURPOSE = "diagnostic"
@@ -455,7 +433,6 @@ def main() -> tuple:
         "schema_version": "v1",
         "run_id": run_id,
         "queue_id": QUEUE_ID,
-        "supersedes": SUPERSEDES,
         "experiment_type": EXPERIMENT_TYPE,
         "architecture_epoch": ARCHITECTURE_EPOCH,
         "timestamp_utc": ts,
@@ -480,13 +457,6 @@ def main() -> tuple:
         "per_seed_results": per_seed_results,
         "notes": (
             "MECH-090 R-c commit-entry readiness conjunction substrate validation. "
-            "Re-run of V3-EXQ-592b after the 2026-05-29T08:32:39Z silent-drop on "
-            "DLAPTOP-4.local (runner_status FAIL + 4162s + sentinel-written log, "
-            "but both sentinel and manifest absent on disk + no row in coordinator "
-            "results + no spool entry + no git history; root cause = "
-            "experiment_runner.py FAIL/ERROR branches 2229-2305 missing the "
-            "_result_manifest_exists/git_push_results/coordinator_client.report_result "
-            "calls the PASS branch at 2326-2410 has). "
             "Predecessor synthesis: REE_assembly/evidence/literature/targeted_review_"
             "connectome_mech_090/synthesis.md commit 9e68c5ca8a. "
             "Predecessor session: implement-substrate-mech090-commit-predicate-"
@@ -503,7 +473,6 @@ def main() -> tuple:
     with open(out_path, "w") as f:
         json.dump(manifest, f, indent=2)
     print(f"[{QUEUE_ID}] Evidence written -> {out_path}", flush=True)
-    print(f"Result written to: {out_path}", flush=True)
 
     return outcome, out_path
 
