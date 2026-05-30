@@ -58,7 +58,11 @@
       "supersedes": "V3-EXQ-490h",
       "claim_id": "MECH-295",
       "note": "Re-queue of V3-EXQ-490h which ran to completion on ree-cloud-2 2026-05-29T20:11Z-21:46Z (elapsed 5662s; runner sentinel reported FAIL) but lost its manifest to the FAIL-branch silent-drop bug fixed at ree-v3 commit 41c3411 (2026-05-29T21:24Z UTC). Bit-identical script body; only the EXPERIMENT_TYPE / QUEUE_ID / SUPERSEDES constants and docstring change. The runner restart-induced REE_assembly git pull cycle clobbered the untracked manifest before it was pushed. See autopsy artifact REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-490h-V3-EXQ-592b_2026-05-30.md. claim_ids unchanged from predecessor -- the science is identical; only the pipeline bug was the difference.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-05-30T14:31:01Z"
+      },
       "claim_ids": [
         "MECH-295"
       ],
