@@ -287,6 +287,8 @@ class BLAAnalog:
         arousal_tags_in_context: Optional[torch.Tensor] = None,
         step_index: Optional[int] = None,
         simulation_mode: bool = False,
+        override_signal: float = 0.0,
+        override_encoding_gain: float = 0.0,
     ) -> BLAOutput:
         """Compute BLAOutput for this step.
 
@@ -396,6 +398,16 @@ class BLAAnalog:
         # after a threat event even as z_harm_a returns to baseline.
         window_tail = gfloor + window_decay * (gmax - gfloor)
         encoding_gain = max(immediate_gain, window_tail)
+
+        # SD-037 MECH-281 motor-coupling axis (2026-05-30): orexin-recruited
+        # state amplifies BLA consolidation gain (Roozendaal 2011 anchor;
+        # orexin -> NE / amygdala enhanced LTP). Scales the FINAL encoding_gain
+        # (after inverted-U + post-event window resolution) so the multiplier
+        # applies uniformly across the arousal-magnitude regime.
+        # override_encoding_gain=0.0 default -> bit-identical to pre-MECH-281.
+        if override_encoding_gain != 0.0:
+            ov = float(max(0.0, min(1.0, override_signal)))
+            encoding_gain = encoding_gain * (1.0 + float(override_encoding_gain) * ov)
 
         if encoding_gain > gfloor + 1e-9:
             self._n_gain_elevations += 1

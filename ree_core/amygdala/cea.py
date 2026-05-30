@@ -264,6 +264,8 @@ class CeAAnalog:
         cortical_confirmation: Optional[float] = None,
         escapability_hint: Optional[float] = None,
         simulation_mode: bool = False,
+        override_signal: float = 0.0,
+        override_amplitude_gain: float = 0.0,
     ) -> CeAOutput:
         """Compute CeAOutput for this step.
 
@@ -424,6 +426,18 @@ class CeAAnalog:
             amp_peak = max(1e-6, float(self.config.fast_prime_amplitude))
             tail_scale = self._fast_prime_value / amp_peak
             mode_prior = float(max(-cap, min(cap, tail_scale * cap)))
+
+        # SD-037 MECH-281 motor-coupling axis (2026-05-30): orexin-recruited
+        # state amplifies both fast-route scalars (mode_prior + fast_prime).
+        # Re-clipped to mode_prior_log_odds_max so CeA still cannot over-rule
+        # cortex via the amplified path. override_amplitude_gain=0.0 default ->
+        # bit-identical to pre-MECH-281.
+        if override_amplitude_gain != 0.0:
+            ov = float(max(0.0, min(1.0, override_signal)))
+            mult = 1.0 + float(override_amplitude_gain) * ov
+            cap = float(self.config.mode_prior_log_odds_max)
+            mode_prior = float(max(-cap, min(cap, mode_prior * mult)))
+            fast_prime = float(max(-cap, min(cap, fast_prime * mult)))
 
         self._last_mode_prior = mode_prior
         self._last_fast_prime = fast_prime

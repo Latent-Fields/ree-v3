@@ -231,6 +231,8 @@ class LateralPFCAnalog(nn.Module):
         z_world: torch.Tensor,
         gate: float,
         disc_output: Optional[torch.Tensor] = None,
+        override_signal: float = 0.0,
+        override_eta_gain: float = 0.0,
     ) -> None:
         """Gate-modulated EMA update of rule_state.
 
@@ -243,10 +245,16 @@ class LateralPFCAnalog(nn.Module):
                 use_discriminator_source=True and disc_output is not None,
                 adds discriminator_pool_weight * discriminator_proj(disc_output)
                 to the source vector. Default None = no-op (backward compat).
+            override_signal: SD-037 BroadcastOverrideRegulator output in [0, 1].
+                MECH-281 motor-coupling axis: orexin-recruited state accelerates
+                rule_state learning. Default 0.0 = bit-identical OFF.
+            override_eta_gain: scalar multiplier applied to eff_eta as
+                (1 + override_eta_gain * override_signal). Default 0.0 = no-op.
 
         Effect:
             rule_state <- (1 - eff_eta) * rule_state + eff_eta * source
             where eff_eta = update_eta * clip(gate, 0, 1)
+                            * (1 + override_eta_gain * override_signal)
                   source  = delta_proj(z_delta).mean(0)
                             + world_pool_weight * world_proj(z_world).mean(0)
                             [+ discriminator_pool_weight * discriminator_proj(disc_output)
@@ -258,6 +266,12 @@ class LateralPFCAnalog(nn.Module):
         # Clip gate defensively
         g = float(max(0.0, min(1.0, gate)))
         eff_eta = self.config.update_eta * g
+        # SD-037 MECH-281 motor-coupling axis: orexin-recruited state amplifies
+        # the effective learning rate on rule_state. At override_eta_gain=0.0
+        # (default), this is exactly 1.0 -> bit-identical to pre-MECH-281.
+        if override_eta_gain != 0.0:
+            ov = float(max(0.0, min(1.0, override_signal)))
+            eff_eta = eff_eta * (1.0 + float(override_eta_gain) * ov)
 
         # Detach inputs; rule_state is a buffer, not a trainable param.
         with torch.no_grad():

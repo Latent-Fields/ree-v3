@@ -2081,6 +2081,23 @@ class REEConfig:
     override_goal_seeding_gain: float = 2.0
 
     # ----------------------------------------------------------------
+    # SD-037 consumer-cascade (MECH-281 motor-coupling axis, 2026-05-30)
+    # ----------------------------------------------------------------
+    # Scalar (1 + gain * override_signal) multipliers on existing knobs at four
+    # additional consumer sites named in MECH-281 implementation_note (PFC for
+    # SD-033a deliberation, BLA / CeA for SD-035 amygdala arbitration, beta-gate
+    # for MECH-090 motor-side escape-from-freeze). Defaults are 0.0 = bit-
+    # identical OFF; each requires its parent substrate's master flag to also
+    # be True (use_lateral_pfc_analog / use_amygdala_analog / nothing for the
+    # urgency_interrupt path which is always available). Companion to the
+    # already-wired override_alpha_pag (PAG freeze-gate exit threshold) and
+    # override_goal_seeding_gain (GoalState seeding). See SD-037 design doc.
+    override_pfc_eta_gain: float = 0.0
+    override_bla_encoding_gain: float = 0.0
+    override_cea_amplitude_gain: float = 0.0
+    override_beta_interrupt_gain: float = 0.0
+
+    # ----------------------------------------------------------------
     # MECH-282: LPB interoceptive harm routing
     # ----------------------------------------------------------------
     # Master switch. When True, REEAgent instantiates LPBInteroceptiveRouter,
@@ -2865,6 +2882,11 @@ class REEConfig:
         override_sustained_threat_threshold: float = 0.4,
         override_decay_rate: float = 0.05,
         override_goal_seeding_gain: float = 2.0,
+        # SD-037 consumer-cascade (MECH-281 motor-coupling axis, 2026-05-30)
+        override_pfc_eta_gain: float = 0.0,
+        override_bla_encoding_gain: float = 0.0,
+        override_cea_amplitude_gain: float = 0.0,
+        override_beta_interrupt_gain: float = 0.0,
         # MECH-282: LPB interoceptive harm routing
         use_lpb_interoceptive_routing: bool = False,
         lpb_intero_z_dim: int = 16,
@@ -3449,6 +3471,11 @@ class REEConfig:
         config.override_sustained_threat_threshold = override_sustained_threat_threshold
         config.override_decay_rate = override_decay_rate
         config.override_goal_seeding_gain = override_goal_seeding_gain
+        # SD-037 consumer-cascade (MECH-281 motor-coupling axis, 2026-05-30)
+        config.override_pfc_eta_gain = override_pfc_eta_gain
+        config.override_bla_encoding_gain = override_bla_encoding_gain
+        config.override_cea_amplitude_gain = override_cea_amplitude_gain
+        config.override_beta_interrupt_gain = override_beta_interrupt_gain
 
         config.use_lpb_interoceptive_routing = use_lpb_interoceptive_routing
         config.lpb_intero_z_dim = lpb_intero_z_dim

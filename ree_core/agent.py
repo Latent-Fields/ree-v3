@@ -2027,6 +2027,18 @@ class REEAgent(nn.Module):
                         new_latent.z_self,
                         new_latent.z_world,
                     )
+                    # SD-037 MECH-281 motor-coupling axis: BLA consolidation
+                    # gain scaled by override_signal when both substrates on.
+                    # broadcast_override.tick() ran earlier in sense() so the
+                    # cached signal is current.
+                    _ov_sig_bla = (
+                        float(self.broadcast_override.override_signal)
+                        if self.broadcast_override is not None
+                        else 0.0
+                    )
+                    _ov_bla_gain = float(
+                        getattr(self.config, "override_bla_encoding_gain", 0.0)
+                    )
                     self._bla_last_output = self.bla.tick(
                         z_harm_a=z_harm_a_cur.detach(),
                         z_harm_a_pred=(
@@ -2038,6 +2050,8 @@ class REEAgent(nn.Module):
                         arousal_tags_in_context=arousal_tags_in_context,
                         step_index=self._step_count,
                         simulation_mode=False,
+                        override_signal=_ov_sig_bla,
+                        override_encoding_gain=_ov_bla_gain,
                     )
                     self._episode_bla_peak_tag = max(
                         self._episode_bla_peak_tag,
@@ -2058,12 +2072,26 @@ class REEAgent(nn.Module):
                     # gate wired off the AIC / dACC fast-signal path.
                     # Passing None here lets the fast_prime pulse decay
                     # naturally per its time constant.
+                    # SD-037 MECH-281 motor-coupling axis: CeA fast-route
+                    # scalars (mode_prior + fast_prime) amplified by
+                    # override_signal. Bounded by mode_prior_log_odds_max
+                    # inside the module so cortex is still not over-ruled.
+                    _ov_sig_cea = (
+                        float(self.broadcast_override.override_signal)
+                        if self.broadcast_override is not None
+                        else 0.0
+                    )
+                    _ov_cea_gain = float(
+                        getattr(self.config, "override_cea_amplitude_gain", 0.0)
+                    )
                     self._cea_last_output = self.cea.tick(
                         z_harm_a=z_harm_a_cur.detach(),
                         cue_features=None,
                         cortical_confirmation=None,
                         escapability_hint=None,
                         simulation_mode=False,
+                        override_signal=_ov_sig_cea,
+                        override_amplitude_gain=_ov_cea_gain,
                     )
 
         # SD-021: descending pain modulation (commitment-gated sensory harm attenuation).
@@ -2708,6 +2736,25 @@ class REEAgent(nn.Module):
             urgency_threshold = getattr(
                 self.config.e3, "urgency_interrupt_threshold", 0.8
             )
+            # SD-037 MECH-281 motor-coupling axis (2026-05-30): orexin-
+            # recruited state lowers the urgency-interrupt threshold so the
+            # committed motor program is more readily aborted under recruited
+            # arousal (orexin -> escape-from-freeze on the motor side,
+            # parallel to PAG alpha_override on the freeze-gate). At
+            # override_beta_interrupt_gain=0.0 (default) this is exactly
+            # urgency_threshold -> bit-identical to pre-MECH-281.
+            _ov_beta_gain = float(
+                getattr(self.config, "override_beta_interrupt_gain", 0.0)
+            )
+            if _ov_beta_gain != 0.0 and self.broadcast_override is not None:
+                _ov_sig_beta = float(
+                    max(0.0, min(1.0, self.broadcast_override.override_signal))
+                )
+                # Multiplier in [1 - gain, 1]; floor at 0.0 so the threshold
+                # cannot go negative (which would short-circuit the interrupt
+                # unconditionally even at zero urgency).
+                _mult = max(0.0, 1.0 - _ov_beta_gain * _ov_sig_beta)
+                urgency_threshold = urgency_threshold * _mult
             _urgency_signal = z_harm_a
             if (
                 self.config.latent.use_harm_un
@@ -3146,12 +3193,26 @@ class REEAgent(nn.Module):
                         dtype=self._current_latent.z_world.dtype,
                         device=self._current_latent.z_world.device,
                     )
+                # SD-037 MECH-281 motor-coupling axis: orexin-recruited
+                # state accelerates rule_state EMA by scaling eff_eta by
+                # (1 + override_pfc_eta_gain * override_signal). Gain=0.0
+                # default -> bit-identical to pre-MECH-281.
+                _ov_sig_lpfc = (
+                    float(self.broadcast_override.override_signal)
+                    if self.broadcast_override is not None
+                    else 0.0
+                )
+                _ov_lpfc_gain = float(
+                    getattr(self.config, "override_pfc_eta_gain", 0.0)
+                )
                 # Update rule_state (in-place on buffer, no gradient flow).
                 self.lateral_pfc.update(
                     z_delta=self._current_latent.z_delta,
                     z_world=self._current_latent.z_world,
                     gate=lpfc_gate,
                     disc_output=_lpfc_disc,
+                    override_signal=_ov_sig_lpfc,
+                    override_eta_gain=_ov_lpfc_gain,
                 )
             # Per-candidate z_world summary: reuse from gated_policy block if
             # it ran this tick (cand_world_summaries set above), otherwise build
