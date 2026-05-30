@@ -16,6 +16,15 @@ name: Cloud Worker Scaler
 # even if the heartbeat shows idle, we wait IDLE_GRACE_MIN after the last
 # completed experiment before powering off, so a back-to-back claim has time to
 # land before the box goes down.
+#
+# Active-claim guard (2026-05-30): the heartbeat gate alone is not enough. If a
+# worker is mid-experiment AND its heartbeat has gone >1h stale (broken heartbeat
+# flow, long synchronous step, or post-result-push-pre-next-claim window), the
+# stale branch sets idle_ok=1 reason=heartbeat_stale -- and the pending-only
+# CLAIMABLE count is zero because the worker has already claimed its item, so
+# the worker is shut down mid-run. Authoritative invariant: a worker with a
+# claimed-and-not-completed item never gets shut down. Implemented via the
+# HELD_BY_SELF count below, gated before any shutdown branch.
 
 on:
   schedule:
@@ -133,6 +142,35 @@ jobs:
           print(n)
           ")
 
+            # Count items this worker is currently CLAIMED on. Without this,
+            # a worker that has just transitioned a pending item to claimed
+            # is invisible to the pending-only CLAIMABLE count above, so on
+            # the next 15-min tick (with heartbeat possibly stale because a
+            # long experiment hasn't refreshed it) the scaler would shut
+            # it down mid-claim. This is the 2026-05-30 fleet incident
+            # (V3-EXQ-483e on cloud-2, V3-EXQ-614a on cloud-3 powered off
+            # mid-run). Treat any held claim as work-in-flight: do NOT
+            # shutdown while the held count is > 0, regardless of idle
+            # gate or heartbeat staleness. The held count and the pending
+            # count are kept as separate diagnostics so the log line shows
+            # which path is keeping the worker alive.
+            HELD_BY_SELF=$(AFFINITY="$AFFINITY" python3 -c "
+          import json, os
+          aff = os.environ['AFFINITY']
+          q = json.load(open('ree-v3/experiment_queue.json'))
+          n = 0
+          for i in q.get('items', []):
+              if i.get('status') != 'claimed':
+                  continue
+              cb = i.get('claimed_by') or {}
+              # claimed_by is the canonical nested form ({machine, claimed_at});
+              # accept a bare string form as a fallback for legacy queue entries.
+              machine = cb.get('machine') if isinstance(cb, dict) else cb
+              if machine == aff:
+                  n += 1
+          print(n)
+          ")
+
             # Read heartbeat to decide whether the runner is genuinely idle.
             # idle_ok is "1" when:
             #   - heartbeat file exists and is fresh (last_tick_utc within HEARTBEAT_FRESH_MIN)
@@ -201,7 +239,7 @@ jobs:
             # Get current server status (off, running, starting, stopping, unknown)
             STATUS=$(hcloud server describe "$SERVER_NAME" -o format='{{.Status}}' 2>/dev/null || echo "unknown")
 
-            echo "[$SERVER_NAME affinity=$AFFINITY] claimable=$CLAIMABLE status=$STATUS $IDLE_INFO"
+            echo "[$SERVER_NAME affinity=$AFFINITY] claimable=$CLAIMABLE held_by_self=$HELD_BY_SELF status=$STATUS $IDLE_INFO"
 
             if [ "$STATUS" = "unknown" ]; then
               echo "  -> server not provisioned yet, skipping"
@@ -213,6 +251,13 @@ jobs:
               hcloud server poweron "$SERVER_NAME"
             elif [ "$CLAIMABLE" -gt 0 ] && [ "$STATUS" = "off" ] && [ "$MODE" = "shutdown-only" ]; then
               echo "  -> queue has work but $SERVER_NAME is shutdown-only (manual start required)"
+            elif [ "$HELD_BY_SELF" -gt 0 ] && [ "$STATUS" = "running" ]; then
+              # Worker is holding an active claim. Do NOT shutdown even when
+              # CLAIMABLE=0 and IDLE_OK=1 (e.g. heartbeat_stale because a long
+              # experiment hasn't refreshed it). Authoritative invariant:
+              # claimed-and-not-completed beats every shutdown signal.
+              # 2026-05-30 fleet incident guard.
+              echo "  -> worker holds $HELD_BY_SELF active claim(s), keeping $SERVER_NAME running"
             elif [ "$CLAIMABLE" -eq 0 ] && [ "$STATUS" = "running" ] && [ "$IDLE_OK" = "1" ]; then
               echo "  -> no matching work AND runner idle past grace window, shutting down $SERVER_NAME"
               # Announce shutdown to the coordinator BEFORE issuing hcloud
