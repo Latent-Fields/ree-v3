@@ -98,6 +98,23 @@
       "episodes_per_run": 50,
       "experiment_type": "v3_exq_569e_sd056_mechanism_probe_pathway_a_vs_b",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-519b",
+      "title": "SD-051/MECH-304 conditioned safety store substrate readiness (curriculum-aware re-letter; supersedes V3-EXQ-519)",
+      "experiment_type": "v3_exq_519b_sd051_conditioned_safety_store_readiness",
+      "script": "experiments/v3_exq_519b_sd051_conditioned_safety_store_readiness.py",
+      "priority": 340,
+      "machine_affinity": "any",
+      "estimated_minutes": 2,
+      "status": "pending",
+      "claim_id": "MECH-304",
+      "backlog_id": "EVB-0198",
+      "supersedes": "V3-EXQ-519",
+      "episodes_per_run": 8,
+      "seeds": 1,
+      "conditions": 1,
+      "note": "EXP-0067 (IGW-20260530-042). Substrate-aware re-letter: V3-EXQ-519 (2026-05-04) FAILed because the default env (limb_damage_enabled only) had no source of damage->heal trajectories MECH-302 could detect (relief_events=0 across all integration arms). Today (2026-05-30) the SD-022 scheduled-injection extension landed and V3-EXQ-517c PASSed validating MECH-302 AND lifting gate (c) for the V3-EXQ-519 retest. 519b adds the scheduled_limb_damage_* env curriculum kwargs across ALL integration arms (mirrors EXQ-517c verbatim: interval=50/prob=0.5/magnitude=0.4/limb_selection=random) AND calibrates suffering_window_length=30 + drop_threshold=0.005 + min_initial_norm=0.01 to match the curriculum heal-rate trajectory (the original 519 window=5 drop=0.08 was incompatible with the curriculum's 0.002/tick heal rate; calibration verified against 517c). Also disables unrelated death modes (num_hazards=0, contaminated_harm=0, damage_increment=0, failure_prob_scale=0) so the random-action harness survives the full 300-tick integration window -- the substrate-readiness diagnostic narrows to the (store, MECH-302) factors. Acceptance criteria C1-C9 unchanged from V3-EXQ-519. Smoke 2026-05-30T19:14Z all_pass=True (ARM_A peak_sig=0.982, 29 relief events accumulated; ARM_B/C/D bit-correct). PASS clears MECH-304 v3_pending gate."
     }
   ]
 }
