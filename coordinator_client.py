@@ -17,7 +17,10 @@ Env:
   COORDINATION_MODE     git | shadow | coordinator
   COORDINATOR_URL       e.g. http://10.8.0.1:8787
   COORDINATOR_TOKEN     per-worker bearer token
-  COORDINATOR_TIMEOUT   seconds, default 3
+  COORDINATOR_TIMEOUT   seconds, default 10 (raised from 3 on 2026-05-30
+                        after fleet-wide stale heartbeats traced to
+                        consistent /heartbeat POST timeouts under the
+                        3s default with the rich per-tick payload)
   COORDINATOR_LOG       optional path for a local best-effort audit log
 
 All printed/logged text is ASCII-only.
@@ -33,7 +36,7 @@ import urllib.request
 MODE = os.environ.get("COORDINATION_MODE", "git")
 URL = os.environ.get("COORDINATOR_URL", "").rstrip("/")
 TOKEN = os.environ.get("COORDINATOR_TOKEN", "")
-TIMEOUT = float(os.environ.get("COORDINATOR_TIMEOUT", "3"))
+TIMEOUT = float(os.environ.get("COORDINATOR_TIMEOUT", "10"))
 LOG_PATH = os.environ.get("COORDINATOR_LOG", "")
 
 _ENABLED = MODE in ("shadow", "coordinator") and bool(URL)

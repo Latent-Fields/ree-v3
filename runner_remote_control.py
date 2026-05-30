@@ -137,28 +137,36 @@ def write_heartbeat(
     per-machine runner_status.json file). They are all optional; idle-tick
     heartbeats omit them and the explorer falls back to the bare state.
 
-    Phase 3 _WRITE gate (hub co-location): when
-    PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1, skip BOTH the local file
-    write AND the coordinator POST. The hub's sync_daemon.phase3_heartbeat_writer
-    materialises the canonical file from the heartbeats table for every
-    other machine; if cloud-1 (the hub) writes from its own runner, it
-    dirties the writer's checkout. Setting this flag on the hub is what
-    lets cloud-1's runner come back online after the 2026-05-28 cutover
-    workaround of `systemctl disable ree-runner`.
+    Phase 3 _WRITE gate (hub co-location + worker pull-conflict): when
+    PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1, skip the local file write
+    (the conflict path with the hub's sync_daemon.phase3_heartbeat_writer-
+    materialised version). The coordinator POST is NEVER gated here --
+    the writer materialises the canonical runner_heartbeats/<host>.json
+    from the heartbeats table, which is only populated by POST /heartbeat.
+    Suppressing the POST would leave the writer with nothing to publish.
+
+    History: this gate previously short-circuited the whole function
+    (including the coordinator POST). That caused fleet-wide stale
+    heartbeats once serve.py started setting WRITE=1 for the Mac runner
+    on 2026-05-29 (commit e82b2a823f). The gate is now scoped to the
+    local file write only.
     """
     if not ree_assembly_path or not ree_assembly_path.is_dir():
         return None
 
-    # Phase 3 _WRITE gate -- hub co-location safeguard.
-    if _phase3_heartbeat_write_gated():
-        return None
+    # Phase 3 _WRITE gate (hub co-location + worker pull-conflict) --
+    # determines whether the LOCAL file write happens. The coordinator
+    # POST below fires regardless: the writer materialises the canonical
+    # file from the heartbeats table.
+    skip_local_write = _phase3_heartbeat_write_gated()
 
     hb_dir = ree_assembly_path / HEARTBEAT_SUBPATH
-    try:
-        hb_dir.mkdir(parents=True, exist_ok=True)
-    except Exception as exc:
-        print(f"[remote-control] mkdir heartbeat dir failed: {exc}", flush=True)
-        return None
+    if not skip_local_write:
+        try:
+            hb_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            print(f"[remote-control] mkdir heartbeat dir failed: {exc}", flush=True)
+            return None
 
     safe = _safe_filename(machine)
     path = hb_dir / f"{safe}.json"
@@ -194,27 +202,32 @@ def write_heartbeat(
     if extra:
         payload["extra"] = extra
 
-    tmp = path.with_suffix(".json.tmp")
-    try:
-        tmp.write_text(json.dumps(payload, indent=2) + "\n")
-        os.replace(tmp, path)
-    except Exception as exc:
-        print(f"[remote-control] heartbeat write failed: {exc}", flush=True)
-        return None
-    # SHADOW (no-op unless COORDINATION_MODE=shadow): mirror the heartbeat
-    # to the coordinator alongside the existing file write. Best-effort.
-    # `payload=payload` is the PLAN.md step 6 wiring: the same dict that
-    # just got written to runner_heartbeats/<machine>.json travels to the
-    # coordinator so sync_daemon can materialise the file in REE_assembly
-    # from the DB. Until step 6 is enabled (PHASE3_HEARTBEAT_WRITER_READY)
-    # this is a no-op payload stored alongside structured fields.
+    if not skip_local_write:
+        tmp = path.with_suffix(".json.tmp")
+        try:
+            tmp.write_text(json.dumps(payload, indent=2) + "\n")
+            os.replace(tmp, path)
+        except Exception as exc:
+            print(f"[remote-control] heartbeat write failed: {exc}", flush=True)
+            # Fall through to the coordinator POST anyway: the writer is
+            # the canonical materialiser; a transient local-write failure
+            # must not cost us the DB update.
+    # SHADOW / COORDINATOR: mirror the heartbeat to the coordinator. Best-
+    # effort. `payload=payload` is the PLAN.md step 6 wiring: the same dict
+    # that (would have been) written to runner_heartbeats/<machine>.json
+    # travels to the coordinator so sync_daemon.phase3_heartbeat_writer can
+    # materialise the file in REE_assembly from the heartbeats table. This
+    # POST is NEVER gated by PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE -- under
+    # that flag, the local write is skipped but the coordinator POST is
+    # the sole transport, so suppressing it would leave the writer with
+    # nothing to publish.
     coordinator_client.report_heartbeat(
         machine, state, current_exq, payload.get("progress"),
         payload.get("gpu"),
         seconds_elapsed=payload.get("seconds_elapsed"),
         seconds_remaining=payload.get("seconds_remaining"),
         payload=payload)
-    return path
+    return path if not skip_local_write else None
 
 
 def _active_claim_on_evidence_dir(ree_assembly_path: Path) -> bool:
