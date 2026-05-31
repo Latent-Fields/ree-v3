@@ -39,7 +39,14 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   IDLE_GRACE_MIN: 20          # min minutes since last completed before shutdown
-  HEARTBEAT_FRESH_MIN: 5      # heartbeat must be at most this many minutes stale
+  # HEARTBEAT_FRESH_MIN was 5 (assumed every-tick file refresh). Under the
+  # phase3 sync_daemon heartbeat-writer redesign (2026-05-31), the heartbeat
+  # file on REE_assembly is refreshed on state-changes only with a 5-min
+  # debounce and a 30-min liveness floor; an idle-but-alive worker's file
+  # can legitimately lag 5-30 minutes behind reality. 5 was leaving idle
+  # workers in the "aging" zone for up to 60 min before the scaler would
+  # touch them, burning Hetzner hours. 35 sits just above the liveness floor.
+  HEARTBEAT_FRESH_MIN: 35     # heartbeat must be at most this many minutes stale
   SURGE_QUEUE_THRESHOLD: 3    # claimable items required before a surge-mode worker is powered on
   # The coordinator hub VM must NEVER be considered for shutdown by the scaler.
   # ree-worker-1 runs ree-coordinator + ree-sync-daemon at 10.8.0.1:8787 (the
