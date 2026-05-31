@@ -64,6 +64,22 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_592d_mech090_readiness_conjunction_validation",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-620",
+      "title": "SD-037 axis (a) Phase 1 substrate-readiness diagnostic: log raw BLA/CeA/PAG/dACC consumer-input distributions over fishtank baseline",
+      "script": "experiments/v3_exq_620_sd037_axis_a_phase1_consumer_input_distributions.py",
+      "priority": 10,
+      "machine_affinity": "any",
+      "estimated_minutes": 60,
+      "claim_id": null,
+      "note": "Phase 1 substrate-readiness diagnostic for SD-037 axis (a) consumer-input-threshold recalibration plan landed 2026-05-31T16:54Z at REE_assembly/evidence/planning/sd_037_axis_a_consumer_input_recalibration_plan.md. Logs raw per-step distributions of the six quantities that feed every SD-037-cascade consumer-module input gate: z_harm_a_norm (BLA arousal_threshold_on input), cea_low_freq_magnitude (CeA fast_route_threshold input; read from cea._last_low_freq_mag, the same scalar CeA compares against fast_route_threshold at cea.py:337), z_harm_a_instant_val (PAG duration_input_threshold input), pag_sustained_product (PAG theta_freeze input; z_harm_a * pag._duration_above_threshold), bla_pe_magnitude (BLA PE channel), dacc_pe (dACC PE input; read from dacc._last_bundle['pe']). Per-quantity output per seed and pooled: min/max/mean/std + p10/25/50/70/80/90/95/99 + 20-bin histogram + zero-fraction. Substrate matches V3-EXQ-483e ARM_0 OFF_OFF configuration (PAG-engaging via SD-036+MECH-279, SalienceCoordinator + dACC + lateral_pfc + amygdala all enabled, dacc_bias_max_abs=0.1 + dacc_weight=0.1 so dACC PE distribution is observable -- closes the V3-EXQ-483c-era oversight) but with use_broadcast_override=False and all four MECH-281 cascade gains 0.0. Pure baseline -- measures the natural fishtank distribution every consumer-module input gate sees when the broadcast is silent. 3 seeds (42,7,19) x 50 warmup + 10 eval ep x 200 steps/ep matching the 483e budget for direct distribution comparability. claim_ids=[] -- this is measurement, not hypothesis test. experiment_purpose=diagnostic (scoring-excluded from governance per Phase-3 rules). Emits flat JSON manifest to evidence/experiments/ AND a plan-side markdown summary at evidence/planning/sd037_consumer_input_distributions_<TS>.md (the canonical input to Phase 2 p70 recalibration rule). PASS = manifest emitted with all six quantity distributions populated (n>0 per quantity in the pooled summary). PASS routes to Phase 2 (deterministic p70 recalibration applied as per-experiment overrides on BLAConfig.arousal_threshold_on / CeAConfig.fast_route_threshold / PAGFreezeGateConfig.duration_input_threshold + theta_freeze / DACCConfig.dacc_precision_scale; sensitivity sweep p60/p80 reserved within axis (a) before falling back to axis (b)) -> Phase 3 verification diagnostic -> Phase 4 V3-EXQ-483f behavioural validation only after Phase 3 PASSes its consumer-peaks-above-zero acceptance gate. FAIL with all six pooled distributions all-zero would indicate the upstream affective stream itself is silent at fishtank baseline -- skip p60/p80 sweep, route directly to axis (b) SD-029-style sustained-threat env curriculum. Smoke 2026-05-31T17:48Z dry-run (1 seed x 2+2 ep x 30 steps) all six quantities sampled (n=42 each) with manifest+plan-summary+emit_outcome PASS sentinel emitted; dry-run distributions ARE all-zero at min-budget which is expected (30-step episodes too short to encounter hazards; full 200-step budget will reveal whether baseline z_harm_a actually moves). validate_experiments.py AST PASS post-fix; ASCII-clean. Concurrent active sibling igw-auto-igw-030-retest-after-substrate-inv-074-20260531T172643Z holds an active claim on this same file -- coordinated via re-read-before-write + Step 5 working-tree-vs-HEAD audit (clean before append: V3-EXQ-620 not in HEAD or working tree before this commit) + pathspec-limited commit on queue + script only. V3-EXQ-619 verbally reserved for SD-049 Phase 3 behavioural successor (per V3-EXQ-618 queue note); V3-EXQ-620 chosen to leave both 619 and any IGW-030 grab free.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 60,
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_620_sd037_axis_a_phase1_consumer_input_distributions",
+      "seeds": 3
     }
   ]
 }
