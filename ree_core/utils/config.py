@@ -280,6 +280,24 @@ class E2Config:
     e2_action_contrastive_temperature: float = 0.1
     e2_action_contrastive_min_batch_classes: int = 2
 
+    # SD-056 multi-step rollout stability amend (2026-05-31).
+    # Per V3-EXQ-569e autopsy: t=1 contrastive leaves get_world_state_sequence()
+    # unbounded over the behavioural-runtime horizon (1e16+ magnitudes on most ON
+    # seeds at P1 50ep/200step measurement). Two togglable levers (both default
+    # OFF, bit-identical to SD-056-only path):
+    #   (a) multi-step contrastive: extend the contrastive objective to h-step
+    #       rollouts (Dreamer/PlaNet anchor; Srivastava 2021 contrastive RSSM
+    #       lever B). Helper: E2FastPredictor.world_forward_contrastive_loss_multistep.
+    #   (b) per-step output norm clamp inside E2.rollout_with_world (B2 anchor:
+    #       clamp predicted ||z_world_{t+1}|| against ratio * ||z_world_0|| so
+    #       the rollout is bounded by the initial-state scale, not by a
+    #       compounding per-step ratio).
+    e2_action_contrastive_multistep_enabled: bool = False
+    e2_action_contrastive_horizon: int = 5
+    e2_action_contrastive_horizon_weights_decay: float = 1.0
+    e2_rollout_output_norm_clamp_enabled: bool = False
+    e2_rollout_output_norm_clamp_ratio: float = 2.0
+
 
 @dataclass
 class E3Config:
@@ -2650,6 +2668,12 @@ class REEConfig:
         e2_action_contrastive_weight: float = 0.01,
         e2_action_contrastive_temperature: float = 0.1,
         e2_action_contrastive_min_batch_classes: int = 2,
+        # SD-056 multi-step rollout stability amend (2026-05-31)
+        e2_action_contrastive_multistep_enabled: bool = False,
+        e2_action_contrastive_horizon: int = 5,
+        e2_action_contrastive_horizon_weights_decay: float = 1.0,
+        e2_rollout_output_norm_clamp_enabled: bool = False,
+        e2_rollout_output_norm_clamp_ratio: float = 2.0,
         # SD-022: directional limb damage
         limb_damage_enabled: bool = False,
         damage_increment: float = 0.15,
@@ -3208,6 +3232,15 @@ class REEConfig:
         config.e2.e2_action_contrastive_weight = e2_action_contrastive_weight
         config.e2.e2_action_contrastive_temperature = e2_action_contrastive_temperature
         config.e2.e2_action_contrastive_min_batch_classes = e2_action_contrastive_min_batch_classes
+
+        # SD-056 multi-step rollout stability amend (2026-05-31).
+        # Lever (a) multi-step contrastive + lever (b) per-step rollout norm
+        # clamp. Both default OFF -> bit-identical to pre-amend SD-056 path.
+        config.e2.e2_action_contrastive_multistep_enabled = e2_action_contrastive_multistep_enabled
+        config.e2.e2_action_contrastive_horizon = e2_action_contrastive_horizon
+        config.e2.e2_action_contrastive_horizon_weights_decay = e2_action_contrastive_horizon_weights_decay
+        config.e2.e2_rollout_output_norm_clamp_enabled = e2_rollout_output_norm_clamp_enabled
+        config.e2.e2_rollout_output_norm_clamp_ratio = e2_rollout_output_norm_clamp_ratio
 
         # SD-022: directional limb damage dim adjustments.
         # When enabled: harm_obs_a_dim is re-sourced from body damage state (7 dims).

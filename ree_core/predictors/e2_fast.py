@@ -376,6 +376,173 @@ class E2FastPredictor(nn.Module):
         labels = torch.arange(K, device=device)
         return F.cross_entropy(logits, labels)
 
+    def world_forward_contrastive_loss_multistep(
+        self,
+        z_world_0: torch.Tensor,
+        action_sequences: torch.Tensor,
+        z_world_targets: torch.Tensor,
+        weight: Optional[float] = None,
+        temperature: Optional[float] = None,
+        min_batch_classes: Optional[int] = None,
+        horizon: Optional[int] = None,
+        horizon_weights_decay: Optional[float] = None,
+        simulation_mode: bool = False,
+    ) -> torch.Tensor:
+        """SD-056 multi-step rollout stability amend (2026-05-31).
+
+        Lever (a) of the V3-EXQ-569e autopsy amend (Section 9, Option a).
+        Extends the t=1 contrastive objective (world_forward_contrastive_loss)
+        to an h-step rollout horizon so the iterated map
+        z -> world_forward(z, a) is constrained over the behavioural-runtime
+        episode length rather than only at the training horizon.
+
+        For each anchor i in [K] and each step t in [1, h]:
+            roll out current_i,t = world_forward(current_i,t-1, action_seq_i,t)
+                from current_i,0 = z_world_0
+            target_i,t = z_world_targets[i, t]  (observed z_world at step t
+                under action sequence i)
+            logits[i, j, t] = -||current_j,t - target_i,t||^2 / tau
+            L_t = cross_entropy(logits[:, :, t], arange(K))
+        Total:
+            L = sum_t (horizon_weights[t] * L_t) / sum_t horizon_weights[t]
+
+        horizon_weights[t] = horizon_weights_decay ** t (default 1.0 -> uniform).
+
+        Lit-pull anchor: Srivastava et al. 2021 contrastive RSSM (the same
+        verdict that grounded the t=1 SD-056 landing); multi-step extension
+        is the standard Dreamer / PlaNet latent-dynamics training pattern.
+        See REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-569e_2026-05-31.md
+        Section 9 for the amend rationale; the existing SD-056 design doc
+        section "Multi-step rollout stability amend (2026-05-31)" for the
+        architectural commitment.
+
+        Returns tensor(0.0) when:
+            (a) simulation_mode=True (MECH-094 standard pattern; replay /
+                DMN training paths cannot recruit the multi-step signal).
+            (b) K < 2 (no negatives).
+            (c) horizon < 1 (defensive).
+            (d) fewer than min_batch_classes distinct first-action classes
+                in the batch (degenerate; would produce uninformative
+                gradients).
+
+        Args:
+            z_world_0:        [world_dim] OR [1, world_dim] OR [K, world_dim].
+            action_sequences: [K, horizon, action_dim]. The argmax over the
+                              first-step actions (action_sequences[:, 0, :])
+                              is taken as the first-action class for the
+                              min_batch_classes floor check.
+            z_world_targets:  [K, horizon+1, world_dim]. Observed z_world
+                              trajectory targets, index 0 == z_world_0 (or
+                              a per-anchor z_world_0 if anchors differ; this
+                              helper does NOT use index 0 for loss). Index
+                              t in [1, horizon] is the target at step t.
+            weight:           optional override for w_contrast scaling. The
+                              helper returns the unweighted (horizon-mean)
+                              CE; caller scales by
+                              config.e2.e2_action_contrastive_weight when
+                              composing into L_E2.
+            temperature:      optional InfoNCE tau override.
+            min_batch_classes: optional first-action-class-floor override.
+            horizon:          optional rollout-horizon override. Falls back
+                              to self.config.e2_action_contrastive_horizon.
+            horizon_weights_decay: optional per-step weight decay override.
+                              Falls back to
+                              self.config.e2_action_contrastive_horizon_weights_decay.
+                              1.0 = uniform; <1.0 = earlier steps weight more.
+            simulation_mode:  MECH-094 gate. True -> tensor(0.0).
+
+        Returns:
+            0-d Tensor: multi-step contrastive loss (unweighted, horizon-mean).
+            Caller multiplies by w_contrast before adding to L_E2.
+        """
+        device = action_sequences.device
+        dtype = z_world_targets.dtype
+
+        if simulation_mode:
+            return torch.zeros((), device=device, dtype=dtype)
+
+        if action_sequences.dim() != 3:
+            raise ValueError(
+                f"action_sequences must be [K, horizon, action_dim]; got shape "
+                f"{tuple(action_sequences.shape)}"
+            )
+        K = action_sequences.shape[0]
+        if K < 2:
+            return torch.zeros((), device=device, dtype=dtype)
+        action_seq_h = action_sequences.shape[1]
+        if z_world_targets.dim() != 3 or z_world_targets.shape[0] != K:
+            raise ValueError(
+                f"z_world_targets must be [K, horizon+1, world_dim] with K={K}; got "
+                f"shape {tuple(z_world_targets.shape)}"
+            )
+
+        cfg = self.config
+        if temperature is None:
+            temperature = float(getattr(cfg, "e2_action_contrastive_temperature", 0.1))
+        if min_batch_classes is None:
+            min_batch_classes = int(
+                getattr(cfg, "e2_action_contrastive_min_batch_classes", 2)
+            )
+        if horizon is None:
+            horizon = int(getattr(cfg, "e2_action_contrastive_horizon", 5))
+        if horizon_weights_decay is None:
+            horizon_weights_decay = float(
+                getattr(cfg, "e2_action_contrastive_horizon_weights_decay", 1.0)
+            )
+        # Effective horizon is min of requested + available in action_sequences
+        # + available in z_world_targets (which carries h+1 entries indexed 0..h).
+        target_max_h = z_world_targets.shape[1] - 1
+        eff_h = min(int(horizon), int(action_seq_h), int(target_max_h))
+        if eff_h < 1:
+            return torch.zeros((), device=device, dtype=dtype)
+
+        # Min-batch-classes floor on the first-step actions (argmax convention,
+        # matches the t=1 helper).
+        first_action_classes = action_sequences[:, 0, :].argmax(dim=-1)  # [K]
+        n_classes = int(first_action_classes.unique().numel())
+        if n_classes < int(min_batch_classes):
+            return torch.zeros((), device=device, dtype=dtype)
+
+        # Broadcast z_world_0 to [K, world_dim]. Same dim handling as the t=1
+        # helper.
+        if z_world_0.dim() == 1:
+            current = z_world_0.unsqueeze(0).expand(K, -1)
+        elif z_world_0.dim() == 2 and z_world_0.shape[0] == 1:
+            current = z_world_0.expand(K, -1)
+        elif z_world_0.dim() == 2 and z_world_0.shape[0] == K:
+            current = z_world_0
+        else:
+            raise ValueError(
+                f"z_world_0 must be [world_dim] OR [1, world_dim] OR [K, world_dim]; "
+                f"got shape {tuple(z_world_0.shape)} with K={K}"
+            )
+
+        # Build horizon weights vector [eff_h]; normalise to sum-to-1 so the
+        # returned loss magnitude is comparable to the t=1 case.
+        weights = torch.tensor(
+            [horizon_weights_decay ** t for t in range(eff_h)],
+            device=device,
+            dtype=dtype,
+        )
+        weights_sum = weights.sum().clamp(min=1e-8)
+        weights = weights / weights_sum
+
+        labels = torch.arange(K, device=device)
+        total_loss = torch.zeros((), device=device, dtype=dtype)
+
+        for t in range(eff_h):
+            # Step the rollout: current[t+1] = world_forward(current[t], action_seq[:, t, :]).
+            current = self.world_forward(current, action_sequences[:, t, :])
+            target_t = z_world_targets[:, t + 1, :]  # [K, world_dim]
+            # logits[i, j] = -||current_j - target_i||^2 / tau
+            diffs = current.unsqueeze(0) - target_t.unsqueeze(1)  # [K, K, world_dim]
+            sq_dists = diffs.pow(2).sum(dim=-1)  # [K, K]
+            logits_t = -sq_dists / float(temperature)
+            L_t = F.cross_entropy(logits_t, labels)
+            total_loss = total_loss + weights[t] * L_t
+
+        return total_loss
+
     def action_object(
         self,
         z_world: torch.Tensor,
@@ -499,6 +666,28 @@ class E2FastPredictor(nn.Module):
         z_self  = initial_z_self
         z_world = initial_z_world
 
+        # SD-056 multi-step rollout stability amend (2026-05-31): lever (b)
+        # per-step output norm clamp on z_world. Anchor B2: clamp predicted
+        # ||z_world_{t+1}|| against ratio * ||z_world_0|| so the rollout is
+        # bounded by the initial-state scale, not by a compounding per-step
+        # ratio. Bit-identical when the master flag is OFF.
+        cfg = self.config
+        clamp_enabled = bool(getattr(cfg, "e2_rollout_output_norm_clamp_enabled", False))
+        clamp_ratio = float(getattr(cfg, "e2_rollout_output_norm_clamp_ratio", 2.0))
+        # Per-row L2 norm of the initial z_world; shape [batch, 1] so
+        # broadcasting works against [batch, world_dim]. Computed once outside
+        # the loop -- the B2 anchor is fixed at the rollout's initial state.
+        if clamp_enabled:
+            # detach is correct here: the clamp threshold is a scale anchor,
+            # not a learnable target. We do NOT want gradient flowing back
+            # from the threshold into earlier encoder state.
+            z_world_0_norm = (
+                initial_z_world.detach().norm(dim=-1, keepdim=True).clamp(min=1e-8)
+            )
+            max_allowed_norm = clamp_ratio * z_world_0_norm
+        else:
+            max_allowed_norm = None  # unused
+
         for t in range(horizon):
             action = action_sequence[:, t, :]
 
@@ -508,6 +697,14 @@ class E2FastPredictor(nn.Module):
 
             z_self  = self.predict_next_self(z_self, action)
             z_world = self.world_forward(z_world, action)
+
+            if clamp_enabled:
+                # Renormalise rows whose current norm exceeds max_allowed_norm.
+                # Rows under the threshold pass through unchanged.
+                current_norm = z_world.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+                # scale = min(1.0, max_allowed_norm / current_norm)
+                scale = torch.clamp(max_allowed_norm / current_norm, max=1.0)
+                z_world = z_world * scale
 
             states.append(z_self)
             world_states.append(z_world)

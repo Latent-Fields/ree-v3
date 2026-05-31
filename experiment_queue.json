@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-490j",
-      "title": "MECH-295 cascade GAP-4 Tier-1 retest with TRUE severed-bridge baseline + direct bridge-magnitude probe (supersedes V3-EXQ-490i)",
-      "script": "experiments/v3_exq_490j_mech295_cascade_gap4_tier1_severed_bridge_baseline.py",
-      "priority": 350,
-      "machine_affinity": "any",
-      "estimated_minutes": 250,
-      "supersedes": "V3-EXQ-490i",
-      "claim_id": "MECH-295",
-      "note": "Successor to V3-EXQ-490i per failure_autopsy_V3-EXQ-490i_2026-05-30 (REE_assembly bcdf9e2a0c). 490i FAILed evidence_direction=weakens but MECH-295 behavioural sign-test passed 3/3 seeds; two roll-up failures were not MECH-295 falsifications: (i) C3_lift_vs_baseline=metric contamination (goal_norm_peak delta; ARM_0 z_goal_enabled=True; seed-7 spike 50x); (ii) C2 dacc_bias=0=SD-032b consumer-wiring gap routed to /diagnose-errors. 490j: (a) ARM_0_severed_bridge sets cfg.goal.z_goal_enabled=False; (b) direct bridge-magnitude probe replaces goal_norm_peak delta (per-tick anticipatory liking write + per-tick approach-cue score_bias magnitude + bridge_cue_fires + bridge_write_fires); (c) fixed 900-step total budget per (seed, arm) replacing 490i 59-2000 variance; (d) composite-cell interpretation grid in script docstring (9 rows, C3/C8/C9 composite -> /failure-autopsy; C6/C7 -> /diagnose-errors substrate-wiring; ARM_0 sentinel -> /failure-autopsy on severed-bridge contract). Behavioural sign-test retained as parallel acceptance criterion. C2 dacc_bias diagnostic-only. claim_ids=[MECH-295]. experiment_purpose=evidence. Smoke 2026-05-30T23:20Z: severed_bridge_sentinel_clean=True, ARM_1 cue 17 / write 74 at 80-step dry-run. validate_experiments + validate_queue PASS. NOTE: queue file commit 2aa5916 was overwritten by phase3-queue snapshot fbbe865; entry inserted directly into coordinator DB to recover.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-31T05:38:15Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 50,
-      "experiment_type": "v3_exq_490j_mech295_cascade_gap4_tier1_severed_bridge_baseline",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-616",
       "title": "Q-054 entropy_bias_scale sweep on MECH-341 B_only isolation arm (4 scales x 3 seeds)",
       "script": "experiments/v3_exq_616_q054_mech341_entropy_bias_scale_sweep.py",
@@ -42,6 +22,22 @@
       "episodes_per_run": 90,
       "experiment_type": "v3_exq_616_q054_mech341_entropy_bias_scale_sweep",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-617",
+      "title": "SD-056 multi-step rollout stability amend substrate-readiness (6 sub-tests UC1-UC6)",
+      "script": "experiments/v3_exq_617_sd056_multistep_substrate_readiness.py",
+      "priority": 360,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "claim_id": "SD-056",
+      "experiment_type": "v3_exq_617_sd056_multistep_substrate_readiness",
+      "experiment_purpose": "diagnostic",
+      "conditions": 1,
+      "episodes_per_run": 1,
+      "seeds": 1,
+      "note": "Substrate-readiness diagnostic for the SD-056 multi-step rollout stability amend (2026-05-31). Triggered by V3-EXQ-569e Pathway A vs B mechanism-probe autopsy (verdict_cell=INSTRUMENTATION_FAILURE; evidence/planning/failure_autopsy_V3-EXQ-569e_2026-05-31.md). Six sub-tests: UC1 module surface (5 new amend knobs + multistep helper); UC2 master-OFF backward-compat (rollout_with_world bit-identical to pre-amend SD-056 path); UC3 multi-step contrastive direction-of-change (100 SGD steps reduce loss + non-zero grad on world_transition); UC4 per-step output norm clamp B2 bound (||z_world_t|| <= 2.0 * ||z_world_0|| over 200-step horizon under 20x weight amplification -- the 1e16+ autopsy pathology regime); UC5 clamp NaN/Inf defence (NaN-fraction == 0.0 under stress; direct test of autopsy max-NaN-fraction < 0.05 acceptance criterion as a hard guarantee); UC6 MECH-094 simulation gate. Smoke 2026-05-31T11:23Z: 6/6 PASS, ~10 sec elapsed. claim_ids=[] (diagnostic; substrate-readiness does not weight SD-056 confidence directly per Phase-3 governance rules). Does NOT test the full 8-arm V3-EXQ-569e-equivalent Pathway A vs B falsifier on the amended substrate -- that bundles with the three script-side acceptance-criteria fixes from autopsy Section 6 in the post-amend /queue-experiment session.",
+      "status": "pending"
     }
   ]
 }
