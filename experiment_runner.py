@@ -133,6 +133,211 @@ def find_ree_assembly_path() -> Path | None:
     return None
 
 
+# Paths that the worker writes locally but where origin is the canonical
+# source of truth under Phase 3 (the hub's sync_daemon writers publish the
+# authoritative version). When `git pull --rebase --autostash` leaves UU
+# markers on one of these because the worker's pre-pull mutation conflicts
+# with a concurrent hub-writer update, auto-resolve by taking origin's
+# version. The worker's local mutation is either already pushed (queue
+# claim flag) or about to be re-emitted on the next tick (heartbeat /
+# status / commands), so no work is lost.
+#
+# Background: 2026-05-31 cloud-3 wedge. cloud-3 claimed V3-EXQ-618, ran it
+# to PASS, hub writer dropped the completed entry on origin. Next worker
+# loop's `git pull --rebase --autostash` rebased cleanly but the autostash
+# pop produced UU markers in experiment_queue.json (autostash held the
+# claimed entry; origin had the entry absent). Preflight kept failing on
+# the conflict markers, every subsequent pull failed with "Pulling is not
+# possible because you have unmerged files", and systemd marked the unit
+# failed after 5 retries. Worker sat dead for 10 minutes during which
+# V3-EXQ-621 went unclaimed. See WORKSPACE_STATE.md 2026-05-31T17:59Z.
+_EPHEMERAL_WORKER_PATH_PREFIXES = (
+    "experiment_queue.json",                          # ree-v3
+    "evidence/experiments/runner_heartbeats/",        # REE_assembly
+    "evidence/experiments/runner_status/",            # REE_assembly
+    "evidence/experiments/runner_commands/",          # REE_assembly
+)
+
+
+def _path_is_ephemeral_worker_owned(rel_path: str) -> bool:
+    rel_path = rel_path.strip().strip('"')
+    if not rel_path:
+        return False
+    for p in _EPHEMERAL_WORKER_PATH_PREFIXES:
+        if rel_path == p.rstrip("/") or rel_path.startswith(p):
+            return True
+    return False
+
+
+def _list_unmerged_paths(repo_path: Path) -> tuple[list[str], list[str]] | None:
+    """Return (ephemeral_paths, non_ephemeral_paths) split of UU entries.
+
+    Returns None if `git status --porcelain` failed.
+    """
+    st = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(repo_path), capture_output=True, text=True, timeout=10,
+    )
+    if st.returncode != 0:
+        return None
+    ephemeral: list[str] = []
+    other: list[str] = []
+    for line in st.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        flag = line[:2]
+        # UU / AA / DD / AU / UA / UD / DU all denote unmerged paths.
+        # "U" in either column is the canonical unmerged signal; AA / DD
+        # are both-added / both-deleted which also need resolution.
+        if "U" not in flag and flag not in ("AA", "DD"):
+            continue
+        path = line[3:].strip()
+        if _path_is_ephemeral_worker_owned(path):
+            ephemeral.append(path)
+        else:
+            other.append(path)
+    return ephemeral, other
+
+
+def _recover_ephemeral_pull_conflict(repo_path: Path, label: str) -> bool:
+    """Auto-resolve UU markers on ephemeral worker-owned paths.
+
+    Takes origin's version for any UU path matching the ephemeral set,
+    finishes any in-progress rebase, and drops the autostash entry that
+    pull --rebase --autostash created. Best-effort; never raises.
+
+    Returns True iff the working tree is left free of UU markers (caller
+    can proceed). Returns False if non-ephemeral conflicts are present
+    (manual repair required) or if a step failed unexpectedly.
+    """
+    split = _list_unmerged_paths(repo_path)
+    if split is None:
+        return False
+    ephemeral, other = split
+    if not ephemeral and not other:
+        return True
+    if other:
+        print(
+            f"[runner] git pull {label}: UU on non-ephemeral path(s) "
+            f"{other}, skipping auto-recovery (manual repair required)",
+            flush=True,
+        )
+        return False
+    print(
+        f"[runner] git pull {label}: auto-resolving ephemeral UU on "
+        f"{ephemeral} (origin / hub writer is authoritative)",
+        flush=True,
+    )
+    # Always take the upstream-tracking ref's version. We deliberately
+    # do NOT use `git checkout --theirs/--ours` because the orientation
+    # changes between merge / rebase / stash-pop conflicts (a stash-pop
+    # conflict's --theirs is the STASHED, i.e. worker-mutated, side --
+    # the opposite of what we want here). `@{u}` resolves to whichever
+    # origin/<branch> this clone tracks and gives us the canonical bytes
+    # regardless of in-progress operation state.
+    ub = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref",
+         "--symbolic-full-name", "@{u}"],
+        cwd=str(repo_path), capture_output=True, text=True, timeout=10,
+    )
+    upstream = ub.stdout.strip() if ub.returncode == 0 else ""
+    if not upstream:
+        print(
+            f"[runner] git pull {label}: no upstream-tracking ref "
+            f"resolvable, cannot recover: {ub.stderr.strip()}",
+            flush=True,
+        )
+        return False
+    co = subprocess.run(
+        ["git", "checkout", upstream, "--"] + ephemeral,
+        cwd=str(repo_path), capture_output=True, text=True, timeout=10,
+    )
+    if co.returncode != 0:
+        print(
+            f"[runner] git pull {label}: checkout {upstream} failed: "
+            f"{co.stderr.strip()}", flush=True,
+        )
+        return False
+    subprocess.run(
+        ["git", "add", "--"] + ephemeral,
+        cwd=str(repo_path), capture_output=True, timeout=10,
+    )
+    # If a rebase is mid-flight (rare: failure occurred mid-rebase rather
+    # than mid-stash-pop), finish it. GIT_EDITOR=true skips the commit
+    # message editor on the auto-continue.
+    if (repo_path / ".git" / "rebase-merge").exists() or \
+       (repo_path / ".git" / "rebase-apply").exists():
+        cont = subprocess.run(
+            ["git", "rebase", "--continue"],
+            cwd=str(repo_path), capture_output=True, text=True,
+            env={**os.environ, "GIT_EDITOR": "true"}, timeout=15,
+        )
+        if cont.returncode != 0:
+            subprocess.run(
+                ["git", "rebase", "--abort"], cwd=str(repo_path),
+                capture_output=True, timeout=10,
+            )
+    # Drop the autostash entry that pull --rebase --autostash created and
+    # left behind because its pop conflicted. Matching on "autostash"
+    # avoids touching unrelated stashes the operator may have left.
+    sl = subprocess.run(
+        ["git", "stash", "list"], cwd=str(repo_path),
+        capture_output=True, text=True, timeout=10,
+    )
+    if sl.returncode == 0:
+        for line in sl.stdout.splitlines():
+            if "autostash" not in line:
+                continue
+            ref = line.split(":", 1)[0]
+            drop = subprocess.run(
+                ["git", "stash", "drop", ref], cwd=str(repo_path),
+                capture_output=True, text=True, timeout=10,
+            )
+            if drop.returncode == 0:
+                print(f"[runner] git pull {label}: dropped {ref}",
+                      flush=True)
+            # Drop one per pass; indices rotate after a drop and the
+            # next pull tick handles any remaining entry. The stash-bloat
+            # warning surfaces it if accumulation continues.
+            break
+    # Final verification: working tree must be clear of UU markers.
+    split2 = _list_unmerged_paths(repo_path)
+    if split2 is None:
+        return False
+    ephemeral2, other2 = split2
+    return not ephemeral2 and not other2
+
+
+def _warn_on_stash_bloat(
+    repo_path: Path, label: str, threshold: int = 20,
+) -> None:
+    """One-line WARN when the stash stack exceeds `threshold` entries.
+
+    Dormant autostash entries accumulate when historical failure modes
+    left stashes that nobody dropped. cloud-3 had 191 entries when the
+    2026-05-31 wedge was diagnosed -- a scarred-timeline indicator that
+    no longer matters operationally but signals the worker would benefit
+    from a one-shot cleanup (coordinator/deploy/clear_worker_stashes.sh).
+    Best-effort, never raises.
+    """
+    try:
+        r = subprocess.run(
+            ["git", "stash", "list"], cwd=str(repo_path),
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode != 0:
+            return
+        n = sum(1 for ln in r.stdout.splitlines() if ln.strip())
+        if n > threshold:
+            print(
+                f"[runner] git pull {label}: stash list has {n} entries "
+                f"(> {threshold}); consider running "
+                f"coordinator/deploy/clear_worker_stashes.sh", flush=True,
+            )
+    except Exception:
+        pass
+
+
 def git_pull(repo_path: Path, label: str) -> None:
     """Pull latest changes. Retries on transient lock errors. Never raises.
 
@@ -144,10 +349,23 @@ def git_pull(repo_path: Path, label: str) -> None:
     --ff-only refuses on a dirty tree even when the dirty files are exactly
     the ones this machine writes (so a fast-forward would not actually
     conflict at content level).
+
+    Autostash-pop conflicts on ephemeral worker-owned paths (the queue
+    file's claim flag, runner_heartbeats/<host>.json, runner_status/
+    <host>.json, runner_commands/<host>.json) are auto-resolved by taking
+    origin's version: origin (the hub writer) is the canonical source for
+    these paths under Phase 3. Non-ephemeral conflicts are left in place
+    and a warning is emitted -- those need manual repair.
     """
     import time
     _LOCK_HINTS = ("cannot lock ref", "unable to resolve reference",
                    "lock file", "index.lock")
+    # Heal any UU state left over from a previous tick BEFORE attempting
+    # the new pull -- otherwise pull bails with "Pulling is not possible
+    # because you have unmerged files" and the wedge persists indefinitely.
+    pre = _list_unmerged_paths(repo_path)
+    if pre is not None and (pre[0] or pre[1]):
+        _recover_ephemeral_pull_conflict(repo_path, label)
     for attempt in range(3):
         try:
             r = subprocess.run(
@@ -155,8 +373,24 @@ def git_pull(repo_path: Path, label: str) -> None:
                 cwd=str(repo_path), capture_output=True, text=True, timeout=30,
             )
             if r.returncode == 0:
+                # Git returns 0 even when the rebase fast-forwarded
+                # cleanly but the autostash pop produced UU markers --
+                # the wedge surface that bit cloud-3. Check stdout for
+                # the telltale "Applying autostash resulted in conflicts"
+                # line OR scan porcelain status; either way, trigger
+                # the ephemeral-conflict recovery before returning so
+                # the next tick doesn't bail with "Pulling is not possible
+                # because you have unmerged files."
                 msg = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "ok"
-                print(f"[runner] git pull {label}: {msg}", flush=True)
+                combined = (r.stdout or "") + "\n" + (r.stderr or "")
+                if "autostash resulted in conflicts" in combined:
+                    print(f"[runner] git pull {label}: rebase ok but "
+                          f"autostash pop conflicted, resolving...",
+                          flush=True)
+                    _recover_ephemeral_pull_conflict(repo_path, label)
+                else:
+                    print(f"[runner] git pull {label}: {msg}", flush=True)
+                _warn_on_stash_bloat(repo_path, label)
                 return
             stderr = r.stderr.strip()
             if any(h in stderr.lower() for h in _LOCK_HINTS) and attempt < 2:
@@ -174,7 +408,27 @@ def git_pull(repo_path: Path, label: str) -> None:
                             capture_output=True, timeout=10)
             subprocess.run(["git", "rebase", "--quit"], cwd=str(repo_path),
                             capture_output=True, timeout=10)
+            # If the failure left UU markers on ephemeral worker-owned
+            # paths (the 2026-05-31 cloud-3 wedge), auto-resolve by taking
+            # origin's version and retry the pull once.
+            if _recover_ephemeral_pull_conflict(repo_path, label):
+                r2 = subprocess.run(
+                    ["git", "pull", "--rebase", "--autostash"],
+                    cwd=str(repo_path), capture_output=True, text=True,
+                    timeout=30,
+                )
+                if r2.returncode == 0:
+                    msg = (r2.stdout.strip().splitlines()[-1]
+                           if r2.stdout.strip() else "ok")
+                    print(f"[runner] git pull {label}: {msg} "
+                          f"(post-recovery)", flush=True)
+                else:
+                    print(f"[runner] git pull {label} post-recovery warn: "
+                          f"{r2.stderr.strip()}", flush=True)
+                _warn_on_stash_bloat(repo_path, label)
+                return
             print(f"[runner] git pull {label} warn: {stderr}", flush=True)
+            _warn_on_stash_bloat(repo_path, label)
             return
         except Exception as e:
             subprocess.run(["git", "rebase", "--abort"], cwd=str(repo_path),
