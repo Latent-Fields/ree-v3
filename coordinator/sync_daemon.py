@@ -341,6 +341,203 @@ PHASE3_ASSEMBLY_BRANCH = _validate_branch_name(
     os.environ.get("PHASE3_ASSEMBLY_BRANCH", "master"),
     "PHASE3_ASSEMBLY_BRANCH", "master")
 
+# State-change-triggered commit knobs (2026-05-31 redesign). Replace the
+# previous every-N-seconds commit storm with: commit only when meaningful
+# fleet state changes (queue_id / idle / runner_pid / machine added / went
+# silent); debounce stacking; liveness floor so external viewers see "fleet
+# alive" via fresh git timestamps even when no events fire.
+#
+#   PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL  -- minimum seconds between commits
+#       (default 300 = 5 min). When a state change fires inside the
+#       debounce window, the writer holds; the next post-window tick
+#       commits whatever has accumulated.
+#   PHASE3_HEARTBEAT_LIVENESS_INTERVAL  -- maximum seconds between commits
+#       (default 1800 = 30 min). When no state change has fired for this
+#       long, the writer forces a "liveness tick" commit batching the
+#       current state.
+#   PHASE3_HEARTBEAT_STALE_AFTER        -- machine considered "silent" if
+#       its heartbeat.last_tick_utc has not advanced for this many
+#       seconds (default 600 = 10 min). silent <-> active is a tracked
+#       state-change axis.
+PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL = _validate_float(
+    os.environ.get("PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL", "300"),
+    "PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL", 300.0)
+PHASE3_HEARTBEAT_LIVENESS_INTERVAL = _validate_float(
+    os.environ.get("PHASE3_HEARTBEAT_LIVENESS_INTERVAL", "1800"),
+    "PHASE3_HEARTBEAT_LIVENESS_INTERVAL", 1800.0)
+PHASE3_HEARTBEAT_STALE_AFTER = _validate_float(
+    os.environ.get("PHASE3_HEARTBEAT_STALE_AFTER", "600"),
+    "PHASE3_HEARTBEAT_STALE_AFTER", 600.0)
+
+
+# Module-level state for the state-change-triggered writer. Persists across
+# ticks within a single daemon process; reset between test fixtures via
+# _reset_phase3_heartbeat_state(). Module-level (rather than passed-in
+# context) because the writer entry point is a free function called from
+# main()'s while-loop, matching the queue writer / git writer pattern.
+_PHASE3_HEARTBEAT_LAST_COMMITTED_STATE = {}   # machine -> state dict
+_PHASE3_HEARTBEAT_LAST_TICK_UTC = {}          # machine -> (utc_str, monotonic_seen_at)
+_PHASE3_HEARTBEAT_LAST_COMMIT_TS = 0.0        # monotonic time of last commit
+_PHASE3_HEARTBEAT_INITIALIZED = False         # False until first commit lands
+
+
+def _phase3_heartbeat_now():
+    """Monotonic clock indirection so tests can drive virtual time."""
+    return time.monotonic()
+
+
+def _reset_phase3_heartbeat_state():
+    """Test helper: clear all module-level writer state for a fresh
+    fixture. Production code should never call this."""
+    global _PHASE3_HEARTBEAT_LAST_COMMIT_TS, _PHASE3_HEARTBEAT_INITIALIZED
+    _PHASE3_HEARTBEAT_LAST_COMMITTED_STATE.clear()
+    _PHASE3_HEARTBEAT_LAST_TICK_UTC.clear()
+    _PHASE3_HEARTBEAT_LAST_COMMIT_TS = 0.0
+    _PHASE3_HEARTBEAT_INITIALIZED = False
+
+
+def _extract_heartbeat_machine_state(status_doc, heartbeat_doc):
+    """Pull the minimum set of state-change-relevant fields from the
+    (status, heartbeat) payload pair. Always returns a dict; missing
+    fields default to None / False so absent payloads do not falsely
+    register as state changes."""
+    state = {
+        "queue_id": None,
+        "idle": False,
+        "runner_pid": None,
+        "last_completed_queue_id": None,
+        "last_completed_result": None,
+        "last_tick_utc": None,
+        "silent": False,
+    }
+    if isinstance(status_doc, dict):
+        current = status_doc.get("current") or {}
+        if isinstance(current, dict):
+            state["queue_id"] = current.get("queue_id")
+        state["idle"] = bool(status_doc.get("idle"))
+        state["runner_pid"] = status_doc.get("runner_pid")
+        completed = status_doc.get("completed") or []
+        if isinstance(completed, list) and completed:
+            last = completed[-1]
+            if isinstance(last, dict):
+                state["last_completed_queue_id"] = last.get("queue_id")
+                state["last_completed_result"] = last.get("result")
+    if isinstance(heartbeat_doc, dict):
+        state["last_tick_utc"] = heartbeat_doc.get("last_tick_utc")
+    return state
+
+
+def _phase3_heartbeat_is_silent(machine, current_utc, now, stale_after):
+    """Update the per-machine last_tick_utc cache and return True iff the
+    machine's last_tick_utc has been unchanged for >= stale_after seconds.
+    First observation of a (machine, utc) pair seeds the timer without
+    declaring silent."""
+    prev = _PHASE3_HEARTBEAT_LAST_TICK_UTC.get(machine)
+    if prev is None or prev[0] != current_utc:
+        _PHASE3_HEARTBEAT_LAST_TICK_UTC[machine] = (current_utc, now)
+        return False
+    return (now - prev[1]) >= stale_after
+
+
+def _phase3_heartbeat_compute_changes(last_committed, current_states):
+    """Build the list of state-change events relative to the last
+    committed state. Each event is a dict naming what changed; the
+    commit-message builder turns the list into a subject line.
+
+    Detected kinds: added, started, finished, released, switched, restart,
+    idle_changed, went_silent, came_back.
+    """
+    changes = []
+    for machine, curr in current_states.items():
+        prev = last_committed.get(machine)
+        if prev is None:
+            changes.append({"machine": machine, "kind": "added"})
+            continue
+        prev_silent = bool(prev.get("silent"))
+        curr_silent = bool(curr.get("silent"))
+        # queue_id transitions
+        if curr["queue_id"] != prev["queue_id"]:
+            if prev["queue_id"] is None and curr["queue_id"] is not None:
+                changes.append({"machine": machine, "kind": "started",
+                                "queue_id": curr["queue_id"]})
+            elif prev["queue_id"] is not None and curr["queue_id"] is None:
+                # Attribute a result from the completed list when the last
+                # completed entry matches the queue_id that was just running
+                # AND is fresher than what we had at last-commit time.
+                if (curr.get("last_completed_queue_id") == prev["queue_id"]
+                        and curr.get("last_completed_queue_id") !=
+                            prev.get("last_completed_queue_id")):
+                    changes.append({
+                        "machine": machine, "kind": "finished",
+                        "queue_id": prev["queue_id"],
+                        "result": curr.get("last_completed_result") or "DONE",
+                    })
+                else:
+                    changes.append({"machine": machine, "kind": "released",
+                                    "queue_id": prev["queue_id"]})
+            else:
+                changes.append({
+                    "machine": machine, "kind": "switched",
+                    "prev_queue_id": prev["queue_id"],
+                    "queue_id": curr["queue_id"],
+                })
+        elif curr["idle"] != prev["idle"]:
+            changes.append({"machine": machine, "kind": "idle_changed",
+                            "now_idle": curr["idle"]})
+        # Restart: runner_pid changed AND both values known.
+        if (curr["runner_pid"] != prev["runner_pid"]
+                and curr["runner_pid"] is not None
+                and prev["runner_pid"] is not None):
+            changes.append({"machine": machine, "kind": "restart",
+                            "pid": curr["runner_pid"]})
+        # Silent transitions (one event per crossing, not every tick).
+        if curr_silent and not prev_silent:
+            changes.append({"machine": machine, "kind": "went_silent"})
+        elif prev_silent and not curr_silent:
+            changes.append({"machine": machine, "kind": "came_back"})
+    return changes
+
+
+def _phase3_heartbeat_phrase(ev):
+    """Render a single state-change event as a human-readable phrase."""
+    m = ev["machine"]
+    k = ev["kind"]
+    if k == "started":
+        return "%s -> %s started" % (m, ev["queue_id"])
+    if k == "finished":
+        return "%s ran %s -> %s" % (m, ev["queue_id"], ev["result"])
+    if k == "released":
+        return "%s released %s" % (m, ev["queue_id"])
+    if k == "switched":
+        return "%s %s -> %s" % (m, ev["prev_queue_id"], ev["queue_id"])
+    if k == "restart":
+        return "%s restart pid=%s" % (m, ev["pid"])
+    if k == "idle_changed":
+        return "%s idle=%s" % (m, "True" if ev["now_idle"] else "False")
+    if k == "added":
+        return "%s added" % m
+    if k == "went_silent":
+        return "%s went silent" % m
+    if k == "came_back":
+        return "%s came back" % m
+    return "%s ?%s" % (m, k)
+
+
+def _phase3_heartbeat_commit_message(changes, n_machines_active):
+    """Build the commit subject. Empty changes -> liveness fallback."""
+    prefix = _PHASE3_HEARTBEAT_COMMIT_PREFIX
+    if not changes:
+        return "%sliveness tick, %d machine(s) active" % (
+            prefix, n_machines_active)
+    if len(changes) == 1:
+        return "%s%s" % (prefix, _phase3_heartbeat_phrase(changes[0]))
+    if len(changes) <= 3:
+        return "%s%s" % (
+            prefix,
+            ", ".join(_phase3_heartbeat_phrase(c) for c in changes))
+    head = ", ".join(_phase3_heartbeat_phrase(c) for c in changes[:2])
+    return "%s%d state changes: %s, ..." % (prefix, len(changes), head)
+
 
 def _fsync_dir(path):
     """MED-B: after `os.replace(tmp, target)` the rename is not crash-
@@ -1477,32 +1674,51 @@ def phase3_heartbeat_writer(
 ):
     """PLAN.md step 6: materialise runner_heartbeats/<machine>.json and
     runner_status/<machine>.json from the coordinator's heartbeats
-    table into the hub's REE_assembly checkout, commit + push.
+    table into the hub's REE_assembly checkout, committing only when
+    fleet state actually changes (2026-05-31 state-change redesign).
 
     Pairs with phase3_git_writer + phase3_queue_writer to give
     sync_daemon sole-writer authority across both coordination repos.
 
-    Same safety contract as the queue writer:
+    Commit policy: commit ONLY when one of these is true since the last
+    commit, subject to the debounce + liveness floor:
+      - queue_id changed for any machine (experiment start / finish /
+        switch / release)
+      - idle flag flipped (without queue_id change)
+      - runner_pid changed (worker restart)
+      - a machine appeared or transitioned silent <-> active
+        (heartbeat.last_tick_utc stalled past PHASE3_HEARTBEAT_STALE_AFTER)
+
+    Debounce: PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL (default 300s).
+    State-change ticks within the window hold; the next post-window
+    tick commits whatever has accumulated.
+
+    Liveness floor: PHASE3_HEARTBEAT_LIVENESS_INTERVAL (default 1800s).
+    If no state-change commit has fired for this long, force a
+    "liveness tick" commit batching current state so external viewers
+    see fresh git timestamps proving the fleet is alive.
+
+    Safety contract (preserved verbatim from pre-redesign):
       - PHASE3_HEARTBEAT_WRITER_READY gates execution (False -> stub).
-      - Dirty-tree refusal.
-      - Fetch-before-push + ahead-of-origin guard + foreign-commit
-        check (`phase3-heartbeats: ` prefix).
+      - Claim-guard: pauses when an operator session holds an active
+        TASK_CLAIMS entry covering the writer's paths.
+      - Dirty-tree refusal (only when committing -- skip-decision ticks
+        do not touch the working tree).
+      - Fetch + rebase-on-behind via _sync_to_origin.
       - Atomic per-file write (tmp + fsync + os.replace).
-      - Idempotent no-op when every file matches what's already in HEAD.
+      - Foreign-commit check (any phase3-* writer prefix accepted).
+      - Idempotent: skip-decision ticks read DB only; commit-decision
+        ticks still re-check actually_changed vs working tree.
       - Never raises.
 
     Per-machine output is byte-for-byte the JSON payload the runner
-    POSTed: the coordinator stored heartbeat_payload_json and
-    status_payload_json verbatim, so consumers (explorer, scaler
-    workflow, governance) see exactly the shape they did under the
-    runner's old git push -- only the transport changed.
-
-    Rows whose payload columns are NULL (legacy clients that haven't
-    been updated to send the rich payload yet) are SKIPPED for the
-    file write. Their structured columns still drive lifecycle_state
-    via /shadow/status -- they just don't generate a per-machine file
-    until the runner is updated.
+    POSTed -- consumers (explorer, scaler workflow, governance) see
+    exactly the shape they did under the runner's old git push.
+    Rows with both payload columns NULL (legacy clients) are skipped
+    silently and produce no file.
     """
+    global _PHASE3_HEARTBEAT_LAST_COMMIT_TS, _PHASE3_HEARTBEAT_INITIALIZED
+
     asm = ree_assembly_path or PHASE3_REE_ASSEMBLY
     br = branch or PHASE3_ASSEMBLY_BRANCH
 
@@ -1515,8 +1731,7 @@ def phase3_heartbeat_writer(
     # Claim-guard: pause when an operator session has an active
     # TASK_CLAIMS entry covering runner_heartbeats/, runner_status/, or
     # runner_status.json. Returns True (idle, not a failure) so the main
-    # loop schedules another tick when the claim closes. See
-    # _active_claim_blocks_writer.
+    # loop schedules another tick when the claim closes.
     if _active_claim_blocks_writer(
             "phase3_heartbeat_writer", os.path.dirname(asm)):
         sys.stderr.write(
@@ -1524,8 +1739,6 @@ def phase3_heartbeat_writer(
             " or runner_status/; skipping heartbeat-writer tick\n")
         return True
 
-    # Collect what the DB has. Each row may have either or both payload
-    # columns populated; if NEITHER, skip (nothing to materialise).
     rows = conn.execute(
         "SELECT machine, heartbeat_payload_json, status_payload_json "
         "FROM heartbeats "
@@ -1533,14 +1746,15 @@ def phase3_heartbeat_writer(
         "   OR status_payload_json IS NOT NULL"
     ).fetchall()
     if not rows:
-        # No machine has sent a payload yet (e.g. mid-transition); nothing
-        # to write. Return True (idle no-op) so the main loop doesn't
-        # treat it as a failure.
         return True
 
-    # Stage each per-machine file. Skip + warn on unsafe machine names
-    # (defence-in-depth; coordinator auth already rejects bad tokens).
+    # Parse in one pass: file-content for the eventual commit + per-
+    # machine state for change detection. Bad rows (unsafe name /
+    # malformed JSON) are skipped without aborting the whole tick.
     pending_writes = []   # list of (relpath, text)
+    current_states = {}   # safe_machine -> state dict
+    now = _phase3_heartbeat_now()
+
     for r in rows:
         safe = _safe_machine_filename(r["machine"])
         if not safe:
@@ -1548,6 +1762,8 @@ def phase3_heartbeat_writer(
                 "[phase3-heartbeats] WARN skipping unsafe machine name %r\n"
                 % (r["machine"],))
             continue
+        hb_doc = None
+        st_doc = None
         for kind, reldir, column in (
             ("heartbeat", PHASE3_HEARTBEATS_RELDIR,
              "heartbeat_payload_json"),
@@ -1556,9 +1772,6 @@ def phase3_heartbeat_writer(
             raw = r[column]
             if not raw:
                 continue
-            # Pretty-print so the file diff is meaningful + matches the
-            # runner's existing on-disk format (json.dumps(payload, indent=2)
-            # + "\n").
             try:
                 doc = json.loads(raw)
             except (ValueError, TypeError):
@@ -1567,13 +1780,51 @@ def phase3_heartbeat_writer(
                     "%s is not valid JSON\n" % (
                         reldir, safe, column))
                 continue
+            if kind == "heartbeat":
+                hb_doc = doc
+            else:
+                st_doc = doc
             text = json.dumps(doc, indent=2) + "\n"
             rel = "%s/%s.json" % (reldir, safe)
             pending_writes.append((rel, text))
 
+        if hb_doc is None and st_doc is None:
+            continue
+        state = _extract_heartbeat_machine_state(st_doc, hb_doc)
+        state["silent"] = _phase3_heartbeat_is_silent(
+            safe, state.get("last_tick_utc"), now,
+            PHASE3_HEARTBEAT_STALE_AFTER)
+        current_states[safe] = state
+
     if not pending_writes:
         return True
 
+    # Commit-decision: empty changes within liveness window -> skip;
+    # non-empty changes within debounce window -> hold; otherwise commit.
+    # First post-startup tick treats current state as the baseline and
+    # commits to seed last_committed_state.
+    if not _PHASE3_HEARTBEAT_INITIALIZED:
+        changes = []
+        commit_reason = "initial"
+    else:
+        changes = _phase3_heartbeat_compute_changes(
+            _PHASE3_HEARTBEAT_LAST_COMMITTED_STATE,
+            current_states)
+        time_since_commit = now - _PHASE3_HEARTBEAT_LAST_COMMIT_TS
+        if changes:
+            if time_since_commit < PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL:
+                # Hold for debounce; do NOT touch the working tree. The
+                # change set is computed against last-committed state, so
+                # the next post-window tick re-derives whatever has
+                # accumulated and commits it together.
+                return True
+            commit_reason = "state-change"
+        else:
+            if time_since_commit < PHASE3_HEARTBEAT_LIVENESS_INTERVAL:
+                return True
+            commit_reason = "liveness"
+
+    # ---- COMMIT PATH ----
     # Sequence: clean-tree precondition -> absorb origin moves (rebase
     # writer-authored heartbeat commits) -> recompute actually_changed
     # against the post-rebase working tree. Doing the comparison BEFORE
@@ -1594,9 +1845,6 @@ def phase3_heartbeat_writer(
             "[phase3-heartbeats] refusing tick: %s.\n" % reason)
         return False
 
-    # Compare each against working tree -- skip writes when content
-    # matches (idempotent no-op preserves the per-tick rhythm without
-    # creating empty commits).
     actually_changed = []
     for rel, text in pending_writes:
         target = os.path.join(asm, rel)
@@ -1609,13 +1857,7 @@ def phase3_heartbeat_writer(
                 pass
         actually_changed.append((rel, text))
 
-    if not actually_changed:
-        return True
-
-    # Atomic writes + git add. Track what successfully staged so a
-    # partial failure doesn't poison the commit. On git-add failure the
-    # working-tree write has already landed, so revert to HEAD content to
-    # keep the next tick's clean-tree check passing.
+    # Atomic writes + git add. Partial-failure tolerant.
     staged = []
     for rel, text in actually_changed:
         target = os.path.join(asm, rel)
@@ -1632,68 +1874,22 @@ def phase3_heartbeat_writer(
                 "clean-tree check passing.\n" % (rel, exc))
             _revert_target_to_head(asm, rel, target)
 
-    if not staged:
-        sys.stderr.write(
-            "[phase3-heartbeats] no files staged this tick; skipping\n")
-        return False
-
-    today = db.utcnow()[:10]
-    commit_msg = "%s%d telemetry file(s) %s" % (
-        _PHASE3_HEARTBEAT_COMMIT_PREFIX, len(staged), today)
+    commit_msg = _phase3_heartbeat_commit_message(
+        changes, len(current_states))
+    # Every reach of the commit path is an intentional event (initial /
+    # state-change / liveness) and must produce a commit visible in
+    # `git log`. Silent <-> active transitions are derived inside the
+    # writer (not in the payload bytes) so a state-change fire may
+    # legitimately have nothing staged; --allow-empty makes the event
+    # visible regardless. Liveness commits use the same path.
 
     try:
-        fetched = _git(
-            asm, "fetch", "--quiet", "origin", br,
-            check=False, timeout=30)
-        if fetched.returncode != 0:
-            sys.stderr.write(
-                "[phase3-heartbeats] refusing tick: fetch origin %s "
-                "failed (%s). Working tree retained for next tick.\n" % (
-                    br, fetched.stderr.strip()[:240]))
-            return False
-
         diff = _git(asm, "diff", "--cached", "--quiet",
                     check=False, timeout=10)
+        commit_args = ["commit", "-m", commit_msg]
         if diff.returncode == 0:
-            # No-diff path (same as result/queue writers): check ahead-of-
-            # origin to distinguish "bytes already on origin" from
-            # "unpushed local commit".
-            ahead = _git(
-                asm, "rev-list", "--count",
-                "origin/" + br + "..HEAD",
-                check=False, timeout=10)
-            if ahead.returncode != 0:
-                sys.stderr.write(
-                    "[phase3-heartbeats] refusing tick: rev-list "
-                    "failed (%s).\n" % ahead.stderr.strip()[:240])
-                return False
-            ahead_count = ahead.stdout.strip()
-            if ahead_count and ahead_count != "0":
-                ok, foreign = _check_ahead_writer_authored(asm, br)
-                if not ok:
-                    sys.stderr.write(
-                        "[phase3-heartbeats] refusing tick: %d foreign "
-                        "commit(s) in origin/%s..HEAD that no phase3 "
-                        "writer authored: %s.\n" % (
-                            len(foreign), br, foreign))
-                    return False
-                push = _git(
-                    asm, "push", "origin", "HEAD:" + br,
-                    timeout=60, check=False)
-                if push.returncode != 0:
-                    sys.stderr.write(
-                        "[phase3-heartbeats] push REJECTED for unpushed "
-                        "local commit: %s.\n" %
-                        push.stderr.strip()[:240])
-                    return False
-                sys.stdout.write(
-                    "[phase3-heartbeats] pushed unpushed local commit "
-                    "(HEAD was %s ahead of origin/%s)\n" % (ahead_count, br))
-                return True
-            # ahead == 0: idempotent re-spool, already on origin.
-            return True
-
-        _git(asm, "commit", "-m", commit_msg, timeout=20, check=True)
+            commit_args.append("--allow-empty")
+        _git(asm, *commit_args, timeout=20, check=True)
         ok, foreign = _check_ahead_writer_authored(asm, br)
         if not ok:
             sys.stderr.write(
@@ -1717,7 +1913,12 @@ def phase3_heartbeat_writer(
         return False
 
     sys.stdout.write(
-        "[phase3-heartbeats] pushed %d telemetry file(s)\n" % len(staged))
+        "[phase3-heartbeats] pushed (%s): %s (%d file(s))\n" % (
+            commit_reason, commit_msg, len(staged)))
+    _PHASE3_HEARTBEAT_LAST_COMMITTED_STATE.clear()
+    _PHASE3_HEARTBEAT_LAST_COMMITTED_STATE.update(current_states)
+    _PHASE3_HEARTBEAT_LAST_COMMIT_TS = now
+    _PHASE3_HEARTBEAT_INITIALIZED = True
     return True
 
 

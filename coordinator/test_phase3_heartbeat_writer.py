@@ -107,9 +107,13 @@ class _Fixture(unittest.TestCase):
         db.init_db(self._dbpath)
         self._conn = db.connect(self._dbpath)
         sync_daemon.PHASE3_HEARTBEAT_WRITER_READY = False
+        # Module-level state-change cache survives across the daemon's
+        # lifetime; reset between tests so each fixture starts cold.
+        sync_daemon._reset_phase3_heartbeat_state()
 
     def tearDown(self):
         sync_daemon.PHASE3_HEARTBEAT_WRITER_READY = False
+        sync_daemon._reset_phase3_heartbeat_state()
         self._conn.close()
         shutil.rmtree(self._tmp, ignore_errors=True)
 

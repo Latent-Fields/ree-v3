@@ -220,9 +220,14 @@ class HeartbeatWriterIntegration(unittest.TestCase):
                         "completed": [{"queue_id": "V3-EXQ-X",
                                        "result": "PASS"}]}))
         sync_daemon.PHASE3_HEARTBEAT_WRITER_READY = False
+        # Module-level state-change cache survives across the daemon's
+        # lifetime; reset between tests so each fixture starts cold and
+        # the writer's first tick fires an initial commit.
+        sync_daemon._reset_phase3_heartbeat_state()
 
     def tearDown(self):
         sync_daemon.PHASE3_HEARTBEAT_WRITER_READY = False
+        sync_daemon._reset_phase3_heartbeat_state()
         self._conn.close()
         shutil.rmtree(self._tmp, ignore_errors=True)
 
