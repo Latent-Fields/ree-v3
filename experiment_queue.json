@@ -26,6 +26,21 @@
       "episodes_per_run": 50,
       "experiment_type": "v3_exq_490j_mech295_cascade_gap4_tier1_severed_bridge_baseline",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-615",
+      "title": "ARC-065 Rung-1 validation with matched-entropy control (retest after MECH-341 substrate landed 2026-05-27)",
+      "script": "experiments/v3_exq_615_arc065_rung1_matched_entropy.py",
+      "priority": 100,
+      "machine_affinity": "any",
+      "estimated_minutes": 55,
+      "claim_id": "ARC-065",
+      "note": "3-arm design: ARM_0 (BASE_OFF all substrates), ARM_1 (MATCHED_NOISE entropy-only FP-2 control), ARM_2 (ALL_ON full 4-substrate stack: SP-CEM + MECH-341 + MECH-313 + MECH-269). Tests whether full stack produces structured diversity above entropy-matched noise. C1=ARM_2 Rung-1 PASS (entropy >0.3, n_unique >=2 in >=2/3 seeds), C2=FP-2 (ARM_2 - ARM_1 entropy >= 0.15), C3=necessity (ARM_0 FAIL Rung-1 in >=2/3 seeds). Routing: PASS all 3 -> ARC-065 supports, clear pending_retest_after_substrate, route to governance; FAIL C1 -> weakens, /diagnose-errors; FAIL C2 -> mixed, Q-054 calibration; FAIL C3 -> failure-autopsy. Env identical to V3-EXQ-614a (bipartite reef, size=12, n_hazards=4, n_resources=5). Smoke 2026-05-31T07:49Z: 3 arms x 1 seed x 1+1 ep x 10 steps, verdict lines printed, emit_outcome PASS.",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 90,
+      "experiment_type": "v3_exq_615_arc065_rung1_matched_entropy",
+      "seeds": 3
     }
   ]
 }
