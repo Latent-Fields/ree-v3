@@ -26,6 +26,22 @@
       "episodes_per_run": 50,
       "experiment_type": "v3_exq_490j_mech295_cascade_gap4_tier1_severed_bridge_baseline",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-616",
+      "title": "Q-054 entropy_bias_scale sweep on MECH-341 B_only isolation arm (4 scales x 3 seeds)",
+      "script": "experiments/v3_exq_616_q054_mech341_entropy_bias_scale_sweep.py",
+      "priority": 100,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "backlog_id": "EVB-0284",
+      "claim_id": "Q-054",
+      "note": "Routed from V3-EXQ-614a PASS_via_C2_C3 interpretation grid (2026-05-30 PASS) + 2026-05-31T08:45Z governance walk routing Q-054 entropy_bias_scale sweep here per behavioral_diversity_isolation_plan.md R2.c rule. 4-arm sweep: entropy_bias_scale={1.0, 2.0, 4.0, 8.0} on B_only isolation (SP-CEM OFF, MECH-341 ON both sub-flavours, MECH-313 OFF, V_s OFF). Env IDENTICAL to V3-EXQ-611/611c/614a (SD-054 bipartite reef + hazard_food_attraction + harm_history). Per-arm acceptance: 614a C1 R2.c (>=2/3 seeds: n_classes>=2 AND entropy>0.3 nats AND frac_pre_ge2>=0.5). Cross-arm outcome: PASS = lowest passing scale identifies the load-bearing floor; FAIL = scale lever insufficient in isolation under max scale 8.0. claim_ids=[Q-054, MECH-341] with per-claim direction per script interpretation grid (floor=1.0/2.0 -> both supports; floor=4.0/8.0 -> MECH-341 mixed (default too low) + Q-054 supports; FAIL -> both mixed). experiment_purpose=evidence (Q-054 answer-state proposal EXP-0273 / EVB-0284). Smoke 2026-05-31T11:10Z dry-run: 4 arms x 1 seed PASS end-to-end (boots, verdict lines printed, manifest+sentinel emit_outcome fired; dry-run outcome FAIL expected at minimum budget). validate_experiments AST PASS; ASCII-clean. Pathspec-limited queue append concurrent with IGW-028 ARC-065 retest claim (disjoint scientific scope; ARC-065 pending_retest cleared 08:45Z).",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 90,
+      "experiment_type": "v3_exq_616_q054_mech341_entropy_bias_scale_sweep",
+      "seeds": 3
     }
   ]
 }
