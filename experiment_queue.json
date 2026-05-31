@@ -24,20 +24,21 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-617",
-      "title": "SD-056 multi-step rollout stability amend substrate-readiness (6 sub-tests UC1-UC6)",
-      "script": "experiments/v3_exq_617_sd056_multistep_substrate_readiness.py",
-      "priority": 360,
+      "queue_id": "V3-EXQ-614b",
+      "title": "MECH-341 P3 behavioural falsifier 3-arm on SD-056-amended substrate (supersedes V3-EXQ-614a; B_only / ablate_B / ALL_ON)",
+      "script": "experiments/v3_exq_614b_mech341_p3_behavioural_falsifier_3arm_sd056_amended.py",
+      "priority": 250,
       "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "claim_id": "SD-056",
-      "experiment_type": "v3_exq_617_sd056_multistep_substrate_readiness",
-      "experiment_purpose": "diagnostic",
-      "conditions": 1,
-      "episodes_per_run": 1,
-      "seeds": 1,
-      "note": "Substrate-readiness diagnostic for the SD-056 multi-step rollout stability amend (2026-05-31). Triggered by V3-EXQ-569e Pathway A vs B mechanism-probe autopsy (verdict_cell=INSTRUMENTATION_FAILURE; evidence/planning/failure_autopsy_V3-EXQ-569e_2026-05-31.md). Six sub-tests: UC1 module surface (5 new amend knobs + multistep helper); UC2 master-OFF backward-compat (rollout_with_world bit-identical to pre-amend SD-056 path); UC3 multi-step contrastive direction-of-change (100 SGD steps reduce loss + non-zero grad on world_transition); UC4 per-step output norm clamp B2 bound (||z_world_t|| <= 2.0 * ||z_world_0|| over 200-step horizon under 20x weight amplification -- the 1e16+ autopsy pathology regime); UC5 clamp NaN/Inf defence (NaN-fraction == 0.0 under stress; direct test of autopsy max-NaN-fraction < 0.05 acceptance criterion as a hard guarantee); UC6 MECH-094 simulation gate. Smoke 2026-05-31T11:23Z: 6/6 PASS, ~10 sec elapsed. claim_ids=[] (diagnostic; substrate-readiness does not weight SD-056 confidence directly per Phase-3 governance rules). Does NOT test the full 8-arm V3-EXQ-569e-equivalent Pathway A vs B falsifier on the amended substrate -- that bundles with the three script-side acceptance-criteria fixes from autopsy Section 6 in the post-amend /queue-experiment session.",
-      "status": "pending"
+      "estimated_minutes": 60,
+      "claim_id": "MECH-341",
+      "experiment_type": "v3_exq_614b_mech341_p3_behavioural_falsifier_3arm_sd056_amended",
+      "experiment_purpose": "evidence",
+      "supersedes": "V3-EXQ-614a",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 90,
+      "seeds": 3,
+      "note": "Behavioural successor to V3-EXQ-614a (PASS 2026-05-30T19:32Z, interpretation_label PASS_C2_C3_only_mech341_load_bearing_in_stack_only) routed by the SD-056 multi-step rollout stability amend (ree-v3 main d327b89, 2026-05-31T11:25Z) + V3-EXQ-617 substrate-readiness PASS 11:31Z. Re-runs the 3-arm MECH-341 P3 falsifier (ARM_0 B_only / ARM_1 ablate_B / ARM_2 ALL_ON) on the SD-056-amended substrate. Five SD-056 amend lever flags applied UNIFORMLY across all 3 arms (held constant on the diversity-axis comparison so R2.c interpretation is not confounded): e2_action_contrastive_multistep_enabled=True (Lever (a); h=5), e2_rollout_output_norm_clamp_enabled=True (Lever (b); ratio=2.0), e2_action_contrastive_enabled=True + weight=0.01 (t=1 contrastive ON; substrate default OFF). User-confirmed scope 2026-05-31T12:31Z via AskUserQuestion. Acceptance criteria UNCHANGED vs 614a: C1 R2.c MECH-341 isolation entropy_nats > 0.3 + n_classes >= 2 on >= 2/3 seeds; C2 ablate_B necessity entropy delta >= 0.1; C3 Rung-1 ALL_ON works on >= 2/3 seeds; PASS = C1 fires OR (C2 AND C3) fires; FAIL = neither. 4-row interpretation grid copied verbatim from 614a + header note clarifying that under the amended substrate PASS via C1 is now the load-bearing target (614a established PASS via C2+C3); if 614b lands PASS via C2+C3 only again, route as substrate-stable-but-isolation-still-not-clearing under the same R2.c-isolation-deferred reading (Q-054 entropy_bias_scale sweep + stratified_temperature revisit, NOT fresh /diagnose-errors loop). env_kwargs IDENTICAL to V3-EXQ-611/611c/614a (SD-054 reef-bipartite + hazard_food_attraction + harm_history) for direct manifest comparability. claim_ids=[MECH-341, ARC-065] per claim_ids accuracy rule (science identical to 614a; only substrate amended underneath). Smoke 2026-05-31T12:40Z dry-run (3 arms x 1 seed x P0=2 + P1=2 ep x 30 steps): all 3 arms boot + verdict PASS + manifest+sentinel emit_outcome fired; dry-run outcome FAIL expected at minimum budget. validate_experiments AST PASS; ASCII-clean. Cross-plan: same Layer-B substrate stabilisation unblocks arc_062_rule_apprehension:GAP-B (V3-EXQ-543l successor cohort) under shared SD-056-amended substrate. Sibling concurrent claim queue-experiment-v3-exq-569a-arc-065-gap-a-r1b-20260531T123128Z (ARC-065 GAP-A) holds disjoint script path; coordinated via re-read-before-write per user-approved protocol."
     }
   ]
 }
