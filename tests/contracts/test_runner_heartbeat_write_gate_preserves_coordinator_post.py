@@ -124,6 +124,9 @@ def test_c2_gate_on_skips_local_file_but_fires_coordinator_post(
     import importlib
     import runner_remote_control as rrc
     importlib.reload(rrc)
+    # 2026-05-31 hub-only self-guard: gate refuses on non-hub hostnames.
+    # This test exercises gate-ON behaviour, so pretend we are the hub.
+    monkeypatch.setattr(rrc.socket, "gethostname", lambda: "ree-cloud-1")
     returned, post_mock = _call_write_heartbeat(rrc, fake_assembly)
     hb_dir = fake_assembly / rrc.HEARTBEAT_SUBPATH
     target = hb_dir / "test-host.json"
@@ -171,6 +174,9 @@ def test_c4_gate_on_local_write_failure_still_fires_coordinator_post(
     import importlib
     import runner_remote_control as rrc
     importlib.reload(rrc)
+    # 2026-05-31 hub-only self-guard: gate refuses on non-hub hostnames.
+    # This test exercises gate-ON behaviour, so pretend we are the hub.
+    monkeypatch.setattr(rrc.socket, "gethostname", lambda: "ree-cloud-1")
     # Block the local file write path by removing read+exec on the
     # heartbeat dir's parent. With the gate ON, the function never tries
     # the local write anyway -- so we just confirm the POST still fires.

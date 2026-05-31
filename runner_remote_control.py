@@ -433,6 +433,14 @@ def _push_telemetry_file(
 # their REE_assembly checkout is separate from the hub's.
 _HEARTBEAT_GATE_LOGGED = [False]  # one-element mutable for module-level state
 _HEARTBEAT_WRITE_GATE_LOGGED = [False]
+_HEARTBEAT_WRITE_GATE_NON_HUB_REFUSED_LOGGED = [False]
+
+# Canonical hostname(s) of the hub VM where the WRITE gate is safe to set.
+# Documented as `ree-cloud-1` in cloud_workers.md, but `socket.gethostname()`
+# on that VM returns `ree-worker-1` (per journalctl evidence from the
+# 2026-05-30 fleet-rescue session). Accept both so the guard fires
+# correctly on whichever string the underlying VM reports.
+_PHASE3_HUB_HOSTNAMES = frozenset({"ree-cloud-1", "ree-worker-1"})
 
 
 def _phase3_heartbeat_gated() -> bool:
@@ -461,17 +469,51 @@ def _phase3_heartbeat_write_gated() -> bool:
     Implies _PUSH gating: writing to a tmp file we never rename and
     then trying to push is incoherent, so callers should treat WRITE
     as a strict-superset of PUSH.
+
+    Hub-only self-guard (2026-05-31): if the env var is set on a worker
+    whose hostname is NOT in _PHASE3_HUB_HOSTNAMES, REFUSE the gate
+    (return False as if not set) and print a loud warning. Rationale:
+    the file-channel command writeback (write_commands_file) short-
+    circuits when the WRITE gate is on, and the per-machine commands
+    file is the only place a non-hub runner can persist a stop command's
+    status -> done. Without that persistence, systemd restarts the unit,
+    the same stop command is picked up again, the runner drains and
+    exits, systemd restarts, ... until start-limit-hit kills the unit.
+    Incident 2026-05-30: cloud-2/3/4 all wedged in failed/start-limit-hit
+    for 6-12 hours after a fleet-wide shadow.conf template push
+    mis-included this flag.
     """
     enabled = os.environ.get(
         "PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE", "").strip().lower() in (
             "1", "true", "yes")
-    if enabled and not _HEARTBEAT_WRITE_GATE_LOGGED[0]:
+    if not enabled:
+        return False
+    try:
+        hostname = socket.gethostname()
+    except Exception:
+        hostname = ""
+    if hostname not in _PHASE3_HUB_HOSTNAMES:
+        if not _HEARTBEAT_WRITE_GATE_NON_HUB_REFUSED_LOGGED[0]:
+            print("[remote-control] WARNING: "
+                  "PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1 set on "
+                  "non-hub worker (hostname=" + repr(hostname) +
+                  "). This flag is HUB-ONLY (ree-cloud-1 / "
+                  "ree-worker-1). On non-hub workers it suppresses "
+                  "the per-machine commands file write, which breaks "
+                  "stop-command persistence and produces a systemd "
+                  "restart loop -> start-limit-hit (incident 2026-05-30 "
+                  "cloud-2/3/4). REFUSING the gate; treating as if "
+                  "unset. Remove the env var from this worker's "
+                  "shadow.conf to silence this warning.", flush=True)
+            _HEARTBEAT_WRITE_GATE_NON_HUB_REFUSED_LOGGED[0] = True
+        return False
+    if not _HEARTBEAT_WRITE_GATE_LOGGED[0]:
         print("[remote-control] phase3 gate active: heartbeat + commands "
               "FILE WRITES will be skipped (hub co-location -- "
               "sync_daemon owns derived heartbeats; coordinator owns "
               "command-channel writeback)", flush=True)
         _HEARTBEAT_WRITE_GATE_LOGGED[0] = True
-    return enabled
+    return True
 
 
 def push_heartbeat(ree_assembly_path: Path, path: Path) -> None:

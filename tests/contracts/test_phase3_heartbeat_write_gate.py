@@ -47,6 +47,7 @@ def _reset_log_flags():
     """Reset module-level once-per-process log latches between tests."""
     rrc._HEARTBEAT_GATE_LOGGED[0] = False
     rrc._HEARTBEAT_WRITE_GATE_LOGGED[0] = False
+    rrc._HEARTBEAT_WRITE_GATE_NON_HUB_REFUSED_LOGGED[0] = False
 
 
 class TestHeartbeatWriteGate(unittest.TestCase):
@@ -63,6 +64,11 @@ class TestHeartbeatWriteGate(unittest.TestCase):
         }
         for k in (PHASE3_KEY, PHASE3_PUSH_KEY):
             os.environ.pop(k, None)
+        # 2026-05-31 hub-only self-guard: gate refuses on non-hub hostnames.
+        # This test class exercises the gate-ON behaviour, so pretend we are
+        # the hub. Restored in tearDown.
+        self._orig_gethostname = rrc.socket.gethostname
+        rrc.socket.gethostname = lambda: "ree-cloud-1"
         _reset_log_flags()
 
     def tearDown(self):
@@ -71,6 +77,7 @@ class TestHeartbeatWriteGate(unittest.TestCase):
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+        rrc.socket.gethostname = self._orig_gethostname
         _reset_log_flags()
         self.tmp.cleanup()
 
