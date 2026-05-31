@@ -659,6 +659,71 @@ def _affinity_matches(item: dict, machine: str) -> bool:
     return affinity in ("any", None, "") or affinity == machine
 
 
+# Cloud workers the laptop yields to when --laptop-yield-to-cloud is on.
+# Hardcoded list matches the cloud-scaler.yml WORKERS pairing (cloud-1 is the
+# coordinator hub with its runner systemctl-disabled, so it never claims; it
+# is still listed for forward-compat in case the hub/runner split changes).
+LAPTOP_YIELD_CLOUD_HOSTS = (
+    "ree-cloud-1",
+    "ree-cloud-2",
+    "ree-cloud-3",
+    "ree-cloud-4",
+)
+
+# Hostname that auto-arms --laptop-yield-to-cloud when not explicitly set.
+LAPTOP_AUTO_YIELD_HOSTNAME = "DLAPTOP-4.local"
+
+
+def _cloud_worker_is_fresh(
+    cloud_host: str,
+    freshness_minutes: int,
+    ree_assembly_path: Path | None,
+) -> bool:
+    """True iff runner_heartbeats/<cloud_host>.json has last_tick_utc within
+    freshness_minutes of now. Missing/unparseable heartbeats are treated as
+    not fresh (the cloud worker is not alive enough to be preferred over the
+    laptop)."""
+    base = ree_assembly_path or find_ree_assembly_path()
+    if base is None:
+        return False
+    hb_path = (
+        base / "evidence" / "experiments" / "runner_heartbeats" /
+        f"{_safe_heartbeat_filename(cloud_host)}.json"
+    )
+    try:
+        hb = json.loads(hb_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    last_tick = _parse_utc_timestamp(hb.get("last_tick_utc"))
+    if last_tick is None:
+        return False
+    age = datetime.now(timezone.utc) - last_tick
+    return age.total_seconds() <= freshness_minutes * 60
+
+
+def _should_yield_to_cloud(
+    item: dict,
+    freshness_minutes: int,
+    ree_assembly_path: Path | None,
+) -> tuple[bool, str | None]:
+    """Decide whether the laptop should skip this queue item in favour of a
+    cloud worker. Returns (should_yield, fresh_cloud_host).
+
+    Yields only when the item's affinity is "any" (None/"" treated as "any")
+    AND at least one cloud worker in LAPTOP_YIELD_CLOUD_HOSTS has a heartbeat
+    fresh within freshness_minutes. Items pinned to a specific hostname are
+    never yielded -- if the pin is the laptop the laptop must run it; if the
+    pin is a cloud host the existing affinity check already filters it out.
+    """
+    affinity = item.get("machine_affinity", "any")
+    if affinity not in ("any", None, ""):
+        return False, None
+    for host in LAPTOP_YIELD_CLOUD_HOSTS:
+        if _cloud_worker_is_fresh(host, freshness_minutes, ree_assembly_path):
+            return True, host
+    return False, None
+
+
 def _parse_utc_timestamp(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -1725,6 +1790,31 @@ def main():
              "(REE_assembly/evidence/experiments/runner_heartbeats/<hostname>.json). "
              "Phase 1 of the multi-machine dashboard; off by default.",
     )
+    parser.add_argument(
+        "--laptop-yield-to-cloud",
+        dest="laptop_yield_to_cloud",
+        action="store_true",
+        default=None,
+        help="On the laptop, skip 'any'-affinity items while at least one cloud "
+             "worker (ree-cloud-1..4) has a fresh runner_heartbeat. Auto-armed "
+             f"when hostname == {LAPTOP_AUTO_YIELD_HOSTNAME!s}; off elsewhere. "
+             "Use --no-laptop-yield-to-cloud to force off on the laptop.",
+    )
+    parser.add_argument(
+        "--no-laptop-yield-to-cloud",
+        dest="laptop_yield_to_cloud",
+        action="store_false",
+        help="Disable laptop-yield-to-cloud even on the laptop (force the "
+             "laptop to claim 'any'-affinity items alongside cloud workers).",
+    )
+    parser.add_argument(
+        "--laptop-yield-freshness-min",
+        type=int,
+        default=3,
+        metavar="MINUTES",
+        help="Freshness threshold for the cloud-worker heartbeat check used by "
+             "--laptop-yield-to-cloud. Default: 3 minutes.",
+    )
     args = parser.parse_args()
 
     if args.remote_control and _rrc is None:
@@ -1761,6 +1851,20 @@ def main():
     print(f"[runner] Status file: {status_path}", flush=True)
     print(f"[runner] Queue file:  {QUEUE_FILE}", flush=True)
     print(f"[runner] Machine identity: {machine}", flush=True)
+
+    # Resolve --laptop-yield-to-cloud auto-arming. None (default) -> on iff
+    # we're on the laptop. Explicit True/False from the CLI overrides.
+    if args.laptop_yield_to_cloud is None:
+        args.laptop_yield_to_cloud = (
+            socket.gethostname() == LAPTOP_AUTO_YIELD_HOSTNAME
+        )
+    if args.laptop_yield_to_cloud:
+        print(
+            f"[runner] Laptop-yield-to-cloud: ON "
+            f"(skip 'any' items while any of {LAPTOP_YIELD_CLOUD_HOSTS} "
+            f"has a heartbeat within {args.laptop_yield_freshness_min} min)",
+            flush=True,
+        )
     if args.remote_control and _rrc is not None and ree_assembly_path:
         print(f"[runner] Remote-control: ON (heartbeats -> "
               f"{ree_assembly_path}/evidence/experiments/runner_heartbeats/)", flush=True)
@@ -2104,6 +2208,22 @@ def main():
                 print(f"[runner] Skipping {queue_id} -- affinity={item.get('machine_affinity')} "
                       f"(this machine: {machine})", flush=True)
                 continue
+
+            # Lever 1: laptop yields to cloud on 'any'-affinity items while
+            # at least one cloud worker is alive. Items pinned to this host
+            # are unaffected (the affinity check above let them through).
+            if args.laptop_yield_to_cloud:
+                yield_, fresh_host = _should_yield_to_cloud(
+                    item, args.laptop_yield_freshness_min, ree_assembly_path,
+                )
+                if yield_:
+                    print(
+                        f"[runner] Yielding {queue_id} (affinity=any) to "
+                        f"{fresh_host} -- cloud heartbeat fresh within "
+                        f"{args.laptop_yield_freshness_min}min",
+                        flush=True,
+                    )
+                    continue
 
             # Skip experiments already claimed by another active machine
             if not coordinator_claims_authoritative():

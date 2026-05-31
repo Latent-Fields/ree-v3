@@ -6,8 +6,13 @@ name: Cloud Worker Scaler
 #   - "claimable" items = status==pending AND machine_affinity in {any, <server_affinity>}
 #   - mode "full" (default): server off + claimable > 0 -> poweron
 #   - mode "shutdown-only": never auto-starts; must be powered on manually
+#   - mode "surge": auto-start only when (claimable >= SURGE_QUEUE_THRESHOLD)
+#       AND (cloud-2 + cloud-3 are both running with held claims). Designed
+#       so cloud-4 acts as overflow capacity behind cloud-2/3, taking on
+#       work that would otherwise pull in the laptop (DLAPTOP-4.local). See
+#       Lever 2 in the "prefer cloud over laptop" proposal 2026-05-31.
 #   - server running + claimable == 0 + heartbeat says idle + last completed > IDLE_GRACE_MIN ago
-#       -> shutdown (graceful, drains current run) [applies to both modes]
+#       -> shutdown (graceful, drains current run) [applies to all modes]
 #
 # The heartbeat gate prevents the race where the queue momentarily reads zero
 # pending items because the runner has just claimed an item and is mid-experiment;
@@ -35,6 +40,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   IDLE_GRACE_MIN: 20          # min minutes since last completed before shutdown
   HEARTBEAT_FRESH_MIN: 5      # heartbeat must be at most this many minutes stale
+  SURGE_QUEUE_THRESHOLD: 3    # claimable items required before a surge-mode worker is powered on
   # The coordinator hub VM must NEVER be considered for shutdown by the scaler.
   # ree-worker-1 runs ree-coordinator + ree-sync-daemon at 10.8.0.1:8787 (the
   # Phase-3 git writer hub). On 2026-05-28 the scaler powered the hub off
@@ -109,12 +115,22 @@ jobs:
 
           # server_name:affinity[:mode] pairs -- add more workers by extending this list
           # mode "shutdown-only" = auto-shutdown when idle but never auto-start
+          # mode "surge"         = auto-start only when cloud-2 + cloud-3 saturated
+          #                        AND claimable >= SURGE_QUEUE_THRESHOLD
           WORKERS=(
             "ree-worker-1:ree-cloud-1"
             "ree-worker-2:ree-cloud-2"
             "ree-worker-3:ree-cloud-3"
-            "ree-worker-4:ree-cloud-4:shutdown-only"
+            "ree-worker-4:ree-cloud-4:surge"
           )
+
+          # Track per-affinity state across the loop so the surge-mode branch
+          # can read sister-worker status (cloud-2 + cloud-3) when deciding
+          # whether to power on cloud-4. Bash associative arrays require
+          # `declare -A`; ordering of the WORKERS list guarantees cloud-2 and
+          # cloud-3 iterate before cloud-4.
+          declare -A WORKER_STATUS=()
+          declare -A WORKER_HELD=()
 
           for entry in "${WORKERS[@]}"; do
             IFS=: read -r SERVER_NAME AFFINITY MODE <<< "$entry"
@@ -239,6 +255,11 @@ jobs:
             # Get current server status (off, running, starting, stopping, unknown)
             STATUS=$(hcloud server describe "$SERVER_NAME" -o format='{{.Status}}' 2>/dev/null || echo "unknown")
 
+            # Stash per-affinity state so the surge-mode branch on a later
+            # worker (cloud-4) can read sister-worker status (cloud-2 / cloud-3).
+            WORKER_STATUS[$AFFINITY]="$STATUS"
+            WORKER_HELD[$AFFINITY]="$HELD_BY_SELF"
+
             echo "[$SERVER_NAME affinity=$AFFINITY] claimable=$CLAIMABLE held_by_self=$HELD_BY_SELF status=$STATUS $IDLE_INFO"
 
             if [ "$STATUS" = "unknown" ]; then
@@ -249,6 +270,24 @@ jobs:
             if [ "$CLAIMABLE" -gt 0 ] && [ "$STATUS" = "off" ] && [ "$MODE" = "full" ]; then
               echo "  -> queue has work, starting $SERVER_NAME"
               hcloud server poweron "$SERVER_NAME"
+            elif [ "$STATUS" = "off" ] && [ "$MODE" = "surge" ]; then
+              # Surge mode: cloud-4 powers on only when cloud-2 + cloud-3 are
+              # both running with claims held AND queue depth >= threshold.
+              # Designed to make cloud-4 the overflow before the laptop is
+              # ever pulled in. Sister-worker state read from WORKER_STATUS /
+              # WORKER_HELD populated above (cloud-2 + cloud-3 iterate first).
+              CLOUD_2_STATUS="${WORKER_STATUS[ree-cloud-2]:-unknown}"
+              CLOUD_2_HELD="${WORKER_HELD[ree-cloud-2]:-0}"
+              CLOUD_3_STATUS="${WORKER_STATUS[ree-cloud-3]:-unknown}"
+              CLOUD_3_HELD="${WORKER_HELD[ree-cloud-3]:-0}"
+              if [ "$CLAIMABLE" -ge "$SURGE_QUEUE_THRESHOLD" ] \
+                 && [ "$CLOUD_2_STATUS" = "running" ] && [ "$CLOUD_2_HELD" -gt 0 ] \
+                 && [ "$CLOUD_3_STATUS" = "running" ] && [ "$CLOUD_3_HELD" -gt 0 ]; then
+                echo "  -> surge conditions met (claimable=$CLAIMABLE>=$SURGE_QUEUE_THRESHOLD, cloud-2 running+held=$CLOUD_2_HELD, cloud-3 running+held=$CLOUD_3_HELD), starting $SERVER_NAME"
+                hcloud server poweron "$SERVER_NAME"
+              else
+                echo "  -> surge mode but conditions not met (claimable=$CLAIMABLE/threshold=$SURGE_QUEUE_THRESHOLD, cloud-2=$CLOUD_2_STATUS/held=$CLOUD_2_HELD, cloud-3=$CLOUD_3_STATUS/held=$CLOUD_3_HELD)"
+              fi
             elif [ "$CLAIMABLE" -gt 0 ] && [ "$STATUS" = "off" ] && [ "$MODE" = "shutdown-only" ]; then
               echo "  -> queue has work but $SERVER_NAME is shutdown-only (manual start required)"
             elif [ "$HELD_BY_SELF" -gt 0 ] && [ "$STATUS" = "running" ]; then
