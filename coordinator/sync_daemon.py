@@ -413,6 +413,15 @@ def _utc_iso_now():
     return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _utc_iso_from_unix(ts):
+    """Convert a unix timestamp (seconds since epoch) to a UTC ISO-8601
+    stamp matching _utc_iso_now()'s format. Used by the writer-health
+    bootstrap to render git author-time into the same shape the live tick
+    path writes."""
+    return datetime.datetime.utcfromtimestamp(int(ts)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+
+
 def _record_writer_tick(name):
     with _WRITER_HEALTH_LOCK:
         rec = _WRITER_HEALTH.get(name)
@@ -489,6 +498,86 @@ def _reset_writer_health_state():
             rec["last_error"] = None
             rec["last_commit_sha"] = None
             rec["last_commit_subject"] = None
+
+
+def _phase3_writer_bootstrap_targets():
+    """Return (writer_name, repo_path, branch, commit_prefix) tuples for
+    each phase3 writer. Resolved lazily so tests can monkey-patch the
+    module-level PHASE3_* constants before bootstrap fires."""
+    return (
+        ("git_writer",
+         PHASE3_REE_ASSEMBLY, PHASE3_ASSEMBLY_BRANCH,
+         _PHASE3_COMMIT_PREFIX),
+        ("queue_writer",
+         PHASE3_REE_V3, PHASE3_REE_V3_BRANCH,
+         _PHASE3_QUEUE_COMMIT_PREFIX),
+        ("heartbeat_writer",
+         PHASE3_REE_ASSEMBLY, PHASE3_ASSEMBLY_BRANCH,
+         _PHASE3_HEARTBEAT_COMMIT_PREFIX),
+    )
+
+
+def _bootstrap_writer_health_from_git():
+    """Seed _WRITER_HEALTH's commit fields (sha / at / subject) from each
+    writer's most recent matching commit on origin/<branch>, so a fresh
+    sync_daemon process surfaces a meaningful history snapshot via the
+    /writer-health endpoint before any writer has ticked.
+
+    Failures must not crash the daemon: a git failure for any writer logs
+    a one-line warning and leaves that writer's commit fields untouched
+    (same as the pre-bootstrap state). The function NEVER touches
+    last_tick_at -- tick-age is a this-process signal that must reflect
+    reality, not git history. Idempotent: a second invocation with the
+    same git state is a no-op because the timestamp-newer guard skips
+    when the existing value is at or after the bootstrap value (matters
+    if the function is ever called mid-lifecycle, e.g. signal-handler
+    reload)."""
+    for name, repo, branch, prefix in _phase3_writer_bootstrap_targets():
+        try:
+            cp = subprocess.run(
+                ["git", "-C", repo, "log", "-1",
+                 "--grep=^" + prefix,
+                 "--pretty=%H %at %s",
+                 "origin/" + branch],
+                capture_output=True, text=True, timeout=10)
+            if cp.returncode != 0:
+                # No matching commit (or fetch missing) is not an error
+                # -- many fresh deploys won't have any phase3 commits yet.
+                continue
+            line = cp.stdout.strip().splitlines()[0] if cp.stdout.strip() else ""
+            if not line:
+                continue
+            parts = line.split(" ", 2)
+            if len(parts) < 3:
+                continue
+            sha = parts[0][:40] or None
+            try:
+                commit_unix = int(parts[1])
+            except (TypeError, ValueError):
+                continue
+            subject = parts[2]
+            commit_at = _utc_iso_from_unix(commit_unix)
+            with _WRITER_HEALTH_LOCK:
+                rec = _WRITER_HEALTH.get(name)
+                if rec is None:
+                    continue
+                existing_at = rec.get("last_commit_at")
+                # Only fill nulls or values strictly older than the
+                # bootstrap stamp. ISO-8601 fixed-width Zulu stamps
+                # compare lexically.
+                if existing_at is not None and existing_at >= commit_at:
+                    continue
+                rec["last_commit_at"] = commit_at
+                rec["last_commit_sha"] = sha
+                rec["last_commit_subject"] = subject[:200]
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            sys.stderr.write(
+                "[writer-health] bootstrap failed for %s: %r\n"
+                % (name, exc))
+        except Exception as exc:  # noqa: BLE001 -- never crash the daemon
+            sys.stderr.write(
+                "[writer-health] bootstrap failed for %s: %r\n"
+                % (name, exc))
 
 
 def _phase3_heartbeat_now():
@@ -2072,6 +2161,12 @@ def main():
                 "--i-understand-phase3 (Phase 3 not built)\n")
             return 2
         db.init_db(args.db)
+        # Seed _WRITER_HEALTH from git history so /writer-health surfaces a
+        # meaningful per-writer commit snapshot from process start, before
+        # any writer has ticked. Best-effort: git failures log a warning
+        # and leave commit fields null (same as the pre-bootstrap path).
+        _bootstrap_writer_health_from_git()
+        _persist_writer_health()
         while True:
             conn = db.connect(args.db)
             try:
