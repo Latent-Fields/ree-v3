@@ -6,27 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-621a",
-      "title": "scaffolded_sd054_onboarding substrate-readiness (621a: emit_outcome + P1 survival diagnostics)",
-      "script": "experiments/v3_exq_621a_scaffolded_sd054_onboarding_substrate_readiness.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-621",
-      "claim_id": "Q-045",
-      "note": "Successor to V3-EXQ-621 (ree-cloud-3 2026-05-31T20:23Z). Root cause of runner ERROR: script omitted emit_outcome() sentinel (subprocess exit=0, manifest outcome FAIL). 621 scientific result: FAIL (C1 4/12 cells complete; C2 z_goal=0 everywhere; C3 approach_commit lift in ARM_1 seed 42 only). 8/12 scaffolded cells failed Fix D P1 survival gate (median last-10 episode length < 75; observed medians 9.5-60). 621a re-runs identical 4-arm x 3-seed acceptance with emit_outcome + per-cell P1 episode_lengths[] in manifest for survival-gate autopsy. claim_ids=[Q-045, MECH-313, MECH-260] unchanged (same substrate-readiness diagnostic). experiment_purpose=diagnostic. Dry-run smoke 2026-05-31T20:40Z: 12/12 cells boot, verdict lines + emit_outcome path verified.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-05-31T20:44:21Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 90,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_621a_scaffolded_sd054_onboarding_substrate_readiness",
-      "seeds": 3
-    }
-  ]
+  "items": []
 }
