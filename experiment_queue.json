@@ -59,29 +59,6 @@
       "episodes_per_run": 80,
       "experiment_type": "v3_exq_569d_sd056_action_contrastive_diversity_falsifier_floor_recal",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-569e",
-      "title": "SD-056 mechanism probe (Pathway A vs Pathway B dissociation; parallel diagnostic to 569c/569d)",
-      "script": "experiments/v3_exq_569e_sd056_mechanism_probe_pathway_a_vs_b.py",
-      "priority": 305,
-      "machine_affinity": "any",
-      "estimated_minutes": 400,
-      "claim_id": "ARC-065",
-      "note": "Parallel diagnostic to V3-EXQ-569d (floor-recalibrated falsifier). 569d tests 'is the substrate operative under the right floor'; 569e (this) tests 'where is the 569c C3 lift coming from'. Both reference REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-569c_2026-05-30.{md,json} as predecessor context. supersedes intentionally NOT set -- 569e is a parallel mechanism probe, NOT a falsifier successor. claim_ids=[ARC-065, MECH-341] preserved from 569c. experiment_purpose=diagnostic so the verdict cell informs governance application of the autopsy-recommended evidence_quality_note + per-claim direction shift on the 569c manifest but does NOT itself weight scoring. Measurement set M3 + M4 + M1 + M5 per user-confirmed design via AskUserQuestion 2026-05-30T17:00Z: M3 fixes the 569c e3_top2_class_gap NaN bug (filter at append + track skip count); M4 frozen-E2-at-P1 ablation arms (train E2 P0 only); M5 force-argmin ablation arms (P1 temperature=0.01); M1 rollout-divergence over full horizon. 8 arms x 5 seeds = 40 cells (TWO live weights 0.05 + 0.20 per user-confirmed design; 5 seeds rather than 569c's 3 per spawning prompt's discriminative-arithmetic budget). Pre-registered interpretation grid in script docstring maps (frozen_pres, argmin_pres, rollout_amp_ratio) -> PATHWAY_A / PATHWAY_B / BOTH / NEITHER / INSTRUMENTATION_FAILURE verdict cells with absolute thresholds (PRESERVED_FLOOR=0.5 / COLLAPSED_CEIL=0.2 / ROLLOUT_B_FLOOR=2.0). Dry-run smoke 2026-05-30T17:07Z: 8/8 arms run to completion; M4 frozen path + M5 argmin path both fire; M1 rollout metric computed without NaN; validate_experiments.py exit 0. Sister chip V3-EXQ-569d (priority 310; supersedes 569c) queued in parallel.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-05-30T18:59:58Z"
-      },
-      "claim_ids": [
-        "ARC-065",
-        "MECH-341"
-      ],
-      "conditions": 8,
-      "episodes_per_run": 50,
-      "experiment_type": "v3_exq_569e_sd056_mechanism_probe_pathway_a_vs_b",
-      "seeds": 5
     }
   ]
 }
