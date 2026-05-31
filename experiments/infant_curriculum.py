@@ -46,7 +46,12 @@ from typing import Any, Callable, Dict, Optional
 PHASE_EP_MIN = [0, 100, 500, 2000]
 
 # Design-spec exit thresholds (infant_substrate_expansion.md Section 6).
-H_POS_FRAC_OF_MAX = 0.70      # H_pos >= 0.70 * ln(grid_cells) to leave Phase 0
+# H_POS_FRAC_OF_MAX recalibrated 2026-05-31 from 0.70 -> 0.20 per
+# failure_autopsy_V3-EXQ-591_2026-05-27.md section 7 (GAP-C prereq 3): observed
+# rolling-mean H_pos band 0.03-1.08 over 2000 episodes makes the legacy 0.70
+# threshold (= 0.70 * ln(144) ~ 3.48) structurally unreachable. 0.20 * ln(144)
+# ~ 0.99 sits inside the band with ~9% margin at the top.
+H_POS_FRAC_OF_MAX = 0.20      # H_pos >= 0.20 * ln(grid_cells) to leave Phase 0
 Z_GOAL_THRESHOLD = 0.30       # z_goal.norm() threshold for Phase 1 exit
 BENEFIT_CONTACTS_REQUIRED = 5  # accidental benefit contacts in last 100 eps
 RESIDUE_COVERAGE_THRESHOLD = 0.15  # residue_coverage_pct for Phase 2 exit

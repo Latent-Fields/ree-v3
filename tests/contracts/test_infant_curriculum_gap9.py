@@ -259,6 +259,71 @@ def test_c9_full_walk_hard_counts():
 # C10: benefit_contacts window gate
 # ------------------------------------------------------------------
 
+def test_c11_h_pos_default_within_observed_band():
+    """H_POS_FRAC_OF_MAX default must produce a threshold inside the observed
+    rolling-mean H_pos band 0.03-1.08 (failure_autopsy_V3-EXQ-591_2026-05-27.md
+    section 7). Pre-recalibration 0.70 -> 0.70 * ln(144) ~ 3.48 was outside
+    the band and never crossed across 2000 episodes / 5 seeds. Post-recalibration
+    2026-05-31: 0.20 -> 0.20 * ln(144) ~ 0.99 sits inside the band."""
+    h_max = math.log(12 ** 2)
+    threshold = H_POS_FRAC_OF_MAX * h_max
+    OBSERVED_MIN, OBSERVED_MAX = 0.03, 1.08
+    assert threshold <= OBSERVED_MAX, (
+        f"H_POS_FRAC_OF_MAX={H_POS_FRAC_OF_MAX} yields threshold={threshold:.4f}, "
+        f"above observed max H_pos {OBSERVED_MAX} from V3-EXQ-591 autopsy. "
+        f"Threshold must sit inside the achievable band."
+    )
+    assert threshold > 0.0, (
+        f"H_POS_FRAC_OF_MAX={H_POS_FRAC_OF_MAX} yields zero threshold; would "
+        f"defeat the H_pos gate entirely."
+    )
+
+
+def test_c11_synthetic_p0_trajectory_advances_phase():
+    """GAP-C prereq 3 smoke: a synthetic P0 H_pos trajectory drawn from the
+    middle of the observed-band (~0.99 = 0.20 * ln(144)) must advance Phase
+    0 -> 1 at the boundary tick. Regression guard against future recalibration
+    drift back above the observed ceiling."""
+    s = make_sched(grid_size=12)
+    h_max = math.log(12 ** 2)
+    # Simulate a P0 random-policy trajectory where rolling-mean H_pos saturates
+    # near the top of the observed band (autopsy max 1.08; threshold at
+    # 0.20 * ln(144) ~ 0.994). 1.05 sits inside the band with margin above the
+    # threshold.
+    p0_h_pos = 1.05
+    # Ramp up to the boundary at ep 100; gate should NOT fire before then.
+    for ep in (10, 50, 99):
+        p = s.update(ep, h_pos=p0_h_pos)
+        assert p == 0, f"Phase advanced before ep 100 (ep={ep}, p={p})"
+    # Boundary tick at the achievable signal magnitude must advance the phase.
+    p = s.update(100, h_pos=p0_h_pos)
+    assert p == 1, (
+        f"Phase 0->1 gate failed to fire at ep=100 with H_pos=0.99 (achievable "
+        f"per V3-EXQ-591 autopsy band 0.03-1.08); H_POS_FRAC_OF_MAX="
+        f"{H_POS_FRAC_OF_MAX} threshold={H_POS_FRAC_OF_MAX * h_max:.4f}"
+    )
+    assert s.phase_changed
+
+
+def test_c11_synthetic_p0_trajectory_marginal_clearance():
+    """The autopsy quotes 0.99 as 'reachable' at the 0.20 fraction-of-max
+    calibration. Confirm the gate clears with H_pos exactly at 0.99 (no
+    floating-point margin pathology) and stays blocked just below."""
+    s_blocked = make_sched(grid_size=12)
+    h_max = math.log(12 ** 2)
+    threshold = H_POS_FRAC_OF_MAX * h_max  # ~ 0.9939 at 0.20 / size=12
+    # Just below threshold: stay in Phase 0.
+    p = s_blocked.update(150, h_pos=threshold * 0.99)
+    assert p == 0, "Gate must block H_pos strictly below threshold."
+    # At threshold (or one tiny epsilon above): advance.
+    s_unblocked = make_sched(grid_size=12)
+    p = s_unblocked.update(150, h_pos=threshold * 1.001)
+    assert p == 1, (
+        f"Gate must admit H_pos at or just above threshold {threshold:.4f}; "
+        f"got phase {p} at H_pos={threshold * 1.001:.4f}"
+    )
+
+
 def test_c10_benefit_contacts_gate():
     s = make_sched()
     s.update(100)  # -> phase 1
