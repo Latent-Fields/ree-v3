@@ -39,26 +39,6 @@
       "episodes_per_run": 8,
       "experiment_type": "v3_exq_519b_sd051_conditioned_safety_store_readiness",
       "seeds": 1
-    },
-    {
-      "queue_id": "V3-EXQ-569d",
-      "title": "SD-056 floor-recalibrated FP-2 falsifier (ARC-065 GAP-A / MECH-341); supersedes 569c",
-      "script": "experiments/v3_exq_569d_sd056_action_contrastive_diversity_falsifier_floor_recal.py",
-      "priority": 310,
-      "machine_affinity": "any",
-      "estimated_minutes": 230,
-      "supersedes": "V3-EXQ-569c",
-      "claim_id": "ARC-065",
-      "note": "Floor-recalibrated successor to V3-EXQ-569c (FAIL on C1 borderline). C1 floor 0.05->0.03 per failure_autopsy_V3-EXQ-569c_2026-05-30 Section 5 (clean separation noise ~0.015 vs substrate-operative ~0.045). NaN bug on e3_top2_class_gap (NaN on ON arms in 569c due to non-finite scores leaking from contrastive-active E2) fixed via input non-finite filter in _per_class_score_stats + math.isfinite() check in caller; n_top2_gap_admitted + n_top2_gap_skipped_nonfinite surfaced per arm for verification. Extended P0 30->60 ep per user-confirmed budget (~220 min target). C3 tightened to strict-above matched-noise. Sister chip V3-EXQ-569e mechanism probe queued in parallel.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-05-30T18:47:01Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_569d_sd056_action_contrastive_diversity_falsifier_floor_recal",
-      "seeds": 3
     }
   ]
 }
