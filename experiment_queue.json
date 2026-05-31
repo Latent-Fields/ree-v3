@@ -29,6 +29,22 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-621",
+      "title": "scaffolded_sd054_onboarding substrate-readiness diagnostic (4-arm)",
+      "script": "experiments/v3_exq_621_scaffolded_sd054_onboarding_substrate_readiness.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "estimated_minutes": 240,
+      "claim_id": "Q-045",
+      "note": "scaffolded_sd054_onboarding substrate landed 2026-05-31 via /implement-substrate session (IGW-20260531-029). Plan-of-record memo: REE_assembly/evidence/planning/sd_054_scaffolded_onboarding_substrate_design.md. Triage memo: REE_assembly/evidence/planning/z_goal_collapse_triage_2026-05-31.md (classification (b) substrate-structural). 4-arm design: ARM_0 ALL_OFF_baseline (603c-style flat training on target env, no scheduler) / ARM_1 SCAFFOLD_ONLY (scheduler ON but goal-pipeline anneal endpoints clamped to silent state -- isolates spatial-scaffolding effect alone) / ARM_2 SCAFFOLD_AND_ANNEAL (full memo design with default anneal endpoints) / ARM_3 SCAFFOLD_AND_ANNEAL_FROM_SCRATCH (same as ARM_2 with per-seed agent reset -- pins effect to scheduler design, not warm-start carry-over). 3 seeds x 4 arms = 12 cells. P0=30 / P1=30 / P2=30 episodes x 200 steps. Acceptance per memo Acceptance section: C1 substrate-readiness (>= total_cells/2 cells complete P0+P1+P2 without hitting Fix D survival gate steps>=75) AND (C2 z_goal_norm_peak >= 0.1 on >= 2/3 seeds in at least one ARM_1/ARM_2/ARM_3 OR C3 cascade behaviourally consequential -- approach_commit_rate lift >= 0.10 vs ARM_0 baseline OR bridge_cue_fires mean per episode >= 2 OR dacc_bias_nonzero_steps mean per episode >= 1 in at least one scaffolded arm). PASS clears prereq (2) of behavioral_diversity_isolation:GAP-C; behavioural cluster validation V3-EXQ-603d / 591b queueable. FAIL routes to substrate re-triage (memo Section 'What the substrate fix is NOT promising' bullets reserve A1 full-policy-replay-onto-reward-rich-trajectories and A3 hand-coded heuristic-pretrained as fallback levers; substrate-uniform z_goal-zero family stays the working diagnosis). claim_ids=[Q-045, MECH-313, MECH-260] inherits the V3-EXQ-603c claim trio per the substrate-design memo's 'What does NOT do' disclaimer (the substrate addresses prereq (2) of GAP-C; cleared prereq -> 603c successor becomes queueable as V3-EXQ-603d; this experiment is the substrate-readiness gate, not the 603d successor). experiment_purpose=diagnostic (substrate-readiness; scoring-excluded from governance per Phase-3 rules until V3-EXQ-603d behavioural successor runs). Dry-run smoke 2026-05-31T18:05Z (reduced budget 2/2/1 episodes x 20 steps): all 12 cells run end-to-end without crash; manifest emitted; outcome FAIL (expected at smoke budget -- survival gate 75 steps structurally unreachable at 20 steps/ep). Full-scale run at 30/30/30 x 200 produces the substrate-readiness verdict. 17 contracts in tests/contracts/test_scaffolded_sd054_onboarding.py PASS. 645/645 full ree-v3 contracts + 7/7 preflight PASS with substrate landed (master OFF bit-identical to pre-2026-05-31). Concurrent-session coordination: IGW-20260531-030 holds claim on experiment_queue.json -- pathspec-limited commit avoids sweeping their staged work; queue_id 621 picked after re-reading queue immediately before append (620 went to SD-037 axis (a) Phase 1 mid-session, b072634).",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 90,
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_621_scaffolded_sd054_onboarding_substrate_readiness",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-592d",
       "title": "MECH-090 R-c commit-entry readiness conjunction validation (4-arm; supersedes V3-EXQ-592c)",
       "script": "experiments/v3_exq_592d_mech090_readiness_conjunction_validation.py",
@@ -67,22 +83,6 @@
       "episodes_per_run": 60,
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_620_sd037_axis_a_phase1_consumer_input_distributions",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-621",
-      "title": "scaffolded_sd054_onboarding substrate-readiness diagnostic (4-arm)",
-      "script": "experiments/v3_exq_621_scaffolded_sd054_onboarding_substrate_readiness.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "claim_id": "Q-045",
-      "note": "scaffolded_sd054_onboarding substrate landed 2026-05-31 via /implement-substrate session (IGW-20260531-029). Plan-of-record memo: REE_assembly/evidence/planning/sd_054_scaffolded_onboarding_substrate_design.md. Triage memo: REE_assembly/evidence/planning/z_goal_collapse_triage_2026-05-31.md (classification (b) substrate-structural). 4-arm design: ARM_0 ALL_OFF_baseline (603c-style flat training on target env, no scheduler) / ARM_1 SCAFFOLD_ONLY (scheduler ON but goal-pipeline anneal endpoints clamped to silent state -- isolates spatial-scaffolding effect alone) / ARM_2 SCAFFOLD_AND_ANNEAL (full memo design with default anneal endpoints) / ARM_3 SCAFFOLD_AND_ANNEAL_FROM_SCRATCH (same as ARM_2 with per-seed agent reset -- pins effect to scheduler design, not warm-start carry-over). 3 seeds x 4 arms = 12 cells. P0=30 / P1=30 / P2=30 episodes x 200 steps. Acceptance per memo Acceptance section: C1 substrate-readiness (>= total_cells/2 cells complete P0+P1+P2 without hitting Fix D survival gate steps>=75) AND (C2 z_goal_norm_peak >= 0.1 on >= 2/3 seeds in at least one ARM_1/ARM_2/ARM_3 OR C3 cascade behaviourally consequential -- approach_commit_rate lift >= 0.10 vs ARM_0 baseline OR bridge_cue_fires mean per episode >= 2 OR dacc_bias_nonzero_steps mean per episode >= 1 in at least one scaffolded arm). PASS clears prereq (2) of behavioral_diversity_isolation:GAP-C; behavioural cluster validation V3-EXQ-603d / 591b queueable. FAIL routes to substrate re-triage (memo Section 'What the substrate fix is NOT promising' bullets reserve A1 full-policy-replay-onto-reward-rich-trajectories and A3 hand-coded heuristic-pretrained as fallback levers; substrate-uniform z_goal-zero family stays the working diagnosis). claim_ids=[Q-045, MECH-313, MECH-260] inherits the V3-EXQ-603c claim trio per the substrate-design memo's 'What does NOT do' disclaimer (the substrate addresses prereq (2) of GAP-C; cleared prereq -> 603c successor becomes queueable as V3-EXQ-603d; this experiment is the substrate-readiness gate, not the 603d successor). experiment_purpose=diagnostic (substrate-readiness; scoring-excluded from governance per Phase-3 rules until V3-EXQ-603d behavioural successor runs). Dry-run smoke 2026-05-31T18:05Z (reduced budget 2/2/1 episodes x 20 steps): all 12 cells run end-to-end without crash; manifest emitted; outcome FAIL (expected at smoke budget -- survival gate 75 steps structurally unreachable at 20 steps/ep). Full-scale run at 30/30/30 x 200 produces the substrate-readiness verdict. 17 contracts in tests/contracts/test_scaffolded_sd054_onboarding.py PASS. 645/645 full ree-v3 contracts + 7/7 preflight PASS with substrate landed (master OFF bit-identical to pre-2026-05-31). Concurrent-session coordination: IGW-20260531-030 holds claim on experiment_queue.json -- pathspec-limited commit avoids sweeping their staged work; queue_id 621 picked after re-reading queue immediately before append (620 went to SD-037 axis (a) Phase 1 mid-session, b072634).",
-      "status": "pending",
-      "conditions": 4,
-      "episodes_per_run": 90,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_621_scaffolded_sd054_onboarding_substrate_readiness",
       "seeds": 3
     }
   ]
