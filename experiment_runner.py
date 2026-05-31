@@ -1810,10 +1810,15 @@ def main():
     parser.add_argument(
         "--laptop-yield-freshness-min",
         type=int,
-        default=3,
+        default=35,
         metavar="MINUTES",
-        help="Freshness threshold for the cloud-worker heartbeat check used by "
-             "--laptop-yield-to-cloud. Default: 3 minutes.",
+        help="Freshness threshold (minutes) for the cloud-worker heartbeat "
+             "check used by --laptop-yield-to-cloud. Default: 35 minutes. "
+             "This must accommodate the phase3 sync_daemon heartbeat writer's "
+             "30-min liveness floor (an idle-but-alive cloud worker may not "
+             "have its heartbeat file refreshed on REE_assembly for up to "
+             "~30 min). A tighter threshold (e.g. 3 min) will make the laptop "
+             "fail to yield to alive-but-idle cloud workers.",
     )
     args = parser.parse_args()
 
