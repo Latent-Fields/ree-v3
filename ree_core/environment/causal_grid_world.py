@@ -321,6 +321,14 @@ class CausalGridWorld:
         reef_bipartite_layout: bool = False,
         reef_bipartite_axis: str = "horizontal",
         reef_bipartite_agent_band_radius: int = 1,
+        # scaffolded_sd054_onboarding extension (2026-05-31). When True AND
+        # reef_bipartite_layout is also True, the agent spawn pool is widened
+        # to the union of the midline agent band AND the reef half. Hazards
+        # and resources still draw from the forage half only. Default False
+        # preserves all existing SD-054 / SD-054-bipartite behaviour.
+        # Bit-identical OFF: when False, _build_bipartite_pools takes the
+        # legacy agent-band-only predicate path.
+        reef_bipartite_agent_spawn_in_reef_half: bool = False,
         # infant_substrate:GAP-1 -- harm gradient env feature.
         # Graduated harm proximity reward proportional to distance from nearest
         # hazard. Fires when no direct-contact / approach transition has fired
@@ -693,6 +701,11 @@ class CausalGridWorld:
         self.reef_bipartite_axis = reef_bipartite_axis
         self.reef_bipartite_agent_band_radius = int(
             max(0, reef_bipartite_agent_band_radius)
+        )
+        # scaffolded_sd054_onboarding (2026-05-31): runtime-mutable flag so the
+        # scheduler can flip it across phase boundaries on the same env instance.
+        self.reef_bipartite_agent_spawn_in_reef_half = bool(
+            reef_bipartite_agent_spawn_in_reef_half
         )
         # Per-reset diagnostic; populated by _build_bipartite_pools() when bipartite
         # is active. 0 in legacy mode and in successful bipartite resets.
@@ -3202,7 +3215,20 @@ class CausalGridWorld:
                 if predicate(x, y) and (x, y) not in reef
             ]
 
-        agent_pool = _filter(self._is_in_agent_band)
+        # scaffolded_sd054_onboarding (2026-05-31): widen agent spawn
+        # admissibility to the union of the agent band AND the reef half
+        # when the new kwarg is on. Forage pool unchanged (hazards / resources
+        # still draw from the forage half only). This is the P0-scaffolding
+        # path: the agent can spawn inside the reef refuge band while the
+        # goal pipeline is frozen, surviving the encoder warm-up window
+        # without being killed by hazards it has not learned to avoid.
+        if self.reef_bipartite_agent_spawn_in_reef_half:
+            agent_pool = _filter(
+                lambda x, y: self._is_in_agent_band(x, y)
+                or self._is_in_reef_half(x, y)
+            )
+        else:
+            agent_pool = _filter(self._is_in_agent_band)
         forage_pool = _filter(self._is_in_forage_half)
 
         # Fallback: widen agent band if empty (rare; only on degenerate sizes).
