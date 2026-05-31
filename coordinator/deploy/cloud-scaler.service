@@ -1,0 +1,40 @@
+# /etc/systemd/system/cloud-scaler.service
+# Cloud worker scaler -- hub-resident, oneshot, driven by cloud-scaler.timer.
+#
+# Replaces ree-v3/.github/workflows/cloud-scaler.yml. Reads the local
+# REE_Working checkouts (kept fresh by ree-sync-daemon) and issues
+# `hcloud server poweron/shutdown` against ree-cloud-2/3/4. The hub VM
+# (ree-worker-1) is hardcoded as a skip in the Python; see the
+# HUB_NAME guard in cloud-scaler.py for the 2026-05-28 incident this
+# protects against.
+#
+# Type=oneshot driven by an OnCalendar=*:0/5 timer so each tick runs and
+# exits cleanly -- the timer is the heartbeat, the service is the work.
+# Easier to inspect (`journalctl -u cloud-scaler.service`) and there's no
+# long-running daemon to crash. EnvironmentFile=/etc/ree-coordinator.env
+# provides HCLOUD_TOKEN (already provisioned for ree-sync-daemon).
+
+[Unit]
+Description=REE cloud worker scaler (hub-resident; replaces GHA cloud-scaler.yml)
+# Wait for the hub coordinator + sync_daemon so the queue + heartbeat
+# files are reasonably fresh before we issue power-state decisions.
+After=ree-coordinator.service ree-sync-daemon.service network-online.target
+Wants=ree-coordinator.service ree-sync-daemon.service
+
+[Service]
+Type=oneshot
+User=ree
+WorkingDirectory=/home/ree/REE_Working/ree-v3/coordinator/deploy
+EnvironmentFile=/etc/ree-coordinator.env
+# Run a single tick. The timer fires every 5 minutes (OnCalendar=*:0/5).
+ExecStart=/usr/bin/python3 /home/ree/REE_Working/ree-v3/coordinator/deploy/cloud-scaler.py
+# Cap a runaway tick. A normal tick is <5s (4 hcloud describes + small
+# JSON reads); 60s is a generous ceiling that still prevents overlapping
+# ticks from queueing if the hcloud API is slow.
+TimeoutStartSec=60
+# Don't auto-restart -- the timer drives the cadence. Restart on failure
+# would defeat the oneshot semantic and cause overlapping ticks.
+
+[Install]
+# Service is timer-driven, not boot-activated. The .timer unit owns the
+# Install section; this service has no WantedBy.

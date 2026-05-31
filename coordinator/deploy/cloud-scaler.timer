@@ -1,0 +1,27 @@
+# /etc/systemd/system/cloud-scaler.timer
+# Drives cloud-scaler.service every 5 minutes on the wall clock.
+#
+# Cadence rationale: GitHub Actions promised every 15 minutes via
+# `cron: '*/15 * * * *'` but actual gaps were 60-273 minutes under load
+# (Actions scheduled-workflow best-effort SLA). On the hub we own the
+# scheduler, so the cadence is reliable. 5 minutes matches the IDLE_GRACE_MIN
+# decision window order-of-magnitude while keeping hcloud API calls bounded
+# (12 ticks/hour x 3 hcloud describes per tick + occasional poweron/shutdown).
+
+[Unit]
+Description=Timer for REE cloud worker scaler (5-minute tick)
+
+[Timer]
+# OnCalendar=*:0/5 == every 5 minutes on the dot (HH:00, HH:05, HH:10, ...).
+OnCalendar=*:0/5
+# If the hub was offline when a tick was due, fire one tick on boot to
+# catch up rather than waiting for the next 5-minute boundary.
+Persistent=true
+# Small randomised jitter so a fleet of hub-style hosts wouldn't all hit
+# the hcloud API at the same second. Currently a single hub, but cheap
+# insurance.
+RandomizedDelaySec=15
+Unit=cloud-scaler.service
+
+[Install]
+WantedBy=timers.target

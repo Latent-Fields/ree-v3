@@ -2,6 +2,17 @@ name: Cloud Worker Scaler
 # Auto-starts each Hetzner cloud worker when experiments matching its
 # machine_affinity are queued, stops it when no matching work remains.
 #
+# AUTHORITY MIGRATED 2026-05-31: the primary scaler now runs as a systemd
+# timer on the coordinator hub (ree-worker-1) -- see
+# ree-v3/coordinator/deploy/cloud-scaler.{py,service,timer,md}. The hub
+# timer fires every 5 minutes on the wall clock; this GHA workflow has
+# been downgraded to a 6-hourly backstop that only recovers a wedged hub.
+# Motivation: GHA scheduled-workflow gaps observed as 60-273 minutes
+# under load, leaving idle cloud workers running 1-4 hours past
+# IDLE_GRACE_MIN=20. The hub timer's cadence is reliable; if the hub is
+# itself down for hours, this 6-hourly backstop still catches forgotten
+# workers. Logic in both transports is identical 1:1.
+#
 # Routing rules (per worker):
 #   - "claimable" items = status==pending AND machine_affinity in {any, <server_affinity>}
 #   - mode "full" (default): server off + claimable > 0 -> poweron
@@ -33,7 +44,9 @@ name: Cloud Worker Scaler
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # every 15 minutes
+    # 6-hourly backstop. Hub timer is authoritative (every 5 min on the
+    # wall clock); see workflow header for migration notes 2026-05-31.
+    - cron: '0 */6 * * *'
   workflow_dispatch: {}       # manual trigger
 
 env:
