@@ -1,9 +1,14 @@
 """
-V3-EXQ-621: scaffolded_sd054_onboarding substrate-readiness diagnostic.
+V3-EXQ-621a: scaffolded_sd054_onboarding substrate-readiness diagnostic (621 successor).
 
-Substrate landed: 2026-05-31 via /implement-substrate-scaffolded-sd054-onboarding session
-(IGW-20260531-029). Plan-of-record memo:
-REE_assembly/evidence/planning/sd_054_scaffolded_onboarding_substrate_design.md.
+Supersedes V3-EXQ-621 (ree-cloud-3 2026-05-31T20:23Z). V3-EXQ-621 ran to completion
+and wrote a FAIL manifest but the runner classified ERROR because the script omitted
+emit_outcome() (exit=0, no sentinel). This iteration adds the runner sentinel and
+records full P1 per-episode length traces in each cell manifest for survival-gate
+autopsy (621 showed 8/12 cells failing Fix D median>=75 with medians 9.5-60).
+
+Scientific design unchanged from 621 (4-arm x 3-seed substrate-readiness per
+sd_054_scaffolded_onboarding_substrate_design.md).
 
 4-arm design per memo Acceptance section:
     ARM_0 ALL_OFF_baseline                   -- 603c-style flat training (master OFF)
@@ -58,7 +63,7 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -84,7 +89,9 @@ from experiments.scaffolded_sd054_onboarding import (
 )
 
 
-EXPERIMENT_TYPE = "v3_exq_621_scaffolded_sd054_onboarding_substrate_readiness"
+EXPERIMENT_TYPE = "v3_exq_621a_scaffolded_sd054_onboarding_substrate_readiness"
+QUEUE_ID = "V3-EXQ-621a"
+SUPERSEDES = "V3-EXQ-621"
 ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"
 CLAIM_IDS = ["Q-045", "MECH-313", "MECH-260"]
 SEEDS = [42, 43, 44]
@@ -108,6 +115,7 @@ class CellResult:
     dacc_bias_nonzero_total: int
     mean_p2_episode_length: float
     abort_reason: str = ""
+    p1_episode_lengths: List[int] = field(default_factory=list)
 
 
 def build_agent(seed: int, device: torch.device, world_obs_dim: int):
@@ -295,6 +303,7 @@ def run_cell(arm: str, seed: int, device, world_obs_dim: int, p0_eps: int, p1_ep
             bridge_cue_fires_total=measurement["bridge_cue_fires"],
             dacc_bias_nonzero_total=measurement["dacc_bias_nonzero_steps"],
             mean_p2_episode_length=measurement["mean_episode_length"],
+            p1_episode_lengths=[],
         )
 
     p0 = scheduler.run_p0(agent, device)
@@ -306,6 +315,7 @@ def run_cell(arm: str, seed: int, device, world_obs_dim: int, p0_eps: int, p1_ep
             p2_n_episodes=0, z_goal_norm_peak_max=0.0, approach_commit_rate=0.0,
             bridge_cue_fires_total=0, dacc_bias_nonzero_total=0,
             mean_p2_episode_length=0.0, abort_reason=p0.abort_reason or "p0_aborted",
+            p1_episode_lengths=[],
         )
     p1 = scheduler.run_p1(agent, device)
     if not p1.survival_gate_passed:
@@ -317,6 +327,7 @@ def run_cell(arm: str, seed: int, device, world_obs_dim: int, p0_eps: int, p1_ep
             z_goal_norm_peak_max=0.0, approach_commit_rate=0.0,
             bridge_cue_fires_total=0, dacc_bias_nonzero_total=0,
             mean_p2_episode_length=0.0, abort_reason="p1_survival_gate_failed",
+            p1_episode_lengths=list(p1.episode_lengths),
         )
     metrics = scheduler.run_p2(agent, device)
     return CellResult(
@@ -329,6 +340,7 @@ def run_cell(arm: str, seed: int, device, world_obs_dim: int, p0_eps: int, p1_ep
         bridge_cue_fires_total=metrics.bridge_cue_fires,
         dacc_bias_nonzero_total=metrics.dacc_bias_nonzero_steps,
         mean_p2_episode_length=metrics.mean_episode_length,
+        p1_episode_lengths=list(p1.episode_lengths),
     )
 
 
@@ -389,13 +401,14 @@ def evaluate_acceptance(cells: List[CellResult]) -> Dict[str, Any]:
 
 def emit_manifest(cells: List[CellResult], acceptance: Dict[str, Any], out_dir: Path, dry_run: bool):
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"v3_exq_621_scaffolded_sd054_onboarding_substrate_readiness_{ts}_v3"
+    run_id = f"v3_exq_621a_scaffolded_sd054_onboarding_substrate_readiness_{ts}_v3"
     outcome = "PASS" if acceptance["overall_pass"] else "FAIL"
     evidence_direction = "supports" if acceptance["overall_pass"] else "non_contributory"
 
     manifest = {
         "run_id": run_id,
-        "queue_id": "V3-EXQ-621",
+        "queue_id": QUEUE_ID,
+        "supersedes": SUPERSEDES,
         "experiment_type": EXPERIMENT_TYPE,
         "claim_ids": CLAIM_IDS,
         "experiment_purpose": "diagnostic",
@@ -452,10 +465,12 @@ def main(args: argparse.Namespace):
                 arm, seed, device, world_obs_dim, p0_eps, p1_eps, p2_eps, steps_per_ep
             )
             print(
-                f"  completed={result.cell_completed} "
+                f"  verdict: arm={arm} seed={seed} completed={result.cell_completed} "
+                f"p1_survival={result.p1_survival_passed} "
+                f"p1_median={result.p1_median_last_window:.1f} "
                 f"z_goal_peak={result.z_goal_norm_peak_max:.4f} "
                 f"approach_rate={result.approach_commit_rate:.3f} "
-                f"bridge_fires={result.bridge_cue_fires_total}"
+                f"abort={result.abort_reason or 'none'}"
             )
             cells.append(result)
 

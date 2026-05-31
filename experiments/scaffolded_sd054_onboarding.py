@@ -175,6 +175,7 @@ class P1OnboardingResult:
     final_mech307_conjunction_z_beta_threshold: float
     aborted: bool
     abort_reason: str = ""
+    episode_lengths: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -434,6 +435,7 @@ class ScaffoldedSD054OnboardingScheduler:
 
         n_eps = max(1, self.cfg.scaffold_p1_episode_budget)
         recent_lengths: Deque[int] = deque(maxlen=self.cfg.scaffold_p1_stability_window)
+        all_episode_lengths: List[int] = []
         last_anneal_t = 0.0
         for ep in range(n_eps):
             anneal_t = ep / max(1, n_eps - 1) if n_eps > 1 else 1.0
@@ -442,6 +444,7 @@ class ScaffoldedSD054OnboardingScheduler:
             ep_len = self._train_episode(
                 agent, env, device, e1_opt, wf_opt, wf_buf, world_dim
             )
+            all_episode_lengths.append(ep_len)
             recent_lengths.append(ep_len)
             last_anneal_t = anneal_t
 
@@ -477,6 +480,7 @@ class ScaffoldedSD054OnboardingScheduler:
             final_mech307_conjunction_z_beta_threshold=final_z_beta,
             aborted=False,
             abort_reason="" if survival_passed else "p1_survival_gate_failed",
+            episode_lengths=all_episode_lengths,
         )
         return self._p1_result
 
