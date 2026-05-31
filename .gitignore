@@ -22,3 +22,8 @@ runner *.pid
 script_timing.json
 runner_status.tmp
 coordinator/deploy/fleet_integrity_baseline.json
+# Per-host writer-health snapshot written by sync_daemon (see
+# coordinator/app.py /writer-health endpoint, 2026-05-31). Local-only;
+# never commit. Untracked-and-not-ignored wedges phase3_queue_writer's
+# clean-tree refusal.
+coordinator/writer_health.json
