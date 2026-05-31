@@ -2450,6 +2450,49 @@ class REEConfig:
     # False on the three sub-flags above. Bit-identical OFF by default.
     use_mech307_conjunction: bool = False
 
+    # SD-049 Phase 3: SD-032 consumer cascade reading per_axis_drive directly.
+    # Master switch (default False; bit-identical OFF). When True AND the env
+    # has multi_resource_heterogeneity_enabled + per_axis_drive_enabled
+    # (obs_dict["per_axis_drive"] is surfaced each tick), the agent threads
+    # the per-axis drive vector through every SD-032 consumer tick(). Each
+    # consumer then either collapses the vector to a scalar via its own
+    # combiner knob (whole-organism control modules: AIC / PCC / pACC / dACC /
+    # SalienceCoordinator / BroadcastOverrideRegulator -- biology predicts
+    # scalar control output) or routes by goal-axis index (MECH-295 liking-
+    # bridge -- biology predicts axis-matched wanting/liking dissociation,
+    # the canonical use case the SD-049 design doc unblocks for MECH-229 /
+    # MECH-117 / MECH-216 / Q-030).
+    #
+    # When this master flag is False, every consumer call site in agent.py
+    # passes per_axis_drive=None and the legacy scalar drive_level path is
+    # bit-identical. When True but env per-axis is OFF (no per_axis_drive
+    # in obs_dict), the agent still passes None -- the gate is "vector
+    # available AND master flag" rather than master-flag-only.
+    #
+    # Per-consumer combiner defaults are biology-anchored:
+    #   AIC      "max"  -- urgency / interoceptive salience tracks worst axis.
+    #   PCC      "mean" -- whole-organism fatigue integrates across axes.
+    #   pACC     "sum"  -- allostatic-load style accumulation (Baliki 2012).
+    #   dACC     "max"  -- control demand follows the most-pressing axis.
+    #   SalCoord "max"  -- external-task affinity scales with worst axis.
+    #   Override "max"  -- orexin recruits on the worst-deficit axis
+    #                       (Mileykovskiy 2005).
+    #   MECH-295 "max"  -- fallback when goal_axis_idx is None; primary
+    #                       path is per_axis_drive[goal_axis_idx].
+    # All combiners take values in {"max", "mean", "sum"}; ValueError raised
+    # on unknown values via ree_core.utils.per_axis_drive.validate_combiner.
+    #
+    # See REE_assembly/docs/architecture/sd_049_multi_resource_heterogeneity.md
+    # Phase 3 section + ree_core/utils/per_axis_drive.py shared helper.
+    use_sd049_per_axis_consumer_cascade: bool = False
+    sd049_aic_per_axis_combiner: str = "max"
+    sd049_pcc_per_axis_combiner: str = "mean"
+    sd049_pacc_per_axis_combiner: str = "sum"
+    sd049_dacc_per_axis_combiner: str = "max"
+    sd049_salience_per_axis_combiner: str = "max"
+    sd049_override_per_axis_combiner: str = "max"
+    sd049_mech295_per_axis_combiner: str = "max"
+
     def __post_init__(self) -> None:
         # MECH-307 master flag resolver. When the convenience master flag
         # is set, force the three substrate-side sub-flags True so callers
@@ -3065,6 +3108,18 @@ class REEConfig:
         breath_period: int = 50,
         breath_sweep_amplitude: float = 0.25,
         breath_sweep_duration: int = 5,
+        # SD-049 Phase 3: SD-032 consumer cascade reading per_axis_drive.
+        # Master flag + 7 per-consumer combiner knobs. All default to no-op
+        # (bit-identical OFF). See REEConfig.use_sd049_per_axis_consumer_cascade
+        # field comment for full design rationale.
+        use_sd049_per_axis_consumer_cascade: bool = False,
+        sd049_aic_per_axis_combiner: str = "max",
+        sd049_pcc_per_axis_combiner: str = "mean",
+        sd049_pacc_per_axis_combiner: str = "sum",
+        sd049_dacc_per_axis_combiner: str = "max",
+        sd049_salience_per_axis_combiner: str = "max",
+        sd049_override_per_axis_combiner: str = "max",
+        sd049_mech295_per_axis_combiner: str = "max",
         # Goal-stream convenience bundle. Kept near **kwargs to preserve the
         # long-standing positional order of from_dims() arguments.
         goal_stream_enabled: bool = False,
@@ -3681,6 +3736,21 @@ class REEConfig:
         # on cls() with the default False and was a no-op for this path.
         if use_sleep_aggregation_cluster:
             config.enable_sleep_aggregation_cluster()
+
+        # SD-049 Phase 3: SD-032 consumer cascade. Surface the master flag +
+        # 7 per-consumer combiners. Validation of combiner mode happens at
+        # the helper (ree_core.utils.per_axis_drive.collapse_per_axis_drive)
+        # the first time the agent invokes it -- we keep the assignment
+        # cheap and defer validation until use, matching the SD-035 / SD-036
+        # / MECH-313 / MECH-314 / MECH-320 pattern.
+        config.use_sd049_per_axis_consumer_cascade = use_sd049_per_axis_consumer_cascade
+        config.sd049_aic_per_axis_combiner = sd049_aic_per_axis_combiner
+        config.sd049_pcc_per_axis_combiner = sd049_pcc_per_axis_combiner
+        config.sd049_pacc_per_axis_combiner = sd049_pacc_per_axis_combiner
+        config.sd049_dacc_per_axis_combiner = sd049_dacc_per_axis_combiner
+        config.sd049_salience_per_axis_combiner = sd049_salience_per_axis_combiner
+        config.sd049_override_per_axis_combiner = sd049_override_per_axis_combiner
+        config.sd049_mech295_per_axis_combiner = sd049_mech295_per_axis_combiner
 
         return config
 

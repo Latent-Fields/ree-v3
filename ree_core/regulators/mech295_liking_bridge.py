@@ -70,9 +70,12 @@ to OFF for action selection.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple, Union
 
+import numpy as np
 import torch
+
+from ree_core.utils.per_axis_drive import collapse_per_axis_drive, select_axis
 
 
 @dataclass
@@ -193,6 +196,9 @@ class MECH295LikingBridge:
         drive_level: float,
         z_goal_norm: float,
         simulation_mode: bool = False,
+        per_axis_drive: Optional[Union[Sequence[float], np.ndarray, torch.Tensor]] = None,
+        goal_axis_idx: Optional[int] = None,
+        per_axis_combiner: str = "max",
     ) -> float:
         """Compute the magnitude of the anticipatory liking write.
 
@@ -214,7 +220,21 @@ class MECH295LikingBridge:
             return 0.0
         if self.config.drive_to_liking_gain == 0.0:
             return 0.0
-        d = float(drive_level)
+        # SD-049 Phase 3: when a per-axis drive vector is supplied with a
+        # goal_axis_idx, the liking write uses per_axis_drive[goal_axis_idx]
+        # -- the canonical axis-matched wanting/liking case (Berridge 2018
+        # incentive salience for the goal's specific resource type). When
+        # goal_axis_idx is None but per_axis_drive is supplied, fall back
+        # to the per-consumer combiner (default "max"). When per_axis_drive
+        # is None, use the legacy scalar drive_level (bit-identical OFF).
+        axis_matched: Optional[float] = select_axis(per_axis_drive, goal_axis_idx)
+        if axis_matched is not None:
+            d = axis_matched
+        else:
+            collapsed: Optional[float] = collapse_per_axis_drive(
+                per_axis_drive, mode=per_axis_combiner
+            )
+            d = collapsed if collapsed is not None else float(drive_level)
         g = float(z_goal_norm)
         if d < self.config.min_drive_to_fire:
             return 0.0
@@ -233,6 +253,9 @@ class MECH295LikingBridge:
         drive_level: float,
         candidate_proximities: torch.Tensor,
         simulation_mode: bool = False,
+        per_axis_drive: Optional[Union[Sequence[float], np.ndarray, torch.Tensor]] = None,
+        goal_axis_idx: Optional[int] = None,
+        per_axis_combiner: str = "max",
     ) -> torch.Tensor:
         """Compute the per-candidate approach-side score_bias.
 
@@ -256,7 +279,20 @@ class MECH295LikingBridge:
             return zero
         if self.config.liking_to_approach_cue_gain == 0.0:
             return zero
-        d = float(drive_level)
+        # SD-049 Phase 3: axis-matched effective drive for the approach cue.
+        # When goal_axis_idx is provided with a per-axis vector, the cue
+        # scales with the goal's resource-type deficit (per-candidate
+        # axis-matched wanting). When the vector is supplied without an
+        # axis index, fall back to the combiner. When per_axis_drive is
+        # None, use the legacy scalar drive_level (bit-identical OFF).
+        axis_matched: Optional[float] = select_axis(per_axis_drive, goal_axis_idx)
+        if axis_matched is not None:
+            d = axis_matched
+        else:
+            collapsed: Optional[float] = collapse_per_axis_drive(
+                per_axis_drive, mode=per_axis_combiner
+            )
+            d = collapsed if collapsed is not None else float(drive_level)
         if d < self.config.min_drive_to_fire:
             return zero
         # Per-candidate liking signal: drive * goal_proximity scaled

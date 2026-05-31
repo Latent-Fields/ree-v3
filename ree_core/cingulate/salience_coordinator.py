@@ -54,7 +54,12 @@ REE_assembly/docs/architecture/sd_032_cingulate_integration_substrate.md
 
 from dataclasses import dataclass, field
 from math import exp
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence, Union
+
+import numpy as np
+import torch
+
+from ree_core.utils.per_axis_drive import collapse_per_axis_drive
 
 
 # Mode names. Stored as a list (not a fixed-arity tuple) so V4 modes can be
@@ -314,6 +319,8 @@ class SalienceCoordinator:
         drive_level: float = 0.0,
         is_offline: bool = False,
         extra_signals: Optional[Dict[str, float]] = None,
+        per_axis_drive: Optional[Union[Sequence[float], np.ndarray, torch.Tensor]] = None,
+        per_axis_combiner: str = "max",
     ) -> Dict[str, object]:
         """Compute operating_mode, mode_switch_trigger for this step.
 
@@ -345,7 +352,19 @@ class SalienceCoordinator:
             self._input_signals["dacc_pe"] = 0.0
             self._input_signals["dacc_foraging"] = 0.0
             self._input_signals["dacc_difficulty"] = 0.0
-        self._input_signals["drive_level"] = float(drive_level)
+        # SD-049 Phase 3: when a per-axis drive vector is supplied, the
+        # "drive_level" affinity signal collapses via the per-consumer
+        # combiner (default "max" -- external-task affinity scales with the
+        # most-pressing axis, matching the biological reading of urgency-
+        # driven mode arbitration). Falls back to the supplied scalar
+        # drive_level when per_axis_drive is None (bit-identical OFF).
+        eff_drive_scalar: Optional[float] = collapse_per_axis_drive(
+            per_axis_drive, mode=per_axis_combiner
+        )
+        if eff_drive_scalar is not None:
+            self._input_signals["drive_level"] = eff_drive_scalar
+        else:
+            self._input_signals["drive_level"] = float(drive_level)
         self._input_signals["is_offline"] = 1.0 if is_offline else 0.0
         if extra_signals:
             for k, v in extra_signals.items():

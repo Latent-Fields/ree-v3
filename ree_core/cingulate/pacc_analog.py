@@ -72,9 +72,14 @@ REE_assembly/evidence/literature/targeted_review_pacc_autonomic_coupling_write_t
 """
 
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence, Union
 
 import math
+
+import numpy as np
+import torch
+
+from ree_core.utils.per_axis_drive import collapse_per_axis_drive
 
 
 @dataclass
@@ -151,6 +156,9 @@ class PACCAnalog:
         self._n_ticks: int = 0
         self._n_offline_resets: int = 0
         self._n_hypothesis_skipped: int = 0
+        # SD-049 Phase 3: last per-axis-derived scalar effective drive
+        # (None when no vector supplied or per-axis cascade disabled).
+        self._last_per_axis_drive_scalar: Optional[float] = None
 
     # -- State management --
 
@@ -189,6 +197,8 @@ class PACCAnalog:
         z_harm_a_norm: float,
         write_gate: float = 1.0,
         hypothesis_tag: bool = False,
+        per_axis_drive: Optional[Union[Sequence[float], np.ndarray, torch.Tensor]] = None,
+        per_axis_combiner: str = "sum",
     ) -> Dict[str, float]:
         """Accumulate one EMA step into drive_bias.
 
@@ -209,6 +219,16 @@ class PACCAnalog:
             hypothesis_skipped 1.0 if this tick was skipped by MECH-094
         """
         self._n_ticks += 1
+
+        # SD-049 Phase 3: cache the per-axis vector + its sum-combined scalar
+        # for diagnostic reads via effective_drive_from_per_axis(). The EMA
+        # accumulation pathway is whole-organism (z_harm_a_norm + write_gate)
+        # and does not change shape -- pACC is the slow allostatic write-back
+        # over the affective stream, not a per-axis depletion accumulator.
+        # Per-axis pACC is its own SD-level claim; see Phase 3 design memo.
+        self._last_per_axis_drive_scalar = collapse_per_axis_drive(
+            per_axis_drive, mode=per_axis_combiner
+        )
 
         if hypothesis_tag:
             self._n_hypothesis_skipped += 1
@@ -269,6 +289,24 @@ class PACCAnalog:
         }
 
     # -- Drive-level read --
+
+    def effective_drive_from_per_axis(
+        self,
+        per_axis_drive: Optional[Union[Sequence[float], np.ndarray, torch.Tensor]],
+        combiner: str = "sum",
+    ) -> Optional[float]:
+        """SD-049 Phase 3: collapse a per-axis drive vector then apply bias.
+
+        Sum-combiner default reflects the allostatic-load reading: pACC
+        autonomic drift integrates over all deficit axes (Baliki 2012
+        corticostriatal chronic-pain drift signature). Returns None when
+        per_axis_drive is None / empty; caller falls back to scalar
+        effective_drive(base_drive_level).
+        """
+        scalar = collapse_per_axis_drive(per_axis_drive, mode=combiner)
+        if scalar is None:
+            return None
+        return self.effective_drive(scalar)
 
     def effective_drive(self, base_drive_level: float) -> float:
         """Compute base_drive_level + drive_bias, clipped to [0, 1].

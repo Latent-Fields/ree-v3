@@ -55,9 +55,14 @@ regulator caches only its own threat window and EMA state).
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Dict, Optional
+from typing import Deque, Dict, Optional, Sequence, Union
 
 import math
+
+import numpy as np
+import torch
+
+from ree_core.utils.per_axis_drive import collapse_per_axis_drive
 
 
 @dataclass
@@ -155,6 +160,8 @@ class BroadcastOverrideRegulator:
         simulation_mode: bool = False,
         z_harm_intero_norm: Optional[float] = None,
         lpb_split_recruitment: bool = False,
+        per_axis_drive: Optional[Union[Sequence[float], np.ndarray, torch.Tensor]] = None,
+        per_axis_combiner: str = "max",
     ) -> float:
         """Advance state and return the new override_signal.
 
@@ -206,7 +213,17 @@ class BroadcastOverrideRegulator:
         threshold = max(1e-6, float(self.config.sustained_threat_threshold))
         sustained = max(0.0, min(1.0, mean_threat / threshold))
 
-        drive_input = max(0.0, min(1.0, float(drive_level)))
+        # SD-049 Phase 3: orexin recruitment reads the worst-deficit axis
+        # (max combiner default -- Mileykovskiy 2005 LH burst firing tracks
+        # the most-pressing homeostatic deficit, not the integrated load).
+        # Bit-identical to legacy when per_axis_drive is None.
+        eff_drive_scalar = collapse_per_axis_drive(
+            per_axis_drive, mode=per_axis_combiner
+        )
+        if eff_drive_scalar is not None:
+            drive_input = max(0.0, min(1.0, eff_drive_scalar))
+        else:
+            drive_input = max(0.0, min(1.0, float(drive_level)))
 
         # Sigmoid recruitment: override_raw = sigmoid(drive_w*drive +
         # harm_w*sustained - recruitment_threshold).

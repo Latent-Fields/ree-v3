@@ -49,7 +49,12 @@ REE_assembly/docs/architecture/sd_032_cingulate_integration_substrate.md
 """
 
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence, Union
+
+import numpy as np
+import torch
+
+from ree_core.utils.per_axis_drive import collapse_per_axis_drive
 
 
 @dataclass
@@ -176,7 +181,12 @@ class PCCAnalog:
 
     # -- Tick: main per-step computation --
 
-    def tick(self, drive_level: float = 0.0) -> Dict[str, float]:
+    def tick(
+        self,
+        drive_level: float = 0.0,
+        per_axis_drive: Optional[Union[Sequence[float], np.ndarray, torch.Tensor]] = None,
+        per_axis_combiner: str = "mean",
+    ) -> Dict[str, float]:
         """Compute pcc_stability for this step.
 
         Args:
@@ -193,11 +203,22 @@ class PCCAnalog:
         self._n_ticks += 1
         self._steps_since_offline += 1
 
-        drive = float(drive_level)
-        if drive < 0.0:
-            drive = 0.0
-        elif drive > 1.0:
-            drive = 1.0
+        # SD-049 Phase 3: when a per-axis drive vector is supplied, the PCC
+        # fatigue contribution sums over axes (mean combiner default;
+        # whole-organism fatigue integrates across deficits rather than
+        # tracking the worst single axis). Falls back to scalar drive_level
+        # when per_axis_drive is None (bit-identical OFF).
+        eff_drive_scalar: Optional[float] = collapse_per_axis_drive(
+            per_axis_drive, mode=per_axis_combiner
+        )
+        if eff_drive_scalar is not None:
+            drive = eff_drive_scalar
+        else:
+            drive = float(drive_level)
+            if drive < 0.0:
+                drive = 0.0
+            elif drive > 1.0:
+                drive = 1.0
         self._last_drive_level = drive
 
         window = max(1, int(self.config.offline_recency_window))

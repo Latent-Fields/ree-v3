@@ -67,7 +67,12 @@ REE_assembly/docs/architecture/sd_032_cingulate_integration_substrate.md
 """
 
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence, Union
+
+import numpy as np
+import torch
+
+from ree_core.utils.per_axis_drive import collapse_per_axis_drive
 
 
 @dataclass
@@ -173,6 +178,8 @@ class AICAnalog:
         beta_gate_elevated: bool = False,
         operating_mode: Optional[Dict[str, float]] = None,
         extra_salient: Optional[Dict[str, float]] = None,
+        per_axis_drive: Optional[Union[Sequence[float], np.ndarray, torch.Tensor]] = None,
+        per_axis_combiner: str = "max",
     ) -> Dict[str, float]:
         """Compute aic_salience and harm_s_gain for this step.
 
@@ -194,7 +201,18 @@ class AICAnalog:
         self._n_ticks += 1
 
         z_norm = float(z_harm_a_norm)
-        drive = float(drive_level)
+        # SD-049 Phase 3: when a per-axis drive vector is supplied, override
+        # the legacy scalar drive_level with the vector's combined effective
+        # value (default "max" -- urgency / interoceptive salience tracks
+        # the worst-deficit axis). When per_axis_drive is None, the legacy
+        # scalar path is taken unchanged (bit-identical OFF).
+        eff_drive_scalar: Optional[float] = collapse_per_axis_drive(
+            per_axis_drive, mode=per_axis_combiner
+        )
+        if eff_drive_scalar is not None:
+            drive = eff_drive_scalar
+        else:
+            drive = float(drive_level)
 
         # EMA interoceptive baseline.
         alpha = float(self.config.baseline_alpha)

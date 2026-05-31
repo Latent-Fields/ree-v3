@@ -1362,6 +1362,14 @@ class REEAgent(nn.Module):
         # Reset per-episode (None = no history yet this episode).
         self._harm_un_ema: Optional[torch.Tensor] = None
 
+        # SD-049 Phase 3: per-axis drive vector from the env's
+        # obs_dict["per_axis_drive"]. None when the env does not surface
+        # per-axis drive (SD-049 OFF) OR when sense() is called without
+        # obs_per_axis_drive. Cleared in reset() so cross-episode leakage
+        # is impossible. Threaded through to all 7 SD-032 consumer tick
+        # call sites by the Phase 3 _per_axis_drive_for_consumers helper.
+        self._per_axis_drive: Optional[torch.Tensor] = None
+
         # MECH-258 / SD-032b: previous-step z_harm_a for E2_harm_a rollout
         # and previous-step predicted z_harm_a for dACC PE computation.
         self._harm_a_prev: Optional[torch.Tensor] = None
@@ -1457,6 +1465,9 @@ class REEAgent(nn.Module):
         self._cached_e1_prior = None
         # SD-019a: reset harm_unpleasantness EMA on episode boundary.
         self._harm_un_ema = None
+        # SD-049 Phase 3: clear per-axis drive cache on episode boundary
+        # (sense() repopulates from obs_per_axis_drive on the first tick).
+        self._per_axis_drive = None
         # SD-032b: clear dACC state + previous-step harm_a cache.
         self._harm_a_prev = None
         self._harm_a_pred_prev = None
@@ -1803,6 +1814,21 @@ class REEAgent(nn.Module):
                     + blend * write_signal
                 )
 
+    def _per_axis_drive_for_consumers(self) -> Optional[torch.Tensor]:
+        """SD-049 Phase 3 plumbing gate.
+
+        Returns the cached per-axis drive vector iff (a) the SD-049 Phase 3
+        consumer cascade is enabled in config AND (b) sense() received a
+        non-None obs_per_axis_drive on the last tick. Otherwise returns
+        None so each consumer falls back to the legacy scalar drive_level
+        path -- bit-identical OFF guarantee.
+        """
+        if not getattr(
+            self.config, "use_sd049_per_axis_consumer_cascade", False
+        ):
+            return None
+        return self._per_axis_drive
+
     def sense(
         self,
         obs_body: torch.Tensor,
@@ -1810,6 +1836,7 @@ class REEAgent(nn.Module):
         obs_harm: Optional[torch.Tensor] = None,
         obs_harm_a: Optional[torch.Tensor] = None,
         obs_harm_history: Optional[torch.Tensor] = None,
+        obs_per_axis_drive: Optional[torch.Tensor] = None,
     ) -> LatentState:
         """
         SENSE + UPDATE step: encode split observation -> update latent state.
@@ -1838,6 +1865,20 @@ class REEAgent(nn.Module):
             obs_world = obs_world.unsqueeze(0)
         obs_body  = obs_body.to(self.device).float()
         obs_world = obs_world.to(self.device).float()
+
+        # SD-049 Phase 3: cache the per-axis drive vector for downstream
+        # SD-032 consumer ticks. Stored verbatim (detached, on-device);
+        # the per_axis_drive helper in ree_core/utils accepts torch/numpy/
+        # python-sequence interchangeably. None when the env did not
+        # surface per-axis drive (multi_resource_heterogeneity disabled or
+        # per_axis_drive_enabled=False) OR when the caller did not pass
+        # obs_per_axis_drive (legacy entry points).
+        if obs_per_axis_drive is not None:
+            self._per_axis_drive = (
+                obs_per_axis_drive.detach().to(self.device).float()
+            )
+        else:
+            self._per_axis_drive = None
 
         enc_body  = self.body_obs_encoder(obs_body)
         enc_world = self.world_obs_encoder(obs_world)
@@ -1959,6 +2000,12 @@ class REEAgent(nn.Module):
                 simulation_mode=bool(getattr(new_latent, "hypothesis_tag", False)),
                 z_harm_intero_norm=intero_norm,
                 lpb_split_recruitment=lpb_split,
+                # SD-049 Phase 3: orexin recruitment on worst-deficit axis
+                # when per-axis cascade is on.
+                per_axis_drive=self._per_axis_drive_for_consumers(),
+                per_axis_combiner=getattr(
+                    self.config, "sd049_override_per_axis_combiner", "max"
+                ),
             )
 
         # SD-032c: tick the AIC-analog interoceptive-salience module.
@@ -1996,6 +2043,11 @@ class REEAgent(nn.Module):
                 drive_level=aic_drive,
                 beta_gate_elevated=self.beta_gate.is_elevated,
                 operating_mode=aic_op_mode,
+                # SD-049 Phase 3: AIC urgency tracks worst-deficit axis.
+                per_axis_drive=self._per_axis_drive_for_consumers(),
+                per_axis_combiner=getattr(
+                    self.config, "sd049_aic_per_axis_combiner", "max"
+                ),
             )
 
         # SD-035: Amygdala analogue peer ticks (BLAAnalog + CeAAnalog).
@@ -2930,6 +2982,13 @@ class REEAgent(nn.Module):
                 z_harm_a_norm=_zha_norm,
                 write_gate=_auto_gate,
                 hypothesis_tag=False,
+                # SD-049 Phase 3: per-axis cache for diagnostics + the
+                # effective_drive_from_per_axis() helper. The EMA write-back
+                # is whole-organism; per-axis pACC is its own SD claim.
+                per_axis_drive=self._per_axis_drive_for_consumers(),
+                per_axis_combiner=getattr(
+                    self.config, "sd049_pacc_per_axis_combiner", "sum"
+                ),
             )
 
         # SD-032e: resolve the effective drive_level once, used by dACC,
@@ -2987,6 +3046,11 @@ class REEAgent(nn.Module):
                 candidate_action_classes=action_classes,
                 precision=float(self.e3.current_precision),
                 drive_level=drive_level,
+                # SD-049 Phase 3: control demand tracks worst-axis deficit.
+                per_axis_drive=self._per_axis_drive_for_consumers(),
+                per_axis_combiner=getattr(
+                    self.config, "sd049_dacc_per_axis_combiner", "max"
+                ),
             )
             self._dacc_last_bundle = bundle
             if self.dacc_adapter is not None:
@@ -3017,7 +3081,15 @@ class REEAgent(nn.Module):
             # modulated on this cycle. High stability -> harder to switch;
             # low stability (depleted / no recent rest / failing) -> easier.
             if self.pcc is not None:
-                self._pcc_last_tick = self.pcc.tick(drive_level=sal_drive)
+                self._pcc_last_tick = self.pcc.tick(
+                    drive_level=sal_drive,
+                    # SD-049 Phase 3: PCC fatigue integrates across axes
+                    # (mean combiner default; whole-organism fatigue scalar).
+                    per_axis_drive=self._per_axis_drive_for_consumers(),
+                    per_axis_combiner=getattr(
+                        self.config, "sd049_pcc_per_axis_combiner", "mean"
+                    ),
+                )
                 self.salience.update_signal(
                     "pcc_stability", float(self.pcc.pcc_stability)
                 )
@@ -3051,6 +3123,12 @@ class REEAgent(nn.Module):
                 dacc_bundle=sal_bundle,
                 drive_level=sal_drive,
                 is_offline=sal_offline,
+                # SD-049 Phase 3: SalienceCoordinator's drive_level signal
+                # reads worst-axis when per-axis cascade is on.
+                per_axis_drive=self._per_axis_drive_for_consumers(),
+                per_axis_combiner=getattr(
+                    self.config, "sd049_salience_per_axis_combiner", "max"
+                ),
             )
             # Optional: scale dACC score_bias by the e3_policy write-gate, so
             # that during internal_replay the dACC bias is suppressed near zero
@@ -3363,10 +3441,22 @@ class REEAgent(nn.Module):
                     eff_drive_m295 = self.pacc.effective_drive(base_drive)
                 else:
                     eff_drive_m295 = base_drive
+                # SD-049 Phase 3: pass the per-axis drive vector through.
+                # When goal_axis_idx is supplied at the agent level (not
+                # wired in this Phase -- experiments set it via a separate
+                # API in follow-on work), MECH-295 routes via the matched
+                # axis. Default fallback is the combiner (max).
+                _m295_pad = self._per_axis_drive_for_consumers()
+                _m295_combiner = getattr(
+                    self.config, "sd049_mech295_per_axis_combiner", "max"
+                )
                 m295_bias = self.mech295_bridge.compute_approach_cue_score_bias(
                     drive_level=eff_drive_m295,
                     candidate_proximities=cand_proximities,
                     simulation_mode=False,
+                    per_axis_drive=_m295_pad,
+                    goal_axis_idx=getattr(self, "_current_goal_axis_idx", None),
+                    per_axis_combiner=_m295_combiner,
                 )
                 # MECH-307 Path B: consumer-side conjunction read. Adds an
                 # additional approach bias when the four-way conjunction
@@ -4762,6 +4852,16 @@ class REEAgent(nn.Module):
                 drive_level=effective_drive,
                 z_goal_norm=z_goal_norm,
                 simulation_mode=False,
+                # SD-049 Phase 3: axis-matched liking write at the goal
+                # location. When _current_goal_axis_idx is set by an
+                # experiment caller (e.g. via update_z_goal_with_axis), the
+                # write uses per_axis_drive[axis_idx]. Default fallback is
+                # the per-consumer combiner (max).
+                per_axis_drive=self._per_axis_drive_for_consumers(),
+                goal_axis_idx=getattr(self, "_current_goal_axis_idx", None),
+                per_axis_combiner=getattr(
+                    self.config, "sd049_mech295_per_axis_combiner", "max"
+                ),
             )
             if write_value > 0.0:
                 # Write at the goal location (z_goal latent), not the agent's

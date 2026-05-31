@@ -47,10 +47,13 @@ See CLAUDE.md: SD-032b, MECH-258, MECH-260, ARC-058.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Sequence, Union
 
+import numpy as np
 import torch
 import torch.nn as nn
+
+from ree_core.utils.per_axis_drive import collapse_per_axis_drive
 
 
 @dataclass
@@ -329,6 +332,8 @@ class DACCAdaptiveControl(nn.Module):
         precision: float,
         drive_level: float = 0.0,
         current_outcome_class: Optional[int] = None,
+        per_axis_drive: Optional[Union[Sequence[float], np.ndarray, torch.Tensor]] = None,
+        per_axis_combiner: str = "max",
     ) -> dict:
         """Compute the Croxson integration bundle for the current step.
 
@@ -397,10 +402,23 @@ class DACCAdaptiveControl(nn.Module):
             device=mode_ev.device,
         )
 
+        # SD-049 Phase 3: when a per-axis drive vector is supplied, the dACC
+        # control-demand coupling reads the worst-axis (max combiner default
+        # -- biology: control demand follows the most-pressing deficit, not
+        # the integrated load). Bit-identical to legacy when per_axis_drive
+        # is None.
+        eff_drive_for_dacc: float
+        eff_drive_for_dacc_scalar: Optional[float] = collapse_per_axis_drive(
+            per_axis_drive, mode=per_axis_combiner
+        )
+        if eff_drive_for_dacc_scalar is not None:
+            eff_drive_for_dacc = eff_drive_for_dacc_scalar
+        else:
+            eff_drive_for_dacc = float(drive_level)
         # Scholl 2017: drive-gated coupling. Higher drive -> higher gain on
         # dACC influence into downstream selection. dacc_drive_coupling=0
         # disables this entirely (backward compat default).
-        drive_gain = 1.0 + self.config.dacc_drive_coupling * float(drive_level)
+        drive_gain = 1.0 + self.config.dacc_drive_coupling * eff_drive_for_dacc
 
         return {
             "mode_ev": mode_ev,
