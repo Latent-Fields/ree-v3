@@ -23,6 +23,7 @@ Config (env):
   COORDINATOR_MODE         shadow (default) | coordinator
 """
 
+import datetime
 import gzip
 import hashlib
 import hmac
@@ -61,8 +62,56 @@ LIFECYCLE_STALE_AFTER_DAYS = float(
 )
 MODE = os.environ.get("COORDINATOR_MODE", "shadow")
 
+# /writer-health reads this file, written by sync_daemon on every tick.
+# sync_daemon + app.py run as separate systemd units (ree-sync-daemon /
+# ree-coordinator), so in-process state sharing is not available -- the
+# file is the shared channel. Same env var on both processes ensures they
+# agree on the path; default sibling-of-script keeps the deploy template
+# simple.
+WRITER_HEALTH_FILE = os.environ.get(
+    "PHASE3_WRITER_HEALTH_FILE",
+    os.path.join(os.path.dirname(__file__), "writer_health.json"))
+
+# Errors stamped onto a writer record age out after this window. A writer
+# that errored, recovered, and then ran cleanly for >10 min has demonstrably
+# self-healed; surfacing the stale error in the explorer would false-alarm.
+WRITER_HEALTH_ERROR_TTL_S = 600
+
 _tokens_lock = threading.Lock()
 _tokens = {}
+
+
+def _utc_iso_now():
+    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _read_writer_health():
+    """Read the snapshot persisted by sync_daemon. Returns None when the
+    file is missing or malformed (writer hasn't ticked yet, or a partial
+    write). Never raises."""
+    try:
+        with open(WRITER_HEALTH_FILE, "r", encoding="utf-8") as fh:
+            doc = json.loads(fh.read())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    return doc
+
+
+def _age_out_errors(snapshot, cutoff_iso):
+    """Mutate snapshot in place: drop last_error entries older than the
+    cutoff. cutoff_iso is a UTC ISO string (`YYYY-MM-DDTHH:MM:SSZ`);
+    ISO-8601 sorts lexicographically so string compare is safe."""
+    writers = snapshot.get("writers") or {}
+    if not isinstance(writers, dict):
+        return
+    for rec in writers.values():
+        if not isinstance(rec, dict):
+            continue
+        err = rec.get("last_error")
+        if isinstance(err, dict) and err.get("at", "") < cutoff_iso:
+            rec["last_error"] = None
 
 
 def load_tokens():
@@ -144,6 +193,38 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "mode": MODE})
             return
         if self._authed() is None:
+            return
+        if path == "/writer-health":
+            # phase3 writer-health snapshot. Source of truth = the JSON
+            # file sync_daemon writes on every tick (see WRITER_HEALTH_FILE
+            # on both processes). Replaces the explorer's SSH + journal +
+            # git-log scrape for "is the writer alive" -- one HTTP call
+            # over WireGuard tells the explorer everything it needs.
+            #
+            # 503 when the file is missing or malformed: that means the
+            # sync_daemon process hasn't published a snapshot yet (cold
+            # start, deploy gap, or it's wedged). Explorer interprets
+            # 503 as "fall back to SSH probe".
+            snapshot = _read_writer_health()
+            if snapshot is None:
+                self._send(503, {
+                    "error": "writer_health snapshot not available",
+                    "path": WRITER_HEALTH_FILE,
+                })
+                return
+            # Defensive copy: don't mutate disk-derived state in place.
+            snapshot = json.loads(json.dumps(snapshot))
+            cutoff_dt = (
+                datetime.datetime.utcnow()
+                - datetime.timedelta(seconds=WRITER_HEALTH_ERROR_TTL_S))
+            cutoff_iso = cutoff_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            _age_out_errors(snapshot, cutoff_iso)
+            # Always stamp now_utc fresh: the file's now_utc is from the
+            # last sync_daemon tick. A caller computing "how recently did
+            # the writer tick" wants the file's last_tick_at vs THIS
+            # response's now_utc.
+            snapshot["now_utc"] = _utc_iso_now()
+            self._send(200, snapshot)
             return
         if path == "/commands":
             qs = parse_qs(urlparse(self.path).query)

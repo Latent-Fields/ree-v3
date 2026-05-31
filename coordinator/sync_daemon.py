@@ -25,10 +25,12 @@ All printed text is ASCII-only.
 """
 
 import argparse
+import datetime
 import json
 import os
 import subprocess
 import sys
+import threading
 import time
 
 import db
@@ -379,6 +381,114 @@ _PHASE3_HEARTBEAT_LAST_COMMITTED_STATE = {}   # machine -> state dict
 _PHASE3_HEARTBEAT_LAST_TICK_UTC = {}          # machine -> (utc_str, monotonic_seen_at)
 _PHASE3_HEARTBEAT_LAST_COMMIT_TS = 0.0        # monotonic time of last commit
 _PHASE3_HEARTBEAT_INITIALIZED = False         # False until first commit lands
+
+
+# ---- Writer-health snapshot (read by coordinator app.py /writer-health) ----
+#
+# Each writer updates last_tick_at on entry (post-READY-gate) and last_commit_at
+# on successful push. main() wraps each writer call in try/except to record
+# last_error. The snapshot is persisted to a JSON file shared with the
+# coordinator process: sync_daemon + app.py run as separate systemd units, so
+# in-process import is not available; a file is the simplest shared channel.
+# Explorer probes via the coordinator's HTTP plane (chip 2026-05-31), which
+# reads this file at request time.
+_WRITER_HEALTH_LOCK = threading.Lock()
+_WRITER_HEALTH = {
+    "git_writer":       {"last_tick_at": None, "last_commit_at": None,
+                         "last_error": None, "last_commit_sha": None,
+                         "last_commit_subject": None},
+    "queue_writer":     {"last_tick_at": None, "last_commit_at": None,
+                         "last_error": None, "last_commit_sha": None,
+                         "last_commit_subject": None},
+    "heartbeat_writer": {"last_tick_at": None, "last_commit_at": None,
+                         "last_error": None, "last_commit_sha": None,
+                         "last_commit_subject": None},
+}
+WRITER_HEALTH_FILE = os.environ.get(
+    "PHASE3_WRITER_HEALTH_FILE",
+    os.path.join(os.path.dirname(__file__), "writer_health.json"))
+
+
+def _utc_iso_now():
+    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _record_writer_tick(name):
+    with _WRITER_HEALTH_LOCK:
+        rec = _WRITER_HEALTH.get(name)
+        if rec is not None:
+            rec["last_tick_at"] = _utc_iso_now()
+
+
+def _record_writer_commit(name, repo_path=None, subject=None):
+    """Stamp the last successful commit. Fetches HEAD sha via a single
+    `git rev-parse HEAD` when repo_path is given; failure to fetch the sha
+    is non-fatal (the tick still counts as a commit)."""
+    now = _utc_iso_now()
+    sha = None
+    if repo_path:
+        try:
+            cp = subprocess.run(
+                ["git", "-C", repo_path, "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=5)
+            if cp.returncode == 0:
+                sha = cp.stdout.strip()[:40] or None
+        except (subprocess.TimeoutExpired, OSError):
+            sha = None
+    with _WRITER_HEALTH_LOCK:
+        rec = _WRITER_HEALTH.get(name)
+        if rec is not None:
+            rec["last_commit_at"] = now
+            if sha is not None:
+                rec["last_commit_sha"] = sha
+            if subject is not None:
+                rec["last_commit_subject"] = subject[:200]
+            # A successful commit clears any prior error -- if the writer
+            # ticked again and pushed, whatever broke is no longer breaking.
+            rec["last_error"] = None
+
+
+def _record_writer_error(name, exc):
+    with _WRITER_HEALTH_LOCK:
+        rec = _WRITER_HEALTH.get(name)
+        if rec is not None:
+            rec["last_error"] = {
+                "at": _utc_iso_now(),
+                "message": repr(exc)[:240],
+            }
+
+
+def _persist_writer_health():
+    """Atomically write the writer-health snapshot to WRITER_HEALTH_FILE.
+    Best-effort; failures do not break the writer tick."""
+    try:
+        with _WRITER_HEALTH_LOCK:
+            snapshot = {
+                "writers": {k: dict(v) for k, v in _WRITER_HEALTH.items()},
+                "sync_daemon_pid": os.getpid(),
+                "now_utc": _utc_iso_now(),
+            }
+        text = json.dumps(snapshot, indent=2) + "\n"
+        tmp = WRITER_HEALTH_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, WRITER_HEALTH_FILE)
+    except OSError as exc:
+        sys.stderr.write(
+            "[writer-health] persist failed: %r\n" % exc)
+
+
+def _reset_writer_health_state():
+    """Test helper. Mirrors _reset_phase3_heartbeat_state()."""
+    with _WRITER_HEALTH_LOCK:
+        for rec in _WRITER_HEALTH.values():
+            rec["last_tick_at"] = None
+            rec["last_commit_at"] = None
+            rec["last_error"] = None
+            rec["last_commit_sha"] = None
+            rec["last_commit_subject"] = None
 
 
 def _phase3_heartbeat_now():
@@ -966,6 +1076,8 @@ def phase3_git_writer(
             "no git writes performed\n")
         return False
 
+    _record_writer_tick("git_writer")
+
     # Claim-guard: pause when an operator session has an active
     # TASK_CLAIMS entry covering paths this writer touches. Returns
     # True (idle, not a failure) so the main loop schedules another
@@ -1179,6 +1291,8 @@ def phase3_git_writer(
                     "[phase3] pushed unpushed local commit (HEAD was %s "
                     "ahead of origin/%s); %d row(s) committed\n" % (
                         ahead_count, PHASE3_ASSEMBLY_BRANCH, len(staged)))
+                _record_writer_commit(
+                    "git_writer", repo_path=asm, subject=commit_msg)
             else:
                 # Case (a): true idempotent re-spool. ahead == 0 means
                 # the bytes really are on origin already.
@@ -1216,6 +1330,8 @@ def phase3_git_writer(
                     "must investigate (non-fast-forward = hub is behind "
                     "origin; resolve by hand).\n" % (push.stderr.strip()[:240]))
                 return False
+            _record_writer_commit(
+                "git_writer", repo_path=asm, subject=commit_msg)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         sys.stderr.write("[phase3] git commit/push error: %r\n" % exc)
         return False
@@ -1425,6 +1541,8 @@ def phase3_queue_writer(
             "(PHASE3_QUEUE_WRITER_READY=False); no git writes performed\n")
         return False
 
+    _record_writer_tick("queue_writer")
+
     # Claim-guard: pause when an operator session has an active
     # TASK_CLAIMS entry covering ree-v3/experiment_queue.json. Returns
     # True (idle, not a failure) so the main loop schedules another
@@ -1578,6 +1696,8 @@ def phase3_queue_writer(
                     "[phase3-queue] pushed unpushed local commit "
                     "(HEAD was %s ahead of origin/%s)\n" % (
                         ahead_count, br))
+                _record_writer_commit(
+                    "queue_writer", repo_path=repo, subject=commit_msg)
                 return True
             # ahead == 0 -- view is already on origin. Treat as no-op.
             return True
@@ -1606,6 +1726,8 @@ def phase3_queue_writer(
             "[phase3-queue] git commit/push error: %r\n" % exc)
         return False
 
+    _record_writer_commit(
+        "queue_writer", repo_path=repo, subject=commit_msg)
     sys.stdout.write(
         "[phase3-queue] snapshot pushed (%d active item(s))\n"
         % len(new_doc["items"]))
@@ -1727,6 +1849,8 @@ def phase3_heartbeat_writer(
             "[phase3-heartbeats] writer stub "
             "(PHASE3_HEARTBEAT_WRITER_READY=False); no git writes performed\n")
         return False
+
+    _record_writer_tick("heartbeat_writer")
 
     # Claim-guard: pause when an operator session has an active
     # TASK_CLAIMS entry covering runner_heartbeats/, runner_status/, or
@@ -1915,6 +2039,8 @@ def phase3_heartbeat_writer(
     sys.stdout.write(
         "[phase3-heartbeats] pushed (%s): %s (%d file(s))\n" % (
             commit_reason, commit_msg, len(staged)))
+    _record_writer_commit(
+        "heartbeat_writer", repo_path=asm, subject=commit_msg)
     _PHASE3_HEARTBEAT_LAST_COMMITTED_STATE.clear()
     _PHASE3_HEARTBEAT_LAST_COMMITTED_STATE.update(current_states)
     _PHASE3_HEARTBEAT_LAST_COMMIT_TS = now
@@ -1978,6 +2104,7 @@ def main():
                     sys.stderr.write(
                         "[sync] phase3_git_writer raised (unexpected): %r. "
                         "Treating as not-ready; daemon will exit.\n" % exc)
+                    _record_writer_error("git_writer", exc)
                     ok = False
                 # phase3_queue_writer is independent of the result writer;
                 # gated by its own PHASE3_QUEUE_WRITER_READY flag. When
@@ -1992,6 +2119,7 @@ def main():
                     sys.stderr.write(
                         "[sync] phase3_queue_writer error "
                         "(non-fatal): %r\n" % exc)
+                    _record_writer_error("queue_writer", exc)
                 # PLAN.md step 6: materialise runner_heartbeats/*.json
                 # and runner_status/*.json from heartbeat_payload_json /
                 # status_payload_json columns. Gated by its own
@@ -2002,6 +2130,13 @@ def main():
                     sys.stderr.write(
                         "[sync] phase3_heartbeat_writer error "
                         "(non-fatal): %r\n" % exc)
+                    _record_writer_error("heartbeat_writer", exc)
+                # Persist writer-health snapshot for the coordinator's
+                # /writer-health endpoint. Reads tick/commit/error stamps
+                # recorded inside each writer above. Best-effort; the
+                # helper swallows IO errors so a full disk on the hub
+                # cannot wedge the writer loop.
+                _persist_writer_health()
             finally:
                 conn.close()
             if not ok:
