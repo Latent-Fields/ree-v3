@@ -53,7 +53,7 @@
       "title": "MECH-090 R-c commit-entry readiness conjunction validation (4-arm; supersedes V3-EXQ-592c)",
       "script": "experiments/v3_exq_592d_mech090_readiness_conjunction_validation.py",
       "priority": 30,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "estimated_minutes": 450,
       "supersedes": "V3-EXQ-592c",
       "claim_id": "MECH-090",
