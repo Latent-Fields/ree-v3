@@ -1,13 +1,13 @@
 #!/opt/local/bin/python3
 """V3-EXQ-569a -- SD-056 action-contrastive matched-entropy FP-2 falsifier.
 
-Claims:    [ARC-065, MECH-341]
+Claims:    [ARC-065]
            ARC-065 directly (SP-CEM child / A_only falsifier; R1.b unlock).
-           MECH-341 indirectly via the "E3 aggregation collapses upstream
-           variance" interpretation cell -- the C1+!C3 outcome weakens
-           MECH-341's non-load-bearing reading by demonstrating that
-           per-candidate z_world variance is present yet behavioural
-           diversity does not lift.
+           MECH-341 is GAP-B's territory and is being actively probed by
+           V3-EXQ-614a successors (B_only / ablate_B / ALL_ON arms); the
+           C1+!C3 interpretation cell here informs ROUTING but does not
+           formally cross-tag MECH-341 to avoid double-counting evidence
+           with the GAP-B cluster.
 Supersedes: V3-EXQ-569 (non_contributory 2026-05-16, bias_fraction=0 collapse).
 Plan-of-record: REE_assembly/evidence/planning/behavioral_diversity_isolation_plan.md
 Predecessor diagnostic: REE_assembly/evidence/planning/v3_exq_571_root_cause_2026-05-25.md
@@ -137,7 +137,7 @@ from ree_core.utils.config import REEConfig  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_569a_sd056_action_contrastive_diversity_falsifier"
 QUEUE_ID = "V3-EXQ-569a"
-CLAIM_IDS: List[str] = ["ARC-065", "MECH-341"]
+CLAIM_IDS: List[str] = ["ARC-065"]
 EXPERIMENT_PURPOSE = "evidence"
 SUPERSEDES = "V3-EXQ-569"
 
@@ -740,16 +740,11 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
     summary = _evaluate(arm_results)
     outcome = "PASS" if summary["overall_pass"] else "FAIL"
-    # Per-claim direction is the same for both tagged claims in this multi-claim
-    # experiment: a PASS supports ARC-065 (R1.b unlock) AND weakens MECH-341's
-    # non-load-bearing reading; a FAIL leaves ARC-065 unchanged at the
-    # behavioural diversity question and supports the GAP-B / MECH-341
-    # load-bearing reading per the interpretation grid in the docstring.
-    per_claim_direction = (
-        {"ARC-065": "supports", "MECH-341": "weakens"}
-        if outcome == "PASS"
-        else {"ARC-065": "weakens", "MECH-341": "supports"}
-    )
+    # Single-claim experiment (ARC-065). PASS supports ARC-065 (R1.b unlock);
+    # FAIL is reported as a weaken on the direct A_only falsifier reading but
+    # the C1+!C3 interpretation cell ROUTES governance attention to GAP-B /
+    # MECH-341 via the docstring's interpretation grid (not via a formal
+    # cross-tag on this manifest).
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = f"{EXPERIMENT_TYPE}_{timestamp}_v3"
@@ -766,8 +761,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "experiment_purpose": EXPERIMENT_PURPOSE,
         "claim_ids": CLAIM_IDS,
         "supersedes": SUPERSEDES,
-        "evidence_direction": "mixed" if outcome == "FAIL" else "supports",
-        "evidence_direction_per_claim": per_claim_direction,
+        "evidence_direction": "supports" if outcome == "PASS" else "weakens",
         "evidence_direction_note": (
             "SD-056 matched-entropy FP-2 falsifier for GAP-A (behavioural "
             "diversity isolation, Theory 1 / Layer A). PASS = SD-056 lifts "
