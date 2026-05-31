@@ -8,6 +8,22 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-622",
+      "title": "staged goal-stream SD-054 curriculum S0-S3 (621 decomposition)",
+      "script": "experiments/v3_exq_622_goal_stream_staged_sd054.py",
+      "priority": 52,
+      "machine_affinity": "any",
+      "estimated_minutes": 200,
+      "claim_id": "Q-045",
+      "note": "Four-stage goal-stream diagnostic following V3-EXQ-621/621a (scaffolded_sd054_onboarding). 621 measured z_goal=0 likely because script omitted z_goal_enabled + update_z_goal per step; 622 fixes both. S0 goal-only+feed (drive_floor=0.9, transient benefit, reef spawn, rich resources) -> prove z_goal>=0.1. S1 mild hazard HFA=0 anneal drive_floor -> goal persists. S2 HFA+bridge anneal -> wanting/liking vs harm. S3 full SD-054 target eval -> arbitration. 1 condition x 3 seeds; PASS=ladder S0&S1&S2&S3 all pass per seed. Dry-run 2026-05-31T21:22Z: boots 3/3 seeds, S0 z_goal peak 0.32/0.25 on seeds 43/44. experiment_purpose=diagnostic. episodes_per_run=130 (40+30+30+30).",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 130,
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_622_goal_stream_staged_sd054",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-621a",
       "title": "scaffolded_sd054_onboarding substrate-readiness (621a: emit_outcome + P1 survival diagnostics)",
       "script": "experiments/v3_exq_621a_scaffolded_sd054_onboarding_substrate_readiness.py",
