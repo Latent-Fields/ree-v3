@@ -769,6 +769,29 @@ def _phase3_gate(env_name: str) -> bool:
     return os.environ.get(env_name, "").strip().lower() in ("1", "true", "yes")
 
 
+_PHASE3_HUB_FILE_WRITE_GATE_LOGGED = False
+
+
+def _phase3_hub_local_ree_assembly_writes_gated() -> bool:
+    """Hub co-tenancy: skip local REE_assembly file writes that dirty sync_daemon.
+
+    Uses the same hub-only gate as runner_remote_control heartbeat/command
+    FILE writes (PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE on ree-cloud-1).
+    In-memory status + coordinator POST /heartbeat still run; only the
+    on-disk runner_status/<machine>.json write is skipped.
+    """
+    global _PHASE3_HUB_FILE_WRITE_GATE_LOGGED
+    if _rrc is None:
+        return False
+    gated = _rrc._phase3_heartbeat_write_gated()
+    if gated and not _PHASE3_HUB_FILE_WRITE_GATE_LOGGED:
+        print("[runner] phase3 hub gate: skipping local runner_status file "
+              "writes (sync_daemon materialises from coordinator DB)",
+              flush=True)
+        _PHASE3_HUB_FILE_WRITE_GATE_LOGGED = True
+    return gated
+
+
 def git_push_queue() -> None:
     """Stage, commit, and push experiment_queue.json to ree-v3. Warns on failure."""
     if _phase3_gate("PHASE3_DISABLE_RUNNER_QUEUE_PUSH"):
@@ -915,8 +938,8 @@ def _affinity_matches(item: dict, machine: str) -> bool:
 
 # Cloud workers the laptop yields to when --laptop-yield-to-cloud is on.
 # Hardcoded list matches the cloud-scaler.yml WORKERS pairing (cloud-1 is the
-# coordinator hub with its runner systemctl-disabled, so it never claims; it
-# is still listed for forward-compat in case the hub/runner split changes).
+# coordinator hub but may run experiments when PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1
+# is set in hub shadow.conf; scaler never powers off the hub VM).
 LAPTOP_YIELD_CLOUD_HOSTS = (
     "ree-cloud-1",
     "ree-cloud-2",
@@ -1340,6 +1363,9 @@ _write_status_lock = threading.Lock()
 
 
 def write_status(status: dict, path: Path) -> None:
+    if _phase3_hub_local_ree_assembly_writes_gated():
+        status["last_updated"] = now_utc()
+        return
     with _write_status_lock:
         tmp = path.with_suffix(".tmp")
         status["last_updated"] = now_utc()
@@ -2839,16 +2865,19 @@ def main():
                 # shape (both are dicts; the writer prefers the rich
                 # form when present).
                 full_status = None
-                try:
-                    if status_path.exists():
-                        full_status = json.loads(
-                            status_path.read_text(encoding="utf-8"))
-                except (OSError, ValueError, UnicodeDecodeError):
-                    # UnicodeDecodeError catches the Windows-runner case
-                    # where the platform default text encoding doesn't
-                    # match the UTF-8 write_status produced. Stub fallback
-                    # below preserves the legacy report shape.
-                    full_status = None
+                if _phase3_hub_local_ree_assembly_writes_gated():
+                    full_status = status
+                else:
+                    try:
+                        if status_path.exists():
+                            full_status = json.loads(
+                                status_path.read_text(encoding="utf-8"))
+                    except (OSError, ValueError, UnicodeDecodeError):
+                        # UnicodeDecodeError catches the Windows-runner case
+                        # where the platform default text encoding doesn't
+                        # match the UTF-8 write_status produced. Stub fallback
+                        # below preserves the legacy report shape.
+                        full_status = None
                 coordinator_client.report_status(
                     machine,
                     full_status if isinstance(full_status, dict) else {
