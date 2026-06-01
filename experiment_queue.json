@@ -15,7 +15,11 @@
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 90,
       "supersedes": "V3-EXQ-614b",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-06-01T07:02:37Z"
+      },
       "claim_ids": [
         "MECH-341"
       ],
