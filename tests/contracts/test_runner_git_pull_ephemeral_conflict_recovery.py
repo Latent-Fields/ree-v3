@@ -329,3 +329,88 @@ def test_c6_mixed_conflict_refused(tmp_path):
     uu_after = set(_porcelain_uu(local))
     assert "README.md" in uu_after
     assert "experiment_queue.json" in uu_after
+
+
+# ---------------------------------------------------------------------------
+# C7: REE_assembly-side heartbeat dirty-tree stall recovers via git_pull
+# ---------------------------------------------------------------------------
+def test_c7_ree_assembly_heartbeat_stall_recovers(tmp_path):
+    """REE_assembly serve.py auto-pull historically used `pull --ff-only`
+    which refuses on any local modification to a tracked file, including
+    runner_heartbeats/<host>.json files the runner subprocess writes
+    every minute (2026-05-31 cloud-1 stall signature: "Your local changes
+    to the following files would be overwritten by merge. Aborting.").
+
+    serve.py now imports experiment_runner.git_pull, which does
+    `pull --rebase --autostash` plus ephemeral-path UU recovery. With a
+    divergent-content heartbeat file on both sides (worker mid-write
+    vs. hub writer publishing the canonical snapshot), git_pull must
+    leave the working tree clean of UU markers and land origin's bytes
+    for the heartbeat path (the hub writer is authoritative under
+    Phase 3).
+    """
+    root = tmp_path
+    root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "--bare", "remote.git"],
+                   cwd=str(root), check=True, capture_output=True)
+    local = root / "local"
+    other = root / "other"
+    for d in (local, other):
+        subprocess.run(["git", "clone", "remote.git", d.name],
+                       cwd=str(root), check=True, capture_output=True)
+    # Seed: a heartbeat file under the canonical REE_assembly path.
+    heartbeat_rel = "evidence/experiments/runner_heartbeats/cloud-1.json"
+    seed_dir = local / "evidence" / "experiments" / "runner_heartbeats"
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    (local / heartbeat_rel).write_text(
+        json.dumps({"state": "starting", "ts": "2026-05-31T00:00:00Z"}) + "\n")
+    _run(["git", "config", "user.email", "t@t"], local)
+    _run(["git", "config", "user.name", "T"], local)
+    _run(["git", "add", "-A"], local)
+    _run(["git", "commit", "-m", "init"], local)
+    _run(["git", "push", "origin", "HEAD:master"], local)
+    _run(["git", "config", "user.email", "t@t"], other)
+    _run(["git", "config", "user.name", "T"], other)
+    _run(["git", "fetch", "origin"], other)
+    _run(["git", "reset", "--hard", "origin/master"], other)
+
+    # Worker dirties the heartbeat (uncommitted modification of a
+    # tracked file -- the cloud-1 stall surface).
+    (local / heartbeat_rel).write_text(
+        json.dumps({"state": "idle", "ts": "2026-05-31T01:00:00Z"}) + "\n")
+
+    # Hub writer publishes a divergent version to origin via `other`.
+    (other / heartbeat_rel).write_text(
+        json.dumps({"state": "draining",
+                    "ts": "2026-05-31T01:00:30Z"}) + "\n")
+    _run(["git", "add", "-A"], other)
+    _run(["git", "commit", "-m", "phase3-heartbeats: cloud-1 publish"], other)
+    push = _run(["git", "push", "origin", "HEAD:master"], other)
+    assert push.returncode == 0, push.stderr
+
+    # Confirm the stall signature: plain ff-only pull refuses to proceed.
+    ff = _run(["git", "pull", "--ff-only"], local)
+    assert ff.returncode != 0, (
+        "ff-only pull should refuse on dirty tracked file"
+    )
+    assert ("would be overwritten by merge" in ff.stderr or
+            "would be overwritten" in ff.stderr), (
+        f"expected dirty-tree refusal; got: {ff.stderr!r}"
+    )
+
+    # The serve.py path -- via experiment_runner.git_pull -- must heal it.
+    experiment_runner.git_pull(local, "REE_assembly")
+
+    # Working tree must be free of UU markers.
+    assert _porcelain_uu(local) == [], (
+        f"git_pull left UU markers: {_porcelain_uu(local)}"
+    )
+    # Origin's bytes must have landed (hub writer authoritative).
+    landed = json.loads((local / heartbeat_rel).read_text())
+    assert landed.get("state") == "draining", (
+        f"expected origin's heartbeat content; got {landed}"
+    )
+
+    # Subsequent pulls must continue to succeed (no wedge across ticks).
+    experiment_runner.git_pull(local, "REE_assembly")
+    assert _porcelain_uu(local) == []

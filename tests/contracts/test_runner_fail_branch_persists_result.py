@@ -162,8 +162,8 @@ def test_c2_fail_branch_ships_manifest_before_queue_remove():
     )
     rr_idx = _idx(
         _FAIL_BRANCH,
-        "coordinator_client.report_result(",
-        "C2 FAIL coordinator_client.report_result",
+        "_report_result_and_align(",
+        "C2 FAIL _report_result_and_align",
     )
     rqr_idx = _idx(
         _FAIL_BRANCH,
@@ -176,7 +176,7 @@ def test_c2_fail_branch_ships_manifest_before_queue_remove():
         "ships before queue commits 'done')."
     )
     assert rr_idx < rqr_idx, (
-        "C2: FAIL branch must call coordinator_client.report_result "
+        "C2: FAIL branch must call _report_result_and_align "
         "BEFORE report_queue_remove."
     )
 
@@ -250,8 +250,8 @@ def test_c4_error_branch_ships_manifest_before_queue_remove_when_present():
     )
     rr_idx = _idx(
         _ERROR_BRANCH,
-        "coordinator_client.report_result(",
-        "C4 ERROR coordinator_client.report_result",
+        "_report_result_and_align(",
+        "C4 ERROR _report_result_and_align",
     )
     rqr_idx = _idx(
         _ERROR_BRANCH,
@@ -264,6 +264,6 @@ def test_c4_error_branch_ships_manifest_before_queue_remove_when_present():
         "a claimed manifest)."
     )
     assert rr_idx < rqr_idx, (
-        "C4: ERROR branch must call coordinator_client.report_result "
+        "C4: ERROR branch must call _report_result_and_align "
         "BEFORE report_queue_remove."
     )

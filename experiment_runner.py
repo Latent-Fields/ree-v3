@@ -158,6 +158,17 @@ _EPHEMERAL_WORKER_PATH_PREFIXES = (
     "evidence/experiments/runner_commands/",          # REE_assembly
 )
 
+# Untracked paths safe to stash before REE_assembly pull (Phase 3 hub writer
+# is canonical once phase3: lands). Run-pack dirs under v3_exq_* are NOT
+# matched -- only flat manifests and per-EXQ runner signals.
+_UNTRACKED_FLAT_MANIFEST_RE = re.compile(
+    r"^evidence/experiments/v3_[A-Za-z0-9_.-]+\.json$"
+)
+_UNTRACKED_RUNNER_SIGNAL_RE = re.compile(
+    r"^evidence/experiments/_runner_signals/V3-EXQ-[A-Za-z0-9_.-]+\.json$"
+)
+_PREPULL_STASH_MESSAGE = "runner-prepull-untracked"
+
 
 def _path_is_ephemeral_worker_owned(rel_path: str) -> bool:
     rel_path = rel_path.strip().strip('"')
@@ -338,6 +349,77 @@ def _warn_on_stash_bloat(
         pass
 
 
+def _untracked_paths_for_prepull_stash(repo_path: Path) -> list[str]:
+    """Return repo-relative untracked paths safe to stash before REE_assembly pull."""
+    try:
+        st = subprocess.run(
+            ["git", "status", "--porcelain", "-u", "--ignored=no"],
+            cwd=str(repo_path), capture_output=True, text=True, timeout=15,
+        )
+        if st.returncode != 0:
+            return []
+        out: list[str] = []
+        for line in st.stdout.splitlines():
+            if not line.startswith("?? "):
+                continue
+            rel = line[3:].strip().strip('"')
+            if _UNTRACKED_FLAT_MANIFEST_RE.match(rel) or _UNTRACKED_RUNNER_SIGNAL_RE.match(rel):
+                out.append(rel)
+        return out
+    except Exception:
+        return []
+
+
+def _prepull_stash_blocking_untracked(repo_path: Path, label: str) -> bool:
+    """Stash untracked flat manifests/signals that block alignment. Never raises."""
+    if label != "REE_assembly":
+        return False
+    paths = _untracked_paths_for_prepull_stash(repo_path)
+    if not paths:
+        return False
+    try:
+        r = subprocess.run(
+            ["git", "stash", "push", "--include-untracked", "-m", _PREPULL_STASH_MESSAGE,
+             "--", *paths],
+            cwd=str(repo_path), capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            print(f"[runner] git pull {label}: stashed {len(paths)} untracked "
+                  f"runner-owned path(s) before pull", flush=True)
+            return True
+        print(f"[runner] git pull {label}: prepull stash warn: "
+              f"{r.stderr.strip()}", flush=True)
+    except Exception as exc:
+        print(f"[runner] git pull {label}: prepull stash error: {exc}", flush=True)
+    return False
+
+
+def _postpull_restore_prepull_stash(repo_path: Path, label: str) -> None:
+    """Pop or drop the prepull stash if the hub writer now owns those paths."""
+    if label != "REE_assembly":
+        return
+    try:
+        top = subprocess.run(
+            ["git", "stash", "list", "-1", "--format=%s"],
+            cwd=str(repo_path), capture_output=True, text=True, timeout=10,
+        )
+        if top.returncode != 0 or _PREPULL_STASH_MESSAGE not in (top.stdout or ""):
+            return
+        pop = subprocess.run(
+            ["git", "stash", "pop"],
+            cwd=str(repo_path), capture_output=True, text=True, timeout=30,
+        )
+        if pop.returncode != 0:
+            subprocess.run(
+                ["git", "stash", "drop"],
+                cwd=str(repo_path), capture_output=True, timeout=10,
+            )
+            print(f"[runner] git pull {label}: dropped prepull stash "
+                  f"(paths likely on origin now)", flush=True)
+    except Exception:
+        pass
+
+
 def git_pull(repo_path: Path, label: str) -> None:
     """Pull latest changes. Retries on transient lock errors. Never raises.
 
@@ -366,6 +448,7 @@ def git_pull(repo_path: Path, label: str) -> None:
     pre = _list_unmerged_paths(repo_path)
     if pre is not None and (pre[0] or pre[1]):
         _recover_ephemeral_pull_conflict(repo_path, label)
+    _prepull_stash_blocking_untracked(repo_path, label)
     for attempt in range(3):
         try:
             r = subprocess.run(
@@ -390,6 +473,7 @@ def git_pull(repo_path: Path, label: str) -> None:
                     _recover_ephemeral_pull_conflict(repo_path, label)
                 else:
                     print(f"[runner] git pull {label}: {msg}", flush=True)
+                _postpull_restore_prepull_stash(repo_path, label)
                 _warn_on_stash_bloat(repo_path, label)
                 return
             stderr = r.stderr.strip()
@@ -425,6 +509,7 @@ def git_pull(repo_path: Path, label: str) -> None:
                 else:
                     print(f"[runner] git pull {label} post-recovery warn: "
                           f"{r2.stderr.strip()}", flush=True)
+                _postpull_restore_prepull_stash(repo_path, label)
                 _warn_on_stash_bloat(repo_path, label)
                 return
             print(f"[runner] git pull {label} warn: {stderr}", flush=True)
@@ -459,6 +544,60 @@ def _check_active_claim_on_file(relative_path: str) -> bool:
         return False
     except Exception:
         return False
+
+
+def align_ree_assembly_checkout(ree_assembly_path: Path | None) -> None:
+    """Best-effort align ree-v3 + REE_assembly with origin. Never raises.
+
+    Public entry for serve.py and scripts. Same guards as the runner
+    background pull (skips REE_assembly when an active TASK_CLAIMS entry
+    covers evidence/).
+    """
+    _sync_pull_tick(ree_assembly_path)
+
+
+def align_after_coordinator_result(
+    ree_assembly_path: Path | None,
+    manifest_path: str | None = None,
+) -> None:
+    """Pull soon after POST /result so phase3: commits appear locally.
+
+    manifest_path is accepted for logging/future use; alignment is a full
+    repo pull, not a single-file fetch. Schedules two delayed pulls (45s,
+    120s) to cover hub writer tick latency without blocking the runner loop.
+    """
+    if not ree_assembly_path:
+        return
+    _sync_pull_tick(ree_assembly_path)
+    if manifest_path:
+        print(f"[runner] post-result align: scheduled pulls for "
+              f"{manifest_path}", flush=True)
+
+    def _delayed_pulls() -> None:
+        for delay in (45, 120):
+            time.sleep(delay)
+            _sync_pull_tick(ree_assembly_path)
+
+    threading.Thread(
+        target=_delayed_pulls, daemon=True, name="post-result-align",
+    ).start()
+
+
+def _report_result_and_align(
+    ree_assembly_path: Path | None,
+    queue_id: str,
+    run_id: str | None,
+    manifest_path: str,
+    outcome: str,
+    machine: str,
+) -> None:
+    """POST /result then align checkout with origin. Never raises."""
+    try:
+        coordinator_client.report_result(
+            queue_id, run_id, manifest_path, outcome, machine)
+    except Exception as exc:
+        print(f"[runner] report_result warn for {queue_id}: {exc}", flush=True)
+    align_after_coordinator_result(ree_assembly_path, manifest_path)
 
 
 def _sync_pull_tick(ree_assembly_path: Path | None) -> None:
@@ -2707,8 +2846,8 @@ def main():
                     except Exception as _re:
                         print(f"[runner] warn: per-experiment ERROR results push "
                               f"failed for {queue_id}: {_re}", flush=True)
-                    coordinator_client.report_result(
-                        queue_id, result.get("run_id"),
+                    _report_result_and_align(
+                        ree_assembly_path, queue_id, result.get("run_id"),
                         result["output_file"], result["result"], machine)
                 try:
                     qdata = json.loads(QUEUE_FILE.read_text())
@@ -2776,8 +2915,8 @@ def main():
                     except Exception as _re:
                         print(f"[runner] warn: per-experiment FAIL results push "
                               f"failed for {queue_id}: {_re}", flush=True)
-                    coordinator_client.report_result(
-                        queue_id, result.get("run_id"),
+                    _report_result_and_align(
+                        ree_assembly_path, queue_id, result.get("run_id"),
                         result["output_file"], result["result"], machine)
                 try:
                     qdata = json.loads(QUEUE_FILE.read_text())
@@ -2901,8 +3040,8 @@ def main():
                 # SHADOW (no-op unless COORDINATION_MODE=shadow): ship the
                 # manifest bytes to the coordinator. Idempotent on run_id
                 # server-side; the shim swallows any path/IO error.
-                coordinator_client.report_result(
-                    queue_id, result.get("run_id"),
+                _report_result_and_align(
+                    ree_assembly_path, queue_id, result.get("run_id"),
                     result["output_file"], result["result"], machine)
 
             # Remove completed item from queue file -- runner_status.json is the
