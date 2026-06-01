@@ -15,7 +15,11 @@
       "estimated_minutes": 800,
       "supersedes": "V3-EXQ-610a",
       "backlog_id": "EVB-0270",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-01T01:40:55Z"
+      },
       "claim_ids": [
         "INV-074",
         "MECH-334",
