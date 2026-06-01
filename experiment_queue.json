@@ -168,6 +168,32 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_625_sd037_axis_b_phase1b_consumer_input_distributions_sustained_threat",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-514k",
+      "experiment_type": "v3_exq_514k_sd049_phase3_mech229_wanting_liking_identity",
+      "claim_ids": [
+        "SD-049",
+        "SD-015",
+        "MECH-229",
+        "MECH-230"
+      ],
+      "priority": 100,
+      "estimated_minutes": 90,
+      "seeds": [
+        42,
+        43,
+        44
+      ],
+      "machine_affinity": "any",
+      "added_utc": "2026-06-01T08:48:02Z",
+      "added_by": "IGW-20260601-026",
+      "supersedes": "V3-EXQ-514j",
+      "notes": "MECH-229 retest on SD-049 Phase 3 substrate (use_sd049_per_axis_consumer_cascade=True). Supersedes V3-EXQ-514j which FAILED row1b_joint_identity_probe_weak. Phase 3 consumer cascade (incl MECH-295 axis-matched routing) landed 2026-05-31. Tests identity-distinct wanting on multi-resource substrate per pending_retest_after_substrate gate.",
+      "status": "pending",
+      "script": "experiments/v3_exq_514k_sd049_phase3_mech229_wanting_liking_identity.py",
+      "title": "MECH-229 identity-distinct wanting retest on SD-049 Phase 3 substrate",
+      "experiment_purpose": "evidence"
     }
   ]
 }
