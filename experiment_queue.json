@@ -37,7 +37,11 @@
       "estimated_minutes": 60,
       "supersedes": "V3-EXQ-625",
       "note": "Root-cause fix for V3-EXQ-625 (/diagnose-errors, 2026-06-01). 625 reported a vacuous headline PASS while acceptance_pass=false with z_harm_a_norm identically 0.0 across all 1027 ticks / 3 seeds -- even on the 17 external-hazard-event ticks in seed 42. The cause was NOT 'harm magnitude below the affective noise floor' (plan Section 5.1 hypothesis) but the same config defect as V3-EXQ-620: gap4_operating=True -> REEConfig.goal_stream() never enabled use_affective_harm_stream, so z_harm_a was None and every consumer-input quantity read exactly 0.0. Fix: build_config(env, arm, enable_affective_harm_stream=True) (guarded library opt-in; auto-sizes harm_obs_a_dim for the limb-damage env). Keeps the axis-(b) env overlay (SD-029 scheduled_external_hazard curriculum + hazard_harm 0.2 + proximity_harm_scale 0.2). Outcome now TIED to the substrate-readiness acceptance gate (Section 3.4: C1 curriculum firing 3/3 + C2 z_harm_a non-zero >=2/3 + C3 sustained windows >=2/3) instead of the vacuous 'ran cleanly' gate. claim_ids=[] (pure-measurement substrate-readiness diagnostic; NOT load-bearing per claim_ids Accuracy Rule). Dry-run smoke PASS 2026-06-01T17:48Z: end-to-end without crash, z_harm_a now non-zero (zero_fraction 0.0, max ~0.33; BLA/CeA receive signal), manifest + emit_outcome sentinel written. NOTE: governance must reassess whether axis-(b) was needed once V3-EXQ-620b (baseline, stream ON) reports. Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-01T18:12:32Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 60,
@@ -64,30 +68,6 @@
       "episodes_per_run": 60,
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_626a_goal_pipeline_developmental_window_diagnostic",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-592e",
-      "title": "MECH-090 R-c readiness conjunction (4-arm, C1 baseline redesigned)",
-      "script": "experiments/v3_exq_592e_mech090_readiness_conjunction_validation.py",
-      "priority": 100,
-      "machine_affinity": "any",
-      "estimated_minutes": 360,
-      "supersedes": "V3-EXQ-592d",
-      "claim_id": "MECH-090",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-01T06:47:26Z"
-      },
-      "claim_ids": [
-        "MECH-090"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 450,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_592e_mech090_readiness_conjunction_validation",
-      "notes": "Supersedes V3-EXQ-592d (FAIL non_contributory 2026-06-01 per failure_autopsy_V3-EXQ-592d_2026-06-01). 592d C1 baseline predicate (commit_rate = n_commit_entries / total_p2_steps > 0.001) was structurally unmeetable under rv-only ARM_0 entry semantic. 592e applies BOTH autopsy Section 9 fixes orthogonally: (a) FORCE_UNCOMMITTED_P2_ENTRY=True per-episode release of beta_gate + null e3._committed_trajectory + zero _committed_step_idx at P2 episode start so the gate is consulted on every fresh re-elevation; (b) HOLD_RATE_BASED acceptance criteria replacing the unmeasurable commit-rate predicate. Interpretation grid updated: C1 FAIL now routes to /diagnose-errors for SCRIPT predicate correction (NOT curriculum harness, NOT gate -- the 592d grid routing was INVERTED per user gate 2026-06-01T05:55Z). 4 arms x 3 seeds; PASS unblocks commitment_closure:GAP-4 -> done substrate-side. claim_ids=[MECH-090] only per CLAUDE.md claim_ids Accuracy Rule. Cross-link IGW-20260531-021. Dry-run smoke PASS 2026-06-01T06:38Z (wiring + force-uncommitted per-episode + C1 redesign all verified end-to-end).",
       "seeds": 3
     },
     {
