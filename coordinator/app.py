@@ -240,6 +240,30 @@ class Handler(BaseHTTPRequestHandler):
                 conn.close()
             self._send(200, {"machine": machine, "commands": cmds})
             return
+        if path == "/queue/active":
+            # Active worklist from the coordinator mirror (Phase 3 authority).
+            conn = db.connect(DB_PATH)
+            try:
+                rows = conn.execute(
+                    "SELECT item_json FROM experiments "
+                    "WHERE status IN ('pending', 'claimed', 'suspended') "
+                    "ORDER BY priority DESC, queue_id"
+                ).fetchall()
+                items = []
+                for row in rows:
+                    raw = row["item_json"]
+                    try:
+                        items.append(json.loads(raw))
+                    except (TypeError, ValueError):
+                        continue
+            finally:
+                conn.close()
+            self._send(200, {
+                "source": "coordinator_db",
+                "now_utc": _utc_iso_now(),
+                "items": items,
+            })
+            return
         if path == "/shadow/divergence":
             conn = db.connect(DB_PATH)
             try:
