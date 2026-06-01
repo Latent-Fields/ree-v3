@@ -28,6 +28,22 @@
       "notes": "V3-EXQ-614c validates Part (a) of the 2026-06-01 MECH-341 amend (failure_autopsy_V3-EXQ-616 Sections 7 + 10 contingent-on-614b-FAIL-C1 path). 4-arm sweep stratified_within_class_temperature in {None=legacy, 0.5, 1.0, 2.0} on the SD-056-amended baseline (V3-EXQ-614b ARM_2 ALL_ON config: SP-CEM ON + MECH-341 ON + MECH-313 ON + V_s minimal ON + 5 SD-056 amend flags). Acceptance: C1 ARM_0_LEGACY mean entropy in [0.720, 0.880] (614b ARM_2 ALL_ON 0.800 +/- 10%) on >= 2/3 seeds (regression guard); C2 at least one of {0.5, 1.0, 2.0} mean entropy >= 0.800 on >= 2/3 seeds (within-class lift); C3 frac_pre_ge2 > 0.3 across all 4 arms on >= 2/3 seeds (substrate-readiness). PASS = C1 AND (C2 OR C3). 3 seeds x 4 arms x 90 ep x 200 steps = 216k steps. Cross-plan: same amend transitively unblocks arc_062_rule_apprehension:GAP-B (V3-EXQ-543l successor cohort) under shared SD-056-amended substrate. NO flip of use_differentiable_cem default (SD-055 safety note preserved). IGW-routed via implement-substrate-mech-341-amend-stratified-temp-ab-probe-20260601T063226Z."
     },
     {
+      "queue_id": "V3-EXQ-626",
+      "title": "Goal-pipeline developmental-window 4-arm dissociation (drive vs hazard vs writer-freeze; first dACC enabled in lineage)",
+      "script": "experiments/v3_exq_626_goal_pipeline_developmental_window_diagnostic.py",
+      "priority": 200,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 120,
+      "note": "Follow-up to failure_autopsy V3-EXQ-622 2026-06-01T07:55Z. Pre-registered design at REE_assembly/evidence/planning/goal_pipeline_developmental_window_diagnostic_memo_2026-06-01.md (REE_assembly master 12d2a48310). 4-arm dissociation on scaffolded_sd054_onboarding substrate isolating the load-bearing axis behind V3-EXQ-622 S1+ z_goal collapse: ARM_A_FORMATION_ONLY (regression guard on 622 S0 PASS; drive_floor=0.9 + HFA=0.0 throughout) / ARM_B_DRIVE_ANNEAL_ONLY (drive_floor 0.9->0.2 anneal during P1, NO hazard; H1 drive-axis isolation) / ARM_C_HAZARD_ONLY (drive_floor=0.9 constant, HFA 0.0->0.7 anneal; hazard-axis isolation) / ARM_D_WRITER_FROZEN_DURING_TRANSITION (freeze use_mech295 + use_mech307 during P1 while annealing BOTH drive AND hazard; Option-A test). use_dacc=True with dacc_weight=0.5/dacc_interaction_weight=0.5 enabled on ALL arms -- FIRST time in this lineage (V3-EXQ-621a + V3-EXQ-622 both had dACC unconfigured, making dacc_bias_nonzero=0 in both manifests a measurement-OFF artefact NOT a substrate failure). 5 pre-registered acceptance criteria C1-C5 (verbatim from memo Section 3): C1 ARM_A z_goal_median >= 0.05 on >=2/3 seeds (regression guard); C2 ARM_B z_goal_median < 0.05 AND ARM_B P1-end < 0.5 * ARM_A (drive-axis); C3 ARM_C z_goal_median < 0.05 (hazard-axis); C4 ARM_D z_goal_median at P2 START >= 0.5 * ARM_A (writer-freeze rescue); C5 highest-z_goal arm's dacc_bias_nonzero >= 1.0/ep on >=2/3 seeds (consumer readout under non-trivial z_goal). Overall PASS = C1 AND (C2 OR C3 OR C4) AND C5. 4-row interpretation grid in script docstring: PASS_C2/FAIL_C3/PASS_C5 -> /implement-substrate AMEND scaffolded_sd054_onboarding (sustained-drive EMA at low drive_floor); FAIL_C2/PASS_C3/PASS_C5 -> AMEND with risk introduction decoupled in time; PASS_C2_C3_C4 -> AMEND adding writer-freeze P1 sub-phase (Option-A confirmed); FAIL_C5 -> /failure-autopsy on dACC readout chain. claim_ids=[] (substrate-readiness diagnostic; same epistemic class as 621a + 622; NOT load-bearing evidence weighting per CLAIM_IDS Accuracy Rule). experiment_purpose=diagnostic. supersedes=null (new question, new EXQ number). 4 arms x 3 seeds x P0(30 ep) + P1(30 ep) + P2(30 ep), 200 steps/ep. ARM_D writer-freeze test is a V3-conservative approximation of the long-horizon ACh/PV/BDNF plasticity-window territory (docs/thoughts/2026-06-01_plasticity_window_neuromodulators.md); ARM_D PASS authorises substrate amend on scaffolded_sd054_onboarding only, NOT V4-scope substrate cluster. Dry-run smoke PASS 2026-06-01T08:35Z (12 cells run end-to-end without crash; progress instrumentation correct; validate_experiments AST OK; emit_outcome sentinel wired). HAZARD NOTED (V3-EXQ-603d incident 2026-06-01T06:46Z): phase3-queue sync_daemon snapshot writer can drop pathspec-staged files between git-add and git-commit; post-commit dropped-file check verifies V3-EXQ-626 lands cleanly. Concurrent active siblings at queue time: IGW-027 MECH-262 (foreign untracked experiments/v3_exq_598c_*.py; pathspec-limited git add avoids sweep).",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 4,
+      "episodes_per_run": 60,
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_626_goal_pipeline_developmental_window_diagnostic",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-592e",
       "title": "MECH-090 R-c readiness conjunction (4-arm, C1 baseline redesigned)",
       "script": "experiments/v3_exq_592e_mech090_readiness_conjunction_validation.py",
@@ -152,22 +168,6 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_625_sd037_axis_b_phase1b_consumer_input_distributions_sustained_threat",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-626",
-      "title": "Goal-pipeline developmental-window 4-arm dissociation (drive vs hazard vs writer-freeze; first dACC enabled in lineage)",
-      "script": "experiments/v3_exq_626_goal_pipeline_developmental_window_diagnostic.py",
-      "priority": 200,
-      "machine_affinity": "DLAPTOP-4.local",
-      "estimated_minutes": 120,
-      "status": "pending",
-      "claim_ids": [],
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_626_goal_pipeline_developmental_window_diagnostic",
-      "conditions": 4,
-      "episodes_per_run": 60,
-      "seeds": 3,
-      "note": "Follow-up to failure_autopsy V3-EXQ-622 2026-06-01T07:55Z. Pre-registered design at REE_assembly/evidence/planning/goal_pipeline_developmental_window_diagnostic_memo_2026-06-01.md (REE_assembly master 12d2a48310). 4-arm dissociation on scaffolded_sd054_onboarding substrate isolating the load-bearing axis behind V3-EXQ-622 S1+ z_goal collapse: ARM_A_FORMATION_ONLY (regression guard on 622 S0 PASS; drive_floor=0.9 + HFA=0.0 throughout) / ARM_B_DRIVE_ANNEAL_ONLY (drive_floor 0.9->0.2 anneal during P1, NO hazard; H1 drive-axis isolation) / ARM_C_HAZARD_ONLY (drive_floor=0.9 constant, HFA 0.0->0.7 anneal; hazard-axis isolation) / ARM_D_WRITER_FROZEN_DURING_TRANSITION (freeze use_mech295 + use_mech307 during P1 while annealing BOTH drive AND hazard; Option-A test). use_dacc=True with dacc_weight=0.5/dacc_interaction_weight=0.5 enabled on ALL arms -- FIRST time in this lineage (V3-EXQ-621a + V3-EXQ-622 both had dACC unconfigured, making dacc_bias_nonzero=0 in both manifests a measurement-OFF artefact NOT a substrate failure). 5 pre-registered acceptance criteria C1-C5 (verbatim from memo Section 3): C1 ARM_A z_goal_median >= 0.05 on >=2/3 seeds (regression guard); C2 ARM_B z_goal_median < 0.05 AND ARM_B P1-end < 0.5 * ARM_A (drive-axis); C3 ARM_C z_goal_median < 0.05 (hazard-axis); C4 ARM_D z_goal_median at P2 START >= 0.5 * ARM_A (writer-freeze rescue); C5 highest-z_goal arm's dacc_bias_nonzero >= 1.0/ep on >=2/3 seeds (consumer readout under non-trivial z_goal). Overall PASS = C1 AND (C2 OR C3 OR C4) AND C5. 4-row interpretation grid in script docstring: PASS_C2/FAIL_C3/PASS_C5 -> /implement-substrate AMEND scaffolded_sd054_onboarding (sustained-drive EMA at low drive_floor); FAIL_C2/PASS_C3/PASS_C5 -> AMEND with risk introduction decoupled in time; PASS_C2_C3_C4 -> AMEND adding writer-freeze P1 sub-phase (Option-A confirmed); FAIL_C5 -> /failure-autopsy on dACC readout chain. claim_ids=[] (substrate-readiness diagnostic; same epistemic class as 621a + 622; NOT load-bearing evidence weighting per CLAIM_IDS Accuracy Rule). experiment_purpose=diagnostic. supersedes=null (new question, new EXQ number). 4 arms x 3 seeds x P0(30 ep) + P1(30 ep) + P2(30 ep), 200 steps/ep. ARM_D writer-freeze test is a V3-conservative approximation of the long-horizon ACh/PV/BDNF plasticity-window territory (docs/thoughts/2026-06-01_plasticity_window_neuromodulators.md); ARM_D PASS authorises substrate amend on scaffolded_sd054_onboarding only, NOT V4-scope substrate cluster. Dry-run smoke PASS 2026-06-01T08:35Z (12 cells run end-to-end without crash; progress instrumentation correct; validate_experiments AST OK; emit_outcome sentinel wired). HAZARD NOTED (V3-EXQ-603d incident 2026-06-01T06:46Z): phase3-queue sync_daemon snapshot writer can drop pathspec-staged files between git-add and git-commit; post-commit dropped-file check verifies V3-EXQ-626 lands cleanly. Concurrent active siblings at queue time: IGW-027 MECH-262 (foreign untracked experiments/v3_exq_598c_*.py; pathspec-limited git add avoids sweep)."
     }
   ]
 }
