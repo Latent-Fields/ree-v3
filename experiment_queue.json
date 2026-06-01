@@ -116,29 +116,6 @@
       "experiment_type": "v3_exq_624_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-610b",
-      "script": "experiments/v3_exq_610b_inv074_crystallization_necessity.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 800,
-      "supersedes": "V3-EXQ-610a",
-      "backlog_id": "EVB-0270",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-01T01:40:55Z"
-      },
-      "claim_ids": [
-        "INV-074",
-        "MECH-334",
-        "MECH-333",
-        "MECH-341"
-      ],
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_610b_inv074_crystallization_necessity",
-      "notes": "INV-074 retest after MECH-341 parameter retune (entropy_lambda 0.05->0.5, bias_scale 0.1->1.0). V3-EXQ-610a showed FAIL with D1=False D2=False (non_contributory); this retest with amplified diversity signal may show different outcome. IGW-20260601-026."
     }
   ]
 }
