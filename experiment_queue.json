@@ -44,36 +44,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-514k",
-      "title": "MECH-229 identity-distinct wanting retest on SD-049 Phase 3 substrate",
-      "script": "experiments/v3_exq_514k_sd049_phase3_mech229_wanting_liking_identity.py",
-      "priority": 100,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "supersedes": "V3-EXQ-514j",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-01T09:55:46Z"
-      },
-      "added_by": "IGW-20260601-026",
-      "added_utc": "2026-06-01T08:48:02Z",
-      "claim_ids": [
-        "SD-049",
-        "SD-015",
-        "MECH-229",
-        "MECH-230"
-      ],
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_514k_sd049_phase3_mech229_wanting_liking_identity",
-      "notes": "MECH-229 retest on SD-049 Phase 3 substrate (use_sd049_per_axis_consumer_cascade=True). Supersedes V3-EXQ-514j which FAILED row1b_joint_identity_probe_weak. Phase 3 consumer cascade (incl MECH-295 axis-matched routing) landed 2026-05-31. Tests identity-distinct wanting on multi-resource substrate per pending_retest_after_substrate gate.",
-      "seeds": [
-        42,
-        43,
-        44
-      ]
-    },
-    {
       "queue_id": "V3-EXQ-592e",
       "title": "MECH-090 R-c readiness conjunction (4-arm, C1 baseline redesigned)",
       "script": "experiments/v3_exq_592e_mech090_readiness_conjunction_validation.py",
