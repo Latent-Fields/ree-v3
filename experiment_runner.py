@@ -1439,6 +1439,9 @@ def merge_peer_status(status_path: Path) -> set:
     if not all_completed:
         return seen_ids
 
+    if _phase3_hub_local_ree_assembly_writes_gated():
+        return seen_ids
+
     try:
         existing = json.loads(monolithic.read_text()) if monolithic.exists() else {}
     except Exception:
