@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-01
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-05-31)
+## 0. Current V3 State (2026-06-01)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -123,6 +123,9 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-056 | E2 action-conditional divergence preservation (contrastive next-state) -- substrate-level fix for the V3-EXQ-571 root-cause finding (2026-05-25): under reconstruction-shaped training, `E2.world_forward` fitted the action contribution to zero (`cand_world_pairwise_dist=0.0000` across K=8 candidates differing only in first action), collapsing per-candidate signal to every downstream consumer of `cand_world_summaries`. Same root cause as 2026-05-17 ARC-062 GAP-B autopsy; the GAP-B fix (gated_policy_use_first_action_onehot) was scoped only to GatedPolicy. SD-056 is the architecturally-faithful generalisation: fix the predictor's training objective rather than bypass it at each consumer. Adds InfoNCE-style auxiliary loss on `world_forward`: positive (z_world_0, a_i) -> predicted z_world_1[i], negatives drawn from in-batch sibling CEM candidates (K-1 distractors), temperature 0.1 (standard literature value). Two new helpers on E2FastPredictor: `cand_world_pairwise_dist` (headline substrate-readiness diagnostic; named by the 2026-05-28 lit-pull SYNTHESIS verdict 3 as a methodological gap worth publishing as standalone novel measurement) and `world_forward_contrastive_loss` (returns unweighted CE; caller multiplies by `config.e2.e2_action_contrastive_weight` before adding to L_E2). Scope: applies to `world_forward` only, not `predict_next_self` (z_self is not the collapse site). Biology anchors: cerebellar internal model (Tanaka 2020) + prefrontal counterfactual rollout (Miyamoto 2023) + vestibular cerebellum corollary discharge (Cullen 2023) all preserve action-specificity via dedicated structural mechanisms. ML/AI anchors: Srivastava 2021 contrastive RSSM, Saanum / Dayan / Schulz 2024 PLSM failure diagnosis, InfoNCE foundation. Config knobs (E2Config + REEConfig.from_dims mirror): e2_action_contrastive_enabled (default False; bit-identical OFF), e2_action_contrastive_weight (0.01), e2_action_contrastive_temperature (0.1), e2_action_contrastive_min_batch_classes (2). MECH-094 standard simulation_mode kwarg. 539/539 contracts + 7/7 preflight PASS with master OFF. | Implemented 2026-05-29 (V3-EXQ-NEW-1 substrate-readiness diagnostic UC1-UC5 queued; behavioural validation V3-EXQ-569a matched-entropy FP-2 falsifier on the fixed substrate queued separately per plan-of-record sequencing -- 569a hit a self-anchored-targets NaN bug 2026-05-29 and superseded by V3-EXQ-569b with observation-anchored targets via /diagnose-errors) |
 | SD-022 scheduled-injection extension (MECH-302 unblock) | environment.scheduled_limb_damage_curriculum -- env-side curriculum that periodically injects damage directly into `self.limb_damage` independent of agent action or hazard contact, supplying detectable damage->heal trajectories so the MECH-302 SufferingDerivativeComparator (SD-050) has reliable suffering signals regardless of a trained avoidance policy. Triggered by failure_autopsy_V3-EXQ-517b_2026-05-30: three FAIL discriminative-pair attempts (V3-EXQ-517 / 517a / 517b, 2026-05-04..06) ruled out parameter tuning -- trained avoidance policy filters out hazard-contact -> heal trajectories the comparator needs. Architecturally orthogonal to SD-029 scheduled_external_hazard: SD-029 relocates a hazard adjacent to the agent (still requires agent contact); SD-022 scheduled-injection bypasses contact entirely (allostatic / externally-imposed tissue insult). Five new env-only kwargs (NOT surfaced through REEConfig.from_dims; matches SD-022 / SD-023 / SD-029 / SD-047 / SD-048 / SD-049 / SD-054 precedent): scheduled_limb_damage_enabled (False), _interval (50), _prob (0.5), _magnitude (0.4), _limb_selection ("random" or "all"). Preconditions: enabled=True requires limb_damage_enabled=True (loud-not-silent ValueError). Always-present info dict tags. ML/AI anchor: Bengio 2009 automated curriculum learning -- stochastic gate + random limb selection mitigate schedule-prediction degenerate solutions. MECH-094 N/A (env observation stream). 565/565 contracts + 7/7 preflight PASS. | Implemented 2026-05-30; V3-EXQ-517c PASS 2026-05-30T12:45Z (2/3 seeds ARM_A 160.3 events/seed; 3/3 seeds ARM_B 0 events/seed); cleared MECH-302 + MECH-303 v3_pending gates (IGW-021 at 17:16Z) and lifted gate (c) for MECH-304 V3-EXQ-519 conditioned-inhibition. |
 | SD-037 consumer-cascade (MECH-281 motor-coupling axis amend) | regulators.broadcast_override.consumer_cascade -- amend session (NOT a fresh SD landing) triggered by V3-EXQ-483d FAIL (2026-05-29) substrate-ceiling diagnosis: with GoalState seeding + PAG freeze-gate consumers already wired (2026-04-25) but SalienceCoordinator slot dormant in the validation env and PFC/BLA/CeA/beta-gate sites unwired, override_signal had nowhere to land where it would move goal_norm_peak against the MECH-295 bridge baseline. Four additional consumer sites wired (all gated by 0.0-default scalar gains -- bit-identical OFF): (i) LateralPFCAnalog (SD-033a) eff_eta scaled by `1 + override_eta_gain * override_signal` (orexin-recruited state accelerates rule_state EMA); (ii) BLAAnalog (SD-035) encoding_gain scaled by `1 + override_encoding_gain * override_signal` (Roozendaal 2011 orexin -> NE/amygdala enhanced LTP); (iii) CeAAnalog (SD-035) mode_prior + fast_prime scaled by `1 + override_amplitude_gain * override_signal` (re-clipped to mode_prior_log_odds_max); (iv) BetaGate / MECH-091 urgency_interrupt_threshold attenuated by `max(0, 1 - override_beta_interrupt_gain * override_signal)` (orexin escape-from-freeze on motor side, parallel to PAG alpha_override). Four new REEConfig + from_dims knobs: override_pfc_eta_gain, override_bla_encoding_gain, override_cea_amplitude_gain, override_beta_interrupt_gain (all default 0.0). 556/556 contracts + 13 new MECH-281 contracts PASS with master OFF. | Implemented 2026-05-30; validation V3-EXQ-483e queued (4-arm successor under 483 lineage; claim_ids=[SD-037, MECH-280, MECH-281]; re-runs 483d ARM config with use_salience_coordinator=True + all four consumer-cascade gains>0 + PAG-engaging env via SD-036+MECH-279 freeze-engaging substrate). |
+| InfantCurriculumScheduler Phase 0->1 H_pos floor recalibration | curriculum.infant.phase0_to_1_exit_signal_recalibration -- closes behavioral_diversity_isolation:GAP-C prereq (3) Phase 0->1 exit signal recalibration. Sibling work to the scaffolded_sd054_onboarding substrate; together they close prereqs (2) and (3) for the goal-pipeline default-config z_goal generation gate. | Implemented 2026-05-31 (earlier in the day before scaffolded_sd054_onboarding); 645/645 contracts + 7/7 preflight PASS. |
+| SD-056 multi-step rollout stability amend | e2.world_forward.multi_step_contrastive -- amend to the 2026-05-29 SD-056 landing: multi-step contrastive horizon h=5 (vs h=1) + per-step output norm clamp ratio=2.0 to prevent multi-step rollout drift; resolves 569a self-anchored-targets NaN cluster + provides substrate-readiness pre-conditions for the 614 lineage behavioural validation chain. | Implemented 2026-05-31 (ree-v3 d327b89); V3-EXQ-617 substrate-readiness PASS 2026-05-31T11:31Z confirming amend stability + V3-EXQ-614a/b multi-arm rollout integrity (zero NaN/Inf across 162k steps at ARM_2 ALL_ON; 614 lineage entropy 0.684 -> 0.800 nats post-amend) |
+| scaffolded_sd054_onboarding substrate | curriculum.scaffolded_sd054_onboarding -- closes behavioral_diversity_isolation:GAP-C prereq (2) Cluster B substrate-uniform z_goal-zero family addressed by V3-EXQ-490g-cohort autopsy 2026-05-29 (Cluster B / V3-EXQ-603c). Three-phase scheduler at ree-v3/experiments/scaffolded_sd054_onboarding.py (NEW; experiment-harness layer alongside infant_curriculum.py + committed_mode_curriculum.py precedent; ree_core/ otherwise UNTOUCHED). P0: frozen goal pipeline (use_mech295_liking_bridge=False + use_mech307_conjunction=False runtime mutation) + reef-half spawn admissibility (new env kwarg reef_bipartite_agent_spawn_in_reef_half default False on CausalGridWorldV2; pool predicate widened to agent_band OR reef_half when True) + sub-target proximity_harm_scale 0.05 + relaxed hazard density; E1+E2 training over 30 episodes at 200 steps/episode. P1: linear anneal hazard_food_attraction 0.0->0.7, proximity_harm_scale 0.05->0.1, mech295_min_drive_to_fire 1.0->0.01, mech307_conjunction_z_beta_threshold 0.6->0.3; spawn admissibility narrows back to midline band; goal pipeline UNFROZEN; end-of-P1 survival gate (median episode length >= 75 over last 10 episodes, Fix D retained from V3-EXQ-603c). P2: target env config (hazard_food_attraction=0.7, proximity_harm_scale=0.1, num_hazards=4, num_resources=5; matches V3-EXQ-603b GAP-4 Tier-1 measurement env); policy frozen (no optimizer steps); measures z_goal_norm_peak, approach_commit_rate, bridge_cue_fires, dacc_bias_nonzero_steps per episode. Master switch use_scaffolded_sd054_onboarding_scheduler default False on ScaffoldedSD054OnboardingConfig (NOT surfaced through REEConfig.from_dims, matches committed_mode_curriculum / infant_curriculum precedent); 14 phase-config knobs match memo Config Surface table. 645/645 contracts + 17 new scaffolded_sd054_onboarding contracts PASS; bit-identical OFF guarantee verified. MECH-094: N/A (waking-stream env + agent state; no simulation / replay write surface). MECH-302 + MECH-303 v3_pending cleared 2026-05-30 by V3-EXQ-517c PASS sit upstream of this substrate; scaffolded_sd054_onboarding addresses the 583-uniform monomodal-V_s monostrategy tail signature across 483c / 524a / 603 lineage / 540a-e / 590a / 591 / 598 / 598b. | Implemented 2026-05-31 (ree-v3 main 28ebd3d); V3-EXQ-621 ERROR (runner sentinel misclass; manifest recovered from cloud-3) superseded by V3-EXQ-621a PASS 2026-05-31T23:09Z with emit_outcome + P1 survival diagnostics (per-cell p1_episode_lengths[] + verdict lines); V3-EXQ-622 staged goal-stream S0-S3 decomposing 621 z_goal failure queued same evening |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -141,6 +144,106 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-06-01T01:10Z nightly read.** Central
+  `evidence/experiments/runner_status.json` reports **786 cumulative
+  completions (+13 since 2026-05-31T01:10Z read)** (192 PASS / 314 FAIL
+  / 87 ERROR / 193 UNKNOWN; deltas: PASS +7, FAIL +3, ERROR +3, UNKNOWN
+  +0); last_updated 2026-06-01T01:11:28Z -- live at this read.
+  Today's ten returns: **V3-EXQ-569d PASS 2026-05-31T05:36Z** on the
+  ARC-065 / MECH-341 floor-recalibrated falsifier successor; **V3-EXQ-519b
+  PASS 2026-05-31T06:59Z** on the SD-051 / MECH-304 conditioned-safety-
+  store readiness retest after the MECH-302 gate (c) was lifted;
+  **V3-EXQ-615 PASS 2026-05-31T09:31Z** on the ARC-065 Rung-1 matched-
+  entropy control (ARM_2 ALL_ON 1.111 nats vs single-class collapse on
+  ARM_0 BASE_OFF and ARM_1 MATCHED_NOISE -- clean architectural-necessity
+  discrimination); **V3-EXQ-617 PASS 2026-05-31T11:31Z** on SD-056 multi-
+  step rollout stability amend substrate-readiness; **V3-EXQ-616 FAIL
+  2026-05-31T14:15Z** on Q-054 entropy_bias_scale sweep (bit-identical
+  per-seed results across scales {1.0, 2.0, 4.0, 8.0} -- mathematical
+  proof MECH-341 isolation structurally not reachable via the score-layer
+  scale lever); **V3-EXQ-618 PASS 2026-05-31T17:59Z** on SD-049 Phase 3
+  SD-032 consumer cascade substrate-readiness (3-arm Phase A end-to-end
+  smoke + Phase B direct-API probes); **V3-EXQ-614b FAIL 2026-05-31T18:20Z**
+  on MECH-341 P3 behavioural falsifier under SD-056-amended substrate
+  (substrate-coupling FAIL -- ARM_2 ALL_ON highest absolute entropy of any
+  614 run at 0.800 nats but MECH-341 marginal contribution shrank to 0.087
+  vs 0.100 C2 threshold because upstream cluster now does more diversity
+  work; NOT a falsification per failure-autopsy verdict); **V3-EXQ-620
+  PASS 2026-05-31T18:36Z** on the SD-037 axis (a) Phase 1 consumer-input
+  distributions diagnostic (per-step BLA/CeA/PAG/dACC consumer-input
+  distributions logged over fishtank baseline; closes plan Phase 1);
+  **V3-EXQ-621 ERROR 2026-05-31T20:23Z** on the scaffolded_sd054_onboarding
+  substrate-readiness diagnostic (runner sentinel misclassification +
+  missing emit_outcome; manifest recovered from ree-cloud-3 and superseded
+  by V3-EXQ-621a); **V3-EXQ-621a PASS 2026-05-31T23:09Z** on the
+  scaffolded_sd054_onboarding substrate-readiness diagnostic with
+  emit_outcome + P1 survival diagnostics + per-cell p1_episode_lengths.
+  **Pending review queue (regenerated 2026-05-31T19:25Z) reads 0 items**
+  -- all walked via the active `/governance` cycle (opened 2026-05-31T19:08Z).
+  **Currently queued (`experiment_queue.json` items[]): 0 items** at this
+  read (the most recent additions V3-EXQ-621a + V3-EXQ-622 were claimed by
+  runners and removed from the items[] snapshot under the Phase 3
+  coordinator-authoritative queueing path; check the coordinator DB
+  + `runner_status` for in-flight state). The recently-queued V3-EXQ-622
+  staged goal-stream S0-S3 (decomposes the 621 z_goal failure into a
+  four-stage curriculum to localise where the substrate-uniform
+  monostrategy collapse re-emerges) is the next-up validation. Substrate /
+  governance landings since the 2026-05-31T01:10Z snapshot: (1)
+  **scaffolded_sd054_onboarding substrate** (ree-v3 main 28ebd3d) --
+  closes behavioral_diversity_isolation:GAP-C prereq (2) substrate
+  landing; new experiment-harness scheduler at
+  `experiments/scaffolded_sd054_onboarding.py` (NEW), env kwarg
+  `reef_bipartite_agent_spawn_in_reef_half` (default False) on
+  CausalGridWorldV2, master switch
+  `use_scaffolded_sd054_onboarding_scheduler` (default False), 14
+  phase-config knobs all default to memo-suggested values; three-phase
+  P0/P1/P2 curriculum (frozen goal pipeline + reef-half spawn ->
+  linear-anneal hazard / proximity_harm / drive-to-fire / z_beta-threshold
+  -> target env frozen-policy measurement); 645/645 contracts + 17 new
+  contracts PASS; bit-identical OFF guarantee verified. (2) **SD-056
+  multi-step rollout stability amend** (ree-v3 d327b89) -- multi-step
+  contrastive horizon h=5 + per-step output norm clamp ratio=2.0 prevents
+  multi-step rollout drift; V3-EXQ-617 substrate-readiness PASS confirms
+  amend stability + V3-EXQ-614b ARM_2 ALL_ON zero NaN/Inf across 162k
+  steps. (3) **InfantCurriculumScheduler Phase 0->1 H_pos floor
+  recalibration** -- closes
+  behavioral_diversity_isolation:GAP-C prereq (3). (4) **MECH-341
+  cluster autopsy** (V3-EXQ-614b + V3-EXQ-615 + V3-EXQ-616 convergent
+  reading) -- ARC-065 supports (clean architectural-necessity
+  discrimination; promotion-eligibility candidate -> provisional surfaced
+  for next governance walk); MECH-341 non_contributory (claim correctly
+  characterised as score-layer preserver of upstream-supplied candidate-
+  pool diversity, not in-isolation diversity generator); Q-054 mixed
+  (definitive negative answer to scale-lever framing). (5) **Multi-round
+  flat-vs-runs propagation-failure mirroring** -- 29 mirrors across three
+  rounds; 11 claims dropped from the active conflicts table (95 -> 84:
+  ARC-045 / INV-010 / MECH-166 / MECH-261 / MECH-302 / MECH-320 / SD-017
+  / SD-033a / Q-045 / MECH-313 / MECH-260; partial-clear on ARC-065
+  ratio 0.231 -> 0.043). (6) **cloud-scaler GHA -> hub systemd migration
+  prepared** (ree-v3 d641419) -- coordinator/deploy/cloud-scaler.{py,
+  service,timer,md} adds hub-resident OnCalendar=\*:0/5 oneshot replacing
+  the every-15-min GHA workflow whose actual gaps had grown to 60-273
+  minutes under GHA load; HUB_NAME guard / HELD_BY_SELF veto / surge mode
+  / HEARTBEAT_FRESH_MIN floor all preserved (deploy operator-driven; not
+  deployed this session). (7) **Multiple smaller items** -- V3-EXQ-618
+  SD-049 Phase 3 SD-032 consumer cascade substrate-readiness; V3-EXQ-620
+  SD-037 axis (a) Phase 1 consumer-input distributions diagnostic;
+  IGW-038..042 cohort proposal-truth-up; z_goal collapse triage; SD-037
+  axis (a) consumer-input recalibration plan landed; failure-autopsy
+  artifacts for V3-EXQ-614b single-target + MECH-341 cluster + V3-EXQ-615
+  dual-manifest supersession. Bottleneck (updated framing): the **goal-
+  pipeline / training-regime substrate enrichment** is now the load-
+  bearing constraint behind the substrate-uniform monomodal-V_s
+  monostrategy tail across 483c / 524a / 603 lineage / 540a-e / 590a /
+  591 / 598 / 598b. The Layer-A E2 forward-model collapse fix (SD-056
+  + multi-step amend) is substrate-readiness validated; the
+  **scaffolded_sd054_onboarding** substrate is now landed and V3-EXQ-621a
+  PASS provides the first substrate-readiness signal. The next-cycle
+  bottleneck is the **V3-EXQ-622 staged goal-stream S0-S3** outcome
+  watch -- decomposes the 621 z_goal failure into a four-stage curriculum
+  to localise where the substrate-uniform monostrategy collapse re-emerges
+  under the new scaffolded onboarding. The V3-EXQ-543k disposition gap
+  (carried forward from 2026-05-21) remains outstanding.
 - **2026-05-31T01:10Z nightly read.** Central
   `evidence/experiments/runner_status.json` reports **773 cumulative
   completions (+5 since 2026-05-30T01:10Z read)** (185 PASS / 311 FAIL
