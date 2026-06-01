@@ -476,6 +476,9 @@ def _persist_writer_health():
                 "writers": {k: dict(v) for k, v in _WRITER_HEALTH.items()},
                 "sync_daemon_pid": os.getpid(),
                 "now_utc": _utc_iso_now(),
+                # Surfaced on GET /writer-health for the explorer panel
+                # (replaces SSH `ls coordinator-spool/pending | wc -l`).
+                "spool_pending": manifest_spool.count_pending(),
             }
         text = json.dumps(snapshot, indent=2) + "\n"
         tmp = WRITER_HEALTH_FILE + ".tmp"

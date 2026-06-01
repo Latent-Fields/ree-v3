@@ -130,6 +130,16 @@ def write_manifest(
         return None
 
 
+def count_pending() -> Optional[int]:
+    """Return the number of manifests waiting in the spool.
+
+    Returns None when COORDINATOR_SPOOL_DIR is unset (spooling disabled).
+    """
+    if _pending_dir() is None:
+        return None
+    return sum(1 for _ in list_pending_run_ids())
+
+
 def list_pending_run_ids() -> Iterator[str]:
     """Yield run_ids that have both manifest+meta files in the spool.
 

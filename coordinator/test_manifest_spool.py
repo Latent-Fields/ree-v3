@@ -69,6 +69,9 @@ class SpoolUnsetTest(unittest.TestCase):
     def test_list_empty(self):
         self.assertEqual(list(manifest_spool.list_pending_run_ids()), [])
 
+    def test_count_pending_disabled(self):
+        self.assertIsNone(manifest_spool.count_pending())
+
     def test_read_none(self):
         self.assertIsNone(manifest_spool.read_manifest("run_abc"))
         self.assertIsNone(manifest_spool.read_meta("run_abc"))
@@ -95,6 +98,7 @@ class SpoolRoundtripTest(unittest.TestCase):
         self.assertTrue(path.is_file())
         ids = list(manifest_spool.list_pending_run_ids())
         self.assertEqual(ids, ["v3_test_001"])
+        self.assertEqual(manifest_spool.count_pending(), 1)
         self.assertEqual(manifest_spool.read_manifest("v3_test_001"), raw)
         meta = manifest_spool.read_meta("v3_test_001")
         self.assertEqual(meta["sha256"], "deadbeef")
@@ -103,6 +107,7 @@ class SpoolRoundtripTest(unittest.TestCase):
             "evidence/experiments/v3_test_001.json")
         self.assertTrue(manifest_spool.delete_manifest("v3_test_001"))
         self.assertEqual(list(manifest_spool.list_pending_run_ids()), [])
+        self.assertEqual(manifest_spool.count_pending(), 0)
 
     def test_partial_meta_only_not_yielded(self):
         # Drop a stray .meta.json without a .json sibling -- list must skip it
