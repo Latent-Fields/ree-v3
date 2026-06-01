@@ -74,30 +74,6 @@
       "experiment_type": "v3_exq_624_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-592f",
-      "title": "MECH-090 commitment-state transition authority probe",
-      "script": "experiments/v3_exq_592f_mech090_commitment_state_transition_probe.py",
-      "priority": 35,
-      "machine_affinity": "any",
-      "estimated_minutes": 10,
-      "supersedes": "V3-EXQ-592e",
-      "claim_id": "MECH-090",
-      "note": "Queued from failure_autopsy_V3-EXQ-592e_2026-06-01. Minimal controlled state-machine probe using real REEAgent.select_action, real BetaGate, and real CommitReadiness with only E3 SelectionResult stubbed. Starts from already-held beta/E3 commitment state, forces score-margin failure, nav-readiness failure, both-gates failure, then recovery. PASS requires direct suppression/release of already-held beta or E3 committed pointer plus recovery after readiness returns. INVALID/non_contributory if forced inputs do not cross thresholds. Dry-run smoke PASS 2026-06-01T19:32Z: script executed, progress instrumentation ep 1/5..5/5 and one verdict line present, validate_experiments AST OK, py_compile OK, forced inputs crossed thresholds; diagnostic verdict under current code is FAIL_NO_RELEASE_AUTHORITY (expected from 592e autopsy). Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md: post-commit dropped-file check required before push.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-06-01T19:43:24Z"
-      },
-      "claim_ids": [
-        "MECH-090"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 5,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_592f_mech090_commitment_state_transition_probe",
-      "seeds": 1
     }
   ]
 }
