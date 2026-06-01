@@ -40,7 +40,11 @@
       "estimated_minutes": 600,
       "supersedes": "V3-EXQ-603c",
       "claim_id": "Q-045",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-01T06:53:29Z"
+      },
       "claim_ids": [
         "Q-045",
         "MECH-313",
