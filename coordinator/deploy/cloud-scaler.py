@@ -67,7 +67,12 @@ DEFAULTS = {
     # reality. 35 sits just above the liveness floor. Do NOT drop below
     # 35 -- regresses to the heartbeat_aging idle-stall bug.
     "HEARTBEAT_FRESH_MIN": 35,
-    "SURGE_QUEUE_THRESHOLD": 3,
+    # 2026-06-01: lowered 3->2 so a 2-deep "any"-affinity backlog wakes
+    # cloud-4 as overflow before the laptop (DLAPTOP-4.local) is pulled
+    # in. The sister-worker pre-check (cloud-2 + cloud-3 both running with
+    # held claims) still gates the power-on, so a 2-deep queue only surges
+    # cloud-4 when cloud-2/3 are already saturated.
+    "SURGE_QUEUE_THRESHOLD": 2,
     "HUB_NAME": "ree-worker-1",
 }
 

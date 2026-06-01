@@ -60,7 +60,7 @@ env:
   # workers in the "aging" zone for up to 60 min before the scaler would
   # touch them, burning Hetzner hours. 35 sits just above the liveness floor.
   HEARTBEAT_FRESH_MIN: 35     # heartbeat must be at most this many minutes stale
-  SURGE_QUEUE_THRESHOLD: 3    # claimable items required before a surge-mode worker is powered on
+  SURGE_QUEUE_THRESHOLD: 2    # claimable items required before a surge-mode worker is powered on (lowered 3->2 on 2026-06-01: wake cloud-4 overflow before pulling in the laptop; sister-worker saturation pre-check still gates power-on)
   # The coordinator hub VM must NEVER be considered for shutdown by the scaler.
   # ree-worker-1 runs ree-coordinator + ree-sync-daemon at 10.8.0.1:8787 (the
   # Phase-3 git writer hub). On 2026-05-28 the scaler powered the hub off
