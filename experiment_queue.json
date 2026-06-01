@@ -8,6 +8,28 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-610c",
+      "title": "INV-074 crystallization necessity test -- post-Phase-3-enrichment retest (supersedes V3-EXQ-610b)",
+      "script": "experiments/v3_exq_610c_inv074_crystallization_necessity.py",
+      "priority": 300,
+      "machine_affinity": "any",
+      "estimated_minutes": 800,
+      "supersedes": "V3-EXQ-610b",
+      "backlog_id": "EVB-0270",
+      "note": "Retest of INV-074 crystallization-necessity claim following IGW-20260601-023 substrate implementation (test_bed_enrichment_crystallization_necessity). V3-EXQ-610b (2026-06-01) FAILed with D2=false: the no-crystallization control arm did NOT show predicted post-Phase-3 diversity collapse (d2_delta -0.0057). Per failure_autopsy_V3-EXQ-610a_2026-06-01, the cause was test-bed ceiling: CausalGridWorldV2 supplied no post-Phase-3 destabilising pressure to force continued forward-model adaptation. IGW-20260601-023 implemented the substrate fix: infant_curriculum.InfantCurriculumScheduler Phase 3 now enables SD-047 multi_source_dynamics (weather_field + transient_events + background_drift with n_drift_sources=2), SD-048 interoceptive_noise (autonomic + sensitisation + fatigue at scale=0.6), and accelerated env_drift (interval=3, prob=0.5). These dynamics should force F-reconsolidation post-Phase-3. Prediction: ARM_0 (no crystallization) will now show entropy collapse (D2 delta >= +0.10); ARM_1 (MECH-333/334 crystallization) will preserve Phase-2 diversity. 2-arm design: ARM_0 control (crystallize=false) vs ARM_1 test (crystallize=true), both with MECH-313 noise_floor + MECH-260 dACC + MECH-341 E3 score diversity (retuned) + differential_heads (ARC-062 fix). 3 matched seeds (42/43/44), 4-phase infant curriculum (Phases 0-3), 2500 episodes @ 200 steps/ep. Pre-registered acceptance: D1 (ARM_1 - ARM_0 at end_phase_3 >= +0.10) AND D2 (ARM_0 phase_2 - phase_3 >= +0.10) AND D3 (both arms > 0.4 at phase_2). Interpretation grid in script docstring. Dry-run smoke test PASS 2026-06-01T18:48Z: end-to-end without crash, validate_experiments AST conformance OK, emit_outcome sentinel wired. claim_ids per Accuracy Rule: direct test of INV-074/MECH-333/MECH-334 only. experiment_purpose=evidence. Authored via IGW-20260601-028 (auto-spawned retest-after-substrate). Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
+      "status": "pending",
+      "claim_ids": [
+        "INV-074",
+        "MECH-333",
+        "MECH-334"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 2500,
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_610c_inv074_crystallization_necessity",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-620b",
       "title": "SD-037 axis-a Phase 1 consumer-input distributions -- affective stream ON (supersedes V3-EXQ-620)",
       "script": "experiments/v3_exq_620b_sd037_axis_a_phase1_consumer_input_distributions_stream_on.py",
@@ -26,27 +48,6 @@
       "episodes_per_run": 60,
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_620b_sd037_axis_a_phase1_consumer_input_distributions_stream_on",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-625b",
-      "title": "SD-037 axis-b Phase 1b consumer-input distributions, sustained threat -- affective stream ON (supersedes V3-EXQ-625)",
-      "script": "experiments/v3_exq_625b_sd037_axis_b_phase1b_consumer_input_distributions_sustained_threat.py",
-      "priority": 205,
-      "machine_affinity": "any",
-      "estimated_minutes": 60,
-      "supersedes": "V3-EXQ-625",
-      "note": "Root-cause fix for V3-EXQ-625 (/diagnose-errors, 2026-06-01). 625 reported a vacuous headline PASS while acceptance_pass=false with z_harm_a_norm identically 0.0 across all 1027 ticks / 3 seeds -- even on the 17 external-hazard-event ticks in seed 42. The cause was NOT 'harm magnitude below the affective noise floor' (plan Section 5.1 hypothesis) but the same config defect as V3-EXQ-620: gap4_operating=True -> REEConfig.goal_stream() never enabled use_affective_harm_stream, so z_harm_a was None and every consumer-input quantity read exactly 0.0. Fix: build_config(env, arm, enable_affective_harm_stream=True) (guarded library opt-in; auto-sizes harm_obs_a_dim for the limb-damage env). Keeps the axis-(b) env overlay (SD-029 scheduled_external_hazard curriculum + hazard_harm 0.2 + proximity_harm_scale 0.2). Outcome now TIED to the substrate-readiness acceptance gate (Section 3.4: C1 curriculum firing 3/3 + C2 z_harm_a non-zero >=2/3 + C3 sustained windows >=2/3) instead of the vacuous 'ran cleanly' gate. claim_ids=[] (pure-measurement substrate-readiness diagnostic; NOT load-bearing per claim_ids Accuracy Rule). Dry-run smoke PASS 2026-06-01T17:48Z: end-to-end without crash, z_harm_a now non-zero (zero_fraction 0.0, max ~0.33; BLA/CeA receive signal), manifest + emit_outcome sentinel written. NOTE: governance must reassess whether axis-(b) was needed once V3-EXQ-620b (baseline, stream ON) reports. Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-01T18:12:32Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 60,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_625b_sd037_axis_b_phase1b_consumer_input_distributions_sustained_threat",
       "seeds": 3
     },
     {
@@ -80,33 +81,11 @@
       "claim_id": "MECH-320",
       "backlog_id": "EVB-0237",
       "note": "ARC-068 (action.opportunity_cost_no_op_penalty) Niv-vs-Salamone discriminative test on MECH-320 w_passive implementation. EXP-0081 / EVB-0237 dispatch_mode=discriminative_pair. ARC-068 lit-pull R3 verdict 2026-05-16 preserves slot-level registration; implementation collapses into MECH-320. R4 verdict: ARC-068 must NOT collapse into MECH-258 / SD-032b dacc_effort_cost (Salamone & Correa 2003 dissociation). 4-arm design: ARM_0 baseline / ARM_1 vigor + Niv env / ARM_2 vigor + Salamone elevated-movement-cost env / ARM_3 baseline + Salamone env. Forced-vigor probe v_t_floor=0.05 implements V3-EXQ-549 prescribed fix (substrate fired correctly under V3-EXQ-547 readiness but EWMA path stuck at zero under default env config in 549; 549 reclassified non_contributory and routed forced-vigor follow-on). Pre-registered acceptance C1 Niv lift >= 0.03, C2 dissociation < 0.50, C3 gate_product >= 0.5, C4 informative-only no-op penalty. claim_ids=[MECH-320, ARC-068] with evidence_direction_per_claim. MECH-258 / SD-032b are foils dissociated from, NOT tested directly. 4-row interpretation grid in script docstring: PASS = ARC-068 supports; C2 FAIL = ARC-068 weakens (effort-cost collapse, surface supersession question to /governance); C1 FAIL + C3 PASS = /failure-autopsy; C3 FAIL = /diagnose-errors. Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-01T18:21:25Z"
-      },
+      "status": "pending",
       "conditions": 4,
       "episodes_per_run": 130,
       "experiment_type": "v3_exq_624_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-610c",
-      "title": "INV-074 crystallization necessity test -- post-Phase-3-enrichment retest (supersedes V3-EXQ-610b)",
-      "script": "experiments/v3_exq_610c_inv074_crystallization_necessity.py",
-      "priority": 300,
-      "machine_affinity": "any",
-      "estimated_minutes": 800,
-      "supersedes": "V3-EXQ-610b",
-      "backlog_id": "EVB-0270",
-      "claim_ids": ["INV-074", "MECH-333", "MECH-334"],
-      "note": "Retest of INV-074 crystallization-necessity claim following IGW-20260601-023 substrate implementation (test_bed_enrichment_crystallization_necessity). V3-EXQ-610b (2026-06-01) FAILed with D2=false: the no-crystallization control arm did NOT show predicted post-Phase-3 diversity collapse (d2_delta -0.0057). Per failure_autopsy_V3-EXQ-610a_2026-06-01, the cause was test-bed ceiling: CausalGridWorldV2 supplied no post-Phase-3 destabilising pressure to force continued forward-model adaptation. IGW-20260601-023 implemented the substrate fix: infant_curriculum.InfantCurriculumScheduler Phase 3 now enables SD-047 multi_source_dynamics (weather_field + transient_events + background_drift with n_drift_sources=2), SD-048 interoceptive_noise (autonomic + sensitisation + fatigue at scale=0.6), and accelerated env_drift (interval=3, prob=0.5). These dynamics should force F-reconsolidation post-Phase-3. Prediction: ARM_0 (no crystallization) will now show entropy collapse (D2 delta >= +0.10); ARM_1 (MECH-333/334 crystallization) will preserve Phase-2 diversity. 2-arm design: ARM_0 control (crystallize=false) vs ARM_1 test (crystallize=true), both with MECH-313 noise_floor + MECH-260 dACC + MECH-341 E3 score diversity (retuned) + differential_heads (ARC-062 fix). 3 matched seeds (42/43/44), 4-phase infant curriculum (Phases 0-3), 2500 episodes @ 200 steps/ep. Pre-registered acceptance: D1 (ARM_1 - ARM_0 at end_phase_3 >= +0.10) AND D2 (ARM_0 phase_2 - phase_3 >= +0.10) AND D3 (both arms > 0.4 at phase_2). Interpretation grid in script docstring. Dry-run smoke test PASS 2026-06-01T18:48Z: end-to-end without crash, validate_experiments AST conformance OK, emit_outcome sentinel wired. claim_ids per Accuracy Rule: direct test of INV-074/MECH-333/MECH-334 only. experiment_purpose=evidence. Authored via IGW-20260601-028 (auto-spawned retest-after-substrate). Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
-      "status": "pending",
-      "conditions": 2,
-      "episodes_per_run": 2500,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_610c_inv074_crystallization_necessity",
       "seeds": 3
     }
   ]
