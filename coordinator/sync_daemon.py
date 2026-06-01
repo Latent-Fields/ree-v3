@@ -804,6 +804,85 @@ def _git(repo, *args, timeout=30, check=True):
     )
 
 
+def _porcelain_relpath(line):
+    """Parse one `git status --porcelain` line into a repo-relative path."""
+    # Short format is XY<space>PATH; X may be a space when unstaged-only.
+    rest = line[2:].lstrip() if len(line) >= 2 else line.strip()
+    if " -> " in rest:
+        rest = rest.split(" -> ", 1)[1]
+    return rest.replace("\\", "/")
+
+
+def _rel_path_under_heartbeat_writer_guards(relpath):
+    """True when relpath is owned by phase3_heartbeat_writer only."""
+    for prefix in _WRITER_GUARD_PATHS["phase3_heartbeat_writer"]:
+        p = prefix.rstrip("/")
+        if relpath == p or relpath.startswith(prefix):
+            return True
+    return False
+
+
+def _maybe_revert_exclusive_telemetry_dirt(repo, log_prefix):
+    """Recover hub checkout when ONLY heartbeat-writer paths are dirty.
+
+    On the hub VM, runner_heartbeats/ and runner_status/ on disk are
+    materialised exclusively by phase3_heartbeat_writer from the coordinator
+    DB (runners POST /heartbeat; hub runner must not write these files --
+    PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1). A partial writer tick
+    (atomic write + failed git add/commit) can still leave telemetry dirt
+    that blocks phase3_git_writer and stalls result spool commits.
+
+    When every porcelain entry is under the heartbeat writer's guard
+    prefixes, revert those paths to HEAD (or remove untracked telemetry
+    files) and return True. Any other path (manifests, planning docs,
+    ...) leaves the tree unchanged and returns False. Never raises.
+    """
+    try:
+        out = _git(repo, "status", "--porcelain", check=True).stdout
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+            OSError) as exc:
+        sys.stderr.write(
+            "[%s] telemetry dirt recovery: git status failed: %r\n" % (
+                log_prefix, exc))
+        return False
+    lines = [ln for ln in out.strip().splitlines() if ln.strip()]
+    if not lines:
+        return True
+    entries = []
+    for line in lines:
+        relpath = _porcelain_relpath(line)
+        if not _rel_path_under_heartbeat_writer_guards(relpath):
+            return False
+        entries.append((line[:2], relpath))
+    reverted = []
+    for xy, relpath in entries:
+        target = os.path.join(repo, relpath)
+        if xy == "??":
+            try:
+                os.unlink(target)
+                reverted.append(relpath)
+            except OSError:
+                return False
+            continue
+        try:
+            result = _git(
+                repo, "restore", "--source=HEAD", "--staged",
+                "--worktree", relpath, check=False, timeout=15)
+            if result.returncode != 0:
+                _revert_target_to_head(repo, relpath, target)
+            reverted.append(relpath)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            _revert_target_to_head(repo, relpath, target)
+            reverted.append(relpath)
+    if reverted:
+        sys.stderr.write(
+            "[%s] auto-reverted exclusive telemetry dirt (%d path(s)): %s\n"
+            % (log_prefix, len(reverted), ", ".join(reverted[:5])
+               + (" ..." if len(reverted) > 5 else "")))
+    clean, _reason = _hub_working_tree_clean(repo)
+    return clean
+
+
 def _hub_working_tree_clean(repo):
     """Phase 3 explicitly retires autostash, so the writer refuses to
     operate on a dirty tree -- any uncommitted edit on the hub checkout
@@ -819,6 +898,16 @@ def _hub_working_tree_clean(repo):
         first = out.strip().splitlines()[0]
         return (False, "dirty working tree: %s" % first[:120])
     return (True, "")
+
+
+def _hub_working_tree_clean_for_writer(repo, log_prefix):
+    """Clean-tree check with one-shot telemetry-only auto-recovery."""
+    clean, reason = _hub_working_tree_clean(repo)
+    if clean:
+        return (True, "")
+    if _maybe_revert_exclusive_telemetry_dirt(repo, log_prefix):
+        return (True, "")
+    return (False, reason)
 
 
 # Every writer-authored commit's message starts with one of these prefixes;
@@ -1201,7 +1290,7 @@ def phase3_git_writer(
                 len(pending_ids), len(batch)))
         return True
 
-    clean, reason = _hub_working_tree_clean(asm)
+    clean, reason = _hub_working_tree_clean_for_writer(asm, "phase3")
     if not clean:
         sys.stderr.write(
             "[phase3] refusing tick: REE_assembly at %s is %s. Phase 3 "
@@ -2047,7 +2136,7 @@ def phase3_heartbeat_writer(
     # the sync would either false-positive (working tree matches origin
     # for some files but our retained-for-retry commit is the only
     # reason) or false-negative on files origin updated in between.
-    clean, reason = _hub_working_tree_clean(asm)
+    clean, reason = _hub_working_tree_clean_for_writer(asm, "phase3-heartbeats")
     if not clean:
         sys.stderr.write(
             "[phase3-heartbeats] refusing tick: REE_assembly at %s is "

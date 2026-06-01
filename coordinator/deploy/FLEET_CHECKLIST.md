@@ -12,7 +12,7 @@ WireGuard `10.8.0.1`). Plan-of-record: `../PLAN.md`, runbook: `README.md`.
 | Host | Public SSH | WG IP | coordination | Runner | Notes |
 |------|------------|-------|--------------|--------|-------|
 | Mac | local | 10.8.0.10 | coordinator | active | via serve `POST /api/coordinator/start` |
-| ree-cloud-1 | 91.98.130.117 | 10.8.0.1 | coordinator (hub) | active | hub + optional worker |
+| ree-cloud-1 | 91.98.130.117 | 10.8.0.1 | coordinator (hub) | active | hub + worker; `_HEARTBEAT_WRITE=1` (runner skips local telemetry files; sync_daemon publishes) |
 | ree-cloud-2 | 116.203.216.181 | 10.8.0.12 | coordinator | active | |
 | ree-cloud-3 | 46.62.170.133 | 10.8.0.13 | coordinator | active | |
 | ree-cloud-4 | 91.99.68.94 | 10.8.0.14 | coordinator | active | |
@@ -220,6 +220,42 @@ systemctl is-active ree-runner
 ```
 
 Phase 2: coordinator owns claims; git remains result/status transport until Phase 3.
+
+### D-hub. Hub runner only (ree-cloud-1 / `ree-worker-1`, Phase 3)
+
+The hub shares its `REE_assembly` checkout with `ree-sync-daemon`. **Fleet
+telemetry on GitHub (`runner_heartbeats/`, `runner_status/`) is owned by
+`sync_daemon.phase3_heartbeat_writer`** -- it materialises files from the
+coordinator DB (fed by every worker's `POST /heartbeat`). The hub runner
+must not write those paths locally.
+
+Template: `shadow.conf.hub.example` in this directory.
+
+Append to the same `shadow.conf` as section D (do **not** copy to cloud-2/3/4):
+
+```bash
+# Hub co-tenancy: skip local heartbeat/commands files; coordinator POST +
+# sync_daemon.phase3_heartbeat_writer materialise git copies.
+Environment="PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1"
+```
+
+Also require the three push gates (usually already present after Phase 3
+cutover):
+
+```bash
+Environment="PHASE3_DISABLE_RUNNER_RESULT_PUSH=1"
+Environment="PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1"
+Environment="PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH=1"
+```
+
+`ree-runner.service` must pass `--machine ree-cloud-1` (hostname is
+`ree-worker-1`). After cutover the hub runner was `systemctl disable`-d until
+this gate landed; re-enable with `sudo systemctl enable --now ree-runner`.
+
+Expect journal: `phase3 gate active: heartbeat + commands FILE WRITES will be
+skipped`. If telemetry-only dirt blocks writers, `sync_daemon` auto-reverts
+`runner_heartbeats/` + `runner_status/` when no other paths are dirty
+(2026-06-01). Do not remove `_HEARTBEAT_WRITE` to "fix" stale explorer data.
 
 ### E. Post-start verification
 

@@ -1,0 +1,22 @@
+# Hub-only overrides for /etc/systemd/system/ree-runner.service.d/shadow.conf
+# on ree-cloud-1 (hostname ree-worker-1). Do NOT copy to cloud-2/3/4.
+#
+# Architecture:
+#   - Runners POST heartbeats/status to coordinator (always).
+#   - sync_daemon.phase3_heartbeat_writer is the SOLE git publisher for
+#     evidence/experiments/runner_heartbeats/*.json and runner_status/*.json
+#     on the hub REE_assembly checkout.
+#   - Hub runner must NOT write those files locally (would dirty the tree
+#     and block all phase3 writers).
+
+[Service]
+Environment=COORDINATION_MODE=coordinator
+Environment=COORDINATOR_URL=http://10.8.0.1:8787
+Environment=COORDINATOR_TOKEN=<paste from coordinator.env>
+
+Environment=PHASE3_DISABLE_RUNNER_RESULT_PUSH=1
+Environment=PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1
+Environment=PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH=1
+Environment=PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1
+
+# ExecStart must include: --machine ree-cloud-1
