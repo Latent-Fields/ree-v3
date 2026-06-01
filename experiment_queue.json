@@ -34,27 +34,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-620b",
-      "title": "SD-037 axis-a Phase 1 consumer-input distributions -- affective stream ON (supersedes V3-EXQ-620)",
-      "script": "experiments/v3_exq_620b_sd037_axis_a_phase1_consumer_input_distributions_stream_on.py",
-      "priority": 210,
-      "machine_affinity": "any",
-      "estimated_minutes": 60,
-      "supersedes": "V3-EXQ-620",
-      "note": "Root-cause fix for V3-EXQ-620 (/diagnose-errors via V3-EXQ-625, 2026-06-01). 620 returned pooled identically-zero consumer-input distributions and was read as 'axis (a) empirically unmeetable', which justified the axis-(b) sustained-threat env-curriculum plan. That zero reading was a CONFIG artifact, not a substrate finding: the measurement reads agent._current_latent.z_harm_a, which is None unless cfg.latent.use_affective_harm_stream=True. ARM_PHASE1_BASELINE sets gap4_operating=True -> build_config routed to REEConfig.goal_stream(), which never forwarded the SD-011 flags, so the AffectiveHarmEncoder was never instantiated and z_harm_a stayed None (every measured quantity read exactly 0.0). The env emits harm_obs_a and StepHarness threads it; only the config flag was off. Fix: build_config(env, arm, enable_affective_harm_stream=True) -- a guarded library opt-in in experiments/_lib/goal_pipeline_tier1.py (default False keeps every other gap4 caller bit-identical; passes limb_damage_enabled through so from_dims auto-sizes harm_obs_a_dim=7 for the limb-damage fishtank env). This re-run uses the axis-(a) BASELINE env (default ENV_FISHTANK_KWARGS, NO scheduled-hazard curriculum) with the stream live, to answer whether axis (b) was even necessary. Outcome TIED to axis-(a) acceptance gate (z_harm_a_norm zero_fraction < 1.0 in >=2/3 seeds) instead of the vacuous 'ran cleanly' gate. claim_ids=[] (pure-measurement substrate-readiness diagnostic; NOT load-bearing per claim_ids Accuracy Rule). Dry-run smoke PASS 2026-06-01T17:49Z: end-to-end without crash, z_harm_a now non-zero (pooled p70 ~0.329 vs old identical 0.0), manifest + emit_outcome sentinel written. Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-01T18:06:10Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 60,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_620b_sd037_axis_a_phase1_consumer_input_distributions_stream_on",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-626a",
       "title": "Goal-pipeline developmental-window 4-arm dissociation -- HARNESS-FIXED (update_z_goal driven + P0 positive control)",
       "script": "experiments/v3_exq_626a_goal_pipeline_developmental_window_diagnostic.py",
