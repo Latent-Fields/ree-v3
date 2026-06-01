@@ -123,7 +123,7 @@
       "title": "ARC-068 / MECH-320 Niv-vs-Salamone opportunity-cost-vs-effort-cost dissociation",
       "script": "experiments/v3_exq_624_arc068_mech320_niv_salamone_dissociation.py",
       "priority": 100,
-      "machine_affinity": "DLAPTOP-4.local",
+      "machine_affinity": "any",
       "estimated_minutes": 170,
       "claim_id": "MECH-320",
       "backlog_id": "EVB-0237",
