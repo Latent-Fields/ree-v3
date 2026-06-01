@@ -29,6 +29,24 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_610b_inv074_crystallization_necessity",
       "notes": "INV-074 retest after MECH-341 parameter retune (entropy_lambda 0.05->0.5, bias_scale 0.1->1.0). V3-EXQ-610a showed FAIL with D1=False D2=False (non_contributory); this retest with amplified diversity signal may show different outcome. IGW-20260601-026."
+    },
+    {
+      "queue_id": "V3-EXQ-592e",
+      "title": "MECH-090 R-c readiness conjunction (4-arm, C1 baseline redesigned)",
+      "script": "experiments/v3_exq_592e_mech090_readiness_conjunction_validation.py",
+      "experiment_type": "v3_exq_592e_mech090_readiness_conjunction_validation",
+      "priority": 100,
+      "machine_affinity": "any",
+      "estimated_minutes": 360,
+      "episodes_per_run": 450,
+      "seeds": 3,
+      "conditions": 4,
+      "supersedes": "V3-EXQ-592d",
+      "claim_id": "MECH-090",
+      "claim_ids": ["MECH-090"],
+      "experiment_purpose": "diagnostic",
+      "status": "pending",
+      "notes": "Supersedes V3-EXQ-592d (FAIL non_contributory 2026-06-01 per failure_autopsy_V3-EXQ-592d_2026-06-01). 592d C1 baseline predicate (commit_rate = n_commit_entries / total_p2_steps > 0.001) was structurally unmeetable under rv-only ARM_0 entry semantic. 592e applies BOTH autopsy Section 9 fixes orthogonally: (a) FORCE_UNCOMMITTED_P2_ENTRY=True per-episode release of beta_gate + null e3._committed_trajectory + zero _committed_step_idx at P2 episode start so the gate is consulted on every fresh re-elevation; (b) HOLD_RATE_BASED acceptance criteria replacing the unmeasurable commit-rate predicate. Interpretation grid updated: C1 FAIL now routes to /diagnose-errors for SCRIPT predicate correction (NOT curriculum harness, NOT gate -- the 592d grid routing was INVERTED per user gate 2026-06-01T05:55Z). 4 arms x 3 seeds; PASS unblocks commitment_closure:GAP-4 -> done substrate-side. claim_ids=[MECH-090] only per CLAUDE.md claim_ids Accuracy Rule. Cross-link IGW-20260531-021. Dry-run smoke PASS 2026-06-01T06:38Z (wiring + force-uncommitted per-episode + C1 redesign all verified end-to-end)."
     }
   ]
 }
