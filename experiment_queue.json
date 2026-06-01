@@ -137,6 +137,21 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_610b_inv074_crystallization_necessity",
       "notes": "INV-074 retest after MECH-341 parameter retune (entropy_lambda 0.05->0.5, bias_scale 0.1->1.0). V3-EXQ-610a showed FAIL with D1=False D2=False (non_contributory); this retest with amplified diversity signal may show different outcome. IGW-20260601-026."
+    },
+    {
+      "queue_id": "V3-EXQ-625",
+      "title": "SD-037 axis (b) Phase 1b -- consumer-input distributions under sustained-threat curriculum",
+      "experiment_type": "v3_exq_625_sd037_axis_b_phase1b_consumer_input_distributions_sustained_threat",
+      "script": "experiments/v3_exq_625_sd037_axis_b_phase1b_consumer_input_distributions_sustained_threat.py",
+      "priority": 10,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 45,
+      "episodes_per_run": 60,
+      "seeds": 3,
+      "conditions": 1,
+      "experiment_purpose": "diagnostic",
+      "note": "SD-037 axis (b) Phase 1b substrate-readiness diagnostic. Re-run of V3-EXQ-620 measurement protocol with tuned ENV_FISHTANK_KWARGS overlay engaging SD-029's already-landed scheduled_external_hazard curriculum + hazard_harm 4x lift + proximity_harm_scale 2x lift (plan-doc Section 3.1). Plan-of-record: REE_assembly/evidence/planning/sd_037_axis_b_sustained_threat_curriculum_plan.md (REE_assembly master c1e345d7dc, 2026-06-01). claim_ids=[], experiment_purpose=diagnostic. Acceptance gate plan Section 3.4 (C1 curriculum-firing 3/3 + C2 z_harm_a nonzero >=2/3 + C3 sustained-window >=2/3) reported in manifest; manifest gate is all six pooled quantity distributions populated. PASS routes to axis (b) Phase 2 recalibration; FAIL routes to plan Section 5 five-row interpretation grid (curriculum mis-applied / affective-stream noise floor / PAG sustained-window failure / dACC PE deterministic / env-kwarg surface exhausted -> axis (c)). Predecessor V3-EXQ-620 (axis a Phase 1, pooled-zero distributions); not a supersede -- parallel axis, different env config. Hazard note: phase3-queue auto-snapshot race window applies; verify post-commit dropped-file check before push (V3-EXQ-603d / 2026-06-01 incident pattern, queue-experiment skill Step 8)."
     }
   ]
 }
