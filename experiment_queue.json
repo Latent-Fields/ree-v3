@@ -107,7 +107,11 @@
       "supersedes": "V3-EXQ-126",
       "claim_id": "MECH-104",
       "backlog_id": "EVB-0062",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-06-01T10:49:12Z"
+      },
       "claim_ids": [
         "MECH-104"
       ],
