@@ -138,9 +138,29 @@ def make_env(seed: int, env_kwargs: Optional[Dict[str, Any]] = None) -> CausalGr
     return CausalGridWorldV2(seed=seed, **kw)
 
 
-def build_config(env: CausalGridWorldV2, arm: ArmSpec) -> REEConfig:
+def build_config(
+    env: CausalGridWorldV2,
+    arm: ArmSpec,
+    *,
+    enable_affective_harm_stream: bool = False,
+) -> REEConfig:
+    """Build the cohort REEConfig for an arm.
+
+    enable_affective_harm_stream: SD-011 affective harm stream toggle for the
+        gap4_operating=True path. The non-gap4 (from_dims) branch ALREADY
+        enables the stream unconditionally, but the gap4 (goal_stream) branch
+        historically did NOT forward the SD-011 flags, so z_harm_a stayed None
+        on every latent (every consumer-input quantity read exactly 0.0 -- the
+        V3-EXQ-620 / V3-EXQ-625 measurement artifact diagnosed 2026-06-01).
+        Default False keeps every existing gap4 caller bit-identical; SD-037
+        consumer-input-distribution scripts (V3-EXQ-620b / V3-EXQ-625b) opt in
+        with True. Flipping this default would alter agent behaviour for all
+        gap4 callers whose harm consumers are on (483d/483e/490g-j/524a/...) and
+        must be a separate, re-validated decision -- do NOT change the default
+        here.
+    """
     if arm.gap4_operating:
-        cfg = REEConfig.goal_stream(
+        gs_kwargs: Dict[str, Any] = dict(
             body_obs_dim=env.body_obs_dim,
             world_obs_dim=env.world_obs_dim,
             action_dim=env.action_dim,
@@ -156,6 +176,25 @@ def build_config(env: CausalGridWorldV2, arm: ArmSpec) -> REEConfig:
             drive_floor=DRIVE_FLOOR_OPERATING,
             drive_ema_alpha=DRIVE_EMA_ALPHA_OFF,
         )
+        if enable_affective_harm_stream:
+            # Mirror the non-gap4 branch's SD-011 enablement so the
+            # AffectiveHarmEncoder is instantiated and the harness-threaded
+            # env harm_obs_a populates z_harm_a. Forwarded through
+            # goal_stream(**kwargs) -> from_dims(...). limb_damage_enabled is
+            # passed through to from_dims so it auto-sizes harm_obs_a_dim to the
+            # env's actual harm_obs_a width (7 under limb damage, else 50);
+            # without it the encoder is built for the 50-dim legacy width and
+            # crashes on the 7-dim body-damage harm_obs_a (shape mismatch).
+            _env_kw = env_kwargs_or_default(env)
+            gs_kwargs.update(
+                use_harm_stream=True,
+                z_harm_dim=HARM_DIM,
+                use_affective_harm_stream=True,
+                z_harm_a_dim=HARM_A_DIM,
+                harm_history_len=HARM_HISTORY_LEN,
+                limb_damage_enabled=bool(_env_kw.get("limb_damage_enabled", False)),
+            )
+        cfg = REEConfig.goal_stream(**gs_kwargs)
         cfg.mech295_min_drive_to_fire = 0.01
         cfg.mech295_min_z_goal_norm_to_fire = 0.005
         cfg.mech295_drive_to_liking_gain = 2.0
