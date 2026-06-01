@@ -131,8 +131,10 @@ class InfantCurriculumScheduler:
         Phase 0: all infant features OFF.
         Phase 1: harm gradient (mild) + transient benefit patches.
         Phase 2: + microhabitat zones, harm gradient full.
-        Phase 3: same as Phase 2 (env parameters stable; agent-side config
-                 params change via config_overrides).
+        Phase 3: + environmental stochasticity (multi-source dynamics,
+                 interoceptive noise, accelerated hazard/resource drift).
+                 Destabilizing pressures for INV-074 crystallization-necessity
+                 test (substrate_queue: test_bed_enrichment_crystallization_necessity).
         """
         p = self._current_phase if phase is None else phase
         if p == 0:
@@ -148,12 +150,38 @@ class InfantCurriculumScheduler:
                 "transient_benefit_enabled": True,
                 "microhabitat_enabled": False,
             }
-        # p >= 2
+        if p == 2:
+            return {
+                "harm_gradient_enabled": True,
+                "harm_gradient_scale": 0.30,
+                "transient_benefit_enabled": True,
+                "microhabitat_enabled": True,
+            }
+        # p == 3: Phase-3 post-crystallization destabilizing pressure.
+        # Adds environmental dynamics (SD-047) + interoceptive noise (SD-048)
+        # to force continued forward-model adaptation. Without crystallization,
+        # the F-error-driven gradient overwriting should collapse diversity
+        # established in Phase 2 (INV-074 prediction; test_bed_enrichment_
+        # crystallization_necessity substrate item). With crystallization
+        # (MECH-333/334), the locked diversity distribution should persist.
         return {
             "harm_gradient_enabled": True,
             "harm_gradient_scale": 0.30,
             "transient_benefit_enabled": True,
             "microhabitat_enabled": True,
+            # SD-047: Multi-source environmental dynamics (weather + transients + drift).
+            "multi_source_dynamics_enabled": True,
+            "multi_source_intensity_scale": 0.8,
+            "weather_field_enabled": True,
+            "transient_events_enabled": True,
+            "background_drift_enabled": True,
+            "n_drift_sources": 2,
+            # SD-048: Interoceptive noise (autonomic + sensitisation + fatigue).
+            "interoceptive_noise_enabled": True,
+            "interoceptive_noise_scale": 0.6,
+            # Accelerated env drift to force forward-model reconsolidation.
+            "env_drift_interval": 3,
+            "env_drift_prob": 0.5,
         }
 
     def config_overrides(self, phase: Optional[int] = None) -> Dict[str, Any]:
