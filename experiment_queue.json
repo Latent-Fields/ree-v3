@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-626",
-      "title": "Goal-pipeline developmental-window 4-arm dissociation (drive vs hazard vs writer-freeze; first dACC enabled in lineage)",
-      "script": "experiments/v3_exq_626_goal_pipeline_developmental_window_diagnostic.py",
-      "priority": 200,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "note": "Follow-up to failure_autopsy V3-EXQ-622 2026-06-01T07:55Z. Pre-registered design at REE_assembly/evidence/planning/goal_pipeline_developmental_window_diagnostic_memo_2026-06-01.md (REE_assembly master 12d2a48310). 4-arm dissociation on scaffolded_sd054_onboarding substrate isolating the load-bearing axis behind V3-EXQ-622 S1+ z_goal collapse: ARM_A_FORMATION_ONLY (regression guard on 622 S0 PASS; drive_floor=0.9 + HFA=0.0 throughout) / ARM_B_DRIVE_ANNEAL_ONLY (drive_floor 0.9->0.2 anneal during P1, NO hazard; H1 drive-axis isolation) / ARM_C_HAZARD_ONLY (drive_floor=0.9 constant, HFA 0.0->0.7 anneal; hazard-axis isolation) / ARM_D_WRITER_FROZEN_DURING_TRANSITION (freeze use_mech295 + use_mech307 during P1 while annealing BOTH drive AND hazard; Option-A test). use_dacc=True with dacc_weight=0.5/dacc_interaction_weight=0.5 enabled on ALL arms -- FIRST time in this lineage (V3-EXQ-621a + V3-EXQ-622 both had dACC unconfigured, making dacc_bias_nonzero=0 in both manifests a measurement-OFF artefact NOT a substrate failure). 5 pre-registered acceptance criteria C1-C5 (verbatim from memo Section 3): C1 ARM_A z_goal_median >= 0.05 on >=2/3 seeds (regression guard); C2 ARM_B z_goal_median < 0.05 AND ARM_B P1-end < 0.5 * ARM_A (drive-axis); C3 ARM_C z_goal_median < 0.05 (hazard-axis); C4 ARM_D z_goal_median at P2 START >= 0.5 * ARM_A (writer-freeze rescue); C5 highest-z_goal arm's dacc_bias_nonzero >= 1.0/ep on >=2/3 seeds (consumer readout under non-trivial z_goal). Overall PASS = C1 AND (C2 OR C3 OR C4) AND C5. 4-row interpretation grid in script docstring: PASS_C2/FAIL_C3/PASS_C5 -> /implement-substrate AMEND scaffolded_sd054_onboarding (sustained-drive EMA at low drive_floor); FAIL_C2/PASS_C3/PASS_C5 -> AMEND with risk introduction decoupled in time; PASS_C2_C3_C4 -> AMEND adding writer-freeze P1 sub-phase (Option-A confirmed); FAIL_C5 -> /failure-autopsy on dACC readout chain. claim_ids=[] (substrate-readiness diagnostic; same epistemic class as 621a + 622; NOT load-bearing evidence weighting per CLAIM_IDS Accuracy Rule). experiment_purpose=diagnostic. supersedes=null (new question, new EXQ number). 4 arms x 3 seeds x P0(30 ep) + P1(30 ep) + P2(30 ep), 200 steps/ep. ARM_D writer-freeze test is a V3-conservative approximation of the long-horizon ACh/PV/BDNF plasticity-window territory (docs/thoughts/2026-06-01_plasticity_window_neuromodulators.md); ARM_D PASS authorises substrate amend on scaffolded_sd054_onboarding only, NOT V4-scope substrate cluster. Dry-run smoke PASS 2026-06-01T08:35Z (12 cells run end-to-end without crash; progress instrumentation correct; validate_experiments AST OK; emit_outcome sentinel wired). HAZARD NOTED (V3-EXQ-603d incident 2026-06-01T06:46Z): phase3-queue sync_daemon snapshot writer can drop pathspec-staged files between git-add and git-commit; post-commit dropped-file check verifies V3-EXQ-626 lands cleanly. Concurrent active siblings at queue time: IGW-027 MECH-262 (foreign untracked experiments/v3_exq_598c_*.py; pathspec-limited git add avoids sweep).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-01T12:07:12Z"
-      },
-      "claim_ids": [],
-      "conditions": 4,
-      "episodes_per_run": 60,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_626_goal_pipeline_developmental_window_diagnostic",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-592e",
       "title": "MECH-090 R-c readiness conjunction (4-arm, C1 baseline redesigned)",
       "script": "experiments/v3_exq_592e_mech090_readiness_conjunction_validation.py",
@@ -52,31 +32,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-623",
-      "title": "MECH-104 volatility interrupt discriminative pair (signal + behaviour)",
-      "script": "experiments/v3_exq_623_mech104_volatility_interrupt_discriminative_pair.py",
-      "priority": 100,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "supersedes": "V3-EXQ-126",
-      "claim_id": "MECH-104",
-      "backlog_id": "EVB-0062",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-01T11:30:54Z"
-      },
-      "claim_ids": [
-        "MECH-104"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 400,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_623_mech104_volatility_interrupt_discriminative_pair",
-      "notes": "EXP-0078 (EVB-0062) -- MECH-104 LC-NE volatility interrupt discriminative support-vs-ablation pair extending V3-EXQ-126 (PASS 6/6 2026-04-21, signal-magnitude only). NEW EXQ NUMBER (not letter) per CLAUDE.md versioning policy: this experiment adds the load-bearing 'enables de-commitment' behavioural-consequence half of MECH-104 that V3-EXQ-126 did not test, and the substrate has materially changed since 2026-04-21 (MECH-090 R-c readiness conjunction landed 2026-05-28/05-29). MECH-090 R-c gates intentionally LEFT OFF (use_mech090_readiness_conjunction=False, use_commit_readiness_gate=False) to isolate the volatility-interrupt mechanism cleanly. Design: SURPRISE_GATE_ON vs SURPRISE_GATE_ABLATED x matched seeds [42, 123] on the SAME trained agent + SAME eval env sequence. Measures both: (a) signal magnitude (delta_var_unexpected, delta_var_expected) and (b) behavioural consequence (per-spike POST_SPIKE_WINDOW=20 ticks uncommitted-step count + n_decommit_transitions). Pre-registered 8-criterion gate: C1-C5 replicate V3-EXQ-126 signal gates (delta_var_unexpected>=0.005, delta_var_expected<0.002, ablated baseline<0.002, discriminative_delta>=0.004, n_unexpected>=10); C6 NEW behavioural ratio gate (ON n_decommit / max(1, ABL n_decommit) >= 2.0 + ON floor>=1); C7 NEW post-spike uncommitted lift (ON mean / max(1.0, ABL) >= 1.5 + ON floor>=1.0); C8 no fatal errors. PASS = all 8. claim_ids=[MECH-104] only per CLAIM_IDS Accuracy Rule (NOT MECH-090: R-c gates OFF; NOT ARC-016: precision-to-commitment circuit not under test; NOT Q-007: orthogonal). 4-row interpretation grid in script docstring: ALL_PASS -> supports MECH-104 + closes conflict_ratio gap; C1-C5 PASS C6/C7 FAIL -> weakens 'enables de-commitment' half, route to /failure-autopsy + R-c-gates-ON successor; C1-C4 FAIL C6/C7 PASS -> /diagnose-errors on measurement window; ALL FAIL -> /diagnose-errors on substrate/env drift. supersedes V3-EXQ-126. Dry-run smoke PASS 2026-06-01T07:07Z (substrate-side end-to-end run; C1-C4 PASS at dry-run scale confirming signal-magnitude path, C5/C6/C7 FAIL only due to insufficient dry-run sample size which is expected; emit_outcome sentinel written; validate_experiments AST OK). Estimated time: 2 seeds x (400 warmup + 50 eval x 2 conditions) on Mac ~0.10 min/ep at 200 steps/ep -> ~100 min full-scale + 20% margin = 120 min. HAZARD NOTED (V3-EXQ-603d incident 2026-06-01T06:46Z): phase3-queue sync_daemon snapshot writer can drop pathspec-staged files between git-add and git-commit; post-commit dropped-file check verifies V3-EXQ-623 lands cleanly. Concurrent active sibling at queue time: implement-substrate-mech-341 V3-EXQ-614c (disjoint queue_id + script filename).",
-      "seeds": 2
-    },
-    {
       "queue_id": "V3-EXQ-624",
       "title": "ARC-068 / MECH-320 Niv-vs-Salamone opportunity-cost-vs-effort-cost dissociation",
       "script": "experiments/v3_exq_624_arc068_mech320_niv_salamone_dissociation.py",
@@ -89,7 +44,7 @@
       "status": "claimed",
       "claimed_by": {
         "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-06-01T13:47:39Z"
+        "claimed_at": "2026-06-01T15:52:31Z"
       },
       "conditions": 4,
       "episodes_per_run": 130,
