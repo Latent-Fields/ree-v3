@@ -1817,6 +1817,14 @@ class REEConfig:
     e3_diversity_entropy_lambda: float = 0.5
     e3_diversity_entropy_bias_scale: float = 1.0
     e3_diversity_stratified_temperature: float = 1.0
+    # MECH-341 amend (2026-06-01): within-class proportional sampling sharpness.
+    # None = legacy argmin within each first-action class (bit-identical to
+    # pre-amend MECH-341). When set to a positive float, sample within each
+    # class via softmax(-class_scores / T) before the across-class softmax
+    # step. Dissociates within-class diversity (Layer B sub-axis) from the
+    # existing across-class diversity (`e3_diversity_stratified_temperature`).
+    # See failure_autopsy_V3-EXQ-616_2026-05-31 Sections 7 + 10.
+    e3_diversity_stratified_within_class_temperature: Optional[float] = None
     e3_diversity_min_classes_for_stratification: int = 2
 
     # ----------------------------------------------------------------
@@ -2855,6 +2863,10 @@ class REEConfig:
         e3_diversity_entropy_lambda: float = 0.5,
         e3_diversity_entropy_bias_scale: float = 1.0,
         e3_diversity_stratified_temperature: float = 1.0,
+        # MECH-341 amend (2026-06-01): within-class proportional sampling
+        # sharpness; None = legacy argmin (bit-identical OFF). See
+        # failure_autopsy_V3-EXQ-616 Sections 7 + 10.
+        e3_diversity_stratified_within_class_temperature: Optional[float] = None,
         e3_diversity_min_classes_for_stratification: int = 2,
         # MECH-090 R-c conjunction (commitment_closure GAP-4): commit-entry
         # predicate amendment from rv-only to rv_low AND
@@ -3460,6 +3472,9 @@ class REEConfig:
         config.e3_diversity_entropy_lambda = e3_diversity_entropy_lambda
         config.e3_diversity_entropy_bias_scale = e3_diversity_entropy_bias_scale
         config.e3_diversity_stratified_temperature = e3_diversity_stratified_temperature
+        config.e3_diversity_stratified_within_class_temperature = (
+            e3_diversity_stratified_within_class_temperature
+        )
         config.e3_diversity_min_classes_for_stratification = e3_diversity_min_classes_for_stratification
 
         # MECH-090 R-c conjunction: commit-entry readiness signal

@@ -79,6 +79,22 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_610b_inv074_crystallization_necessity",
       "notes": "INV-074 retest after MECH-341 parameter retune (entropy_lambda 0.05->0.5, bias_scale 0.1->1.0). V3-EXQ-610a showed FAIL with D1=False D2=False (non_contributory); this retest with amplified diversity signal may show different outcome. IGW-20260601-026."
+    },
+    {
+      "queue_id": "V3-EXQ-614c",
+      "script": "experiments/v3_exq_614c_mech341_stratified_within_class_temperature_sweep.py",
+      "priority": 250,
+      "machine_affinity": "DLAPTOP-4.local",
+      "estimated_minutes": 90,
+      "supersedes": "V3-EXQ-614b",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-341"
+      ],
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_614c_mech341_stratified_within_class_temperature_sweep",
+      "title": "MECH-341 amend stratified_within_class_temperature 4-arm sweep on SD-056-amended baseline",
+      "notes": "V3-EXQ-614c validates Part (a) of the 2026-06-01 MECH-341 amend (failure_autopsy_V3-EXQ-616 Sections 7 + 10 contingent-on-614b-FAIL-C1 path). 4-arm sweep stratified_within_class_temperature in {None=legacy, 0.5, 1.0, 2.0} on the SD-056-amended baseline (V3-EXQ-614b ARM_2 ALL_ON config: SP-CEM ON + MECH-341 ON + MECH-313 ON + V_s minimal ON + 5 SD-056 amend flags). Acceptance: C1 ARM_0_LEGACY mean entropy in [0.720, 0.880] (614b ARM_2 ALL_ON 0.800 +/- 10%) on >= 2/3 seeds (regression guard); C2 at least one of {0.5, 1.0, 2.0} mean entropy >= 0.800 on >= 2/3 seeds (within-class lift); C3 frac_pre_ge2 > 0.3 across all 4 arms on >= 2/3 seeds (substrate-readiness). PASS = C1 AND (C2 OR C3). 3 seeds x 4 arms x 90 ep x 200 steps = 216k steps. Cross-plan: same amend transitively unblocks arc_062_rule_apprehension:GAP-B (V3-EXQ-543l successor cohort) under shared SD-056-amended substrate. NO flip of use_differentiable_cem default (SD-055 safety note preserved). IGW-routed via implement-substrate-mech-341-amend-stratified-temp-ab-probe-20260601T063226Z."
     }
   ]
 }

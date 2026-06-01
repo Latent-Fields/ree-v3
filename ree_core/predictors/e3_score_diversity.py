@@ -70,6 +70,14 @@ class E3ScoreDiversityConfig:
     entropy_lambda: float = 0.5
     entropy_bias_scale: float = 1.0
     stratified_temperature: float = 1.0
+    # MECH-341 amend (2026-06-01): within-class proportional sampling sharpness.
+    # None = legacy argmin within each class (bit-identical to pre-amend);
+    # when set, sample within each class via softmax(-class_scores / T).
+    # Decoupled from `stratified_temperature` (which controls across-class
+    # softmax sampling) so the A-vs-B partial-redundancy probe can dissociate
+    # within-class and across-class layers. See failure_autopsy_V3-EXQ-616
+    # Sections 7 + 10 (contingent-on-614b-FAIL-C1 path).
+    stratified_within_class_temperature: Optional[float] = None
     min_classes_for_stratification: int = 2
 
 
@@ -87,6 +95,10 @@ class E3ScoreDiversityDiagnostics:
     n_entropy_bonus_fired: int = 0
     n_stratified_fired: int = 0
     n_simulation_skipped: int = 0
+    # MECH-341 amend (2026-06-01): within-class proportional sampling diagnostics.
+    n_within_class_sampled: int = 0
+    last_within_class_sampled: bool = False
+    last_within_class_temperature: float = 0.0
 
 
 class E3ScoreDiversity:
@@ -248,14 +260,31 @@ class E3ScoreDiversity:
             return None
 
         scores_detached = scores.detach()
+        within_temp = self.config.stratified_within_class_temperature
+        within_sampled = False
         best_idx_per_class: List[Tuple[int, float]] = []
         for cls in unique_classes:
             class_idxs = [i for i, c in enumerate(classes) if c == cls]
             class_scores = scores_detached[class_idxs]
-            local_best = int(class_scores.argmin().item())
-            global_idx = class_idxs[local_best]
+            if within_temp is None or len(class_idxs) < 2:
+                # Legacy path: pick argmin within the class. Bit-identical to
+                # pre-amend MECH-341 (None) and a no-op short-circuit when the
+                # class contains a single candidate (where softmax is degenerate).
+                local_idx = int(class_scores.argmin().item())
+            else:
+                # MECH-341 amend (2026-06-01): within-class proportional
+                # sampling. softmax(-class_scores / T) over local class
+                # members; sample a representative with temperature-controlled
+                # sharpness. T -> 0+ approaches argmin (legacy); T -> inf
+                # approaches uniform-within-class. Numerical guard mirrors
+                # the across-class branch below (max(T, 1e-6)).
+                t_within = max(float(within_temp), 1e-6)
+                class_probs = torch.softmax(-class_scores / t_within, dim=0)
+                local_idx = int(torch.multinomial(class_probs, 1).item())
+                within_sampled = True
+            global_idx = class_idxs[local_idx]
             best_idx_per_class.append(
-                (global_idx, float(class_scores[local_best].item()))
+                (global_idx, float(class_scores[local_idx].item()))
             )
 
         rep_indices = [t[0] for t in best_idx_per_class]
@@ -273,6 +302,13 @@ class E3ScoreDiversity:
         self.diagnostics.last_stratified_fired = True
         self.diagnostics.n_stratified_fired += 1
         self.diagnostics.last_stratified_n_class_representatives = len(rep_indices)
+        # MECH-341 amend (2026-06-01): record within-class sampling diagnostics.
+        self.diagnostics.last_within_class_sampled = within_sampled
+        self.diagnostics.last_within_class_temperature = (
+            float(within_temp) if within_temp is not None else 0.0
+        )
+        if within_sampled:
+            self.diagnostics.n_within_class_sampled += 1
 
         return selected_idx
 
@@ -302,6 +338,10 @@ class E3ScoreDiversity:
             "mech341_n_entropy_bonus_fired": d.n_entropy_bonus_fired,
             "mech341_n_stratified_fired": d.n_stratified_fired,
             "mech341_n_simulation_skipped": d.n_simulation_skipped,
+            # MECH-341 amend (2026-06-01): within-class proportional sampling.
+            "mech341_n_within_class_sampled": d.n_within_class_sampled,
+            "mech341_last_within_class_sampled": d.last_within_class_sampled,
+            "mech341_last_within_class_temperature": d.last_within_class_temperature,
         }
 
 
@@ -326,6 +366,11 @@ def build_from_ree_config(ree_config) -> Optional[E3ScoreDiversity]:
         ),
         stratified_temperature=getattr(
             ree_config, "e3_diversity_stratified_temperature", 1.0
+        ),
+        # MECH-341 amend (2026-06-01): None preserves legacy argmin within-class
+        # behaviour; bit-identical OFF when the flat REEConfig field is absent.
+        stratified_within_class_temperature=getattr(
+            ree_config, "e3_diversity_stratified_within_class_temperature", None
         ),
         min_classes_for_stratification=getattr(
             ree_config, "e3_diversity_min_classes_for_stratification", 2
