@@ -8,6 +8,23 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-626a",
+      "title": "Goal-pipeline developmental-window 4-arm dissociation -- HARNESS-FIXED (update_z_goal driven + P0 positive control)",
+      "script": "experiments/v3_exq_626a_goal_pipeline_developmental_window_diagnostic.py",
+      "experiment_type": "v3_exq_626a_goal_pipeline_developmental_window_diagnostic",
+      "priority": 200,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "status": "pending",
+      "supersedes": "V3-EXQ-626",
+      "claim_ids": [],
+      "experiment_purpose": "diagnostic",
+      "seeds": 3,
+      "conditions": 4,
+      "episodes_per_run": 60,
+      "note": "Lettered iteration of V3-EXQ-626 (scientific question UNCHANGED; implementation was wrong). Per failure_autopsy_V3-EXQ-626_2026-06-01.md, the 626 bespoke episode loop never called agent.update_z_goal(), so GoalState.update() was never reached and z_goal stayed at zero-init for every step of every arm -- making the manifest (ARM_A z_goal_norm_median 0.0; C2/C3 vacuously 'true' at 0<ceiling) a Class-1 harness/measurement failure, NOT a substrate formation regression (622 S0 PASS + 582a refute regression). 626a HARNESS FIX (only material change): (1) per-step goal feed -- _run_episode now calls agent.update_z_goal(benefit_exposure=body_state[11], drive_level=1-energy) every step in BOTH train (P0/P1) and frozen-eval (P2) paths, matching the V3-EXQ-622 shared runner goal_stream_stages_sd054._benefit_and_drive; (2) NEW P0 positive-control gate -- ARM_A P0 z_goal_norm_peak >= 0.1 on >=2/3 seeds (Stage-0 A0.2 threshold; 622 S0 got 0.281/0.439/0.342). The positive control is the adjudicating bit: PASS confirms 626's 'formation failure' was the missing call (harness bug) -> object-binding ladder Stage 1+; FAIL would contradict 622 S0 -> /failure-autopsy on GoalState.update. Axis criteria C2/C3/C4 are tagged trusted=false unless the positive control fires (they are differential criteria, vacuous under uniformly-zero z_goal -- exactly the 626 trap). overall_pass = P0 positive control AND C1 AND (C2 OR C3 OR C4) AND C5. Carries over 626's 4-arm grid (ARM_A formation-only / ARM_B drive-anneal 0.9->0.2 / ARM_C hazard-anneal 0.0->0.7 / ARM_D writer-frozen-during-transition), phase budget (P0 30 + P1 30 + P2 30, 200 steps/ep), use_dacc=True (dacc_weight=0.5), and C1-C5 acceptance code unchanged. claim_ids=[] (substrate-readiness/harness diagnostic; NOT load-bearing per CLAIM_IDS Accuracy Rule). Authored via /queue-experiment per goal_stream_repair_diagnostic_ladder_2026-06-01.md Deliverables F1/G. Dry-run smoke PASS 2026-06-01T16:46Z (12 cells end-to-end without crash; progress instrumentation ep N/60 + 12 verdict lines correct; validate_experiments AST OK; emit_outcome sentinel wired; z_goal now moves off zero -- non-zero P2 medians where 626 was uniformly 0.0, confirming the feed is wired). HAZARD NOTED (V3-EXQ-603d incident 2026-06-01T06:46Z): phase3-queue sync_daemon snapshot writer can drop pathspec-staged files between git-add and git-commit; post-commit dropped-file check verifies V3-EXQ-626a lands cleanly. Concurrent active sibling at queue time: IGW MECH-262 (foreign untracked experiments/v3_exq_598c_mech262_retest_scaffolded_sd054.py; pathspec-limited git add avoids sweep)."
+    },
+    {
       "queue_id": "V3-EXQ-592e",
       "title": "MECH-090 R-c readiness conjunction (4-arm, C1 baseline redesigned)",
       "script": "experiments/v3_exq_592e_mech090_readiness_conjunction_validation.py",
