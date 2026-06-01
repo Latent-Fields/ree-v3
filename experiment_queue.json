@@ -16,7 +16,11 @@
       "estimated_minutes": 360,
       "supersedes": "V3-EXQ-592d",
       "claim_id": "MECH-090",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-01T06:47:26Z"
+      },
       "claim_ids": [
         "MECH-090"
       ],
@@ -25,6 +29,28 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_592e_mech090_readiness_conjunction_validation",
       "notes": "Supersedes V3-EXQ-592d (FAIL non_contributory 2026-06-01 per failure_autopsy_V3-EXQ-592d_2026-06-01). 592d C1 baseline predicate (commit_rate = n_commit_entries / total_p2_steps > 0.001) was structurally unmeetable under rv-only ARM_0 entry semantic. 592e applies BOTH autopsy Section 9 fixes orthogonally: (a) FORCE_UNCOMMITTED_P2_ENTRY=True per-episode release of beta_gate + null e3._committed_trajectory + zero _committed_step_idx at P2 episode start so the gate is consulted on every fresh re-elevation; (b) HOLD_RATE_BASED acceptance criteria replacing the unmeasurable commit-rate predicate. Interpretation grid updated: C1 FAIL now routes to /diagnose-errors for SCRIPT predicate correction (NOT curriculum harness, NOT gate -- the 592d grid routing was INVERTED per user gate 2026-06-01T05:55Z). 4 arms x 3 seeds; PASS unblocks commitment_closure:GAP-4 -> done substrate-side. claim_ids=[MECH-090] only per CLAUDE.md claim_ids Accuracy Rule. Cross-link IGW-20260531-021. Dry-run smoke PASS 2026-06-01T06:38Z (wiring + force-uncommitted per-episode + C1 redesign all verified end-to-end).",
+      "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-603d",
+      "title": "Q-045 MECH-313 + MECH-260 + FP-2 matched-noise on scaffolded_sd054 (GAP-C Theory 3)",
+      "script": "experiments/v3_exq_603d_q045_mech313_mech260_scaffolded_sd054.py",
+      "priority": 100,
+      "machine_affinity": "any",
+      "estimated_minutes": 600,
+      "supersedes": "V3-EXQ-603c",
+      "claim_id": "Q-045",
+      "status": "pending",
+      "claim_ids": [
+        "Q-045",
+        "MECH-313",
+        "MECH-260"
+      ],
+      "conditions": 5,
+      "episodes_per_run": 90,
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_603d_q045_mech313_mech260_scaffolded_sd054",
+      "notes": "Closes behavioral_diversity_isolation:GAP-C Theory 3 (MECH-313 LC-NE tonic noise floor). Supersedes V3-EXQ-603c (FAIL non_contributory 2026-05-27, 8/12 cells aborted P1 survival gate on cold goal pipeline). All three GAP-C substrate prereqs now cleared: (1) MECH-307 default-value recalibration 2026-05-15 by V3-EXQ-540g PASS; (2) goal-pipeline z_goal substrate-readiness 2026-06-01T05:55Z by V3-EXQ-621a PASS on scaffolded_sd054_onboarding; (3) InfantCurriculumScheduler Phase 0->1 H_pos floor recalibration 2026-05-31. 5-arm design extends the 603 4-arm Q-045 grid (ARM_0_both_off / ARM_1_mech313_only / ARM_2_mech260_only / ARM_3_both_on) with ARM_4_matched_noise (FP-2 control: constant T=1.5 selection temperature matched to ARM_1/ARM_3 NoiseFloor lift, no MECH-313 substrate, no MECH-260) to dissociate 'MECH-313 substrate produces diversity' from 'any equivalent-magnitude T lift produces diversity'. P0/P1 phased training delivered via ScaffoldedSD054OnboardingScheduler (P0 reef-refuge spawn + frozen goal pipeline; P1 anneal hazard_food_attraction 0->0.7 + proximity_harm_scale 0.05->0.1 + mech295_min_drive_to_fire 1.0->0.01 + mech307_conjunction_z_beta_threshold 0.6->0.3); custom P2 measurement layers action-class entropy + position-entropy + z_goal_norm peak + reef_visit_fraction + FIFO temporal gate on top of the scheduler's substrate-readiness diagnostics. Acceptance applies the partial 7-criterion gate revision per failure_autopsy_V3-EXQ-591_2026-05-27 section 7: drop C3 residue_coverage (trivially saturating) + C5/C6/C7 (sentinel-emitting); keep C1 z_goal_norm > 0.4 + C2 rolling H_pos > 0.65*ln(144) ~= 3.23 + C4 action-class entropy lift as discriminative. PASS = C2_q045_mutually_load_bearing AND C4_z_goal_engaged AND C5_h_pos_coverage AND FP2_dissociation. 4-row interpretation grid: PASS -> /governance MECH-313 + MECH-260 promotion review + Q-045 supports + close GAP-C done; PARTIAL_NO_FP2 -> MECH-313 weakens (reduced to uniform-temperature-lift) + Q-045 mixed; SUBSTRATE_FAILURE (C4 OR C5 false) -> /failure-autopsy on V3-EXQ-603d; FAIL_NO_DIVERSITY -> MECH-313/MECH-260/Q-045 weakens. Per-claim direction MANDATORY (evidence_direction_per_claim). Cross-link: behavioral_diversity_isolation:GAP-C node. Dry-run smoke PASS 2026-06-01T06:50Z (full P0->P1->P2 pipeline; SD-022 harm_obs_a_dim=7 wiring correct under limb_damage_enabled substrate config). validate_experiments AST contract OK. Initial attempt to commit V3-EXQ-603d via commit 849bec3 included only the script -- the phase3-queue snapshot writer auto-overwrote experiment_queue.json between git-add and git-commit, dropping the entry; re-applied here on top of the new snapshot.",
       "seeds": 3
     },
     {
@@ -49,24 +75,6 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_610b_inv074_crystallization_necessity",
       "notes": "INV-074 retest after MECH-341 parameter retune (entropy_lambda 0.05->0.5, bias_scale 0.1->1.0). V3-EXQ-610a showed FAIL with D1=False D2=False (non_contributory); this retest with amplified diversity signal may show different outcome. IGW-20260601-026."
-    },
-    {
-      "queue_id": "V3-EXQ-603d",
-      "title": "Q-045 MECH-313 + MECH-260 + FP-2 matched-noise on scaffolded_sd054 (GAP-C Theory 3)",
-      "script": "experiments/v3_exq_603d_q045_mech313_mech260_scaffolded_sd054.py",
-      "experiment_type": "v3_exq_603d_q045_mech313_mech260_scaffolded_sd054",
-      "priority": 100,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "episodes_per_run": 90,
-      "seeds": 3,
-      "conditions": 5,
-      "supersedes": "V3-EXQ-603c",
-      "claim_id": "Q-045",
-      "claim_ids": ["Q-045", "MECH-313", "MECH-260"],
-      "experiment_purpose": "evidence",
-      "status": "pending",
-      "notes": "Closes behavioral_diversity_isolation:GAP-C Theory 3 (MECH-313 LC-NE tonic noise floor). Supersedes V3-EXQ-603c (FAIL non_contributory 2026-05-27, 8/12 cells aborted P1 survival gate on cold goal pipeline). All three GAP-C substrate prereqs now cleared: (1) MECH-307 default-value recalibration 2026-05-15 by V3-EXQ-540g PASS; (2) goal-pipeline z_goal substrate-readiness 2026-06-01T05:55Z by V3-EXQ-621a PASS on scaffolded_sd054_onboarding; (3) InfantCurriculumScheduler Phase 0->1 H_pos floor recalibration 2026-05-31. 5-arm design extends the 603 4-arm Q-045 grid (ARM_0_both_off / ARM_1_mech313_only / ARM_2_mech260_only / ARM_3_both_on) with ARM_4_matched_noise (FP-2 control: constant T=1.5 selection temperature matched to ARM_1/ARM_3 NoiseFloor lift, no MECH-313 substrate, no MECH-260) to dissociate 'MECH-313 substrate produces diversity' from 'any equivalent-magnitude T lift produces diversity'. P0/P1 phased training delivered via ScaffoldedSD054OnboardingScheduler (P0 reef-refuge spawn + frozen goal pipeline; P1 anneal hazard_food_attraction 0->0.7 + proximity_harm_scale 0.05->0.1 + mech295_min_drive_to_fire 1.0->0.01 + mech307_conjunction_z_beta_threshold 0.6->0.3); custom P2 measurement layers action-class entropy + position-entropy + z_goal_norm peak + reef_visit_fraction + FIFO temporal gate on top of the scheduler's substrate-readiness diagnostics. Acceptance applies the partial 7-criterion gate revision per failure_autopsy_V3-EXQ-591_2026-05-27 section 7: drop C3 residue_coverage (trivially saturating) + C5/C6/C7 (sentinel-emitting); keep C1 z_goal_norm > 0.4 + C2 rolling H_pos > 0.65*ln(144) ~= 3.23 + C4 action-class entropy lift as discriminative. PASS = C2_q045_mutually_load_bearing AND C4_z_goal_engaged AND C5_h_pos_coverage AND FP2_dissociation. 4-row interpretation grid: PASS -> /governance MECH-313 + MECH-260 promotion review + Q-045 supports + close GAP-C done; PARTIAL_NO_FP2 -> MECH-313 weakens (reduced to uniform-temperature-lift) + Q-045 mixed; SUBSTRATE_FAILURE (C4 OR C5 false) -> /failure-autopsy on V3-EXQ-603d; FAIL_NO_DIVERSITY -> MECH-313/MECH-260/Q-045 weakens. Per-claim direction MANDATORY (evidence_direction_per_claim). Cross-link: behavioral_diversity_isolation:GAP-C node. Dry-run smoke PASS 2026-06-01T06:50Z (full P0->P1->P2 pipeline; SD-022 harm_obs_a_dim=7 wiring correct under limb_damage_enabled substrate config). validate_experiments AST contract OK. Initial attempt to commit V3-EXQ-603d via commit 849bec3 included only the script -- the phase3-queue snapshot writer auto-overwrote experiment_queue.json between git-add and git-commit, dropping the entry; re-applied here on top of the new snapshot."
     }
   ]
 }
