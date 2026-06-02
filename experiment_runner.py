@@ -121,6 +121,36 @@ def _result_manifest_exists(result: dict) -> bool:
     return Path(manifest).is_file()
 
 
+def _classify_no_sentinel_result(stdout_result: str, exit_code: int) -> tuple[str, str | None]:
+    """Classify a completed run that produced NO runner sentinel.
+
+    Per the experiment_protocol contract a missing sentinel means the script
+    never reached emit_outcome (crash / kill / un-retrofitted legacy script).
+
+    - Non-zero exit -> ERROR, ALWAYS. A process that dies mid-run may have
+      already printed partial `verdict:`/`outcome:` lines on stdout (e.g.
+      V3-EXQ-624 crashed in ARM_2 after ARM_0/ARM_1 printed `verdict: PASS`);
+      that stdout-derived verdict must never be trusted, or the crashed item
+      is recorded as PASS and left in the queue as a fleet crash-magnet that
+      any worker re-claims and re-crashes (incident 2026-06-02).
+    - Clean exit (0) + stdout PASS/FAIL -> trust stdout (legacy un-retrofitted
+      script). Returns (stdout_result, None); the caller prints the retrofit
+      NOTE and keeps its own summary.
+    - Clean exit (0) + no stdout verdict -> ERROR.
+
+    Returns (result, summary). summary is None ONLY for the trusted legacy
+    path; otherwise it is a populated ERROR summary string.
+    """
+    if exit_code != 0:
+        return "ERROR", (
+            f"Non-zero exit code {exit_code}; no runner sentinel "
+            f"(stdout-derived {stdout_result!r} not trusted on crash)"
+        )
+    if stdout_result in ("PASS", "FAIL"):
+        return stdout_result, None
+    return "ERROR", "No runner sentinel emitted and no PASS/FAIL on stdout"
+
+
 def find_ree_assembly_path() -> Path | None:
     """Locate the REE_assembly repo (for git auto-sync pushes)."""
     candidates = [
@@ -2129,26 +2159,27 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             # downstream branches keep the queue item in place if the
             # script is not yet retrofitted (legacy stdout result still
             # surfaces in result_summary).
-            if result_info["result"] in ("PASS", "FAIL"):
-                # Legacy stdout-only path: trust the regex result but flag
-                # the missing sentinel so the user can retrofit the script.
+            _ns_result, _ns_summary = _classify_no_sentinel_result(
+                result_info["result"], exit_code)
+            if _ns_summary is None:
+                # Trusted legacy stdout path (clean exit + stdout PASS/FAIL):
+                # flag the missing sentinel so the user can retrofit the script.
                 print(f"[runner] NOTE: no sentinel for {queue_id}; using "
                       f"legacy stdout-derived result {result_info['result']} "
                       f"(retrofit experiment_protocol.emit_outcome to silence)",
                       flush=True)
             else:
-                # No sentinel and no PASS/FAIL on stdout -> ERROR.
-                result_info["result"] = "ERROR"
-                if exit_code != 0:
-                    result_info["result_summary"] = (
-                        f"Non-zero exit code {exit_code}; no runner sentinel "
-                        f"and no stdout verdict"
-                    )
-                else:
-                    result_info["result_summary"] = (
+                # Crash (non-zero exit) or clean-exit-with-no-verdict -> ERROR.
+                # A partial stdout verdict from a crashed run is NOT trusted
+                # (V3-EXQ-624 incident 2026-06-02: crashed item was recorded
+                # PASS off stdout and left in queue as a fleet crash-magnet).
+                if exit_code == 0:
+                    _ns_summary = (
                         f"No runner sentinel emitted and no PASS/FAIL on stdout "
                         f"(exit={exit_code}; secs={round(time.monotonic() - started_at, 1)})"
                     )
+                result_info["result"] = _ns_result
+                result_info["result_summary"] = _ns_summary
 
         # Belt-and-braces: a true non-zero exit with no positive verdict from
         # either source is always ERROR.
