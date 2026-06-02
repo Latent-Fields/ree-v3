@@ -113,7 +113,7 @@
       "status": "claimed",
       "claimed_by": {
         "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-02T15:00:43Z"
+        "claimed_at": "2026-06-02T15:52:49Z"
       },
       "conditions": 4,
       "episodes_per_run": 130,
