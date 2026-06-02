@@ -34,6 +34,23 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-604a",
+      "title": "MECH-314 structured-curiosity validation on SD-056-trained substrate (5-arm: curiosity OFF / ALL_ON / 314a-off / 314b-off / 314c-off; supersedes 604)",
+      "script": "experiments/v3_exq_604a_q044_mech314_subflavour_ablation_sd056_substrate.py",
+      "priority": 260,
+      "machine_affinity": "any",
+      "estimated_minutes": 480,
+      "supersedes": "V3-EXQ-604",
+      "claim_id": "MECH-314",
+      "note": "Evidence-purpose MECH-314 validation. Supersedes V3-EXQ-604 (FAIL non_contributory/substrate_ceiling 2026-05-21: all arms identical, monomodal collapse; governance directed 'retest after structured-curiosity substrate carries in'). 604 ran the agent forward with NO E2 training, so candidate z_world was action-degenerate and the per-candidate novelty bonus (314a) had no signal. ROOT-CAUSE FIX: the substrate that 'carries it in' is SD-056 (e2.action_conditional_divergence_contrastive, landed 2026-05-31). This run trains E2 online with the SD-056 InfoNCE contrastive loss (weight 0.05; harness verbatim from the landed V3-EXQ-569d) so candidates are action-divergent, THEN ablates structured curiosity across 5 arms. ACCEPTANCE: C0 substrate-readiness GUARD (cand_world_pairwise_dist>0.03 in >=2/3 seeds in EVERY arm -- confirms SD-056 fixed the collapse; if C0 fails the run is non_contributory -> /diagnose-errors, NOT a MECH-314 falsification); C1 MECH-314 parent effect (ARM_ALL_ON selected_action_class_entropy differs from ARM_OFF by >0.03); C2 sub-flavour discriminability (informative -- which of 314a/b/c are selection-level load-bearing; 314a/novelty expected per the Phase-1 honest-scoping caveat that 314b/c are broadcast scalars). PASS=C0 AND C1 -> evidence supports MECH-314 parent; evidence_direction_per_claim splits Q-044/MECH-314/314a/b/c. EXPERIMENT_PURPOSE=evidence; claim_ids=[Q-044,MECH-314,MECH-314a,MECH-314b,MECH-314c]. Dry-run smoke PASS at harness level 2026-06-02: all 5 arms run end-to-end (5 verdicts, no crash), instrumentation correct (ep N/80 denominator = P0 60 + P1 20; Seed/Condition boundaries; emit_outcome wired); C0 budget-limited at dry scale (P0=2 can't train E2 -- expected, clears at full P0=60 per 569d's ~0.045 pairwise dist). validate_experiments OK. any-affinity for cloud-fleet utilization; ~480min est on CX22 (5x3x80ep + online E2 training).",
+      "status": "pending",
+      "conditions": 5,
+      "episodes_per_run": 80,
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_604a_q044_mech314_subflavour_ablation_sd056_substrate",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-603e",
       "title": "Q-045/MECH-313/MECH-260 + FP-2 dissociation on scaffolded_sd054_onboarding (re-issue of 603d on hook-fixed scheduler + z_goal_enabled config)",
       "script": "experiments/v3_exq_603e_q045_mech313_mech260_scaffolded_sd054.py",
@@ -106,23 +123,6 @@
       "episodes_per_run": 130,
       "experiment_type": "v3_exq_624a_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-604a",
-      "title": "MECH-314 structured-curiosity validation on SD-056-trained substrate (5-arm: curiosity OFF / ALL_ON / 314a-off / 314b-off / 314c-off; supersedes 604)",
-      "script": "experiments/v3_exq_604a_q044_mech314_subflavour_ablation_sd056_substrate.py",
-      "priority": 260,
-      "machine_affinity": "any",
-      "estimated_minutes": 480,
-      "supersedes": "V3-EXQ-604",
-      "claim_id": "MECH-314",
-      "note": "Evidence-purpose MECH-314 validation. Supersedes V3-EXQ-604 (FAIL non_contributory/substrate_ceiling 2026-05-21: all arms identical, monomodal collapse; governance directed 'retest after structured-curiosity substrate carries in'). 604 ran the agent forward with NO E2 training, so candidate z_world was action-degenerate and the per-candidate novelty bonus (314a) had no signal. ROOT-CAUSE FIX: the substrate that 'carries it in' is SD-056 (e2.action_conditional_divergence_contrastive, landed 2026-05-31). This run trains E2 online with the SD-056 InfoNCE contrastive loss (weight 0.05; harness verbatim from the landed V3-EXQ-569d) so candidates are action-divergent, THEN ablates structured curiosity across 5 arms. ACCEPTANCE: C0 substrate-readiness GUARD (cand_world_pairwise_dist>0.03 in >=2/3 seeds in EVERY arm -- confirms SD-056 fixed the collapse; if C0 fails the run is non_contributory -> /diagnose-errors, NOT a MECH-314 falsification); C1 MECH-314 parent effect (ARM_ALL_ON selected_action_class_entropy differs from ARM_OFF by >0.03); C2 sub-flavour discriminability (informative -- which of 314a/b/c are selection-level load-bearing; 314a/novelty expected per the Phase-1 honest-scoping caveat that 314b/c are broadcast scalars). PASS=C0 AND C1 -> evidence supports MECH-314 parent; evidence_direction_per_claim splits Q-044/MECH-314/314a/b/c. EXPERIMENT_PURPOSE=evidence; claim_ids=[Q-044,MECH-314,MECH-314a,MECH-314b,MECH-314c]. Dry-run smoke PASS at harness level 2026-06-02: all 5 arms run end-to-end (5 verdicts, no crash), instrumentation correct (ep N/80 denominator = P0 60 + P1 20; Seed/Condition boundaries; emit_outcome wired); C0 budget-limited at dry scale (P0=2 can't train E2 -- expected, clears at full P0=60 per 569d's ~0.045 pairwise dist). validate_experiments OK. any-affinity for cloud-fleet utilization; ~480min est on CX22 (5x3x80ep + online E2 training).",
-      "status": "pending",
-      "conditions": 5,
-      "episodes_per_run": 80,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_604a_q044_mech314_subflavour_ablation_sd056_substrate",
       "seeds": 3
     }
   ]
