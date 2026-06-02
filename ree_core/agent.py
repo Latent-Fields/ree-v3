@@ -1888,6 +1888,7 @@ class REEAgent(nn.Module):
         obs_harm_a: Optional[torch.Tensor] = None,
         obs_harm_history: Optional[torch.Tensor] = None,
         obs_per_axis_drive: Optional[torch.Tensor] = None,
+        mech090_readiness_outcome: Optional[float] = None,
     ) -> LatentState:
         """
         SENSE + UPDATE step: encode split observation -> update latent state.
@@ -1907,6 +1908,20 @@ class REEAgent(nn.Module):
                         Rolling window of past harm_exposure scalars. Concatenated
                         with harm_obs_a as AffectiveHarmEncoder input when
                         harm_history_len > 0.
+            mech090_readiness_outcome: MECH-090 R-c continuation (nav_competence
+                        axis) per-tick outcome signal in [0, 1] or None. The
+                        Phase-2 follow-on source for the across-tick commit-
+                        readiness EMA: the caller forwards the env-emitted
+                        info["mech090_readiness_outcome"] (e.g. CausalGridWorldV2
+                        with mech090_readiness_outcome_enabled=True surfaces
+                        1.0 - mean(limb_damage)). When provided AND
+                        self.commit_readiness is not None, advances the readiness
+                        EMA so the across-tick nav_competence gate at the
+                        beta_gate elevate sites is fed automatically (no out-of-
+                        band notify_outcome harness push). None (the default --
+                        key absent) leaves the EMA un-advanced (bit-identical
+                        fail-open). MECH-094: simulation/replay ticks
+                        (hypothesis_tag) do not advance the EMA.
 
         Returns:
             Updated LatentState
@@ -2518,6 +2533,27 @@ class REEAgent(nn.Module):
             ))
             if len(self._harm_replay_buffer) > 1000:
                 self._harm_replay_buffer = self._harm_replay_buffer[-1000:]
+
+        # MECH-090 R-c continuation (nav_competence axis) -- Phase-2 follow-on
+        # (2026-06-02). Advance the commit-readiness EMA from the per-tick
+        # env-emitted nav-competence/motor-program-readiness outcome the caller
+        # forwards (info["mech090_readiness_outcome"]). The 2026-05-29 landing
+        # wired the CONSUMER (is_above_floor AND-composed at both beta_gate
+        # elevate sites) + the notify_outcome seam, but left no automatic SOURCE
+        # -- the across-tick axis sat fail-open (readiness pinned at the initial
+        # 1.0) in any ecological run because nothing advanced the EMA. This
+        # closes that gap: the substrate now advances readiness automatically
+        # from an env signal without an out-of-band harness push.
+        # Bit-identical OFF: no-op when self.commit_readiness is None (master
+        # flags off) OR when mech090_readiness_outcome is None (key absent; the
+        # CommitReadiness.update None-sentinel returns readiness unchanged).
+        # MECH-094: simulation/replay ticks (hypothesis_tag) do not advance the
+        # EMA -- update() honours simulation_mode.
+        if self.commit_readiness is not None:
+            self.commit_readiness.update(
+                outcome_signal=mech090_readiness_outcome,
+                simulation_mode=bool(getattr(new_latent, "hypothesis_tag", False)),
+            )
 
         return new_latent
 

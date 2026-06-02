@@ -181,6 +181,27 @@ class CausalGridWorld:
         scheduled_limb_damage_prob: float = 0.5,
         scheduled_limb_damage_magnitude: float = 0.4,
         scheduled_limb_damage_limb_selection: str = "random",
+        # MECH-090 R-c continuation (nav_competence axis) -- Phase-2 follow-on
+        # (2026-06-02). Env-emitted per-tick motor-program-readiness / nav-
+        # competence outcome consumed by the CommitReadiness EMA via
+        # agent.sense(mech090_readiness_outcome=...). When enabled, step()
+        # surfaces info["mech090_readiness_outcome"] = 1.0 - mean(limb_damage)
+        # clipped to [0, 1] -- a [0,1] "how ready is my motor apparatus to
+        # execute the prepared affordance" scalar that degrades as limb damage
+        # accumulates (hazard contact + SD-022 scheduled injection) and recovers
+        # as damage heals. This is the Cisek & Kalaska 2010 affordance-
+        # preparation / Roesch-Calu-Schoenbaum 2007 dopaminergic-readiness
+        # across-tick axis the 2026-05-29 substrate wired the consumer for but
+        # left without an automatic source (CLAUDE.md MECH-090 R-c continuation:
+        # "Phase 2 follow-on: wire an env-emitted mech090_readiness_outcome key
+        # reading in agent.sense()"). Requires limb_damage_enabled=True to be
+        # informative; when limb damage is off the outcome is a constant 1.0
+        # (fail-open, no readiness degradation possible). Disabled by default
+        # (bit-identical OFF: the info key is simply absent, so agent.sense
+        # reads None and the readiness EMA is not advanced). Env-only kwarg,
+        # NOT surfaced through REEConfig.from_dims (matches SD-022 / SD-029 /
+        # SD-047 / SD-048 / SD-049 / SD-054 env-only precedent).
+        mech090_readiness_outcome_enabled: bool = False,
         # SD-047: multi-source environmental dynamics.
         # Three concurrent stochastic event sources at distinct spatial / temporal scales,
         # each agent-independent. Provides the textured causal background that
@@ -523,6 +544,9 @@ class CausalGridWorld:
         self.scheduled_limb_damage_prob = scheduled_limb_damage_prob
         self.scheduled_limb_damage_magnitude = scheduled_limb_damage_magnitude
         self.scheduled_limb_damage_limb_selection = scheduled_limb_damage_limb_selection
+        # MECH-090 R-c continuation (nav_competence axis): env-emitted readiness
+        # outcome source. Env-only; no RNG draws, no dynamics change when OFF.
+        self.mech090_readiness_outcome_enabled = bool(mech090_readiness_outcome_enabled)
         self._scheduled_limb_damage_event_count: int = 0
         self._scheduled_limb_damage_last_step: int = -1
         self._scheduled_limb_damage_last_limb_idx: int = -1
@@ -2355,6 +2379,21 @@ class CausalGridWorld:
             )
             info["harm_exposure"] = self.harm_exposure
             info["benefit_exposure"] = self.benefit_exposure
+        # MECH-090 R-c continuation (nav_competence axis): emit the per-tick
+        # motor-program-readiness outcome ONLY when enabled. Absent-when-disabled
+        # (not an always-present sentinel) is deliberate: agent.sense reads
+        # info.get("mech090_readiness_outcome") which returns None when the key
+        # is absent, leaving the CommitReadiness EMA un-advanced (bit-identical
+        # OFF). 1.0 - mean(limb_damage) is the [0,1] readiness scalar; when limb
+        # damage is disabled the outcome is a constant 1.0 (fail-open).
+        if self.mech090_readiness_outcome_enabled:
+            if self.limb_damage_enabled:
+                _readiness_outcome = 1.0 - float(np.mean(self.limb_damage))
+            else:
+                _readiness_outcome = 1.0
+            info["mech090_readiness_outcome"] = float(
+                max(0.0, min(1.0, _readiness_outcome))
+            )
         return flat_obs, harm_signal, done, info, obs_dict
 
     # ------------------------------------------------------------------ #
