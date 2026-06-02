@@ -34,6 +34,21 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-629",
+      "title": "MECH-342 ecological maintenance-time commitment-release EVIDENCE (real REEAgent + real CausalGridWorldV2; natural commit + natural mid-commitment readiness degradation via SD-047; use_maintenance_release ON-vs-OFF release axis)",
+      "script": "experiments/v3_exq_629_mech342_ecological_maintenance_release_evidence.py",
+      "priority": 270,
+      "machine_affinity": "any",
+      "estimated_minutes": 240,
+      "claim_id": "MECH-342",
+      "note": "ECOLOGICAL evidence-grade complement to the diagnostic state-machine probe V3-EXQ-592g (PASS). PREDECESSOR reference, NOT supersedes -- 592g is a valid diagnostic (stubs E3.select, forces committed state); 629 uses a REAL REEAgent in a REAL CausalGridWorldV2 where commitment is NATURAL (E3.select not stubbed, R-c-gated entry) and readiness degrades NATURALLY mid-commitment (SD-047 multi_source_dynamics raises E2 world-forward error -> running_variance -> nav proxy drop + score-margin compression). Arm axis = use_maintenance_release ON vs OFF (commit-entry gating identical). Two P2 windows: HEALTHY (no false abort) + DEGRADED (decommit + mech342 fires + occupancy < OFF, which reproduces the 592f gap). Distinct-from controls config-enforced: use_harm_stream=False (MECH-091 inert), V_s commit-release OFF, ghost-goal OFF. C2 INVALID_HARNESS guard -> non_contributory (not FAIL) if SD-047 degradation insufficient. Required by the 2026-06-02 /governance disposition (MECH-342 stays candidate/v3_pending until an ecological evidence-grade run lands). experiment_purpose=evidence; claim_ids=[MECH-342]. Bumped from 628 (concurrent MECH-319 session b7fae0a took 628).",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 400,
+      "experiment_type": "v3_exq_629_mech342_ecological_maintenance_release_evidence",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-604a",
       "title": "MECH-314 structured-curiosity validation on SD-056-trained substrate (5-arm: curiosity OFF / ALL_ON / 314a-off / 314b-off / 314c-off; supersedes 604)",
       "script": "experiments/v3_exq_604a_q044_mech314_subflavour_ablation_sd056_substrate.py",
@@ -127,21 +142,6 @@
       "experiment_type": "v3_exq_624a_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-629",
-      "title": "MECH-342 ecological maintenance-time commitment-release EVIDENCE (real REEAgent + real CausalGridWorldV2; natural commit + natural mid-commitment readiness degradation via SD-047; use_maintenance_release ON-vs-OFF release axis)",
-      "script": "experiments/v3_exq_629_mech342_ecological_maintenance_release_evidence.py",
-      "experiment_type": "v3_exq_629_mech342_ecological_maintenance_release_evidence",
-      "priority": 270,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "status": "pending",
-      "seeds": 3,
-      "conditions": 2,
-      "episodes_per_run": 400,
-      "claim_id": "MECH-342",
-      "note": "ECOLOGICAL evidence-grade complement to the diagnostic state-machine probe V3-EXQ-592g (PASS). PREDECESSOR reference, NOT supersedes -- 592g is a valid diagnostic (stubs E3.select, forces committed state); 629 uses a REAL REEAgent in a REAL CausalGridWorldV2 where commitment is NATURAL (E3.select not stubbed, R-c-gated entry) and readiness degrades NATURALLY mid-commitment (SD-047 multi_source_dynamics raises E2 world-forward error -> running_variance -> nav proxy drop + score-margin compression). Arm axis = use_maintenance_release ON vs OFF (commit-entry gating identical). Two P2 windows: HEALTHY (no false abort) + DEGRADED (decommit + mech342 fires + occupancy < OFF, which reproduces the 592f gap). Distinct-from controls config-enforced: use_harm_stream=False (MECH-091 inert), V_s commit-release OFF, ghost-goal OFF. C2 INVALID_HARNESS guard -> non_contributory (not FAIL) if SD-047 degradation insufficient. Required by the 2026-06-02 /governance disposition (MECH-342 stays candidate/v3_pending until an ecological evidence-grade run lands). experiment_purpose=evidence; claim_ids=[MECH-342]. Bumped from 628 (concurrent MECH-319 session b7fae0a took 628)."
     }
   ]
 }
