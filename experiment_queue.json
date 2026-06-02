@@ -90,6 +90,21 @@
       "claim_id": "Q-045",
       "supersedes": "V3-EXQ-603d",
       "note": "Substrate-readiness validation (EXPERIMENT_PURPOSE=diagnostic) of the 2026-06-02 implement-substrate AMEND (scaffolded_sd054_onboarding update_z_goal wiring, ree-v3 deb24cc). THREE changes vs 603d: (1) restored P0/P1=100/50 budget; (2) from_dims sets z_goal_enabled=True + drive_weight=2.0 (603d omitted it -> goal_state None -> update_z_goal early-returned); (3) bespoke P2 loop now calls update_z_goal each step. Acceptance: z_goal_norm_peak > 0.4 on >=2/3 seeds in P2 AND P1 survival gate passed on >=2/3 seeds. Forced-seed verification confirmed the 603e P2 path forms z_goal (peak 0.36 at 25 steps). claim_ids recorded as context (diagnostic; not governance-weighted)."
+    },
+    {
+      "queue_id": "V3-EXQ-625c",
+      "title": "SD-037 axis-b Phase 1b C3 dynamic-crossings redesign + MECH-341 on-policy E3 diversity (supersedes 625b)",
+      "experiment_type": "v3_exq_625c_sd037_axis_b_phase1b_dynamic_crossings_mech341",
+      "script": "experiments/v3_exq_625c_sd037_axis_b_phase1b_dynamic_crossings_mech341.py",
+      "priority": 150,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 50,
+      "episodes_per_run": 60,
+      "seeds": 3,
+      "conditions": 1,
+      "supersedes": "V3-EXQ-625b",
+      "note": "EXPERIMENT_PURPOSE=diagnostic, claim_ids=[]. Two coupled changes vs 625b: (1) C3 redesigned from sustained-window to DYNAMIC-CROSSINGS (per seed >=1 above->below AND >=1 below->above transition of z_harm_a across 0.4; PASS on >=2/3 seeds), per failure_autopsy_V3-EXQ-625b_2026-06-02 section 8.3 -- excludes the seed-7 catatonic-lock literal pass and the frozen-below lock that the old C3 could not distinguish; legacy sustained-window reported but NOT gating. (2) MECH-341 on-policy E3 score-diversity ENABLED in the arm (use_e3_score_diversity + stratified_select + entropy_bonus). FINDING (code-verified 2026-06-02): the scaffolded_sd054_onboarding update_z_goal amend (deb24cc) is DISJOINT from this path -- 625b measures the gap4-baseline base policy via _lib.goal_pipeline_tier1.warmup_train, which never runs the scaffolded scheduler; MECH-341 is the applicable on-policy diversity lever (validated V3-EXQ-611b). SD-056 left OFF to avoid confounding two diversity levers. User-confirmed arm config via AskUserQuestion 2026-06-02. Supersedes 625b (lineage bookkeeping; 625b's monostrategy finding remains valid as a separate diagnostic record)."
     }
   ]
 }
