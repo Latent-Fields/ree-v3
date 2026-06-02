@@ -34,36 +34,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-514l",
-      "title": "MECH-229 identity-distinct wanting retest on SD-049 Phase 3 substrate (retry of 514k FAIL)",
-      "script": "experiments/v3_exq_514l_sd049_phase3_mech229_wanting_liking_identity.py",
-      "priority": 280,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "supersedes": "V3-EXQ-514k",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-02T15:05:51Z"
-      },
-      "added_by": "IGW-20260602-029",
-      "added_utc": "2026-06-02T14:55:32Z",
-      "claim_ids": [
-        "SD-049",
-        "SD-015",
-        "MECH-229",
-        "MECH-230"
-      ],
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_514l_sd049_phase3_mech229_wanting_liking_identity",
-      "notes": "MECH-229 retest on SD-049 Phase 3 substrate (use_sd049_per_axis_consumer_cascade=True). Supersedes V3-EXQ-514k which FAILed row1b_joint_identity_probe_weak on 2026-06-01. MECH-229 was demoted active -> provisional on 2026-06-01 with pending_retest_after_substrate=true. Prior PASSes (EXQ-074f, 234, 354) were on single-resource substrate (degenerate test). Phase 3 consumer cascade (incl MECH-295 axis-matched routing) landed 2026-05-31. Tests identity-distinct wanting on multi-resource substrate per pending_retest_after_substrate gate. 4-arm design: ARM_0 off / ARM_1 2-type / ARM_2 3-type / ARM_3 5-type. Pre-registered PASS: C0-C3b probe/classifier gates, C4 ARM_2 goal_resource_r >= 0.5, C5 ARM_2 - ARM_0 lift >= 0.4, C6 ARM_2 wanting!=liking trajectory fraction >= 0.6. Authored as IGW-20260602-029 auto-spawned retest-after-substrate task.",
-      "seeds": [
-        42,
-        43,
-        44
-      ]
-    },
-    {
       "queue_id": "V3-EXQ-603e",
       "title": "Q-045/MECH-313/MECH-260 + FP-2 dissociation on scaffolded_sd054_onboarding (re-issue of 603d on hook-fixed scheduler + z_goal_enabled config)",
       "script": "experiments/v3_exq_603e_q045_mech313_mech260_scaffolded_sd054.py",
@@ -119,43 +89,6 @@
       "episodes_per_run": 400,
       "experiment_type": "v3_exq_063a_arc029_committed_mode_harm_outcomes_rc_gate",
       "seeds": 2
-    },
-    {
-      "queue_id": "V3-EXQ-624",
-      "title": "ARC-068 / MECH-320 Niv-vs-Salamone opportunity-cost-vs-effort-cost dissociation",
-      "script": "experiments/v3_exq_624_arc068_mech320_niv_salamone_dissociation.py",
-      "priority": 100,
-      "machine_affinity": "any",
-      "estimated_minutes": 170,
-      "claim_id": "MECH-320",
-      "backlog_id": "EVB-0237",
-      "note": "ARC-068 (action.opportunity_cost_no_op_penalty) Niv-vs-Salamone discriminative test on MECH-320 w_passive implementation. EXP-0081 / EVB-0237 dispatch_mode=discriminative_pair. ARC-068 lit-pull R3 verdict 2026-05-16 preserves slot-level registration; implementation collapses into MECH-320. R4 verdict: ARC-068 must NOT collapse into MECH-258 / SD-032b dacc_effort_cost (Salamone & Correa 2003 dissociation). 4-arm design: ARM_0 baseline / ARM_1 vigor + Niv env / ARM_2 vigor + Salamone elevated-movement-cost env / ARM_3 baseline + Salamone env. Forced-vigor probe v_t_floor=0.05 implements V3-EXQ-549 prescribed fix (substrate fired correctly under V3-EXQ-547 readiness but EWMA path stuck at zero under default env config in 549; 549 reclassified non_contributory and routed forced-vigor follow-on). Pre-registered acceptance C1 Niv lift >= 0.03, C2 dissociation < 0.50, C3 gate_product >= 0.5, C4 informative-only no-op penalty. claim_ids=[MECH-320, ARC-068] with evidence_direction_per_claim. MECH-258 / SD-032b are foils dissociated from, NOT tested directly. 4-row interpretation grid in script docstring: PASS = ARC-068 supports; C2 FAIL = ARC-068 weakens (effort-cost collapse, surface supersession question to /governance); C1 FAIL + C3 PASS = /failure-autopsy; C3 FAIL = /diagnose-errors. Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-02T16:47:18Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 130,
-      "experiment_type": "v3_exq_624_arc068_mech320_niv_salamone_dissociation",
-      "proposal_id": "EXP-0081",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-627",
-      "title": "MECH-306 sustained_drive_trace evidence validation (2-arm drive_floor ablation: SUSTAINED 0.9 vs OFF 0.0)",
-      "script": "experiments/v3_exq_627_mech306_sustained_drive_trace_validation.py",
-      "priority": 260,
-      "machine_affinity": "any",
-      "estimated_minutes": 80,
-      "claim_id": "MECH-306",
-      "note": "Evidence-purpose, MECH-306-tagged validation so governance can move MECH-306 off candidate_substrate_landed. MECH-306 (goal_seeding.sustained_drive_trace) has only a diagnostic/non_contributory post-landing run (V3-EXQ-582a PASS 2026-05-19, claim_ids=[], predates MECH-306 registration 2026-05-20) -- no governance-weighting evidence. This 2-arm ablation isolates the load-bearing sustained-trace knob: ARM_SUSTAINED (drive_floor=0.9, drive_ema_alpha=1.0 -- the 582a-validated config) vs ARM_OFF (drive_floor=0.0, instantaneous). Acceptance (pre-registered, mirrors 582a A1-A4): A1 ARM_SUSTAINED mean_effective_benefit_on_contact>0.08; A2 seedings fire in >=2/3 seeds; A3 z_goal_active_fraction>0.05; A4 FALSIFIER ARM_OFF total seedings==0. PASS -> evidence_direction=supports MECH-306. EXPERIMENT_PURPOSE=evidence; claim_ids=[MECH-306]. Dry-run smoke PASS at harness level 2026-06-02T17:03Z: A1 already fires at dry scale (SUSTAINED eff_benefit 0.098 vs OFF 0.035), A4 falsifier holds (OFF zero seedings); A2/A3 are budget-limited at dry scale (4/3 ep) and need the full 30/20-ep run as 582a did; progress instrumentation correct (ep N/30, 6 verdicts = 3 seeds x 2 arms). validate_experiments OK; emit_outcome wired.",
-      "status": "pending",
-      "conditions": 2,
-      "episodes_per_run": 30,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_627_mech306_sustained_drive_trace_validation",
-      "seeds": 3
     },
     {
       "queue_id": "V3-EXQ-624a",
