@@ -388,3 +388,121 @@ def test_c5_build_env_rejects_unknown_phase():
     cfg = ScaffoldedSD054OnboardingConfig(use_scaffolded_sd054_onboarding_scheduler=True)
     with pytest.raises(ValueError):
         _build_env(cfg, "p3")
+
+
+# ---------------------------------------------------------------------------
+# C6: Stage-0 positive control -- the scheduler MUST drive z_goal.
+#
+# V3-EXQ-603d / V3-EXQ-625b harness-fix regression guard. Before the
+# 2026-06-02 amend, _train_episode (P0/P1) and _eval_episode (P2) never called
+# agent.update_z_goal, so GoalState.update was never reached and z_goal stayed
+# zero-init across every step of every arm (C4 z_goal_norm_peak=0.0 FAIL).
+# These contracts make a z_goal=0 scheduler structurally unshippable.
+#
+# NOTE: a non-zero z_goal also requires the agent config to set
+# z_goal_enabled=True (otherwise agent.goal_state is None and update_z_goal
+# early-returns). 603d's config omitted it; the V3-EXQ-603e validation MUST
+# set z_goal_enabled=True + drive_weight=2.0. These tests build a correctly
+# configured agent to isolate the scheduler-wiring contract.
+# ---------------------------------------------------------------------------
+
+
+def _build_goal_enabled_agent(cfg: ScaffoldedSD054OnboardingConfig):
+    """Build a minimal REEAgent with the goal pipeline enabled (goal_state
+    present) whose obs dims match the scheduler's P2 env."""
+    import torch  # noqa: F401
+    from ree_core.utils.config import REEConfig
+    from ree_core.agent import REEAgent
+
+    env = _build_env(cfg, "p2")
+    rcfg = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim,
+        world_obs_dim=env.world_obs_dim,
+        action_dim=env.action_dim,
+        self_dim=32,
+        world_dim=32,
+        alpha_world=0.9,
+        z_goal_enabled=True,
+        drive_weight=2.0,
+    )
+    return REEAgent(rcfg)
+
+
+def test_c6_stage0_positive_control_p2_seeds_zgoal(monkeypatch):
+    """
+    Stage-0 positive control: with forced supra-threshold benefit+drive, the
+    scheduler's P2 measurement must produce a NON-ZERO z_goal_norm_peak. A
+    scheduler that does not call update_z_goal yields exactly 0.0 here (the
+    603d C4 FAIL signature), so this assertion is the unshippable gate.
+    """
+    import experiments.scaffolded_sd054_onboarding as sched_mod
+    import torch
+
+    # Force every seeding call to supra-threshold inputs so z_goal formation is
+    # deterministic and independent of stochastic resource-contact in a short
+    # eval episode.
+    monkeypatch.setattr(
+        sched_mod, "_benefit_and_drive", lambda obs_body: (0.5, 1.0)
+    )
+
+    cfg = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_p2_episode_budget=1,
+        scaffold_steps_per_episode=15,
+    )
+    agent = _build_goal_enabled_agent(cfg)
+    assert agent.goal_state is not None, (
+        "precondition: z_goal_enabled config must create a goal_state"
+    )
+
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    p2 = sched.run_p2(agent, torch.device("cpu"))
+
+    assert p2.z_goal_norm_peak_max > 0.0, (
+        "Stage-0 FAIL: scheduler P2 produced z_goal_norm_peak_max=0.0 -- "
+        "update_z_goal is not wired into _eval_episode (603d/625b regression)"
+    )
+
+
+def test_c6_update_z_goal_called_in_p1_not_p0(monkeypatch):
+    """
+    Phase-gating contract: update_z_goal must fire during P1 (goal pipeline
+    unfrozen) and must NOT fire during P0 (warm-up stays goal-frozen by
+    design). Spy on agent.update_z_goal and count calls per phase.
+    """
+    import experiments.scaffolded_sd054_onboarding as sched_mod
+    import torch
+
+    monkeypatch.setattr(
+        sched_mod, "_benefit_and_drive", lambda obs_body: (0.5, 1.0)
+    )
+
+    cfg = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_p0_episode_budget=1,
+        scaffold_p1_episode_budget=1,
+        scaffold_steps_per_episode=12,
+    )
+    agent = _build_goal_enabled_agent(cfg)
+
+    calls = {"n": 0}
+    real_update = agent.update_z_goal
+
+    def _spy(*a, **k):
+        calls["n"] += 1
+        return real_update(*a, **k)
+
+    monkeypatch.setattr(agent, "update_z_goal", _spy)
+
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    device = torch.device("cpu")
+
+    sched.run_p0(agent, device)
+    assert calls["n"] == 0, (
+        f"P0 must stay goal-frozen: update_z_goal called {calls['n']} times in P0"
+    )
+
+    sched.run_p1(agent, device)
+    assert calls["n"] > 0, (
+        "P1 must seed z_goal: update_z_goal was never called during run_p1"
+    )

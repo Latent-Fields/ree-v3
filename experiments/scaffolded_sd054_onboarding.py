@@ -204,6 +204,25 @@ def _lerp(start: float, end: float, t: float) -> float:
     return float(start + (end - start) * t)
 
 
+def _benefit_and_drive(obs_body: torch.Tensor) -> Tuple[float, float]:
+    """
+    Extract (benefit_exposure, drive_level) from a body-state observation,
+    mirroring experiments/goal_stream_stages_sd054.py:_benefit_and_drive (the
+    reference goal-stream runner the V3-EXQ-622 autopsy confirmed feeds z_goal).
+
+    benefit_exposure = obs_body[11] (resource-contact benefit proxy).
+    drive_level      = clip(1 - energy, 0, 1) where energy = obs_body[3] (SD-012).
+
+    Robust to both [body_dim] and [1, body_dim] shapes (CausalGridWorldV2 emits
+    1-D body_state of length 17 when limb_damage is enabled).
+    """
+    b = obs_body.reshape(-1)
+    benefit = float(b[11].item()) if b.shape[0] > 11 else 0.0
+    energy = float(b[3].item()) if b.shape[0] > 3 else 0.5
+    drive = max(0.0, min(1.0, 1.0 - energy))
+    return benefit, drive
+
+
 def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float = 0.0):
     """
     Build a CausalGridWorldV2 instance for the named phase.
@@ -442,7 +461,8 @@ class ScaffoldedSD054OnboardingScheduler:
             _set_p1_anneal_state(agent, self.cfg, anneal_t)
             env = _build_env(self.cfg, phase="p1", anneal_t=anneal_t)
             ep_len = self._train_episode(
-                agent, env, device, e1_opt, wf_opt, wf_buf, world_dim
+                agent, env, device, e1_opt, wf_opt, wf_buf, world_dim,
+                seed_goal=True,
             )
             all_episode_lengths.append(ep_len)
             recent_lengths.append(ep_len)
@@ -557,6 +577,7 @@ class ScaffoldedSD054OnboardingScheduler:
         wf_opt,
         wf_buf: Deque,
         world_dim: int,
+        seed_goal: bool = False,
     ) -> int:
         """
         One training episode. Returns realised episode length in steps.
@@ -565,6 +586,15 @@ class ScaffoldedSD054OnboardingScheduler:
         env.reset() returns (_, obs_dict); obs_dict carries body_state +
         world_state torch tensors; agent.sense(body, world) -> LatentState;
         ticks -> generate_trajectories -> select_action -> env.step.
+
+        seed_goal: when True, call agent.update_z_goal(benefit, drive) after
+        each env.step using the post-step body-state, mirroring the reference
+        goal-stream runner (goal_stream_stages_sd054.py:537). Set True only in
+        P1 (goal pipeline UNFROZEN); left False in P0 so the encoder/E2/E3
+        warm-up is not gated by goal-pipeline writes (the documented P0
+        design). Wiring this call is the V3-EXQ-603d / 625b harness-fix: the
+        scheduler previously never reached GoalState.update, so z_goal stayed
+        zero-init across every step of every arm.
         """
         _, obs_dict = env.reset()
         agent.reset()
@@ -627,6 +657,16 @@ class ScaffoldedSD054OnboardingScheduler:
             z_world_prev = z_world_curr
             action_prev = action.detach()
             _, _harm_signal, done, _, obs_dict = env.step(action_idx)
+
+            # Goal-pipeline seeding (P1 only): drive z_goal from the post-step
+            # body-state, mirroring goal_stream_stages_sd054.py:537. Without this
+            # call GoalState.update is never reached and z_goal stays zero-init
+            # (the V3-EXQ-603d / 625b harness-fix root cause). Gated to P1 via
+            # seed_goal so P0 warm-up stays goal-pipeline-frozen by design.
+            if seed_goal:
+                benefit, drive = _benefit_and_drive(obs_dict["body_state"].to(device))
+                agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
+
             if done:
                 return step + 1
         return self.cfg.scaffold_steps_per_episode
@@ -700,6 +740,23 @@ class ScaffoldedSD054OnboardingScheduler:
             action_idx = int(action.argmax(dim=-1).item())
             _, _harm_signal, done, _, obs_dict = env.step(action_idx)
             ep_len = step + 1
+
+            # P2 measurement on the trained goal pipeline: seed z_goal from the
+            # post-step body-state and re-read the peak (mirrors the reference
+            # runner goal_stream_stages_sd054.py:590). The frozen-policy eval
+            # does not optimise, but z_goal MUST be driven for the C4
+            # z_goal_norm_peak acceptance metric to be non-zero -- the
+            # V3-EXQ-603d harness-fix.
+            benefit, drive = _benefit_and_drive(obs_dict["body_state"].to(device))
+            agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
+            if goal_state is not None and hasattr(goal_state, "goal_norm"):
+                try:
+                    cur = float(goal_state.goal_norm())
+                except TypeError:
+                    cur = float(goal_state.goal_norm)
+                if cur > z_goal_norm_peak:
+                    z_goal_norm_peak = cur
+
             if done:
                 break
 
