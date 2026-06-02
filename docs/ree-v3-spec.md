@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-01
+**Last updated:** 2026-06-02
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-01)
+## 0. Current V3 State (2026-06-02)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -144,6 +144,158 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-06-02T01:10Z nightly read.** Central
+  `evidence/experiments/runner_status.json` reports **794 cumulative
+  completions (+8 since 2026-06-01T01:10Z read)** (195 PASS / 319 FAIL
+  / 87 ERROR / 193 UNKNOWN; deltas: PASS +3, FAIL +5, ERROR +0, UNKNOWN
+  +0); last_updated 2026-06-01T23:40:21Z -- ~1h35m fresh at this read.
+  Today's eight returns: **V3-EXQ-603d FAIL 2026-06-01T09:53Z** on the
+  scaffolded_sd054_onboarding 4-arm 5th-iter behavioural retest
+  (Q-045/MECH-313/MECH-260; failure-autopsy load-bearing finding:
+  ScaffoldedSD054OnboardingScheduler._train_episode never calls
+  agent.update_z_goal -> z_goal stayed zero-init every step of every arm;
+  C4 SUBSTRATE_FAILURE is a Class-1 harness/wiring artifact LIVING IN THE
+  SUBSTRATE MODULE, NOT a substrate-ceiling falsification; routed to
+  /implement-substrate amend on scaffolded_sd054_onboarding + 603e re-issue
+  at restored budget; all three claims stay pending_retest_after_substrate /
+  non_contributory); **V3-EXQ-625 PASS 2026-06-01T11:28Z** on the SD-037
+  axis-b SD-029 curriculum overlay -- but headline PASS was vacuous (script
+  defined PASS=ran-cleanly + n>0 distributions decoupled from the substrate
+  acceptance gate, acceptance_pass=false with z_harm_a_norm IDENTICALLY 0.0
+  across 1027 ticks / 3 seeds because the gap4 build_config path routed
+  through REEConfig.goal_stream() WITHOUT SD-011 affective-harm-stream
+  flags; same artifact as V3-EXQ-620; /diagnose-errors landed
+  goal_pipeline_tier1.build_config guarded opt-in + queued 620b/625b
+  successors with stream ON; 620/625 marked superseded by 620b/625b);
+  **V3-EXQ-514k FAIL 2026-06-01T11:53Z** on SD-049 / SD-015 ecological
+  wanting / liking dissociation (confounded by GAP-2 SP-CEM + missing
+  object-bound substrate per failure_autopsy_V3-EXQ-626 routing; dissoc=0.0;
+  SD-049 / SD-015 weakens -> non_contributory; MECH-229/230 stay
+  non_contributory); **V3-EXQ-614c FAIL 2026-06-01T12:45Z** on MECH-341
+  within-class temperature sweep (instrumentation defect: C2 vacuous --
+  ARM_1/2/3 bit-identical per seed because reported
+  selected_class_entropy_nats measured at experiment's own score-layer
+  argmin upstream of the within-class temperature lever; C1 mis-specified
+  per-seed band vs cross-seed mean; C3 substrate PASS 3/3 all arms;
+  MECH-341 weakens -> non_contributory + 614d corrected re-run flag);
+  **V3-EXQ-623 PASS 2026-06-01T15:20Z** on MECH-104 phasic-spike volatility
+  interrupt + de-commitment ablation (ON arm n_decommit 24/31 vs ABL 0;
+  clean discriminative; supports MECH-104; supersedes 126; second 07:07
+  empty run marked superseded by canonical 15:20); **V3-EXQ-626 FAIL
+  2026-06-01T15:27Z** on goal-pipeline developmental-window 4-arm dissociation
+  (Class-1 HARNESS BUG: bespoke _run_episode never called agent.update_z_goal
+  so z_goal stayed zero-init across all 4 arms; C2/C3 vacuously "true" at
+  0<ceiling; NOT a substrate formation regression -- 622 S0 PASS + 582a
+  refute regression; 626a harness-fix queued same day with P0 positive
+  control as adjudicating bit; 626 superseded by 626a); **V3-EXQ-620b
+  PASS 2026-06-01T19:01Z** on the SD-037 axis-a Phase 1 consumer-input
+  distributions with affective harm stream ON (supersedes V3-EXQ-620
+  vacuous-zero artifact; pooled p70 z_harm_a_norm ~0.33 vs old identical
+  0.0; BLA/CeA now receive signal; governance flag: reassess whether
+  SD-037 axis-b env-curriculum work was necessary); **V3-EXQ-592f FAIL
+  2026-06-01T19:43Z** on the MECH-090 commitment-state transition authority
+  probe (minimal controlled state-machine probe via real REEAgent.select_action
+  + stubbed E3 SelectionResult forcing committed=True with controlled score
+  margins; expected diagnostic FAIL_NO_RELEASE_AUTHORITY confirmed from
+  592e autopsy -- nav blocks move, beta/e3 occupancy remains 1.0; no claim
+  weighting). **Pending review queue (regenerated 2026-06-01T18:09Z) reads
+  0 items** -- all walked via two /governance cycles (16:58 + 17:56;
+  603d intentionally left for /failure-autopsy then marked reviewed
+  after disposition; 625 left for /diagnose-errors then marked reviewed
+  after 625b/620b queued). **Currently queued (`experiment_queue.json`
+  items[]): 3 items, all claimed** -- V3-EXQ-610c INV-074 / MECH-333 /
+  MECH-334 post-Phase-3-enrichment crystallization-necessity retest
+  (claimed ree-cloud-3 2026-06-01T18:54Z; supersedes 610b; tests
+  prediction that ARM_0 control NOW collapses under IGW-023 substrate
+  amend), V3-EXQ-626a goal-pipeline harness-fix re-run (claimed
+  ree-cloud-1 2026-06-01T16:57Z; supersedes 626; P0 positive control is
+  the harness-bug-vs-object-binding adjudicating bit), V3-EXQ-624 ARC-068
+  / MECH-320 Niv-vs-Salamone opportunity-cost-vs-effort-cost dissociation
+  (claimed DLAPTOP-4.local 2026-06-01T19:58Z; affinity flipped DLAPTOP-4
+  -> any earlier in day for cloud parallelism, then DLAPTOP-4 claimed
+  after laptop yielded to cloud on 610c/626a). Substrate / governance
+  landings since the 2026-06-01T01:10Z snapshot: (1) **Two /governance
+  cycles same day** -- 16:58Z walked 8 pending experiments (614c
+  MECH-341 -> non_contributory instrumentation_defect; 514k SD-049/SD-015
+  -> non_contributory GAP-2/object-binding confound; 610b INV-074/MECH-333/
+  MECH-334 -> non_contributory + substrate_ceiling + pending_retest;
+  626 -> superseded by 626a; 623 -> supports MECH-104 supersedes 126);
+  17:56Z walked 2 pending (603d -> non_contributory + substrate_ceiling +
+  pending_retest_after_substrate; 625/620 -> superseded by 625b/620b);
+  pending_review=0 both cycles; substrate_queue
+  test_bed_enrichment_crystallization_necessity created priority 3 and
+  scaffolded_sd054_onboarding amend_pending priority 1 (upstream of 622
+  anneal-rate amend). (2) **Phase 3 telemetry sync_daemon sole-writer
+  hardening** (ree-v3 main) -- documented hub architecture (sync_daemon.
+  phase3_heartbeat_writer owns runner_heartbeats/ + runner_status/ on
+  GitHub; hub runner POST-only via PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1);
+  added deploy/shadow.conf.hub.example; sync_daemon now auto-reverts
+  exclusive telemetry dirt before refusing ticks (fixes result-writer wedge
+  when only heartbeat paths dirty); CLAUDE.md + FLEET_CHECKLIST updated.
+  (3) **Cloud-scaler hub deploy + cloud-4 surge threshold 3->2** (ree-v3
+  main 75b23f9) -- cloud-scaler.{service,timer} units + hcloud CLI +
+  HCLOUD_TOKEN installed on hub (`ree-cloud-1`); hub timer is now
+  authoritative 5-min cadence with GHA 6-hourly backstop; threshold
+  lowered to surge ree-cloud-4 on 2-deep backlog. (4) **Cloud-1 hub
+  runner re-enabled under Phase 3 co-tenancy** -- appended
+  PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1 to hub shadow.conf;
+  ree-runner service enabled on hub; journal confirms FILE WRITES skipped
+  gate; coordinator POST path live (`/api/machines` ree-cloud-1 fresh).
+  (5) **Post-result checkout alignment hardening** (ree-v3 +
+  REE_assembly, local-only) -- experiment_runner prepull stash of
+  untracked flat manifests + runner signals; `_report_result_and_align`
+  runs POST /result then immediate + delayed (45s/120s) `_sync_pull_tick`;
+  serve.py replaces ff-only auto-pull with `align_ree_assembly_checkout` at
+  startup + every 5min (respects TASK_CLAIMS evidence/ skip); contracts
+  7/7 PASS. (6) **Multiple failure autopsies landed** -- V3-EXQ-614c
+  (MECH-341 within-class temperature instrumentation defect) + V3-EXQ-610a
+  (INV-074 / MECH-333 / MECH-334 / MECH-341 substrate-ceiling re-read on
+  the recovered manifest; D2 control did NOT collapse -> environment
+  test-bed ceiling) + V3-EXQ-626 (Class-1 harness bug, z_goal never
+  driven) + V3-EXQ-603d (Class-1 harness/wiring artifact LIVING IN THE
+  SUBSTRATE MODULE; scaffolded_sd054_onboarding._train_episode never
+  calls update_z_goal) + V3-EXQ-592e (MECH-090 beta-gate readiness-failure
+  release path missing; no readiness-failure path releases an already-
+  elevated beta latch or clears E3 committed state). (7) **Goal /
+  wanting / liking stream repair intake** -- docs/thoughts/
+  2026-06-01_goal_wanting_liking_stream_repair.md + goal_stream_repair_
+  diagnostic_ladder_2026-06-01.md + claim_gap_2026-06-01.md + lit-pull
+  evidence/literature/literature_synthesis_object_bound_incentive_salience
+  + contracts/test_goalstate_forced_seed_positive_control.py (6/6 PASS);
+  authored as proposals not claims; identifies missing object-bound
+  incentive-salience layer as the suspected real abstraction gap behind
+  514k. (8) **Developmental-window memo** (REE_assembly master
+  12d2a48310) -- evidence/planning/goal_pipeline_developmental_window_
+  diagnostic_memo_2026-06-01.md + docs/thoughts/2026-06-01_plasticity_
+  window_neuromodulators.md persisted as plan-of-record for V3-EXQ-626/626a
+  + project memory project_plasticity_window_neuromodulators.md
+  registering ACh/PV-interneuron/BDNF/state-dependent plasticity-window
+  as long-horizon V4-or-late-V3 territory. Bottleneck (updated framing):
+  the dominant blocker is now the **scaffolded_sd054_onboarding harness /
+  wiring gap** identified by V3-EXQ-603d autopsy + V3-EXQ-626 autopsy
+  (same epistemic class, different scope). The substrate scheduler
+  `_train_episode` never calls `agent.update_z_goal(benefit, drive)` so
+  z_goal stays at zero-init across every step of every arm; the C4
+  SUBSTRATE_FAILURE classification in 603d's manifest is a Class-1
+  harness/wiring artifact, NOT a substrate-ceiling falsification.
+  /implement-substrate AMEND on scaffolded_sd054_onboarding (wire
+  update_z_goal into scheduler + Stage-0 positive-control gate) is
+  strictly UPSTREAM of the 622 anneal-rate amend and the V3-EXQ-603e
+  re-issue at restored budget. Until that amend lands, the substrate-
+  uniform z_goal-zero pattern across 603 lineage / 626 / 540a-e / 590a /
+  591 / 598 / 598b remains active. **V3-EXQ-626a P0 positive-control
+  gate is the adjudicating bit between harness-bug and object-binding
+  abstraction-gap hypotheses** (PASS confirms harness-bug -> object-
+  binding ladder Stage 1+; FAIL contradicts 622 S0 -> /failure-autopsy
+  on GoalState.update). **V3-EXQ-610c on ree-cloud-3** (INV-074 / MECH-333
+  / MECH-334 post-Phase-3-enrichment crystallization-necessity retest)
+  and **V3-EXQ-624 on DLAPTOP-4** (ARC-068 / MECH-320 Niv-vs-Salamone)
+  are the next two scientific reads. **Governance flag carried forward:**
+  once V3-EXQ-620b axis-a PASS is governance-marked superseder-of-620,
+  reassess whether the SD-037 axis-b env-curriculum work was necessary
+  (the original 620 zero artifact underpinned that plan-of-record). The
+  V3-EXQ-543k disposition gap (carried forward from 2026-05-21) remains
+  outstanding.
 - **2026-06-01T01:10Z nightly read.** Central
   `evidence/experiments/runner_status.json` reports **786 cumulative
   completions (+13 since 2026-05-31T01:10Z read)** (192 PASS / 314 FAIL
