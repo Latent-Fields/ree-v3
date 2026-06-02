@@ -179,11 +179,59 @@ def test_c6_env_kwargs_phase2():
     assert kw["harm_gradient_scale"] == 0.30
 
 
-def test_c6_env_kwargs_phase3_same_as_phase2():
+def test_c6_env_kwargs_phase3_enriches_phase2():
+    """Phase 3 SUPERSETS Phase 2 and adds the documented env-dynamics keys.
+
+    The 2026-06-01 IGW-20260601-023 landing (commit 15f32c82c7,
+    test_bed_enrichment_crystallization_necessity) intentionally made Phase 3
+    enable SD-047 multi_source_dynamics + SD-048 interoceptive_noise +
+    accelerated env_drift as destabilizing pressure for the INV-074
+    crystallization-necessity test. Phase 3 env_kwargs therefore legitimately
+    differs from Phase 2: it carries every Phase-2 agent-side key unchanged AND
+    adds the env-dynamics keys. The pre-IGW-023 contract (Phase 3 == Phase 2)
+    is stale; this contract asserts the intended enrichment delta instead.
+    """
     s = InfantCurriculumScheduler()
-    assert s.env_kwargs(phase=3) == s.env_kwargs(phase=2), (
-        "Phase 3 env_kwargs must equal phase 2 (agent-side config changes only)"
+    kw2 = s.env_kwargs(phase=2)
+    kw3 = s.env_kwargs(phase=3)
+
+    # Phase 3 is a strict superset of Phase 2: every Phase-2 key is present in
+    # Phase 3 with an identical value (agent-side curriculum settings carry
+    # forward unchanged).
+    for key, val in kw2.items():
+        assert key in kw3, f"Phase 3 must carry forward Phase-2 key {key!r}"
+        assert kw3[key] == val, (
+            f"Phase 3 must preserve Phase-2 value for {key!r}: "
+            f"expected {val!r}, got {kw3[key]!r}"
+        )
+
+    # Phase 3 adds the documented env-dynamics enrichment keys (SD-047
+    # multi-source dynamics + SD-048 interoceptive noise + accelerated drift).
+    enrichment_keys = {
+        "multi_source_dynamics_enabled",
+        "multi_source_intensity_scale",
+        "weather_field_enabled",
+        "transient_events_enabled",
+        "background_drift_enabled",
+        "n_drift_sources",
+        "interoceptive_noise_enabled",
+        "interoceptive_noise_scale",
+        "env_drift_interval",
+        "env_drift_prob",
+    }
+    added_keys = set(kw3) - set(kw2)
+    assert added_keys == enrichment_keys, (
+        "Phase 3 enrichment delta drifted from the IGW-023 contract: "
+        f"expected added keys {sorted(enrichment_keys)}, got {sorted(added_keys)}"
     )
+
+    # The enrichment substrates must actually be ON in Phase 3 (the whole point
+    # of the destabilizing-pressure landing).
+    assert kw3["multi_source_dynamics_enabled"] is True
+    assert kw3["interoceptive_noise_enabled"] is True
+    assert kw3["weather_field_enabled"] is True
+    assert kw3["transient_events_enabled"] is True
+    assert kw3["background_drift_enabled"] is True
 
 
 # ------------------------------------------------------------------
