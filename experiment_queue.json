@@ -103,6 +103,23 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_614d_mech341_within_class_temperature_committed_class",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-610c",
+      "title": "INV-074 crystallization necessity test (post-substrate Phase-3 enrichment retest; supersedes 610b)",
+      "script": "experiments/v3_exq_610c_inv074_crystallization_necessity.py",
+      "priority": 280,
+      "machine_affinity": "any",
+      "estimated_minutes": 800,
+      "supersedes": "V3-EXQ-610b",
+      "claim_id": "INV-074",
+      "note": "Post-substrate retest of INV-074 crystallization necessity. Supersedes V3-EXQ-610b (FAIL D2=False; control did not show predicted collapse -> non_contributory per 2026-06-01 governance). Substrate dependency test_bed_enrichment_crystallization_necessity (IGW-20260601-023) implemented 2026-06-01: infant_curriculum Phase 3 now enables destabilizing environmental dynamics (SD-047 multi_source_dynamics + SD-048 interoceptive_noise + accelerated env_drift) that force continued forward-model adaptation post-Phase-3. This addresses the 610b test-bed ceiling where CausalGridWorldV2 supplied no post-Phase-3 destabilizing pressure. DESIGN: 2-arm discriminative (crystallize_at_phase3 FALSE vs TRUE) x 3 matched seeds (42,43,44). Both arms enable diversity mechanisms (MECH-313, MECH-260, MECH-341 with retuned parameters from commit a45ca7f, gated_policy with differential_heads for ARC-062 fix). ACCEPTANCE: D1 (crystallization preserves diversity): ARM_1.end_phase_3_entropy - ARM_0.end_phase_3_entropy >= +0.10; D2 (control shows collapse under pressure): ARM_0.end_phase_2_entropy - ARM_0.end_phase_3_entropy >= +0.10; D3 (sanity -- both show diversity at Phase-2 peak): ARM_0.end_phase_2_entropy > 0.4 AND ARM_1.end_phase_2_entropy > 0.4. PASS=D1 AND D2 AND D3 -> {INV-074 supports, MECH-334 supports, MECH-333 supports}. EXPERIMENT_PURPOSE=evidence; claim_ids=[INV-074,MECH-333,MECH-334]. Estimated ~800 min (2 arms x 3 seeds x ~2500 episodes). Dry-run smoke test PASS (no crashes, instrumentation correct). Queued via IGW-20260602-029 pending_retest_after_substrate.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 2500,
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_610c_inv074_crystallization_necessity",
+      "seeds": 3
     }
   ]
 }
