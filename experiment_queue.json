@@ -48,21 +48,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-628",
-      "title": "MECH-319 simulation-mode rule-write gate replay/caller_sim falsifier (EVIDENCE; 2-arm admit_writes block-vs-admit rule_state divergence)",
-      "script": "experiments/v3_exq_628_mech319_simulation_mode_rule_gate_replay_falsifier_evidence.py",
-      "priority": 260,
-      "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "claim_id": "MECH-319",
-      "note": "EVIDENCE-purpose MECH-319 validation to move it off candidate_substrate_landed. Constructs the V3-EXQ-543c replay/caller_sim=True invocation path (the agent.py lateral_pfc wiring with simulation_mode=True) that select_action never exercises, and measures LateralPFCAnalog.rule_state divergence between BLOCK (admit_writes=False) and ADMIT (admit_writes=True) arms replaying the same captured early-waking latent. PASS = BLOCK suppresses (rule_state delta ~0) AND ADMIT admits (delta>0) AND arms diverge AND the waking path is bit-identical across arms with zero simulation firings (C4 falsifier). Predecessor V3-EXQ-546 was diagnostic/non_contributory (truth-table + waking wiring; never touched rule_state). experiment_purpose=evidence; claim_ids=[MECH-319].",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 60,
-      "experiment_type": "v3_exq_628_mech319_simulation_mode_rule_gate_replay_falsifier_evidence",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-630",
       "title": "ARC-029/MECH-090 across-tick nav_competence ECOLOGICAL: suppress-on-degrade / admit-on-recover (3-arm OFF/NAV_COMP_ON/BOTH_ON; successor to V3-EXQ-063a)",
       "script": "experiments/v3_exq_630_arc029_acrosstick_nav_competence_ecological.py",
@@ -71,7 +56,11 @@
       "estimated_minutes": 180,
       "claim_id": "MECH-090",
       "note": "Completes the ACROSS-TICK nav_competence axis that V3-EXQ-063a deliberately left OFF. The MECH-090 R-c continuation (2026-05-29) wired the nav_competence CONSUMER + notify_outcome seam but no caller ever pushed an outcome (grep-verified zero notify_outcome callers), so in any ecological run the readiness EMA sat fail-open at 1.0 and the across-tick axis added no signal -- exactly why 063a left it OFF. The Phase-2 env-source follow-on landed THIS session (ree-v3 fa026a0): CausalGridWorldV2.mech090_readiness_outcome_enabled emits info[mech090_readiness_outcome]=clip(1-mean(limb_damage),0,1) and REEAgent.sense(mech090_readiness_outcome=...) advances commit_readiness.update(). This is the FIRST ecological run that exercises the across-tick axis. DESIGN: train one vanilla agent/seed (committed-capable) on a standard limb-damage env; eval 3 arms (fresh agent per arm, SHARED trained weights via state_dict so the comparison isolates the eval-time gate) on a degrade/recover env (SD-022 scheduled all-limb injection interval=60 magnitude=0.8 + healing -> readiness oscillates above/below floor 0.3). ARM_0 OFF baseline (readiness NOT forwarded) / ARM_2 GATED_NAV_COMP_ON (nav axis alone, env outcome forwarded) / ARM_3 GATED_BOTH_ON (both R-c gates). Mirrors the design-doc 592b ARM_2/ARM_3 arms, ecologically. 'committed step' = beta_gate.is_elevated; bucketed by readiness (READY>=floor vs DEGRADED<floor). ACCEPTANCE (C1-C4 required; C5 informative): C1 gate fires (>=1 nav block); C2 suppress-on-degrade (ARM_2 committed_rate_ready - committed_rate_degraded >= 0.15); C3 admit-on-recover (ARM_2 committed_rate_ready >= 0.10 -- gate does NOT permanently lock out commitment); C4 OFF-baseline null (ARM_0 |delta| < 0.15 -- rules out a damage->commitment confound, isolates the GATE); C5 composed at least as strict (ARM_3 degraded <= ARM_2 degraded + 0.05). claim_ids=[ARC-029,MECH-090] (re-evaluated from scratch, NOT inherited from 063a's single ARC-029 tag -- this run directly exercises+measures the MECH-090 R-c across-tick gate; evidence_direction_per_claim splits them). EXPERIMENT_PURPOSE=evidence. INTERPRETATION/ROUTING (epoch_stale_evidence_review_2026-06-02.md REVALIDATION STATUS): a C3 FAIL (gate suppresses commitment even when readiness recovers) = the R-c gate suppresses commitment in this env = a substantively different ARC-029 verdict than 063's ungated PASS -> route /failure-autopsy NOT /diagnose-errors, and do NOT silently re-tune commit_readiness_floor (substrate decision). C1 FAIL or C4 FAIL -> /diagnose-errors. Does NOT supersede 063a (063a is the within-tick-axis ecological evidence; 630 is the across-tick complement). Dry-run smoke PASS at harness level 2026-06-02: 3 arms run end-to-end (per-seed verdict, no crash), instrumentation correct (ep N/M M=warmup=300 denominator, Seed/Condition boundary, emit_outcome wired), arms differ correctly (ARM_2/3 readiness EMA advances from the forwarded env signal, ARM_3 within-tick gate fired n_elev_blocked=3, ARM_0 readiness stays 1.0); C1/degraded-window budget-limited at dry scale (30 steps < injection interval 60 -- clears at full 200 steps/ep with injections at 60/120/180). validate_experiments OK. ID-collision note: originally drafted as V3-EXQ-628 but a concurrent session committed 628 (MECH-319) + 629 (MECH-342) to origin between draft and queue; renamed to 630 (next free).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-02T19:16:27Z"
+      },
       "conditions": 1,
       "episodes_per_run": 300,
       "experiment_purpose": "evidence",
