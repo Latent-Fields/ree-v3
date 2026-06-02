@@ -135,6 +135,22 @@
       "experiment_type": "v3_exq_624_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-063a",
+      "title": "ARC-029 committed-mode harm-outcomes revalidation under MECH-090 R-c commit-entry gate (supersedes V3-EXQ-063; post stale_substrate MARK)",
+      "script": "experiments/v3_exq_063a_arc029_committed_mode_harm_outcomes_rc_gate.py",
+      "experiment_type": "v3_exq_063a_arc029_committed_mode_harm_outcomes_rc_gate",
+      "priority": 110,
+      "machine_affinity": "any",
+      "estimated_minutes": 150,
+      "episodes_per_run": 400,
+      "seeds": 2,
+      "conditions": 1,
+      "claim_id": "ARC-029",
+      "supersedes": "V3-EXQ-063",
+      "status": "pending",
+      "note": "Substrate-staleness revalidation flagged by epoch_stale_evidence_review_2026-06-02. ARC-029 (committed vs ablated operating-mode harm outcomes) had its sole passing run v3_exq_063 (2026-03-22) de-weighted today (scoring_excluded=stale_substrate, superseded_by_substrate=MECH-090@2026-05-28) because the MECH-090 R-c commit-entry readiness predicate landed 2026-05-28, changing WHICH ticks enter committed mode. This re-runs the identical 2x2 gate x environment design (stable drift=0.0 / volatile drift=0.4) with config.heartbeat.use_commit_readiness_gate=True (within-tick decisiveness axis; BetaGate.should_admit_elevation, floor=0.05; fires on score_margin every committed tick -- wiring verified: margin<0.05 blocks, >=0.05 admits, gate-OFF admits unconditionally). The across-tick nav_competence axis is intentionally OFF (needs a harness outcome-push absent in this design; would sit fail-open). Single claim ARC-029 (re-evaluated per claim_ids accuracy rule; gate change adds/removes no claim). PASS criteria unchanged from 063: C1 harm_gap_stable>0, C2 gap narrows in volatile, C3 gate elevates in committed-stable (now also confirms R-c gate still permits commitment), C4 ablation complete, C5 no fatal errors. evidence direction supports/mixed/weakens by criteria_met. Smoke PASS (end-to-end run, sentinel emitted, manifest scrubbed). SD-049 revalidation NOT queued -- already covered by queued V3-EXQ-514l (Phase-3 substrate, tags SD-049). Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md post-commit dropped-file check."
     }
   ]
 }
