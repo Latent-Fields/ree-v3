@@ -1,0 +1,44 @@
+# Worker overrides for /etc/systemd/system/ree-runner.service.d/shadow.conf
+# on cloud-2 / cloud-3 / cloud-4 (NOT the hub -- use shadow.conf.hub.example
+# for ree-cloud-1 / ree-worker-1).
+#
+# Architecture:
+#   - Runners POST heartbeats/status/results/claims to the coordinator (always;
+#     this is the Phase 3 transport).
+#   - sync_daemon.phase3_heartbeat_writer on the hub is the SOLE git publisher
+#     for evidence/experiments/runner_heartbeats/*.json + runner_status/*.json.
+#   - Workers must NOT write those telemetry files into their own REE_assembly
+#     checkout: the local write conflicts with the hub-materialised version on
+#     `git pull --rebase --autostash` and accumulates dormant autostashes
+#     (cloud-3 hit 43 on 2026-06-02; 191 by 2026-05-31).
+#
+# PHASE3_RUNNER_TELEMETRY_OFF_GIT is the worker-safe gate for this. It suppresses
+# ONLY the heartbeat + status FILE writes; it does NOT touch the command-file
+# read/write path, so stop-command persistence is preserved and there is no
+# restart loop. This is the key difference from PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE,
+# which is hub-only -- setting that on a worker also gates the command-file
+# writeback and restart-loops the unit (incident 2026-05-30). Do NOT set
+# _HEARTBEAT_WRITE on a worker; the runtime self-guard refuses it anyway.
+
+[Service]
+Environment=COORDINATION_MODE=coordinator
+Environment=COORDINATOR_URL=http://10.8.0.1:8787
+Environment=COORDINATOR_TOKEN=<paste from coordinator.env>
+
+# Phase 3: runner does not git-push results / queue / heartbeats (hub sync_daemon owns those).
+Environment=PHASE3_DISABLE_RUNNER_RESULT_PUSH=1
+Environment=PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1
+Environment=PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH=1
+
+# Worker-safe telemetry-off-git gate (2026-06-02): stop the per-tick
+# runner_heartbeats/<host>.json + runner_status/<host>.json FILE writes from
+# dirtying the shared checkout. Coordinator POST stays the transport; the hub
+# writer materialises git. Does NOT gate the command channel -- no restart loop.
+Environment=PHASE3_RUNNER_TELEMETRY_OFF_GIT=1
+
+# Clean drain (exit 0) from a queued stop should respawn with latest disk bytes.
+Restart=always
+
+# ExecStart must include: --machine ree-cloud-2  (or -3 / -4 as appropriate)
+#
+# Do NOT set PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE on a worker (hub-only).
