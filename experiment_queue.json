@@ -65,8 +65,8 @@
       "note": "ARC-068 (action.opportunity_cost_no_op_penalty) Niv-vs-Salamone discriminative test on MECH-320 w_passive implementation. EXP-0081 / EVB-0237 dispatch_mode=discriminative_pair. ARC-068 lit-pull R3 verdict 2026-05-16 preserves slot-level registration; implementation collapses into MECH-320. R4 verdict: ARC-068 must NOT collapse into MECH-258 / SD-032b dacc_effort_cost (Salamone & Correa 2003 dissociation). 4-arm design: ARM_0 baseline / ARM_1 vigor + Niv env / ARM_2 vigor + Salamone elevated-movement-cost env / ARM_3 baseline + Salamone env. Forced-vigor probe v_t_floor=0.05 implements V3-EXQ-549 prescribed fix (substrate fired correctly under V3-EXQ-547 readiness but EWMA path stuck at zero under default env config in 549; 549 reclassified non_contributory and routed forced-vigor follow-on). Pre-registered acceptance C1 Niv lift >= 0.03, C2 dissociation < 0.50, C3 gate_product >= 0.5, C4 informative-only no-op penalty. claim_ids=[MECH-320, ARC-068] with evidence_direction_per_claim. MECH-258 / SD-032b are foils dissociated from, NOT tested directly. 4-row interpretation grid in script docstring: PASS = ARC-068 supports; C2 FAIL = ARC-068 weakens (effort-cost collapse, surface supersession question to /governance); C1 FAIL + C3 PASS = /failure-autopsy; C3 FAIL = /diagnose-errors. Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
       "status": "claimed",
       "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-02T08:37:11Z"
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-06-02T09:10:45Z"
       },
       "conditions": 4,
       "episodes_per_run": 130,
