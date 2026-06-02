@@ -8,66 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-629",
-      "title": "MECH-342 ecological maintenance-time commitment-release EVIDENCE (real REEAgent + real CausalGridWorldV2; natural commit + natural mid-commitment readiness degradation via SD-047; use_maintenance_release ON-vs-OFF release axis)",
-      "script": "experiments/v3_exq_629_mech342_ecological_maintenance_release_evidence.py",
-      "priority": 270,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "claim_id": "MECH-342",
-      "note": "ECOLOGICAL evidence-grade complement to the diagnostic state-machine probe V3-EXQ-592g (PASS). PREDECESSOR reference, NOT supersedes -- 592g is a valid diagnostic (stubs E3.select, forces committed state); 629 uses a REAL REEAgent in a REAL CausalGridWorldV2 where commitment is NATURAL (E3.select not stubbed, R-c-gated entry) and readiness degrades NATURALLY mid-commitment (SD-047 multi_source_dynamics raises E2 world-forward error -> running_variance -> nav proxy drop + score-margin compression). Arm axis = use_maintenance_release ON vs OFF (commit-entry gating identical). Two P2 windows: HEALTHY (no false abort) + DEGRADED (decommit + mech342 fires + occupancy < OFF, which reproduces the 592f gap). Distinct-from controls config-enforced: use_harm_stream=False (MECH-091 inert), V_s commit-release OFF, ghost-goal OFF. C2 INVALID_HARNESS guard -> non_contributory (not FAIL) if SD-047 degradation insufficient. Required by the 2026-06-02 /governance disposition (MECH-342 stays candidate/v3_pending until an ecological evidence-grade run lands). experiment_purpose=evidence; claim_ids=[MECH-342]. Bumped from 628 (concurrent MECH-319 session b7fae0a took 628).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-02T19:03:27Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 400,
-      "experiment_type": "v3_exq_629_mech342_ecological_maintenance_release_evidence",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-604a",
-      "title": "MECH-314 structured-curiosity validation on SD-056-trained substrate (5-arm: curiosity OFF / ALL_ON / 314a-off / 314b-off / 314c-off; supersedes 604)",
-      "script": "experiments/v3_exq_604a_q044_mech314_subflavour_ablation_sd056_substrate.py",
-      "priority": 260,
-      "machine_affinity": "any",
-      "estimated_minutes": 480,
-      "supersedes": "V3-EXQ-604",
-      "claim_id": "MECH-314",
-      "note": "Evidence-purpose MECH-314 validation. Supersedes V3-EXQ-604 (FAIL non_contributory/substrate_ceiling 2026-05-21: all arms identical, monomodal collapse; governance directed 'retest after structured-curiosity substrate carries in'). 604 ran the agent forward with NO E2 training, so candidate z_world was action-degenerate and the per-candidate novelty bonus (314a) had no signal. ROOT-CAUSE FIX: the substrate that 'carries it in' is SD-056 (e2.action_conditional_divergence_contrastive, landed 2026-05-31). This run trains E2 online with the SD-056 InfoNCE contrastive loss (weight 0.05; harness verbatim from the landed V3-EXQ-569d) so candidates are action-divergent, THEN ablates structured curiosity across 5 arms. ACCEPTANCE: C0 substrate-readiness GUARD (cand_world_pairwise_dist>0.03 in >=2/3 seeds in EVERY arm -- confirms SD-056 fixed the collapse; if C0 fails the run is non_contributory -> /diagnose-errors, NOT a MECH-314 falsification); C1 MECH-314 parent effect (ARM_ALL_ON selected_action_class_entropy differs from ARM_OFF by >0.03); C2 sub-flavour discriminability (informative -- which of 314a/b/c are selection-level load-bearing; 314a/novelty expected per the Phase-1 honest-scoping caveat that 314b/c are broadcast scalars). PASS=C0 AND C1 -> evidence supports MECH-314 parent; evidence_direction_per_claim splits Q-044/MECH-314/314a/b/c. EXPERIMENT_PURPOSE=evidence; claim_ids=[Q-044,MECH-314,MECH-314a,MECH-314b,MECH-314c]. Dry-run smoke PASS at harness level 2026-06-02: all 5 arms run end-to-end (5 verdicts, no crash), instrumentation correct (ep N/80 denominator = P0 60 + P1 20; Seed/Condition boundaries; emit_outcome wired); C0 budget-limited at dry scale (P0=2 can't train E2 -- expected, clears at full P0=60 per 569d's ~0.045 pairwise dist). validate_experiments OK. any-affinity for cloud-fleet utilization; ~480min est on CX22 (5x3x80ep + online E2 training).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-02T17:23:23Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 80,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_604a_q044_mech314_subflavour_ablation_sd056_substrate",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-630",
-      "title": "ARC-029/MECH-090 across-tick nav_competence ECOLOGICAL: suppress-on-degrade / admit-on-recover (3-arm OFF/NAV_COMP_ON/BOTH_ON; successor to V3-EXQ-063a)",
-      "script": "experiments/v3_exq_630_arc029_acrosstick_nav_competence_ecological.py",
-      "priority": 260,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "claim_id": "MECH-090",
-      "note": "Completes the ACROSS-TICK nav_competence axis that V3-EXQ-063a deliberately left OFF. The MECH-090 R-c continuation (2026-05-29) wired the nav_competence CONSUMER + notify_outcome seam but no caller ever pushed an outcome (grep-verified zero notify_outcome callers), so in any ecological run the readiness EMA sat fail-open at 1.0 and the across-tick axis added no signal -- exactly why 063a left it OFF. The Phase-2 env-source follow-on landed THIS session (ree-v3 fa026a0): CausalGridWorldV2.mech090_readiness_outcome_enabled emits info[mech090_readiness_outcome]=clip(1-mean(limb_damage),0,1) and REEAgent.sense(mech090_readiness_outcome=...) advances commit_readiness.update(). This is the FIRST ecological run that exercises the across-tick axis. DESIGN: train one vanilla agent/seed (committed-capable) on a standard limb-damage env; eval 3 arms (fresh agent per arm, SHARED trained weights via state_dict so the comparison isolates the eval-time gate) on a degrade/recover env (SD-022 scheduled all-limb injection interval=60 magnitude=0.8 + healing -> readiness oscillates above/below floor 0.3). ARM_0 OFF baseline (readiness NOT forwarded) / ARM_2 GATED_NAV_COMP_ON (nav axis alone, env outcome forwarded) / ARM_3 GATED_BOTH_ON (both R-c gates). Mirrors the design-doc 592b ARM_2/ARM_3 arms, ecologically. 'committed step' = beta_gate.is_elevated; bucketed by readiness (READY>=floor vs DEGRADED<floor). ACCEPTANCE (C1-C4 required; C5 informative): C1 gate fires (>=1 nav block); C2 suppress-on-degrade (ARM_2 committed_rate_ready - committed_rate_degraded >= 0.15); C3 admit-on-recover (ARM_2 committed_rate_ready >= 0.10 -- gate does NOT permanently lock out commitment); C4 OFF-baseline null (ARM_0 |delta| < 0.15 -- rules out a damage->commitment confound, isolates the GATE); C5 composed at least as strict (ARM_3 degraded <= ARM_2 degraded + 0.05). claim_ids=[ARC-029,MECH-090] (re-evaluated from scratch, NOT inherited from 063a's single ARC-029 tag -- this run directly exercises+measures the MECH-090 R-c across-tick gate; evidence_direction_per_claim splits them). EXPERIMENT_PURPOSE=evidence. INTERPRETATION/ROUTING (epoch_stale_evidence_review_2026-06-02.md REVALIDATION STATUS): a C3 FAIL (gate suppresses commitment even when readiness recovers) = the R-c gate suppresses commitment in this env = a substantively different ARC-029 verdict than 063's ungated PASS -> route /failure-autopsy NOT /diagnose-errors, and do NOT silently re-tune commit_readiness_floor (substrate decision). C1 FAIL or C4 FAIL -> /diagnose-errors. Does NOT supersede 063a (063a is the within-tick-axis ecological evidence; 630 is the across-tick complement). Dry-run smoke PASS at harness level 2026-06-02: 3 arms run end-to-end (per-seed verdict, no crash), instrumentation correct (ep N/M M=warmup=300 denominator, Seed/Condition boundary, emit_outcome wired), arms differ correctly (ARM_2/3 readiness EMA advances from the forwarded env signal, ARM_3 within-tick gate fired n_elev_blocked=3, ARM_0 readiness stays 1.0); C1/degraded-window budget-limited at dry scale (30 steps < injection interval 60 -- clears at full 200 steps/ep with injections at 60/120/180). validate_experiments OK. ID-collision note: originally drafted as V3-EXQ-628 but a concurrent session committed 628 (MECH-319) + 629 (MECH-342) to origin between draft and queue; renamed to 630 (next free).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-02T19:16:27Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 300,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_630_arc029_acrosstick_nav_competence_ecological",
-      "seeds": 2
-    },
-    {
       "queue_id": "V3-EXQ-603e",
       "title": "Q-045/MECH-313/MECH-260 + FP-2 dissociation on scaffolded_sd054_onboarding (re-issue of 603d on hook-fixed scheduler + z_goal_enabled config)",
       "script": "experiments/v3_exq_603e_q045_mech313_mech260_scaffolded_sd054.py",
@@ -102,23 +42,6 @@
       "episodes_per_run": 90,
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_614d_mech341_within_class_temperature_committed_class",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-610c",
-      "title": "INV-074 crystallization necessity test (post-substrate Phase-3 enrichment retest; supersedes 610b)",
-      "script": "experiments/v3_exq_610c_inv074_crystallization_necessity.py",
-      "priority": 280,
-      "machine_affinity": "any",
-      "estimated_minutes": 800,
-      "supersedes": "V3-EXQ-610b",
-      "claim_id": "INV-074",
-      "note": "Post-substrate retest of INV-074 crystallization necessity. Supersedes V3-EXQ-610b (FAIL D2=False; control did not show predicted collapse -> non_contributory per 2026-06-01 governance). Substrate dependency test_bed_enrichment_crystallization_necessity (IGW-20260601-023) implemented 2026-06-01: infant_curriculum Phase 3 now enables destabilizing environmental dynamics (SD-047 multi_source_dynamics + SD-048 interoceptive_noise + accelerated env_drift) that force continued forward-model adaptation post-Phase-3. This addresses the 610b test-bed ceiling where CausalGridWorldV2 supplied no post-Phase-3 destabilizing pressure. DESIGN: 2-arm discriminative (crystallize_at_phase3 FALSE vs TRUE) x 3 matched seeds (42,43,44). Both arms enable diversity mechanisms (MECH-313, MECH-260, MECH-341 with retuned parameters from commit a45ca7f, gated_policy with differential_heads for ARC-062 fix). ACCEPTANCE: D1 (crystallization preserves diversity): ARM_1.end_phase_3_entropy - ARM_0.end_phase_3_entropy >= +0.10; D2 (control shows collapse under pressure): ARM_0.end_phase_2_entropy - ARM_0.end_phase_3_entropy >= +0.10; D3 (sanity -- both show diversity at Phase-2 peak): ARM_0.end_phase_2_entropy > 0.4 AND ARM_1.end_phase_2_entropy > 0.4. PASS=D1 AND D2 AND D3 -> {INV-074 supports, MECH-334 supports, MECH-333 supports}. EXPERIMENT_PURPOSE=evidence; claim_ids=[INV-074,MECH-333,MECH-334]. Estimated ~800 min (2 arms x 3 seeds x ~2500 episodes). Dry-run smoke test PASS (no crashes, instrumentation correct). Queued via IGW-20260602-029 pending_retest_after_substrate.",
-      "status": "pending",
-      "conditions": 2,
-      "episodes_per_run": 2500,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_610c_inv074_crystallization_necessity",
       "seeds": 3
     }
   ]
