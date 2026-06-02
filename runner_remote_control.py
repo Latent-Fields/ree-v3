@@ -170,8 +170,11 @@ def write_heartbeat(
     # Phase 3 _WRITE gate (hub co-location + worker pull-conflict) --
     # determines whether the LOCAL file write happens. The coordinator
     # POST below fires regardless: the writer materialises the canonical
-    # file from the heartbeats table.
-    skip_local_write = _phase3_heartbeat_write_gated()
+    # file from the heartbeats table. The hub-only _HEARTBEAT_WRITE gate and
+    # the worker-safe telemetry-off-git gate both suppress the local file
+    # write; either being set is sufficient.
+    skip_local_write = (_phase3_heartbeat_write_gated()
+                        or _phase3_telemetry_file_write_gated())
 
     hb_dir = ree_assembly_path / HEARTBEAT_SUBPATH
     if not skip_local_write:
@@ -434,6 +437,7 @@ def _push_telemetry_file(
 _HEARTBEAT_GATE_LOGGED = [False]  # one-element mutable for module-level state
 _HEARTBEAT_WRITE_GATE_LOGGED = [False]
 _HEARTBEAT_WRITE_GATE_NON_HUB_REFUSED_LOGGED = [False]
+_TELEMETRY_OFF_GIT_GATE_LOGGED = [False]
 
 # Canonical hostname(s) of the hub VM where the WRITE gate is safe to set.
 # Documented as `ree-cloud-1` in cloud_workers.md, but `socket.gethostname()`
@@ -514,6 +518,45 @@ def _phase3_heartbeat_write_gated() -> bool:
               "command-channel writeback)", flush=True)
         _HEARTBEAT_WRITE_GATE_LOGGED[0] = True
     return True
+
+
+def _phase3_telemetry_file_write_gated() -> bool:
+    """Worker-safe gate: suppress ONLY the in-tree heartbeat + status FILE writes.
+
+    Phase 3 moved telemetry TRANSPORT off git -- workers POST /heartbeat and
+    /status to the coordinator and the hub's sync_daemon.phase3_heartbeat_writer
+    is the sole git materialiser. But workers still wrote their own
+    runner_heartbeats/<host>.json + runner_status/<host>.json into the shared
+    REE_assembly checkout every tick, which conflicts with the hub-materialised
+    version on `git pull --rebase --autostash` and produces dormant-autostash
+    accumulation (cloud-3 hit 43 entries 2026-06-02; 191 by 2026-05-31).
+
+    This gate stops those local telemetry-FILE writes on workers. Unlike
+    PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE (hub-only -- ALSO gates the
+    command-file writeback, which workers need for stop-command persistence;
+    enabling it on a worker restart-loops the unit, incident 2026-05-30), this
+    gate does NOT touch the command channel: write_commands_file /
+    read_commands_file / process_pending_commands are unaffected, so stop-command
+    persistence is preserved and there is no restart loop. Safe on any worker.
+
+    The coordinator POST (/heartbeat, /status) is NEVER gated here -- it is the
+    canonical transport. Skip-completed and peer-dedup keep reading the in-tree
+    runner_status/ dir, which is populated by pull (hub materialisation), so they
+    are unaffected; the worker's own completions arrive via coordinator -> hub ->
+    pull (lag tolerated; the coordinator /claim is authoritative against dupes).
+
+    Env: PHASE3_RUNNER_TELEMETRY_OFF_GIT=1|true|yes. No hostname restriction.
+    """
+    enabled = os.environ.get(
+        "PHASE3_RUNNER_TELEMETRY_OFF_GIT", "").strip().lower() in (
+            "1", "true", "yes")
+    if enabled and not _TELEMETRY_OFF_GIT_GATE_LOGGED[0]:
+        print("[remote-control] phase3 telemetry-off-git gate active: "
+              "in-tree heartbeat + status FILE writes skipped (coordinator "
+              "POST is the transport; hub sync_daemon materialises git). "
+              "Command channel unaffected.", flush=True)
+        _TELEMETRY_OFF_GIT_GATE_LOGGED[0] = True
+    return enabled
 
 
 def push_heartbeat(ree_assembly_path: Path, path: Path) -> None:

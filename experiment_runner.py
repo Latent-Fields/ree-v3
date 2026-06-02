@@ -912,20 +912,28 @@ _PHASE3_HUB_FILE_WRITE_GATE_LOGGED = False
 
 
 def _phase3_hub_local_ree_assembly_writes_gated() -> bool:
-    """Hub co-tenancy: skip local REE_assembly file writes that dirty sync_daemon.
+    """Skip local REE_assembly runner_status file writes that dirty sync_daemon.
 
-    Uses the same hub-only gate as runner_remote_control heartbeat/command
-    FILE writes (PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE on ree-cloud-1).
-    In-memory status + coordinator POST /heartbeat still run; only the
-    on-disk runner_status/<machine>.json write is skipped.
+    Fires under EITHER gate:
+      - PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE (hub-only co-tenancy; ree-cloud-1
+        shares its checkout with sync_daemon), OR
+      - PHASE3_RUNNER_TELEMETRY_OFF_GIT (worker-safe; stops the per-tick
+        runner_status/<host>.json write that conflicts with the hub-materialised
+        version on `git pull --rebase --autostash` and accumulates dormant
+        autostashes). Does NOT gate the command channel -- no restart-loop risk.
+    In-memory status + coordinator POST /status still run; only the on-disk
+    runner_status/<machine>.json write is skipped. The hub sync_daemon
+    materialises the canonical file from the coordinator DB.
     """
     global _PHASE3_HUB_FILE_WRITE_GATE_LOGGED
     if _rrc is None:
         return False
-    gated = _rrc._phase3_heartbeat_write_gated()
+    gated = (_rrc._phase3_heartbeat_write_gated()
+             or _rrc._phase3_telemetry_file_write_gated())
     if gated and not _PHASE3_HUB_FILE_WRITE_GATE_LOGGED:
-        print("[runner] phase3 hub gate: skipping local runner_status file "
-              "writes (sync_daemon materialises from coordinator DB)",
+        print("[runner] phase3 gate: skipping local runner_status file "
+              "writes (coordinator POST is transport; sync_daemon "
+              "materialises git from the coordinator DB)",
               flush=True)
         _PHASE3_HUB_FILE_WRITE_GATE_LOGGED = True
     return gated
