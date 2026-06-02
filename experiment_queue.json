@@ -74,6 +74,22 @@
       "experiment_type": "v3_exq_624_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-603e",
+      "title": "Q-045/MECH-313/MECH-260 + FP-2 dissociation on scaffolded_sd054_onboarding (re-issue of 603d on hook-fixed scheduler + z_goal_enabled config)",
+      "experiment_type": "v3_exq_603e_q045_mech313_mech260_scaffolded_sd054",
+      "script": "experiments/v3_exq_603e_q045_mech313_mech260_scaffolded_sd054.py",
+      "priority": 250,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 900,
+      "episodes_per_run": 180,
+      "seeds": 3,
+      "conditions": 5,
+      "claim_id": "Q-045",
+      "supersedes": "V3-EXQ-603d",
+      "note": "Substrate-readiness validation (EXPERIMENT_PURPOSE=diagnostic) of the 2026-06-02 implement-substrate AMEND (scaffolded_sd054_onboarding update_z_goal wiring, ree-v3 deb24cc). THREE changes vs 603d: (1) restored P0/P1=100/50 budget; (2) from_dims sets z_goal_enabled=True + drive_weight=2.0 (603d omitted it -> goal_state None -> update_z_goal early-returned); (3) bespoke P2 loop now calls update_z_goal each step. Acceptance: z_goal_norm_peak > 0.4 on >=2/3 seeds in P2 AND P1 survival gate passed on >=2/3 seeds. Forced-seed verification confirmed the 603e P2 path forms z_goal (peak 0.36 at 25 steps). claim_ids recorded as context (diagnostic; not governance-weighted)."
     }
   ]
 }
