@@ -34,6 +34,32 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-514l",
+      "title": "MECH-229 identity-distinct wanting retest on SD-049 Phase 3 substrate (retry of 514k FAIL)",
+      "script": "experiments/v3_exq_514l_sd049_phase3_mech229_wanting_liking_identity.py",
+      "priority": 280,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "supersedes": "V3-EXQ-514k",
+      "status": "pending",
+      "added_by": "IGW-20260602-029",
+      "added_utc": "2026-06-02T14:55:32Z",
+      "claim_ids": [
+        "SD-049",
+        "SD-015",
+        "MECH-229",
+        "MECH-230"
+      ],
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_514l_sd049_phase3_mech229_wanting_liking_identity",
+      "notes": "MECH-229 retest on SD-049 Phase 3 substrate (use_sd049_per_axis_consumer_cascade=True). Supersedes V3-EXQ-514k which FAILed row1b_joint_identity_probe_weak on 2026-06-01. MECH-229 was demoted active -> provisional on 2026-06-01 with pending_retest_after_substrate=true. Prior PASSes (EXQ-074f, 234, 354) were on single-resource substrate (degenerate test). Phase 3 consumer cascade (incl MECH-295 axis-matched routing) landed 2026-05-31. Tests identity-distinct wanting on multi-resource substrate per pending_retest_after_substrate gate. 4-arm design: ARM_0 off / ARM_1 2-type / ARM_2 3-type / ARM_3 5-type. Pre-registered PASS: C0-C3b probe/classifier gates, C4 ARM_2 goal_resource_r >= 0.5, C5 ARM_2 - ARM_0 lift >= 0.4, C6 ARM_2 wanting!=liking trajectory fraction >= 0.6. Authored as IGW-20260602-029 auto-spawned retest-after-substrate task.",
+      "seeds": [
+        42,
+        43,
+        44
+      ]
+    },
+    {
       "queue_id": "V3-EXQ-603e",
       "title": "Q-045/MECH-313/MECH-260 + FP-2 dissociation on scaffolded_sd054_onboarding (re-issue of 603d on hook-fixed scheduler + z_goal_enabled config)",
       "script": "experiments/v3_exq_603e_q045_mech313_mech260_scaffolded_sd054.py",
@@ -63,38 +89,16 @@
       "claim_id": "MECH-320",
       "backlog_id": "EVB-0237",
       "note": "ARC-068 (action.opportunity_cost_no_op_penalty) Niv-vs-Salamone discriminative test on MECH-320 w_passive implementation. EXP-0081 / EVB-0237 dispatch_mode=discriminative_pair. ARC-068 lit-pull R3 verdict 2026-05-16 preserves slot-level registration; implementation collapses into MECH-320. R4 verdict: ARC-068 must NOT collapse into MECH-258 / SD-032b dacc_effort_cost (Salamone & Correa 2003 dissociation). 4-arm design: ARM_0 baseline / ARM_1 vigor + Niv env / ARM_2 vigor + Salamone elevated-movement-cost env / ARM_3 baseline + Salamone env. Forced-vigor probe v_t_floor=0.05 implements V3-EXQ-549 prescribed fix (substrate fired correctly under V3-EXQ-547 readiness but EWMA path stuck at zero under default env config in 549; 549 reclassified non_contributory and routed forced-vigor follow-on). Pre-registered acceptance C1 Niv lift >= 0.03, C2 dissociation < 0.50, C3 gate_product >= 0.5, C4 informative-only no-op penalty. claim_ids=[MECH-320, ARC-068] with evidence_direction_per_claim. MECH-258 / SD-032b are foils dissociated from, NOT tested directly. 4-row interpretation grid in script docstring: PASS = ARC-068 supports; C2 FAIL = ARC-068 weakens (effort-cost collapse, surface supersession question to /governance); C1 FAIL + C3 PASS = /failure-autopsy; C3 FAIL = /diagnose-errors. Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-02T15:00:43Z"
+      },
       "conditions": 4,
       "episodes_per_run": 130,
       "experiment_type": "v3_exq_624_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-514l",
-      "experiment_type": "v3_exq_514l_sd049_phase3_mech229_wanting_liking_identity",
-      "claim_ids": [
-        "SD-049",
-        "SD-015",
-        "MECH-229",
-        "MECH-230"
-      ],
-      "priority": 280,
-      "estimated_minutes": 90,
-      "seeds": [
-        42,
-        43,
-        44
-      ],
-      "machine_affinity": "any",
-      "added_utc": "2026-06-02T14:55:32Z",
-      "added_by": "IGW-20260602-029",
-      "supersedes": "V3-EXQ-514k",
-      "notes": "MECH-229 retest on SD-049 Phase 3 substrate (use_sd049_per_axis_consumer_cascade=True). Supersedes V3-EXQ-514k which FAILed row1b_joint_identity_probe_weak on 2026-06-01. MECH-229 was demoted active -> provisional on 2026-06-01 with pending_retest_after_substrate=true. Prior PASSes (EXQ-074f, 234, 354) were on single-resource substrate (degenerate test). Phase 3 consumer cascade (incl MECH-295 axis-matched routing) landed 2026-05-31. Tests identity-distinct wanting on multi-resource substrate per pending_retest_after_substrate gate. 4-arm design: ARM_0 off / ARM_1 2-type / ARM_2 3-type / ARM_3 5-type. Pre-registered PASS: C0-C3b probe/classifier gates, C4 ARM_2 goal_resource_r >= 0.5, C5 ARM_2 - ARM_0 lift >= 0.4, C6 ARM_2 wanting!=liking trajectory fraction >= 0.6. Authored as IGW-20260602-029 auto-spawned retest-after-substrate task.",
-      "status": "pending",
-      "script": "experiments/v3_exq_514l_sd049_phase3_mech229_wanting_liking_identity.py",
-      "title": "MECH-229 identity-distinct wanting retest on SD-049 Phase 3 substrate (retry of 514k FAIL)",
-      "experiment_purpose": "evidence"
     }
   ]
 }
