@@ -156,6 +156,24 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_627_mech306_sustained_drive_trace_validation",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-624a",
+      "title": "ARC-068 / MECH-320 Niv-vs-Salamone opportunity-cost-vs-effort-cost dissociation (supersedes 624; body_obs_dim fix + uniform obs space)",
+      "script": "experiments/v3_exq_624a_arc068_mech320_niv_salamone_dissociation.py",
+      "priority": 100,
+      "machine_affinity": "any",
+      "estimated_minutes": 170,
+      "supersedes": "V3-EXQ-624",
+      "claim_id": "MECH-320",
+      "backlog_id": "EVB-0237",
+      "note": "Supersedes V3-EXQ-624, which crashed deterministically (RuntimeError: mat1 and mat2 shapes cannot be multiplied (1x17 and 12x12)) on the Salamone-arm P1 env switch: the agent's body encoder was built from the limb_damage-OFF P0 env (body_obs_dim=12) but ARM_2/ARM_3 switched their P1 env to limb_damage-ON (body_obs_dim=17). 624a enables limb_damage on ALL arms (uniform body_obs_dim=17) and carries the Niv-vs-Salamone manipulation through damage_increment/failure_prob_scale ONLY (0.0 = free movement for Niv arms + all P0; elevated for Salamone P1) -- fixing the crash AND removing the observation-dimensionality confound from the dissociation test. Scientific question unchanged: is MECH-320's no-op penalty movement-cost-sensitive (Salamone) or insensitive (Niv). claim_ids=[MECH-320, ARC-068]; MECH-258/SD-032b are dissociated foils, not tested. v_t_floor=0.05 forced-vigor probe (V3-EXQ-549 fix). Pre-registered C1 Niv lift>=0.03, C2 dissociation<0.50, C3 gate_product>=0.5, C4 informative. 4-row interpretation grid in script docstring. Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md.",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 130,
+      "experiment_type": "v3_exq_624a_arc068_mech320_niv_salamone_dissociation",
+      "proposal_id": "EXP-0081",
+      "seeds": 3
     }
   ]
 }
