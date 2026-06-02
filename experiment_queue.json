@@ -34,24 +34,23 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-626a",
-      "title": "Goal-pipeline developmental-window 4-arm dissociation -- HARNESS-FIXED (update_z_goal driven + P0 positive control)",
-      "script": "experiments/v3_exq_626a_goal_pipeline_developmental_window_diagnostic.py",
-      "priority": 200,
+      "queue_id": "V3-EXQ-603e",
+      "title": "Q-045/MECH-313/MECH-260 + FP-2 dissociation on scaffolded_sd054_onboarding (re-issue of 603d on hook-fixed scheduler + z_goal_enabled config)",
+      "script": "experiments/v3_exq_603e_q045_mech313_mech260_scaffolded_sd054.py",
+      "priority": 250,
       "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "supersedes": "V3-EXQ-626",
-      "note": "Lettered iteration of V3-EXQ-626 (scientific question UNCHANGED; implementation was wrong). Per failure_autopsy_V3-EXQ-626_2026-06-01.md, the 626 bespoke episode loop never called agent.update_z_goal(), so GoalState.update() was never reached and z_goal stayed at zero-init for every step of every arm -- making the manifest (ARM_A z_goal_norm_median 0.0; C2/C3 vacuously 'true' at 0<ceiling) a Class-1 harness/measurement failure, NOT a substrate formation regression (622 S0 PASS + 582a refute regression). 626a HARNESS FIX (only material change): (1) per-step goal feed -- _run_episode now calls agent.update_z_goal(benefit_exposure=body_state[11], drive_level=1-energy) every step in BOTH train (P0/P1) and frozen-eval (P2) paths, matching the V3-EXQ-622 shared runner goal_stream_stages_sd054._benefit_and_drive; (2) NEW P0 positive-control gate -- ARM_A P0 z_goal_norm_peak >= 0.1 on >=2/3 seeds (Stage-0 A0.2 threshold; 622 S0 got 0.281/0.439/0.342). The positive control is the adjudicating bit: PASS confirms 626's 'formation failure' was the missing call (harness bug) -> object-binding ladder Stage 1+; FAIL would contradict 622 S0 -> /failure-autopsy on GoalState.update. Axis criteria C2/C3/C4 are tagged trusted=false unless the positive control fires (they are differential criteria, vacuous under uniformly-zero z_goal -- exactly the 626 trap). overall_pass = P0 positive control AND C1 AND (C2 OR C3 OR C4) AND C5. Carries over 626's 4-arm grid (ARM_A formation-only / ARM_B drive-anneal 0.9->0.2 / ARM_C hazard-anneal 0.0->0.7 / ARM_D writer-frozen-during-transition), phase budget (P0 30 + P1 30 + P2 30, 200 steps/ep), use_dacc=True (dacc_weight=0.5), and C1-C5 acceptance code unchanged. claim_ids=[] (substrate-readiness/harness diagnostic; NOT load-bearing per CLAIM_IDS Accuracy Rule). Authored via /queue-experiment per goal_stream_repair_diagnostic_ladder_2026-06-01.md Deliverables F1/G. Dry-run smoke PASS 2026-06-01T16:46Z (12 cells end-to-end without crash; progress instrumentation ep N/60 + 12 verdict lines correct; validate_experiments AST OK; emit_outcome sentinel wired; z_goal now moves off zero -- non-zero P2 medians where 626 was uniformly 0.0, confirming the feed is wired). HAZARD NOTED (V3-EXQ-603d incident 2026-06-01T06:46Z): phase3-queue sync_daemon snapshot writer can drop pathspec-staged files between git-add and git-commit; post-commit dropped-file check verifies V3-EXQ-626a lands cleanly. Concurrent active sibling at queue time: IGW MECH-262 (foreign untracked experiments/v3_exq_598c_mech262_retest_scaffolded_sd054.py; pathspec-limited git add avoids sweep).",
+      "estimated_minutes": 900,
+      "supersedes": "V3-EXQ-603d",
+      "claim_id": "Q-045",
+      "note": "Substrate-readiness validation (EXPERIMENT_PURPOSE=diagnostic) of the 2026-06-02 implement-substrate AMEND (scaffolded_sd054_onboarding update_z_goal wiring, ree-v3 deb24cc). THREE changes vs 603d: (1) restored P0/P1=100/50 budget; (2) from_dims sets z_goal_enabled=True + drive_weight=2.0 (603d omitted it -> goal_state None -> update_z_goal early-returned); (3) bespoke P2 loop now calls update_z_goal each step. Acceptance: z_goal_norm_peak > 0.4 on >=2/3 seeds in P2 AND P1 survival gate passed on >=2/3 seeds. Forced-seed verification confirmed the 603e P2 path forms z_goal (peak 0.36 at 25 steps). claim_ids recorded as context (diagnostic; not governance-weighted).",
       "status": "claimed",
       "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-01T16:57:19Z"
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-06-02T06:46:54Z"
       },
-      "claim_ids": [],
-      "conditions": 4,
-      "episodes_per_run": 60,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_626a_goal_pipeline_developmental_window_diagnostic",
+      "conditions": 5,
+      "episodes_per_run": 180,
+      "experiment_type": "v3_exq_603e_q045_mech313_mech260_scaffolded_sd054",
       "seeds": 3
     },
     {
@@ -66,45 +65,14 @@
       "note": "ARC-068 (action.opportunity_cost_no_op_penalty) Niv-vs-Salamone discriminative test on MECH-320 w_passive implementation. EXP-0081 / EVB-0237 dispatch_mode=discriminative_pair. ARC-068 lit-pull R3 verdict 2026-05-16 preserves slot-level registration; implementation collapses into MECH-320. R4 verdict: ARC-068 must NOT collapse into MECH-258 / SD-032b dacc_effort_cost (Salamone & Correa 2003 dissociation). 4-arm design: ARM_0 baseline / ARM_1 vigor + Niv env / ARM_2 vigor + Salamone elevated-movement-cost env / ARM_3 baseline + Salamone env. Forced-vigor probe v_t_floor=0.05 implements V3-EXQ-549 prescribed fix (substrate fired correctly under V3-EXQ-547 readiness but EWMA path stuck at zero under default env config in 549; 549 reclassified non_contributory and routed forced-vigor follow-on). Pre-registered acceptance C1 Niv lift >= 0.03, C2 dissociation < 0.50, C3 gate_product >= 0.5, C4 informative-only no-op penalty. claim_ids=[MECH-320, ARC-068] with evidence_direction_per_claim. MECH-258 / SD-032b are foils dissociated from, NOT tested directly. 4-row interpretation grid in script docstring: PASS = ARC-068 supports; C2 FAIL = ARC-068 weakens (effort-cost collapse, surface supersession question to /governance); C1 FAIL + C3 PASS = /failure-autopsy; C3 FAIL = /diagnose-errors. Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
       "status": "claimed",
       "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-06-01T19:58:23Z"
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-06-02T08:06:33Z"
       },
       "conditions": 4,
       "episodes_per_run": 130,
       "experiment_type": "v3_exq_624_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-603e",
-      "title": "Q-045/MECH-313/MECH-260 + FP-2 dissociation on scaffolded_sd054_onboarding (re-issue of 603d on hook-fixed scheduler + z_goal_enabled config)",
-      "experiment_type": "v3_exq_603e_q045_mech313_mech260_scaffolded_sd054",
-      "script": "experiments/v3_exq_603e_q045_mech313_mech260_scaffolded_sd054.py",
-      "priority": 250,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 900,
-      "episodes_per_run": 180,
-      "seeds": 3,
-      "conditions": 5,
-      "claim_id": "Q-045",
-      "supersedes": "V3-EXQ-603d",
-      "note": "Substrate-readiness validation (EXPERIMENT_PURPOSE=diagnostic) of the 2026-06-02 implement-substrate AMEND (scaffolded_sd054_onboarding update_z_goal wiring, ree-v3 deb24cc). THREE changes vs 603d: (1) restored P0/P1=100/50 budget; (2) from_dims sets z_goal_enabled=True + drive_weight=2.0 (603d omitted it -> goal_state None -> update_z_goal early-returned); (3) bespoke P2 loop now calls update_z_goal each step. Acceptance: z_goal_norm_peak > 0.4 on >=2/3 seeds in P2 AND P1 survival gate passed on >=2/3 seeds. Forced-seed verification confirmed the 603e P2 path forms z_goal (peak 0.36 at 25 steps). claim_ids recorded as context (diagnostic; not governance-weighted)."
-    },
-    {
-      "queue_id": "V3-EXQ-625c",
-      "title": "SD-037 axis-b Phase 1b C3 dynamic-crossings redesign + MECH-341 on-policy E3 diversity (supersedes 625b)",
-      "experiment_type": "v3_exq_625c_sd037_axis_b_phase1b_dynamic_crossings_mech341",
-      "script": "experiments/v3_exq_625c_sd037_axis_b_phase1b_dynamic_crossings_mech341.py",
-      "priority": 150,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 50,
-      "episodes_per_run": 60,
-      "seeds": 3,
-      "conditions": 1,
-      "supersedes": "V3-EXQ-625b",
-      "note": "EXPERIMENT_PURPOSE=diagnostic, claim_ids=[]. Two coupled changes vs 625b: (1) C3 redesigned from sustained-window to DYNAMIC-CROSSINGS (per seed >=1 above->below AND >=1 below->above transition of z_harm_a across 0.4; PASS on >=2/3 seeds), per failure_autopsy_V3-EXQ-625b_2026-06-02 section 8.3 -- excludes the seed-7 catatonic-lock literal pass and the frozen-below lock that the old C3 could not distinguish; legacy sustained-window reported but NOT gating. (2) MECH-341 on-policy E3 score-diversity ENABLED in the arm (use_e3_score_diversity + stratified_select + entropy_bonus). FINDING (code-verified 2026-06-02): the scaffolded_sd054_onboarding update_z_goal amend (deb24cc) is DISJOINT from this path -- 625b measures the gap4-baseline base policy via _lib.goal_pipeline_tier1.warmup_train, which never runs the scaffolded scheduler; MECH-341 is the applicable on-policy diversity lever (validated V3-EXQ-611b). SD-056 left OFF to avoid confounding two diversity levers. User-confirmed arm config via AskUserQuestion 2026-06-02. Supersedes 625b (lineage bookkeeping; 625b's monostrategy finding remains valid as a separate diagnostic record)."
     }
   ]
 }
