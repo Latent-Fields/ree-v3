@@ -6286,7 +6286,7 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   limb-off-constant-1 / C3 sense(None) no-op / C4 sustained-low drives below floor
   + sustained-high stays above + recover-after-degrade / C5 master-OFF no-op +
   kwarg-omitted==None bit-identical / C6 MECH-094 simulation no-op).
-  Validation experiment: V3-EXQ-628 (queued via /queue-experiment) -- the
+  Validation experiment: V3-EXQ-630 (queued via /queue-experiment) -- the
   ecological across-tick ARC-029 successor to V3-EXQ-063a that exercises this
   source (592b ARM_2 GATED_NAV_COMP_ON + ARM_3 GATED_BOTH_ON arms ecologically),
   measuring that the nav_competence gate suppresses commitment as readiness
