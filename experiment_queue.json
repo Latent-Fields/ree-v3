@@ -112,6 +112,21 @@
       "experiment_type": "v3_exq_624a_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-628",
+      "title": "MECH-319 simulation-mode rule-write gate replay/caller_sim falsifier (EVIDENCE; 2-arm admit_writes block-vs-admit rule_state divergence)",
+      "experiment_type": "v3_exq_628_mech319_simulation_mode_rule_gate_replay_falsifier_evidence",
+      "script": "experiments/v3_exq_628_mech319_simulation_mode_rule_gate_replay_falsifier_evidence.py",
+      "priority": 260,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "episodes_per_run": 60,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "MECH-319",
+      "note": "EVIDENCE-purpose MECH-319 validation to move it off candidate_substrate_landed. Constructs the V3-EXQ-543c replay/caller_sim=True invocation path (the agent.py lateral_pfc wiring with simulation_mode=True) that select_action never exercises, and measures LateralPFCAnalog.rule_state divergence between BLOCK (admit_writes=False) and ADMIT (admit_writes=True) arms replaying the same captured early-waking latent. PASS = BLOCK suppresses (rule_state delta ~0) AND ADMIT admits (delta>0) AND arms diverge AND the waking path is bit-identical across arms with zero simulation firings (C4 falsifier). Predecessor V3-EXQ-546 was diagnostic/non_contributory (truth-table + waking wiring; never touched rule_state). experiment_purpose=evidence; claim_ids=[MECH-319]."
     }
   ]
 }
