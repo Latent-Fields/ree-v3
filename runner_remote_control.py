@@ -437,7 +437,11 @@ def _push_telemetry_file(
 _HEARTBEAT_GATE_LOGGED = [False]  # one-element mutable for module-level state
 _HEARTBEAT_WRITE_GATE_LOGGED = [False]
 _HEARTBEAT_WRITE_GATE_NON_HUB_REFUSED_LOGGED = [False]
+_HEARTBEAT_WRITE_GATE_OFF_GIT_ALLOWED_LOGGED = [False]
 _TELEMETRY_OFF_GIT_GATE_LOGGED = [False]
+_COMMANDS_VIA_COORD_GATE_LOGGED = [False]
+_COMMANDS_OFF_GIT_GATE_LOGGED = [False]
+_COMMANDS_OFF_GIT_REFUSED_LOGGED = [False]
 
 # Canonical hostname(s) of the hub VM where the WRITE gate is safe to set.
 # Documented as `ree-cloud-1` in cloud_workers.md, but `socket.gethostname()`
@@ -497,12 +501,34 @@ def _phase3_heartbeat_write_gated() -> bool:
     except Exception:
         hostname = ""
     if hostname not in _PHASE3_HUB_HOSTNAMES:
+        # The hub-only restriction exists ONLY because _HEARTBEAT_WRITE also
+        # short-circuits the git command-file writeback (write_commands_file),
+        # and a non-hub worker that cannot persist a stop command's
+        # status->done restart-loops -> start-limit-hit (incident 2026-05-30).
+        # When PHASE3_COMMANDS_OFF_GIT is active the command channel is the
+        # coordinator (the ack persists server-side in the commands table,
+        # not in a per-machine git file), so that hazard is gone and a
+        # non-hub worker may safely take the WRITE gate. This is the
+        # command-file dependency that previously forced _HEARTBEAT_WRITE
+        # hub-only; the migration removes it.
+        if _phase3_commands_off_git_gated():
+            if not _HEARTBEAT_WRITE_GATE_OFF_GIT_ALLOWED_LOGGED[0]:
+                print("[remote-control] phase3 gate active: "
+                      "PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE permitted on "
+                      "non-hub worker (hostname=" + repr(hostname) + ") "
+                      "because PHASE3_COMMANDS_OFF_GIT routes the command "
+                      "channel through the coordinator -- stop-command acks "
+                      "persist server-side, so the restart-loop hazard "
+                      "(incident 2026-05-30) does not apply.", flush=True)
+                _HEARTBEAT_WRITE_GATE_OFF_GIT_ALLOWED_LOGGED[0] = True
+            return True
         if not _HEARTBEAT_WRITE_GATE_NON_HUB_REFUSED_LOGGED[0]:
             print("[remote-control] WARNING: "
                   "PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1 set on "
                   "non-hub worker (hostname=" + repr(hostname) +
                   "). This flag is HUB-ONLY (ree-cloud-1 / "
-                  "ree-worker-1). On non-hub workers it suppresses "
+                  "ree-worker-1) unless PHASE3_COMMANDS_OFF_GIT is also "
+                  "set. On non-hub workers it suppresses "
                   "the per-machine commands file write, which breaks "
                   "stop-command persistence and produces a systemd "
                   "restart loop -> start-limit-hit (incident 2026-05-30 "
@@ -557,6 +583,89 @@ def _phase3_telemetry_file_write_gated() -> bool:
               "Command channel unaffected.", flush=True)
         _TELEMETRY_OFF_GIT_GATE_LOGGED[0] = True
     return enabled
+
+
+def _coordinator_command_channel_available() -> bool:
+    """True when the coordinator command channel can carry commands:
+    COORDINATION_MODE=coordinator AND the coordinator_client shim is enabled
+    (COORDINATOR_URL + COORDINATOR_TOKEN set). Never raises."""
+    try:
+        mode = os.environ.get("COORDINATION_MODE", "git").strip().lower()
+        return mode == "coordinator" and bool(coordinator_client.enabled())
+    except Exception:  # pragma: no cover -- shim must never break the runner
+        return False
+
+
+def _phase3_commands_via_coordinator_gated() -> bool:
+    """Read + ack remote-control commands via the coordinator (in ADDITION to
+    the git command-file, which stays the proven fallback during transition).
+
+    Env: PHASE3_COMMANDS_VIA_COORDINATOR=1|true|yes. Requires the coordinator
+    command channel to be available; if the flag is set but the coordinator is
+    not configured, this is a no-op (the git file remains the channel). Default
+    OFF = git command-file is the sole channel (bit-identical to pre-migration).
+
+    This is the per-worker activation knob the canary uses (cloud-2 first) so
+    the coordinator command path can be proven on ONE idle worker before the
+    fleet, rather than flipping on for every worker the moment the code lands.
+    """
+    enabled = os.environ.get(
+        "PHASE3_COMMANDS_VIA_COORDINATOR", "").strip().lower() in (
+            "1", "true", "yes")
+    if not enabled:
+        return False
+    if not _coordinator_command_channel_available():
+        return False
+    if not _COMMANDS_VIA_COORD_GATE_LOGGED[0]:
+        print("[remote-control] phase3 commands-via-coordinator gate active: "
+              "remote-control commands are also fetched + acked via the "
+              "coordinator (git command-file retained as fallback).",
+              flush=True)
+        _COMMANDS_VIA_COORD_GATE_LOGGED[0] = True
+    return True
+
+
+def _phase3_commands_off_git_gated() -> bool:
+    """The coordinator is the SOLE command channel: the worker neither reads
+    nor writes the git command-file. Implies PHASE3_COMMANDS_VIA_COORDINATOR.
+
+    This is what removes the restart-loop hazard that made
+    PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE hub-only: a stop command's ack now
+    persists in the coordinator `commands` table, not in a per-machine git
+    file the worker may be unable to write. Once a worker is off-git for
+    commands, it can also take the heartbeat WRITE gate without restart-looping
+    (see _phase3_heartbeat_write_gated).
+
+    Self-guard (mirrors the _HEARTBEAT_WRITE non-hub refusal): if the flag is
+    set but the coordinator command channel is NOT available (COORDINATION_MODE
+    != coordinator, or no URL/token), REFUSE the gate and fall back to the git
+    command-file. Dropping the only channel would leave the worker
+    uncontrollable (no way to stop/pause it).
+
+    Env: PHASE3_COMMANDS_OFF_GIT=1|true|yes. Default OFF.
+    """
+    enabled = os.environ.get(
+        "PHASE3_COMMANDS_OFF_GIT", "").strip().lower() in (
+            "1", "true", "yes")
+    if not enabled:
+        return False
+    if not _coordinator_command_channel_available():
+        if not _COMMANDS_OFF_GIT_REFUSED_LOGGED[0]:
+            print("[remote-control] WARNING: PHASE3_COMMANDS_OFF_GIT=1 set "
+                  "but the coordinator command channel is unavailable "
+                  "(COORDINATION_MODE != coordinator or COORDINATOR_URL/"
+                  "TOKEN unset). REFUSING the gate and keeping the git "
+                  "command-file as the channel -- dropping it would leave "
+                  "this worker uncontrollable (no stop/pause path).",
+                  flush=True)
+            _COMMANDS_OFF_GIT_REFUSED_LOGGED[0] = True
+        return False
+    if not _COMMANDS_OFF_GIT_GATE_LOGGED[0]:
+        print("[remote-control] phase3 commands-off-git gate active: "
+              "git command-file is NOT read or written; the coordinator is "
+              "the sole remote-control command channel.", flush=True)
+        _COMMANDS_OFF_GIT_GATE_LOGGED[0] = True
+    return True
 
 
 def push_heartbeat(ree_assembly_path: Path, path: Path) -> None:
@@ -625,10 +734,13 @@ def write_commands_file(ree_assembly_path: Path, machine: str, data: dict) -> Pa
 
     Phase 3 _WRITE gate (hub co-location): when
     PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1, skip the local file write.
-    The coordinator's commands API is the source of truth on the hub
-    (commands are fetched via coordinator_client.fetch_commands, not by
-    polling this file). The legacy file path is preserved as a transport
-    on workers that don't have the WRITE flag set.
+    On the hub the coordinator's commands API is the source of truth
+    (process_pending_commands fetches + acks via coordinator_client). On
+    workers the git command-file remains the channel UNLESS
+    PHASE3_COMMANDS_OFF_GIT is set -- under that gate process_pending_commands
+    never calls this function (the coordinator is the sole channel), and a
+    worker may then also take the WRITE gate without restart-looping a stop
+    command (its ack persists in the coordinator, not in this file).
     """
     cmds = data.get("commands", [])
     pending = [c for c in cmds if c.get("status") in ("pending", "ack")]
@@ -825,6 +937,187 @@ def _apply_reclassify(
             "(next heartbeat will propagate)")
 
 
+def _execute_command(
+    kind: str,
+    args: dict,
+    *,
+    machine: str,
+    queue_file: Path,
+    drain_flag: list,
+    pause_flag: list,
+    force_stop_flag: list,
+    suspend_flag: list,
+    resume_run_target: list,
+    current_proc: list,
+    status_ref: dict | None,
+    status_path: Path | None,
+    write_status_fn,
+) -> tuple[bool, str]:
+    """Execute one command kind against the runner's state. Returns
+    (ok, note). Channel-agnostic: the git command-file path and the
+    coordinator path both dispatch here so behaviour is identical
+    regardless of how the command arrived. Never raises (exceptions are
+    captured into a failed result)."""
+    args = args or {}
+    try:
+        if kind == "stop":
+            if not drain_flag:
+                drain_flag.append(True)
+            return True, "drain requested"
+        if kind == "force_stop":
+            force_stop_flag.append(True)
+            note = "no active proc; runner will exit on next tick"
+            ok = True
+            if current_proc:
+                proc = current_proc[0]
+                try:
+                    proc.kill()
+                    note = f"killed pid {proc.pid}"
+                except Exception as exc:
+                    ok = False
+                    note = f"kill failed: {exc}"
+            if not drain_flag:
+                drain_flag.append(True)
+            return ok, note
+        if kind == "pause":
+            if not pause_flag:
+                pause_flag.append(True)
+            return True, "paused"
+        if kind == "resume":
+            pause_flag.clear()
+            return True, "resumed"
+        if kind == "suspend":
+            if current_proc:
+                if not suspend_flag:
+                    suspend_flag.append(True)
+                return True, "suspend requested (terminate current run)"
+            return True, "no active proc; suspend is a no-op until a run starts"
+        if kind == "resume_run":
+            pause_flag.clear()
+            resume_run_target.clear()
+            qid = args.get("queue_id")
+            if qid:
+                resume_run_target.append(str(qid))
+                return True, f"resume_run queued for {qid}"
+            return True, "resume_run queued (next checkpointed item)"
+        if kind == "kick":
+            qid = args.get("queue_id")
+            if not qid:
+                return False, "missing args.queue_id"
+            return _kick_queue(queue_file, qid)
+        if kind == "release_claim":
+            qid = args.get("queue_id")
+            if not qid:
+                return False, "missing args.queue_id"
+            return _release_claim_in_queue(queue_file, qid)
+        if kind == "reclassify":
+            return _apply_reclassify(
+                status_ref, status_path, write_status_fn, args, machine)
+        return False, f"unsupported kind: {kind!r}"
+    except Exception as exc:
+        return False, f"exception: {exc}"
+
+
+def _process_git_command_file(
+    ree_assembly_path: Path,
+    machine: str,
+    queue_file: Path,
+    *,
+    auto_sync: bool,
+    exec_kwargs: dict,
+) -> list[dict]:
+    """Legacy git command-file channel: read pending commands, mark them
+    acked, execute each, write the terminal state back, and (when auto_sync)
+    push. Bit-identical to the pre-migration process_pending_commands body."""
+    data = read_commands_file(ree_assembly_path, machine)
+    cmds = data.get("commands", [])
+    pending = [c for c in cmds if c.get("status") == "pending"]
+    if not pending:
+        return []
+
+    for cmd in pending:
+        cmd["status"] = "ack"
+        cmd["ack_at_utc"] = _now_utc()
+    # Persist ack state immediately so observers see prompt acknowledgment.
+    write_commands_file(ree_assembly_path, machine, data)
+
+    processed: list[dict] = []
+    for cmd in pending:
+        kind = cmd.get("kind")
+        ok, note = _execute_command(
+            kind, cmd.get("args") or {}, machine=machine,
+            queue_file=queue_file, **exec_kwargs)
+        cmd["status"] = "done" if ok else "failed"
+        cmd["completed_at_utc"] = _now_utc()
+        cmd["result_note"] = note
+        if not ok:
+            cmd["error"] = note
+        processed.append(cmd)
+        print(f"[remote-control] cmd {cmd['id']} {kind} -> "
+              f"{cmd['status']} ({note}) [git]", flush=True)
+
+    written = write_commands_file(ree_assembly_path, machine, data)
+    if auto_sync and written is not None:
+        push_commands(ree_assembly_path, written, label="commands-ack")
+    return processed
+
+
+def _process_coordinator_commands(
+    machine: str,
+    queue_file: Path,
+    *,
+    exec_kwargs: dict,
+) -> list[dict]:
+    """Coordinator command channel: fetch pending commands via
+    coordinator_client.fetch_commands, execute each, ack via
+    coordinator_client.ack_command. A None fetch (coordinator unreachable)
+    is a silent no-op -- the git fallback covers it during transition, and
+    under commands-off-git the command simply re-delivers next tick (the
+    supported kinds are idempotent). Never raises into the runner loop."""
+    try:
+        resp = coordinator_client.fetch_commands(machine)
+    except Exception as exc:  # pragma: no cover -- shim swallows already
+        print(f"[remote-control] coordinator fetch_commands error: {exc}",
+              flush=True)
+        return []
+    if not resp or not isinstance(resp, dict):
+        return []
+    cmds = resp.get("commands") or []
+    processed: list[dict] = []
+    for cmd in cmds:
+        cmd_id = cmd.get("id")
+        kind = cmd.get("kind")
+        # The coordinator stores args as a JSON string (commands.args TEXT).
+        raw_args = cmd.get("args")
+        if isinstance(raw_args, str):
+            try:
+                args = json.loads(raw_args) if raw_args else {}
+            except ValueError:
+                args = {}
+        else:
+            args = raw_args or {}
+        ok, note = _execute_command(
+            kind, args, machine=machine, queue_file=queue_file, **exec_kwargs)
+        status = "done" if ok else "failed"
+        ack = None
+        try:
+            ack = coordinator_client.ack_command(cmd_id, machine, status, note)
+        except Exception as exc:  # pragma: no cover
+            print(f"[remote-control] coordinator ack error: {exc}", flush=True)
+        if ack is None:
+            print(f"[remote-control] WARNING: coordinator ack for cmd "
+                  f"{cmd_id} ({kind}) did not confirm; it will re-deliver "
+                  f"next tick (supported kinds are idempotent).", flush=True)
+        processed.append({
+            "id": cmd_id, "kind": kind, "status": status,
+            "result_note": note, "channel": "coordinator",
+            "acked": ack is not None,
+        })
+        print(f"[remote-control] cmd {cmd_id} {kind} -> {status} ({note}) "
+              f"[coordinator]", flush=True)
+    return processed
+
+
 def process_pending_commands(
     ree_assembly_path: Path,
     machine: str,
@@ -841,117 +1134,58 @@ def process_pending_commands(
     status_path: Path | None = None,
     write_status_fn=None,
 ) -> list[dict]:
-    """Drain pending commands and execute them. Mutates the runner's flag
-    lists (used as mutable references) and returns the processed commands
-    for logging.
+    """Drain pending remote-control commands and execute them, returning the
+    processed commands for logging. Mutates the runner's flag lists (used as
+    mutable references), the same single-element-or-empty container convention
+    experiment_runner.py uses for _drain_flag / _current_proc / etc.
 
-    Each list parameter is a single-element-or-empty mutable container, the
-    same convention experiment_runner.py already uses for _drain_flag,
-    _current_proc, etc. Setting drain_flag.append(True) requests a graceful
-    drain on the next loop iteration.
+    Channels (Phase 3 command-channel migration):
+      - git command-file (legacy): read/write
+        REE_assembly/evidence/experiments/runner_commands/<machine>.json.
+        Used unless PHASE3_COMMANDS_OFF_GIT is active.
+      - coordinator: fetch + ack via coordinator_client. Enabled by
+        PHASE3_COMMANDS_VIA_COORDINATOR (dual-read alongside git) or implied
+        by PHASE3_COMMANDS_OFF_GIT (coordinator sole channel).
+    Both default OFF -> bit-identical to the pre-migration git-only behaviour.
+    During the dual-read transition a command issued to BOTH channels is
+    executed once per channel; every supported kind is idempotent so the
+    double-apply is harmless (the explicit safety property that lets the
+    fallback run alongside the new path).
 
-    `status_ref`, `status_path`, `write_status_fn` are optional context
-    used only by the `reclassify` command kind. When omitted, reclassify
-    commands fail with a clear error; all other kinds are unaffected so
-    older callers continue to work.
+    `status_ref`, `status_path`, `write_status_fn` are optional context used
+    only by the `reclassify` command kind; when omitted reclassify fails with
+    a clear error and other kinds are unaffected.
     """
-    data = read_commands_file(ree_assembly_path, machine)
-    cmds = data.get("commands", [])
-    pending = [c for c in cmds if c.get("status") == "pending"]
-    if not pending:
-        return []
+    off_git = _phase3_commands_off_git_gated()
+    via_coord = _phase3_commands_via_coordinator_gated()
+
+    exec_kwargs = {
+        "drain_flag": drain_flag,
+        "pause_flag": pause_flag,
+        "force_stop_flag": force_stop_flag,
+        "suspend_flag": suspend_flag,
+        "resume_run_target": resume_run_target,
+        "current_proc": current_proc,
+        "status_ref": status_ref,
+        "status_path": status_path,
+        "write_status_fn": write_status_fn,
+    }
 
     processed: list[dict] = []
-    for cmd in pending:
-        cmd["status"] = "ack"
-        cmd["ack_at_utc"] = _now_utc()
-    # Persist ack state immediately so observers see prompt acknowledgment.
-    write_commands_file(ree_assembly_path, machine, data)
 
-    for cmd in pending:
-        kind = cmd.get("kind")
-        args = cmd.get("args") or {}
-        ok = True
-        note = ""
-        try:
-            if kind == "stop":
-                if not drain_flag:
-                    drain_flag.append(True)
-                note = "drain requested"
-            elif kind == "force_stop":
-                force_stop_flag.append(True)
-                if current_proc:
-                    proc = current_proc[0]
-                    try:
-                        proc.kill()
-                        note = f"killed pid {proc.pid}"
-                    except Exception as exc:
-                        ok = False
-                        note = f"kill failed: {exc}"
-                else:
-                    note = "no active proc; runner will exit on next tick"
-                if not drain_flag:
-                    drain_flag.append(True)
-            elif kind == "pause":
-                if not pause_flag:
-                    pause_flag.append(True)
-                note = "paused"
-            elif kind == "resume":
-                pause_flag.clear()
-                note = "resumed"
-            elif kind == "suspend":
-                if current_proc:
-                    if not suspend_flag:
-                        suspend_flag.append(True)
-                    note = "suspend requested (terminate current run)"
-                else:
-                    note = "no active proc; suspend is a no-op until a run starts"
-            elif kind == "resume_run":
-                pause_flag.clear()
-                resume_run_target.clear()
-                qid = args.get("queue_id")
-                if qid:
-                    resume_run_target.append(str(qid))
-                note = (
-                    f"resume_run queued for {qid}"
-                    if qid
-                    else "resume_run queued (next checkpointed item)"
-                )
-            elif kind == "kick":
-                qid = args.get("queue_id")
-                if not qid:
-                    ok = False
-                    note = "missing args.queue_id"
-                else:
-                    ok, note = _kick_queue(queue_file, qid)
-            elif kind == "release_claim":
-                qid = args.get("queue_id")
-                if not qid:
-                    ok = False
-                    note = "missing args.queue_id"
-                else:
-                    ok, note = _release_claim_in_queue(queue_file, qid)
-            elif kind == "reclassify":
-                ok, note = _apply_reclassify(
-                    status_ref, status_path, write_status_fn,
-                    args, machine)
-            else:
-                ok = False
-                note = f"unsupported kind: {kind!r}"
-        except Exception as exc:
-            ok = False
-            note = f"exception: {exc}"
+    # Git command-file channel -- the proven path, retained as fallback until
+    # commands-off-git is set. Skipped entirely when off-git so the worker
+    # neither reads nor writes the per-machine file.
+    if not off_git:
+        processed.extend(_process_git_command_file(
+            ree_assembly_path, machine, queue_file,
+            auto_sync=auto_sync, exec_kwargs=exec_kwargs))
 
-        cmd["status"] = "done" if ok else "failed"
-        cmd["completed_at_utc"] = _now_utc()
-        cmd["result_note"] = note
-        if not ok:
-            cmd["error"] = note
-        processed.append(cmd)
-        print(f"[remote-control] cmd {cmd['id']} {kind} -> "
-              f"{cmd['status']} ({note})", flush=True)
+    # Coordinator channel -- active when explicitly enabled or when off-git
+    # makes it the sole channel (off_git already guarantees the channel is
+    # available via its self-guard).
+    if via_coord or off_git:
+        processed.extend(_process_coordinator_commands(
+            machine, queue_file, exec_kwargs=exec_kwargs))
 
-    written = write_commands_file(ree_assembly_path, machine, data)
-    if auto_sync and written is not None:
-        push_commands(ree_assembly_path, written, label="commands-ack")
     return processed

@@ -224,3 +224,34 @@ def fetch_commands(machine):
     if not _ENABLED:
         return None
     return _get("/commands?machine=" + urllib.parse.quote(machine))
+
+
+def issue_command(machine, kind, args=None, issued_by="unknown"):
+    """Issue a remote-control command for `machine` via the coordinator.
+
+    Parity helper for in-process ree-v3 callers and tests; serve.py issues
+    via its own urllib path (REE_assembly cannot import this module). Returns
+    the parsed response dict ({ok, command}) or None when disabled / on any
+    transport failure."""
+    if not _ENABLED:
+        return None
+    return _post("/commands/issue", {
+        "machine": machine, "kind": kind,
+        "args": args or {}, "issued_by": issued_by})
+
+
+def ack_command(command_id, machine, result_status="done", result_note=None):
+    """Ack a command this runner has executed. Stamps the terminal result on
+    the coordinator so GET /commands stops returning it (this is what lets a
+    worker drop the git command-file without restart-looping a stop command).
+
+    Best-effort: returns the response dict or None. A None return (coordinator
+    unreachable) leaves the command pending; it will be re-fetched and the
+    idempotent command kinds re-executed harmlessly next tick."""
+    if not _ENABLED:
+        return None
+    body = {"id": command_id, "machine": machine,
+            "result_status": result_status}
+    if result_note is not None:
+        body["result_note"] = result_note
+    return _post("/commands/ack", body)

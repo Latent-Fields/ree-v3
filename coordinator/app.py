@@ -39,6 +39,18 @@ import manifest_spool
 
 MAX_BODY = 32 * 1024 * 1024  # 32MB; observed max manifest ~7MB
 
+# Remote-control command kinds the coordinator accepts on POST /commands/issue.
+# Mirrors ree-v3/runner_remote_control.VALID_COMMAND_KINDS exactly so a command
+# issued through the coordinator is indistinguishable from one issued through
+# the legacy git command-file.
+VALID_COMMAND_KINDS = (
+    "stop", "force_stop", "pause", "resume", "suspend", "resume_run",
+    "kick", "release_claim", "reclassify",
+)
+# Kinds that are meaningless without a target queue_id (mirrors serve.py
+# append_machine_command's guard).
+_COMMAND_KINDS_REQUIRING_QUEUE_ID = ("kick", "release_claim")
+
 DB_PATH = os.environ.get("COORDINATOR_DB", os.path.join(
     os.path.dirname(__file__), "coordinator.db"))
 BIND_HOST = os.environ.get("COORDINATOR_BIND_HOST", "127.0.0.1")
@@ -231,11 +243,7 @@ class Handler(BaseHTTPRequestHandler):
             machine = (qs.get("machine") or [""])[0]
             conn = db.connect(DB_PATH)
             try:
-                rows = conn.execute(
-                    "SELECT id, kind, args, issued_by, issued_at FROM "
-                    "commands WHERE machine=? AND acked_at IS NULL "
-                    "ORDER BY id", (machine,)).fetchall()
-                cmds = [dict(r) for r in rows]
+                cmds = db.fetch_pending_commands(conn, machine)
             finally:
                 conn.close()
             self._send(200, {"machine": machine, "commands": cmds})
@@ -500,6 +508,77 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "machine": machine,
                              "reason": reason,
                              "expected_wake_condition": wake})
+            return
+
+        if path == "/commands/issue":
+            # Issue a remote-control command for a machine. The Phase-3
+            # replacement for serve.py writing runner_commands/<machine>.json.
+            # Auth: bearer token (trust model = token == command-issue access,
+            # same as the legacy git command-file). body.machine is REQUIRED
+            # (the issuer token's label is never substituted -- serve.py
+            # issues on behalf of cloud-2/3/4 with the operator token).
+            if body is None:
+                self._send(400, {"error": "bad body"})
+                return
+            if not isinstance(body, dict):
+                self._send(400, {"error": "machine required"})
+                return
+            machine = body.get("machine")
+            if not machine or not isinstance(machine, str):
+                self._send(400, {"error": "machine required"})
+                return
+            kind = body.get("kind")
+            if kind not in VALID_COMMAND_KINDS:
+                self._send(400, {"error": "unknown command kind",
+                                 "kind": kind,
+                                 "valid_kinds": list(VALID_COMMAND_KINDS)})
+                return
+            args = body.get("args") or {}
+            if not isinstance(args, dict):
+                self._send(400, {"error": "args must be an object"})
+                return
+            if kind in _COMMAND_KINDS_REQUIRING_QUEUE_ID and \
+                    not args.get("queue_id"):
+                self._send(400, {"error": "%s requires args.queue_id" % kind})
+                return
+            issued_by = body.get("issued_by") or "unknown"
+            conn = db.connect(DB_PATH)
+            try:
+                row = db.insert_command(
+                    conn, machine, kind, json.dumps(args), issued_by)
+            finally:
+                conn.close()
+            self._send(200, {"ok": True, "command": row})
+            return
+
+        if path == "/commands/ack":
+            # A runner acks a command it has executed. Stamps acked_at +
+            # terminal result_status (done|failed) + result_note. After ack
+            # the command no longer appears in GET /commands. Idempotent on
+            # repeat (returns ok). machine defaults to the token's label;
+            # ack is owner-guarded in db.ack_command.
+            if body is None or not isinstance(body, dict):
+                self._send(400, {"error": "bad body"})
+                return
+            cmd_id = body.get("id")
+            if not isinstance(cmd_id, int):
+                self._send(400, {"error": "integer command id required"})
+                return
+            machine = body.get("machine") or machine_tok
+            result_status = body.get("result_status") or "done"
+            if result_status not in ("done", "failed"):
+                self._send(400, {"error": "result_status must be "
+                                          "done or failed"})
+                return
+            result_note = body.get("result_note")
+            conn = db.connect(DB_PATH)
+            try:
+                ok, note = db.ack_command(
+                    conn, cmd_id, machine, result_status, result_note)
+            finally:
+                conn.close()
+            self._send(200 if ok else 409,
+                       {"ok": ok, "applied": ok, "note": note})
             return
 
         if path == "/result":

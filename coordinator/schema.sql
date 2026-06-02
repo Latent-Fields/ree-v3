@@ -66,15 +66,23 @@ CREATE TABLE IF NOT EXISTS heartbeats (
 );
 
 -- Pending + recent remote-control commands.
+-- A command is "pending" while acked_at IS NULL (GET /commands returns these).
+-- The runner acks via POST /commands/ack, which stamps acked_at + the terminal
+-- result_status (done|failed) + a free-text result_note. acked rows are
+-- retained as an audit trail (and so a re-fetch never re-delivers them).
 CREATE TABLE IF NOT EXISTS commands (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    machine    TEXT NOT NULL,
-    kind       TEXT NOT NULL,              -- pause|resume|stop|force_stop|kick|release_claim
-    args       TEXT,
-    issued_by  TEXT,
-    issued_at  TEXT NOT NULL,
-    acked_at   TEXT
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine       TEXT NOT NULL,
+    kind          TEXT NOT NULL,           -- pause|resume|stop|force_stop|suspend|resume_run|kick|release_claim|reclassify
+    args          TEXT,                    -- JSON object, nullable
+    issued_by     TEXT,
+    issued_at     TEXT NOT NULL,
+    acked_at      TEXT,                    -- set by POST /commands/ack
+    result_status TEXT,                    -- done|failed (set at ack time)
+    result_note   TEXT                     -- free-text outcome (set at ack time)
 );
+CREATE INDEX IF NOT EXISTS idx_commands_pending
+    ON commands(machine, acked_at);
 
 -- Shadow audit. One row per reported claim attempt: what git decided vs
 -- what the coordinator's own logic would have decided. diverged=1 rows are

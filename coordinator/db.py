@@ -24,6 +24,7 @@ def connect(db_path):
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=30000")
     _migrate_heartbeats(conn)
+    _migrate_commands(conn)
     return conn
 
 
@@ -58,11 +59,31 @@ def _migrate_heartbeats(conn):
             "ALTER TABLE heartbeats ADD COLUMN status_payload_json TEXT")
 
 
+def _migrate_commands(conn):
+    """Additive columns for the Phase-3 coordinator command channel.
+
+    The `commands` table predates the command-channel migration (it was
+    created by the original schema with id/machine/kind/args/issued_by/
+    issued_at/acked_at but never written to). The migration adds the
+    ack-time result columns so a live DB picks them up without a rebuild.
+    Mirrors _migrate_heartbeats."""
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='commands'"
+    ).fetchone():
+        return
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(commands)")}
+    if "result_status" not in cols:
+        conn.execute("ALTER TABLE commands ADD COLUMN result_status TEXT")
+    if "result_note" not in cols:
+        conn.execute("ALTER TABLE commands ADD COLUMN result_note TEXT")
+
+
 def init_db(db_path):
     conn = connect(db_path)
     with open(SCHEMA_PATH, "r", encoding="utf-8") as fh:
         conn.executescript(fh.read())
     _migrate_heartbeats(conn)
+    _migrate_commands(conn)
     conn.close()
 
 
@@ -554,3 +575,73 @@ def lifecycle_state(last_seen, last_shutdown_at, *,
                 return "gracefully_offline"
 
     return "stale"
+
+
+# ---- command channel (Phase 3 git-command-file migration) ------------------
+
+def insert_command(conn, machine, kind, args_json, issued_by):
+    """Insert a pending remote-control command for `machine`. Returns the
+    full inserted row as a dict (including the autoincrement id).
+
+    `args_json` is a JSON-encoded string or None. Kind validation is the
+    caller's responsibility (the HTTP layer holds the allowlist)."""
+    now = utcnow()
+    cur = conn.execute(
+        "INSERT INTO commands (machine, kind, args, issued_by, issued_at) "
+        "VALUES (?,?,?,?,?)",
+        (machine, kind, args_json, issued_by, now),
+    )
+    cmd_id = cur.lastrowid
+    row = conn.execute(
+        "SELECT id, machine, kind, args, issued_by, issued_at, acked_at, "
+        "result_status, result_note FROM commands WHERE id=?", (cmd_id,)
+    ).fetchone()
+    return dict(row)
+
+
+def fetch_pending_commands(conn, machine):
+    """Return the pending (un-acked) commands for `machine`, oldest first.
+    Each row is a dict; `args` stays the raw JSON string (the runner
+    decodes it)."""
+    rows = conn.execute(
+        "SELECT id, kind, args, issued_by, issued_at FROM commands "
+        "WHERE machine=? AND acked_at IS NULL ORDER BY id", (machine,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def ack_command(conn, command_id, machine, result_status, result_note):
+    """Mark a command acked with its terminal result. Returns (ok, note).
+
+    Idempotent: a second ack on an already-acked row is a no-op that
+    returns (True, 'already acked') so a runner that retries after a
+    flaky network does not error. Only the owning machine may ack its
+    own command (mirrors release_claim's owner guard)."""
+    now = utcnow()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT machine, acked_at FROM commands WHERE id=?",
+            (command_id,)).fetchone()
+        if row is None:
+            conn.execute("ROLLBACK")
+            return (False, "command id not found")
+        if row["machine"] != machine:
+            conn.execute("ROLLBACK")
+            return (False, "command belongs to %s" % row["machine"])
+        if row["acked_at"] is not None:
+            conn.execute("ROLLBACK")
+            return (True, "already acked")
+        conn.execute(
+            "UPDATE commands SET acked_at=?, result_status=?, result_note=? "
+            "WHERE id=?",
+            (now, result_status, result_note, command_id),
+        )
+        conn.execute("COMMIT")
+        return (True, "acked")
+    except sqlite3.Error as exc:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return (False, "sqlite error: %s" % exc)

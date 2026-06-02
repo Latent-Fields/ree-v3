@@ -39,6 +39,25 @@ Environment=PHASE3_RUNNER_TELEMETRY_OFF_GIT=1
 # Clean drain (exit 0) from a queued stop should respawn with latest disk bytes.
 Restart=always
 
+# --- Command-channel coordinator migration (2026-06-02) -------------------
+# Staged rollout, both default OFF (git command-file remains the channel).
+# Enable per-worker, cloud-2 (idle) FIRST as the canary; verify stop/pause/
+# resume/release_claim round-trip via the coordinator AND no systemd restart
+# loop BEFORE touching cloud-3/4. serve.py must also have
+# PHASE3_COMMANDS_DUAL_WRITE=1 set (after this flag) so issued commands reach
+# the coordinator channel.
+#
+# Step 1 (canary): dual-read -- fetch+ack via coordinator AND git file.
+# Environment=PHASE3_COMMANDS_VIA_COORDINATOR=1
+#
+# Step 2 (after step 1 proven): coordinator is the SOLE channel. Implies
+# VIA_COORDINATOR; self-guards back to git if the coordinator is unreachable.
+# Removes the restart-loop hazard that made _HEARTBEAT_WRITE hub-only, so a
+# worker on this flag MAY also set PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE.
+# Environment=PHASE3_COMMANDS_OFF_GIT=1
+
 # ExecStart must include: --machine ree-cloud-2  (or -3 / -4 as appropriate)
 #
-# Do NOT set PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE on a worker (hub-only).
+# Do NOT set PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE on a worker UNLESS
+# PHASE3_COMMANDS_OFF_GIT is also set (then the command-file restart-loop
+# hazard is gone -- acks persist in the coordinator).
