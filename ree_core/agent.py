@@ -79,6 +79,8 @@ from ree_core.pfc import LateralPFCAnalog, OFCAnalog
 from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
 from ree_core.pfc.ofc_analog import OFCConfig
 from ree_core.policy import (
+    CommitMaintenanceRelease,
+    CommitMaintenanceReleaseConfig,
     CommitReadiness,
     CommitReadinessConfig,
     GatedPolicy,
@@ -646,6 +648,49 @@ class REEAgent(nn.Module):
                 ),
             )
             self.commit_readiness = CommitReadiness(config=cr_cfg)
+
+        # MECH-342: maintenance-time readiness-driven commitment release
+        # (B3b). Release-side complement to the MECH-090 admission
+        # conjunction above: the SAME two R-c readiness signals
+        # (score_margin decisiveness + nav_competence) that admit a
+        # commitment here drive a graded, bounded-accumulation RELEASE of an
+        # already-elevated beta latch when they degrade mid-commitment.
+        # Closes the V3-EXQ-592f reach gap (predicates fire under forced
+        # beta-elevated state but produce zero state-occupancy suppression).
+        # Bit-identical baseline when use_maintenance_release=False (the
+        # release branch in select_action is skipped when this is None).
+        # See ree_core/policy/commit_maintenance_release.py and
+        # REE_assembly/docs/architecture/mech_342_commit_maintenance_release.md.
+        self.maintenance_release: Optional[CommitMaintenanceRelease] = None
+        if getattr(config, "use_maintenance_release", False):
+            mr_cfg = CommitMaintenanceReleaseConfig(
+                use_maintenance_release=True,
+                score_margin_floor=getattr(
+                    config, "maintenance_release_score_margin_floor", 0.05
+                ),
+                score_margin_reengage=getattr(
+                    config, "maintenance_release_score_margin_reengage", 0.10
+                ),
+                nav_floor=getattr(
+                    config, "maintenance_release_nav_floor", 0.3
+                ),
+                nav_reengage=getattr(
+                    config, "maintenance_release_nav_reengage", 0.5
+                ),
+                accumulation_rate=getattr(
+                    config, "maintenance_release_accumulation_rate", 0.2
+                ),
+                leak_rate=getattr(
+                    config, "maintenance_release_leak_rate", 0.1
+                ),
+                release_bound=getattr(
+                    config, "maintenance_release_bound", 1.0
+                ),
+                pressure_cap=getattr(
+                    config, "maintenance_release_pressure_cap", 1.5
+                ),
+            )
+            self.maintenance_release = CommitMaintenanceRelease(config=mr_cfg)
 
         # MECH-314 (ARC-065): structured_curiosity_bonus (frontopolar / EFE
         # analog). State-DEPENDENT score-bias on E3 candidate scoring.
@@ -1551,6 +1596,12 @@ class REEAgent(nn.Module):
         # until real outcome data has been collected.
         if self.commit_readiness is not None:
             self.commit_readiness.reset()
+
+        # MECH-342: reset maintenance-release pressure accumulator + per-
+        # episode diagnostic counters so each episode starts at zero release
+        # pressure.
+        if self.maintenance_release is not None:
+            self.maintenance_release.reset()
 
         # MECH-319: reset simulation-mode rule-gate diagnostic counters on
         # episode boundary. The gate has no persistent state across ticks
@@ -2819,6 +2870,65 @@ class REEAgent(nn.Module):
                 self._committed_step_idx = 0
                 self._committed_anchor_keys = None
 
+        # MECH-342: maintenance-time readiness-driven commitment release (B3b).
+        # Architecturally adjacent to the MECH-091 urgency block above, but a
+        # DIFFERENT axis: MECH-091 releases on an acute z_harm threat spike;
+        # MECH-342 releases on degraded EXECUTION READINESS (the same R-c
+        # score_margin decisiveness + nav_competence signals that MECH-090
+        # AND-composes to ADMIT a commitment) accumulated while already
+        # beta-elevated. Graded bounded-accumulation (Resulaj 2009), conflict-
+        # scaled (Cavanagh/Frank 2011), targeted + hysteretic with a
+        # reengagement leak (Falasconi/Arber 2025 movement-specific vs Wessel
+        # 2022 non-selective). Closes the V3-EXQ-592f reach gap. Fires with
+        # z_harm_a BELOW threshold (vs MECH-091), with poor/low-decisiveness
+        # options (opposite regime to ARC-028 completion), with a stable
+        # schema (vs MECH-269b V_s), on the active beta latch at motor-program
+        # timescale (vs MECH-340 ghost-goal). No-op when use_maintenance_release
+        # is False (self.maintenance_release is None). DO NOT modify the
+        # MECH-091 block above.
+        if self.maintenance_release is not None and self.beta_gate.is_elevated:
+            _mr_margin: Optional[float] = None
+            _mr_n: int = 0
+            # Decisiveness axis: per-candidate first-action margin off the
+            # last completed E3 selection (REE lower-is-better -> margin =
+            # sorted[1] - sorted[0]). last_scores is available every tick
+            # (including between-E3-tick steps); a controlled state-machine
+            # probe sets it directly. None when no prior selection -> the
+            # decisiveness axis is inert this tick (nav axis still drives).
+            if self.e3.last_scores is not None:
+                try:
+                    _mr_scores = self.e3.last_scores.detach()
+                    _mr_n = int(_mr_scores.numel())
+                    if _mr_n >= 2:
+                        _mr_sorted, _ = torch.sort(_mr_scores)
+                        _mr_margin = float(
+                            _mr_sorted[1].item() - _mr_sorted[0].item()
+                        )
+                except (AttributeError, RuntimeError, TypeError):
+                    _mr_margin = None
+                    _mr_n = 0
+            # nav_competence axis: current CommitReadiness EMA. None when the
+            # readiness module is not instantiated -> the nav axis is inert
+            # and only the decisiveness axis drives release.
+            _mr_nav: Optional[float] = (
+                self.commit_readiness.get_readiness()
+                if self.commit_readiness is not None
+                else None
+            )
+            if self.maintenance_release.tick(
+                score_margin=_mr_margin,
+                n_candidates=_mr_n,
+                nav_competence=_mr_nav,
+                simulation_mode=False,
+            ):
+                self.beta_gate.release()
+                self._committed_step_idx = 0
+                self._committed_anchor_keys = None
+                # Clear the committed trajectory pointer so the decommit is
+                # observable (the V3-EXQ-592f probe measures
+                # e3._committed_trajectory presence as the decommit signal).
+                self.e3._committed_trajectory = None
+
         # MECH-269 / MECH-090 read-side hook: V_s -> commit release.
         # If any anchor key snapshotted at commit entry has dropped out of the
         # active anchor set since then, the schema region the commitment was
@@ -3837,6 +3947,11 @@ class REEAgent(nn.Module):
             ):
                 self.beta_gate.elevate()
                 self._committed_step_idx = 0  # reset step counter on new commitment
+                # MECH-342: zero the maintenance-release pressure accumulator
+                # at commit entry so each committed program accumulates
+                # release pressure independently. No-op when disabled.
+                if self.maintenance_release is not None:
+                    self.maintenance_release.reset_pressure()
                 # MECH-269 / MECH-090: snapshot active anchor keys at commit entry.
                 # Read by select_action()'s V_s -> commit release block on
                 # subsequent ticks. No-op when use_vs_commit_release is False.
@@ -3928,6 +4043,16 @@ class REEAgent(nn.Module):
                         self.hippocampal.record_committed_trajectory(
                             self.e3._committed_trajectory
                         )
+                # MECH-342: zero the maintenance-release pressure accumulator
+                # ONLY on a genuine not-elevated -> elevated transition (legacy
+                # mode re-calls elevate() every committed tick, so an
+                # unconditional reset here would defeat accumulation). No-op
+                # when disabled.
+                if (
+                    not self.beta_gate.is_elevated
+                    and self.maintenance_release is not None
+                ):
+                    self.maintenance_release.reset_pressure()
                 self.beta_gate.elevate()
             else:
                 if self.beta_gate.is_elevated:

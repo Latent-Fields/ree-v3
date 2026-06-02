@@ -120,6 +120,21 @@
       "experiment_type": "v3_exq_624_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-592g",
+      "title": "MECH-342 maintenance-time commitment-release validation probe (592f successor; substrate ON)",
+      "script": "experiments/v3_exq_592g_mech342_maintenance_release_probe.py",
+      "experiment_type": "v3_exq_592g_mech342_maintenance_release_probe",
+      "priority": 120,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "episodes_per_run": 5,
+      "seeds": 1,
+      "conditions": 1,
+      "claim_id": "MECH-342",
+      "status": "pending",
+      "note": "Controlled state-machine successor to V3-EXQ-592f (FAIL_NO_RELEASE_AUTHORITY) with the NEW MECH-342 maintenance-time release substrate ENABLED (use_maintenance_release=True). Verifies the graded bounded-accumulation release now produces the state-occupancy suppression + decommit transitions that 592f measured as ZERO, with no false abort under healthy readiness. EXPERIMENT_PURPOSE=diagnostic; claim_ids=[MECH-342] (NOT MECH-090 -- that is the admission axis, validated by V3-EXQ-592d). Harness sets agent.e3.last_scores each tick so the MECH-342 decisiveness axis (reads last_scores, not the stub result.scores) is exercised. Acceptance C1-C6: forced baseline committed; B decisiveness-axis decommit>=1; C nav-axis decommit>=1; D conjunction decommit with d_supp strictly POSITIVE (592f C4 vacuity hardening); C5 no false abort + recovery re-commit; C6 no-vacuity incl mech342 fired in each fail stage. Dry-run PASS_MAINTENANCE_RELEASE 2026-06-02 (B/C/D decommit=2 mr_fires=1; A/E silent). PASS lets governance flip the 592f manifest pending_retest_after_substrate to false. Does NOT supersede 592f (gap record stands). Phase3-queue snapshot race mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check applied)."
     }
   ]
 }

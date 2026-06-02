@@ -1869,6 +1869,54 @@ class REEConfig:
     commit_readiness_initial: float = 1.0
 
     # ----------------------------------------------------------------
+    # MECH-342: maintenance-time readiness-driven commitment-release
+    # coupling (B3b; commit-entry predicate is admission-only by design --
+    # MECH-090 audit + motor-cessation lit-pull verdict 2026-06-02). The
+    # SAME R-c readiness signals that MECH-090 AND-composes to admit a
+    # commitment (score_margin + nav_competence) here drive a graded,
+    # bounded-accumulation RELEASE of an already-elevated beta latch when
+    # they degrade mid-commitment. Distinct from MECH-091 (threat),
+    # ARC-028 (positive completion), MECH-269b/V_s (schema staleness),
+    # MECH-340 (goal-level ghost-goal bank). Default OFF = bit-identical;
+    # no consumer when agent.maintenance_release is None.
+    # See ree_core/policy/commit_maintenance_release.py and
+    # REE_assembly/docs/architecture/mech_342_commit_maintenance_release.md.
+    use_maintenance_release: bool = False
+    # Decisiveness (score_margin) floor: at/below this the within-tick
+    # decisiveness axis is "failing" and contributes release-pressure
+    # deficit. Mirrors the MECH-090 commit_readiness_floor (0.05). Small
+    # relative to the EXQ-608 mean_top2_class_gap range (0.27-1.96).
+    maintenance_release_score_margin_floor: float = 0.05
+    # Decisiveness reengage level (above the floor): at/above this the
+    # decisiveness axis counts as "recovered" and contributes to leak
+    # (the reengagement path). Hysteresis band = reengage - floor.
+    maintenance_release_score_margin_reengage: float = 0.10
+    # nav_competence (CommitReadiness EMA) floor: at/below this the
+    # across-tick motor-readiness axis is "failing". Mirrors
+    # mech090_readiness_floor (0.3).
+    maintenance_release_nav_floor: float = 0.3
+    # nav_competence reengage level (above the floor): at/above this the
+    # nav axis counts as "recovered". Hysteresis band = reengage - floor.
+    maintenance_release_nav_reengage: float = 0.5
+    # Per-tick release-pressure accumulation rate. Pressure increments by
+    # accumulation_rate * combined_deficit each maintenance tick where the
+    # combined deficit is positive (conflict-scaled drift-to-bound,
+    # Resulaj 2009 + Cavanagh/Frank 2011). At max deficit (1.0) it takes
+    # release_bound/accumulation_rate = 5 sustained ticks to fire -- NOT a
+    # one-shot Schmitt flag. Calibratable.
+    maintenance_release_accumulation_rate: float = 0.2
+    # Per-tick leak applied when BOTH axes have recovered (>= their
+    # reengage level). Provides the reengagement path that guards the
+    # premature-abort pole: a transient dip that recovers leaks back to 0
+    # rather than committing to release. Default 0.1.
+    maintenance_release_leak_rate: float = 0.1
+    # Release fires when accumulated pressure reaches this bound.
+    maintenance_release_bound: float = 1.0
+    # Hard clamp on accumulated pressure (numerical guard against long
+    # sustained-deficit runs overshooting the bound unboundedly).
+    maintenance_release_pressure_cap: float = 1.5
+
+    # ----------------------------------------------------------------
     # V3-EXQ-563 diagnostic: forced_score_bias_per_class.
     # Hard-injects a per-action-class score bias vector, bypassing all
     # naturalistic signal generation (MECH-313/314/320). Used to verify
@@ -2878,6 +2926,18 @@ class REEConfig:
         commit_readiness_window: int = 20,
         commit_readiness_ema_alpha: float = 0.1,
         commit_readiness_initial: float = 1.0,
+        # MECH-342: maintenance-time readiness-driven commitment release
+        # (B3b). The release-side complement to the MECH-090 admission
+        # conjunction. See ree_core/policy/commit_maintenance_release.py.
+        use_maintenance_release: bool = False,
+        maintenance_release_score_margin_floor: float = 0.05,
+        maintenance_release_score_margin_reengage: float = 0.10,
+        maintenance_release_nav_floor: float = 0.3,
+        maintenance_release_nav_reengage: float = 0.5,
+        maintenance_release_accumulation_rate: float = 0.2,
+        maintenance_release_leak_rate: float = 0.1,
+        maintenance_release_bound: float = 1.0,
+        maintenance_release_pressure_cap: float = 1.5,
         # V3-EXQ-563: hard-inject per-class score bias after all naturalistic
         # signal generation. None = disabled (standard behaviour).
         forced_score_bias_per_class: Optional[List[float]] = None,
@@ -3491,6 +3551,23 @@ class REEConfig:
         # behave identically to direct-construction configs.
         if use_mech090_readiness_conjunction:
             config.use_commit_readiness = True
+
+        # MECH-342: maintenance-time readiness-driven commitment release.
+        config.use_maintenance_release = use_maintenance_release
+        config.maintenance_release_score_margin_floor = (
+            maintenance_release_score_margin_floor
+        )
+        config.maintenance_release_score_margin_reengage = (
+            maintenance_release_score_margin_reengage
+        )
+        config.maintenance_release_nav_floor = maintenance_release_nav_floor
+        config.maintenance_release_nav_reengage = maintenance_release_nav_reengage
+        config.maintenance_release_accumulation_rate = (
+            maintenance_release_accumulation_rate
+        )
+        config.maintenance_release_leak_rate = maintenance_release_leak_rate
+        config.maintenance_release_bound = maintenance_release_bound
+        config.maintenance_release_pressure_cap = maintenance_release_pressure_cap
 
         config.forced_score_bias_per_class = forced_score_bias_per_class
 
