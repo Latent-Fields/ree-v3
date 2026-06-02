@@ -103,6 +103,23 @@
       "experiment_type": "v3_exq_624_arc068_mech320_niv_salamone_dissociation",
       "proposal_id": "EXP-0081",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-614d",
+      "title": "MECH-341 within-class temperature 4-arm sweep -- corrected harness (committed-class metric + within-class diagnostics + cross-seed-mean C1; supersedes 614c)",
+      "script": "experiments/v3_exq_614d_mech341_within_class_temperature_committed_class.py",
+      "experiment_type": "v3_exq_614d_mech341_within_class_temperature_committed_class",
+      "priority": 250,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 210,
+      "episodes_per_run": 90,
+      "seeds": 3,
+      "conditions": 4,
+      "supersedes": "V3-EXQ-614c",
+      "claim_id": "MECH-341",
+      "experiment_purpose": "diagnostic",
+      "note": "CORRECTED-HARNESS re-run of the MECH-341 stratified_within_class_temperature validation. Supersedes V3-EXQ-614c, which RAN (12/12 cells, no crash) but was reclassified non_contributory for MECH-341 due to TWO test-harness defects (NOT substrate falsification; see failure_autopsy_V3-EXQ-614c_2026-06-01 + outstanding_tasks_triage_2026-06-02 item 3). Substrate config is BIT-IDENTICAL to 614c (SD-056-amended 4-substrate baseline: SP-CEM + MECH-341 entropy_bias_scale=2.0 + MECH-313 + V_s minimal + 5 SD-056 levers); the ONLY change is the measurement harness. Defect-1 fix (C2 was vacuous): 614c measured selected_class_entropy at the score-layer argmin(last_scores), temperature-INVARIANT to the within-class lever (the lever only changes the committed within-class representative inside stratified_select, when a class holds >=2 candidates) -> ARM_1/2/3 were bit-identical. 614d's C2 reads the COMMITTED-action class distribution (committed_class_entropy_nats) via a per-seed PAIRED lift over ARM_0_LEGACY (margin 0.05 nats, >=2/3 seeds), and records the lever's firing diagnostics per seed (mech341_n_within_class_sampled / mech341_n_stratified_fired / mech341_last_within_class_temperature) from agent.score_diversity.get_state() so a null result is readable as 'branch starved by env' vs 'branch active but no lift'. Defect-2 fix (C1 mis-specified): 614c required >=2/3 ARM_0 per-seed entropies IN the [0.720,0.880] band; ARM_0 cross-seed mean was 0.7999 (no regression) but 0/3 landed in band. 614d's C1 compares the ARM_0_LEGACY CROSS-SEED MEAN of selected_class_entropy (the 614b-equivalent metric) against the band. Acceptance: C1 ARM_LEGACY reproduces 614b ALL_ON 0.800 +/-10% (regression guard, cross-seed mean); C2 >=1 of {0.5,1.0,2.0} lifts committed-class entropy on majority of seeds; C3 frac_pre_ge2>0.3 on all 4 arms / majority seeds. PASS=C1 AND (C2 OR C3); 5-row interpretation grid (incl. branch-active vs branch-starved split on the C1+C3-only cell). 4 arms x 3 seeds (42/43/44) x 90 ep (P0 30 / P1 60) x 200 steps. EXPERIMENT_PURPOSE=diagnostic (excluded from confidence/conflict scoring); claim_ids=[MECH-341] recorded as context. Gates MECH-341 v3_pending clearance, the Q-054 re-issue (V3-EXQ-616a), and arc_062_rule_apprehension:GAP-B (V3-EXQ-543l cohort) at the governance-decision level. use_differentiable_cem NOT flipped (default False; SD-055 safety note preserved). Mac-pinned (DLAPTOP-4.local) for direct numerical comparability with the 614b/614c reference manifests (C1 regression guard). validate_experiments AST OK; dry-run smoke PASS (4 arms run, progress instrumentation correct M=90/verdict/boundary, emit_outcome sentinel wired); within-class plumbing verified (positive-temp arm shows n_within_class_sampled=10, committed_class_entropy populated). Phase3-queue snapshot race hazard mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check)."
     }
   ]
 }
