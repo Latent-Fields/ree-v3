@@ -22,6 +22,36 @@
       "episodes_per_run": 30,
       "experiment_type": "v3_exq_626b_goal_pipeline_forced_seed_positive_control",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-485b",
+      "title": "SD-033b OFC-analog devaluation sensitivity (MECH-263 sig a; representation-level, aversive-outcome direct-drive)",
+      "script": "experiments/v3_exq_485b_sd033b_devaluation_sensitivity.py",
+      "priority": 310,
+      "machine_affinity": "any",
+      "estimated_minutes": 3,
+      "claim_id": "SD-033b",
+      "note": "commitment_closure:GAP-8 deliverable 1/2. MECH-263 devaluation-sensitivity functional signature of the OFC state_code (representation-level: the OFC bias head is frozen-zeroed/untrained, so behaviour-change is not measurable -- FULL SD-033b promotion still needs the deferred trained-head behavioural arm, parallel to SD-033a GAP-1). SUBSTRATE FINDING: the OFC reads only z_world + z_harm and has NO appetitive value/drive input, so the user-preferred SD-049 satiety instrument AND the GAP-3 counter-evidence primitive are both invisible to the OFC state_code; this uses an AVERSIVE outcome devaluation (z_harm dropped at a fixed z_world state) which the OFC genuinely sees. Matched DEVALUE-vs-CONTROL arms, measure state_code divergence onset within bounded EMA ticks. Interpretation grid in docstring: PASS=devaluation-sensitive; FAIL=insensitive; non_contributory/substrate_ceiling (diverges but not bounded) -> /failure-autopsy. experiment_purpose=diagnostic. Full run 3/3 seeds PASS at smoke (ticks_to_div 9-18 < 20). Watch the phase3-queue snapshot race (see /queue-experiment Step 8 post-commit check).",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 3,
+      "experiment_type": "v3_exq_485b_sd033b_devaluation_sensitivity",
+      "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-485c",
+      "title": "SD-033b OFC-analog task-role discrimination (MECH-263 sig b; same-sensory/different-task-stage direct-drive)",
+      "script": "experiments/v3_exq_485c_sd033b_task_role_discrimination.py",
+      "priority": 310,
+      "machine_affinity": "any",
+      "estimated_minutes": 3,
+      "claim_id": "SD-033b",
+      "note": "commitment_closure:GAP-8 deliverable 2/2. MECH-263 same-sensory/different-task-role functional signature of the OFC state_code (representation-level; same trained-head caveat as 485b). Two distinct task-context z_world histories converge on a byte-identical matched final input; the state_code (gate-modulated EMA over z_world history) is tested for separability at the matched input vs within-context jitter. The GAP-3 dual-cue primitive was NOT used (its cues are perceptually DISTINCT, not the perceptually-identical/different-task-role signature). Interpretation grid in docstring: PASS=task-role separable; FAIL=sensory-only; non_contributory/substrate_ceiling (state_code collapses or matched-input control fails) -> /failure-autopsy. experiment_purpose=diagnostic. Full run 4/4 reps PASS at smoke (separation_ratio 67-297 >> 3). Watch the phase3-queue snapshot race.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 4,
+      "experiment_type": "v3_exq_485c_sd033b_task_role_discrimination",
+      "seeds": 4
     }
   ]
 }
