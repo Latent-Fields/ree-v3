@@ -8,28 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-610d",
-      "title": "INV-074 crystallization necessity (post-Phase-3-enrichment retest; supersedes 610c)",
-      "script": "experiments/v3_exq_610d_inv074_crystallization_necessity.py",
-      "priority": 300,
-      "machine_affinity": "any",
-      "estimated_minutes": 800,
-      "supersedes": "V3-EXQ-610c",
-      "claim_id": "INV-074",
-      "backlog_id": "EVB-0270",
-      "note": "INV-074 crystallization-necessity retest after substrate implementation IGW-20260601-023 (test_bed_enrichment_crystallization_necessity). V3-EXQ-610c FAILed with D2=False: control arm did NOT show predicted collapse (d2_delta -0.0057; needed >= +0.10). Diagnosis: CausalGridWorldV2 supplied no post-Phase-3 destabilizing pressure (env/test-bed ceiling). Substrate fix (2026-06-01T17:42:58Z): infant_curriculum Phase 3 now enables destabilizing dynamics (SD-047 multi_source_dynamics + SD-048 interoceptive_noise + accelerated env_drift). Prediction: control arm (ARM_0 crystallize=False) will NOW show entropy collapse under Phase-3 pressure (D2 delta >= +0.10); crystallized arm (ARM_1 crystallize=True) will preserve Phase-2 diversity (D1 delta >= +0.10). 2-arm discriminative (control vs test), 3 seeds (42/43/44), 2500 episodes through all 4 phases. Claims: INV-074 (primary), MECH-333, MECH-334. PASS = D1 AND D2 AND D3 -> INV-074/MECH-333/MECH-334 all support. D2 FAIL again -> escalate to /diagnose-errors (substrate still insufficient). validate_experiments AST OK (already in ree-v3/experiments/); smoke test PASS (dry-run 5 eps both arms, no crash). Phase3-queue snapshot race mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-03T07:24:47Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 2500,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_610d_inv074_crystallization_necessity",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-634b",
       "title": "scaffolded_sd054_onboarding nursery + protected-consolidation substrate-readiness diagnostic (developmental-window amend: Stage-0b + contact-gated P1/P2)",
       "script": "experiments/v3_exq_634b_scaffolded_nursery_consolidation_readiness.py",
