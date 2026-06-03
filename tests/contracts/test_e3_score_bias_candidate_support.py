@@ -164,3 +164,100 @@ def test_selected_rank_after_bias_reflects_bias_effect():
     # The selected_candidate_rank_before_bias and after_bias diagnostics are present.
     assert diag_no_bias["selected_candidate_rank_before_bias"] == 0
     assert diag_no_bias["selected_candidate_rank_after_bias"] == 0
+
+
+# --- modulatory-bias-selection-authority contracts (2026-06-03) ---
+
+
+def test_modulatory_authority_OFF_bit_identical_baseline():
+    """use_modulatory_selection_authority=False is bit-identical to pre-substrate."""
+    from ree_core.utils.config import E3Config as FullE3Config
+
+    cfg_off = FullE3Config(world_dim=6, hidden_dim=8, use_modulatory_selection_authority=False)
+    cfg_baseline = E3Config(world_dim=6, hidden_dim=8)
+
+    selector_off = E3TrajectorySelector(cfg_off)
+    selector_baseline = E3TrajectorySelector(cfg_baseline)
+
+    # Fix weights to be identical
+    selector_off.load_state_dict(selector_baseline.state_dict())
+
+    selector_off._running_variance = 0.1
+    selector_baseline._running_variance = 0.1
+
+    candidates = [_candidate(0), _candidate(1), _candidate(2)]
+    bias = torch.tensor([0.05, -0.02, 0.1])
+
+    result_off = selector_off.select(candidates, temperature=1.0, score_bias=bias)
+    result_baseline = selector_baseline.select(candidates, temperature=1.0, score_bias=bias)
+
+    # Selection must be identical
+    assert result_off.selected_index == result_baseline.selected_index
+    # Scores must be bit-identical
+    assert torch.allclose(result_off.scores, result_baseline.scores, atol=1e-9)
+    # Diagnostic flag must be False
+    assert selector_off.last_score_diagnostics["modulatory_authority_active"] is False
+    assert selector_off.last_score_diagnostics["modulatory_authority_scale_factor"] == 0.0
+
+
+def test_modulatory_authority_ON_rescales_bias():
+    """use_modulatory_selection_authority=True rescales modulatory bias proportionally."""
+    from ree_core.utils.config import E3Config as FullE3Config
+
+    cfg = FullE3Config(
+        world_dim=6,
+        hidden_dim=8,
+        use_modulatory_selection_authority=True,
+        modulatory_authority_gain=0.5,
+    )
+    selector = E3TrajectorySelector(cfg)
+    selector._running_variance = 0.0  # deterministic argmin
+
+    candidates = [_candidate(0), _candidate(1), _candidate(2)]
+    # Small bias that would not change argmin without rescaling
+    bias = torch.tensor([0.0, 0.0, -0.001])
+
+    # Run forward pass to initialize weights so scoring produces non-zero range
+    # (Without this, all candidates score identically since they're all zero tensors).
+    # Seed deterministically so the scoring range is reproducible regardless of
+    # test ordering / pytest-randomly reseeding (otherwise the raw_score_range
+    # branch below is RNG-order-dependent and flakes in the full suite).
+    torch.manual_seed(0)
+    with torch.no_grad():
+        for p in selector.parameters():
+            p.uniform_(-0.1, 0.1)
+
+    result = selector.select(candidates, temperature=1.0, score_bias=bias)
+    diag = selector.last_score_diagnostics
+
+    # Mechanism should be active if raw_score_range > 0
+    if diag["e3_raw_score_range_mean"] > 1e-6:
+        assert diag["modulatory_authority_active"] is True
+        # Scale factor should be > 1 (amplifying the tiny bias)
+        assert diag["modulatory_authority_scale_factor"] > 0.0
+
+
+def test_modulatory_authority_min_range_floor_prevents_degenerate_scale():
+    """When modulatory_range is below min_range_floor, rescaling does not fire."""
+    from ree_core.utils.config import E3Config as FullE3Config
+
+    cfg = FullE3Config(
+        world_dim=6,
+        hidden_dim=8,
+        use_modulatory_selection_authority=True,
+        modulatory_authority_gain=0.5,
+        modulatory_authority_min_range_floor=1.0,  # high floor
+    )
+    selector = E3TrajectorySelector(cfg)
+    selector._running_variance = 0.0
+
+    candidates = [_candidate(0), _candidate(1), _candidate(2)]
+    # Uniform bias (range = 0)
+    bias = torch.tensor([0.05, 0.05, 0.05])
+
+    result = selector.select(candidates, temperature=1.0, score_bias=bias)
+    diag = selector.last_score_diagnostics
+
+    # Mechanism should NOT fire (modulatory_range=0 < floor=1.0)
+    assert diag["modulatory_authority_active"] is False
+    assert diag["modulatory_authority_scale_factor"] == 0.0

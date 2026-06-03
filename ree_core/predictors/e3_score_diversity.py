@@ -79,6 +79,16 @@ class E3ScoreDiversityConfig:
     # Sections 7 + 10 (contingent-on-614b-FAIL-C1 path).
     stratified_within_class_temperature: Optional[float] = None
     min_classes_for_stratification: int = 2
+    # modulatory-bias-selection-authority (2026-06-03): when True, normalise the
+    # class-representative scores to unit range before the across-class
+    # stratified_temperature softmax. The 614d C2 failure was committed-class
+    # entropy invariant to within-class temperature because the across-class
+    # softmax collapsed onto the lowest-scoring class whenever the absolute
+    # class-representative score gap dominated the temperature. Normalising to
+    # unit range gives the diversity temperature authority on a fixed scale.
+    # Default False (bit-identical OFF; legacy absolute-scale softmax).
+    use_selection_authority: bool = False
+    authority_min_range_floor: float = 1e-6
 
 
 @dataclass
@@ -99,6 +109,10 @@ class E3ScoreDiversityDiagnostics:
     n_within_class_sampled: int = 0
     last_within_class_sampled: bool = False
     last_within_class_temperature: float = 0.0
+    # modulatory-bias-selection-authority (2026-06-03): across-class normalisation.
+    n_authority_normalized: int = 0
+    last_authority_normalized: bool = False
+    last_rep_score_range: float = 0.0
 
 
 class E3ScoreDiversity:
@@ -294,10 +308,33 @@ class E3ScoreDiversity:
             device=scores.device,
         )
 
+        # modulatory-bias-selection-authority (2026-06-03): normalise the
+        # class-representative scores to unit range before the across-class
+        # softmax so the stratified_temperature acts on a fixed scale. Without
+        # this, a large absolute gap between class representatives collapses the
+        # softmax onto a single class regardless of temperature (the 614d C2
+        # failure: committed-class entropy invariant). Primary scores are NOT
+        # modified -- only the local copy feeding this softmax. Default OFF
+        # (legacy absolute-scale softmax, bit-identical).
+        rep_score_range = float((rep_scores.max() - rep_scores.min()).item())
+        authority_normalized = False
+        rep_scores_eff = rep_scores
+        if (
+            getattr(self.config, "use_selection_authority", False)
+            and rep_score_range > getattr(self.config, "authority_min_range_floor", 1e-6)
+        ):
+            rep_scores_eff = rep_scores / rep_score_range
+            authority_normalized = True
+
         temp = max(float(self.config.stratified_temperature), 1e-6)
-        probs = torch.softmax(-rep_scores / temp, dim=0)
+        probs = torch.softmax(-rep_scores_eff / temp, dim=0)
         sampled_rep = int(torch.multinomial(probs, 1).item())
         selected_idx = rep_indices[sampled_rep]
+
+        self.diagnostics.last_authority_normalized = authority_normalized
+        self.diagnostics.last_rep_score_range = rep_score_range
+        if authority_normalized:
+            self.diagnostics.n_authority_normalized += 1
 
         self.diagnostics.last_stratified_fired = True
         self.diagnostics.n_stratified_fired += 1
@@ -342,6 +379,10 @@ class E3ScoreDiversity:
             "mech341_n_within_class_sampled": d.n_within_class_sampled,
             "mech341_last_within_class_sampled": d.last_within_class_sampled,
             "mech341_last_within_class_temperature": d.last_within_class_temperature,
+            # modulatory-bias-selection-authority (2026-06-03).
+            "mech341_n_authority_normalized": d.n_authority_normalized,
+            "mech341_last_authority_normalized": d.last_authority_normalized,
+            "mech341_last_rep_score_range": d.last_rep_score_range,
         }
 
 
@@ -374,6 +415,12 @@ def build_from_ree_config(ree_config) -> Optional[E3ScoreDiversity]:
         ),
         min_classes_for_stratification=getattr(
             ree_config, "e3_diversity_min_classes_for_stratification", 2
+        ),
+        # modulatory-bias-selection-authority (2026-06-03): read the top-level
+        # REEConfig master flag (mirrored from E3Config in from_dims). Default
+        # False when absent -> legacy absolute-scale across-class softmax.
+        use_selection_authority=getattr(
+            ree_config, "use_modulatory_selection_authority", False
         ),
     )
     return E3ScoreDiversity(cfg)

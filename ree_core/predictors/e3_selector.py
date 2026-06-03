@@ -733,9 +733,14 @@ class E3TrajectorySelector(nn.Module):
                 )
             bias_tensor = score_bias.to(dtype=scores.dtype, device=scores.device)
             # Optional: rescale bias proportional to raw score range so the
-            # relative push stays consistent across environments.
+            # relative push stays consistent across environments. SKIPPED when
+            # use_modulatory_selection_authority is on -- that flag takes
+            # precedence and performs a single gap-relative rescale of the
+            # COMBINED modulatory contribution below (pre-scaling the bias here
+            # would shift the bias-vs-bonus proportions before that rescale).
             if (
                 getattr(self.config, "normalize_score_bias_to_e3_range", False)
+                and not getattr(self.config, "use_modulatory_selection_authority", False)
                 and raw_score_range > 1e-6
             ):
                 bias_range = float(
@@ -753,11 +758,40 @@ class E3TrajectorySelector(nn.Module):
         # capture the post-MECH-341 scores. Bit-identical when score_diversity
         # is None or its use_entropy_bonus sub-flag is False. See MECH-341
         # / behavioral_diversity_isolation_plan.md / V3-EXQ-608 routing.
+        mech341_bonus_tensor = None
         if score_diversity is not None:
             mech341_bonus = score_diversity.apply_entropy_bonus(
                 scores=scores, candidates=candidates, simulation_mode=False
             )
+            mech341_bonus_tensor = mech341_bonus
             scores = scores + mech341_bonus
+
+        # modulatory-bias-selection-authority (2026-06-03): rescale the COMBINED
+        # modulatory contribution (score_bias + mech341_bonus) so its range equals
+        # modulatory_authority_gain * raw_score_range. Gives modulatory signals
+        # (MECH-314 curiosity, MECH-320 vigor, MECH-341 within-class temperature,
+        # dACC, lateral_pfc, ofc, mech295) genuine but bounded authority at
+        # committed selection. When OFF (default), modulatory biases are applied
+        # as-is (bit-identical to pre-substrate baseline). When ON, the rescaling
+        # lets modulatory signals change the argmin in near-tie regimes while staying
+        # subdominant when primary harm/goal gaps exceed gain * raw_range.
+        # See REE_assembly/evidence/planning/modulatory_bias_selection_authority_*.md
+        modulatory_authority_active = False
+        modulatory_authority_scale_factor = 0.0
+        if self.config.use_modulatory_selection_authority:
+            # Recompute raw scores BEFORE any modulatory bias was applied
+            scores_raw = raw_scores  # captured before score_bias application above
+            # Compute total modulatory contribution = current scores - raw scores
+            modulatory_total = scores - scores_raw
+            modulatory_range = float((modulatory_total.max() - modulatory_total.min()).item())
+            if modulatory_range > self.config.modulatory_authority_min_range_floor:
+                # Rescale modulatory contribution to gain * raw_score_range
+                target_range = self.config.modulatory_authority_gain * raw_score_range
+                scale_factor = target_range / modulatory_range
+                modulatory_authority_scale_factor = scale_factor
+                modulatory_authority_active = True
+                # Apply: scores = raw_scores + scale_factor * (modulatory_total)
+                scores = scores_raw + scale_factor * modulatory_total
 
         # V3-EXQ-563c: score / bias diagnostics (pre-softmax, post-bias).
         bias_detached = (
@@ -781,6 +815,8 @@ class E3TrajectorySelector(nn.Module):
                 and score_bias is not None
                 and raw_score_range > 1e-6
             ),
+            "modulatory_authority_active": modulatory_authority_active,
+            "modulatory_authority_scale_factor": modulatory_authority_scale_factor,
             # Filled in after selection (requires selected_idx).
             "selected_candidate_rank_before_bias": -1,
             "selected_candidate_rank_after_bias": -1,

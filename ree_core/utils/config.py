@@ -392,6 +392,25 @@ class E3Config:
     # score spread. Default False (backward compat: bias applied as-is).
     normalize_score_bias_to_e3_range: bool = False
 
+    # modulatory-bias-selection-authority (2026-06-03): gap-relative scaling that
+    # gives the composed modulatory score-bias (dACC + lateral_pfc + ofc + mech295
+    # + MECH-314 curiosity + MECH-320 vigor) and the MECH-341 entropy bonus genuine
+    # but BOUNDED authority at committed selection. Root cause (604a/624a/614d
+    # cluster autopsy): fixed small bias magnitudes (~0.05-0.1) added to primary
+    # scores whose raw_score_range is much larger never change the argmin.
+    # When use_modulatory_selection_authority is True, the COMBINED modulatory
+    # addition is rescaled so its range == modulatory_authority_gain * raw_score_range
+    # before being added to scores. Primary scores are NOT modified (commit /
+    # running_variance / softmax-temperature / urgency / MECH-090 admission
+    # semantics unchanged). gain < 1.0 keeps the modulatory layer competitive in
+    # near-tie regimes but subdominant when the primary harm/goal gap exceeds
+    # gain * range (a clearly-harmful candidate stays rejected). Takes precedence
+    # over normalize_score_bias_to_e3_range (the blunt gain=1.0 blob version) when
+    # both are set. Default False (bit-identical OFF).
+    use_modulatory_selection_authority: bool = False
+    modulatory_authority_gain: float = 0.5
+    modulatory_authority_min_range_floor: float = 1e-6
+
 
 @dataclass
 class EventSegmenterScaleConfig:
@@ -1827,6 +1846,17 @@ class REEConfig:
     e3_diversity_stratified_within_class_temperature: Optional[float] = None
     e3_diversity_min_classes_for_stratification: int = 2
 
+    # modulatory-bias-selection-authority (2026-06-03): top-level mirror of the
+    # E3Config master flag so build_from_ree_config can give the MECH-341
+    # stratified across-class softmax authority too. When True, stratified_select
+    # normalises class-representative scores to unit range before the
+    # stratified_temperature softmax, so the diversity temperature acts on a
+    # fixed scale (the 614d C2 failure was the across-class softmax collapsing
+    # because the absolute class-representative score gap dominated the
+    # temperature). Default False (bit-identical OFF). See E3Config fields
+    # use_modulatory_selection_authority / modulatory_authority_gain.
+    use_modulatory_selection_authority: bool = False
+
     # ----------------------------------------------------------------
     # MECH-090 R-c conjunction: commit-entry predicate amendment from
     # rv-only to rv_low AND readiness_above_floor. Reading R-c per the
@@ -3096,6 +3126,9 @@ class REEConfig:
         support_preserving_ao_std_floor: float = 0.2,
         # V3-EXQ-563c: score/bias scale normalisation
         normalize_score_bias_to_e3_range: bool = False,
+        use_modulatory_selection_authority: bool = False,
+        modulatory_authority_gain: float = 0.5,
+        modulatory_authority_min_range_floor: float = 1e-6,
         # SD-055: differentiable CEM selection approximation
         use_differentiable_cem: bool = False,
         differentiable_cem_temperature: float = 1.0,
@@ -3725,6 +3758,13 @@ class REEConfig:
 
         # V3-EXQ-563c: score/bias scale normalisation
         config.e3.normalize_score_bias_to_e3_range = normalize_score_bias_to_e3_range
+        # modulatory-bias-selection-authority (2026-06-03): additive-bias sites
+        # read from config.e3; the stratified across-class site reads the
+        # top-level mirror via build_from_ree_config.
+        config.e3.use_modulatory_selection_authority = use_modulatory_selection_authority
+        config.e3.modulatory_authority_gain = modulatory_authority_gain
+        config.e3.modulatory_authority_min_range_floor = modulatory_authority_min_range_floor
+        config.use_modulatory_selection_authority = use_modulatory_selection_authority
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep
