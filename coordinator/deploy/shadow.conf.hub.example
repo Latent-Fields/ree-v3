@@ -70,8 +70,12 @@ Environment=PHASE3_COMMANDS_VIA_COORDINATOR=1
 # push-rejected / rebase-conflict wedge on ree-v3/experiment_queue.json within
 # one tick (reset --hard origin/main + re-materialise from the DB; lossless
 # because the queue is DB-authoritative; only writer-authored ahead commits are
-# ever dropped, never operator work). Default OFF = legacy refuse-on-conflict
-# (manual `git pull --rebase` to unwedge). Verify via
-# /writer-health -> queue_writer.n_conflict_recoveries. See OPERATOR_GUIDE.md
-# "Queue-writer conflict-recovery" and reference_hub_writer_wedge.md.
+# ever dropped, never operator work). ADDITIVE over the legacy
+# PHASE3_AUTO_RESET_ON_REBASE_CONFLICT env (the auto-reset.conf drop-in already
+# on the hub): the scoped flag forces queue recovery on; when unset it falls back
+# to that env, so it never DISABLES env-provided recovery. Recovery is fully off
+# only when both are unset (then refuse-on-conflict; manual `git pull --rebase`).
+# Verify via /writer-health -> queue_writer.n_conflict_recoveries. See
+# OPERATOR_GUIDE.md "Queue-writer conflict-recovery" + reference_hub_writer_wedge.md.
+# LIVE on the hub since 2026-06-03 via the queue-conflict-recovery.conf drop-in.
 #   (on ree-sync-daemon)  Environment=PHASE3_QUEUE_CONFLICT_RECOVERY=1

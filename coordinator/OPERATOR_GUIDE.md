@@ -122,8 +122,20 @@ ahead commit is writer-authored (`phase3-queue: ` prefix). A foreign (operator)
 unpushed commit on the hub still **refuses** the tick -- the flag never drops
 operator work. The clean-tree precondition still holds (no autostash). The flag is
 **scoped to the queue writer only**; the result + heartbeat writers keep the
-conservative refuse-on-conflict policy (their paths are writer-exclusive and do not
+conservative env-fallback policy (their paths are writer-exclusive and do not
 conflict).
+
+**Additive over the legacy env.** The flag is *additive* on top of the older blunt
+`PHASE3_AUTO_RESET_ON_REBASE_CONFLICT=1` env (a global stopgap that enables conflict
+recovery for *all three* writers and is currently set on the hub via the
+`auto-reset.conf` drop-in). When the scoped flag is set, the queue writer forces
+recovery on; when it is unset, the queue writer falls back to that env -- so the
+scoped flag never *disables* recovery the env already provides. Recovery is only
+fully off when **both** are unset (then: refuse-on-conflict, manual
+`git pull --rebase` to unwedge). Either path records `n_conflict_recoveries`, so the
+canary observable works regardless of which one enabled it. As of 2026-06-03 the hub
+has both set: the scoped flag (`queue-conflict-recovery.conf`) is the explicit,
+intended control; the legacy env remains as the result/heartbeat-writer fallback.
 
 **Enable / verify / rollback (hub `ree-sync-daemon`):**
 
