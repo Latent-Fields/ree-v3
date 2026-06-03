@@ -48,6 +48,21 @@
       "experiment_type": "v3_exq_634_scaffolded_nursery_substrate_readiness",
       "predecessor": "V3-EXQ-621a",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-635",
+      "title": "modulatory-bias-selection-authority substrate-readiness (vigor/within-class/curiosity OFF vs ON)",
+      "experiment_type": "v3_exq_635_modulatory_bias_selection_authority_readiness",
+      "script": "experiments/v3_exq_635_modulatory_bias_selection_authority_readiness.py",
+      "priority": 300,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 45,
+      "episodes_per_run": 32,
+      "seeds": 1,
+      "conditions": 3,
+      "claim_id": null,
+      "note": "Substrate-readiness diagnostic (claim_ids=[], experiment_purpose=diagnostic) for modulatory-bias-selection-authority (landed fc09738). 3 levers (VIGOR/WITHIN_CLASS/CURIOSITY) x authority OFF-vs-ON on shared trained weights + identical RNG. PASS=every non-degenerate lever changes committed selection (action_density lift>=0.03 / committed-class entropy rise) without harm increase. Degenerate-bias arms (auth rescale never fires; curiosity 604a signature) report INVALID_HARNESS not FAIL. FAIL with auth_active>0 but no change routes to /failure-autopsy. Predecessor (NOT supersedes) 604a/624a/614d. PASS unblocks per-claim EVIDENCE retests of MECH-314/320/341 + MECH-343."
     }
   ]
 }
