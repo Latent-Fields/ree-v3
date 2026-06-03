@@ -188,6 +188,32 @@ class ScaffoldedSD054OnboardingConfig:
     # 0.0 = current pure-linear anneal (contract-stable).
     scaffold_p1_anneal_hold_fraction: float = 0.0
 
+    # -------- Developmental-window / consolidation amend (2026-06-03b) --------
+    # Routed by the V3-EXQ-634 design-error review: GoalState.update() ALWAYS
+    # decays the persistent z_goal attractor (goal.py:173) and only refreshes it
+    # when benefit crosses threshold. P1/P2 call update_z_goal every step incl.
+    # unfed steps (decay-only), so the fragile Stage-0 trace is washed out
+    # before ecological contact occurs -- 634 then tests "stay goal-active while
+    # fed-then-starved under decay-only updates", not "form -> consolidate ->
+    # learn contact". This amend protects the Stage-0 trace. All knobs are
+    # additive and default to NO-OP (master False); V3-EXQ-634b opts in. With
+    # the master OFF the scheduler is bit-identical to the pre-amend 634 path.
+    scaffold_developmental_window_enabled: bool = False
+    # Stage-0b consolidation: a short PROTECTED window between Stage-0 and P0
+    # where update_z_goal is NOT called, so the just-formed z_goal cannot decay
+    # (encoder/E2 keep training). Records start/end norm + retention_ratio.
+    scaffold_stage0b_enabled: bool = False
+    scaffold_stage0b_episode_budget: int = 10
+    # Acceptance: retained z_goal must stay >= this fraction of the Stage-0
+    # baseline norm across Stage-0b (pre-registered; do not retune to force pass).
+    scaffold_stage0b_retention_gate: float = 0.75
+    # The KEY fix: when True, P1/P2 only call update_z_goal on a VALIDATED
+    # contact step (benefit > scaffold_p2_contact_benefit_threshold); unfed
+    # steps are skipped (no decay-only washout). Stage-0 forced-feed is
+    # unaffected (forced benefit is always supra-threshold). decay_only is thus
+    # reserved for mature/autonomous tests, NOT the nursery gate.
+    scaffold_contact_gated_goal_updates: bool = False
+
     # Training rates (mirrors committed_mode_curriculum.py defaults).
     scaffold_lr_e1: float = 1e-4
     scaffold_lr_e2_wf: float = 1e-3
@@ -218,6 +244,25 @@ class Stage0NurseryResult:
 
 
 @dataclass
+class Stage0bConsolidationResult:
+    """Outcome of ScaffoldedSD054OnboardingScheduler.run_stage0b_consolidation().
+
+    The protected consolidation window after Stage-0: update_z_goal is NOT
+    called, so the just-formed z_goal cannot be washed out by decay-only
+    updating while the encoder/E2 keep training on the safe nursery. Retention
+    is the developmental-window acceptance metric.
+    """
+
+    n_episodes: int
+    z_goal_norm_start: float
+    z_goal_norm_end: float
+    retention_ratio: float
+    retention_gate_passed: bool
+    aborted: bool
+    abort_reason: str = ""
+
+
+@dataclass
 class P0OnboardingResult:
     """Outcome of ScaffoldedSD054OnboardingScheduler.run_p0()."""
 
@@ -241,6 +286,12 @@ class P1OnboardingResult:
     aborted: bool
     abort_reason: str = ""
     episode_lengths: List[int] = field(default_factory=list)
+    # Developmental-window diagnostics (2026-06-03b amend; default 0 when the
+    # contact-gating flag is off so these are pure additive readouts).
+    n_contact_refresh_updates: int = 0
+    n_decay_only_updates: int = 0
+    n_skipped_protected_updates: int = 0
+    contact_gated: bool = False
 
 
 @dataclass
@@ -261,6 +312,48 @@ class P2OnboardingMetrics:
     contact_steps: int = 0
     contact_rate: float = 0.0
     hazard_food_attraction_used: float = 0.0
+    # Developmental-window diagnostics (2026-06-03b amend; default 0 when the
+    # contact-gating flag is off).
+    n_contact_refresh_updates: int = 0
+    n_decay_only_updates: int = 0
+    n_skipped_protected_updates: int = 0
+    contact_gated: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Goal-write developmental windowing modes (2026-06-03b amend)
+# ---------------------------------------------------------------------------
+#
+# The persistent GoalState attractor must be written under an explicit
+# developmental mode rather than blindly decay-updated every step. These are
+# legibility + diagnostics constants; the actual mechanism is simply "whether
+# update_z_goal is called this step, and whether the step is a validated
+# contact." See run_stage0_nursery / run_stage0b_consolidation / _train_episode
+# / _eval_episode.
+GOAL_WRITE_FORCED_FEED_OPEN = "forced_feed_open"          # Stage-0: forced benefit seeds z_goal
+GOAL_WRITE_CONSOLIDATE_PROTECTED = "consolidate_protected"  # Stage-0b: no decay-only washout
+GOAL_WRITE_ECOLOGICAL_CONTACT_OPEN = "ecological_contact_open"  # P1/P2 gated: update only on real contact
+GOAL_WRITE_DECAY_ONLY_ALLOWED = "decay_only_allowed"      # mature tests only; NOT the nursery gate
+GOAL_WRITE_MEASUREMENT_READONLY = "measurement_readonly"  # read z_goal without modifying
+GOAL_WRITE_MODES = (
+    GOAL_WRITE_FORCED_FEED_OPEN,
+    GOAL_WRITE_CONSOLIDATE_PROTECTED,
+    GOAL_WRITE_ECOLOGICAL_CONTACT_OPEN,
+    GOAL_WRITE_DECAY_ONLY_ALLOWED,
+    GOAL_WRITE_MEASUREMENT_READONLY,
+)
+
+
+def _new_goal_write_diag() -> Dict[str, int]:
+    """Fresh per-phase goal-write diagnostics accumulator. Counts how z_goal
+    was written so a manifest can distinguish goal loss due to no-contact /
+    decay-only washout / failed-formation-despite-contact."""
+    return {
+        "n_contact_refresh": 0,      # update called on a validated-contact step (pull)
+        "n_decay_only": 0,           # update called on an unfed step (decay-only)
+        "n_skipped_protected": 0,    # update skipped (contact-gated protection)
+        "n_contact_steps": 0,        # steps with benefit > contact threshold
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -554,6 +647,102 @@ class ScaffoldedSD054OnboardingScheduler:
         )
         return self._stage0_result
 
+    # ---------------- Stage 0b: protected consolidation ---------------- #
+
+    def run_stage0b_consolidation(
+        self, agent, device: torch.device, stage0_baseline_norm: Optional[float] = None
+    ) -> Stage0bConsolidationResult:
+        """
+        Stage 0b: PROTECTED consolidation of the just-formed Stage-0 z_goal.
+
+        Developmental-window amend (2026-06-03b). Routed by the V3-EXQ-634
+        design-error review: after Stage-0 feeds the infant and lights z_goal,
+        the prior scaffold exposed that fragile trace straight to P1's
+        every-step decay-only update_z_goal calls (washout before ecological
+        contact). This short window runs in the safe nursery env with E1/E2
+        training still open but update_z_goal NOT called, so the persistent
+        attractor cannot be washed out by decay-only updating. The retention
+        ratio is the developmental acceptance metric: feeding must be followed
+        by consolidation, not immediate exposure to decay-only updating.
+
+        Gated by scaffold_developmental_window_enabled AND scaffold_stage0b_enabled
+        (both default False -> this phase is never run unless an experiment opts
+        in; bit-identical to the pre-amend scheduler otherwise).
+
+        stage0_baseline_norm: optional Stage-0 peak to measure retention
+        against (per the ">=0.75 of Stage-0 peak" acceptance). Defaults to the
+        z_goal norm read at Stage-0b entry.
+        """
+        gate = float(self.cfg.scaffold_stage0b_retention_gate)
+        if not self.enabled:
+            self._stage0b_result = Stage0bConsolidationResult(
+                n_episodes=0, z_goal_norm_start=0.0, z_goal_norm_end=0.0,
+                retention_ratio=0.0, retention_gate_passed=False,
+                aborted=True, abort_reason="master_switch_off",
+            )
+            return self._stage0b_result
+        if not (self.cfg.scaffold_developmental_window_enabled
+                and self.cfg.scaffold_stage0b_enabled):
+            self._stage0b_result = Stage0bConsolidationResult(
+                n_episodes=0, z_goal_norm_start=0.0, z_goal_norm_end=0.0,
+                retention_ratio=0.0, retention_gate_passed=False,
+                aborted=True, abort_reason="stage0b_disabled",
+            )
+            return self._stage0b_result
+        if getattr(agent, "goal_state", None) is None:
+            self._stage0b_result = Stage0bConsolidationResult(
+                n_episodes=0, z_goal_norm_start=0.0, z_goal_norm_end=0.0,
+                retention_ratio=0.0, retention_gate_passed=False,
+                aborted=True, abort_reason="goal_state_none_set_z_goal_enabled_true",
+            )
+            return self._stage0b_result
+
+        def _norm() -> float:
+            gs = agent.goal_state
+            try:
+                return float(gs.goal_norm())
+            except TypeError:
+                return float(gs.goal_norm)
+
+        start_norm = _norm()
+        baseline = float(stage0_baseline_norm) if stage0_baseline_norm is not None else start_norm
+
+        # Protected window: goal pipeline bridge frozen + update_z_goal NOT
+        # called (seed_goal=False) -> no decay-only washout. Encoder/E2 keep
+        # training on the safe nursery so consolidation is not idle.
+        _set_goal_pipeline_frozen(agent, frozen=True)
+        env = _build_env(self.cfg, phase="stage0")
+        agent.train()
+        world_dim = agent.config.latent.world_dim
+        e1_opt = optim.Adam(list(agent.e1.parameters()), lr=self.cfg.scaffold_lr_e1)
+        wf_opt = optim.Adam(
+            list(agent.e2.world_transition.parameters())
+            + list(agent.e2.world_action_encoder.parameters()),
+            lr=self.cfg.scaffold_lr_e2_wf,
+        )
+        wf_buf: Deque = deque(maxlen=self.cfg.scaffold_wf_buf_max)
+
+        n_eps = max(1, self.cfg.scaffold_stage0b_episode_budget)
+        for _ep in range(n_eps):
+            # seed_goal=False -> update_z_goal is never called -> z_goal is
+            # protected from decay-only washout (the whole point of Stage-0b).
+            self._train_episode(
+                agent, env, device, e1_opt, wf_opt, wf_buf, world_dim,
+                seed_goal=False,
+            )
+
+        end_norm = _norm()
+        retention = (end_norm / baseline) if baseline > 1e-9 else 0.0
+        self._stage0b_result = Stage0bConsolidationResult(
+            n_episodes=n_eps,
+            z_goal_norm_start=start_norm,
+            z_goal_norm_end=end_norm,
+            retention_ratio=retention,
+            retention_gate_passed=(retention >= gate),
+            aborted=False,
+        )
+        return self._stage0b_result
+
     # ---------------- P0 ---------------- #
 
     def run_p0(self, agent, device: torch.device) -> P0OnboardingResult:
@@ -643,6 +832,14 @@ class ScaffoldedSD054OnboardingScheduler:
         all_episode_lengths: List[int] = []
         last_anneal_t = 0.0
         hold = max(0.0, min(0.95, float(self.cfg.scaffold_p1_anneal_hold_fraction)))
+        # Developmental-window contact-gating: active only when both the master
+        # switch and the lever are set (default OFF -> legacy every-step decay).
+        contact_gated = bool(
+            self.cfg.scaffold_developmental_window_enabled
+            and self.cfg.scaffold_contact_gated_goal_updates
+        )
+        contact_threshold = float(self.cfg.scaffold_p2_contact_benefit_threshold)
+        goal_write_diag = _new_goal_write_diag()
         for ep in range(n_eps):
             raw_t = ep / max(1, n_eps - 1) if n_eps > 1 else 1.0
             # Staged withdrawal: hold full nursery relaxation (anneal_t=0) for
@@ -656,6 +853,9 @@ class ScaffoldedSD054OnboardingScheduler:
             ep_len = self._train_episode(
                 agent, env, device, e1_opt, wf_opt, wf_buf, world_dim,
                 seed_goal=True,
+                contact_gated=contact_gated,
+                contact_threshold=contact_threshold,
+                goal_write_diag=goal_write_diag,
             )
             all_episode_lengths.append(ep_len)
             recent_lengths.append(ep_len)
@@ -694,6 +894,10 @@ class ScaffoldedSD054OnboardingScheduler:
             aborted=False,
             abort_reason="" if survival_passed else "p1_survival_gate_failed",
             episode_lengths=all_episode_lengths,
+            n_contact_refresh_updates=goal_write_diag["n_contact_refresh"],
+            n_decay_only_updates=goal_write_diag["n_decay_only"],
+            n_skipped_protected_updates=goal_write_diag["n_skipped_protected"],
+            contact_gated=contact_gated,
         )
         return self._p1_result
 
@@ -732,6 +936,16 @@ class ScaffoldedSD054OnboardingScheduler:
         env = _build_env(self.cfg, phase="p2")
         agent.eval()
 
+        # Developmental-window contact-gating for the measurement window: active
+        # only when both the master switch and the lever are set (default OFF ->
+        # legacy every-step decay-only path; peak still captured via the
+        # pre-update read in _eval_episode).
+        contact_gated = bool(
+            self.cfg.scaffold_developmental_window_enabled
+            and self.cfg.scaffold_contact_gated_goal_updates
+        )
+        contact_threshold = float(self.cfg.scaffold_p2_contact_benefit_threshold)
+
         per_episode: List[Dict[str, Any]] = []
         peak_per_ep: List[float] = []
         total_approach_commit = 0
@@ -739,8 +953,15 @@ class ScaffoldedSD054OnboardingScheduler:
         total_dacc_bias_nonzero = 0
         total_steps = 0
         total_contact = 0
+        total_contact_refresh = 0
+        total_decay_only = 0
+        total_skipped_protected = 0
         for ep in range(self.cfg.scaffold_p2_episode_budget):
-            ep_metrics = self._eval_episode(agent, env, device)
+            ep_metrics = self._eval_episode(
+                agent, env, device,
+                contact_gated=contact_gated,
+                contact_threshold=contact_threshold,
+            )
             per_episode.append(ep_metrics)
             peak_per_ep.append(ep_metrics["z_goal_norm_peak"])
             total_approach_commit += int(ep_metrics["approach_commit_steps"])
@@ -748,6 +969,9 @@ class ScaffoldedSD054OnboardingScheduler:
             total_dacc_bias_nonzero += int(ep_metrics["dacc_bias_nonzero_steps"])
             total_steps += int(ep_metrics["episode_length"])
             total_contact += int(ep_metrics["contact_steps"])
+            total_contact_refresh += int(ep_metrics.get("n_contact_refresh_updates", 0))
+            total_decay_only += int(ep_metrics.get("n_decay_only_updates", 0))
+            total_skipped_protected += int(ep_metrics.get("n_skipped_protected_updates", 0))
 
         n_eps = max(1, len(per_episode))
         peak_max = float(max(peak_per_ep)) if peak_per_ep else 0.0
@@ -769,6 +993,10 @@ class ScaffoldedSD054OnboardingScheduler:
             contact_steps=total_contact,
             contact_rate=(float(total_contact) / float(total_steps) if total_steps else 0.0),
             hazard_food_attraction_used=float(p2_hfa_used),
+            n_contact_refresh_updates=total_contact_refresh,
+            n_decay_only_updates=total_decay_only,
+            n_skipped_protected_updates=total_skipped_protected,
+            contact_gated=contact_gated,
         )
         return self._p2_metrics
 
@@ -787,6 +1015,9 @@ class ScaffoldedSD054OnboardingScheduler:
         forced_benefit: Optional[float] = None,
         forced_drive: Optional[float] = None,
         goal_peak_sink: Optional[List[float]] = None,
+        contact_gated: bool = False,
+        contact_threshold: float = 0.0,
+        goal_write_diag: Optional[Dict[str, int]] = None,
     ) -> int:
         """
         One training episode. Returns realised episode length in steps.
@@ -881,7 +1112,8 @@ class ScaffoldedSD054OnboardingScheduler:
             # (the V3-EXQ-603d / 625b harness-fix root cause). Gated to P1 via
             # seed_goal so P0 warm-up stays goal-pipeline-frozen by design.
             if seed_goal:
-                if forced_benefit is not None:
+                is_forced = forced_benefit is not None
+                if is_forced:
                     # Forced-feed (Stage-0 nursery): supra-threshold benefit
                     # regardless of actual resource contact -> decouples z_goal
                     # formation from foraging/survival.
@@ -895,25 +1127,55 @@ class ScaffoldedSD054OnboardingScheduler:
                     benefit, drive = _benefit_and_drive(
                         obs_dict["body_state"].to(device)
                     )
-                agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
-                if goal_peak_sink is not None:
-                    gs = getattr(agent, "goal_state", None)
-                    if gs is not None and hasattr(gs, "goal_norm"):
-                        try:
-                            gn = float(gs.goal_norm())
-                        except TypeError:
-                            gn = float(gs.goal_norm)
-                        goal_peak_sink.append(gn)
+                is_contact = benefit > contact_threshold
+                if goal_write_diag is not None and is_contact:
+                    goal_write_diag["n_contact_steps"] += 1
+                # Developmental-window contact-gating (2026-06-03b): when
+                # contact-gated, skip update_z_goal on an unfed step so the
+                # persistent attractor is NOT washed out by a decay-only call.
+                # Forced-feed (Stage-0) always writes. Default (contact_gated
+                # False) keeps the legacy every-step decay-only path.
+                if contact_gated and not is_forced and not is_contact:
+                    if goal_write_diag is not None:
+                        goal_write_diag["n_skipped_protected"] += 1
+                else:
+                    agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
+                    if goal_write_diag is not None:
+                        if is_contact or is_forced:
+                            goal_write_diag["n_contact_refresh"] += 1
+                        else:
+                            goal_write_diag["n_decay_only"] += 1
+                    if goal_peak_sink is not None:
+                        gs = getattr(agent, "goal_state", None)
+                        if gs is not None and hasattr(gs, "goal_norm"):
+                            try:
+                                gn = float(gs.goal_norm())
+                            except TypeError:
+                                gn = float(gs.goal_norm)
+                            goal_peak_sink.append(gn)
 
             if done:
                 return step + 1
         return self.cfg.scaffold_steps_per_episode
 
-    def _eval_episode(self, agent, env, device: torch.device) -> Dict[str, Any]:
+    def _eval_episode(
+        self,
+        agent,
+        env,
+        device: torch.device,
+        contact_gated: bool = False,
+        contact_threshold: float = 1e-6,
+    ) -> Dict[str, Any]:
         """
         One eval episode: policy frozen (no optimizer steps), env at target
         config. Measures the P2 acceptance metrics per the substrate-design
         memo Acceptance section.
+
+        contact_gated (2026-06-03b): when True, update_z_goal is only called on a
+        validated-contact step (benefit > contact_threshold); unfed steps are
+        skipped so the measured z_goal reflects the RETAINED + ecologically-
+        refreshed attractor, not decay-only erosion. Default False = legacy
+        every-step path (peak still captured via the pre-update read).
         """
         _, obs_dict = env.reset()
         agent.reset()
@@ -922,6 +1184,9 @@ class ScaffoldedSD054OnboardingScheduler:
         z_goal_norm_peak = 0.0
         approach_commit_steps = 0
         contact_steps = 0
+        n_contact_refresh = 0
+        n_decay_only = 0
+        n_skipped_protected = 0
         bridge_cue_fires_baseline = 0
         bridge_cue_fires_final = 0
         dacc_bias_nonzero_steps_baseline = 0
@@ -991,16 +1256,30 @@ class ScaffoldedSD054OnboardingScheduler:
             # received benefit (resource contact) -- distinguishes a z_goal=0
             # read caused by "no contact / infant not fed" from one caused by a
             # genuine goal-formation failure despite contact.
-            if benefit > float(self.cfg.scaffold_p2_contact_benefit_threshold):
+            is_contact = benefit > float(self.cfg.scaffold_p2_contact_benefit_threshold)
+            if is_contact:
                 contact_steps += 1
-            agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
-            if goal_state is not None and hasattr(goal_state, "goal_norm"):
-                try:
-                    cur = float(goal_state.goal_norm())
-                except TypeError:
-                    cur = float(goal_state.goal_norm)
-                if cur > z_goal_norm_peak:
-                    z_goal_norm_peak = cur
+            # Developmental-window contact-gating (2026-06-03b): skip the
+            # decay-only update on an unfed measurement step so the P2 z_goal
+            # read reflects the RETAINED + contact-refreshed attractor, not
+            # decay-only erosion. Default (contact_gated False) keeps the legacy
+            # every-step path. The pre-update read above already captured the
+            # episode-entry retained norm into z_goal_norm_peak either way.
+            if contact_gated and not is_contact:
+                n_skipped_protected += 1
+            else:
+                agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
+                if is_contact:
+                    n_contact_refresh += 1
+                else:
+                    n_decay_only += 1
+                if goal_state is not None and hasattr(goal_state, "goal_norm"):
+                    try:
+                        cur = float(goal_state.goal_norm())
+                    except TypeError:
+                        cur = float(goal_state.goal_norm)
+                    if cur > z_goal_norm_peak:
+                        z_goal_norm_peak = cur
 
             if done:
                 break
@@ -1016,6 +1295,9 @@ class ScaffoldedSD054OnboardingScheduler:
             "contact_rate": (float(contact_steps) / float(ep_len)) if ep_len else 0.0,
             "bridge_cue_fires": bridge_cue_fires_final - bridge_cue_fires_baseline,
             "dacc_bias_nonzero_steps": dacc_bias_nonzero_local,
+            "n_contact_refresh_updates": n_contact_refresh,
+            "n_decay_only_updates": n_decay_only,
+            "n_skipped_protected_updates": n_skipped_protected,
         }
 
 
@@ -1178,6 +1460,7 @@ __all__ = [
     "ScaffoldedSD054OnboardingConfig",
     "ScaffoldedSD054OnboardingScheduler",
     "Stage0NurseryResult",
+    "Stage0bConsolidationResult",
     "P0OnboardingResult",
     "P1OnboardingResult",
     "P2OnboardingMetrics",
@@ -1186,4 +1469,10 @@ __all__ = [
     "STAGE_PLAN",
     "evaluate_substrate_gate",
     "classify_interpretation_branch",
+    "GOAL_WRITE_FORCED_FEED_OPEN",
+    "GOAL_WRITE_CONSOLIDATE_PROTECTED",
+    "GOAL_WRITE_ECOLOGICAL_CONTACT_OPEN",
+    "GOAL_WRITE_DECAY_ONLY_ALLOWED",
+    "GOAL_WRITE_MEASUREMENT_READONLY",
+    "GOAL_WRITE_MODES",
 ]

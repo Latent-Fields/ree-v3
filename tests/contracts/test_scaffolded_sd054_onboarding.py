@@ -682,3 +682,178 @@ def test_c6_stage_plan_has_five_stages_nursery_first():
     assert plan[0]["stage"] == "0"
     assert plan[0]["method"] == "run_stage0_nursery"
     assert plan[-1]["method"] == "run_p2"
+
+
+# ---------------------------------------------------------------------------
+# C7: developmental-window / consolidation amend (2026-06-03b).
+# Routed by the V3-EXQ-634 design-error review: GoalState.update() always decays
+# the persistent z_goal attractor, and P1/P2 call update_z_goal every step incl.
+# unfed steps, washing out the Stage-0 trace before ecological contact. These
+# contracts prove: (1) Stage-0 trace persists across Stage-0b consolidation;
+# (2) decay-only updates are blocked during the protected/contact-gated window;
+# (3) ecological contact still refreshes z_goal; (4) flags-off is bit-identical
+# to the pre-amend (legacy 634) path.
+# ---------------------------------------------------------------------------
+
+from experiments.scaffolded_sd054_onboarding import (  # noqa: E402
+    Stage0bConsolidationResult,
+    GOAL_WRITE_MODES,
+)
+
+
+def _dw_cfg(**overrides):
+    """Small developmental-window config for fast contract runs."""
+    base = dict(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_stage0_enabled=True,
+        scaffold_stage0_episode_budget=2,
+        scaffold_stage0b_episode_budget=3,
+        scaffold_p1_episode_budget=1,
+        scaffold_p2_episode_budget=1,
+        scaffold_steps_per_episode=10,
+        scaffold_p1_survival_gate_steps=1,
+    )
+    base.update(overrides)
+    return ScaffoldedSD054OnboardingConfig(**base)
+
+
+def test_c7_config_defaults_are_noop():
+    """New developmental-window knobs default to no-op (window disabled)."""
+    cfg = ScaffoldedSD054OnboardingConfig()
+    assert cfg.scaffold_developmental_window_enabled is False
+    assert cfg.scaffold_stage0b_enabled is False
+    assert cfg.scaffold_stage0b_episode_budget == 10
+    assert cfg.scaffold_stage0b_retention_gate == 0.75
+    assert cfg.scaffold_contact_gated_goal_updates is False
+    assert len(GOAL_WRITE_MODES) == 5
+
+
+def test_c7_stage0_trace_persists_across_stage0b(monkeypatch):
+    """Stage-0 trace must survive the protected Stage-0b consolidation window:
+    update_z_goal is never called, so retention_ratio == 1.0 (>= the 0.75 gate)
+    and the end norm equals the start norm. This is the developmental-window
+    acceptance the V3-EXQ-634 review said was missing."""
+    import experiments.scaffolded_sd054_onboarding as sched_mod
+    import torch
+    # Deterministic supra-threshold feed so Stage-0 reliably forms z_goal.
+    monkeypatch.setattr(sched_mod, "_benefit_and_drive", lambda ob: (0.5, 1.0))
+
+    cfg = _dw_cfg(
+        scaffold_developmental_window_enabled=True,
+        scaffold_stage0b_enabled=True,
+    )
+    agent = _build_goal_enabled_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    dev = torch.device("cpu")
+
+    s0 = sched.run_stage0_nursery(agent, dev)
+    assert s0.z_goal_norm_peak > 0.0, "precondition: Stage-0 must form z_goal"
+    norm_before = agent.goal_state.goal_norm()
+
+    s0b = sched.run_stage0b_consolidation(agent, dev, stage0_baseline_norm=s0.z_goal_norm_peak)
+    assert isinstance(s0b, Stage0bConsolidationResult)
+    assert not s0b.aborted
+    assert s0b.n_episodes == 3
+    # Protected: z_goal not touched -> norm unchanged across the window.
+    assert abs(s0b.z_goal_norm_end - norm_before) < 1e-6
+    assert s0b.retention_ratio >= 0.75
+    assert s0b.retention_gate_passed is True
+
+
+def test_c7_decay_only_blocked_in_protected_window(monkeypatch):
+    """KEY contract: under contact-gating, an UNFED P1 must not wash out z_goal.
+    With the window OFF the same unfed P1 applies decay-only updates and the
+    norm drops -- the contrast that defines the bug and its fix."""
+    import experiments.scaffolded_sd054_onboarding as sched_mod
+    import torch
+    dev = torch.device("cpu")
+
+    def _run(window_on):
+        # Stage-0 feeds (forced), then P1 runs fully UNFED (benefit=0).
+        feeds = {"n": 0}
+
+        def _bd(ob):
+            # Stage-0 uses forced_benefit so this is only consulted for drive
+            # there; in P1 it returns benefit=0 (unfed) to force decay-only.
+            return (0.0, 0.5)
+
+        monkeypatch.setattr(sched_mod, "_benefit_and_drive", _bd)
+        cfg = _dw_cfg(
+            scaffold_developmental_window_enabled=window_on,
+            scaffold_contact_gated_goal_updates=window_on,
+            scaffold_p1_episode_budget=2,
+            scaffold_steps_per_episode=15,
+        )
+        agent = _build_goal_enabled_agent(cfg)
+        sched = ScaffoldedSD054OnboardingScheduler(cfg)
+        sched.run_stage0_nursery(agent, dev)
+        norm_after_stage0 = agent.goal_state.goal_norm()
+        p1 = sched.run_p1(agent, dev)
+        norm_after_p1 = agent.goal_state.goal_norm()
+        return norm_after_stage0, norm_after_p1, p1
+
+    # Window ON: unfed P1 is contact-gated -> no decay-only -> norm preserved.
+    on_s0, on_p1, p1_on = _run(window_on=True)
+    assert on_s0 > 0.0
+    assert p1_on.contact_gated is True
+    assert p1_on.n_decay_only_updates == 0
+    assert p1_on.n_skipped_protected_updates > 0
+    assert abs(on_p1 - on_s0) < 1e-6, "protected window must not wash out z_goal"
+
+    # Window OFF: legacy path applies decay-only every unfed step -> norm drops.
+    off_s0, off_p1, p1_off = _run(window_on=False)
+    assert p1_off.contact_gated is False
+    assert p1_off.n_decay_only_updates > 0
+    assert p1_off.n_skipped_protected_updates == 0
+    assert off_p1 < off_s0, "legacy path must wash out z_goal under unfed decay-only"
+
+
+def test_c7_ecological_contact_still_refreshes(monkeypatch):
+    """Contact-gating must not block legitimate refresh: a FED step still calls
+    update_z_goal (n_contact_refresh > 0) and moves z_goal."""
+    import experiments.scaffolded_sd054_onboarding as sched_mod
+    import torch
+    dev = torch.device("cpu")
+    # Every P1 step is a validated contact (benefit supra-threshold).
+    monkeypatch.setattr(sched_mod, "_benefit_and_drive", lambda ob: (0.5, 1.0))
+
+    cfg = _dw_cfg(
+        scaffold_developmental_window_enabled=True,
+        scaffold_contact_gated_goal_updates=True,
+        scaffold_stage0_episode_budget=1,
+        scaffold_p1_episode_budget=1,
+        scaffold_steps_per_episode=12,
+    )
+    agent = _build_goal_enabled_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    sched.run_stage0_nursery(agent, dev)
+    p1 = sched.run_p1(agent, dev)
+    assert p1.contact_gated is True
+    assert p1.n_contact_refresh_updates > 0, "fed steps must still refresh z_goal"
+    assert p1.n_skipped_protected_updates == 0, "no step should be skipped when all are contacts"
+
+
+def test_c7_flags_off_bit_identical_legacy_path(monkeypatch):
+    """With the developmental-window flags OFF, P1/P2 take the legacy every-step
+    decay-only path and Stage-0b aborts (disabled) -- bit-identical to 634."""
+    import experiments.scaffolded_sd054_onboarding as sched_mod
+    import torch
+    dev = torch.device("cpu")
+    monkeypatch.setattr(sched_mod, "_benefit_and_drive", lambda ob: (0.0, 0.5))
+
+    cfg = _dw_cfg()  # window flags default off
+    agent = _build_goal_enabled_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+
+    s0b = sched.run_stage0b_consolidation(agent, dev)
+    assert s0b.aborted is True
+    assert s0b.abort_reason == "stage0b_disabled"
+
+    sched.run_stage0_nursery(agent, dev)
+    p1 = sched.run_p1(agent, dev)
+    assert p1.contact_gated is False
+    assert p1.n_skipped_protected_updates == 0
+    assert p1.n_decay_only_updates > 0  # legacy: update called every unfed step
+    p2 = sched.run_p2(agent, dev)
+    assert p2.contact_gated is False
+    assert p2.n_skipped_protected_updates == 0
