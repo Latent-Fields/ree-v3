@@ -10,9 +10,23 @@
 >   (per-session orientation, writer-health verification snippet)
 >
 > Three rules in force until the follow-up chips land:
-> 1. **Never run a runner on the hub VM** (`ree-cloud-1`). Its
->    `ree-runner` is `systemctl disable`-d. Re-enable only after a
->    `PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE` flag lands.
+> 1. **Running a runner on the hub VM (`ree-cloud-1`) is supported via an
+>    ISOLATED checkout (2026-06-02).** The old rule ("never run a runner on
+>    the hub") was about the runner sharing the sync_daemon writers'
+>    `~/REE_Working` checkout: its result-manifest + queue writes dirty the
+>    tree and the Phase-3 writers refuse to commit (recurring fleet-wedge,
+>    see `reference_hub_writer_wedge.md`). FIX: run the hub runner from a
+>    SECOND checkout, `~/REE_Working_runner/{ree-v3,REE_assembly}`, via a
+>    `WorkingDirectory=/home/ree/REE_Working_runner/ree-v3` drop-in in the
+>    hub `shadow.conf`. All its dirty writes then land in its own tree; the
+>    writers' `~/REE_Working` stays clean. Use the standard WORKER gates
+>    (telemetry-off-git + `PHASE3_COMMANDS_VIA_COORDINATOR`) -- do NOT set
+>    `PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE` (unnecessary with isolation;
+>    it also gates command-file writeback). Template:
+>    `coordinator/deploy/shadow.conf.hub.example`. VERIFY after any change
+>    that `git -C ~/REE_Working/ree-v3 status` and
+>    `git -C ~/REE_Working/REE_assembly status` stay clean while the runner
+>    works.
 > 2. **Watch the cloud-scaler workflow.** It treats the hub like a
 >    regular worker and can power it off. Currently
 >    `disabled_manually`. Re-enable only after a hub-protection
@@ -73,7 +87,7 @@ Outside the three rows:
 |---------|--------------|-----|
 | `git_writer` or `queue_writer` SHA stale (red), spool_pending climbing | Writer wedged in **push-rejected loop** -- operator-side IGW commits landed between writer ticks, so the hub's local writer commits no longer fast-forward onto origin. The Phase-3 writer deliberately does **not** `git pull --rebase --autostash`, so it just keeps failing the push. | SSH to the hub and FF-rebase by hand: `git -C ~/REE_Working/REE_assembly pull --rebase origin master` (and `git -C ~/REE_Working/ree-v3 pull --rebase origin main` for `queue_writer`). Writers resume on the next tick (~60s). |
 | Persistent `rebase-conflict` status | Autostash-style wedge -- a manual rebase on the hub hit a conflict (e.g. the runner_heartbeats/*.json collision class CLAUDE.md describes). The writer cannot commit until the working tree is clean. | SSH to the hub, **inspect the conflict** -- do NOT blindly `git checkout --ours` or `--theirs`. The heartbeat-file collision is usually safe to resolve in favour of the newer runner-written snapshot (the runner overwrites it on next tick), but other paths (claims.yaml, planning docs, manifests) can hide real edits. Resolve, `git rebase --continue`, then leave the tree clean. |
-| `refusing` status with clean `journal_tail` | Hub's `REE_assembly` working tree is dirty -- something (a runner co-tenant, an interactive session) left files modified. Phase 3 writer refuses rather than autostashing. | SSH to the hub, `git -C ~/REE_Working/REE_assembly status`. Find the source. **Never run a runner on the hub VM** (`ree-cloud-1`) -- its co-tenant heartbeat writes break the clean-tree check. Cloud-1's runner is currently `systemctl disable`-d for this reason. |
+| `refusing` status with clean `journal_tail` | Hub's `REE_assembly` working tree is dirty -- something (an interactive session, or a hub runner using the SHARED `~/REE_Working` checkout) left files modified. Phase 3 writer refuses rather than autostashing. | SSH to the hub, `git -C ~/REE_Working/REE_assembly status`. Find the source. If a hub runner is the cause, it must run from the ISOLATED `~/REE_Working_runner` checkout (`WorkingDirectory` drop-in), NOT `~/REE_Working` -- see rule 1 above. Recovery: back up + clean the dirty files (`mv` untracked manifests aside, `git checkout`/`git pull --rebase` the queue); writers resume within ~10s. |
 | `spool_pending` elevated but writer SHA is recent | Writer is committing but falling behind -- batch size too small for the inbound rate, or the hub is doing one-commit-per-manifest. | Check `journal_tail`; usually self-corrects. If sustained, raise `PHASE3_BATCH_SIZE` on the hub (default 32). |
 | `hub_reachable: false` | WireGuard down on the Mac, or the SSH key is no longer accepted by `ree@91.98.130.117`. | `wg show` on the Mac (`wg-quick up wg0` if down); `ssh ree@10.8.0.1 true` to test the key; check `coordinator.env` for the hub host override. |
 | `heartbeat_writer` stale AND `spool_pending` climbing AND no manual operator activity | **Cloud-scaler powered off the hub VM.** The scaler treats `ree-worker-1` as a regular worker and can shut it down when idle. This is the 2026-05-28 incident class. | Confirm with `hcloud server list | grep ree-worker-1`; if off, `hcloud server poweron ree-worker-1`. The `cloud-scaler.yml` workflow should already be `disabled_manually` -- if it is not, disable it via `gh workflow disable`. Re-enable only after the hub-protection guard chip lands. |

@@ -1,22 +1,54 @@
-# Hub-only overrides for /etc/systemd/system/ree-runner.service.d/shadow.conf
-# on ree-cloud-1 (hostname ree-worker-1). Do NOT copy to cloud-2/3/4.
+# Hub overrides for /etc/systemd/system/ree-runner.service.d/shadow.conf on
+# ree-cloud-1 (hostname ree-worker-1). Do NOT copy to cloud-2/3/4.
+#
+# ISOLATED-CHECKOUT model (2026-06-02): the hub VM runs the coordinator +
+# sync_daemon writers out of ~/REE_Working, AND a worker runner out of a
+# SEPARATE checkout ~/REE_Working_runner. The runner's result-manifest, queue,
+# and telemetry writes land in its own tree, so they never dirty the writers'
+# ~/REE_Working tree (the Phase-3 writers refuse to commit on a dirty tree --
+# the recurring hub-wedge fleet outage; see reference_hub_writer_wedge.md).
+#
+# Setup:
+#   mkdir -p ~/REE_Working_runner
+#   cp -r ~/REE_Working/ree-v3       ~/REE_Working_runner/ree-v3
+#   cp -r ~/REE_Working/REE_assembly ~/REE_Working_runner/REE_assembly
+#   (both keep their GitHub origins + main/master tracking; the runner's
+#    auto-sync pulls into its own tree, isolated from the writers')
 #
 # Architecture:
-#   - Runners POST heartbeats/status to coordinator (always).
-#   - sync_daemon.phase3_heartbeat_writer is the SOLE git publisher for
-#     evidence/experiments/runner_heartbeats/*.json and runner_status/*.json
-#     on the hub REE_assembly checkout.
-#   - Hub runner must NOT write those files locally (would dirty the tree
-#     and block all phase3 writers).
+#   - The runner POSTs heartbeats/status/results/claims to the coordinator
+#     (localhost over WireGuard); the sync_daemon writers materialise git on
+#     the MAIN ~/REE_Working checkout from the coordinator DB + spool.
+#   - With an isolated checkout the hub runner uses the STANDARD WORKER config
+#     (telemetry-off-git + coordinator command channel). PHASE3_DISABLE_RUNNER_
+#     HEARTBEAT_WRITE is NO LONGER USED on the hub: it was a stopgap for the
+#     shared-checkout case and it also gates the command-file writeback (the
+#     source of the hub's command spin). Isolation removes the need for it.
 
 [Service]
+# Point the runner at the ISOLATED checkout (this drop-in overrides the main
+# unit's WorkingDirectory). REPO_ROOT + REE_assembly resolve relative to here.
+WorkingDirectory=/home/ree/REE_Working_runner/ree-v3
+
 Environment=COORDINATION_MODE=coordinator
 Environment=COORDINATOR_URL=http://10.8.0.1:8787
 Environment=COORDINATOR_TOKEN=<paste from coordinator.env>
+Environment=COORDINATOR_LOG=/home/ree/coordinator_shadow.log
 
+# Phase 3: runner does not git-push results / queue / heartbeats (writers own those).
 Environment=PHASE3_DISABLE_RUNNER_RESULT_PUSH=1
 Environment=PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1
 Environment=PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH=1
-Environment=PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1
+
+# Worker-safe telemetry-off-git: suppress per-tick heartbeat/status FILE writes
+# (avoids autostash/stash pileup in the isolated checkout over time).
+Environment=PHASE3_RUNNER_TELEMETRY_OFF_GIT=1
+
+# Command-channel cutover: fetch+ack remote-control commands via the coordinator.
+Environment=PHASE3_COMMANDS_VIA_COORDINATOR=1
 
 # ExecStart must include: --machine ree-cloud-1
+# (socket.gethostname() is ree-worker-1, so pin the affinity name explicitly.)
+#
+# Do NOT set PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE here -- it is obsolete under
+# the isolated-checkout model and would re-introduce the command spin.
