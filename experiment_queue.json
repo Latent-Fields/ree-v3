@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-634b",
-      "title": "scaffolded_sd054_onboarding nursery + protected-consolidation substrate-readiness diagnostic (developmental-window amend: Stage-0b + contact-gated P1/P2)",
-      "script": "experiments/v3_exq_634b_scaffolded_nursery_consolidation_readiness.py",
-      "priority": 290,
-      "machine_affinity": "any",
-      "estimated_minutes": 255,
-      "note": "Corrected nursery readiness for the 2026-06-03b developmental-window / consolidation amend to scaffolded_sd054_onboarding. claim_ids=[] (tags no claim; weights no governance score). Turns ON the amend flags 634 lacked: Stage-0b protected consolidation (run_stage0b_consolidation: update_z_goal NOT called -> Stage-0 z_goal cannot be washed out by decay-only updating) + contact-gated P1/P2 (update_z_goal only on validated contact; unfed steps skipped -> no decay-only washout). Root cause 634 surfaced: GoalState.update() always decays the persistent attractor and REEAgent.reset() never resets it, so 634's every-step P1/P2 update_z_goal washed out the Stage-0 trace before contact. Sequence per seed (3 seeds 42/43/44): Stage-0 forced-feed -> Stage-0b protected consolidation -> P0 guided -> P1 contact-gated foraging -> P2 contact-gated frozen measurement. PRE-REGISTERED GATES (>=2/3 seeds; do NOT retune): G0 stage0 z_goal_peak>0.4; G0b stage0b retention_ratio>=0.75 (NEW: consolidation protects the trace); G1 p1 survival; G2 p2 contact_rate>0; G3 p2 z_goal_peak>0.4 (now a FAIR test). PASS=all five -> (follow-on, NOT automatic) substrate ready + queue 603f. FAIL G0b -> consolidation_not_protected -> /failure-autopsy or /implement-substrate. FAIL G3 despite contact -> fed_but_no_goal. Diagnostics: p1/p2 n_decay_only_updates (should be ~0 under contact-gating), n_skipped_protected, n_contact_refresh; stage0b retention per seed. DO NOT queue 603f from this run. Predecessor V3-EXQ-634 (NOT superseded -- 634 lacks the developmental window). validate_experiments AST OK; dry-run smoke PASS end-to-end (Stage-0b retention=1.0; P1/P2 decay_only=0; Stage-0 trace survives to P2; FAIL at dry scale is correct). Phase3-queue snapshot race mitigation per REE_Working/CLAUDE.md post-commit dropped-file check.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-03T16:25:28Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 195,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_634b_scaffolded_nursery_consolidation_readiness",
-      "predecessor": "V3-EXQ-634",
-      "seeds": 3
-    }
-  ]
+  "items": []
 }
