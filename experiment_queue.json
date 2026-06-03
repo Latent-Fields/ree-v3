@@ -64,21 +64,6 @@
       "experiment_type": "v3_exq_634b_scaffolded_nursery_consolidation_readiness",
       "predecessor": "V3-EXQ-634",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-635",
-      "title": "modulatory-bias-selection-authority substrate-readiness (vigor/within-class/curiosity OFF vs ON)",
-      "experiment_type": "v3_exq_635_modulatory_bias_selection_authority_readiness",
-      "script": "experiments/v3_exq_635_modulatory_bias_selection_authority_readiness.py",
-      "priority": 300,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 45,
-      "episodes_per_run": 32,
-      "seeds": 1,
-      "conditions": 3,
-      "claim_id": null,
-      "note": "Substrate-readiness diagnostic (claim_ids=[], experiment_purpose=diagnostic) for modulatory-bias-selection-authority (fc09738). 3 levers x authority OFF-vs-ON on shared weights. Re-queued 2026-06-03 after the first commit (7c0587c) lost the Phase-3 reconcile race vs phase3_queue_writer. Predecessor (NOT supersedes) 604a/624a/614d. PASS unblocks per-claim retests of MECH-314/320/341 + MECH-343."
     }
   ]
 }
