@@ -140,6 +140,54 @@ class ScaffoldedSD054OnboardingConfig:
     scaffold_reef_bipartite_axis: str = "horizontal"
     scaffold_reef_bipartite_agent_band_radius: int = 1
 
+    # -------- Stage-0 nursery / forced-benefit feeding (2026-06-03 amend) ------
+    # Infant-REE "nursery": a protected forced-feeding warmup that DECOUPLES
+    # z_goal formation from survival/foraging competence. The agent is fed a
+    # supra-threshold benefit every step regardless of whether it actually
+    # contacts a resource, so GoalState.update fires and z_goal forms. This is
+    # both a positive control ("the goal stream lights when fed") and a
+    # developmental phase that prevents interpreting starvation as
+    # representational absence. Routed by failure_autopsy_V3-EXQ-603e-626a-622
+    # (2026-06-03): 603e showed z_goal=0 ecologically because 2/3 seeds never
+    # reach foraging competence and the hard P2 env starves benefit_exposure.
+    # All Stage-0 knobs are additive and default to no-op (scaffold_stage0_enabled
+    # False); the V3-EXQ-603f re-issue opts in.
+    scaffold_stage0_enabled: bool = False
+    scaffold_stage0_episode_budget: int = 20
+    # Forced benefit fed to update_z_goal every Stage-0 step. 1.0 is robustly
+    # supra-threshold (GoalState gate: benefit * z_goal_seeding_gain *
+    # (1 + drive_weight*drive_trace) > benefit_threshold[=0.1]).
+    scaffold_stage0_forced_benefit: float = 1.0
+    # Forced drive (depleted-infant analog; keeps the SD-012 multiplier high so
+    # the gate clears even if z_goal_seeding_gain is small).
+    scaffold_stage0_forced_drive: float = 0.9
+    # Dense, hazard-free nursery env so the encoder/E2 warm on safe structure.
+    scaffold_stage0_num_resources: int = 6
+    scaffold_stage0_num_hazards: int = 0
+    scaffold_stage0_proximity_harm_scale: float = 0.0
+    # Stage-0 acceptance: z_goal_norm_peak must exceed this (per-seed) for the
+    # forced-feed positive control to pass.
+    scaffold_stage0_z_goal_peak_gate: float = 0.4
+
+    # -------- P2 measurement guard (2026-06-03 amend) -------------------------
+    # The hard P2 env (hazard_food_attraction=0.7) can suppress contact and make
+    # z_goal=0 uninterpretable. When >= 0, this guard value OVERRIDES
+    # scaffold_p2_hazard_food_attraction in the P2 env so the measurement window
+    # admits foraging contact. Default -1.0 = no guard (P2 hfa stays 0.7,
+    # contract-stable); the V3-EXQ-603f re-issue sets it lower (e.g. 0.3).
+    scaffold_p2_hazard_food_attraction_guard: float = -1.0
+    # A P2 step counts as a foraging-contact step when the post-step benefit
+    # exposure exceeds this floor. Used for the contact-rate guard so a
+    # z_goal=0 read is distinguishable from "infant REE was never fed".
+    scaffold_p2_contact_benefit_threshold: float = 1e-6
+
+    # -------- Gentler P1 schedule lever (2026-06-03 amend) --------------------
+    # Fraction of the P1 window held at anneal_t=0 (full nursery relaxation)
+    # before the linear ramp begins -- a staged-withdrawal-of-assistance lever
+    # so >=2/3 seeds reach foraging competence before hazards ramp in. Default
+    # 0.0 = current pure-linear anneal (contract-stable).
+    scaffold_p1_anneal_hold_fraction: float = 0.0
+
     # Training rates (mirrors committed_mode_curriculum.py defaults).
     scaffold_lr_e1: float = 1e-4
     scaffold_lr_e2_wf: float = 1e-3
@@ -150,6 +198,23 @@ class ScaffoldedSD054OnboardingConfig:
 # ---------------------------------------------------------------------------
 # Result types
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class Stage0NurseryResult:
+    """
+    Outcome of ScaffoldedSD054OnboardingScheduler.run_stage0_nursery().
+
+    The forced-benefit feeding positive control. z_goal_formed is the per-seed
+    Stage-0 acceptance: did z_goal light when the infant was fed?
+    """
+
+    n_episodes: int
+    mean_forced_benefit: float
+    z_goal_norm_peak: float
+    z_goal_formed: bool
+    aborted: bool
+    abort_reason: str = ""
 
 
 @dataclass
@@ -191,6 +256,11 @@ class P2OnboardingMetrics:
     dacc_bias_nonzero_steps: int
     mean_episode_length: float
     per_episode: List[Dict[str, Any]]
+    # P2 measurement-guard additions (2026-06-03 amend): foraging-contact-rate
+    # readout so a z_goal=0 read is distinguishable from benefit starvation.
+    contact_steps: int = 0
+    contact_rate: float = 0.0
+    hazard_food_attraction_used: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -227,10 +297,28 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
     """
     Build a CausalGridWorldV2 instance for the named phase.
 
-    phase in {"p0", "p1", "p2"}. anneal_t in [0, 1] used only for p1.
+    phase in {"stage0", "p0", "p1", "p2"}. anneal_t in [0, 1] used only for p1.
     """
     from ree_core.environment.causal_grid_world import CausalGridWorldV2
 
+    if phase == "stage0":
+        # Infant-REE nursery: dense resources, no hazards, agent spawns inside
+        # the reef refuge band, hazard_food_attraction=0. A safe, food-rich
+        # crib so the forced-benefit feed and encoder warm-up are not gated by
+        # survival pressure.
+        return CausalGridWorldV2(
+            size=cfg.scaffold_env_size,
+            num_hazards=cfg.scaffold_stage0_num_hazards,
+            num_resources=cfg.scaffold_stage0_num_resources,
+            hazard_food_attraction=0.0,
+            proximity_harm_scale=cfg.scaffold_stage0_proximity_harm_scale,
+            limb_damage_enabled=True,
+            reef_enabled=True,
+            reef_bipartite_layout=True,
+            reef_bipartite_axis=cfg.scaffold_reef_bipartite_axis,
+            reef_bipartite_agent_band_radius=cfg.scaffold_reef_bipartite_agent_band_radius,
+            reef_bipartite_agent_spawn_in_reef_half=True,
+        )
     if phase == "p0":
         return CausalGridWorldV2(
             size=cfg.scaffold_env_size,
@@ -270,11 +358,19 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             reef_bipartite_agent_spawn_in_reef_half=False,
         )
     if phase == "p2":
+        # P2 measurement guard: when scaffold_p2_hazard_food_attraction_guard
+        # is >= 0 it overrides the (hard) default so the measurement window
+        # admits foraging contact; default -1.0 keeps the legacy 0.7.
+        p2_hfa = (
+            cfg.scaffold_p2_hazard_food_attraction_guard
+            if cfg.scaffold_p2_hazard_food_attraction_guard >= 0.0
+            else cfg.scaffold_p2_hazard_food_attraction
+        )
         return CausalGridWorldV2(
             size=cfg.scaffold_env_size,
             num_hazards=cfg.scaffold_p2_num_hazards,
             num_resources=cfg.scaffold_p2_num_resources,
-            hazard_food_attraction=cfg.scaffold_p2_hazard_food_attraction,
+            hazard_food_attraction=p2_hfa,
             proximity_harm_scale=cfg.scaffold_p2_proximity_harm_scale,
             limb_damage_enabled=True,
             reef_enabled=True,
@@ -360,6 +456,7 @@ class ScaffoldedSD054OnboardingScheduler:
 
     def __init__(self, cfg: ScaffoldedSD054OnboardingConfig):
         self.cfg = cfg
+        self._stage0_result: Optional[Stage0NurseryResult] = None
         self._p0_result: Optional[P0OnboardingResult] = None
         self._p1_result: Optional[P1OnboardingResult] = None
         self._p2_metrics: Optional[P2OnboardingMetrics] = None
@@ -367,6 +464,95 @@ class ScaffoldedSD054OnboardingScheduler:
     @property
     def enabled(self) -> bool:
         return bool(self.cfg.use_scaffolded_sd054_onboarding_scheduler)
+
+    # ---------------- Stage-0 nursery (forced-benefit feeding) ---------------- #
+
+    def run_stage0_nursery(self, agent, device: torch.device) -> Stage0NurseryResult:
+        """
+        Stage 0: infant-REE nursery / forced-benefit feeding.
+
+        Runs scaffold_stage0_episode_budget episodes in a dense, hazard-free
+        nursery env (agent spawns in the reef refuge band). The goal pipeline
+        is UNFROZEN and, every step, update_z_goal is fed a FORCED supra-
+        threshold benefit (scaffold_stage0_forced_benefit) + forced drive --
+        the agent is "fed" regardless of whether it actually contacts a
+        resource. This decouples z_goal FORMATION from survival/foraging skill
+        and proves the goal stream lights when fed (the positive control the
+        603e/626a autopsy says is necessary before mature autonomous goal
+        formation can be fairly tested). E1+E2 also warm up on the safe nursery
+        structure.
+
+        Requires the agent to be built with z_goal_enabled=True (else
+        agent.goal_state is None and update_z_goal early-returns) -- the same
+        two-part-fix precondition the V3-EXQ-603e config carries.
+        """
+        if not self.enabled:
+            self._stage0_result = Stage0NurseryResult(
+                n_episodes=0,
+                mean_forced_benefit=0.0,
+                z_goal_norm_peak=0.0,
+                z_goal_formed=False,
+                aborted=True,
+                abort_reason="master_switch_off",
+            )
+            return self._stage0_result
+
+        if not self.cfg.scaffold_stage0_enabled:
+            self._stage0_result = Stage0NurseryResult(
+                n_episodes=0,
+                mean_forced_benefit=0.0,
+                z_goal_norm_peak=0.0,
+                z_goal_formed=False,
+                aborted=True,
+                abort_reason="stage0_disabled",
+            )
+            return self._stage0_result
+
+        # Decoupling-from-survival positive control needs a live goal_state.
+        if getattr(agent, "goal_state", None) is None:
+            self._stage0_result = Stage0NurseryResult(
+                n_episodes=0,
+                mean_forced_benefit=0.0,
+                z_goal_norm_peak=0.0,
+                z_goal_formed=False,
+                aborted=True,
+                abort_reason="goal_state_none_set_z_goal_enabled_true",
+            )
+            return self._stage0_result
+
+        _set_goal_pipeline_frozen(agent, frozen=False)
+        env = _build_env(self.cfg, phase="stage0")
+        agent.train()
+
+        world_dim = agent.config.latent.world_dim
+        e1_opt = optim.Adam(list(agent.e1.parameters()), lr=self.cfg.scaffold_lr_e1)
+        wf_opt = optim.Adam(
+            list(agent.e2.world_transition.parameters())
+            + list(agent.e2.world_action_encoder.parameters()),
+            lr=self.cfg.scaffold_lr_e2_wf,
+        )
+        wf_buf: Deque = deque(maxlen=self.cfg.scaffold_wf_buf_max)
+
+        goal_peaks: List[float] = []
+        n_eps = max(1, self.cfg.scaffold_stage0_episode_budget)
+        for _ep in range(n_eps):
+            self._train_episode(
+                agent, env, device, e1_opt, wf_opt, wf_buf, world_dim,
+                seed_goal=True,
+                forced_benefit=self.cfg.scaffold_stage0_forced_benefit,
+                forced_drive=self.cfg.scaffold_stage0_forced_drive,
+                goal_peak_sink=goal_peaks,
+            )
+
+        peak = float(max(goal_peaks)) if goal_peaks else 0.0
+        self._stage0_result = Stage0NurseryResult(
+            n_episodes=n_eps,
+            mean_forced_benefit=float(self.cfg.scaffold_stage0_forced_benefit),
+            z_goal_norm_peak=peak,
+            z_goal_formed=peak > float(self.cfg.scaffold_stage0_z_goal_peak_gate),
+            aborted=False,
+        )
+        return self._stage0_result
 
     # ---------------- P0 ---------------- #
 
@@ -456,8 +642,15 @@ class ScaffoldedSD054OnboardingScheduler:
         recent_lengths: Deque[int] = deque(maxlen=self.cfg.scaffold_p1_stability_window)
         all_episode_lengths: List[int] = []
         last_anneal_t = 0.0
+        hold = max(0.0, min(0.95, float(self.cfg.scaffold_p1_anneal_hold_fraction)))
         for ep in range(n_eps):
-            anneal_t = ep / max(1, n_eps - 1) if n_eps > 1 else 1.0
+            raw_t = ep / max(1, n_eps - 1) if n_eps > 1 else 1.0
+            # Staged withdrawal: hold full nursery relaxation (anneal_t=0) for
+            # the first `hold` fraction of P1, then ramp linearly to 1.0.
+            if hold > 0.0:
+                anneal_t = 0.0 if raw_t <= hold else (raw_t - hold) / (1.0 - hold)
+            else:
+                anneal_t = raw_t
             _set_p1_anneal_state(agent, self.cfg, anneal_t)
             env = _build_env(self.cfg, phase="p1", anneal_t=anneal_t)
             ep_len = self._train_episode(
@@ -525,9 +718,17 @@ class ScaffoldedSD054OnboardingScheduler:
                 dacc_bias_nonzero_steps=0,
                 mean_episode_length=0.0,
                 per_episode=[],
+                contact_steps=0,
+                contact_rate=0.0,
+                hazard_food_attraction_used=0.0,
             )
             return self._p2_metrics
 
+        p2_hfa_used = (
+            self.cfg.scaffold_p2_hazard_food_attraction_guard
+            if self.cfg.scaffold_p2_hazard_food_attraction_guard >= 0.0
+            else self.cfg.scaffold_p2_hazard_food_attraction
+        )
         env = _build_env(self.cfg, phase="p2")
         agent.eval()
 
@@ -537,6 +738,7 @@ class ScaffoldedSD054OnboardingScheduler:
         total_bridge_cue = 0
         total_dacc_bias_nonzero = 0
         total_steps = 0
+        total_contact = 0
         for ep in range(self.cfg.scaffold_p2_episode_budget):
             ep_metrics = self._eval_episode(agent, env, device)
             per_episode.append(ep_metrics)
@@ -545,6 +747,7 @@ class ScaffoldedSD054OnboardingScheduler:
             total_bridge_cue += int(ep_metrics["bridge_cue_fires"])
             total_dacc_bias_nonzero += int(ep_metrics["dacc_bias_nonzero_steps"])
             total_steps += int(ep_metrics["episode_length"])
+            total_contact += int(ep_metrics["contact_steps"])
 
         n_eps = max(1, len(per_episode))
         peak_max = float(max(peak_per_ep)) if peak_per_ep else 0.0
@@ -563,6 +766,9 @@ class ScaffoldedSD054OnboardingScheduler:
             dacc_bias_nonzero_steps=total_dacc_bias_nonzero,
             mean_episode_length=mean_len,
             per_episode=per_episode,
+            contact_steps=total_contact,
+            contact_rate=(float(total_contact) / float(total_steps) if total_steps else 0.0),
+            hazard_food_attraction_used=float(p2_hfa_used),
         )
         return self._p2_metrics
 
@@ -578,6 +784,9 @@ class ScaffoldedSD054OnboardingScheduler:
         wf_buf: Deque,
         world_dim: int,
         seed_goal: bool = False,
+        forced_benefit: Optional[float] = None,
+        forced_drive: Optional[float] = None,
+        goal_peak_sink: Optional[List[float]] = None,
     ) -> int:
         """
         One training episode. Returns realised episode length in steps.
@@ -595,6 +804,14 @@ class ScaffoldedSD054OnboardingScheduler:
         design). Wiring this call is the V3-EXQ-603d / 625b harness-fix: the
         scheduler previously never reached GoalState.update, so z_goal stayed
         zero-init across every step of every arm.
+
+        forced_benefit / forced_drive (2026-06-03 Stage-0 nursery amend): when
+        seed_goal is True AND forced_benefit is not None, feed these FORCED
+        values to update_z_goal instead of reading the post-step body-state.
+        This is the infant-REE forced-feeding path -- it decouples z_goal
+        formation from foraging/survival competence (the agent need not contact
+        a resource to be "fed"). goal_peak_sink, if provided, accumulates the
+        per-step goal_norm so the caller can report a Stage-0 z_goal peak.
         """
         _, obs_dict = env.reset()
         agent.reset()
@@ -664,8 +881,29 @@ class ScaffoldedSD054OnboardingScheduler:
             # (the V3-EXQ-603d / 625b harness-fix root cause). Gated to P1 via
             # seed_goal so P0 warm-up stays goal-pipeline-frozen by design.
             if seed_goal:
-                benefit, drive = _benefit_and_drive(obs_dict["body_state"].to(device))
+                if forced_benefit is not None:
+                    # Forced-feed (Stage-0 nursery): supra-threshold benefit
+                    # regardless of actual resource contact -> decouples z_goal
+                    # formation from foraging/survival.
+                    benefit = float(forced_benefit)
+                    drive = (
+                        float(forced_drive)
+                        if forced_drive is not None
+                        else _benefit_and_drive(obs_dict["body_state"].to(device))[1]
+                    )
+                else:
+                    benefit, drive = _benefit_and_drive(
+                        obs_dict["body_state"].to(device)
+                    )
                 agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
+                if goal_peak_sink is not None:
+                    gs = getattr(agent, "goal_state", None)
+                    if gs is not None and hasattr(gs, "goal_norm"):
+                        try:
+                            gn = float(gs.goal_norm())
+                        except TypeError:
+                            gn = float(gs.goal_norm)
+                        goal_peak_sink.append(gn)
 
             if done:
                 return step + 1
@@ -683,6 +921,7 @@ class ScaffoldedSD054OnboardingScheduler:
         world_dim = agent.config.latent.world_dim
         z_goal_norm_peak = 0.0
         approach_commit_steps = 0
+        contact_steps = 0
         bridge_cue_fires_baseline = 0
         bridge_cue_fires_final = 0
         dacc_bias_nonzero_steps_baseline = 0
@@ -748,6 +987,12 @@ class ScaffoldedSD054OnboardingScheduler:
             # z_goal_norm_peak acceptance metric to be non-zero -- the
             # V3-EXQ-603d harness-fix.
             benefit, drive = _benefit_and_drive(obs_dict["body_state"].to(device))
+            # Foraging-contact-rate guard: a step where the agent actually
+            # received benefit (resource contact) -- distinguishes a z_goal=0
+            # read caused by "no contact / infant not fed" from one caused by a
+            # genuine goal-formation failure despite contact.
+            if benefit > float(self.cfg.scaffold_p2_contact_benefit_threshold):
+                contact_steps += 1
             agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
             if goal_state is not None and hasattr(goal_state, "goal_norm"):
                 try:
@@ -767,6 +1012,8 @@ class ScaffoldedSD054OnboardingScheduler:
             "episode_length": ep_len,
             "z_goal_norm_peak": z_goal_norm_peak,
             "approach_commit_steps": approach_commit_steps,
+            "contact_steps": contact_steps,
+            "contact_rate": (float(contact_steps) / float(ep_len)) if ep_len else 0.0,
             "bridge_cue_fires": bridge_cue_fires_final - bridge_cue_fires_baseline,
             "dacc_bias_nonzero_steps": dacc_bias_nonzero_local,
         }
@@ -802,11 +1049,141 @@ def clone_trained_agent(trained_agent, device: torch.device):
     return agent_clone
 
 
+# ---------------------------------------------------------------------------
+# Conceptual feeding-stage plan (explicit per the 2026-06-03 amend)
+# ---------------------------------------------------------------------------
+
+# Infant REE must be fed before mature agency is judged. The conceptual
+# developmental sequence (recorded in the 603f manifest as `stage_plan`):
+#   Stage 0  nursery: actively fed / forced-benefit warmup (run_stage0_nursery)
+#   Stage 1  guided to food under low-conflict nursery conditions (run_p0)
+#   Stage 2  finds food in easy conditions (early P1, anneal_t held low)
+#   Stage 3  finds food under guarded hazard / conflict (late P1 anneal)
+#   Stage 4  mature goal-to-action behaviour tested (run_p2, guarded hfa)
+STAGE_PLAN: List[Dict[str, str]] = [
+    {"stage": "0", "name": "nursery_forced_feed",
+     "method": "run_stage0_nursery", "desc": "forced supra-threshold benefit; z_goal formation decoupled from survival"},
+    {"stage": "1", "name": "guided_low_conflict",
+     "method": "run_p0", "desc": "reef-refuge spawn, hfa=0, goal pipeline frozen; encoder/E2/E3 warm-up"},
+    {"stage": "2", "name": "easy_foraging",
+     "method": "run_p1 (early anneal)", "desc": "goal pipeline unfrozen, low hazard; ecological contact begins"},
+    {"stage": "3", "name": "guarded_hazard",
+     "method": "run_p1 (late anneal)", "desc": "hazard_food_attraction + proximity_harm ramp toward target"},
+    {"stage": "4", "name": "mature_test",
+     "method": "run_p2", "desc": "frozen-policy measurement under guarded hfa; substrate gate evaluated"},
+]
+
+
+def stage_plan() -> List[Dict[str, str]]:
+    """Return the conceptual feeding-stage plan for inclusion in the manifest."""
+    return [dict(s) for s in STAGE_PLAN]
+
+
+def _fraction_passing(values: List[bool]) -> float:
+    if not values:
+        return 0.0
+    return float(sum(1 for v in values if v)) / float(len(values))
+
+
+def evaluate_substrate_gate(
+    stage0_z_goal_peaks_per_seed: List[float],
+    p1_survival_pass_per_seed: List[bool],
+    p2_z_goal_peaks_per_seed: List[float],
+    p2_contact_rates_per_seed: List[float],
+    *,
+    z_goal_gate: float = 0.4,
+    contact_gate: float = 0.0,
+    min_fraction: float = 2.0 / 3.0,
+) -> Dict[str, Any]:
+    """
+    Evaluate the four substrate-readiness gates that MUST pass before
+    Q-045 / MECH-313 / MECH-260 discrimination is interpreted in V3-EXQ-603f.
+
+    All gates require >= min_fraction (default 2/3) of seeds to pass:
+      stage0_positive_control : Stage-0 forced-feed produced z_goal > z_goal_gate
+                                (proves the goal stream lights when fed -- if this
+                                fails the substrate itself is broken, NOT the claim).
+      g1_survival             : P1 survival/foraging gate passed.
+      g2_contact              : P2 foraging-contact-rate > contact_gate (infant was
+                                actually fed in the measurement window).
+      g3_zgoal                : P2 z_goal_norm_peak > z_goal_gate (goal formed
+                                ecologically).
+
+    substrate_gate_passed is the conjunction. A same-substrate retest with the
+    nursery disabled supplies empty/zero Stage-0 peaks -> stage0_positive_control
+    False -> gate cannot pass, so the old path cannot masquerade as 603f.
+    """
+    stage0_pc = _fraction_passing(
+        [p > z_goal_gate for p in stage0_z_goal_peaks_per_seed]
+    ) >= min_fraction
+    g1 = _fraction_passing(list(p1_survival_pass_per_seed)) >= min_fraction
+    g2 = _fraction_passing(
+        [r > contact_gate for r in p2_contact_rates_per_seed]
+    ) >= min_fraction
+    g3 = _fraction_passing(
+        [p > z_goal_gate for p in p2_z_goal_peaks_per_seed]
+    ) >= min_fraction
+    return {
+        "substrate_gate_passed": bool(stage0_pc and g1 and g2 and g3),
+        "stage0_positive_control": bool(stage0_pc),
+        "g1_survival": bool(g1),
+        "g2_contact": bool(g2),
+        "g3_zgoal": bool(g3),
+        "z_goal_gate": float(z_goal_gate),
+        "contact_gate": float(contact_gate),
+        "min_fraction": float(min_fraction),
+    }
+
+
+def classify_interpretation_branch(
+    gate: Dict[str, Any],
+    *,
+    diversity_resolved: Optional[bool] = None,
+    behaviour_harmful: Optional[bool] = None,
+) -> str:
+    """
+    Pre-registered five-way interpretation grid for V3-EXQ-603f. `gate` is the
+    dict from evaluate_substrate_gate; diversity_resolved / behaviour_harmful
+    are supplied by the experiment after it computes the Q-045 arm deltas and
+    harm/churn readouts (None until known).
+
+    Branches:
+      1 substrate_not_engaged            -- feeding/contact/survival gates fail
+                                            -> non_contributory, return to substrate work.
+      2 fed_but_no_goal                  -- contact occurs but z_goal does not form
+                                            -> goal-formation issue.
+      3 goal_formed_diversity_inert      -- goal forms, diversity/action mechanisms inert
+                                            -> selection-authority / Ethics-Engine-3
+                                               arbitration issue (modulatory-bias-selection-authority).
+      4 goal_formed_mechanisms_load_bearing -- goal forms, MECH-313/MECH-260 resolve
+                                            -> supports Q-045 / MECH-313 / MECH-260.
+      5 goal_formed_behaviour_random_harmful -- goal forms but behaviour random/harmful
+                                            -> arbitration failure, NOT a simple success.
+    """
+    if not (gate.get("stage0_positive_control") and gate.get("g1_survival") and gate.get("g2_contact")):
+        return "substrate_not_engaged"
+    if gate.get("g2_contact") and not gate.get("g3_zgoal"):
+        return "fed_but_no_goal"
+    # gate fully passed -> goal formed ecologically
+    if behaviour_harmful:
+        return "goal_formed_behaviour_random_harmful"
+    if diversity_resolved is True:
+        return "goal_formed_mechanisms_load_bearing"
+    if diversity_resolved is False:
+        return "goal_formed_diversity_inert"
+    return "goal_formed_diversity_undetermined"
+
+
 __all__ = [
     "ScaffoldedSD054OnboardingConfig",
     "ScaffoldedSD054OnboardingScheduler",
+    "Stage0NurseryResult",
     "P0OnboardingResult",
     "P1OnboardingResult",
     "P2OnboardingMetrics",
     "clone_trained_agent",
+    "stage_plan",
+    "STAGE_PLAN",
+    "evaluate_substrate_gate",
+    "classify_interpretation_branch",
 ]

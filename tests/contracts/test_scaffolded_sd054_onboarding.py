@@ -506,3 +506,179 @@ def test_c6_update_z_goal_called_in_p1_not_p0(monkeypatch):
     assert calls["n"] > 0, (
         "P1 must seed z_goal: update_z_goal was never called during run_p1"
     )
+
+
+# ---------------------------------------------------------------------------
+# C6: nursery / forced-benefit feeding amend (2026-06-03).
+# Routed by failure_autopsy_V3-EXQ-603e-626a-622_2026-06-03.
+# ---------------------------------------------------------------------------
+
+from experiments.scaffolded_sd054_onboarding import (  # noqa: E402
+    Stage0NurseryResult,
+    classify_interpretation_branch,
+    evaluate_substrate_gate,
+    stage_plan,
+)
+
+
+def test_c6_amend_config_defaults_are_noop():
+    """New amend knobs default to no-op (Stage-0 disabled, P2 guard off, no hold)."""
+    cfg = ScaffoldedSD054OnboardingConfig()
+    assert cfg.scaffold_stage0_enabled is False
+    assert cfg.scaffold_stage0_forced_benefit == 1.0
+    assert cfg.scaffold_stage0_forced_drive == 0.9
+    assert cfg.scaffold_stage0_num_hazards == 0
+    assert cfg.scaffold_stage0_z_goal_peak_gate == 0.4
+    assert cfg.scaffold_p2_hazard_food_attraction_guard == -1.0  # <0 = no guard
+    assert cfg.scaffold_p1_anneal_hold_fraction == 0.0  # pure-linear anneal
+    # Existing memo defaults untouched (anti-regression).
+    assert cfg.scaffold_p2_hazard_food_attraction == 0.7
+    assert cfg.scaffold_p0_episode_budget == 30
+
+
+def test_c6_stage0_aborts_on_master_off():
+    cfg = ScaffoldedSD054OnboardingConfig(use_scaffolded_sd054_onboarding_scheduler=False)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    r = sched.run_stage0_nursery(object(), device=None)
+    assert isinstance(r, Stage0NurseryResult)
+    assert r.aborted is True
+    assert r.abort_reason == "master_switch_off"
+    assert r.z_goal_formed is False
+
+
+def test_c6_stage0_aborts_when_disabled():
+    cfg = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_stage0_enabled=False,
+    )
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    r = sched.run_stage0_nursery(object(), device=None)
+    assert r.aborted is True
+    assert r.abort_reason == "stage0_disabled"
+
+
+def test_c6_stage0_aborts_without_goal_state():
+    """
+    Forced-feed nursery needs a live goal_state (z_goal_enabled=True). A
+    z_goal-disabled agent aborts loudly rather than silently producing z_goal=0.
+    """
+    cfg = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_stage0_enabled=True,
+    )
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+
+    class NoGoalAgent:
+        goal_state = None
+
+    r = sched.run_stage0_nursery(NoGoalAgent(), device=None)
+    assert r.aborted is True
+    assert r.abort_reason == "goal_state_none_set_z_goal_enabled_true"
+
+
+def test_c6_stage0_env_is_safe_dense_nursery():
+    cfg = ScaffoldedSD054OnboardingConfig(use_scaffolded_sd054_onboarding_scheduler=True)
+    env = _build_env(cfg, "stage0")
+    assert env.reef_bipartite_agent_spawn_in_reef_half is True
+    assert env.hazard_food_attraction == 0.0
+    assert env.proximity_harm_scale == cfg.scaffold_stage0_proximity_harm_scale
+    assert env.num_hazards == cfg.scaffold_stage0_num_hazards == 0
+
+
+def test_c6_p2_hazard_guard_overrides_when_nonneg():
+    """guard >= 0 overrides P2 hfa; guard < 0 keeps the (hard) 0.7 default."""
+    base = ScaffoldedSD054OnboardingConfig(use_scaffolded_sd054_onboarding_scheduler=True)
+    env_default = _build_env(base, "p2")
+    assert env_default.hazard_food_attraction == 0.7  # no guard
+
+    guarded = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_p2_hazard_food_attraction_guard=0.3,
+    )
+    env_guarded = _build_env(guarded, "p2")
+    assert math.isclose(env_guarded.hazard_food_attraction, 0.3)
+
+
+def test_c6_p2_metrics_carry_contact_readout():
+    """P2OnboardingMetrics exposes the foraging-contact-rate guard fields."""
+    cfg = ScaffoldedSD054OnboardingConfig(use_scaffolded_sd054_onboarding_scheduler=False)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    m = sched.run_p2(object(), device=None)  # master-off short-circuit
+    assert hasattr(m, "contact_steps")
+    assert hasattr(m, "contact_rate")
+    assert hasattr(m, "hazard_food_attraction_used")
+    assert m.contact_rate == 0.0
+
+
+def test_c6_substrate_gate_full_pass():
+    gate = evaluate_substrate_gate(
+        stage0_z_goal_peaks_per_seed=[0.6, 0.7, 0.55],
+        p1_survival_pass_per_seed=[True, True, False],
+        p2_z_goal_peaks_per_seed=[0.5, 0.45, 0.1],
+        p2_contact_rates_per_seed=[0.2, 0.1, 0.0],
+    )
+    assert gate["stage0_positive_control"] is True
+    assert gate["g1_survival"] is True   # 2/3
+    assert gate["g2_contact"] is True    # 2/3
+    assert gate["g3_zgoal"] is True      # 2/3
+    assert gate["substrate_gate_passed"] is True
+
+
+def test_c6_substrate_gate_blocks_without_stage0():
+    """
+    z_goal=0 is NOT interpretable without the feeding positive control. A
+    same-substrate retest with the nursery disabled supplies no Stage-0 z_goal
+    peaks -> stage0_positive_control False -> gate cannot pass -> the old path
+    cannot masquerade as 603f.
+    """
+    gate = evaluate_substrate_gate(
+        stage0_z_goal_peaks_per_seed=[],          # nursery never run
+        p1_survival_pass_per_seed=[True, True, True],
+        p2_z_goal_peaks_per_seed=[0.5, 0.5, 0.5],
+        p2_contact_rates_per_seed=[0.2, 0.2, 0.2],
+    )
+    assert gate["stage0_positive_control"] is False
+    assert gate["substrate_gate_passed"] is False
+
+
+def test_c6_substrate_gate_blocks_on_starvation():
+    """Fed-but-no-contact / starvation: g2_contact fails -> gate fails."""
+    gate = evaluate_substrate_gate(
+        stage0_z_goal_peaks_per_seed=[0.6, 0.6, 0.6],
+        p1_survival_pass_per_seed=[False, False, True],   # 1/3 survive
+        p2_z_goal_peaks_per_seed=[0.0, 0.0, 0.0],
+        p2_contact_rates_per_seed=[0.0, 0.0, 0.0],        # never fed in P2
+    )
+    assert gate["g1_survival"] is False
+    assert gate["g2_contact"] is False
+    assert gate["g3_zgoal"] is False
+    assert gate["substrate_gate_passed"] is False
+
+
+def test_c6_interpretation_branches():
+    not_engaged = evaluate_substrate_gate([], [False], [0.0], [0.0])
+    assert classify_interpretation_branch(not_engaged) == "substrate_not_engaged"
+
+    # Fed (stage0 + survival + contact) but z_goal does not form ecologically.
+    fed_no_goal = evaluate_substrate_gate(
+        [0.6, 0.6, 0.6], [True, True, True], [0.0, 0.0, 0.0], [0.2, 0.2, 0.2]
+    )
+    assert fed_no_goal["g2_contact"] is True and fed_no_goal["g3_zgoal"] is False
+    assert classify_interpretation_branch(fed_no_goal) == "fed_but_no_goal"
+
+    full = evaluate_substrate_gate(
+        [0.6, 0.6, 0.6], [True, True, True], [0.5, 0.5, 0.5], [0.2, 0.2, 0.2]
+    )
+    assert full["substrate_gate_passed"] is True
+    assert classify_interpretation_branch(full, diversity_resolved=False) == "goal_formed_diversity_inert"
+    assert classify_interpretation_branch(full, diversity_resolved=True) == "goal_formed_mechanisms_load_bearing"
+    assert classify_interpretation_branch(full, behaviour_harmful=True) == "goal_formed_behaviour_random_harmful"
+    assert classify_interpretation_branch(full) == "goal_formed_diversity_undetermined"
+
+
+def test_c6_stage_plan_has_five_stages_nursery_first():
+    plan = stage_plan()
+    assert len(plan) == 5
+    assert plan[0]["stage"] == "0"
+    assert plan[0]["method"] == "run_stage0_nursery"
+    assert plan[-1]["method"] == "run_p2"
