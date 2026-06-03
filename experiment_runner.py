@@ -1196,25 +1196,71 @@ def _cloud_worker_is_fresh(
     return age.total_seconds() <= freshness_minutes * 60
 
 
+# Heartbeat `state` values in which a cloud worker is available to claim a NEW
+# item soon. "idle" is the only one: "running" is busy (often for hours on a
+# behavioural run), "paused" is deliberately held, "draining" is shutting down,
+# "starting" is mid-boot and will report "idle" on its next tick anyway.
+_AVAILABLE_CLOUD_STATES = frozenset({"idle"})
+
+
+def _cloud_worker_is_available(
+    cloud_host: str,
+    freshness_minutes: int,
+    ree_assembly_path: Path | None,
+) -> bool:
+    """True iff runner_heartbeats/<cloud_host>.json is fresh within
+    freshness_minutes AND the worker is idle (state in _AVAILABLE_CLOUD_STATES
+    with no current_exq). A fresh-but-busy cloud worker is NOT available: it is
+    alive but will not claim a new item until its current run finishes, so the
+    laptop must not yield to it (doing so starves the queue while the whole
+    cloud fleet is saturated). Missing/unparseable heartbeats are treated as
+    not available."""
+    base = ree_assembly_path or find_ree_assembly_path()
+    if base is None:
+        return False
+    hb_path = (
+        base / "evidence" / "experiments" / "runner_heartbeats" /
+        f"{_safe_heartbeat_filename(cloud_host)}.json"
+    )
+    try:
+        hb = json.loads(hb_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    last_tick = _parse_utc_timestamp(hb.get("last_tick_utc"))
+    if last_tick is None:
+        return False
+    age = datetime.now(timezone.utc) - last_tick
+    if age.total_seconds() > freshness_minutes * 60:
+        return False
+    if hb.get("state") not in _AVAILABLE_CLOUD_STATES:
+        return False
+    if hb.get("current_exq"):
+        return False
+    return True
+
+
 def _should_yield_to_cloud(
     item: dict,
     freshness_minutes: int,
     ree_assembly_path: Path | None,
 ) -> tuple[bool, str | None]:
     """Decide whether the laptop should skip this queue item in favour of a
-    cloud worker. Returns (should_yield, fresh_cloud_host).
+    cloud worker. Returns (should_yield, available_cloud_host).
 
     Yields only when the item's affinity is "any" (None/"" treated as "any")
-    AND at least one cloud worker in LAPTOP_YIELD_CLOUD_HOSTS has a heartbeat
-    fresh within freshness_minutes. Items pinned to a specific hostname are
-    never yielded -- if the pin is the laptop the laptop must run it; if the
-    pin is a cloud host the existing affinity check already filters it out.
+    AND at least one cloud worker in LAPTOP_YIELD_CLOUD_HOSTS is both fresh
+    within freshness_minutes AND idle (available to claim it). A cloud worker
+    that is alive but busy on its own long run does NOT trigger a yield -- when
+    every cloud worker is saturated the laptop runs the item itself instead of
+    leaving it to starve. Items pinned to a specific hostname are never yielded
+    -- if the pin is the laptop the laptop must run it; if the pin is a cloud
+    host the existing affinity check already filters it out.
     """
     affinity = item.get("machine_affinity", "any")
     if affinity not in ("any", None, ""):
         return False, None
     for host in LAPTOP_YIELD_CLOUD_HOSTS:
-        if _cloud_worker_is_fresh(host, freshness_minutes, ree_assembly_path):
+        if _cloud_worker_is_available(host, freshness_minutes, ree_assembly_path):
             return True, host
     return False, None
 
@@ -2718,21 +2764,30 @@ def main():
                       f"(this machine: {machine})", flush=True)
                 continue
 
-            # Lever 1: laptop yields to cloud on 'any'-affinity items while
-            # at least one cloud worker is alive. Items pinned to this host
+            # Lever 1: laptop yields to cloud on 'any'-affinity items while at
+            # least one cloud worker is fresh AND idle (available to claim). If
+            # every cloud worker is alive-but-busy the laptop runs the item
+            # itself rather than letting it starve. Items pinned to this host
             # are unaffected (the affinity check above let them through).
             if args.laptop_yield_to_cloud:
-                yield_, fresh_host = _should_yield_to_cloud(
+                yield_, available_host = _should_yield_to_cloud(
                     item, args.laptop_yield_freshness_min, ree_assembly_path,
                 )
                 if yield_:
                     print(
                         f"[runner] Yielding {queue_id} (affinity=any) to "
-                        f"{fresh_host} -- cloud heartbeat fresh within "
-                        f"{args.laptop_yield_freshness_min}min",
+                        f"{available_host} -- cloud worker idle and fresh "
+                        f"within {args.laptop_yield_freshness_min}min",
                         flush=True,
                     )
                     continue
+                else:
+                    print(
+                        f"[runner] Not yielding {queue_id} (affinity=any) -- "
+                        f"no idle cloud worker available (fleet busy or stale); "
+                        f"running locally",
+                        flush=True,
+                    )
 
             # Skip experiments already claimed by another active machine
             if not coordinator_claims_authoritative():
