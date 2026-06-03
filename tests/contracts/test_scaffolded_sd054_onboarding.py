@@ -857,3 +857,152 @@ def test_c7_flags_off_bit_identical_legacy_path(monkeypatch):
     p2 = sched.run_p2(agent, dev)
     assert p2.contact_gated is False
     assert p2.n_skipped_protected_updates == 0
+
+
+# ---------------------------------------------------------------------------
+# C8: seeding-calibration amend (V3-EXQ-634b autopsy, 2026-06-03c).
+# Decouples the contact-GATING threshold from the contact-RATE readout,
+# propagates GoalConfig seeding magnitudes from the scaffold, and adds the
+# consumption-event-gated z_goal readout (the fair G3 input).
+# ---------------------------------------------------------------------------
+
+
+def test_c8_seeding_calibration_config_defaults_are_noop():
+    """New seeding-calibration knobs default to no-op (sentinel / None)."""
+    cfg = ScaffoldedSD054OnboardingConfig()
+    assert cfg.scaffold_contact_gating_benefit_threshold == -1.0
+    assert cfg.scaffold_z_goal_seeding_gain is None
+    assert cfg.scaffold_benefit_threshold is None
+    assert cfg.scaffold_drive_floor is None
+
+
+def test_c8_gating_threshold_falls_back_to_readout_then_decouples():
+    """Sentinel < 0 -> gating uses the contact-rate readout threshold
+    (bit-identical). >= 0 -> gating is decoupled from the readout."""
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_p2_contact_benefit_threshold=1e-6)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    assert sched._gating_threshold() == 1e-6  # fallback
+    cfg.scaffold_contact_gating_benefit_threshold = 0.1
+    assert sched._gating_threshold() == 0.1  # decoupled
+
+
+def test_c8_apply_seeding_calibration_noop_and_applies():
+    """Default config leaves the agent's GoalConfig untouched; set knobs are
+    propagated onto GoalState.config so genuine wild contact can seed."""
+    import torch  # noqa: F401
+
+    # (1) defaults -> no-op
+    cfg = ScaffoldedSD054OnboardingConfig()
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    agent = _build_goal_enabled_agent(cfg)
+    gc = agent.goal_state.config
+    before = (gc.z_goal_seeding_gain, gc.benefit_threshold, gc.drive_floor)
+    sched._apply_goal_seeding_calibration(agent)
+    assert (gc.z_goal_seeding_gain, gc.benefit_threshold, gc.drive_floor) == before
+
+    # (2) set knobs -> applied
+    cfg.scaffold_z_goal_seeding_gain = 1.5
+    cfg.scaffold_benefit_threshold = 0.02
+    cfg.scaffold_drive_floor = 0.9
+    sched._apply_goal_seeding_calibration(agent)
+    assert gc.z_goal_seeding_gain == 1.5
+    assert gc.benefit_threshold == 0.02
+    assert gc.drive_floor == 0.9
+
+    # (3) arithmetic: wild benefit 0.03 now clears the firing threshold
+    eff = 0.03 * gc.z_goal_seeding_gain * (1.0 + gc.drive_weight * gc.drive_floor)
+    assert eff > gc.benefit_threshold
+
+
+def test_c8_calibration_applied_by_run_p1():
+    """run_p1 applies the scaffold seeding calibration to the live GoalConfig."""
+    import torch
+    cfg = _dw_cfg(
+        scaffold_benefit_threshold=0.02,
+        scaffold_z_goal_seeding_gain=1.5,
+        scaffold_drive_floor=0.9,
+    )
+    agent = _build_goal_enabled_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    sched.run_p1(agent, torch.device("cpu"))
+    gc = agent.goal_state.config
+    assert gc.benefit_threshold == 0.02
+    assert gc.z_goal_seeding_gain == 1.5
+    assert gc.drive_floor == 0.9
+
+
+def test_c8_contact_gating_decoupled_protects_subseeding_whiff(monkeypatch):
+    """KEY decoupling contract: a benefit in the band (readout_floor, seeding_floor)
+    is counted as ecological contact (readout) yet PROTECTED (skipped) by the
+    gating threshold -- so it cannot decay-only erode the trace. The SAME benefit
+    with the gating sentinel (fallback to readout) instead SEEDS (refresh)."""
+    import experiments.scaffolded_sd054_onboarding as sched_mod
+    import torch
+    dev = torch.device("cpu")
+    # P1 benefit sits in the band: above readout (1e-6) but below gating (0.1).
+    monkeypatch.setattr(sched_mod, "_benefit_and_drive", lambda ob: (0.05, 1.0))
+
+    def _run(gating):
+        cfg = _dw_cfg(
+            scaffold_developmental_window_enabled=True,
+            scaffold_contact_gated_goal_updates=True,
+            scaffold_p2_contact_benefit_threshold=1e-6,
+            scaffold_contact_gating_benefit_threshold=gating,
+            scaffold_stage0_episode_budget=1,
+            scaffold_p1_episode_budget=1,
+            scaffold_steps_per_episode=12,
+        )
+        agent = _build_goal_enabled_agent(cfg)
+        sched = ScaffoldedSD054OnboardingScheduler(cfg)
+        sched.run_stage0_nursery(agent, dev)
+        return sched.run_p1(agent, dev)
+
+    # Decoupled (gating 0.1): the 0.05 whiff is protected, never decays.
+    decoupled = _run(gating=0.1)
+    assert decoupled.n_skipped_protected_updates > 0
+    assert decoupled.n_contact_refresh_updates == 0
+    assert decoupled.n_decay_only_updates == 0
+
+    # Sentinel (-1 -> fallback to readout 1e-6): the 0.05 step now SEEDS.
+    legacy = _run(gating=-1.0)
+    assert legacy.n_contact_refresh_updates > 0
+    assert legacy.n_skipped_protected_updates == 0
+
+
+def test_c8_p2_consumption_gated_peak_distinct_from_frozen_peak(monkeypatch):
+    """G3 redesign contract: with z_goal carried from Stage-0 but NO genuine
+    seeding contact in P2 (every P2 benefit is sub-seeding -> protected), the
+    frozen peak (z_goal_norm_peak_max) stays > 0 (carried nursery trace) while
+    the consumption-event-gated readout is exactly 0 with num_contact_events==0
+    -- the seed-42 artifact and its fix."""
+    import experiments.scaffolded_sd054_onboarding as sched_mod
+    import torch
+    dev = torch.device("cpu")
+
+    # P2 benefit 0.05 is above readout (so it counts as contact_rate) but below
+    # the gating/seeding floor (0.1) -> protected, never seeds z_goal in P2.
+    monkeypatch.setattr(sched_mod, "_benefit_and_drive", lambda ob: (0.05, 1.0))
+
+    cfg = _dw_cfg(
+        scaffold_developmental_window_enabled=True,
+        scaffold_contact_gated_goal_updates=True,
+        scaffold_p2_contact_benefit_threshold=1e-6,
+        scaffold_contact_gating_benefit_threshold=0.1,
+        scaffold_stage0_episode_budget=1,
+        scaffold_p2_episode_budget=1,
+        scaffold_steps_per_episode=12,
+    )
+    agent = _build_goal_enabled_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    # Stage-0 forced-feed seeds a non-zero carried trace.
+    s0 = sched.run_stage0_nursery(agent, dev)
+    assert s0.z_goal_norm_peak > 0.0
+
+    p2 = sched.run_p2(agent, dev)
+    # Frozen peak reflects the carried trace (the misleading G3 signal).
+    assert p2.z_goal_norm_peak_max > 0.0
+    # Consumption-gated readout is honest: no genuine seeding event occurred.
+    assert p2.num_contact_events == 0
+    assert p2.z_goal_norm_at_contact_peak == 0.0
+    # ... yet the contact-RATE readout still registers ecological engagement.
+    assert p2.contact_steps > 0

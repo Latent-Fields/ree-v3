@@ -214,6 +214,41 @@ class ScaffoldedSD054OnboardingConfig:
     # reserved for mature/autonomous tests, NOT the nursery gate.
     scaffold_contact_gated_goal_updates: bool = False
 
+    # -------- Seeding-calibration amend (V3-EXQ-634b autopsy, 2026-06-03c) -----
+    # The 634b autopsy isolated a benefit-magnitude / threshold mismatch:
+    # contact-gating skips only benefit <= scaffold_p2_contact_benefit_threshold
+    # (1e-6), but GoalState.update (goal.py:209-224) seeds z_goal only when
+    #   effective_benefit = benefit * z_goal_seeding_gain(1.0)
+    #                       * (1 + drive_weight(2.0) * drive_trace) > benefit_threshold(0.1).
+    # Natural wild benefit (obs_body[11] ~0.03) stays sub-threshold, so the band
+    # (1e-6, ~0.1-effective) is NOT skipped yet does NOT seed -- it only applies
+    # the unconditional 0.5%/step decay (goal.py:173), DECAYING the consolidated
+    # trace during real foraging. Two coupled, no-op-default fixes:
+    #
+    # (1) DECOUPLED CONTACT-GATING THRESHOLD. The skip/update decision now keys
+    #     off a SEPARATE gating threshold so sub-seeding whiffs in the band
+    #     (readout_floor, seeding_floor) are PROTECTED (skipped, not decayed)
+    #     while the contact-RATE readout (g2 "was the infant fed at all") keeps
+    #     using scaffold_p2_contact_benefit_threshold. Sentinel < 0 (default)
+    #     falls back to scaffold_p2_contact_benefit_threshold -> bit-identical to
+    #     the pre-amend 634b path. The 634c re-validation sets this to the
+    #     effective seeding floor (matched to benefit_threshold / gain / drive_floor).
+    scaffold_contact_gating_benefit_threshold: float = -1.0
+    #
+    # (2) GOAL-SEEDING MAGNITUDE PROPAGATION. When set (not None), these scaffold
+    #     knobs are written onto the agent's GoalConfig (agent.goal_state.config)
+    #     at the top of each run_* stage so genuine wild contact can clear the
+    #     GoalState firing threshold. None (default) leaves the agent's existing
+    #     GoalConfig untouched -> bit-identical. The 634c sweep picks the
+    #     combination (autopsy: "one or a combination, pick via a small sweep").
+    #       scaffold_z_goal_seeding_gain -> GoalConfig.z_goal_seeding_gain (raise > 1.0)
+    #       scaffold_benefit_threshold   -> GoalConfig.benefit_threshold (lower < 0.1)
+    #       scaffold_drive_floor         -> GoalConfig.drive_floor (raise ~0.9; the
+    #         EXQ-582a first-PASS arm, effective_benefit >= benefit * 2.8).
+    scaffold_z_goal_seeding_gain: Optional[float] = None
+    scaffold_benefit_threshold: Optional[float] = None
+    scaffold_drive_floor: Optional[float] = None
+
     # Training rates (mirrors committed_mode_curriculum.py defaults).
     scaffold_lr_e1: float = 1e-4
     scaffold_lr_e2_wf: float = 1e-3
@@ -318,6 +353,16 @@ class P2OnboardingMetrics:
     n_decay_only_updates: int = 0
     n_skipped_protected_updates: int = 0
     contact_gated: bool = False
+    # Consumption-event-gated z_goal readout (V3-EXQ-634b autopsy, 2026-06-03c):
+    # the G3 acceptance readout must read z_goal AT genuine consumption events
+    # (632-style), NOT the forced-feed-calibrated frozen peak (z_goal_norm_peak_max),
+    # which seed 42 "passed" by carrying the untouched nursery trace through a
+    # zero-contact P2. z_goal_norm_at_contact_peak is the max goal-norm read only
+    # on a validated-contact step (post-seeding); 0.0 when the agent never made
+    # ecological contact -> a z_goal=0-at-contact read is now interpretable as
+    # "goal not maintained by foraging" rather than masked by the frozen trace.
+    z_goal_norm_at_contact_peak: float = 0.0
+    num_contact_events: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -558,6 +603,46 @@ class ScaffoldedSD054OnboardingScheduler:
     def enabled(self) -> bool:
         return bool(self.cfg.use_scaffolded_sd054_onboarding_scheduler)
 
+    def _gating_threshold(self) -> float:
+        """Benefit threshold for the contact-GATING (skip/update) decision.
+
+        V3-EXQ-634b autopsy seeding-calibration amend: decoupled from the
+        contact-RATE readout threshold (scaffold_p2_contact_benefit_threshold).
+        Sentinel < 0 (default) -> fall back to the readout threshold, so the
+        skip decision is bit-identical to the pre-amend 634b path. When >= 0,
+        the band (readout_floor, gating_threshold) is PROTECTED (skipped) rather
+        than decay-only updated -- the 634c re-validation matches this to the
+        GoalState seeding firing floor so sub-seeding whiffs do not erode the
+        consolidated trace.
+        """
+        g = float(self.cfg.scaffold_contact_gating_benefit_threshold)
+        if g < 0.0:
+            return float(self.cfg.scaffold_p2_contact_benefit_threshold)
+        return g
+
+    def _apply_goal_seeding_calibration(self, agent) -> None:
+        """Propagate the scaffold seeding-magnitude knobs onto the agent's live
+        GoalConfig (V3-EXQ-634b autopsy amend). No-op when every knob is None
+        (default) or the agent has no goal_state -> bit-identical to pre-amend.
+
+        Idempotent: called at the top of each seeding-capable run_* stage so the
+        calibration holds regardless of which stages an experiment runs. Sets
+        GoalState.config in place; the GoalState reads these per-call in update(),
+        so the change takes effect on the next update_z_goal without rebuild.
+        """
+        gs = getattr(agent, "goal_state", None)
+        if gs is None:
+            return
+        gc = getattr(gs, "config", None)
+        if gc is None:
+            return
+        if self.cfg.scaffold_z_goal_seeding_gain is not None:
+            gc.z_goal_seeding_gain = float(self.cfg.scaffold_z_goal_seeding_gain)
+        if self.cfg.scaffold_benefit_threshold is not None:
+            gc.benefit_threshold = float(self.cfg.scaffold_benefit_threshold)
+        if self.cfg.scaffold_drive_floor is not None:
+            gc.drive_floor = float(self.cfg.scaffold_drive_floor)
+
     # ---------------- Stage-0 nursery (forced-benefit feeding) ---------------- #
 
     def run_stage0_nursery(self, agent, device: torch.device) -> Stage0NurseryResult:
@@ -613,6 +698,7 @@ class ScaffoldedSD054OnboardingScheduler:
             )
             return self._stage0_result
 
+        self._apply_goal_seeding_calibration(agent)
         _set_goal_pipeline_frozen(agent, frozen=False)
         env = _build_env(self.cfg, phase="stage0")
         agent.train()
@@ -815,6 +901,7 @@ class ScaffoldedSD054OnboardingScheduler:
             )
             return self._p1_result
 
+        self._apply_goal_seeding_calibration(agent)
         _set_goal_pipeline_frozen(agent, frozen=False)
         agent.train()
 
@@ -839,6 +926,7 @@ class ScaffoldedSD054OnboardingScheduler:
             and self.cfg.scaffold_contact_gated_goal_updates
         )
         contact_threshold = float(self.cfg.scaffold_p2_contact_benefit_threshold)
+        gating_threshold = self._gating_threshold()
         goal_write_diag = _new_goal_write_diag()
         for ep in range(n_eps):
             raw_t = ep / max(1, n_eps - 1) if n_eps > 1 else 1.0
@@ -855,6 +943,7 @@ class ScaffoldedSD054OnboardingScheduler:
                 seed_goal=True,
                 contact_gated=contact_gated,
                 contact_threshold=contact_threshold,
+                gating_threshold=gating_threshold,
                 goal_write_diag=goal_write_diag,
             )
             all_episode_lengths.append(ep_len)
@@ -928,6 +1017,7 @@ class ScaffoldedSD054OnboardingScheduler:
             )
             return self._p2_metrics
 
+        self._apply_goal_seeding_calibration(agent)
         p2_hfa_used = (
             self.cfg.scaffold_p2_hazard_food_attraction_guard
             if self.cfg.scaffold_p2_hazard_food_attraction_guard >= 0.0
@@ -945,6 +1035,7 @@ class ScaffoldedSD054OnboardingScheduler:
             and self.cfg.scaffold_contact_gated_goal_updates
         )
         contact_threshold = float(self.cfg.scaffold_p2_contact_benefit_threshold)
+        gating_threshold = self._gating_threshold()
 
         per_episode: List[Dict[str, Any]] = []
         peak_per_ep: List[float] = []
@@ -956,11 +1047,14 @@ class ScaffoldedSD054OnboardingScheduler:
         total_contact_refresh = 0
         total_decay_only = 0
         total_skipped_protected = 0
+        contact_peak_max = 0.0
+        total_contact_events = 0
         for ep in range(self.cfg.scaffold_p2_episode_budget):
             ep_metrics = self._eval_episode(
                 agent, env, device,
                 contact_gated=contact_gated,
                 contact_threshold=contact_threshold,
+                gating_threshold=gating_threshold,
             )
             per_episode.append(ep_metrics)
             peak_per_ep.append(ep_metrics["z_goal_norm_peak"])
@@ -972,6 +1066,10 @@ class ScaffoldedSD054OnboardingScheduler:
             total_contact_refresh += int(ep_metrics.get("n_contact_refresh_updates", 0))
             total_decay_only += int(ep_metrics.get("n_decay_only_updates", 0))
             total_skipped_protected += int(ep_metrics.get("n_skipped_protected_updates", 0))
+            contact_peak_max = max(
+                contact_peak_max, float(ep_metrics.get("z_goal_norm_at_contact_peak", 0.0))
+            )
+            total_contact_events += int(ep_metrics.get("num_contact_events", 0))
 
         n_eps = max(1, len(per_episode))
         peak_max = float(max(peak_per_ep)) if peak_per_ep else 0.0
@@ -997,6 +1095,8 @@ class ScaffoldedSD054OnboardingScheduler:
             n_decay_only_updates=total_decay_only,
             n_skipped_protected_updates=total_skipped_protected,
             contact_gated=contact_gated,
+            z_goal_norm_at_contact_peak=contact_peak_max,
+            num_contact_events=total_contact_events,
         )
         return self._p2_metrics
 
@@ -1017,6 +1117,7 @@ class ScaffoldedSD054OnboardingScheduler:
         goal_peak_sink: Optional[List[float]] = None,
         contact_gated: bool = False,
         contact_threshold: float = 0.0,
+        gating_threshold: Optional[float] = None,
         goal_write_diag: Optional[Dict[str, int]] = None,
     ) -> int:
         """
@@ -1127,21 +1228,32 @@ class ScaffoldedSD054OnboardingScheduler:
                     benefit, drive = _benefit_and_drive(
                         obs_dict["body_state"].to(device)
                     )
+                # Contact-RATE readout (g2 "was the infant fed at all").
                 is_contact = benefit > contact_threshold
                 if goal_write_diag is not None and is_contact:
                     goal_write_diag["n_contact_steps"] += 1
+                # Contact-GATING (skip/update) decision keyed off a SEPARATE
+                # threshold (V3-EXQ-634b seeding-calibration amend). When the
+                # gating threshold > readout threshold, sub-seeding whiffs in the
+                # band (readout_floor, gating_floor) are PROTECTED (skipped) so
+                # they do not decay-only erode the consolidated trace; only
+                # benefit that actually clears the GoalState seeding floor writes.
+                # Default (gating_threshold None) falls back to contact_threshold
+                # -> bit-identical to the pre-amend 634b path.
+                gate = contact_threshold if gating_threshold is None else gating_threshold
+                seeds = benefit > gate
                 # Developmental-window contact-gating (2026-06-03b): when
-                # contact-gated, skip update_z_goal on an unfed step so the
+                # contact-gated, skip update_z_goal on a sub-seeding step so the
                 # persistent attractor is NOT washed out by a decay-only call.
                 # Forced-feed (Stage-0) always writes. Default (contact_gated
                 # False) keeps the legacy every-step decay-only path.
-                if contact_gated and not is_forced and not is_contact:
+                if contact_gated and not is_forced and not seeds:
                     if goal_write_diag is not None:
                         goal_write_diag["n_skipped_protected"] += 1
                 else:
                     agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
                     if goal_write_diag is not None:
-                        if is_contact or is_forced:
+                        if seeds or is_forced:
                             goal_write_diag["n_contact_refresh"] += 1
                         else:
                             goal_write_diag["n_decay_only"] += 1
@@ -1165,6 +1277,7 @@ class ScaffoldedSD054OnboardingScheduler:
         device: torch.device,
         contact_gated: bool = False,
         contact_threshold: float = 1e-6,
+        gating_threshold: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         One eval episode: policy frozen (no optimizer steps), env at target
@@ -1172,16 +1285,25 @@ class ScaffoldedSD054OnboardingScheduler:
         memo Acceptance section.
 
         contact_gated (2026-06-03b): when True, update_z_goal is only called on a
-        validated-contact step (benefit > contact_threshold); unfed steps are
-        skipped so the measured z_goal reflects the RETAINED + ecologically-
-        refreshed attractor, not decay-only erosion. Default False = legacy
-        every-step path (peak still captured via the pre-update read).
+        seeding step; sub-seeding steps are skipped so the measured z_goal
+        reflects the RETAINED + ecologically-refreshed attractor, not decay-only
+        erosion. Default False = legacy every-step path (peak still captured via
+        the pre-update read).
+
+        gating_threshold (V3-EXQ-634b seeding-calibration amend): the SEPARATE
+        benefit floor used for the skip/update decision (a step seeds when
+        benefit > gating_threshold). Decoupled from contact_threshold (the
+        contact-RATE readout). None -> falls back to the readout threshold
+        (bit-identical). z_goal_norm_at_contact_peak reads z_goal AT a genuine
+        seeding event (632-style), NOT the frozen forced-feed-calibrated peak.
         """
         _, obs_dict = env.reset()
         agent.reset()
 
         world_dim = agent.config.latent.world_dim
         z_goal_norm_peak = 0.0
+        z_goal_norm_at_contact_peak = 0.0
+        num_contact_events = 0
         approach_commit_steps = 0
         contact_steps = 0
         n_contact_refresh = 0
@@ -1259,17 +1381,25 @@ class ScaffoldedSD054OnboardingScheduler:
             is_contact = benefit > float(self.cfg.scaffold_p2_contact_benefit_threshold)
             if is_contact:
                 contact_steps += 1
-            # Developmental-window contact-gating (2026-06-03b): skip the
-            # decay-only update on an unfed measurement step so the P2 z_goal
-            # read reflects the RETAINED + contact-refreshed attractor, not
-            # decay-only erosion. Default (contact_gated False) keeps the legacy
-            # every-step path. The pre-update read above already captured the
+            # Contact-GATING (skip/update) decision keyed off the SEPARATE
+            # seeding floor (V3-EXQ-634b amend), decoupled from the contact-RATE
+            # readout above. A step SEEDS when benefit clears the gating floor;
+            # sub-seeding steps are protected (skipped) under contact-gating so
+            # the P2 z_goal read reflects the RETAINED + genuinely-refreshed
+            # attractor, not decay-only erosion. None -> readout threshold
+            # (bit-identical). The pre-update read above already captured the
             # episode-entry retained norm into z_goal_norm_peak either way.
-            if contact_gated and not is_contact:
+            gate = (
+                float(self.cfg.scaffold_p2_contact_benefit_threshold)
+                if gating_threshold is None
+                else float(gating_threshold)
+            )
+            seeds = benefit > gate
+            if contact_gated and not seeds:
                 n_skipped_protected += 1
             else:
                 agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
-                if is_contact:
+                if seeds:
                     n_contact_refresh += 1
                 else:
                     n_decay_only += 1
@@ -1280,6 +1410,15 @@ class ScaffoldedSD054OnboardingScheduler:
                         cur = float(goal_state.goal_norm)
                     if cur > z_goal_norm_peak:
                         z_goal_norm_peak = cur
+                    # Consumption-event-gated readout: z_goal AT a genuine
+                    # seeding event (632-style num_contact_events), the fair G3
+                    # input. Stays 0.0 when wild contact never clears the seeding
+                    # floor -> a z_goal=0-at-contact read is interpretable rather
+                    # than masked by the carried forced-feed nursery trace.
+                    if seeds:
+                        num_contact_events += 1
+                        if cur > z_goal_norm_at_contact_peak:
+                            z_goal_norm_at_contact_peak = cur
 
             if done:
                 break
@@ -1298,6 +1437,8 @@ class ScaffoldedSD054OnboardingScheduler:
             "n_contact_refresh_updates": n_contact_refresh,
             "n_decay_only_updates": n_decay_only,
             "n_skipped_protected_updates": n_skipped_protected,
+            "z_goal_norm_at_contact_peak": z_goal_norm_at_contact_peak,
+            "num_contact_events": num_contact_events,
         }
 
 
