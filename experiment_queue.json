@@ -32,35 +32,35 @@
       "queue_id": "V3-EXQ-632",
       "title": "MECH-230 z_goal structured-latent discriminative pair (structured attractor vs ablation; z_goal_norm>0)",
       "script": "experiments/v3_exq_632_mech230_zgoal_structured_latent_discriminative.py",
-      "experiment_type": "v3_exq_632_mech230_zgoal_structured_latent_discriminative",
       "priority": 200,
       "machine_affinity": "any",
       "estimated_minutes": 150,
       "claim_id": "MECH-230",
       "backlog_id": "EVB-0196",
-      "seeds": 3,
+      "note": "discriminative_pair (proposal EXP-0075 / EVB-0196). Primary GOAL_STRUCTURED vs GOAL_ABLATED, 3 matched shared seeds (42/7/13) x 2 conditions = 6 runs. Pre-registered z_goal_norm thresholds (C1 structured t0>0.10, C2 structured t50>0.05, C3 ablated<0.05, DELTA>0.05 on >=2/3 seeds); PASS=C1&C2&C3&DELTA. MECH-230 has only 1 genuine experiment (exp_conf 0.662) + a recent 514l weakens -> replication value. Phased P0(150)+P1(100). validate_experiments AST exit 0; dry-run smoke PASS (progress M=250, verdict/boundary, emit_outcome wired). Phase3-queue snapshot race mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check).",
+      "status": "pending",
       "conditions": 2,
       "episodes_per_run": 250,
       "experiment_purpose": "evidence",
-      "status": "pending",
-      "note": "discriminative_pair (proposal EXP-0075 / EVB-0196). Primary GOAL_STRUCTURED vs GOAL_ABLATED, 3 matched shared seeds (42/7/13) x 2 conditions = 6 runs. Pre-registered z_goal_norm thresholds (C1 structured t0>0.10, C2 structured t50>0.05, C3 ablated<0.05, DELTA>0.05 on >=2/3 seeds); PASS=C1&C2&C3&DELTA. MECH-230 has only 1 genuine experiment (exp_conf 0.662) + a recent 514l weakens -> replication value. Phased P0(150)+P1(100). validate_experiments AST exit 0; dry-run smoke PASS (progress M=250, verdict/boundary, emit_outcome wired). Phase3-queue snapshot race mitigation per REE_Working/CLAUDE.md (post-commit dropped-file check)."
+      "experiment_type": "v3_exq_632_mech230_zgoal_structured_latent_discriminative",
+      "seeds": 3
     },
     {
       "queue_id": "V3-EXQ-633",
       "title": "MECH-094 simulation-vs-real write-gate discriminative pair (hypothesis-tag gate ON vs tag-loss ablation)",
       "script": "experiments/v3_exq_633_mech094_simulation_real_writegate_discriminative.py",
-      "experiment_type": "v3_exq_633_mech094_simulation_real_writegate_discriminative",
       "priority": 200,
       "machine_affinity": "any",
       "estimated_minutes": 2,
       "claim_id": "MECH-094",
       "backlog_id": "EVB-0234",
-      "seeds": 3,
+      "note": "discriminative_pair (proposal EXP-0080 / EVB-0234). Primary gate_on_mech094_intact vs gate_off_tag_loss, 3 matched shared seeds (42/43/44) x 2 conditions = 6 runs. Substrate-level write-gate test (ResidueField), no head trained on latents so phased-training N/A (same design as supporting v3_exq_499). Pre-registered thresholds: M1 contamination_index (ON<0.05, OFF>0.50, delta>0.40), M2 confabulation_rate (ON<=0.05, OFF>=0.30), M3 write_routing_separation MI nats (ON>=0.50, OFF<=0.05); PASS = M1&M2&M3 on >=2/3 seeds. MECH-094 stable but only 1 genuine experiment (exp_conf 0.698, lit-heavy) -> insufficient-experimental-replication. validate_experiments exit 0; dry-run smoke PASS (textbook ON/OFF split). Phase3-queue snapshot race mitigation per REE_Working/CLAUDE.md.",
+      "status": "pending",
       "conditions": 2,
       "episodes_per_run": 50,
       "experiment_purpose": "evidence",
-      "status": "pending",
-      "note": "discriminative_pair (proposal EXP-0080 / EVB-0234). Primary gate_on_mech094_intact vs gate_off_tag_loss, 3 matched shared seeds (42/43/44) x 2 conditions = 6 runs. Substrate-level write-gate test (ResidueField), no head trained on latents so phased-training N/A (same design as supporting v3_exq_499). Pre-registered thresholds: M1 contamination_index (ON<0.05, OFF>0.50, delta>0.40), M2 confabulation_rate (ON<=0.05, OFF>=0.30), M3 write_routing_separation MI nats (ON>=0.50, OFF<=0.05); PASS = M1&M2&M3 on >=2/3 seeds. MECH-094 stable but only 1 genuine experiment (exp_conf 0.698, lit-heavy) -> insufficient-experimental-replication. validate_experiments exit 0; dry-run smoke PASS (textbook ON/OFF split). Phase3-queue snapshot race mitigation per REE_Working/CLAUDE.md."
+      "experiment_type": "v3_exq_633_mech094_simulation_real_writegate_discriminative",
+      "seeds": 3
     }
   ]
 }
