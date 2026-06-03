@@ -36,7 +36,11 @@
       "estimated_minutes": 180,
       "claim_id": "SD-034",
       "note": "GAP-4 Phase 4/5 OCD behavioural *b cohort. Substrate side resolved 2026-06-02 (MECH-090 commit-entry + MECH-342 maintenance-release validated by 592g). Runs on GAP-3 CausalGridWorldV2 env extensions + GAP-11 committed_mode_curriculum. Authored/queued via /queue-experiment. Watch phase3-queue snapshot race (Step 8).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-03T20:27:02Z"
+      },
       "conditions": 1,
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_460b_sd034_verified_but_not_released_behavioural",
@@ -51,7 +55,11 @@
       "estimated_minutes": 180,
       "claim_id": "MECH-090",
       "note": "GAP-4 Phase 4/5 OCD behavioural *b cohort. Substrate side resolved 2026-06-02 (MECH-090 commit-entry + MECH-342 maintenance-release validated by 592g). Runs on GAP-3 CausalGridWorldV2 env extensions + GAP-11 committed_mode_curriculum. Authored/queued via /queue-experiment. Watch phase3-queue snapshot race (Step 8).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-03T20:27:07Z"
+      },
       "conditions": 1,
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_461b_mech090_sd033a_delayed_reward_persistence_behavioural",
