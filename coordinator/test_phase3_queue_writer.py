@@ -325,6 +325,18 @@ class ConflictRecovery(_QueueWriterFixture):
         self.addCleanup(self._restore_recovery)
         sync_daemon._reset_writer_health_state()
         self.addCleanup(sync_daemon._reset_writer_health_state)
+        # Neutralise the ambient legacy env so the additive flag's behaviour
+        # is deterministic per test. C6 re-enables it to prove the additive
+        # (flag-off + env-on -> still recovers) path.
+        self._orig_env = os.environ.pop(
+            "PHASE3_AUTO_RESET_ON_REBASE_CONFLICT", None)
+        self.addCleanup(self._restore_env)
+
+    def _restore_env(self):
+        if self._orig_env is not None:
+            os.environ["PHASE3_AUTO_RESET_ON_REBASE_CONFLICT"] = self._orig_env
+        else:
+            os.environ.pop("PHASE3_AUTO_RESET_ON_REBASE_CONFLICT", None)
 
     def _restore_recovery(self):
         sync_daemon.PHASE3_QUEUE_CONFLICT_RECOVERY = self._orig_recovery
@@ -457,6 +469,26 @@ class ConflictRecovery(_QueueWriterFixture):
         self.assertFalse(sync_daemon._validate_bool("garbage", "X"))
         self.assertTrue(
             sync_daemon._validate_bool("garbage", "X", default=True))
+
+    # -- C6: additive -- scoped flag OFF + legacy env ON still recovers ------
+    def test_c6_additive_legacy_env_still_recovers_when_flag_off(self):
+        # The scoped flag is OFF, but the legacy global env is ON (the hub's
+        # current stopgap). The queue writer must still self-heal -- the new
+        # flag must never DISABLE recovery the env already provides.
+        self._set_recovery(False)
+        os.environ["PHASE3_AUTO_RESET_ON_REBASE_CONFLICT"] = "1"
+        _upsert_item(self._conn, "V3-EXQ-C6", priority=10)
+        self._make_conflict(sync_daemon._PHASE3_QUEUE_COMMIT_PREFIX)
+        result = self._run()
+        self.assertTrue(
+            result,
+            "flag OFF but legacy env ON: additive policy must still recover")
+        ids = [i["queue_id"] for i in self._read_origin_queue()["items"]]
+        self.assertEqual(ids, ["V3-EXQ-C6"])
+        # Recovery fired via the env-fallback path; still counted + observable.
+        self.assertEqual(
+            sync_daemon._WRITER_HEALTH["queue_writer"]["n_conflict_recoveries"],
+            1)
 
 
 if __name__ == "__main__":

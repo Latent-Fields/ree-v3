@@ -339,11 +339,15 @@ PHASE3_QUEUE_WRITER_READY = True
 # absorbs operator file additions into the DB BEFORE the writer materialises,
 # and _check_ahead_writer_authored guarantees only writer-authored ahead
 # commits are ever dropped (operator commits, already on origin, are preserved
-# by the reset). Default False = bit-identical to the pre-flag refuse-on-
-# conflict behaviour. Scoped to the queue writer ONLY -- the result and
-# heartbeat writers touch writer-exclusive paths that do not conflict, so they
-# keep the conservative env-fallback (refuse-on-conflict) policy. Module-load
-# validated: set it in the systemd unit env BEFORE the process starts.
+# by the reset). ADDITIVE over the legacy PHASE3_AUTO_RESET_ON_REBASE_CONFLICT
+# env: when this flag is set the queue writer forces recovery on; when unset it
+# falls back to the env, so this flag never DISABLES recovery the env already
+# provides -- it only adds a queue-scoped, observable (n_conflict_recoveries)
+# control. Default False + legacy env unset = the pre-flag refuse-on-conflict
+# behaviour. Scoped to the queue writer ONLY -- the result and heartbeat writers
+# touch writer-exclusive paths that do not conflict, so they stay on the bare
+# env-fallback policy. Module-load validated: set it in the systemd unit env
+# BEFORE the process starts.
 PHASE3_QUEUE_CONFLICT_RECOVERY = _validate_bool(
     os.environ.get("PHASE3_QUEUE_CONFLICT_RECOVERY", "0"),
     "PHASE3_QUEUE_CONFLICT_RECOVERY", False)
@@ -1848,9 +1852,16 @@ def phase3_queue_writer(
             "next tick will retry.\n" % (rel, repo, reason))
         return False
 
+    # Additive policy: when PHASE3_QUEUE_CONFLICT_RECOVERY is set, FORCE
+    # queue-writer conflict recovery on (pass True). When unset, pass None
+    # so _sync_to_origin falls back to the legacy
+    # PHASE3_AUTO_RESET_ON_REBASE_CONFLICT env -- the new flag therefore
+    # never DISABLES recovery the global env already provides; it only adds
+    # a queue-scoped, observable (n_conflict_recoveries) way to turn it on.
     synced, reason = _sync_to_origin(
         repo, br, "[phase3-queue]",
-        auto_reset_on_conflict=PHASE3_QUEUE_CONFLICT_RECOVERY,
+        auto_reset_on_conflict=(True if PHASE3_QUEUE_CONFLICT_RECOVERY
+                                else None),
         writer_name="queue_writer")
     if not synced:
         sys.stderr.write(
