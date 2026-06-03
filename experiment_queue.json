@@ -10,18 +10,18 @@
     {
       "queue_id": "V3-EXQ-626b",
       "title": "goal-pipeline FORCED-SEED L1 positive control (GAP-7; z_goal SEEN decoupled from GAP-2 foraging)",
-      "experiment_type": "v3_exq_626b_goal_pipeline_forced_seed_positive_control",
       "script": "experiments/v3_exq_626b_goal_pipeline_forced_seed_positive_control.py",
       "priority": 300,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 35,
-      "episodes_per_run": 30,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_id": null,
       "supersedes": "V3-EXQ-626a",
-      "note": "GAP-7 L1 deliverable. 626a wired update_z_goal (Class-1 fix) but its ARM_A positive control drew benefit from ecological foraging -> seeds that never foraged (GAP-2) showed z_goal=0 and the harness could not separate signal-absent from signal-present-but-inert (autopsy V3-EXQ-603e-626a-622). 626b adds a genuine FORCED-SEED positive-control arm (benefit forced supra-threshold fed to update_z_goal every step, run_stage0_nursery pattern) decoupled from foraging, plus a no-benefit negative control and a z_goal-off parity control. PASS re-establishes the L1 positive control the harness can SEE, dependent only on the harness fix + GoalState gate, NOT GAP-2. claim_ids=[], experiment_purpose=diagnostic. Dry-run smoke PASS (C1/C2/C3/C4 all True). Watch the phase3-queue snapshot race (see /queue-experiment Step 8 post-commit check)."
+      "claim_id": null,
+      "note": "GAP-7 L1 deliverable. 626a wired update_z_goal (Class-1 fix) but its ARM_A positive control drew benefit from ecological foraging -> seeds that never foraged (GAP-2) showed z_goal=0 and the harness could not separate signal-absent from signal-present-but-inert (autopsy V3-EXQ-603e-626a-622). 626b adds a genuine FORCED-SEED positive-control arm (benefit forced supra-threshold fed to update_z_goal every step, run_stage0_nursery pattern) decoupled from foraging, plus a no-benefit negative control and a z_goal-off parity control. PASS re-establishes the L1 positive control the harness can SEE, dependent only on the harness fix + GoalState gate, NOT GAP-2. claim_ids=[], experiment_purpose=diagnostic. Dry-run smoke PASS (C1/C2/C3/C4 all True). Watch the phase3-queue snapshot race (see /queue-experiment Step 8 post-commit check).",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 30,
+      "experiment_type": "v3_exq_626b_goal_pipeline_forced_seed_positive_control",
+      "seeds": 3
     }
   ]
 }
