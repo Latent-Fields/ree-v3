@@ -28,6 +28,22 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_610d_inv074_crystallization_necessity",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-634",
+      "title": "scaffolded_sd054_onboarding nursery/feeding substrate-readiness diagnostic (Stage-0 forced-feed + P0/P1 + P2-guard gates)",
+      "script": "experiments/v3_exq_634_scaffolded_nursery_substrate_readiness.py",
+      "priority": 290,
+      "machine_affinity": "any",
+      "estimated_minutes": 240,
+      "status": "pending",
+      "experiment_type": "v3_exq_634_scaffolded_nursery_substrate_readiness",
+      "experiment_purpose": "diagnostic",
+      "episodes_per_run": 185,
+      "seeds": 3,
+      "conditions": 1,
+      "predecessor": "V3-EXQ-621a",
+      "note": "Full-scale substrate-readiness diagnostic for the scaffolded_sd054_onboarding NURSERY/FEEDING amend (ree-v3 e718bf4). NOT 603f; claim_ids=[] (tags no claim; weights no governance score). Runs the full developmental sequence on ONE strengthened scaffold config x3 seeds (42/43/44): Stage-0 run_stage0_nursery (forced supra-threshold benefit, decoupled from survival) -> P0 guided warm-up -> P1 easy->guarded foraging (hold_fraction=0.3 gentler schedule, P0 hazards=1) -> P2 frozen measurement under GUARDED hazard_food_attraction=0.3 + foraging-contact-rate readout. PRE-REGISTERED SUBSTRATE GATES (each >=2/3 seeds, via the substrate's own evaluate_substrate_gate): G0 Stage-0 z_goal_norm_peak>0.4 (forced-feed positive control); G1 P1 survival/foraging gate passed; G2 P2 contact_rate>0 (infant actually fed at measurement); G3 P2 z_goal_norm_peak>0.4 (goal forms ecologically). PASS=all four -> substrate ready: flip substrate_queue scaffolded_sd054_onboarding ready=true + unblock EXP-603F-POSTSUBSTRATE + queue V3-EXQ-603f (a follow-on /governance + /queue-experiment action, NOT automatic). FAIL=substrate_not_engaged/fed_but_no_goal -> route /failure-autopsy or /implement-substrate; DO NOT queue 603f; DO NOT silently re-tune (diagnostic weights no claim either way). Predecessor V3-EXQ-621a (pre-amend readiness; NOT superseded -- different design, this exercises the new Stage-0 method). validate_experiments AST OK; dry-run smoke PASS end-to-end (Stage-0 lights z_goal; gate logic + interpretation branch + progress wired; FAIL at dry scale is correct). Phase3-queue snapshot race mitigation per REE_Working/CLAUDE.md post-commit dropped-file check."
     }
   ]
 }
