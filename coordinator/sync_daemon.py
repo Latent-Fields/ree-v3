@@ -466,7 +466,11 @@ WRITER_HEALTH_FILE = os.environ.get(
 
 
 def _utc_iso_now():
-    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Timezone-aware UTC (matches db.utcnow()); the literal "Z" is hardcoded
+    # and %z is not used, so the output string is byte-identical to the old
+    # naive datetime.utcnow() form -- this is a deprecation cleanup only.
+    return datetime.datetime.now(
+        datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _utc_iso_from_unix(ts):
@@ -474,8 +478,8 @@ def _utc_iso_from_unix(ts):
     stamp matching _utc_iso_now()'s format. Used by the writer-health
     bootstrap to render git author-time into the same shape the live tick
     path writes."""
-    return datetime.datetime.utcfromtimestamp(int(ts)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ")
+    return datetime.datetime.fromtimestamp(
+        int(ts), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _record_writer_tick(name):
