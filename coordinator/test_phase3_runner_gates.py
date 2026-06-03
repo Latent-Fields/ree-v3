@@ -6,17 +6,25 @@ for the index when both are active:
   experiment_runner.git_push_queue       (-> ree-v3 main)
   experiment_runner.git_push_results     (-> REE_assembly master)
   experiment_runner.git_push_status      (-> REE_assembly master)
+  experiment_runner.attempt_claim        (-> ree-v3 main; legacy claim mutex)
+  experiment_runner.release_claim        (-> ree-v3 main; legacy claim mutex)
   runner_remote_control.push_heartbeat   (-> REE_assembly master)
   runner_remote_control.push_commands    (-> REE_assembly master)
 
-Three env flags gate them:
+Four env flags gate them:
 
   PHASE3_DISABLE_RUNNER_RESULT_PUSH      -> git_push_results
-  PHASE3_DISABLE_RUNNER_QUEUE_PUSH       -> git_push_queue
+  PHASE3_DISABLE_RUNNER_QUEUE_PUSH       -> git_push_queue (+ legacy: also
+                                            gates the claim mutex push via
+                                            _claim_push_gated)
   PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH   -> push_heartbeat + push_commands +
                                             git_push_status (status and
                                             heartbeats land via the same
                                             sync_daemon step 6)
+  PHASE3_DISABLE_RUNNER_CLAIM_PUSH       -> attempt_claim + release_claim
+                                            `claim:` / `release claim:` commits
+                                            (coordinator /claim is the
+                                            authoritative arbiter under Phase 3)
 
 Each test verifies the gate is a true no-op: the underlying `subprocess.run`
 is never invoked. We assert by intercepting subprocess.run at the module
@@ -175,6 +183,100 @@ class HeartbeatAndCommandsGate(unittest.TestCase):
         with patch.object(rrc.subprocess, "run") as mock_run:
             rrc.push_commands(self._asm, cmds)
         self.assertEqual(mock_run.call_count, 0)
+
+
+class ClaimPushGate(unittest.TestCase):
+    """PHASE3_DISABLE_RUNNER_CLAIM_PUSH=1 (or the legacy QUEUE_PUSH=1) must
+    make the attempt_claim / release_claim git mutex a no-op: the local queue
+    file is still written (so the runner reads its own claim next tick), but
+    no `claim:` commit reaches origin (zero subprocess.run calls). Default OFF
+    must still run the legacy git mutex (subprocess invoked)."""
+
+    _GATES = ("PHASE3_DISABLE_RUNNER_CLAIM_PUSH",
+              "PHASE3_DISABLE_RUNNER_QUEUE_PUSH")
+
+    def setUp(self):
+        for k in self._GATES:
+            os.environ.pop(k, None)
+        self._tmp = tempfile.mkdtemp(prefix="phase3_claim_")
+        self._qf = Path(self._tmp) / "experiment_queue.json"
+        self._qf.write_text(
+            '{"items": [{"queue_id": "V3-EXQ-TEST", '
+            '"machine_affinity": "any"}]}')
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+        for k in self._GATES:
+            os.environ.pop(k, None)
+
+    def test_predicate_false_when_unset(self):
+        er = _reimport("experiment_runner")
+        self.assertFalse(er._claim_push_gated())
+
+    def test_predicate_true_under_dedicated_flag(self):
+        os.environ["PHASE3_DISABLE_RUNNER_CLAIM_PUSH"] = "1"
+        er = _reimport("experiment_runner")
+        self.assertTrue(er._claim_push_gated())
+
+    def test_predicate_true_under_legacy_queue_flag(self):
+        # Backward-compat: workers already running QUEUE_PUSH=1 keep the
+        # claim push suppressed -- introducing the dedicated flag is not a
+        # behaviour change for them.
+        os.environ["PHASE3_DISABLE_RUNNER_QUEUE_PUSH"] = "1"
+        er = _reimport("experiment_runner")
+        self.assertTrue(er._claim_push_gated())
+
+    def test_attempt_claim_gate_on_skips_all_subprocess(self):
+        os.environ["PHASE3_DISABLE_RUNNER_CLAIM_PUSH"] = "1"
+        er = _reimport("experiment_runner")
+        with patch.object(er.subprocess, "run") as mock_run:
+            result = er.attempt_claim(self._qf, "V3-EXQ-TEST", "ree-cloud-2")
+        self.assertEqual(
+            mock_run.call_count, 0,
+            "no git subprocess when claim-push gate is on")
+        self.assertEqual(result, "ok")
+        # Local queue file still carries the claim for the next tick.
+        import json as _json
+        item = _json.loads(self._qf.read_text())["items"][0]
+        self.assertEqual(item.get("claimed_by", {}).get("machine"),
+                         "ree-cloud-2")
+        self.assertEqual(item.get("status"), "claimed")
+
+    def test_attempt_claim_legacy_queue_flag_also_gates(self):
+        os.environ["PHASE3_DISABLE_RUNNER_QUEUE_PUSH"] = "1"
+        er = _reimport("experiment_runner")
+        with patch.object(er.subprocess, "run") as mock_run:
+            result = er.attempt_claim(self._qf, "V3-EXQ-TEST", "ree-cloud-2")
+        self.assertEqual(mock_run.call_count, 0)
+        self.assertEqual(result, "ok")
+
+    def test_attempt_claim_gate_off_invokes_subprocess(self):
+        # Default OFF (no gate env) -> legacy git mutex runs (pull/commit/push).
+        er = _reimport("experiment_runner")
+        with patch.object(er.subprocess, "run") as mock_run:
+            mock_run.return_value.returncode = 0  # pull ok, push ok -> "ok"
+            er.attempt_claim(self._qf, "V3-EXQ-TEST", "ree-cloud-2")
+        self.assertGreater(
+            mock_run.call_count, 0,
+            "legacy git mutex must invoke subprocess when gate is off")
+
+    def test_release_claim_gate_on_skips_all_subprocess(self):
+        # Seed a live claim, then release under the gate.
+        self._qf.write_text(
+            '{"items": [{"queue_id": "V3-EXQ-TEST", '
+            '"machine_affinity": "any", "status": "claimed", '
+            '"claimed_by": {"machine": "ree-cloud-2", '
+            '"claimed_at": "2026-06-03T00:00:00Z"}}]}')
+        os.environ["PHASE3_DISABLE_RUNNER_CLAIM_PUSH"] = "1"
+        er = _reimport("experiment_runner")
+        with patch.object(er.subprocess, "run") as mock_run:
+            er.release_claim(self._qf, "V3-EXQ-TEST", "ree-cloud-2")
+        self.assertEqual(mock_run.call_count, 0)
+        import json as _json
+        item = _json.loads(self._qf.read_text())["items"][0]
+        self.assertIsNone(item.get("claimed_by"))
+        self.assertEqual(item.get("status"), "pending")
 
 
 if __name__ == "__main__":

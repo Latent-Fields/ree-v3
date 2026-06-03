@@ -930,12 +930,53 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
 #   PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH -> PLAN.md step 6 derived
 #                                          heartbeats + runner_status
 #                                          writeback (NOT YET WIRED)
+#   PHASE3_DISABLE_RUNNER_CLAIM_PUSH     -> coordinator /claim endpoint owns
+#                                          claim arbitration (Phase 3 live
+#                                          2026-05-29). Suppresses the legacy
+#                                          git-mutex `claim:` / `release claim:`
+#                                          commits in attempt_claim /
+#                                          release_claim. SAFE to set whenever
+#                                          COORDINATION_MODE=coordinator -- the
+#                                          coordinator DB (db.try_claim,
+#                                          BEGIN IMMEDIATE) is the authoritative
+#                                          mutex, so the git push is pure noise.
+#                                          Unlike the other three flags this does
+#                                          NOT strand an artifact: the claimed_by
+#                                          write still lands in the LOCAL queue
+#                                          file (the runner reads it on the next
+#                                          tick); only the commit/push is skipped.
 # Setting a flag whose sync_daemon counterpart isn't implemented yet means
-# that artifact stops reaching origin entirely.
+# that artifact stops reaching origin entirely (does NOT apply to the
+# claim-push flag, which has the coordinator /claim DB as its counterpart).
 
 def _phase3_gate(env_name: str) -> bool:
     """Truthy when the env var is '1', 'true', or 'yes' (case-insensitive)."""
     return os.environ.get(env_name, "").strip().lower() in ("1", "true", "yes")
+
+
+def _claim_push_gated() -> bool:
+    """True when the legacy git-based claim mutex push should be suppressed.
+
+    The `claim:` / `release claim:` commits in attempt_claim / release_claim
+    are the last git-as-IPC coordination path. Under Phase 3 the coordinator
+    /claim endpoint (db.try_claim, atomic BEGIN IMMEDIATE) is the authoritative
+    arbiter, so these commits are pure noise on ree-v3/main.
+
+    Fires under EITHER:
+      - PHASE3_DISABLE_RUNNER_CLAIM_PUSH (the dedicated claim-signaling gate;
+        set in the coordinator-mode fleet configs), OR
+      - PHASE3_DISABLE_RUNNER_QUEUE_PUSH (legacy entanglement: the claim write
+        lands in experiment_queue.json, so the pre-dedicated-gate fleet configs
+        that set QUEUE_PUSH=1 already suppressed the claim push via this same
+        code path. Kept in the OR so introducing the dedicated flag is NOT a
+        behaviour change for any worker already running QUEUE_PUSH=1).
+
+    Default OFF (neither set) -> the legacy git-mutex pull/commit/push runs,
+    bit-identical to any pre-Phase-3 / git-mode runner. In git/shadow mode the
+    push IS the mutex, so leave both flags unset there.
+    """
+    return (_phase3_gate("PHASE3_DISABLE_RUNNER_CLAIM_PUSH")
+            or _phase3_gate("PHASE3_DISABLE_RUNNER_QUEUE_PUSH"))
 
 
 _PHASE3_HUB_FILE_WRITE_GATE_LOGGED = False
@@ -1299,16 +1340,17 @@ def attempt_claim(queue_file: Path, queue_id: str, machine: str
       4. If push rejected (non-fast-forward) -> undo commit, return "already_claimed"
       5. On unrelated error -> return "error" (runner proceeds anyway)
 
-    Phase 3: when PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1, the coordinator's
-    /claim endpoint owns claim arbitration (via acquire_claim ->
-    coordinator_client.claim); the git-push-as-mutex path is legacy
-    infrastructure that races sync_daemon for the ree-v3 main index.
-    Under the gate, skip the git pull / commit / push entirely. The
-    local queue file is still updated (atomically) because the runner
-    reads from it on subsequent ticks, but no commit reaches origin.
+    Phase 3: when PHASE3_DISABLE_RUNNER_CLAIM_PUSH=1 (or the legacy
+    PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1 -- see _claim_push_gated), the
+    coordinator's /claim endpoint owns claim arbitration (via acquire_claim
+    -> coordinator_client.claim); the git-push-as-mutex path here is legacy
+    infrastructure that races sync_daemon for the ree-v3 main index. Under
+    the gate, skip the git pull / commit / push entirely. The local queue
+    file is still updated (atomically) because the runner reads from it on
+    subsequent ticks, but no `claim:` commit reaches origin.
     """
     repo = queue_file.parent
-    phase3_gated = _phase3_gate("PHASE3_DISABLE_RUNNER_QUEUE_PUSH")
+    phase3_gated = _claim_push_gated()
     try:
         # 1. Pull latest (skipped under Phase 3 -- sync_daemon owns refresh)
         if not phase3_gated:
@@ -1378,13 +1420,14 @@ def release_claim(queue_file: Path, queue_id: str, machine: str) -> None:
     Release a claim on shutdown so another machine can pick up the experiment.
     Best-effort -- warns on failure but never raises.
 
-    Phase 3: when PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1, skip the git
-    pull / commit / push. The local queue file is updated atomically
-    so the runner doesn't act on a stale local claim; coordinator-side
-    release is owned by release_active_claim -> coordinator_client.
+    Phase 3: when PHASE3_DISABLE_RUNNER_CLAIM_PUSH=1 (or the legacy
+    PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1 -- see _claim_push_gated), skip the
+    git pull / commit / push. The local queue file is updated atomically so
+    the runner doesn't act on a stale local claim; coordinator-side release
+    is owned by release_active_claim -> coordinator_client.
     """
     repo = queue_file.parent
-    phase3_gated = _phase3_gate("PHASE3_DISABLE_RUNNER_QUEUE_PUSH")
+    phase3_gated = _claim_push_gated()
     try:
         if not phase3_gated:
             subprocess.run(["git", "pull", "--ff-only"],

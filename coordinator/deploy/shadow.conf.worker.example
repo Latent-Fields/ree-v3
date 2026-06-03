@@ -30,6 +30,17 @@ Environment=PHASE3_DISABLE_RUNNER_RESULT_PUSH=1
 Environment=PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1
 Environment=PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH=1
 
+# Claim-push gate (2026-06-03): retire the last git-as-IPC coordination path.
+# The coordinator /claim endpoint (db.try_claim, atomic BEGIN IMMEDIATE) is the
+# authoritative claim mutex under COORDINATION_MODE=coordinator, so the legacy
+# attempt_claim / release_claim `claim:` commits to ree-v3/main are pure noise.
+# The claimed_by write still lands in the LOCAL queue file (read next tick);
+# only the commit/push is skipped. Default OFF = bit-identical git-mode mutex;
+# safe to set whenever COORDINATION_MODE=coordinator (set above). NOTE: the
+# legacy QUEUE_PUSH=1 above already suppressed this push via _claim_push_gated;
+# the dedicated flag makes the intent explicit and survives a QUEUE_PUSH=0 flip.
+Environment=PHASE3_DISABLE_RUNNER_CLAIM_PUSH=1
+
 # Worker-safe telemetry-off-git gate (2026-06-02): stop the per-tick
 # runner_heartbeats/<host>.json + runner_status/<host>.json FILE writes from
 # dirtying the shared checkout. Coordinator POST stays the transport; the hub

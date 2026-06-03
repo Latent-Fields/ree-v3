@@ -40,6 +40,14 @@ Environment=PHASE3_DISABLE_RUNNER_RESULT_PUSH=1
 Environment=PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1
 Environment=PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH=1
 
+# Claim-push gate (2026-06-03): retire the last git-as-IPC coordination path.
+# The coordinator /claim endpoint (db.try_claim, atomic BEGIN IMMEDIATE) is the
+# authoritative claim mutex under COORDINATION_MODE=coordinator, so the legacy
+# attempt_claim / release_claim `claim:` commits are pure noise. Doubly important
+# on the hub: a `claim:` commit in the runner's isolated checkout cannot reach
+# the writers' main checkout anyway. Default OFF = bit-identical git-mode mutex.
+Environment=PHASE3_DISABLE_RUNNER_CLAIM_PUSH=1
+
 # Worker-safe telemetry-off-git: suppress per-tick heartbeat/status FILE writes
 # (avoids autostash/stash pileup in the isolated checkout over time).
 Environment=PHASE3_RUNNER_TELEMETRY_OFF_GIT=1
