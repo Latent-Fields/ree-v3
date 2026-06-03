@@ -85,7 +85,7 @@ Outside the three rows:
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `git_writer` or `queue_writer` SHA stale (red), spool_pending climbing | Writer wedged in **push-rejected loop** -- operator-side IGW commits landed between writer ticks, so the hub's local writer commits no longer fast-forward onto origin. The Phase-3 writer deliberately does **not** `git pull --rebase --autostash`, so it just keeps failing the push. | SSH to the hub and FF-rebase by hand: `git -C ~/REE_Working/REE_assembly pull --rebase origin master` (and `git -C ~/REE_Working/ree-v3 pull --rebase origin main` for `queue_writer`). Writers resume on the next tick (~60s). |
+| `git_writer` or `queue_writer` SHA stale (red), spool_pending climbing | Writer wedged in **push-rejected loop** -- operator-side IGW commits landed between writer ticks, so the hub's local writer commits no longer fast-forward onto origin. The Phase-3 writer deliberately does **not** `git pull --rebase --autostash`, so it just keeps failing the push. NOTE: with `PHASE3_QUEUE_CONFLICT_RECOVERY=1` (see the subsection below) the `queue_writer` now **self-heals** this and the conflict variant within one tick; a stale `queue_writer` with that flag on means something else (network, dirty tree). | All writers already absorb *non-conflicting* operator races by rebasing writer-authored commits onto refreshed origin (`_sync_to_origin`). If a writer is still stale: SSH to the hub and FF-rebase by hand: `git -C ~/REE_Working/REE_assembly pull --rebase origin master` (and `git -C ~/REE_Working/ree-v3 pull --rebase origin main` for `queue_writer`). Writers resume on the next tick (~60s). |
 | Persistent `rebase-conflict` status | Autostash-style wedge -- a manual rebase on the hub hit a conflict (e.g. the runner_heartbeats/*.json collision class CLAUDE.md describes). The writer cannot commit until the working tree is clean. | SSH to the hub, **inspect the conflict** -- do NOT blindly `git checkout --ours` or `--theirs`. The heartbeat-file collision is usually safe to resolve in favour of the newer runner-written snapshot (the runner overwrites it on next tick), but other paths (claims.yaml, planning docs, manifests) can hide real edits. Resolve, `git rebase --continue`, then leave the tree clean. |
 | `refusing` status with clean `journal_tail` | Hub's `REE_assembly` working tree is dirty -- something (an interactive session, or a hub runner using the SHARED `~/REE_Working` checkout) left files modified. Phase 3 writer refuses rather than autostashing. | SSH to the hub, `git -C ~/REE_Working/REE_assembly status`. Find the source. If a hub runner is the cause, it must run from the ISOLATED `~/REE_Working_runner` checkout (`WorkingDirectory` drop-in), NOT `~/REE_Working` -- see rule 1 above. Recovery: back up + clean the dirty files (`mv` untracked manifests aside, `git checkout`/`git pull --rebase` the queue); writers resume within ~10s. |
 | `spool_pending` elevated but writer SHA is recent | Writer is committing but falling behind -- batch size too small for the inbound rate, or the hub is doing one-commit-per-manifest. | Check `journal_tail`; usually self-corrects. If sustained, raise `PHASE3_BATCH_SIZE` on the hub (default 32). |
@@ -97,6 +97,55 @@ failure mode until that guard chip is in place: the signature is a stale
 `heartbeat_writer` row combined with a growing `spool_pending` counter, even
 though the panel itself stays reachable from the Mac (the explorer's SSH does
 not transit the hub VM).
+
+### Queue-writer conflict-recovery (`PHASE3_QUEUE_CONFLICT_RECOVERY`)
+
+**What it fixes.** The historic push-rejected/rebase-conflict wedge that took the
+fleet down: an operator/IGW/session commit edits `ree-v3/experiment_queue.json`
+on `origin/main` while the `queue_writer` is holding a retained (push-rejected)
+snapshot commit. The writer's next-tick `_sync_to_origin` rebase **conflicts** on
+that file, aborts, and refuses -- and stays wedged until a human runs
+`git -C ~/REE_Working/ree-v3 pull --rebase origin main` on the hub. (2026-06-02:
+this sat wedged ~4.5h and the Mac git-sync-repair routine, which only knew the
+heartbeat variant, did not catch it.)
+
+**What the flag does.** When `PHASE3_QUEUE_CONFLICT_RECOVERY=1`, the `queue_writer`
+recovers from that conflict **within one tick**: it `git reset --hard origin/main`
+(dropping only its own writer-authored snapshot commit -- never operator work, see
+safety below) and re-materialises `experiment_queue.json` from the coordinator DB.
+This is **lossless** because the queue is DB-authoritative: `reconcile_once` has
+already absorbed the operator's file edit into the DB *before* the writer
+materialises, so the regenerated snapshot includes it and pushes fast-forward.
+
+**Safety.** The reset only runs after `_check_ahead_writer_authored` confirms every
+ahead commit is writer-authored (`phase3-queue: ` prefix). A foreign (operator)
+unpushed commit on the hub still **refuses** the tick -- the flag never drops
+operator work. The clean-tree precondition still holds (no autostash). The flag is
+**scoped to the queue writer only**; the result + heartbeat writers keep the
+conservative refuse-on-conflict policy (their paths are writer-exclusive and do not
+conflict).
+
+**Enable / verify / rollback (hub `ree-sync-daemon`):**
+
+```bash
+# Enable: add to the unit env (e.g. coordinator.env or an Environment= line in
+# the ree-sync-daemon drop-in -- read at process start), then restart.
+#   Environment=PHASE3_QUEUE_CONFLICT_RECOVERY=1
+sudo systemctl restart ree-sync-daemon
+
+# Verify it fired (the canary observable) -- from the Mac:
+curl -s http://10.8.0.1:8787/writer-health | python3 -c \
+  'import sys,json; w=json.load(sys.stdin)["writers"]["queue_writer"]; \
+   print("recoveries:", w["n_conflict_recoveries"], "at", w["last_conflict_recovery_at"])'
+
+# Rollback: unset the env line (or set =0) and restart -- behaviour returns
+# to the pre-flag refuse-on-conflict path exactly.
+sudo systemctl restart ree-sync-daemon
+```
+
+A rising `queue_writer.n_conflict_recoveries` on `/writer-health` is the proof the
+self-heal is doing its job (each increment = one operator-race conflict absorbed
+without operator intervention). It is informational, not an alarm.
 
 ---
 

@@ -307,5 +307,157 @@ class ReconcileUpsertOnly(unittest.TestCase):
             row, "default mode must still delete missing items")
 
 
+class ConflictRecovery(_QueueWriterFixture):
+    """PHASE3_QUEUE_CONFLICT_RECOVERY (b-hardened, 2026-06-03).
+
+    Reproduces the queue-writer push-rejected/rebase-conflict wedge and
+    proves the flag-gated self-heal. The conflict is built as the live
+    failure mode: the writer holds a retained (unpushed) `phase3-queue: `
+    snapshot commit editing experiment_queue.json AND origin has a
+    divergent commit editing the same line -- so the writer's _sync_to_origin
+    rebase conflicts on the next tick.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Restore the module flag after each test (default is False).
+        self._orig_recovery = sync_daemon.PHASE3_QUEUE_CONFLICT_RECOVERY
+        self.addCleanup(self._restore_recovery)
+        sync_daemon._reset_writer_health_state()
+        self.addCleanup(sync_daemon._reset_writer_health_state)
+
+    def _restore_recovery(self):
+        sync_daemon.PHASE3_QUEUE_CONFLICT_RECOVERY = self._orig_recovery
+
+    def _set_recovery(self, value):
+        sync_daemon.PHASE3_QUEUE_CONFLICT_RECOVERY = value
+
+    def _set_note(self, doc, note):
+        doc["calibration"]["calibration_note"] = note
+        return doc
+
+    def _local_retained_commit(self, note, prefix):
+        """Create a local, UNPUSHED commit editing experiment_queue.json
+        (simulates a snapshot commit whose push was rejected last tick).
+        `prefix` controls writer-authored (phase3-queue: ) vs foreign."""
+        f = self._repo / "experiment_queue.json"
+        doc = self._set_note(json.loads(f.read_text()), note)
+        f.write_text(json.dumps(doc, indent=2) + "\n")
+        _git(self._repo, "config", "user.email", "phase3-queue@example")
+        _git(self._repo, "config", "user.name", "phase3-queue")
+        _git(self._repo, "add", "experiment_queue.json")
+        _git(self._repo, "commit", "-q", "-m", prefix + "retained snapshot")
+
+    def _push_divergent_origin_edit(self, note):
+        """Clone the bare remote in a throwaway dir, change the SAME line to
+        a different value, commit + push origin/main -- so a rebase of the
+        local retained commit conflicts."""
+        work = pathlib.Path(self._tmp) / "operator_clone"
+        subprocess.run(
+            ["git", "clone", "-q", "-b", "main", str(self._remote), str(work)],
+            check=True)
+        _git(work, "config", "user.email", "operator@example")
+        _git(work, "config", "user.name", "operator")
+        f = work / "experiment_queue.json"
+        doc = self._set_note(json.loads(f.read_text()), note)
+        f.write_text(json.dumps(doc, indent=2) + "\n")
+        _git(work, "add", "experiment_queue.json")
+        _git(work, "commit", "-q", "-m", "operator: queue hand-edit on origin")
+        _git(work, "push", "-q", "origin", "main")
+
+    def _make_conflict(self, local_prefix):
+        """Put the repo into the ahead-1/behind-1 conflicting state."""
+        self._local_retained_commit("writer-local", local_prefix)
+        self._push_divergent_origin_edit("operator-origin")
+
+    # -- C1: flag OFF reproduces the wedge -----------------------------------
+    def test_c1_flag_off_refuses_on_conflict(self):
+        self._set_recovery(False)
+        _upsert_item(self._conn, "V3-EXQ-C1", priority=10)
+        self._make_conflict(sync_daemon._PHASE3_QUEUE_COMMIT_PREFIX)
+        sha_before = _git(self._remote, "rev-parse", "main").stdout.strip()
+        result = self._run()
+        self.assertFalse(
+            result, "flag OFF: rebase conflict must wedge (refuse the tick)")
+        sha_after = _git(self._remote, "rev-parse", "main").stdout.strip()
+        self.assertEqual(
+            sha_before, sha_after, "flag OFF: nothing should land on origin")
+        self.assertEqual(
+            sync_daemon._WRITER_HEALTH["queue_writer"]["n_conflict_recoveries"],
+            0, "flag OFF: no self-heal recorded")
+
+    # -- C2: flag ON self-heals losslessly -----------------------------------
+    def test_c2_flag_on_self_heals_and_lands_db_view(self):
+        self._set_recovery(True)
+        _upsert_item(self._conn, "V3-EXQ-C2", priority=10)
+        self._make_conflict(sync_daemon._PHASE3_QUEUE_COMMIT_PREFIX)
+        result = self._run()
+        self.assertTrue(
+            result, "flag ON: conflict must self-heal and the tick succeed")
+        on_origin = self._read_origin_queue()
+        ids = [i["queue_id"] for i in on_origin["items"]]
+        self.assertEqual(
+            ids, ["V3-EXQ-C2"],
+            "flag ON: DB-materialised snapshot must reach origin after reset")
+        # Operator's origin edit was preserved through the reset (the writer
+        # rebuilds calibration from the post-reset origin file).
+        self.assertEqual(
+            on_origin["calibration"]["calibration_note"], "operator-origin")
+        self.assertEqual(
+            sync_daemon._WRITER_HEALTH["queue_writer"]["n_conflict_recoveries"],
+            1, "flag ON: exactly one self-heal recorded")
+        self.assertIsNotNone(
+            sync_daemon._WRITER_HEALTH["queue_writer"]
+            ["last_conflict_recovery_at"])
+
+    # -- C3: safety -- a FOREIGN ahead commit is never dropped ----------------
+    def test_c3_flag_on_refuses_foreign_ahead_commit(self):
+        self._set_recovery(True)
+        _upsert_item(self._conn, "V3-EXQ-C3", priority=10)
+        # Local retained commit is operator-authored (foreign prefix).
+        self._make_conflict("ops: ")
+        sha_before = _git(self._remote, "rev-parse", "main").stdout.strip()
+        result = self._run()
+        self.assertFalse(
+            result,
+            "flag ON but foreign ahead commit: must refuse (never reset "
+            "operator work)")
+        sha_after = _git(self._remote, "rev-parse", "main").stdout.strip()
+        self.assertEqual(sha_before, sha_after)
+        self.assertEqual(
+            sync_daemon._WRITER_HEALTH["queue_writer"]["n_conflict_recoveries"],
+            0, "foreign-ahead refusal must NOT count as a self-heal")
+
+    # -- C4: backward-compat -- default (None) path unchanged ----------------
+    def test_c4_default_none_path_refuses_on_conflict(self):
+        # Directly exercise _sync_to_origin with auto_reset_on_conflict=None
+        # and the legacy env unset -- the policy the result/heartbeat writers
+        # keep. Must refuse on conflict (no behavioural change for them).
+        self._local_retained_commit(
+            "writer-local", sync_daemon._PHASE3_QUEUE_COMMIT_PREFIX)
+        self._push_divergent_origin_edit("operator-origin")
+        env_prev = os.environ.pop("PHASE3_AUTO_RESET_ON_REBASE_CONFLICT", None)
+        try:
+            ok, reason = sync_daemon._sync_to_origin(
+                str(self._repo), "main", "[test]",
+                auto_reset_on_conflict=None)
+        finally:
+            if env_prev is not None:
+                os.environ["PHASE3_AUTO_RESET_ON_REBASE_CONFLICT"] = env_prev
+        self.assertFalse(ok, "None policy + env unset must refuse on conflict")
+        self.assertIn("rebase onto origin/main failed", reason)
+
+    # -- C5: flag validation -------------------------------------------------
+    def test_c5_flag_validation_falls_back_to_default(self):
+        self.assertTrue(sync_daemon._validate_bool("1", "X"))
+        self.assertTrue(sync_daemon._validate_bool("yes", "X"))
+        self.assertFalse(sync_daemon._validate_bool("0", "X"))
+        self.assertFalse(sync_daemon._validate_bool("", "X"))
+        # Unrecognised -> default (loud warning to stderr).
+        self.assertFalse(sync_daemon._validate_bool("garbage", "X"))
+        self.assertTrue(
+            sync_daemon._validate_bool("garbage", "X", default=True))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

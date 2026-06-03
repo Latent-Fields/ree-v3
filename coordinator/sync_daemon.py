@@ -294,6 +294,32 @@ def _validate_float(raw, env_name, default):
     return v
 
 
+# Truthy vocabulary shared with the legacy PHASE3_AUTO_RESET_ON_REBASE_CONFLICT
+# env check (see _sync_to_origin). Keep the two in sync so a value that turns
+# on one path turns on the other.
+_TRUTHY = ("1", "true", "TRUE", "yes", "YES")
+_FALSEY = ("0", "false", "FALSE", "no", "NO", "")
+
+
+def _validate_bool(raw, env_name, default=False):
+    """Parse a boolean env knob using the same truthy set the existing
+    PHASE3_AUTO_RESET_ON_REBASE_CONFLICT check uses. Anything outside the
+    recognised truthy/falsey vocabulary falls back to `default` with a loud
+    stderr warning -- the same fail-loud-then-default shape as
+    _validate_batch_size / _validate_float."""
+    if raw is None:
+        return default
+    s = str(raw).strip()
+    if s in _TRUTHY:
+        return True
+    if s in _FALSEY:
+        return False
+    sys.stderr.write(
+        "[phase3] %s=%r is not a recognised boolean; using default %s\n"
+        % (env_name, raw, default))
+    return default
+
+
 # PLAN.md step 5: queue snapshot writeback. Materialises the canonical
 # experiment_queue.json from the coordinator DB and pushes ree-v3. Gated
 # by its OWN flag (independent of the result writer) so result-cutover
@@ -301,6 +327,26 @@ def _validate_float(raw, env_name, default):
 # implementation is reviewed AND the runner-side
 # PHASE3_DISABLE_RUNNER_QUEUE_PUSH flag is set on every worker.
 PHASE3_QUEUE_WRITER_READY = True
+
+# Shadow/canary flag for the queue-writer conflict-recovery self-heal (see
+# _sync_to_origin + phase3_queue_writer). When True, a rebase CONFLICT in the
+# queue writer's _sync_to_origin -- which happens when an operator/IGW/session
+# commit edits experiment_queue.json on origin while the writer holds a
+# retained (push-rejected) snapshot commit -- is recovered losslessly via
+# `git reset --hard origin/<branch>` + re-materialise-from-DB instead of
+# refusing the tick (the historic ~4.5h push-rejected/conflict wedge,
+# 2026-06-02). Safe because the queue is DB-authoritative: reconcile_once
+# absorbs operator file additions into the DB BEFORE the writer materialises,
+# and _check_ahead_writer_authored guarantees only writer-authored ahead
+# commits are ever dropped (operator commits, already on origin, are preserved
+# by the reset). Default False = bit-identical to the pre-flag refuse-on-
+# conflict behaviour. Scoped to the queue writer ONLY -- the result and
+# heartbeat writers touch writer-exclusive paths that do not conflict, so they
+# keep the conservative env-fallback (refuse-on-conflict) policy. Module-load
+# validated: set it in the systemd unit env BEFORE the process starts.
+PHASE3_QUEUE_CONFLICT_RECOVERY = _validate_bool(
+    os.environ.get("PHASE3_QUEUE_CONFLICT_RECOVERY", "0"),
+    "PHASE3_QUEUE_CONFLICT_RECOVERY", False)
 
 # Hub paths for the queue writer. ree-v3 checkout is separate from the
 # REE_assembly checkout used by the result writer.
@@ -396,13 +442,19 @@ _WRITER_HEALTH_LOCK = threading.Lock()
 _WRITER_HEALTH = {
     "git_writer":       {"last_tick_at": None, "last_commit_at": None,
                          "last_error": None, "last_commit_sha": None,
-                         "last_commit_subject": None},
+                         "last_commit_subject": None,
+                         "n_conflict_recoveries": 0,
+                         "last_conflict_recovery_at": None},
     "queue_writer":     {"last_tick_at": None, "last_commit_at": None,
                          "last_error": None, "last_commit_sha": None,
-                         "last_commit_subject": None},
+                         "last_commit_subject": None,
+                         "n_conflict_recoveries": 0,
+                         "last_conflict_recovery_at": None},
     "heartbeat_writer": {"last_tick_at": None, "last_commit_at": None,
                          "last_error": None, "last_commit_sha": None,
-                         "last_commit_subject": None},
+                         "last_commit_subject": None,
+                         "n_conflict_recoveries": 0,
+                         "last_conflict_recovery_at": None},
 }
 WRITER_HEALTH_FILE = os.environ.get(
     "PHASE3_WRITER_HEALTH_FILE",
@@ -457,6 +509,23 @@ def _record_writer_commit(name, repo_path=None, subject=None):
             rec["last_error"] = None
 
 
+def _record_writer_conflict_recovery(name):
+    """Stamp a successful conflict-recovery self-heal: the queue writer hit a
+    rebase conflict in _sync_to_origin and recovered by `git reset --hard
+    origin/<branch>` + re-materialise-from-DB (PHASE3_QUEUE_CONFLICT_RECOVERY).
+    Bumps a counter so /writer-health surfaces how often the self-heal fired --
+    the canary observable that the wedge no longer requires manual operator
+    intervention. A recovery is a successful event, so it does NOT set
+    last_error."""
+    now = _utc_iso_now()
+    with _WRITER_HEALTH_LOCK:
+        rec = _WRITER_HEALTH.get(name)
+        if rec is not None:
+            rec["n_conflict_recoveries"] = rec.get(
+                "n_conflict_recoveries", 0) + 1
+            rec["last_conflict_recovery_at"] = now
+
+
 def _record_writer_error(name, exc):
     with _WRITER_HEALTH_LOCK:
         rec = _WRITER_HEALTH.get(name)
@@ -501,6 +570,8 @@ def _reset_writer_health_state():
             rec["last_error"] = None
             rec["last_commit_sha"] = None
             rec["last_commit_subject"] = None
+            rec["n_conflict_recoveries"] = 0
+            rec["last_conflict_recovery_at"] = None
 
 
 def _phase3_writer_bootstrap_targets():
@@ -1044,10 +1115,25 @@ def _check_ahead_writer_authored(repo, branch,
     return (not foreign, foreign[:3])
 
 
-def _sync_to_origin(repo, branch, log_prefix):
+def _sync_to_origin(repo, branch, log_prefix, auto_reset_on_conflict=None,
+                    writer_name=None):
     """Fetch origin/<branch>, then if local HEAD is BEHIND origin, rebase
     the writer-authored ahead commits on top of refreshed origin. Returns
     (ok, reason); ok=False means the caller must refuse the tick.
+
+    auto_reset_on_conflict selects the rebase-CONFLICT policy:
+      None  (default): fall back to the legacy
+             PHASE3_AUTO_RESET_ON_REBASE_CONFLICT env check -- the
+             behaviour the result + heartbeat writers keep (refuse on
+             conflict unless the env is set globally).
+      True:  recover losslessly via `git reset --hard origin/<branch>`
+             (the queue writer passes PHASE3_QUEUE_CONFLICT_RECOVERY here;
+             safe only when the caller can re-materialise the dropped
+             commit from an authoritative source, e.g. the DB-backed
+             queue snapshot).
+      False: refuse on conflict (explicit opt-out, ignores the env).
+    writer_name, when given, names the _WRITER_HEALTH record to stamp on a
+    successful self-heal (the /writer-health canary observable).
 
     Why this helper exists:
     Between two writer ticks, an unrelated commit can land on origin --
@@ -1142,9 +1228,18 @@ def _sync_to_origin(repo, branch, log_prefix):
         # rebase-conflict aborts on ree-v3 main against operator commits
         # landing every minute; writer wedged until the operator stream
         # quieted. With auto-reset the wedge is at-most-one tick.
-        auto_reset = os.environ.get(
-            "PHASE3_AUTO_RESET_ON_REBASE_CONFLICT", "0").strip() in (
-                "1", "true", "TRUE", "yes", "YES")
+        #
+        # Policy resolution (PHASE3_QUEUE_CONFLICT_RECOVERY, 2026-06-03):
+        # an explicit auto_reset_on_conflict argument overrides the legacy
+        # env. The queue writer passes True (DB-authoritative; reset +
+        # re-materialise is lossless); result/heartbeat writers pass None
+        # and keep the env-fallback (refuse unless globally enabled).
+        if auto_reset_on_conflict is not None:
+            auto_reset = bool(auto_reset_on_conflict)
+        else:
+            auto_reset = os.environ.get(
+                "PHASE3_AUTO_RESET_ON_REBASE_CONFLICT", "0").strip() in (
+                    "1", "true", "TRUE", "yes", "YES")
         if auto_reset:
             reset = _git(
                 repo, "reset", "--hard", "origin/" + branch,
@@ -1152,18 +1247,20 @@ def _sync_to_origin(repo, branch, log_prefix):
             if reset.returncode != 0:
                 return (False,
                         "rebase onto origin/%s failed (%s); "
-                        "PHASE3_AUTO_RESET_ON_REBASE_CONFLICT set but "
+                        "conflict-recovery reset requested but "
                         "`git reset --hard origin/%s` also failed (%s); "
                         "tree may be in an unexpected state, operator "
                         "must investigate." % (
                             branch, rebased.stderr.strip()[:240],
                             branch, reset.stderr.strip()[:240]))
+            if writer_name:
+                _record_writer_conflict_recovery(writer_name)
             sys.stderr.write(
-                "%s rebase onto origin/%s failed; "
-                "PHASE3_AUTO_RESET_ON_REBASE_CONFLICT dropped %s "
-                "writer-authored commit(s) via `git reset --hard "
-                "origin/%s`; next tick will re-materialise from DB / "
-                "spool. (rebase stderr: %s)\n" % (
+                "%s rebase onto origin/%s conflicted; conflict-recovery "
+                "dropped %s writer-authored commit(s) via `git reset "
+                "--hard origin/%s`; this tick re-materialises from DB / "
+                "spool (self-heal, no operator intervention). (rebase "
+                "stderr: %s)\n" % (
                     log_prefix, branch, ahead_count, branch,
                     rebased.stderr.strip()[:240]))
             # Successful reset == we are now at origin/<branch>. Return
@@ -1751,7 +1848,10 @@ def phase3_queue_writer(
             "next tick will retry.\n" % (rel, repo, reason))
         return False
 
-    synced, reason = _sync_to_origin(repo, br, "[phase3-queue]")
+    synced, reason = _sync_to_origin(
+        repo, br, "[phase3-queue]",
+        auto_reset_on_conflict=PHASE3_QUEUE_CONFLICT_RECOVERY,
+        writer_name="queue_writer")
     if not synced:
         sys.stderr.write(
             "[phase3-queue] refusing tick: %s. Working tree intact.\n"

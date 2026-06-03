@@ -60,3 +60,18 @@ Environment=PHASE3_COMMANDS_VIA_COORDINATOR=1
 #
 # Do NOT set PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE here -- it is obsolete under
 # the isolated-checkout model and would re-introduce the command spin.
+#
+# ---------------------------------------------------------------------------
+# NOTE: the env below belongs on the ree-SYNC-DAEMON unit, NOT this ree-runner
+# drop-in (sync_daemon reads it at process start). Listed here as the canonical
+# hub-config reference. Add it to the ree-sync-daemon drop-in / coordinator.env.
+#
+# PHASE3_QUEUE_CONFLICT_RECOVERY=1 makes the phase3 queue_writer self-heal the
+# push-rejected / rebase-conflict wedge on ree-v3/experiment_queue.json within
+# one tick (reset --hard origin/main + re-materialise from the DB; lossless
+# because the queue is DB-authoritative; only writer-authored ahead commits are
+# ever dropped, never operator work). Default OFF = legacy refuse-on-conflict
+# (manual `git pull --rebase` to unwedge). Verify via
+# /writer-health -> queue_writer.n_conflict_recoveries. See OPERATOR_GUIDE.md
+# "Queue-writer conflict-recovery" and reference_hub_writer_wedge.md.
+#   (on ree-sync-daemon)  Environment=PHASE3_QUEUE_CONFLICT_RECOVERY=1
