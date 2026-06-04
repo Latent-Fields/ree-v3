@@ -1234,3 +1234,107 @@ def test_c9_stage0_binding_populates_bank():
         "FORMATION FIX FAIL: Stage-0 forced feeding bound no incentive token -- "
         "the bank is still empty entering P1/P2 (the 638 cue-silent root cause)"
     )
+
+
+# --- C9 cont.: n_cue_recall_fires aggregation fix (2026-06-04b) --------------
+# The clean underlying fix for the V3-EXQ-638 measurement gap: run_p2 / run_p1
+# now AGGREGATE the per-episode cue fires onto a top-level
+# P2OnboardingMetrics.n_cue_recall_fires / P1OnboardingResult.n_cue_recall_fires
+# so a consumer doing getattr(p2, "n_cue_recall_fires", 0) no longer silently
+# reads 0 even when the cue fired. Contract: the new field equals
+# cue_diag["n_cue_recall_fires"] (both count the same fires) under the bridge-on
+# path and is 0 under bridge-off.
+
+
+class _StubAgentForP2:
+    """Minimal agent stand-in: run_p2's pre-loop setup only needs eval() (and a
+    getattr-absent goal_state, so _apply_goal_seeding_calibration is a no-op).
+    The episode loop is faked so no real stepping is required."""
+
+    def eval(self):
+        pass
+
+
+_P2_EP_REQUIRED_KEYS = {
+    "z_goal_norm_peak": 0.0,
+    "approach_commit_steps": 0,
+    "contact_steps": 0,
+    "contact_rate": 0.0,
+    "bridge_cue_fires": 0,
+    "dacc_bias_nonzero_steps": 0,
+    "episode_length": 10,
+    "n_contact_refresh_updates": 0,
+    "n_decay_only_updates": 0,
+    "n_skipped_protected_updates": 0,
+    "z_goal_norm_at_contact_peak": 0.0,
+    "num_contact_events": 0,
+}
+
+
+def test_c9_p2_aggregates_cue_recall_fires_equals_cue_diag():
+    """Bridge-on path: P2OnboardingMetrics.n_cue_recall_fires is the sum of the
+    per-episode fires AND equals cue_diag["n_cue_recall_fires"]. A faked
+    _eval_episode mirrors the real wiring -- it increments the shared cue_diag in
+    lockstep with its per-episode return, exactly as _maybe_cue_recall does --
+    so this exercises run_p2's aggregation + constructor wiring deterministically.
+    """
+    cfg = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_cue_recall_bridge_enabled=True,
+        scaffold_p2_episode_budget=3,
+    )
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+
+    per_ep_fires = [4, 0, 7]
+    calls = {"i": 0}
+
+    def _fake_eval(agent, env, device, *, contact_gated, contact_threshold,
+                   gating_threshold, cue_diag=None):
+        n = per_ep_fires[calls["i"]]
+        calls["i"] += 1
+        if cue_diag is not None:  # lockstep with the per-episode return (real path)
+            cue_diag["n_cue_recall_fires"] += n
+        return {**_P2_EP_REQUIRED_KEYS, "n_cue_recall_fires": n}
+
+    sched._eval_episode = _fake_eval
+    p2 = sched.run_p2(_StubAgentForP2(), torch.device("cpu"))
+
+    assert p2.n_cue_recall_fires == sum(per_ep_fires) == 11
+    assert p2.n_cue_recall_fires == p2.cue_diag["n_cue_recall_fires"]
+    # The gap this closes: getattr now finds the real total, not a silent 0.
+    assert getattr(p2, "n_cue_recall_fires", 0) == 11
+
+
+def test_c9_p2_cue_recall_fires_zero_when_bridge_off():
+    """Bridge-off path: no cue ever fires, so the aggregate is 0 and still equals
+    cue_diag["n_cue_recall_fires"] (which stays 0). Bit-identical readout."""
+    cfg = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_cue_recall_bridge_enabled=False,
+        scaffold_p2_episode_budget=2,
+    )
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+
+    def _fake_eval(agent, env, device, *, contact_gated, contact_threshold,
+                   gating_threshold, cue_diag=None):
+        # Bridge off -> _maybe_cue_recall returns 0 and never touches cue_diag.
+        return {**_P2_EP_REQUIRED_KEYS, "n_cue_recall_fires": 0}
+
+    sched._eval_episode = _fake_eval
+    p2 = sched.run_p2(_StubAgentForP2(), torch.device("cpu"))
+
+    assert p2.n_cue_recall_fires == 0
+    assert p2.n_cue_recall_fires == p2.cue_diag["n_cue_recall_fires"]
+
+
+def test_c9_p1_p2_result_field_defaults_zero_on_master_off():
+    """The aggregated field exists on both result dataclasses and defaults to 0;
+    the master-off short-circuit returns results carrying 0 (no cue accounting)."""
+    cfg = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=False,
+    )
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    p1 = sched.run_p1(None, torch.device("cpu"))
+    p2 = sched.run_p2(None, torch.device("cpu"))
+    assert p1.n_cue_recall_fires == 0
+    assert p2.n_cue_recall_fires == 0

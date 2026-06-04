@@ -369,6 +369,14 @@ class P1OnboardingResult:
     n_decay_only_updates: int = 0
     n_skipped_protected_updates: int = 0
     contact_gated: bool = False
+    # SD-057 cue-recall FORMATION readout (2026-06-04b aggregation fix): total
+    # L6 cue-recall fires across all P1 episodes, surfaced from the
+    # goal_write_diag accumulator. Contract: equals cue_diag["n_cue_recall_fires"]
+    # (both increment by 1 on each fire of the same shared accumulators); 0 when
+    # the bridge is off -> bit-identical. Closes the V3-EXQ-638 measurement gap
+    # where a consumer doing getattr(p1, "n_cue_recall_fires", 0) silently read 0
+    # EVEN WHEN THE CUE FIRED (no aggregated field existed).
+    n_cue_recall_fires: int = 0
     # SD-057 cue-recall diagnostics (2026-06-04): see _new_cue_diag(). Empty dict
     # when the bridge is off -> bit-identical readout. Turns cue_fires=0 into an
     # attributed nonfire reason (no_token / resource_field_absent / ...).
@@ -409,6 +417,15 @@ class P2OnboardingMetrics:
     # "goal not maintained by foraging" rather than masked by the frozen trace.
     z_goal_norm_at_contact_peak: float = 0.0
     num_contact_events: int = 0
+    # SD-057 cue-recall FORMATION readout (2026-06-04b aggregation fix): total
+    # L6 cue-recall fires across all P2 episodes, summed from the per-episode
+    # ep_metrics["n_cue_recall_fires"]. Contract: equals cue_diag["n_cue_recall_fires"]
+    # (the per-episode returns and the shared cue_diag both count the same fires);
+    # 0 when the bridge is off -> bit-identical. Closes the V3-EXQ-638 measurement
+    # gap where a consumer doing getattr(p2, "n_cue_recall_fires", 0) silently read
+    # 0 EVEN WHEN THE CUE FIRED (the 638 C1 gate read this; 638a worked around it
+    # by sourcing cue_diag["n_cue_recall_fires"]).
+    n_cue_recall_fires: int = 0
     # SD-057 cue-recall diagnostics (2026-06-04): see _new_cue_diag(). Empty dict
     # when the bridge is off -> bit-identical readout.
     cue_diag: Dict[str, Any] = field(default_factory=dict)
@@ -1203,6 +1220,7 @@ class ScaffoldedSD054OnboardingScheduler:
             n_decay_only_updates=goal_write_diag["n_decay_only"],
             n_skipped_protected_updates=goal_write_diag["n_skipped_protected"],
             contact_gated=contact_gated,
+            n_cue_recall_fires=int(goal_write_diag.get("n_cue_recall_fires", 0)),
             cue_diag=dict(cue_diag),
         )
         return self._p1_result
@@ -1266,6 +1284,7 @@ class ScaffoldedSD054OnboardingScheduler:
         total_skipped_protected = 0
         contact_peak_max = 0.0
         total_contact_events = 0
+        total_cue_recall_fires = 0
         cue_diag = _new_cue_diag()
         for ep in range(self.cfg.scaffold_p2_episode_budget):
             ep_metrics = self._eval_episode(
@@ -1289,6 +1308,7 @@ class ScaffoldedSD054OnboardingScheduler:
                 contact_peak_max, float(ep_metrics.get("z_goal_norm_at_contact_peak", 0.0))
             )
             total_contact_events += int(ep_metrics.get("num_contact_events", 0))
+            total_cue_recall_fires += int(ep_metrics.get("n_cue_recall_fires", 0))
 
         n_eps = max(1, len(per_episode))
         peak_max = float(max(peak_per_ep)) if peak_per_ep else 0.0
@@ -1316,6 +1336,7 @@ class ScaffoldedSD054OnboardingScheduler:
             contact_gated=contact_gated,
             z_goal_norm_at_contact_peak=contact_peak_max,
             num_contact_events=total_contact_events,
+            n_cue_recall_fires=total_cue_recall_fires,
             cue_diag=dict(cue_diag),
         )
         return self._p2_metrics
