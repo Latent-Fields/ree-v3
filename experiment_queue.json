@@ -45,25 +45,6 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_610e_inv074_crystallization_necessity",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-468b",
-      "title": "SD-034+MECH-268+MECH-090 commitment vs contradiction (behavioural, GAP-4 Phase 4)",
-      "script": "experiments/v3_exq_468b_sd034_mech268_commitment_vs_contradiction_behavioural.py",
-      "priority": 290,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "claim_id": "SD-034",
-      "note": "GAP-4 Phase 4/5 OCD behavioural *b cohort. Substrate side resolved 2026-06-02 (MECH-090 commit-entry + MECH-342 maintenance-release validated by 592g). Runs on GAP-3 CausalGridWorldV2 env extensions + GAP-11 committed_mode_curriculum. Authored/queued via /queue-experiment. Watch phase3-queue snapshot race (Step 8).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-04T03:09:05Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 350,
-      "experiment_type": "v3_exq_468b_sd034_mech268_commitment_vs_contradiction_behavioural",
-      "seeds": 3
     }
   ]
 }
