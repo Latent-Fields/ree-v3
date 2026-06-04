@@ -64,21 +64,6 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_610e_inv074_crystallization_necessity",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-639",
-      "title": "ARC-063 v1 CandidateRuleField substrate-readiness diagnostic (the non-Bayesian rule-creator resolving arc_062_rule_apprehension:GAP-B). C1 differentiated rule_state (>=2 distinct active rule vectors -- inverts 598b C3 trainable_not_monomodal) / C2 minting fires >=2 distinct context rules / C3 tolerance gate conflict-sensitive / C4 OFF bit-identical + ON populates SD-033a / UC5 MECH-094 sim gate.",
-      "script": "experiments/v3_exq_639_arc063_candidate_rule_field_readiness.py",
-      "priority": 200,
-      "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "claim_id": null,
-      "note": "DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[]; does NOT weight governance). Confirms the ARC-063 v1 substrate (ree-v3/ree_core/policy/candidate_rule_field.py + SD-033a crf_source wiring + agent select_action tick + REEConfig.use_candidate_rule_field) was wired correctly: CREATE (MECH-349) mints distinct context rules, REPRESENT (MECH-350) pinned-distinct subspace directions, GATE (MECH-351) conflict-sensitive tolerance threshold, OUTPUT writes a DIFFERENTIATED rule_state into SD-033a (the literal 598b GAP-B fix), CREDIT (MECH-352) eligibility loop + MECH-094 sim gate. Deterministic API/integration sub-tests (C1-C4 + UC5); 5/5 PASS on author smoke + 8/8 contract test_candidate_rule_field.py + 775/782 contracts (7 fails = pre-existing local-git runner-recovery artifact). The GOVERNANCE-WEIGHTING successor (the ARC-062 GAP-B multi-signature refuge/forage behavioural-diversity re-run on the field-populated substrate -- MECH-309/ARC-062) is a SEPARATE phased-training experiment queued after this readiness check. Authored/queued via /implement-substrate Step 8. Do NOT tune to pass.",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 1,
-      "experiment_type": "v3_exq_639_arc063_candidate_rule_field_readiness",
-      "seeds": 1
     }
   ]
 }
