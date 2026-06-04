@@ -2761,6 +2761,11 @@ class REEConfig:
         valence_wanting_floor: float = 0.0,  # MECH-186: minimum z_goal norm floor (0=disabled)
         z_goal_seeding_gain: float = 1.0,  # MECH-187: gain on seeding signal (1.0=no change)
         z_goal_inject: float = 0.0,  # MECH-188: PFC top-down injection norm floor (0=disabled)
+        use_incentive_token_bank: bool = False,  # SD-057: object-bound incentive-salience bank (GAP-7 L2-L3-L4)
+        incentive_decay: float = 0.005,  # SD-057 L3: per-object token slow decay
+        incentive_value_alpha: float = 0.1,  # SD-057 L3: token revaluation EMA rate
+        incentive_drive_kappa_weight: float = 2.0,  # SD-057 L3: relocated drive_weight for value x kappa(drive)
+        incentive_use_per_axis_drive: bool = True,  # SD-057 L3: drive-specific (per-axis) wanting
         # MECH-203/204: serotonergic neuromodulation
         tonic_5ht_enabled: bool = False,
         # MECH-204 F1: cross-cycle persistent zero-point EMA alpha
@@ -3329,6 +3334,11 @@ class REEConfig:
             "valence_wanting_floor",  # MECH-186
             "z_goal_seeding_gain",  # MECH-187
             "z_goal_inject",  # MECH-188
+            "use_incentive_token_bank",  # SD-057 L2-L3-L4
+            "incentive_decay",  # SD-057 L3
+            "incentive_value_alpha",  # SD-057 L3
+            "incentive_drive_kappa_weight",  # SD-057 L3
+            "incentive_use_per_axis_drive",  # SD-057 L3
         }
         local_goal_vals = {
             "z_goal_enabled": z_goal_enabled,
@@ -3343,6 +3353,11 @@ class REEConfig:
             "valence_wanting_floor": valence_wanting_floor,  # MECH-186
             "z_goal_seeding_gain": z_goal_seeding_gain,  # MECH-187
             "z_goal_inject": z_goal_inject,  # MECH-188
+            "use_incentive_token_bank": use_incentive_token_bank,  # SD-057
+            "incentive_decay": incentive_decay,  # SD-057 L3
+            "incentive_value_alpha": incentive_value_alpha,  # SD-057 L3
+            "incentive_drive_kappa_weight": incentive_drive_kappa_weight,  # SD-057 L3
+            "incentive_use_per_axis_drive": incentive_use_per_axis_drive,  # SD-057 L3
         }
         for _key in goal_fields:
             if _key in local_goal_vals:

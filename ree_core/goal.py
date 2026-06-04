@@ -113,6 +113,155 @@ class GoalConfig:
     # maintain PLANNED/HABIT behavioral gap when bottom-up terrain seeding has collapsed.
     z_goal_inject: float = 0.0
 
+    # SD-057: object-bound incentive-salience layer (GAP-7 L2-L3-L4).
+    # Master switch -- default False, bit-identical OFF (legacy single-attractor
+    # seeding from z_resource/z_world). When True, GoalState owns an
+    # IncentiveTokenBank: benefit at contact binds to the SD-049 resource-type
+    # tag (L2 MECH-344), each type accrues a slow-decay revaluable base_value
+    # token (L3 MECH-345), and z_goal is seeded FROM the most-wanted object's
+    # stored embedding (L4 MECH-346; MECH-230 amend) rather than the raw
+    # last-contacted latent.
+    use_incentive_token_bank: bool = False
+
+    # SD-057 L3: per-object base_value slow decay per update() call (matches
+    # decay_goal cadence). 0.0 = no decay (tokens persist until revalued).
+    incentive_decay: float = 0.005
+
+    # SD-057 L3: EMA rate for revaluation of base_value toward received benefit
+    # on contact (Balleine/Dickinson 1998: revaluable, not write-once).
+    incentive_value_alpha: float = 0.1
+
+    # SD-057 L3: relocated drive_weight for the at-recall wanting amplitude
+    # wanting[k] = base_value[k] * (1 + incentive_drive_kappa_weight * drive_axis[k])
+    # (Zhang 2009 V = r * kappa(drive)). Default mirrors GoalConfig.drive_weight.
+    incentive_drive_kappa_weight: float = 2.0
+
+    # SD-057 L3: when True (default) wanting uses per-axis drive (SD-049
+    # hunger/thirst/curiosity) so wanting is drive-specific / identity-matched
+    # (specific PIT). When False, the scalar drive_level is applied uniformly.
+    incentive_use_per_axis_drive: bool = True
+
+
+class IncentiveTokenBank:
+    """SD-057 (GAP-7 L2-L3): per-object incentive-salience token store.
+
+    A stateful, NON-TRAINABLE per-resource-type bank sitting between the benefit
+    pulse and z_goal. Each resource-type tag k (SD-049 1-indexed identity tag)
+    accrues:
+      base_value[k]: a slowly-decaying, revaluable cached incentive value
+                     (Robinson/Berridge 1993 persistence; Balleine/Dickinson 1998
+                     revaluable, not write-once).
+      z_object[k]:   the stored z_resource identity embedding for that type
+                     (the "what" the L4 goal pointer indexes).
+
+    Wanting amplitude at recall is computed drive-revaluably:
+      wanting[k] = base_value[k] * (1 + kappa_weight * drive_axis[k])
+    (Zhang 2009 V = r * kappa(drive); the (1 + drive_weight * drive) multiplier
+    relocated from the GoalState seeding gate onto the stored per-object value).
+
+    No nn.Module, no trainable parameters -- pure dict state + tensor clones.
+    """
+
+    def __init__(self, config: GoalConfig, device: torch.device) -> None:
+        self.config = config
+        self.device = device
+        # tag (int) -> base_value (float)
+        self._base_value: dict = {}
+        # tag (int) -> z_object tensor [1, goal_dim]
+        self._z_object: dict = {}
+
+    def is_empty(self) -> bool:
+        return len(self._base_value) == 0
+
+    def decay(self) -> None:
+        """Slow decay of every token's base_value (called once per update())."""
+        d = self.config.incentive_decay
+        if d <= 0.0:
+            return
+        for k in list(self._base_value.keys()):
+            self._base_value[k] *= (1.0 - d)
+
+    def update(
+        self,
+        resource_type: int,
+        benefit: float,
+        z_object: torch.Tensor,
+    ) -> None:
+        """L2 bind + L3 revalue. Bind the benefit pulse to object identity
+        `resource_type` and EMA-revalue that type's base_value toward the
+        received benefit; refresh the stored identity embedding."""
+        k = int(resource_type)
+        # resource_type 0 = "no resource at agent" (SD-049 convention) -> skip.
+        if k <= 0:
+            return
+        z = z_object.detach()
+        if z.dim() == 2:
+            z = z.mean(dim=0, keepdim=True)
+        elif z.dim() == 1:
+            z = z.unsqueeze(0)
+        alpha = self.config.incentive_value_alpha
+        prev = self._base_value.get(k, 0.0)
+        self._base_value[k] = (1.0 - alpha) * prev + alpha * float(benefit)
+        self._z_object[k] = z.clone()
+
+    def _drive_axis_for(self, k: int, per_axis_drive, scalar_drive: float) -> float:
+        """Per-axis drive for type k (SD-049 type-axis 1:1 mapping: tag k uses
+        axis k-1), falling back to the scalar drive when per-axis is unavailable
+        or disabled."""
+        if (
+            self.config.incentive_use_per_axis_drive
+            and per_axis_drive is not None
+        ):
+            try:
+                pad = per_axis_drive
+                # Flatten a [1, n_axes] tensor to [n_axes]; leave 1-D / sequence as-is.
+                if hasattr(pad, "dim") and pad.dim() == 2:
+                    pad = pad.reshape(-1)
+                axis_idx = k - 1
+                if 0 <= axis_idx < len(pad):
+                    return float(pad[axis_idx])
+            except (TypeError, IndexError):
+                pass
+        return float(scalar_drive)
+
+    def wanting(self, per_axis_drive=None, scalar_drive: float = 1.0) -> dict:
+        """L3 recall: wanting[k] = base_value[k] * (1 + kappa * drive_axis[k])."""
+        kappa = self.config.incentive_drive_kappa_weight
+        out = {}
+        for k, base in self._base_value.items():
+            drive_axis = self._drive_axis_for(k, per_axis_drive, scalar_drive)
+            out[k] = base * (1.0 + kappa * drive_axis)
+        return out
+
+    def most_wanted(self, per_axis_drive=None, scalar_drive: float = 1.0):
+        """L4 pointer: return (k*, z_object[k*], wanting[k*]) for the
+        highest-wanting object, or None when the bank is empty / has no stored
+        embedding."""
+        w = self.wanting(per_axis_drive=per_axis_drive, scalar_drive=scalar_drive)
+        if not w:
+            return None
+        k_star = max(w, key=w.get)
+        z = self._z_object.get(k_star)
+        if z is None:
+            return None
+        return (k_star, z, w[k_star])
+
+    def reset(self) -> None:
+        self._base_value = {}
+        self._z_object = {}
+
+    def state_dict(self) -> dict:
+        return {
+            "base_value": dict(self._base_value),
+            "z_object": {k: v.cpu() for k, v in self._z_object.items()},
+        }
+
+    def load_state_dict(self, d: dict) -> None:
+        self._base_value = dict(d.get("base_value", {}))
+        self._z_object = {
+            k: v.to(self.device) for k, v in d.get("z_object", {}).items()
+        }
+
 
 class GoalState:
     """
@@ -139,6 +288,13 @@ class GoalState:
         # bit-identical. With alpha < 1.0 this introduces a deliberate
         # cold-start transient (accepted per Q2).
         self._drive_trace: float = 0.0
+        # SD-057 (GAP-7 L2-L3): per-object incentive-salience token bank.
+        # None (and bit-identical OFF) unless use_incentive_token_bank is set.
+        self.incentive_bank: Optional[IncentiveTokenBank] = (
+            IncentiveTokenBank(config, device)
+            if getattr(config, "use_incentive_token_bank", False)
+            else None
+        )
 
     @property
     def z_goal(self) -> torch.Tensor:
@@ -294,6 +450,10 @@ class GoalState:
         # so eval/training loops that call reset() between episodes restart
         # the trace from the documented zero-init.
         self._drive_trace = 0.0
+        # SD-057: the incentive token bank is per-episode state (per-object
+        # wanting amplitudes reset alongside the z_goal attractor).
+        if self.incentive_bank is not None:
+            self.incentive_bank.reset()
 
     def state_dict(self) -> dict:
         return {

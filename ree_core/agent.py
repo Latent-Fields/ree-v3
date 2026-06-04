@@ -4935,7 +4935,12 @@ class REEAgent(nn.Module):
         weight = getattr(self.config.latent, "z_harm_a_aux_loss_weight", 0.1)
         return weight * F.mse_loss(pred, target)
 
-    def update_z_goal(self, benefit_exposure: float, drive_level: float = 1.0) -> None:
+    def update_z_goal(
+        self,
+        benefit_exposure: float,
+        drive_level: float = 1.0,
+        resource_type: Optional[int] = None,
+    ) -> None:
         """Update z_goal from benefit signal (MECH-112 wanting update).
 
         SD-015: when ResourceEncoder is enabled and z_resource is populated in the
@@ -4944,10 +4949,23 @@ class REEAgent(nn.Module):
         present" independent of spatial position -- resources respawn at random locations,
         so z_world at contact has no predictive value for future resource locations.
 
+        SD-057 (GAP-7 L2-L3-L4): when GoalState.use_incentive_token_bank is set,
+        the benefit pulse binds to the SD-049 resource-type tag (L2 MECH-344), each
+        type accrues a slow-decay revaluable incentive token (L3 MECH-345), and the
+        z_goal seed is sourced from the MOST-WANTED object's stored embedding
+        (L4 MECH-346; argmax over base_value x per-axis-drive) rather than the raw
+        last-contacted z_resource. The GoalState.update firing gate is unchanged --
+        only the seed SOURCE changes.
+
         Args:
             benefit_exposure: scalar benefit this step (obs_body[11] in proxy mode)
             drive_level: homeostatic drive 0=sated, 1=depleted (SD-012).
                          Compute as: 1.0 - float(obs_body[0, 3]) where obs_body[3]=energy.
+            resource_type: SD-049 per-type identity tag of the contacted resource
+                         (1..n_resource_types; 0 = none). Optional -- supplied by
+                         callers from obs_dict["resource_type_at_agent"] /
+                         info["sd049_consumed_type_tag_this_tick"]. Only consumed by
+                         the SD-057 incentive bank; ignored (legacy path) otherwise.
         """
         if self.goal_state is None or self._current_latent is None:
             return
@@ -4985,6 +5003,39 @@ class REEAgent(nn.Module):
             )
             multiplier = 1.0 + (seeding_gain - 1.0) * override_signal
             effective_drive = max(0.0, min(1.0, effective_drive * multiplier))
+        # SD-057 (GAP-7 L2-L3-L4): object-bound incentive-salience layer.
+        # When the bank is active, bind the benefit pulse to object identity,
+        # revalue the per-object token, and source the z_goal seed from the
+        # MOST-WANTED object's stored embedding (L4 MECH-346) instead of the
+        # raw last-contacted z_resource. The GoalState firing gate below is
+        # unchanged; only seed_latent is redirected.
+        bank = getattr(self.goal_state, "incentive_bank", None)
+        if bank is not None:
+            bank.decay()  # L3 slow decay of all per-object tokens this tick
+            # L2 bind: only when a resource type was actually contacted and the
+            # object-type embedding (z_resource) is available to store.
+            if (
+                resource_type is not None
+                and int(resource_type) > 0
+                and use_resource
+                and self._current_latent.z_resource is not None
+            ):
+                bank.update(
+                    int(resource_type),
+                    benefit_exposure,
+                    self._current_latent.z_resource,
+                )
+            # L4 pointer: seed z_goal FROM the most-wanted object's embedding.
+            # Read the cached per-axis drive directly (NOT the SD-049-cascade-
+            # gated helper) so SD-057 drive-specific wanting works whenever the
+            # caller passes obs_per_axis_drive, independent of the separate
+            # SD-049 consumer-cascade flag.
+            mw = bank.most_wanted(
+                per_axis_drive=getattr(self, "_per_axis_drive", None),
+                scalar_drive=effective_drive,
+            )
+            if mw is not None:
+                seed_latent = mw[1]
         self.goal_state.update(
             seed_latent,
             benefit_exposure,

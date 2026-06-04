@@ -222,9 +222,23 @@ class StepHarness:
             benefit_exposure = (
                 0.0 if benefit_raw is None else max(0.0, float(benefit_raw))
             )
+            # SD-057 (GAP-7 L2): forward the SD-049 per-type identity tag so the
+            # incentive token bank can bind benefit to object identity. None when
+            # SD-049 is off (key absent) -> bit-identical legacy path.
+            _rtype_raw = obs_dict.get("resource_type_at_agent", None)
+            resource_type = None
+            if _rtype_raw is not None:
+                try:
+                    resource_type = int(
+                        _rtype_raw[0] if hasattr(_rtype_raw, "__len__")
+                        else _rtype_raw
+                    )
+                except (TypeError, ValueError):
+                    resource_type = None
             agent.update_z_goal(
                 benefit_exposure=benefit_exposure,
                 drive_level=drive_level,
+                resource_type=resource_type,
             )
 
             # 5. update_schema_wanting -- canonical MECH-216 call site.

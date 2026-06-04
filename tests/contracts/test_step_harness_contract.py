@@ -62,17 +62,27 @@ def test_update_z_goal_signature_is_kwargs_only_friendly():
     params = list(sig.parameters.values())
     # First param is self.
     assert params[0].name == "self"
-    # The rest must be exactly (benefit_exposure, drive_level).
+    # The rest must be exactly (benefit_exposure, drive_level, resource_type).
+    # resource_type added 2026-06-04 for SD-057 (GAP-7 L2 object-identity
+    # binding); it has a None default so positional 2-arg callers are
+    # unaffected, and the StepHarness call site was updated in lockstep to
+    # forward obs_dict["resource_type_at_agent"].
     real = [p.name for p in params[1:]]
-    assert real == ["benefit_exposure", "drive_level"], (
+    assert real == ["benefit_exposure", "drive_level", "resource_type"], (
         f"update_z_goal signature drift: got {real}; harness assumes "
-        f"['benefit_exposure', 'drive_level']. If you intentionally added a "
-        f"parameter, update _harness.py and this test together."
+        f"['benefit_exposure', 'drive_level', 'resource_type']. If you "
+        f"intentionally added a parameter, update _harness.py and this test "
+        f"together."
     )
     # drive_level should still have a default.
     drive_param = sig.parameters["drive_level"]
     assert drive_param.default is not inspect.Parameter.empty, (
         "drive_level lost its default; scripts that omit it will TypeError."
+    )
+    # resource_type must default to None (bit-identical legacy path when omitted).
+    rtype_param = sig.parameters["resource_type"]
+    assert rtype_param.default is None, (
+        "resource_type must default to None so 2-arg callers stay bit-identical."
     )
 
 
@@ -210,8 +220,18 @@ def test_step_harness_update_z_goal_call_uses_kwargs_only():
         f"cohort bug was passing `latent` positionally; the harness must "
         f"pass benefit_exposure and drive_level as kwargs only."
     )
-    assert set(kwargs.keys()) == {"benefit_exposure", "drive_level"}, (
+    # SD-057 (2026-06-04): the harness also forwards resource_type (the SD-049
+    # per-type identity tag) as a kwarg; None here because make_tiny_env does
+    # not enable SD-049 multi_resource_heterogeneity (key absent -> None ->
+    # bit-identical legacy path).
+    assert set(kwargs.keys()) == {
+        "benefit_exposure", "drive_level", "resource_type"
+    }, (
         f"harness update_z_goal kwargs drift: {set(kwargs.keys())}"
+    )
+    assert kwargs["resource_type"] is None, (
+        "resource_type must be None when SD-049 is off (no "
+        "resource_type_at_agent key) -> bit-identical legacy path."
     )
     assert kwargs["benefit_exposure"] == pytest.approx(0.25), (
         "StepHarness must source benefit_exposure from body_state[11] when "
