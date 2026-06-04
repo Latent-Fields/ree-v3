@@ -255,6 +255,30 @@ class ScaffoldedSD054OnboardingConfig:
     scaffold_batch_size: int = 32
     scaffold_wf_buf_max: int = 2000
 
+    # SD-057 cue-recall bridge (2026-06-04 amend; GAP-2 foraging-contact lever).
+    # Hypothesis: the nursery already builds z_goal by forced-feed but has no path
+    # from a nursery-built goal to APPROACHING a resource the agent can SEE but
+    # has not yet contacted. SD-057 L6 cue-recall is that path (Pavlovian-
+    # instrumental transfer / sign-tracking): forced-feed builds per-object tokens
+    # in the SD-057 incentive bank; in P1/P2 a PERCEIVED resource cue retrieves
+    # its token and pulls z_goal toward it -> MECH-295 approach bias -> first
+    # contact. Targets the CONTACT axis of the foraging ceiling (NOT survival).
+    #
+    # Master switch -- default False, bit-identical OFF. When True it (a) enables
+    # SD-049 (per-type identity tags + per-type proximity views + per-axis drive)
+    # in this scheduler's envs, (b) passes resource_type into update_z_goal so the
+    # bank binds per-object tokens, and (c) fires agent.cue_recall_wanting each
+    # P1/P2 step on the strongest-perceived resource type. REQUIRES the CALLER to
+    # build the agent with use_incentive_token_bank=True + use_cue_recall=True +
+    # use_resource_encoder=True (the SD-057 substrate flags); without them the
+    # wiring is harmless no-op (bank None -> resource_type ignored; cue_recall
+    # returns 0).
+    scaffold_cue_recall_bridge_enabled: bool = False
+    # SD-049 resource-type count for the scaffold envs when the bridge is on.
+    scaffold_cue_n_resource_types: int = 3
+    # Minimum perceived-cue proximity for the auto cue-recall to fire each step.
+    scaffold_cue_recall_min_proximity: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -431,6 +455,77 @@ def _benefit_and_drive(obs_body: torch.Tensor) -> Tuple[float, float]:
     return benefit, drive
 
 
+def _sd049_kwargs(cfg: ScaffoldedSD054OnboardingConfig) -> Dict[str, Any]:
+    """SD-057 cue-recall bridge: SD-049 enablement kwargs for the scaffold envs.
+
+    Returns {} when the bridge is off (bit-identical legacy envs). When on, the
+    envs emit per-type identity tags (resource_type_at_agent /
+    sd049_consumed_type_tag_this_tick), per-type proximity field views
+    (resource_field_view_<name>), and per_axis_drive -- the inputs the SD-057
+    bank-token-binding (L2) and cue-recall (L6) need.
+    """
+    if not cfg.scaffold_cue_recall_bridge_enabled:
+        return {}
+    return {
+        "multi_resource_heterogeneity_enabled": True,
+        "n_resource_types": int(cfg.scaffold_cue_n_resource_types),
+        "per_axis_drive_enabled": True,
+    }
+
+
+def _contacted_resource_type(obs_dict: Dict[str, Any]) -> Optional[int]:
+    """SD-057 L2: the SD-049 identity tag for bank-token binding. Prefers the
+    consumed-this-tick tag, falls back to the at-agent tag. None when absent
+    (SD-049 off) or no resource (tag 0)."""
+    for key in ("sd049_consumed_type_tag_this_tick", "resource_type_at_agent"):
+        raw = obs_dict.get(key, None)
+        if raw is None:
+            continue
+        try:
+            tag = int(raw[0] if hasattr(raw, "__len__") else raw)
+        except (TypeError, ValueError):
+            continue
+        if tag > 0:
+            return tag
+    return None
+
+
+def _maybe_cue_recall(agent, env, obs_dict: Dict[str, Any], drive: float,
+                      cfg: ScaffoldedSD054OnboardingConfig) -> int:
+    """SD-057 L6 cue-recall, ecological auto-perception. Derives the strongest-
+    perceived resource type from the SD-049 per-type proximity field views and
+    fires agent.cue_recall_wanting on it (raising wanting/approach toward a
+    perceived-but-uncontacted resource). Best-effort; returns 1 if a cue fired.
+
+    No-op (returns 0) when the bridge is off, the agent lacks the SD-057
+    bank/cue-recall (caller didn't set the flags), or the env emits no per-type
+    views. Bit-identical when off.
+    """
+    if not cfg.scaffold_cue_recall_bridge_enabled:
+        return 0
+    try:
+        # Set per-axis drive so the bank's drive-specific wanting is identity-
+        # matched; scalar-drive fallback inside cue_recall_wanting otherwise.
+        pad = obs_dict.get("per_axis_drive", None)
+        if pad is not None:
+            agent._per_axis_drive = pad.reshape(-1) if hasattr(pad, "reshape") else pad
+        type_names = getattr(env, "resource_type_names", ()) or ()
+        best_tag, best_prox = 0, -1.0
+        for i, name in enumerate(type_names):
+            fv = obs_dict.get(f"resource_field_view_{name}", None)
+            if fv is None:
+                continue
+            v = float(fv.max()) if hasattr(fv, "max") else float(max(fv))
+            if v > best_prox:
+                best_prox, best_tag = v, i + 1
+        if best_tag > 0 and best_prox >= float(cfg.scaffold_cue_recall_min_proximity):
+            s = agent.cue_recall_wanting(cue_type=best_tag, drive_level=float(drive))
+            return 1 if (s is not None and s > 0.0) else 0
+    except Exception:
+        pass  # cue-recall is best-effort; never break the episode loop
+    return 0
+
+
 def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float = 0.0):
     """
     Build a CausalGridWorldV2 instance for the named phase.
@@ -448,6 +543,7 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             size=cfg.scaffold_env_size,
             num_hazards=cfg.scaffold_stage0_num_hazards,
             num_resources=cfg.scaffold_stage0_num_resources,
+            **_sd049_kwargs(cfg),  # SD-057 cue-recall bridge (no-op when off)
             hazard_food_attraction=0.0,
             proximity_harm_scale=cfg.scaffold_stage0_proximity_harm_scale,
             limb_damage_enabled=True,
@@ -462,6 +558,7 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             size=cfg.scaffold_env_size,
             num_hazards=cfg.scaffold_p0_num_hazards,
             num_resources=cfg.scaffold_p0_num_resources,
+            **_sd049_kwargs(cfg),  # SD-057 cue-recall bridge (no-op when off)
             hazard_food_attraction=0.0,
             proximity_harm_scale=cfg.scaffold_p0_proximity_harm_scale,
             limb_damage_enabled=True,
@@ -487,6 +584,7 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             num_hazards=cfg.scaffold_p2_num_hazards,
             num_resources=cfg.scaffold_p2_num_resources,
             hazard_food_attraction=hfa,
+            **_sd049_kwargs(cfg),  # SD-057 cue-recall bridge (no-op when off)
             proximity_harm_scale=phs,
             limb_damage_enabled=True,
             reef_enabled=True,
@@ -509,6 +607,7 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             num_hazards=cfg.scaffold_p2_num_hazards,
             num_resources=cfg.scaffold_p2_num_resources,
             hazard_food_attraction=p2_hfa,
+            **_sd049_kwargs(cfg),  # SD-057 cue-recall bridge (no-op when off)
             proximity_harm_scale=cfg.scaffold_p2_proximity_harm_scale,
             limb_damage_enabled=True,
             reef_enabled=True,
@@ -1247,11 +1346,21 @@ class ScaffoldedSD054OnboardingScheduler:
                 # persistent attractor is NOT washed out by a decay-only call.
                 # Forced-feed (Stage-0) always writes. Default (contact_gated
                 # False) keeps the legacy every-step decay-only path.
+                # SD-057 L2: bind benefit to object identity (no-op when bridge
+                # off -> rt None -> bank None or ignored). In the forced-feed
+                # nursery this lays down per-object tokens cue-recall later reads.
+                rt = (
+                    _contacted_resource_type(obs_dict)
+                    if self.cfg.scaffold_cue_recall_bridge_enabled
+                    else None
+                )
                 if contact_gated and not is_forced and not seeds:
                     if goal_write_diag is not None:
                         goal_write_diag["n_skipped_protected"] += 1
                 else:
-                    agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
+                    agent.update_z_goal(
+                        benefit_exposure=benefit, drive_level=drive, resource_type=rt
+                    )
                     if goal_write_diag is not None:
                         if seeds or is_forced:
                             goal_write_diag["n_contact_refresh"] += 1
@@ -1265,6 +1374,15 @@ class ScaffoldedSD054OnboardingScheduler:
                             except TypeError:
                                 gn = float(gs.goal_norm)
                             goal_peak_sink.append(gn)
+                # SD-057 L6: cue-recall on ecological (non-forced) wild steps --
+                # a perceived resource cue retrieves its token and pulls z_goal
+                # toward it before contact (the wean-to-wild approach bridge).
+                if not is_forced:
+                    n_cue = _maybe_cue_recall(agent, env, obs_dict, drive, self.cfg)
+                    if goal_write_diag is not None and n_cue:
+                        goal_write_diag["n_cue_recall_fires"] = (
+                            goal_write_diag.get("n_cue_recall_fires", 0) + n_cue
+                        )
 
             if done:
                 return step + 1
@@ -1309,6 +1427,7 @@ class ScaffoldedSD054OnboardingScheduler:
         n_contact_refresh = 0
         n_decay_only = 0
         n_skipped_protected = 0
+        n_cue_recall_fires = 0  # SD-057 L6 cue-recall fires this episode
         bridge_cue_fires_baseline = 0
         bridge_cue_fires_final = 0
         dacc_bias_nonzero_steps_baseline = 0
@@ -1395,10 +1514,18 @@ class ScaffoldedSD054OnboardingScheduler:
                 else float(gating_threshold)
             )
             seeds = benefit > gate
+            # SD-057 L2 bind (no-op when bridge off).
+            rt = (
+                _contacted_resource_type(obs_dict)
+                if self.cfg.scaffold_cue_recall_bridge_enabled
+                else None
+            )
             if contact_gated and not seeds:
                 n_skipped_protected += 1
             else:
-                agent.update_z_goal(benefit_exposure=benefit, drive_level=drive)
+                agent.update_z_goal(
+                    benefit_exposure=benefit, drive_level=drive, resource_type=rt
+                )
                 if seeds:
                     n_contact_refresh += 1
                 else:
@@ -1420,6 +1547,11 @@ class ScaffoldedSD054OnboardingScheduler:
                         if cur > z_goal_norm_at_contact_peak:
                             z_goal_norm_at_contact_peak = cur
 
+            # SD-057 L6: cue-recall on the perceived resource each P2 step.
+            n_cue_recall_fires += _maybe_cue_recall(
+                agent, env, obs_dict, drive, self.cfg
+            )
+
             if done:
                 break
 
@@ -1439,6 +1571,7 @@ class ScaffoldedSD054OnboardingScheduler:
             "n_skipped_protected_updates": n_skipped_protected,
             "z_goal_norm_at_contact_peak": z_goal_norm_at_contact_peak,
             "num_contact_events": num_contact_events,
+            "n_cue_recall_fires": n_cue_recall_fires,  # SD-057 L6
         }
 
 

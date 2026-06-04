@@ -1006,3 +1006,101 @@ def test_c8_p2_consumption_gated_peak_distinct_from_frozen_peak(monkeypatch):
     assert p2.z_goal_norm_at_contact_peak == 0.0
     # ... yet the contact-RATE readout still registers ecological engagement.
     assert p2.contact_steps > 0
+
+
+# ---------------------------------------------------------------------------
+# C9: SD-057 cue-recall bridge (2026-06-04 amend). GAP-2 foraging-contact lever.
+# ---------------------------------------------------------------------------
+
+import torch  # noqa: E402
+from ree_core.utils.config import REEConfig  # noqa: E402
+from ree_core.agent import REEAgent  # noqa: E402
+from experiments.scaffolded_sd054_onboarding import (  # noqa: E402
+    _sd049_kwargs,
+    _contacted_resource_type,
+    _maybe_cue_recall,
+)
+
+
+def test_c9_config_defaults_are_noop():
+    cfg = ScaffoldedSD054OnboardingConfig()
+    assert cfg.scaffold_cue_recall_bridge_enabled is False
+    assert cfg.scaffold_cue_n_resource_types == 3
+    assert cfg.scaffold_cue_recall_min_proximity == 0.0
+
+
+def test_c9_sd049_kwargs_off_empty_on_populated():
+    off = ScaffoldedSD054OnboardingConfig()
+    assert _sd049_kwargs(off) == {}
+    on = ScaffoldedSD054OnboardingConfig(scaffold_cue_recall_bridge_enabled=True,
+                                         scaffold_cue_n_resource_types=3)
+    k = _sd049_kwargs(on)
+    assert k.get("multi_resource_heterogeneity_enabled") is True
+    assert k.get("per_axis_drive_enabled") is True
+    assert k.get("n_resource_types") == 3
+
+
+@pytest.mark.parametrize("phase", ["stage0", "p0", "p1", "p2"])
+def test_c9_build_env_off_has_no_sd049(phase):
+    env = _build_env(ScaffoldedSD054OnboardingConfig(), phase)
+    assert getattr(env, "multi_resource_heterogeneity_enabled", False) is False
+
+
+@pytest.mark.parametrize("phase", ["stage0", "p0", "p1", "p2"])
+def test_c9_build_env_on_enables_sd049_with_views(phase):
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_cue_recall_bridge_enabled=True)
+    env = _build_env(cfg, phase)
+    assert getattr(env, "multi_resource_heterogeneity_enabled", False) is True
+    _, obs = env.reset()
+    assert any(kk.startswith("resource_field_view_") for kk in obs)
+    assert "per_axis_drive" in obs
+
+
+def test_c9_contacted_resource_type_helper():
+    assert _contacted_resource_type({}) is None
+    assert _contacted_resource_type({"resource_type_at_agent": torch.tensor([0])}) is None
+    assert _contacted_resource_type({"resource_type_at_agent": torch.tensor([2])}) == 2
+    # consumed-this-tick takes precedence
+    assert _contacted_resource_type(
+        {"sd049_consumed_type_tag_this_tick": 1, "resource_type_at_agent": torch.tensor([3])}
+    ) == 1
+
+
+def _bridge_agent():
+    rc = REEConfig.from_dims(body_obs_dim=17, world_obs_dim=325, action_dim=4,
+        world_dim=32, z_goal_enabled=True, drive_weight=2.0,
+        use_incentive_token_bank=True, use_cue_recall=True, cue_recall_gain=0.2)
+    rc.latent.use_resource_encoder = True
+    return REEAgent(rc)
+
+
+def test_c9_maybe_cue_recall_off_is_noop():
+    agent = _bridge_agent()
+    obs = {"resource_field_view_food": torch.ones(25)}
+
+    class _Env:
+        resource_type_names = ("food",)
+    # bridge OFF -> 0 regardless
+    assert _maybe_cue_recall(agent, _Env(), obs, 0.9,
+                             ScaffoldedSD054OnboardingConfig()) == 0
+
+
+def test_c9_maybe_cue_recall_fires_for_token_match_only():
+    agent = _bridge_agent()
+    # seed a token for food (type 1) only
+    z = torch.zeros(1, 32); z[0, 0] = 1.0
+    agent.goal_state.incentive_bank.update(1, 0.5, z)
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_cue_recall_bridge_enabled=True)
+
+    class _Env:
+        resource_type_names = ("food", "water", "novelty")
+    # food strongest-perceived + token present -> fires
+    obs_food = {"resource_field_view_food": torch.ones(25),
+                "resource_field_view_water": torch.zeros(25),
+                "resource_field_view_novelty": torch.zeros(25)}
+    assert _maybe_cue_recall(agent, _Env(), obs_food, 0.9, cfg) == 1
+    # water strongest-perceived but NO token -> no fire (identity-matched)
+    obs_water = {"resource_field_view_food": torch.zeros(25),
+                 "resource_field_view_water": torch.ones(25),
+                 "resource_field_view_novelty": torch.zeros(25)}
+    assert _maybe_cue_recall(agent, _Env(), obs_water, 0.9, cfg) == 0
