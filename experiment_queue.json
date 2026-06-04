@@ -8,6 +8,21 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-638",
+      "title": "SD-057 cue-recall bridge foraging contact-rate ablation (GAP-2): scaffolded_sd054_onboarding cue-recall ON vs OFF, shared 634c ARM_3 seeding regime; does cue-recall raise P2 contact_rate",
+      "script": "experiments/v3_exq_638_scaffold_cue_recall_contact_ablation.py",
+      "priority": 340,
+      "machine_affinity": "any",
+      "estimated_minutes": 240,
+      "claim_id": null,
+      "note": "Substrate-readiness diagnostic (claim_ids=[]) for the SD-057 cue-recall bridge amend to scaffolded_sd054_onboarding. Tests the wean-to-wild hypothesis: does cue-recall (perceived resource -> token recall -> approach) raise P2 foraging contact rate vs OFF, both arms on the landed 634c ARM_3 seeding regime (drive_floor=0.9 + benefit_threshold=0.02). Self-contained: does NOT depend on the stalled 634c run, only its landed code. Dry-run runs end-to-end both arms (ON Stage-0 z_goal forms 0.43 vs OFF 0.23; C2 cue-silent-OFF holds); full-budget needed for C1/C3. PASS => cue-recall is a foraging-contact lever -> combined readiness run -> GAP-7 L9 retest. GAP-2 closure-path.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 235,
+      "experiment_type": "v3_exq_638_scaffold_cue_recall_contact_ablation",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-634c",
       "title": "scaffolded_sd054_onboarding seeding-calibration readiness (4-arm seeding-lever sweep)",
       "script": "experiments/v3_exq_634c_scaffolded_nursery_seeding_calibration_readiness.py",
@@ -45,21 +60,6 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_610e_inv074_crystallization_necessity",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-638",
-      "title": "SD-057 cue-recall bridge foraging contact-rate ablation (GAP-2): scaffolded_sd054_onboarding cue-recall ON vs OFF, shared 634c ARM_3 seeding regime; does cue-recall raise P2 contact_rate",
-      "experiment_type": "v3_exq_638_scaffold_cue_recall_contact_ablation",
-      "script": "experiments/v3_exq_638_scaffold_cue_recall_contact_ablation.py",
-      "priority": 340,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 240,
-      "episodes_per_run": 235,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": null,
-      "note": "Substrate-readiness diagnostic (claim_ids=[]) for the SD-057 cue-recall bridge amend to scaffolded_sd054_onboarding. Tests the wean-to-wild hypothesis: does cue-recall (perceived resource -> token recall -> approach) raise P2 foraging contact rate vs OFF, both arms on the landed 634c ARM_3 seeding regime (drive_floor=0.9 + benefit_threshold=0.02). Self-contained: does NOT depend on the stalled 634c run, only its landed code. Dry-run runs end-to-end both arms (ON Stage-0 z_goal forms 0.43 vs OFF 0.23; C2 cue-silent-OFF holds); full-budget needed for C1/C3. PASS => cue-recall is a foraging-contact lever -> combined readiness run -> GAP-7 L9 retest. GAP-2 closure-path."
     }
   ]
 }
