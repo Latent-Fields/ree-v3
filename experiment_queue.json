@@ -16,7 +16,11 @@
       "estimated_minutes": 240,
       "claim_id": null,
       "note": "Substrate-readiness diagnostic (claim_ids=[]) for the SD-057 cue-recall bridge amend to scaffolded_sd054_onboarding. Tests the wean-to-wild hypothesis: does cue-recall (perceived resource -> token recall -> approach) raise P2 foraging contact rate vs OFF, both arms on the landed 634c ARM_3 seeding regime (drive_floor=0.9 + benefit_threshold=0.02). Self-contained: does NOT depend on the stalled 634c run, only its landed code. Dry-run runs end-to-end both arms (ON Stage-0 z_goal forms 0.43 vs OFF 0.23; C2 cue-silent-OFF holds); full-budget needed for C1/C3. PASS => cue-recall is a foraging-contact lever -> combined readiness run -> GAP-7 L9 retest. GAP-2 closure-path.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-04T11:10:42Z"
+      },
       "conditions": 2,
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_638_scaffold_cue_recall_contact_ablation",
