@@ -6,27 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-610e",
-      "title": "INV-074/MECH-333/MECH-334 crystallization-necessity retest (HARNESS-FIXED, startup-assertion-gated): real REINFORCE on gated_policy (Phases 0-2) + stepped expansion_parameters() optimizer post-crystallize (Phase 3) + residue_field.ewc_penalty() summed into the Phase-3 loss. 2-arm/3-seed, IGW-023 Phase-3 pressure. Supersedes 610d (untrained-policy no-op).",
-      "script": "experiments/v3_exq_610e_inv074_crystallization_necessity.py",
-      "priority": 320,
-      "machine_affinity": "any",
-      "estimated_minutes": 850,
-      "supersedes": "V3-EXQ-610d",
-      "claim_id": "INV-074",
-      "backlog_id": "EVB-0270",
-      "note": "Wires the three prescriptions 610c/610d dropped, each verified by a MANDATORY startup assertion (_assert_fixes_wired) that ERRORs the run if any is missing: (1) FIX1 -- the gated_policy is the behavioral policy; a real REINFORCE update (stored log_probs -> discounted returns -> mean-baseline advantages -> policy_loss.backward() -> policy_optimizer.step() on gated_policy params) trains it in Phases 0-2; the assertion proves trained selected-action entropy drops below the untrained band (<1.04 of ln5=1.609), i.e. NOT the 610c/610d near-uniform 1.06-1.12 no-op signature. (2) FIX2 -- after gated_policy.crystallize() fires at Phase-3 entry (ARM_1), the optimizer is rebuilt over expansion_parameters() and is actually stepped each Phase-3 episode. (3) FIX3 -- residue_field.ewc_penalty() (already lambda-scaled internally) is summed into the Phase-3 loss after snapshot_ewc_anchor(), with the residue rbf Parameters in the optimizer so the EWC pull is a non-vacuous protective step (EWC armed only in ARM_1 -> returns 0 in ARM_0). Manifest records n_policy_steps / n_expansion_steps_phase3 / n_ewc_terms_phase3 / ewc_penalty_last so a reviewer can confirm all three fired without reading the script. Pre-registered substrate-ceiling fork (docstring grid row c): a VERIFIABLY-TRAINED non-uniform policy whose ARM_0 control still does NOT collapse STRENGTHENS MECH-341/MECH-313 (diversity preservation robust) and does NOT weaken INV-074. ~13h cloud run (610d actual ~13h on ree-cloud-2).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-03T21:19:06Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 2500,
-      "experiment_type": "v3_exq_610e_inv074_crystallization_necessity",
-      "seeds": 3
-    }
-  ]
+  "items": []
 }
