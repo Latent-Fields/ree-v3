@@ -79,6 +79,8 @@ from ree_core.pfc import LateralPFCAnalog, OFCAnalog
 from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
 from ree_core.pfc.ofc_analog import OFCConfig
 from ree_core.policy import (
+    CandidateRuleField,
+    CandidateRuleFieldConfig,
     CommitMaintenanceRelease,
     CommitMaintenanceReleaseConfig,
     CommitReadiness,
@@ -530,6 +532,53 @@ class REEAgent(nn.Module):
                 world_dim=config.latent.world_dim,
                 config=lpfc_cfg,
             )
+
+        # ARC-063 v1: distributed CandidateRule field (the non-Bayesian
+        # rule-creator resolving arc_062_rule_apprehension:GAP-B). Mints distinct
+        # subspace-partitioned rule slots on recurring (context -> action-object
+        # -> outcome) regularities; the active-AND-context-matched rules combine
+        # into a differentiated rule_state vector that REPLACES the legacy EMA
+        # source in LateralPFCAnalog.update (the literal GAP-B fix for the
+        # 543/598b rule_state collapse). Precondition: requires the SD-033a
+        # consumer (use_lateral_pfc_analog=True). Loud-not-silent (matches the
+        # use_closure_operator / MECH-269b / MECH-293 precondition pattern).
+        self.candidate_rule_field: Optional[CandidateRuleField] = None
+        # Per-tick stash for next-tick credit (the outcome of the rules active on
+        # tick t arrives on tick t+1).
+        self._crf_prev_action_class: int = -1
+        self._crf_prev_outcome: float = 0.0
+        if getattr(config, "use_candidate_rule_field", False):
+            if self.lateral_pfc is None:
+                raise ValueError(
+                    "use_candidate_rule_field=True requires "
+                    "use_lateral_pfc_analog=True (SD-033a is the rule_state "
+                    "consumer the field populates -- ARC-063 GAP-B wiring)."
+                )
+            crf_cfg = CandidateRuleFieldConfig(
+                use_candidate_rule_field=True,
+                n_slots=getattr(config, "crf_n_slots", 16),
+                rule_dim=getattr(config, "crf_rule_dim", 16),
+                mint_recurrence_threshold=getattr(
+                    config, "crf_mint_recurrence_threshold", 3
+                ),
+                tolerance_floor=getattr(config, "crf_tolerance_floor", 0.3),
+                tolerance_conflict_gain=getattr(
+                    config, "crf_tolerance_conflict_gain", 1.0
+                ),
+                availability_alpha=getattr(config, "crf_availability_alpha", 0.1),
+                availability_decay=getattr(config, "crf_availability_decay", 0.005),
+                eligibility_window=getattr(config, "crf_eligibility_window", 20),
+                context_match_threshold=getattr(
+                    config, "crf_context_match_threshold", 0.5
+                ),
+                seed_from_arc062=getattr(config, "crf_seed_from_arc062", True),
+            )
+            self.candidate_rule_field = CandidateRuleField(
+                context_dim=config.latent.world_dim,
+                config=crf_cfg,
+            )
+            # Tell SD-033a to source its rule_state from the field (GAP-B wiring).
+            self.lateral_pfc.config.use_candidate_rule_source = True
 
         # SD-033b: OFC-analog (specific-outcome / task-structure substrate,
         # MECH-261 second consumer). When use_ofc_analog=True, maintains a
@@ -1586,6 +1635,14 @@ class REEAgent(nn.Module):
         # a carried rule).
         if self.lateral_pfc is not None:
             self.lateral_pfc.reset()
+
+        # ARC-063: reset the CandidateRuleField slot pool + recurrence counters
+        # + per-tick credit stash on episode boundary (cross-episode carry-over
+        # is a V3 follow-on, not v1 -- matches the SD-033a rule_state reset).
+        if self.candidate_rule_field is not None:
+            self.candidate_rule_field.reset()
+            self._crf_prev_action_class = -1
+            self._crf_prev_outcome = 0.0
 
         # SD-033b: reset state_code + oracle cache on episode boundary.
         if self.ofc is not None:
@@ -3474,6 +3531,41 @@ class REEAgent(nn.Module):
                 _ov_lpfc_gain = float(
                     getattr(self.config, "override_pfc_eta_gain", 0.0)
                 )
+                # ARC-063 GAP-B: tick the CandidateRuleField and source the
+                # rule_state from its differentiated active-rule stack. The
+                # field credits the PREVIOUS tick's active rules with this
+                # tick's outcome proxy (lower harm = success), mints on a
+                # recurring (context-bucket, prev-action) regularity, gates +
+                # selects against the current z_world context, and returns the
+                # [1, rule_dim] differentiated vector. crf_source replaces the
+                # legacy EMA source inside update() (use_candidate_rule_source
+                # set True at __init__ when the field is on). _lpfc_skip already
+                # gates the MECH-319 simulation path, so this runs only on the
+                # waking write path (simulation_mode=False).
+                _crf_source: Optional[torch.Tensor] = None
+                if self.candidate_rule_field is not None:
+                    _crf_ctx = self._current_latent.z_world.detach().reshape(-1)
+                    _crf_outcome = 0.0
+                    _z_ha = getattr(self._current_latent, "z_harm_a", None)
+                    if _z_ha is not None:
+                        _crf_outcome = -float(_z_ha.norm().item())
+                    elif self._current_latent.z_harm is not None:
+                        _crf_outcome = -float(self._current_latent.z_harm.norm().item())
+                    _crf_arc062 = (
+                        float(_gp_output.gating_weight)
+                        if (
+                            self.candidate_rule_field.config.seed_from_arc062
+                            and _gp_output is not None
+                        )
+                        else None
+                    )
+                    _crf_source = self.candidate_rule_field.step(
+                        context=_crf_ctx,
+                        action_object_idx=self._crf_prev_action_class,
+                        outcome_signal=_crf_outcome,
+                        arc062_seed=_crf_arc062,
+                        simulation_mode=False,
+                    )
                 # Update rule_state (in-place on buffer, no gradient flow).
                 self.lateral_pfc.update(
                     z_delta=self._current_latent.z_delta,
@@ -3482,6 +3574,7 @@ class REEAgent(nn.Module):
                     disc_output=_lpfc_disc,
                     override_signal=_ov_sig_lpfc,
                     override_eta_gain=_ov_lpfc_gain,
+                    crf_source=_crf_source,
                 )
             # Per-candidate z_world summary: reuse from gated_policy block if
             # it ran this tick (cand_world_summaries set above), otherwise build
@@ -4249,6 +4342,17 @@ class REEAgent(nn.Module):
             except Exception:
                 # One-hot discretisation fallback: hash raw action. Silent to
                 # preserve backward-compatible select_action control flow.
+                pass
+
+        # ARC-063: stash the chosen action class so the next tick's
+        # CandidateRuleField mint keys the (context-bucket, action-object)
+        # regularity on the action the agent actually took. Silent fallback
+        # keeps select_action control flow backward-compatible.
+        if self.candidate_rule_field is not None and action is not None:
+            try:
+                _crf_a = action[0] if action.dim() > 1 else action
+                self._crf_prev_action_class = int(_crf_a.argmax().item())
+            except Exception:
                 pass
 
         # SD-034: run closure completion detector. Stability-based: fires when

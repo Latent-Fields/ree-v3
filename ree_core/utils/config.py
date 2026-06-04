@@ -1608,6 +1608,26 @@ class REEConfig:
     # Default False = last Linear zeroed (bit-identical landing behaviour).
     lateral_pfc_train_rule_bias_head: bool = False
 
+    # ARC-063 v1: distributed CandidateRule field (the non-Bayesian rule-creator
+    # resolving arc_062_rule_apprehension:GAP-B). Mints distinct subspace-
+    # partitioned rule slots on detected recurring (context -> action-object ->
+    # outcome) regularities; the available-AND-context-matched rules combine into
+    # a differentiated rule_state vector handed to SD-033a LateralPFCAnalog. The
+    # structural fix for the 543/598b rule_state collapse. All no-op default,
+    # bit-identical OFF; requires use_lateral_pfc_analog=True (the consumer).
+    # Design doc: REE_assembly/docs/architecture/arc_063_candidate_rule_field.md.
+    use_candidate_rule_field: bool = False
+    crf_n_slots: int = 16
+    crf_rule_dim: int = 16
+    crf_mint_recurrence_threshold: int = 3
+    crf_tolerance_floor: float = 0.3
+    crf_tolerance_conflict_gain: float = 1.0
+    crf_availability_alpha: float = 0.1
+    crf_availability_decay: float = 0.005
+    crf_eligibility_window: int = 20
+    crf_context_match_threshold: float = 0.5
+    crf_seed_from_arc062: bool = True
+
     # SD-033b: OFC-analog (specific-outcome / task-structure substrate,
     # MECH-261 second consumer; MECH-263 falsification target). When True,
     # REEAgent instantiates an OFCAnalog that maintains a state_code vector
@@ -2895,6 +2915,18 @@ class REEConfig:
         lateral_pfc_use_discriminator_source: bool = False,
         lateral_pfc_discriminator_pool_weight: float = 0.3,
         lateral_pfc_train_rule_bias_head: bool = False,
+        # ARC-063 v1: distributed CandidateRule field (GAP-B rule-creator)
+        use_candidate_rule_field: bool = False,
+        crf_n_slots: int = 16,
+        crf_rule_dim: int = 16,
+        crf_mint_recurrence_threshold: int = 3,
+        crf_tolerance_floor: float = 0.3,
+        crf_tolerance_conflict_gain: float = 1.0,
+        crf_availability_alpha: float = 0.1,
+        crf_availability_decay: float = 0.005,
+        crf_eligibility_window: int = 20,
+        crf_context_match_threshold: float = 0.5,
+        crf_seed_from_arc062: bool = True,
         # SD-033b: OFC-analog (specific-outcome / task-structure substrate)
         use_ofc_analog: bool = False,
         ofc_state_dim: int = 16,
@@ -3525,6 +3557,19 @@ class REEConfig:
         config.lateral_pfc_use_discriminator_source = lateral_pfc_use_discriminator_source
         config.lateral_pfc_discriminator_pool_weight = lateral_pfc_discriminator_pool_weight
         config.lateral_pfc_train_rule_bias_head = lateral_pfc_train_rule_bias_head
+
+        # ARC-063 v1: distributed CandidateRule field (GAP-B rule-creator)
+        config.use_candidate_rule_field = use_candidate_rule_field
+        config.crf_n_slots = crf_n_slots
+        config.crf_rule_dim = crf_rule_dim
+        config.crf_mint_recurrence_threshold = crf_mint_recurrence_threshold
+        config.crf_tolerance_floor = crf_tolerance_floor
+        config.crf_tolerance_conflict_gain = crf_tolerance_conflict_gain
+        config.crf_availability_alpha = crf_availability_alpha
+        config.crf_availability_decay = crf_availability_decay
+        config.crf_eligibility_window = crf_eligibility_window
+        config.crf_context_match_threshold = crf_context_match_threshold
+        config.crf_seed_from_arc062 = crf_seed_from_arc062
 
         # SD-033b: OFC-analog
         config.use_ofc_analog = use_ofc_analog

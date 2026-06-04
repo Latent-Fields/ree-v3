@@ -158,6 +158,16 @@ class LateralPFCConfig:
     discriminator_pool_weight: float = 0.3
     # ARC-062 GAP-D: trainable rule_bias_head
     train_rule_bias_head: bool = False
+    # ARC-063 GAP-B: when True, update() accepts a crf_source vector (the
+    # differentiated rule_state produced by the CandidateRuleField, dim rule_dim)
+    # and uses it as THE EMA source IN PLACE OF the legacy delta_proj/world_proj
+    # source whenever a non-None crf_source is supplied. This is the literal
+    # GAP-B wiring: the rule-creator mints distinct slots -> the active-rule
+    # stack is differentiated by construction -> rule_state no longer collapses
+    # (inverts 598b C3 trainable_not_monomodal). Default False = no-op (the
+    # crf_source kwarg is ignored, legacy source path runs), bit-identical
+    # backward compat.
+    use_candidate_rule_source: bool = False
 
 
 class LateralPFCAnalog(nn.Module):
@@ -233,6 +243,7 @@ class LateralPFCAnalog(nn.Module):
         disc_output: Optional[torch.Tensor] = None,
         override_signal: float = 0.0,
         override_eta_gain: float = 0.0,
+        crf_source: Optional[torch.Tensor] = None,
     ) -> None:
         """Gate-modulated EMA update of rule_state.
 
@@ -250,6 +261,13 @@ class LateralPFCAnalog(nn.Module):
                 rule_state learning. Default 0.0 = bit-identical OFF.
             override_eta_gain: scalar multiplier applied to eff_eta as
                 (1 + override_eta_gain * override_signal). Default 0.0 = no-op.
+            crf_source: ARC-063 GAP-B. Optional [1, rule_dim] or [rule_dim]
+                differentiated rule_state vector from the CandidateRuleField.
+                When use_candidate_rule_source=True and crf_source is not None,
+                it REPLACES the legacy delta_proj/world_proj source so the EMA
+                tracks the field's active-rule stack (differentiated by
+                construction). Default None = no-op (legacy source path),
+                bit-identical backward compat.
 
         Effect:
             rule_state <- (1 - eff_eta) * rule_state + eff_eta * source
@@ -292,6 +310,19 @@ class LateralPFCAnalog(nn.Module):
                     do = do.unsqueeze(0)  # [1, 1]
                 disc_contrib = self.discriminator_proj(do).mean(dim=0, keepdim=True)  # [1, rule_dim]
                 source = source + self.config.discriminator_pool_weight * disc_contrib
+
+            # ARC-063 GAP-B: the CandidateRuleField's differentiated rule_state
+            # vector REPLACES the legacy source entirely when supplied. The
+            # field already mints distinct subspace-partitioned slots, so this
+            # is the structural fix for the 598b rule_state collapse -- the EMA
+            # now tracks a source that is differentiated by construction rather
+            # than the two-shared-gradient-heads source that has an inert
+            # collapsed equilibrium.
+            if self.config.use_candidate_rule_source and crf_source is not None:
+                cs = crf_source.detach()
+                if cs.dim() == 1:
+                    cs = cs.unsqueeze(0)  # [1, rule_dim]
+                source = cs.to(dtype=self.rule_state.dtype, device=self.rule_state.device)
 
             self.rule_state.mul_(1.0 - eff_eta).add_(eff_eta * source)
 
@@ -375,4 +406,5 @@ class LateralPFCAnalog(nn.Module):
             "last_bias_abs_mean": self._last_bias_abs_mean,
             "use_discriminator_source": self.config.use_discriminator_source,
             "train_rule_bias_head": self.config.train_rule_bias_head,
+            "use_candidate_rule_source": self.config.use_candidate_rule_source,
         }
