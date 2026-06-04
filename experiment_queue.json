@@ -16,7 +16,11 @@
       "estimated_minutes": 120,
       "claim_id": "MECH-295",
       "note": "Diagnostic (experiment_purpose=diagnostic, does NOT auto-weight governance). GAP-4 governance decision (queue modulatory-sufficiency successor) recorded in the 2026-06-04 governance cycle + goal_pipeline_plan.md GAP-4 resume_condition. 490j (TERMINAL 2026-05-31) showed MECH-295 is NOT behaviourally NECESSARY (severed-bridge ARM_0 still reached approach_commit_rate=1.0 via parallel pathways MECH-216/290/307/tonic_5ht) and the substrate-firing layer supports the modulatory reading; approach_commit_rate ceiling-saturates at 1.0 in both arms so it CANNOT show the modulation is behaviourally consequential. 490k replaces it with the autopsy routing_secondary option (c) argmin-change probe (cannot ceiling-saturate) + (a) ARM_1-vs-ARM_0(cue-severed) action-class TV divergence sanity check + (b) ARM_2 mech295-only (schema_wanting/tonic_5ht/backward_credit/MECH-307-conjunction-read OFF) sensitivity ablation. Pre-registered grid: ARM_1 argmin_flip_fraction>0 on >=2/3 seeds -> supports (modulatory, close GAP-4); fires-but-never-flips -> weakens even modulatory reading; never fires -> unknown/diagnose-errors. NOT a supersession of 490j (490j is terminal/reviewed). Probe captures the raw MECH-295 cue+conjunction [K] bias by wrapping the live bridge compute methods (no substrate edit, same pattern as 490j) and reads e3.last_scores. Dry-run smoke PASS 2026-06-04 (ARM_1 mech295_fired=17, ARM_2 fired=43, argmin computation runs clean; flip_frac=0 at dry scale -- full 3-seed run decides).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-04T07:05:38Z"
+      },
       "conditions": 3,
       "episodes_per_run": 50,
       "experiment_type": "v3_exq_490k_mech295_modulatory_sufficiency",
