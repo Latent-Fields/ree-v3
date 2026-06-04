@@ -66,25 +66,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-464b",
-      "title": "MECH-266 competing goals / switch-cost asymmetry (behavioural, GAP-4 Phase 5)",
-      "script": "experiments/v3_exq_464b_mech266_competing_goals_behavioural.py",
-      "priority": 290,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "claim_id": "MECH-266",
-      "note": "GAP-4 Phase 4/5 OCD behavioural *b cohort. Substrate side resolved 2026-06-02 (MECH-090 commit-entry + MECH-342 maintenance-release validated by 592g). Runs on GAP-3 CausalGridWorldV2 env extensions + GAP-11 committed_mode_curriculum. Authored/queued via /queue-experiment. Watch phase3-queue snapshot race (Step 8).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-03T23:16:23Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_464b_mech266_competing_goals_behavioural",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-466b",
       "title": "SD-034 satisficing / residue discharge (behavioural, GAP-4 Phase 4)",
       "script": "experiments/v3_exq_466b_sd034_satisficing_residue_discharge_behavioural.py",
@@ -112,7 +93,11 @@
       "estimated_minutes": 130,
       "claim_id": "MECH-266",
       "note": "GAP-4 Phase 4/5 OCD behavioural *b cohort. Substrate side resolved 2026-06-02 (MECH-090 commit-entry + MECH-342 maintenance-release validated by 592g). Runs on GAP-3 CausalGridWorldV2 env extensions + GAP-11 committed_mode_curriculum. Authored/queued via /queue-experiment. Watch phase3-queue snapshot race (Step 8).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-04T01:25:56Z"
+      },
       "conditions": 6,
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_467b_mech266_mode_stickiness_behavioural",
