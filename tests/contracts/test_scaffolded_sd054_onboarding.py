@@ -1019,6 +1019,8 @@ from experiments.scaffolded_sd054_onboarding import (  # noqa: E402
     _sd049_kwargs,
     _contacted_resource_type,
     _maybe_cue_recall,
+    _strongest_perceived_type,
+    _new_cue_diag,
 )
 
 
@@ -1104,3 +1106,131 @@ def test_c9_maybe_cue_recall_fires_for_token_match_only():
                  "resource_field_view_water": torch.ones(25),
                  "resource_field_view_novelty": torch.zeros(25)}
     assert _maybe_cue_recall(agent, _Env(), obs_water, 0.9, cfg) == 0
+
+
+# --- C9 cont.: SD-057 cue-recall FORMATION fix + instrumentation (V3-EXQ-638) ---
+
+
+def test_c9_stage0_bind_flag_default_is_noop():
+    # The formation-fix flag must default OFF (bit-identical Stage-0).
+    assert ScaffoldedSD054OnboardingConfig().scaffold_stage0_bind_incentive_token is False
+
+
+def test_c9_strongest_perceived_type_helper():
+    class _Env:
+        resource_type_names = ("food", "water", "novelty")
+    # no field views at all -> (0, -1.0)
+    assert _strongest_perceived_type(_Env(), {}) == (0, -1.0)
+    # food field strongest -> tag 1
+    obs = {"resource_field_view_food": torch.full((25,), 0.7),
+           "resource_field_view_water": torch.zeros(25),
+           "resource_field_view_novelty": torch.zeros(25)}
+    bt, bp = _strongest_perceived_type(_Env(), obs)
+    assert bt == 1 and abs(bp - 0.7) < 1e-6
+
+
+def test_c9_cue_diag_attributes_no_token_reason():
+    """The V3-EXQ-638 cue-silent ROOT CAUSE as a unit: a perceived type with an
+    EMPTY bank must NOT fire AND must record reason 'no_token' (not a silent 0)."""
+    agent = _bridge_agent()  # fresh agent -> empty incentive bank
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_cue_recall_bridge_enabled=True)
+
+    class _Env:
+        resource_type_names = ("food", "water", "novelty")
+    obs = {"resource_field_view_food": torch.ones(25),
+           "resource_field_view_water": torch.zeros(25),
+           "resource_field_view_novelty": torch.zeros(25)}
+    diag = _new_cue_diag()
+    fired = _maybe_cue_recall(agent, _Env(), obs, 0.9, cfg, diag=diag)
+    assert fired == 0
+    assert diag["cue_nonfire_reason_counts"].get("no_token") == 1
+    assert diag["n_external_cues_seen"] == 1   # the cue WAS perceived
+    assert diag["token_bank_size"] == 0        # but the bank was empty
+    assert diag["n_cue_recall_fires"] == 0
+    assert diag["best_prox_peak"] == 1.0
+
+
+def test_c9_cue_diag_attributes_resource_field_absent():
+    agent = _bridge_agent()
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_cue_recall_bridge_enabled=True)
+
+    class _Env:
+        resource_type_names = ("food", "water", "novelty")
+    diag = _new_cue_diag()
+    assert _maybe_cue_recall(agent, _Env(), {}, 0.5, cfg, diag=diag) == 0
+    assert diag["cue_nonfire_reason_counts"].get("resource_field_absent") == 1
+    assert diag["n_external_cues_seen"] == 0
+    assert diag["drive_peak"] == 0.5
+
+
+def test_c9_cue_diag_records_fire_and_strength():
+    agent = _bridge_agent()
+    z = torch.zeros(1, 32); z[0, 0] = 1.0
+    agent.goal_state.incentive_bank.update(1, 0.5, z)  # bind a food token
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_cue_recall_bridge_enabled=True)
+
+    class _Env:
+        resource_type_names = ("food", "water", "novelty")
+    obs = {"resource_field_view_food": torch.ones(25),
+           "resource_field_view_water": torch.zeros(25),
+           "resource_field_view_novelty": torch.zeros(25)}
+    diag = _new_cue_diag()
+    assert _maybe_cue_recall(agent, _Env(), obs, 0.9, cfg, diag=diag) == 1
+    assert diag["n_cue_recall_fires"] == 1
+    assert diag["n_token_matches"] == 1
+    assert diag["matched_token_strength_peak"] > 0.0
+    assert diag["token_bank_size"] == 1
+
+
+def test_c9_exception_path_is_attributed_not_swallowed(monkeypatch):
+    """The pre-fix `except: pass` made cue failures invisible. A thrown error
+    must now surface as an 'exception:<Type>' reason, while still not breaking
+    the episode loop (returns 0)."""
+    import experiments.scaffolded_sd054_onboarding as sched_mod
+
+    def _boom(env, obs):
+        raise RuntimeError("synthetic cue-path failure")
+    monkeypatch.setattr(sched_mod, "_strongest_perceived_type", _boom)
+
+    agent = _bridge_agent()
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_cue_recall_bridge_enabled=True)
+
+    class _Env:
+        resource_type_names = ("food",)
+    diag = _new_cue_diag()
+    assert _maybe_cue_recall(agent, _Env(), {"resource_field_view_food": torch.ones(25)},
+                             0.9, cfg, diag=diag) == 0
+    assert diag["cue_nonfire_reason_counts"].get("exception:RuntimeError") == 1
+
+
+def test_c9_stage0_binding_populates_bank():
+    """The FORMATION FIX: with scaffold_stage0_bind_incentive_token ON, Stage-0
+    forced feeding binds tokens to the strongest-perceived type, so the bank is
+    NON-EMPTY entering P1/P2 (the empty-bank state that silenced 638's cue)."""
+    cfg = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_cue_recall_bridge_enabled=True,
+        scaffold_stage0_enabled=True,
+        scaffold_stage0_bind_incentive_token=True,
+        scaffold_stage0_episode_budget=2,
+        scaffold_steps_per_episode=25,
+    )
+    # Build the agent from the actual Stage-0 env dims (bridge on -> SD-049 views),
+    # with the SD-057 bank/cue flags, so real stepping shape-matches.
+    env = _build_env(cfg, "stage0")
+    rc = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim, world_obs_dim=env.world_obs_dim,
+        action_dim=env.action_dim, world_dim=32, self_dim=32, alpha_world=0.9,
+        z_goal_enabled=True, drive_weight=2.0,
+        use_incentive_token_bank=True, use_cue_recall=True, cue_recall_gain=0.2,
+    )
+    rc.latent.use_resource_encoder = True
+    agent = REEAgent(rc)
+
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    res = sched.run_stage0_nursery(agent, torch.device("cpu"))
+    assert res.aborted is False
+    assert res.token_bank_size_end > 0, (
+        "FORMATION FIX FAIL: Stage-0 forced feeding bound no incentive token -- "
+        "the bank is still empty entering P1/P2 (the 638 cue-silent root cause)"
+    )

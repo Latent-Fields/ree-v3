@@ -278,6 +278,19 @@ class ScaffoldedSD054OnboardingConfig:
     scaffold_cue_n_resource_types: int = 3
     # Minimum perceived-cue proximity for the auto cue-recall to fire each step.
     scaffold_cue_recall_min_proximity: float = 0.0
+    # SD-057 cue-recall FORMATION fix (V3-EXQ-638 cue-silent autopsy, 2026-06-04).
+    # When True (and the bridge is enabled), Stage-0 forced feeding binds the
+    # incentive token to the STRONGEST-PERCEIVED resource type each step instead
+    # of the (almost-always-None) ACTUALLY-CONTACTED type. Forced feeding is
+    # decoupled from standing on a typed cell, so _contacted_resource_type returns
+    # None on nearly every Stage-0 step -> bank.update (gated resource_type>0) is
+    # never reached -> the IncentiveTokenBank stays EMPTY entering P1/P2 ->
+    # cue_recall_wanting returns 0 at `k not in bank._base_value` -> cue_fires=0
+    # (the 638 C1 failure). Binding to the perceived type ("the infant is fed;
+    # bind the token to whatever food it perceives") populates the bank so the
+    # cue has something to recall in the wild. Default False -> bit-identical
+    # (rt = _contacted_resource_type, exactly as the pre-fix Stage-0 path).
+    scaffold_stage0_bind_incentive_token: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +313,11 @@ class Stage0NurseryResult:
     z_goal_formed: bool
     aborted: bool
     abort_reason: str = ""
+    # SD-057 cue-recall FORMATION readout (2026-06-04): number of distinct
+    # incentive-token types in the bank after Stage-0 forced feeding. 0 == the
+    # bank is empty (the V3-EXQ-638 cue-silent root cause). Non-zero only when
+    # scaffold_stage0_bind_incentive_token is on; the headline formation gate.
+    token_bank_size_end: int = 0
 
 
 @dataclass
@@ -351,6 +369,10 @@ class P1OnboardingResult:
     n_decay_only_updates: int = 0
     n_skipped_protected_updates: int = 0
     contact_gated: bool = False
+    # SD-057 cue-recall diagnostics (2026-06-04): see _new_cue_diag(). Empty dict
+    # when the bridge is off -> bit-identical readout. Turns cue_fires=0 into an
+    # attributed nonfire reason (no_token / resource_field_absent / ...).
+    cue_diag: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -387,6 +409,9 @@ class P2OnboardingMetrics:
     # "goal not maintained by foraging" rather than masked by the frozen trace.
     z_goal_norm_at_contact_peak: float = 0.0
     num_contact_events: int = 0
+    # SD-057 cue-recall diagnostics (2026-06-04): see _new_cue_diag(). Empty dict
+    # when the bridge is off -> bit-identical readout.
+    cue_diag: Dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -490,8 +515,59 @@ def _contacted_resource_type(obs_dict: Dict[str, Any]) -> Optional[int]:
     return None
 
 
+def _strongest_perceived_type(env, obs_dict: Dict[str, Any]) -> Tuple[int, float]:
+    """SD-057 perceptual primitive shared by cue-recall (L6) and Stage-0 token
+    FORMATION binding. Returns (best_tag, best_prox) for the strongest-perceived
+    SD-049 resource type from the per-type proximity field views.
+
+    best_tag is the 1-based SD-049 type tag (0 = no typed field perceived);
+    best_prox is its peak field-view value (-1.0 when no field views present).
+    Identical logic at formation and recall time guarantees the token the
+    nursery lays down is keyed to the same perceptual channel the wild cue reads.
+    """
+    type_names = getattr(env, "resource_type_names", ()) or ()
+    best_tag, best_prox = 0, -1.0
+    for i, name in enumerate(type_names):
+        fv = obs_dict.get(f"resource_field_view_{name}", None)
+        if fv is None:
+            continue
+        v = float(fv.max()) if hasattr(fv, "max") else float(max(fv))
+        if v > best_prox:
+            best_prox, best_tag = v, i + 1
+    return best_tag, best_prox
+
+
+def _new_cue_diag() -> Dict[str, Any]:
+    """Fresh per-phase SD-057 cue-recall diagnostics accumulator. Turns
+    cue_fires=0 from an undiagnosable mystery (the pre-2026-06-04 silent
+    `except: pass`) into an attributed reason -- the load-bearing diagnostic for
+    the V3-EXQ-638 / 638a cue-silent autopsy."""
+    return {
+        "n_external_cues_seen": 0,        # steps where a typed resource field was perceived
+        "n_cue_recall_attempts": 0,       # steps where a matching token was looked up
+        "n_cue_recall_fires": 0,          # steps where cue_recall_wanting moved z_goal
+        "n_token_matches": 0,             # perceived-type had a bound token
+        # Reserved for the NEXT layer (interoceptive need-gating); stays 0 here.
+        "n_interoceptive_need_cues": 0,
+        "n_joint_cues": 0,
+        "best_prox_peak": 0.0,
+        "drive_peak": 0.0,
+        "token_bank_size": 0,             # len(bank._base_value) -- 0 == empty bank
+        "matched_token_strength_peak": 0.0,
+        "cue_nonfire_reason_counts": {},  # reason -> count (the 'why a zero' map)
+    }
+
+
+def _bump_reason(diag: Optional[Dict[str, Any]], reason: str) -> None:
+    if diag is None:
+        return
+    rc = diag["cue_nonfire_reason_counts"]
+    rc[reason] = int(rc.get(reason, 0)) + 1
+
+
 def _maybe_cue_recall(agent, env, obs_dict: Dict[str, Any], drive: float,
-                      cfg: ScaffoldedSD054OnboardingConfig) -> int:
+                      cfg: ScaffoldedSD054OnboardingConfig,
+                      diag: Optional[Dict[str, Any]] = None) -> int:
     """SD-057 L6 cue-recall, ecological auto-perception. Derives the strongest-
     perceived resource type from the SD-049 per-type proximity field views and
     fires agent.cue_recall_wanting on it (raising wanting/approach toward a
@@ -500,30 +576,62 @@ def _maybe_cue_recall(agent, env, obs_dict: Dict[str, Any], drive: float,
     No-op (returns 0) when the bridge is off, the agent lacks the SD-057
     bank/cue-recall (caller didn't set the flags), or the env emits no per-type
     views. Bit-identical when off.
+
+    When `diag` (a _new_cue_diag() dict) is supplied, EVERY non-fire is attributed
+    to a reason and the substrate quantities (best_prox, drive, token_bank_size,
+    matched strength) are recorded. The prior `except: pass` is replaced with an
+    `exception:<type>` reason so a thrown error is visible, not swallowed -- while
+    still never breaking the episode loop (cue-recall is best-effort).
     """
     if not cfg.scaffold_cue_recall_bridge_enabled:
         return 0
+    if diag is not None:
+        diag["drive_peak"] = max(float(diag["drive_peak"]), float(drive))
     try:
         # Set per-axis drive so the bank's drive-specific wanting is identity-
         # matched; scalar-drive fallback inside cue_recall_wanting otherwise.
         pad = obs_dict.get("per_axis_drive", None)
         if pad is not None:
             agent._per_axis_drive = pad.reshape(-1) if hasattr(pad, "reshape") else pad
-        type_names = getattr(env, "resource_type_names", ()) or ()
-        best_tag, best_prox = 0, -1.0
-        for i, name in enumerate(type_names):
-            fv = obs_dict.get(f"resource_field_view_{name}", None)
-            if fv is None:
-                continue
-            v = float(fv.max()) if hasattr(fv, "max") else float(max(fv))
-            if v > best_prox:
-                best_prox, best_tag = v, i + 1
-        if best_tag > 0 and best_prox >= float(cfg.scaffold_cue_recall_min_proximity):
-            s = agent.cue_recall_wanting(cue_type=best_tag, drive_level=float(drive))
-            return 1 if (s is not None and s > 0.0) else 0
-    except Exception:
-        pass  # cue-recall is best-effort; never break the episode loop
-    return 0
+        best_tag, best_prox = _strongest_perceived_type(env, obs_dict)
+        if diag is not None and best_prox > float(diag["best_prox_peak"]):
+            diag["best_prox_peak"] = float(best_prox)
+        # Token-bank introspection (drives the nonfire-reason attribution).
+        gs = getattr(agent, "goal_state", None)
+        bank = getattr(gs, "incentive_bank", None) if gs is not None else None
+        bank_size = len(getattr(bank, "_base_value", {})) if bank is not None else 0
+        if diag is not None:
+            diag["token_bank_size"] = int(bank_size)
+        if best_tag <= 0:
+            _bump_reason(diag, "resource_field_absent")
+            return 0
+        if diag is not None:
+            diag["n_external_cues_seen"] += 1
+        if best_prox < float(cfg.scaffold_cue_recall_min_proximity):
+            _bump_reason(diag, "proximity_below_threshold")
+            return 0
+        if bank is None:
+            _bump_reason(diag, "bank_none")
+            return 0
+        if best_tag not in getattr(bank, "_base_value", {}):
+            _bump_reason(diag, "no_token")  # the V3-EXQ-638 cue-silent root cause
+            return 0
+        if diag is not None:
+            diag["n_token_matches"] += 1
+            diag["n_cue_recall_attempts"] += 1
+        s = agent.cue_recall_wanting(cue_type=best_tag, drive_level=float(drive))
+        if s is not None and s > 0.0:
+            if diag is not None:
+                diag["n_cue_recall_fires"] += 1
+                diag["matched_token_strength_peak"] = max(
+                    float(diag["matched_token_strength_peak"]), float(s)
+                )
+            return 1
+        _bump_reason(diag, "amp_zero_or_zobject_none")
+        return 0
+    except Exception as e:  # never break the loop, but make the failure VISIBLE
+        _bump_reason(diag, f"exception:{type(e).__name__}")
+        return 0
 
 
 def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float = 0.0):
@@ -823,12 +931,19 @@ class ScaffoldedSD054OnboardingScheduler:
             )
 
         peak = float(max(goal_peaks)) if goal_peaks else 0.0
+        # SD-057 formation readout: how many incentive-token types the nursery
+        # laid down. 0 == empty bank (the 638 cue-silent root cause); non-zero
+        # only when scaffold_stage0_bind_incentive_token bound to perceived types.
+        _gs = getattr(agent, "goal_state", None)
+        _bank = getattr(_gs, "incentive_bank", None) if _gs is not None else None
+        token_bank_size_end = len(getattr(_bank, "_base_value", {})) if _bank is not None else 0
         self._stage0_result = Stage0NurseryResult(
             n_episodes=n_eps,
             mean_forced_benefit=float(self.cfg.scaffold_stage0_forced_benefit),
             z_goal_norm_peak=peak,
             z_goal_formed=peak > float(self.cfg.scaffold_stage0_z_goal_peak_gate),
             aborted=False,
+            token_bank_size_end=int(token_bank_size_end),
         )
         return self._stage0_result
 
@@ -1027,6 +1142,7 @@ class ScaffoldedSD054OnboardingScheduler:
         contact_threshold = float(self.cfg.scaffold_p2_contact_benefit_threshold)
         gating_threshold = self._gating_threshold()
         goal_write_diag = _new_goal_write_diag()
+        cue_diag = _new_cue_diag()
         for ep in range(n_eps):
             raw_t = ep / max(1, n_eps - 1) if n_eps > 1 else 1.0
             # Staged withdrawal: hold full nursery relaxation (anneal_t=0) for
@@ -1044,6 +1160,7 @@ class ScaffoldedSD054OnboardingScheduler:
                 contact_threshold=contact_threshold,
                 gating_threshold=gating_threshold,
                 goal_write_diag=goal_write_diag,
+                cue_diag=cue_diag,
             )
             all_episode_lengths.append(ep_len)
             recent_lengths.append(ep_len)
@@ -1086,6 +1203,7 @@ class ScaffoldedSD054OnboardingScheduler:
             n_decay_only_updates=goal_write_diag["n_decay_only"],
             n_skipped_protected_updates=goal_write_diag["n_skipped_protected"],
             contact_gated=contact_gated,
+            cue_diag=dict(cue_diag),
         )
         return self._p1_result
 
@@ -1148,12 +1266,14 @@ class ScaffoldedSD054OnboardingScheduler:
         total_skipped_protected = 0
         contact_peak_max = 0.0
         total_contact_events = 0
+        cue_diag = _new_cue_diag()
         for ep in range(self.cfg.scaffold_p2_episode_budget):
             ep_metrics = self._eval_episode(
                 agent, env, device,
                 contact_gated=contact_gated,
                 contact_threshold=contact_threshold,
                 gating_threshold=gating_threshold,
+                cue_diag=cue_diag,
             )
             per_episode.append(ep_metrics)
             peak_per_ep.append(ep_metrics["z_goal_norm_peak"])
@@ -1196,6 +1316,7 @@ class ScaffoldedSD054OnboardingScheduler:
             contact_gated=contact_gated,
             z_goal_norm_at_contact_peak=contact_peak_max,
             num_contact_events=total_contact_events,
+            cue_diag=dict(cue_diag),
         )
         return self._p2_metrics
 
@@ -1218,6 +1339,7 @@ class ScaffoldedSD054OnboardingScheduler:
         contact_threshold: float = 0.0,
         gating_threshold: Optional[float] = None,
         goal_write_diag: Optional[Dict[str, int]] = None,
+        cue_diag: Optional[Dict[str, Any]] = None,
     ) -> int:
         """
         One training episode. Returns realised episode length in steps.
@@ -1349,11 +1471,22 @@ class ScaffoldedSD054OnboardingScheduler:
                 # SD-057 L2: bind benefit to object identity (no-op when bridge
                 # off -> rt None -> bank None or ignored). In the forced-feed
                 # nursery this lays down per-object tokens cue-recall later reads.
-                rt = (
-                    _contacted_resource_type(obs_dict)
-                    if self.cfg.scaffold_cue_recall_bridge_enabled
-                    else None
-                )
+                # FORMATION FIX (V3-EXQ-638, 2026-06-04): forced feeding is
+                # decoupled from standing on a typed cell, so _contacted_resource_type
+                # is almost always None during Stage-0 -> the bank.update bind
+                # (gated resource_type>0) is never reached -> empty bank -> cue
+                # silent in the wild. When scaffold_stage0_bind_incentive_token is
+                # on, bind the forced-feed token to the STRONGEST-PERCEIVED type
+                # instead (the infant is fed; bind to whatever food it perceives),
+                # using the SAME perceptual primitive the wild cue reads. Default
+                # off -> rt = _contacted_resource_type, bit-identical to pre-fix.
+                if not self.cfg.scaffold_cue_recall_bridge_enabled:
+                    rt = None
+                elif is_forced and self.cfg.scaffold_stage0_bind_incentive_token:
+                    _bt, _bp = _strongest_perceived_type(env, obs_dict)
+                    rt = _bt if _bt > 0 else None
+                else:
+                    rt = _contacted_resource_type(obs_dict)
                 if contact_gated and not is_forced and not seeds:
                     if goal_write_diag is not None:
                         goal_write_diag["n_skipped_protected"] += 1
@@ -1378,7 +1511,9 @@ class ScaffoldedSD054OnboardingScheduler:
                 # a perceived resource cue retrieves its token and pulls z_goal
                 # toward it before contact (the wean-to-wild approach bridge).
                 if not is_forced:
-                    n_cue = _maybe_cue_recall(agent, env, obs_dict, drive, self.cfg)
+                    n_cue = _maybe_cue_recall(
+                        agent, env, obs_dict, drive, self.cfg, diag=cue_diag
+                    )
                     if goal_write_diag is not None and n_cue:
                         goal_write_diag["n_cue_recall_fires"] = (
                             goal_write_diag.get("n_cue_recall_fires", 0) + n_cue
@@ -1396,6 +1531,7 @@ class ScaffoldedSD054OnboardingScheduler:
         contact_gated: bool = False,
         contact_threshold: float = 1e-6,
         gating_threshold: Optional[float] = None,
+        cue_diag: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         One eval episode: policy frozen (no optimizer steps), env at target
@@ -1549,7 +1685,7 @@ class ScaffoldedSD054OnboardingScheduler:
 
             # SD-057 L6: cue-recall on the perceived resource each P2 step.
             n_cue_recall_fires += _maybe_cue_recall(
-                agent, env, obs_dict, drive, self.cfg
+                agent, env, obs_dict, drive, self.cfg, diag=cue_diag
             )
 
             if done:
