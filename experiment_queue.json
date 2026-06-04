@@ -16,7 +16,11 @@
       "estimated_minutes": 300,
       "claim_id": null,
       "note": "Diagnostic (experiment_purpose=diagnostic, claim_ids=[], does NOT auto-weight governance; does NOT supersede 638 -- 638's cue-silent evidence is the valid failure record this fixes). Validates the scaffolded_sd054_onboarding cue-recall FORMATION fix (commit a9ef0be): 638 was cue-silent because the IncentiveTokenBank was empty entering P1/P2 (Stage-0 forced feed passed rt=_contacted_resource_type, ~always None). ARM_CUE_ON now sets scaffold_stage0_bind_incentive_token=True (binds token to strongest-perceived type at Stage-0); ARM_OFF unchanged baseline. ALSO fixes a 638 measurement bug found during smoke: C1 read getattr(p2,'n_cue_recall_fires',0) which is 0 (P2OnboardingMetrics has no such aggregate) even when the cue fires -- 638a sources cue fires from p2.cue_diag['n_cue_recall_fires'] (correct). Smoke: Stage-0 token_bank_size_end 0->2, inline P2 cue fires 30x with attribution (30 no_token for the unbanked 3rd type). Gates: C1 cue fires ON >=2/3; C2 cue silent OFF (all); C3 P2 contact_rate ON>OFF per seed >=2/3 (the OPEN question); C4 survival informational. Interpretation: C1+C3 PASS -> formation gap was whole story; C1 PASS + C3 FAIL -> cue fires without authority -> interoceptive need-gating layer + 638b (drive_peak~0.04 in smoke = the layer-2 signal); C1 FAIL -> re-audit via cue_nonfire_reason_counts (now diagnosable). Thought-intake: thought_intake_2026-06-04_cue_ecology_weaning_nursery_to_forager.md. HONEST SCOPE: contact axis only; does not fix survival, may raise hazard exposure -- C4 measures it. Do NOT tune to pass.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-04T15:20:31Z"
+      },
       "conditions": 2,
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_638a_scaffold_cue_recall_contact_ablation",
