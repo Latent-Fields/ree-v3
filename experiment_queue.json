@@ -8,6 +8,21 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-637",
+      "title": "SD-057 phase-2 mechanism diagnostic (GAP-7 L6 cue-recall MECH-347 + L7 dACC object-discriminative readout MECH-348): forced-cue, phase-2 ON vs OFF",
+      "script": "experiments/v3_exq_637_sd057_phase2_cue_recall_consume.py",
+      "priority": 350,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "claim_id": null,
+      "note": "Substrate-readiness diagnostic for SD-057 phase-2 (claim_ids=[]). Forced-cue mechanism test decoupled from GAP-2 (mirrors V3-EXQ-636/626b). Dry-run PASS 4/4 (C1 cue fires; C2 identity-matched z_goal direction cos=1.0; C3 goal_readout reaches dACC bundle len=K; C4 OFF parity no cue/no readout). Validates L6 cue-recall + L7 dACC readout wiring; ecological behavioural consequence stays GAP-2-gated.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 8,
+      "experiment_type": "v3_exq_637_sd057_phase2_cue_recall_consume",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-634c",
       "title": "scaffolded_sd054_onboarding seeding-calibration readiness (4-arm seeding-lever sweep)",
       "script": "experiments/v3_exq_634c_scaffolded_nursery_seeding_calibration_readiness.py",
@@ -45,21 +60,6 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_610e_inv074_crystallization_necessity",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-637",
-      "title": "SD-057 phase-2 mechanism diagnostic (GAP-7 L6 cue-recall MECH-347 + L7 dACC object-discriminative readout MECH-348): forced-cue, phase-2 ON vs OFF",
-      "experiment_type": "v3_exq_637_sd057_phase2_cue_recall_consume",
-      "script": "experiments/v3_exq_637_sd057_phase2_cue_recall_consume.py",
-      "priority": 350,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 5,
-      "episodes_per_run": 8,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": null,
-      "note": "Substrate-readiness diagnostic for SD-057 phase-2 (claim_ids=[]). Forced-cue mechanism test decoupled from GAP-2 (mirrors V3-EXQ-636/626b). Dry-run PASS 4/4 (C1 cue fires; C2 identity-matched z_goal direction cos=1.0; C3 goal_readout reaches dACC bundle len=K; C4 OFF parity no cue/no readout). Validates L6 cue-recall + L7 dACC readout wiring; ecological behavioural consequence stays GAP-2-gated."
     }
   ]
 }
