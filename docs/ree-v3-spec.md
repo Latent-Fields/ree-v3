@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-03
+**Last updated:** 2026-06-04
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-03)
+## 0. Current V3 State (2026-06-04)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -130,6 +130,10 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | MECH-090 R-c continuation Phase-2 (env-source) | control_plane.beta_gate.commit_entry_readiness_conjunction.nav_competence.env_source -- named Phase-2 follow-on to the 2026-05-29 R-c continuation landing: the 2026-05-29 pass wired the consumer + notify_outcome seam but grep-verified ZERO callers ever pushed via the seam (committed_mode_curriculum.py computes nav_competence but never pushes), so in any ecological run the readiness EMA sat pinned fail-open at 1.0 and the across-tick axis added no signal (exactly why V3-EXQ-063a left it OFF). This pass adds the env source. CausalGridWorldV2 gains env-only kwarg mech090_readiness_outcome_enabled (default False; NOT in REEConfig.from_dims, matches SD-022 / SD-023 / SD-029 / SD-047 / SD-048 / SD-049 / SD-054 precedent) emitting info[mech090_readiness_outcome]=clip(1.0 - mean(limb_damage), 0, 1) -- a Cisek-Kalaska affordance-preparation / motor-program-readiness scalar that degrades on SD-022 limb damage and recovers on heal. REEAgent.sense() gains mech090_readiness_outcome arg forwarding the value into commit_readiness.update(). ABSENT-WHEN-DISABLED (no always-present sentinel): default-OFF emits no key, agent reads None, EMA un-advanced. CommitReadiness module UNCHANGED (its None-sentinel + simulation_mode gate already supported this). 719/719 contracts + 7/7 preflight PASS; integration smoke (aggressive all-limb scheduled injection magnitude 0.5) drives readiness EMA to 0.001 below floor 0.3 and recovers on heal. claims.yaml MECH-090 additive note (NO flag/confidence/status change); substrate_dependencies landing mechanism_changing=false (axis never exercised by any prior experiment -> no stale MECH-090 / ARC-029 evidence). | Implemented 2026-06-02 (ree-v3 main fa026a0 substrate + 60d1a90 V3-EXQ-630 queue + e9e1b2b doc-id-fix; REE_assembly master b23ad1a125 design + 6be3673781 doc-id-fix); V3-EXQ-630 queued ecological 3-arm (OFF / GATED_NAV_COMP_ON / GATED_BOTH_ON) on SD-022 scheduled-injection env; claim_ids=[ARC-029, MECH-090]; C3-FAIL routes to /failure-autopsy NOT /diagnose-errors (R-c gate suppressing commitment in env = substantively different ARC-029 verdict). 630 was claimed and dropped from the queue snapshot mid-day during the fleet outage recovery. |
 | MECH-342 | control_plane.commit_maintenance_release -- release-side complement to the MECH-090 commit-entry R-c admission predicate (which the V3-EXQ-592f autopsy + MECH-090 release-path audit + motor-cessation lit-pull established is ADMISSION-ONLY by design). Same two R-c readiness signals MECH-090 AND-composes to ADMIT drive a graded bounded-accumulation RELEASE of an already-elevated beta latch when they degrade mid-commitment. Closes V3-EXQ-592f reach gap (predicates fire under forced beta-elevated state but produce zero state-occupancy suppression + zero decommit transitions). Routed by REE_assembly/evidence/planning/mech090_release_path_audit_2026-06-02 (B1 ruled out: none of ARC-028/MECH-105 completion, MECH-091 urgency, V_s commit-release, SD-034 closure covers degraded-readiness mid-commitment) + targeted_review_mech_090_release_motor_cessation/SYNTHESIS.md verdict B3b. Module: ree-v3/ree_core/policy/commit_maintenance_release.py (CommitMaintenanceRelease + CommitMaintenanceReleaseConfig); pure-arithmetic regulator, sibling to commit_readiness.py. Accumulator dynamics per maintenance tick (only while beta is elevated): deficit_d (decisiveness axis) + deficit_n (nav_competence axis) -> combined=max() OR-composition (De Morgan dual of MECH-090 AND admission, conflict-graded by worse axis) -> if combined>0: pressure += accumulation_rate*combined (drift-to-bound, Resulaj 2009; conflict-scaled, Cavanagh/Frank 2011); elif recovered: pressure=max(0, pressure-leak_rate) (reengagement); else: hold (dead-band). fire = pressure >= release_bound. On fire: beta_gate.release() + reset _committed_step_idx + clear _committed_anchor_keys + clear e3._committed_trajectory. BINDING CONSTRAINTS preserved: (1) graded/online not Schmitt flag; (2) targeted+hysteretic with reengagement (Falasconi 2025 movement-specific vs Wessel 2022 non-selective). Distinct (falsifiable) from MECH-090 admission (entry-only AND), MECH-091 (z_harm threat; MECH-342 fires with z_harm_a BELOW threshold), ARC-028 completion (options GOOD; MECH-342 fires when completion LOW), MECH-269b/V_s (schema staleness; MECH-342 fires with STABLE schema), MECH-340 ghost-goal (goal-appraisal timescale; MECH-342 is active beta latch at motor-program timescale). Config (REEConfig + from_dims, all default no-op): use_maintenance_release (False) + 8 floor/reengage/rate/bound knobs. 700 contracts (685 + 15 new MECH-342) + 7/7 preflight PASS; bit-identical OFF verified. | Implemented 2026-06-02 (ree-v3 main 780d12f + REE_assembly master 625e218779); V3-EXQ-592g PASS 2026-06-02 (validation probe: all six criteria met -- C1 baseline occupancy 1.0; C2 score-margin decommit=2 suppression 0.4; C3 nav-competence decommit=2 suppression 0.6; C4 conjunction strictly-positive max_drop 0.6; C5 no false abort; C6 no-vacuity). DISPOSITION: MECH-342 stays candidate / v3_pending (592g is diagnostic; v3-pending gate forbids promotion regardless of evidence count; promotion needs an ecological evidence-grade run). V3-EXQ-629 ecological MECH-342 evidence run queued same day (3-arm shared-trained-weights ON/OFF; was claimed and dropped from queue snapshot mid-day during fleet outage recovery). substrate_queue MECH-342 status -> implemented_validated_v3_exq_592g (ready=false, current_blocker=null). |
 | scaffolded_sd054_onboarding amend (update_z_goal wiring) | curriculum.scaffolded_sd054_onboarding.update_z_goal_wiring -- amend (folds V3-EXQ-603d + 625b failure records) on the 2026-05-31 scaffolded_sd054_onboarding substrate. Root cause (confirmed): neither _train_episode nor _eval_episode called agent.update_z_goal -> GoalState.update never reached -> z_goal stayed zero-init every step of every arm; V3-EXQ-603d C4 z_goal=0 SUBSTRATE_FAILURE was a 626-class Class-1 harness/wiring artifact LIVING IN THE SUBSTRATE MODULE, NOT a substrate ceiling. New helper _benefit_and_drive(obs_body) -> (benefit_exposure, drive_level) mirroring experiments/goal_stream_stages_sd054.py; _train_episode gains seed_goal kwarg (True for run_p1; False for run_p0 preserves the warm-up goal-frozen-by-design scope per AskUserQuestion 2026-06-02); _eval_episode (P2) calls update_z_goal after each env.step. TWO-PART FIX (load-bearing): wiring alone is INSUFFICIENT -- 603d's config built the agent WITHOUT z_goal_enabled=True (from_dims default False) -> goal_state was None -> update_z_goal early-returns. The V3-EXQ-603e successor MUST set z_goal_enabled=True + drive_weight=2.0 (matching working reference V3-EXQ-622). Stage-0 positive control: two new contracts (C6 P2 z_goal_norm_peak > 0.0 under forced inputs; C6 update_z_goal called-in-P1-not-P0) make a z_goal=0 scheduler structurally unshippable. 19/19 scaffolded contracts + 7/7 preflight + 665/665 full contract suite PASS (1 pre-existing unrelated infant_curriculum_gap9 C6 stale assertion). | Implemented 2026-06-02 (ree-v3 main deb24cc + d09af0e; REE_assembly master 36b0130ecf); V3-EXQ-603e queued (priority 250, supersedes V3-EXQ-603d, EXPERIMENT_PURPOSE=diagnostic, P0/P1=100/50 restored budget, z_goal_enabled=True + drive_weight=2.0); claimed by DLAPTOP-4.local at the snapshot time. P0 positive control is the adjudicating bit between harness-bug and object-binding abstraction-gap hypotheses. |
+| scaffolded_sd054_onboarding amend (nursery / feeding scaffold) | curriculum.scaffolded_sd054_onboarding.nursery_feeding_scaffold -- second amend (2026-06-03) routed by failure_autopsy_V3-EXQ-603e-626a-622_2026-06-03 concluding the update_z_goal-wiring amend is necessary-but-insufficient: V3-EXQ-603e showed z_goal=0 ecologically across 15 cells because 2/3 seeds never reach foraging competence + the hard P2 env (hazard_food_attraction=0.7) starves benefit_exposure even for survivors. Infant REE needs a nursery + feeding time before mature autonomous goal formation can be fairly tested. Five additive levers (all default no-op; bit-identical OFF): (1) FORCED-BENEFIT STAGE-0 nursery method run_stage0_nursery (forced supra-threshold benefit + drive into update_z_goal in dense hazard-free reef-refuge env; positive control "goal stream lights when fed" decoupled from survival skill); (2) scaffold_p1_anneal_hold_fraction lever (staged withdrawal of assistance); (3) explicit STAGE_PLAN module + stage_plan() helper; (4) P2 MEASUREMENT GUARD scaffold_p2_hazard_food_attraction_guard override + contact-rate readout distinguishing "infant never fed" from "goal-formation failure despite contact"; (5) SUBSTRATE-GATE + five-way INTERPRETATION-BRANCH helpers (substrate_not_engaged / fed_but_no_goal / goal_formed_diversity_inert / goal_formed_mechanisms_load_bearing / goal_formed_behaviour_random_harmful). 731 contracts (19 prior scaffolded + 12 new C6) + 7/7 preflight PASS with master OFF. | Implemented 2026-06-03 (ree-v3 main); V3-EXQ-603f post-substrate re-issue authored but DEFERRED -- the runtime readiness gates (Stage-0 z_goal>0.4 on >=2/3 seeds, P1 survival >=2/3, P2 contact >0 on >=2/3) require a full-budget readiness run first; substrate_queue.ready stays FALSE until V3-EXQ-634 / 634b / 634c clear |
+| scaffolded_sd054_onboarding amend (developmental-window / protected-goal consolidation) | curriculum.scaffolded_sd054_onboarding.developmental_window -- third amend (2026-06-03b) routed by the V3-EXQ-634 design-error review. Root cause (verified in code): GoalState.update (ree_core/goal.py:173) ALWAYS decays the persistent z_goal attractor (z_goal *= 1-decay_goal) BEFORE the benefit-gated pull AND REEAgent.reset does NOT reset goal_state, so the prior scaffold called update_z_goal every step (incl. UNFED steps) in P1/P2 -> each unfed step is a pure decay-only washout. Three additive levers (all default no-op; bit-identical OFF): (1) Stage-0b PROTECTED CONSOLIDATION window (new run_stage0b_consolidation; E1/E2 training open but update_z_goal NOT called so the z_goal attractor cannot be washed out by decay-only updating; retention_gate >= 0.75 of Stage-0 baseline); (2) CONTACT-GATED P1/P2 updates (when scaffold_contact_gated_goal_updates is set, _train_episode and _eval_episode call update_z_goal ONLY on validated contact steps; decay_only reserved for mature tests); (3) goal-write-mode constants + per-phase diagnostics (n_contact_refresh_updates / n_decay_only_updates / n_skipped_protected_updates) so manifests distinguish goal loss due to no-contact vs decay-only washout vs failed-formation-despite-contact. New C7 contract group; 739/739 contracts + 7/7 preflight PASS with master OFF; bit-identical legacy path verified. | Implemented 2026-06-03 (ree-v3 main); V3-EXQ-634b corrected nursery readiness (developmental-window flags ON) queued; G0b retention 3/3 PASSed (consolidation amend VALIDATED) but exposed seeding-magnitude / threshold mismatch downstream (G3 anti-correlated with foraging on seed 42) -> routed to next amend |
+| scaffolded_sd054_onboarding amend (seeding-calibration + consumption-gated G3) | curriculum.scaffolded_sd054_onboarding.seeding_calibration -- fourth amend (2026-06-03c) routed by failure_autopsy_V3-EXQ-634b. Consolidation half VALIDATED (G0b retention 3/3, n_decay_only_updates=0) but exposed benefit-magnitude / threshold mismatch (verified in code): contact-gating skipped only benefit <= contact_threshold (1e-6) but GoalState.update seeds only when effective_benefit > benefit_threshold (0.1); natural wild benefit ~0.03 stays sub-threshold, so the band (1e-6, ~0.1-effective) DECAYED the consolidated trace during real foraging instead of refreshing it (the forced 1.0 nursery feed was the only supra-threshold input). Three coupled fixes (all default no-op; bit-identical OFF): (1) DECOUPLED CONTACT-GATING THRESHOLD (scaffold_contact_gating_benefit_threshold sentinel < 0 -> reuses readout threshold; >= 0 separates the gating floor from the contact-RATE readout so sub-seeding whiffs are PROTECTED not decay-only updated); (2) GOAL-SEEDING MAGNITUDE PROPAGATION (Optional scaffold_z_goal_seeding_gain / scaffold_benefit_threshold / scaffold_drive_floor knobs propagated onto agent.goal_state.config at the top of each seeding-capable stage -- GoalConfig owns the magnitudes; scaffold propagates so V3-EXQ-634c sweep can vary them through the scaffold's own config surface); (3) CONSUMPTION-EVENT-GATED G3 READOUT (P2OnboardingMetrics gains z_goal_norm_at_contact_peak + num_contact_events; G3 reads at genuine seeding events so a z_goal=0-at-contact read is no longer masked by the carried forced-feed nursery trace). New C8 contract group (6 contracts); 744/744 contracts + 7/7 preflight PASS with master OFF + amend OFF; bit-identical legacy path verified. | Implemented 2026-06-03 (ree-v3 main 15053a3); V3-EXQ-634c multi-arm sweep over seeding magnitudes + strengthened budgets + matched contact-gating floor queued (claimed DLAPTOP-4.local 2026-06-03T22:04Z); ready stays false; do NOT queue 603f until 634c clears a consumption-event-gated gate |
+| modulatory-bias-selection-authority | ethics_engine_3.modulatory_bias_selection_authority -- gap-relative E3.select authority for modulatory / diversity score-bias channels. Root cause (604a / 624a / 614d cluster autopsy): fixed small modulatory magnitudes (~0.05-0.1) added to primary scores whose raw_score_range was much larger never changed the argmin -- 604a curiosity_bias=0.0 every arm, 624a vigor action_density byte-identical ON==OFF, 614d within-class temperature -> committed-class entropy byte-identical across T=0.5/1.0/2.0. Approach (b) gap-relative scaling (user-confirmed AskUserQuestion 2026-06-03): rescale composed modulatory bias so range(mod) == modulatory_authority_gain * raw_score_range; takes precedence over legacy normalize_score_bias_to_e3_range when on. Sibling stratified-across-class normalization in e3_score_diversity.stratified_select normalizes class-representative scores to UNIT range before the stratified_temperature softmax (614d C2 fix -- absolute class-rep gap no longer collapses committed-class selection). SAFETY: primary scores NOT modified -> commit-threshold / running_variance / softmax-temperature / urgency-interrupt / MECH-090 admission semantics unchanged; gain=0.5 < 1.0 keeps modulatory competitive in near-ties but subdominant when the primary harm/goal gap exceeds gain*range. Config (REEConfig + from_dims + E3Config, all default no-op): use_modulatory_selection_authority + modulatory_authority_gain (0.5) + modulatory_authority_min_range_floor (1e-6). NECESSARY-BUT-NOT-SUFFICIENT for the curiosity lever: 624a/614d are pure drowning (fixed directly); 604a had curiosity_bias=0.0 (genuinely zero -- MECH-314a no active residue centers + 314b/c broadcast-by-design), so scaling zero is still zero -- the validation EXQ guards curiosity_bias_abs_mean > 0 before testing curiosity. 734/734 contracts + 7/7 preflight PASS with flag OFF (regression-clean under two pytest-randomly orderings). MECH-094: pure arithmetic on the waking committed-selection path; no replay write surface. | Implemented 2026-06-03 (ree-v3 main); V3-EXQ-635 substrate-readiness PASS 2026-06-03 (WITHIN_CLASS lever lift +0.446, harm down, 19 authority-normalized ticks); concurrency note: clearing the substrate gate during 614d review auto-spawned IGW-024 for this substrate; both sessions converged on the identical design and the joint working-tree implementation was landed from the interactive session (igw-024 stood down, empty worktree). PASS unblocks per-claim EVIDENCE retests of MECH-314 / MECH-320 / MECH-341 + the MECH-343 hypothesis |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -147,6 +151,116 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-04T01:10Z nightly read.** `evidence/experiments/` contains
+  **994 v3_exq_* manifests** (recursive count incl. nested per-run dirs;
+  289 flat top-level v3_exq_* manifests). Per-machine fleet
+  `runner_status/*.json` aggregates to **779 unique V3 queue_ids
+  completed** across all 8 workers after dedup (242 PASS / 406 FAIL /
+  89 ERROR / 41 UNKNOWN / 1 INCONCLUSIVE; 1598 total completion records
+  before dedup, reflecting cross-machine retries + smoke runs). The
+  DLAPTOP-4.local card alone carries 610 completed queue_ids. Per
+  CLAUDE.md "Phase 3 note" the central `runner_status.json` was
+  decoupled on 2026-05-29; per-machine `runner_status/<host>.json`
+  files are the authoritative surface. **Pending review queue
+  (regenerated 2026-06-03T19:58Z) reads 0 items** -- all walked in
+  today's two governance cycles (16:59Z + 19:57Z). **Currently queued
+  (`experiment_queue.json` items[]): 7 items** -- V3-EXQ-634c
+  scaffolded_sd054_onboarding seeding-calibration 4-arm readiness
+  diagnostic (claimed DLAPTOP-4.local 2026-06-03T22:04Z; supersedes
+  634b after consolidation amend VALIDATED but G3
+  anti-correlated-with-foraging exposed a new contact-gating /
+  seeding-firing-threshold mismatch); V3-EXQ-610e INV-074 / MECH-333 /
+  MECH-334 crystallization-necessity retest with three-prescription
+  harness fix (claimed ree-cloud-1 2026-06-03T21:19Z; supersedes 610d
+  near-uniform untrained-policy no-op signature; verifies real REINFORCE
+  + stepped expansion-parameter optimizer + EWC penalty in Phase-3 loss
+  via mandatory startup assertion); V3-EXQ-463b MECH-268 dACC conflict
+  saturation (claimed ree-cloud-4); V3-EXQ-464b MECH-266 competing
+  goals (claimed ree-cloud-2); V3-EXQ-466b SD-034 satisficing residue
+  discharge (claimed ree-cloud-3); V3-EXQ-467b MECH-266 mode stickiness
+  (pending); V3-EXQ-468b SD-034 + MECH-268 commitment vs contradiction
+  (pending). Five of the seven are the GAP-4 OCD behavioural *b cohort
+  queued late in the session against the GAP-3-landed CausalGridWorldV2
+  env extensions + GAP-11 committed_mode_curriculum. Substrate /
+  governance landings since the 2026-06-03T01:10Z snapshot:
+  (1) **scaffolded_sd054_onboarding nursery / feeding scaffold amend**
+  (forced-benefit Stage-0 nursery + survival levers + P2 measurement
+  guard; ree-v3 main) -- routed by V3-EXQ-603e-626a-622 failure-autopsy
+  concluding the update_z_goal-wiring amend was necessary-but-insufficient
+  (2/3 seeds never reach foraging competence; P2 hazard env starves
+  benefit_exposure). Adds infant-nursery forced-feed positive control,
+  curriculum hold-fraction lever, P2 hazard_food_attraction guard, and
+  five-way interpretation-grid + substrate-gate helper. (2)
+  **scaffolded_sd054_onboarding developmental-window amend** (Stage-0b
+  protected consolidation + contact-gated P1/P2; ree-v3 main) -- routed
+  by V3-EXQ-634 design-error review concluding GoalState.update
+  ALWAYS-decays the persistent z_goal attractor before the benefit-gated
+  pull (washing out the Stage-0 trace across UNFED steps). Adds Stage-0b
+  retention gate + contact_gated_goal_updates path so decay-only is
+  reserved for mature tests, not the nursery gate. (3)
+  **scaffolded_sd054_onboarding seeding-calibration amend** (decoupled
+  contact-gating threshold + GoalConfig seeding-magnitude propagation +
+  consumption-event-gated G3 readout; ree-v3 main 15053a3) -- routed by
+  V3-EXQ-634b autopsy: consolidation half VALIDATED (G0b retention 3/3
+  + n_decay_only=0) but G3 anti-correlated-with-foraging revealed
+  contact-gating decoupled from seeding firing threshold. (4)
+  **modulatory-bias-selection-authority substrate** (gap-relative
+  E3.select authority; ree-v3 main) -- routed by 604a / 624a / 614d
+  cluster autopsy diagnosing fixed-small modulatory magnitudes drowned
+  by primary-score range. Rescales composed modulatory bias so
+  range(mod) == gain * raw_score_range; gain=0.5 keeps modulatory
+  competitive in near-ties but subdominant when primary harm/goal gap
+  exceeds gain*range. Necessary-but-not-sufficient for the curiosity
+  lever (604a had curiosity_bias=0.0 genuinely). V3-EXQ-635 substrate-
+  readiness PASS (within-class lever lift +0.446 across 19
+  authority-normalized ticks; validates substrate). (5) **MECH-306
+  promoted candidate -> provisional** (REE_assembly master 11c043ea79)
+  -- V3-EXQ-627 sustained_drive_trace_validation PASS (exp_conf=0.773 >
+  0.62 gate) satisfies the v3_pending gate; one substrate-conditional
+  hold cleared. (6) **Governance evening cycle** (REE_assembly master
+  8c85f06e5a) -- 6 reviews closed (2 PASS, 4 FAIL); 4 user-approved
+  failure-autopsy dispositions applied (514l / 632 / 634 / 610c all
+  routed to non_contributory + epistemic_category substrate_ceiling +
+  pending_retest_after_substrate). MECH-094 evidence corroborated by
+  V3-EXQ-633 PASS (3/3, supports). (7) **commitment_closure:GAP-8
+  SD-033b behavioural validation** -- audit confirmed V3-EXQ-485b /
+  485c never ran (not silent-drop); authored + smoke-tested + queued
+  (ree-v3 main 9f45b0f). GAP-8 status node blocked -> in-progress.
+  (8) **goal_pipeline:GAP-7 incentive-salience ratified into
+  plan-of-record** (REE_assembly master db72095d46) -- L0-L9 closure
+  map embedded in goal_pipeline_plan.md; L1 forced-seed positive-control
+  V3-EXQ-626b queued (ree-v3 main ab55916). (9) **commitment_closure:GAP-4
+  OCD behavioural *b cohort** -- 7 scripts authored, smoke-tested, and
+  queued at priority 290 against the SD-033b (OFC), SD-034 (closure
+  operator), MECH-266 (asymmetric hysteresis), MECH-268 (dACC conflict
+  saturation), and MECH-090 (commit entry) substrates. Substrate side
+  resolved 2026-06-02 (MECH-090 + MECH-342 validated by 592g). (10)
+  **closure-drift checker enhancements** (REE_assembly master
+  3133d10723) -- check_closure_drift.py gains lineage-advanced +
+  claims-reclassified-since signals so GAP-2-class stale-since gaps
+  surface instead of hiding. 0 drifted post-walk. (11) **Brain-map
+  visualization rebuild** -- coronal MRI backdrop, full region re-drape
+  onto anatomy, three-plane linked view (sagittal + coronal + axial)
+  generated from a single region table. Multiple user-feedback
+  iterations across the day. Bottleneck (continuation from yesterday's
+  framing): the **ecological-evidence v3_pending lift requirement**
+  remains the dominant blocker, but specific axes advanced today --
+  (a) the scaffolded_sd054_onboarding substrate has now been amended
+  THREE times in one day (wiring -> nursery scaffold ->
+  developmental-window -> seeding-calibration); V3-EXQ-634c is the
+  adjudicating bit on runtime readiness; (b) the
+  modulatory-bias-selection-authority substrate now lets MECH-314 /
+  MECH-320 / MECH-341 modulatory levers actually influence the
+  committed argmin (gap-relative scaling), so pending behavioural
+  re-runs on these claims can produce non-vacuous evidence; (c)
+  MECH-306 has cleared the V3-pending gate and is now provisional.
+  **V3-EXQ-610e (INV-074 crystallization-necessity)** remains the
+  adjudicating bit between the INV-074 plasticity-injection closure
+  prediction vs the prior 610c/d untrained-policy no-op artefact --
+  610e wires REINFORCE policy training + stepped expansion-parameter
+  optimizer + EWC penalty into the Phase-3 loss, each verified by a
+  mandatory startup assertion.
 
 - **2026-06-03T01:10Z nightly read.** `evidence/experiments/`
   contains **908 v3_exq_* manifests** on disk; per-machine
