@@ -8,24 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-634c",
-      "title": "scaffolded_sd054_onboarding seeding-calibration readiness (4-arm seeding-lever sweep)",
-      "script": "experiments/v3_exq_634c_scaffolded_nursery_seeding_calibration_readiness.py",
-      "priority": 330,
-      "machine_affinity": "any",
-      "estimated_minutes": 800,
-      "note": "DIAGNOSTIC, claim_ids=[]. Substrate-readiness re-validation after the V3-EXQ-634b seeding-calibration amend (ree-v3 15053a3). 4 arms (ARM_0 baseline / ARM_1 drive_floor / ARM_2 drive_floor+gain / ARM_3 drive_floor+low-threshold) x 3 seeds; gating floor matched to each arm's seeding floor; G3 read at consumption events (z_goal_norm_at_contact_peak), NOT the frozen peak. PASS = any seeding arm clears G0/G0b/G1/G2/G3 on >=2/3 seeds. Does NOT queue 603f; scaffolded_sd054_onboarding ready stays false until this clears. Predecessor V3-EXQ-634b (NOT superseded). Authored/queued via /queue-experiment. Watch phase3-queue snapshot race (Step 8).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-06-03T22:04:58Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 235,
-      "experiment_type": "v3_exq_634c_scaffolded_nursery_seeding_calibration_readiness",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-610e",
       "title": "INV-074/MECH-333/MECH-334 crystallization-necessity retest (HARNESS-FIXED, startup-assertion-gated): real REINFORCE on gated_policy (Phases 0-2) + stepped expansion_parameters() optimizer post-crystallize (Phase 3) + residue_field.ewc_penalty() summed into the Phase-3 loss. 2-arm/3-seed, IGW-023 Phase-3 pressure. Supersedes 610d (untrained-policy no-op).",
       "script": "experiments/v3_exq_610e_inv074_crystallization_necessity.py",
