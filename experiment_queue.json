@@ -64,6 +64,21 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_610e_inv074_crystallization_necessity",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-636",
+      "title": "SD-057 object-bound incentive-salience MECHANISM diagnostic (GAP-7 L2-L3-L4): bank ON vs OFF, forced two-type contacts under opposing per-axis drive; tests wanting-target (most-wanted pointer) != liking-target (contacted)",
+      "experiment_type": "v3_exq_636_sd057_object_bound_incentive_mechanism",
+      "script": "experiments/v3_exq_636_sd057_object_bound_incentive_mechanism.py",
+      "priority": 350,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "episodes_per_run": 12,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": null,
+      "note": "Substrate-readiness diagnostic for SD-057 (claim_ids=[]). Forced-contact mechanism test decoupled from goal_pipeline:GAP-2 (mirrors V3-EXQ-626b L1 decoupling). Dry-run PASS 4/4 (C1 binds 2 types, C2 5/6 dissoc events ON, C3 0 events OFF, C4 legacy seeding intact). PASS unblocks the GAP-2-gated L9 behavioural retest of MECH-229/MECH-117/ARC-030. Design doc: REE_assembly/docs/architecture/sd_057_object_bound_incentive_salience.md."
     }
   ]
 }
