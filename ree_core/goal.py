@@ -141,6 +141,24 @@ class GoalConfig:
     # (specific PIT). When False, the scalar drive_level is applied uniformly.
     incentive_use_per_axis_drive: bool = True
 
+    # SD-057 phase-2 L6 (MECH-347): cue-recall path master switch. When set
+    # (requires use_incentive_token_bank), a perceived cue/object type can
+    # retrieve its incentive token and nudge z_goal toward that object's stored
+    # embedding BEFORE any benefit pulse (cue-triggered wanting; specific PIT).
+    # Default False -> bit-identical (no cue path).
+    use_cue_recall: bool = False
+
+    # SD-057 phase-2 L6: z_goal cue-pull strength per cue-recall event. Separate
+    # from alpha_goal (the benefit-driven seed rate) -- the cue nudge is a
+    # weaker, pre-consummatory pull. effective pull = cue_recall_gain * clamped
+    # wanting amplitude. Default 0.05 (matches alpha_goal magnitude).
+    cue_recall_gain: float = 0.05
+
+    # SD-057 phase-2 L6: minimum perceived-cue proximity for the AUTOMATIC
+    # harness cue-perception path to fire (the explicit primitive ignores it).
+    # Below this, no cue is considered perceived. Default 0.0 (any perception).
+    cue_recall_min_proximity: float = 0.0
+
 
 class IncentiveTokenBank:
     """SD-057 (GAP-7 L2-L3): per-object incentive-salience token store.
@@ -431,6 +449,36 @@ class GoalState:
             injected._z_goal = z_seed
 
         return injected
+
+    def cue_pull(self, z_object: torch.Tensor, strength: float) -> None:
+        """SD-057 phase-2 L6 (MECH-347): nudge z_goal toward a stored object
+        embedding WITHOUT the benefit gate and WITHOUT revaluing any token.
+
+        This is the cue-triggered-wanting pull: perceiving a learned cue for an
+        object raises wanting for that object (z_goal moves toward its identity
+        embedding), which the existing E3 goal_proximity + MECH-295 approach
+        bridge then translate into pre-consummatory approach -- distinct from
+        the benefit-driven seed in update(), which requires a benefit pulse and
+        EMA-revalues the per-object token. No decay/floor logic here; this is a
+        pure directional nudge.
+
+        Args:
+            z_object: [1, goal_dim] or [goal_dim] stored object embedding.
+            strength: pull fraction in [0, 1]; z_goal moves this fraction toward
+                      z_object. <= 0 is a no-op.
+        """
+        if strength <= 0.0:
+            return
+        z = z_object.detach()
+        if z.dim() == 1:
+            z = z.unsqueeze(0)
+        elif z.dim() == 2 and z.shape[0] != 1:
+            z = z.mean(dim=0, keepdim=True)
+        s = float(min(1.0, strength))
+        self._z_goal = (1.0 - s) * self._z_goal + s * z
+        norm = self._z_goal.norm().item()
+        if norm > self._goal_norm_peak:
+            self._goal_norm_peak = norm
 
     def is_active(self) -> bool:
         """True if z_goal has been updated at least once."""

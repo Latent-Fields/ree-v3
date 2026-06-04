@@ -346,6 +346,9 @@ class REEAgent(nn.Module):
                 dacc_effort_cost=config.dacc_effort_cost,
                 dacc_drive_coupling=config.dacc_drive_coupling,
                 dacc_bias_max_abs=getattr(config, "dacc_bias_max_abs", 0.0),
+                dacc_goal_readout_weight=getattr(
+                    config, "dacc_goal_readout_weight", 0.0
+                ),  # SD-057 L7 (MECH-348)
             )
             self.dacc = DACCAdaptiveControl(dacc_cfg)
             # STOPGAP adapter -- still the score_bias source until SD-033
@@ -353,6 +356,25 @@ class REEAgent(nn.Module):
             # the adapter's bias may be scaled by the coordinator's e3_policy
             # write-gate (see select_action; gated by salience_apply_to_dacc_bias).
             self.dacc_adapter = DACCtoE3Adapter(dacc_cfg)
+
+        # SD-057 phase-2 preconditions (loud-not-silent).
+        if getattr(config, "use_mech_consume", False) and not getattr(
+            config, "use_dacc", False
+        ):
+            raise ValueError(
+                "use_mech_consume=True (SD-057 L7) requires use_dacc=True -- the "
+                "object-discriminative goal readout rides the dACC bundle."
+            )
+        _goal_cfg = getattr(config, "goal", None)
+        if (
+            _goal_cfg is not None
+            and getattr(_goal_cfg, "use_cue_recall", False)
+            and not getattr(_goal_cfg, "use_incentive_token_bank", False)
+        ):
+            raise ValueError(
+                "use_cue_recall=True (SD-057 L6) requires use_incentive_token_bank=True "
+                "-- the cue-recall path reads per-object tokens from the bank."
+            )
 
         # SD-032a: salience-network coordinator. Reads SD-032b dACC bundle +
         # drive_level + offline-mode flag; emits operating_mode soft vector +
@@ -3184,6 +3206,28 @@ class REEAgent(nn.Module):
             # SD-032e: use effective drive (base + pACC bias) so dACC sees the
             # chronic-pain-sensitised drive regime.
             drive_level = _effective_drive_level
+            # SD-057 L7 (MECH-348): per-candidate goal_proximity to the (now
+            # object-bound, via SD-057 L4) z_goal, so the dACC readout becomes
+            # object-discriminative. Gated by use_mech_consume; None otherwise
+            # (adapter skips the goal term -> bit-identical). Mirrors the
+            # MECH-295 first-step z_world summary build.
+            _dacc_goal_prox: Optional[torch.Tensor] = None
+            if (
+                getattr(self.config, "use_mech_consume", False)
+                and self.goal_state is not None
+                and self.goal_state.is_active()
+                and self._current_latent is not None
+            ):
+                _gp_list: List[torch.Tensor] = []
+                for c in candidates:
+                    if c.world_states is not None:
+                        _gp_list.append(c.get_world_state_sequence()[0, 0, :])
+                    else:
+                        _gp_list.append(self._current_latent.z_world[0].detach())
+                with torch.no_grad():
+                    _dacc_goal_prox = self.goal_state.goal_proximity(
+                        torch.stack(_gp_list, dim=0)
+                    ).detach()
             bundle = self.dacc(
                 z_harm_a=z_harm_a.squeeze(0) if z_harm_a.dim() > 1 else z_harm_a,
                 z_harm_a_pred=self._harm_a_pred_prev,
@@ -3197,6 +3241,7 @@ class REEAgent(nn.Module):
                 per_axis_combiner=getattr(
                     self.config, "sd049_dacc_per_axis_combiner", "max"
                 ),
+                candidate_goal_proximity=_dacc_goal_prox,  # SD-057 L7 (MECH-348)
             )
             self._dacc_last_bundle = bundle
             if self.dacc_adapter is not None:
@@ -5085,6 +5130,55 @@ class REEAgent(nn.Module):
                     value=write_value,
                     hypothesis_tag=False,
                 )
+
+    def cue_recall_wanting(
+        self,
+        cue_type: int,
+        drive_level: float = 1.0,
+        simulation_mode: bool = False,
+    ) -> float:
+        """SD-057 phase-2 L6 (MECH-347): cue-triggered wanting.
+
+        A PERCEIVED cue/object type (NO benefit pulse) retrieves its incentive
+        token from the bank and nudges z_goal toward that object's stored
+        embedding BEFORE consumption -- identity-matched (pulls toward THIS
+        cue's object), drive-specific (amplitude scales with the cue-type's
+        per-axis drive). The downstream E3 goal_proximity + MECH-295 approach
+        bridge then raise pre-consummatory approach toward the cued object.
+
+        Distinct from update_z_goal: no benefit pulse, NO token revaluation
+        (bank.update is not called), and a weaker (cue_recall_gain) pull than
+        the benefit-driven seed. Returns the pull strength actually applied
+        (0.0 when no-op).
+
+        MECH-094: simulation_mode=True is a no-op (replay must not move z_goal
+        via a cue). Requires GoalConfig.use_cue_recall + an active bank.
+        """
+        if simulation_mode:
+            return 0.0
+        gs = self.goal_state
+        if gs is None or not getattr(gs.config, "use_cue_recall", False):
+            return 0.0
+        bank = getattr(gs, "incentive_bank", None)
+        if bank is None:
+            return 0.0
+        k = int(cue_type)
+        if k <= 0 or k not in bank._base_value:
+            return 0.0
+        # Recall-time wanting amplitude for this cue (drive-specific via the
+        # bank's own per-axis logic), reusing the cached per-axis drive.
+        per_axis = getattr(self, "_per_axis_drive", None)
+        amp = bank.wanting(per_axis_drive=per_axis, scalar_drive=float(drive_level)).get(k, 0.0)
+        if amp <= 0.0:
+            return 0.0
+        # Pull strength = cue gain * clamped wanting amplitude (clamp keeps the
+        # pre-consummatory nudge bounded regardless of accumulated token value).
+        strength = float(gs.config.cue_recall_gain) * float(min(1.0, amp))
+        z_object = bank._z_object.get(k, None)
+        if z_object is None or strength <= 0.0:
+            return 0.0
+        gs.cue_pull(z_object, strength)
+        return strength
 
     def serotonin_step(self, benefit_exposure: float) -> None:
         """

@@ -68,6 +68,7 @@ class DACCConfig:
     dacc_interaction_weight: float = 0.0     # weight on reward x effort interaction
     dacc_foraging_weight: float = 0.0        # weight on foraging/exploration signal
     dacc_suppression_weight: float = 0.0     # MECH-260 recency/monostrategy suppression weight
+    dacc_goal_readout_weight: float = 0.0    # SD-057 L7 (MECH-348): object-discriminative z_goal readout weight (0=no-op)
 
     # MECH-260 history window (number of recent action classes to track).
     dacc_suppression_memory: int = 8
@@ -334,6 +335,7 @@ class DACCAdaptiveControl(nn.Module):
         current_outcome_class: Optional[int] = None,
         per_axis_drive: Optional[Union[Sequence[float], np.ndarray, torch.Tensor]] = None,
         per_axis_combiner: str = "max",
+        candidate_goal_proximity: Optional[torch.Tensor] = None,
     ) -> dict:
         """Compute the Croxson integration bundle for the current step.
 
@@ -428,6 +430,10 @@ class DACCAdaptiveControl(nn.Module):
             "suppression": suppression,
             "pe": pe,
             "drive_gain": drive_gain,
+            # SD-057 L7 (MECH-348): per-candidate goal_proximity to the (now
+            # object-bound, via SD-057 L4) z_goal. None when the caller does not
+            # supply it -> the adapter's goal-readout term is skipped (no-op).
+            "goal_readout": candidate_goal_proximity,
             # MECH-268 diagnostics: pe is the post-saturation value used by
             # downstream consumers; pe_unsaturated is post-cap pre-saturation;
             # saturation_factor and outcome_recurrence let scripts assert
@@ -498,19 +504,34 @@ class DACCtoE3Adapter(nn.Module):
 
         weight = self.config.dacc_weight * float(bundle.get("drive_gain", 1.0))
         if weight == 0.0:
-            return torch.zeros_like(mode_ev)
+            scaled = torch.zeros_like(mode_ev)
+        else:
+            bias = -mode_ev.clone()
+            if self.config.dacc_interaction_weight != 0.0:
+                bias = bias + self.config.dacc_interaction_weight * (-bundle["harm_interaction"])
+            if self.config.dacc_foraging_weight != 0.0:
+                fv = torch.tensor(bundle["foraging_value"], dtype=dtype, device=device)
+                bias = bias + self.config.dacc_foraging_weight * fv
+            if self.config.dacc_suppression_weight != 0.0:
+                bias = bias + self.config.dacc_suppression_weight * bundle["suppression"]
 
-        bias = -mode_ev.clone()
-        if self.config.dacc_interaction_weight != 0.0:
-            bias = bias + self.config.dacc_interaction_weight * (-bundle["harm_interaction"])
-        if self.config.dacc_foraging_weight != 0.0:
-            fv = torch.tensor(bundle["foraging_value"], dtype=dtype, device=device)
-            bias = bias + self.config.dacc_foraging_weight * fv
-        if self.config.dacc_suppression_weight != 0.0:
-            bias = bias + self.config.dacc_suppression_weight * bundle["suppression"]
+            scaled = weight * bias
+            max_abs = self.config.dacc_bias_max_abs
+            if max_abs > 0.0:
+                scaled = scaled.clamp(-max_abs, max_abs)
 
-        scaled = weight * bias
-        max_abs = self.config.dacc_bias_max_abs
-        if max_abs > 0.0:
-            scaled = scaled.clamp(-max_abs, max_abs)
+        # SD-057 L7 (MECH-348): object-discriminative goal readout. Added
+        # independently of dacc_weight (so a goal-conditioned consumer works
+        # even if the legacy dACC bias is off), and AFTER the dacc_bias clamp
+        # (it has its own weight controlling magnitude). proximity high ->
+        # bias DOWN -> candidate favoured (REE lower-is-better). Skipped (and
+        # bit-identical to the legacy adapter) when dacc_goal_readout_weight==0
+        # or no goal_readout was supplied.
+        grw = getattr(self.config, "dacc_goal_readout_weight", 0.0)
+        gr = bundle.get("goal_readout", None)
+        if grw != 0.0 and gr is not None:
+            gr_t = gr if isinstance(gr, torch.Tensor) else torch.tensor(
+                gr, dtype=dtype, device=device
+            )
+            scaled = scaled - grw * gr_t.to(device=device, dtype=dtype)
         return scaled

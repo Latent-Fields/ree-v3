@@ -241,6 +241,35 @@ class StepHarness:
                 resource_type=resource_type,
             )
 
+            # SD-057 phase-2 L6 (MECH-347): automatic cue-recall perception.
+            # When use_cue_recall is set, derive the strongest-perceived
+            # resource type from the SD-049 per-type proximity field views
+            # (argmax over types of the field max) and, if it clears the
+            # cue_recall_min_proximity floor, fire the cue-recall nudge. This is
+            # the ecological cue path; the substrate primitive
+            # agent.cue_recall_wanting(...) is callable directly for forced-cue
+            # diagnostics. Bit-identical no-op when use_cue_recall is off, the
+            # bank is absent, or the env emits no per-type field views.
+            _goal_cfg = getattr(getattr(agent, "config", None), "goal", None)
+            if _goal_cfg is not None and getattr(_goal_cfg, "use_cue_recall", False):
+                try:
+                    type_names = getattr(env, "resource_type_names", ()) or ()
+                    best_tag, best_prox = 0, -1.0
+                    for i, name in enumerate(type_names):
+                        fv = obs_dict.get(f"resource_field_view_{name}", None)
+                        if fv is None:
+                            continue
+                        v = float(fv.max()) if hasattr(fv, "max") else float(max(fv))
+                        if v > best_prox:
+                            best_prox, best_tag = v, i + 1
+                    floor = float(getattr(_goal_cfg, "cue_recall_min_proximity", 0.0))
+                    if best_tag > 0 and best_prox >= floor:
+                        agent.cue_recall_wanting(
+                            cue_type=best_tag, drive_level=drive_level
+                        )
+                except Exception:
+                    pass  # cue-recall is best-effort; never break the step loop
+
             # 5. update_schema_wanting -- canonical MECH-216 call site.
             #    Default-off guard preserves the historical no-op path.
             e1_cfg = getattr(getattr(agent, "config", None), "e1", None)

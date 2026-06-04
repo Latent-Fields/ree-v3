@@ -1319,6 +1319,12 @@ class REEConfig:
     # consumer of the bundle. Remove the adapter when SD-032a lands.
     # False = disabled (default, backward compat).
     use_dacc: bool = False
+    # SD-057 phase-2 L7 (MECH-348): object-discriminative goal readout on the dACC
+    # consumer. use_mech_consume gates feeding per-candidate goal_proximity (to the
+    # SD-057-object-bound z_goal) into the dACC bundle; dacc_goal_readout_weight is
+    # the adapter's bias weight on it. Both no-op default (bit-identical OFF).
+    use_mech_consume: bool = False
+    dacc_goal_readout_weight: float = 0.0
     # dACC output weighting (all zero by default -- no behavioural effect until set).
     # dacc_weight: scales -mode_ev[K] contribution to score_bias.
     dacc_weight: float = 0.0
@@ -2766,6 +2772,11 @@ class REEConfig:
         incentive_value_alpha: float = 0.1,  # SD-057 L3: token revaluation EMA rate
         incentive_drive_kappa_weight: float = 2.0,  # SD-057 L3: relocated drive_weight for value x kappa(drive)
         incentive_use_per_axis_drive: bool = True,  # SD-057 L3: drive-specific (per-axis) wanting
+        use_cue_recall: bool = False,  # SD-057 phase-2 L6 (MECH-347): cue-triggered wanting path
+        cue_recall_gain: float = 0.05,  # SD-057 L6: z_goal cue-pull strength
+        cue_recall_min_proximity: float = 0.0,  # SD-057 L6: auto-perception proximity floor
+        use_mech_consume: bool = False,  # SD-057 phase-2 L7 (MECH-348): dACC object-discriminative goal readout
+        dacc_goal_readout_weight: float = 0.0,  # SD-057 L7: dACC goal-readout bias weight
         # MECH-203/204: serotonergic neuromodulation
         tonic_5ht_enabled: bool = False,
         # MECH-204 F1: cross-cycle persistent zero-point EMA alpha
@@ -3339,6 +3350,9 @@ class REEConfig:
             "incentive_value_alpha",  # SD-057 L3
             "incentive_drive_kappa_weight",  # SD-057 L3
             "incentive_use_per_axis_drive",  # SD-057 L3
+            "use_cue_recall",  # SD-057 L6
+            "cue_recall_gain",  # SD-057 L6
+            "cue_recall_min_proximity",  # SD-057 L6
         }
         local_goal_vals = {
             "z_goal_enabled": z_goal_enabled,
@@ -3358,6 +3372,9 @@ class REEConfig:
             "incentive_value_alpha": incentive_value_alpha,  # SD-057 L3
             "incentive_drive_kappa_weight": incentive_drive_kappa_weight,  # SD-057 L3
             "incentive_use_per_axis_drive": incentive_use_per_axis_drive,  # SD-057 L3
+            "use_cue_recall": use_cue_recall,  # SD-057 L6
+            "cue_recall_gain": cue_recall_gain,  # SD-057 L6
+            "cue_recall_min_proximity": cue_recall_min_proximity,  # SD-057 L6
         }
         for _key in goal_fields:
             if _key in local_goal_vals:
@@ -3440,6 +3457,8 @@ class REEConfig:
 
         # SD-032b: dACC/aMCC-analog adaptive control
         config.use_dacc = use_dacc
+        config.use_mech_consume = use_mech_consume  # SD-057 L7
+        config.dacc_goal_readout_weight = dacc_goal_readout_weight  # SD-057 L7
         config.dacc_weight = dacc_weight
         config.dacc_interaction_weight = dacc_interaction_weight
         config.dacc_foraging_weight = dacc_foraging_weight
