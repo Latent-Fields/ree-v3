@@ -16,7 +16,11 @@
       "estimated_minutes": 1135,
       "claim_id": null,
       "note": "GATES V3-EXQ-638b -- do NOT build the 638b interoceptive need-gating substrate until this sweep routes. Routed by failure_autopsy_V3-EXQ-640_2026-06-05: 640 measured the post-cue z_goal/approach trace at a SINGLE operating point (cue_recall_gain=0.2) and settled cue-to-action AUTHORITY missing (cue fires 1557x but moves z_goal ~0.4%, post-cue approach == background; displacement REFUTED). Mechanistic root: cue_recall_gain 0.2 x weak token ~0.2 -> sub-threshold cue_pull ~3 orders too small. The autopsy routes a gain sweep on the EXISTING substrate (recommended_substrate_queue_entry.action=none -- gain/parameter question, not a missing primitive). This sweeps the two knobs that scale the per-cue-fire pull strength (= cue_recall_gain * min(1.0, base_value*(1+kappa*drive))); the gain=5.0 cells drive the pull to its clamp ceiling (z_goal effectively snaps to z_object) -- the decisive probe of whether even a near-full snap lifts approach. INTERPRETATION GRID (applied at review; diagnostic, weights no claim): (1) pull rises with gain AND approach lifts over background -> cue authority real-but-under-tuned -> pick operating point, proceed to 638b; (2) pull rises BUT approach stays ~0 -> z_goal->approach link (E3 goal_proximity / MECH-295) is the gap -> route there, NOT 638b; (3) pull stays ~0 even at high gain -> cue_pull mechanism under-powered/clipped -> substrate_queue cue_pull-primitive revisit. Self-contained: every arm sets the landed 634c ARM_3 seeding regime (drive_floor=0.9 + benefit_threshold=0.02) directly; each cue-on run records its OWN within-run background_approach_rate (matched approach-lift denominator); ARM_OFF is an additional cue-independent reference + displacement cross-check. Behaviourally identical to 640 except the two swept knobs. 640's single-point measurement (gain=0.2,kappa=2.0 cell) stays valid as the baseline. Smoke: --dry-run PASS (7 conditions end-to-end, C1/C2 measurement gates pass, gain_trend monotonicity read computed). estimated ~1135 min cloud (21 runs x 235 ep @ ~0.23 min/ep; runner auto-calibrates).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-05T15:20:45Z"
+      },
       "conditions": 7,
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_640a_scaffold_cue_authority_gain_sweep",
