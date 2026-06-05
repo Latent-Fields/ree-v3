@@ -55,7 +55,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 60,
       "note": "Validates SD-016 Path 3 (feedforward cue->slot tagger, implemented 2026-06-05) routed by the V3-EXQ-418i finding that Path 1 (auxiliary slot diversification loss) is insufficient at any weight because the bottleneck is query selectivity: the z_world-only q.k attention is pinned at the uniform ln(16)=2.773 saddle (memory init 0.01 -> near-identical keys -> flat softmax Jacobian -> terrain_loss gradient cannot escape). Path 3 replaces ONLY the slot-selection scoring with a fresh feedforward MLP (z_world -> slot logits) that sits off the saddle, so terrain_loss shapes selectivity; slot-content + cue_action_proj/cue_terrain_proj untouched. Both arms sd016_enabled=True, writepath_mode=off, temperature_learnable=False; only sd016_cue_slot_tagger differs. Selection entropy read uniformly via the cached E1DeepPredictor._last_cue_slot_weights (OFF caches q.k softmax, ON caches tagger softmax). PASS = C1 AND C1b AND C2. SECONDARY (reported, NOT gated): action_bias_per_channel_std + safe-vs-dangerous action_bias_div -- full action_bias_div>=0.05 propagation is gated on cue_action_proj / SD-055 differentiable CEM, so it is context not a pass gate. C1 FAIL + C2 PASS -> /failure-autopsy (tagger training-signal, not the saddle). C2 FAIL -> substrate inconsistency. Diagnostic (substrate readiness): claim_ids=[], weights no claim. Dry-run PASS (end-to-end both arms; FAIL at dry scale expected -- 5 ep cannot train the tagger). validate_experiments OK; ASCII-clean. See ree-v3/CLAUDE.md 'SD-016 Path 3'.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-06-05T16:48:38Z"
+      },
       "conditions": 2,
       "episodes_per_run": 60,
       "experiment_type": "v3_exq_418m_sd016_cue_slot_tagger",
