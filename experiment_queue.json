@@ -46,6 +46,21 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_610f_inv074_crystallization_necessity",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-641",
+      "title": "Coherence-ablation: is C(tau) non-reducible to E(tau)? Settles thought_intake_2026-04-23_binding.md + _path_integral_constraints_search.md (shared discriminator). Paired A/B selectors over identical hippocampal-rollout candidate pools: A = pure error-minimiser argmin E (the existing softmax(-E/T) rule); B = coherence-weighted argmin(E + lam*(-log C)) with GAP-RELATIVE authority (coherence-term range == gain*range(E); == argmax exp(-beta E)*C in the soft-beta regime). C(tau) computed in-harness from per-candidate Trajectory.world_states (z_world) / .states (z_self) / .action_objects streams = cross-system temporal/phase consistency, independent of E/outcome. No ree_core change. 3 conditions (real_C_clean primary / rand_C_control specificity / real_C_perturb rebinding) x 3 seeds. Diagnostic, claim_ids=[].",
+      "script": "experiments/v3_exq_641_coherence_ablation_nonreducibility.py",
+      "priority": 300,
+      "machine_affinity": "any",
+      "estimated_minutes": 360,
+      "claim_id": null,
+      "note": "Chip task_34494eac. Single experiment settles BOTH 2026-04-23 intakes (binding-coherence and trajectory-coherence are the same C(tau)). QUESTION (verbatim): does a multiplicative coherence term in P(tau)~exp(-beta E)*C change WHICH trajectory/binding is selected INDEPENDENTLY of prediction-error magnitude? SCALE FIX (mandatory, pre-flight verified): E spreads ~O(50) across candidates while -log C spreads ~O(0.004) -- a fixed-magnitude C never changes argmin ('drowning', the modulatory-bias-selection-authority failure mode CLAUDE.md 2026-06-03). beta is a FREE temperature; arm B uses gap-relative authority (gain=0.5) so C is competitive in near-ties but subdominant when the E-gap exceeds gain*range(E). Pre-flight probe confirmed the fix produces flips (44/80 measured steps). ACCEPTANCE (real_C_clean, per seed): D1 frac_state_div (paired-agent world_state divergence) >= 0.05; D3 |Spearman corr(E,C)| < 0.90 (C carries info orthogonal to E); SPEC real_C frac_state_div >= rand_C_control frac_state_div + 0.05 (coherence-specific, not generic tie-break). PASS = D1 AND D3 AND SPEC on >=2/3 seeds. INTERPRETATION GRID (diagnostic, weights no claim; applied at review): (1) PASS [C_nonreducible_coherence_specific_register] -> convert candidate Q entities/selection.coherence_nonreducibility to a registerable claim + /implement-substrate wiring C into E3.select under gap-relative authority; (2) D1+D3 but NOT SPEC [specificity_unproven] -> do NOT register, /failure-autopsy or sharper coherence read (real_C_perturb rebinding signature vs random); (3) NOT D1 [F1] -> no behavioural effect even with authority -> CLOSE both intakes; (4) NOT D3 [F2] -> C reduces to E -> CLOSE both intakes. Honours memory feedback_biology_before_formal_definitions: the path-integral/least-action import is the philosophy-right/mechanism-wrong risk class -- register only on coherence-specific BEHAVIOURAL divergence (random-C control + corr<1), never on formal similarity. bears_on (NOT tagged, claim_ids=[]): INV-002/ARC-018/MECH-061/MECH-269/MECH-270. Harness-level ablation, ree_core untouched (generate_trajectories + score_trajectory + Trajectory streams read; selection re-implemented in harness only to ablate C). P0=40 warmup (agent.eval, online E2 via record_transition + update_z_goal -> no new trained head, no joint-training collapse) then P1=25 measurement; arms split only at P1, identical lockstep state through P0. Smoke: --dry-run PASS (3 conditions end-to-end, emit_outcome fires, dry-scale FAIL/F1 expected -- behavioural gate needs full scale).",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 65,
+      "experiment_type": "v3_exq_641_coherence_ablation_nonreducibility",
+      "seeds": 3
     }
   ]
 }
