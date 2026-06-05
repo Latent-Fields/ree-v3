@@ -18,7 +18,11 @@
       "claim_id": "INV-074",
       "backlog_id": "EVB-0270",
       "note": "Routed by failure_autopsy_V3-EXQ-610e_2026-06-05 (confounded negative control). 610e was the FIRST harness-fixed crystallization run (policy genuinely trained, expansion stepped 1249 params, ewc_penalty in loss) but d2_control_shows_collapse=FALSE because MECH-313 noise floor + MECH-341 E3 score-diversity + the always-on policy entropy bonus held diversity up in BOTH arms -> INV-074's collapse-without-crystallization premise was never instantiated. 610f makes ARM_0 a TRUE NEGATIVE: (a) strip noise_floor + E3 score-diversity + dACC anti-recency suppression, and decouple structured curiosity from crystallize, in the stripped arms so the ONLY ARM_0-vs-ARM_1 difference is crystallize_at_phase3; (b) make the policy entropy bonus PHASE-DEPENDENT -- ENTROPY_BONUS_TRAIN=0.02 in phases 0-2 (every arm; generates the diversity so D3 sanity is non-vacuous + crystallization has something real to preserve) and SWEPT in phase 3 {ARM_0=0.0, ARM_2=0.005, ARM_3=0.02} to map where the control starts to collapse; (c) ARM_4 = stripped control + noise_floor + E3 score-diversity ON to test MECH-341/313's robust-floor reading honestly (the fork-c observation 610e could only note, now scored via D4). Carries forward the MANDATORY startup assertion (_assert_fixes_wired ERRORs the run if policy-train / expansion-step / ewc-penalty wiring is missing). Acceptance: D1 ARM_1.end_p3 - ARM_0.end_p3 >= +0.10; D2 ARM_0.end_p2 - ARM_0.end_p3 >= +0.10 (true-negative collapses); D3 both > 0.4 at phase2; PASS = D1 AND D2 AND D3. D4 ARM_4.end_p3 - ARM_0.end_p3 >= +0.10 scores MECH-341/313 (per-claim). evidence_direction_per_claim emitted (5 claims). Pre-registered fork: D2 FAIL with D3 holding = V3 policy not WTA-prone -> non_contributory-for-INV-074 (universal invariant NOT weakened), escalate Phase-3 pressure; D2 PASS + D1 FAIL = weakens MECH-334 -> /diagnose-errors. ~35h cloud run (610e actual ~142 min/run x 15 runs). 10th crystallization-arm result; FIRST with both harness fixed AND a genuine true-negative control.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-06-05T14:58:58Z"
+      },
       "conditions": 5,
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_610f_inv074_crystallization_necessity",
