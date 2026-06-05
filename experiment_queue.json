@@ -10,17 +10,17 @@
     {
       "queue_id": "V3-EXQ-640",
       "title": "SD-057 cue-recall post-cue action/gradient measurement-only diagnostic (gates 638b)",
-      "experiment_type": "v3_exq_640_scaffold_cue_postcue_action_gradient_diagnostic",
       "script": "experiments/v3_exq_640_scaffold_cue_postcue_action_gradient_diagnostic.py",
       "priority": 350,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 220,
-      "episodes_per_run": 235,
-      "seeds": 3,
-      "conditions": 2,
       "claim_id": "",
-      "note": "Measurement-only re-run of the V3-EXQ-638a ARM_OFF/ARM_CUE_ON ablation, behaviourally UNCHANGED, with scaffold_post_cue_instrumentation=True in both arms. Routed by failure_autopsy_V3-EXQ-638a_2026-06-05: 638a settled cue 'fires vs lifts contact' (C3 FAIL) but logged no post-cue action trace, so it could not discriminate cue-to-action AUTHORITY / displacement / gradient-following / hazard-interrupt. 640 captures per-cue-fire windowed z_goal norm/pull delta, post-cue approach rate vs background, first-gradient-improving-move latency, hazard-interrupt rate, oscillation -- the discriminator the 638a-autopsy grid reads. GATES the planned 638b interoceptive build. experiment_purpose=diagnostic, claim_ids=[] (weights no governance score). PASS=measurement succeeded (C1 cue fires + C2 post-cue trace captured); the scientific read is applied at review, NOT here. Do NOT tune to pass; do NOT build 638b until 640 routes."
+      "note": "Measurement-only re-run of the V3-EXQ-638a ARM_OFF/ARM_CUE_ON ablation, behaviourally UNCHANGED, with scaffold_post_cue_instrumentation=True in both arms. Routed by failure_autopsy_V3-EXQ-638a_2026-06-05: 638a settled cue 'fires vs lifts contact' (C3 FAIL) but logged no post-cue action trace, so it could not discriminate cue-to-action AUTHORITY / displacement / gradient-following / hazard-interrupt. 640 captures per-cue-fire windowed z_goal norm/pull delta, post-cue approach rate vs background, first-gradient-improving-move latency, hazard-interrupt rate, oscillation -- the discriminator the 638a-autopsy grid reads. GATES the planned 638b interoceptive build. experiment_purpose=diagnostic, claim_ids=[] (weights no governance score). PASS=measurement succeeded (C1 cue fires + C2 post-cue trace captured); the scientific read is applied at review, NOT here. Do NOT tune to pass; do NOT build 638b until 640 routes.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 235,
+      "experiment_type": "v3_exq_640_scaffold_cue_postcue_action_gradient_diagnostic",
+      "seeds": 3
     }
   ]
 }
