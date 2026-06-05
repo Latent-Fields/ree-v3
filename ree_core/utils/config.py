@@ -239,6 +239,24 @@ class E1Config:
     # fixed-temperature baseline. Default False = bit-identical to legacy.
     sd016_temperature_learnable: bool = False
 
+    # SD-016 Path 3 (2026-06-05): feedforward cue->slot tagger.
+    # V3-EXQ-418i established that the z_world-only q.k attention inside
+    # extract_cue_context() is pinned at the uniform ln(num_slots) saddle
+    # ("the attention bottleneck is categorically in query selectivity"):
+    # key_proj(memory) with memory init 0.01 yields near-identical keys, so
+    # softmax stays uniform and the softmax Jacobian at uniform is a flat
+    # saddle that terrain_loss gradient cannot escape (Path 1 div-loss
+    # exhausted across weights 1.0/2.0/5.0). Path 3 replaces ONLY the slot-
+    # selection scores (not the slot-content value_proj/output_proj path)
+    # with a fresh feedforward MLP cue_slot_tagger: z_world -> slot logits.
+    # A random MLP sits off the saddle, so the existing cue_terrain_proj
+    # terrain_loss gradient flows back into it and shapes contextual
+    # selectivity. Requires sd016_enabled=True. Default False = the legacy
+    # q.k attention branch runs verbatim (bit-identical).
+    sd016_cue_slot_tagger: bool = False
+    sd016_cue_slot_tagger_hidden: int = 32       # tagger MLP hidden width
+    sd016_cue_slot_tagger_temperature: float = 1.0  # softmax temp on tagger logits
+
     # MECH-216: E1 predictive wanting (schema readout head).
     # When enabled, a Linear(hidden_dim, 1)+Sigmoid head reads E1's LSTM hidden state
     # and produces a scalar schema_salience in [0, 1]. High salience at positions where
@@ -2764,6 +2782,12 @@ class REEConfig:
         # (agent.e1.compute_attention_entropy_loss(z_world)). Default False =
         # bit-identical to legacy fixed sqrt(memory_dim) scale.
         sd016_temperature_learnable: bool = False,
+        # SD-016 Path 3 (2026-06-05): feedforward cue->slot tagger replacing the
+        # saddle-stuck q.k attention slot-selection in extract_cue_context.
+        # Requires sd016_enabled=True. Default False = legacy attention branch.
+        sd016_cue_slot_tagger: bool = False,
+        sd016_cue_slot_tagger_hidden: int = 32,
+        sd016_cue_slot_tagger_temperature: float = 1.0,
         # ARC-030 / MECH-111 / MECH-112 / MECH-113
         benefit_eval_enabled: bool = False,
         benefit_weight: float = 1.0,
@@ -3331,6 +3355,9 @@ class REEConfig:
         config.e1.sd016_enabled = sd016_enabled
         config.e1.sd016_writepath_mode = sd016_writepath_mode
         config.e1.sd016_temperature_learnable = sd016_temperature_learnable
+        config.e1.sd016_cue_slot_tagger = sd016_cue_slot_tagger
+        config.e1.sd016_cue_slot_tagger_hidden = sd016_cue_slot_tagger_hidden
+        config.e1.sd016_cue_slot_tagger_temperature = sd016_cue_slot_tagger_temperature
         config.e1.action_object_dim = action_object_dim
         config.e1.schema_wanting_enabled = schema_wanting_enabled
 

@@ -213,9 +213,38 @@ class E1DeepPredictor(nn.Module):
                 )
             else:
                 self.sd016_log_temperature = None
+
+            # SD-016 Path 3 (V3-EXQ-418i follow-up): feedforward cue->slot tagger.
+            # V3-EXQ-418i established the q.k attention slot-selection is pinned
+            # at the uniform ln(num_slots) saddle ("the attention bottleneck is
+            # categorically in query selectivity"); Path 1 div-loss was exhausted
+            # across weights 1.0/2.0/5.0. The tagger replaces ONLY the slot-
+            # selection scores in extract_cue_context: z_world -> slot logits via
+            # a fresh MLP that sits off the uniform saddle, so the existing
+            # cue_terrain_proj terrain_loss gradient flows back into it and shapes
+            # contextual selectivity. The slot-content path (value_proj/output_proj)
+            # is untouched. Bit-identical when sd016_cue_slot_tagger is False.
+            self._sd016_cue_slot_tagger = bool(
+                getattr(config, 'sd016_cue_slot_tagger', False)
+            )
+            self._sd016_cue_slot_tagger_temperature = float(
+                getattr(config, 'sd016_cue_slot_tagger_temperature', 1.0)
+            )
+            if self._sd016_cue_slot_tagger:
+                tagger_hidden = int(getattr(config, 'sd016_cue_slot_tagger_hidden', 32))
+                self.cue_slot_tagger = nn.Sequential(
+                    nn.Linear(self.config.world_dim, tagger_hidden),
+                    nn.ReLU(),
+                    nn.Linear(tagger_hidden, self.context_memory.num_slots),
+                )
+            else:
+                self.cue_slot_tagger = None
         else:
             self._sd016_temperature_learnable = False
             self.sd016_log_temperature = None
+            self._sd016_cue_slot_tagger = False
+            self._sd016_cue_slot_tagger_temperature = 1.0
+            self.cue_slot_tagger = None
 
     def reset_hidden_state(self) -> None:
         """Reset hidden state for a new episode."""
@@ -327,17 +356,34 @@ class E1DeepPredictor(nn.Module):
         batch_size = z_world.shape[0]
         memory_dim = self.context_memory.memory_dim
 
-        # z_world-only attention over ContextMemory slots.
-        # world_query_proj maps z_world -> memory_dim (bypasses query_proj).
-        q = self.world_query_proj(z_world).unsqueeze(1)  # [batch, 1, memory_dim]
-
+        # z_world-only retrieval over ContextMemory slots. The slot-CONTENT path
+        # (value_proj of the slots) is shared by both selection branches; only the
+        # slot-SELECTION weights differ.
         memory = self.context_memory.memory  # [num_slots, memory_dim]
-        k = self.context_memory.key_proj(memory).unsqueeze(0).expand(batch_size, -1, -1)
         v = self.context_memory.value_proj(memory).unsqueeze(0).expand(batch_size, -1, -1)
 
-        scale = self._sd016_attention_scale(memory_dim)
-        scores = torch.bmm(q, k.transpose(1, 2)) / scale                   # [batch, 1, num_slots]
-        weights = F.softmax(scores, dim=-1)                                # [batch, 1, num_slots]
+        if getattr(self, '_sd016_cue_slot_tagger', False) and self.cue_slot_tagger is not None:
+            # SD-016 Path 3 (V3-EXQ-418i follow-up): feedforward tagger replaces the
+            # saddle-stuck q.k attention. z_world -> slot logits via a fresh MLP that
+            # sits off the uniform softmax saddle, so terrain_loss gradient (which
+            # trains cue_terrain_proj) flows back into it and shapes selectivity.
+            slot_logits = self.cue_slot_tagger(z_world)                    # [batch, num_slots]
+            temp = max(self._sd016_cue_slot_tagger_temperature, 1e-3)
+            weights = F.softmax(slot_logits / temp, dim=-1).unsqueeze(1)   # [batch, 1, num_slots]
+        else:
+            # Legacy path: world_query_proj maps z_world -> memory_dim (bypasses
+            # query_proj), then q.k attention over the slot keys.
+            q = self.world_query_proj(z_world).unsqueeze(1)               # [batch, 1, memory_dim]
+            k = self.context_memory.key_proj(memory).unsqueeze(0).expand(batch_size, -1, -1)
+            scale = self._sd016_attention_scale(memory_dim)
+            scores = torch.bmm(q, k.transpose(1, 2)) / scale              # [batch, 1, num_slots]
+            weights = F.softmax(scores, dim=-1)                           # [batch, 1, num_slots]
+
+        # Read-only diagnostic: cache the last slot-selection distribution so a
+        # validation experiment can measure selection entropy (the V3-EXQ-418i
+        # bottleneck metric: uniform == ln(num_slots) ~ 2.773 for 16 slots).
+        self._last_cue_slot_weights = weights.detach().squeeze(1)         # [batch, num_slots]
+
         context = torch.bmm(weights, v).squeeze(1)                         # [batch, memory_dim]
 
         cue_context = self.context_memory.output_proj(context)  # [batch, latent_dim=64]
