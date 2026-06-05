@@ -291,6 +291,23 @@ class ScaffoldedSD054OnboardingConfig:
     # cue has something to recall in the wild. Default False -> bit-identical
     # (rt = _contacted_resource_type, exactly as the pre-fix Stage-0 path).
     scaffold_stage0_bind_incentive_token: bool = False
+    # V3-EXQ-640 post-cue MEASUREMENT-ONLY instrumentation (routed by
+    # failure_autopsy_V3-EXQ-638a). When True, _eval_episode populates a
+    # post_cue_diag accumulator with windowed per-cue-fire measurements
+    # (z_goal-norm/pull delta around each cue fire, cue->action approach rate,
+    # manhattan-distance-to-resource delta, hazard-salience-interrupt count,
+    # first-gradient-improving-move latency, oscillation rate) -- the
+    # discriminator the 638a autopsy needs to tell cue-to-action AUTHORITY /
+    # displacement / gradient-following / interrupt apart, none of which 638a
+    # could measure (no post-cue action trace was logged). PURELY READ-ONLY:
+    # the agent still senses / selects / steps identically; this only reads env
+    # + goal_state state. Default False -> bit-identical (no accumulator built,
+    # the per-cue tracking block is skipped entirely).
+    scaffold_post_cue_instrumentation: bool = False
+    # Look-ahead window (steps) over which each cue fire's downstream movement is
+    # attributed (gradient-improving move / hazard interrupt / oscillation /
+    # first-improving-move latency). Only consulted when the flag above is set.
+    scaffold_post_cue_window_steps: int = 4
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +446,10 @@ class P2OnboardingMetrics:
     # SD-057 cue-recall diagnostics (2026-06-04): see _new_cue_diag(). Empty dict
     # when the bridge is off -> bit-identical readout.
     cue_diag: Dict[str, Any] = field(default_factory=dict)
+    # V3-EXQ-640 post-cue action/gradient diagnostics (2026-06-05): see
+    # _new_post_cue_diag(). Empty dict when scaffold_post_cue_instrumentation is
+    # off -> bit-identical readout.
+    post_cue_diag: Dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -580,6 +601,137 @@ def _bump_reason(diag: Optional[Dict[str, Any]], reason: str) -> None:
         return
     rc = diag["cue_nonfire_reason_counts"]
     rc[reason] = int(rc.get(reason, 0)) + 1
+
+
+def _nearest_resource_manhattan(env) -> Optional[int]:
+    """V3-EXQ-640: Manhattan distance from the agent to the nearest resource cell
+    (any type). None when the env has no resources left this episode. The scaffold
+    envs are non-toroidal (CausalGridWorldV2 default toroidal=False), so plain
+    |dx| + |dy| is the grid metric. Read-only -- the post-cue gradient diagnostic
+    uses this to ask whether the agent's moves after a cue fire reduce distance to
+    food."""
+    res = getattr(env, "resources", None)
+    if not res:
+        return None
+    ax, ay = int(getattr(env, "agent_x", 0)), int(getattr(env, "agent_y", 0))
+    best: Optional[int] = None
+    for r in res:
+        try:
+            d = abs(int(r[0]) - ax) + abs(int(r[1]) - ay)
+        except (TypeError, ValueError, IndexError):
+            continue
+        if best is None or d < best:
+            best = d
+    return best
+
+
+def _new_post_cue_diag(window_steps: int) -> Dict[str, Any]:
+    """V3-EXQ-640 per-cue-fire MEASUREMENT accumulator. The 638a autopsy settled
+    only "cue fires vs contact lifts" and could not discriminate cue-to-action
+    AUTHORITY / displacement / gradient-following / hazard-interrupt because no
+    post-cue action trace was logged. This accumulator captures, per cue fire and
+    over a short look-ahead window, the signals that route the next move (see the
+    638a-autopsy discriminator grid). Purely read-only; bit-identical when the
+    instrumentation flag is off (this dict is simply never built).
+
+    Rate/mean derivations are left to the experiment script (it owns the
+    interpretation), so this stores raw sums + counts only.
+    """
+    return {
+        "post_cue_window_steps": int(window_steps),
+        "n_steps_total": 0,                  # all P2 steps (denominator for background rates)
+        "n_cue_fire_steps": 0,               # steps where a cue actually fired
+        # --- z_goal around each cue fire (the DISPLACEMENT test) ---
+        # delta = ||z_goal||_after_cue - ||z_goal||_before_cue. mean < 0 => the
+        # cue pulls z_goal toward a WEAKER token (displacement), not authority.
+        "sum_post_cue_zgoal_norm_delta": 0.0,
+        "n_post_cue_zgoal_norm_delta": 0,
+        # ||z_goal_after - z_goal_before|| -- the cue's actual pull MAGNITUDE
+        # (the SD-057 analog of cue_action_bias; nonzero => the cue moves z_goal).
+        "sum_cue_zgoal_pull_norm": 0.0,
+        # absolute ||z_goal|| read right after the cue fired -- compared ON-vs-OFF
+        # arm, a LOWER post-cue norm than the OFF wild-seeded attractor is the
+        # displacement signature.
+        "sum_zgoal_norm_at_cue_fire": 0.0,
+        "min_zgoal_norm_at_cue_fire": float("inf"),
+        "max_zgoal_norm_at_cue_fire": 0.0,
+        # SD-016 cue_action_proj bias norm (agent._cue_action_bias); usually 0 in
+        # the 638a config (SD-016 off) -- captured for completeness so a future
+        # SD-016-on arm is comparable. The SD-057 cue's authority lives in the
+        # z_goal pull above, not here.
+        "sum_cue_action_bias_norm": 0.0,
+        "n_cue_action_bias_present": 0,
+        # --- windowed post-cue MOVEMENT (the gradient-following / interrupt test) ---
+        "n_cue_windows": 0,                  # one per cue fire that opened a window
+        "n_windows_first_move_approach": 0,  # first post-cue move reduced distance (immediate authority)
+        "n_windows_with_approach_move": 0,   # >=1 gradient-improving move within the window
+        "n_windows_improved": 0,             # windows that produced any improving move (latency denom)
+        "sum_first_improving_latency": 0,    # 1-based step index of first improving move, over improved windows
+        "n_windows_with_hazard_interrupt": 0,  # a harm spike occurred within the window
+        "sum_window_oscillations": 0,        # action-direction reversals within the window
+        # --- background (cue-independent) movement rates, so post-cue rates are
+        #     interpretable against the agent's baseline foraging competence ---
+        "n_move_eval_steps": 0,              # steps where distance was computable both ends
+        "sum_move_improved_all_steps": 0,    # background approach-move count
+        "n_postcue_eval_steps": 0,           # move-eval steps that fell inside an active cue window
+        "sum_move_improved_postcue_steps": 0,  # approach moves on post-cue steps
+        "sum_zgoal_norm_all_steps": 0.0,     # mean ||z_goal|| over all steps (norm-context)
+        "n_zgoal_norm_all_steps": 0,
+    }
+
+
+def _opposite_action(env, a_idx: int, b_idx: int) -> bool:
+    """True when env action a_idx is the spatial inverse of b_idx (dx,dy negated)
+    -- a movement reversal, used for the post-cue oscillation count. Robust to a
+    missing / malformed ACTIONS table (returns False)."""
+    actions = getattr(env, "ACTIONS", None)
+    if actions is None:
+        return False
+    try:
+        ax, ay = actions[a_idx]
+        bx, by = actions[b_idx]
+    except (TypeError, ValueError, IndexError, KeyError):
+        return False
+    return int(ax) == -int(bx) and int(ay) == -int(by)
+
+
+def _read_zgoal(goal_state) -> Tuple[float, Optional[torch.Tensor]]:
+    """V3-EXQ-640: read (||z_goal||, z_goal vector clone) for the post-cue
+    displacement diagnostic. Returns (0.0, None) when no goal_state / z_goal."""
+    if goal_state is None:
+        return 0.0, None
+    try:
+        n = float(goal_state.goal_norm())
+    except TypeError:
+        try:
+            n = float(goal_state.goal_norm)
+        except Exception:
+            n = 0.0
+    except Exception:
+        n = 0.0
+    zg = getattr(goal_state, "z_goal", None)
+    vec = None
+    if zg is not None:
+        try:
+            vec = zg.detach().clone()
+        except Exception:
+            vec = None
+    return n, vec
+
+
+def _finalize_post_cue_window(diag: Dict[str, Any], w: Dict[str, Any]) -> None:
+    """V3-EXQ-640: fold a completed (or episode-end-truncated) per-cue-fire window
+    into the post_cue_diag accumulator."""
+    diag["n_cue_windows"] += 1
+    if w["first_move_approach"]:
+        diag["n_windows_first_move_approach"] += 1
+    if w["improved"]:
+        diag["n_windows_with_approach_move"] += 1
+        diag["n_windows_improved"] += 1
+        diag["sum_first_improving_latency"] += int(w["first_latency"])
+    if w["hazard"]:
+        diag["n_windows_with_hazard_interrupt"] += 1
+    diag["sum_window_oscillations"] += int(w["osc"])
 
 
 def _maybe_cue_recall(agent, env, obs_dict: Dict[str, Any], drive: float,
@@ -1286,6 +1438,12 @@ class ScaffoldedSD054OnboardingScheduler:
         total_contact_events = 0
         total_cue_recall_fires = 0
         cue_diag = _new_cue_diag()
+        # V3-EXQ-640 post-cue instrumentation accumulator (None -> bit-identical).
+        post_cue_diag = (
+            _new_post_cue_diag(self.cfg.scaffold_post_cue_window_steps)
+            if self.cfg.scaffold_post_cue_instrumentation
+            else None
+        )
         for ep in range(self.cfg.scaffold_p2_episode_budget):
             ep_metrics = self._eval_episode(
                 agent, env, device,
@@ -1293,6 +1451,7 @@ class ScaffoldedSD054OnboardingScheduler:
                 contact_threshold=contact_threshold,
                 gating_threshold=gating_threshold,
                 cue_diag=cue_diag,
+                post_cue_diag=post_cue_diag,
             )
             per_episode.append(ep_metrics)
             peak_per_ep.append(ep_metrics["z_goal_norm_peak"])
@@ -1338,6 +1497,7 @@ class ScaffoldedSD054OnboardingScheduler:
             num_contact_events=total_contact_events,
             n_cue_recall_fires=total_cue_recall_fires,
             cue_diag=dict(cue_diag),
+            post_cue_diag=(dict(post_cue_diag) if post_cue_diag is not None else {}),
         )
         return self._p2_metrics
 
@@ -1553,11 +1713,19 @@ class ScaffoldedSD054OnboardingScheduler:
         contact_threshold: float = 1e-6,
         gating_threshold: Optional[float] = None,
         cue_diag: Optional[Dict[str, Any]] = None,
+        post_cue_diag: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         One eval episode: policy frozen (no optimizer steps), env at target
         config. Measures the P2 acceptance metrics per the substrate-design
         memo Acceptance section.
+
+        post_cue_diag (V3-EXQ-640): when a _new_post_cue_diag() accumulator is
+        supplied, per-cue-fire windowed measurements are recorded (z_goal-norm/
+        pull delta around each cue, cue->action approach rate, manhattan-distance
+        gradient, hazard-interrupt count, first-improving-move latency, oscillation
+        rate). PURELY READ-ONLY -- it never alters sensing / selection / stepping.
+        None (default) -> the instrumentation block is skipped, bit-identical.
 
         contact_gated (2026-06-03b): when True, update_z_goal is only called on a
         seeding step; sub-seeding steps are skipped so the measured z_goal
@@ -1598,6 +1766,14 @@ class ScaffoldedSD054OnboardingScheduler:
         # dACC bias is tracked per-step by integration sites (no internal counter
         # on the module itself); fall back to per-tick checking via _last_bundle.
         dacc_bias_nonzero_local = 0
+
+        # V3-EXQ-640 post-cue instrumentation state (read-only). active_windows
+        # holds one entry per recent cue fire; each is aged by the per-step move
+        # and folded into post_cue_diag at the window horizon.
+        instr = post_cue_diag is not None
+        pc_window = max(1, int(self.cfg.scaffold_post_cue_window_steps))
+        active_windows: List[Dict[str, Any]] = []
+        prev_move_idx: Optional[int] = None
 
         for step in range(self.cfg.scaffold_steps_per_episode):
             obs_body = obs_dict["body_state"].to(device)
@@ -1640,8 +1816,55 @@ class ScaffoldedSD054OnboardingScheduler:
                             pass
 
             action_idx = int(action.argmax(dim=-1).item())
+            # V3-EXQ-640: nearest-resource distance BEFORE the move (read-only).
+            dist_before = _nearest_resource_manhattan(env) if instr else None
             _, _harm_signal, done, _, obs_dict = env.step(action_idx)
             ep_len = step + 1
+
+            # V3-EXQ-640 post-cue movement attribution: age every open cue window
+            # with THIS step's move (whether it reduced distance to food, whether a
+            # harm spike landed, whether the move reversed direction), then retire
+            # windows that reached the look-ahead horizon. Cue windows opened LATER
+            # this step (in the cue block below) are first aged next step, so the
+            # firing step's own move is never miscounted as a post-cue move.
+            if instr:
+                dist_after = _nearest_resource_manhattan(env)
+                move_eval = dist_before is not None and dist_after is not None
+                move_improved = move_eval and dist_after < dist_before
+                hazard_spike = abs(float(_harm_signal)) > 1e-6
+                reversal = (
+                    prev_move_idx is not None
+                    and _opposite_action(env, action_idx, prev_move_idx)
+                )
+                post_cue_diag["n_steps_total"] += 1
+                if move_eval:
+                    post_cue_diag["n_move_eval_steps"] += 1
+                    if move_improved:
+                        post_cue_diag["sum_move_improved_all_steps"] += 1
+                if active_windows:
+                    if move_eval:
+                        post_cue_diag["n_postcue_eval_steps"] += 1
+                        if move_improved:
+                            post_cue_diag["sum_move_improved_postcue_steps"] += 1
+                    for w in active_windows:
+                        w["age"] += 1
+                        if move_improved and not w["improved"]:
+                            w["improved"] = True
+                            w["first_latency"] = w["age"]
+                            if w["age"] == 1:
+                                w["first_move_approach"] = True
+                        if hazard_spike:
+                            w["hazard"] = True
+                        if reversal:
+                            w["osc"] += 1
+                    survivors: List[Dict[str, Any]] = []
+                    for w in active_windows:
+                        if w["age"] >= pc_window:
+                            _finalize_post_cue_window(post_cue_diag, w)
+                        else:
+                            survivors.append(w)
+                    active_windows = survivors
+                prev_move_idx = action_idx
 
             # P2 measurement on the trained goal pipeline: seed z_goal from the
             # post-step body-state and re-read the peak (mirrors the reference
@@ -1705,15 +1928,66 @@ class ScaffoldedSD054OnboardingScheduler:
                             z_goal_norm_at_contact_peak = cur
 
             # SD-057 L6: cue-recall on the perceived resource each P2 step.
-            n_cue_recall_fires += _maybe_cue_recall(
+            # V3-EXQ-640: read z_goal immediately before/after the cue so the cue's
+            # OWN pull on z_goal is isolated (the displacement test).
+            gn_before, zg_before = _read_zgoal(goal_state) if instr else (0.0, None)
+            n_cue = _maybe_cue_recall(
                 agent, env, obs_dict, drive, self.cfg, diag=cue_diag
             )
+            n_cue_recall_fires += n_cue
+            if instr:
+                gn_after, zg_after = _read_zgoal(goal_state)
+                post_cue_diag["sum_zgoal_norm_all_steps"] += gn_after
+                post_cue_diag["n_zgoal_norm_all_steps"] += 1
+                if n_cue:
+                    post_cue_diag["n_cue_fire_steps"] += 1
+                    post_cue_diag["sum_post_cue_zgoal_norm_delta"] += (
+                        gn_after - gn_before
+                    )
+                    post_cue_diag["n_post_cue_zgoal_norm_delta"] += 1
+                    post_cue_diag["sum_zgoal_norm_at_cue_fire"] += gn_after
+                    post_cue_diag["min_zgoal_norm_at_cue_fire"] = min(
+                        post_cue_diag["min_zgoal_norm_at_cue_fire"], gn_after
+                    )
+                    post_cue_diag["max_zgoal_norm_at_cue_fire"] = max(
+                        post_cue_diag["max_zgoal_norm_at_cue_fire"], gn_after
+                    )
+                    if zg_before is not None and zg_after is not None:
+                        try:
+                            pull = float((zg_after - zg_before).norm().item())
+                        except Exception:
+                            pull = 0.0
+                        post_cue_diag["sum_cue_zgoal_pull_norm"] += pull
+                    cab = getattr(agent, "_cue_action_bias", None)
+                    if cab is not None:
+                        try:
+                            post_cue_diag["sum_cue_action_bias_norm"] += float(
+                                torch.as_tensor(cab).norm().item()
+                            )
+                            post_cue_diag["n_cue_action_bias_present"] += 1
+                        except Exception:
+                            pass
+                    # Open a fresh look-ahead window for this cue fire (aged from
+                    # next step's move onward).
+                    active_windows.append({
+                        "age": 0,
+                        "improved": False,
+                        "first_latency": 0,
+                        "first_move_approach": False,
+                        "hazard": False,
+                        "osc": 0,
+                    })
 
             if done:
                 break
 
         if bridge is not None:
             bridge_cue_fires_final = int(getattr(bridge, "_n_cue_fires", 0))
+
+        # V3-EXQ-640: fold any windows still open at episode end (truncated).
+        if instr:
+            for w in active_windows:
+                _finalize_post_cue_window(post_cue_diag, w)
 
         return {
             "episode_length": ep_len,

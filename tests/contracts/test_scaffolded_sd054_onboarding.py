@@ -1289,7 +1289,7 @@ def test_c9_p2_aggregates_cue_recall_fires_equals_cue_diag():
     calls = {"i": 0}
 
     def _fake_eval(agent, env, device, *, contact_gated, contact_threshold,
-                   gating_threshold, cue_diag=None):
+                   gating_threshold, cue_diag=None, post_cue_diag=None):
         n = per_ep_fires[calls["i"]]
         calls["i"] += 1
         if cue_diag is not None:  # lockstep with the per-episode return (real path)
@@ -1316,7 +1316,7 @@ def test_c9_p2_cue_recall_fires_zero_when_bridge_off():
     sched = ScaffoldedSD054OnboardingScheduler(cfg)
 
     def _fake_eval(agent, env, device, *, contact_gated, contact_threshold,
-                   gating_threshold, cue_diag=None):
+                   gating_threshold, cue_diag=None, post_cue_diag=None):
         # Bridge off -> _maybe_cue_recall returns 0 and never touches cue_diag.
         return {**_P2_EP_REQUIRED_KEYS, "n_cue_recall_fires": 0}
 
@@ -1338,3 +1338,125 @@ def test_c9_p1_p2_result_field_defaults_zero_on_master_off():
     p2 = sched.run_p2(None, torch.device("cpu"))
     assert p1.n_cue_recall_fires == 0
     assert p2.n_cue_recall_fires == 0
+
+
+# ---------------------------------------------------------------------------
+# C10: V3-EXQ-640 post-cue MEASUREMENT-ONLY instrumentation
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from experiments.scaffolded_sd054_onboarding import (  # noqa: E402
+    _nearest_resource_manhattan,
+    _opposite_action,
+    _new_post_cue_diag,
+    _finalize_post_cue_window,
+)
+
+
+def test_c10_post_cue_config_defaults_are_noop():
+    """The instrumentation flag defaults OFF and run_p2 then surfaces an EMPTY
+    post_cue_diag dict -> bit-identical readout for every existing consumer."""
+    cfg = ScaffoldedSD054OnboardingConfig()
+    assert cfg.scaffold_post_cue_instrumentation is False
+    assert cfg.scaffold_post_cue_window_steps == 4
+
+    cfg2 = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_p2_episode_budget=2,
+    )
+    sched = ScaffoldedSD054OnboardingScheduler(cfg2)
+
+    def _fake_eval(agent, env, device, *, contact_gated, contact_threshold,
+                   gating_threshold, cue_diag=None, post_cue_diag=None):
+        # Flag off -> run_p2 passes post_cue_diag=None; the instrumentation block
+        # in the real _eval_episode is skipped. The fake asserts that contract.
+        assert post_cue_diag is None
+        return {**_P2_EP_REQUIRED_KEYS, "n_cue_recall_fires": 0}
+
+    sched._eval_episode = _fake_eval
+    p2 = sched.run_p2(_StubAgentForP2(), torch.device("cpu"))
+    assert p2.post_cue_diag == {}
+
+
+def test_c10_post_cue_diag_passed_when_flag_on():
+    """With the flag ON, run_p2 builds a _new_post_cue_diag() accumulator, threads
+    it through every _eval_episode call, and surfaces it on P2OnboardingMetrics."""
+    cfg = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_p2_episode_budget=3,
+        scaffold_post_cue_instrumentation=True,
+        scaffold_post_cue_window_steps=5,
+    )
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+
+    def _fake_eval(agent, env, device, *, contact_gated, contact_threshold,
+                   gating_threshold, cue_diag=None, post_cue_diag=None):
+        # Real _eval_episode mutates the shared accumulator in place; mirror that.
+        assert post_cue_diag is not None
+        post_cue_diag["n_cue_fire_steps"] += 2
+        post_cue_diag["n_cue_windows"] += 2
+        return {**_P2_EP_REQUIRED_KEYS, "n_cue_recall_fires": 2}
+
+    sched._eval_episode = _fake_eval
+    p2 = sched.run_p2(_StubAgentForP2(), torch.device("cpu"))
+    assert p2.post_cue_diag["post_cue_window_steps"] == 5
+    assert p2.post_cue_diag["n_cue_fire_steps"] == 6   # 2 * 3 episodes
+    assert p2.post_cue_diag["n_cue_windows"] == 6
+
+
+def test_c10_nearest_resource_manhattan():
+    """Non-toroidal Manhattan distance to the nearest resource; None on empty."""
+    env = SimpleNamespace(agent_x=2, agent_y=2,
+                          resources=[[2, 5], [4, 4], [0, 1]])
+    # nearest: [2,5] d=3 ; [4,4] d=4 ; [0,1] d=3 -> 3
+    assert _nearest_resource_manhattan(env) == 3
+    env_empty = SimpleNamespace(agent_x=0, agent_y=0, resources=[])
+    assert _nearest_resource_manhattan(env_empty) is None
+    env_none = SimpleNamespace(agent_x=0, agent_y=0, resources=None)
+    assert _nearest_resource_manhattan(env_none) is None
+
+
+def test_c10_opposite_action():
+    """Spatial-inverse detection over a real env ACTIONS table (oscillation)."""
+    env = CausalGridWorldV2(size=8)
+    actions = env.ACTIONS
+    # find a pair of opposite actions
+    found = False
+    for i in range(len(actions)):
+        for j in range(len(actions)):
+            ax, ay = actions[i]
+            bx, by = actions[j]
+            if ax == -bx and ay == -by and (ax, ay) != (0, 0):
+                assert _opposite_action(env, i, j) is True
+                assert _opposite_action(env, i, i) is False
+                found = True
+                break
+        if found:
+            break
+    assert found, "env ACTIONS has no opposite pair (unexpected)"
+
+
+def test_c10_finalize_window_accumulates():
+    """_finalize_post_cue_window folds a window's flags into the accumulator:
+    first-move-approach, any-approach, latency (only on improved), hazard,
+    oscillation."""
+    diag = _new_post_cue_diag(window_steps=4)
+    # window A: immediate approach (latency 1), hazard, 2 reversals.
+    diag_window_a = {"age": 4, "improved": True, "first_latency": 1,
+                     "first_move_approach": True, "hazard": True, "osc": 2}
+    # window B: improving on step 3, no hazard, 0 reversals, not first-move.
+    diag_window_b = {"age": 4, "improved": True, "first_latency": 3,
+                     "first_move_approach": False, "hazard": False, "osc": 0}
+    # window C: never improved (no gradient-following), no hazard.
+    diag_window_c = {"age": 4, "improved": False, "first_latency": 0,
+                     "first_move_approach": False, "hazard": False, "osc": 1}
+    for w in (diag_window_a, diag_window_b, diag_window_c):
+        _finalize_post_cue_window(diag, w)
+    assert diag["n_cue_windows"] == 3
+    assert diag["n_windows_first_move_approach"] == 1          # only A
+    assert diag["n_windows_with_approach_move"] == 2           # A, B
+    assert diag["n_windows_improved"] == 2                     # A, B
+    assert diag["sum_first_improving_latency"] == 1 + 3        # only improved windows
+    assert diag["n_windows_with_hazard_interrupt"] == 1        # only A
+    assert diag["sum_window_oscillations"] == 2 + 0 + 1
