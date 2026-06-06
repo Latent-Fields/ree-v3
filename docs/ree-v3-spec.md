@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-05
+**Last updated:** 2026-06-06
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-04)
+## 0. Current V3 State (2026-06-06)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -142,6 +142,8 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | scaffolded_sd054_onboarding amend (SD-057 cue-recall bridge into nursery curriculum) | curriculum.scaffolded_sd054_onboarding.cue_recall_bridge -- fifth amend (2026-06-04) integrates the SD-057 L6 cue-recall + L2 bank-token-binding into scaffolded_sd054_onboarding as a candidate lever on the GAP-2 foraging-CONTACT axis (NOT survival). Hypothesis (wean-to-wild): nursery forced-feed already builds z_goal but has no path from a nursery-built goal to APPROACHING a resource the agent can SEE but has not contacted; SD-057 cue-recall is that path (Pavlovian-instrumental transfer / sign-tracking). Changes (all behind scaffold_cue_recall_bridge_enabled, default False, bit-identical OFF): (1) _build_env spreads multi_resource_heterogeneity_enabled + n_resource_types + per_axis_drive_enabled into ALL 4 phase env constructors when the bridge is on (the scaffold's envs previously did NOT enable SD-049, so they emitted no per-type tags / proximity views / per-axis drive -- the central gap); (2) _train_episode (P1) + _eval_episode (P2) pass resource_type into agent.update_z_goal so the bank binds per-object tokens (L2) AND fire _maybe_cue_recall each step (L6); n_cue_recall_fires surfaced in P2OnboardingMetrics. REQUIRES the caller to build the agent with use_incentive_token_bank=True + use_cue_recall=True + use_resource_encoder=True. 55/55 scaffold contracts (42 prior + 13 new C9) + 7/7 preflight. Honest scope: targets the CONTACT axis only; does NOT fix survival. | Implemented 2026-06-04 (ree-v3 main 5fa7be3 substrate + V3-EXQ-638 queue; REE_assembly master). V3-EXQ-638 cue ON vs OFF contact-rate ablation queued; FAILed 2026-06-04 (C1 cue fires ON = 0 across all seeds) -- root cause IncentiveTokenBank empty entering P1/P2 because Stage-0 forced feed passed rt=_contacted_resource_type (~always None, decoupled from typed contact). Routed to formation-fix amend below. |
 | scaffolded_sd054_onboarding amend (cue-recall FORMATION fix + diagnostics) | curriculum.scaffolded_sd054_onboarding.cue_recall_formation_fix -- sixth amend (2026-06-04b) routed by the V3-EXQ-638 cue-silent autopsy. Root cause (code-confirmed): IncentiveTokenBank empty entering P1/P2 because Stage-0 forced feed passed rt=_contacted_resource_type (~always None) -> bank.update never bound -> cue_recall_wanting returns 0 (no_token) -> cue_fires=0. Compounded by a bare `except: pass` in _maybe_cue_recall that made cue_fires=0 undiagnosable. Two no-op-default changes (both bit-identical OFF): (A) INSTRUMENTATION -- _maybe_cue_recall gains an optional cue_diag accumulator; every non-fire is attributed to a reason (no_token / resource_field_absent / proximity_below_threshold / bank_none / amp_zero_or_zobject_none / exception:<Type>); the `except: pass` is replaced with `exception:<Type>`; surfaced on P1OnboardingResult.cue_diag + P2OnboardingMetrics.cue_diag + Stage0NurseryResult.token_bank_size_end. (B) FORMATION FIX -- new flag scaffold_stage0_bind_incentive_token (default False); when on, Stage-0 forced feeding binds the token to the STRONGEST-PERCEIVED resource type each step (new shared helper _strongest_perceived_type factored from the cue logic so formation and recall use IDENTICAL perception). 62/62 scaffold contracts (55 prior + 7 new C9) + 7/7 preflight PASS. Smoke 2026-06-04 (bridge + bind ON, 2-ep Stage-0 + 2-ep P1): Stage-0 token_bank_size_end=2 (was 0); P1 cue fires 34x (n_token_matches=34, empty nonfire reasons) -- cue_fires=0 -> 34 purely from populating the bank. | Implemented 2026-06-04 (ree-v3 main a9ef0be); V3-EXQ-638a re-issue with scaffold_stage0_bind_incentive_token=True queued via /queue-experiment; the interoceptive need-gating layer + V3-EXQ-638b (OFF / EXTERNAL_ONLY / INTEROCEPTIVE+EXTERNAL arms) is a SEPARATE later pass pending 638a confirming the bank-empty reason dominated |
 | scaffolded_sd054_onboarding amend (n_cue_recall_fires aggregation fix) | curriculum.scaffolded_sd054_onboarding.cue_fires_aggregation_fix -- seventh amend (2026-06-04c); the clean underlying fix for the V3-EXQ-638 measurement gap surfaced while validating V3-EXQ-638a. _eval_episode RETURNS a per-episode n_cue_recall_fires and _train_episode ACCUMULATES cue fires into goal_write_diag["n_cue_recall_fires"], but run_p2 never aggregated the per-episode value onto P2OnboardingMetrics and run_p1 never surfaced a total on P1OnboardingResult -- so any consumer doing getattr(p2, "n_cue_recall_fires", 0) silently read 0 EVEN WHEN THE CUE FIRED (directly observed: V3-EXQ-638a smoke fired the cue 30x in P2 while getattr returned 0). Fix (no-op-default; bit-identical when the cue bridge is off -> 0): new aggregated field n_cue_recall_fires: int = 0 on BOTH P2OnboardingMetrics and P1OnboardingResult; run_p2 sums the per-episode ep_metrics.get("n_cue_recall_fires", 0) across episodes; run_p1 surfaces goal_write_diag.get("n_cue_recall_fires", 0). Contract: the new top-level field EQUALS cue_diag["n_cue_recall_fires"] (both count the same fires); 0 when the bridge is off. cue_diag unchanged. 65/65 scaffold contracts (62 prior + 3 new C9) + 7/7 preflight PASS. | Implemented 2026-06-04 (ree-v3 main 636128a). Pure aggregation; original V3-EXQ-638 C1 measurement bug fixed at the source (future consumers reading getattr will no longer trip on it) |
+| SD-016 Path 3 (feedforward cue->slot tagger) | e1.cue_slot_tagger -- replaces ONLY the slot-SELECTION scores in `E1DeepPredictor.extract_cue_context` (the z_world-only q.k attention that V3-EXQ-418i diagnosed as pinned at the uniform ln(num_slots) saddle); slot-CONTENT path (value_proj -> output_proj -> cue_context) + cue_action_proj (449a z_world concat retained) + cue_terrain_proj UNTOUCHED. New `cue_slot_tagger = Linear(world_dim, hidden) -> ReLU -> Linear(hidden, num_slots)` MLP; non-uniform logits from step 0 -> sits OFF the saddle so the existing terrain_loss gradient flows back into it and shapes contextual selectivity. No new supervised target invented -- better-conditioned replacement for the saddle-stuck attention; same gradient source. Read-only diagnostic `_last_cue_slot_weights` cached for validation experiments. Config (E1Config + REEConfig.from_dims; all no-op defaults): `sd016_cue_slot_tagger` (False; requires sd016_enabled=True), `sd016_cue_slot_tagger_hidden` (32), `sd016_cue_slot_tagger_temperature` (1.0). Off path bit-identical (selection entropy == ln(16) exactly). Honest scope: restores RETRIEVAL selectivity; full action_bias_div >= 0.05 behavioural propagation also depends on cue_action_proj (separate SD-055 differentiable-CEM / ARC-065 concern). MECH-094 N/A (waking E1 query). 7/7 preflight + 5/5 new contracts in tests/contracts/test_sd016_cue_slot_tagger.py PASS. | Implemented 2026-06-05 (ree-v3 main 88695ed substrate + V3-EXQ-418m validation; REE_assembly master design doc Path 3 section appended). V3-EXQ-418m substrate-readiness diagnostic (claim_ids=[]; PRIMARY acceptance = mean selection entropy < 2.5 vs the pinned ln(16)=2.773 with the tagger ON) queued via /queue-experiment. |
+| MECH-353 / MECH-354 / MECH-355 (affect-stream cluster) | claims.yaml claim registration only -- three proto-feeling streams that the 2026-06-05 affect-stream lit-pulls (relief/safety/soothing + fatigue/suffering + boundary/agency) confirmed are distinct and NOT collapsible into existing harm primitives. **MECH-353** (blocked_agency / control-failure `z_block`; V3 candidate, v3_pending; dep SD-029 + MECH-112 + MECH-342 + ARC-016 + MECH-320 + SD-011 + SD-019b): detector = SD-029 comparator on action-outcome channel, antecedent = frustrative-non-reward expected-minus-realised with NO noxious input, smallest form = integrated comparator-mismatch + external-attribution gate + capacity gate; consumers = assert (MECH-320 vigor) -> decommit (MECH-342) gated by ARC-016 -> withdraw only at capacity-collapse handoff to z_harm_a (V3-tractable). **MECH-354** (effort/fatigue stop-recover two-bound accumulator; V3 candidate, v3_pending; dep SD-012 + SD-048 + MECH-342 + ARC-078 + SD-017 + SD-011, NOT SD-011): SD-012 homeostatic side, SD-048 interoceptive host, Meyniel-2013 two-bound (hysteretic) leaky cost-evidence accumulator F += Se*effort / F -= Sr; STOP at upper bound, recover to lower; fast within-task accumulator + slow Process-S sleep-pressure variant whose recover phase is OFFLINE (SD-017); wires via MECH-342 release actuator (deficit_f OR-composed with execution-readiness deficit) + ARC-078/ARC-079 cost-side persistence gate (cost/benefit, not aversive). **MECH-355** (soothing autonomic state-gain modulator; V4-social, candidate, substrate_conditional, promote/demote suppressed; dep MECH-219 + SD-012 + SD-032e + SD-011, NOT 302/303/304/112): DECAY-ACCELERATION update rule (multiplier on MECH-219 z_harm_a recovery_rate + SD-032e drive_bias leak; onset/sensory streams untouched) + optional default-OFF/ablatable gain-reduction secondary face on SD-032e accumulation WRITE only; multiplicative-on-existing-state -> zero effect on a calm agent -> soothing != sedation. NO substrate code; NO experimental evidence yet; lit-grounded only (mirrors the MECH-302 precedent). | Registered 2026-06-05 (REE_assembly master 0a9dda6b99 claims.yaml + 7d89ffd0ba affect_primitives.md Extension Register consolidation + 9d47b3a945 blocked_agency row + 045dac6b9d MECH-303/304 reuniens/remote-recent enrichment + 7c6a1f0b55 MECH-355 design pass + ea53570ec9 MECH-354 design pass). All three stay candidate; MECH-355 substrate_conditional. Validation EXQs gated: MECH-353 has a V3 discriminative experiment proposed (smallest blocked-action env, harm + goal held constant, measure z_block rise + assert/persist distinct from withdraw, dissociation from z_harm_a under matched controllability); MECH-354 has a GATED /queue-experiment plan (cue-authority 638b/640a routes the gating multipliers, so the BUILD stays gated); MECH-355 substrate build deferred to V4-social. |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -159,6 +161,92 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-06T01:10Z nightly read.** `evidence/experiments/` flat
+  top-level holds **285 `v3_exq_*.json` manifests**. Per-machine fleet
+  `runner_status/*.json` carries the DLAPTOP-4.local card at 610
+  completed queue_ids plus Daniel-PC 28, EWIN-PC 77, ree-cloud-1..4 at
+  254 / 199 / 154 / 150, ree-worker-3 at 133. **Pending review queue
+  (regenerated 2026-06-05T14:55Z) reads 0 items.** **Currently queued
+  (`experiment_queue.json` items[]): 3 items** -- V3-EXQ-640a SD-057
+  cue-AUTHORITY GAIN SWEEP (claimed ree-cloud-2 2026-06-05T15:20Z;
+  measurement successor to V3-EXQ-640; 2-axis factorial
+  `cue_recall_gain` x `incentive_drive_kappa_weight`, 7 conditions x
+  3 seeds; gates the planned V3-EXQ-638b interoceptive need-gating
+  substrate); V3-EXQ-610f INV-074 / MECH-333 / MECH-334
+  crystallization-necessity TRUE-NEGATIVE-CONTROL retest (claimed
+  ree-cloud-1 2026-06-05T14:58Z; supersedes V3-EXQ-610e confounded
+  control; strips noise_floor + E3 score-diversity + dACC anti-recency
+  in ARM_0, phase-dependent entropy bonus 0.02 in phases 0-2 vs sweep
+  {0, 0.005, 0.02} in phase 3, ARM_4 floor-on for MECH-341/313 contrast);
+  V3-EXQ-641 coherence-ablation (claimed DLAPTOP-4.local 2026-06-05T18:59Z;
+  paired A/B selectors over identical hippocampal-rollout candidate
+  pools settling the shared binding + path-integral intakes' discriminator
+  C(tau) non-reducibility to E(tau); gap-relative coherence authority
+  + random-C control + perturbation rebinding arm). Substrate /
+  governance landings since the 2026-06-05T19:38Z spec sync:
+  (1) **SD-016 Path 3 feedforward cue->slot tagger** (ree-v3 main
+  88695ed) -- replaces ONLY the slot-SELECTION scores in
+  `E1DeepPredictor.extract_cue_context` (the saddle-stuck q.k attention
+  V3-EXQ-418i diagnosed at the uniform ln(num_slots) saddle) with a
+  fresh feedforward MLP `Linear -> ReLU -> Linear`; slot-CONTENT path +
+  cue_action_proj + cue_terrain_proj UNTOUCHED; no new supervised
+  target invented -- random MLP sits OFF the saddle so the existing
+  terrain_loss gradient flows into it from step 0. Cached
+  `_last_cue_slot_weights` read-only diagnostic + 5 new contracts in
+  tests/contracts/test_sd016_cue_slot_tagger.py. V3-EXQ-418m
+  substrate-readiness diagnostic (PRIMARY mean selection entropy < 2.5
+  vs pinned ln(16) ~ 2.773 with the tagger ON) queued via /queue-experiment.
+  (2) **MECH-353 / MECH-354 / MECH-355 mint** (REE_assembly master
+  0a9dda6b99 claims.yaml + 7d89ffd0ba affect_primitives consolidation +
+  9d47b3a945 blocked_agency row + 045dac6b9d MECH-303/304
+  reuniens/remote-recent enrichment + 7c6a1f0b55 MECH-355 design pass +
+  ea53570ec9 MECH-354 design pass) -- three proto-feeling-stream
+  candidates that the 2026-06-05 affect-stream lit-pulls confirmed are
+  distinct from existing harm primitives. MECH-353 z_block /
+  blocked-agency (V3 candidate, v3_pending; SD-029 comparator over
+  action-outcome channel with external-attribution + capacity gates;
+  consumers: assert MECH-320 -> decommit MECH-342 gated by ARC-016 ->
+  withdraw at capacity collapse). MECH-354 fatigue stop-recover (V3
+  candidate, v3_pending; SD-012 side, SD-048 host; Meyniel two-bound
+  accumulator wiring via MECH-342 release actuator). MECH-355 soothing
+  autonomic state-gain modulator (V4-social, substrate_conditional;
+  DECAY-ACCELERATION on MECH-219 z_harm_a recovery_rate + SD-032e
+  drive_bias leak; multiplicative-on-existing-state so soothing != sedation).
+  All three doc + claims-only (no substrate code). (3) **MECH-303 /
+  MECH-304 reuniens-thalamic-relay + remote/recent enrichment**
+  (REE_assembly master 045dac6b9d) -- amends the safety cluster with
+  the midline-thalamic relay (nucleus reuniens -> BLA) + remote-vs-recent
+  time-since-encoding dependence surfaced by the Silva 2021 lit anchor;
+  amend not new claim (option (i) -- enrichment + named candidate
+  third-sub-mechanism flag instead of minting on a single rodent
+  anchor). (4) **goal_pipeline:GAP-7 frontmatter correction**
+  (REE_assembly master f798bd1b80) -- closure-map node frontmatter
+  rewritten to reflect that L2-L3-L4 + L6-L7 substrate already landed
+  2026-06-04 as SD-057 (MECH-344..348), not an unbuilt placeholder;
+  resume_condition repointed at the real remaining work (L9
+  wanting!=liking acceptance, GAP-2-gated + in-flight 637/640a
+  validation). (5) **SD-037 axis (a) + axis (b) closure-plan
+  frontmatter** (REE_assembly master 45f70df66d) -- both SD-037
+  plan-of-record docs gain real `closure_plan:` frontmatter so the
+  Explorer Closure tab renders them as live cards (axis (a) 100%
+  concluded-negatively per V3-EXQ-620 zero-distribution; axis (b)
+  P1b blocked_pending_substrate against the behavioural-diversity
+  cluster). (6) **Thought-intake sweep cleared 0 unprocessed** (REE_assembly
+  master 6326680a24 + 56f97b5184 + d962a67c5b + 7e8d785412) -- 8
+  remaining sweep-unprocessed PARTIALs handled (4 mark-only +
+  4 forward-content intakes incl. orienting drive, therapy-bridge,
+  cross-version V4/V5 missing-bits, grammar-LLMs as V5 mining
+  scaffold); 12 incorporated-but-unmarked thoughts backfilled.
+  Bottleneck unchanged: the **ecological-evidence v3_pending lift
+  requirement** for the GAP-2 / GAP-7 / cue-authority loop -- 638a
+  validated the formation half (cue fires + bank populated) but
+  failed the C3 contact-lift, autopsy routed cue-to-action AUTHORITY
+  as the smallest next step (640 / 640a / then 638b), and V3-EXQ-640a
+  is the in-flight measurement gate. The MECH-353 / MECH-354 / MECH-355
+  cluster registration is a doc-only sweep that captures the affect
+  primitives the harm-stream substrate misses without diverting
+  compute or critical path.
 
 - **2026-06-04T01:10Z nightly read.** `evidence/experiments/` contains
   **994 v3_exq_* manifests** (recursive count incl. nested per-run dirs;
