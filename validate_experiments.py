@@ -41,6 +41,21 @@ PROTOCOL_MODULE = "experiment_protocol"
 SUBSTRATE_VERDICT_LABELS = {"substrate_ceiling", "substrate_conditional", "does_not_support"}
 SUBSTRATE_VERDICT_SUFFIXES = ("_nondiscriminative", "_unmeetable")
 
+# Same-statistic readiness heuristic (V3-EXQ-643 GAP). A readiness precondition
+# must assert the SAME statistic the load-bearing criterion routes on. The
+# recurring failure is a magnitude / mean-abs readiness check standing in for a
+# criterion that actually gates on a cross-candidate RANGE (spread / variance /
+# diversity): a uniform offset has large mean-abs but ~0 range, so the readiness
+# check passes while the criterion's precondition is unmet. These token lists
+# drive a best-effort name-scan WARN; see readiness_lint() for the known limits.
+MAGNITUDE_NAME_TOKENS = (
+    "abs_mean", "mean_abs", "max_abs", "abs_max", "_abs", "abs_",
+    "magnitude", "_norm", "norm_", "l2norm", "absmean",
+)
+RANGE_NAME_TOKENS = (
+    "range", "spread", "diversity", "variance", "_var", "var_", "entropy", "stdev", "_std", "std_",
+)
+
 
 def _has_main_block(tree: ast.Module) -> Optional[ast.If]:
     """Return the `if __name__ == "__main__":` block, or None."""
@@ -112,23 +127,73 @@ def check_script(path: Path) -> Tuple[bool, str]:
     return True, "ok"
 
 
+def _readiness_and_criterion_names(tree: ast.Module) -> Tuple[List[str], List[str]]:
+    """Best-effort extraction of (readiness_precondition_names, criterion_names)
+    from dict literals in the script.
+
+    A readiness-kind precondition dict carries name + measured + threshold (and
+    NOT load_bearing/passed); a criterion dict carries a name with load_bearing
+    or passed. Names assembled at runtime (f-strings / concatenation) are
+    invisible to this scan -- accepted limitation (same class as readiness_lint).
+    """
+    readiness_names: List[str] = []
+    criterion_names: List[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        str_keys = {}
+        for k, v in zip(node.keys, node.values):
+            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                str_keys[k.value] = v
+        name_node = str_keys.get("name")
+        if not (isinstance(name_node, ast.Constant) and isinstance(name_node.value, str)):
+            continue
+        name = name_node.value
+        is_criterion = ("load_bearing" in str_keys) or ("passed" in str_keys)
+        is_readiness = ("measured" in str_keys) and ("threshold" in str_keys)
+        if is_criterion:
+            criterion_names.append(name)
+        elif is_readiness:
+            readiness_names.append(name)
+    return readiness_names, criterion_names
+
+
+def _name_has(name: str, tokens: Sequence[str]) -> bool:
+    n = name.lower()
+    return any(t in n for t in tokens)
+
+
 def readiness_lint(path: Path) -> Optional[str]:
     """WARN-only readiness-gate lint. Return a warning string, or None.
 
     For a `diagnostic` / `baseline` script whose interpretation grid routes to a
     SUBSTRATE_VERDICT_LABELS label (or a `*_nondiscriminative` / `*_unmeetable`
-    suffix), WARN if it declares no readiness-kind precondition (a numeric
-    `measured`+`threshold` pair) and/or no `load_bearing` criterion -- the
-    trivial-prediction signature the author cannot see (V3-EXQ-642/264/620) and
-    the V3-EXQ-621a aggregation-vacuity pattern, respectively.
+    suffix), it raises up to two WARNs:
+
+    (1) MISSING-STRUCTURE: no readiness-kind precondition (a numeric
+        `measured`+`threshold` pair) and/or no `load_bearing` criterion -- the
+        trivial-prediction signature the author cannot see (V3-EXQ-642/264/620)
+        and the V3-EXQ-621a aggregation-vacuity pattern, respectively.
+
+    (2) SAME-STATISTIC MISMATCH (V3-EXQ-643 GAP): a readiness precondition is
+        named like a MAGNITUDE (abs / mean_abs / max_abs / norm / magnitude)
+        while a criterion name or a routed-metric string references a RANGE /
+        spread / variance / diversity. A magnitude (e.g. mean-abs) can be large
+        while the cross-candidate range is ~0 (a uniform offset), so a
+        magnitude readiness check can PASS while a range-gated criterion's
+        precondition is unmet -- the readiness `measured` must assert the SAME
+        statistic the load-bearing criterion routes on.
 
     Implementation is the lightest viable static check: a string/AST scan over the
-    script's literals. It does NOT statically interpret the interpretation-grid
-    control flow, so it has known limitations -- it can MISS a verdict label
-    assembled at runtime (f-string / concatenation) and can OVER-FIRE if a verdict
-    label or the keys appear only in a comment/docstring string. WARN-only by
-    design (proposal Q3 warn-then-error); never affects the exit code. Harden to
-    ERROR after a cycle of real post-convention diagnostics exists.
+    script's literals + dict-literal name fields. It does NOT statically interpret
+    the interpretation-grid control flow, so it has known limitations -- it can
+    MISS a verdict label or a metric name assembled at runtime (f-string /
+    concatenation), can MISS a magnitude readiness whose name carries no
+    magnitude token, and can OVER-FIRE if a label/key/metric appears only in a
+    comment/docstring or if an unrelated magnitude readiness coexists with an
+    unrelated range metric. WARN-only by design (proposal Q3 warn-then-error);
+    never affects the exit code. Harden to ERROR after a cycle of real
+    post-convention diagnostics exists.
     """
     try:
         src = path.read_text(encoding="utf-8")
@@ -165,18 +230,44 @@ def readiness_lint(path: Path) -> Optional[str]:
     if not routes_to_verdict:
         return None
 
+    issues: List[str] = []
+
+    # WARN (1): missing readiness precondition and/or load_bearing criterion.
     has_readiness = "measured" in strings and "threshold" in strings
     has_load_bearing = "load_bearing" in strings
-    if has_readiness and has_load_bearing:
-        return None
+    if not (has_readiness and has_load_bearing):
+        missing = []
+        if not has_readiness:
+            missing.append("no readiness-kind precondition (numeric measured+threshold)")
+        if not has_load_bearing:
+            missing.append("no criterion tagged load_bearing")
+        issues.append("routes to a substrate-verdict label but " + " AND ".join(missing)
+                      + " -- add a P0 readiness-assert")
 
-    missing = []
-    if not has_readiness:
-        missing.append("no readiness-kind precondition (numeric measured+threshold)")
-    if not has_load_bearing:
-        missing.append("no criterion tagged load_bearing")
-    return ("routes to a substrate-verdict label but " + " AND ".join(missing)
-            + " -- add a P0 readiness-assert (see /queue-experiment "
+    # WARN (2): same-statistic mismatch (V3-EXQ-643). A readiness precondition
+    # named like a magnitude alongside a criterion / routed metric that
+    # references a range/spread/variance/diversity. Best-effort name-scan;
+    # see this function's docstring for the over/under-fire limits.
+    readiness_names, criterion_names = _readiness_and_criterion_names(tree)
+    magnitude_readiness = sorted({n for n in readiness_names if _name_has(n, MAGNITUDE_NAME_TOKENS)})
+    if magnitude_readiness:
+        range_in_criteria = sorted({n for n in criterion_names if _name_has(n, RANGE_NAME_TOKENS)})
+        range_in_strings = any(_name_has(s, RANGE_NAME_TOKENS) for s in strings)
+        if range_in_criteria or range_in_strings:
+            where = ("criterion name(s) " + ", ".join(range_in_criteria)
+                     if range_in_criteria else "a routed-metric string")
+            issues.append(
+                "possible same-statistic mismatch (V3-EXQ-643): readiness "
+                "precondition(s) " + ", ".join(magnitude_readiness)
+                + " look like a MAGNITUDE while " + where + " references a "
+                "RANGE/spread/variance/diversity -- the readiness `measured` "
+                "must assert the SAME statistic the load-bearing criterion "
+                "routes on (assert a range/spread, not a mean-abs/norm)")
+
+    if not issues:
+        return None
+    return (" ; ".join(issues)
+            + " (see /queue-experiment P0 readiness-assert + "
             + "proposal_trivial_prediction_readiness_gate_2026-06-06)")
 
 
