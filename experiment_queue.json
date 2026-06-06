@@ -49,6 +49,24 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-643b",
+      "title": "Corrected-C2 modulatory-authority re-validation (reuse-preserving): REUSE the V3-EXQ-646 ARM_A OFF baseline by explicit cite (config UNCHANGED -> byte-reusable on cloud-4) + run ARM_B/ARM_C fresh via 643a's verbatim _run_seed_arm; ONLY the evaluator differs. Replaces the confounded ON-minus-OFF rank-change C2 with a within-ON-arm C2a (authority-path carves committed selection: active AND bias_changed_selection_frac>floor on >=2/3 seeds) + C2b dose-response-on-flips (informative). Drops 'sweep gain higher'. Corrects the C2 design shared by V3-EXQ-643a/647.",
+      "script": "experiments/v3_exq_643b_modulatory_authority_corrected_c2.py",
+      "priority": 310,
+      "machine_affinity": "ree-cloud-4",
+      "estimated_minutes": 300,
+      "supersedes": "V3-EXQ-647",
+      "note": "Routed from failure_autopsy_V3-EXQ-647_2026-06-06 (section 7.1; user-confirmed verdict 'as stated' + routing 'reuse-preserving now, clean later'). Reuse-preserving by construction: ARM_A config is identical to 643a/646 so the latest v3_exq_646_*_v3.json ARM_A cells are byte-reusable on cloud-4 (explicit cite, same path as 647); ARM_B/ARM_C run fresh via 643a's OWN _run_seed_arm (byte-identical ON-arm computation -- only the evaluator changed, no ree_core edit). Corrected C2: C2a (LOAD-BEARING) = within-ON-arm authority-path selection-flip (authority active AND bias_changed_selection_frac > 0.10 on >=2 seeds per ON arm; authority-attributable because the gate fires on ~0.97 of ON ticks); C2b (INFORMATIVE) = dose-response on flips (C flip-rate - B flip-rate > 0.05). overall_pass = readiness AND C0 AND C1 AND C2a; legacy ON-OFF c2_* retained for provenance only. HONEST SCOPE: C2a establishes the modulatory-authority PATH carves selection; it does NOT isolate the gap-relative RESCALING vs the native modulatory channels -- that needs a per-tick argmin(raw+scale*mod) vs argmin(raw+mod) selector diagnostic that would change substrate_hash and break 646 reuse, so it is the DEFERRED clean-later pass (read-only ree_core diagnostic + fresh OFF mint). A corrected-C2 PASS is the signal governance MAY use to revisit the modulatory-bias-selection-authority substrate_queue readiness gate; this run does not write it. Cross-class verdict comparison: Mac full V3-EXQ-643a. validate_experiments OK (0 readiness-warnings); dry-run PASS end-to-end (reused real 646 ARM_A seed42 + fresh B/C at dry scale + corrected evaluator + emit). Do NOT start the runner.",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 3,
+      "episodes_per_run": 80,
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_643b_modulatory_authority_corrected_c2",
+      "reuse_baseline_from": "v3_exq_646_mint_modulatory_authority_off_baseline",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-644",
       "title": "arm-reuse Phase-0 MINT of the V3-EXQ-610 OFF/baseline arm (INV-074 crystallization necessity; ARM_0_stripped_control) on ree-cloud-2. OFF arm x 3 seeds, built from the canonical baseline module; records per-cell arm_fingerprint. Sibling to V3-EXQ-645 (ree-cloud-3) for the cross-instance determinism check.",
       "script": "experiments/v3_exq_610_inv074_crystallization_baseline_mint.py",
@@ -87,24 +105,6 @@
       "experiment_purpose": "baseline",
       "experiment_type": "v3_exq_610_inv074_crystallization_baseline_mint",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-643b",
-      "title": "Corrected-C2 modulatory-authority re-validation (reuse-preserving): REUSE the V3-EXQ-646 ARM_A OFF baseline by explicit cite (config UNCHANGED -> byte-reusable on cloud-4) + run ARM_B/ARM_C fresh via 643a's verbatim _run_seed_arm; ONLY the evaluator differs. Replaces the confounded ON-minus-OFF rank-change C2 with a within-ON-arm C2a (authority-path carves committed selection: active AND bias_changed_selection_frac>floor on >=2/3 seeds) + C2b dose-response-on-flips (informative). Drops 'sweep gain higher'. Corrects the C2 design shared by V3-EXQ-643a/647.",
-      "script": "experiments/v3_exq_643b_modulatory_authority_corrected_c2.py",
-      "experiment_type": "v3_exq_643b_modulatory_authority_corrected_c2",
-      "priority": 310,
-      "machine_affinity": "ree-cloud-4",
-      "estimated_minutes": 300,
-      "episodes_per_run": 80,
-      "seeds": 3,
-      "conditions": 3,
-      "status": "pending",
-      "claim_ids": [],
-      "experiment_purpose": "diagnostic",
-      "supersedes": "V3-EXQ-647",
-      "reuse_baseline_from": "v3_exq_646_mint_modulatory_authority_off_baseline",
-      "note": "Routed from failure_autopsy_V3-EXQ-647_2026-06-06 (section 7.1; user-confirmed verdict 'as stated' + routing 'reuse-preserving now, clean later'). Reuse-preserving by construction: ARM_A config is identical to 643a/646 so the latest v3_exq_646_*_v3.json ARM_A cells are byte-reusable on cloud-4 (explicit cite, same path as 647); ARM_B/ARM_C run fresh via 643a's OWN _run_seed_arm (byte-identical ON-arm computation -- only the evaluator changed, no ree_core edit). Corrected C2: C2a (LOAD-BEARING) = within-ON-arm authority-path selection-flip (authority active AND bias_changed_selection_frac > 0.10 on >=2 seeds per ON arm; authority-attributable because the gate fires on ~0.97 of ON ticks); C2b (INFORMATIVE) = dose-response on flips (C flip-rate - B flip-rate > 0.05). overall_pass = readiness AND C0 AND C1 AND C2a; legacy ON-OFF c2_* retained for provenance only. HONEST SCOPE: C2a establishes the modulatory-authority PATH carves selection; it does NOT isolate the gap-relative RESCALING vs the native modulatory channels -- that needs a per-tick argmin(raw+scale*mod) vs argmin(raw+mod) selector diagnostic that would change substrate_hash and break 646 reuse, so it is the DEFERRED clean-later pass (read-only ree_core diagnostic + fresh OFF mint). A corrected-C2 PASS is the signal governance MAY use to revisit the modulatory-bias-selection-authority substrate_queue readiness gate; this run does not write it. Cross-class verdict comparison: Mac full V3-EXQ-643a. validate_experiments OK (0 readiness-warnings); dry-run PASS end-to-end (reused real 646 ARM_A seed42 + fresh B/C at dry scale + corrected evaluator + emit). Do NOT start the runner."
     }
   ]
 }
