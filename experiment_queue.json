@@ -96,7 +96,11 @@
       "machine_affinity": "ree-cloud-4",
       "estimated_minutes": 240,
       "note": "Arm-reuse pre-minting (plan 7b). Runs ONLY the V3-EXQ-643 OFF/baseline arm (ARM_A authority_off_baseline: use_modulatory_selection_authority=False, gate inert) built from experiments/_lib/baselines/exq643_modulatory_authority_baseline.py -- the content-hashed contract a future 643b/643c must build its OFF arm from. The canonical module reproduces 643a's ARM_A byte-for-byte (verified: ENV_KWARGS identical, resolved REEConfig identical, run-loop + SD-056 helpers identical; reset_all_rng is a strict superset of 643a's torch+numpy seed that leaves the OFF draw unchanged because the OFF loop never draws from python-global-random or the harness _action_random). 643 is a CLOUD lineage now (plan 7b constraint 1; 643a ran on DLAPTOP-4/darwin-arm64, a different machine-class a cloud 643b could not reuse) so cloud (linux-x86_64) is the reuse machine-class. machine_affinity ree-cloud-4: cloud-2/3 are busy with the 610 baselines (V3-EXQ-644/645) and cloud-4 frees up as 643a finishes -- and the 643a successor (643b, if needed) will also run on cloud-4, co-locating the 643 baseline + 643b on one box. cloud-4 (ree-worker-4) is scaler mode 'surge' so it will NOT auto-start for a single pending item -- it was woken manually for this run (hcloud poweron ree-worker-4 2026-06-06); once 646 is claimed the scaler held-by-self veto keeps it up. PHASE 0 EMIT-ONLY: records arm_results[i].arm_fingerprint via reset_all_rng + compute_arm_fingerprint per cell; consults NO cache, skips/reuses NOTHING (a stale pre-mint is simply refused and the arm re-runs, so it can never corrupt a result). experiment_purpose=baseline (excluded from governance scoring); claim_ids=[] (single OFF arm cannot test the modulatory-authority claim). LOW priority (10) so real science (315/320) preempts.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-06T16:21:06Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 80,
