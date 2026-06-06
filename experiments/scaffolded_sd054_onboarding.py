@@ -309,6 +309,43 @@ class ScaffoldedSD054OnboardingConfig:
     # first-improving-move latency). Only consulted when the flag above is set.
     scaffold_post_cue_window_steps: int = 4
 
+    # -------- Foraging-competence residual (GAP-2 reach-contact, 2026-06-05) ----
+    # The V3-EXQ-634c review (substrate_queue scaffolded_sd054_onboarding) confirmed
+    # the z_goal SEEDING half is validated (seeded arms g3_zgoal ~0.44) but the
+    # wean-to-wild foraging-competence / reach-contact half is the residual GAP-2
+    # ceiling (seed-42 zero-contact, P1 survival 1/3). Two no-op-default levers
+    # close it; both bit-identical OFF.
+    #
+    # (1) RECONCILE the contact-GATING decision with the GoalState SEEDING firing
+    #     threshold. The 634c amend decoupled the gating floor
+    #     (scaffold_contact_gating_benefit_threshold) from the contact-RATE readout,
+    #     but it still had to be HAND-MATCHED to the GoalState seeding floor as a
+    #     magic number -- a mismatch is exactly the 634b anti-correlation (the
+    #     scaffold counts a step as "seeded" while GoalState only decay-updated it).
+    #     When this flag is True, the gating floor is DERIVED from the agent's live
+    #     GoalConfig magnitudes each stage (see _reconciled_gating_threshold), so the
+    #     scaffold's "seeds" boolean tracks GoalState.update's actual firing decision
+    #     (effective_benefit = benefit * gain * (1 + drive_weight * drive_trace) >
+    #     benefit_threshold; the raw-benefit seeding floor is
+    #     benefit_threshold / (gain * (1 + drive_weight * drive_floor))). Genuine
+    #     wild contact that clears the GoalState floor seeds; sub-seeding whiffs are
+    #     protected -- without the experiment having to keep the two knobs in sync.
+    #     Default False -> _effective_gating_threshold falls back to the static
+    #     _gating_threshold(), bit-identical to the 634c path.
+    scaffold_auto_reconcile_gating_to_seeding: bool = False
+    #
+    # (2) GRADED SPAWN WEANING into early P1. P0 spawns the agent inside the reef
+    #     refuge band (safe); the legacy P1 abruptly moves spawn to the midline for
+    #     EVERY P1 episode, so a not-yet-foraging-competent agent is thrown to the
+    #     hazard band before it has made a single benefit contact in the wild
+    #     (603e: P1 survival 1/3). This lever keeps the reef-refuge spawn for the
+    #     first `fraction` of P1 episodes (then switches to midline), extending the
+    #     developmental safety window so the agent can reach food from safety before
+    #     facing the midline. Complements scaffold_p1_anneal_hold_fraction (which
+    #     holds the hazard/food-attraction anneal low) -- this holds the SPAWN safe.
+    #     Default 0.0 = spawn at midline for all of P1 (bit-identical to legacy).
+    scaffold_p1_reef_spawn_hold_fraction: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -386,6 +423,14 @@ class P1OnboardingResult:
     n_decay_only_updates: int = 0
     n_skipped_protected_updates: int = 0
     contact_gated: bool = False
+    # Foraging-competence residual (2026-06-05): number of P1 episodes the agent
+    # spawned in the reef refuge half under graded spawn weaning
+    # (scaffold_p1_reef_spawn_hold_fraction). 0 == legacy all-midline P1 (bit-
+    # identical). The reconciled gating floor actually used this stage (derived
+    # from the live GoalConfig when scaffold_auto_reconcile_gating_to_seeding is
+    # on; -1.0 sentinel == static-fallback path).
+    n_reef_spawn_episodes: int = 0
+    reconciled_gating_threshold: float = -1.0
     # SD-057 cue-recall FORMATION readout (2026-06-04b aggregation fix): total
     # L6 cue-recall fires across all P1 episodes, surfaced from the
     # goal_write_diag accumulator. Contract: equals cue_diag["n_cue_recall_fires"]
@@ -418,6 +463,12 @@ class P2OnboardingMetrics:
     contact_steps: int = 0
     contact_rate: float = 0.0
     hazard_food_attraction_used: float = 0.0
+    # Foraging-competence residual (2026-06-05): the reconciled gating floor used
+    # for the P2 skip/seed decision (derived from the live GoalConfig when
+    # scaffold_auto_reconcile_gating_to_seeding is on; -1.0 sentinel == static
+    # _gating_threshold fallback). Recorded so a manifest can confirm the P2 seed
+    # decision tracked the GoalState firing floor.
+    reconciled_gating_threshold: float = -1.0
     # Developmental-window diagnostics (2026-06-03b amend; default 0 when the
     # contact-gating flag is off).
     n_contact_refresh_updates: int = 0
@@ -803,11 +854,19 @@ def _maybe_cue_recall(agent, env, obs_dict: Dict[str, Any], drive: float,
         return 0
 
 
-def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float = 0.0):
+def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float = 0.0,
+               p1_spawn_in_reef_half: bool = False):
     """
     Build a CausalGridWorldV2 instance for the named phase.
 
     phase in {"stage0", "p0", "p1", "p2"}. anneal_t in [0, 1] used only for p1.
+
+    p1_spawn_in_reef_half (foraging-competence residual, 2026-06-05): when True,
+    the P1 env spawns the agent inside the reef refuge half instead of the
+    midline band -- the graded spawn-weaning lever
+    (scaffold_p1_reef_spawn_hold_fraction) extending P0's developmental safety
+    into early P1. Default False = legacy midline P1 spawn (bit-identical).
+    Ignored for non-p1 phases (stage0/p0 always reef-half; p2 always midline).
     """
     from ree_core.environment.causal_grid_world import CausalGridWorldV2
 
@@ -868,7 +927,7 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             reef_bipartite_layout=True,
             reef_bipartite_axis=cfg.scaffold_reef_bipartite_axis,
             reef_bipartite_agent_band_radius=cfg.scaffold_reef_bipartite_agent_band_radius,
-            reef_bipartite_agent_spawn_in_reef_half=False,
+            reef_bipartite_agent_spawn_in_reef_half=bool(p1_spawn_in_reef_half),
         )
     if phase == "p2":
         # P2 measurement guard: when scaffold_p2_hazard_food_attraction_guard
@@ -995,6 +1054,55 @@ class ScaffoldedSD054OnboardingScheduler:
         if g < 0.0:
             return float(self.cfg.scaffold_p2_contact_benefit_threshold)
         return g
+
+    def _reconciled_gating_threshold(self, agent) -> Optional[float]:
+        """Raw-benefit gating floor DERIVED from the agent's live GoalConfig so
+        the scaffold's seed/skip decision tracks GoalState.update's actual firing
+        (foraging-competence residual, 2026-06-05).
+
+        GoalState seeds when
+            effective_benefit = benefit * z_goal_seeding_gain
+                                * (1 + drive_weight * drive_trace) > benefit_threshold
+        (goal.py:383-388). In steady state drive_trace >= drive_floor (the SD-012
+        insatiability floor, goal.py:369), so the raw-benefit floor at which a step
+        clears the GoalState seeding gate is
+
+            benefit_seed_floor = benefit_threshold
+                                 / (z_goal_seeding_gain * (1 + drive_weight * drive_floor)).
+
+        Returns None when auto-reconcile is off, the agent has no GoalState, or
+        the denominator is degenerate -> caller falls back to the static
+        _gating_threshold(). This is the RECONCILIATION half of the residual: it
+        removes the need to hand-match scaffold_contact_gating_benefit_threshold to
+        the seeding magnitudes (a mismatch is the 634b anti-correlation).
+
+        Call AFTER _apply_goal_seeding_calibration so gc reflects the scaffold
+        calibration.
+        """
+        if not self.cfg.scaffold_auto_reconcile_gating_to_seeding:
+            return None
+        gs = getattr(agent, "goal_state", None)
+        gc = getattr(gs, "config", None) if gs is not None else None
+        if gc is None:
+            return None
+        gain = float(getattr(gc, "z_goal_seeding_gain", 1.0))
+        thr = float(getattr(gc, "benefit_threshold", 0.1))
+        dw = float(getattr(gc, "drive_weight", 0.0))
+        df = float(getattr(gc, "drive_floor", 0.0))
+        denom = gain * (1.0 + dw * df)
+        if denom <= 1e-12:
+            return None
+        return thr / denom
+
+    def _effective_gating_threshold(self, agent) -> float:
+        """The gating floor actually used this stage: the reconciled (GoalConfig-
+        derived) floor when scaffold_auto_reconcile_gating_to_seeding is on,
+        otherwise the static _gating_threshold(). Bit-identical to the 634c path
+        when auto-reconcile is off."""
+        reconciled = self._reconciled_gating_threshold(agent)
+        if reconciled is not None:
+            return float(reconciled)
+        return self._gating_threshold()
 
     def _apply_goal_seeding_calibration(self, agent) -> None:
         """Propagate the scaffold seeding-magnitude knobs onto the agent's live
@@ -1309,7 +1417,14 @@ class ScaffoldedSD054OnboardingScheduler:
             and self.cfg.scaffold_contact_gated_goal_updates
         )
         contact_threshold = float(self.cfg.scaffold_p2_contact_benefit_threshold)
-        gating_threshold = self._gating_threshold()
+        # Foraging-competence residual: derive the gating floor from the live
+        # GoalConfig when auto-reconcile is on (so the seed/skip decision tracks
+        # GoalState's actual firing); else the static 634c path.
+        gating_threshold = self._effective_gating_threshold(agent)
+        # Graded spawn weaning: keep the reef-refuge spawn for the first
+        # `reef_hold` fraction of P1 (then midline). 0.0 == legacy all-midline.
+        reef_hold = max(0.0, min(0.95, float(self.cfg.scaffold_p1_reef_spawn_hold_fraction)))
+        n_reef_spawn = 0
         goal_write_diag = _new_goal_write_diag()
         cue_diag = _new_cue_diag()
         for ep in range(n_eps):
@@ -1321,7 +1436,13 @@ class ScaffoldedSD054OnboardingScheduler:
             else:
                 anneal_t = raw_t
             _set_p1_anneal_state(agent, self.cfg, anneal_t)
-            env = _build_env(self.cfg, phase="p1", anneal_t=anneal_t)
+            # Graded spawn weaning: reef-refuge spawn while raw_t is inside the
+            # held fraction, then switch to the midline band (legacy P1).
+            spawn_in_reef = reef_hold > 0.0 and raw_t <= reef_hold
+            if spawn_in_reef:
+                n_reef_spawn += 1
+            env = _build_env(self.cfg, phase="p1", anneal_t=anneal_t,
+                             p1_spawn_in_reef_half=spawn_in_reef)
             ep_len = self._train_episode(
                 agent, env, device, e1_opt, wf_opt, wf_buf, world_dim,
                 seed_goal=True,
@@ -1372,6 +1493,8 @@ class ScaffoldedSD054OnboardingScheduler:
             n_decay_only_updates=goal_write_diag["n_decay_only"],
             n_skipped_protected_updates=goal_write_diag["n_skipped_protected"],
             contact_gated=contact_gated,
+            n_reef_spawn_episodes=n_reef_spawn,
+            reconciled_gating_threshold=float(gating_threshold),
             n_cue_recall_fires=int(goal_write_diag.get("n_cue_recall_fires", 0)),
             cue_diag=dict(cue_diag),
         )
@@ -1422,7 +1545,9 @@ class ScaffoldedSD054OnboardingScheduler:
             and self.cfg.scaffold_contact_gated_goal_updates
         )
         contact_threshold = float(self.cfg.scaffold_p2_contact_benefit_threshold)
-        gating_threshold = self._gating_threshold()
+        # Foraging-competence residual: reconciled (GoalConfig-derived) gating
+        # floor when auto-reconcile is on, else the static 634c fallback.
+        gating_threshold = self._effective_gating_threshold(agent)
 
         per_episode: List[Dict[str, Any]] = []
         peak_per_ep: List[float] = []
@@ -1489,6 +1614,7 @@ class ScaffoldedSD054OnboardingScheduler:
             contact_steps=total_contact,
             contact_rate=(float(total_contact) / float(total_steps) if total_steps else 0.0),
             hazard_food_attraction_used=float(p2_hfa_used),
+            reconciled_gating_threshold=float(gating_threshold),
             n_contact_refresh_updates=total_contact_refresh,
             n_decay_only_updates=total_decay_only,
             n_skipped_protected_updates=total_skipped_protected,
@@ -2122,6 +2248,50 @@ def evaluate_substrate_gate(
     }
 
 
+def substrate_readiness_from_results(
+    stage0_results: List[Stage0NurseryResult],
+    p1_results: List[P1OnboardingResult],
+    p2_metrics: List[P2OnboardingMetrics],
+    *,
+    z_goal_gate: float = 0.4,
+    contact_gate: float = 0.0,
+    min_fraction: float = 2.0 / 3.0,
+    use_consumption_gated_g3: bool = True,
+) -> Dict[str, Any]:
+    """Readiness check from per-seed scheduler results (foraging-competence
+    residual, 2026-06-05). The canonical readiness path: it feeds the
+    CONSUMPTION-EVENT-GATED z_goal readout (P2OnboardingMetrics.z_goal_norm_at_contact_peak,
+    632-style -- z_goal read AT a genuine seeding event) as the G3 input rather
+    than the frozen carried-trace peak (z_goal_norm_peak_max). This is the
+    "redefine the mature-test z_goal readout to consumption-event-gated" half of
+    the residual: a seed that carries an untouched Stage-0 nursery trace through a
+    zero-contact P2 (the seed-42 artifact) reads g3=0 here, so G3 cannot be passed
+    by a non-foraging seed.
+
+    Set use_consumption_gated_g3=False to fall back to the legacy frozen peak (for
+    side-by-side comparison only). Returns the evaluate_substrate_gate dict plus a
+    `g3_source` field naming which readout fed G3.
+    """
+    g3_source = (
+        "z_goal_norm_at_contact_peak" if use_consumption_gated_g3
+        else "z_goal_norm_peak_max"
+    )
+    p2_z_goal = [
+        float(getattr(m, g3_source)) for m in p2_metrics
+    ]
+    gate = evaluate_substrate_gate(
+        [float(s.z_goal_norm_peak) for s in stage0_results],
+        [bool(p.survival_gate_passed) for p in p1_results],
+        p2_z_goal,
+        [float(m.contact_rate) for m in p2_metrics],
+        z_goal_gate=z_goal_gate,
+        contact_gate=contact_gate,
+        min_fraction=min_fraction,
+    )
+    gate["g3_source"] = g3_source
+    return gate
+
+
 def classify_interpretation_branch(
     gate: Dict[str, Any],
     *,
@@ -2173,6 +2343,7 @@ __all__ = [
     "stage_plan",
     "STAGE_PLAN",
     "evaluate_substrate_gate",
+    "substrate_readiness_from_results",
     "classify_interpretation_branch",
     "GOAL_WRITE_FORCED_FEED_OPEN",
     "GOAL_WRITE_CONSOLIDATE_PROTECTED",

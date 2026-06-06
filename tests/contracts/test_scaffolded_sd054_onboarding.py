@@ -1460,3 +1460,174 @@ def test_c10_finalize_window_accumulates():
     assert diag["sum_first_improving_latency"] == 1 + 3        # only improved windows
     assert diag["n_windows_with_hazard_interrupt"] == 1        # only A
     assert diag["sum_window_oscillations"] == 2 + 0 + 1
+
+
+# ---------------------------------------------------------------------------
+# C11: foraging-competence residual (GAP-2 reach-contact, 2026-06-05).
+# (1) reconcile contact-gating with the GoalState seeding firing threshold;
+# (2) graded P1 reef-spawn weaning; (3) consumption-event-gated G3 readiness.
+# ---------------------------------------------------------------------------
+
+from experiments.scaffolded_sd054_onboarding import (  # noqa: E402
+    substrate_readiness_from_results,
+    Stage0NurseryResult,
+)
+
+
+def test_c11_config_defaults_are_noop():
+    """New foraging-competence knobs default to no-op (bit-identical OFF)."""
+    cfg = ScaffoldedSD054OnboardingConfig()
+    assert cfg.scaffold_auto_reconcile_gating_to_seeding is False
+    assert cfg.scaffold_p1_reef_spawn_hold_fraction == 0.0
+
+
+def test_c11_effective_gating_off_falls_back_to_static():
+    """auto-reconcile OFF -> _reconciled_gating_threshold None and
+    _effective_gating_threshold == the static _gating_threshold (bit-identical)."""
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_p2_contact_benefit_threshold=1e-6)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    agent = _build_goal_enabled_agent(cfg)
+    assert sched._reconciled_gating_threshold(agent) is None
+    assert sched._effective_gating_threshold(agent) == sched._gating_threshold() == 1e-6
+
+
+def test_c11_reconciled_gating_threshold_derives_from_goalconfig():
+    """auto-reconcile ON -> the gating floor is DERIVED from the live GoalConfig:
+    benefit_threshold / (gain * (1 + drive_weight * drive_floor)). A wild benefit
+    just above it clears the GoalState seeding gate; just below does not."""
+    cfg = ScaffoldedSD054OnboardingConfig(
+        scaffold_auto_reconcile_gating_to_seeding=True,
+        # Reconciled to the 634c-validated seeded-arm calibration.
+        scaffold_z_goal_seeding_gain=1.5,
+        scaffold_benefit_threshold=0.02,
+        scaffold_drive_floor=0.9,
+    )
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    agent = _build_goal_enabled_agent(cfg)
+    # The scaffold must first push its calibration onto the live GoalConfig.
+    sched._apply_goal_seeding_calibration(agent)
+    gc = agent.goal_state.config
+    derived = sched._reconciled_gating_threshold(agent)
+    expected = gc.benefit_threshold / (
+        gc.z_goal_seeding_gain * (1.0 + gc.drive_weight * gc.drive_floor)
+    )
+    assert derived == pytest.approx(expected)
+    assert sched._effective_gating_threshold(agent) == pytest.approx(expected)
+    # A benefit just above the derived floor clears the GoalState firing gate at
+    # steady-state drive (trace ~ drive_floor); just below does not.
+    def _effective(b):
+        return b * gc.z_goal_seeding_gain * (1.0 + gc.drive_weight * gc.drive_floor)
+    assert _effective(derived * 1.01) > gc.benefit_threshold
+    assert _effective(derived * 0.99) < gc.benefit_threshold
+
+
+def test_c11_reconciled_threshold_none_without_goal_state():
+    """No goal_state -> reconciled threshold None even with the flag on."""
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_auto_reconcile_gating_to_seeding=True)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+
+    class _NoGoal:
+        goal_state = None
+    assert sched._reconciled_gating_threshold(_NoGoal()) is None
+
+
+def test_c11_build_env_p1_spawn_in_reef_half_param():
+    """_build_env p1 with p1_spawn_in_reef_half=True widens spawn to the reef
+    half; default False keeps the midline band (bit-identical legacy P1)."""
+    cfg = ScaffoldedSD054OnboardingConfig()
+    reef_rows, mid_rows = [], []
+    for _ in range(40):
+        env_reef = _build_env(cfg, "p1", anneal_t=0.0, p1_spawn_in_reef_half=True)
+        env_reef.reset()
+        reef_rows.append(env_reef.agent_x)
+        env_mid = _build_env(cfg, "p1", anneal_t=0.0, p1_spawn_in_reef_half=False)
+        env_mid.reset()
+        mid_rows.append(env_mid.agent_x)
+    # Reef-half spawn produces some rows >= 8; midline default never does.
+    assert sum(1 for r in reef_rows if r >= 8) > 0
+    assert all(r in {5, 6, 7} for r in mid_rows), (
+        f"legacy P1 spawn must stay midline, got {sorted(set(mid_rows))}"
+    )
+
+
+def test_c11_reef_spawn_hold_default_all_midline():
+    """run_p1 with reef_hold=0.0 (default) spawns at midline every episode ->
+    n_reef_spawn_episodes == 0 (bit-identical to legacy P1)."""
+    import torch
+    cfg = _dw_cfg(scaffold_p1_episode_budget=4, scaffold_steps_per_episode=8)
+    agent = _build_goal_enabled_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    p1 = sched.run_p1(agent, torch.device("cpu"))
+    assert p1.n_reef_spawn_episodes == 0
+
+
+def test_c11_reef_spawn_hold_early_p1_spawns_in_reef():
+    """run_p1 with reef_hold>0 spawns in the reef half for the early held
+    fraction of P1 and at midline afterwards: 0 < n_reef_spawn < n_eps."""
+    import torch
+    n_eps = 6
+    cfg = _dw_cfg(
+        scaffold_p1_episode_budget=n_eps,
+        scaffold_steps_per_episode=6,
+        scaffold_p1_reef_spawn_hold_fraction=0.5,
+    )
+    agent = _build_goal_enabled_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    p1 = sched.run_p1(agent, torch.device("cpu"))
+    assert 0 < p1.n_reef_spawn_episodes < n_eps
+
+
+def _seed_results(stage0_peak, p1_pass, contact_rate, frozen_peak, contact_peak):
+    """Build a (Stage0, P1, P2) per-seed result triple for the readiness helper."""
+    s0 = Stage0NurseryResult(
+        n_episodes=1, mean_forced_benefit=1.0, z_goal_norm_peak=stage0_peak,
+        z_goal_formed=stage0_peak > 0.4, aborted=False,
+    )
+    p1 = P1OnboardingResult(
+        n_episodes=1, median_last_window_episode_length=100.0,
+        survival_gate_passed=p1_pass, final_hazard_food_attraction=0.7,
+        final_mech295_min_drive_to_fire=0.01,
+        final_mech307_conjunction_z_beta_threshold=0.3, aborted=False,
+    )
+    p2 = P2OnboardingMetrics(
+        n_episodes=1, z_goal_norm_peak_per_episode=[frozen_peak],
+        z_goal_norm_peak_max=frozen_peak, approach_commit_steps=0,
+        approach_commit_rate=0.0, bridge_cue_fires=0, dacc_bias_nonzero_steps=0,
+        mean_episode_length=100.0, per_episode=[], contact_rate=contact_rate,
+        z_goal_norm_at_contact_peak=contact_peak,
+    )
+    return s0, p1, p2
+
+
+def test_c11_substrate_readiness_uses_consumption_gated_g3():
+    """The seed-42 artifact: a seed carries a frozen Stage-0 trace through a
+    zero-contact P2 (frozen_peak high, contact_peak 0). The default readiness
+    helper feeds the CONSUMPTION-GATED peak -> G3 fails; the legacy frozen-peak
+    path would (wrongly) pass G3."""
+    # 3 seeds: stage0 + survival + contact all pass; frozen peak passes G3 but
+    # the consumption-gated peak is 0 on all -> g3 must fail under the default.
+    triples = [_seed_results(0.45, True, 0.2, 0.44, 0.0) for _ in range(3)]
+    stage0 = [t[0] for t in triples]
+    p1 = [t[1] for t in triples]
+    p2 = [t[2] for t in triples]
+
+    gate = substrate_readiness_from_results(stage0, p1, p2)
+    assert gate["g3_source"] == "z_goal_norm_at_contact_peak"
+    assert gate["stage0_positive_control"] and gate["g1_survival"] and gate["g2_contact"]
+    assert gate["g3_zgoal"] is False           # consumption-gated catches the artifact
+    assert gate["substrate_gate_passed"] is False
+
+    legacy = substrate_readiness_from_results(stage0, p1, p2, use_consumption_gated_g3=False)
+    assert legacy["g3_source"] == "z_goal_norm_peak_max"
+    assert legacy["g3_zgoal"] is True          # frozen peak masks the artifact
+
+
+def test_c11_substrate_readiness_full_pass_on_genuine_contact():
+    """When the consumption-gated peak is genuinely high (real foraging contact
+    seeded z_goal) on >=2/3 seeds, the readiness gate passes."""
+    triples = [_seed_results(0.45, True, 0.2, 0.44, 0.43) for _ in range(3)]
+    gate = substrate_readiness_from_results(
+        [t[0] for t in triples], [t[1] for t in triples], [t[2] for t in triples]
+    )
+    assert gate["substrate_gate_passed"] is True
+    assert gate["g3_zgoal"] is True
