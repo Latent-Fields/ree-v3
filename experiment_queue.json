@@ -32,17 +32,17 @@
       "queue_id": "V3-EXQ-643a",
       "title": "modulatory-bias-selection-authority re-validation after the float32 catastrophic-cancellation fix (e3_selector explicit modulatory accumulator, 2026-06-06) + SD-056 rollout-norm clamp harness stability. 3 arms (authority OFF / ON gain0.5 / ON gain0.8) x 3 seeds. Supersedes V3-EXQ-643.",
       "script": "experiments/v3_exq_643a_modulatory_authority_validation.py",
-      "experiment_type": "v3_exq_643a_modulatory_authority_validation",
       "priority": 315,
       "machine_affinity": "any",
       "estimated_minutes": 360,
       "supersedes": "V3-EXQ-643",
-      "claim_ids": [],
+      "note": "Routed by V3-EXQ-643 FAIL (active_frac=0.0 + scale_factor=0.0 both ON arms, 0/3 seeds). CODE-CONFIRMED root cause CORRECTS failure_autopsy_V3-EXQ-643_2026-06-06: NOT 'modulatory bias uniform across candidates' (the MECH-341 entropy bonus keys on first-action class, carries a real ~0.17 cross-candidate range) -- the binding cause is float32 CATASTROPHIC CANCELLATION: 643's SD-056 online training drove primary scores to ~1e32, and modulatory_total = scores - scores_raw annihilated the 0.17 range (below the float32 ULP ~1e25 at 1e32) -> computed EXACTLY 0.0 -> gate never fired. Fix (e3_selector.py 2026-06-06): track the modulatory contribution EXPLICITLY (small accumulated tensor); new modulatory_authority_range diagnostic. 643a re-runs the 643 design with TWO changes: (1) substrate fix landed; (2) SD-056 rollout-norm clamp (e2_rollout_output_norm_clamp_enabled=True ratio=2.0) keeps primary scores bounded -- WITHOUT this the gate fires but with scale_factor~1e27, a vacuous fire on degenerate scores. Carries the readiness gate (substrate_not_ready_requeue if unmet): P-RANGE modulatory_authority_range > floor on the positive control (SAME range statistic C1 routes on, per the 643 same-statistic GAP) AND P-BOUNDED primary scores numerically bounded. Acceptance: readiness AND C0 (curiosity non-degeneracy) AND C1 (authority_active_frac>=0.5 + scale_factor_mean>1.0 on >=2/3 seeds each ON arm, OFF arm silent; LOAD-BEARING) AND C2 (changes selection + behaviour vs ARM_A). diagnostic, claim_ids=[]. PASS unblocks the per-claim evidence retests of MECH-314/320/341 and flips substrate_queue.ready=true. Proof-of-fix probe (643 config): pre-fix active_frac=0.000/modrange=0; post-fix active_frac=1.000/modrange=0.16.",
       "status": "pending",
-      "episodes_per_run": 80,
-      "seeds": 3,
+      "claim_ids": [],
       "conditions": 3,
-      "note": "Routed by V3-EXQ-643 FAIL (active_frac=0.0 + scale_factor=0.0 both ON arms, 0/3 seeds). CODE-CONFIRMED root cause CORRECTS failure_autopsy_V3-EXQ-643_2026-06-06: NOT 'modulatory bias uniform across candidates' (the MECH-341 entropy bonus keys on first-action class, carries a real ~0.17 cross-candidate range) -- the binding cause is float32 CATASTROPHIC CANCELLATION: 643's SD-056 online training drove primary scores to ~1e32, and modulatory_total = scores - scores_raw annihilated the 0.17 range (below the float32 ULP ~1e25 at 1e32) -> computed EXACTLY 0.0 -> gate never fired. Fix (e3_selector.py 2026-06-06): track the modulatory contribution EXPLICITLY (small accumulated tensor); new modulatory_authority_range diagnostic. 643a re-runs the 643 design with TWO changes: (1) substrate fix landed; (2) SD-056 rollout-norm clamp (e2_rollout_output_norm_clamp_enabled=True ratio=2.0) keeps primary scores bounded -- WITHOUT this the gate fires but with scale_factor~1e27, a vacuous fire on degenerate scores. Carries the readiness gate (substrate_not_ready_requeue if unmet): P-RANGE modulatory_authority_range > floor on the positive control (SAME range statistic C1 routes on, per the 643 same-statistic GAP) AND P-BOUNDED primary scores numerically bounded. Acceptance: readiness AND C0 (curiosity non-degeneracy) AND C1 (authority_active_frac>=0.5 + scale_factor_mean>1.0 on >=2/3 seeds each ON arm, OFF arm silent; LOAD-BEARING) AND C2 (changes selection + behaviour vs ARM_A). diagnostic, claim_ids=[]. PASS unblocks the per-claim evidence retests of MECH-314/320/341 and flips substrate_queue.ready=true. Proof-of-fix probe (643 config): pre-fix active_frac=0.000/modrange=0; post-fix active_frac=1.000/modrange=0.16."
+      "episodes_per_run": 80,
+      "experiment_type": "v3_exq_643a_modulatory_authority_validation",
+      "seeds": 3
     }
   ]
 }
