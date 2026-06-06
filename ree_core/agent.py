@@ -32,7 +32,7 @@ Multi-rate execution:
 
 from typing import Optional, Dict, List, Any, Tuple
 from dataclasses import dataclass
-from collections import Counter
+from collections import Counter, deque
 import math
 
 import torch
@@ -793,8 +793,39 @@ class REEAgent(nn.Module):
                 curiosity_bias_scale=config.curiosity_bias_scale,
                 curiosity_lp_ema_alpha=config.curiosity_lp_ema_alpha,
                 curiosity_lp_window_k=config.curiosity_lp_window_k,
+                # MECH-314a Phase 2 (Candidate 5A): novelty-source +
+                # first-action one-hot augmentation. getattr fallbacks keep
+                # configs built before Phase 2 bit-identical.
+                novelty_source=getattr(
+                    config, "curiosity_novelty_source", "residue"
+                ),
+                use_first_action_onehot=getattr(
+                    config, "curiosity_use_first_action_onehot", False
+                ),
+                first_action_augmentation_policy=getattr(
+                    config, "curiosity_first_action_augmentation_policy", "never"
+                ),
+                min_spread_threshold=getattr(
+                    config, "curiosity_min_spread_threshold", 0.01
+                ),
+                min_spread_consecutive_ticks=getattr(
+                    config, "curiosity_min_spread_consecutive_ticks", 5
+                ),
             )
             self.curiosity = StructuredCuriosity(config=cur_cfg)
+
+        # MECH-314a Phase 2 (Candidate 5A): rolling z_world visitation buffer.
+        # Populated on waking ticks (MECH-094-gated) in sense() and consumed by
+        # StructuredCuriosity as the "visitation" novelty comparison set. Built
+        # only when curiosity is active AND the novelty source needs it, so the
+        # default "residue" path allocates nothing (bit-identical OFF).
+        self._zworld_visitation_buffer: Optional[deque] = None
+        if self.curiosity is not None and getattr(
+            config, "curiosity_novelty_source", "residue"
+        ) in ("visitation", "auto"):
+            self._zworld_visitation_buffer = deque(
+                maxlen=int(getattr(config, "curiosity_visitation_buffer_len", 256))
+            )
 
         # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias.
         # Capacity-keyed additive (or multiplicative-gain) bias on E3
@@ -1663,6 +1694,11 @@ class REEAgent(nn.Module):
         # 314a / 314b are stateless across ticks.
         if self.curiosity is not None:
             self.curiosity.reset()
+        # MECH-314a Phase 2 (Candidate 5A): clear the rolling z_world
+        # visitation buffer per-episode (fresh novelty landscape each episode,
+        # matching the StructuredCuriosity LP-buffer per-episode reset).
+        if self._zworld_visitation_buffer is not None:
+            self._zworld_visitation_buffer.clear()
         if self.tonic_vigor is not None:
             self.tonic_vigor.reset()
         if self.score_diversity is not None:
@@ -2477,6 +2513,19 @@ class REEAgent(nn.Module):
             self.hippocampal.update_per_stream_vs(
                 new_latent, goal_state=self.goal_state
             )
+
+        # MECH-314a Phase 2 (Candidate 5A): append the current waking-tick
+        # z_world to the rolling visitation buffer (the "visitation" novelty
+        # comparison set for StructuredCuriosity). MECH-094-gated: replay /
+        # DMN ticks (hypothesis_tag=True) do NOT write, so the novelty
+        # landscape reflects only genuinely-visited waking states. No-op when
+        # the buffer is None (default "residue" novelty source).
+        if self._zworld_visitation_buffer is not None:
+            if not bool(getattr(new_latent, "hypothesis_tag", False)):
+                if new_latent.z_world is not None:
+                    self._zworld_visitation_buffer.append(
+                        new_latent.z_world[0].detach().clone()
+                    )
 
         # SD-039 population layer (2026-04-27): build the AnchorGoalPayload
         # once per tick from the current waking-stream signals (z_goal from
@@ -3816,12 +3865,38 @@ class REEAgent(nn.Module):
                                 torch.zeros(self.config.latent.world_dim)
                             )
                     cur_summaries = torch.stack(_cur_list, dim=0)
+            # MECH-314a Phase 2 (Candidate 5A): build per-candidate first-action
+            # one-hots for the substrate-robustness augmentation leg. Only built
+            # when the augmentation is configured on (use_first_action_onehot +
+            # policy != "never"); otherwise None -> compute_score_bias ignores
+            # it and the path is bit-identical.
+            cur_onehots = None
+            if (
+                getattr(self.config, "curiosity_use_first_action_onehot", False)
+                and getattr(
+                    self.config,
+                    "curiosity_first_action_augmentation_policy",
+                    "never",
+                )
+                != "never"
+                and len(candidates) > 0
+            ):
+                _adim = int(candidates[0].actions.shape[-1])
+                _oh = torch.zeros(len(candidates), _adim)
+                for _i, _c in enumerate(candidates):
+                    _cls = int(
+                        _c.actions[:, 0, :].argmax(dim=-1).flatten()[0].item()
+                    )
+                    _oh[_i, _cls] = 1.0
+                cur_onehots = _oh
             with torch.no_grad():
                 cur_bias = self.curiosity.compute_score_bias(
                     candidate_world_summaries=cur_summaries.detach(),
                     residue_field=self.residue_field,
                     e3=self.e3,
                     simulation_mode=False,
+                    visitation_source=self._zworld_visitation_buffer,
+                    first_action_onehots=cur_onehots,
                 )
             if self.e3.e3_score_decomp_enabled:
                 _bdc_curiosity = cur_bias.detach().clone()

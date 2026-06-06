@@ -12,7 +12,7 @@ V3 changes vs V2:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from ree_core.goal import GoalConfig
 from ree_core.neuromodulation.serotonin import SerotoninConfig
@@ -1800,6 +1800,47 @@ class REEConfig:
     curiosity_lp_window_k: int = 5
 
     # ----------------------------------------------------------------
+    # MECH-314a Phase 2 (Candidate 5A): novelty-source selection +
+    # first-action one-hot augmentation. Architecture doc
+    # REE_assembly/docs/architecture/mech_314a_phase2_novelty_source_design.md
+    # section 6. Phase 1 sourced 314a novelty from the harm-coupled
+    # ResidueField RBF centers only (empty on harm-free episodes -> zero
+    # per-candidate spread, the V3-EXQ-571 false-positive). Phase 2 adds a
+    # rolling z_world visitation buffer as an alternate novelty source (always
+    # populated from tick 1) plus a substrate-robustness first-action one-hot
+    # augmentation that engages when the un-augmented per-candidate spread
+    # collapses (canonical case: SD-056 OFF). ALL DEFAULTS REPRODUCE PHASE 1
+    # EXACTLY (bit-identical OFF) so in-flight baselines are uncontaminated.
+    #
+    # Novelty comparison set: "residue" (Phase-1 ResidueField centers; default,
+    # bit-identical), "visitation" (rolling z_world buffer), "auto" (visitation
+    # when the buffer is non-empty, else fall back to residue).
+    curiosity_novelty_source: Literal["residue", "visitation", "auto"] = "residue"
+    # Rolling z_world visitation buffer maxlen (waking-tick z_world states;
+    # collections.deque on REEAgent). Consulted only when curiosity_novelty_source
+    # is "visitation" or "auto".
+    curiosity_visitation_buffer_len: int = 256
+    # Master switch for the first-action one-hot augmentation leg. When True
+    # (and the policy below is not "never"), per-candidate signatures are
+    # augmented with the first-action one-hot before the RBF distance so the
+    # action carries per-candidate spread by construction (ARC-062 GAP-B
+    # bypass template). Default False -> no augmentation, bit-identical.
+    curiosity_use_first_action_onehot: bool = False
+    # When to engage augmentation: "never" (default, bypass), "always"
+    # (augment every tick), "auto" (engage after the un-augmented per-candidate
+    # spread stays below curiosity_min_spread_threshold for
+    # curiosity_min_spread_consecutive_ticks; disengage when it recovers).
+    curiosity_first_action_augmentation_policy: Literal[
+        "never", "auto", "always"
+    ] = "never"
+    # Auto-policy: per-candidate spread (max-min of the un-augmented novelty
+    # vector) below which a tick counts toward the consecutive-below streak.
+    curiosity_min_spread_threshold: float = 0.01
+    # Auto-policy: consecutive below-threshold ticks required to engage the
+    # augmentation (and, symmetrically, an at-or-above tick disengages it).
+    curiosity_min_spread_consecutive_ticks: int = 5
+
+    # ----------------------------------------------------------------
     # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias. First child
     # mechanism for the non_deficit_action_drives family. Adds an additive
     # (or multiplicative-gain, falsifiable secondary) bias on E3 trajectory
@@ -2989,6 +3030,17 @@ class REEConfig:
         curiosity_bias_scale: float = 0.1,
         curiosity_lp_ema_alpha: float = 0.1,
         curiosity_lp_window_k: int = 5,
+        # MECH-314a Phase 2 (Candidate 5A): novelty-source + augmentation
+        curiosity_novelty_source: Literal[
+            "residue", "visitation", "auto"
+        ] = "residue",
+        curiosity_visitation_buffer_len: int = 256,
+        curiosity_use_first_action_onehot: bool = False,
+        curiosity_first_action_augmentation_policy: Literal[
+            "never", "auto", "always"
+        ] = "never",
+        curiosity_min_spread_threshold: float = 0.01,
+        curiosity_min_spread_consecutive_ticks: int = 5,
         # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias
         # (mesolimbic-DA-vigor / avg-reward-rate / opportunity-cost regulator)
         use_tonic_vigor: bool = False,
@@ -3649,6 +3701,17 @@ class REEConfig:
         config.curiosity_bias_scale = curiosity_bias_scale
         config.curiosity_lp_ema_alpha = curiosity_lp_ema_alpha
         config.curiosity_lp_window_k = curiosity_lp_window_k
+        # MECH-314a Phase 2 (Candidate 5A): novelty-source + augmentation
+        config.curiosity_novelty_source = curiosity_novelty_source
+        config.curiosity_visitation_buffer_len = curiosity_visitation_buffer_len
+        config.curiosity_use_first_action_onehot = curiosity_use_first_action_onehot
+        config.curiosity_first_action_augmentation_policy = (
+            curiosity_first_action_augmentation_policy
+        )
+        config.curiosity_min_spread_threshold = curiosity_min_spread_threshold
+        config.curiosity_min_spread_consecutive_ticks = (
+            curiosity_min_spread_consecutive_ticks
+        )
 
         # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias
         config.use_tonic_vigor = use_tonic_vigor
