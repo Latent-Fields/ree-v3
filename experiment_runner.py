@@ -113,6 +113,72 @@ RE_EXQ_DASHED_OUTCOME = re.compile(
 RE_SAVED_TO = re.compile(r'Result (?:pack )?written to:?\s+(.+)')
 
 
+# --- ETA calibration for heterogeneous-cost arms ---------------------------
+# A multi-arm experiment runs a grid of (seed x arm) cells, but cells do NOT
+# all cost the same: an OFF/baseline arm can finish in ~0s (reused/skipped under
+# arm-reuse, or just a cheap/dry/early-exit cell) while treatment arms take
+# minutes-to-hours. The legacy estimator (cumulative_elapsed / runs_done = mean
+# per run) collapses to ~0s remaining when the first cells are instantaneous,
+# producing a wildly-low ETA for the expensive cells still to come. The fix:
+# calibrate the remaining-run rate from REAL (non-instant) arm durations only,
+# and fall back to the static estimated_minutes estimate while no real arm has
+# been timed yet -- never extrapolate ~0 from zero-cost cells.
+_ETA_MIN_REAL_RUN_SECS = 3.0   # a completed run shorter than this is "instant"
+_ETA_REAL_RUN_WINDOW = 5       # median over the most-recent K real runs
+
+
+def _estimate_seconds_remaining(
+    *,
+    run_end_times: list[float],
+    runs_done: int,
+    total_runs: int,
+    episodes_in_run: int,
+    episodes_per_run: int,
+    elapsed: float,
+    static_secs: float,
+    pct: float,
+    min_real_run_secs: float = _ETA_MIN_REAL_RUN_SECS,
+    real_run_window: int = _ETA_REAL_RUN_WINDOW,
+) -> float:
+    """Pure ETA estimator. See _ETA_* notes above.
+
+    run_end_times holds the CUMULATIVE elapsed seconds at each run completion;
+    per-run durations are recovered as successive deltas. Behaviour:
+      - pct <= 0                 -> static estimate (no progress signal yet).
+      - real arms timed          -> median of the most-recent real-arm durations
+                                    x remaining-run count (robust to both the
+                                    instant outliers and a single slow outlier).
+      - only instant arms so far -> static estimate minus elapsed (NOT ~0).
+      - completions present but   (legacy blend of static + live, unchanged).
+        no run-end deltas
+    Extracted module-level so it is unit-testable in isolation.
+    """
+    if pct <= 0:
+        return static_secs
+    if run_end_times:
+        prev = 0.0
+        durations: list[float] = []
+        for t in run_end_times:
+            durations.append(max(0.0, t - prev))
+            prev = t
+        real = [d for d in durations if d >= min_real_run_secs]
+        remaining = max(
+            0.0,
+            total_runs - runs_done - episodes_in_run / max(episodes_per_run, 1),
+        )
+        if real:
+            recent = sorted(real[-real_run_window:])
+            per_run = recent[len(recent) // 2]   # median of recent real runs
+            return max(0.0, per_run * remaining)
+        # Every completed cell was instantaneous -> do NOT extrapolate ~0 from
+        # zero-cost cells; hold the static estimate until a real arm is timed.
+        return max(0.0, static_secs - elapsed)
+    live_total = elapsed / (pct / 100.0)
+    blend = min(pct / 20.0, 1.0)
+    total_estimated = (1.0 - blend) * static_secs + blend * live_total
+    return max(0.0, total_estimated - elapsed)
+
+
 def _result_manifest_exists(result: dict) -> bool:
     """Return True only when a PASS/FAIL result names an existing manifest."""
     manifest = result.get("output_file")
@@ -1951,16 +2017,18 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             static_secs = float(manual_est) * 60
         else:
             static_secs = estimate_minutes(item, calibration, script_timing) * 60
-        if pct <= 0:
-            return static_secs
-        if run_end_times:
-            avg_secs_per_run = run_end_times[-1] / runs_done
-            remaining = total_runs - runs_done - episodes_in_run / max(episodes_per_run, 1)
-            return max(0, avg_secs_per_run * remaining)
-        live_total = elapsed / (pct / 100)
-        blend = min(pct / 20.0, 1.0)
-        total_estimated = (1 - blend) * static_secs + blend * live_total
-        return max(0, total_estimated - elapsed)
+        # Calibrate from real (non-instant) arm durations so instantaneous cells
+        # (reused/skipped OFF arms, cheap/dry cells) cannot drag the ETA to ~0.
+        return _estimate_seconds_remaining(
+            run_end_times=run_end_times,
+            runs_done=runs_done,
+            total_runs=total_runs,
+            episodes_in_run=episodes_in_run,
+            episodes_per_run=episodes_per_run,
+            elapsed=elapsed,
+            static_secs=static_secs,
+            pct=pct,
+        )
 
     def update_status_current():
         status["current"] = {
