@@ -84,6 +84,7 @@ ITEM_OPTIONAL = [
     ("title", False, str),
     ("backlog_id", False, str),
     ("claim_id", False, str),
+    ("claim_ids", False, list),
     ("supersedes", False, str),
     ("claimed_by", False, (dict, type(None))),
     ("machine_affinity_note", False, str),
@@ -210,12 +211,24 @@ def _validate_run_axis(prefix: str, field_name: str, value, elem_type) -> list[s
     return [f"{prefix}: '{field_name}' must be int or list, got {type(value).__name__}"]
 
 
+# Non-blocking advisories collected by the most recent validate() call.
+# Kept separate from the returned error list so callers (the runner, the
+# preflight test) keep their exit-code contract -- warnings never block a
+# commit or a runner start. main() prints them; validate() resets + fills it.
+_LAST_WARNINGS: list[str] = []
+
+
 def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
     """
     Validate the queue file.  Returns a list of error strings.
     Empty list means the queue is valid.
+
+    Non-fatal advisories (e.g. an item carrying no claim tag) are appended to
+    the module-level ``_LAST_WARNINGS`` list rather than the returned errors,
+    so they surface to a human without failing the commit hook.
     """
     errors: list[str] = []
+    _LAST_WARNINGS.clear()
 
     # --- 1. Parse JSON ---
     try:
@@ -331,6 +344,25 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                 f"{prefix}: estimated_minutes must be > 0, got {est}"
             )
 
+        # claim-tag presence (WARN, non-blocking). Every queue item should declare
+        # either claim_id / a non-empty claim_ids (the claim(s) it tests) OR an
+        # explicit claim_ids: [] marking an intentional claimless diagnostic.
+        # Items declaring NEITHER evade per-claim governance trend tracking -- the
+        # 39-untagged-ERROR class flagged in insights_report.md 2026-06-06. An
+        # explicit claim_ids: [] silences this (use it for substrate-readiness /
+        # ablation runs that legitimately map to no claims.yaml id).
+        _cid = item.get("claim_id")
+        _has_claim_id = isinstance(_cid, str) and _cid.strip()
+        _cids = item.get("claim_ids")
+        _has_claim_ids = isinstance(_cids, list) and len(_cids) > 0
+        _declares_claimless = "claim_ids" in item and isinstance(_cids, list)
+        if not _has_claim_id and not _has_claim_ids and not _declares_claimless:
+            _LAST_WARNINGS.append(
+                f"{prefix}: no claim tag -- set claim_id / claim_ids to the "
+                f"claim(s) under test, or claim_ids: [] to mark an intentional "
+                f"claimless diagnostic."
+            )
+
         if "seeds" in item:
             errors.extend(_validate_run_axis(prefix, "seeds", item["seeds"], int))
         if "conditions" in item:
@@ -425,6 +457,10 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
 
 def main() -> int:
     errors = validate()
+    if _LAST_WARNINGS:
+        print(f"Queue advisories -- {len(_LAST_WARNINGS)} warning(s):", file=sys.stderr)
+        for w in _LAST_WARNINGS:
+            print(f"  WARN: {w}", file=sys.stderr)
     if errors:
         print(f"Queue validation FAILED -- {len(errors)} error(s):", file=sys.stderr)
         for e in errors:
