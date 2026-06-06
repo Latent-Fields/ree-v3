@@ -29,25 +29,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-642",
-      "title": "MECH-353 blocked-agency (z_block) discriminative diagnostic. Static landmark env (z_world tracks position; harm + goal-value held constant) repeatedly blocks an intended predicted-to-succeed action. ARM_BLOCK vs ARM_CONTROL, same trained agent. Per seed: P0 trains E2.world_forward on the one-hot discrete executed action so the SD-029 action-outcome comparator discriminates; P1a scripted-driver readout of z_block / outcome_mismatch / z_harm_a; P1b policy-driver readout of assert-vs-withdraw behaviour. Measures (a) z_block rises under block, (b) drives assert/persist distinct from withdraw, (c) DISSOCIATES from z_harm_a (zero noxious input). 2 conditions x 3 seeds. Diagnostic, claim_ids=[].",
-      "script": "experiments/v3_exq_642_blocked_agency_zblock_discriminative.py",
-      "priority": 290,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "claim_id": null,
-      "note": "Substrate-readiness for MECH-353 (z_block, ree_core/affect/blocked_agency.py, IMPLEMENTED 2026-06-06). PASS clears the MECH-353 v3_pending gate (substrate gate, not claim weighting -- experiment_purpose=diagnostic). PRE-REGISTERED ACCEPTANCE (per seed; PASS = each on >=2/3 seeds): C0 detector readiness blocked-step minus free-step outcome_mismatch >= 0.10 in ARM_BLOCK; C1 z_block rises z_block_peak(BLOCK)-z_block_peak(CONTROL) >= 0.20 AND >= 0.20 abs; C2 dissociation (z_block sep)-(z_harm_a sep) >= 0.20; C3 assert NOT withdraw action_rate(BLOCK)>=CONTROL-0.02 AND (action_rate or alt_switch_rate higher) AND z_harm_a_policy(BLOCK)<=CONTROL+0.02. GRID: PASS->validate clear v3_pending; C0 fail->substrate_ceiling (z_world comparator non-discriminative -> encoder/world_forward enrichment) NOT falsification, stays v3_pending; C1 fail->integrator tuning; C2 fail->tracks z_harm_a; C3 fail->consumer wiring. honors feedback_biology_before_formal_definitions. bears_on (NOT tagged) MECH-353/SD-029/MECH-112/MECH-320/MECH-342/ARC-016/SD-011/SD-019b. Smoke: --dry-run PASS (dry-scale FAIL expected; discrimination needs full-scale P0).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-06-06T04:47:23Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 60,
-      "experiment_type": "v3_exq_642_blocked_agency_zblock_discriminative",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-643",
       "title": "modulatory-bias-selection-authority falsification (604a-based; authority OFF / gain0.5 / gain0.8). Does the gap-relative E3.select rescaling give MECH-314 curiosity (+ the full modulatory chain) genuine, bounded authority over the committed argmin? Diagnostic (claim_ids=[]). 3 arms x 3 seeds, identical curiosity-ALL_ON + MECH-341-entropy + SD-056 config; the ONLY difference is use_modulatory_selection_authority. The outstanding 'Next' in modulatory_bias_selection_authority_design.md.",
       "script": "experiments/v3_exq_643_modulatory_authority_validation.py",
@@ -56,7 +37,11 @@
       "estimated_minutes": 150,
       "claim_id": null,
       "note": "Validation experiment for the modulatory-bias-selection-authority substrate (e3_selector.py:764-794, IMPLEMENTED 2026-06-03). experiment_purpose=diagnostic, claim_ids=[] -> not weighted in governance confidence/conflict; PASS is a SUBSTRATE gate that UNBLOCKS the per-claim evidence retests of MECH-314/MECH-320/MECH-341 + the GAP-2 scaffold-readiness run + the SD-057 cue-recall->approach-lift re-test (640a autopsy). NOT GAP-2-gated (criteria are bias telemetry + action-distribution, measurable in the standard 604a env). Addresses the 604a/624a/614d/640a drowning cluster (fixed ~0.05-0.1 modulatory biases never change an argmin whose raw_score_range is 2-5). PRE-REGISTERED ACCEPTANCE (per arm, PASS = each on >=2/3 seeds): C0 modulatory non-degeneracy ARM_B/C score_bias_abs_mean>1e-4 (else non_contributory: 'scaling zero is still zero', route to curiosity activation NOT authority falsification); C1 mechanism active ARM_A authority_active_frac~0 (flag OFF, bit-identical) AND ARM_B/C authority_active_frac>0.5 + scale_factor_mean>1.0; C2 authority real ARM_B/C bias_changed_selection_frac (selected_candidate_rank_before_bias>0) exceeds ARM_A by >0.05 AND observable action-distribution change (visited_cells/episode_length) vs ARM_A. C3 dose-response (C>B) informative. Overall PASS = C0 AND C1 AND C2. 604a STALE-KEY FIX: reads curiosity.get_state()['last_bias_max_abs'] (the real key; 604a read the nonexistent 'last_bias_abs_mean' -> structurally 0.0). Probe-verified pre-queue: ARM_A active=False/rank_before=0; ARM_B active=True/scale=48.5/rank_before=5; ARM_C rank_before=30. Smoke: --dry-run PASS end-to-end 9/9 cells (dry-scale FAIL expected at P0=2/P1=2). Substrate API identical across arms; harness reuses the 569d/604a SD-056 online-contrastive trainer.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-06-06T05:55:07Z"
+      },
       "conditions": 3,
       "episodes_per_run": 80,
       "experiment_type": "v3_exq_643_modulatory_authority_validation",
@@ -72,7 +57,11 @@
       "supersedes": "V3-EXQ-641",
       "claim_id": null,
       "note": "Routed by failure_autopsy_V3-EXQ-641_2026-06-06 (status: confirmed; user selected all three redesign levers). DIAGNOSTIC, experiment_purpose=diagnostic, claim_ids=[] -> not weighted in governance confidence/conflict. bears_on (NOT tagged): INV-002/ARC-018/MECH-061/MECH-269/MECH-270. Same scientific question as 641 (coherence non-reducibility) -> alphabetic suffix + supersedes V3-EXQ-641. Keeps the two 2026-04-23 intakes OPEN/gated (thought_intake binding + path_integral_constraints_search): this run decides them. ACCEPTANCE (per seed; PASS = D1 AND D3 AND SPEC on >=4/6 seeds): D1 frac_state_div_gated>=0.05 (two-mode-active steps); D3 |Spearman corr(E,rawC)|<0.90 (cross-stream-only read); SPEC real_C_clean.frac_state_div_gated >= shuffle_C_control.frac_state_div_gated + 0.05 (real beats a CONTRAST-MATCHED shuffle of the same coherence values). INTERPRETATION GRID: D1+D3+SPEC->register Q selection.coherence_nonreducibility + CLOSE both intakes positive + /implement-substrate wire C into E3.select; D1+D3-not-SPEC->C_changes_selection_specificity_unproven_route_followup (control now fair -> strong close signal, route /failure-autopsy); not-D1->F1 close intakes; not-D3->F2 close intakes. REBINDING sub-signal (n_rebind_under_perturb>0 on >=4/6) does NOT gate PASS -- feeds the binding intake; n_rebind still 0 -> binding axis under-instrumented, stays OPEN. Smoke: --dry-run PASS end-to-end 3/3 conditions (dry-scale FAIL/F1 expected at 1 seed). Harness-level ablation, no ree_core change; substrate API identical to 641 which ran 9/9.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-06T05:55:47Z"
+      },
       "conditions": 3,
       "episodes_per_run": 65,
       "experiment_type": "v3_exq_641a_coherence_ablation_nonreducibility",
