@@ -2032,6 +2032,66 @@ class REEConfig:
     maintenance_release_pressure_cap: float = 1.5
 
     # ----------------------------------------------------------------
+    # MECH-353: blocked-agency / control-failure affect stream (z_block).
+    # Pure-arithmetic regulator (ree_core/affect/blocked_agency.py) that
+    # integrates the SD-029 agency comparator applied to the action-outcome /
+    # z_world channel (intended effect predicted by E2.world_forward, realised
+    # effect diverges), behind an EXTERNAL-attribution gate (motor intact on
+    # the z_self channel) and a CAPACITY gate (assert while capacity-belief
+    # retained, hand off to z_harm_a as it collapses). All defaults no-op;
+    # bit-identical when use_blocked_agency=False (agent.blocked_agency is None
+    # and the new LatentState.z_block field stays None).
+    # See REE_assembly/docs/architecture/mech_353_blocked_agency_zblock.md +
+    # docs/architecture/affect_primitives.md (blocked_agency).
+    use_blocked_agency: bool = False
+    # Per-tick rise of z_block (alpha on outcome_mismatch) when an external
+    # block is detected.
+    blocked_agency_accumulation_rate: float = 0.2
+    # Per-tick decay of z_block when the action succeeds (frustration leaks).
+    blocked_agency_leak_rate: float = 0.1
+    # Minimum normalised action-outcome comparator mismatch for a tick to count
+    # as a block (below this the action produced ~its predicted effect).
+    blocked_agency_outcome_mismatch_floor: float = 0.1
+    # Minimum motor_agency (z_self efference-copy agency signal in (0,1]) for
+    # the mismatch to be attributed to an EXTERNAL constraint rather than the
+    # agent's own motor error (the attribution gate).
+    blocked_agency_attribution_motor_floor: float = 0.5
+    # Maps z_harm_a magnitude -> reduction in capacity-belief:
+    # capacity = clip(1 - w * z_harm_a_norm, 0, 1). High suffering collapses
+    # capacity-belief so the assert pole yields to the withdraw pole.
+    blocked_agency_capacity_collapse_weight: float = 1.0
+    # When True (default) z_block accumulates only while a goal is retained.
+    blocked_agency_require_goal_active: bool = True
+    # Hard clamp on the integrated z_block scalar.
+    blocked_agency_z_block_cap: float = 1.5
+    # ASSERT consumer weights (scaled by z_block_assert; REE lower-is-better).
+    blocked_agency_assert_action_weight: float = 0.1     # negative bias on action (escalate effort)
+    blocked_agency_assert_passive_weight: float = 0.1    # positive bias on no-op (penalise passivity)
+    blocked_agency_assert_alt_action_weight: float = 0.1  # positive bias on the blocked action class (alt-action search)
+    blocked_agency_assert_bias_scale: float = 0.1        # clamp on |assert bias|
+    # DECOMMIT consumer: sustained asserting block -> release pressure; the
+    # release itself is ARC-016-gated in agent.select_action.
+    blocked_agency_decommit_bound: float = 1.0
+    blocked_agency_decommit_consecutive_ticks: int = 5
+    # ARC-016 gate on the z_block-driven decommit: release the commitment only
+    # when E3 precision (confidence) is below this threshold (low confidence ->
+    # the prefrontal-analogue permits abort). 0.0 = always permit (gate off).
+    blocked_agency_decommit_arc016_precision_max: float = 0.0
+    # Minimum predicted action-EFFECT magnitude (||E2.world_forward(zw,a) - zw||)
+    # for the action-outcome comparator to fire at all. Below this the action was
+    # not predicted to produce an effect, so there is nothing to be "blocked"
+    # from (outcome_mismatch is forced to 0). This is the "intended,
+    # predicted-to-succeed action" qualifier from the verdict, and it gates out
+    # untrained-world_forward noise. The detector is delta-based:
+    # outcome_mismatch = ||predicted_delta - realised_delta|| / (||predicted_delta||+eps).
+    # NOTE: the action-outcome comparator is only DISCRIMINATIVE once
+    # E2.world_forward is trained to be action-conditional (SD-056 contrastive
+    # next-state loss); the validation experiment must train it in P0.
+    blocked_agency_predicted_effect_floor: float = 0.05
+    # Action class treated as no-op (matches MECH-279 / MECH-320 convention).
+    blocked_agency_noop_class: int = 0
+
+    # ----------------------------------------------------------------
     # V3-EXQ-563 diagnostic: forced_score_bias_per_class.
     # Hard-injects a per-action-class score bias vector, bypassing all
     # naturalistic signal generation (MECH-313/314/320). Used to verify
@@ -3092,6 +3152,27 @@ class REEConfig:
         maintenance_release_leak_rate: float = 0.1,
         maintenance_release_bound: float = 1.0,
         maintenance_release_pressure_cap: float = 1.5,
+        # MECH-353: blocked-agency / control-failure affect stream (z_block).
+        # Pure-arithmetic regulator on the SD-029 action-outcome comparator;
+        # all defaults no-op (bit-identical when use_blocked_agency=False).
+        # See ree_core/affect/blocked_agency.py.
+        use_blocked_agency: bool = False,
+        blocked_agency_accumulation_rate: float = 0.2,
+        blocked_agency_leak_rate: float = 0.1,
+        blocked_agency_outcome_mismatch_floor: float = 0.1,
+        blocked_agency_attribution_motor_floor: float = 0.5,
+        blocked_agency_capacity_collapse_weight: float = 1.0,
+        blocked_agency_require_goal_active: bool = True,
+        blocked_agency_z_block_cap: float = 1.5,
+        blocked_agency_assert_action_weight: float = 0.1,
+        blocked_agency_assert_passive_weight: float = 0.1,
+        blocked_agency_assert_alt_action_weight: float = 0.1,
+        blocked_agency_assert_bias_scale: float = 0.1,
+        blocked_agency_decommit_bound: float = 1.0,
+        blocked_agency_decommit_consecutive_ticks: int = 5,
+        blocked_agency_decommit_arc016_precision_max: float = 0.0,
+        blocked_agency_predicted_effect_floor: float = 0.05,
+        blocked_agency_noop_class: int = 0,
         # V3-EXQ-563: hard-inject per-class score bias after all naturalistic
         # signal generation. None = disabled (standard behaviour).
         forced_score_bias_per_class: Optional[List[float]] = None,
@@ -3770,6 +3851,41 @@ class REEConfig:
         config.maintenance_release_leak_rate = maintenance_release_leak_rate
         config.maintenance_release_bound = maintenance_release_bound
         config.maintenance_release_pressure_cap = maintenance_release_pressure_cap
+
+        # MECH-353: blocked-agency / control-failure affect stream (z_block).
+        config.use_blocked_agency = use_blocked_agency
+        config.blocked_agency_accumulation_rate = blocked_agency_accumulation_rate
+        config.blocked_agency_leak_rate = blocked_agency_leak_rate
+        config.blocked_agency_outcome_mismatch_floor = (
+            blocked_agency_outcome_mismatch_floor
+        )
+        config.blocked_agency_attribution_motor_floor = (
+            blocked_agency_attribution_motor_floor
+        )
+        config.blocked_agency_capacity_collapse_weight = (
+            blocked_agency_capacity_collapse_weight
+        )
+        config.blocked_agency_require_goal_active = blocked_agency_require_goal_active
+        config.blocked_agency_z_block_cap = blocked_agency_z_block_cap
+        config.blocked_agency_assert_action_weight = blocked_agency_assert_action_weight
+        config.blocked_agency_assert_passive_weight = (
+            blocked_agency_assert_passive_weight
+        )
+        config.blocked_agency_assert_alt_action_weight = (
+            blocked_agency_assert_alt_action_weight
+        )
+        config.blocked_agency_assert_bias_scale = blocked_agency_assert_bias_scale
+        config.blocked_agency_decommit_bound = blocked_agency_decommit_bound
+        config.blocked_agency_decommit_consecutive_ticks = (
+            blocked_agency_decommit_consecutive_ticks
+        )
+        config.blocked_agency_decommit_arc016_precision_max = (
+            blocked_agency_decommit_arc016_precision_max
+        )
+        config.blocked_agency_predicted_effect_floor = (
+            blocked_agency_predicted_effect_floor
+        )
+        config.blocked_agency_noop_class = blocked_agency_noop_class
 
         config.forced_score_bias_per_class = forced_score_bias_per_class
 

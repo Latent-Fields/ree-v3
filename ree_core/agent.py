@@ -108,6 +108,7 @@ from ree_core.amygdala import (
     CeAOutput,
 )
 from ree_core.comparator.tpj_comparator import TPJComparator
+from ree_core.affect.blocked_agency import BlockedAgency, BlockedAgencyConfig
 from ree_core.regulators import (
     GABAergicDecayConfig,
     GABAergicDecayRegulator,
@@ -858,6 +859,41 @@ class REEAgent(nn.Module):
                 v_t_floor=getattr(config, "tonic_vigor_v_t_floor", 0.0),
             )
             self.tonic_vigor = TonicVigor(config=tv_cfg)
+
+        # MECH-353: blocked-agency / control-failure affect stream (z_block).
+        # Pure-arithmetic regulator integrating the SD-029 agency comparator on
+        # the action-outcome / z_world channel (intended effect predicted by
+        # E2.world_forward vs realised), behind an external-attribution gate
+        # (motor intact on z_self) and a capacity gate (assert while
+        # capacity-belief retained; hand off to z_harm_a as it collapses).
+        # Bit-identical baseline when use_blocked_agency=False (the new
+        # LatentState.z_block field stays None and no consumer fires).
+        # See ree_core/affect/blocked_agency.py +
+        # REE_assembly/docs/architecture/mech_353_blocked_agency_zblock.md.
+        self.blocked_agency: Optional[BlockedAgency] = None
+        if getattr(config, "use_blocked_agency", False):
+            ba_cfg = BlockedAgencyConfig(
+                use_blocked_agency=True,
+                accumulation_rate=config.blocked_agency_accumulation_rate,
+                leak_rate=config.blocked_agency_leak_rate,
+                outcome_mismatch_floor=config.blocked_agency_outcome_mismatch_floor,
+                attribution_motor_floor=config.blocked_agency_attribution_motor_floor,
+                capacity_collapse_weight=config.blocked_agency_capacity_collapse_weight,
+                require_goal_active=config.blocked_agency_require_goal_active,
+                z_block_cap=config.blocked_agency_z_block_cap,
+                assert_action_weight=config.blocked_agency_assert_action_weight,
+                assert_passive_weight=config.blocked_agency_assert_passive_weight,
+                assert_alt_action_weight=config.blocked_agency_assert_alt_action_weight,
+                assert_bias_scale=config.blocked_agency_assert_bias_scale,
+                decommit_bound=config.blocked_agency_decommit_bound,
+                decommit_consecutive_ticks=config.blocked_agency_decommit_consecutive_ticks,
+                noop_class=config.blocked_agency_noop_class,
+            )
+            self.blocked_agency = BlockedAgency(config=ba_cfg)
+        # MECH-353 per-tick caches: previous z_world / z_self latents for the
+        # action-outcome and motor-agency comparators (None until first sense()).
+        self._ba_prev_z_world: Optional[torch.Tensor] = None
+        self._ba_prev_z_self: Optional[torch.Tensor] = None
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity. Layer-B diversity-preservation substrate triggered
@@ -1717,6 +1753,11 @@ class REEAgent(nn.Module):
         # pressure.
         if self.maintenance_release is not None:
             self.maintenance_release.reset()
+        # MECH-353: reset blocked-agency integrator + the per-tick latent caches.
+        if self.blocked_agency is not None:
+            self.blocked_agency.reset()
+        self._ba_prev_z_world = None
+        self._ba_prev_z_self = None
 
         # MECH-319: reset simulation-mode rule-gate diagnostic counters on
         # episode boundary. The gate has no persistent state across ticks
@@ -1932,6 +1973,167 @@ class REEAgent(nn.Module):
             self._tpj_last_is_self_caused = is_self_caused.detach().clone()
         self._tpj_predicted_z_self = None
 
+    def _update_blocked_agency(self, new_latent: LatentState) -> None:
+        """MECH-353: resolve the blocked-agency / control-failure readout.
+
+        Applies the SD-029 agency comparator to the ACTION-OUTCOME / z_world
+        channel (outcome_mismatch = ||E2.world_forward(z_world_prev, a) -
+        z_world_now|| normalised) and the z_self channel (motor_agency =
+        1/(1+||E2.predict_next_self(z_self_prev, a) - z_self_now||)), then
+        advances the BlockedAgency integrator behind the external-attribution
+        and capacity gates. Sets new_latent.z_block. Caches the current latents
+        for the next tick's comparison. No-op (z_block left None) when
+        use_blocked_agency is off.
+
+        MECH-094: a hypothesis-tagged (replay / simulation) latent advances
+        nothing (update() is gated on simulation_mode) and z_block is left None.
+        """
+        if self.blocked_agency is None:
+            return
+
+        sim = bool(getattr(new_latent, "hypothesis_tag", False))
+        z_world_now = new_latent.z_world
+        z_self_now = new_latent.z_self
+
+        # Need a previous latent + the action that bridged it to now.
+        have_history = (
+            self._ba_prev_z_world is not None
+            and self._ba_prev_z_self is not None
+            and self._last_action is not None
+        )
+
+        if not have_history or sim:
+            # First waking tick of the episode (or a simulation tick): advance
+            # the integrator with a no-block / sim signal so z_block stays
+            # well-defined, then cache current latents.
+            out = self.blocked_agency.update(
+                outcome_mismatch=0.0,
+                motor_agency=1.0,
+                goal_active=(
+                    self.goal_state is not None and self.goal_state.is_active()
+                    if self.goal_state is not None else False
+                ),
+                capacity_belief=1.0,
+                blocked_action_class=-1,
+                simulation_mode=sim,
+            )
+            if not sim:
+                self._ba_prev_z_world = z_world_now.detach().clone()
+                self._ba_prev_z_self = z_self_now.detach().clone()
+            new_latent.z_block = torch.tensor(
+                [[out.z_block]], dtype=z_world_now.dtype, device=z_world_now.device
+            )
+            return
+
+        with torch.no_grad():
+            # Feed world_forward / predict_next_self the ONE-HOT of the discrete
+            # action the env actually executed (env.step does argmax(action)),
+            # NOT the raw continuous pre-argmax policy output -- otherwise the
+            # forward model sees an out-of-distribution action encoding and its
+            # prediction (trained on the executed discrete action) is unusable.
+            _raw_a = self._last_action.detach()
+            if _raw_a.dim() == 1:
+                _raw_a = _raw_a.unsqueeze(0)
+            _a_idx = int(_raw_a.argmax(dim=-1).flatten()[0].item())
+            a_in = torch.zeros_like(_raw_a)
+            a_in[0, _a_idx] = 1.0
+            zw_prev = self._ba_prev_z_world
+            zs_prev = self._ba_prev_z_self
+            zw_now = z_world_now.detach()
+            zs_now = z_self_now.detach()
+            if zw_now.dim() == 1:
+                zw_now = zw_now.unsqueeze(0)
+            if zs_now.dim() == 1:
+                zs_now = zs_now.unsqueeze(0)
+
+            # Action-outcome comparator on z_world (SD-029 applied to the goal
+            # channel; Carruthers 2012). E2.world_forward gives the predicted
+            # next z_world for the action taken; the block signature is the
+            # divergence of the realised z_world from that prediction, scaled by
+            # the predicted-effect magnitude:
+            #   zw_pred  = world_forward(zw_prev, a)        (intended outcome)
+            #   pred_mag = ||zw_pred - zw_prev||            (intended effect size)
+            #   outcome_mismatch = ||zw_pred - zw_now|| / (pred_mag + eps)
+            # Calibration (with a trained, action-conditional world_forward):
+            #   blocked  -> zw_now ~ zw_prev -> ||zw_pred - zw_now|| ~ pred_mag
+            #               -> outcome_mismatch ~ 1.0 (the predicted effect did
+            #               not happen);
+            #   success  -> zw_now ~ zw_pred -> outcome_mismatch ~ 0.0.
+            # Gated by a predicted-effect floor: when pred_mag < floor the action
+            # was not predicted to produce an effect -> 0 (nothing to be blocked
+            # from; also fails safe on an untrained world_forward).
+            # IMPORTANT: this comparator is only DISCRIMINATIVE once the encoder
+            # represents the scene/position in z_world AND world_forward is
+            # action-conditional (SD-056). The validation experiment trains both
+            # in P0; at smoke / untrained scale z_world deltas do not track moves
+            # so the comparator is uninformative (expected).
+            # Noop-baseline formulation: is the realised outcome closer to the
+            # predicted MOVE (action succeeded) or to STAYING PUT (action
+            # blocked)? zw_prev is the "no-effect" baseline.
+            #   to_move = ||zw_now - zw_pred||   (distance from the predicted move)
+            #   to_stay = ||zw_now - zw_prev||   (distance from staying put)
+            #   outcome_mismatch = max(0, to_move - to_stay) / (pred_mag + eps)
+            # blocked  -> zw_now ~ zw_prev -> to_stay~0, to_move~pred_mag -> ~1.0;
+            # success  -> zw_now ~ zw_pred -> to_move~0, to_stay~pred_mag -> clipped 0.
+            # This discriminates whenever world_forward predicts a non-trivial
+            # action effect (pred_mag >= floor), without requiring the prediction
+            # to be globally accurate -- only that the action's predicted effect
+            # is distinguishable from no-effect.
+            zw_pred = self.e2.world_forward(zw_prev, a_in)
+            pred_mag = float((zw_pred - zw_prev).norm(dim=-1).mean().item())
+            _eff_floor = float(
+                getattr(self.config, "blocked_agency_predicted_effect_floor", 0.05)
+            )
+            if pred_mag < _eff_floor:
+                outcome_mismatch = 0.0
+            else:
+                to_move = float((zw_pred - zw_now).norm(dim=-1).mean().item())
+                to_stay = float((zw_now - zw_prev).norm(dim=-1).mean().item())
+                outcome_mismatch = max(0.0, to_move - to_stay) / (pred_mag + 1e-6)
+
+            # Motor-agency comparator on z_self (attribution gate): high =
+            # motor command executed as predicted -> external block, not own
+            # motor error.
+            zs_pred = self.e2.predict_next_self(zs_prev, a_in)
+            motor_mismatch = float((zs_pred - zs_now).norm(dim=-1).mean().item())
+            motor_agency = 1.0 / (1.0 + motor_mismatch)
+
+            # Capacity-belief proxy: collapses with affective suffering load
+            # (z_harm_a). When the harm stream is off, capacity is fully retained
+            # (assert pole) -- correct for the harm-held-constant regime.
+            if new_latent.z_harm_a is not None:
+                z_harm_a_norm = float(new_latent.z_harm_a.detach().norm(dim=-1).mean().item())
+            else:
+                z_harm_a_norm = 0.0
+            capacity_belief = max(
+                0.0,
+                min(
+                    1.0,
+                    1.0
+                    - self.blocked_agency.config.capacity_collapse_weight
+                    * z_harm_a_norm,
+                ),
+            )
+
+            goal_active = (
+                self.goal_state is not None and self.goal_state.is_active()
+            )
+            blocked_cls = int(self._last_action.detach().argmax(dim=-1).flatten()[0].item())
+
+        out = self.blocked_agency.update(
+            outcome_mismatch=outcome_mismatch,
+            motor_agency=motor_agency,
+            goal_active=goal_active,
+            capacity_belief=capacity_belief,
+            blocked_action_class=blocked_cls,
+            simulation_mode=False,
+        )
+        new_latent.z_block = torch.tensor(
+            [[out.z_block]], dtype=z_world_now.dtype, device=z_world_now.device
+        )
+        self._ba_prev_z_world = zw_now.detach().clone()
+        self._ba_prev_z_self = zs_now.detach().clone()
+
     def _get_context_memory_code_contributions(
         self,
         z_self: torch.Tensor,
@@ -2110,6 +2312,12 @@ class REEAgent(nn.Module):
         # recently executed action. Runs immediately after encoding so the
         # comparator sees the freshly observed z_self.
         self._update_tpj_comparator(new_latent)
+
+        # MECH-353: resolve the blocked-agency / control-failure readout for the
+        # most recently executed action. Runs after encoding so the comparator
+        # sees the freshly observed z_world / z_self. No-op when
+        # use_blocked_agency is False.
+        self._update_blocked_agency(new_latent)
 
         # SD-036: tick the GABAergic cross-stream decay regulator. Applies
         # z_s(t+1) = z_s(t) * exp(-tau_s * gaba_tone) to registered streams
@@ -3093,6 +3301,35 @@ class REEAgent(nn.Module):
                 # e3._committed_trajectory presence as the decommit signal).
                 self.e3._committed_trajectory = None
 
+        # MECH-353 DECOMMIT consumer: if z_block asserted hard across the window
+        # but the block persisted (assertion failed), release the blocked
+        # commitment rather than escalate effort unboundedly -- gated by the
+        # ARC-016 commitment-threshold (the prefrontal-analogue inhibition of
+        # reactive aggression; Bertsch 2020). The decommit signal is set during
+        # sense() by BlockedAgency.update(); here it is consumed only while beta
+        # is elevated and ARC-016 permits abort. No-op when use_blocked_agency
+        # is False. Mirrors the MECH-091 / MECH-342 release template.
+        if self.blocked_agency is not None and self.beta_gate.is_elevated:
+            _ba_out = self.blocked_agency.last_output()
+            if _ba_out.decommit_signal:
+                # ARC-016 gate: release only when E3 precision (confidence) is at
+                # or below the threshold (low confidence -> abort permitted).
+                # threshold <= 0.0 disables the gate (always permit).
+                _arc016_max = float(
+                    getattr(
+                        self.config,
+                        "blocked_agency_decommit_arc016_precision_max",
+                        0.0,
+                    )
+                )
+                _precision = float(getattr(self.e3, "current_precision", 0.0))
+                _arc016_permits = (_arc016_max <= 0.0) or (_precision <= _arc016_max)
+                if _arc016_permits:
+                    self.beta_gate.release()
+                    self._committed_step_idx = 0
+                    self._committed_anchor_keys = None
+                    self.e3._committed_trajectory = None
+
         # MECH-269 / MECH-090 read-side hook: V_s -> commit release.
         # If any anchor key snapshotted at commit entry has dropped out of the
         # active anchor set since then, the schema region the commitment was
@@ -3961,6 +4198,35 @@ class REEAgent(nn.Module):
                 dacc_score_bias = tv_bias
             else:
                 dacc_score_bias = dacc_score_bias + tv_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
+
+        # MECH-353 ASSERT consumer: when z_block is asserting (an external block
+        # is sustained while capacity-belief is retained), bias selection toward
+        # ACTION (escalate effort -- the "raise MECH-320 vigor" pole) and away
+        # from the just-blocked action class (alternative-action search). Pure
+        # additive score-bias composed like the other regulators; zero when no
+        # asserting block this tick, so OFF / no-block ticks add nothing.
+        if self.blocked_agency is not None and len(candidates) > 0:
+            _ba_classes = [
+                int(c.actions[:, 0, :].argmax(dim=-1).flatten()[0].item())
+                for c in candidates
+            ]
+            _ba_dtype = (
+                dacc_score_bias.dtype if dacc_score_bias is not None else torch.float32
+            )
+            _ba_device = (
+                dacc_score_bias.device if dacc_score_bias is not None else self.device
+            )
+            ba_bias = self.blocked_agency.compute_assert_score_bias(
+                action_classes=_ba_classes,
+                device=_ba_device,
+                dtype=_ba_dtype,
+            )
+            if dacc_score_bias is None:
+                dacc_score_bias = ba_bias
+            else:
+                dacc_score_bias = dacc_score_bias + ba_bias.to(
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 

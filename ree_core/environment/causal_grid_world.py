@@ -181,6 +181,22 @@ class CausalGridWorld:
         scheduled_limb_damage_prob: float = 0.5,
         scheduled_limb_damage_magnitude: float = 0.4,
         scheduled_limb_damage_limb_selection: str = "random",
+        # MECH-353 (blocked-agency / z_block) external action-block curriculum.
+        # Every scheduled_action_block_interval steps, with probability
+        # scheduled_action_block_prob, the agent's chosen move is externally
+        # CANCELLED (the agent stays put) for that tick -- a pure external
+        # constraint (barrier / tether) with NO damage and NO change to the
+        # resource / hazard / goal layout. This is the clean external-block
+        # antecedent for the SD-029 action-outcome comparator (the agent's
+        # action was predicted to move it but the world did not change), with
+        # harm and goal-value held constant. Distinct from SD-022 limb-damage
+        # movement failure (which is an OWN-MOTOR error coupled to damage):
+        # the action-block leaves z_self / body state evolving predictably
+        # (motor intact) so the MECH-353 attribution gate correctly reads it
+        # as external. Disabled by default (bit-identical OFF; no RNG draws).
+        scheduled_action_block_enabled: bool = False,
+        scheduled_action_block_interval: int = 1,
+        scheduled_action_block_prob: float = 1.0,
         # MECH-090 R-c continuation (nav_competence axis) -- Phase-2 follow-on
         # (2026-06-02). Env-emitted per-tick motor-program-readiness / nav-
         # competence outcome consumed by the CommitReadiness EMA via
@@ -552,6 +568,13 @@ class CausalGridWorld:
         self._scheduled_limb_damage_last_limb_idx: int = -1
         self._scheduled_limb_damage_last_magnitude: float = 0.0
         self._scheduled_limb_damage_injected_this_step: bool = False
+
+        # MECH-353 external action-block curriculum state.
+        self.scheduled_action_block_enabled = bool(scheduled_action_block_enabled)
+        self.scheduled_action_block_interval = int(scheduled_action_block_interval)
+        self.scheduled_action_block_prob = float(scheduled_action_block_prob)
+        self._action_block_event_count: int = 0
+        self._action_block_blocked_this_step: bool = False
 
         # SD-047: multi-source environmental dynamics state.
         self.multi_source_dynamics_enabled = multi_source_dynamics_enabled
@@ -1190,6 +1213,9 @@ class CausalGridWorld:
         self._scheduled_limb_damage_last_limb_idx = -1
         self._scheduled_limb_damage_last_magnitude = 0.0
         self._scheduled_limb_damage_injected_this_step = False
+        # MECH-353 external action-block per-episode counters.
+        self._action_block_event_count = 0
+        self._action_block_blocked_this_step = False
         # SD-047: per-episode multi-source counters reset.
         self._multi_source_n_env_events = 0
         self._multi_source_n_agent_events = 0
@@ -1359,6 +1385,9 @@ class CausalGridWorld:
         self._scheduled_limb_damage_last_limb_idx = -1
         self._scheduled_limb_damage_last_magnitude = 0.0
         self._scheduled_limb_damage_injected_this_step = False
+        # MECH-353 external action-block per-episode counters.
+        self._action_block_event_count = 0
+        self._action_block_blocked_this_step = False
         # SD-047: scripted-eval reset path leaves multi-source state OFF; experiments
         # using reset_to() are SD-029 / EXQ-433a comparator harnesses that intentionally
         # bypass multi-source dynamics for clean self-vs-externally-caused tagging.
@@ -1430,6 +1459,20 @@ class CausalGridWorld:
         # below and read by the info dict surfacing at the bottom of step().
         self._consumed_type_tag_this_tick = 0
 
+        # MECH-353 external action-block decision. Gated by the master switch
+        # (zero RNG, zero state change when disabled). When it fires this tick
+        # the agent's chosen move is cancelled below (the agent stays put) with
+        # no damage and no layout change -- a pure external constraint.
+        self._action_block_blocked_this_step = False
+        if (
+            self.scheduled_action_block_enabled
+            and self.steps > 0
+            and (self.steps % self.scheduled_action_block_interval == 0)
+            and self._rng.random() < self.scheduled_action_block_prob
+        ):
+            self._action_block_blocked_this_step = True
+            self._action_block_event_count += 1
+
         dx, dy = self.ACTIONS[action]
         if self.toroidal:
             new_x = (self.agent_x + dx) % self.size
@@ -1457,8 +1500,14 @@ class CausalGridWorld:
         # agent steps onto a transient patch cell).
         self._transient_benefit_contact_this_tick = 0.0
 
+        # MECH-353: external action-block cancels the move (agent stays put),
+        # with no damage and no layout change. Set transition_type early so the
+        # downstream transition_type=="none" guards (harm_gradient, zone_c) do
+        # not fire -- the block is a clean no-harm external constraint.
+        if self._action_block_blocked_this_step:
+            transition_type = "action_blocked"
         # Move agent if not wall (toroidal has no walls, so always move)
-        if self.toroidal or self.grid[new_x, new_y] != self.ENTITY_TYPES["wall"]:
+        elif self.toroidal or self.grid[new_x, new_y] != self.ENTITY_TYPES["wall"]:
             old_x, old_y = self.agent_x, self.agent_y
 
             if self.contamination_grid[old_x, old_y] >= self.contamination_threshold:
@@ -2197,6 +2246,10 @@ class CausalGridWorld:
             "scheduled_limb_damage_event_count": int(self._scheduled_limb_damage_event_count),
             "scheduled_limb_damage_last_limb_idx": int(self._scheduled_limb_damage_last_limb_idx),
             "scheduled_limb_damage_last_magnitude": float(self._scheduled_limb_damage_last_magnitude),
+            # MECH-353 external action-block tags (always present; 0 / False OFF).
+            "scheduled_action_block_enabled": bool(self.scheduled_action_block_enabled),
+            "action_blocked_this_step": bool(self._action_block_blocked_this_step),
+            "action_block_event_count": int(self._action_block_event_count),
             # SD-047 multi-source tags (always present; 0 / False when disabled).
             "multi_source_dynamics_enabled": bool(self.multi_source_dynamics_enabled),
             "multi_source_intensity_scale": float(self.multi_source_intensity_scale),
