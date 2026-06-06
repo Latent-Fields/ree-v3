@@ -37,7 +37,11 @@
       "estimated_minutes": 90,
       "claim_id": null,
       "note": "Substrate-readiness for MECH-353 (z_block, ree_core/affect/blocked_agency.py, IMPLEMENTED 2026-06-06). PASS clears the MECH-353 v3_pending gate (substrate gate, not claim weighting -- experiment_purpose=diagnostic). PRE-REGISTERED ACCEPTANCE (per seed; PASS = each on >=2/3 seeds): C0 detector readiness blocked-step minus free-step outcome_mismatch >= 0.10 in ARM_BLOCK; C1 z_block rises z_block_peak(BLOCK)-z_block_peak(CONTROL) >= 0.20 AND >= 0.20 abs; C2 dissociation (z_block sep)-(z_harm_a sep) >= 0.20; C3 assert NOT withdraw action_rate(BLOCK)>=CONTROL-0.02 AND (action_rate or alt_switch_rate higher) AND z_harm_a_policy(BLOCK)<=CONTROL+0.02. GRID: PASS->validate clear v3_pending; C0 fail->substrate_ceiling (z_world comparator non-discriminative -> encoder/world_forward enrichment) NOT falsification, stays v3_pending; C1 fail->integrator tuning; C2 fail->tracks z_harm_a; C3 fail->consumer wiring. honors feedback_biology_before_formal_definitions. bears_on (NOT tagged) MECH-353/SD-029/MECH-112/MECH-320/MECH-342/ARC-016/SD-011/SD-019b. Smoke: --dry-run PASS (dry-scale FAIL expected; discrimination needs full-scale P0).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-06-06T04:47:23Z"
+      },
       "conditions": 2,
       "episodes_per_run": 60,
       "experiment_type": "v3_exq_642_blocked_agency_zblock_discriminative",
