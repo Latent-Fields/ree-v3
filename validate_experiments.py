@@ -32,6 +32,15 @@ EXPERIMENTS_DIR = REPO_ROOT / "experiments"
 EMIT_NAME = "emit_outcome"
 PROTOCOL_MODULE = "experiment_protocol"
 
+# Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
+# A diagnostic/baseline script whose interpretation grid self-routes to one of
+# these "the substrate is the limit" labels is making a high-stakes claim that is
+# only legitimate on a substrate trained/configured to the level the claim
+# presupposes. Such a script must declare a readiness-kind precondition + a
+# load_bearing criterion so the indexer can recompute the self-route's premise.
+SUBSTRATE_VERDICT_LABELS = {"substrate_ceiling", "substrate_conditional", "does_not_support"}
+SUBSTRATE_VERDICT_SUFFIXES = ("_nondiscriminative", "_unmeetable")
+
 
 def _has_main_block(tree: ast.Module) -> Optional[ast.If]:
     """Return the `if __name__ == "__main__":` block, or None."""
@@ -103,6 +112,74 @@ def check_script(path: Path) -> Tuple[bool, str]:
     return True, "ok"
 
 
+def readiness_lint(path: Path) -> Optional[str]:
+    """WARN-only readiness-gate lint. Return a warning string, or None.
+
+    For a `diagnostic` / `baseline` script whose interpretation grid routes to a
+    SUBSTRATE_VERDICT_LABELS label (or a `*_nondiscriminative` / `*_unmeetable`
+    suffix), WARN if it declares no readiness-kind precondition (a numeric
+    `measured`+`threshold` pair) and/or no `load_bearing` criterion -- the
+    trivial-prediction signature the author cannot see (V3-EXQ-642/264/620) and
+    the V3-EXQ-621a aggregation-vacuity pattern, respectively.
+
+    Implementation is the lightest viable static check: a string/AST scan over the
+    script's literals. It does NOT statically interpret the interpretation-grid
+    control flow, so it has known limitations -- it can MISS a verdict label
+    assembled at runtime (f-string / concatenation) and can OVER-FIRE if a verdict
+    label or the keys appear only in a comment/docstring string. WARN-only by
+    design (proposal Q3 warn-then-error); never affects the exit code. Harden to
+    ERROR after a cycle of real post-convention diagnostics exists.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    strings = set()
+    purposes = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            strings.add(node.value)
+        if isinstance(node, ast.keyword) and node.arg == "experiment_purpose":
+            val = node.value
+            if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                purposes.add(val.value)
+        if isinstance(node, ast.Assign):
+            # Match both the lowercase keyword-style `experiment_purpose = "..."`
+            # and the canonical module constant `EXPERIMENT_PURPOSE = "diagnostic"`
+            # (the convention real scripts use, then pass via
+            # `"experiment_purpose": EXPERIMENT_PURPOSE`).
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name) and tgt.id.lower() == "experiment_purpose":
+                    val = node.value
+                    if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                        purposes.add(val.value)
+
+    if not (purposes & {"diagnostic", "baseline"}):
+        return None
+    routes_to_verdict = any(
+        s in SUBSTRATE_VERDICT_LABELS or s.endswith(SUBSTRATE_VERDICT_SUFFIXES)
+        for s in strings
+    )
+    if not routes_to_verdict:
+        return None
+
+    has_readiness = "measured" in strings and "threshold" in strings
+    has_load_bearing = "load_bearing" in strings
+    if has_readiness and has_load_bearing:
+        return None
+
+    missing = []
+    if not has_readiness:
+        missing.append("no readiness-kind precondition (numeric measured+threshold)")
+    if not has_load_bearing:
+        missing.append("no criterion tagged load_bearing")
+    return ("routes to a substrate-verdict label but " + " AND ".join(missing)
+            + " -- add a P0 readiness-assert (see /queue-experiment "
+            + "proposal_trivial_prediction_readiness_gate_2026-06-06)")
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -127,6 +204,7 @@ def main() -> int:
     n_ok = 0
     n_exempt = 0
     failures: List[Tuple[Path, str]] = []
+    warnings: List[Tuple[Path, str]] = []
     for p in paths:
         ok, reason = check_script(p)
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
@@ -141,10 +219,22 @@ def main() -> int:
                     print(f"[validate_experiments] OK      {rel}", flush=True)
         else:
             failures.append((p, reason))
+        warn = readiness_lint(p)
+        if warn:
+            warnings.append((p, warn))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
-          f"{n_ok} OK, {n_exempt} exempt, {len(failures)} non-conforming", flush=True)
+          f"{n_ok} OK, {n_exempt} exempt, {len(failures)} non-conforming, "
+          f"{len(warnings)} readiness-warning(s)", flush=True)
+    if warnings:
+        # Readiness-gate WARNINGS are advisory (warn-then-error rollout); they NEVER
+        # affect the exit code, including under --strict. See readiness_lint().
+        print("", flush=True)
+        print("[validate_experiments] Readiness-gate WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if failures:
         print("", flush=True)
         print("[validate_experiments] Non-conforming scripts:", flush=True)
