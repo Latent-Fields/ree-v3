@@ -163,8 +163,8 @@ CLAIM_IDS: List[str] = []  # substrate-readiness diagnostic (gates MECH-314a/MEC
 EXPERIMENT_PURPOSE = "diagnostic"
 
 SEEDS = [42, 43, 44]
-P0_WARMUP_EPISODES = 20           # SD-056 contrastive warmup (arch-doc "30 episodes" total)
-P1_MEASUREMENT_EPISODES = 10
+P0_WARMUP_EPISODES = 60           # SD-056 contrastive warmup (matches the V3-EXQ-604a proven budget)
+P1_MEASUREMENT_EPISODES = 20
 STEPS_PER_EPISODE = 200
 MEASURE_AFTER_TICK = 20           # arch-doc "past tick 20" (within-episode)
 
