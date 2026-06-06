@@ -261,3 +261,66 @@ def test_modulatory_authority_min_range_floor_prevents_degenerate_scale():
     # Mechanism should NOT fire (modulatory_range=0 < floor=1.0)
     assert diag["modulatory_authority_active"] is False
     assert diag["modulatory_authority_scale_factor"] == 0.0
+
+
+def _candidate_big_world(action_class: int, world_scale: float, action_dim: int = 5):
+    """Candidate whose world_states carry a large per-candidate constant, so the
+    primary E3 scores (reality/ethical scorers are linear in world_state) become
+    enormous -- simulating the SD-056-online-training score explosion that drove
+    V3-EXQ-643 (raw_score_range ~1e32)."""
+    world_dim = 6
+    horizon = 3
+    states = [torch.zeros(1, world_dim) for _ in range(horizon + 1)]
+    world_states = [
+        torch.full((1, world_dim), float(world_scale)) for _ in range(horizon + 1)
+    ]
+    actions = torch.zeros(1, horizon, action_dim)
+    actions[:, 0, action_class] = 1.0
+    return Trajectory(states=states, actions=actions, world_states=world_states)
+
+
+def test_modulatory_authority_survives_large_primary_scores():
+    """V3-EXQ-643a regression: the authority gate must measure the true modulatory
+    range from the EXPLICIT accumulator, not reconstruct it as (scores - raw_scores).
+
+    The subtraction catastrophically cancels in float32 when the primary scores are
+    large: in V3-EXQ-643 the SD-056-online-trained scores grew to ~1e32 and the real
+    ~0.17 modulatory range (below the float32 ULP at that magnitude) collapsed to
+    EXACTLY 0.0, so the gate never fired (active_frac=0.0 on every arm). With the
+    explicit accumulator the gate keys on the small bias tensor directly and fires
+    regardless of primary-score magnitude. The pre-fix code FAILS this test.
+    """
+    from ree_core.utils.config import E3Config as FullE3Config
+
+    cfg = FullE3Config(
+        world_dim=6,
+        hidden_dim=8,
+        use_modulatory_selection_authority=True,
+        modulatory_authority_gain=0.5,
+    )
+    selector = E3TrajectorySelector(cfg)
+    selector._running_variance = 0.0
+    torch.manual_seed(0)
+    with torch.no_grad():
+        for p in selector.parameters():
+            p.uniform_(-0.1, 0.1)
+
+    # Per-candidate-distinct LARGE world states -> enormous raw_score_range.
+    candidates = [
+        _candidate_big_world(0, 1e15),
+        _candidate_big_world(1, 3e15),
+        _candidate_big_world(2, 7e15),
+    ]
+    # Tiny modulatory bias (range 0.5) -- below the float32 ULP at ~1e15.
+    bias = torch.tensor([0.0, 0.0, -0.5])
+
+    result = selector.select(candidates, temperature=1.0, score_bias=bias)
+    diag = selector.last_score_diagnostics
+
+    # Primary scores are huge (the explosion condition).
+    assert diag["e3_raw_score_range_mean"] > 1e10
+    # The gate detects the TRUE 0.5 modulatory range from the explicit accumulator,
+    # not the ~0 a subtraction at this magnitude would yield.
+    assert abs(diag["modulatory_authority_range"] - 0.5) < 1e-3
+    assert diag["modulatory_authority_active"] is True
+    assert diag["modulatory_authority_scale_factor"] > 0.0

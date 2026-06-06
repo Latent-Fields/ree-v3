@@ -722,6 +722,21 @@ class E3TrajectorySelector(nn.Module):
         raw_score_range = float((raw_scores.max() - raw_scores.min()).item())
         raw_score_std = float(raw_scores.std().item())
 
+        # modulatory-bias-selection-authority (V3-EXQ-643a fix, 2026-06-06):
+        # Track the COMBINED modulatory contribution (score_bias + MECH-341
+        # entropy bonus) EXPLICITLY as a small accumulated tensor, instead of
+        # reconstructing it below as (scores - raw_scores). Reconstruction by
+        # subtraction suffers float32 catastrophic cancellation when the primary
+        # scores are large: in V3-EXQ-643 the SD-056-online-trained scores grew
+        # to ~1e32, and the real ~0.17-magnitude modulatory range is far below
+        # the float32 ULP at 1e32 (~1e25), so (scores - raw_scores) collapsed to
+        # EXACTLY 0.0 -> modulatory_range < floor -> the authority gate never
+        # fired (active_frac=0.0, scale_factor=0.0 on every arm). The explicit
+        # accumulator sums the small bias tensors actually added, so its range is
+        # independent of the primary-score magnitude. Mathematically identical to
+        # (scores - raw_scores) in exact arithmetic; numerically robust.
+        _modulatory_accum: Optional[torch.Tensor] = None
+
         # SD-032b dACC bias: additive, same sign convention as raw scores.
         # Applied before last_scores / softmax so downstream consumers see
         # the biased values consistently.
@@ -750,6 +765,8 @@ class E3TrajectorySelector(nn.Module):
                     scale = raw_score_range / bias_range
                     bias_tensor = bias_tensor * scale
             scores = scores + bias_tensor
+            # Explicit modulatory-contribution tracking (see note above).
+            _modulatory_accum = bias_tensor
 
         # MECH-341 Option 1 (entropy bonus): per-candidate POSITIVE bias on
         # first-action classes over-represented in the pool. Composed AFTER
@@ -765,6 +782,11 @@ class E3TrajectorySelector(nn.Module):
             )
             mech341_bonus_tensor = mech341_bonus
             scores = scores + mech341_bonus
+            # Explicit modulatory-contribution tracking (see note above).
+            _modulatory_accum = (
+                mech341_bonus if _modulatory_accum is None
+                else _modulatory_accum + mech341_bonus
+            )
 
         # modulatory-bias-selection-authority (2026-06-03): rescale the COMBINED
         # modulatory contribution (score_bias + mech341_bonus) so its range equals
@@ -778,12 +800,19 @@ class E3TrajectorySelector(nn.Module):
         # See REE_assembly/evidence/planning/modulatory_bias_selection_authority_*.md
         modulatory_authority_active = False
         modulatory_authority_scale_factor = 0.0
+        modulatory_authority_range = 0.0
         if self.config.use_modulatory_selection_authority:
-            # Recompute raw scores BEFORE any modulatory bias was applied
             scores_raw = raw_scores  # captured before score_bias application above
-            # Compute total modulatory contribution = current scores - raw scores
-            modulatory_total = scores - scores_raw
+            # Total modulatory contribution measured DIRECTLY from the accumulated
+            # small bias tensors (V3-EXQ-643a fix) -- NOT reconstructed as
+            # (scores - scores_raw), which catastrophically cancels at large
+            # primary-score magnitude (see note at the accumulator declaration).
+            if _modulatory_accum is not None:
+                modulatory_total = _modulatory_accum
+            else:
+                modulatory_total = scores.new_zeros(scores.shape)
             modulatory_range = float((modulatory_total.max() - modulatory_total.min()).item())
+            modulatory_authority_range = modulatory_range
             if modulatory_range > self.config.modulatory_authority_min_range_floor:
                 # Rescale modulatory contribution to gain * raw_score_range
                 target_range = self.config.modulatory_authority_gain * raw_score_range
@@ -817,6 +846,9 @@ class E3TrajectorySelector(nn.Module):
             ),
             "modulatory_authority_active": modulatory_authority_active,
             "modulatory_authority_scale_factor": modulatory_authority_scale_factor,
+            # V3-EXQ-643a: the true cross-candidate modulatory range the gate
+            # keyed on (explicitly tracked; immune to large-score cancellation).
+            "modulatory_authority_range": modulatory_authority_range,
             # Filled in after selection (requires selected_idx).
             "selected_candidate_rank_before_bias": -1,
             "selected_candidate_rank_after_bias": -1,
