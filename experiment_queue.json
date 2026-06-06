@@ -96,7 +96,11 @@
       "machine_affinity": "ree-cloud-4",
       "estimated_minutes": 300,
       "note": "User-directed arm-reuse SYSTEM TEST. 646 (running on cloud-4) IS 643a's control arm (ARM_A, built from the canonical baseline module that reproduces 643a's ARM_A byte-for-byte). This experiment REUSES that control by explicit cite (loads the latest v3_exq_646_*_v3.json ARM_A cells, stamps reused_from_run_id provenance) and runs ONLY the experimental arms (ARM_B/ARM_C) fresh on cloud-4 via 643a's own _run_seed_arm, then assembles arm_results = [reused control] + [fresh experimental] and runs 643a's _evaluate(). Control + experimental arms share machine_class (linux-x86_64) + seeds + config (differ only in use_modulatory_selection_authority), so the reassembled 643a is cell-for-cell what a fully-fresh cloud-4 643a would produce -- the reuse is sound by construction. Compare its verdict (readiness/C0/C1/C2) to the Mac full 643a (V3-EXQ-643a, darwin-arm64; cross machine_class -> verdict-level). Explicit-cite (Phase-1 OPT-IN CITE-BASELINE) -- does NOT rely on the automated arm_fingerprint_index HIT (records what the automated path would decide, to document the script_path-coupling gap). experiment_purpose=diagnostic, claim_ids=[] -- NO governance weight; a supervised, user-directed first live cite-reuse demonstration. priority 5 < 646's 10 so the control mints first; runs after 646 on cloud-4. If no 646 manifest exists at run time it ERRORs (stays in queue) rather than assembling a 643a without its control. Do NOT start the runner; cloud-4 already running 646.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-06T17:26:54Z"
+      },
       "claim_ids": [],
       "conditions": 3,
       "episodes_per_run": 80,
