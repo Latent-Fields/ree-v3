@@ -27,25 +27,6 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_610f_inv074_crystallization_necessity",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-643",
-      "title": "modulatory-bias-selection-authority falsification (604a-based; authority OFF / gain0.5 / gain0.8). Does the gap-relative E3.select rescaling give MECH-314 curiosity (+ the full modulatory chain) genuine, bounded authority over the committed argmin? Diagnostic (claim_ids=[]). 3 arms x 3 seeds, identical curiosity-ALL_ON + MECH-341-entropy + SD-056 config; the ONLY difference is use_modulatory_selection_authority. The outstanding 'Next' in modulatory_bias_selection_authority_design.md.",
-      "script": "experiments/v3_exq_643_modulatory_authority_validation.py",
-      "priority": 290,
-      "machine_affinity": "any",
-      "estimated_minutes": 150,
-      "claim_id": null,
-      "note": "Validation experiment for the modulatory-bias-selection-authority substrate (e3_selector.py:764-794, IMPLEMENTED 2026-06-03). experiment_purpose=diagnostic, claim_ids=[] -> not weighted in governance confidence/conflict; PASS is a SUBSTRATE gate that UNBLOCKS the per-claim evidence retests of MECH-314/MECH-320/MECH-341 + the GAP-2 scaffold-readiness run + the SD-057 cue-recall->approach-lift re-test (640a autopsy). NOT GAP-2-gated (criteria are bias telemetry + action-distribution, measurable in the standard 604a env). Addresses the 604a/624a/614d/640a drowning cluster (fixed ~0.05-0.1 modulatory biases never change an argmin whose raw_score_range is 2-5). PRE-REGISTERED ACCEPTANCE (per arm, PASS = each on >=2/3 seeds): C0 modulatory non-degeneracy ARM_B/C score_bias_abs_mean>1e-4 (else non_contributory: 'scaling zero is still zero', route to curiosity activation NOT authority falsification); C1 mechanism active ARM_A authority_active_frac~0 (flag OFF, bit-identical) AND ARM_B/C authority_active_frac>0.5 + scale_factor_mean>1.0; C2 authority real ARM_B/C bias_changed_selection_frac (selected_candidate_rank_before_bias>0) exceeds ARM_A by >0.05 AND observable action-distribution change (visited_cells/episode_length) vs ARM_A. C3 dose-response (C>B) informative. Overall PASS = C0 AND C1 AND C2. 604a STALE-KEY FIX: reads curiosity.get_state()['last_bias_max_abs'] (the real key; 604a read the nonexistent 'last_bias_abs_mean' -> structurally 0.0). Probe-verified pre-queue: ARM_A active=False/rank_before=0; ARM_B active=True/scale=48.5/rank_before=5; ARM_C rank_before=30. Smoke: --dry-run PASS end-to-end 9/9 cells (dry-scale FAIL expected at P0=2/P1=2). Substrate API identical across arms; harness reuses the 569d/604a SD-056 online-contrastive trainer.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-06-06T05:55:07Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_643_modulatory_authority_validation",
-      "seeds": 3
     }
   ]
 }
