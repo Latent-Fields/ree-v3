@@ -47,6 +47,38 @@
       "episodes_per_run": 80,
       "experiment_type": "v3_exq_643a_modulatory_authority_validation",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-644",
+      "title": "arm-reuse Phase-0 MINT of the V3-EXQ-610 OFF/baseline arm (INV-074 crystallization necessity; ARM_0_stripped_control) on ree-cloud-2. OFF arm x 3 seeds, built from the canonical baseline module; records per-cell arm_fingerprint. Sibling to V3-EXQ-645 (ree-cloud-3) for the cross-instance determinism check.",
+      "script": "experiments/v3_exq_610_inv074_crystallization_baseline_mint.py",
+      "priority": 10,
+      "machine_affinity": "ree-cloud-2",
+      "estimated_minutes": 450,
+      "experiment_purpose": "baseline",
+      "claim_ids": [],
+      "note": "Arm-reuse pre-minting (plan 7b). Runs ONLY the 610 OFF/baseline arm (crystallize=False, phase-3 entropy floor 0.0, MECH-313/341/260 floors OFF) built from experiments/_lib/baselines/exq610_inv074_crystallization_baseline.py -- the content-hashed contract a future 610g must build its OFF arm from. 610 is a CLOUD lineage (610b/c/d cloud-2, 610e/f cloud-1, all linux-x86_64) so cloud is the correct reuse machine-class. Queued TWICE (this entry = ree-cloud-2; V3-EXQ-645 = ree-cloud-3) so the same baseline is computed on two separate CX22 instances: Phase-0 cross-instance determinism check (zero false-collision exit criterion) -- after both run, compare the two manifests' OFF metrics (end_phase_*_entropy, mean_reward) within tolerance and record in arm_reuse_fingerprint_plan.md 7b. PHASE 0 EMIT-ONLY: records arm_results[i].arm_fingerprint; no cache consulted, no reuse executed. experiment_purpose=baseline (excluded from governance scoring); claim_ids=[] (single OFF arm cannot test INV-074). LOW priority so real science preempts. Do NOT start the runner; cloud-2/3 idle.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 2500,
+      "experiment_type": "v3_exq_610_inv074_crystallization_baseline_mint",
+      "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-645",
+      "title": "arm-reuse Phase-0 MINT of the V3-EXQ-610 OFF/baseline arm (INV-074 crystallization necessity; ARM_0_stripped_control) on ree-cloud-3. Identical script/config to V3-EXQ-644 (ree-cloud-2); the second instance for the cross-instance determinism check.",
+      "script": "experiments/v3_exq_610_inv074_crystallization_baseline_mint.py",
+      "priority": 10,
+      "machine_affinity": "ree-cloud-3",
+      "estimated_minutes": 450,
+      "experiment_purpose": "baseline",
+      "claim_ids": [],
+      "note": "Arm-reuse pre-minting (plan 7b). Identical to V3-EXQ-644 but pinned to ree-cloud-3 -- the SECOND CX22 instance for the Phase-0 cross-instance determinism check. Runs ONLY the 610 OFF/baseline arm (crystallize=False, phase-3 entropy floor 0.0, floors OFF) from the canonical baseline module experiments/_lib/baselines/exq610_inv074_crystallization_baseline.py. After both V3-EXQ-644 (cloud-2) and this run complete, compare the two manifests' OFF metrics (end_phase_*_entropy, mean_reward) within tolerance: agreement confirms separate cloud instances are mutually deterministic on CPU torch (the assumption Regime A reuse rests on). The arm_fingerprint hash is identical across the two by construction (coarse machine_class = linux-x86_64-pyX.Y); the determinism check is on the recorded METRICS. PHASE 0 EMIT-ONLY. experiment_purpose=baseline; claim_ids=[]. LOW priority. Record the comparison in arm_reuse_fingerprint_plan.md 7b. Do NOT start the runner; cloud-2/3 idle.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 2500,
+      "experiment_type": "v3_exq_610_inv074_crystallization_baseline_mint",
+      "seeds": 3
     }
   ]
 }
