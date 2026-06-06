@@ -29,26 +29,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-643a",
-      "title": "modulatory-bias-selection-authority re-validation after the float32 catastrophic-cancellation fix (e3_selector explicit modulatory accumulator, 2026-06-06) + SD-056 rollout-norm clamp harness stability. 3 arms (authority OFF / ON gain0.5 / ON gain0.8) x 3 seeds. Supersedes V3-EXQ-643.",
-      "script": "experiments/v3_exq_643a_modulatory_authority_validation.py",
-      "priority": 315,
-      "machine_affinity": "any",
-      "estimated_minutes": 360,
-      "supersedes": "V3-EXQ-643",
-      "note": "Routed by V3-EXQ-643 FAIL (active_frac=0.0 + scale_factor=0.0 both ON arms, 0/3 seeds). CODE-CONFIRMED root cause CORRECTS failure_autopsy_V3-EXQ-643_2026-06-06: NOT 'modulatory bias uniform across candidates' (the MECH-341 entropy bonus keys on first-action class, carries a real ~0.17 cross-candidate range) -- the binding cause is float32 CATASTROPHIC CANCELLATION: 643's SD-056 online training drove primary scores to ~1e32, and modulatory_total = scores - scores_raw annihilated the 0.17 range (below the float32 ULP ~1e25 at 1e32) -> computed EXACTLY 0.0 -> gate never fired. Fix (e3_selector.py 2026-06-06): track the modulatory contribution EXPLICITLY (small accumulated tensor); new modulatory_authority_range diagnostic. 643a re-runs the 643 design with TWO changes: (1) substrate fix landed; (2) SD-056 rollout-norm clamp (e2_rollout_output_norm_clamp_enabled=True ratio=2.0) keeps primary scores bounded -- WITHOUT this the gate fires but with scale_factor~1e27, a vacuous fire on degenerate scores. Carries the readiness gate (substrate_not_ready_requeue if unmet): P-RANGE modulatory_authority_range > floor on the positive control (SAME range statistic C1 routes on, per the 643 same-statistic GAP) AND P-BOUNDED primary scores numerically bounded. Acceptance: readiness AND C0 (curiosity non-degeneracy) AND C1 (authority_active_frac>=0.5 + scale_factor_mean>1.0 on >=2/3 seeds each ON arm, OFF arm silent; LOAD-BEARING) AND C2 (changes selection + behaviour vs ARM_A). diagnostic, claim_ids=[]. PASS unblocks the per-claim evidence retests of MECH-314/320/341 and flips substrate_queue.ready=true. Proof-of-fix probe (643 config): pre-fix active_frac=0.000/modrange=0; post-fix active_frac=1.000/modrange=0.16.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-06-06T13:19:20Z"
-      },
-      "claim_ids": [],
-      "conditions": 3,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_643a_modulatory_authority_validation",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-643b",
       "title": "Corrected-C2 modulatory-authority re-validation (reuse-preserving): REUSE the V3-EXQ-646 ARM_A OFF baseline by explicit cite (config UNCHANGED -> byte-reusable on cloud-4) + run ARM_B/ARM_C fresh via 643a's verbatim _run_seed_arm; ONLY the evaluator differs. Replaces the confounded ON-minus-OFF rank-change C2 with a within-ON-arm C2a (authority-path carves committed selection: active AND bias_changed_selection_frac>floor on >=2/3 seeds) + C2b dose-response-on-flips (informative). Drops 'sweep gain higher'. Corrects the C2 design shared by V3-EXQ-643a/647.",
       "script": "experiments/v3_exq_643b_modulatory_authority_corrected_c2.py",
@@ -78,7 +58,11 @@
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 210,
       "note": "Lynchpin substrate-readiness run validating the 2026-06-05 scaffolded_sd054_onboarding foraging-competence residual amend at FULL budget. The 2026-06-05 local readiness check (moderate budget Stage0=10/P0=28/P1=40/P2=14) proved all levers end-to-end on the contact-positive seed but scored 1/3 on the foraging axes; this asks whether the restored P0=100/P1=50 budget (matching V3-EXQ-603e, ruling out the budget confound) lifts survival+reach-contact to >=2/3 with ALL foraging-competence levers active. Single-arm ALL_LEVERS_ON (no OFF/baseline arm -- readiness gate, not a discriminative ablation): Stage-0 forced-feed nursery + Stage-0b protected consolidation (2026-06-03b) + SD-057 cue-recall bridge (use_incentive_token_bank+use_cue_recall+use_resource_encoder, SD-049-enabled phase envs, scaffold_stage0_bind_incentive_token formation fix) + 634c seeding calibration (gain1.5/thr0.02/drivefloor0.9) + scaffold_auto_reconcile_gating_to_seeding (derives gating floor b*=0.02/(1.5*(1+2*0.9))=0.004762 from live GoalConfig) + scaffold_p1_reef_spawn_hold_fraction=0.4 (graded reef-spawn weaning survival lever). Two-part-fix precondition: z_goal_enabled=True + drive_weight=2.0. PRE-REGISTERED GATES (task; each >=2/3 seeds): G0 Stage-0 z_goal_norm_peak>0.4 (ALSO the built-in positive control for goal FORMATION -- below-floor G0 self-routes substrate_not_ready_requeue, NOT a foraging verdict); G1 P1 survival (median last-10 ep len >=75); G2 P2 contact_rate>0. PASS = G0 AND G1 AND G2. The manifest ALSO reports the canonical design-doc readiness gate substrate_readiness_from_results (adds consumption-event-gated G3 z_goal_norm_at_contact_peak>0.4) + classify_interpretation_branch, so governance sees whether the FULL canonical gate (incl G3) cleared before flipping substrate_queue.foraging_competence_residual ready=true. claim_ids=[] (diagnostic; gates downstream cohorts, weights no claim). NAMING (user directive 2026-06-06): 603f label repurposed for the substrate-readiness run; the Q-045/MECH-313/MECH-260 4-arm ablation (experiment_proposals EXP-603F-POSTSUBSTRATE) is the DOWNSTREAM cohort ('603f-downstream') that resumes only after this gate clears (alongside the *b OCD behavioural re-queue + V3-EXQ-490L). On a foraging-competence-open FAIL (G0 pass, G1/G2 <2/3) the next blocker is the cue-to-action selection-authority thread (V3-EXQ-643a/643b), NOT more scaffold levers. validate_experiments OK (0 readiness-warnings); --dry-run PASS end-to-end (Stage-0 z_goal 0.434 formed, reconciled_floor 0.004762 exact, reef_spawn_eps fires, cue_fires 30; dry-scale g2=0 contact is the known dry-scale outcome). Do NOT start the runner -- user starts manually from the explorer.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-06-06T22:30:47Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 195,
