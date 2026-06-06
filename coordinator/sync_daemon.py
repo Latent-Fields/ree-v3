@@ -352,6 +352,25 @@ PHASE3_QUEUE_CONFLICT_RECOVERY = _validate_bool(
     os.environ.get("PHASE3_QUEUE_CONFLICT_RECOVERY", "0"),
     "PHASE3_QUEUE_CONFLICT_RECOVERY", False)
 
+# Belt-and-suspenders to the 2026-06-06 flat-only silent-drop fix
+# (REE_assembly commit c92458c731, which made the LOCAL governance.sh
+# converter robust). When True, phase3_git_writer ALSO materialises the
+# canonical runs/<run_id>/{manifest.json,metrics.json,summary.md} pack for
+# each flat evidence result it commits -- reusing the EXACT field mapping in
+# sync_v3_results.build_runpack_docs -- so a cloud worker's result is
+# immediately scoreable on origin without waiting for the next local
+# governance.sh run (which is when the converter would otherwise back-fill
+# the pack). Default False = shadow / bit-identical: no pack written, no
+# cross-checkout import attempted, the writer commits only the flat manifest
+# exactly as before. Skip-if-pack-exists is enforced at the write site so a
+# runner-synced pack is NEVER clobbered -- this only back-fills the gap where
+# a worker's runs/ pack failed to sync and only the flat manifest landed.
+# Module-load validated: set it in the systemd unit env BEFORE the process
+# starts (same constraint as the other PHASE3_* env knobs).
+PHASE3_MATERIALIZE_RUNPACK = _validate_bool(
+    os.environ.get("PHASE3_MATERIALIZE_RUNPACK", "0"),
+    "PHASE3_MATERIALIZE_RUNPACK", False)
+
 # Hub paths for the queue writer. ree-v3 checkout is separate from the
 # REE_assembly checkout used by the result writer.
 PHASE3_REE_V3 = _validate_abs_repo_path(
@@ -1292,6 +1311,119 @@ def _sync_to_origin(repo, branch, log_prefix, auto_reset_on_conflict=None,
     return (True, "")
 
 
+def _load_runpack_builder(asm):
+    """Lazy cross-checkout import of sync_v3_results.runpack_for_flat from the
+    hub's REE_assembly scripts dir. Returns the callable, or None on any
+    failure (run-pack materialisation is strictly best-effort -- the flat
+    manifest commit must NEVER depend on it). The import is lazy + cached via
+    sys.modules so the cross-repo path insert happens at most once per process,
+    and only when PHASE3_MATERIALIZE_RUNPACK is on."""
+    try:
+        scripts_dir = os.path.join(
+            asm, "evidence", "experiments", "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import sync_v3_results
+        return sync_v3_results.runpack_for_flat
+    except Exception as exc:  # noqa: BLE001 -- degrade, never crash the tick
+        sys.stderr.write(
+            "[phase3] runpack materialise: import of "
+            "sync_v3_results.runpack_for_flat from %s failed: %r; "
+            "committing flat manifest(s) only\n" % (asm, exc))
+        return None
+
+
+def _materialize_runpacks(asm, staged, log_prefix="[phase3]"):
+    """For each just-staged flat manifest, ALSO write + git-add the canonical
+    runs/<run_id>/{manifest.json,metrics.json,summary.md} pack so the result is
+    immediately scoreable on origin (build_experiment_indexes consumes runs/
+    packs, not flat manifests). Returns the number of run-pack FILES staged.
+
+    Reuses sync_v3_results.build_runpack_docs (via runpack_for_flat) for the
+    exact field mapping, so the pack is byte-identical to one the local
+    governance.sh converter would produce.
+
+    SAFETY / reversibility:
+      - Best-effort: any per-run failure logs a WARN and is skipped; the flat
+        manifest commit (already staged by the caller) is never blocked.
+      - Skip-if-pack-exists: if runs/<run_id>/manifest.json already exists, the
+        pack was synced by the runner -- do NOT clobber it. This makes the
+        writer a pure back-fill for the missing-pack gap.
+      - Atomic write (tmp + os.replace) mirrors the flat-manifest write site;
+        a git-add failure reverts the working-tree write so the next tick's
+        clean-tree check still passes.
+    """
+    builder = _load_runpack_builder(asm)
+    if builder is None:
+        return 0
+    evidence_dir = os.path.join(asm, "evidence", "experiments")
+    n_files = 0
+    for run_id, relpath in staged:
+        flat_target = os.path.join(asm, relpath)
+        try:
+            result = builder(flat_target, evidence_dir)
+        except Exception as exc:  # noqa: BLE001 -- per-run isolation
+            sys.stderr.write(
+                "%s runpack materialise: build failed for %s: %r\n" % (
+                    log_prefix, run_id, exc))
+            continue
+        if result is None:
+            # Not an eligible V3 evidence/diagnostic flat manifest (the same
+            # gate the converter applies); nothing to back-fill.
+            continue
+        run_dir, manifest_doc, metrics_doc, summary = result
+        run_dir = str(run_dir)
+        if os.path.exists(os.path.join(run_dir, "manifest.json")):
+            # Runner already synced the pack -- never overwrite it.
+            continue
+        docs = {
+            "manifest.json": json.dumps(manifest_doc, indent=2) + "\n",
+            "metrics.json": json.dumps(metrics_doc, indent=2) + "\n",
+            "summary.md": summary,
+        }
+        try:
+            os.makedirs(run_dir, exist_ok=True)
+        except OSError as exc:
+            sys.stderr.write(
+                "%s runpack materialise: mkdir failed for %s: %r\n" % (
+                    log_prefix, run_dir, exc))
+            continue
+        for fname, content in docs.items():
+            target = os.path.join(run_dir, fname)
+            tmp_target = target + ".phase3.tmp"
+            target_replaced = False
+            try:
+                with open(tmp_target, "w", encoding="utf-8") as fh:
+                    fh.write(content)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp_target, target)
+                target_replaced = True
+                _fsync_dir(run_dir)
+            except OSError as exc:
+                sys.stderr.write(
+                    "%s runpack materialise: write failed %s: %r\n" % (
+                        log_prefix, target, exc))
+                try:
+                    os.unlink(tmp_target)
+                except OSError:
+                    pass
+                continue
+            rel = os.path.relpath(target, asm)
+            try:
+                _git(asm, "add", rel, timeout=15, check=True)
+                n_files += 1
+            except (subprocess.CalledProcessError,
+                    subprocess.TimeoutExpired) as exc:
+                sys.stderr.write(
+                    "%s runpack materialise: git add failed %s: %r. "
+                    "Reverting working-tree write.\n" % (
+                        log_prefix, rel, exc))
+                if target_replaced:
+                    _revert_target_to_head(asm, rel, target)
+    return n_files
+
+
 def phase3_git_writer(
     conn,
     queue_path,
@@ -1483,6 +1615,19 @@ def phase3_git_writer(
         sys.stderr.write(
             "[phase3] no manifests staged this tick; nothing to commit\n")
         return False
+
+    # Stage 1b (optional, default-OFF): ALSO materialise the canonical runs/
+    # pack for each staged flat manifest so cloud results are immediately
+    # scoreable on origin. The pack files are git-added here so they land in
+    # the SAME commit as the flat manifest(s) below. Best-effort and gated:
+    # with PHASE3_MATERIALIZE_RUNPACK off this is a no-op and the tick is
+    # bit-identical to the flat-only writer.
+    if PHASE3_MATERIALIZE_RUNPACK:
+        n_pack = _materialize_runpacks(asm, staged, "[phase3]")
+        if n_pack:
+            sys.stdout.write(
+                "[phase3] materialised %d run-pack file(s) alongside %d flat "
+                "manifest(s)\n" % (n_pack, len(staged)))
 
     # Stage 2: single commit + single push for the whole batch.
     today = db.utcnow()[:10]
