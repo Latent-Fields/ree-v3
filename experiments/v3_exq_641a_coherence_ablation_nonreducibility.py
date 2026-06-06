@@ -266,6 +266,13 @@ TIE_EPSILON_RANGE_FRAC = 0.10
 MIN_SEEDS_FOR_PASS = 4     # of 6 seeds must satisfy D1+D3+SPEC (primary cond) -- 2/3 ratio.
 MIN_SEEDS_COMPLETED = 4    # of 6 primary-condition runs must reach P1.
 
+# Below this many two-mode-active P1 steps a seed's gated D1/SPEC is DEGENERATE
+# (SP-CEM failed to produce >=2 first-action classes often enough -> frac over a
+# near-empty denominator, NOT evidence of no coherence-specificity). The manifest
+# carries primary_seeds_low_gated + gating_adequacy_warning + review_caveats so a
+# /failure-autopsy or /governance reviewer sees this WITHOUT recomputing.
+MIN_GATED_STEPS_FOR_ADEQUACY = 20
+
 # Mirror V3-EXQ-543k / V3-EXQ-605 / V3-EXQ-608 / V3-EXQ-641 reef-bipartite SD-054
 # wiring (categorically-different reef-vs-forage first actions -> >=2 first-action
 # classes per candidate pool, so matched-E-different-C ties can occur).
@@ -910,6 +917,7 @@ def _run_pair(
         "error_note": error_note,
         "n_p1_steps": int(n_p1_steps),
         "n_p1_steps_gated": int(n_p1_steps_gated),
+        "gating_adequate": bool(n_p1_steps_gated >= MIN_GATED_STEPS_FOR_ADEQUACY),
         "n_flip_steps": int(n_flip_steps),
         "frac_flip": float(frac_flip),
         "n_state_div_steps": int(n_state_div_steps),
@@ -996,6 +1004,13 @@ def _interpret(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         if r["n_rebind_under_perturb"] > 0
     )
 
+    # Gating-adequacy audit (reviewer surface): primary seeds whose gated D1/SPEC
+    # denominator is too small to be trusted (SP-CEM diversity gap, not signal).
+    low_gated_seeds = sorted(
+        s for s, pr in by_seed_primary.items()
+        if pr["n_p1_steps_gated"] < MIN_GATED_STEPS_FOR_ADEQUACY
+    )
+
     if not by_seed_primary:
         label = "no_clean_completion"
     elif n_seed_pass >= MIN_SEEDS_FOR_PASS:
@@ -1018,6 +1033,9 @@ def _interpret(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "n_seed_pass": int(n_seed_pass),
         "min_seeds_for_pass": int(MIN_SEEDS_FOR_PASS),
         "n_rebind_seeds": int(n_rebind_seeds),
+        "min_gated_steps_for_adequacy": int(MIN_GATED_STEPS_FOR_ADEQUACY),
+        "primary_seeds_low_gated": low_gated_seeds,
+        "gating_adequacy_warning": bool(low_gated_seeds),
         "specificity_detail": spec_detail,
         "majority_label": label,
     }
@@ -1097,6 +1115,36 @@ def _build_manifest(
     result: Dict[str, Any], timestamp_utc: str, dry_run: bool
 ) -> Dict[str, Any]:
     run_id = f"{EXPERIMENT_TYPE}_{timestamp_utc}_v3"
+    interp = result.get("interpretation", {})
+    # Reviewer surface (/failure-autopsy, /governance): standing caveats + a
+    # dynamic warning when any primary seed's gated denominator is degenerate.
+    review_caveats = [
+        "D1/SPEC are computed on frac_state_div_GATED (two-mode-active P1 steps "
+        "with >=2 first-action classes). Per-seed n_p1_steps_gated + gating_adequate "
+        "are reported in per_run_results, and interpretation.primary_seeds_low_gated "
+        "/ gating_adequacy_warning flag any primary seed below "
+        "min_gated_steps_for_adequacy. A low-gated seed means SP-CEM did not produce "
+        ">=2 first-action classes often enough -- its gated D1/SPEC is a fraction over "
+        "a near-empty denominator and is a MEASUREMENT GAP (escalate SP-CEM diversity "
+        "or steps), NOT evidence of no coherence-specificity. This is the same "
+        "confound class that routed the 641->641a redesign. frac_state_div_all is "
+        "reported alongside frac_state_div_gated for this comparison.",
+        "REBINDING (n_rebind_under_perturb / interpretation.n_rebind_seeds) does NOT "
+        "gate PASS. n_rebind==0 on all perturb-condition seeds means the binding "
+        "intake's own falsifiable prediction was still never exercised -> the binding "
+        "intake (thought_intake_2026-04-23_binding.md) stays OPEN on the rebinding "
+        "axis even if the divergence axis routes a close.",
+    ]
+    if interp.get("gating_adequacy_warning"):
+        review_caveats.insert(
+            0,
+            "WARNING gating_adequacy_warning=True: primary seeds "
+            f"{interp.get('primary_seeds_low_gated')} had < "
+            f"{interp.get('min_gated_steps_for_adequacy')} two-mode-active P1 steps; "
+            "their gated D1/SPEC are degenerate -- weight the majority_label "
+            "accordingly and consider an SP-CEM-diversity escalation before closing "
+            "either intake. See review_caveats[1].",
+        )
     return {
         "run_id": run_id,
         "experiment_type": EXPERIMENT_TYPE,
@@ -1126,6 +1174,7 @@ def _build_manifest(
         "bears_on_not_tagged": [
             "INV-002", "ARC-018", "MECH-061", "MECH-269", "MECH-270",
         ],
+        "review_caveats": review_caveats,
         "dry_run": bool(dry_run),
         "env_kwargs": dict(ENV_KWARGS),
         "config_summary": {
