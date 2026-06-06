@@ -148,6 +148,17 @@ class LatentStackConfig:
     # See ree_core/predictors/e2_harm_s.py for the module and training protocol.
     use_e2_harm_s_forward: bool = False
 
+    # SD-031: E2_world causal-footprint forward model + single-pass comparator
+    # (the z_world instantiation of MECH-256; sibling to ARC-033 on z_harm_s).
+    # When True, experiments should construct an E2WorldForward instance and
+    # train it on z_world transitions (P1, after P0 z_world encoder warmup with
+    # SD-009 + SD-018). The comparator's discriminative/attribution arm requires
+    # world_dim >= 128 (E2WorldForward hard-asserts this; the 2026-06-06 cluster
+    # autopsy established z_world at dim=32 lacks discriminative granularity).
+    # Disabled by default -- backward compatible with all existing experiments.
+    # See ree_core/predictors/e2_world.py for the module and training protocol.
+    use_e2_world_forward: bool = False
+
     # SD-015 / MECH-112: dedicated ResourceEncoder for goal-directed navigation.
     # When True, LatentStack.encode() produces z_resource [batch, z_resource_dim]
     # from raw world_obs -- an object-type latent independent of spatial position.
@@ -2952,6 +2963,7 @@ class REEConfig:
         schema_wanting_gain: float = 0.5,
         # ARC-033: E2_harm_s forward model (sensory-discriminative harm stream predictor)
         use_e2_harm_s_forward: bool = False,
+        use_e2_world_forward: bool = False,
         # SD-056: E2 action-conditional divergence preservation
         # (auxiliary InfoNCE contrastive loss on world_forward)
         e2_action_contrastive_enabled: bool = False,
@@ -3608,6 +3620,7 @@ class REEConfig:
 
         # ARC-033: E2_harm_s forward model
         config.latent.use_e2_harm_s_forward = use_e2_harm_s_forward
+        config.latent.use_e2_world_forward = use_e2_world_forward
 
         # SD-056: E2 action-conditional divergence contrastive substrate.
         # Knobs land on config.e2 (E2Config); helpers live on E2FastPredictor.

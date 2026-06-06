@@ -61,6 +61,7 @@ from ree_core.heartbeat.beta_gate import BetaGate
 from ree_core.neuromodulation.serotonin import SerotoninModule
 from ree_core.predictors.e2_harm_a import E2HarmAConfig, E2HarmAForward
 from ree_core.predictors.e2_harm_s import E2HarmSConfig, E2HarmSForward
+from ree_core.predictors.e2_world import E2WorldConfig, E2WorldForward
 from ree_core.cingulate import (
     AICAnalog,
     AICConfig,
@@ -334,6 +335,23 @@ class REEAgent(nn.Module):
                 action_dim=config.e2.action_dim,
             )
             self.e2_harm_s = E2HarmSForward(harm_s_cfg)
+
+        # SD-031: E2_world causal-footprint forward model + single-pass
+        # comparator (the z_world instantiation of MECH-256; sibling to
+        # ARC-033 on z_harm_s). Constructed at the agent level when
+        # use_e2_world_forward is on (LatentStackConfig). z_world_dim is read
+        # from config.latent.world_dim -- NEVER a literal -- and E2WorldForward
+        # hard-asserts world_dim >= 128 (the discriminative-granularity guard
+        # from failure_autopsy_zworld-integration-cluster_2026-06-06). Backward
+        # compatible: None when the flag is off.
+        self.e2_world: Optional[E2WorldForward] = None
+        if getattr(config.latent, "use_e2_world_forward", False):
+            world_cfg = E2WorldConfig(
+                use_e2_world_forward=True,
+                z_world_dim=config.latent.world_dim,
+                action_dim=config.e2.action_dim,
+            )
+            self.e2_world = E2WorldForward(world_cfg)
 
         # SD-032b: dACC/aMCC-analog adaptive control.
         self.dacc: Optional[DACCAdaptiveControl] = None
