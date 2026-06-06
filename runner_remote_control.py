@@ -83,6 +83,12 @@ VALID_COMMAND_KINDS = (
 # bound file growth across long-running machines.
 MAX_HISTORY_PER_FILE = 50
 
+# Tail of live stdout lines carried in each per-machine heartbeat (the explorer's
+# scrollable card readout). Kept as its own constant -- separate from the runner's
+# RECENT_LINES_DISPLAY -- because this payload is git-committed every minute by the
+# Phase-3 heartbeat writer, so its depth is the git/DB-growth knob for remote cards.
+HEARTBEAT_RECENT_LINES = 100
+
 
 def _now_utc() -> str:
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -200,7 +206,7 @@ def write_heartbeat(
         "progress": progress,
         "seconds_elapsed": seconds_elapsed,
         "seconds_remaining": seconds_remaining,
-        "recent_lines": (recent_lines or [])[-5:] if recent_lines is not None else None,
+        "recent_lines": (recent_lines or [])[-HEARTBEAT_RECENT_LINES:] if recent_lines is not None else None,
         "queue_depth": queue_depth,
         "queue_id_at_head": queue_id_at_head,
         "recent_completed": (recent_completed or [])[-5:],

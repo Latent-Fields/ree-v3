@@ -93,6 +93,15 @@ _REE_ASSEMBLY_STATUS_DIRS = [
 
 STATUS_WRITE_INTERVAL = 5
 
+# Live stdout readout surfaced on the explorer's running-experiment cards.
+# RECENT_LINES_BUFFER is the in-memory rolling buffer per run; RECENT_LINES_DISPLAY
+# is the tail written to runner_status.json / the heartbeat (the explorer's
+# .exp-output box is scrollable, so a deeper tail just gives more to scroll).
+# Keep BUFFER >= DISPLAY so the displayed tail is never starved. These caps are
+# the only knob on git/DB growth for the per-minute Phase-3 telemetry commits.
+RECENT_LINES_BUFFER = 200
+RECENT_LINES_DISPLAY = 100
+
 # V3 experiment completion detection patterns (stdout signals)
 RE_SEED_CONDITION = re.compile(r'Seed\s+(\d+)\s+Condition\s+(\w+)')
 RE_EP_PROGRESS = re.compile(r'ep\s+(\d+)/(\d+)')
@@ -2049,7 +2058,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             },
             "seconds_elapsed": round(time.monotonic() - started_at),
             "seconds_remaining": round(seconds_remaining()),
-            "recent_lines": recent_lines[-5:],
+            "recent_lines": recent_lines[-RECENT_LINES_DISPLAY:],
             "ree_version": "v3",
         }
         for qi in status["queue"]:
@@ -2143,7 +2152,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                     progress=_build_progress_payload(),
                     seconds_elapsed=round(time.monotonic() - started_at),
                     seconds_remaining=round(seconds_remaining()),
-                    recent_lines=list(recent_lines[-5:]),
+                    recent_lines=list(recent_lines[-RECENT_LINES_DISPLAY:]),
                     runner_pid=os.getpid(),
                 )
                 if auto_sync and hb_path is not None:
@@ -2251,7 +2260,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             stripped = line.strip()
             if stripped:
                 recent_lines.append(stripped)
-                if len(recent_lines) > 20:
+                if len(recent_lines) > RECENT_LINES_BUFFER:
                     recent_lines.pop(0)
 
             if time.monotonic() - last_write >= STATUS_WRITE_INTERVAL:
