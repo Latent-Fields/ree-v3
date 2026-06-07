@@ -89,30 +89,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-598c",
-      "title": "SD-033a metric-redesign falsifier: direct rule_state cosine probes on held-out rule-context pairs (replaces 598b reef-visit-band behavioural metric). Teleport-sampled reef-context vs forage-context observation pool drives the rule_state EMA via the real sense->select_action->lateral_pfc.update path under sustained context; mean-centered cosine (RSA) measures rule_state context-discriminability. Independent of the blocked ARC-065/GAP-B behavioural-diversity work (random/teleport sampling sidesteps monomodal collapse). Same-statistic z_world discriminability is the non-vacuity readiness precondition.",
-      "script": "experiments/v3_exq_598c_sd033a_rule_state_cosine_probe.py",
-      "priority": 200,
-      "machine_affinity": "any",
-      "estimated_minutes": 30,
-      "supersedes": "V3-EXQ-598b",
-      "claim_id": "SD-033a",
-      "note": "Routing: failure_autopsy_V3-EXQ-598_2026-05-29.md Learning #2 + Section 8 (any SD-033a successor needs a redesigned metric -- reef-visit-fraction is a downstream-integration metric that always fails under monomodal collapse) + arc062_rule_creator_scoping_2026-06-02.md Section 5.4 ('SD-033a successor (598c) ... direct rule_state cosine probes on held-out rule-context pairs ... Independent of the substrate work'). Probes SD-033a signatures (i) stimulus-abstracted rule representation + (ii) distractor-resistant persistence DIRECTLY at the representational level, decoupled from policy behaviour. P0 (30 ep) encoder warm-up so z_world is context-discriminative (642/643 vacuity lesson); Phase A teleport-samples a balanced reef-half/forage-half observation pool (env._get_observation_dict at chosen cells -> guaranteed coverage regardless of policy collapse / forage-half lethality); Phase B runs N_TRIALS=40 probe trials per context (DWELL=12 sustained same-context obs -> rule_state EMA settles) reading rule_state + z_world. Discriminability = MEAN-CENTERED cosine (within - cross). Pre-registered: READINESS z_world margin>=0.15 (same statistic, upstream signal; below-floor self-routes substrate_not_ready_requeue, NOT an SD-033a verdict); C1 rule_state non-degenerate (norm>1e-3, std>1e-6); C2 within-context centered-cosine>=0.20; C3 (LOAD-BEARING) rule_state margin>=0.15; all on >=2/3 seeds. supports iff C1+C2+C3; weakens iff readiness+C1 met but C3 fails (persistence EMA smears context); non_contributory iff readiness unmet or C1 fail. gated_policy + ARC-062 discriminator source DISABLED (isolates pure SD-033a rule_state, max decoupling from blocked ARC-062). validate_experiments OK; --dry-run PASS end-to-end (manifest+sentinel); moderate-scale 3-seed smoke PASS/supports (zw_margin 0.22-0.39, rule_margin 0.29-0.67, balanced 30/30 samples/seed). Do NOT start the runner -- user starts manually from the explorer.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-07T13:45:43Z"
-      },
-      "claim_ids": [
-        "SD-033a"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 42,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_598c_sd033a_rule_state_cosine_probe",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-624c",
       "title": "ARC-068/MECH-320 Niv-Salamone opportunity-cost dissociation -- no-op-rich re-spec (5 seeds + non-vacuous majority gate)",
       "script": "experiments/v3_exq_624c_arc068_mech320_niv_salamone_dissociation.py",
