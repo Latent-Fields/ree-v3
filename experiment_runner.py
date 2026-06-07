@@ -2003,6 +2003,15 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     episodes_in_run = 0
     recent_lines: list[str] = []
     run_end_times: list[float] = []
+    # True once the experiment has printed at least one "Seed N Condition X"
+    # cell label. Multi-cell experiments delimit cells with these labels and
+    # do NOT necessarily print a PASS/FAIL run-done line per cell (e.g. a bare
+    # "verdict: seed=... arm=..." line carries no PASS/FAIL token). When set,
+    # each new cell label finalises the PREVIOUS cell for ETA purposes, so the
+    # stable median-per-cell estimator is used instead of the divergent
+    # live-extrapolation fallback (which, driven by a pct stuck near 0, makes
+    # the displayed time-left swing wildly). See _estimate_seconds_remaining.
+    seen_seed_condition = False
 
     started_at = time.monotonic()
     started_at_utc = now_utc()
@@ -2192,6 +2201,15 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
             # Progress: Condition label from V3 experiments
             m = RE_SEED_CONDITION.search(line)
             if m:
+                # A new cell is starting -> the previous cell (if any) just
+                # finished. Use the label transition as the cell-completion
+                # boundary so multi-cell experiments accrue real per-cell
+                # durations (and a climbing runs_done) even when they print no
+                # PASS/FAIL run-done line per cell.
+                if seen_seed_condition:
+                    run_end_times.append(time.monotonic() - started_at)
+                    runs_done += 1
+                seen_seed_condition = True
                 current_run_label = f"Seed {m.group(1)} / {m.group(2)}"
                 episodes_in_run = 0
 
@@ -2217,20 +2235,25 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                     print_progress_bar()
                     last_bar_pct = pct_milestone
 
-            # Run completion: V3 verdict patterns
-            for pat in RE_RUN_DONE_PATTERNS:
-                if pat.search(line):
-                    run_end_times.append(time.monotonic() - started_at)
-                    runs_done += 1
-                    episodes_in_run = episodes_per_run
-                    print_progress_bar()
-                    last_bar_pct = 100
-                    break
+            # Run completion: V3 verdict patterns. Skipped once we are in
+            # Seed/Condition mode -- there, cell boundaries are counted at the
+            # next cell label (above), so counting a per-cell PASS/FAIL line
+            # here too would double-count. Experiments that emit no cell labels
+            # (single-run / unstructured) still rely on these patterns.
+            if not seen_seed_condition:
+                for pat in RE_RUN_DONE_PATTERNS:
+                    if pat.search(line):
+                        run_end_times.append(time.monotonic() - started_at)
+                        runs_done += 1
+                        episodes_in_run = episodes_per_run
+                        print_progress_bar()
+                        last_bar_pct = 100
+                        break
 
-            m = RE_STATUS_LINE.match(line)
-            if m:
-                run_end_times.append(time.monotonic() - started_at)
-                runs_done = max(runs_done, 1)
+                m = RE_STATUS_LINE.match(line)
+                if m:
+                    run_end_times.append(time.monotonic() - started_at)
+                    runs_done = max(runs_done, 1)
 
             m = RE_SAVED_TO.search(line)
             if m:
