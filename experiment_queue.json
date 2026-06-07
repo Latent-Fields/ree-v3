@@ -16,7 +16,11 @@
       "estimated_minutes": 255,
       "supersedes": "V3-EXQ-603f",
       "note": "Substrate-readiness diagnostic (claim_ids=[]). Validates the 2026-06-07 curriculum-decomposition amend: a separately-trained ISOLATED hazard-avoidance stage (Stage-H) inserted between P0 and P1 (goal pipeline frozen, hazards present, foraging minimal, hfa=0, midline spawn). The SINGLE change vs 603f. PASS gate UNCHANGED: G0 AND G1 AND G2 each >=2/3 seeds; new G_H Stage-H survival readout is DIAGNOSTIC only (NOT in PASS rule). GAP-2 stays blocked until 603g clears G1>=2/3 AND G2>=2/3 AND ecological G3>=2/3. Routed by failure_autopsy_V3-EXQ-603f_2026-06-07.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-07T13:45:38Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 235,
