@@ -136,6 +136,29 @@
       "experiment_purpose": "baseline",
       "experiment_type": "v3_exq_610_inv074_crystallization_baseline_mint",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-604b",
+      "title": "MECH-314 sub-flavour ablation on validated modulatory-bias-selection-authority (supersedes 604a)",
+      "experiment_type": "v3_exq_604b_q044_mech314_subflavour_ablation_authority_on",
+      "script": "experiments/v3_exq_604b_q044_mech314_subflavour_ablation_authority_on.py",
+      "claim_id": "MECH-314",
+      "claim_ids": [
+        "MECH-314",
+        "MECH-314a",
+        "MECH-314b",
+        "MECH-314c",
+        "Q-044"
+      ],
+      "supersedes": "V3-EXQ-604a",
+      "priority": 150,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 240,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 5,
+      "note": "Clean governance-weighted retest of the Q-044/MECH-314a/b/c sub-flavour ablation now that modulatory-bias-selection-authority is VALIDATED (V3-EXQ-643a PASS). Enables use_modulatory_selection_authority (gain 0.5) + SD-056 rollout-norm clamp uniformly across all 5 arms so the curiosity bias has bounded selection authority. Fixes 604a's two failure causes: zero authority at E3.select + a measurement bug reading nonexistent get_state() key last_bias_abs_mean (now reads real key last_bias_max_abs). Readiness gate routes genuinely-zero curiosity / unbounded scores to non_contributory (not a MECH-314 falsification). Acceptance: curiosity_bias_max_abs>floor in ARM_ALL_ON AND C1 parent delta>=0.03."
     }
   ]
 }
