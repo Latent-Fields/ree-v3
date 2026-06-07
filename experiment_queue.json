@@ -29,6 +29,22 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-604c",
+      "title": "MECH-314/Q-044 sub-flavour ablation on validated GAP-A substrate + selection authority (RANGE readiness gate); supersedes 604b",
+      "script": "experiments/v3_exq_604c_q044_mech314_subflavour_ablation_gapa_ready.py",
+      "priority": 310,
+      "machine_affinity": "any",
+      "estimated_minutes": 360,
+      "supersedes": "V3-EXQ-604b",
+      "claim_id": "MECH-314",
+      "note": "Corrected retest of V3-EXQ-604b (NON_CONTRIBUTORY/substrate_ceiling, governance-cycle-20260607T1426Z): ran pre-GAP-A-validation with a class-uniform candidate pool so the curiosity bias had magnitude but ~zero cross-candidate RANGE. 604c enables the validated GAP-A fix (curiosity_candidate_source + candidate_summary_source=e2_world_forward; 649/648a-validated) + modulatory-bias-selection-authority (643a) and replaces the bias-MAGNITUDE readiness gate with a cross-candidate RANGE gate (R1 consumed cand_world_pairwise_dist >=0.05; R2 per-candidate curiosity_bias_range >=1e-4 -- the same statistic C1 routes on; R3 raw_bounded_frac). claim_ids=[MECH-314,MECH-314a,MECH-314b,MECH-314c,Q-044]; claims stay candidate/v3_pending, not weakened. Below-floor self-routes substrate_not_ready_requeue.",
+      "status": "pending",
+      "conditions": 5,
+      "episodes_per_run": 80,
+      "experiment_type": "v3_exq_604c_q044_mech314_subflavour_ablation_gapa_ready",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-603f",
       "title": "scaffolded_sd054_onboarding FULL-SCALE substrate-readiness run (foraging-competence amend validation): single-arm all-levers-ON at restored budget P0=100/P1=50 (Stage0=20/Stage0b=10/P2=15, 200 steps/ep), z_goal_enabled=True + drive_weight=2.0. Cue-recall bridge + reef-spawn weaning 0.4 + auto-reconcile gating-to-seeding + 634c seeding calibration (gain1.5/thr0.02/drivefloor0.9) + developmental window. Gate G0 Stage-0 z_goal>0.4 + G1 P1 survival + G2 P2 contact>0, each >=2/3 seeds. Lynchpin blocking commitment_closure:GAP-4 / goal_pipeline:GAP-4 / infant 603-chain.",
       "script": "experiments/v3_exq_603f_scaffolded_sd054_substrate_readiness.py",
@@ -69,26 +85,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-651a",
-      "title": "ARC-060 blocked-goal recovery redesign: Phase-B agent displacement + non-degeneracy gate + behavioural re-approach readout",
-      "script": "experiments/v3_exq_651a_arc060_blocked_goal_recovery.py",
-      "priority": 160,
-      "machine_affinity": "any",
-      "estimated_minutes": 12,
-      "supersedes": "V3-EXQ-651",
-      "claim_id": "ARC-060",
-      "backlog_id": "EVB-0076",
-      "note": "Redesign re-queue of V3-EXQ-651 (NON_CONTRIBUTORY / measurement_test_design_defect per failure_autopsy_V3-EXQ-651_2026-06-07; ARC-060 stays candidate/v3_pending, NOT weakened, pending_retest_after_substrate=true). 651 FAILed because the FIELD_ONLY negative control never abandoned the goal -- Phase-C goal-proximity stayed ~0.98 in BOTH arms, so the discrete ghost-goal bank's rescue advantage had nothing to act on (the bank DID engage: C1 3/3, 130-146 ghost candidates, goal_active_frac=1.0). 651a applies the 3 autopsy fixes. (a) STRONGER PHASE-B INVALIDATION: remove the goal resource AND physically displace the agent to the farthest interior cell from the old goal cell (local resource gradient -> flat AND agent forced off the goal scene); Phase-A seed strengthened (drive 0.9/benefit 0.6 vs 651's 0.8/0.4; 651 goal_norm_after_phase_a=0.30 was modest). (b) NON-DEGENERACY GATE (structural fix): the FIELD_ONLY arm must DEMONSTRABLY ABANDON (behavioural re-approach < 0.30 of the displacement gap) BEFORE the FIELD+BANK recovery comparison is scored; if the negative control does not abandon, the run reports non_degenerate=False and self-routes to non_contributory -- never weakens ARC-060. (c) BEHAVIOURAL RE-APPROACH READOUT (primary): Phase-C Manhattan distance agent->old-goal-cell tracked each tick; recovery = ON closes >=0.15 more of the gap than OFF; the saturating latent goal_proximity is reported ALONGSIDE (secondary, not gating; displacement also un-saturates it). Substrate (SD-039/MECH-292/MECH-293) landed + child-validated (V3-EXQ-494/496/497 PASS) -- test-design fix, NOT substrate work. Outcome grid: C1 not met -> non_contributory (bank not engaged); C1 met + ND not met -> non_contributory (degenerate negative control, the 651 failure mode, now gated); C1+ND+C3 met -> supports; C1+ND met, C3 not met -> weakens. Dry-run (1 seed x 2 arms, reduced ticks): displacement + ND gate + behavioural readout exercised end-to-end (C1=True ghost=13, C2_clean=True, ND_off_abandons=True OFF_reapp=+0.000, ON_reapp=+0.500, non_degenerate=True). claim_ids=[ARC-060]. experiment_purpose=evidence.",
-      "status": "pending",
-      "claim_ids": [
-        "ARC-060"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_651a_arc060_blocked_goal_recovery",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-624c",
       "title": "ARC-068/MECH-320 Niv-Salamone opportunity-cost dissociation -- no-op-rich re-spec (5 seeds + non-vacuous majority gate)",
       "script": "experiments/v3_exq_624c_arc068_mech320_niv_salamone_dissociation.py",
@@ -112,22 +108,6 @@
       "episodes_per_run": 130,
       "experiment_type": "v3_exq_624c_arc068_mech320_niv_salamone_dissociation",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-604c",
-      "title": "MECH-314/Q-044 sub-flavour ablation on validated GAP-A substrate + selection authority (RANGE readiness gate); supersedes 604b",
-      "experiment_type": "v3_exq_604c_q044_mech314_subflavour_ablation_gapa_ready",
-      "script": "experiments/v3_exq_604c_q044_mech314_subflavour_ablation_gapa_ready.py",
-      "priority": 310,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 360,
-      "episodes_per_run": 80,
-      "seeds": 3,
-      "conditions": 5,
-      "claim_id": "MECH-314",
-      "supersedes": "V3-EXQ-604b",
-      "note": "Corrected retest of V3-EXQ-604b (NON_CONTRIBUTORY/substrate_ceiling, governance-cycle-20260607T1426Z): ran pre-GAP-A-validation with a class-uniform candidate pool so the curiosity bias had magnitude but ~zero cross-candidate RANGE. 604c enables the validated GAP-A fix (curiosity_candidate_source + candidate_summary_source=e2_world_forward; 649/648a-validated) + modulatory-bias-selection-authority (643a) and replaces the bias-MAGNITUDE readiness gate with a cross-candidate RANGE gate (R1 consumed cand_world_pairwise_dist >=0.05; R2 per-candidate curiosity_bias_range >=1e-4 -- the same statistic C1 routes on; R3 raw_bounded_frac). claim_ids=[MECH-314,MECH-314a,MECH-314b,MECH-314c,Q-044]; claims stay candidate/v3_pending, not weakened. Below-floor self-routes substrate_not_ready_requeue."
     }
   ]
 }
