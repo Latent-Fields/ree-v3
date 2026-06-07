@@ -87,6 +87,21 @@
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_640b_scaffold_cue_authority_gain_sweep_retest",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-603h",
+      "title": "SD-058/MECH-357 instrumental-avoidance Stage-H validation (gate ON vs bit-identical OFF; PASS = G_H_ON>=2/3 AND ON>OFF, gate must engage under threat)",
+      "experiment_type": "v3_exq_603h_instrumental_avoidance_stageh_validation",
+      "script": "experiments/v3_exq_603h_instrumental_avoidance_stageh_validation.py",
+      "priority": 330,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 360,
+      "episodes_per_run": 235,
+      "seeds": 3,
+      "conditions": 2,
+      "note": "Substrate-readiness diagnostic (claim_ids=[]) validating the SD-058/MECH-357 instrumental-avoidance gate landed 2026-06-07 (ree_core/pfc/infralimbic_avoidance_gate.py). 2-arm: ARM_OFF = the V3-EXQ-603g config (use_instrumental_avoidance=False; bit-identical to 603g by construction -- the freeze-only baseline) vs ARM_ON (use_instrumental_avoidance=True + scaffold_avoidance_driver_enabled=True, protective-scaffold floor 0.8->0.0). PRIMARY: does the survival/hazard-avoidance leg now TRAIN? G_H_ON>=2/3 seeds clear the Stage-H survival gate (median last-window >=75) AND G_H_ON_frac>G_H_OFF_frac. Non-vacuity readiness precondition: the gate must engage under threat (n_credit+n_decay>0 on >=2/3 ON seeds) else substrate_not_ready_requeue. G1 (P1 survival) reported as the GAP-2 transfer prize (gate active across all stages in ARM_ON). Routed by failure_autopsy_V3-EXQ-603g-624c-651a_2026-06-07 + targeted_review_hazard_avoidance_learning. Dry-run PASS (both arms run end-to-end; dry-scale correctly self-routes substrate_not_ready_requeue -- gate sees no supra-threshold z_harm_a in 30-step episodes). validate_experiments --strict --paths OK. PASS unblocks ARC-060/MECH-320/ARC-068/SD-054-readiness retests via a follow-on full 603g-style readiness gate with the gate ON. Do NOT start the runner.",
+      "claim_ids": []
     }
   ]
 }
