@@ -92,6 +92,26 @@
       "episodes_per_run": 130,
       "experiment_type": "v3_exq_624c_arc068_mech320_niv_salamone_dissociation",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-651a",
+      "title": "ARC-060 blocked-goal recovery redesign: Phase-B agent displacement + non-degeneracy gate + behavioural re-approach readout",
+      "experiment_type": "v3_exq_651a_arc060_blocked_goal_recovery",
+      "script": "experiments/v3_exq_651a_arc060_blocked_goal_recovery.py",
+      "priority": 160,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 12,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-651",
+      "claim_id": "ARC-060",
+      "claim_ids": [
+        "ARC-060"
+      ],
+      "backlog_id": "EVB-0076",
+      "note": "Redesign re-queue of V3-EXQ-651 (NON_CONTRIBUTORY / measurement_test_design_defect per failure_autopsy_V3-EXQ-651_2026-06-07; ARC-060 stays candidate/v3_pending, NOT weakened, pending_retest_after_substrate=true). 651 FAILed because the FIELD_ONLY negative control never abandoned the goal -- Phase-C goal-proximity stayed ~0.98 in BOTH arms, so the discrete ghost-goal bank's rescue advantage had nothing to act on (the bank DID engage: C1 3/3, 130-146 ghost candidates, goal_active_frac=1.0). 651a applies the 3 autopsy fixes. (a) STRONGER PHASE-B INVALIDATION: remove the goal resource AND physically displace the agent to the farthest interior cell from the old goal cell (local resource gradient -> flat AND agent forced off the goal scene); Phase-A seed strengthened (drive 0.9/benefit 0.6 vs 651's 0.8/0.4; 651 goal_norm_after_phase_a=0.30 was modest). (b) NON-DEGENERACY GATE (structural fix): the FIELD_ONLY arm must DEMONSTRABLY ABANDON (behavioural re-approach < 0.30 of the displacement gap) BEFORE the FIELD+BANK recovery comparison is scored; if the negative control does not abandon, the run reports non_degenerate=False and self-routes to non_contributory -- never weakens ARC-060. (c) BEHAVIOURAL RE-APPROACH READOUT (primary): Phase-C Manhattan distance agent->old-goal-cell tracked each tick; recovery = ON closes >=0.15 more of the gap than OFF; the saturating latent goal_proximity is reported ALONGSIDE (secondary, not gating; displacement also un-saturates it). Substrate (SD-039/MECH-292/MECH-293) landed + child-validated (V3-EXQ-494/496/497 PASS) -- test-design fix, NOT substrate work. Outcome grid: C1 not met -> non_contributory (bank not engaged); C1 met + ND not met -> non_contributory (degenerate negative control, the 651 failure mode, now gated); C1+ND+C3 met -> supports; C1+ND met, C3 not met -> weakens. Dry-run (1 seed x 2 arms, reduced ticks): displacement + ND gate + behavioural readout exercised end-to-end (C1=True ghost=13, C2_clean=True, ND_off_abandons=True OFF_reapp=+0.000, ON_reapp=+0.500, non_degenerate=True). claim_ids=[ARC-060]. experiment_purpose=evidence."
     }
   ]
 }
