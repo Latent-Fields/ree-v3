@@ -171,6 +171,21 @@
       "experiment_purpose": "baseline",
       "experiment_type": "v3_exq_610_inv074_crystallization_baseline_mint",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-649",
+      "title": "ARC-065 GAP-A substrate-readiness: shared cand_world_summaries e2.world_forward source (V3-EXQ-614e autopsy) -- 2-arm proposer vs e2_world_forward",
+      "experiment_type": "v3_exq_649_arc065_gapa_shared_candidate_summary_source",
+      "script": "experiments/v3_exq_649_arc065_gapa_shared_candidate_summary_source.py",
+      "priority": 330,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "ARC-065",
+      "note": "Substrate-readiness diagnostic (claim_ids=[], experiment_purpose=diagnostic). Validates the SHARED-channel e2.world_forward re-sourcing landed 2026-06-07 (ree-v3 71dfb2b, REEConfig.candidate_summary_source) -- the shared-channel sibling of the curiosity-only MECH-314a Phase-2 fix (648a). 2-arm: ARM_0 candidate_summary_source=proposer (614e baseline) vs ARM_1 e2_world_forward (GAP-A fix); SP-CEM on, lateral_pfc+mech295 on, SD-056 online contrastive trained both arms (rollout-norm clamp ON per 643a). Measures consumed_summary_pairwise_dist = per-candidate spread of the rep the bias channels actually consume. PASS = READINESS (ARM_1 consumed spread > 0.05 on >=2/3 seeds, finite) AND C1 (ARM_0 proposer spread collapses <=0.05, reproduces 614e cand_world_pairwise_dist~0) AND C2 load-bearing (ARM_1 consumed spread > ARM_0 per matched seed on >=2/3). Same-statistic readiness gate (C0/C1/C2 all route on consumed_summary_pairwise_dist, a cross-candidate range). Readiness-below-floor self-routes substrate_not_ready_requeue (under-trained e2), NOT a substrate verdict. PASS unblocks the MECH-341 committed-class diversity re-test (within-class-REPRESENTATIVE-diversity readout, NOT committed-class entropy -- 614e autopsy Learning #2). MECH-341 stays candidate/v3_pending; not weakened.",
+      "status": "pending"
     }
   ]
 }
