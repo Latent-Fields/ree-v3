@@ -182,6 +182,22 @@
       "experiment_purpose": "baseline",
       "experiment_type": "v3_exq_610_inv074_crystallization_baseline_mint",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-651",
+      "title": "ARC-060 blocked-goal recovery: field-only vs field+ghost-bank",
+      "experiment_type": "v3_exq_651_arc060_blocked_goal_recovery",
+      "script": "experiments/v3_exq_651_arc060_blocked_goal_recovery.py",
+      "priority": 260,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 20,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 2,
+      "backlog_id": "EVB-0076",
+      "claim_id": "ARC-060",
+      "note": "EXP-0112 targeted probe. Matched OFF(field-only)/ON(field+ghost-bank) ablation of ARC-060: Phase A seeds z_goal + populates SD-039 dual-trace anchors; Phase B removes the goal resource to collapse the local gradient; Phase C measures mean goal_proximity-to-persisted-goal recovery (ON>OFF supports ARC-060). C1 non-degeneracy precondition (ghost admitted>=1 + z_goal active) routes substrate-not-engaged to non_contributory, never weakens. Untrained-substrate behavioural probe (same pattern as V3-EXQ-494/496/497). emit_outcome sentinel wired; smoke 2026-06-07 dry-run: ghost=13 admitted ON, OFF clean 0, arms diverge."
     }
   ]
 }
