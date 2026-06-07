@@ -49,26 +49,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-648",
-      "title": "MECH-314a Phase-2 (Candidate 5A) substrate-readiness validation: rolling z_world visitation buffer + first-action one-hot augmentation. 4 conditions x 3 seeds x 80 ep (P0=60 warmup + P1=20 measure; matches the V3-EXQ-604a proven SD-056 online-contrastive budget). The only remaining gate on substrate_queue entry MECH-314a-Phase-2-impl (implemented_pending_validation, landed 2026-06-05).",
-      "script": "experiments/v3_exq_648_mech314a_phase2_substrate_readiness.py",
-      "priority": 300,
-      "machine_affinity": "any",
-      "estimated_minutes": 300,
-      "note": "Arch doc REE_assembly/docs/architecture/mech_314a_phase2_novelty_source_design.md section 6 falsifier sketch (3-arm sketch; the recommended-config arm is split into SD-056-ON / SD-056-OFF probe cells so C3's 'augmentation engages when SD-056 artificially disabled' is measurable -> 4 conditions). Arms: ARM_0_BASELINE (residue/never, Phase-1), ARM_1_VISITATION_ONLY (visitation/never, SD-056 ON), ARM_2_VIS_ONEHOT_SD056_ON (Candidate 5A visitation+auto-augment, SD-056 ON -> augmentation should NOT engage), ARM_2_VIS_ONEHOT_SD056_OFF (Candidate 5A wiring, SD-056 untrained probe -> augmentation engages). Harm-free env (num_hazards=0) so the Phase-1 residue baseline collapses to zero (F1 contrast). SD-056 rollout-norm clamp ON in trained arms (V3-EXQ-643a stability lesson). PASS (label=phase2_substrate_ready) = readiness OK + C1+C2+C3+C4 all fire; routes to /queue-experiment V3-EXQ-590b (Goldilocks retest; owner_exq of closure-map infant_substrate:GAP-13) and unblocks the section-8 governance/claims updates for MECH-314a/MECH-314/ARC-065. Readiness-below-floor (ARM_1 cand_world_pairwise_dist <= 0.05 -- the SAME spread statistic C2 routes on, positive control) self-routes to substrate_not_ready_requeue (re-queue at higher P0 budget), NOT a substrate verdict. experiment_purpose=diagnostic, claim_ids=[] (does not weight claim confidence). Smoke-tested --dry-run 2026-06-06 (4 cells end-to-end, exit 0, correctly self-routed substrate_not_ready_requeue at dry scale; C4 MECH-094 gate PASS). BUDGET BUMPED 2026-06-06T21:21Z P0 20->60 / P1 10->20 (total 30->80 ep/cell) to match 604a's proven SD-056 warmup -- P0=20 was near-certain to under-train SD-056 and self-route substrate_not_ready_requeue; the substantive change is the script constants (the runner reads the script on claim). Do not start the runner; user starts manually from the explorer.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-06T23:08:59Z"
-      },
-      "claim_ids": [],
-      "conditions": 4,
-      "episodes_per_run": 80,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_648_mech314a_phase2_substrate_readiness",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-644",
       "title": "arm-reuse Phase-0 MINT of the V3-EXQ-610 OFF/baseline arm (INV-074 crystallization necessity; ARM_0_stripped_control) on ree-cloud-2. OFF arm x 3 seeds, built from the canonical baseline module; records per-cell arm_fingerprint. Sibling to V3-EXQ-645 (ree-cloud-3) for the cross-instance determinism check.",
       "script": "experiments/v3_exq_610_inv074_crystallization_baseline_mint.py",
