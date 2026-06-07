@@ -1986,6 +1986,25 @@ class REEConfig:
     use_modulatory_selection_authority: bool = False
 
     # ----------------------------------------------------------------
+    # ControlVector logging (recommendation B, four-signal control
+    # adjudication 2026-06-07). Read-only, default-OFF telemetry that
+    # assembles four separately-inspectable control signals each E3 tick:
+    #   V_outcome -- primary value axis (E3 raw pre-bias scores)
+    #   C_effort  -- dACC EVC effort term (control_required * candidate_effort)
+    #   C_time    -- MECH-320 tonic-vigor +w_passive*v_t no-op / opportunity-
+    #                cost-of-time half
+    #   G_vigor   -- MECH-320 tonic-vigor -w_action*v_t action half + the
+    #                MECH-313 noise-floor temperature lift
+    # Purpose: make value / effort / opportunity-cost / vigor independently
+    # inspectable and EXPOSE that C_time and G_vigor are both deterministic
+    # functions of MECH-320's single v_t scalar (the ARC-068-vs-MECH-320
+    # collapse). Pure telemetry: NO change to scoring or selection.
+    # Surfaced on REEAgent._last_control_vector (read directly by experiment
+    # scripts, the V3-EXQ-571 _last_score_bias_decomp pattern). Default False
+    # -> bit-identical; the assembly block is skipped entirely.
+    use_control_vector_logging: bool = False
+
+    # ----------------------------------------------------------------
     # MECH-090 R-c conjunction: commit-entry predicate amendment from
     # rv-only to rv_low AND readiness_above_floor. Reading R-c per the
     # 2026-05-28 lit-pull synthesis (REE_assembly/evidence/literature/
@@ -3386,6 +3405,9 @@ class REEConfig:
         use_modulatory_selection_authority: bool = False,
         modulatory_authority_gain: float = 0.5,
         modulatory_authority_min_range_floor: float = 1e-6,
+        # ControlVector logging (rec-B four-signal adjudication 2026-06-07):
+        # read-only default-OFF telemetry; bit-identical when False.
+        use_control_vector_logging: bool = False,
         # SD-055: differentiable CEM selection approximation
         use_differentiable_cem: bool = False,
         differentiable_cem_temperature: float = 1.0,
@@ -4105,6 +4127,7 @@ class REEConfig:
         config.e3.modulatory_authority_gain = modulatory_authority_gain
         config.e3.modulatory_authority_min_range_floor = modulatory_authority_min_range_floor
         config.use_modulatory_selection_authority = use_modulatory_selection_authority
+        config.use_control_vector_logging = use_control_vector_logging
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep

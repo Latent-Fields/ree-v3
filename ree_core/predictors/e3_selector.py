@@ -191,6 +191,9 @@ class E3TrajectorySelector(nn.Module):
         # rv never updates -> agent can never commit.
         self._last_selected_trajectory: Optional[Trajectory] = None
         self.last_scores: Optional[torch.Tensor] = None
+        # ControlVector logging (rec-B): pre-bias per-candidate scores (value
+        # axis / V_outcome), written each select() call. None until first call.
+        self.last_raw_scores: Optional[torch.Tensor] = None
         # V3-EXQ-563c: score / bias scale diagnostics written each select() call.
         self.last_score_diagnostics: dict = {}
         # V3-EXQ-571: per-component score decomposition (default OFF, bit-identical)
@@ -721,6 +724,11 @@ class E3TrajectorySelector(nn.Module):
         raw_scores = scores.detach()
         raw_score_range = float((raw_scores.max() - raw_scores.min()).item())
         raw_score_std = float(raw_scores.std().item())
+        # ControlVector logging (rec-B): the PRE-bias per-candidate scores are
+        # the primary value axis (V_outcome). Stored unconditionally alongside
+        # last_scores (the post-bias scores); a detached tensor ref, negligible
+        # cost. REE convention is lower-is-better, so value = -score.
+        self.last_raw_scores = raw_scores
 
         # modulatory-bias-selection-authority (V3-EXQ-643a fix, 2026-06-06):
         # Track the COMBINED modulatory contribution (score_bias + MECH-341

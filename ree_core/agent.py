@@ -1520,6 +1520,14 @@ class REEAgent(nn.Module):
         self._last_e3_score_bias: Optional[torch.Tensor] = None
         # V3-EXQ-571: per-component bias decomposition (written when e3.e3_score_decomp_enabled)
         self._last_score_bias_decomp: dict = {}
+        # ControlVector logging (rec-B four-signal adjudication 2026-06-07):
+        # read-only per-tick telemetry of the four control signals
+        # (V_outcome / C_effort / C_time / G_vigor), written when
+        # config.use_control_vector_logging. Read directly by experiment
+        # scripts (the _last_score_bias_decomp pattern). _cv_vigor holds the
+        # MECH-320 action/no-op split cached in the tonic_vigor block.
+        self._last_control_vector: dict = {}
+        self._cv_vigor: Optional[dict] = None
         # MECH-090: step index within committed trajectory (Layer 1 trajectory stepping).
         # Incremented each committed step so a0->a1->a2->... is executed in sequence.
         self._committed_step_idx: int = 0
@@ -3642,6 +3650,9 @@ class REEAgent(nn.Module):
         _bdc_curiosity: Optional[torch.Tensor] = None
         _bdc_vigor: Optional[torch.Tensor] = None
         _bdc_forced: Optional[torch.Tensor] = None
+        # ControlVector logging (rec-B): reset the cached MECH-320 split each
+        # tick so a tonic-vigor-off / no-fire tick does not carry stale state.
+        self._cv_vigor = None
         if self.dacc is not None and z_harm_a is not None:
             # Per-candidate payoff proxy: negative of E3 running candidate score if
             # available (lower score = better, so payoff = -score). Falls back to
@@ -4335,6 +4346,43 @@ class REEAgent(nn.Module):
                 )
             if self.e3.e3_score_decomp_enabled:
                 _bdc_vigor = tv_bias.detach().clone()
+            # ControlVector logging (rec-B): split the single MECH-320 bias into
+            # its action half (G_vigor = -w_action*v_t) and no-op half
+            # (C_time = +w_passive*v_t), and record the shared v_t scalar + the
+            # two config weights. Logging both halves AND their common v_t is
+            # what makes the C_time<->G_vigor collapse (one scalar, two weights)
+            # directly computable from a manifest. Read-only; no scoring change.
+            if getattr(self.config, "use_control_vector_logging", False):
+                _tv_state = self.tonic_vigor.get_state()
+                _tv_noop_cls = int(self.tonic_vigor.config.noop_class)
+                _tv_b = tv_bias.detach().reshape(-1)
+                _tv_is_noop = tv_action_classes.reshape(-1) == _tv_noop_cls
+                _n_noop = int(_tv_is_noop.sum().item())
+                _n_action = int(_tv_b.numel() - _n_noop)
+                _action_mean = (
+                    float(_tv_b[~_tv_is_noop].mean().item()) if _n_action > 0 else 0.0
+                )
+                _noop_mean = (
+                    float(_tv_b[_tv_is_noop].mean().item()) if _n_noop > 0 else 0.0
+                )
+                self._cv_vigor = {
+                    "v_t": float(_tv_state.get("last_v_t", 0.0)),
+                    "v_raw": float(_tv_state.get("v_raw", 0.0)),
+                    "w_action": float(self.tonic_vigor.config.w_action),
+                    "w_passive": float(self.tonic_vigor.config.w_passive),
+                    # Potential per-half magnitudes (independent of whether a
+                    # candidate of each class exists this tick): the collapse is
+                    # that both are w * v_t for the SAME v_t.
+                    "C_time_potential": float(self.tonic_vigor.config.w_passive)
+                    * float(_tv_state.get("last_v_t", 0.0)),
+                    "G_vigor_potential": float(self.tonic_vigor.config.w_action)
+                    * float(_tv_state.get("last_v_t", 0.0)),
+                    # Realised per-candidate means actually applied this tick.
+                    "C_time_realised_mean": _noop_mean,
+                    "G_vigor_realised_mean": _action_mean,
+                    "n_action_candidates": _n_action,
+                    "n_noop_candidates": _n_noop,
+                }
             if dacc_score_bias is None:
                 dacc_score_bias = tv_bias
             else:
@@ -4498,6 +4546,20 @@ class REEAgent(nn.Module):
             score_diversity=self.score_diversity,
         )
         self._last_e3_selection_result = result
+
+        # ControlVector logging (rec-B four-signal adjudication 2026-06-07).
+        # Read-only assembly of the four control signals AFTER selection, so
+        # V_outcome reflects the realised primary scores. No scoring/selection
+        # effect. Bit-identical when use_control_vector_logging is False (block
+        # skipped). Read directly by experiment scripts via
+        # agent._last_control_vector (the V3-EXQ-571 _last_score_bias_decomp
+        # pattern).
+        if getattr(self.config, "use_control_vector_logging", False):
+            self._assemble_control_vector(
+                effective_temperature=float(effective_temperature),
+                baseline_temperature=float(temperature),
+            )
+
         action = result.selected_action
 
         # MECH-314c learning-progress feed: push the current waking
@@ -6377,6 +6439,152 @@ class REEAgent(nn.Module):
             self.exit_sleep_mode()
 
         return all_metrics
+
+    def _assemble_control_vector(
+        self,
+        effective_temperature: float,
+        baseline_temperature: float,
+    ) -> None:
+        """Assemble the read-only ControlVector telemetry (recommendation B).
+
+        Writes self._last_control_vector with four separately-inspectable
+        control signals for the current E3 tick:
+
+          V_outcome -- primary value axis (E3 pre-bias scores; lower-is-better,
+                       so value = -score).
+          C_effort  -- dACC Shenhav EVC effort term (control_required *
+                       candidate_effort), from the dACC bundle.
+          C_time    -- MECH-320 tonic-vigor +w_passive*v_t no-op /
+                       opportunity-cost-of-time half.
+          G_vigor   -- MECH-320 tonic-vigor -w_action*v_t action half plus the
+                       MECH-313 noise-floor temperature lift.
+
+        The shared MECH-320 v_t is logged explicitly so the C_time<->G_vigor
+        collapse (both halves are w*v_t for the SAME v_t) is computable from a
+        manifest -- the Stage-B diagnostic this telemetry is built to expose.
+        Pure read-only: no scoring or selection effect. Called only when
+        config.use_control_vector_logging is True.
+        """
+
+        def _stats(t: "Optional[torch.Tensor]") -> dict:
+            if t is None or t.numel() == 0:
+                return {"mean": 0.0, "range": 0.0, "std": 0.0, "present": False}
+            f = t.detach().reshape(-1).float()
+            rng = float((f.max() - f.min()).item()) if f.numel() > 1 else 0.0
+            std = float(f.std(unbiased=False).item()) if f.numel() > 1 else 0.0
+            return {
+                "mean": float(f.mean().item()),
+                "range": rng,
+                "std": std,
+                "present": True,
+            }
+
+        # V_outcome: primary value axis = pre-bias E3 scores (lower = better).
+        _vo = _stats(getattr(self.e3, "last_raw_scores", None))
+        v_outcome = {
+            **_vo,
+            "value_mean": -_vo["mean"] if _vo["present"] else 0.0,
+        }
+
+        # C_effort: dACC EVC effort term from the last bundle (None when dACC
+        # is disabled this tick).
+        bundle = getattr(self, "_dacc_last_bundle", None)
+        if bundle is not None and bundle.get("effort_term", None) is not None:
+            c_effort = {
+                **_stats(bundle["effort_term"]),
+                "control_required": float(bundle.get("control_required", 0.0)),
+            }
+        else:
+            c_effort = {
+                "mean": 0.0,
+                "range": 0.0,
+                "std": 0.0,
+                "present": False,
+                "control_required": 0.0,
+            }
+
+        # C_time / G_vigor: from the MECH-320 split cached in the tonic_vigor
+        # block (None when tonic_vigor is disabled / did not fire this tick).
+        cv = self._cv_vigor
+        noise_floor_temp_lift = float(effective_temperature) - float(
+            baseline_temperature
+        )
+        if cv is not None:
+            c_time = {
+                "potential": cv["C_time_potential"],
+                "realised_mean": cv["C_time_realised_mean"],
+                "n_noop_candidates": cv["n_noop_candidates"],
+                "present": True,
+            }
+            g_vigor = {
+                "potential": cv["G_vigor_potential"],
+                "realised_mean": cv["G_vigor_realised_mean"],
+                "noise_floor_temp_lift": noise_floor_temp_lift,
+                "n_action_candidates": cv["n_action_candidates"],
+                "present": True,
+            }
+            shared = {
+                "tonic_vigor_v_t": cv["v_t"],
+                "tonic_vigor_v_raw": cv["v_raw"],
+                "w_action": cv["w_action"],
+                "w_passive": cv["w_passive"],
+                # The collapse, stated for any downstream reader: opportunity
+                # cost and vigor are not independent -- both are w * v_t for the
+                # same v_t (ARC-068 absorbed into MECH-320; see the four-signal
+                # control adjudication 2026-06-07).
+                "collapse_note": (
+                    "C_time and G_vigor are both w*v_t for the SAME MECH-320 "
+                    "v_t scalar (ARC-068 collapsed into MECH-320)."
+                ),
+            }
+        else:
+            # Tonic vigor off: opportunity-cost / vigor have no MECH-320 source.
+            # G_vigor still carries the noise-floor activation lift if any.
+            c_time = {
+                "potential": 0.0,
+                "realised_mean": 0.0,
+                "n_noop_candidates": 0,
+                "present": False,
+            }
+            g_vigor = {
+                "potential": 0.0,
+                "realised_mean": 0.0,
+                "noise_floor_temp_lift": noise_floor_temp_lift,
+                "n_action_candidates": 0,
+                "present": noise_floor_temp_lift != 0.0,
+            }
+            shared = {
+                "tonic_vigor_v_t": 0.0,
+                "tonic_vigor_v_raw": 0.0,
+                "w_action": 0.0,
+                "w_passive": 0.0,
+                "collapse_note": "tonic_vigor disabled; no MECH-320 source.",
+            }
+
+        # Authority context: did the modulatory bias actually have selection
+        # authority this tick? (modulatory-bias-selection-authority substrate.)
+        _diag = getattr(self.e3, "last_score_diagnostics", {}) or {}
+        authority = {
+            "modulatory_authority_active": bool(
+                _diag.get("modulatory_authority_active", False)
+            ),
+            "modulatory_authority_scale_factor": float(
+                _diag.get("modulatory_authority_scale_factor", 0.0)
+            ),
+            "e3_raw_score_range_mean": float(
+                _diag.get("e3_raw_score_range_mean", v_outcome["range"])
+            ),
+        }
+
+        self._last_control_vector = {
+            "step": int(self._step_count),
+            "V_outcome": v_outcome,
+            "C_effort": c_effort,
+            "C_time": c_time,
+            "G_vigor": g_vigor,
+            "shared": shared,
+            "authority": authority,
+        }
 
     def get_state(self) -> AgentState:
         return AgentState(

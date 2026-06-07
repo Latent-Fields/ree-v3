@@ -430,6 +430,15 @@ class DACCAdaptiveControl(nn.Module):
             "suppression": suppression,
             "pe": pe,
             "drive_gain": drive_gain,
+            # ControlVector logging (rec-B four-signal adjudication): expose
+            # the Shenhav EVC effort term explicitly so the C_effort signal is
+            # readable without re-deriving it from (payoff - mode_ev).
+            # control_required = pe * dacc_effort_cost (PE-scaled control
+            # demand); effort_term = control_required * candidate_effort, the
+            # per-candidate quantity mode_ev subtracts. Additive keys -- no
+            # existing consumer reads them; bit-identical for current callers.
+            "control_required": float(control_required),
+            "effort_term": (control_required * candidate_effort).detach(),
             # SD-057 L7 (MECH-348): per-candidate goal_proximity to the (now
             # object-bound, via SD-057 L4) z_goal. None when the caller does not
             # supply it -> the adapter's goal-readout term is skipped (no-op).
