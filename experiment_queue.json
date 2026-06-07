@@ -131,7 +131,11 @@
       "supersedes": "V3-EXQ-604a",
       "claim_id": "MECH-314",
       "note": "Clean governance-weighted retest of the Q-044/MECH-314a/b/c sub-flavour ablation now that modulatory-bias-selection-authority is VALIDATED (V3-EXQ-643a PASS). Enables use_modulatory_selection_authority (gain 0.5) + SD-056 rollout-norm clamp uniformly across all 5 arms so the curiosity bias has bounded selection authority. Fixes 604a's two failure causes: zero authority at E3.select + a measurement bug reading nonexistent get_state() key last_bias_abs_mean (now reads real key last_bias_max_abs). Readiness gate routes genuinely-zero curiosity / unbounded scores to non_contributory (not a MECH-314 falsification). Acceptance: curiosity_bias_max_abs>floor in ARM_ALL_ON AND C1 parent delta>=0.03.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-07T07:07:03Z"
+      },
       "claim_ids": [
         "MECH-314",
         "MECH-314a",
@@ -142,26 +146,6 @@
       "conditions": 5,
       "episodes_per_run": 80,
       "experiment_type": "v3_exq_604b_q044_mech314_subflavour_ablation_authority_on",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-614e",
-      "title": "MECH-341 within-class temperature clean retest (modulatory-bias-selection-authority ON)",
-      "script": "experiments/v3_exq_614e_mech341_within_class_temperature_authority_on.py",
-      "priority": 150,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-614d",
-      "claim_id": "MECH-341",
-      "note": "Clean retest of 614d MECH-341 within-class temperature sweep with use_modulatory_selection_authority=True (gain=0.5). 614d FAILed only because the score-side lever was zeroed at E3.select (float32 catastrophic-cancellation bug fixed by V3-EXQ-643a). Site-2 stratified across-class unit-range normalization now lets within-class T reach committed-action selection. C2 (primary): committed_class_entropy rises with within-class T, per-arm >=1 paired-lift seed; C1: substrate-operative non-vacuity. experiment_purpose=evidence; claim MECH-341 (v3_pending). Re-applied after phase3-queue snapshot autostash race (heartbeat pull stranded the first append in autostash; recovered on top of the 624b snapshot).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-07T05:10:32Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 90,
-      "experiment_type": "v3_exq_614e_mech341_within_class_temperature_authority_on",
       "seeds": 3
     },
     {
