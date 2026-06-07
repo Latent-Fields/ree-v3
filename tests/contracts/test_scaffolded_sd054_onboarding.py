@@ -1854,3 +1854,42 @@ def test_c13_driver_on_no_gate_is_inert():
     assert res.aborted is False
     assert res.avoidance_driver_enabled is False
     assert res.avoidance_gate_state == {}
+
+
+# ---------------------------------------------------------------------------
+# C14: SD-058/MECH-357 prerequisite -- scaffold_feed_harm_stream
+# The legacy scaffold never feeds harm to sense(), so z_harm_a is None and every
+# harm-driven substrate (MECH-279 / SD-035 / SD-058) is inert. This flag feeds
+# the env harm stream so z_harm_a is populated. Default OFF -> bit-identical.
+# ---------------------------------------------------------------------------
+
+
+def test_c14_feed_harm_stream_default_is_noop():
+    cfg = ScaffoldedSD054OnboardingConfig()
+    assert cfg.scaffold_feed_harm_stream is False
+
+
+def test_c14_feed_harm_populates_z_harm_a():
+    """_sense_with_optional_harm: OFF -> z_harm_a None (legacy); ON -> populated."""
+    import torch
+    from experiments.scaffolded_sd054_onboarding import _sense_with_optional_harm
+    from ree_core.utils.config import REEConfig
+    from ree_core.agent import REEAgent
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_hazard_stage_enabled=True)
+    env = _build_env(cfg, "hazard")
+    _, od = env.reset()
+    rc = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim, world_obs_dim=env.world_obs_dim,
+        action_dim=env.action_dim, self_dim=32, world_dim=32, alpha_world=0.9,
+        use_affective_harm_stream=True, z_harm_a_dim=16, harm_obs_a_dim=7,
+        harm_history_len=10, z_goal_enabled=True, drive_weight=2.0,
+    )
+    rc.latent.use_resource_encoder = True
+    agent = REEAgent(rc)
+    dev = torch.device("cpu")
+    ob = od["body_state"].to(dev); ow = od["world_state"].to(dev)
+    lat_off = _sense_with_optional_harm(agent, ob, ow, od, dev, feed_harm=False)
+    assert lat_off.z_harm_a is None  # legacy: no threat signal
+    agent.reset()
+    lat_on = _sense_with_optional_harm(agent, ob, ow, od, dev, feed_harm=True)
+    assert lat_on.z_harm_a is not None and float(lat_on.z_harm_a.norm()) > 0.0

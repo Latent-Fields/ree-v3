@@ -409,6 +409,16 @@ class ScaffoldedSD054OnboardingConfig:
     # own learned efficacy; 0.0 = scaffold fully withdrawn).
     scaffold_avoidance_scaffold_floor_end: float = 0.0
 
+    # SD-058 / MECH-357 PREREQUISITE: feed the env harm stream (harm_obs +
+    # harm_obs_a) into agent.sense() so z_harm_a / z_harm_s are POPULATED. The
+    # legacy scaffold calls sense(body, world) with no harm args, so z_harm_a is
+    # None across the whole curriculum -- which leaves MECH-279 (PAG freeze),
+    # SD-035 (amygdala) AND the SD-058/MECH-357 avoidance gate all INERT (they
+    # key on z_harm_a). Default False -> bit-identical to the pre-avoidance
+    # scaffold (no harm fed). The avoidance-driver experiments set this True so
+    # the agent has a threat signal to learn avoidance from.
+    scaffold_feed_harm_stream: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -1069,6 +1079,24 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             reef_bipartite_agent_spawn_in_reef_half=False,
         )
     raise ValueError(f"unknown phase: {phase!r}")
+
+
+def _sense_with_optional_harm(agent, obs_body, obs_world, obs_dict, device, feed_harm: bool):
+    """sense() that optionally feeds the env harm stream (harm_obs + harm_obs_a)
+    so z_harm_a / z_harm_s are POPULATED. The legacy scaffold never passes harm
+    args -> z_harm_a is None across the curriculum and every harm-driven
+    substrate (MECH-279 PAG freeze, SD-035 amygdala, SD-058/MECH-357 avoidance
+    gate) is inert. Gated by scaffold_feed_harm_stream (default False ->
+    bit-identical to the legacy sense(body, world))."""
+    if not feed_harm:
+        return agent.sense(obs_body, obs_world)
+    oh = obs_dict.get("harm_obs")
+    oha = obs_dict.get("harm_obs_a")
+    return agent.sense(
+        obs_body, obs_world,
+        obs_harm=(oh.to(device) if oh is not None else None),
+        obs_harm_a=(oha.to(device) if oha is not None else None),
+    )
 
 
 def _set_goal_pipeline_frozen(agent, frozen: bool) -> None:
@@ -1915,7 +1943,10 @@ class ScaffoldedSD054OnboardingScheduler:
         for step in range(self.cfg.scaffold_steps_per_episode):
             obs_body = obs_dict["body_state"].to(device)
             obs_world = obs_dict["world_state"].to(device)
-            latent = agent.sense(obs_body, obs_world)
+            latent = _sense_with_optional_harm(
+                agent, obs_body, obs_world, obs_dict, device,
+                self.cfg.scaffold_feed_harm_stream,
+            )
             z_world_curr = latent.z_world.detach()
 
             if z_world_prev is not None and action_prev is not None:
@@ -2138,7 +2169,10 @@ class ScaffoldedSD054OnboardingScheduler:
             obs_body = obs_dict["body_state"].to(device)
             obs_world = obs_dict["world_state"].to(device)
             with torch.no_grad():
-                latent = agent.sense(obs_body, obs_world)
+                latent = _sense_with_optional_harm(
+                agent, obs_body, obs_world, obs_dict, device,
+                self.cfg.scaffold_feed_harm_stream,
+            )
                 ticks = agent.clock.advance()
                 e1_prior = (
                     agent._e1_tick(latent)

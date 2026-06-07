@@ -8274,6 +8274,20 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   scaffold_avoidance_scaffold_floor_end (0.0); HazardAvoidanceResult gains
   avoidance_driver_enabled + avoidance_gate_state so the manifest can confirm
   acquisition (efficacy rose, freeze suppressed) rather than survival-by-chance.
+  LOAD-BEARING PREREQUISITE (found 2026-06-07): the legacy scaffold called
+  sense(body, world) with NO harm args, so z_harm_a was None across the WHOLE
+  curriculum -- leaving MECH-279 PAG, SD-035 amygdala AND the SD-058/MECH-357 gate
+  all INERT (they key on z_harm_a). New scaffold flag scaffold_feed_harm_stream
+  (default False -> bit-identical) + module helper _sense_with_optional_harm feed
+  the env harm_obs + harm_obs_a into sense() so z_harm_a is populated (~0.34 in
+  Stage-H). The avoidance-driver experiments set it True; without it the gate has
+  no threat signal to learn from.
+  DISTINCT from the reflexive escape-from-freeze levers (do NOT read as a
+  duplicate): SD-037 override_signal (orexin) raises the PAG exit threshold and
+  MECH-281 lowers the MECH-091 urgency-interrupt -- BOTH reflexive threat/arousal-
+  driven escape. MECH-357's ilPFC suppression is gated by LEARNED avoidance-
+  efficacy (eligibility trace), bootstrapped by the protective-scaffold floor --
+  the acquisition mechanism (Moscarello & LeDoux), not a reflex.
   Backward compatible: use_instrumental_avoidance=False by default ->
   agent.instrumental_avoidance is None; sense update + select_action bias +
   freeze-suppression all skipped -> bit-identical. Stage-H driver gated by
@@ -8289,11 +8303,18 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   avoidance or suppress freeze on imagined outcomes). Evidence-staleness: NOT
   triggered (no-op-default flag; no dependent claim's measured mechanism changed).
   Validation experiment: V3-EXQ-603h substrate-readiness diagnostic (claim_ids=[],
-  Stage-H probe: gate ON + driver vs bit-identical baseline OFF; acceptance G_H
-  >= 2/3 with the gate ON) queued via /queue-experiment. PASS unblocks the
-  goal_pipeline GAP-2 retest cohort + the pending_retest_after_substrate claims
-  ARC-060 / MECH-320 / ARC-068 / SD-054-readiness. substrate_queue
-  scaffolded_sd054_onboarding ready STAYS false until then.
+  queued via /queue-experiment). LITERAL Moscarello & LeDoux lesion-vs-intact,
+  2-arm, 3 seeds: BOTH arms have MECH-279 PAG (tuned to z_harm_a~0.34) + the fed
+  harm stream; ARM_LESION (PAG, no gate -> freezes) vs ARM_INTACT (PAG + ilPFC
+  gate + driver -> suppresses freeze + acquires avoidance). PRIMARY: G_H_INTACT
+  >= 2/3 AND G_H_INTACT_frac > G_H_LESION_frac. Non-vacuity preconditions: PAG
+  freezes on LESION (pag_n_commits>0) AND the gate engages+suppresses on INTACT
+  (n_credit+n_decay>0 AND n_freeze_suppressed>0), else substrate_not_ready_requeue.
+  Dry-run engages the full chain (PAG freezes 14, gate suppresses 8, readiness
+  met; primary not met at dry scale as expected). PASS unblocks the goal_pipeline
+  GAP-2 retest cohort + the pending_retest_after_substrate claims ARC-060 /
+  MECH-320 / ARC-068 / SD-054-readiness. substrate_queue scaffolded_sd054_onboarding
+  ready STAYS false until then.
   Design doc: REE_assembly/docs/architecture/sd_058_instrumental_avoidance_acquisition.md
   See SD-035 (amygdala BLA/CeA -- defensive-reaction salience side this builds the
   acquisition side onto), MECH-279 (PAG freeze-gate -- the freeze output the ilPFC
