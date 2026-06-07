@@ -3181,6 +3181,55 @@ class REEAgent(nn.Module):
 
         return self._e3_tick(latent_state, e1_prior, num_candidates)
 
+    def _curiosity_candidate_summaries(
+        self, candidates: List[Trajectory]
+    ) -> Optional[torch.Tensor]:
+        """MECH-314a Phase-2 amend (V3-EXQ-648a): per-candidate novelty
+        signature sourced from the SD-056-trained action-conditional
+        e2.world_forward(z0, a_i) predictions.
+
+        Returns None when curiosity_candidate_source is the default
+        "proposer" (the caller then uses the legacy proposer-summary
+        reuse-chain, bit-identical to pre-amend) or when the e2
+        world-forward / current latent are unavailable. Otherwise returns
+        a [K, world_dim] tensor of per-candidate predicted next-z_world
+        (z0 = current observed z_world, a_i = each candidate's first
+        action), which feeds BOTH the 314a RBF novelty and the
+        auto-augmentation _candidate_spread key in StructuredCuriosity.
+
+        Root cause this fixes (V3-EXQ-648 autopsy 2026-06-07): the proposer
+        first-step z_world (trajectory.world_states[:,0,:]) collapses to
+        cross-candidate spread <0.01 under monostrategy, while the
+        SD-056-trained e2.world_forward predictions carry spread ~0.11 --
+        the representation the SD-056 readiness gate already validates.
+
+        The e2.world_forward read is no_grad on the waking select_action
+        path (no replay / memory write surface; MECH-094 not implicated).
+        """
+        if (
+            getattr(self.config, "curiosity_candidate_source", "proposer")
+            != "e2_world_forward"
+        ):
+            return None
+        e2 = getattr(self, "e2", None)
+        if e2 is None or self._current_latent is None or len(candidates) == 0:
+            return None
+        z0 = self._current_latent.z_world.detach()
+        if z0.dim() == 1:
+            z0 = z0.unsqueeze(0)
+        z0 = z0[:1]  # [1, world_dim]
+        adim = int(candidates[0].actions.shape[-1])
+        act_rows: List[torch.Tensor] = []
+        for c in candidates:
+            act_rows.append(c.actions[:, 0, :].detach().reshape(adim))
+        actions_K = torch.stack(act_rows, dim=0).to(
+            device=z0.device, dtype=z0.dtype
+        )  # [K, action_dim]
+        z0_K = z0.expand(actions_K.shape[0], -1)  # [K, world_dim]
+        with torch.no_grad():
+            preds = e2.world_forward(z0_K, actions_K)  # [K, world_dim]
+        return preds.detach()
+
     def select_action(
         self,
         candidates: List[Trajectory],
@@ -4095,31 +4144,38 @@ class REEAgent(nn.Module):
         # the module gate per-flavour computation; flag-set Q-044
         # ablation is "master ON + per-sub flag flips."
         if self.curiosity is not None:
-            # Build per-candidate first-step z_world summaries. Reuse
-            # m295_summaries when the MECH-295 block ran; else
-            # cand_world_summaries from lateral_pfc / ofc; else build
-            # fresh from candidates.
-            try:
-                cur_summaries = m295_summaries  # type: ignore[name-defined]
-            except NameError:
+            # MECH-314a Phase-2 amend (V3-EXQ-648a): optionally source the
+            # per-candidate novelty signature from the SD-056-trained
+            # action-conditional e2.world_forward(z0, a_i) predictions.
+            # Returns None for the default "proposer" source, in which case
+            # the legacy reuse-chain below runs unchanged (bit-identical).
+            cur_summaries = self._curiosity_candidate_summaries(candidates)
+            if cur_summaries is None:
+                # Build per-candidate first-step z_world summaries. Reuse
+                # m295_summaries when the MECH-295 block ran; else
+                # cand_world_summaries from lateral_pfc / ofc; else build
+                # fresh from candidates.
                 try:
-                    cur_summaries = cand_world_summaries  # type: ignore[name-defined]
+                    cur_summaries = m295_summaries  # type: ignore[name-defined]
                 except NameError:
-                    K = len(candidates)
-                    _cur_list: List[torch.Tensor] = []
-                    for c in candidates:
-                        if c.world_states is not None:
-                            ws = c.get_world_state_sequence()
-                            _cur_list.append(ws[0, 0, :])
-                        elif self._current_latent is not None:
-                            _cur_list.append(
-                                self._current_latent.z_world[0].detach()
-                            )
-                        else:
-                            _cur_list.append(
-                                torch.zeros(self.config.latent.world_dim)
-                            )
-                    cur_summaries = torch.stack(_cur_list, dim=0)
+                    try:
+                        cur_summaries = cand_world_summaries  # type: ignore[name-defined]
+                    except NameError:
+                        K = len(candidates)
+                        _cur_list: List[torch.Tensor] = []
+                        for c in candidates:
+                            if c.world_states is not None:
+                                ws = c.get_world_state_sequence()
+                                _cur_list.append(ws[0, 0, :])
+                            elif self._current_latent is not None:
+                                _cur_list.append(
+                                    self._current_latent.z_world[0].detach()
+                                )
+                            else:
+                                _cur_list.append(
+                                    torch.zeros(self.config.latent.world_dim)
+                                )
+                        cur_summaries = torch.stack(_cur_list, dim=0)
             # MECH-314a Phase 2 (Candidate 5A): build per-candidate first-action
             # one-hots for the substrate-robustness augmentation leg. Only built
             # when the augmentation is configured on (use_first_action_onehot +

@@ -1850,6 +1850,20 @@ class REEConfig:
     # Auto-policy: consecutive below-threshold ticks required to engage the
     # augmentation (and, symmetrically, an at-or-above tick disengages it).
     curiosity_min_spread_consecutive_ticks: int = 5
+    # MECH-314a Phase-2 amend (V3-EXQ-648 autopsy 2026-06-07): source of the
+    # per-candidate novelty signature fed to StructuredCuriosity. "proposer"
+    # (default, bit-identical) uses the hippocampal proposer's first-step
+    # z_world (trajectory.world_states[:,0,:]); its cross-candidate spread
+    # collapses to <0.01 under monostrategy, zeroing both the 314a novelty
+    # range and the auto-augmentation _candidate_spread key. "e2_world_forward"
+    # rebuilds the signature from the SD-056-trained action-conditional
+    # e2.world_forward(z0, a_i) predictions (cross-candidate spread ~0.11 when
+    # SD-056 is trained), the representation the SD-056 readiness gate already
+    # validates. Design-doc Candidate 1 source on the landed Candidate-5A
+    # machinery.
+    curiosity_candidate_source: Literal[
+        "proposer", "e2_world_forward"
+    ] = "proposer"
 
     # ----------------------------------------------------------------
     # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias. First child
@@ -3113,6 +3127,9 @@ class REEConfig:
         ] = "never",
         curiosity_min_spread_threshold: float = 0.01,
         curiosity_min_spread_consecutive_ticks: int = 5,
+        curiosity_candidate_source: Literal[
+            "proposer", "e2_world_forward"
+        ] = "proposer",
         # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias
         # (mesolimbic-DA-vigor / avg-reward-rate / opportunity-cost regulator)
         use_tonic_vigor: bool = False,
@@ -3806,6 +3823,7 @@ class REEConfig:
         config.curiosity_min_spread_consecutive_ticks = (
             curiosity_min_spread_consecutive_ticks
         )
+        config.curiosity_candidate_source = curiosity_candidate_source
 
         # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias
         config.use_tonic_vigor = use_tonic_vigor

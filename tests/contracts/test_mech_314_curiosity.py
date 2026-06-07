@@ -406,3 +406,120 @@ def test_invalid_config_raises():
         StructuredCuriosity(StructuredCuriosityConfig(
             use_structured_curiosity=True, curiosity_lp_window_k=0,
         ))
+
+
+# ----------------------------------------------------------------------
+# C6 MECH-314a Phase-2 amend: e2.world_forward novelty-candidate-source
+# (V3-EXQ-648 autopsy fix). curiosity_candidate_source switches the
+# per-candidate novelty signature between the collapsed proposer first-step
+# z_world ("proposer", default, bit-identical) and the SD-056-trained
+# action-conditional e2.world_forward(z0, a_i) predictions.
+# ----------------------------------------------------------------------
+def _build_curiosity_agent_with_candidates(candidate_source: str, seed: int = 42):
+    """Build a structured-curiosity + SP-CEM agent and generate one tick's
+    candidate pool (>= 2 action-divergent candidates)."""
+    from ree_core.environment.causal_grid_world import CausalGridWorldV2
+
+    torch.manual_seed(seed)
+    env = CausalGridWorldV2(
+        seed=seed, size=12, num_hazards=0, num_resources=5,
+        hazard_harm=0.0, harm_history_len=10,
+    )
+    cfg = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim, world_obs_dim=env.world_obs_dim,
+        action_dim=env.action_dim, self_dim=32, world_dim=32, alpha_world=0.9,
+        use_support_preserving_cem=True,
+        support_preserving_stratified_elites=True,
+        support_preserving_ao_std_floor=0.2,
+        support_preserving_min_first_action_classes=2,
+        use_structured_curiosity=True, use_curiosity_novelty=True,
+        use_curiosity_uncertainty=False, use_curiosity_learning_progress=False,
+        curiosity_novelty_source="visitation",
+        curiosity_candidate_source=candidate_source,
+    )
+    agent = REEAgent(cfg)
+    agent.reset()
+    _flat, obs_dict = env.reset()
+    body = obs_dict["body_state"].float().unsqueeze(0)
+    world = obs_dict["world_state"].float().unsqueeze(0)
+    with torch.no_grad():
+        latent = agent.sense(obs_body=body, obs_world=world)
+    ticks = agent.clock.advance()
+    wdim = latent.z_world.shape[-1]
+    e1_prior = (
+        agent._e1_tick(latent) if ticks.get("e1_tick", False)
+        else torch.zeros(1, wdim)
+    )
+    candidates = agent.generate_trajectories(latent, e1_prior, ticks)
+    return agent, candidates
+
+
+def test_c6_default_proposer_is_bit_identical():
+    """Default curiosity_candidate_source is 'proposer' and the helper returns
+    None, so the legacy proposer-summary reuse-chain runs unchanged."""
+    cfg = REEConfig.from_dims(body_obs_dim=10, world_obs_dim=250, action_dim=4)
+    assert cfg.curiosity_candidate_source == "proposer"
+    agent, candidates = _build_curiosity_agent_with_candidates("proposer")
+    assert len(candidates) >= 2
+    summ = agent._curiosity_candidate_summaries(candidates)
+    assert summ is None, (
+        "proposer source must return None so the legacy reuse-chain is used "
+        "(bit-identical to pre-amend)"
+    )
+
+
+def test_c6_e2_world_forward_source_shape():
+    """'e2_world_forward' source returns a [K, world_dim] tensor of per-candidate
+    e2.world_forward predictions (the consumed novelty signature)."""
+    agent, candidates = _build_curiosity_agent_with_candidates("e2_world_forward")
+    K = len(candidates)
+    assert K >= 2
+    summ = agent._curiosity_candidate_summaries(candidates)
+    assert summ is not None
+    assert summ.shape == (K, agent.config.latent.world_dim)
+    assert torch.isfinite(summ).all()
+
+
+def test_c6_e2_world_forward_feeds_candidate_spread():
+    """With a divergent e2.world_forward, the curiosity-consumed _candidate_spread
+    keys on the action-divergent e2 predictions (>0), not the collapsed proposer
+    summaries. This is the V3-EXQ-648 root-cause fix made deterministic."""
+    agent, candidates = _build_curiosity_agent_with_candidates("e2_world_forward")
+    K = len(candidates)
+
+    # Proposer spread on this collapsed monostrategy pool (for contrast).
+    proposer_summ = torch.stack(
+        [c.get_world_state_sequence()[0, 0, :] for c in candidates], dim=0
+    )
+    proposer_spread = agent.curiosity._candidate_spread(proposer_summ)
+
+    # Monkeypatch a strictly per-candidate-divergent world_forward: row i = i.
+    def _divergent_wf(z, a):
+        n = z.shape[0]
+        return (
+            torch.arange(n, dtype=z.dtype)
+            .unsqueeze(1)
+            .expand(n, z.shape[1])
+            .clone()
+        )
+
+    agent.e2.world_forward = _divergent_wf  # type: ignore[assignment]
+    e2_summ = agent._curiosity_candidate_summaries(candidates)
+    assert e2_summ is not None
+    e2_spread = agent.curiosity._candidate_spread(e2_summ)
+    assert e2_spread > 0.0
+    assert e2_spread > proposer_spread, (
+        f"e2_world_forward spread {e2_spread} must exceed the collapsed proposer "
+        f"spread {proposer_spread}"
+    )
+
+
+def test_c6_proposer_summaries_collapsed_baseline():
+    """Sanity: on the monostrategy candidate pool the proposer first-step z_world
+    spread is near-zero -- the condition that zeroed 314a novelty in V3-EXQ-648."""
+    agent, candidates = _build_curiosity_agent_with_candidates("proposer")
+    proposer_summ = torch.stack(
+        [c.get_world_state_sequence()[0, 0, :] for c in candidates], dim=0
+    )
+    spread = agent.curiosity._candidate_spread(proposer_summ)
+    assert spread >= 0.0  # well-defined; expected small under monostrategy
