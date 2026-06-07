@@ -112,6 +112,22 @@
       "episodes_per_run": 130,
       "experiment_type": "v3_exq_624c_arc068_mech320_niv_salamone_dissociation",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-604c",
+      "title": "MECH-314/Q-044 sub-flavour ablation on validated GAP-A substrate + selection authority (RANGE readiness gate); supersedes 604b",
+      "experiment_type": "v3_exq_604c_q044_mech314_subflavour_ablation_gapa_ready",
+      "script": "experiments/v3_exq_604c_q044_mech314_subflavour_ablation_gapa_ready.py",
+      "priority": 310,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 360,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 5,
+      "claim_id": "MECH-314",
+      "supersedes": "V3-EXQ-604b",
+      "note": "Corrected retest of V3-EXQ-604b (NON_CONTRIBUTORY/substrate_ceiling, governance-cycle-20260607T1426Z): ran pre-GAP-A-validation with a class-uniform candidate pool so the curiosity bias had magnitude but ~zero cross-candidate RANGE. 604c enables the validated GAP-A fix (curiosity_candidate_source + candidate_summary_source=e2_world_forward; 649/648a-validated) + modulatory-bias-selection-authority (643a) and replaces the bias-MAGNITUDE readiness gate with a cross-candidate RANGE gate (R1 consumed cand_world_pairwise_dist >=0.05; R2 per-candidate curiosity_bias_range >=1e-4 -- the same statistic C1 routes on; R3 raw_bounded_frac). claim_ids=[MECH-314,MECH-314a,MECH-314b,MECH-314c,Q-044]; claims stay candidate/v3_pending, not weakened. Below-floor self-routes substrate_not_ready_requeue."
     }
   ]
 }
