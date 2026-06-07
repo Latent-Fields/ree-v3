@@ -1865,6 +1865,24 @@ class REEConfig:
         "proposer", "e2_world_forward"
     ] = "proposer"
 
+    # ARC-065 GAP-A (behavioral_diversity_isolation): source of the SHARED
+    # per-candidate cand_world_summaries consumed by the E3-side bias channels
+    # (lateral_pfc / ofc / mech295 / gated_policy / tonic_vigor). "proposer"
+    # (default, bit-identical) builds it from the collapsed proposer first-step
+    # z_world trajectory.world_states[:,0,:], whose cross-candidate spread is
+    # ~0 under monostrategy (cand_world_pairwise_dist=0.0000; V3-EXQ-614e
+    # autopsy). "e2_world_forward" rebuilds it from the SD-056-trained
+    # action-conditional e2.world_forward(z0, a_i) predictions so the candidate
+    # pool carries class-level diversity into the bias channels -- the GAP-A
+    # extension of the 2026-05-17 ARC-062 GAP-B first-action-onehot fix beyond
+    # GatedPolicy, and the shared-channel sibling of curiosity_candidate_source
+    # (MECH-314a Phase-2, which fixed the curiosity channel only). Composes with
+    # the modulatory-bias-selection-authority gate (V3-EXQ-643a) so the
+    # now-divergent bias reaches the committed argmin.
+    candidate_summary_source: Literal[
+        "proposer", "e2_world_forward"
+    ] = "proposer"
+
     # ----------------------------------------------------------------
     # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias. First child
     # mechanism for the non_deficit_action_drives family. Adds an additive
@@ -3130,6 +3148,11 @@ class REEConfig:
         curiosity_candidate_source: Literal[
             "proposer", "e2_world_forward"
         ] = "proposer",
+        # ARC-065 GAP-A: shared cand_world_summaries source for the E3-side
+        # bias channels (lateral_pfc / ofc / mech295 / gated_policy / vigor).
+        candidate_summary_source: Literal[
+            "proposer", "e2_world_forward"
+        ] = "proposer",
         # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias
         # (mesolimbic-DA-vigor / avg-reward-rate / opportunity-cost regulator)
         use_tonic_vigor: bool = False,
@@ -3824,6 +3847,7 @@ class REEConfig:
             curiosity_min_spread_consecutive_ticks
         )
         config.curiosity_candidate_source = curiosity_candidate_source
+        config.candidate_summary_source = candidate_summary_source
 
         # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias
         config.use_tonic_vigor = use_tonic_vigor

@@ -3230,6 +3230,56 @@ class REEAgent(nn.Module):
             preds = e2.world_forward(z0_K, actions_K)  # [K, world_dim]
         return preds.detach()
 
+    def _candidate_world_summaries(
+        self, candidates: List[Trajectory]
+    ) -> Optional[torch.Tensor]:
+        """ARC-065 GAP-A: SHARED per-candidate cand_world_summaries sourced from
+        the SD-056-trained action-conditional e2.world_forward(z0, a_i)
+        predictions instead of the collapsed proposer first-step z_world.
+
+        Returns None when candidate_summary_source is the default "proposer"
+        (callers then build cand_world_summaries from
+        trajectory.world_states[:,0,:], bit-identical to pre-GAP-A) or when the
+        e2 world-forward / current latent are unavailable. Otherwise returns a
+        [K, world_dim] tensor consumed by the E3-side bias channels
+        (lateral_pfc / ofc / mech295 / gated_policy / tonic_vigor).
+
+        Root cause this fixes (V3-EXQ-614e autopsy 2026-06-07): the proposer
+        first-step z_world collapses to cross-candidate spread ~0 under
+        monostrategy (cand_world_pairwise_dist=0.0000), so every E3-side bias
+        channel sees a class-uniform candidate pool; the SD-056-trained
+        e2.world_forward predictions carry per-action spread. The
+        modulatory-bias-selection-authority gate (V3-EXQ-643a) then lets the
+        now-divergent bias reach the committed argmin. Shared-channel sibling of
+        _curiosity_candidate_summaries (which fixes the curiosity channel only).
+
+        The e2.world_forward read is no_grad on the waking select_action path
+        (no replay / memory write surface; MECH-094 not implicated).
+        """
+        if (
+            getattr(self.config, "candidate_summary_source", "proposer")
+            != "e2_world_forward"
+        ):
+            return None
+        e2 = getattr(self, "e2", None)
+        if e2 is None or self._current_latent is None or len(candidates) == 0:
+            return None
+        z0 = self._current_latent.z_world.detach()
+        if z0.dim() == 1:
+            z0 = z0.unsqueeze(0)
+        z0 = z0[:1]  # [1, world_dim]
+        adim = int(candidates[0].actions.shape[-1])
+        act_rows: List[torch.Tensor] = []
+        for c in candidates:
+            act_rows.append(c.actions[:, 0, :].detach().reshape(adim))
+        actions_K = torch.stack(act_rows, dim=0).to(
+            device=z0.device, dtype=z0.dtype
+        )  # [K, action_dim]
+        z0_K = z0.expand(actions_K.shape[0], -1)  # [K, world_dim]
+        with torch.no_grad():
+            preds = e2.world_forward(z0_K, actions_K)  # [K, world_dim]
+        return preds.detach()
+
     def select_action(
         self,
         candidates: List[Trajectory],
@@ -3762,17 +3812,22 @@ class REEAgent(nn.Module):
             # each trajectory). gated_policy runs first so cand_world_summaries
             # is not yet set; build fresh and expose as cand_world_summaries
             # so lateral_pfc / ofc / mech295 blocks below can reuse it.
+            # ARC-065 GAP-A: prefer the SD-056-divergent e2.world_forward source
+            # when candidate_summary_source="e2_world_forward"; None -> legacy
+            # collapsed proposer first-step z_world (bit-identical).
             K = len(candidates)
-            _gp_list: List[torch.Tensor] = []
-            for c in candidates:
-                if c.world_states is not None:
-                    ws = c.get_world_state_sequence()
-                    _gp_list.append(ws[0, 0, :])
-                else:
-                    _gp_list.append(
-                        self._current_latent.z_world[0].detach()
-                    )
-            gp_summaries = torch.stack(_gp_list, dim=0)
+            gp_summaries = self._candidate_world_summaries(candidates)
+            if gp_summaries is None:
+                _gp_list: List[torch.Tensor] = []
+                for c in candidates:
+                    if c.world_states is not None:
+                        ws = c.get_world_state_sequence()
+                        _gp_list.append(ws[0, 0, :])
+                    else:
+                        _gp_list.append(
+                            self._current_latent.z_world[0].detach()
+                        )
+                gp_summaries = torch.stack(_gp_list, dim=0)
             cand_world_summaries = gp_summaries  # expose for downstream blocks
             # MECH-319: route the simulation_mode argument through the
             # rule-write gate. select_action runs on the waking path so
@@ -3936,17 +3991,21 @@ class REEAgent(nn.Module):
             try:
                 cand_world_summaries  # type: ignore[name-defined]
             except NameError:
-                K = len(candidates)
-                cand_world_list: List[torch.Tensor] = []
-                for c in candidates:
-                    if c.world_states is not None:
-                        ws = c.get_world_state_sequence()  # [batch, horizon+1, world_dim]
-                        cand_world_list.append(ws[0, 0, :])  # first-step, first batch
-                    else:
-                        cand_world_list.append(
-                            self._current_latent.z_world[0].detach()
-                        )
-                cand_world_summaries = torch.stack(cand_world_list, dim=0)  # [K, world_dim]
+                # ARC-065 GAP-A: prefer the e2.world_forward source; None ->
+                # legacy collapsed proposer path (bit-identical).
+                cand_world_summaries = self._candidate_world_summaries(candidates)
+                if cand_world_summaries is None:
+                    K = len(candidates)
+                    cand_world_list: List[torch.Tensor] = []
+                    for c in candidates:
+                        if c.world_states is not None:
+                            ws = c.get_world_state_sequence()  # [batch, horizon+1, world_dim]
+                            cand_world_list.append(ws[0, 0, :])  # first-step, first batch
+                        else:
+                            cand_world_list.append(
+                                self._current_latent.z_world[0].detach()
+                            )
+                    cand_world_summaries = torch.stack(cand_world_list, dim=0)  # [K, world_dim]
             lpfc_bias = self.lateral_pfc.compute_bias(cand_world_summaries)
             if self.e3.e3_score_decomp_enabled:
                 _bdc_lpfc = lpfc_bias.detach().clone()
@@ -3989,17 +4048,21 @@ class REEAgent(nn.Module):
             if self.lateral_pfc is not None:
                 ofc_summaries = cand_world_summaries
             else:
-                K = len(candidates)
-                _ofc_list: List[torch.Tensor] = []
-                for c in candidates:
-                    if c.world_states is not None:
-                        ws = c.get_world_state_sequence()
-                        _ofc_list.append(ws[0, 0, :])
-                    else:
-                        _ofc_list.append(
-                            self._current_latent.z_world[0].detach()
-                        )
-                ofc_summaries = torch.stack(_ofc_list, dim=0)
+                # ARC-065 GAP-A: prefer the e2.world_forward source; None ->
+                # legacy collapsed proposer path (bit-identical).
+                ofc_summaries = self._candidate_world_summaries(candidates)
+                if ofc_summaries is None:
+                    K = len(candidates)
+                    _ofc_list: List[torch.Tensor] = []
+                    for c in candidates:
+                        if c.world_states is not None:
+                            ws = c.get_world_state_sequence()
+                            _ofc_list.append(ws[0, 0, :])
+                        else:
+                            _ofc_list.append(
+                                self._current_latent.z_world[0].detach()
+                            )
+                    ofc_summaries = torch.stack(_ofc_list, dim=0)
             ofc_bias = self.ofc.compute_bias(ofc_summaries)
             if self.e3.e3_score_decomp_enabled:
                 _bdc_ofc = ofc_bias.detach().clone()
@@ -4052,17 +4115,21 @@ class REEAgent(nn.Module):
             try:
                 m295_summaries = cand_world_summaries  # type: ignore[name-defined]
             except NameError:
-                K = len(candidates)
-                _m295_list: List[torch.Tensor] = []
-                for c in candidates:
-                    if c.world_states is not None:
-                        ws = c.get_world_state_sequence()
-                        _m295_list.append(ws[0, 0, :])
-                    else:
-                        _m295_list.append(
-                            self._current_latent.z_world[0].detach()
-                        )
-                m295_summaries = torch.stack(_m295_list, dim=0)
+                # ARC-065 GAP-A: prefer the e2.world_forward source; None ->
+                # legacy collapsed proposer path (bit-identical).
+                m295_summaries = self._candidate_world_summaries(candidates)
+                if m295_summaries is None:
+                    K = len(candidates)
+                    _m295_list: List[torch.Tensor] = []
+                    for c in candidates:
+                        if c.world_states is not None:
+                            ws = c.get_world_state_sequence()
+                            _m295_list.append(ws[0, 0, :])
+                        else:
+                            _m295_list.append(
+                                self._current_latent.z_world[0].detach()
+                            )
+                    m295_summaries = torch.stack(_m295_list, dim=0)
             # Per-candidate goal proximity in [0, 1]: GoalState.goal_proximity
             # returns 1 / (1 + dist) -- shape [K] when input is [K, world_dim].
             with torch.no_grad():
