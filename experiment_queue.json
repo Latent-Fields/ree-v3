@@ -48,26 +48,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-604c",
-      "title": "MECH-314/Q-044 sub-flavour ablation on validated GAP-A substrate + selection authority (RANGE readiness gate); supersedes 604b",
-      "script": "experiments/v3_exq_604c_q044_mech314_subflavour_ablation_gapa_ready.py",
-      "priority": 310,
-      "machine_affinity": "any",
-      "estimated_minutes": 360,
-      "supersedes": "V3-EXQ-604b",
-      "claim_id": "MECH-314",
-      "note": "Corrected retest of V3-EXQ-604b (NON_CONTRIBUTORY/substrate_ceiling, governance-cycle-20260607T1426Z): ran pre-GAP-A-validation with a class-uniform candidate pool so the curiosity bias had magnitude but ~zero cross-candidate RANGE. 604c enables the validated GAP-A fix (curiosity_candidate_source + candidate_summary_source=e2_world_forward; 649/648a-validated) + modulatory-bias-selection-authority (643a) and replaces the bias-MAGNITUDE readiness gate with a cross-candidate RANGE gate (R1 consumed cand_world_pairwise_dist >=0.05; R2 per-candidate curiosity_bias_range >=1e-4 -- the same statistic C1 routes on; R3 raw_bounded_frac). claim_ids=[MECH-314,MECH-314a,MECH-314b,MECH-314c,Q-044]; claims stay candidate/v3_pending, not weakened. Below-floor self-routes substrate_not_ready_requeue.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-07T15:11:37Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_604c_q044_mech314_subflavour_ablation_gapa_ready",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-652",
       "title": "PARALLEL-RACE CLONE of V3-EXQ-640b on ree-cloud-4: identical SD-057/MECH-346/MECH-347 cue-authority gain sweep (cue_recall_gain{0.2,1.0,5.0} x kappa{2.0,10.0} + ARM_OFF, 3 seeds, use_modulatory_selection_authority=True+gain=0.5). Queued to run alongside the slow 640b instance on DLAPTOP-4.local; whichever finishes first is THE evidence.",
       "script": "experiments/v3_exq_652_scaffold_cue_authority_gain_sweep_640b_clone.py",
@@ -80,7 +60,7 @@
       "status": "claimed",
       "claimed_by": {
         "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-07T19:17:33Z"
+        "claimed_at": "2026-06-07T19:29:44Z"
       },
       "conditions": 7,
       "episodes_per_run": 235,
