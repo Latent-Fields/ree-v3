@@ -85,22 +85,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-651",
-      "title": "ARC-060 blocked-goal recovery: field-only vs field+ghost-bank",
-      "script": "experiments/v3_exq_651_arc060_blocked_goal_recovery.py",
-      "priority": 260,
-      "machine_affinity": "any",
-      "estimated_minutes": 20,
-      "claim_id": "ARC-060",
-      "backlog_id": "EVB-0076",
-      "note": "EXP-0112 targeted probe. Matched OFF(field-only)/ON(field+ghost-bank) ablation of ARC-060: Phase A seeds z_goal + populates SD-039 dual-trace anchors; Phase B removes the goal resource to collapse the local gradient; Phase C measures mean goal_proximity-to-persisted-goal recovery (ON>OFF supports ARC-060). C1 non-degeneracy precondition (ghost admitted>=1 + z_goal active) routes substrate-not-engaged to non_contributory, never weakens. Untrained-substrate behavioural probe (same pattern as V3-EXQ-494/496/497). emit_outcome sentinel wired; smoke 2026-06-07 dry-run: ghost=13 admitted ON, OFF clean 0, arms diverge.",
-      "status": "pending",
-      "conditions": 2,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_651_arc060_blocked_goal_recovery",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-598c",
       "title": "SD-033a metric-redesign falsifier: direct rule_state cosine probes on held-out rule-context pairs (replaces 598b reef-visit-band behavioural metric). Teleport-sampled reef-context vs forage-context observation pool drives the rule_state EMA via the real sense->select_action->lateral_pfc.update path under sustained context; mean-centered cosine (RSA) measures rule_state context-discriminability. Independent of the blocked ARC-065/GAP-B behavioural-diversity work (random/teleport sampling sidesteps monomodal collapse). Same-statistic z_world discriminability is the non-vacuity readiness precondition.",
       "script": "experiments/v3_exq_598c_sd033a_rule_state_cosine_probe.py",
@@ -144,45 +128,6 @@
       "episodes_per_run": 130,
       "experiment_type": "v3_exq_624c_arc068_mech320_niv_salamone_dissociation",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-650",
-      "title": "ControlVector logging readiness + Stage-B C_time<->G_vigor collapse diagnostic",
-      "script": "experiments/v3_exq_650_control_vector_collapse_diagnostic.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 6,
-      "note": "Diagnostic (claim_ids=[]); substrate-readiness telemetry for the ControlVector logging landed 2026-06-07 (rec-B four-signal control adjudication). Measures the ARC-068-vs-MECH-320 collapse empirically (C_time and G_vigor are w*v_t for one v_t). Pure telemetry, no training, MECH-094 N/A. Design doc: REE_assembly/docs/architecture/control_vector_logging.md",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-07T13:14:31Z"
-      },
-      "claim_ids": [],
-      "conditions": 3,
-      "episodes_per_run": 2,
-      "experiment_type": "v3_exq_650_control_vector_collapse_diagnostic",
-      "seeds": 2
-    },
-    {
-      "queue_id": "V3-EXQ-645",
-      "title": "arm-reuse Phase-0 MINT of the V3-EXQ-610 OFF/baseline arm (INV-074 crystallization necessity; ARM_0_stripped_control) on ree-cloud-3. Identical script/config to V3-EXQ-644 (ree-cloud-2); the second instance for the cross-instance determinism check.",
-      "script": "experiments/v3_exq_610_inv074_crystallization_baseline_mint.py",
-      "priority": 10,
-      "machine_affinity": "ree-cloud-3",
-      "estimated_minutes": 450,
-      "note": "Arm-reuse pre-minting (plan 7b). Identical to V3-EXQ-644 but pinned to ree-cloud-3 -- the SECOND CX22 instance for the Phase-0 cross-instance determinism check. Runs ONLY the 610 OFF/baseline arm (crystallize=False, phase-3 entropy floor 0.0, floors OFF) from the canonical baseline module experiments/_lib/baselines/exq610_inv074_crystallization_baseline.py. After both V3-EXQ-644 (cloud-2) and this run complete, compare the two manifests' OFF metrics (end_phase_*_entropy, mean_reward) within tolerance: agreement confirms separate cloud instances are mutually deterministic on CPU torch (the assumption Regime A reuse rests on). The arm_fingerprint hash is identical across the two by construction (coarse machine_class = linux-x86_64-pyX.Y); the determinism check is on the recorded METRICS. PHASE 0 EMIT-ONLY. experiment_purpose=baseline; claim_ids=[]. LOW priority. Record the comparison in arm_reuse_fingerprint_plan.md 7b. Do NOT start the runner; cloud-2/3 idle.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-06T16:05:55Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 2500,
-      "experiment_purpose": "baseline",
-      "experiment_type": "v3_exq_610_inv074_crystallization_baseline_mint",
-      "seeds": 3
     }
   ]
 }
