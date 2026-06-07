@@ -38,7 +38,11 @@
       "supersedes": "V3-EXQ-604b",
       "claim_id": "MECH-314",
       "note": "Corrected retest of V3-EXQ-604b (NON_CONTRIBUTORY/substrate_ceiling, governance-cycle-20260607T1426Z): ran pre-GAP-A-validation with a class-uniform candidate pool so the curiosity bias had magnitude but ~zero cross-candidate RANGE. 604c enables the validated GAP-A fix (curiosity_candidate_source + candidate_summary_source=e2_world_forward; 649/648a-validated) + modulatory-bias-selection-authority (643a) and replaces the bias-MAGNITUDE readiness gate with a cross-candidate RANGE gate (R1 consumed cand_world_pairwise_dist >=0.05; R2 per-candidate curiosity_bias_range >=1e-4 -- the same statistic C1 routes on; R3 raw_bounded_frac). claim_ids=[MECH-314,MECH-314a,MECH-314b,MECH-314c,Q-044]; claims stay candidate/v3_pending, not weakened. Below-floor self-routes substrate_not_ready_requeue.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-07T15:11:37Z"
+      },
       "conditions": 5,
       "episodes_per_run": 80,
       "experiment_type": "v3_exq_604c_q044_mech314_subflavour_ablation_gapa_ready",
@@ -83,31 +87,6 @@
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_640b_scaffold_cue_authority_gain_sweep_retest",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-624c",
-      "title": "ARC-068/MECH-320 Niv-Salamone opportunity-cost dissociation -- no-op-rich re-spec (5 seeds + non-vacuous majority gate)",
-      "script": "experiments/v3_exq_624c_arc068_mech320_niv_salamone_dissociation.py",
-      "priority": 150,
-      "machine_affinity": "any",
-      "estimated_minutes": 400,
-      "supersedes": "V3-EXQ-624b",
-      "claim_id": "MECH-320",
-      "backlog_id": "EVB-0237",
-      "note": "Clean re-spec of V3-EXQ-624b (non_contributory + narrow_supports: the load-bearing C2 dissociation PASSED all 3 seeds but the C1+C5 positive control failed on the env-degenerate seed 42, no-op-opportunity-poor well-fed-safe-familiar regime; failure_autopsy_V3-EXQ-624b_2026-06-07). TWO corrections per the autopsy. (1) NO-OP-OPPORTUNITY-RICH regime via SPARSER FORAGING (num_resources 3->2 on the proven size-8/1-hazard base): fewer benefit-approach pulls -> more neutral near-tie states where the no-op candidate is competitive -> lower baseline action_density -> w_passive bias has headroom. Applied to ALL arms (NOT part of the Niv-vs-Salamone manipulation, so the dissociation difference cancels it). A 2026-06-07 regime probe drove this: denser hazards/tighter grid BACKFIRE (agent flees -> action_density saturates 1.0; probe 6/3/2 -> 2/5 valid, worse than 624b), and P0-warmup length (not env density) is the dominant headroom lever (P0=8 saturates; full P0=100 gave 624b 2/3 valid), so P0 retained at 100; harm_gradient rejected (penalises proximity -> flee). (2) 5 seeds + NON-VACUOUS MAJORITY GATE on the positive control with C2 kept STRICT: a seed is VALID iff C1 (Niv lift>=0.03) AND C5 (authority active+ranged) fired; C2 is evaluated ONLY on valid seeds (so a saturated seed can no longer pass C2 vacuously, the 624b seed-42 artifact where |salamone-niv|~0 cleared tolerance with both lifts ~0); PASS = n_valid>=3/5 AND C2 strict on every valid seed AND C3 gate on every valid seed. Inherits the 4-arm Niv-vs-Salamone design, v_t_floor=0.05 forced-vigor probe, the C5 authority non-vacuity gate, and use_modulatory_selection_authority=True gain=0.5 on all arms (proven operative in 624b: lift on 2/3 seeds, no score explosion). claim_ids=[MECH-320,ARC-068] (both v3_pending). experiment_purpose=evidence. No SD-056 online training, so raw_score_range expected O(1) (C5 guard 1e6). Dry-run: 20 verdict lines (5x4), authority fires (auth_active_frac 0.425, range 4.25e-3, raw_range 17 O(1)), c1_lift +0.126, machinery exercised end-to-end. 5-row interpretation grid: PASS -> ARC-068+MECH-320 support; majority met + C2 fails on a valid seed -> ARC-068 weakens (effort-cost-like); majority NOT met -> non_contributory (positive control starved); majority met + C2 ok + C3 fails -> non_contributory (gate wiring).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-07T11:03:17Z"
-      },
-      "claim_ids": [
-        "MECH-320",
-        "ARC-068"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 130,
-      "experiment_type": "v3_exq_624c_arc068_mech320_niv_salamone_dissociation",
-      "seeds": 5
     }
   ]
 }
