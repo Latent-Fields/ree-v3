@@ -93,7 +93,11 @@
       "estimated_minutes": 300,
       "supersedes": "V3-EXQ-648",
       "note": "Corrected re-issue of V3-EXQ-648 (run v3_exq_648_..._20260607T025417Z, precondition_unmet FAIL; autopsy REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-648_2026-06-07). Two corrections on the MECH-314a Phase-2 substrate as amended 2026-06-07 (ree-v3 84c091c, no-op-default REEConfig.curiosity_candidate_source): (1) curiosity_candidate_source='e2_world_forward' on all 4 arms so per-candidate novelty AND the auto-augmentation _candidate_spread key consume the SD-056-divergent e2.world_forward(z0,a_i) predictions (spread ~0.11) not the collapsed proposer summaries (spread <0.01, the 648 root cause). (2) Readiness precondition re-targeted to the CONSUMED representation: 3 legs incl ARM_1 curiosity_bias_range (the EXACT statistic C2 routes on) > floor; below-floor self-routes substrate_not_ready_requeue (not a false READY). Dry-run smoke: ARM_1 consumed curiosity_bias_range=0.027 (>0; 648 was structurally 0.0). experiment_purpose=diagnostic, claim_ids=[]. PASS (label phase2_substrate_ready) gates /queue-experiment V3-EXQ-590b + the section-8 MECH-314a/MECH-314/ARC-065 governance/claims updates (NOT applied until PASS). Substrate-readiness retune not yet validated at full scale; runner started manually by user.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-07T07:15:33Z"
+      },
       "claim_ids": [],
       "conditions": 4,
       "episodes_per_run": 80,
