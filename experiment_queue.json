@@ -189,6 +189,21 @@
       "seeds": 5
     },
     {
+      "queue_id": "V3-EXQ-650",
+      "title": "ControlVector logging readiness + Stage-B C_time<->G_vigor collapse diagnostic",
+      "script": "experiments/v3_exq_650_control_vector_collapse_diagnostic.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "estimated_minutes": 6,
+      "note": "Diagnostic (claim_ids=[]); substrate-readiness telemetry for the ControlVector logging landed 2026-06-07 (rec-B four-signal control adjudication). Measures the ARC-068-vs-MECH-320 collapse empirically (C_time and G_vigor are w*v_t for one v_t). Pure telemetry, no training, MECH-094 N/A. Design doc: REE_assembly/docs/architecture/control_vector_logging.md",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 3,
+      "episodes_per_run": 2,
+      "experiment_type": "v3_exq_650_control_vector_collapse_diagnostic",
+      "seeds": 2
+    },
+    {
       "queue_id": "V3-EXQ-645",
       "title": "arm-reuse Phase-0 MINT of the V3-EXQ-610 OFF/baseline arm (INV-074 crystallization necessity; ARM_0_stripped_control) on ree-cloud-3. Identical script/config to V3-EXQ-644 (ree-cloud-2); the second instance for the cross-instance determinism check.",
       "script": "experiments/v3_exq_610_inv074_crystallization_baseline_mint.py",
@@ -207,21 +222,6 @@
       "experiment_purpose": "baseline",
       "experiment_type": "v3_exq_610_inv074_crystallization_baseline_mint",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-650",
-      "title": "ControlVector logging readiness + Stage-B C_time<->G_vigor collapse diagnostic",
-      "experiment_type": "v3_exq_650_control_vector_collapse_diagnostic",
-      "script": "experiments/v3_exq_650_control_vector_collapse_diagnostic.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 6,
-      "episodes_per_run": 2,
-      "seeds": 2,
-      "conditions": 3,
-      "note": "Diagnostic (claim_ids=[]); substrate-readiness telemetry for the ControlVector logging landed 2026-06-07 (rec-B four-signal control adjudication). Measures the ARC-068-vs-MECH-320 collapse empirically (C_time and G_vigor are w*v_t for one v_t). Pure telemetry, no training, MECH-094 N/A. Design doc: REE_assembly/docs/architecture/control_vector_logging.md",
-      "claim_ids": []
     }
   ]
 }
