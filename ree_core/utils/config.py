@@ -2153,6 +2153,43 @@ class REEConfig:
     # Action class treated as no-op (matches MECH-279 / MECH-320 convention).
     blocked_agency_noop_class: int = 0
 
+    # SD-058 / MECH-357: instrumental-avoidance acquisition (ilPFC-analog
+    # freeze-suppression gate + instrumental-avoidance action pathway +
+    # eligibility-trace avoidance-efficacy learning). REE has the defensive
+    # REACTION side (SD-035 amygdala salience + MECH-279 PAG freeze) but lacked
+    # the instrumental-ACQUISITION side: active avoidance learning is the
+    # resolution of a Pavlovian-instrumental conflict (Moscarello & LeDoux 2013)
+    # -- learning to avoid REQUIRES ilPFC to suppress CeA-driven freezing.
+    # Pure-arithmetic regulator (ree_core/pfc/infralimbic_avoidance_gate.py);
+    # bit-identical when use_instrumental_avoidance=False (agent.instrumental_avoidance
+    # is None and no consumer fires). See
+    # REE_assembly/docs/architecture/sd_058_instrumental_avoidance_acquisition.md.
+    use_instrumental_avoidance: bool = False
+    # Eligibility-trace credit rate when a directed action under threat drops z_harm_a.
+    avoidance_learn_rate: float = 0.05
+    # Decay rate when the agent freezes / fails to avoid under threat.
+    avoidance_leak_rate: float = 0.02
+    # Freeze-default for the ilPFC-naive agent (0.0 = freezes until it learns).
+    avoidance_initial_efficacy: float = 0.0
+    # Protective-scaffold floor (curriculum sets > 0 and anneals it down;
+    # effective_efficacy = max(avoidance_efficacy, scaffold_floor)).
+    avoidance_scaffold_floor: float = 0.0
+    # z_harm_a norm below which there is no threat to avoid.
+    avoidance_threat_floor: float = 0.1
+    # z_harm_a norm mapping to full threat_scale = 1.0.
+    avoidance_threat_ref: float = 0.5
+    # Min harm-drop counted as a successful avoidance (credit branch).
+    avoidance_efficacy_reward_floor: float = 1e-4
+    # Gain on the anti-passivity (penalise-no-op) instrumental-avoidance bias.
+    avoidance_action_bias_gain: float = 0.1
+    # Clamp on |avoidance bias| (mirrors lateral_pfc / curiosity / vigor).
+    avoidance_bias_scale: float = 0.1
+    # effective_efficacy * threat_scale above which the MECH-279 freeze no-op
+    # is suppressed (ilPFC suppresses CeA-driven freezing).
+    avoidance_suppression_threshold: float = 0.5
+    # The passive / no-op action class (matches MECH-279 / MECH-320 convention).
+    avoidance_noop_class: int = 0
+
     # ----------------------------------------------------------------
     # V3-EXQ-563 diagnostic: forced_score_bias_per_class.
     # Hard-injects a per-action-class score bias vector, bypassing all
@@ -3187,6 +3224,20 @@ class REEConfig:
         # V3-EXQ-563: forced floor on v_t; bypasses sign/scale gate for
         # actuator tests. Default 0.0 = standard behaviour.
         tonic_vigor_v_t_floor: float = 0.0,
+        # SD-058 / MECH-357: instrumental-avoidance acquisition (ilPFC-analog
+        # freeze-suppression + avoidance action pathway + efficacy learning).
+        use_instrumental_avoidance: bool = False,
+        avoidance_learn_rate: float = 0.05,
+        avoidance_leak_rate: float = 0.02,
+        avoidance_initial_efficacy: float = 0.0,
+        avoidance_scaffold_floor: float = 0.0,
+        avoidance_threat_floor: float = 0.1,
+        avoidance_threat_ref: float = 0.5,
+        avoidance_efficacy_reward_floor: float = 1e-4,
+        avoidance_action_bias_gain: float = 0.1,
+        avoidance_bias_scale: float = 0.1,
+        avoidance_suppression_threshold: float = 0.5,
+        avoidance_noop_class: int = 0,
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity. Master + two togglable sub-flavours per V3-EXQ-608
         # R2a_e3_collapse_confirmed_large_gap routing (options 1 + 2).
@@ -3883,6 +3934,20 @@ class REEConfig:
         config.tonic_vigor_form = tonic_vigor_form
         config.tonic_vigor_noop_class = tonic_vigor_noop_class
         config.tonic_vigor_v_t_floor = tonic_vigor_v_t_floor
+
+        # SD-058 / MECH-357: instrumental-avoidance acquisition
+        config.use_instrumental_avoidance = use_instrumental_avoidance
+        config.avoidance_learn_rate = avoidance_learn_rate
+        config.avoidance_leak_rate = avoidance_leak_rate
+        config.avoidance_initial_efficacy = avoidance_initial_efficacy
+        config.avoidance_scaffold_floor = avoidance_scaffold_floor
+        config.avoidance_threat_floor = avoidance_threat_floor
+        config.avoidance_threat_ref = avoidance_threat_ref
+        config.avoidance_efficacy_reward_floor = avoidance_efficacy_reward_floor
+        config.avoidance_action_bias_gain = avoidance_action_bias_gain
+        config.avoidance_bias_scale = avoidance_bias_scale
+        config.avoidance_suppression_threshold = avoidance_suppression_threshold
+        config.avoidance_noop_class = avoidance_noop_class
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity

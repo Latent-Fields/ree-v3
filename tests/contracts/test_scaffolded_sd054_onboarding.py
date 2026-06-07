@@ -1747,3 +1747,110 @@ def test_c12_master_switch_off_aborts_hazard_stage():
     res = sched.run_hazard_avoidance(agent, torch.device("cpu"))
     assert res.aborted is True
     assert res.abort_reason == "master_switch_off"
+
+
+# ---------------------------------------------------------------------------
+# C13: SD-058 / MECH-357 avoidance-learning driver (Stage-H)
+# The protective-scaffold anneal that drives instrumental-avoidance acquisition
+# in Stage-H. No-op default; inert when the agent has no gate; anneals the
+# gate's avoidance-efficacy floor across the stage when on.
+# ---------------------------------------------------------------------------
+
+
+def _build_avoidance_agent(cfg, **kw):
+    """Goal-enabled agent sized to the scheduler's P2 env, carrying the
+    SD-058/MECH-357 instrumental-avoidance gate."""
+    from ree_core.utils.config import REEConfig
+    from ree_core.agent import REEAgent
+
+    env = _build_env(cfg, "p2")
+    rcfg = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim,
+        world_obs_dim=env.world_obs_dim,
+        action_dim=env.action_dim,
+        self_dim=32,
+        world_dim=32,
+        alpha_world=0.9,
+        z_goal_enabled=True,
+        drive_weight=2.0,
+        use_affective_harm_stream=True,
+        use_instrumental_avoidance=True,
+        **kw,
+    )
+    return REEAgent(rcfg)
+
+
+def test_c13_avoidance_driver_config_defaults_are_noop():
+    cfg = ScaffoldedSD054OnboardingConfig()
+    assert cfg.scaffold_avoidance_driver_enabled is False
+    assert cfg.scaffold_avoidance_scaffold_floor_start == 0.8
+    assert cfg.scaffold_avoidance_scaffold_floor_end == 0.0
+
+
+def test_c13_driver_off_does_not_touch_gate():
+    """Driver off + gate present: run_hazard_avoidance leaves the gate's
+    scaffold_floor at its construction value; result reports driver disabled."""
+    import torch
+    cfg = _dw_cfg(
+        scaffold_hazard_stage_enabled=True,
+        scaffold_hazard_stage_episode_budget=2,
+        scaffold_steps_per_episode=6,
+        scaffold_hazard_stage_survival_gate_steps=3,
+        scaffold_hazard_stage_stability_window=2,
+        scaffold_avoidance_driver_enabled=False,
+    )
+    agent = _build_avoidance_agent(cfg, avoidance_scaffold_floor=0.0)
+    assert agent.instrumental_avoidance is not None
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    res = sched.run_hazard_avoidance(agent, torch.device("cpu"))
+    assert res.aborted is False
+    assert res.avoidance_driver_enabled is False
+    # Floor untouched (the driver never set it).
+    assert agent.instrumental_avoidance.config.scaffold_floor == 0.0
+    # Gate state is still surfaced for the manifest.
+    assert res.avoidance_gate_state, "gate state should be populated when gate present"
+
+
+def test_c13_driver_on_anneals_floor_to_end():
+    """Driver on: the protective-scaffold floor anneals from start to end across
+    the Stage-H window; result reports driver enabled + gate state."""
+    import torch
+    cfg = _dw_cfg(
+        scaffold_hazard_stage_enabled=True,
+        scaffold_hazard_stage_episode_budget=4,
+        scaffold_steps_per_episode=6,
+        scaffold_hazard_stage_survival_gate_steps=3,
+        scaffold_hazard_stage_stability_window=2,
+        scaffold_avoidance_driver_enabled=True,
+        scaffold_avoidance_scaffold_floor_start=0.8,
+        scaffold_avoidance_scaffold_floor_end=0.0,
+    )
+    agent = _build_avoidance_agent(cfg, avoidance_scaffold_floor=0.0)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    res = sched.run_hazard_avoidance(agent, torch.device("cpu"))
+    assert res.aborted is False
+    assert res.avoidance_driver_enabled is True
+    # Last episode sets t=1.0 -> floor == end value.
+    assert abs(agent.instrumental_avoidance.config.scaffold_floor - 0.0) < 1e-9
+    assert "mech357_effective_efficacy" in res.avoidance_gate_state
+
+
+def test_c13_driver_on_no_gate_is_inert():
+    """Driver on but the agent has no gate (use_instrumental_avoidance=False):
+    the stage runs, the driver is reported disabled, and nothing crashes."""
+    import torch
+    cfg = _dw_cfg(
+        scaffold_hazard_stage_enabled=True,
+        scaffold_hazard_stage_episode_budget=2,
+        scaffold_steps_per_episode=6,
+        scaffold_hazard_stage_survival_gate_steps=3,
+        scaffold_hazard_stage_stability_window=2,
+        scaffold_avoidance_driver_enabled=True,
+    )
+    agent = _build_goal_enabled_agent(cfg)  # no instrumental-avoidance gate
+    assert agent.instrumental_avoidance is None
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    res = sched.run_hazard_avoidance(agent, torch.device("cpu"))
+    assert res.aborted is False
+    assert res.avoidance_driver_enabled is False
+    assert res.avoidance_gate_state == {}

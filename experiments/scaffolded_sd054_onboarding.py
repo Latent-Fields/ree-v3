@@ -391,6 +391,24 @@ class ScaffoldedSD054OnboardingConfig:
     scaffold_hazard_stage_survival_gate_steps: int = 75
     scaffold_hazard_stage_stability_window: int = 10
 
+    # SD-058 / MECH-357 avoidance-learning driver (the PRIMARY structural fix
+    # for the 603g G_H 0/3 survival-leg gap; budget escalation is SECONDARY).
+    # When enabled AND the agent carries an InstrumentalAvoidanceGate
+    # (use_instrumental_avoidance=True), Stage-H drives avoidance acquisition by
+    # setting a PROTECTIVE-SCAFFOLD floor on the gate's avoidance-efficacy
+    # (maternal-buffering / Turchetta 2020 reset-curriculum analogue) and
+    # ANNEALING it down across the Stage-H window as the agent's own learned
+    # efficacy takes over. Default OFF -> the Stage-H curriculum is unchanged
+    # (bit-identical to the 2026-06-07 curriculum-decomposition amend) and the
+    # gate, if present, learns autonomously from the floor's default 0.0.
+    scaffold_avoidance_driver_enabled: bool = False
+    # Protective-scaffold floor at the START of Stage-H (the external instructor
+    # showing the agent that directed avoidance works).
+    scaffold_avoidance_scaffold_floor_start: float = 0.8
+    # Protective-scaffold floor at the END of Stage-H (anneals to the agent's
+    # own learned efficacy; 0.0 = scaffold fully withdrawn).
+    scaffold_avoidance_scaffold_floor_end: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -470,6 +488,12 @@ class HazardAvoidanceResult:
     aborted: bool
     abort_reason: str = ""
     episode_lengths: List[int] = field(default_factory=list)
+    # SD-058 / MECH-357 avoidance-learning driver diagnostics (empty dict when
+    # the gate is absent / the driver is off). Lets the 603g-successor manifest
+    # confirm that avoidance was acquired (efficacy rose, freeze suppressed)
+    # rather than the agent merely surviving by chance.
+    avoidance_driver_enabled: bool = False
+    avoidance_gate_state: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -1527,7 +1551,24 @@ class ScaffoldedSD054OnboardingScheduler:
             maxlen=self.cfg.scaffold_hazard_stage_stability_window
         )
         rv_final = float(getattr(agent.e3, "_running_variance", 0.0))
+        # SD-058 / MECH-357 avoidance-learning driver: protective-scaffold floor
+        # annealed across the Stage-H window. Inert when the driver flag is off
+        # or the agent does not carry the gate (bit-identical to the pre-MECH-357
+        # Stage-H). Reset the gate's learned efficacy to its initial value at the
+        # START of the stage so the protective scaffold leads acquisition.
+        _ia_driver = (
+            self.cfg.scaffold_avoidance_driver_enabled
+            and getattr(agent, "instrumental_avoidance", None) is not None
+        )
+        floor_start = float(self.cfg.scaffold_avoidance_scaffold_floor_start)
+        floor_end = float(self.cfg.scaffold_avoidance_scaffold_floor_end)
         for _ep in range(n_eps):
+            if _ia_driver:
+                # Linear anneal of the protective floor across the Stage-H window.
+                t = (_ep / (n_eps - 1)) if n_eps > 1 else 1.0
+                agent.instrumental_avoidance.set_scaffold_floor(
+                    floor_start + (floor_end - floor_start) * t
+                )
             ep_len = self._train_episode(
                 agent, env, device, e1_opt, wf_opt, wf_buf, world_dim,
                 seed_goal=False,  # goal frozen -> survival learned in isolation
@@ -1543,6 +1584,11 @@ class ScaffoldedSD054OnboardingScheduler:
         survival_passed = median_last_window >= float(
             self.cfg.scaffold_hazard_stage_survival_gate_steps
         )
+        _ia_state = (
+            agent.instrumental_avoidance.get_state()
+            if getattr(agent, "instrumental_avoidance", None) is not None
+            else {}
+        )
         self._hazard_result = HazardAvoidanceResult(
             n_episodes=len(ep_lengths),
             mean_episode_length=mean_len,
@@ -1551,6 +1597,8 @@ class ScaffoldedSD054OnboardingScheduler:
             final_running_variance=rv_final,
             aborted=False,
             episode_lengths=ep_lengths,
+            avoidance_driver_enabled=bool(_ia_driver),
+            avoidance_gate_state=_ia_state,
         )
         return self._hazard_result
 

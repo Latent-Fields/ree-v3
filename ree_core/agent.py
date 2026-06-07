@@ -79,6 +79,10 @@ from ree_core.latent.stack import HarmForwardTrunk
 from ree_core.pfc import LateralPFCAnalog, OFCAnalog
 from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
 from ree_core.pfc.ofc_analog import OFCConfig
+from ree_core.pfc.infralimbic_avoidance_gate import (
+    InstrumentalAvoidanceGate,
+    InstrumentalAvoidanceGateConfig,
+)
 from ree_core.policy import (
     CandidateRuleField,
     CandidateRuleFieldConfig,
@@ -912,6 +916,35 @@ class REEAgent(nn.Module):
         # action-outcome and motor-agency comparators (None until first sense()).
         self._ba_prev_z_world: Optional[torch.Tensor] = None
         self._ba_prev_z_self: Optional[torch.Tensor] = None
+
+        # SD-058 / MECH-357: ilPFC-analog instrumental-avoidance gate. Resolves
+        # the Pavlovian-instrumental conflict (Moscarello & LeDoux 2013) -- a
+        # per-candidate anti-passivity score-bias (release the instrumental
+        # action), an ilPFC suppression of the MECH-279 freeze no-op, and an
+        # eligibility-trace avoidance-efficacy learner driven by z_harm_a drops.
+        # Bit-identical baseline when use_instrumental_avoidance=False
+        # (agent.instrumental_avoidance is None and no consumer fires). See
+        # ree_core/pfc/infralimbic_avoidance_gate.py +
+        # REE_assembly/docs/architecture/sd_058_instrumental_avoidance_acquisition.md.
+        self.instrumental_avoidance: Optional[InstrumentalAvoidanceGate] = None
+        if getattr(config, "use_instrumental_avoidance", False):
+            ia_cfg = InstrumentalAvoidanceGateConfig(
+                learn_rate=config.avoidance_learn_rate,
+                leak_rate=config.avoidance_leak_rate,
+                initial_efficacy=config.avoidance_initial_efficacy,
+                scaffold_floor=config.avoidance_scaffold_floor,
+                efficacy_reward_floor=config.avoidance_efficacy_reward_floor,
+                threat_floor=config.avoidance_threat_floor,
+                threat_ref=config.avoidance_threat_ref,
+                action_bias_gain=config.avoidance_action_bias_gain,
+                bias_scale=config.avoidance_bias_scale,
+                noop_class=config.avoidance_noop_class,
+                suppression_threshold=config.avoidance_suppression_threshold,
+            )
+            self.instrumental_avoidance = InstrumentalAvoidanceGate(config=ia_cfg)
+        # MECH-357 per-tick cache: whether the last emitted action was directed
+        # (non-noop). Fed to the eligibility-trace update on the NEXT sense().
+        self._ia_last_action_directed: bool = False
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity. Layer-B diversity-preservation substrate triggered
@@ -1785,6 +1818,14 @@ class REEAgent(nn.Module):
         self._ba_prev_z_world = None
         self._ba_prev_z_self = None
 
+        # SD-058 / MECH-357: clear the within-episode threat trace ONLY -- the
+        # learned avoidance_efficacy PERSISTS across episodes (developmental
+        # acquisition does not un-learn at episode boundaries). Also clear the
+        # last-action-directed cache.
+        if self.instrumental_avoidance is not None:
+            self.instrumental_avoidance.reset()
+        self._ia_last_action_directed = False
+
         # MECH-319: reset simulation-mode rule-gate diagnostic counters on
         # episode boundary. The gate has no persistent state across ticks
         # beyond counters, so reset is purely a diagnostic boundary.
@@ -2344,6 +2385,28 @@ class REEAgent(nn.Module):
         # sees the freshly observed z_world / z_self. No-op when
         # use_blocked_agency is False.
         self._update_blocked_agency(new_latent)
+
+        # SD-058 / MECH-357: advance the avoidance-efficacy eligibility trace.
+        # Compares the current z_harm_a (SD-011 affective stream) to the threat
+        # the previous action responded to: a directed action under threat that
+        # dropped z_harm_a credits efficacy; freezing / failed avoidance decays
+        # it. One-tick lag (the outcome is the just-experienced threat change).
+        # MECH-094: no-op when the latent carries hypothesis_tag (replay/DMN
+        # must not credit avoidance on imagined outcomes). Bit-identical when
+        # self.instrumental_avoidance is None.
+        if self.instrumental_avoidance is not None:
+            _ia_sim = bool(getattr(new_latent, "hypothesis_tag", False))
+            _ia_zha = getattr(new_latent, "z_harm_a", None)
+            _ia_zn = (
+                float(_ia_zha.detach().norm().item())
+                if _ia_zha is not None
+                else 0.0
+            )
+            self.instrumental_avoidance.update(
+                z_harm_a_norm=_ia_zn,
+                action_was_directed=self._ia_last_action_directed,
+                simulation_mode=_ia_sim,
+            )
 
         # SD-036: tick the GABAergic cross-stream decay regulator. Applies
         # z_s(t+1) = z_s(t) * exp(-tau_s * gaba_tone) to registered streams
@@ -4419,6 +4482,48 @@ class REEAgent(nn.Module):
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 
+        # SD-058 / MECH-357: instrumental-avoidance ACTION pathway. Under
+        # retained threat (z_harm_a), penalise the no-op / freeze class
+        # proportional to the learned/scaffolded avoidance-efficacy so the
+        # instrumental action is RELEASED (the ilPFC resolution of the
+        # Pavlovian-instrumental conflict). The gate does NOT pick the escape
+        # direction -- E3's existing harm gradient ranks the directed candidates.
+        # Composed last in the additive score-bias chain. Zero (bit-identical)
+        # below threat / at zero efficacy / when the gate is disabled.
+        if self.instrumental_avoidance is not None and len(candidates) > 0:
+            _ia_zha = (
+                self._current_latent.z_harm_a
+                if self._current_latent is not None
+                else None
+            )
+            _ia_zn = (
+                float(_ia_zha.detach().norm().item()) if _ia_zha is not None else 0.0
+            )
+            _ia_classes = [
+                int(c.actions[:, 0, :].argmax(dim=-1).flatten()[0].item())
+                for c in candidates
+            ]
+            _ia_dtype = (
+                dacc_score_bias.dtype if dacc_score_bias is not None else torch.float32
+            )
+            _ia_device = (
+                dacc_score_bias.device if dacc_score_bias is not None else self.device
+            )
+            ia_bias = self.instrumental_avoidance.compute_action_bias(
+                z_harm_a_norm=_ia_zn,
+                action_classes=_ia_classes,
+                noop_class=int(self.config.avoidance_noop_class),
+                device=_ia_device,
+                dtype=_ia_dtype,
+                simulation_mode=False,
+            )
+            if dacc_score_bias is None:
+                dacc_score_bias = ia_bias
+            else:
+                dacc_score_bias = dacc_score_bias + ia_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
+
         _fsb = getattr(self.config, "forced_score_bias_per_class", None)
         self._last_candidate_support_preflight = candidate_support_preflight(
             candidates,
@@ -4827,7 +4932,33 @@ class REEAgent(nn.Module):
                 simulation_mode=False,
                 override_signal=pag_override,
             )
-            if self._pag_last_output.freeze_active and action is not None:
+            # SD-058 / MECH-357: ilPFC freeze-SUPPRESSION. When the learned/
+            # scaffolded avoidance-efficacy x threat is high enough, the
+            # infralimbic gate suppresses the MECH-279 freeze no-op so the agent
+            # takes its selected instrumental-avoidance action instead of
+            # freezing (Moscarello & LeDoux: ilPFC suppresses CeA-driven
+            # freezing). Inert when the gate is disabled. Below the threshold
+            # the freeze override applies exactly as pre-MECH-357.
+            _ia_suppress_freeze = False
+            if self.instrumental_avoidance is not None:
+                _ia_zha = (
+                    self._current_latent.z_harm_a
+                    if self._current_latent is not None
+                    else None
+                )
+                _ia_zn = (
+                    float(_ia_zha.detach().norm().item())
+                    if _ia_zha is not None
+                    else 0.0
+                )
+                _ia_suppress_freeze = self.instrumental_avoidance.should_suppress_freeze(
+                    _ia_zn, simulation_mode=False
+                )
+            if (
+                self._pag_last_output.freeze_active
+                and action is not None
+                and not _ia_suppress_freeze
+            ):
                 # Constrain action to a no-op one-hot vector. Match the
                 # action's shape, dtype, and device. The no-op class index
                 # defaults to 0 (configurable via pag_freeze_noop_action_class).
@@ -4845,6 +4976,14 @@ class REEAgent(nn.Module):
 
         self._cache_tpj_prediction_for_action(action)
         self._last_action = action
+        # SD-058 / MECH-357: cache whether the emitted action is directed
+        # (non-noop), fed to the eligibility-trace update on the next sense().
+        # A freeze (no-op) under threat is NOT credited as avoidance.
+        if self.instrumental_avoidance is not None and action is not None:
+            _ia_nc = int(self.config.avoidance_noop_class)
+            self._ia_last_action_directed = bool(
+                int(action.argmax(dim=-1).flatten()[0].item()) != _ia_nc
+            )
         # MECH-165: record action for exploration trajectory
         self._record_exploration_action(action)
 
