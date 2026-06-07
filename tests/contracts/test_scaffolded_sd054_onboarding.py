@@ -1631,3 +1631,119 @@ def test_c11_substrate_readiness_full_pass_on_genuine_contact():
     )
     assert gate["substrate_gate_passed"] is True
     assert gate["g3_zgoal"] is True
+
+
+# ---------------------------------------------------------------------------
+# C12: curriculum decomposition -- isolated hazard-avoidance stage
+# (V3-EXQ-603f autopsy, 2026-06-07). A separately-trained Stage-H between P0 and
+# P1: goal pipeline FROZEN, hazards present, foraging minimal, hfa=0, so the
+# policy learns survival/avoidance in isolation before P1 combines the
+# competencies. No-op default; bit-identical OFF.
+# ---------------------------------------------------------------------------
+
+from experiments.scaffolded_sd054_onboarding import (  # noqa: E402
+    HazardAvoidanceResult,
+)
+
+
+def test_c12_config_defaults_are_noop():
+    """New hazard-stage knobs default to no-op (bit-identical OFF)."""
+    cfg = ScaffoldedSD054OnboardingConfig()
+    assert cfg.scaffold_hazard_stage_enabled is False
+    assert cfg.scaffold_hazard_stage_episode_budget == 40
+    assert cfg.scaffold_hazard_stage_hazard_food_attraction == 0.0
+    assert cfg.scaffold_hazard_stage_proximity_harm_scale == 0.1
+    assert cfg.scaffold_hazard_stage_spawn_in_reef_half is False
+
+
+def test_c12_run_hazard_avoidance_disabled_aborts():
+    """With the stage flag off, run_hazard_avoidance aborts (hazard_stage_disabled)
+    and the curriculum is bit-identical to pre-amend (the stage is skipped)."""
+    import torch
+    cfg = _dw_cfg(scaffold_hazard_stage_enabled=False)
+    agent = _build_goal_enabled_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    res = sched.run_hazard_avoidance(agent, torch.device("cpu"))
+    assert res.aborted is True
+    assert res.abort_reason == "hazard_stage_disabled"
+    assert res.n_episodes == 0
+    assert res.survival_gate_passed is False
+
+
+def test_c12_build_env_hazard_phase_matches_obs_dim_and_hazards():
+    """_build_env('hazard') emits the configured hazard count AND keeps the same
+    world_obs_dim as p0/p1/p2 (so the single shared agent senses every phase).
+    Default midline spawn -> agent in the agent band, not the reef half."""
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_hazard_stage_num_hazards=4)
+    env_h = _build_env(cfg, "hazard")
+    env_p0 = _build_env(cfg, "p0")
+    env_p2 = _build_env(cfg, "p2")
+    assert env_h.world_obs_dim == env_p0.world_obs_dim == env_p2.world_obs_dim
+    assert env_h.num_hazards == 4
+    # Midline spawn (default): agent never spawns in the reef half across resets.
+    for _ in range(30):
+        env_h.reset()
+        assert env_h.agent_x in {5, 6, 7}
+
+
+def test_c12_build_env_hazard_spawn_in_reef_half_optional():
+    """scaffold_hazard_stage_spawn_in_reef_half=True widens the spawn to the
+    reef half (gentler isolated stage); default False stays midline."""
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_hazard_stage_spawn_in_reef_half=True)
+    rows = []
+    for _ in range(40):
+        env_h = _build_env(cfg, "hazard")
+        env_h.reset()
+        rows.append(env_h.agent_x)
+    assert sum(1 for r in rows if r >= 8) > 0
+
+
+def test_c12_run_hazard_avoidance_goal_frozen_and_zgoal_untouched():
+    """Enabled stage runs, freezes the goal pipeline, and does NOT touch z_goal
+    (seed_goal=False -> update_z_goal never called): a z_goal seeded before the
+    stage is byte-unchanged after it. Survival readout is populated."""
+    import torch
+    cfg = _dw_cfg(
+        scaffold_hazard_stage_enabled=True,
+        scaffold_hazard_stage_episode_budget=2,
+        scaffold_steps_per_episode=6,
+        scaffold_hazard_stage_survival_gate_steps=3,
+        scaffold_hazard_stage_stability_window=2,
+    )
+    agent = _build_goal_enabled_agent(cfg)
+    # Sense a real obs first (z_goal seeds toward z_world), then force a
+    # supra-threshold seed so we can prove the stage leaves it untouched.
+    env = _build_env(cfg, "hazard")
+    _, obs = env.reset()
+    agent.sense(obs["body_state"], obs["world_state"])
+    for _ in range(5):
+        agent.update_z_goal(benefit_exposure=1.0, drive_level=0.9)
+    norm_before = float(agent.goal_state.goal_norm())
+    assert norm_before > 0.0
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    res = sched.run_hazard_avoidance(agent, torch.device("cpu"))
+    assert isinstance(res, HazardAvoidanceResult)
+    assert res.aborted is False
+    assert res.n_episodes == 2
+    assert len(res.episode_lengths) == 2
+    assert isinstance(res.survival_gate_passed, bool)
+    # Goal pipeline FROZEN by the isolated stage.
+    assert agent.config.use_mech295_liking_bridge is False
+    assert agent.config.use_mech307_conjunction is False
+    # z_goal untouched (no update_z_goal call -> no decay, no seed).
+    assert float(agent.goal_state.goal_norm()) == pytest.approx(norm_before)
+
+
+def test_c12_master_switch_off_aborts_hazard_stage():
+    """Master switch off -> run_hazard_avoidance aborts master_switch_off even
+    with the stage flag on (the scheduler is inert)."""
+    import torch
+    cfg = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=False,
+        scaffold_hazard_stage_enabled=True,
+    )
+    agent = _build_goal_enabled_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    res = sched.run_hazard_avoidance(agent, torch.device("cpu"))
+    assert res.aborted is True
+    assert res.abort_reason == "master_switch_off"

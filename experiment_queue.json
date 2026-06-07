@@ -188,6 +188,22 @@
       "experiment_purpose": "baseline",
       "experiment_type": "v3_exq_610_inv074_crystallization_baseline_mint",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-603g",
+      "title": "scaffolded_sd054_onboarding substrate-readiness: curriculum decomposition (isolated hazard-avoidance Stage-H between P0 and P1) -- GAP-2 P1 survival leg; supersedes 603f",
+      "experiment_type": "v3_exq_603g_scaffolded_sd054_substrate_readiness",
+      "script": "experiments/v3_exq_603g_scaffolded_sd054_substrate_readiness.py",
+      "priority": 325,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 255,
+      "episodes_per_run": 235,
+      "seeds": 3,
+      "conditions": 1,
+      "supersedes": "V3-EXQ-603f",
+      "note": "Substrate-readiness diagnostic (claim_ids=[]). Validates the 2026-06-07 curriculum-decomposition amend: a separately-trained ISOLATED hazard-avoidance stage (Stage-H) inserted between P0 and P1 (goal pipeline frozen, hazards present, foraging minimal, hfa=0, midline spawn). The SINGLE change vs 603f. PASS gate UNCHANGED: G0 AND G1 AND G2 each >=2/3 seeds; new G_H Stage-H survival readout is DIAGNOSTIC only (NOT in PASS rule). GAP-2 stays blocked until 603g clears G1>=2/3 AND G2>=2/3 AND ecological G3>=2/3. Routed by failure_autopsy_V3-EXQ-603f_2026-06-07.",
+      "claim_ids": []
     }
   ]
 }

@@ -346,6 +346,51 @@ class ScaffoldedSD054OnboardingConfig:
     #     Default 0.0 = spawn at midline for all of P1 (bit-identical to legacy).
     scaffold_p1_reef_spawn_hold_fraction: float = 0.0
 
+    # -------- Curriculum decomposition: isolated hazard-avoidance stage --------
+    # (V3-EXQ-603f autopsy, 2026-06-07). 603f proved the goal-formation +
+    # ecological-seeding chain is SOUND (seed 44 foraged contact_rate 0.393 AND
+    # seeded z_goal 0.450) but the single remaining GAP-2 blocker is the P1
+    # SURVIVAL / hazard-avoidance leg (G1 0/3; even the foraging seed died at
+    # median 28.5 vs gate 75). Root cause: P1 couples TWO competencies at once
+    # (goal-pipeline unfreeze + wean into the hazard band) and the agent cannot
+    # acquire both simultaneously; P0 trains only in the safe reef refuge, so the
+    # agent never learns hazard navigation before P1 throws it at hazards.
+    #
+    # THE FIX (user-directed): a SEPARATE hazard-avoidance training stage between
+    # P0 (safe, goal-frozen warm-up) and P1 (combined wean). Hazards present,
+    # foraging pressure minimal, hazard_food_attraction=0 (so foraging does NOT
+    # raise hazard exposure -- clean avoidance signal), goal pipeline FROZEN (the
+    # isolation: no goal-unfreeze competing). Midline spawn so the agent must
+    # actually navigate the hazard band (the reef refuge stays available as the
+    # flee-to-safety attractor). P1 is then entered by an already-survival-AND-
+    # goal-competent policy. All knobs additive + no-op default
+    # (scaffold_hazard_stage_enabled False); the V3-EXQ-603g re-issue opts in.
+    # Bit-identical OFF: the scheduler never runs the stage unless an experiment
+    # both sets the flag AND calls run_hazard_avoidance.
+    scaffold_hazard_stage_enabled: bool = False
+    scaffold_hazard_stage_episode_budget: int = 40
+    # Hazards present at target density; resources minimal so avoidance (not
+    # foraging) is the dominant learning signal.
+    scaffold_hazard_stage_num_hazards: int = 4
+    scaffold_hazard_stage_num_resources: int = 2
+    # hazard_food_attraction=0.0 -> hazards drift randomly (NOT toward food), so
+    # foraging does not increase hazard exposure; avoidance is learnable in
+    # isolation. proximity_harm_scale at the target level (0.1) so avoidance is
+    # genuinely incentivised (matches P2).
+    scaffold_hazard_stage_hazard_food_attraction: float = 0.0
+    scaffold_hazard_stage_proximity_harm_scale: float = 0.1
+    # Midline spawn (False) -> the agent must navigate the hazard band, the way
+    # P1 does, but with the goal frozen. True keeps the safe reef-refuge spawn
+    # (a gentler isolated stage; the experiment chooses).
+    scaffold_hazard_stage_spawn_in_reef_half: bool = False
+    # Survival readout: median episode length over the last stability window must
+    # clear this floor for the isolated stage to count as survival-competent.
+    # Diagnostic only (does NOT abort the curriculum) -- the canonical readiness
+    # gate stays G0/G1/G2/G3; G_H is reported so the 603g manifest can confirm the
+    # isolated stage achieved avoidance before P1.
+    scaffold_hazard_stage_survival_gate_steps: int = 75
+    scaffold_hazard_stage_stability_window: int = 10
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -402,6 +447,29 @@ class P0OnboardingResult:
     final_running_variance: float
     aborted: bool
     abort_reason: str = ""
+
+
+@dataclass
+class HazardAvoidanceResult:
+    """Outcome of ScaffoldedSD054OnboardingScheduler.run_hazard_avoidance().
+
+    The isolated hazard-avoidance stage (2026-06-07 curriculum-decomposition
+    amend). Goal pipeline frozen; hazards present; foraging pressure minimal.
+    survival_gate_passed (median episode length over the last stability window
+    >= scaffold_hazard_stage_survival_gate_steps) is the G_H readout: did the
+    policy acquire hazard avoidance in isolation before P1 combines the
+    competencies? Diagnostic -- it does NOT abort the curriculum or change the
+    canonical G0/G1/G2/G3 readiness gate.
+    """
+
+    n_episodes: int
+    mean_episode_length: float
+    median_last_window_episode_length: float
+    survival_gate_passed: bool
+    final_running_variance: float
+    aborted: bool
+    abort_reason: str = ""
+    episode_lengths: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -904,6 +972,30 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             reef_bipartite_agent_band_radius=cfg.scaffold_reef_bipartite_agent_band_radius,
             reef_bipartite_agent_spawn_in_reef_half=True,
         )
+    if phase == "hazard":
+        # Isolated hazard-avoidance stage (2026-06-07): hazards present, foraging
+        # pressure minimal, hazard_food_attraction=0 so foraging does not raise
+        # hazard exposure. Spawn at the midline (default) so the agent must
+        # navigate the hazard band; the reef refuge stays available as the
+        # flee-to-safety attractor. Same structural kwargs (reef + bipartite +
+        # SD-049 + limb_damage) as every other phase so world_obs_dim matches the
+        # single shared agent.
+        return CausalGridWorldV2(
+            size=cfg.scaffold_env_size,
+            num_hazards=cfg.scaffold_hazard_stage_num_hazards,
+            num_resources=cfg.scaffold_hazard_stage_num_resources,
+            **_sd049_kwargs(cfg),  # SD-057 cue-recall bridge (no-op when off)
+            hazard_food_attraction=cfg.scaffold_hazard_stage_hazard_food_attraction,
+            proximity_harm_scale=cfg.scaffold_hazard_stage_proximity_harm_scale,
+            limb_damage_enabled=True,
+            reef_enabled=True,
+            reef_bipartite_layout=True,
+            reef_bipartite_axis=cfg.scaffold_reef_bipartite_axis,
+            reef_bipartite_agent_band_radius=cfg.scaffold_reef_bipartite_agent_band_radius,
+            reef_bipartite_agent_spawn_in_reef_half=bool(
+                cfg.scaffold_hazard_stage_spawn_in_reef_half
+            ),
+        )
     if phase == "p1":
         hfa = _lerp(
             cfg.scaffold_p1_anneal_hazard_food_attraction_min,
@@ -1031,6 +1123,7 @@ class ScaffoldedSD054OnboardingScheduler:
         self.cfg = cfg
         self._stage0_result: Optional[Stage0NurseryResult] = None
         self._p0_result: Optional[P0OnboardingResult] = None
+        self._hazard_result: Optional[HazardAvoidanceResult] = None
         self._p1_result: Optional[P1OnboardingResult] = None
         self._p2_metrics: Optional[P2OnboardingMetrics] = None
 
@@ -1368,6 +1461,98 @@ class ScaffoldedSD054OnboardingScheduler:
             aborted=False,
         )
         return self._p0_result
+
+    # ---------------- Stage-H: isolated hazard avoidance ---------------- #
+
+    def run_hazard_avoidance(self, agent, device: torch.device) -> HazardAvoidanceResult:
+        """
+        Stage-H: isolated hazard-avoidance training (2026-06-07 curriculum-
+        decomposition amend; V3-EXQ-603f autopsy).
+
+        Inserted between P0 (safe goal-frozen warm-up) and P1 (combined wean).
+        The goal pipeline is FROZEN (the isolation: no goal-unfreeze competing),
+        hazards are present at the target density / proximity_harm, foraging
+        pressure is minimal, and hazard_food_attraction=0 so foraging does not
+        raise hazard exposure -- the policy learns avoidance on its own. E1+E2
+        (+E3 running-variance) train exactly as in run_p0; the agent's E3 harm
+        evaluation drives survival without the goal pipeline. P1 is then entered
+        by an already-survival-competent policy.
+
+        Survival readout: median episode length over the last
+        scaffold_hazard_stage_stability_window episodes vs
+        scaffold_hazard_stage_survival_gate_steps (G_H). DIAGNOSTIC only -- it
+        does NOT abort the curriculum and does NOT change the canonical
+        G0/G1/G2/G3 readiness gate; it lets the manifest confirm the isolated
+        stage achieved avoidance before P1.
+
+        Gated by scaffold_hazard_stage_enabled (default False -> aborts
+        disabled). Bit-identical OFF: an experiment that does not set the flag
+        AND call this method sees the pre-amend curriculum.
+        """
+        if not self.enabled:
+            self._hazard_result = HazardAvoidanceResult(
+                n_episodes=0, mean_episode_length=0.0,
+                median_last_window_episode_length=0.0, survival_gate_passed=False,
+                final_running_variance=float(getattr(agent.e3, "_running_variance", 0.0)),
+                aborted=True, abort_reason="master_switch_off",
+            )
+            return self._hazard_result
+        if not self.cfg.scaffold_hazard_stage_enabled:
+            self._hazard_result = HazardAvoidanceResult(
+                n_episodes=0, mean_episode_length=0.0,
+                median_last_window_episode_length=0.0, survival_gate_passed=False,
+                final_running_variance=float(getattr(agent.e3, "_running_variance", 0.0)),
+                aborted=True, abort_reason="hazard_stage_disabled",
+            )
+            return self._hazard_result
+
+        # Goal pipeline FROZEN (isolation): mech295/mech307 short-circuit + no
+        # update_z_goal call (seed_goal=False) -> z_goal is untouched here.
+        _set_goal_pipeline_frozen(agent, frozen=True)
+        env = _build_env(self.cfg, phase="hazard")
+        agent.train()
+
+        world_dim = agent.config.latent.world_dim
+        e1_opt = optim.Adam(list(agent.e1.parameters()), lr=self.cfg.scaffold_lr_e1)
+        wf_opt = optim.Adam(
+            list(agent.e2.world_transition.parameters())
+            + list(agent.e2.world_action_encoder.parameters()),
+            lr=self.cfg.scaffold_lr_e2_wf,
+        )
+        wf_buf: Deque = deque(maxlen=self.cfg.scaffold_wf_buf_max)
+
+        n_eps = max(1, self.cfg.scaffold_hazard_stage_episode_budget)
+        ep_lengths: List[int] = []
+        recent_lengths: Deque[int] = deque(
+            maxlen=self.cfg.scaffold_hazard_stage_stability_window
+        )
+        rv_final = float(getattr(agent.e3, "_running_variance", 0.0))
+        for _ep in range(n_eps):
+            ep_len = self._train_episode(
+                agent, env, device, e1_opt, wf_opt, wf_buf, world_dim,
+                seed_goal=False,  # goal frozen -> survival learned in isolation
+            )
+            ep_lengths.append(ep_len)
+            recent_lengths.append(ep_len)
+            rv_final = float(getattr(agent.e3, "_running_variance", rv_final))
+
+        mean_len = float(np.mean(ep_lengths)) if ep_lengths else 0.0
+        median_last_window = (
+            float(np.median(list(recent_lengths))) if recent_lengths else 0.0
+        )
+        survival_passed = median_last_window >= float(
+            self.cfg.scaffold_hazard_stage_survival_gate_steps
+        )
+        self._hazard_result = HazardAvoidanceResult(
+            n_episodes=len(ep_lengths),
+            mean_episode_length=mean_len,
+            median_last_window_episode_length=median_last_window,
+            survival_gate_passed=survival_passed,
+            final_running_variance=rv_final,
+            aborted=False,
+            episode_lengths=ep_lengths,
+        )
+        return self._hazard_result
 
     # ---------------- P1 ---------------- #
 
@@ -2337,6 +2522,7 @@ __all__ = [
     "Stage0NurseryResult",
     "Stage0bConsolidationResult",
     "P0OnboardingResult",
+    "HazardAvoidanceResult",
     "P1OnboardingResult",
     "P2OnboardingMetrics",
     "clone_trained_agent",
