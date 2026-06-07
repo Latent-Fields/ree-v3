@@ -120,6 +120,22 @@
       "claim_id": "MECH-341",
       "supersedes": "V3-EXQ-614d",
       "note": "Clean retest of 614d MECH-341 within-class temperature sweep with use_modulatory_selection_authority=True (gain=0.5). 614d FAILed only because the score-side lever was zeroed at E3.select (float32 catastrophic-cancellation bug fixed by V3-EXQ-643a). Site-2 stratified across-class unit-range normalization now lets within-class T reach committed-action selection. C2 (primary): committed_class_entropy rises with within-class T, per-arm >=1 paired-lift seed; C1: substrate-operative non-vacuity. experiment_purpose=evidence; claim MECH-341 (v3_pending). Re-applied after phase3-queue snapshot autostash race (heartbeat pull stranded the first append in autostash; recovered on top of the 624b snapshot)."
+    },
+    {
+      "queue_id": "V3-EXQ-640b",
+      "title": "SD-057/MECH-346/MECH-347 cue-authority lineage CLEAN EVIDENCE retest: re-run the 640a scaffold cue-recall gain sweep (cue_recall_gain{0.2,1.0,5.0} x kappa{2.0,10.0} + ARM_OFF, 3 seeds) now that modulatory-bias-selection-authority is VALIDATED (V3-EXQ-643a PASS). use_modulatory_selection_authority=True+gain=0.5 on every arm so the cue->z_goal->MECH-295 approach bias has bounded authority over the E3.select argmin in the contact-making scaffold P2 env. Promotes 640a (diagnostic, flat lift, authority OFF) to EVIDENCE.",
+      "experiment_type": "v3_exq_640b_scaffold_cue_authority_gain_sweep_retest",
+      "script": "experiments/v3_exq_640b_scaffold_cue_authority_gain_sweep_retest.py",
+      "priority": 300,
+      "machine_affinity": "DLAPTOP-4.local",
+      "status": "pending",
+      "estimated_minutes": 600,
+      "episodes_per_run": 235,
+      "seeds": 3,
+      "conditions": 7,
+      "supersedes": "V3-EXQ-640a",
+      "claim_id": "SD-057",
+      "note": "EVIDENCE (claim_ids=[SD-057,MECH-346,MECH-347], all v3_pending; serial L6 cue-recall -> L4 token-pointer seed -> SD-057 bank chain co-tagged because the post-cue approach lift cannot be attributed to one link). Acceptance: PRIMARY C_LIFT_PRIMARY = post_cue_approach_lift>0 over within-run background on >=2/3 seeds in the pre-registered decisive cell ARM_CUE_g5_k10 (maximal cue_pull); GUARDS C1 cue fires + C2 trace captured (no-trace -> non_contributory instrumentation FAIL, route /diagnose-errors, NOT evidence-against). overall=C1 AND C2 AND C_LIFT_PRIMARY. evidence_direction: supports / weakens / non_contributory per the gate. Secondary (reported, not verdict-driving, multiple-comparison caveat): C_LIFT_ANY across 6 cells + gain-monotonicity. The single change vs 640a is use_modulatory_selection_authority=True+gain=0.5 (validated V3-EXQ-643a PASS 2026-06-06 after the float32 catastrophic-cancellation fix); NO SD-056 online training in this harness so scores stay bounded and no rollout-norm clamp is needed. Smoke --dry-run PASS end-to-end 2026-06-07 (7 arms, cue fires 30-60/run, z_goal forms ~0.42-0.46, acceptance machinery exercised). seeds=3 x conditions=7 -> 21 verdict lines; episodes_per_run=235 (stage0 20+stage0b 10+P0 120+P1 70+P2 15)."
     }
   ]
 }
