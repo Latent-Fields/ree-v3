@@ -271,6 +271,82 @@ def readiness_lint(path: Path) -> Optional[str]:
             + "proposal_trivial_prediction_readiness_gate_2026-06-06)")
 
 
+# Arm-reuse fingerprint enforcement (arm_reuse_fingerprint_plan.md; determinism
+# gate closed + ratified 2026-06-07). A multi-arm (seed x arm) experiment writes
+# per-arm rows under "arm_results"; each cell MUST (1) reset_all_rng(seed) at cell
+# entry and (2) emit a per-cell fingerprint -- either via the low-level pair
+# (reset_all_rng + compute_arm_fingerprint) or the bundled arm_cell() helper.
+# Without both, the cell is order-dependent and never safely reusable.
+_ARM_RESULTS_KEY = "arm_results"
+_FP_EMIT_NAMES = ("compute_arm_fingerprint", "arm_cell")   # arm_cell stamps the fp
+_RNG_RESET_NAMES = ("reset_all_rng", "arm_cell")           # arm_cell resets on enter
+_ARM_FP_EXEMPT_MARKER = "ARM_FINGERPRINT_EXEMPT"            # opt-out constant/marker
+
+
+def arm_fingerprint_lint(path: Path) -> Optional[str]:
+    """Multi-arm fingerprint-emission check. Return an issue string, or None.
+
+    A script is treated as multi-arm iff it writes the canonical manifest key
+    "arm_results" (the per-(seed x arm) cell rows the indexer + reuse system key
+    on). Such a script MUST discharge both per-cell obligations: a complete RNG
+    reset at cell entry AND a fingerprint emission -- satisfied by either the
+    low-level `reset_all_rng` + `compute_arm_fingerprint` pair or the bundled
+    `arm_cell()` context manager (which does both). Missing either is the issue.
+
+    Opt-out: a script may declare `ARM_FINGERPRINT_EXEMPT = "<reason>"` (e.g. a
+    legitimately single-cell run that nonetheless writes an arm_results list, or
+    a stateful design the plan marks reuse-ineligible by construction). The
+    marker suppresses the check.
+
+    Static name-scan only (same class of limitation as readiness_lint): it keys
+    on plain identifier/string presence, so it can over-fire if "arm_results"
+    appears only in a comment/docstring, and can miss a helper aliased under a
+    different name. The remedy in both directions is cheap (add the emit, or add
+    the exempt marker). Whether this blocks is decided by the caller in main():
+    a hard failure when the script is named explicitly via --paths (the
+    /queue-experiment authoring path), advisory otherwise (grandfathers the
+    pre-2026-06-07 backlog).
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    names: set = set()
+    strings: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.alias):
+            names.add((node.asname or node.name).split(".")[-1])
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            strings.add(node.value)
+
+    if _ARM_FP_EXEMPT_MARKER in names or _ARM_FP_EXEMPT_MARKER in strings:
+        return None
+    if _ARM_RESULTS_KEY not in strings:
+        return None  # not a multi-arm grid script
+
+    has_emit = any(n in names for n in _FP_EMIT_NAMES)
+    has_reset = any(n in names for n in _RNG_RESET_NAMES)
+    if has_emit and has_reset:
+        return None
+
+    missing = []
+    if not has_reset:
+        missing.append("a per-cell reset_all_rng(seed) (or arm_cell())")
+    if not has_emit:
+        missing.append("a per-cell compute_arm_fingerprint(...) (or arm_cell().stamp())")
+    return ("writes 'arm_results' (multi-arm) but is missing "
+            + " AND ".join(missing)
+            + " -- emit a per-cell arm_fingerprint via experiments/_lib/arm_fingerprint.py "
+            + "(arm_cell() discharges both). Exempt with ARM_FINGERPRINT_EXEMPT = \"<reason>\". "
+            + "See arm_reuse_fingerprint_plan.md + /queue-experiment.")
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -292,10 +368,18 @@ def main() -> int:
         print("[validate_experiments] no scripts found to check", flush=True)
         return 0
 
+    # Arm-fingerprint enforcement is HARD only when scripts are named explicitly
+    # via --paths (the /queue-experiment authoring path). In full-glob mode it is
+    # advisory, so the pre-2026-06-07 multi-arm backlog surfaces without blocking
+    # a full sweep. A missing fingerprint on a NEW script the author is about to
+    # queue is a real error; the same gap on a historical script is a backlog item.
+    arm_fp_hard = bool(args.paths)
+
     n_ok = 0
     n_exempt = 0
     failures: List[Tuple[Path, str]] = []
     warnings: List[Tuple[Path, str]] = []
+    arm_fp_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         ok, reason = check_script(p)
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
@@ -313,11 +397,27 @@ def main() -> int:
         warn = readiness_lint(p)
         if warn:
             warnings.append((p, warn))
+        arm_fp = arm_fingerprint_lint(p)
+        if arm_fp:
+            if arm_fp_hard:
+                failures.append((p, arm_fp))
+            else:
+                arm_fp_warnings.append((p, arm_fp))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
           f"{n_ok} OK, {n_exempt} exempt, {len(failures)} non-conforming, "
-          f"{len(warnings)} readiness-warning(s)", flush=True)
+          f"{len(warnings)} readiness-warning(s), "
+          f"{len(arm_fp_warnings)} arm-fingerprint-backlog", flush=True)
+    if arm_fp_warnings:
+        # Advisory in full-glob mode only (hard failures route to `failures` when
+        # --paths is explicit). This is the pre-2026-06-07 multi-arm backlog --
+        # historical scripts that predate the fingerprint requirement.
+        print("", flush=True)
+        print("[validate_experiments] Arm-fingerprint BACKLOG (advisory; hard under --paths):", flush=True)
+        for p, warn in arm_fp_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if warnings:
         # Readiness-gate WARNINGS are advisory (warn-then-error rollout); they NEVER
         # affect the exit code, including under --strict. See readiness_lint().

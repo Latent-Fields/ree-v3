@@ -278,6 +278,105 @@ def compute_arm_fingerprint(
     }
 
 
+class _ArmCell:
+    """Context manager bundling the two per-cell fingerprint obligations.
+
+    On `__enter__` it performs the complete per-cell RNG reset (`reset_all_rng`),
+    so the cell is order-independent (plan section 2.2). `.stamp(row)` computes
+    `compute_arm_fingerprint(...)` and writes it onto `row["arm_fingerprint"]`,
+    returning the payload. This collapses the 4-line emit boilerplate to:
+
+        with arm_cell(seed, config_slice=cfg, script_path=Path(__file__)) as cell:
+            row = run_one_cell(seed)
+            cell.stamp(row)
+
+    `rng_fully_reset=True` is recorded automatically because `__enter__` did the
+    reset. If you must skip the reset (you should not, for a reusable cell),
+    construct with `do_reset=False` and the fingerprint is flagged
+    `reuse_eligible=False`. Extra ineligibility reasons (shared optimiser/buffer
+    across arms, etc.) pass through to keep the cell out of any future cache.
+    """
+
+    def __init__(
+        self,
+        seed: int,
+        *,
+        config_slice: Mapping[str, Any],
+        script_path: Optional[Path] = None,
+        config_slice_declared: bool = False,
+        extra_substrate_paths: Optional[Iterable[Path]] = None,
+        repo_root: Optional[Path] = None,
+        extra_ineligible_reasons: Optional[Sequence[str]] = None,
+        do_reset: bool = True,
+    ) -> None:
+        self.seed = int(seed)
+        self._config_slice = config_slice
+        self._script_path = script_path
+        self._config_slice_declared = config_slice_declared
+        self._extra_substrate_paths = extra_substrate_paths
+        self._repo_root = repo_root
+        self._extra_ineligible_reasons = extra_ineligible_reasons
+        self._do_reset = do_reset
+        self._rng_reset = False
+        self.fingerprint: Optional[Dict[str, Any]] = None
+
+    def __enter__(self) -> "_ArmCell":
+        if self._do_reset:
+            reset_all_rng(self.seed)
+            self._rng_reset = True
+        return self
+
+    def stamp(self, row: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Compute the fingerprint; if `row` is given, set row['arm_fingerprint']."""
+        self.fingerprint = compute_arm_fingerprint(
+            config_slice=self._config_slice,
+            seed=self.seed,
+            script_path=self._script_path,
+            rng_fully_reset=self._rng_reset,
+            config_slice_declared=self._config_slice_declared,
+            extra_substrate_paths=self._extra_substrate_paths,
+            repo_root=self._repo_root,
+            extra_ineligible_reasons=self._extra_ineligible_reasons,
+        )
+        if row is not None:
+            row["arm_fingerprint"] = self.fingerprint
+        return self.fingerprint
+
+    def __exit__(self, *exc: Any) -> bool:
+        return False  # never suppress exceptions
+
+
+def arm_cell(
+    seed: int,
+    *,
+    config_slice: Mapping[str, Any],
+    script_path: Optional[Path] = None,
+    config_slice_declared: bool = False,
+    extra_substrate_paths: Optional[Iterable[Path]] = None,
+    repo_root: Optional[Path] = None,
+    extra_ineligible_reasons: Optional[Sequence[str]] = None,
+    do_reset: bool = True,
+) -> _ArmCell:
+    """One-liner per-cell helper: resets RNG on enter, stamps fingerprint on .stamp().
+
+    See `_ArmCell` for the usage pattern. This is the recommended path for new
+    multi-arm experiments -- it discharges BOTH per-cell obligations (complete RNG
+    reset + fingerprint emission) so an author cannot accidentally do one without
+    the other. The low-level `reset_all_rng` + `compute_arm_fingerprint` pair
+    remains available for scripts that need finer control.
+    """
+    return _ArmCell(
+        seed,
+        config_slice=config_slice,
+        script_path=script_path,
+        config_slice_declared=config_slice_declared,
+        extra_substrate_paths=extra_substrate_paths,
+        repo_root=repo_root,
+        extra_ineligible_reasons=extra_ineligible_reasons,
+        do_reset=do_reset,
+    )
+
+
 __all__ = [
     "FINGERPRINT_SCHEMA",
     "REGIME",
@@ -285,4 +384,5 @@ __all__ = [
     "compute_substrate_hash",
     "reset_all_rng",
     "compute_arm_fingerprint",
+    "arm_cell",
 ]
