@@ -49,6 +49,23 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-624b",
+      "title": "ARC-068/MECH-320 Niv-Salamone vigor dissociation -- clean retest (modulatory-bias-selection-authority ON)",
+      "script": "experiments/v3_exq_624b_arc068_mech320_niv_salamone_dissociation.py",
+      "priority": 150,
+      "machine_affinity": "any",
+      "estimated_minutes": 240,
+      "supersedes": "V3-EXQ-624a",
+      "claim_id": "MECH-320",
+      "backlog_id": "EVB-0237",
+      "note": "Clean retest of V3-EXQ-624a (zeroed-lever FAIL) now that the modulatory-bias-selection-authority substrate is validated (V3-EXQ-643a PASS, float32 catastrophic-cancellation fix). Single change vs 624a: use_modulatory_selection_authority=True (gain=0.5), ON in all 4 arms (no-op in vigor-off arms ARM_0/ARM_3 -> bit-identical to 624a; vigor stays the single manipulated variable). claim_ids=[MECH-320,ARC-068] (both v3_pending, gated on this substrate). Acceptance C1 action_density lift>=0.03 when vigor ON + gate fires; C5 non-vacuity (authority lever fired + raw_score_range bounded) distinguishes a genuine null from a starved lever. No SD-056 online training, so raw_score_range expected O(1) (643 hit ~1e32). Dry-run: lever fires (auth_active_frac 0.667, range 6.7e-3, raw_range 5.8), c1_lift +0.21 vs 624a's byte-identical 0.0.",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 130,
+      "experiment_type": "v3_exq_624b_arc068_mech320_niv_salamone_dissociation",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-644",
       "title": "arm-reuse Phase-0 MINT of the V3-EXQ-610 OFF/baseline arm (INV-074 crystallization necessity; ARM_0_stripped_control) on ree-cloud-2. OFF arm x 3 seeds, built from the canonical baseline module; records per-cell arm_fingerprint. Sibling to V3-EXQ-645 (ree-cloud-3) for the cross-instance determinism check.",
       "script": "experiments/v3_exq_610_inv074_crystallization_baseline_mint.py",
@@ -87,23 +104,6 @@
       "experiment_purpose": "baseline",
       "experiment_type": "v3_exq_610_inv074_crystallization_baseline_mint",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-624b",
-      "title": "ARC-068/MECH-320 Niv-Salamone vigor dissociation -- clean retest (modulatory-bias-selection-authority ON)",
-      "experiment_type": "v3_exq_624b_arc068_mech320_niv_salamone_dissociation",
-      "script": "experiments/v3_exq_624b_arc068_mech320_niv_salamone_dissociation.py",
-      "priority": 150,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 240,
-      "episodes_per_run": 130,
-      "seeds": 3,
-      "conditions": 4,
-      "backlog_id": "EVB-0237",
-      "claim_id": "MECH-320",
-      "supersedes": "V3-EXQ-624a",
-      "note": "Clean retest of V3-EXQ-624a (zeroed-lever FAIL) now that the modulatory-bias-selection-authority substrate is validated (V3-EXQ-643a PASS, float32 catastrophic-cancellation fix). Single change vs 624a: use_modulatory_selection_authority=True (gain=0.5), ON in all 4 arms (no-op in vigor-off arms ARM_0/ARM_3 -> bit-identical to 624a; vigor stays the single manipulated variable). claim_ids=[MECH-320,ARC-068] (both v3_pending, gated on this substrate). Acceptance C1 action_density lift>=0.03 when vigor ON + gate fires; C5 non-vacuity (authority lever fired + raw_score_range bounded) distinguishes a genuine null from a starved lever. No SD-056 online training, so raw_score_range expected O(1) (643 hit ~1e32). Dry-run: lever fires (auth_active_frac 0.667, range 6.7e-3, raw_range 5.8), c1_lift +0.21 vs 624a's byte-identical 0.0."
     }
   ]
 }
