@@ -77,7 +77,11 @@
       "supersedes": "V3-EXQ-640a",
       "claim_id": "SD-057",
       "note": "PARALLEL-RACE CLONE of V3-EXQ-640b (byte-identical design/acceptance/claim tags; only QUEUE_ID + EXPERIMENT_TYPE differ so the runner outcome sentinel + written manifest do not collide with 640b). Pinned to ree-cloud-4 to run in parallel with the slow 640b on DLAPTOP-4.local. GOVERNANCE: 652 and 640b test the SAME SD-057/MECH-346/MECH-347 question -- only ONE may count toward confidence. At review, keep the FIRST to complete and set evidence_direction:superseded on the other's manifest to avoid double-counting. Smoke --dry-run PASS end-to-end 2026-06-07 (7 arms, cue fires, z_goal ~0.45, outcome=PASS). NOTE: ree-cloud-4 heartbeat was ~3.5h stale at queue time -- entry will be claimed once cloud-4 is online.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-07T19:17:33Z"
+      },
       "conditions": 7,
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_652_scaffold_cue_authority_gain_sweep_640b_clone",
