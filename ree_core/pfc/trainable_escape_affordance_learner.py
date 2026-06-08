@@ -1,26 +1,25 @@
-"""Post-603i trainable-ready relief/safety escape-affordance learner.
+"""Post-603i trainable relief/safety escape-affordance learner.
 
-This module is a feature-flagged successor scaffold for the SD-059 arithmetic
+This module is a feature-flagged successor substrate for the SD-059 arithmetic
 EscapeAffordanceBridge. It does not replace the active V3-EXQ-603i validation
 path and is OFF by default at the agent/config layer.
 
-The first implementation is intentionally compact: it exposes explicit
-state-vector hooks, per-action update targets, bounded predictions, and clear
-extinction/leak behaviour without adding a neural head to the live agent loop.
-Future experiments can replace the scalar/prototype tables with small PyTorch
-heads while keeping the same update and bias contracts.
+The enabled path contains actual PyTorch relief and safety heads. Inputs are
+compact detached latent/context features plus an action embedding, so local
+optimizer steps do not backpropagate into E1/E2/E3 encoders by default.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 
 @dataclass
 class TrainableEscapeAffordanceLearnerConfig:
-    """Configuration for the post-603i trainable-ready learner.
+    """Configuration for the post-603i trainable learner.
 
     `enabled` is a module-local guard used by tests and direct construction.
     REEConfig's `use_trainable_escape_affordance_learner` is the agent-level
@@ -35,10 +34,16 @@ class TrainableEscapeAffordanceLearnerConfig:
     bias_scale: float = 0.1
     relief_learn_rate: float = 0.1
     safety_learn_rate: float = 0.1
+    optimizer_lr: float = 0.03
     leak_rate: float = 0.01
     relief_reward_floor: float = 1e-4
+    relief_target_scale: float = 0.3
     threat_floor: float = 0.1
     noop_class: int = 0
+    hidden_dim: int = 32
+    action_embedding_dim: int = 8
+    prediction_floor: float = 0.02
+    max_grad_norm: float = 5.0
 
 
 @dataclass
@@ -51,57 +56,117 @@ class TrainableEscapeAffordanceLearnerOutput:
     relief_value: float = 0.0
     safety_value: float = 0.0
     combined_value: float = 0.0
+    relief_loss: float = 0.0
+    safety_loss: float = 0.0
     bias_max_abs: float = 0.0
     updated: bool = False
+    optimizer_step: bool = False
     simulation_skipped: bool = False
 
 
+class _EscapeAffordanceHeads(nn.Module):
+    """Small shared trunk with action embedding and bounded heads."""
+
+    def __init__(
+        self,
+        state_dim: int,
+        n_action_classes: int,
+        hidden_dim: int,
+        action_embedding_dim: int,
+    ) -> None:
+        super().__init__()
+        self.state_dim = max(1, int(state_dim))
+        self.n_action_classes = max(1, int(n_action_classes))
+        hidden = max(4, int(hidden_dim))
+        emb_dim = max(1, int(action_embedding_dim))
+
+        self.action_embedding = nn.Embedding(self.n_action_classes, emb_dim)
+        self.trunk = nn.Sequential(
+            nn.Linear(self.state_dim + emb_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+        )
+        self.relief_head = nn.Linear(hidden, 1)
+        self.safety_head = nn.Linear(hidden, 1)
+        self._init_low_prior()
+
+    def _init_low_prior(self) -> None:
+        # Keep an untrained enabled learner from emitting arbitrary escape bias.
+        with torch.no_grad():
+            self.relief_head.bias.fill_(-4.0)
+            self.safety_head.bias.fill_(-4.0)
+
+    def forward(
+        self,
+        state_vector: torch.Tensor,
+        action_class: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if state_vector.dim() == 1:
+            state_vector = state_vector.unsqueeze(0)
+        action_class = action_class.to(dtype=torch.long, device=state_vector.device)
+        action_class = action_class.clamp(min=0, max=self.n_action_classes - 1)
+        if action_class.dim() == 0:
+            action_class = action_class.unsqueeze(0)
+        action_class = action_class.flatten()
+        emb = self.action_embedding(action_class)
+        x = torch.cat([state_vector, emb], dim=-1)
+        h = self.trunk(x)
+        return torch.sigmoid(self.relief_head(h)), torch.sigmoid(self.safety_head(h))
+
+
 class TrainableEscapeAffordanceLearner:
-    """Trainable-ready relief critic + safety predictor scaffold.
+    """Trainable relief critic + safety predictor.
 
-    Current representation:
-      - Q_relief(state, action, threat_context): scalar per action class,
-        optionally state-gated by a compact prototype for that action.
-      - P_safety(state, context, action): scalar per action class, likewise
-        prototype-gated.
+    Representation:
+      - shared trunk over detached compact state features plus action embedding;
+      - Q_relief(state, action, threat_context), sigmoid bounded to [0, 1];
+      - P_safety(state, context, action), sigmoid bounded to [0, 1].
 
-    The state vector is a hook, not an architectural commitment. Callers may pass
-    compact z_world, z_self, z_harm_a, and recent outcome features. The learner
-    stores EMA prototypes on positive targets so a later neural head can consume
-    the same compact features without changing the update contract.
+    The model is lazily initialized from the first trainable transition so direct
+    disabled construction and untrained bias checks instantiate no neural state.
+    Learned model weights persist across episode reset; reset clears only the
+    one-tick traces used for temporal credit assignment.
     """
 
     def __init__(
         self,
         config: Optional[TrainableEscapeAffordanceLearnerConfig] = None,
-    ):
+    ) -> None:
         self.config = config or TrainableEscapeAffordanceLearnerConfig()
         k = max(1, int(self.config.n_action_classes))
-        self._relief_value: List[float] = [0.0] * k
-        self._safety_value: List[float] = [0.0] * k
-        self._relief_proto: List[Optional[torch.Tensor]] = [None] * k
-        self._safety_proto: List[Optional[torch.Tensor]] = [None] * k
+
+        self._model: Optional[_EscapeAffordanceHeads] = None
+        self._optimizer: Optional[torch.optim.Optimizer] = None
+        self._state_dim: Optional[int] = None
+
+        self._relief_seen: List[bool] = [False] * k
+        self._safety_seen: List[bool] = [False] * k
 
         self._prev_z_harm_a_norm: Optional[float] = None
         self._prev_threat_scale: float = 0.0
         self._prev_state_vector: Optional[torch.Tensor] = None
+        self._last_state_vector: Optional[torch.Tensor] = None
 
         self._n_updates: int = 0
+        self._n_optimizer_steps: int = 0
         self._n_relief_positive: int = 0
         self._n_relief_negative: int = 0
         self._n_safety_positive: int = 0
         self._n_safety_negative: int = 0
-        self._n_leak: int = 0
+        self._n_weight_decay_steps: int = 0
         self._n_bias_fires: int = 0
         self._n_noop_skipped: int = 0
         self._n_sim_skipped: int = 0
 
+        self._max_relief_prediction: float = 0.0
+        self._max_safety_prediction: float = 0.0
         self._last_output = TrainableEscapeAffordanceLearnerOutput()
 
     # -- State management --
 
     def reset(self) -> None:
-        """Clear within-episode traces while preserving learned tables."""
+        """Clear within-episode traces while preserving learned head weights."""
         self._prev_z_harm_a_norm = None
         self._prev_threat_scale = 0.0
         self._prev_state_vector = None
@@ -109,7 +174,9 @@ class TrainableEscapeAffordanceLearner:
     # -- Feature hooks --
 
     @staticmethod
-    def _flatten_optional(value: Optional[Union[torch.Tensor, Sequence[float], float]]) -> torch.Tensor:
+    def _flatten_optional(
+        value: Optional[Union[torch.Tensor, Sequence[float], float]]
+    ) -> torch.Tensor:
         if value is None:
             return torch.empty(0, dtype=torch.float32)
         if isinstance(value, torch.Tensor):
@@ -121,34 +188,63 @@ class TrainableEscapeAffordanceLearner:
         z_world: Optional[Union[torch.Tensor, Sequence[float]]] = None,
         z_self: Optional[Union[torch.Tensor, Sequence[float]]] = None,
         z_harm_a: Optional[Union[torch.Tensor, Sequence[float], float]] = None,
+        z_harm_a_norm: Optional[float] = None,
         threat_scale: Optional[float] = None,
         action_class: Optional[int] = None,
         recent_outcome_features: Optional[Union[torch.Tensor, Sequence[float]]] = None,
     ) -> torch.Tensor:
-        """Compact trainable-ready state vector.
+        """Build compact detached state/context features.
 
-        It is deliberately permissive: callers can pass any currently available
-        latent surfaces. Missing inputs produce a small scalar context rather than
-        failing, which keeps the scaffold usable in narrow unit tests.
+        The action is represented by the model's action embedding during
+        prediction/training. The `action_class` argument is accepted for
+        compatibility with earlier callers but is not appended to the cached
+        state vector, preventing stale previous-action leakage across ticks.
         """
+        del action_class
+        z_norm = (
+            float(z_harm_a_norm)
+            if z_harm_a_norm is not None
+            else float(self._flatten_optional(z_harm_a).norm().item())
+        )
         parts = [
             self._flatten_optional(z_world),
             self._flatten_optional(z_self),
             self._flatten_optional(z_harm_a),
             self._flatten_optional(recent_outcome_features),
-            torch.tensor([
-                float(threat_scale) if threat_scale is not None else 0.0,
-                float(action_class) if action_class is not None else -1.0,
-            ], dtype=torch.float32),
+            torch.tensor(
+                [
+                    z_norm,
+                    float(threat_scale) if threat_scale is not None else 0.0,
+                ],
+                dtype=torch.float32,
+            ),
         ]
         non_empty = [p for p in parts if p.numel() > 0]
         if not non_empty:
             return torch.zeros(1, dtype=torch.float32)
         return torch.cat(non_empty).detach().clone()
 
+    def _coerce_state_vector(self, state_vector: torch.Tensor) -> torch.Tensor:
+        s = state_vector.detach().flatten().to(dtype=torch.float32, device="cpu")
+        if s.numel() == 0:
+            s = torch.zeros(1, dtype=torch.float32)
+        if self._state_dim is None:
+            return s
+        if s.numel() == self._state_dim:
+            return s
+        if s.numel() > self._state_dim:
+            return s[: self._state_dim].clone()
+        out = torch.zeros(self._state_dim, dtype=torch.float32)
+        out[: s.numel()] = s
+        return out
+
     # -- Prediction helpers --
 
-    def threat_scale(self, z_harm_a_norm: float, threat_scale: Optional[float] = None) -> float:
+    def threat_scale(
+        self,
+        z_harm_a_norm: float,
+        threat_scale: Optional[float] = None,
+    ) -> float:
         """Return caller-supplied threat scale or a conservative scalar ramp."""
         if threat_scale is not None:
             return float(max(0.0, min(1.0, threat_scale)))
@@ -163,35 +259,51 @@ class TrainableEscapeAffordanceLearner:
     def _clamp01(value: float) -> float:
         return float(max(0.0, min(1.0, value)))
 
-    @staticmethod
-    def _prototype_similarity(
-        proto: Optional[torch.Tensor],
-        state_vector: Optional[torch.Tensor],
-    ) -> float:
-        if proto is None or state_vector is None or proto.numel() == 0 or state_vector.numel() == 0:
-            return 1.0
-        if proto.numel() != state_vector.numel():
-            return 1.0
-        p = proto.detach().flatten().to(dtype=torch.float32)
-        s = state_vector.detach().flatten().to(dtype=torch.float32)
-        if float(p.norm().item()) <= 1e-9 or float(s.norm().item()) <= 1e-9:
-            return 1.0
-        return TrainableEscapeAffordanceLearner._clamp01(
-            float(F.cosine_similarity(p, s, dim=0).item())
-        )
+    def _valid_action(self, action_class: int) -> bool:
+        return 0 <= int(action_class) < max(1, int(self.config.n_action_classes))
 
-    def _predict(
+    def _ensure_model(self, state_vector: torch.Tensor) -> Optional[_EscapeAffordanceHeads]:
+        if not self.config.enabled:
+            return None
+        if self._model is not None:
+            return self._model
+        s = state_vector.detach().flatten().to(dtype=torch.float32, device="cpu")
+        self._state_dim = max(1, int(s.numel()))
+        self._model = _EscapeAffordanceHeads(
+            state_dim=self._state_dim,
+            n_action_classes=max(1, int(self.config.n_action_classes)),
+            hidden_dim=int(self.config.hidden_dim),
+            action_embedding_dim=int(self.config.action_embedding_dim),
+        )
+        self._optimizer = torch.optim.AdamW(
+            self._model.parameters(),
+            lr=float(max(0.0, self.config.optimizer_lr)),
+            weight_decay=float(max(0.0, self.config.leak_rate)),
+        )
+        return self._model
+
+    def _raw_predict(
         self,
-        values: Sequence[float],
-        protos: Sequence[Optional[torch.Tensor]],
         action_class: int,
         state_vector: Optional[torch.Tensor],
-    ) -> float:
-        if action_class < 0 or action_class >= len(values):
-            return 0.0
-        base = self._clamp01(float(values[action_class]))
-        sim = self._prototype_similarity(protos[action_class], state_vector)
-        return self._clamp01(base * sim)
+    ) -> Tuple[float, float]:
+        if (
+            not self.config.enabled
+            or self._model is None
+            or state_vector is None
+            or not self._valid_action(int(action_class))
+        ):
+            return 0.0, 0.0
+        s = self._coerce_state_vector(state_vector).unsqueeze(0)
+        a = torch.tensor([int(action_class)], dtype=torch.long)
+        with torch.no_grad():
+            relief, safety = self._model(s, a)
+        return float(relief.item()), float(safety.item())
+
+    def _masked_prediction(self, raw: float, seen: bool) -> float:
+        if seen or raw >= float(max(0.0, self.config.prediction_floor)):
+            return self._clamp01(raw)
+        return 0.0
 
     def predict_relief(
         self,
@@ -200,7 +312,10 @@ class TrainableEscapeAffordanceLearner:
     ) -> float:
         if not self.config.enabled or not self.config.use_relief_critic:
             return 0.0
-        return self._predict(self._relief_value, self._relief_proto, int(action_class), state_vector)
+        state = state_vector if state_vector is not None else self._last_state_vector
+        raw, _ = self._raw_predict(int(action_class), state)
+        seen = self._relief_seen[int(action_class)] if self._valid_action(action_class) else False
+        return self._masked_prediction(raw, seen)
 
     def predict_safety(
         self,
@@ -209,37 +324,70 @@ class TrainableEscapeAffordanceLearner:
     ) -> float:
         if not self.config.enabled or not self.config.use_safety_predictor:
             return 0.0
-        return self._predict(self._safety_value, self._safety_proto, int(action_class), state_vector)
+        state = state_vector if state_vector is not None else self._last_state_vector
+        _, raw = self._raw_predict(int(action_class), state)
+        seen = self._safety_seen[int(action_class)] if self._valid_action(action_class) else False
+        return self._masked_prediction(raw, seen)
 
-    def _ema_value(self, values: List[float], idx: int, target: float, rate: float) -> None:
-        r = float(max(0.0, min(1.0, rate)))
-        values[idx] = self._clamp01(values[idx] + r * (float(target) - values[idx]))
-
-    def _ema_proto(
+    def _train_heads(
         self,
-        protos: List[Optional[torch.Tensor]],
-        idx: int,
         state_vector: torch.Tensor,
-        rate: float,
-    ) -> None:
-        if state_vector.numel() == 0:
-            return
-        r = float(max(0.0, min(1.0, rate)))
-        s = state_vector.detach().flatten().to(dtype=torch.float32, device="cpu")
-        prev = protos[idx]
-        if prev is None or prev.numel() != s.numel():
-            protos[idx] = s.clone()
-        else:
-            protos[idx] = (1.0 - r) * prev + r * s
+        action_class: int,
+        relief_target: Optional[float],
+        safety_target: Optional[float],
+    ) -> Tuple[float, float, bool]:
+        model = self._ensure_model(state_vector)
+        if model is None or self._optimizer is None:
+            return 0.0, 0.0, False
 
-    def _apply_leak(self) -> None:
-        leak = float(max(0.0, min(1.0, self.config.leak_rate)))
-        if leak <= 0.0:
+        s = self._coerce_state_vector(state_vector).unsqueeze(0)
+        a = torch.tensor([int(action_class)], dtype=torch.long)
+        relief_pred, safety_pred = model(s, a)
+        losses: List[torch.Tensor] = []
+        relief_loss_value = 0.0
+        safety_loss_value = 0.0
+
+        if relief_target is not None and self.config.use_relief_critic:
+            target = torch.tensor(
+                [[self._clamp01(float(relief_target))]], dtype=torch.float32
+            )
+            relief_loss = F.binary_cross_entropy(relief_pred, target)
+            relief_loss_value = float(relief_loss.detach().item())
+            losses.append(relief_loss * float(max(0.0, self.config.relief_learn_rate)))
+
+        if safety_target is not None and self.config.use_safety_predictor:
+            target = torch.tensor(
+                [[self._clamp01(float(safety_target))]], dtype=torch.float32
+            )
+            safety_loss = F.binary_cross_entropy(safety_pred, target)
+            safety_loss_value = float(safety_loss.detach().item())
+            losses.append(safety_loss * float(max(0.0, self.config.safety_learn_rate)))
+
+        if not losses:
+            return relief_loss_value, safety_loss_value, False
+
+        self._optimizer.zero_grad(set_to_none=True)
+        total_loss = torch.stack(losses).sum()
+        total_loss.backward()
+        max_norm = float(max(0.0, self.config.max_grad_norm))
+        if max_norm > 0.0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+        self._optimizer.step()
+        self._n_optimizer_steps += 1
+        if float(max(0.0, self.config.leak_rate)) > 0.0:
+            self._n_weight_decay_steps += 1
+        return relief_loss_value, safety_loss_value, True
+
+    def _update_prediction_maxima(self, state_vector: Optional[torch.Tensor]) -> None:
+        if self._model is None or state_vector is None:
             return
-        for i in range(len(self._relief_value)):
-            self._relief_value[i] = self._clamp01(self._relief_value[i] * (1.0 - leak))
-            self._safety_value[i] = self._clamp01(self._safety_value[i] * (1.0 - leak))
-        self._n_leak += 1
+        relief_vals = []
+        safety_vals = []
+        for c in range(max(1, int(self.config.n_action_classes))):
+            relief_vals.append(self.predict_relief(c, state_vector))
+            safety_vals.append(self.predict_safety(c, state_vector))
+        self._max_relief_prediction = max(self._max_relief_prediction, max(relief_vals))
+        self._max_safety_prediction = max(self._max_safety_prediction, max(safety_vals))
 
     # -- Learning update --
 
@@ -258,18 +406,14 @@ class TrainableEscapeAffordanceLearner:
     ) -> TrainableEscapeAffordanceLearnerOutput:
         """Advance relief/safety predictions by one waking tick.
 
-        Positive relief target: previous tick was under threat, the last action
-        was directed/non-noop, and z_harm_a dropped more than the floor.
+        Relief credit requires previous threat, a directed non-noop action, and
+        a harm drop above `relief_reward_floor`. The target is continuous:
+        clamp((prev_z_harm_a_norm - current_z_harm_a_norm) / target_scale, 0, 1).
 
-        Positive safety target: previous tick was under threat, the last action
-        was directed/non-noop, and the current tick is threat-absent. This avoids
-        learning "safety = merely low harm" in contexts that were never under
-        threat.
-
-        Negative/extinction targets: predicted relief without a harm drop decays
-        the relief critic; predicted safety followed by threat recurrence decays
-        the safety predictor. Leak handles stale predictions even without a
-        targeted negative event.
+        Safety credit requires previous threat, a directed non-noop action, and
+        subsequent threat absence. It is therefore response-produced safety, not
+        generic low harm. Failed relief and threat recurrence train extinction
+        targets toward zero.
         """
         if (not self.config.enabled) or simulation_mode or hypothesis_tag:
             if simulation_mode or hypothesis_tag:
@@ -285,17 +429,20 @@ class TrainableEscapeAffordanceLearner:
             z_world=z_world,
             z_self=z_self,
             z_harm_a=z_harm_a if z_harm_a is not None else [z_now],
+            z_harm_a_norm=z_now,
             threat_scale=ts_now,
-            action_class=last_action_class,
             recent_outcome_features=recent_outcome_features,
         )
 
         self._n_updates += 1
-        self._apply_leak()
 
         relief_target = 0.0
         safety_target = 0.0
-        updated = False
+        relief_target_for_loss: Optional[float] = None
+        safety_target_for_loss: Optional[float] = None
+        relief_loss = 0.0
+        safety_loss = 0.0
+        optimizer_step = False
         relief_value = 0.0
         safety_value = 0.0
 
@@ -304,14 +451,14 @@ class TrainableEscapeAffordanceLearner:
         action_ok = (
             last_action_class is not None
             and bool(last_action_directed)
-            and 0 <= int(last_action_class) < len(self._relief_value)
+            and self._valid_action(int(last_action_class))
             and int(last_action_class) != int(self.config.noop_class)
         )
 
         if prev_under_threat and last_action_class is not None and not action_ok:
             self._n_noop_skipped += 1
 
-        if prev_under_threat and action_ok:
+        if prev_under_threat and action_ok and self._prev_state_vector is not None:
             a = int(last_action_class)
             prev_state = self._prev_state_vector
             relief_pred_prev = self.predict_relief(a, prev_state)
@@ -320,85 +467,61 @@ class TrainableEscapeAffordanceLearner:
             if self.config.use_relief_critic:
                 harm_drop = float(prev_z) - z_now
                 if harm_drop > float(self.config.relief_reward_floor):
-                    relief_target = 1.0
-                    self._ema_value(
-                        self._relief_value,
-                        a,
-                        target=1.0,
-                        rate=float(self.config.relief_learn_rate),
-                    )
-                    if prev_state is not None:
-                        self._ema_proto(
-                            self._relief_proto,
-                            a,
-                            prev_state,
-                            rate=float(self.config.relief_learn_rate),
-                        )
+                    scale = max(float(self.config.relief_target_scale), 1e-6)
+                    relief_target = self._clamp01(harm_drop / scale)
+                    relief_target_for_loss = relief_target
+                    self._relief_seen[a] = True
                     self._n_relief_positive += 1
-                    updated = True
-                elif relief_pred_prev > 0.0:
-                    self._ema_value(
-                        self._relief_value,
-                        a,
-                        target=0.0,
-                        rate=float(self.config.relief_learn_rate),
-                    )
+                elif relief_pred_prev > 0.0 or self._relief_seen[a]:
+                    relief_target_for_loss = 0.0
                     self._n_relief_negative += 1
-                    updated = True
 
             if self.config.use_safety_predictor:
                 if ts_now <= 0.0:
                     safety_target = 1.0
-                    self._ema_value(
-                        self._safety_value,
-                        a,
-                        target=1.0,
-                        rate=float(self.config.safety_learn_rate),
-                    )
-                    if prev_state is not None:
-                        self._ema_proto(
-                            self._safety_proto,
-                            a,
-                            prev_state,
-                            rate=float(self.config.safety_learn_rate),
-                        )
+                    safety_target_for_loss = 1.0
+                    self._safety_seen[a] = True
                     self._n_safety_positive += 1
-                    updated = True
-                elif safety_pred_prev > 0.0:
-                    self._ema_value(
-                        self._safety_value,
-                        a,
-                        target=0.0,
-                        rate=float(self.config.safety_learn_rate),
-                    )
+                elif safety_pred_prev > 0.0 or self._safety_seen[a]:
+                    safety_target_for_loss = 0.0
                     self._n_safety_negative += 1
-                    updated = True
 
+            relief_loss, safety_loss, optimizer_step = self._train_heads(
+                prev_state,
+                a,
+                relief_target_for_loss,
+                safety_target_for_loss,
+            )
             relief_value = self.predict_relief(a, state_vec)
             safety_value = self.predict_safety(a, state_vec)
 
-        elif action_ok and prev_z is not None and self.config.use_safety_predictor:
+        elif action_ok and prev_z is not None and self._prev_state_vector is not None:
             # Extinguish predicted safety when a previously safe/action-bound
-            # context is followed by threat recurrence. This is intentionally
-            # separate from the positive safety target, which still requires
-            # previous threat so "safety = merely low harm" is not learned.
+            # context is followed by threat recurrence. Positive safety still
+            # requires prior threat; this branch only removes stale predictions.
             a = int(last_action_class)
             safety_pred_prev = self.predict_safety(a, self._prev_state_vector)
-            if ts_now > 0.0 and safety_pred_prev > 0.0:
-                self._ema_value(
-                    self._safety_value,
-                    a,
-                    target=0.0,
-                    rate=float(self.config.safety_learn_rate),
-                )
+            if (
+                self.config.use_safety_predictor
+                and ts_now > 0.0
+                and (safety_pred_prev > 0.0 or self._safety_seen[a])
+            ):
+                safety_target_for_loss = 0.0
                 self._n_safety_negative += 1
-                updated = True
+                relief_loss, safety_loss, optimizer_step = self._train_heads(
+                    self._prev_state_vector,
+                    a,
+                    relief_target=None,
+                    safety_target=safety_target_for_loss,
+                )
             relief_value = self.predict_relief(a, state_vec)
             safety_value = self.predict_safety(a, state_vec)
 
         self._prev_z_harm_a_norm = z_now
         self._prev_threat_scale = ts_now
         self._prev_state_vector = state_vec.detach().clone()
+        self._last_state_vector = state_vec.detach().clone()
+        self._update_prediction_maxima(state_vec)
 
         combined = self._clamp01(relief_value + safety_value)
         self._last_output = TrainableEscapeAffordanceLearnerOutput(
@@ -408,8 +531,11 @@ class TrainableEscapeAffordanceLearner:
             relief_value=float(relief_value),
             safety_value=float(safety_value),
             combined_value=float(combined),
+            relief_loss=float(relief_loss),
+            safety_loss=float(safety_loss),
             bias_max_abs=0.0,
-            updated=bool(updated),
+            updated=bool(optimizer_step),
+            optimizer_step=bool(optimizer_step),
             simulation_skipped=False,
         )
         return self._last_output
@@ -438,6 +564,7 @@ class TrainableEscapeAffordanceLearner:
 
         if (
             not self.config.enabled
+            or self._model is None
             or simulation_mode
             or hypothesis_tag
             or len(classes) == 0
@@ -450,19 +577,20 @@ class TrainableEscapeAffordanceLearner:
         if ts <= 0.0:
             return bias
 
+        state_vec = self.build_state_vector(
+            z_world=z_world,
+            z_self=z_self,
+            z_harm_a=z_harm_a if z_harm_a is not None else [float(z_harm_a_norm)],
+            z_harm_a_norm=float(z_harm_a_norm),
+            threat_scale=ts,
+        )
+
         scale = float(max(0.0, self.config.bias_scale))
         fired = False
         for i, cls in enumerate(classes):
             c = int(cls)
             if c == int(self.config.noop_class):
                 continue
-            state_vec = self.build_state_vector(
-                z_world=z_world,
-                z_self=z_self,
-                z_harm_a=z_harm_a if z_harm_a is not None else [float(z_harm_a_norm)],
-                threat_scale=ts,
-                action_class=c,
-            )
             relief = self.predict_relief(c, state_vec)
             safety = self.predict_safety(c, state_vec)
             combined = self._clamp01(relief + safety)
@@ -481,19 +609,40 @@ class TrainableEscapeAffordanceLearner:
     # -- Read-only accessors --
 
     @property
+    def model(self) -> Optional[nn.Module]:
+        return self._model
+
+    @property
+    def optimizer(self) -> Optional[torch.optim.Optimizer]:
+        return self._optimizer
+
+    @property
     def relief_values(self) -> List[float]:
-        return list(self._relief_value)
+        if self._last_state_vector is None:
+            return [0.0] * max(1, int(self.config.n_action_classes))
+        return [
+            self.predict_relief(c, self._last_state_vector)
+            for c in range(max(1, int(self.config.n_action_classes)))
+        ]
 
     @property
     def safety_values(self) -> List[float]:
-        return list(self._safety_value)
+        if self._last_state_vector is None:
+            return [0.0] * max(1, int(self.config.n_action_classes))
+        return [
+            self.predict_safety(c, self._last_state_vector)
+            for c in range(max(1, int(self.config.n_action_classes)))
+        ]
 
     def best_escape_class(self) -> int:
         best_c, best_v = -1, 0.0
-        for c in range(len(self._relief_value)):
+        for c in range(max(1, int(self.config.n_action_classes))):
             if c == int(self.config.noop_class):
                 continue
-            v = self._clamp01(self._relief_value[c] + self._safety_value[c])
+            v = self._clamp01(
+                self.predict_relief(c, self._last_state_vector)
+                + self.predict_safety(c, self._last_state_vector)
+            )
             if v > best_v:
                 best_c, best_v = c, v
         return best_c
@@ -502,17 +651,29 @@ class TrainableEscapeAffordanceLearner:
         return self._last_output
 
     def get_state(self) -> dict:
+        relief_values = self.relief_values
+        safety_values = self.safety_values
+        relief_max = float(max(relief_values) if relief_values else 0.0)
+        safety_max = float(max(safety_values) if safety_values else 0.0)
         return {
             "trainable_escape_enabled": bool(self.config.enabled),
-            "trainable_escape_relief_max": float(max(self._relief_value) if self._relief_value else 0.0),
-            "trainable_escape_safety_max": float(max(self._safety_value) if self._safety_value else 0.0),
+            "trainable_escape_model_instantiated": bool(self._model is not None),
+            "trainable_escape_relief_max": relief_max,
+            "trainable_escape_safety_max": safety_max,
+            "trainable_escape_relief_max_prediction": relief_max,
+            "trainable_escape_safety_max_prediction": safety_max,
+            "trainable_escape_relief_max_prediction_ever": float(self._max_relief_prediction),
+            "trainable_escape_safety_max_prediction_ever": float(self._max_safety_prediction),
             "trainable_escape_best_class": int(self.best_escape_class()),
+            "trainable_escape_relief_loss": float(self._last_output.relief_loss),
+            "trainable_escape_safety_loss": float(self._last_output.safety_loss),
             "trainable_escape_n_updates": int(self._n_updates),
+            "trainable_escape_n_optimizer_steps": int(self._n_optimizer_steps),
             "trainable_escape_n_relief_positive": int(self._n_relief_positive),
             "trainable_escape_n_relief_negative": int(self._n_relief_negative),
             "trainable_escape_n_safety_positive": int(self._n_safety_positive),
             "trainable_escape_n_safety_negative": int(self._n_safety_negative),
-            "trainable_escape_n_leak": int(self._n_leak),
+            "trainable_escape_n_leak": int(self._n_weight_decay_steps),
             "trainable_escape_n_bias_fires": int(self._n_bias_fires),
             "trainable_escape_n_noop_skipped": int(self._n_noop_skipped),
             "trainable_escape_n_sim_skipped": int(self._n_sim_skipped),

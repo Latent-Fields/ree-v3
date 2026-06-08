@@ -2222,7 +2222,7 @@ class REEConfig:
 
     # ----------------------------------------------------------------
     # Post-603i successor scaffold: trainable relief/safety escape-affordance
-    # learner. This is a trainable-ready sibling to the SD-059 arithmetic bridge,
+    # learner. This is a trainable-head sibling to the SD-059 arithmetic bridge,
     # not a replacement for the active V3-EXQ-603i validation path. Disabled by
     # default; when off, agent.trainable_escape_affordance_learner is None and no
     # update or score-bias consumer fires.
@@ -2234,8 +2234,13 @@ class REEConfig:
     trainable_escape_safety_learn_rate: float = 0.1
     trainable_escape_leak_rate: float = 0.01
     trainable_escape_relief_reward_floor: float = 1e-4
+    trainable_escape_relief_target_scale: float = 0.3
     trainable_escape_threat_floor: float = 0.1
     trainable_escape_noop_class: int = 0
+    trainable_escape_hidden_dim: int = 32
+    trainable_escape_action_embedding_dim: int = 8
+    trainable_escape_optimizer_lr: float = 0.03
+    trainable_escape_prediction_floor: float = 0.02
 
     # ----------------------------------------------------------------
     # V3-EXQ-563 diagnostic: forced_score_bias_per_class.
@@ -3305,8 +3310,13 @@ class REEConfig:
         trainable_escape_safety_learn_rate: float = 0.1,
         trainable_escape_leak_rate: float = 0.01,
         trainable_escape_relief_reward_floor: float = 1e-4,
+        trainable_escape_relief_target_scale: float = 0.3,
         trainable_escape_threat_floor: float = 0.1,
         trainable_escape_noop_class: int = 0,
+        trainable_escape_hidden_dim: int = 32,
+        trainable_escape_action_embedding_dim: int = 8,
+        trainable_escape_optimizer_lr: float = 0.03,
+        trainable_escape_prediction_floor: float = 0.02,
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity. Master + two togglable sub-flavours per V3-EXQ-608
         # R2a_e3_collapse_confirmed_large_gap routing (options 1 + 2).
@@ -4037,8 +4047,13 @@ class REEConfig:
         config.trainable_escape_safety_learn_rate = trainable_escape_safety_learn_rate
         config.trainable_escape_leak_rate = trainable_escape_leak_rate
         config.trainable_escape_relief_reward_floor = trainable_escape_relief_reward_floor
+        config.trainable_escape_relief_target_scale = trainable_escape_relief_target_scale
         config.trainable_escape_threat_floor = trainable_escape_threat_floor
         config.trainable_escape_noop_class = trainable_escape_noop_class
+        config.trainable_escape_hidden_dim = trainable_escape_hidden_dim
+        config.trainable_escape_action_embedding_dim = trainable_escape_action_embedding_dim
+        config.trainable_escape_optimizer_lr = trainable_escape_optimizer_lr
+        config.trainable_escape_prediction_floor = trainable_escape_prediction_floor
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity

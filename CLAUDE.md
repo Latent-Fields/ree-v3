@@ -8434,16 +8434,20 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   use_trainable_relief_critic (True), use_trainable_safety_predictor (True),
   trainable_escape_bias_scale (0.1), trainable_escape_relief_learn_rate (0.1),
   trainable_escape_safety_learn_rate (0.1), trainable_escape_leak_rate (0.01),
-  trainable_escape_relief_reward_floor (1e-4), trainable_escape_threat_floor
-  (0.1), trainable_escape_noop_class (0). Data flow: sense() z_world/z_self/
-  z_harm_a + last action class -> trainable learner update (one-tick lag,
-  MECH-094 no-op under hypothesis_tag) -> select_action() per-candidate first
-  action classes + current z_harm_a -> bounded negative E3 score-bias toward
-  predicted relief/safety actions. If the arithmetic bridge and trainable learner
-  are both enabled, they compose additively, each under its own clamp. Guards:
-  zero when disabled, zero when safe, simulation/hypothesis no-op, no-op/freeze
-  receives no credit or approach bonus, failed relief and threat recurrence drive
-  extinction, leak decays stale predictions. Local note:
+  trainable_escape_relief_reward_floor (1e-4),
+  trainable_escape_relief_target_scale (0.3), trainable_escape_threat_floor
+  (0.1), trainable_escape_noop_class (0), trainable_escape_hidden_dim (32),
+  trainable_escape_action_embedding_dim (8), trainable_escape_optimizer_lr
+  (0.03), trainable_escape_prediction_floor (0.02). Data flow: sense()
+  detached z_world/z_self/z_harm_a + last action class -> local PyTorch
+  relief/safety heads update through AdamW (one-tick lag, MECH-094 no-op under
+  hypothesis_tag) -> select_action() per-candidate first action classes +
+  current z_harm_a -> bounded negative E3 score-bias from model predictions.
+  If the arithmetic bridge and trainable learner are both enabled, they compose
+  additively, each under its own clamp. Guards: zero when disabled, zero when
+  safe, simulation/hypothesis no-op, no-op/freeze receives no credit or approach
+  bonus, failed relief and threat recurrence train extinction targets. Episode
+  reset clears only one-tick traces and preserves learned head weights. Local note:
   docs/substrate_plans/trainable_escape_affordance_learner.md. No queue entry,
   no claims/governance effect; do not use for promotion until an explicit
   successor experiment is queued and reviewed.

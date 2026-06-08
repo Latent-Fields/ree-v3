@@ -983,7 +983,7 @@ class REEAgent(nn.Module):
         # action. Fed to the bridge eligibility update on the NEXT sense().
         self._eab_last_action_class: Optional[int] = None
 
-        # Post-603i successor scaffold: trainable-ready relief/safety escape-
+        # Post-603i successor scaffold: trainable-head relief/safety escape-
         # affordance learner. This is intentionally separate from the arithmetic
         # SD-059 bridge so V3-EXQ-603i remains unchanged. When enabled together,
         # the two score-bias sources compose additively, each under its own clamp.
@@ -999,10 +999,15 @@ class REEAgent(nn.Module):
                 bias_scale=float(config.trainable_escape_bias_scale),
                 relief_learn_rate=float(config.trainable_escape_relief_learn_rate),
                 safety_learn_rate=float(config.trainable_escape_safety_learn_rate),
+                optimizer_lr=float(config.trainable_escape_optimizer_lr),
                 leak_rate=float(config.trainable_escape_leak_rate),
                 relief_reward_floor=float(config.trainable_escape_relief_reward_floor),
+                relief_target_scale=float(config.trainable_escape_relief_target_scale),
                 threat_floor=float(config.trainable_escape_threat_floor),
                 noop_class=int(config.trainable_escape_noop_class),
+                hidden_dim=int(config.trainable_escape_hidden_dim),
+                action_embedding_dim=int(config.trainable_escape_action_embedding_dim),
+                prediction_floor=float(config.trainable_escape_prediction_floor),
             )
             self.trainable_escape_affordance_learner = (
                 TrainableEscapeAffordanceLearner(config=teal_cfg)
@@ -2509,8 +2514,8 @@ class REEAgent(nn.Module):
             )
 
         # Post-603i trainable relief/safety learner. Same one-tick lag as the
-        # arithmetic bridge, but with compact z_world/z_self/z_harm_a hooks so a
-        # later experiment can replace scalar tables with trainable heads.
+        # arithmetic bridge, but with compact detached z_world/z_self/z_harm_a
+        # hooks feeding local PyTorch heads.
         # MECH-094: no-op under hypothesis_tag. Bit-identical when disabled.
         if self.trainable_escape_affordance_learner is not None:
             _teal_sim = bool(getattr(new_latent, "hypothesis_tag", False))
