@@ -87,6 +87,10 @@ from ree_core.pfc.escape_affordance_bridge import (
     EscapeAffordanceBridge,
     EscapeAffordanceBridgeConfig,
 )
+from ree_core.pfc.trainable_escape_affordance_learner import (
+    TrainableEscapeAffordanceLearner,
+    TrainableEscapeAffordanceLearnerConfig,
+)
 from ree_core.policy import (
     CandidateRuleField,
     CandidateRuleFieldConfig,
@@ -979,6 +983,32 @@ class REEAgent(nn.Module):
         # action. Fed to the bridge eligibility update on the NEXT sense().
         self._eab_last_action_class: Optional[int] = None
 
+        # Post-603i successor scaffold: trainable-ready relief/safety escape-
+        # affordance learner. This is intentionally separate from the arithmetic
+        # SD-059 bridge so V3-EXQ-603i remains unchanged. When enabled together,
+        # the two score-bias sources compose additively, each under its own clamp.
+        self.trainable_escape_affordance_learner: Optional[
+            TrainableEscapeAffordanceLearner
+        ] = None
+        if getattr(config, "use_trainable_escape_affordance_learner", False):
+            teal_cfg = TrainableEscapeAffordanceLearnerConfig(
+                enabled=True,
+                n_action_classes=int(config.e2.action_dim),
+                use_relief_critic=bool(config.use_trainable_relief_critic),
+                use_safety_predictor=bool(config.use_trainable_safety_predictor),
+                bias_scale=float(config.trainable_escape_bias_scale),
+                relief_learn_rate=float(config.trainable_escape_relief_learn_rate),
+                safety_learn_rate=float(config.trainable_escape_safety_learn_rate),
+                leak_rate=float(config.trainable_escape_leak_rate),
+                relief_reward_floor=float(config.trainable_escape_relief_reward_floor),
+                threat_floor=float(config.trainable_escape_threat_floor),
+                noop_class=int(config.trainable_escape_noop_class),
+            )
+            self.trainable_escape_affordance_learner = (
+                TrainableEscapeAffordanceLearner(config=teal_cfg)
+            )
+        self._teal_last_action_class: Optional[int] = None
+
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity. Layer-B diversity-preservation substrate triggered
         # by V3-EXQ-608 P2 R2a_e3_collapse_confirmed_large_gap finding
@@ -1865,6 +1895,12 @@ class REEAgent(nn.Module):
             self.escape_affordance_bridge.reset()
         self._eab_last_action_class = None
 
+        # Post-603i trainable learner: clear the within-episode trace + action
+        # cache. Learned relief/safety predictions persist across episodes.
+        if self.trainable_escape_affordance_learner is not None:
+            self.trainable_escape_affordance_learner.reset()
+        self._teal_last_action_class = None
+
         # MECH-319: reset simulation-mode rule-gate diagnostic counters on
         # episode boundary. The gate has no persistent state across ticks
         # beyond counters, so reset is purely a diagnostic boundary.
@@ -2470,6 +2506,29 @@ class REEAgent(nn.Module):
                 last_action_class=self._eab_last_action_class,
                 last_action_directed=(self._eab_last_action_class is not None),
                 simulation_mode=_eab_sim,
+            )
+
+        # Post-603i trainable relief/safety learner. Same one-tick lag as the
+        # arithmetic bridge, but with compact z_world/z_self/z_harm_a hooks so a
+        # later experiment can replace scalar tables with trainable heads.
+        # MECH-094: no-op under hypothesis_tag. Bit-identical when disabled.
+        if self.trainable_escape_affordance_learner is not None:
+            _teal_sim = bool(getattr(new_latent, "hypothesis_tag", False))
+            _teal_zha = getattr(new_latent, "z_harm_a", None)
+            _teal_zn = (
+                float(_teal_zha.detach().norm().item())
+                if _teal_zha is not None
+                else 0.0
+            )
+            self.trainable_escape_affordance_learner.update(
+                z_harm_a_norm=_teal_zn,
+                last_action_class=self._teal_last_action_class,
+                z_world=getattr(new_latent, "z_world", None),
+                z_self=getattr(new_latent, "z_self", None),
+                z_harm_a=_teal_zha,
+                last_action_directed=(self._teal_last_action_class is not None),
+                simulation_mode=_teal_sim,
+                hypothesis_tag=_teal_sim,
             )
 
         # SD-036: tick the GABAergic cross-stream decay regulator. Applies
@@ -4630,6 +4689,62 @@ class REEAgent(nn.Module):
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 
+        # Post-603i trainable relief/safety escape-affordance learner. Bounded,
+        # threat-gated negative score bias toward actions predicted to produce
+        # relief and/or response-produced safety. Composes safely with the
+        # arithmetic bridge; each module clamps its own contribution.
+        if (
+            self.trainable_escape_affordance_learner is not None
+            and len(candidates) > 0
+        ):
+            _teal_zha = (
+                self._current_latent.z_harm_a
+                if self._current_latent is not None
+                else None
+            )
+            _teal_zn = (
+                float(_teal_zha.detach().norm().item())
+                if _teal_zha is not None
+                else 0.0
+            )
+            _teal_classes = [
+                int(c.actions[:, 0, :].argmax(dim=-1).flatten()[0].item())
+                for c in candidates
+            ]
+            _teal_dtype = (
+                dacc_score_bias.dtype if dacc_score_bias is not None else torch.float32
+            )
+            _teal_device = (
+                dacc_score_bias.device if dacc_score_bias is not None else self.device
+            )
+            teal_bias = (
+                self.trainable_escape_affordance_learner.compute_approach_bias(
+                    z_harm_a_norm=_teal_zn,
+                    action_classes=_teal_classes,
+                    z_world=(
+                        getattr(self._current_latent, "z_world", None)
+                        if self._current_latent is not None
+                        else None
+                    ),
+                    z_self=(
+                        getattr(self._current_latent, "z_self", None)
+                        if self._current_latent is not None
+                        else None
+                    ),
+                    z_harm_a=_teal_zha,
+                    device=_teal_device,
+                    dtype=_teal_dtype,
+                    simulation_mode=False,
+                    hypothesis_tag=False,
+                )
+            )
+            if dacc_score_bias is None:
+                dacc_score_bias = teal_bias
+            else:
+                dacc_score_bias = dacc_score_bias + teal_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
+
         _fsb = getattr(self.config, "forced_score_bias_per_class", None)
         self._last_candidate_support_preflight = candidate_support_preflight(
             candidates,
@@ -5095,6 +5210,12 @@ class REEAgent(nn.Module):
         # credit is attributed to this specific directed action class).
         if self.escape_affordance_bridge is not None and action is not None:
             self._eab_last_action_class = int(
+                action.argmax(dim=-1).flatten()[0].item()
+            )
+        # Post-603i trainable learner: cache the emitted action class for
+        # action-contingent relief/safety targets on the next sense() tick.
+        if self.trainable_escape_affordance_learner is not None and action is not None:
+            self._teal_last_action_class = int(
                 action.argmax(dim=-1).flatten()[0].item()
             )
         # MECH-165: record action for exploration trajectory

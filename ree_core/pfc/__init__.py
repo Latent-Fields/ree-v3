@@ -22,6 +22,11 @@ from ree_core.pfc.escape_affordance_bridge import (
     EscapeAffordanceBridgeConfig,
     EscapeAffordanceBridgeOutput,
 )
+from ree_core.pfc.trainable_escape_affordance_learner import (
+    TrainableEscapeAffordanceLearner,
+    TrainableEscapeAffordanceLearnerConfig,
+    TrainableEscapeAffordanceLearnerOutput,
+)
 
 __all__ = [
     "LateralPFCAnalog",
@@ -33,4 +38,7 @@ __all__ = [
     "EscapeAffordanceBridge",
     "EscapeAffordanceBridgeConfig",
     "EscapeAffordanceBridgeOutput",
+    "TrainableEscapeAffordanceLearner",
+    "TrainableEscapeAffordanceLearnerConfig",
+    "TrainableEscapeAffordanceLearnerOutput",
 ]

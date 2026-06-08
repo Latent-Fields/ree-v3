@@ -2221,6 +2221,23 @@ class REEConfig:
     escape_noop_class: int = 0
 
     # ----------------------------------------------------------------
+    # Post-603i successor scaffold: trainable relief/safety escape-affordance
+    # learner. This is a trainable-ready sibling to the SD-059 arithmetic bridge,
+    # not a replacement for the active V3-EXQ-603i validation path. Disabled by
+    # default; when off, agent.trainable_escape_affordance_learner is None and no
+    # update or score-bias consumer fires.
+    use_trainable_escape_affordance_learner: bool = False
+    use_trainable_relief_critic: bool = True
+    use_trainable_safety_predictor: bool = True
+    trainable_escape_bias_scale: float = 0.1
+    trainable_escape_relief_learn_rate: float = 0.1
+    trainable_escape_safety_learn_rate: float = 0.1
+    trainable_escape_leak_rate: float = 0.01
+    trainable_escape_relief_reward_floor: float = 1e-4
+    trainable_escape_threat_floor: float = 0.1
+    trainable_escape_noop_class: int = 0
+
+    # ----------------------------------------------------------------
     # V3-EXQ-563 diagnostic: forced_score_bias_per_class.
     # Hard-injects a per-action-class score bias vector, bypassing all
     # naturalistic signal generation (MECH-313/314/320). Used to verify
@@ -3280,6 +3297,16 @@ class REEConfig:
         escape_approach_gain: float = 0.1,
         escape_bias_scale: float = 0.1,
         escape_noop_class: int = 0,
+        use_trainable_escape_affordance_learner: bool = False,
+        use_trainable_relief_critic: bool = True,
+        use_trainable_safety_predictor: bool = True,
+        trainable_escape_bias_scale: float = 0.1,
+        trainable_escape_relief_learn_rate: float = 0.1,
+        trainable_escape_safety_learn_rate: float = 0.1,
+        trainable_escape_leak_rate: float = 0.01,
+        trainable_escape_relief_reward_floor: float = 1e-4,
+        trainable_escape_threat_floor: float = 0.1,
+        trainable_escape_noop_class: int = 0,
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity. Master + two togglable sub-flavours per V3-EXQ-608
         # R2a_e3_collapse_confirmed_large_gap routing (options 1 + 2).
@@ -4002,6 +4029,16 @@ class REEConfig:
         config.escape_approach_gain = escape_approach_gain
         config.escape_bias_scale = escape_bias_scale
         config.escape_noop_class = escape_noop_class
+        config.use_trainable_escape_affordance_learner = use_trainable_escape_affordance_learner
+        config.use_trainable_relief_critic = use_trainable_relief_critic
+        config.use_trainable_safety_predictor = use_trainable_safety_predictor
+        config.trainable_escape_bias_scale = trainable_escape_bias_scale
+        config.trainable_escape_relief_learn_rate = trainable_escape_relief_learn_rate
+        config.trainable_escape_safety_learn_rate = trainable_escape_safety_learn_rate
+        config.trainable_escape_leak_rate = trainable_escape_leak_rate
+        config.trainable_escape_relief_reward_floor = trainable_escape_relief_reward_floor
+        config.trainable_escape_threat_floor = trainable_escape_threat_floor
+        config.trainable_escape_noop_class = trainable_escape_noop_class
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity
