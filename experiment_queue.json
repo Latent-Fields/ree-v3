@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-652",
-      "title": "PARALLEL-RACE CLONE of V3-EXQ-640b on ree-cloud-4: identical SD-057/MECH-346/MECH-347 cue-authority gain sweep (cue_recall_gain{0.2,1.0,5.0} x kappa{2.0,10.0} + ARM_OFF, 3 seeds, use_modulatory_selection_authority=True+gain=0.5). Queued to run alongside the slow 640b instance on DLAPTOP-4.local; whichever finishes first is THE evidence.",
-      "script": "experiments/v3_exq_652_scaffold_cue_authority_gain_sweep_640b_clone.py",
-      "priority": 305,
-      "machine_affinity": "ree-cloud-4",
-      "estimated_minutes": 600,
-      "supersedes": "V3-EXQ-640a",
-      "claim_id": "SD-057",
-      "note": "PARALLEL-RACE CLONE of V3-EXQ-640b (byte-identical design/acceptance/claim tags; only QUEUE_ID + EXPERIMENT_TYPE differ so the runner outcome sentinel + written manifest do not collide with 640b). Pinned to ree-cloud-4 to run in parallel with the slow 640b on DLAPTOP-4.local. GOVERNANCE: 652 and 640b test the SAME SD-057/MECH-346/MECH-347 question -- only ONE may count toward confidence. At review, keep the FIRST to complete and set evidence_direction:superseded on the other's manifest to avoid double-counting. Smoke --dry-run PASS end-to-end 2026-06-07 (7 arms, cue fires, z_goal ~0.45, outcome=PASS). NOTE: ree-cloud-4 heartbeat was ~3.5h stale at queue time -- entry will be claimed once cloud-4 is online.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-07T19:29:44Z"
-      },
-      "conditions": 7,
-      "episodes_per_run": 235,
-      "experiment_type": "v3_exq_652_scaffold_cue_authority_gain_sweep_640b_clone",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-640b",
       "title": "SD-057/MECH-346/MECH-347 cue-authority lineage CLEAN EVIDENCE retest: re-run the 640a scaffold cue-recall gain sweep (cue_recall_gain{0.2,1.0,5.0} x kappa{2.0,10.0} + ARM_OFF, 3 seeds) now that modulatory-bias-selection-authority is VALIDATED (V3-EXQ-643a PASS). use_modulatory_selection_authority=True+gain=0.5 on every arm so the cue->z_goal->MECH-295 approach bias has bounded authority over the E3.select argmin in the contact-making scaffold P2 env. Promotes 640a (diagnostic, flat lift, authority OFF) to EVIDENCE.",
       "script": "experiments/v3_exq_640b_scaffold_cue_authority_gain_sweep_retest.py",
