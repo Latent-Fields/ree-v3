@@ -2243,6 +2243,33 @@ class REEConfig:
     trainable_escape_prediction_floor: float = 0.02
 
     # ----------------------------------------------------------------
+    # Post-603i E2 escape-affordance linker. A READOUT/linkage layer over the
+    # EXISTING E2 (cerebellar-analog) action-consequence forward model
+    # (E2.world_forward) -- NOT a duplicate forward predictor. Indexes E2 geometry
+    # into escape-affordance viability readouts + a hippocampal-style viability
+    # index, exposes escape_affordance_features for the relief/safety heads, and
+    # (behind its own flag) emits a bounded threat-gated E3 score-bias. Disabled
+    # by default; when off, agent.e2_escape_affordance_linker is None and no
+    # consumer fires. See ree_core/pfc/e2_escape_affordance_linker.py +
+    # docs/substrate_plans/post_603i_e2_escape_affordance_linkage.md.
+    use_e2_escape_affordance_linker: bool = False
+    use_e2_escape_linker_for_relief_safety: bool = False
+    use_e2_escape_linker_e3_bias: bool = False
+    escape_linker_learn_rate: float = 0.1
+    escape_linker_optimizer_lr: float = 0.03
+    escape_linker_leak_rate: float = 0.01
+    escape_linker_hidden_dim: int = 32
+    escape_linker_action_embedding_dim: int = 8
+    escape_linker_bias_scale: float = 0.1
+    escape_linker_threat_floor: float = 0.1
+    escape_linker_threat_ref: float = 0.5
+    escape_linker_noop_class: int = 0
+    escape_linker_relief_reward_floor: float = 1e-4
+    escape_linker_harm_delta_scale: float = 0.3
+    escape_linker_prediction_floor: float = 0.02
+    escape_linker_block_hypothesis_learning: bool = True
+
+    # ----------------------------------------------------------------
     # V3-EXQ-563 diagnostic: forced_score_bias_per_class.
     # Hard-injects a per-action-class score bias vector, bypassing all
     # naturalistic signal generation (MECH-313/314/320). Used to verify
@@ -3317,6 +3344,24 @@ class REEConfig:
         trainable_escape_action_embedding_dim: int = 8,
         trainable_escape_optimizer_lr: float = 0.03,
         trainable_escape_prediction_floor: float = 0.02,
+        # Post-603i E2 escape-affordance linker (readout over detached E2
+        # action-consequence features; reuse, not a duplicate predictor).
+        use_e2_escape_affordance_linker: bool = False,
+        use_e2_escape_linker_for_relief_safety: bool = False,
+        use_e2_escape_linker_e3_bias: bool = False,
+        escape_linker_learn_rate: float = 0.1,
+        escape_linker_optimizer_lr: float = 0.03,
+        escape_linker_leak_rate: float = 0.01,
+        escape_linker_hidden_dim: int = 32,
+        escape_linker_action_embedding_dim: int = 8,
+        escape_linker_bias_scale: float = 0.1,
+        escape_linker_threat_floor: float = 0.1,
+        escape_linker_threat_ref: float = 0.5,
+        escape_linker_noop_class: int = 0,
+        escape_linker_relief_reward_floor: float = 1e-4,
+        escape_linker_harm_delta_scale: float = 0.3,
+        escape_linker_prediction_floor: float = 0.02,
+        escape_linker_block_hypothesis_learning: bool = True,
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity. Master + two togglable sub-flavours per V3-EXQ-608
         # R2a_e3_collapse_confirmed_large_gap routing (options 1 + 2).
@@ -4054,6 +4099,22 @@ class REEConfig:
         config.trainable_escape_action_embedding_dim = trainable_escape_action_embedding_dim
         config.trainable_escape_optimizer_lr = trainable_escape_optimizer_lr
         config.trainable_escape_prediction_floor = trainable_escape_prediction_floor
+        config.use_e2_escape_affordance_linker = use_e2_escape_affordance_linker
+        config.use_e2_escape_linker_for_relief_safety = use_e2_escape_linker_for_relief_safety
+        config.use_e2_escape_linker_e3_bias = use_e2_escape_linker_e3_bias
+        config.escape_linker_learn_rate = escape_linker_learn_rate
+        config.escape_linker_optimizer_lr = escape_linker_optimizer_lr
+        config.escape_linker_leak_rate = escape_linker_leak_rate
+        config.escape_linker_hidden_dim = escape_linker_hidden_dim
+        config.escape_linker_action_embedding_dim = escape_linker_action_embedding_dim
+        config.escape_linker_bias_scale = escape_linker_bias_scale
+        config.escape_linker_threat_floor = escape_linker_threat_floor
+        config.escape_linker_threat_ref = escape_linker_threat_ref
+        config.escape_linker_noop_class = escape_linker_noop_class
+        config.escape_linker_relief_reward_floor = escape_linker_relief_reward_floor
+        config.escape_linker_harm_delta_scale = escape_linker_harm_delta_scale
+        config.escape_linker_prediction_floor = escape_linker_prediction_floor
+        config.escape_linker_block_hypothesis_learning = escape_linker_block_hypothesis_learning
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity

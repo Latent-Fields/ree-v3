@@ -91,6 +91,10 @@ from ree_core.pfc.trainable_escape_affordance_learner import (
     TrainableEscapeAffordanceLearner,
     TrainableEscapeAffordanceLearnerConfig,
 )
+from ree_core.pfc.e2_escape_affordance_linker import (
+    E2EscapeAffordanceLinker,
+    E2EscapeAffordanceLinkerConfig,
+)
 from ree_core.policy import (
     CandidateRuleField,
     CandidateRuleFieldConfig,
@@ -1014,6 +1018,45 @@ class REEAgent(nn.Module):
             )
         self._teal_last_action_class: Optional[int] = None
 
+        # Post-603i E2 escape-affordance linker. A READOUT over the EXISTING E2
+        # (cerebellar-analog) action-consequence forward model (self.e2.world_forward)
+        # -- NOT a new forward predictor. It indexes E2 geometry into escape-
+        # affordance viability readouts (V3-EXQ-603i: the relief/safety bridge
+        # needed a trained encoder/world-forward it did not have), exposes
+        # escape_affordance_features for the relief/safety heads, and (behind
+        # use_e2_escape_linker_e3_bias) emits a bounded threat-gated E3 bias.
+        # Bit-identical baseline when use_e2_escape_affordance_linker=False
+        # (agent.e2_escape_affordance_linker is None and no consumer fires). See
+        # ree_core/pfc/e2_escape_affordance_linker.py +
+        # docs/substrate_plans/post_603i_e2_escape_affordance_linkage.md.
+        self.e2_escape_affordance_linker: Optional[E2EscapeAffordanceLinker] = None
+        if getattr(config, "use_e2_escape_affordance_linker", False):
+            eal_cfg = E2EscapeAffordanceLinkerConfig(
+                enabled=True,
+                n_action_classes=int(config.e2.action_dim),
+                hidden_dim=int(config.escape_linker_hidden_dim),
+                action_embedding_dim=int(config.escape_linker_action_embedding_dim),
+                learn_rate=float(config.escape_linker_learn_rate),
+                optimizer_lr=float(config.escape_linker_optimizer_lr),
+                leak_rate=float(config.escape_linker_leak_rate),
+                bias_scale=float(config.escape_linker_bias_scale),
+                threat_floor=float(config.escape_linker_threat_floor),
+                threat_ref=float(config.escape_linker_threat_ref),
+                noop_class=int(config.escape_linker_noop_class),
+                relief_reward_floor=float(config.escape_linker_relief_reward_floor),
+                harm_delta_scale=float(config.escape_linker_harm_delta_scale),
+                prediction_floor=float(config.escape_linker_prediction_floor),
+                block_hypothesis_learning=bool(
+                    config.escape_linker_block_hypothesis_learning
+                ),
+            )
+            self.e2_escape_affordance_linker = E2EscapeAffordanceLinker(config=eal_cfg)
+        # Per-tick caches: the just-emitted action class and the z_world at the
+        # time of that action, used on the NEXT sense() to read the detached E2
+        # action-consequence feature for the executed (state, action) pair.
+        self._eal_last_action_class: Optional[int] = None
+        self._eal_prev_z_world: Optional[torch.Tensor] = None
+
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity. Layer-B diversity-preservation substrate triggered
         # by V3-EXQ-608 P2 R2a_e3_collapse_confirmed_large_gap finding
@@ -1735,6 +1778,29 @@ class REEAgent(nn.Module):
                 setattr(config, key, value)
         return cls(config)
 
+    def _eal_linker_context_feature(self) -> Optional[torch.Tensor]:
+        """Optional E2-linker representation handed to the relief/safety heads.
+
+        Returns the E2EscapeAffordanceLinker's escape_affordance_features for a
+        representative non-noop class at the current state, but ONLY when
+        ``use_e2_escape_linker_for_relief_safety`` is enabled and the linker
+        model has been instantiated. Returns None otherwise, so the
+        TrainableEscapeAffordanceLearner stays bit-identical by default and the
+        linker only ever provides representational substrate (the heads keep
+        their relief/safety-specific labels). The linker update runs before the
+        learner update in sense(), so the linker model already exists by the time
+        the learner sees these features on the first trainable transition.
+        """
+        if not getattr(self.config, "use_e2_escape_linker_for_relief_safety", False):
+            return None
+        linker = getattr(self, "e2_escape_affordance_linker", None)
+        if linker is None or linker.model is None:
+            return None
+        n = max(1, int(self.config.e2.action_dim))
+        noop = int(getattr(self.config, "escape_linker_noop_class", 0))
+        rep = next((c for c in range(n) if c != noop), 0)
+        return linker.escape_affordance_features(rep)
+
     def reset(self) -> None:
         """Reset agent for a new episode. Does NOT reset residue (invariant)."""
         # MECH-165: flush waking trajectory to exploration buffer before reset
@@ -1905,6 +1971,13 @@ class REEAgent(nn.Module):
         if self.trainable_escape_affordance_learner is not None:
             self.trainable_escape_affordance_learner.reset()
         self._teal_last_action_class = None
+
+        # Post-603i E2 escape-affordance linker: clear within-episode traces +
+        # action/z_world caches. Learned readout heads + viability index persist.
+        if self.e2_escape_affordance_linker is not None:
+            self.e2_escape_affordance_linker.reset()
+        self._eal_last_action_class = None
+        self._eal_prev_z_world = None
 
         # MECH-319: reset simulation-mode rule-gate diagnostic counters on
         # episode boundary. The gate has no persistent state across ticks
@@ -2532,9 +2605,63 @@ class REEAgent(nn.Module):
                 z_self=getattr(new_latent, "z_self", None),
                 z_harm_a=_teal_zha,
                 last_action_directed=(self._teal_last_action_class is not None),
+                extra_features=self._eal_linker_context_feature(),
                 simulation_mode=_teal_sim,
                 hypothesis_tag=_teal_sim,
             )
+
+        # Post-603i E2 escape-affordance linker. Reads the DETACHED E2 action-
+        # consequence feature for the just-executed (prev_z_world, last_action)
+        # pair from the EXISTING cerebellar-analog forward model
+        # (self.e2.world_forward) -- it does NOT re-predict. The feature indexes
+        # E2 geometry; the linker learns only the action-contingent escape-
+        # viability labels on top of it. One-tick lag (the outcome is the just-
+        # experienced threat change), MECH-094-gated, bit-identical when None.
+        if self.e2_escape_affordance_linker is not None:
+            _eal_sim = bool(getattr(new_latent, "hypothesis_tag", False))
+            _eal_zha = getattr(new_latent, "z_harm_a", None)
+            _eal_zn = (
+                float(_eal_zha.detach().norm().item()) if _eal_zha is not None else 0.0
+            )
+            _eal_zw_now = getattr(new_latent, "z_world", None)
+            _eal_e2_feat = None
+            if (
+                not _eal_sim
+                and self._eal_prev_z_world is not None
+                and self._eal_last_action_class is not None
+            ):
+                try:
+                    _a_dim = int(self.config.e2.action_dim)
+                    _zw_prev = self._eal_prev_z_world
+                    if _zw_prev.dim() == 1:
+                        _zw_prev = _zw_prev.unsqueeze(0)
+                    _a_oh = torch.zeros(
+                        1, _a_dim, dtype=_zw_prev.dtype, device=_zw_prev.device
+                    )
+                    _a_oh[0, min(max(0, int(self._eal_last_action_class)), _a_dim - 1)] = 1.0
+                    with torch.no_grad():
+                        _zw_pred = self.e2.world_forward(_zw_prev, _a_oh)
+                    _eal_e2_feat = torch.cat(
+                        [
+                            _zw_pred.detach().flatten(),
+                            (_zw_pred - _zw_prev).detach().flatten(),
+                        ]
+                    )
+                except Exception:
+                    _eal_e2_feat = None
+            self.e2_escape_affordance_linker.update(
+                z_harm_a_norm=_eal_zn,
+                last_action_class=self._eal_last_action_class,
+                e2_features=_eal_e2_feat,
+                z_world=_eal_zw_now,
+                z_self=getattr(new_latent, "z_self", None),
+                z_harm_a=_eal_zha,
+                last_action_directed=(self._eal_last_action_class is not None),
+                simulation_mode=_eal_sim,
+                hypothesis_tag=_eal_sim,
+            )
+            if _eal_zw_now is not None:
+                self._eal_prev_z_world = _eal_zw_now.detach().clone()
 
         # SD-036: tick the GABAergic cross-stream decay regulator. Applies
         # z_s(t+1) = z_s(t) * exp(-tau_s * gaba_tone) to registered streams
@@ -4737,6 +4864,7 @@ class REEAgent(nn.Module):
                         else None
                     ),
                     z_harm_a=_teal_zha,
+                    extra_features=self._eal_linker_context_feature(),
                     device=_teal_device,
                     dtype=_teal_dtype,
                     simulation_mode=False,
@@ -4747,6 +4875,64 @@ class REEAgent(nn.Module):
                 dacc_score_bias = teal_bias
             else:
                 dacc_score_bias = dacc_score_bias + teal_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
+
+        # Post-603i E2 escape-affordance linker: bounded, threat-gated negative
+        # score bias toward the action class its readouts predict will produce
+        # relief/escape under CURRENT threat -- the DIRECTED escape over E2
+        # geometry. Behind use_e2_escape_linker_e3_bias (separate from the
+        # learner/training flags). Threat-gated (zero when safe), clamped to
+        # escape_linker_bias_scale, never applied to the no-op class. Composes
+        # additively with the bridge / learner; each module clamps its own term.
+        if (
+            self.e2_escape_affordance_linker is not None
+            and getattr(self.config, "use_e2_escape_linker_e3_bias", False)
+            and len(candidates) > 0
+        ):
+            _eal_zha2 = (
+                self._current_latent.z_harm_a
+                if self._current_latent is not None
+                else None
+            )
+            _eal_zn2 = (
+                float(_eal_zha2.detach().norm().item())
+                if _eal_zha2 is not None
+                else 0.0
+            )
+            _eal_classes = [
+                int(c.actions[:, 0, :].argmax(dim=-1).flatten()[0].item())
+                for c in candidates
+            ]
+            _eal_dtype = (
+                dacc_score_bias.dtype if dacc_score_bias is not None else torch.float32
+            )
+            _eal_device = (
+                dacc_score_bias.device if dacc_score_bias is not None else self.device
+            )
+            eal_bias = self.e2_escape_affordance_linker.compute_approach_bias(
+                z_harm_a_norm=_eal_zn2,
+                action_classes=_eal_classes,
+                z_world=(
+                    getattr(self._current_latent, "z_world", None)
+                    if self._current_latent is not None
+                    else None
+                ),
+                z_self=(
+                    getattr(self._current_latent, "z_self", None)
+                    if self._current_latent is not None
+                    else None
+                ),
+                z_harm_a=_eal_zha2,
+                device=_eal_device,
+                dtype=_eal_dtype,
+                simulation_mode=False,
+                hypothesis_tag=False,
+            )
+            if dacc_score_bias is None:
+                dacc_score_bias = eal_bias
+            else:
+                dacc_score_bias = dacc_score_bias + eal_bias.to(
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 
@@ -5221,6 +5407,13 @@ class REEAgent(nn.Module):
         # action-contingent relief/safety targets on the next sense() tick.
         if self.trainable_escape_affordance_learner is not None and action is not None:
             self._teal_last_action_class = int(
+                action.argmax(dim=-1).flatten()[0].item()
+            )
+        # Post-603i E2 escape-affordance linker: cache the emitted action class,
+        # read on the next sense() to pull the detached E2 action-consequence
+        # feature for the executed (prev_z_world, action) pair.
+        if self.e2_escape_affordance_linker is not None and action is not None:
+            self._eal_last_action_class = int(
                 action.argmax(dim=-1).flatten()[0].item()
             )
         # MECH-165: record action for exploration trajectory

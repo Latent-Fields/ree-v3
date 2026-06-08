@@ -192,6 +192,7 @@ class TrainableEscapeAffordanceLearner:
         threat_scale: Optional[float] = None,
         action_class: Optional[int] = None,
         recent_outcome_features: Optional[Union[torch.Tensor, Sequence[float]]] = None,
+        extra_features: Optional[Union[torch.Tensor, Sequence[float]]] = None,
     ) -> torch.Tensor:
         """Build compact detached state/context features.
 
@@ -199,6 +200,13 @@ class TrainableEscapeAffordanceLearner:
         prediction/training. The `action_class` argument is accepted for
         compatibility with earlier callers but is not appended to the cached
         state vector, preventing stale previous-action leakage across ticks.
+
+        `extra_features` is an OPTIONAL detached representation supplied by an
+        upstream linker (the post-603i E2EscapeAffordanceLinker exposes
+        escape_affordance_features). When None (the default), the cached state
+        vector is bit-identical to the legacy compact-feature build; the heads
+        stay relief/safety-specific and the linker only provides representational
+        substrate.
         """
         del action_class
         z_norm = (
@@ -211,6 +219,7 @@ class TrainableEscapeAffordanceLearner:
             self._flatten_optional(z_self),
             self._flatten_optional(z_harm_a),
             self._flatten_optional(recent_outcome_features),
+            self._flatten_optional(extra_features),
             torch.tensor(
                 [
                     z_norm,
@@ -401,6 +410,7 @@ class TrainableEscapeAffordanceLearner:
         threat_scale: Optional[float] = None,
         last_action_directed: bool = True,
         recent_outcome_features: Optional[Union[torch.Tensor, Sequence[float]]] = None,
+        extra_features: Optional[Union[torch.Tensor, Sequence[float]]] = None,
         simulation_mode: bool = False,
         hypothesis_tag: bool = False,
     ) -> TrainableEscapeAffordanceLearnerOutput:
@@ -432,6 +442,7 @@ class TrainableEscapeAffordanceLearner:
             z_harm_a_norm=z_now,
             threat_scale=ts_now,
             recent_outcome_features=recent_outcome_features,
+            extra_features=extra_features,
         )
 
         self._n_updates += 1
@@ -550,6 +561,7 @@ class TrainableEscapeAffordanceLearner:
         z_self: Optional[Union[torch.Tensor, Sequence[float]]] = None,
         z_harm_a: Optional[Union[torch.Tensor, Sequence[float], float]] = None,
         threat_scale: Optional[float] = None,
+        extra_features: Optional[Union[torch.Tensor, Sequence[float]]] = None,
         device: Optional[torch.device] = None,
         dtype: torch.dtype = torch.float32,
         simulation_mode: bool = False,
@@ -583,6 +595,7 @@ class TrainableEscapeAffordanceLearner:
             z_harm_a=z_harm_a if z_harm_a is not None else [float(z_harm_a_norm)],
             z_harm_a_norm=float(z_harm_a_norm),
             threat_scale=ts,
+            extra_features=extra_features,
         )
 
         scale = float(max(0.0, self.config.bias_scale))

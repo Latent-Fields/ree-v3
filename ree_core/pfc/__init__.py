@@ -27,6 +27,11 @@ from ree_core.pfc.trainable_escape_affordance_learner import (
     TrainableEscapeAffordanceLearnerConfig,
     TrainableEscapeAffordanceLearnerOutput,
 )
+from ree_core.pfc.e2_escape_affordance_linker import (
+    E2EscapeAffordanceLinker,
+    E2EscapeAffordanceLinkerConfig,
+    E2EscapeAffordanceLinkerOutput,
+)
 
 __all__ = [
     "LateralPFCAnalog",
@@ -41,4 +46,7 @@ __all__ = [
     "TrainableEscapeAffordanceLearner",
     "TrainableEscapeAffordanceLearnerConfig",
     "TrainableEscapeAffordanceLearnerOutput",
+    "E2EscapeAffordanceLinker",
+    "E2EscapeAffordanceLinkerConfig",
+    "E2EscapeAffordanceLinkerOutput",
 ]
