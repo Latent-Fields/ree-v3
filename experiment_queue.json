@@ -8,6 +8,24 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-603i",
+      "title": "SD-059/MECH-358 relief/safety escape-affordance bridge validation (closes the V3-EXQ-603h directed-escape gap). 4-arm discriminative Stage-H diagnostic + nav-competence positive control: ARM_BASE_IA_ONLY (bridge OFF = 603h INTACT) / ARM_RELIEF_BRIDGE / ARM_SAFETY_BRIDGE / ARM_RELIEF_SAFETY_BRIDGE (bridge halves) / ARM_NAV_CONTROL (bridge OFF, Stage-H spawns in reef refuge = reef-refuge-reachability survival-competence control). All arms on the 603h-INTACT base (MECH-279 PAG + SD-058/MECH-357 ilPFC gate + driver + fed harm stream + SD-056 e2 warmup). Non-vacuity: each enabled bridge half must credit >=2/3 seeds before G_H is scored (else substrate_not_ready_requeue -- the relief detector needs a trained encoder, the 603h n_credit 6/0 lesson).",
+      "script": "experiments/v3_exq_603i_escape_affordance_bridge_validation.py",
+      "priority": 300,
+      "machine_affinity": "any",
+      "estimated_minutes": 480,
+      "supersedes": null,
+      "claim_id": null,
+      "note": "DIAGNOSTIC (claim_ids=[]; substrate readiness, weights no claim). PRIMARY: best_bridge_G_H>=2/3 AND > G_H_BASE. Readiness: PAG freezes + ilPFC gate engages on BASE >=2/3 AND each enabled bridge half credits >=2/3. Interpretation grid: relief-only / safety-only / both-required / (neither AND nav-control passes -> bridge_insufficient -> /failure-autopsy) / (neither AND nav-control fails -> navigation_survival_competence_ceiling -> nav substrate). PASS unblocks goal_pipeline GAP-2 + ARC-060/MECH-320/ARC-068/SD-054-readiness. Routed by failure_autopsy_V3-EXQ-603h_2026-06-08. Dry-run smoke PASS (all 5 arms end-to-end; safety credit starves at dry scale -> correct substrate_not_ready_requeue self-route, full budget fires).",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 5,
+      "depends_on": "V3-EXQ-603h",
+      "episodes_per_run": 235,
+      "experiment_type": "v3_exq_603i_escape_affordance_bridge_validation",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-640b",
       "title": "SD-057/MECH-346/MECH-347 cue-authority lineage CLEAN EVIDENCE retest: re-run the 640a scaffold cue-recall gain sweep (cue_recall_gain{0.2,1.0,5.0} x kappa{2.0,10.0} + ARM_OFF, 3 seeds) now that modulatory-bias-selection-authority is VALIDATED (V3-EXQ-643a PASS). use_modulatory_selection_authority=True+gain=0.5 on every arm so the cue->z_goal->MECH-295 approach bias has bounded authority over the E3.select argmin in the contact-making scaffold P2 env. Promotes 640a (diagnostic, flat lift, authority OFF) to EVIDENCE.",
       "script": "experiments/v3_exq_640b_scaffold_cue_authority_gain_sweep_retest.py",
@@ -26,25 +44,6 @@
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_640b_scaffold_cue_authority_gain_sweep_retest",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-603i",
-      "title": "SD-059/MECH-358 relief/safety escape-affordance bridge validation (closes the V3-EXQ-603h directed-escape gap). 4-arm discriminative Stage-H diagnostic + nav-competence positive control: ARM_BASE_IA_ONLY (bridge OFF = 603h INTACT) / ARM_RELIEF_BRIDGE / ARM_SAFETY_BRIDGE / ARM_RELIEF_SAFETY_BRIDGE (bridge halves) / ARM_NAV_CONTROL (bridge OFF, Stage-H spawns in reef refuge = reef-refuge-reachability survival-competence control). All arms on the 603h-INTACT base (MECH-279 PAG + SD-058/MECH-357 ilPFC gate + driver + fed harm stream + SD-056 e2 warmup). Non-vacuity: each enabled bridge half must credit >=2/3 seeds before G_H is scored (else substrate_not_ready_requeue -- the relief detector needs a trained encoder, the 603h n_credit 6/0 lesson).",
-      "script": "experiments/v3_exq_603i_escape_affordance_bridge_validation.py",
-      "priority": 300,
-      "machine_affinity": "any",
-      "estimated_minutes": 480,
-      "supersedes": null,
-      "depends_on": "V3-EXQ-603h",
-      "claim_id": null,
-      "note": "DIAGNOSTIC (claim_ids=[]; substrate readiness, weights no claim). PRIMARY: best_bridge_G_H>=2/3 AND > G_H_BASE. Readiness: PAG freezes + ilPFC gate engages on BASE >=2/3 AND each enabled bridge half credits >=2/3. Interpretation grid: relief-only / safety-only / both-required / (neither AND nav-control passes -> bridge_insufficient -> /failure-autopsy) / (neither AND nav-control fails -> navigation_survival_competence_ceiling -> nav substrate). PASS unblocks goal_pipeline GAP-2 + ARC-060/MECH-320/ARC-068/SD-054-readiness. Routed by failure_autopsy_V3-EXQ-603h_2026-06-08. Dry-run smoke PASS (all 5 arms end-to-end; safety credit starves at dry scale -> correct substrate_not_ready_requeue self-route, full budget fires).",
-      "status": "pending",
-      "claimed_by": null,
-      "conditions": 5,
-      "episodes_per_run": 235,
-      "experiment_type": "v3_exq_603i_escape_affordance_bridge_validation",
-      "seeds": 3,
-      "claim_ids": []
     }
   ]
 }
