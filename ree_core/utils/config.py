@@ -2191,6 +2191,36 @@ class REEConfig:
     avoidance_noop_class: int = 0
 
     # ----------------------------------------------------------------
+    # SD-059 / MECH-358: relief/safety escape-affordance bridge. Extends the
+    # MECH-357 scalar avoidance_efficacy into a per-first-action-class credit
+    # table (the DIRECTED escape MECH-357 lacks). Pure-arithmetic regulator
+    # (ree_core/pfc/escape_affordance_bridge.py); bit-identical when
+    # use_escape_affordance_bridge=False (agent.escape_affordance_bridge is None
+    # and no consumer fires). Closes the V3-EXQ-603h Stage-H gap. See
+    # REE_assembly/docs/architecture/sd_059_escape_affordance_bridge.md.
+    use_escape_affordance_bridge: bool = False
+    # Half switches (consulted only when the master flag is on); the 4-arm
+    # validation toggles these to dissociate relief vs safety.
+    use_escape_relief_credit: bool = True
+    use_escape_safety_credit: bool = True
+    # EMA credit rates for the relief / safety affordance traces.
+    escape_relief_learn_rate: float = 0.1
+    escape_safety_learn_rate: float = 0.1
+    # Per-tick leak on both affordance tables (forgetting; pathological-loop guard).
+    escape_bridge_leak_rate: float = 0.01
+    # Minimum harm-drop counted as a relief event.
+    escape_relief_reward_floor: float = 1e-4
+    # Threat envelope (shared convention with the MECH-357 gate).
+    escape_threat_floor: float = 0.1
+    escape_threat_ref: float = 0.5
+    # Approach-bonus gain + clamp (mirrors avoidance_bias_scale so the bridge
+    # cannot dominate the additive score-bias chain).
+    escape_approach_gain: float = 0.1
+    escape_bias_scale: float = 0.1
+    # The no-op / freeze action class (never gets an approach bonus).
+    escape_noop_class: int = 0
+
+    # ----------------------------------------------------------------
     # V3-EXQ-563 diagnostic: forced_score_bias_per_class.
     # Hard-injects a per-action-class score bias vector, bypassing all
     # naturalistic signal generation (MECH-313/314/320). Used to verify
@@ -3238,6 +3268,18 @@ class REEConfig:
         avoidance_bias_scale: float = 0.1,
         avoidance_suppression_threshold: float = 0.5,
         avoidance_noop_class: int = 0,
+        use_escape_affordance_bridge: bool = False,
+        use_escape_relief_credit: bool = True,
+        use_escape_safety_credit: bool = True,
+        escape_relief_learn_rate: float = 0.1,
+        escape_safety_learn_rate: float = 0.1,
+        escape_bridge_leak_rate: float = 0.01,
+        escape_relief_reward_floor: float = 1e-4,
+        escape_threat_floor: float = 0.1,
+        escape_threat_ref: float = 0.5,
+        escape_approach_gain: float = 0.1,
+        escape_bias_scale: float = 0.1,
+        escape_noop_class: int = 0,
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity. Master + two togglable sub-flavours per V3-EXQ-608
         # R2a_e3_collapse_confirmed_large_gap routing (options 1 + 2).
@@ -3948,6 +3990,18 @@ class REEConfig:
         config.avoidance_bias_scale = avoidance_bias_scale
         config.avoidance_suppression_threshold = avoidance_suppression_threshold
         config.avoidance_noop_class = avoidance_noop_class
+        config.use_escape_affordance_bridge = use_escape_affordance_bridge
+        config.use_escape_relief_credit = use_escape_relief_credit
+        config.use_escape_safety_credit = use_escape_safety_credit
+        config.escape_relief_learn_rate = escape_relief_learn_rate
+        config.escape_safety_learn_rate = escape_safety_learn_rate
+        config.escape_bridge_leak_rate = escape_bridge_leak_rate
+        config.escape_relief_reward_floor = escape_relief_reward_floor
+        config.escape_threat_floor = escape_threat_floor
+        config.escape_threat_ref = escape_threat_ref
+        config.escape_approach_gain = escape_approach_gain
+        config.escape_bias_scale = escape_bias_scale
+        config.escape_noop_class = escape_noop_class
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity

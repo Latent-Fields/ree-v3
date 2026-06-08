@@ -17,6 +17,11 @@ Subdivisions:
 from ree_core.pfc.lateral_pfc_analog import LateralPFCAnalog, LateralPFCConfig
 from ree_core.pfc.ofc_analog import OFCAnalog, OFCConfig
 from ree_core.pfc.frontopolar_analog import FrontopolarAnalog, FrontopolarConfig
+from ree_core.pfc.escape_affordance_bridge import (
+    EscapeAffordanceBridge,
+    EscapeAffordanceBridgeConfig,
+    EscapeAffordanceBridgeOutput,
+)
 
 __all__ = [
     "LateralPFCAnalog",
@@ -25,4 +30,7 @@ __all__ = [
     "OFCConfig",
     "FrontopolarAnalog",
     "FrontopolarConfig",
+    "EscapeAffordanceBridge",
+    "EscapeAffordanceBridgeConfig",
+    "EscapeAffordanceBridgeOutput",
 ]

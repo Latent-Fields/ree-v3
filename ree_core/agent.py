@@ -83,6 +83,10 @@ from ree_core.pfc.infralimbic_avoidance_gate import (
     InstrumentalAvoidanceGate,
     InstrumentalAvoidanceGateConfig,
 )
+from ree_core.pfc.escape_affordance_bridge import (
+    EscapeAffordanceBridge,
+    EscapeAffordanceBridgeConfig,
+)
 from ree_core.policy import (
     CandidateRuleField,
     CandidateRuleFieldConfig,
@@ -945,6 +949,35 @@ class REEAgent(nn.Module):
         # MECH-357 per-tick cache: whether the last emitted action was directed
         # (non-noop). Fed to the eligibility-trace update on the NEXT sense().
         self._ia_last_action_directed: bool = False
+
+        # SD-059 / MECH-358: relief/safety escape-affordance bridge. Extends the
+        # MECH-357 scalar avoidance_efficacy into a per-first-action-class credit
+        # table so the agent acquires a DIRECTED escape (the V3-EXQ-603h gap:
+        # MECH-357 un-freezes but binds no specific action to relief/safety).
+        # Bit-identical baseline when use_escape_affordance_bridge=False
+        # (agent.escape_affordance_bridge is None and no consumer fires). See
+        # ree_core/pfc/escape_affordance_bridge.py +
+        # REE_assembly/docs/architecture/sd_059_escape_affordance_bridge.md.
+        self.escape_affordance_bridge: Optional[EscapeAffordanceBridge] = None
+        if getattr(config, "use_escape_affordance_bridge", False):
+            eab_cfg = EscapeAffordanceBridgeConfig(
+                n_action_classes=int(config.e2.action_dim),
+                use_relief_credit=config.use_escape_relief_credit,
+                use_safety_credit=config.use_escape_safety_credit,
+                relief_learn_rate=config.escape_relief_learn_rate,
+                safety_learn_rate=config.escape_safety_learn_rate,
+                leak_rate=config.escape_bridge_leak_rate,
+                relief_reward_floor=config.escape_relief_reward_floor,
+                threat_floor=config.escape_threat_floor,
+                threat_ref=config.escape_threat_ref,
+                approach_gain=config.escape_approach_gain,
+                bias_scale=config.escape_bias_scale,
+                noop_class=config.escape_noop_class,
+            )
+            self.escape_affordance_bridge = EscapeAffordanceBridge(config=eab_cfg)
+        # SD-059 per-tick cache: the first-action class of the last emitted
+        # action. Fed to the bridge eligibility update on the NEXT sense().
+        self._eab_last_action_class: Optional[int] = None
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity. Layer-B diversity-preservation substrate triggered
@@ -1825,6 +1858,12 @@ class REEAgent(nn.Module):
         if self.instrumental_avoidance is not None:
             self.instrumental_avoidance.reset()
         self._ia_last_action_directed = False
+        # SD-059 / MECH-358: clear the within-episode threat trace + action cache.
+        # Learned affordance tables persist across episodes (developmental
+        # acquisition), same as the MECH-357 efficacy.
+        if self.escape_affordance_bridge is not None:
+            self.escape_affordance_bridge.reset()
+        self._eab_last_action_class = None
 
         # MECH-319: reset simulation-mode rule-gate diagnostic counters on
         # episode boundary. The gate has no persistent state across ticks
@@ -2406,6 +2445,31 @@ class REEAgent(nn.Module):
                 z_harm_a_norm=_ia_zn,
                 action_was_directed=self._ia_last_action_directed,
                 simulation_mode=_ia_sim,
+            )
+
+        # SD-059 / MECH-358: advance the relief/safety escape-affordance
+        # eligibility traces. A directed action under threat that DROPS z_harm_a
+        # credits relief_affordance[action_class]; a directed action after which
+        # threat is absent credits safety_affordance[action_class]. One-tick lag
+        # (the outcome is the just-experienced threat change), same as MECH-357.
+        # MECH-094: no-op under hypothesis_tag. Bit-identical when the bridge is
+        # None.
+        if self.escape_affordance_bridge is not None:
+            _eab_sim = bool(getattr(new_latent, "hypothesis_tag", False))
+            _eab_zha = getattr(new_latent, "z_harm_a", None)
+            _eab_zn = (
+                float(_eab_zha.detach().norm().item())
+                if _eab_zha is not None
+                else 0.0
+            )
+            # Directedness is the non-noop check, which the bridge applies
+            # internally on last_action_class -- pass True so the bridge works
+            # standalone (independent of whether MECH-357 is enabled).
+            self.escape_affordance_bridge.update(
+                z_harm_a_norm=_eab_zn,
+                last_action_class=self._eab_last_action_class,
+                last_action_directed=(self._eab_last_action_class is not None),
+                simulation_mode=_eab_sim,
             )
 
         # SD-036: tick the GABAergic cross-stream decay regulator. Applies
@@ -4524,6 +4588,48 @@ class REEAgent(nn.Module):
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
 
+        # SD-059 / MECH-358: relief/safety escape-affordance APPROACH bonus.
+        # Under FUTURE threat (z_harm_a), favour (negative bias -- REE
+        # lower-is-better) each candidate whose first-action class carries
+        # learned escape-affordance credit -- the DIRECTED escape MECH-357
+        # cannot supply (its scalar bias only penalises the no-op class).
+        # Threat-context-gated (zero when safe, so it never swamps food/goal
+        # approach) and clamped to escape_bias_scale. Composed after the
+        # MECH-357 action-bias so the two compose additively. Bit-identical when
+        # the bridge is disabled / no class has credit / below threat.
+        if self.escape_affordance_bridge is not None and len(candidates) > 0:
+            _eab_zha = (
+                self._current_latent.z_harm_a
+                if self._current_latent is not None
+                else None
+            )
+            _eab_zn = (
+                float(_eab_zha.detach().norm().item()) if _eab_zha is not None else 0.0
+            )
+            _eab_classes = [
+                int(c.actions[:, 0, :].argmax(dim=-1).flatten()[0].item())
+                for c in candidates
+            ]
+            _eab_dtype = (
+                dacc_score_bias.dtype if dacc_score_bias is not None else torch.float32
+            )
+            _eab_device = (
+                dacc_score_bias.device if dacc_score_bias is not None else self.device
+            )
+            eab_bias = self.escape_affordance_bridge.compute_approach_bias(
+                z_harm_a_norm=_eab_zn,
+                action_classes=_eab_classes,
+                device=_eab_device,
+                dtype=_eab_dtype,
+                simulation_mode=False,
+            )
+            if dacc_score_bias is None:
+                dacc_score_bias = eab_bias
+            else:
+                dacc_score_bias = dacc_score_bias + eab_bias.to(
+                    dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                )
+
         _fsb = getattr(self.config, "forced_score_bias_per_class", None)
         self._last_candidate_support_preflight = candidate_support_preflight(
             candidates,
@@ -4983,6 +5089,13 @@ class REEAgent(nn.Module):
             _ia_nc = int(self.config.avoidance_noop_class)
             self._ia_last_action_directed = bool(
                 int(action.argmax(dim=-1).flatten()[0].item()) != _ia_nc
+            )
+        # SD-059 / MECH-358: cache the emitted action's first-action class, fed
+        # to the bridge eligibility update on the next sense() (relief/safety
+        # credit is attributed to this specific directed action class).
+        if self.escape_affordance_bridge is not None and action is not None:
+            self._eab_last_action_class = int(
+                action.argmax(dim=-1).flatten()[0].item()
             )
         # MECH-165: record action for exploration trajectory
         self._record_exploration_action(action)

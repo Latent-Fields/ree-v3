@@ -504,6 +504,10 @@ class HazardAvoidanceResult:
     # rather than the agent merely surviving by chance.
     avoidance_driver_enabled: bool = False
     avoidance_gate_state: Dict[str, Any] = field(default_factory=dict)
+    # SD-059 / MECH-358 escape-affordance bridge diagnostics (empty dict when the
+    # bridge is absent). Lets the 603i-successor manifest confirm the bridge fired
+    # non-vacuously (relief / safety credit incremented) before scoring G_H.
+    escape_bridge_state: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -1617,6 +1621,11 @@ class ScaffoldedSD054OnboardingScheduler:
             if getattr(agent, "instrumental_avoidance", None) is not None
             else {}
         )
+        _eab_state = (
+            agent.escape_affordance_bridge.get_state()
+            if getattr(agent, "escape_affordance_bridge", None) is not None
+            else {}
+        )
         self._hazard_result = HazardAvoidanceResult(
             n_episodes=len(ep_lengths),
             mean_episode_length=mean_len,
@@ -1627,6 +1636,7 @@ class ScaffoldedSD054OnboardingScheduler:
             episode_lengths=ep_lengths,
             avoidance_driver_enabled=bool(_ia_driver),
             avoidance_gate_state=_ia_state,
+            escape_bridge_state=_eab_state,
         )
         return self._hazard_result
 
