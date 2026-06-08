@@ -26,6 +26,21 @@
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_640b_scaffold_cue_authority_gain_sweep_retest",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-653",
+      "title": "Post-603i E2 escape-affordance LINKER readiness microdiagnostic. Forced-choice 4-action probe (no-op/harm-worsening/escape/neutral) driving E2EscapeAffordanceLinker (ree_core/pfc/e2_escape_affordance_linker.py) DIRECTLY with controlled E2 consequence proxies + known outcomes; 4 arms x 3 seeds; readiness gates G0-G8. Validates ONLY that the post-603i linker/readout can learn a controlled 'where out is' signal and expose bounded threat-gated E3 bias. NOT the full 603 behavioural bridge validation; NO ecological survival claim.",
+      "script": "experiments/v3_exq_653_e2_escape_affordance_linker_readiness_microdiagnostic.py",
+      "priority": 320,
+      "machine_affinity": "any",
+      "estimated_minutes": 2,
+      "status": "pending",
+      "claim_ids": [],
+      "experiment_type": "v3_exq_653_e2_escape_affordance_linker_readiness_microdiagnostic",
+      "seeds": 3,
+      "conditions": 4,
+      "episodes_per_run": 60,
+      "note": "DIAGNOSTIC, claim_ids=[] (does NOT weight claim confidence). Lineage: originated V3-EXQ-603i (route substrate_not_ready_requeue, evidence_direction=non_contributory, NO claim weakening); references the V3-EXQ-603 SD-054/hazard-survival/relief-safety escape-affordance bridge lineage but is a DIFFERENT experiment from the full 603 behavioural bridge validation. New number (NOT 603j) because it probes a NEW substrate module (the E2EscapeAffordanceLinker, distinct from the SD-059 arithmetic bridge 603i tested) and asks a different question; the substrate plan doc (docs/substrate_plans/post_603i_e2_escape_affordance_linkage.md) explicitly says 'Do not queue a full 603j bridge re-run from this scaffold'. Arms: ARM_DISABLED_CONTROL / ARM_LINKER_READOUT_ONLY / ARM_LINKER_E3_BIAS / ARM_LINKER_TO_RELIEF_SAFETY. Gates: G0 disabled bit-stable (3/3); G1 escape readout learns [load-bearing] (>=2/3); G2 no-op uncredited (>=2/3); G3 harm-worsening not preferred escape (>=2/3); G4 threat-gated bias points to escape [load-bearing] (>=2/3); G5 bias zero when safe (3/3); G6 sim/hypothesis blocks learning (3/3); G7 weights persist across reset (>=2/3); G8 inputs detached (3/3); G_RS linker features feed trainable relief/safety learner (secondary, >=2/3). Diagnostic adjudication: readiness precondition linker_optimizer_stepped (matched to the load-bearing G1 exercise) self-routes substrate_not_ready_requeue below floor, NEVER a substrate verdict. Does NOT validate or weaken SD-059/MECH-358 or MECH-302/303/304; PASS is NOT V3 closure; FAIL is NOT bridge falsification. Route after PASS: /queue-experiment a 603-lineage FULL behavioural bridge re-test with linker features attached to the trainable relief/safety heads. Route after FAIL: /failure-autopsy on THIS readiness diagnostic (localise to readout learning/E2 geometry/E3 bias/no-op exclusion/sim boundary/reuse-E2 assumption); do NOT rerun 603i. Validated: validate_experiments --strict --paths OK (0 readiness-warnings, 0 arm-fingerprint-backlog); --dry-run PASS end-to-end; full-budget 3-seed gate check all gates 3/3 (label=linker_readout_ready). seeds=3 x conditions=4 -> 12 verdict lines; episodes_per_run=60 (forced-choice rounds per cell)."
     }
   ]
 }
