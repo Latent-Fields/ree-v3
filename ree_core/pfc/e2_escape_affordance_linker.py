@@ -34,6 +34,18 @@ Biological framing (preserve -- this layer must not absorb its neighbours):
                          SD-058 / MECH-357 / MECH-279 already own these).
   Basal ganglia / E3  -> selection + commitment (receives a bounded bias only).
 
+REVISITABLE BET (reuse vs duplicate): "reuse E2, do not duplicate a forward
+predictor" is an *assumption*, not a settled fact. The brain often duplicates the
+forward-model motif across structures wired into different functional circuits
+(cerebellar / cortical / striatal / hippocampal / defensive prediction), so a
+dedicated escape-affordance forward circuit could be biologically faithful rather
+than a duplication error. This module hedges that: ``e2_features`` is an ARGUMENT,
+so the feature source can be swapped from the shared ``E2.world_forward`` to a
+dedicated escape-specialised predictor later without re-deriving the readout
+heads. See the "Architectural assumption" section of
+docs/substrate_plans/post_603i_e2_escape_affordance_linkage.md for the falsifiable
+revert trigger.
+
 Guarantees (all enforced below):
   - OFF by default at the agent/config layer; disabled construction instantiates
     no neural state and emits zero bias.

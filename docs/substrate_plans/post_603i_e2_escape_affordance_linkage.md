@@ -133,6 +133,49 @@ escape action; the bias is exactly zero when safe (all seeds); learning is
 blocked under hypothesis/simulation mode; learned weights persist across reset.
 This is **substrate readiness only** — no ecological survival claim is made.
 
+## Architectural assumption: reuse-vs-duplicate is a revisitable BET
+
+The reuse-not-duplicate decision rests on an assumption that **may be wrong**, and
+it is recorded here so a future biological-fidelity review can overturn it cheaply.
+
+**The assumption (what this scaffold bets):** there is effectively *one* forward-
+model substrate (E2 / cerebellar-analogue), and escape-affordance prediction is a
+*readout over it*. Building a second predictor would duplicate Engine 2.
+
+**The competing hypothesis (why the bet might be wrong):** the brain frequently
+*duplicates a computational motif* — the same forward-model / predictive-coding
+motif is instantiated in **multiple colocated or distributed structures wired into
+different functional circuits** (cerebellar forward models for motor consequence;
+parietal/premotor cortical forward models; basal-ganglia / striatal predictive
+circuits; hippocampal predictive maps; PAG/amygdala-adjacent defensive prediction).
+Under this view a *dedicated escape-affordance forward circuit*, specialised for
+threat/refuge consequence prediction, would be **biologically faithful, not a
+duplication error**. "One predictor, many readouts" and "duplicated motif, distinct
+circuitry" are both defensible; this scaffold picks the former *first* on
+parsimony grounds (the E2 substrate already exists; a readout is cheaper to
+falsify than an untrained second predictor), not because the latter is ruled out.
+
+**Falsifiable revert trigger — when to switch to a dedicated (duplicated-motif)
+predictor:** after the linker readout is trained on a *discriminative* E2 (an
+SD-056-trained `world_forward` whose `cand_world_pairwise_dist` clears its
+readiness floor), if the escape-affordance viability readouts **still cannot
+discriminate** escape-producing from harm-worsening / hazard-approaching actions —
+i.e. E2's `z_world` geometry lacks the threat/refuge-relevant structure the escape
+readout needs — that is evidence the readout-over-shared-E2 bet failed. A second
+signal is **gradient/objective interference**: if shaping E2 to serve escape
+prediction degrades its primary world-transition objective (or vice versa), that
+argues a *separate* circuit is the correct architecture. Either signal should
+route a biological-fidelity review of whether to add a dedicated escape-forward
+module.
+
+**Why the revert is cheap (designed-in escape hatch):** `E2EscapeAffordanceLinker`
+already takes `e2_features` as an *argument*. The current agent wiring sources
+those features from the shared `E2.world_forward`; swapping the source to a
+dedicated escape-specialised forward module is a localised change — the viability
+readout heads, the relief/safety labels, the viability index, and the bounded E3
+bias all stay. So the "duplicated-motif" architecture can be adopted later without
+re-deriving the linkage layer. This is the explicit hedge against being wrong now.
+
 ## Successor sequence (deliberately not done here)
 
 A successor experiment should validate **encoder/linker readiness before** any
