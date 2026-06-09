@@ -109,6 +109,21 @@
       "episodes_per_run": 90,
       "experiment_type": "v3_exq_660_mech341_within_class_representative_diversity",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-661",
+      "title": "MECH-294 compose-coherence substrate-readiness (behavioural wiring): with compose ON, does the theta-packet binding mode now CHANGE the committed-action distribution (joint vs alternation/shuffled), and is the within-cycle co-binding COHERENCE GATING the mechanism (alternation gate-ON vs gate-OFF)? Validates the 2026-06-09 compose_e3_bias coherence-gating wiring (ree-v3 53d4c75) that made the binding mode causally reach E3 behaviour (previously action-only -> mode-invariant). 5 arms x 3 seeds: OFF / JOINT / ALTERNATION / SHUFFLED / ALT_COH_OFF.",
+      "script": "experiments/v3_exq_661_mech294_compose_coherence_behavioural_readiness.py",
+      "experiment_type": "v3_exq_661_mech294_compose_coherence_behavioural_readiness",
+      "priority": 270,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 30,
+      "episodes_per_run": 12,
+      "seeds": 3,
+      "conditions": 5,
+      "note": "Substrate-readiness DIAGNOSTIC (claim_ids=[], experiment_purpose=diagnostic, evidence_direction=non_contributory) -- does NOT weight MECH-294 confidence. Validates the compose-coherence wiring just landed (ree-v3 53d4c75 / REE_assembly 4c680c03f5): compose_e3_bias now gates the per-candidate action-grounding bias by ThetaPacket.currency_coherence() (joint ~1.0 / alternation ~0.25 / shuffled 0.0) so the binding mode reaches E3 behaviour. Readout = committed-action-class distribution; TV margin 0.10 (memo S7.2). NON-VACUITY readiness (R0 candidate first-action diversity >=2 / R1 compose fired / R2 coherence mode-distinct) matched to the load-bearing TV criteria; below floor self-routes substrate_not_ready_requeue (the compose bias is action-alignment GATED by coherence, so a single-class CEM pool starves the criterion -- NOT a falsification). C1 TV(JOINT,ALT) / C2 TV(JOINT,SHUF) / C3 TV(ALT-coh-ON,ALT-coh-OFF) all load_bearing; PASS=R0&R1&R2 & C1&C2&C3. PASS unblocks the MECH-294 behavioural-EVIDENCE successor (claim_ids=[MECH-294]) as a SEPARATE later /queue-experiment session. validate_experiments --strict --paths OK (per-cell arm_fingerprint); dry-run runs end-to-end, coherence gate mode-distinct 1.0/0.25/0.0, dry-scale self-routes substrate_not_ready_requeue (1 seed < 2/3 + 24-step run too short for candidate diversity, as R0 guards -- expected, mirrors 657a dry FAIL).",
+      "claim_ids": []
     }
   ]
 }
