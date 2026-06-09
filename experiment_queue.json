@@ -8,6 +8,26 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-603l",
+      "title": "SD-059/MECH-358 escape-affordance bridge BEHAVIOURAL re-test (scored evidence; successor to V3-EXQ-603i, the pending_retest_after_substrate). Full 4-arm + nav-control discriminative Stage-H run on the 603k+603j-fixed substrate: ARM_BASE_IA_ONLY (bridge OFF) / ARM_RELIEF_BRIDGE / ARM_SAFETY_BRIDGE / ARM_RELIEF_SAFETY_BRIDGE (bridge halves) / ARM_NAV_CONTROL (bridge OFF, spawn-in-reef nav-competence control). ALL arms turn ON the two now-validated substrate fixes: scaffold_train_harm_pathway=True (603k PASS -> clears the 603i PRIMARY nav/survival-competence ceiling; ARM_HARM_ON_NAV G_H 2/3 vs OFF 0/3, harm_eval range 0.133) and escape_use_trained_safety_signal=True + MECH-303 terrain + MECH-304 store + MECH-302 comparator (603j PASS -> the SAFETY half credits non-vacuously via the trained threat-absence signal, mean 0.89 >= 0.5 floor). PRIMARY DV best_bridge_G_H >= 2/3 AND > G_H_BASE. Per-half non-vacuity readiness preconditions retained as a SAFETY NET (each enabled bridge half credits >=2/3 before G_H scored; else self-route substrate_not_ready_requeue, NOT a false weakens).",
+      "script": "experiments/v3_exq_603l_escape_affordance_bridge_behavioural_retest.py",
+      "priority": 260,
+      "machine_affinity": "any",
+      "estimated_minutes": 720,
+      "claim_id": "SD-059",
+      "note": "Real scored evidence retest (claim_ids=[SD-059, MECH-358], experiment_purpose=evidence, evidence_direction_per_claim emitted), NOT a readiness diagnostic. Base = v3_exq_603i. Both substrate prereqs green (603j safety-half wiring + 603k Stage-H harm-pathway training). Evidence-direction mapping (protects the claims): readiness-not-met -> non_contributory (substrate_not_ready_requeue); PASS -> supports; readiness-met + primary-FAIL + nav-control clears -> weakens (bridge_insufficient_env_survivable); readiness-met + primary-FAIL + nav-control also fails -> non_contributory (navigation_survival_competence_ceiling). validate_experiments --strict + validate_queue + dry-run smoke all PASS (dry scale correctly self-routes substrate_not_ready_requeue because the trained safety predictor has not populated at the tiny dry budget; relief half + approach fire). Do NOT edit claims.yaml/governance; evidence folds in via a later /governance cycle once it runs.",
+      "status": "pending",
+      "conditions": 5,
+      "depends_on": [
+        "V3-EXQ-603i",
+        "V3-EXQ-603j",
+        "V3-EXQ-603k"
+      ],
+      "episodes_per_run": 235,
+      "experiment_type": "v3_exq_603l_escape_affordance_bridge_behavioural_retest",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-655",
       "title": "INV-074 crystallization-necessity: task-distribution-shift phase-3 redesign (supersedes 610f)",
       "script": "experiments/v3_exq_655_inv074_crystallization_necessity_taskshift.py",
@@ -26,22 +46,6 @@
       "conditions": 5,
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_655_inv074_crystallization_necessity_taskshift",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-603l",
-      "title": "SD-059/MECH-358 escape-affordance bridge BEHAVIOURAL re-test (scored evidence; successor to V3-EXQ-603i, the pending_retest_after_substrate). Full 4-arm + nav-control discriminative Stage-H run on the 603k+603j-fixed substrate: ARM_BASE_IA_ONLY (bridge OFF) / ARM_RELIEF_BRIDGE / ARM_SAFETY_BRIDGE / ARM_RELIEF_SAFETY_BRIDGE (bridge halves) / ARM_NAV_CONTROL (bridge OFF, spawn-in-reef nav-competence control). ALL arms turn ON the two now-validated substrate fixes: scaffold_train_harm_pathway=True (603k PASS -> clears the 603i PRIMARY nav/survival-competence ceiling; ARM_HARM_ON_NAV G_H 2/3 vs OFF 0/3, harm_eval range 0.133) and escape_use_trained_safety_signal=True + MECH-303 terrain + MECH-304 store + MECH-302 comparator (603j PASS -> the SAFETY half credits non-vacuously via the trained threat-absence signal, mean 0.89 >= 0.5 floor). PRIMARY DV best_bridge_G_H >= 2/3 AND > G_H_BASE. Per-half non-vacuity readiness preconditions retained as a SAFETY NET (each enabled bridge half credits >=2/3 before G_H scored; else self-route substrate_not_ready_requeue, NOT a false weakens).",
-      "script": "experiments/v3_exq_603l_escape_affordance_bridge_behavioural_retest.py",
-      "experiment_type": "v3_exq_603l_escape_affordance_bridge_behavioural_retest",
-      "priority": 260,
-      "machine_affinity": "any",
-      "estimated_minutes": 720,
-      "claim_id": "SD-059",
-      "depends_on": ["V3-EXQ-603i", "V3-EXQ-603j", "V3-EXQ-603k"],
-      "note": "Real scored evidence retest (claim_ids=[SD-059, MECH-358], experiment_purpose=evidence, evidence_direction_per_claim emitted), NOT a readiness diagnostic. Base = v3_exq_603i. Both substrate prereqs green (603j safety-half wiring + 603k Stage-H harm-pathway training). Evidence-direction mapping (protects the claims): readiness-not-met -> non_contributory (substrate_not_ready_requeue); PASS -> supports; readiness-met + primary-FAIL + nav-control clears -> weakens (bridge_insufficient_env_survivable); readiness-met + primary-FAIL + nav-control also fails -> non_contributory (navigation_survival_competence_ceiling). validate_experiments --strict + validate_queue + dry-run smoke all PASS (dry scale correctly self-routes substrate_not_ready_requeue because the trained safety predictor has not populated at the tiny dry budget; relief half + approach fire). Do NOT edit claims.yaml/governance; evidence folds in via a later /governance cycle once it runs.",
-      "status": "pending",
-      "conditions": 5,
-      "episodes_per_run": 235,
       "seeds": 3
     }
   ]
