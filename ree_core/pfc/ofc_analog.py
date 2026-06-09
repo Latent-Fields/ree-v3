@@ -140,6 +140,13 @@ class OFCConfig:
     # Default False = oracle disabled; query_outcome() raises AssertionError
     # if called when False.
     use_outcome_oracle: bool = False
+    # SD-033b GAP-8 (mirror of SD-033a GAP-D). When True, the state_bias_head's
+    # last Linear is NOT zeroed at init (random init preserved). Enables the head
+    # to be added to an experiment optimizer and trained via the E3 score-
+    # aggregation gradient (the deferred trained-OFC-head behavioural arm).
+    # Default False = last Linear zeroed (bit-identical to the original SD-033b
+    # landing; bias output stays 0 until deliberately trained).
+    train_state_bias_head: bool = False
 
 
 class OFCAnalog(nn.Module):
@@ -169,15 +176,21 @@ class OFCAnalog(nn.Module):
         else:
             self.outcome_proj = None
 
+        # When train_state_bias_head=False (default / GAP-8 off): last Linear
+        # weights + bias ZEROED so initial bias output = 0. Bit-identical to
+        # OFF until deliberately trained.
+        # When train_state_bias_head=True (GAP-8 on): last Linear keeps random
+        # init so gradient moves it from the first optimizer step.
         self.state_bias_head = nn.Sequential(
             nn.Linear(state_dim + world_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )
-        with torch.no_grad():
-            last_linear = self.state_bias_head[-1]
-            last_linear.weight.zero_()
-            last_linear.bias.zero_()
+        if not self.config.train_state_bias_head:
+            with torch.no_grad():
+                last_linear = self.state_bias_head[-1]
+                last_linear.weight.zero_()
+                last_linear.bias.zero_()
 
         self.register_buffer(
             "state_code",
@@ -272,6 +285,16 @@ class OFCAnalog(nn.Module):
 
         return bias
 
+    def bias_head_parameters(self):
+        """Return state_bias_head parameters for experiment optimizer inclusion.
+
+        SD-033b GAP-8 (mirror of SD-033a GAP-D). Experiment scripts that set
+        train_state_bias_head=True should add these to their P1 optimizer:
+            optim.Adam(list(agent.ofc.bias_head_parameters()), lr=LR)
+        Gradient flows: E3 loss -> score_bias -> compute_bias() -> these weights.
+        """
+        return self.state_bias_head.parameters()
+
     @property
     def oracle_is_ready(self) -> bool:
         """True when the specific-outcome oracle path is enabled (MECH-263)."""
@@ -325,6 +348,7 @@ class OFCAnalog(nn.Module):
             "last_effective_eta": self._last_effective_eta,
             "last_bias_abs_mean": self._last_bias_abs_mean,
             "oracle_enabled": self.config.use_outcome_oracle,
+            "train_state_bias_head": self.config.train_state_bias_head,
         }
         if self._last_outcome_prediction is not None:
             result["last_oracle_pred_norm"] = float(

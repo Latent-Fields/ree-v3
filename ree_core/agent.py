@@ -674,6 +674,9 @@ class REEAgent(nn.Module):
                 hidden_dim=config.ofc_hidden_dim,
                 harm_dim=config.ofc_harm_dim,
                 use_outcome_oracle=getattr(config, "use_ofc_outcome_oracle", False),
+                train_state_bias_head=getattr(
+                    config, "ofc_train_state_bias_head", False
+                ),
             )
             self.ofc = OFCAnalog(
                 world_dim=config.latent.world_dim,

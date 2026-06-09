@@ -1722,6 +1722,13 @@ class REEConfig:
     # agent for prospective outcome prediction per candidate action.
     # Requires use_e2_harm_s_forward=True. Default False (backward compat).
     use_ofc_outcome_oracle: bool = False
+    # SD-033b GAP-8 (mirror of SD-033a GAP-D): when True, OFCAnalog's
+    # state_bias_head last Linear is NOT zeroed at init (random init preserved),
+    # so the head can be added to an experiment optimizer and trained via the
+    # E3 score-aggregation gradient. Default False = last Linear zeroed
+    # (bit-identical to the original SD-033b landing; bias output stays 0 until
+    # deliberately trained -- the deferred trained-OFC-head behavioural arm).
+    ofc_train_state_bias_head: bool = False
 
     # ----------------------------------------------------------------
     # ARC-062 (Phase 1, weak reading): gated-policy heads + learned
@@ -3307,6 +3314,7 @@ class REEConfig:
         ofc_hidden_dim: int = 32,
         ofc_harm_dim: int = 0,
         use_ofc_outcome_oracle: bool = False,
+        ofc_train_state_bias_head: bool = False,
         # ARC-062 Phase 1: gated-policy heads + context discriminator
         use_gated_policy: bool = False,
         gated_policy_n_heads: int = 2,
@@ -4088,6 +4096,7 @@ class REEConfig:
         config.ofc_hidden_dim = ofc_hidden_dim
         config.ofc_harm_dim = ofc_harm_dim
         config.use_ofc_outcome_oracle = use_ofc_outcome_oracle
+        config.ofc_train_state_bias_head = ofc_train_state_bias_head
 
         # ARC-062 Phase 1: gated-policy heads + context discriminator
         config.use_gated_policy = use_gated_policy
