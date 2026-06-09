@@ -81,7 +81,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 30,
       "note": "Claim-free substrate-readiness diagnostic (claim_ids=[], evidence_direction=non_contributory). Does NOT validate or weaken MECH-294; the 2026-04-26 governance hold stands until PASS per the design-memo S7.3 interpretation grid, after which the MECH-294 behavioural-evidence successor is queued. Forced-benefit goal activation is a CONTROLLED positive control (decoupled from goal_pipeline:GAP-2, same pattern as 636/637/603j). validate_experiments --strict OK; dry-run runs all 4 arms end-to-end (non-vacuity joint-vs-shuffled distance 0.53 >> floor confirmed; dry scale correctly self-routes substrate_not_ready_requeue -- the full-scale gates need the full episode budget for enough E3-sealed cycles). Do NOT edit claims.yaml/governance; the readiness verdict routes per the S7.3 grid.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-09T19:05:31Z"
+      },
       "claim_ids": [],
       "conditions": 4,
       "episodes_per_run": 48,
