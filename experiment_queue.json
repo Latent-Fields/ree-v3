@@ -50,19 +50,19 @@
     {
       "queue_id": "V3-EXQ-603k",
       "title": "Stage-H harm-pathway training validation: 3-arm harm-pathway ablation (HARM_OFF_NAV negative control / HARM_ON_NAV headline / HARM_ON_MIDLINE) x 3 seeds -- does training the untrained hazard-avoidance valuation pathway (E3.harm_eval_head(z_world)+encoder, z_harm, z_harm_a, E2_harm_s) lift Stage-H survival from the 603i G_H=0 nav-competence ceiling?",
-      "experiment_type": "v3_exq_603k_stageh_harm_pathway_readiness",
       "script": "experiments/v3_exq_603k_stageh_harm_pathway_readiness.py",
       "priority": 1,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 420,
-      "episodes_per_run": 235,
-      "seeds": 3,
-      "conditions": 3,
       "claim_id": null,
-      "depends_on": "V3-EXQ-603i",
       "note": "Substrate-readiness diagnostic (claim_ids=[]) for the scaffolded_sd054_onboarding Stage-H harm-pathway training amend (2026-06-09). Root cause (code+probe): the curriculum trains only E1 + E2.world_forward; E3.harm_eval_head(z_world) -- the harm cost scoring every trajectory -- is a random constant ~0.523, so the agent navigates a random harm landscape and dies handed the reef (603i G_H 0/3). Amend trains the pathway in P0+Stage-H (use_harm_stream+use_e2_harm_s_forward so all 4 terms engage). Acceptance: ARM_HARM_ON_NAV G_H>=2/3 (median last-window>=75) AND ARM_HARM_OFF_NAV (negative control = 603i nav control) G_H frac<0.5 AND harm pathway trained. PASS unblocks the SD-059/MECH-358 escape-affordance-bridge retest + GAP-2 survival-leg cohort; substrate_queue ready stays false until PASS. Activation smoke at reduced budget: ARM_HARM_ON_NAV survival_gate_passed=True (median 80 vs gate 75) vs OFF 23. 97/97 scaffold contracts + 7/7 preflight + validate_experiments --strict OK + dry-run end-to-end PASS. Coordination: parallel sessions also touch this queue (603j safety-half, 653 e2-escape-linker, 654 arc062 GAP-B) -- distinct ids; pathspec/atomic-commit mitigation applied.",
-      "claim_ids": []
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 3,
+      "depends_on": "V3-EXQ-603i",
+      "episodes_per_run": 235,
+      "experiment_type": "v3_exq_603k_stageh_harm_pathway_readiness",
+      "seeds": 3
     }
   ]
 }
