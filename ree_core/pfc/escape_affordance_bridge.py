@@ -120,6 +120,24 @@ class EscapeAffordanceBridgeConfig:
     # z_harm_a norm mapping to full threat_scale = 1.0.
     threat_ref: float = 0.5
 
+    # -- Trained threat-absence signal feeding the SAFETY half (603i fix) --
+    #
+    # The raw SAFETY credit (threat_scale(z_now) <= 0) almost never fires under
+    # Stage-H: the threat does not go fully absent after a single directed action,
+    # so on V3-EXQ-603i the safety half credited 0/3 in every arm (the relief half
+    # fired 2/3). REE already owns TRAINED threat-absence predictors -- MECH-303
+    # (contextual safety terrain) + MECH-304 (cue-specific conditioned safety) --
+    # but they were unwired to the bridge. When use_trained_safety_signal is on,
+    # a directed action under threat ALSO credits safety_affordance[class] when the
+    # supplied trained safety_signal (response-produced safety prediction for the
+    # post-action state) clears safety_signal_threshold. This is OR-composed with
+    # the raw threat-absence check, so the original mechanism is retained as a
+    # fallback. Default OFF -> bit-identical to the pre-603i bridge.
+    use_trained_safety_signal: bool = False
+    # Trained safety_prediction in [0, 1] above which the post-action state counts
+    # as response-produced threat-absence (MECH-303/304 sigmoid output).
+    safety_signal_threshold: float = 0.5
+
     # -- Approach bonus (directed escape) --
 
     # Gain on the (negative) approach bias toward credited escape affordances.
@@ -169,6 +187,11 @@ class EscapeAffordanceBridge:
         self._n_ticks: int = 0
         self._n_relief_credit: int = 0
         self._n_safety_credit: int = 0
+        # Subset of _n_safety_credit attributable to the trained MECH-303/304
+        # threat-absence signal (vs the raw threat_scale<=0 path). Lets a
+        # validation manifest confirm the safety half fires non-vacuously from
+        # the trained predictor specifically (the 603i starvation gap).
+        self._n_safety_credit_trained: int = 0
         self._n_decay: int = 0
         self._n_approach_fires: int = 0
         self._n_updates: int = 0
@@ -216,6 +239,7 @@ class EscapeAffordanceBridge:
         last_action_class: Optional[int],
         last_action_directed: bool,
         simulation_mode: bool = False,
+        safety_signal: Optional[float] = None,
     ) -> None:
         """Advance the escape-affordance eligibility traces by ONE tick.
 
@@ -224,11 +248,21 @@ class EscapeAffordanceBridge:
         AND the last action was directed (non-noop):
           - RELIEF: harm dropped (delta > relief_reward_floor) -> credit
             relief_affordance[last_action_class] (EMA toward 1).
-          - SAFETY: threat now absent (threat_scale(now) <= 0) -> credit
-            safety_affordance[last_action_class] (response-produced safety).
+          - SAFETY: threat now absent -> credit safety_affordance[last_action_class]
+            (response-produced safety). Threat-absence is satisfied by the raw
+            check (threat_scale(now) <= 0) OR, when use_trained_safety_signal is
+            on, by the trained MECH-303/304 threat-absence predictor:
+            safety_signal >= safety_signal_threshold. The trained path is the
+            603i fix (the raw check almost never fires under Stage-H); it stays
+            inside the under-threat + directed-action gate, so it credits genuine
+            response-produced safety, not generic safe-context.
         Both tables leak per tick (forgetting / pathological-loop guard).
         One-tick lag: the avoidance outcome is the just-experienced threat
         change. No-op under simulation_mode (MECH-094).
+
+        safety_signal is the post-action trained safety prediction in [0, 1]
+        (None when the caller has no trained predictor enabled; ignored unless
+        use_trained_safety_signal is on -> bit-identical OFF).
         """
         if simulation_mode:
             self._n_sim_skipped += 1
@@ -253,11 +287,24 @@ class EscapeAffordanceBridge:
                         self._relief_affordance[a] += lr * (1.0 - self._relief_affordance[a])
                         self._n_relief_credit += 1
                 # SAFETY: threat absent after the directed action (cue terminated).
+                # Raw threat-absence OR a trained MECH-303/304 threat-absence
+                # prediction clearing the threshold (603i fix -- the raw check
+                # almost never fires under Stage-H, starving the safety half).
                 if self.config.use_safety_credit:
-                    if self.threat_scale(z_now) <= 0.0:
+                    raw_absent = self.threat_scale(z_now) <= 0.0
+                    trained_absent = (
+                        self.config.use_trained_safety_signal
+                        and safety_signal is not None
+                        and float(safety_signal) >= float(self.config.safety_signal_threshold)
+                    )
+                    if raw_absent or trained_absent:
                         sr = float(self.config.safety_learn_rate)
                         self._safety_affordance[a] += sr * (1.0 - self._safety_affordance[a])
                         self._n_safety_credit += 1
+                        # Attribute to the trained predictor when the raw check
+                        # did not already fire (the non-vacuity signal for 603j).
+                        if trained_absent and not raw_absent:
+                            self._n_safety_credit_trained += 1
             # Per-tick leak on both tables (applied once per under-threat update).
             leak = float(self.config.leak_rate)
             if leak > 0.0:
@@ -371,6 +418,7 @@ class EscapeAffordanceBridge:
             "mech358_best_escape_class": int(self.best_escape_class()),
             "mech358_n_relief_credit": int(self._n_relief_credit),
             "mech358_n_safety_credit": int(self._n_safety_credit),
+            "mech358_n_safety_credit_trained": int(self._n_safety_credit_trained),
             "mech358_n_decay": int(self._n_decay),
             "mech358_n_approach_fires": int(self._n_approach_fires),
             "mech358_n_updates": int(self._n_updates),

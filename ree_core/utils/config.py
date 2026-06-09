@@ -2219,6 +2219,14 @@ class REEConfig:
     escape_bias_scale: float = 0.1
     # The no-op / freeze action class (never gets an approach bonus).
     escape_noop_class: int = 0
+    # 603i SAFETY-half fix: feed the trained MECH-303 (contextual safety terrain)
+    # / MECH-304 (conditioned safety store) threat-absence prediction into the
+    # bridge safety-credit path so the safety half can credit non-vacuously (on
+    # 603i it credited 0/3 because the raw threat_scale<=0 check almost never
+    # fires under Stage-H). OR-composed with the raw check; max() of whichever
+    # trained predictors are enabled. Default OFF -> bit-identical to pre-603i.
+    escape_use_trained_safety_signal: bool = False
+    escape_safety_signal_threshold: float = 0.5
 
     # ----------------------------------------------------------------
     # Post-603i successor scaffold: trainable relief/safety escape-affordance
@@ -3329,6 +3337,8 @@ class REEConfig:
         escape_approach_gain: float = 0.1,
         escape_bias_scale: float = 0.1,
         escape_noop_class: int = 0,
+        escape_use_trained_safety_signal: bool = False,
+        escape_safety_signal_threshold: float = 0.5,
         use_trainable_escape_affordance_learner: bool = False,
         use_trainable_relief_critic: bool = True,
         use_trainable_safety_predictor: bool = True,
@@ -4084,6 +4094,8 @@ class REEConfig:
         config.escape_approach_gain = escape_approach_gain
         config.escape_bias_scale = escape_bias_scale
         config.escape_noop_class = escape_noop_class
+        config.escape_use_trained_safety_signal = escape_use_trained_safety_signal
+        config.escape_safety_signal_threshold = escape_safety_signal_threshold
         config.use_trainable_escape_affordance_learner = use_trainable_escape_affordance_learner
         config.use_trainable_relief_critic = use_trainable_relief_critic
         config.use_trainable_safety_predictor = use_trainable_safety_predictor

@@ -981,6 +981,12 @@ class REEAgent(nn.Module):
                 approach_gain=config.escape_approach_gain,
                 bias_scale=config.escape_bias_scale,
                 noop_class=config.escape_noop_class,
+                use_trained_safety_signal=getattr(
+                    config, "escape_use_trained_safety_signal", False
+                ),
+                safety_signal_threshold=getattr(
+                    config, "escape_safety_signal_threshold", 0.5
+                ),
             )
             self.escape_affordance_bridge = EscapeAffordanceBridge(config=eab_cfg)
         # SD-059 per-tick cache: the first-action class of the last emitted
@@ -2576,6 +2582,42 @@ class REEAgent(nn.Module):
                 if _eab_zha is not None
                 else 0.0
             )
+            # 603i SAFETY-half fix: feed the trained MECH-303/304 threat-absence
+            # prediction for the CURRENT post-action state so the safety half can
+            # credit non-vacuously (on 603i the raw threat_scale<=0 check fired
+            # 0/3 because the threat never goes fully absent under Stage-H). max()
+            # over whichever trained predictors are enabled. Pure reads (no store
+            # mutation): MECH-303 evaluate_safety is read-only; MECH-304 predict()
+            # is the non-mutating accessor (the store's own update() runs LATER in
+            # this same sense(), so _conditioned_safety_signal would be one tick
+            # stale). None when the flag is off -> bit-identical.
+            _eab_safety_signal: Optional[float] = None
+            if (
+                not _eab_sim
+                and getattr(self.config, "escape_use_trained_safety_signal", False)
+                and getattr(new_latent, "z_world", None) is not None
+            ):
+                _sig = 0.0
+                # MECH-304 cue-specific conditioned safety store.
+                if self.conditioned_safety_store is not None:
+                    try:
+                        _sig = max(
+                            _sig,
+                            float(self.conditioned_safety_store.predict(new_latent.z_world)),
+                        )
+                    except Exception:
+                        pass
+                # MECH-303 contextual passive safety terrain (RBF read).
+                if (
+                    getattr(self.config, "use_contextual_safety_terrain", False)
+                    and hasattr(self.residue_field, "evaluate_safety")
+                ):
+                    try:
+                        _sv = self.residue_field.evaluate_safety(new_latent.z_world)
+                        _sig = max(_sig, float(_sv.mean().item()))
+                    except Exception:
+                        pass
+                _eab_safety_signal = _sig
             # Directedness is the non-noop check, which the bridge applies
             # internally on last_action_class -- pass True so the bridge works
             # standalone (independent of whether MECH-357 is enabled).
@@ -2584,6 +2626,7 @@ class REEAgent(nn.Module):
                 last_action_class=self._eab_last_action_class,
                 last_action_directed=(self._eab_last_action_class is not None),
                 simulation_mode=_eab_sim,
+                safety_signal=_eab_safety_signal,
             )
 
         # Post-603i trainable relief/safety learner. Same one-tick lag as the

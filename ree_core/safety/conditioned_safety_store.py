@@ -113,6 +113,27 @@ class ConditionedSafetyStore:
         # Sigmoid with gain: safety_prediction in (0, 1).
         return 1.0 / (1.0 + math.exp(-self.gain * cos_sim))
 
+    def predict(self, z_world: "torch.Tensor") -> float:  # noqa: F821
+        """Read-only safety prediction for z_world WITHOUT advancing the store.
+
+        Same cosine->sigmoid query as update()'s return value but with no decay
+        and no EMA write -- safe to call mid-tick (e.g. from the SD-059 escape-
+        affordance bridge) to read the cue-specific safety prediction for the
+        CURRENT post-action state without double-updating the prototype.
+
+        Returns safety_prediction in [0, 1]; 0.0 when the store is empty.
+        """
+        vec = z_world
+        if hasattr(vec, "detach"):
+            vec = vec.detach()
+        if hasattr(vec, "squeeze"):
+            vec = vec.squeeze(0)
+        if hasattr(vec, "tolist"):
+            vec = vec.tolist()
+        if not isinstance(vec, list):
+            vec = list(vec)
+        return self._query(vec)
+
     def reset(self) -> None:
         """Clear prototype (call at episode boundary)."""
         self._prototype = [0.0] * self.world_dim
