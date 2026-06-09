@@ -41,7 +41,7 @@ import torch.nn.functional as F
 
 from ree_core.utils.config import REEConfig
 from ree_core.latent.stack import LatentStack, LatentState
-from ree_core.goal import GoalState
+from ree_core.goal import GoalState, SuperOrdinalGoalMemory
 from ree_core.latent.theta_buffer import ThetaBuffer
 from ree_core.latent.multi_content_theta_packet import (
     MultiContentThetaPacket,
@@ -1827,6 +1827,22 @@ class REEAgent(nn.Module):
         _goal_cfg = getattr(self.config, "goal", None)
         if _goal_cfg is not None and _goal_cfg.z_goal_enabled:
             self.goal_state = GoalState(_goal_cfg, self.device)
+
+        # MECH-189: super-ordinal goal-anchor ContextMemory writes substrate
+        # (infant_substrate:GAP-11 / DEV-NEED-006). AGENT-owned and NOT reset
+        # per episode (cross-episode persistence is the point of a super-ordinal
+        # goal hierarchy). Requires z_goal_enabled (the store keys on z_world and
+        # stores z_goal anchors). Bit-identical OFF when the flag is unset.
+        self.super_ordinal_goal_memory: Optional[SuperOrdinalGoalMemory] = None
+        if (
+            self.goal_state is not None
+            and getattr(_goal_cfg, "use_super_ordinal_goal_anchors", False)
+        ):
+            self.super_ordinal_goal_memory = SuperOrdinalGoalMemory(
+                _goal_cfg,
+                context_dim=self.config.latent.world_dim,
+                device=self.device,
+            )
 
     @classmethod
     def from_config(
@@ -6452,6 +6468,34 @@ class REEAgent(nn.Module):
         """
         if self.goal_state is None or self._current_latent is None:
             return
+
+        # MECH-189 READ (adult z_goal seeding readout): before the within-episode
+        # benefit update, when the live z_goal is below the seed floor (the agent
+        # has no strong episodic goal of its own yet), seed it toward the
+        # childhood-formed super-ordinal anchor whose stored context best matches
+        # the current z_world. This is the "stored z_goal anchors bias z_goal
+        # seeding in adult episodes even in novel contexts" readout. cue_pull
+        # raises z_goal without a benefit pulse (GoalState.cue_pull). No-op when
+        # the store is empty / no anchor matches above threshold.
+        som = self.super_ordinal_goal_memory
+        if (
+            som is not None
+            and som.n_occupied() > 0
+            and self.goal_state.goal_norm()
+            < self.config.goal.super_ordinal_seed_below_norm
+        ):
+            retrieved = som.retrieve(self._current_latent.z_world)
+            if (
+                retrieved is not None
+                and retrieved[1]
+                >= self.config.goal.super_ordinal_seed_match_threshold
+            ):
+                self.goal_state.cue_pull(
+                    retrieved[0],
+                    self.config.goal.super_ordinal_seed_strength,
+                )
+                som.note_seed()
+
         # SD-015: use z_resource if available (object-type seeding), else z_world
         use_resource = (
             getattr(self.config.latent, "use_resource_encoder", False)
@@ -6568,6 +6612,45 @@ class REEAgent(nn.Module):
                     value=write_value,
                     hypothesis_tag=False,
                 )
+
+        # MECH-189 WRITE (child-phase super-ordinal anchor formation): after the
+        # within-episode update, write the current z_goal as a persistent
+        # super-ordinal anchor keyed on the current z_world context, gated on the
+        # MECH-189 conjunction -- (a) a high-salience benefit contact AND (b) a
+        # high-contextual-complexity context -- and only while writes are enabled
+        # (the child phase; the curriculum freezes writes for adult measurement
+        # via set_super_ordinal_write_enabled). salience = drive-modulated
+        # benefit (the "large benefit_exposure spike"); the threshold + the
+        # complexity mode/threshold are the DEV-NEED-024 adjudication targets.
+        # MECH-094: waking-only (this method is the waking seeding path); the
+        # store's write() also no-ops under simulation_mode.
+        if som is not None and self.goal_state.is_active():
+            salience = float(benefit_exposure) * (
+                1.0 + float(self.config.goal.drive_weight) * float(effective_drive)
+            )
+            som.write(
+                self._current_latent.z_world,
+                self.goal_state.z_goal,
+                salience=salience,
+                simulation_mode=False,
+            )
+
+    def set_super_ordinal_write_enabled(self, enabled: bool) -> None:
+        """MECH-189 developmental-window control: open (child phase) or freeze
+        (adult phase) super-ordinal anchor writes. The curriculum calls this at
+        the child->adult transition so adult measurement reads from the
+        childhood-formed hierarchy without forming new anchors (selective
+        neoteny). No-op when the substrate is disabled."""
+        if self.super_ordinal_goal_memory is not None:
+            self.super_ordinal_goal_memory.write_enabled = bool(enabled)
+
+    def reset_super_ordinal_anchors(self) -> None:
+        """MECH-189: clear the persistent super-ordinal store -- for a NEW
+        developmental stage / fresh agent only. NOT called on per-episode
+        agent.reset() (cross-episode persistence is the point). No-op when the
+        substrate is disabled."""
+        if self.super_ordinal_goal_memory is not None:
+            self.super_ordinal_goal_memory.reset_anchors()
 
     def cue_recall_wanting(
         self,

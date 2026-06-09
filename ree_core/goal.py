@@ -159,6 +159,306 @@ class GoalConfig:
     # Below this, no cue is considered perceived. Default 0.0 (any perception).
     cue_recall_min_proximity: float = 0.0
 
+    # MECH-189: super-ordinal goal-anchor ContextMemory writes substrate
+    # (infant_substrate:GAP-11 / DEV-NEED-006 / DEV-NEED-024).
+    # Master switch -- default False, bit-identical OFF. When True, the AGENT
+    # owns a cross-episode-persistent SuperOrdinalGoalMemory (cue-indexed:
+    # key = z_world context, value = z_goal anchor). During the child phase
+    # (write_enabled), a high-salience benefit contact occurring in a
+    # high-contextual-complexity context writes the current z_goal as a
+    # super-ordinal anchor; in adult episodes the store seeds z_goal toward the
+    # retrieved childhood-formed anchor when the live z_goal is below the seed
+    # floor (the "super-ordinal goals bias adult z_goal seeding" readout).
+    use_super_ordinal_goal_anchors: bool = False
+
+    # MECH-189: number of cue-indexed anchor slots (FINST-like capacity; the
+    # childhood-formed super-ordinal goal hierarchy is small).
+    super_ordinal_n_slots: int = 16
+
+    # MECH-189 WRITE gate (a) high salience: minimum benefit signal (drive-
+    # modulated benefit_exposure) for a contact to qualify as a "large benefit
+    # spike" worth writing a super-ordinal anchor. Much higher than
+    # benefit_threshold (0.1) so routine contacts do not write -- only
+    # high-salience (e.g. transient-benefit-patch) contacts.
+    super_ordinal_salience_threshold: float = 0.5
+
+    # MECH-189 WRITE gate (b) high contextual complexity -- the DEV-NEED-024
+    # open question ("what contextual-complexity threshold triggers a write").
+    # Mode is PLUGGABLE so a future lit-pull / experiment can adjudicate:
+    #   "novelty"  -- complexity = 1 - max cosine(z_world, occupied anchor keys);
+    #                 self-contained, bootstraps on an empty store, and naturally
+    #                 suppresses adult-routine writes (the spec's selective
+    #                 neoteny). Default.
+    #   "external" -- complexity is supplied by the caller (context_complexity
+    #                 arg to the write site), letting an experiment drive it from
+    #                 E1 cue-context entropy / prediction-error without coupling
+    #                 the substrate to those optional channels.
+    super_ordinal_complexity_mode: str = "novelty"
+
+    # MECH-189 WRITE gate (b): minimum contextual-complexity value (in [0, 1])
+    # required to write. Novel/empty-store contexts (novelty ~ 1.0) write;
+    # contexts already covered by an anchor (low novelty) do not.
+    super_ordinal_complexity_threshold: float = 0.3
+
+    # MECH-189 WRITE: when a new context is within this cosine similarity of an
+    # existing occupied anchor key, the write REINFORCES that anchor (EMA-blends
+    # key+value, raises strength) instead of allocating a new slot. Above-merge
+    # contexts get a fresh slot (empty, else the weakest by strength).
+    super_ordinal_merge_similarity: float = 0.8
+
+    # MECH-189 WRITE: EMA blend rate when writing/reinforcing an anchor slot
+    # (key and value). Mirrors the ContextMemory write blend magnitude.
+    super_ordinal_write_alpha: float = 0.3
+
+    # MECH-189 READ (adult seeding): only seed from a super-ordinal anchor when
+    # the live z_goal norm is below this floor (adult novel-context seeding;
+    # matches the DEV-NEED-006 z_goal.norm() > 0.4 gate -- seed when the agent
+    # has no strong episodic goal of its own yet).
+    super_ordinal_seed_below_norm: float = 0.4
+
+    # MECH-189 READ: minimum retrieval cosine match for a stored anchor to seed
+    # the current context. Below this, the childhood anchor is not relevant to
+    # the current adult context and does not seed.
+    super_ordinal_seed_match_threshold: float = 0.3
+
+    # MECH-189 READ: cue-pull strength applied to z_goal toward the retrieved
+    # super-ordinal anchor per seeding tick (GoalState.cue_pull fraction).
+    super_ordinal_seed_strength: float = 0.1
+
+
+class SuperOrdinalGoalMemory:
+    """MECH-189: cross-episode-persistent, cue-indexed super-ordinal goal-anchor
+    store -- the "ContextMemory writes substrate" the infant_substrate:GAP-11 /
+    DEV-NEED-006 retest waits on.
+
+    The single store missing from V3 for MECH-189: the IncentiveTokenBank
+    (SD-057) is per-object and per-episode (GoalState.reset() clears it); the
+    ghost-goal bank (MECH-292) is over hippocampal anchors. Neither is the
+    cross-episode super-ordinal z_goal store the claim describes:
+
+        "high-salience benefit contacts under high contextual complexity are
+         written to persistent cue-indexed ContextMemory as super-ordinal goal
+         anchors that bias adult z_goal seeding across novel episodes."
+
+    Cue-indexed = each slot keys on a z_world CONTEXT and stores a z_goal ANCHOR
+    (value). WRITE is gated on the MECH-189 conjunction (high salience AND high
+    contextual complexity) and is permitted only while write_enabled (the child
+    phase; the curriculum freezes it at child->adult transition). READ retrieves
+    the best-matching anchor for the current context to seed adult z_goal.
+
+    AGENT-OWNED and NOT reset per episode (the persistence that makes a
+    super-ordinal goal hierarchy distinct from an episodic z_goal). Pure stateful
+    tensor store + cosine arithmetic -- no nn.Module, no trainable parameters, no
+    gradient flow. MECH-094: writes are gated on simulation_mode at the call
+    site (replay/DMN must not form super-ordinal anchors).
+    """
+
+    def __init__(
+        self,
+        config: GoalConfig,
+        context_dim: int,
+        device: torch.device,
+    ) -> None:
+        self.config = config
+        self.device = device
+        self.context_dim = int(context_dim)
+        self.goal_dim = int(config.goal_dim)
+        n = int(config.super_ordinal_n_slots)
+        self.n_slots = n
+        # Cue keys (z_world context) and anchor values (z_goal).
+        self._keys = torch.zeros(n, self.context_dim, device=device)
+        self._values = torch.zeros(n, self.goal_dim, device=device)
+        self._strength = torch.zeros(n, device=device)
+        self._occupied = torch.zeros(n, dtype=torch.bool, device=device)
+        # Child-phase write window. The curriculum freezes writes for adult
+        # measurement via REEAgent.set_super_ordinal_write_enabled(False).
+        self.write_enabled: bool = True
+        # Diagnostics (per-agent-lifetime; reset only on reset_anchors()).
+        self._n_writes = 0
+        self._n_reinforce = 0
+        self._n_allocate = 0
+        self._n_seeds = 0
+        self._last_complexity = -1.0
+        self._last_salience = -1.0
+        self._last_seed_match = -1.0
+
+    @staticmethod
+    def _row(t: torch.Tensor) -> torch.Tensor:
+        """Coerce a [d] / [1, d] / [b, d] tensor to a single [d] row (mean over
+        a batch)."""
+        t = t.detach()
+        if t.dim() == 2:
+            t = t.mean(dim=0)
+        elif t.dim() != 1:
+            t = t.reshape(-1)
+        return t
+
+    def _occupied_idx(self) -> torch.Tensor:
+        return torch.nonzero(self._occupied, as_tuple=False).reshape(-1)
+
+    def _best_match(self, query_key: torch.Tensor):
+        """Return (best_slot_idx, best_cosine) over occupied slots, or
+        (None, -1.0) when the store is empty."""
+        occ = self._occupied_idx()
+        if occ.numel() == 0:
+            return None, -1.0
+        q = F.normalize(query_key.unsqueeze(0), dim=-1)
+        k = F.normalize(self._keys[occ], dim=-1)
+        sims = (k @ q.t()).reshape(-1)
+        j = int(torch.argmax(sims).item())
+        return int(occ[j].item()), float(sims[j].item())
+
+    def contextual_complexity(self, z_world_context: torch.Tensor) -> float:
+        """MECH-189 WRITE gate (b), "novelty" mode: complexity = 1 - max cosine
+        similarity of the current context to any occupied anchor key, in [0, 1].
+        Empty store -> 1.0 (maximally novel; first contacts bootstrap the
+        hierarchy). A context already covered by an anchor -> low complexity ->
+        no write (adult-routine stability)."""
+        key = self._row(z_world_context)
+        _, best = self._best_match(key)
+        if best < 0.0:
+            return 1.0
+        return float(max(0.0, min(1.0, 1.0 - best)))
+
+    def write(
+        self,
+        z_world_context: torch.Tensor,
+        z_goal_anchor: torch.Tensor,
+        salience: float,
+        context_complexity: Optional[float] = None,
+        simulation_mode: bool = False,
+    ) -> bool:
+        """MECH-189 child-phase write. Returns True iff an anchor was written.
+
+        Gated on: write_enabled (child phase) AND not simulation_mode (MECH-094)
+        AND the conjunction salience >= super_ordinal_salience_threshold AND
+        complexity >= super_ordinal_complexity_threshold. complexity is taken
+        from `context_complexity` when supplied (the "external" mode hook), else
+        computed via the self-contained novelty proxy.
+
+        Reinforces the nearest anchor when the context is within
+        super_ordinal_merge_similarity of it (EMA blend, raise strength); else
+        allocates a fresh slot (an empty one, else the weakest by strength).
+        """
+        if simulation_mode or not self.write_enabled:
+            return False
+        key = self._row(z_world_context)
+        val = self._row(z_goal_anchor)
+        # Gate (b): contextual complexity.
+        mode = getattr(self.config, "super_ordinal_complexity_mode", "novelty")
+        if mode == "external" and context_complexity is not None:
+            complexity = float(context_complexity)
+        else:
+            complexity = self.contextual_complexity(key)
+        self._last_salience = float(salience)
+        self._last_complexity = float(complexity)
+        best_idx, best_sim = self._best_match(key)
+        a = float(self.config.super_ordinal_write_alpha)
+
+        # Gate (a) high salience is required for ANY write (allocate OR reinforce).
+        if salience < self.config.super_ordinal_salience_threshold:
+            return False
+
+        # REINFORCE: a recurring high-salience contact in an EXISTING anchor's
+        # region strengthens that super-ordinal goal toward the now-matured
+        # z_goal (EMA blend, raise strength). Gate (b) contextual complexity does
+        # NOT apply here -- complexity governs the FORMATION of a NEW anchor, not
+        # the reinforcement of one that already exists. (Without this, the anchor
+        # would freeze at the tiny z_goal captured at its first contact and never
+        # learn the matured childhood meta-goal.)
+        if (
+            best_idx is not None
+            and best_sim >= self.config.super_ordinal_merge_similarity
+        ):
+            self._keys[best_idx] = (1.0 - a) * self._keys[best_idx] + a * key
+            self._values[best_idx] = (1.0 - a) * self._values[best_idx] + a * val
+            self._strength[best_idx] = self._strength[best_idx] + 1.0
+            self._n_reinforce += 1
+            self._n_writes += 1
+            return True
+
+        # ALLOCATE a NEW super-ordinal anchor: gate (b) high contextual complexity
+        # is required (a genuinely novel/rich context warrants a new meta-goal).
+        if complexity < self.config.super_ordinal_complexity_threshold:
+            return False
+        empty = torch.nonzero(~self._occupied, as_tuple=False).reshape(-1)
+        slot = int(empty[0].item()) if empty.numel() > 0 else int(
+            torch.argmin(self._strength).item()
+        )
+        self._keys[slot] = key
+        self._values[slot] = val
+        self._strength[slot] = 1.0
+        self._occupied[slot] = True
+        self._n_allocate += 1
+        self._n_writes += 1
+        return True
+
+    def retrieve(self, z_world_query: torch.Tensor):
+        """MECH-189 READ. Return (z_goal_anchor [1, goal_dim], match_cosine,
+        slot_idx) for the best-matching anchor, or None when the store is empty.
+        Does not mutate the store."""
+        occ = self._occupied_idx()
+        if occ.numel() == 0:
+            return None
+        key = self._row(z_world_query)
+        slot, sim = self._best_match(key)
+        if slot is None:
+            return None
+        self._last_seed_match = float(sim)
+        return (self._values[slot].unsqueeze(0).clone(), float(sim), int(slot))
+
+    def note_seed(self) -> None:
+        self._n_seeds += 1
+
+    def n_occupied(self) -> int:
+        return int(self._occupied.sum().item())
+
+    def reset_anchors(self) -> None:
+        """Full clear of the persistent store -- for a NEW developmental stage /
+        fresh agent only. NOT called on per-episode reset (the whole point of a
+        super-ordinal store is cross-episode persistence)."""
+        self._keys.zero_()
+        self._values.zero_()
+        self._strength.zero_()
+        self._occupied.zero_()
+        self._n_writes = 0
+        self._n_reinforce = 0
+        self._n_allocate = 0
+        self._n_seeds = 0
+        self._last_complexity = -1.0
+        self._last_salience = -1.0
+        self._last_seed_match = -1.0
+
+    def get_state(self) -> dict:
+        return {
+            "super_ordinal_n_occupied": self.n_occupied(),
+            "super_ordinal_n_writes": self._n_writes,
+            "super_ordinal_n_reinforce": self._n_reinforce,
+            "super_ordinal_n_allocate": self._n_allocate,
+            "super_ordinal_n_seeds": self._n_seeds,
+            "super_ordinal_max_strength": float(self._strength.max().item()),
+            "super_ordinal_last_complexity": self._last_complexity,
+            "super_ordinal_last_salience": self._last_salience,
+            "super_ordinal_last_seed_match": self._last_seed_match,
+            "super_ordinal_write_enabled": bool(self.write_enabled),
+        }
+
+    def state_dict(self) -> dict:
+        return {
+            "keys": self._keys.cpu(),
+            "values": self._values.cpu(),
+            "strength": self._strength.cpu(),
+            "occupied": self._occupied.cpu(),
+            "write_enabled": self.write_enabled,
+        }
+
+    def load_state_dict(self, d: dict) -> None:
+        self._keys = d["keys"].to(self.device)
+        self._values = d["values"].to(self.device)
+        self._strength = d["strength"].to(self.device)
+        self._occupied = d["occupied"].to(self.device)
+        self.write_enabled = bool(d.get("write_enabled", True))
+
 
 class IncentiveTokenBank:
     """SD-057 (GAP-7 L2-L3): per-object incentive-salience token store.

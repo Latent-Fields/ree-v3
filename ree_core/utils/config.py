@@ -3171,6 +3171,16 @@ class REEConfig:
         use_cue_recall: bool = False,  # SD-057 phase-2 L6 (MECH-347): cue-triggered wanting path
         cue_recall_gain: float = 0.05,  # SD-057 L6: z_goal cue-pull strength
         cue_recall_min_proximity: float = 0.0,  # SD-057 L6: auto-perception proximity floor
+        use_super_ordinal_goal_anchors: bool = False,  # MECH-189: ContextMemory writes substrate (super-ordinal goal anchors)
+        super_ordinal_n_slots: int = 16,  # MECH-189: cue-indexed anchor slot count
+        super_ordinal_salience_threshold: float = 0.5,  # MECH-189 WRITE gate (a): high-salience benefit floor
+        super_ordinal_complexity_mode: str = "novelty",  # MECH-189 WRITE gate (b): "novelty" | "external" (DEV-NEED-024 adjudication)
+        super_ordinal_complexity_threshold: float = 0.3,  # MECH-189 WRITE gate (b): min contextual complexity to write
+        super_ordinal_merge_similarity: float = 0.8,  # MECH-189 WRITE: reinforce-vs-allocate cosine cutoff
+        super_ordinal_write_alpha: float = 0.3,  # MECH-189 WRITE: EMA blend rate into an anchor slot
+        super_ordinal_seed_below_norm: float = 0.4,  # MECH-189 READ: only seed when z_goal norm below this
+        super_ordinal_seed_match_threshold: float = 0.3,  # MECH-189 READ: min retrieval cosine match to seed
+        super_ordinal_seed_strength: float = 0.1,  # MECH-189 READ: cue-pull strength toward retrieved anchor
         use_mech_consume: bool = False,  # SD-057 phase-2 L7 (MECH-348): dACC object-discriminative goal readout
         dacc_goal_readout_weight: float = 0.0,  # SD-057 L7: dACC goal-readout bias weight
         # MECH-203/204: serotonergic neuromodulation
@@ -3888,6 +3898,16 @@ class REEConfig:
             "use_cue_recall",  # SD-057 L6
             "cue_recall_gain",  # SD-057 L6
             "cue_recall_min_proximity",  # SD-057 L6
+            "use_super_ordinal_goal_anchors",  # MECH-189
+            "super_ordinal_n_slots",  # MECH-189
+            "super_ordinal_salience_threshold",  # MECH-189
+            "super_ordinal_complexity_mode",  # MECH-189
+            "super_ordinal_complexity_threshold",  # MECH-189
+            "super_ordinal_merge_similarity",  # MECH-189
+            "super_ordinal_write_alpha",  # MECH-189
+            "super_ordinal_seed_below_norm",  # MECH-189
+            "super_ordinal_seed_match_threshold",  # MECH-189
+            "super_ordinal_seed_strength",  # MECH-189
         }
         local_goal_vals = {
             "z_goal_enabled": z_goal_enabled,
@@ -3910,6 +3930,16 @@ class REEConfig:
             "use_cue_recall": use_cue_recall,  # SD-057 L6
             "cue_recall_gain": cue_recall_gain,  # SD-057 L6
             "cue_recall_min_proximity": cue_recall_min_proximity,  # SD-057 L6
+            "use_super_ordinal_goal_anchors": use_super_ordinal_goal_anchors,  # MECH-189
+            "super_ordinal_n_slots": super_ordinal_n_slots,  # MECH-189
+            "super_ordinal_salience_threshold": super_ordinal_salience_threshold,  # MECH-189
+            "super_ordinal_complexity_mode": super_ordinal_complexity_mode,  # MECH-189
+            "super_ordinal_complexity_threshold": super_ordinal_complexity_threshold,  # MECH-189
+            "super_ordinal_merge_similarity": super_ordinal_merge_similarity,  # MECH-189
+            "super_ordinal_write_alpha": super_ordinal_write_alpha,  # MECH-189
+            "super_ordinal_seed_below_norm": super_ordinal_seed_below_norm,  # MECH-189
+            "super_ordinal_seed_match_threshold": super_ordinal_seed_match_threshold,  # MECH-189
+            "super_ordinal_seed_strength": super_ordinal_seed_strength,  # MECH-189
         }
         for _key in goal_fields:
             if _key in local_goal_vals:
