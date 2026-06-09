@@ -8,6 +8,21 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-661",
+      "title": "MECH-294 compose-coherence substrate-readiness (behavioural wiring): with compose ON, does the theta-packet binding mode now CHANGE the committed-action distribution (joint vs alternation/shuffled), and is the within-cycle co-binding COHERENCE GATING the mechanism (alternation gate-ON vs gate-OFF)? Validates the 2026-06-09 compose_e3_bias coherence-gating wiring (ree-v3 53d4c75) that made the binding mode causally reach E3 behaviour (previously action-only -> mode-invariant). 5 arms x 3 seeds: OFF / JOINT / ALTERNATION / SHUFFLED / ALT_COH_OFF.",
+      "script": "experiments/v3_exq_661_mech294_compose_coherence_behavioural_readiness.py",
+      "priority": 270,
+      "machine_affinity": "any",
+      "estimated_minutes": 30,
+      "note": "Substrate-readiness DIAGNOSTIC (claim_ids=[], experiment_purpose=diagnostic, evidence_direction=non_contributory) -- does NOT weight MECH-294 confidence. Validates the compose-coherence wiring just landed (ree-v3 53d4c75 / REE_assembly 4c680c03f5): compose_e3_bias now gates the per-candidate action-grounding bias by ThetaPacket.currency_coherence() (joint ~1.0 / alternation ~0.25 / shuffled 0.0) so the binding mode reaches E3 behaviour. Readout = committed-action-class distribution; TV margin 0.10 (memo S7.2). NON-VACUITY readiness (R0 candidate first-action diversity >=2 / R1 compose fired / R2 coherence mode-distinct) matched to the load-bearing TV criteria; below floor self-routes substrate_not_ready_requeue (the compose bias is action-alignment GATED by coherence, so a single-class CEM pool starves the criterion -- NOT a falsification). C1 TV(JOINT,ALT) / C2 TV(JOINT,SHUF) / C3 TV(ALT-coh-ON,ALT-coh-OFF) all load_bearing; PASS=R0&R1&R2 & C1&C2&C3. PASS unblocks the MECH-294 behavioural-EVIDENCE successor (claim_ids=[MECH-294]) as a SEPARATE later /queue-experiment session. validate_experiments --strict --paths OK (per-cell arm_fingerprint); dry-run runs end-to-end, coherence gate mode-distinct 1.0/0.25/0.0, dry-scale self-routes substrate_not_ready_requeue (1 seed < 2/3 + 24-step run too short for candidate diversity, as R0 guards -- expected, mirrors 657a dry FAIL).",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 5,
+      "episodes_per_run": 12,
+      "experiment_type": "v3_exq_661_mech294_compose_coherence_behavioural_readiness",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-603l",
       "title": "SD-059/MECH-358 escape-affordance bridge BEHAVIOURAL re-test (scored evidence; successor to V3-EXQ-603i, the pending_retest_after_substrate). Full 4-arm + nav-control discriminative Stage-H run on the 603k+603j-fixed substrate: ARM_BASE_IA_ONLY (bridge OFF) / ARM_RELIEF_BRIDGE / ARM_SAFETY_BRIDGE / ARM_RELIEF_SAFETY_BRIDGE (bridge halves) / ARM_NAV_CONTROL (bridge OFF, spawn-in-reef nav-competence control). ALL arms turn ON the two now-validated substrate fixes: scaffold_train_harm_pathway=True (603k PASS -> clears the 603i PRIMARY nav/survival-competence ceiling; ARM_HARM_ON_NAV G_H 2/3 vs OFF 0/3, harm_eval range 0.133) and escape_use_trained_safety_signal=True + MECH-303 terrain + MECH-304 store + MECH-302 comparator (603j PASS -> the SAFETY half credits non-vacuously via the trained threat-absence signal, mean 0.89 >= 0.5 floor). PRIMARY DV best_bridge_G_H >= 2/3 AND > G_H_BASE. Per-half non-vacuity readiness preconditions retained as a SAFETY NET (each enabled bridge half credits >=2/3 before G_H scored; else self-route substrate_not_ready_requeue, NOT a false weakens).",
       "script": "experiments/v3_exq_603l_escape_affordance_bridge_behavioural_retest.py",
@@ -104,26 +119,15 @@
       "supersedes": "V3-EXQ-614e",
       "claim_id": "MECH-341",
       "note": "Real scored evidence (claim_ids=[MECH-341], experiment_purpose=evidence, evidence_direction_per_claim emitted). The owed GAP-B action from behavioral_diversity_isolation_plan.md, unblocked by V3-EXQ-649 GAP-A readiness PASS + the 614e autopsy Learning #2 (within-class vs across-class sub-axes must be scored separately). C1 non-vacuity gate (within-class branch fires AND committed class offers >=2 distinct representatives on >=2/3 swept-arm seeds) asserts the SAME within-class-representative axis C2 routes on (representative AVAILABILITY, not a magnitude proxy); C1 FALSE self-routes substrate_not_ready_requeue -> non_contributory (protects MECH-341 from a false weakens at degenerate scale -- NOT a weakens). Evidence-direction mapping: C1 fail -> non_contributory; C1+C2 -> supports; C1 + C2-fail (lever operative + pool diverse, no representative-diversity lift) -> weakens. validate_experiments --strict --paths OK (arm_fingerprint per-cell present) + dry-run smoke PASS (dry scale correctly self-routes substrate_not_ready_requeue: C1=False at 2-ep P1). Do NOT edit claims.yaml/governance; evidence folds in via a later /governance cycle once it runs.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-06-09T21:38:35Z"
+      },
       "conditions": 4,
       "episodes_per_run": 90,
       "experiment_type": "v3_exq_660_mech341_within_class_representative_diversity",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-661",
-      "title": "MECH-294 compose-coherence substrate-readiness (behavioural wiring): with compose ON, does the theta-packet binding mode now CHANGE the committed-action distribution (joint vs alternation/shuffled), and is the within-cycle co-binding COHERENCE GATING the mechanism (alternation gate-ON vs gate-OFF)? Validates the 2026-06-09 compose_e3_bias coherence-gating wiring (ree-v3 53d4c75) that made the binding mode causally reach E3 behaviour (previously action-only -> mode-invariant). 5 arms x 3 seeds: OFF / JOINT / ALTERNATION / SHUFFLED / ALT_COH_OFF.",
-      "script": "experiments/v3_exq_661_mech294_compose_coherence_behavioural_readiness.py",
-      "experiment_type": "v3_exq_661_mech294_compose_coherence_behavioural_readiness",
-      "priority": 270,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 30,
-      "episodes_per_run": 12,
-      "seeds": 3,
-      "conditions": 5,
-      "note": "Substrate-readiness DIAGNOSTIC (claim_ids=[], experiment_purpose=diagnostic, evidence_direction=non_contributory) -- does NOT weight MECH-294 confidence. Validates the compose-coherence wiring just landed (ree-v3 53d4c75 / REE_assembly 4c680c03f5): compose_e3_bias now gates the per-candidate action-grounding bias by ThetaPacket.currency_coherence() (joint ~1.0 / alternation ~0.25 / shuffled 0.0) so the binding mode reaches E3 behaviour. Readout = committed-action-class distribution; TV margin 0.10 (memo S7.2). NON-VACUITY readiness (R0 candidate first-action diversity >=2 / R1 compose fired / R2 coherence mode-distinct) matched to the load-bearing TV criteria; below floor self-routes substrate_not_ready_requeue (the compose bias is action-alignment GATED by coherence, so a single-class CEM pool starves the criterion -- NOT a falsification). C1 TV(JOINT,ALT) / C2 TV(JOINT,SHUF) / C3 TV(ALT-coh-ON,ALT-coh-OFF) all load_bearing; PASS=R0&R1&R2 & C1&C2&C3. PASS unblocks the MECH-294 behavioural-EVIDENCE successor (claim_ids=[MECH-294]) as a SEPARATE later /queue-experiment session. validate_experiments --strict --paths OK (per-cell arm_fingerprint); dry-run runs end-to-end, coherence gate mode-distinct 1.0/0.25/0.0, dry-scale self-routes substrate_not_ready_requeue (1 seed < 2/3 + 24-step run too short for candidate diversity, as R0 guards -- expected, mirrors 657a dry FAIL).",
-      "claim_ids": []
     }
   ]
 }
