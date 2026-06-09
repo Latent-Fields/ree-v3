@@ -419,6 +419,64 @@ class ScaffoldedSD054OnboardingConfig:
     # the agent has a threat signal to learn avoidance from.
     scaffold_feed_harm_stream: bool = False
 
+    # -------- Stage-H harm-pathway training (603i nav/survival-competence ceiling, 2026-06-09) --
+    # Root cause (V3-EXQ-603i ARM_NAV_CONTROL + code/probe diagnosis 2026-06-09):
+    # the scaffold curriculum trains ONLY E1 + E2.world_forward across EVERY stage;
+    # the hazard-avoidance VALUATION pathway is never in any optimizer. E3.harm_eval_head
+    # (z_world) -- the harm cost that scores every candidate trajectory in E3.select --
+    # is a near-constant ~0.523 (random init, flat across states; measured range
+    # [0.522, 0.524] over 300 states), the HarmEncoder z_harm output norm is constant
+    # (zero variance vs proximity), so the agent navigates a RANDOM harm landscape and
+    # dies even spawned in the reef refuge (Stage-H G_H 0/3; survival slope -0.94
+    # steps/ep -> no learning; 24/25 episodes terminate early on hazard contact). More
+    # budget cannot train a head that is not in the loss; this is a missing-mechanism /
+    # training-coverage gap, NOT a budget tweak (confirms the 603g/624c/651a cluster
+    # autopsy "deeper than budget" adjudication + lit verdict
+    # targeted_review_hazard_avoidance_learning: the threat VALUATION must be LEARNED
+    # from experienced harm before the SD-058/MECH-357 instrumental-acquisition gate or
+    # the SD-059/MECH-358 escape bridge can navigate -- those gates bias action
+    # selection within whatever harm landscape E3 hands them, and that landscape is
+    # currently noise).
+    #
+    # THE FIX: train the existing-but-untrained harm pathway during P0 + Stage-H, using
+    # the env-supervised hazard-proximity label (harm_obs centre) + accumulated-harm
+    # scalar -- the SAME SD-010/SD-018/SD-011/ARC-033 supervision targets those
+    # substrates were validated with, just never wired into the survival curriculum.
+    # All additive + no-op default (master scaffold_train_harm_pathway False ->
+    # bit-identical; the V3-EXQ-603k re-issue opts in). ree_core is UNTOUCHED -- the
+    # block calls existing agent/E3 heads.
+    scaffold_train_harm_pathway: bool = False
+    # Independently-togglable sub-terms (consulted only when the master flag is on) so
+    # the validation can ablate which term carries the load (Q-044 / MECH-314a-style).
+    #   (1) harm_eval(z_world): E3.harm_eval_head + the z_world encoder. SD-018
+    #       semantics -- the proximity MSE backprops INTO the latent_stack encoder so
+    #       z_world becomes hazard-discriminative (head-only training fails: the probe
+    #       proved z_world itself is flat). This is the load-bearing term -- it makes
+    #       the trajectory-rollout harm landscape (E2.world_forward -> harm_eval_head)
+    #       predictive.
+    scaffold_train_harm_eval_head: bool = True
+    #   (2) z_harm sensory: HarmEncoder + E3.harm_eval_z_harm_head (SD-010 reactive
+    #       nociceptive stream) supervised on the same proximity label.
+    scaffold_train_z_harm_sensory: bool = True
+    #   (3) z_harm_a affective: AffectiveHarmEncoder via the harm_accum aux head
+    #       (SD-011) supervised on accumulated harm -- gives the PAG freeze gate
+    #       (MECH-279) + SD-058/MECH-357 IA gate + SD-059 bridge a TRAINED threat
+    #       signal instead of the random one they currently key on.
+    scaffold_train_z_harm_affective: bool = True
+    #   (4) E2_harm_s forward: E2HarmSForward (ARC-033) on FROZEN (detached) z_harm_s
+    #       for true multi-step harm lookahead. Requires the agent built with
+    #       use_e2_harm_s_forward=True (the V3-EXQ-603k config sets it); inert no-op
+    #       when agent.e2_harm_s is None.
+    scaffold_train_e2_harm_s_forward: bool = True
+    # Learning rate for the harm-pathway optimizers (order-matched to scaffold_lr_e2_wf).
+    scaffold_harm_pathway_lr: float = 1e-3
+    # Also train the harm pathway during P0 (warm the harm landscape before Stage-H),
+    # not only Stage-H. Default True -> P0 + Stage-H; False confines training to Stage-H.
+    scaffold_harm_pathway_in_p0: bool = True
+    # Max buffer for the E2_harm_s detached (z_harm_s_prev, action, z_harm_s_curr)
+    # triples (mirrors scaffold_wf_buf_max for the world-forward buffer).
+    scaffold_harm_s_buf_max: int = 2000
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -475,6 +533,11 @@ class P0OnboardingResult:
     final_running_variance: float
     aborted: bool
     abort_reason: str = ""
+    # Stage-H harm-pathway training diagnostics (2026-06-09; empty when the master
+    # flag / scaffold_harm_pathway_in_p0 are off). Per-stage training counters +
+    # mean losses for the harm-valuation terms trained in P0.
+    harm_pathway_enabled: bool = False
+    harm_pathway_diag: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -508,6 +571,15 @@ class HazardAvoidanceResult:
     # bridge is absent). Lets the 603i-successor manifest confirm the bridge fired
     # non-vacuously (relief / safety credit incremented) before scoring G_H.
     escape_bridge_state: Dict[str, Any] = field(default_factory=dict)
+    # Stage-H harm-pathway training diagnostics (2026-06-09; empty when the master
+    # flag is off). harm_pathway_diag carries per-stage training counters + mean
+    # losses; harm_discriminativeness is the post-training NON-VACUITY readout
+    # (harm_eval_range + harm_eval_prox_corr) the 603k validation gates on -- it
+    # confirms the harm landscape became discriminative (the 603i probe measured a
+    # flat head: range ~0.002, corr ~0).
+    harm_pathway_enabled: bool = False
+    harm_pathway_diag: Dict[str, Any] = field(default_factory=dict)
+    harm_discriminativeness: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -958,6 +1030,234 @@ def _maybe_cue_recall(agent, env, obs_dict: Dict[str, Any], drive: float,
     except Exception as e:  # never break the loop, but make the failure VISIBLE
         _bump_reason(diag, f"exception:{type(e).__name__}")
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Stage-H harm-pathway training (603i nav/survival-competence ceiling, 2026-06-09)
+# ---------------------------------------------------------------------------
+#
+# The scaffold curriculum trains only E1 + E2.world_forward; the hazard-avoidance
+# VALUATION pathway (E3.harm_eval_head(z_world) -- the harm cost that scores every
+# candidate trajectory -- plus the z_harm / z_harm_a encoders and the E2_harm_s
+# forward model) is never in any optimizer, so the agent navigates a random harm
+# landscape and dies even handed the reef refuge (603i ARM_NAV_CONTROL G_H 0/3).
+# These helpers wire the existing-but-untrained harm heads into the P0 + Stage-H
+# training loop, supervised by the env's hazard-proximity label + accumulated-harm
+# scalar (the SD-010/SD-018/SD-011/ARC-033 supervision targets). All gated behind
+# cfg.scaffold_train_harm_pathway (default False -> these are never called).
+
+
+def _hazard_proximity_target(obs_dict: Dict[str, Any]) -> Optional[float]:
+    """True hazard proximity at the agent in [0, 1] -- the SD-010/SD-018 supervision
+    label. harm_obs layout is hazard_field_view[25] + resource_field_view[25] +
+    harm_exposure[1]; index 12 is the centre of the 5x5 hazard_field_view
+    (hazard_field_at_agent). Falls back to the hazard_field_view centre, then None."""
+    ho = obs_dict.get("harm_obs")
+    if ho is not None:
+        v = ho.reshape(-1)
+        if v.shape[0] > 12:
+            return float(v[12].item())
+    hf = obs_dict.get("hazard_field_view")
+    if hf is not None:
+        v = hf.reshape(-1)
+        if v.shape[0] > 12:
+            return float(v[12].item())
+    return None
+
+
+def _accumulated_harm_target(obs_dict: Dict[str, Any]) -> Optional[float]:
+    """Accumulated-harm scalar in [0, 1] -- the SD-011 harm_accum supervision target.
+    Prefers harm_obs[-1] (harm_exposure, last of the harm_obs vector), then an
+    explicit accumulated_harm key, then None."""
+    ho = obs_dict.get("harm_obs")
+    if ho is not None:
+        v = ho.reshape(-1)
+        if v.shape[0] >= 1:
+            return float(v[-1].item())
+    ah = obs_dict.get("accumulated_harm")
+    if ah is not None:
+        try:
+            return float(ah.reshape(-1)[0].item()) if hasattr(ah, "reshape") else float(ah)
+        except (TypeError, ValueError, IndexError):
+            return None
+    return None
+
+
+def _harm_pathway_params(cfg: ScaffoldedSD054OnboardingConfig, agent) -> List[Any]:
+    """Deduped parameter list for the enabled harm-pathway terms. The proximity
+    losses backprop INTO the latent_stack encoder (SD-018 semantics) so z_world /
+    z_harm become hazard-discriminative -- head-only training fails on the flat
+    z_world the 603i probe measured. E2_harm_s trains on detached z_harm_s
+    (ARC-033 phasing), but its params still live in this optimizer."""
+    params: List[Any] = []
+    seen = set()
+
+    def _add(plist):
+        for p in plist:
+            if id(p) not in seen:
+                seen.add(id(p))
+                params.append(p)
+
+    need_encoder = (
+        cfg.scaffold_train_harm_eval_head
+        or cfg.scaffold_train_z_harm_sensory
+        or cfg.scaffold_train_z_harm_affective
+    )
+    if need_encoder:
+        _add(list(agent.latent_stack.parameters()))
+    if cfg.scaffold_train_harm_eval_head:
+        _add(list(agent.e3.harm_eval_head.parameters()))
+    if cfg.scaffold_train_z_harm_sensory:
+        _add(list(agent.e3.harm_eval_z_harm_head.parameters()))
+    if cfg.scaffold_train_e2_harm_s_forward and getattr(agent, "e2_harm_s", None) is not None:
+        _add(list(agent.e2_harm_s.parameters()))
+    return params
+
+
+def _new_harm_diag() -> Dict[str, Any]:
+    """Per-stage harm-pathway training diagnostics accumulator."""
+    return {
+        "n_train_steps": 0,
+        "sum_loss_harm_eval": 0.0,
+        "sum_loss_z_harm": 0.0,
+        "sum_loss_harm_accum": 0.0,
+        "sum_loss_e2_harm_s": 0.0,
+        "n_e2_harm_s_steps": 0,
+    }
+
+
+def _harm_pathway_step(
+    cfg: ScaffoldedSD054OnboardingConfig,
+    agent,
+    latent,
+    obs_dict: Dict[str, Any],
+    harm_s_buf: Optional[Deque],
+    harm_opt,
+    harm_diag: Optional[Dict[str, Any]],
+    device: torch.device,
+    batch_size: int,
+) -> None:
+    """One harm-pathway training step on the PRISTINE post-sense latent (called
+    BEFORE E1 tick / action selection so the encoder graph is intact). Co-trains
+    the harm-proximity heads + encoder (terms 1-3) on the current state, and the
+    E2_harm_s forward model (term 4) on a detached buffer batch. Best-effort: a
+    missing target or absent head silently contributes zero."""
+    if harm_opt is None:
+        return
+    prox = _hazard_proximity_target(obs_dict)
+    accum = _accumulated_harm_target(obs_dict)
+    harm_opt.zero_grad()
+
+    loss = None
+    l_he = l_zh = l_ha = 0.0
+    # (1) harm_eval_head(z_world) -> hazard proximity (drives trajectory scoring).
+    if cfg.scaffold_train_harm_eval_head and prox is not None and latent.z_world is not None:
+        pred = agent.e3.harm_eval_head(latent.z_world).reshape(-1)[:1]
+        tgt = torch.tensor([prox], device=pred.device, dtype=pred.dtype)
+        term = F.mse_loss(pred, tgt)
+        loss = term if loss is None else loss + term
+        l_he = float(term.detach())
+    # (2) harm_eval_z_harm(z_harm) -> hazard proximity (SD-010 reactive stream).
+    if cfg.scaffold_train_z_harm_sensory and prox is not None and getattr(latent, "z_harm", None) is not None:
+        pred = agent.e3.harm_eval_z_harm(latent.z_harm).reshape(-1)[:1]
+        tgt = torch.tensor([prox], device=pred.device, dtype=pred.dtype)
+        term = F.mse_loss(pred, tgt)
+        loss = term if loss is None else loss + term
+        l_zh = float(term.detach())
+    # (3) z_harm_a affective accumulation (SD-011); zero if no harm_history head.
+    if cfg.scaffold_train_z_harm_affective and accum is not None:
+        term = agent.compute_harm_accum_loss(accum, latent)
+        if term is not None and term.requires_grad:
+            loss = term if loss is None else loss + term
+            l_ha = float(term.detach())
+
+    if loss is not None and loss.requires_grad:
+        loss.backward()
+
+    # (4) E2_harm_s forward model on a detached buffer batch (ARC-033 phasing).
+    l_e2 = 0.0
+    e2hs = getattr(agent, "e2_harm_s", None)
+    if (
+        cfg.scaffold_train_e2_harm_s_forward
+        and e2hs is not None
+        and harm_s_buf is not None
+        and len(harm_s_buf) >= batch_size
+    ):
+        k = min(batch_size, len(harm_s_buf))
+        idxs = torch.randperm(len(harm_s_buf))[:k].tolist()
+        zhs_b = torch.cat([harm_s_buf[i][0] for i in idxs]).to(device)
+        a_b = torch.cat([harm_s_buf[i][1] for i in idxs]).to(device)
+        zhs1_b = torch.cat([harm_s_buf[i][2] for i in idxs]).to(device)
+        pred = e2hs.forward(zhs_b, a_b)
+        term = e2hs.compute_loss(pred, zhs1_b.detach())
+        if term.requires_grad:
+            term.backward()
+            l_e2 = float(term.detach())
+            if harm_diag is not None:
+                harm_diag["n_e2_harm_s_steps"] += 1
+
+    # Single optimizer step over all enabled terms.
+    for grp in harm_opt.param_groups:
+        torch.nn.utils.clip_grad_norm_(grp["params"], 1.0)
+    harm_opt.step()
+
+    if harm_diag is not None:
+        harm_diag["n_train_steps"] += 1
+        harm_diag["sum_loss_harm_eval"] += l_he
+        harm_diag["sum_loss_z_harm"] += l_zh
+        harm_diag["sum_loss_harm_accum"] += l_ha
+        harm_diag["sum_loss_e2_harm_s"] += l_e2
+
+
+def _measure_harm_discriminativeness(
+    cfg: ScaffoldedSD054OnboardingConfig, agent, device: torch.device, n_steps: int = 120
+) -> Dict[str, Any]:
+    """Post-training non-vacuity readout: roll the policy on the hazard env and
+    correlate E3.harm_eval_head(z_world) with true hazard proximity. The 603i probe
+    measured a FLAT head (range ~0.002, corr ~0); a successful amend lifts the range
+    and makes the correlation meaningfully positive (the head now predicts danger).
+    Read-only: no optimizer steps."""
+    env = _build_env(cfg, phase="hazard")
+    was_training = agent.training
+    agent.eval()
+    world_dim = agent.config.latent.world_dim
+    he: List[float] = []
+    prox: List[float] = []
+    _, obs = env.reset()
+    agent.reset()
+    for _ in range(n_steps):
+        ob = obs["body_state"].to(device)
+        ow = obs["world_state"].to(device)
+        lat = _sense_with_optional_harm(agent, ob, ow, obs, device, cfg.scaffold_feed_harm_stream)
+        with torch.no_grad():
+            he.append(float(agent.e3.harm_eval_head(lat.z_world).reshape(-1)[0]))
+        p = _hazard_proximity_target(obs)
+        prox.append(p if p is not None else float("nan"))
+        ticks = agent.clock.advance()
+        e1p = (
+            agent._e1_tick(lat) if ticks.get("e1_tick")
+            else torch.zeros(1, world_dim, device=device)
+        )
+        cand = agent.generate_trajectories(lat, e1p, ticks)
+        act = agent.select_action(cand, ticks)
+        _, _h, done, _, obs = env.step(int(act.argmax(dim=-1).item()))
+        if done:
+            _, obs = env.reset()
+            agent.reset()
+    if was_training:
+        agent.train()
+    a = np.array(he, dtype=float)
+    b = np.array(prox, dtype=float)
+    m = np.isfinite(a) & np.isfinite(b)
+    corr = float("nan")
+    if m.sum() >= 5 and np.std(a[m]) > 1e-9 and np.std(b[m]) > 1e-9:
+        corr = float(np.corrcoef(a[m], b[m])[0, 1])
+    return {
+        "harm_eval_range": float(np.max(a) - np.min(a)) if a.size else 0.0,
+        "harm_eval_prox_corr": corr,
+        "n_samples": int(a.size),
+        "prox_std": float(np.nanstd(b)) if b.size else 0.0,
+    }
 
 
 def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float = 0.0,
@@ -1469,6 +1769,23 @@ class ScaffoldedSD054OnboardingScheduler:
         )
         return self._stage0b_result
 
+    # ---------------- Harm-pathway training (603i amend) ---------------- #
+
+    def _make_harm_pathway(self, agent, train_harm: bool):
+        """Build the harm-pathway optimizer + E2_harm_s buffer + diagnostics for a
+        stage. Returns (None, None, None) when training is off (-> bit-identical).
+        The optimizer spans the enabled terms' existing ree_core params (encoder +
+        E3 harm heads + E2_harm_s); the proximity losses co-train the encoder
+        (SD-018 semantics)."""
+        if not train_harm:
+            return None, None, None
+        params = _harm_pathway_params(self.cfg, agent)
+        if not params:
+            return None, None, None
+        harm_opt = optim.Adam(params, lr=self.cfg.scaffold_harm_pathway_lr)
+        harm_s_buf: Deque = deque(maxlen=self.cfg.scaffold_harm_s_buf_max)
+        return harm_opt, harm_s_buf, _new_harm_diag()
+
     # ---------------- P0 ---------------- #
 
     def run_p0(self, agent, device: torch.device) -> P0OnboardingResult:
@@ -1499,12 +1816,20 @@ class ScaffoldedSD054OnboardingScheduler:
             lr=self.cfg.scaffold_lr_e2_wf,
         )
         wf_buf: Deque = deque(maxlen=self.cfg.scaffold_wf_buf_max)
+        # Harm-pathway training (2026-06-09): warm the harm landscape during P0 too
+        # (default on; gated by the master flag AND scaffold_harm_pathway_in_p0).
+        train_harm = bool(
+            self.cfg.scaffold_train_harm_pathway and self.cfg.scaffold_harm_pathway_in_p0
+        )
+        harm_opt, harm_s_buf, harm_diag = self._make_harm_pathway(agent, train_harm)
 
         ep_lengths: List[int] = []
         rv_final = float(getattr(agent.e3, "_running_variance", 0.0))
         for ep in range(self.cfg.scaffold_p0_episode_budget):
             ep_len = self._train_episode(
-                agent, env, device, e1_opt, wf_opt, wf_buf, world_dim
+                agent, env, device, e1_opt, wf_opt, wf_buf, world_dim,
+                train_harm=train_harm, harm_opt=harm_opt, harm_s_buf=harm_s_buf,
+                harm_diag=harm_diag,
             )
             ep_lengths.append(ep_len)
             rv_final = float(getattr(agent.e3, "_running_variance", rv_final))
@@ -1515,6 +1840,8 @@ class ScaffoldedSD054OnboardingScheduler:
             mean_episode_length=mean_len,
             final_running_variance=rv_final,
             aborted=False,
+            harm_pathway_enabled=train_harm,
+            harm_pathway_diag=dict(harm_diag) if harm_diag is not None else {},
         )
         return self._p0_result
 
@@ -1576,6 +1903,12 @@ class ScaffoldedSD054OnboardingScheduler:
             lr=self.cfg.scaffold_lr_e2_wf,
         )
         wf_buf: Deque = deque(maxlen=self.cfg.scaffold_wf_buf_max)
+        # Harm-pathway training (2026-06-09): train the hazard-avoidance valuation
+        # pathway in Stage-H. Without it the harm cost that scores every trajectory
+        # is a random constant (603i probe: range [0.522,0.524]) and survival is
+        # unreachable at any budget. Master flag gates it (default off -> bit-identical).
+        train_harm = bool(self.cfg.scaffold_train_harm_pathway)
+        harm_opt, harm_s_buf, harm_diag = self._make_harm_pathway(agent, train_harm)
 
         n_eps = max(1, self.cfg.scaffold_hazard_stage_episode_budget)
         ep_lengths: List[int] = []
@@ -1604,10 +1937,19 @@ class ScaffoldedSD054OnboardingScheduler:
             ep_len = self._train_episode(
                 agent, env, device, e1_opt, wf_opt, wf_buf, world_dim,
                 seed_goal=False,  # goal frozen -> survival learned in isolation
+                train_harm=train_harm, harm_opt=harm_opt, harm_s_buf=harm_s_buf,
+                harm_diag=harm_diag,
             )
             ep_lengths.append(ep_len)
             recent_lengths.append(ep_len)
             rv_final = float(getattr(agent.e3, "_running_variance", rv_final))
+
+        # Post-training non-vacuity readout: did the harm landscape become
+        # discriminative? (The 603k validation gates G_H scoring on this.)
+        harm_disc = (
+            _measure_harm_discriminativeness(self.cfg, agent, device)
+            if train_harm else {}
+        )
 
         mean_len = float(np.mean(ep_lengths)) if ep_lengths else 0.0
         median_last_window = (
@@ -1637,6 +1979,9 @@ class ScaffoldedSD054OnboardingScheduler:
             avoidance_driver_enabled=bool(_ia_driver),
             avoidance_gate_state=_ia_state,
             escape_bridge_state=_eab_state,
+            harm_pathway_enabled=train_harm,
+            harm_pathway_diag=dict(harm_diag) if harm_diag is not None else {},
+            harm_discriminativeness=harm_disc,
         )
         return self._hazard_result
 
@@ -1918,9 +2263,22 @@ class ScaffoldedSD054OnboardingScheduler:
         gating_threshold: Optional[float] = None,
         goal_write_diag: Optional[Dict[str, int]] = None,
         cue_diag: Optional[Dict[str, Any]] = None,
+        train_harm: bool = False,
+        harm_opt=None,
+        harm_s_buf: Optional[Deque] = None,
+        harm_diag: Optional[Dict[str, Any]] = None,
     ) -> int:
         """
         One training episode. Returns realised episode length in steps.
+
+        train_harm (2026-06-09 Stage-H harm-pathway amend): when True, after each
+        sense() and BEFORE the E1 tick / action selection (so the encoder graph is
+        intact), run _harm_pathway_step to train the harm-VALUATION pathway --
+        E3.harm_eval_head(z_world) + the z_world/z_harm encoders + E2_harm_s -- on
+        the env's hazard-proximity + accumulated-harm targets. Off by default
+        (harm_opt None) -> bit-identical. This is the 603i nav/survival-competence
+        fix: without it the harm cost that scores every trajectory is a random
+        constant, so the agent cannot avoid hazards regardless of budget.
 
         Follows the committed_mode_curriculum._one_episode_train pattern:
         env.reset() returns (_, obs_dict); obs_dict carries body_state +
@@ -1948,6 +2306,7 @@ class ScaffoldedSD054OnboardingScheduler:
         agent.reset()
 
         z_world_prev: Optional[torch.Tensor] = None
+        z_harm_prev: Optional[torch.Tensor] = None
         action_prev: Optional[torch.Tensor] = None
 
         for step in range(self.cfg.scaffold_steps_per_episode):
@@ -1958,10 +2317,31 @@ class ScaffoldedSD054OnboardingScheduler:
                 self.cfg.scaffold_feed_harm_stream,
             )
             z_world_curr = latent.z_world.detach()
+            z_harm_curr = (
+                latent.z_harm.detach() if getattr(latent, "z_harm", None) is not None
+                else None
+            )
 
             if z_world_prev is not None and action_prev is not None:
                 wf_buf.append(
                     (z_world_prev.cpu(), action_prev.cpu(), z_world_curr.cpu())
+                )
+            # Harm-pathway: E2_harm_s forward buffer (detached z_harm_s triples).
+            if (
+                train_harm and harm_s_buf is not None
+                and z_harm_prev is not None and action_prev is not None
+                and z_harm_curr is not None
+            ):
+                harm_s_buf.append(
+                    (z_harm_prev.cpu(), action_prev.cpu(), z_harm_curr.cpu())
+                )
+
+            # Harm-pathway training step on the PRISTINE post-sense latent (before
+            # the E1 tick / action selection mutate or consume the encoder graph).
+            if train_harm and harm_opt is not None:
+                _harm_pathway_step(
+                    self.cfg, agent, latent, obs_dict, harm_s_buf, harm_opt,
+                    harm_diag, device, self.cfg.scaffold_batch_size,
                 )
 
             ticks = agent.clock.advance()
@@ -2006,6 +2386,7 @@ class ScaffoldedSD054OnboardingScheduler:
                     )
 
             z_world_prev = z_world_curr
+            z_harm_prev = z_harm_curr
             action_prev = action.detach()
             _, _harm_signal, done, _, obs_dict = env.step(action_idx)
 

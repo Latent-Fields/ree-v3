@@ -1893,3 +1893,150 @@ def test_c14_feed_harm_populates_z_harm_a():
     agent.reset()
     lat_on = _sense_with_optional_harm(agent, ob, ow, od, dev, feed_harm=True)
     assert lat_on.z_harm_a is not None and float(lat_on.z_harm_a.norm()) > 0.0
+
+
+# ---------------------------------------------------------------------------
+# C15: Stage-H harm-pathway training (603i nav/survival-competence ceiling, 2026-06-09)
+# The scaffold trains only E1 + E2.world_forward; the hazard-avoidance VALUATION
+# pathway (E3.harm_eval_head(z_world) + z_harm/z_harm_a encoders + E2_harm_s) is
+# never in any optimizer, so the harm cost that scores every trajectory is a random
+# constant and survival is unreachable. This block trains it in P0 + Stage-H. Master
+# flag scaffold_train_harm_pathway default OFF -> bit-identical.
+# ---------------------------------------------------------------------------
+
+
+def _mk_harm_agent(cfg):
+    """Build a small REEAgent for the harm-pathway contracts (mirrors C14)."""
+    import torch  # noqa: F401
+    from ree_core.utils.config import REEConfig
+    from ree_core.agent import REEAgent
+    env = _build_env(cfg, "hazard")
+    env.reset()
+    rc = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim, world_obs_dim=env.world_obs_dim,
+        action_dim=env.action_dim, self_dim=32, world_dim=32, alpha_world=0.9,
+        use_affective_harm_stream=True, z_harm_a_dim=16, harm_obs_a_dim=7,
+        harm_history_len=10, z_goal_enabled=True, drive_weight=2.0,
+    )
+    rc.latent.use_resource_encoder = True
+    return REEAgent(rc)
+
+
+def test_c15_config_defaults_are_noop():
+    cfg = ScaffoldedSD054OnboardingConfig()
+    # Master OFF -> bit-identical; sub-flags default ON but are consulted only when
+    # the master is on.
+    assert cfg.scaffold_train_harm_pathway is False
+    assert cfg.scaffold_train_harm_eval_head is True
+    assert cfg.scaffold_train_z_harm_sensory is True
+    assert cfg.scaffold_train_z_harm_affective is True
+    assert cfg.scaffold_train_e2_harm_s_forward is True
+    assert cfg.scaffold_harm_pathway_lr == 1e-3
+    assert cfg.scaffold_harm_pathway_in_p0 is True
+    assert cfg.scaffold_harm_s_buf_max == 2000
+
+
+def test_c15_proximity_and_accum_target_extraction():
+    import torch
+    from experiments.scaffolded_sd054_onboarding import (
+        _hazard_proximity_target, _accumulated_harm_target,
+    )
+    ho = torch.zeros(51)
+    ho[12] = 0.7   # hazard_field centre = proximity label
+    ho[50] = 0.4   # harm_exposure = accumulated harm
+    od = {"harm_obs": ho}
+    assert abs(_hazard_proximity_target(od) - 0.7) < 1e-6
+    assert abs(_accumulated_harm_target(od) - 0.4) < 1e-6
+    # Absent harm_obs -> None (best-effort, never raises).
+    assert _hazard_proximity_target({}) is None
+    assert _accumulated_harm_target({}) is None
+
+
+def test_c15_harm_pathway_params_selection():
+    from experiments.scaffolded_sd054_onboarding import _harm_pathway_params
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_train_harm_pathway=True)
+    agent = _mk_harm_agent(cfg)
+    # All sub-terms on -> non-empty, includes harm_eval_head params.
+    params = _harm_pathway_params(cfg, agent)
+    assert len(params) > 0
+    he_ids = {id(p) for p in agent.e3.harm_eval_head.parameters()}
+    assert any(id(p) in he_ids for p in params)
+    # All sub-terms off -> empty list (nothing to train).
+    cfg_off = ScaffoldedSD054OnboardingConfig(
+        scaffold_train_harm_pathway=True,
+        scaffold_train_harm_eval_head=False, scaffold_train_z_harm_sensory=False,
+        scaffold_train_z_harm_affective=False, scaffold_train_e2_harm_s_forward=False,
+    )
+    assert _harm_pathway_params(cfg_off, agent) == []
+
+
+def _small_p0_cfg(train_harm):
+    return ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_hazard_stage_enabled=True,
+        scaffold_feed_harm_stream=True,
+        scaffold_p0_episode_budget=2,
+        scaffold_steps_per_episode=20,
+        scaffold_batch_size=8,
+        scaffold_train_harm_pathway=train_harm,
+    )
+
+
+def test_c15_master_off_does_not_train_harm_pathway():
+    """Bit-identical OFF: run_p0 with the master flag off leaves the harm heads
+    UNCHANGED (they are never in an optimizer) and reports harm_pathway_enabled False."""
+    import torch
+    cfg = _small_p0_cfg(train_harm=False)
+    agent = _mk_harm_agent(cfg)
+    before = [p.detach().clone() for p in agent.e3.harm_eval_head.parameters()]
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    res = sched.run_p0(agent, torch.device("cpu"))
+    after = list(agent.e3.harm_eval_head.parameters())
+    assert res.harm_pathway_enabled is False
+    assert res.harm_pathway_diag == {}
+    for b, a in zip(before, after):
+        assert torch.equal(b, a)  # harm head untouched -> bit-identical
+
+
+def test_c15_master_on_trains_harm_eval_head_in_p0():
+    """Master ON + in_p0: run_p0 trains the harm pathway -- harm_eval_head weights
+    CHANGE and the diagnostics record training steps."""
+    import torch
+    cfg = _small_p0_cfg(train_harm=True)
+    agent = _mk_harm_agent(cfg)
+    before = [p.detach().clone() for p in agent.e3.harm_eval_head.parameters()]
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    res = sched.run_p0(agent, torch.device("cpu"))
+    after = list(agent.e3.harm_eval_head.parameters())
+    assert res.harm_pathway_enabled is True
+    assert res.harm_pathway_diag.get("n_train_steps", 0) > 0
+    assert any(not torch.equal(b, a) for b, a in zip(before, after))  # head trained
+
+
+def test_c15_harm_discriminativeness_measured_only_when_on():
+    """run_hazard_avoidance populates harm_discriminativeness only when training is
+    on; OFF leaves it empty (the 603k non-vacuity readout)."""
+    import torch
+    dev = torch.device("cpu")
+    cfg_off = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_hazard_stage_enabled=True, scaffold_feed_harm_stream=True,
+        scaffold_hazard_stage_episode_budget=1, scaffold_steps_per_episode=15,
+        scaffold_train_harm_pathway=False,
+    )
+    a_off = _mk_harm_agent(cfg_off)
+    r_off = ScaffoldedSD054OnboardingScheduler(cfg_off).run_hazard_avoidance(a_off, dev)
+    assert r_off.harm_pathway_enabled is False
+    assert r_off.harm_discriminativeness == {}
+
+    cfg_on = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_hazard_stage_enabled=True, scaffold_feed_harm_stream=True,
+        scaffold_hazard_stage_episode_budget=1, scaffold_steps_per_episode=15,
+        scaffold_batch_size=8, scaffold_train_harm_pathway=True,
+    )
+    a_on = _mk_harm_agent(cfg_on)
+    r_on = ScaffoldedSD054OnboardingScheduler(cfg_on).run_hazard_avoidance(a_on, dev)
+    assert r_on.harm_pathway_enabled is True
+    assert "harm_eval_range" in r_on.harm_discriminativeness
+    assert "harm_eval_prox_corr" in r_on.harm_discriminativeness
