@@ -1656,6 +1656,11 @@ class REEConfig:
     crf_eligibility_window: int = 20
     crf_context_match_threshold: float = 0.5
     crf_seed_from_arc062: bool = True
+    # ARC-062 amend (V3-EXQ-654 GAP-B maturity): when True, the field's reset()
+    # does NOT clear the live rule pool / recurrence counters, so the pool
+    # accumulates ACROSS the per-episode agent.reset() instead of cold-starting
+    # every ~26-tick episode. No-op default = bit-identical per-episode wipe.
+    crf_persist_rules_across_episode_reset: bool = False
 
     # SD-033b: OFC-analog (specific-outcome / task-structure substrate,
     # MECH-261 second consumer; MECH-263 falsification target). When True,
@@ -3239,6 +3244,7 @@ class REEConfig:
         crf_eligibility_window: int = 20,
         crf_context_match_threshold: float = 0.5,
         crf_seed_from_arc062: bool = True,
+        crf_persist_rules_across_episode_reset: bool = False,
         # SD-033b: OFC-analog (specific-outcome / task-structure substrate)
         use_ofc_analog: bool = False,
         ofc_state_dim: int = 16,
@@ -3990,6 +3996,9 @@ class REEConfig:
         config.crf_eligibility_window = crf_eligibility_window
         config.crf_context_match_threshold = crf_context_match_threshold
         config.crf_seed_from_arc062 = crf_seed_from_arc062
+        config.crf_persist_rules_across_episode_reset = (
+            crf_persist_rules_across_episode_reset
+        )
 
         # SD-033b: OFC-analog
         config.use_ofc_analog = use_ofc_analog

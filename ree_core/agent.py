@@ -607,6 +607,9 @@ class REEAgent(nn.Module):
                     config, "crf_context_match_threshold", 0.5
                 ),
                 seed_from_arc062=getattr(config, "crf_seed_from_arc062", True),
+                persist_rules_across_episode_reset=getattr(
+                    config, "crf_persist_rules_across_episode_reset", False
+                ),
             )
             self.candidate_rule_field = CandidateRuleField(
                 context_dim=config.latent.world_dim,

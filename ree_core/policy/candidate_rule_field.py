@@ -78,6 +78,19 @@ class CandidateRuleFieldConfig:
         seed_from_arc062: when True, the ARC-062 discriminator gating_weight
             (if supplied) nudges a freshly minted rule's initial availability
             (top-down population). Default True.
+        persist_rules_across_episode_reset: when True, reset() does NOT clear
+            the live rule pool (self._rules) or recurrence counters
+            (self._recurrence) -- the field accumulates a differentiated rule
+            pool ACROSS episodes instead of cold-starting every per-episode
+            agent.reset(). Default False = bit-identical to the legacy
+            per-episode wipe. Biologically faithful: PFC/BG task-set rule
+            learning accumulates across experiences and is NOT reset per trial
+            (Collins & Frank 2014; Mansouri rule-selective persistence). The
+            per-episode wipe was the V3-EXQ-654 GAP-B falsifier blocker
+            (failure_autopsy_V3-EXQ-654_2026-06-09): at ~26-tick behavioural
+            episodes the recurrence-threshold mint (>=3 within one episode)
+            plus the wipe meant the live pool never matured (crf_frac_active
+            ~0.12 < 0.30 floor despite cumulative n_minted 131-408).
         pinned_seed: fixed seed for the deterministic pinned-distinct slot
             directions (Weber separability). Deterministic across runs.
     """
@@ -93,6 +106,7 @@ class CandidateRuleFieldConfig:
     eligibility_window: int = 20
     context_match_threshold: float = 0.5
     seed_from_arc062: bool = True
+    persist_rules_across_episode_reset: bool = False
     pinned_seed: int = 6063
 
 
@@ -369,7 +383,17 @@ class CandidateRuleField:
     # Lifecycle / diagnostics
     # ------------------------------------------------------------------
     def reset(self) -> None:
-        """Per-episode reset: clear the slot pool, recurrence counters, clock."""
+        """Per-episode reset: clear the slot pool, recurrence counters, clock.
+
+        When config.persist_rules_across_episode_reset is True the field is a
+        no-op on reset -- the live rule pool (_rules), recurrence counters
+        (_recurrence), and clock (_step) PERSIST across episodes so the field
+        matures a differentiated pool at behavioural-runtime episode lengths
+        (failure_autopsy_V3-EXQ-654_2026-06-09). Default False reproduces the
+        legacy per-episode wipe bit-identically.
+        """
+        if self.config.persist_rules_across_episode_reset:
+            return
         self._rules.clear()
         self._recurrence.clear()
         self._step = 0
