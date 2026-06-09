@@ -72,6 +72,22 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_655_inv074_crystallization_necessity_taskshift",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-660",
+      "title": "MECH-341 committed-class diversity RETEST on the GAP-A-ready/authority-ready stack using a WITHIN-CLASS-REPRESENTATIVE-DIVERSITY readout (behavioral_diversity_isolation:GAP-B owed action). Supersedes the 614-lineage committed-class-entropy readout (V3-EXQ-614e autopsied non_contributory/substrate_ceiling: committed-class entropy is the WRONG matched axis for a within-class lever; bottleneck relocated to GAP-A candidate pool). All 4 arms arm GAP-A (candidate_summary_source=e2_world_forward; V3-EXQ-649 PASS) + authority (use_modulatory_selection_authority=True gain=0.5; V3-EXQ-643a) + SP-CEM + MECH-341 + SD-056. Sweeps ONLY e3_diversity_stratified_within_class_temperature {None=legacy argmin, 0.5, 1.0, 2.0}. PRIMARY DV (C2) = within_class_rep_cond_entropy = H(rep_signature | committed_class), read off agent.e3._last_selected_trajectory post-first-action signature, expected to RISE with within-class temperature (per-seed paired lift vs ARM_0_LEGACY). Committed-class (across-class) entropy is a SECONDARY negative-control (expected flat; NOT a gate).",
+      "script": "experiments/v3_exq_660_mech341_within_class_representative_diversity.py",
+      "priority": 250,
+      "machine_affinity": "any",
+      "estimated_minutes": 300,
+      "supersedes": "V3-EXQ-614e",
+      "claim_id": "MECH-341",
+      "note": "Real scored evidence (claim_ids=[MECH-341], experiment_purpose=evidence, evidence_direction_per_claim emitted). The owed GAP-B action from behavioral_diversity_isolation_plan.md, unblocked by V3-EXQ-649 GAP-A readiness PASS + the 614e autopsy Learning #2 (within-class vs across-class sub-axes must be scored separately). C1 non-vacuity gate (within-class branch fires AND committed class offers >=2 distinct representatives on >=2/3 swept-arm seeds) asserts the SAME within-class-representative axis C2 routes on (representative AVAILABILITY, not a magnitude proxy); C1 FALSE self-routes substrate_not_ready_requeue -> non_contributory (protects MECH-341 from a false weakens at degenerate scale -- NOT a weakens). Evidence-direction mapping: C1 fail -> non_contributory; C1+C2 -> supports; C1 + C2-fail (lever operative + pool diverse, no representative-diversity lift) -> weakens. validate_experiments --strict --paths OK (arm_fingerprint per-cell present) + dry-run smoke PASS (dry scale correctly self-routes substrate_not_ready_requeue: C1=False at 2-ep P1). Do NOT edit claims.yaml/governance; evidence folds in via a later /governance cycle once it runs.",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 90,
+      "experiment_type": "v3_exq_660_mech341_within_class_representative_diversity",
+      "seeds": 3
     }
   ]
 }
