@@ -93,21 +93,21 @@
       "queue_id": "V3-EXQ-658",
       "title": "MECH-045 token-instance object-file buffer: discriminative persistence-vs-ablation (EVB-0293/EXP-0117). Tests whether the object-file buffer (landed this session, ree_core/entities/object_file_buffer.py, behind no-op-default use_object_file_buffer) assigns the SAME token id to an entity BEFORE and AFTER it moves to a new cell, with several SAME-TYPE distractors present so continuity (NOT type, NOT nearest-cell) must carry identity. 3 arms x 3 seeds [42,43,44], matched seeds + controlled per-instance appearances at world_dim=128 (memo S5.1 discriminative floor). ARM_INTACT (token from data-association) vs ARM_ABLATION_OFF (buffer off, reid floor) vs ARM_ABLATION_SHUFFLE (buffer on but token ids permuted each tick before readout -- isolates IDENTITY not buffer presence carries persistence). Readiness/non-vacuity gates (ALL before scoring, else substrate_not_ready_requeue): G0 INTACT maintains a live token across the move (>=2/3), G1 feature term non-degenerate d_cos(target,distractor)>=0.1 (the dim=32 guard; SAME statistic the reid criterion depends on), G2 entity actually moved every scored trial. Discriminators: C1 reid_frac_INTACT>=0.6 (PRIMARY, load-bearing), C2 INTACT>SHUFFLE+0.3 AND INTACT>OFF, C3 feature-persistence-through-occlusion (>=2/3).",
       "script": "experiments/v3_exq_658_mech045_object_file_persistence.py",
-      "experiment_type": "v3_exq_658_mech045_object_file_persistence",
       "priority": 40,
       "machine_affinity": "any",
       "estimated_minutes": 10,
-      "status": "pending",
       "claim_id": "MECH-045",
+      "backlog_id": "EVB-0293",
+      "note": "The EVB-0293/EXP-0117 experiment, re-queued now that the token-instance object-file buffer substrate has landed (ree-v3 main: object_file_buffer.py + REEConfig use_object_file_buffer + REEAgent.update_object_file_buffer; 6/6 contracts + cross-motion re-id smoke PASS). Non-trainable buffer probe -- NO phased training; appearances constructed in world_dim space; G1 enforces feature non-degeneracy. evidence_direction set per memo S6.3 grid at runtime (readiness-unmet -> non_contributory/substrate_not_ready_requeue; C1+C2+C3 -> supports; C1/C2 fail -> weakens; only-C3 fail -> mixed). OFF the GAP-7 V3-closure path; does NOT itself promote/weaken MECH-045 (governance applies). validate_experiments --strict OK; full-scale local run (no fleet) PASS (INTACT reid 1.0, SHUFFLE 0.23, OFF 0.0, g1_dcos_min 0.92) then the stray manual manifest+sentinel were removed so the runner produces the canonical result.",
+      "status": "pending",
       "claim_ids": [
         "MECH-045"
       ],
-      "backlog_id": "EVB-0293",
       "conditions": 3,
       "episodes_per_run": 40,
-      "seeds": 3,
       "experiment_purpose": "evidence",
-      "note": "The EVB-0293/EXP-0117 experiment, re-queued now that the token-instance object-file buffer substrate has landed (ree-v3 main: object_file_buffer.py + REEConfig use_object_file_buffer + REEAgent.update_object_file_buffer; 6/6 contracts + cross-motion re-id smoke PASS). Non-trainable buffer probe -- NO phased training; appearances constructed in world_dim space; G1 enforces feature non-degeneracy. evidence_direction set per memo S6.3 grid at runtime (readiness-unmet -> non_contributory/substrate_not_ready_requeue; C1+C2+C3 -> supports; C1/C2 fail -> weakens; only-C3 fail -> mixed). OFF the GAP-7 V3-closure path; does NOT itself promote/weaken MECH-045 (governance applies). validate_experiments --strict OK; full-scale local run (no fleet) PASS (INTACT reid 1.0, SHUFFLE 0.23, OFF 0.0, g1_dcos_min 0.92) then the stray manual manifest+sentinel were removed so the runner produces the canonical result."
+      "experiment_type": "v3_exq_658_mech045_object_file_persistence",
+      "seeds": 3
     }
   ]
 }
