@@ -147,18 +147,18 @@
     {
       "queue_id": "V3-EXQ-588c",
       "title": "MECH-189 super-ordinal goal-anchor substrate-readiness validation (infant_substrate:GAP-11)",
-      "experiment_type": "v3_exq_588c_mech189_super_ordinal_seeding",
       "script": "experiments/v3_exq_588c_mech189_super_ordinal_seeding.py",
       "priority": 245,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 15,
-      "episodes_per_run": 14,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-189",
       "supersedes": "V3-EXQ-588",
-      "note": "Validates the MECH-189 SuperOrdinalGoalMemory (ContextMemory writes substrate, infant_substrate:GAP-11). NEW letter - do NOT re-queue 588. Diagnostic. Load-bearing C1 = ARM_ON-vs-ARM_OFF adult z_goal seeding discrimination; the 588/DEV-NEED-006 0.4 crossing is advisory (anchor-norm regime-bound on the untrained-encoder readiness harness)."
+      "claim_id": "MECH-189",
+      "note": "Validates the MECH-189 SuperOrdinalGoalMemory (ContextMemory writes substrate, infant_substrate:GAP-11). NEW letter - do NOT re-queue 588. Diagnostic. Load-bearing C1 = ARM_ON-vs-ARM_OFF adult z_goal seeding discrimination; the 588/DEV-NEED-006 0.4 crossing is advisory (anchor-norm regime-bound on the untrained-encoder readiness harness).",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 14,
+      "experiment_type": "v3_exq_588c_mech189_super_ordinal_seeding",
+      "seeds": 3
     }
   ]
 }
