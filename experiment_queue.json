@@ -82,7 +82,11 @@
       "estimated_minutes": 20,
       "supersedes": "V3-EXQ-657",
       "note": "Claim-free diagnostic (claim_ids=[]). Scoped fix per failure_autopsy_V3-EXQ-657_2026-06-09: (1) G1 forced-low-V_s joint-mode probe + ARM_2 alternation het (657 measured vintage het on the joint arm, which the verisimilar regime correctly does not produce); (2) C1/C2 matched-cycle norm-signature L1 structural distance + within-joint temporal baseline + cross-stream covariation, replacing the binding-mode-blind cosine coherence. Substrate unchanged; MECH-294 stays candidate/v3_pending.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-09T19:55:53Z"
+      },
       "claim_ids": [],
       "conditions": 4,
       "episodes_per_run": 4,
