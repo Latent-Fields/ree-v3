@@ -1892,7 +1892,7 @@ def test_c14_feed_harm_populates_z_harm_a():
     assert lat_off.z_harm_a is None  # legacy: no threat signal
     agent.reset()
     lat_on = _sense_with_optional_harm(agent, ob, ow, od, dev, feed_harm=True)
-    assert lat_on.z_harm_a is not None and float(lat_on.z_harm_a.norm()) > 0.0
+    assert lat_on.z_harm_a is not None and float(lat_on.z_harm_a.detach().norm()) > 0.0
 
 
 # ---------------------------------------------------------------------------
