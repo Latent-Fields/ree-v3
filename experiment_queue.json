@@ -72,26 +72,6 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_655_inv074_crystallization_necessity_taskshift",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-659",
-      "title": "MECH-074a BLA encoding-gain -> arousal-preferential replay probe (EXP-0119/EVB-0074)",
-      "script": "experiments/v3_exq_659_mech074a_bla_encoding_gain_replay_bias.py",
-      "priority": 200,
-      "machine_affinity": "any",
-      "estimated_minutes": 25,
-      "claim_id": "MECH-074a",
-      "backlog_id": "EVB-0074",
-      "note": "Targeted probe (proposal EXP-0119) for MECH-074, narrowed to the most eval-ready sub-claim MECH-074a (BLAAnalog.encoding_gain). dispatch_mode=targeted_probe, seed_policy=distinct_seeds, 3 seeds x 2 arms (PRIMARY bla_encoding_gain_max=2.5 inverted-U vs ABLATION =1.0 pinned). Step-2.5 substrate check PASSED: encoding_gain is genuinely wired into the eval path (encoding_gain -> Trajectory.memory_strength -> HippocampalModule._sample_exploration_trajectory multinomial replay-sampling weight). DV = arousal over-representation (mean arousal_tag of replay-sampled traces minus buffer mean) under a controlled threat(SD-022 scheduled limb-damage)/neutral episode mix; retrieval_bias omitted at readout to isolate the encoding-gain channel. Encoder left UNTRAINED on purpose (harm-accum training inflates resting ||z_harm_a|| above the BLA threshold and saturates the gain). PASS = per-seed (AOR_primary - AOR_ablation) > 0.02 with AOR_primary>0 on >=2/3 seeds + ablation flat + PRIMARY non-vacuity (memory_strength range>0.05, arousal std>0.02). Below-floor non-vacuity self-routes substrate_not_ready_requeue (not a claim verdict). Smoke 2026-06-09: contrast 0.053, AOR_p 0.056, AOR_a 0.003, vac_ok=True.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-09T19:57:30Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 40,
-      "experiment_type": "v3_exq_659_mech074a_bla_encoding_gain_replay_bias",
-      "seeds": 3
     }
   ]
 }
