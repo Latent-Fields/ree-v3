@@ -2775,7 +2775,7 @@ def main():
             claim = item.get("claimed_by")
             claim_str = f" [claimed:{claim['machine']}]" if claim else ""
             mine = "✓" if _affinity_matches(item, machine) else f"✗({affinity})"
-            print(f"  {mine} {item['queue_id']} {item.get('claim_id', ''):12s} ~{mins:.0f}min  "
+            print(f"  {mine} {item['queue_id']} {(item.get('claim_id') or ''):12s} ~{(mins or 0):.0f}min  "
                   f"{'READY' if runnable else 'NEEDS_SCRIPT'}: {item.get('title', item['queue_id'])}{claim_str}")
         if PID_FILE.exists():
             PID_FILE.unlink()
