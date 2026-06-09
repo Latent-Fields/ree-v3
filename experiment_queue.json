@@ -128,6 +128,21 @@
       "episodes_per_run": 90,
       "experiment_type": "v3_exq_660_mech341_within_class_representative_diversity",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-485d",
+      "title": "SD-033b OFC trainable-head substrate-readiness diagnostic (mirror of SD-033a GAP-D / V3-EXQ-598b). Validates the train_state_bias_head enrichment landed 2026-06-09 (ree-v3 main 382db2c). 2-arm frozen-vs-trainable ablation, OFC isolated (gated_policy/dACC/lateral_pfc OFF) on the SD-054 bipartite reef/forage env; ofc_harm_dim>0 so z_harm enters the OFC state_code (aversive-devaluation-capable shape for the behavioural arm). Phased: P0 encoder warmup -> P1 OFC bias_head_parameters() trained via E3-gradient REINFORCE on frozen-encoder state_code -> P2 eval. C1 ARM_0 frozen head mean|bias| < 1e-4 (bit-identical-OFF); C2 (load-bearing) ARM_1 state_bias_head weight-delta-from-init L2 > 1e-3 on >=2/3 seeds (the unambiguous substrate-readiness signal, routed on head movement not the clamp-prone bias magnitude); PASS=C1 AND C2. C3 mean|bias|>=0.002 informational (clamp-calibration note; ofc_bias_scale=0.1 can saturate). Self-route below-floor -> substrate_not_ready_requeue. Unblocks commitment_closure:GAP-8 deferred trained-OFC-head behavioural arm.",
+      "script": "experiments/v3_exq_485d_sd033b_ofc_trainable_head_readiness.py",
+      "experiment_type": "v3_exq_485d_sd033b_ofc_trainable_head_readiness",
+      "priority": 255,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 55,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 2,
+      "note": "experiment_purpose=diagnostic, claim_ids=[] (substrate readiness; does NOT weight governance). Mirrors the SD-033a GAP-D rule_bias_head readiness (V3-EXQ-598b) for the SD-033b OFC state_bias_head. validate_experiments --strict --paths OK (emit_outcome + per-cell arm_fingerprint + readiness precondition + load_bearing criterion). Dry-run smoke PASS: ARM_0 head_delta=0.000000 + bias=0.000000 (silent) all seeds; ARM_1 head_delta 0.027-0.040 (head moves under gradient) -> C1/C2/C3 True, head_grad_ready=True, self-route ofc_trainable_head_substrate_ready. PASS unblocks the full SD-033b behavioural GAP-8 arm (aversive-devaluation, ofc_harm_dim>0). substrate landed ree-v3 main 382db2c.",
+      "claim_ids": []
     }
   ]
 }
