@@ -72,46 +72,6 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_655_inv074_crystallization_necessity_taskshift",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-657",
-      "title": "MECH-294 multi-content theta-burst packet substrate-readiness diagnostic (joint vs alternation vs shuffled). Validates the MultiContentThetaPacket (landed this session behind use_multi_content_theta_packet, bit-identical OFF) builds a NON-DEGENERATE joint {goal_latent, action_proposal, risk_estimate(z_harm_s+z_harm_a), state_summary} packet within one theta cycle AND that the joint within-cycle co-binding is separable from the matched Kay-2020 alternation (one-stream-per-cycle) + shuffled (independent-content, matched-marginals) controls. 4 arms x 3 seeds, matched seeds+content, packet READ-ONLY (compose OFF). Gates: G0 packet completeness >=0.8 (ARM_1, >=2/3), G1 vintage heterogeneity >0 (ARM_1, >=2/3), NON-VACUITY (joint-vs-shuffled matched-cycle component-norm L1 > 1e-3 on >=2/3 -- the shuffle control must actually differ from intact else substrate_not_ready_requeue), C1 joint!=alternation + C2 joint!=shuffled on a conjunctive within-cycle coherence readout (>C_MARGIN AND > ARM_1 cross-seed baseline). Non-vacuously tests joint-within-cycle vs Kay-2020 cross-cycle alternation.",
-      "script": "experiments/v3_exq_657_mech294_multi_content_theta_packet_readiness.py",
-      "priority": 250,
-      "machine_affinity": "any",
-      "estimated_minutes": 30,
-      "note": "Claim-free substrate-readiness diagnostic (claim_ids=[], evidence_direction=non_contributory). Does NOT validate or weaken MECH-294; the 2026-04-26 governance hold stands until PASS per the design-memo S7.3 interpretation grid, after which the MECH-294 behavioural-evidence successor is queued. Forced-benefit goal activation is a CONTROLLED positive control (decoupled from goal_pipeline:GAP-2, same pattern as 636/637/603j). validate_experiments --strict OK; dry-run runs all 4 arms end-to-end (non-vacuity joint-vs-shuffled distance 0.53 >> floor confirmed; dry scale correctly self-routes substrate_not_ready_requeue -- the full-scale gates need the full episode budget for enough E3-sealed cycles). Do NOT edit claims.yaml/governance; the readiness verdict routes per the S7.3 grid.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-09T19:05:31Z"
-      },
-      "claim_ids": [],
-      "conditions": 4,
-      "episodes_per_run": 48,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_657_mech294_multi_content_theta_packet_readiness",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-658",
-      "title": "MECH-045 token-instance object-file buffer: discriminative persistence-vs-ablation (EVB-0293/EXP-0117). Tests whether the object-file buffer (landed this session, ree_core/entities/object_file_buffer.py, behind no-op-default use_object_file_buffer) assigns the SAME token id to an entity BEFORE and AFTER it moves to a new cell, with several SAME-TYPE distractors present so continuity (NOT type, NOT nearest-cell) must carry identity. 3 arms x 3 seeds [42,43,44], matched seeds + controlled per-instance appearances at world_dim=128 (memo S5.1 discriminative floor). ARM_INTACT (token from data-association) vs ARM_ABLATION_OFF (buffer off, reid floor) vs ARM_ABLATION_SHUFFLE (buffer on but token ids permuted each tick before readout -- isolates IDENTITY not buffer presence carries persistence). Readiness/non-vacuity gates (ALL before scoring, else substrate_not_ready_requeue): G0 INTACT maintains a live token across the move (>=2/3), G1 feature term non-degenerate d_cos(target,distractor)>=0.1 (the dim=32 guard; SAME statistic the reid criterion depends on), G2 entity actually moved every scored trial. Discriminators: C1 reid_frac_INTACT>=0.6 (PRIMARY, load-bearing), C2 INTACT>SHUFFLE+0.3 AND INTACT>OFF, C3 feature-persistence-through-occlusion (>=2/3).",
-      "script": "experiments/v3_exq_658_mech045_object_file_persistence.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 10,
-      "claim_id": "MECH-045",
-      "backlog_id": "EVB-0293",
-      "note": "The EVB-0293/EXP-0117 experiment, re-queued now that the token-instance object-file buffer substrate has landed (ree-v3 main: object_file_buffer.py + REEConfig use_object_file_buffer + REEAgent.update_object_file_buffer; 6/6 contracts + cross-motion re-id smoke PASS). Non-trainable buffer probe -- NO phased training; appearances constructed in world_dim space; G1 enforces feature non-degeneracy. evidence_direction set per memo S6.3 grid at runtime (readiness-unmet -> non_contributory/substrate_not_ready_requeue; C1+C2+C3 -> supports; C1/C2 fail -> weakens; only-C3 fail -> mixed). OFF the GAP-7 V3-closure path; does NOT itself promote/weaken MECH-045 (governance applies). validate_experiments --strict OK; full-scale local run (no fleet) PASS (INTACT reid 1.0, SHUFFLE 0.23, OFF 0.0, g1_dcos_min 0.92) then the stray manual manifest+sentinel were removed so the runner produces the canonical result.",
-      "status": "pending",
-      "claim_ids": [
-        "MECH-045"
-      ],
-      "conditions": 3,
-      "episodes_per_run": 40,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_658_mech045_object_file_persistence",
-      "seeds": 3
     }
   ]
 }
