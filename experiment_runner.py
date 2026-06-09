@@ -525,6 +525,76 @@ def _postpull_restore_prepull_stash(repo_path: Path, label: str) -> None:
         pass
 
 
+# --- Runner code version (readable, refreshes between passes) --------------
+# The runner is a LONG-LIVED process: between passes it `git_pull`s ree-v3
+# (REPO_ROOT), so the code ON DISK can advance while the running PROCESS keeps
+# executing the code it loaded at launch (Python does not hot-reload). We
+# surface a readable version on every heartbeat so the explorer's machine
+# cards show which build each runner is on.
+#
+#   _RUNNER_VERSION refreshes BETWEEN passes (recomputed right after the
+#   between-pass pull) -- never per-tick, so a running experiment is never
+#   disturbed by a git subprocess. When the on-disk HEAD has advanced past the
+#   code the process is actually executing, the string makes that explicit:
+#       "r4821 305ab04 2026-06-09 (running r4818 1b69640)"
+#   i.e. newer code is staged on disk but a runner restart is needed to load
+#   it. When disk == running build it is just the clean single version.
+_RUNNER_PROCESS_VERSION: str | None = None   # build the live process loaded
+_RUNNER_VERSION: str | None = None           # display string (disk + run-note)
+
+
+def _git_code_version(ref: str = "HEAD") -> str | None:
+    """Readable version of the ree-v3 checkout (REPO_ROOT) at `ref`:
+    'r<count> <shortsha> <YYYY-MM-DD>'. Best-effort, ASCII-only, never raises.
+    Returns None when git is unavailable (caller keeps the last good value)."""
+    def _git(cmd: list[str]) -> str | None:
+        try:
+            r = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), *cmd],
+                capture_output=True, text=True, timeout=5,
+            )
+            return r.stdout.strip() if r.returncode == 0 else None
+        except Exception:
+            return None
+
+    sha = _git(["rev-parse", "--short=7", ref])
+    if not sha:
+        return None
+    parts: list[str] = []
+    count = _git(["rev-list", "--count", ref])
+    if count:
+        parts.append(f"r{count}")
+    parts.append(sha)
+    date = _git(["show", "-s", "--format=%cd", "--date=format:%Y-%m-%d", ref])
+    if date:
+        parts.append(date)
+    return " ".join(parts)
+
+
+def _capture_process_version() -> None:
+    """Snapshot the build the running process loaded. Call ONCE at main()
+    start, before the first git_pull, so it reflects launch-time code."""
+    global _RUNNER_PROCESS_VERSION, _RUNNER_VERSION
+    _RUNNER_PROCESS_VERSION = _git_code_version("HEAD")
+    _RUNNER_VERSION = _RUNNER_PROCESS_VERSION
+
+
+def _refresh_runner_version() -> None:
+    """Recompute the display version from the current on-disk HEAD. Cheap;
+    call between passes (after the ree-v3 pull), NEVER inside a run. When the
+    disk build differs from the build the process loaded at launch, annotate
+    with '(running <count> <sha>)' so the explorer shows a restart is pending."""
+    global _RUNNER_VERSION
+    disk = _git_code_version("HEAD")
+    if disk is None:
+        return  # git unavailable this tick -- keep the last good value
+    if _RUNNER_PROCESS_VERSION and disk != _RUNNER_PROCESS_VERSION:
+        proc_short = " ".join((_RUNNER_PROCESS_VERSION or "").split()[:2])
+        _RUNNER_VERSION = f"{disk} (running {proc_short})"
+    else:
+        _RUNNER_VERSION = disk
+
+
 def git_pull(repo_path: Path, label: str) -> None:
     """Pull latest changes. Retries on transient lock errors. Never raises.
 
@@ -2163,6 +2233,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                     seconds_remaining=round(seconds_remaining()),
                     recent_lines=list(recent_lines[-RECENT_LINES_DISPLAY:]),
                     runner_pid=os.getpid(),
+                    runner_version=_RUNNER_VERSION,
                 )
                 if auto_sync and hb_path is not None:
                     now_mono = time.monotonic()
@@ -2476,10 +2547,17 @@ def main():
         print(f"[runner] --remote-control requested but module import failed: "
               f"{_rrc_import_error}. Heartbeats disabled.", flush=True)
 
+    # Snapshot the build this process loaded BEFORE any pull, so a later
+    # between-pass pull that advances on-disk code is reported as "(running ...)".
+    _capture_process_version()
+    if _RUNNER_VERSION:
+        print(f"[runner] Runner version: {_RUNNER_VERSION}", flush=True)
+
     # Pull ree-v3 before preflight so a stale local queue doesn't block startup.
     # (The full auto-sync pull of REE_assembly happens after preflight as before.)
     if args.auto_sync:
         git_pull(REPO_ROOT, "ree-v3")
+        _refresh_runner_version()
 
     if not args.skip_preflight and os.environ.get("REE_SKIP_PREFLIGHT") != "1":
         preflight_dir = REPO_ROOT / "tests" / "preflight"
@@ -2526,6 +2604,7 @@ def main():
         _rrc.write_heartbeat(
             ree_assembly_path, machine, state="starting",
             runner_pid=os.getpid(),
+            runner_version=_RUNNER_VERSION,
         )
     elif args.remote_control and not ree_assembly_path:
         print("[runner] --remote-control requested but REE_assembly not found; "
@@ -3348,6 +3427,7 @@ def main():
                     for c in recent
                 ],
                 runner_pid=os.getpid(),
+                runner_version=_RUNNER_VERSION,
             )
             if args.auto_sync and hb_path is not None:
                 _rrc.push_heartbeat(ree_assembly_path, hb_path)
@@ -3356,6 +3436,9 @@ def main():
 
         if args.auto_sync and ree_assembly_path:
             git_pull(REPO_ROOT, "ree-v3")
+            # Refresh the readable runner version off the freshly-pulled HEAD.
+            # Between-pass only: never runs git while an experiment is live.
+            _refresh_runner_version()
 
         # Re-merge peer status after pull so monolithic file stays current and
         # completed_ids absorbs anything another machine finished since last pass.
