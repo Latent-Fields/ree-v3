@@ -41,7 +41,11 @@
       "supersedes": "V3-EXQ-569d",
       "claim_id": "ARC-065",
       "note": "Real scored evidence (claim_ids=[ARC-065], experiment_purpose=evidence, evidence_direction_per_claim emitted). behavioral_diversity_isolation:GAP-A R1.b. Evidence-direction mapping protects ARC-065: readiness-below-floor OR C1-fail (SD-056 under-trained / amend not wired) -> non_contributory (substrate_not_ready_requeue, NOT weakens); PASS -> supports; readiness+C1 met but no strict lift above matched-noise -> weakens (r1a_entropy_only_artefact). validate_experiments --strict --paths + dry-run smoke PASS (dry scale correctly self-routes substrate_not_ready_requeue; e2 untrained at 2-ep dry budget). Do NOT tag MECH-341 here -- its committed-class GAP-B retest is the concurrent V3-EXQ-660. Do NOT edit claims.yaml/governance; evidence folds in via a later /governance cycle once it runs.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-09T21:35:44Z"
+      },
       "conditions": 3,
       "depends_on": [],
       "episodes_per_run": 80,
