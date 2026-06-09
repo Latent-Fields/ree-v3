@@ -47,6 +47,23 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_655_inv074_crystallization_necessity_taskshift",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-654a",
+      "title": "ARC-062 GAP-B behavioural falsifier (MECH-309/ARC-062) GATED RE-RUN of V3-EXQ-654 on the crf_persist-matured CandidateRuleField substrate (amend ree-v3 9797e84). Single-variable ARM_OFF (use_candidate_rule_field=False, legacy collapsed rule_state) vs ARM_ON (use_candidate_rule_field=True + crf_persist_rules_across_episode_reset=True, MATURED differentiated crf_source) on the matched 649 GAP-A / 643a authority / SD-056 / SP-CEM / MECH-341 stack. THREE fixes vs 654: (1) crf_persist=True so the rule pool matures across episodes and crf_frac_active clears the 0.30 C1c floor (654 cold-started 0.12); (2) a frozen-encoder P1 phase that TRAINS the SD-033a rule_bias_head via outcome-coupled REINFORCE (GAP-D; mirrors v3_exq_598b) so propagation is not vacuous; (3) a propagation non-vacuity precondition (ARM_ON lateral_pfc bias differs from ARM_OFF, else substrate_not_ready_requeue). PRIMARY DV = committed-class entropy; within-class-representative entropy = secondary negative control.",
+      "script": "experiments/v3_exq_654a_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
+      "priority": 250,
+      "machine_affinity": "any",
+      "estimated_minutes": 300,
+      "claim_id": "MECH-309",
+      "supersedes": "V3-EXQ-654",
+      "note": "Real scored evidence (claim_ids=[MECH-309, ARC-062], experiment_purpose=evidence, evidence_direction_per_claim emitted), gated re-run of the C1c-blocked V3-EXQ-654 (confirmed failure_autopsy_V3-EXQ-654_2026-06-09). Unblocked by the ARC-063 cross-episode rule-persistence amend (ree-v3 main 9797e84). Phases: P0 (60 ep, e2 SD-056 contrastive warmup; field matures via crf_persist) -> P1 (40 ep, encoder FROZEN, bias-head REINFORCE) -> P2 (60 ep, all frozen, measurement). C1 readiness (class axis exercisable both arms + GAP-A consumed-summary divergence both arms + ARM_ON minted>=2 distinct rules AND crf_frac_active>=0.30 + propagation non-vacuity ARM_ON bias != ARM_OFF) self-routes substrate_not_ready_requeue on fail (NOT a weakens). C2 PRIMARY = paired ARM_ON>ARM_OFF committed-class entropy lift >=2/3 seeds. validate_experiments --strict + validate_queue + dry-run smoke all PASS (dry scale correctly self-routes substrate_not_ready_requeue). Do NOT weaken MECH-309/ARC-062; evidence folds in via a later /governance cycle once it runs.",
+      "status": "pending",
+      "conditions": 2,
+      "depends_on": [],
+      "episodes_per_run": 160,
+      "experiment_type": "v3_exq_654a_arc062_gapb_rule_apprehension_behavioural_falsifier",
+      "seeds": 3
     }
   ]
 }
