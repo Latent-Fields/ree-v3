@@ -1217,6 +1217,31 @@ class REEConfig:
     # MECH-057a: action-loop completion gate (preserved from V2)
     action_loop_gate_enabled: bool = False
 
+    # MECH-294: multi-content theta-burst packet (sibling to MECH-089 ThetaBuffer).
+    # When True, a MultiContentThetaPacket binds a {goal_latent, action_proposal,
+    # risk_estimate (z_harm_s + z_harm_a), state_summary} tuple within one theta
+    # cycle (E3-heartbeat interval) and exposes it as agent.last_theta_packet.
+    # Requires use_per_stream_vs=True (the packet consumes per-stream V_s for
+    # vintaging). Default False -> agent.multi_content_theta_packet is None and
+    # MECH-089 ThetaBuffer behaviour is byte-identical (bit-identical OFF).
+    # See REE_assembly/docs/architecture/mech_294_multi_content_theta_packet.md.
+    use_multi_content_theta_packet: bool = False
+    # Binding regime: "joint" (MECH-294 hypothesis -- all four streams co-bound
+    # within one cycle), "alternation" (Kay-2020 one-stream-per-cycle control),
+    # "shuffled" (independent-content control -- each slot from a different cycle).
+    theta_packet_binding_mode: str = "joint"
+    # MECH-269b vintaging thresholds (reused, not re-invented): refresh the
+    # per-stream snapshot when V_s >= refresh; substitute the held snapshot when
+    # V_s < hold. 0.4-0.5 dead-band = MECH-269b Schmitt hysteresis.
+    theta_packet_snapshot_refresh_threshold: float = 0.5
+    theta_packet_hold_threshold: float = 0.4
+    # Read-only-first discipline (memo S5): when False (default), the packet is
+    # built / sealed / exposed / logged but does NOT touch E3 selection. When
+    # True, joint_context biases E3 via a PARAMETER-FREE clamped arithmetic bias
+    # (no trained head -> no phased training). The behavioural successor flips it.
+    theta_packet_compose_into_e3_bias: bool = False
+    theta_packet_bias_scale: float = 0.1
+
     # MECH-205: surprise-gated replay. When True, prediction error from
     # E3.post_action_update() populates VALENCE_SURPRISE in the residue field,
     # and the replay drive_state surprise weight is set from recent PE magnitude.
@@ -2232,6 +2257,27 @@ class REEConfig:
     # trained predictors are enabled. Default OFF -> bit-identical to pre-603i.
     escape_use_trained_safety_signal: bool = False
     escape_safety_signal_threshold: float = 0.5
+
+    # ----------------------------------------------------------------
+    # ARC-006 / MECH-045: token-instance object-file / entity-persistence buffer.
+    # The TOKEN projection of the ARC-080 type/token/anchor triad (the missing
+    # third store; TYPE=SD-057 IncentiveTokenBank, ANCHOR=SD-039 ghost-goal bank).
+    # Non-trainable stateful buffer (ree_core/entities/object_file_buffer.py)
+    # that assigns label-free per-entity token ids by spatiotemporal-continuity
+    # data-association over z_world-local features, with a precision-weighted
+    # per-token feature buffer and attention-gated births. v1 lands STANDALONE
+    # (no action-stream consumer) -> bit-identical OFF AND ON (only buffer state
+    # changes; nothing reads it yet). OFF the GAP-7 V3-closure path. See
+    # REE_assembly/docs/architecture/mech_045_object_file_buffer.md.
+    use_object_file_buffer: bool = False
+    obf_max_tokens: int = 5            # FINST capacity cap (C4)
+    obf_continuity_radius: float = 2.0  # motion gate radius in cells (C1)
+    obf_w_motion: float = 1.0          # association cost weight (motion term)
+    obf_w_feat: float = 1.0            # association cost weight (feature term)
+    obf_feature_alpha: float = 0.3     # base feature EMA rate (C2/C5)
+    obf_persist_ttl: int = 8           # ticks a token survives unseen (C3)
+    obf_min_birth_salience: float = 0.0  # attention floor to open a new token (C4)
+    obf_use_precision_weighting: bool = True  # C5 on/off
 
     # ----------------------------------------------------------------
     # Post-603i successor scaffold: trainable relief/safety escape-affordance
@@ -3345,6 +3391,15 @@ class REEConfig:
         escape_noop_class: int = 0,
         escape_use_trained_safety_signal: bool = False,
         escape_safety_signal_threshold: float = 0.5,
+        use_object_file_buffer: bool = False,
+        obf_max_tokens: int = 5,
+        obf_continuity_radius: float = 2.0,
+        obf_w_motion: float = 1.0,
+        obf_w_feat: float = 1.0,
+        obf_feature_alpha: float = 0.3,
+        obf_persist_ttl: int = 8,
+        obf_min_birth_salience: float = 0.0,
+        obf_use_precision_weighting: bool = True,
         use_trainable_escape_affordance_learner: bool = False,
         use_trainable_relief_critic: bool = True,
         use_trainable_safety_predictor: bool = True,
@@ -3528,6 +3583,13 @@ class REEConfig:
         lpb_intero_z_dim: int = 16,
         lpb_drive_weight: float = 1.0,
         lpb_resource_weight: float = 1.0,
+        # MECH-294: multi-content theta-burst packet (sibling to MECH-089)
+        use_multi_content_theta_packet: bool = False,
+        theta_packet_binding_mode: str = "joint",
+        theta_packet_snapshot_refresh_threshold: float = 0.5,
+        theta_packet_hold_threshold: float = 0.4,
+        theta_packet_compose_into_e3_bias: bool = False,
+        theta_packet_bias_scale: float = 0.1,
         # MECH-269 / MECH-287 / MECH-288: V_s invalidation runtime (Phase 1 + 2)
         use_per_stream_vs: bool = False,
         use_event_segmenter: bool = False,
@@ -3850,6 +3912,14 @@ class REEConfig:
         config.pe_ema_alpha = pe_ema_alpha
         config.pe_surprise_threshold = pe_surprise_threshold
 
+        # MECH-294: multi-content theta-burst packet
+        config.use_multi_content_theta_packet = use_multi_content_theta_packet
+        config.theta_packet_binding_mode = theta_packet_binding_mode
+        config.theta_packet_snapshot_refresh_threshold = theta_packet_snapshot_refresh_threshold
+        config.theta_packet_hold_threshold = theta_packet_hold_threshold
+        config.theta_packet_compose_into_e3_bias = theta_packet_compose_into_e3_bias
+        config.theta_packet_bias_scale = theta_packet_bias_scale
+
         # MECH-120: SHY normalization
         config.shy_enabled = shy_enabled
         config.shy_decay_rate = shy_decay_rate
@@ -4105,6 +4175,15 @@ class REEConfig:
         config.escape_noop_class = escape_noop_class
         config.escape_use_trained_safety_signal = escape_use_trained_safety_signal
         config.escape_safety_signal_threshold = escape_safety_signal_threshold
+        config.use_object_file_buffer = use_object_file_buffer
+        config.obf_max_tokens = obf_max_tokens
+        config.obf_continuity_radius = obf_continuity_radius
+        config.obf_w_motion = obf_w_motion
+        config.obf_w_feat = obf_w_feat
+        config.obf_feature_alpha = obf_feature_alpha
+        config.obf_persist_ttl = obf_persist_ttl
+        config.obf_min_birth_salience = obf_min_birth_salience
+        config.obf_use_precision_weighting = obf_use_precision_weighting
         config.use_trainable_escape_affordance_learner = use_trainable_escape_affordance_learner
         config.use_trainable_relief_critic = use_trainable_relief_critic
         config.use_trainable_safety_predictor = use_trainable_safety_predictor

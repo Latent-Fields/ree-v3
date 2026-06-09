@@ -64,6 +64,22 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_655_inv074_crystallization_necessity_taskshift",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-657",
+      "title": "MECH-294 multi-content theta-burst packet substrate-readiness diagnostic (joint vs alternation vs shuffled). Validates the MultiContentThetaPacket (landed this session behind use_multi_content_theta_packet, bit-identical OFF) builds a NON-DEGENERATE joint {goal_latent, action_proposal, risk_estimate(z_harm_s+z_harm_a), state_summary} packet within one theta cycle AND that the joint within-cycle co-binding is separable from the matched Kay-2020 alternation (one-stream-per-cycle) + shuffled (independent-content, matched-marginals) controls. 4 arms x 3 seeds, matched seeds+content, packet READ-ONLY (compose OFF). Gates: G0 packet completeness >=0.8 (ARM_1, >=2/3), G1 vintage heterogeneity >0 (ARM_1, >=2/3), NON-VACUITY (joint-vs-shuffled matched-cycle component-norm L1 > 1e-3 on >=2/3 -- the shuffle control must actually differ from intact else substrate_not_ready_requeue), C1 joint!=alternation + C2 joint!=shuffled on a conjunctive within-cycle coherence readout (>C_MARGIN AND > ARM_1 cross-seed baseline). Non-vacuously tests joint-within-cycle vs Kay-2020 cross-cycle alternation.",
+      "script": "experiments/v3_exq_657_mech294_multi_content_theta_packet_readiness.py",
+      "priority": 250,
+      "machine_affinity": "any",
+      "estimated_minutes": 30,
+      "claim_ids": [],
+      "experiment_purpose": "diagnostic",
+      "note": "Claim-free substrate-readiness diagnostic (claim_ids=[], evidence_direction=non_contributory). Does NOT validate or weaken MECH-294; the 2026-04-26 governance hold stands until PASS per the design-memo S7.3 interpretation grid, after which the MECH-294 behavioural-evidence successor is queued. Forced-benefit goal activation is a CONTROLLED positive control (decoupled from goal_pipeline:GAP-2, same pattern as 636/637/603j). validate_experiments --strict OK; dry-run runs all 4 arms end-to-end (non-vacuity joint-vs-shuffled distance 0.53 >> floor confirmed; dry scale correctly self-routes substrate_not_ready_requeue -- the full-scale gates need the full episode budget for enough E3-sealed cycles). Do NOT edit claims.yaml/governance; the readiness verdict routes per the S7.3 grid.",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 48,
+      "experiment_type": "v3_exq_657_mech294_multi_content_theta_packet_readiness",
+      "seeds": 3
     }
   ]
 }

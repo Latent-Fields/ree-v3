@@ -43,6 +43,10 @@ from ree_core.utils.config import REEConfig
 from ree_core.latent.stack import LatentStack, LatentState
 from ree_core.goal import GoalState
 from ree_core.latent.theta_buffer import ThetaBuffer
+from ree_core.latent.multi_content_theta_packet import (
+    MultiContentThetaPacket,
+    MultiContentThetaPacketConfig,
+)
 from ree_core.predictors.e1_deep import E1DeepPredictor
 from ree_core.predictors.e2_fast import E2FastPredictor, Trajectory
 from ree_core.predictors.e3_score_diversity import (
@@ -86,6 +90,11 @@ from ree_core.pfc.infralimbic_avoidance_gate import (
 from ree_core.pfc.escape_affordance_bridge import (
     EscapeAffordanceBridge,
     EscapeAffordanceBridgeConfig,
+)
+from ree_core.entities.object_file_buffer import (
+    EntityObservation,
+    ObjectFileBuffer,
+    ObjectFileBufferConfig,
 )
 from ree_core.pfc.trainable_escape_affordance_learner import (
     TrainableEscapeAffordanceLearner,
@@ -286,6 +295,32 @@ class REEAgent(nn.Module):
             world_dim=config.latent.world_dim,
             buffer_size=config.heartbeat.theta_buffer_size,
         )
+
+        # MECH-294: multi-content theta-burst packet (sibling to MECH-089).
+        # Binds a joint {goal_latent, action_proposal, risk_estimate,
+        # state_summary} tuple within one theta cycle. Composes the ThetaBuffer
+        # above for its state_summary slot (MECH-089 untouched). Default OFF ->
+        # self.multi_content_theta_packet is None and the agent is bit-identical
+        # to pre-MECH-294. Requires use_per_stream_vs (the packet consumes the
+        # MECH-269 per-stream V_s for vintaging) -- loud precondition, same
+        # pattern as MECH-269b / MECH-293.
+        self.multi_content_theta_packet = None
+        self.last_theta_packet = None
+        if getattr(config, "use_multi_content_theta_packet", False):
+            if not getattr(config.hippocampal, "use_per_stream_vs", False):
+                raise ValueError(
+                    "use_multi_content_theta_packet=True requires "
+                    "use_per_stream_vs=True (the packet consumes the MECH-269 "
+                    "per-stream V_s for snapshot-or-hold vintaging)."
+                )
+            self.multi_content_theta_packet = MultiContentThetaPacket(
+                MultiContentThetaPacketConfig(
+                    binding_mode=getattr(config, "theta_packet_binding_mode", "joint"),
+                    snapshot_refresh_threshold=getattr(
+                        config, "theta_packet_snapshot_refresh_threshold", 0.5),
+                    hold_threshold=getattr(config, "theta_packet_hold_threshold", 0.4),
+                )
+            )
 
         # MECH-090: BetaGate for policy propagation. MECH-090 R-c commit-entry
         # readiness conjunction knobs are read from HeartbeatConfig and forwarded
@@ -995,6 +1030,31 @@ class REEAgent(nn.Module):
         # SD-059 per-tick cache: the first-action class of the last emitted
         # action. Fed to the bridge eligibility update on the NEXT sense().
         self._eab_last_action_class: Optional[int] = None
+
+        # ARC-006 / MECH-045: token-instance object-file / entity-persistence
+        # buffer. The TOKEN store of the ARC-080 type/token/anchor triad. v1
+        # lands STANDALONE -- no action-stream consumer -- so the action stream
+        # is bit-identical whether the buffer is on or off; only buffer state
+        # changes. Driven on the waking stream via update_object_file_buffer()
+        # by an experiment / harness that supplies the perceived entities. See
+        # ree_core/entities/object_file_buffer.py +
+        # REE_assembly/docs/architecture/mech_045_object_file_buffer.md.
+        self.object_file_buffer: Optional[ObjectFileBuffer] = None
+        if getattr(config, "use_object_file_buffer", False):
+            obf_cfg = ObjectFileBufferConfig(
+                use_object_file_buffer=True,
+                max_tokens=int(getattr(config, "obf_max_tokens", 5)),
+                continuity_radius=float(getattr(config, "obf_continuity_radius", 2.0)),
+                w_motion=float(getattr(config, "obf_w_motion", 1.0)),
+                w_feat=float(getattr(config, "obf_w_feat", 1.0)),
+                feature_alpha=float(getattr(config, "obf_feature_alpha", 0.3)),
+                persist_ttl=int(getattr(config, "obf_persist_ttl", 8)),
+                min_birth_salience=float(getattr(config, "obf_min_birth_salience", 0.0)),
+                use_precision_weighting=bool(
+                    getattr(config, "obf_use_precision_weighting", True)
+                ),
+            )
+            self.object_file_buffer = ObjectFileBuffer(config=obf_cfg)
 
         # Post-603i successor scaffold: trainable-head relief/safety escape-
         # affordance learner. This is intentionally separate from the arithmetic
@@ -1843,6 +1903,10 @@ class REEAgent(nn.Module):
         self._cue_terrain_weight = None
         self.clock.reset()
         self.theta_buffer.reset()
+        # MECH-294: clear the multi-content packet window / snapshots / history.
+        if self.multi_content_theta_packet is not None:
+            self.multi_content_theta_packet.reset()
+            self.last_theta_packet = None
         self.beta_gate.reset()
         self.serotonin.reset()
         self._pe_ema = 0.0
@@ -1974,6 +2038,10 @@ class REEAgent(nn.Module):
         if self.escape_affordance_bridge is not None:
             self.escape_affordance_bridge.reset()
         self._eab_last_action_class = None
+
+        # MECH-045: per-episode clear of the object-file buffer.
+        if self.object_file_buffer is not None:
+            self.object_file_buffer.reset()
 
         # Post-603i trainable learner: clear the within-episode trace + action
         # cache. Learned relief/safety predictions persist across episodes.
@@ -2425,6 +2493,28 @@ class REEAgent(nn.Module):
         ):
             return None
         return self._per_axis_drive
+
+    def update_object_file_buffer(
+        self,
+        observations: "List[EntityObservation]",
+        simulation_mode: bool = False,
+    ) -> "Dict[int, int]":
+        """MECH-045: advance the token-instance object-file buffer one waking
+        tick over the supplied perceived entities (memo Section 4.2).
+
+        The caller (experiment / harness) builds `observations` from the env's
+        perceived entity cells (SD-049 per-type resource-field views + grid
+        object/hazard cells) -- the v1 detector dependency (memo Section 4.4).
+        Returns {observation_index -> token_id}; an empty dict when the buffer
+        is disabled or under simulation_mode (MECH-094: the buffer updates only
+        on the waking stream). This does NOT touch the action stream -- v1 has
+        no consumer, so the buffer is observational only.
+        """
+        if self.object_file_buffer is None:
+            return {}
+        return self.object_file_buffer.update(
+            observations, simulation_mode=simulation_mode
+        )
 
     def sense(
         self,
@@ -3381,6 +3471,25 @@ class REEAgent(nn.Module):
         # MECH-089: push z_self, z_world estimates to ThetaBuffer
         self.theta_buffer.update(latent_state.z_world, latent_state.z_self)
 
+        # MECH-294: push the current per-stream content latents into the open
+        # theta-packet binding window (goal_latent, risk_sensory=z_harm_s,
+        # risk_affective=z_harm_a, + per-stream V_s for vintaging). The
+        # state_summary slot is filled at seal time from theta_buffer.summary().
+        # Waking call site (MECH-094: simulation_mode=False).
+        if self.multi_content_theta_packet is not None:
+            _pkt_z_goal = (
+                self.goal_state.z_goal
+                if (self.goal_state is not None and self.goal_state.is_active())
+                else None
+            )
+            self.multi_content_theta_packet.observe(
+                z_goal=_pkt_z_goal,
+                z_harm_s=latent_state.z_harm,
+                z_harm_a=latent_state.z_harm_a,
+                per_stream_vs=getattr(self.hippocampal, "per_stream_vs", None),
+                simulation_mode=False,
+            )
+
         # MECH-093: update E3 rate from z_beta magnitude
         self.clock.update_e3_rate_from_beta(latent_state.z_beta)
 
@@ -3494,6 +3603,26 @@ class REEAgent(nn.Module):
             persistence_appraisal=_persistence_appraisal,
         )
         self._committed_candidates = candidates
+
+        # MECH-294: this is the theta-cycle (E3-heartbeat) boundary -- push the
+        # proposer's lead first-action object into the open packet window, then
+        # SEAL the packet for this cycle and expose it as agent.last_theta_packet
+        # for the proposer / E3 to read as a joint object on the next cycle. The
+        # state_summary slot reuses the MECH-089 averaged z_world (z_world_for_e3,
+        # in scope above). Waking call site (MECH-094: simulation_mode=False).
+        if self.multi_content_theta_packet is not None:
+            _first_action = None
+            if candidates:
+                _lead = candidates[0]
+                _acts = getattr(_lead, "actions", None)
+                if _acts is not None and _acts.shape[1] > 0:
+                    _first_action = _acts[:, 0, :]
+            self.multi_content_theta_packet.observe_action_proposal(
+                _first_action, simulation_mode=False
+            )
+            self.last_theta_packet = self.multi_content_theta_packet.seal(
+                state_summary=z_world_for_e3, simulation_mode=False
+            )
 
         # ARC-028 / MECH-105: hippocampal completion signal -> BetaGate release.
         # compute_completion_signal() scores all proposals; high-quality trajectory
@@ -3925,7 +4054,13 @@ class REEAgent(nn.Module):
             release_thresh = float(
                 getattr(self.config, "contextual_safety_release_threshold", 1.0)
             )
-            if float(safety_pred.mean()) >= release_thresh:
+            # Read the scalar graph-free: evaluate_safety returns a grad-carrying
+            # tensor (the safety-terrain RBF centers/weights require grad while the
+            # terrain is being trained), so a bare float(tensor) on this per-tick
+            # release path both warns (UserWarning: requires_grad=True -> scalar)
+            # and needlessly retains the autograd graph. .detach() is
+            # correctness-neutral -- the comparison value is bit-identical.
+            if float(safety_pred.mean().detach()) >= release_thresh:
                 self.beta_gate.release()
                 self._committed_step_idx = 0
                 self._committed_anchor_keys = None
@@ -5014,6 +5149,38 @@ class REEAgent(nn.Module):
                 dacc_score_bias = dacc_score_bias + _forced_bias.to(
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
+
+        # MECH-294: OPTIONAL read-only-first compose of the sealed theta packet's
+        # joint_context into the E3 score-bias chain. Gated behind
+        # theta_packet_compose_into_e3_bias (default False -> bit-identical OFF,
+        # the packet stays read-only and the substrate-readiness validation
+        # measures it without behavioural authority). Parameter-free (cosine of
+        # candidate first-action vs the packet's co-bound action_proposal,
+        # clamped) -> no trained head, no phased training (memo S8). Composed last
+        # so it never dominates the primary chain.
+        if (
+            self.multi_content_theta_packet is not None
+            and getattr(self.config, "theta_packet_compose_into_e3_bias", False)
+            and candidates
+        ):
+            _tp_fa_list = []
+            for _c in candidates:
+                _a = getattr(_c, "actions", None)
+                if _a is not None and _a.shape[1] > 0:
+                    _tp_fa_list.append(_a[:, 0, :].reshape(-1))
+            if _tp_fa_list:
+                _tp_cand_fa = torch.stack(_tp_fa_list, dim=0)  # [K, action_dim]
+                _tp_bias = self.multi_content_theta_packet.compose_e3_bias(
+                    _tp_cand_fa,
+                    bias_scale=getattr(self.config, "theta_packet_bias_scale", 0.1),
+                )
+                if _tp_bias is not None:
+                    if dacc_score_bias is None:
+                        dacc_score_bias = _tp_bias
+                    else:
+                        dacc_score_bias = dacc_score_bias + _tp_bias.to(
+                            dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                        )
 
         # MECH-313 (ARC-065): stochastic_noise_floor. Lifts the softmax
         # temperature uniformly to prevent argmax collapse (LC-NE tonic
