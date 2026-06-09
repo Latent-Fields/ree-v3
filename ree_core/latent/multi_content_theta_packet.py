@@ -129,6 +129,27 @@ class ThetaPacket:
         v = self.vintage.get(name)
         return bool(v is not None and not v.is_current)
 
+    def currency_coherence(self) -> float:
+        """Within-cycle co-binding coherence in [0, 1]: the fraction of the four
+        V_s-gated content streams (goal, risk_sensory, risk_affective, state)
+        whose vintage is CURRENT this cycle -- the direct, parameter-free
+        operationalisation of "the four streams are bound co-temporally".
+
+        This is what makes the binding regime causally distinct downstream:
+          - joint       -- all four current (high V_s)        -> ~1.0
+          - alternation -- one live, three held (Kay-2020)    -> ~0.25
+          - shuffled    -- every slot drawn from a prior cycle -> 0.0
+        Streams whose vintage is absent are counted as non-current (0)."""
+        n = len(VS_STREAM_KEYS)
+        if n == 0:
+            return 0.0
+        cur = 0
+        for name in VS_STREAM_KEYS:
+            v = self.vintage.get(name)
+            if v is not None and v.is_current:
+                cur += 1
+        return cur / float(n)
+
     # -- joint-read interface (S5) -----------------------------------------
 
     def _typed_components(self) -> List[torch.Tensor]:
@@ -257,6 +278,10 @@ class MultiContentThetaPacket:
         self.n_simulation_skipped: int = 0
         self.n_held_substitutions: int = 0
         self.last_packet: Optional[ThetaPacket] = None
+        # Compose-path diagnostics (S6 mode-discrimination readout).
+        self.n_compose_calls: int = 0
+        self.last_compose_coherence: float = 0.0
+        self.last_compose_bias_absmax: float = 0.0
 
     # -- window accumulation ----------------------------------------------
 
@@ -498,18 +523,36 @@ class MultiContentThetaPacket:
         self,
         candidate_first_actions: torch.Tensor,
         bias_scale: float = 0.1,
+        use_joint_coherence: bool = True,
     ) -> Optional[torch.Tensor]:
         """OPTIONAL, read-only-first-by-default consumer hook (S5). Produces a
         per-candidate E3 score-bias [K] from the SEALED packet WITHOUT any
         trained head (pure arithmetic, so no phased training): bias favours
         candidates whose first action aligns with the action co-bound in the
-        packet against goal+risk. Clamped to [-bias_scale, +bias_scale]; never
-        dominates. Returns None when no action is bound or the packet is empty.
+        packet, scaled by how intact the within-cycle co-binding is. Clamped to
+        [-bias_scale, +bias_scale]; never dominates. Returns None when no action
+        is bound or the packet is empty.
+
+        Mode-dependence (the S6 discriminator -- "does behaviour depend on
+        within-cycle co-binding?"): when use_joint_coherence=True (default) the
+        per-candidate action-grounding term is GATED by the sealed packet's
+        currency_coherence() in [0, 1] -- the fraction of content streams bound
+        co-temporally this cycle. So the SAME proposer action produces a STRONG
+        grounding bias under joint (coherence ~1.0), a WEAK one under alternation
+        (~0.25, three streams held), and NONE under shuffled (0.0, every slot
+        drawn from a different cycle). The binding regime therefore reaches E3
+        behaviour, which a behavioural mode-discrimination experiment requires.
+        The per-candidate ranking stays an in-space action cosine (no
+        cross-semantic-space comparison; cf. the V3-EXQ-657a coherence-metric
+        autopsy); only the GATE is mode-derived.
+
+        use_joint_coherence=False recovers the legacy action-only bias
+        (gate == 1.0) bit-for-bit -- the ablation arm that isolates whether the
+        coherence gating is what carries the mode-discrimination.
 
         This path is gated behind theta_packet_compose_into_e3_bias (default
-        False) at the call site, so the substrate-readiness validation measures
-        the packet read-only before any behavioural-authority experiment depends
-        on it.
+        False) at the call site, so the read-only-first substrate-readiness
+        validation measures the packet without behavioural authority.
         """
         if self.last_packet is None or self.last_packet.action_proposal is None:
             return None
@@ -521,9 +564,15 @@ class MultiContentThetaPacket:
         ref_n = torch.nn.functional.normalize(ref[:, :d], dim=-1)
         cand_n = torch.nn.functional.normalize(cand[:, :d], dim=-1)
         align = (cand_n * ref_n).sum(dim=-1)  # [K] cosine in [-1, 1]
+        coherence = self.last_packet.currency_coherence() if use_joint_coherence else 1.0
         # REE lower-is-better: favour aligned candidates -> negative bias.
-        bias = -bias_scale * align
-        return bias.clamp(-bias_scale, bias_scale)
+        bias = (-bias_scale * coherence) * align
+        bias = bias.clamp(-bias_scale, bias_scale)
+        # Diagnostics for the validation manifest (read-only; no behavioural effect).
+        self.n_compose_calls += 1
+        self.last_compose_coherence = float(coherence)
+        self.last_compose_bias_absmax = float(bias.abs().max().item()) if bias.numel() else 0.0
+        return bias
 
     # -- diagnostics / reset ----------------------------------------------
 
@@ -537,6 +586,10 @@ class MultiContentThetaPacket:
             "mech294_n_simulation_skipped": float(self.n_simulation_skipped),
             "mech294_last_complete": float(last.is_complete()) if last else 0.0,
             "mech294_last_n_distinct_vintages": float(last.n_distinct_vintages()) if last else 0.0,
+            "mech294_last_currency_coherence": float(last.currency_coherence()) if last else 0.0,
+            "mech294_n_compose_calls": float(self.n_compose_calls),
+            "mech294_last_compose_coherence": float(self.last_compose_coherence),
+            "mech294_last_compose_bias_absmax": float(self.last_compose_bias_absmax),
             "mech294_cycle_index": float(self._cycle_index),
         }
 
@@ -559,3 +612,6 @@ class MultiContentThetaPacket:
         self.n_simulation_skipped = 0
         self.n_held_substitutions = 0
         self.last_packet = None
+        self.n_compose_calls = 0
+        self.last_compose_coherence = 0.0
+        self.last_compose_bias_absmax = 0.0

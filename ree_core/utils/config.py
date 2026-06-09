@@ -1241,6 +1241,13 @@ class REEConfig:
     # (no trained head -> no phased training). The behavioural successor flips it.
     theta_packet_compose_into_e3_bias: bool = False
     theta_packet_bias_scale: float = 0.1
+    # When True (default) the compose path gates the per-candidate action-grounding
+    # bias by the sealed packet's within-cycle co-binding coherence (fraction of
+    # co-temporally-current streams) -- so joint/alternation/shuffled reach E3
+    # behaviour distinctly (the S6 discriminator). False recovers the legacy
+    # action-only cosine (gate==1.0) bit-for-bit (the ablation). No-op unless
+    # theta_packet_compose_into_e3_bias is also True.
+    theta_packet_compose_use_joint_coherence: bool = True
 
     # MECH-205: surprise-gated replay. When True, prediction error from
     # E3.post_action_update() populates VALENCE_SURPRISE in the residue field,
@@ -3590,6 +3597,7 @@ class REEConfig:
         theta_packet_hold_threshold: float = 0.4,
         theta_packet_compose_into_e3_bias: bool = False,
         theta_packet_bias_scale: float = 0.1,
+        theta_packet_compose_use_joint_coherence: bool = True,
         # MECH-269 / MECH-287 / MECH-288: V_s invalidation runtime (Phase 1 + 2)
         use_per_stream_vs: bool = False,
         use_event_segmenter: bool = False,
@@ -3919,6 +3927,7 @@ class REEConfig:
         config.theta_packet_hold_threshold = theta_packet_hold_threshold
         config.theta_packet_compose_into_e3_bias = theta_packet_compose_into_e3_bias
         config.theta_packet_bias_scale = theta_packet_bias_scale
+        config.theta_packet_compose_use_joint_coherence = theta_packet_compose_use_joint_coherence
 
         # MECH-120: SHY normalization
         config.shy_enabled = shy_enabled

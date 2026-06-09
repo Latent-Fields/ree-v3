@@ -5173,6 +5173,9 @@ class REEAgent(nn.Module):
                 _tp_bias = self.multi_content_theta_packet.compose_e3_bias(
                     _tp_cand_fa,
                     bias_scale=getattr(self.config, "theta_packet_bias_scale", 0.1),
+                    use_joint_coherence=getattr(
+                        self.config, "theta_packet_compose_use_joint_coherence", True
+                    ),
                 )
                 if _tp_bias is not None:
                     if dacc_score_bias is None:
