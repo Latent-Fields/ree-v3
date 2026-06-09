@@ -32,6 +32,23 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-569f",
+      "title": "ARC-065 GAP-A R1.b FP-2 matched-entropy action-contrastive behavioural falsifier on the V3-EXQ-649-validated shared-channel stack (REEConfig.candidate_summary_source). Successor to the 569 matched-entropy FP-2 lineage (frontier 569e); supersedes V3-EXQ-569d (pre-649, collapsed-proposer consumption). 3-arm single-variable design, 3 seeds: ARM_0_PROPOSER (candidate_summary_source=proposer, temperature=1.0; pre-649 baseline) / ARM_1_E2WF (candidate_summary_source=e2_world_forward, temperature=1.0; the 649 GAP-A fix, under test) / ARM_2_MATCHED_NOISE (proposer, temperature=2.5; FP-2 matched-entropy noise control). SP-CEM + shared E3-side bias channels (lateral_pfc + mech295) ON; SD-056 online contrastive trained on every arm with the 643a rollout-norm clamp ON. PRIMARY DV = selected_action_class_entropy: R1.b PASS = ARM_1 strictly above BOTH ARM_2_MATCHED_NOISE and ARM_0_PROPOSER per matched seed on >=2/3 seeds, with the ARM_1 consumed-summary spread readiness floor (the 649 statistic, 0.05) and the C1 e2.world_forward prediction-spread floor (0.03) both met.",
+      "script": "experiments/v3_exq_569f_gapa_e2wf_matched_entropy_falsifier.py",
+      "priority": 250,
+      "machine_affinity": "any",
+      "estimated_minutes": 250,
+      "supersedes": "V3-EXQ-569d",
+      "claim_id": "ARC-065",
+      "note": "Real scored evidence (claim_ids=[ARC-065], experiment_purpose=evidence, evidence_direction_per_claim emitted). behavioral_diversity_isolation:GAP-A R1.b. Evidence-direction mapping protects ARC-065: readiness-below-floor OR C1-fail (SD-056 under-trained / amend not wired) -> non_contributory (substrate_not_ready_requeue, NOT weakens); PASS -> supports; readiness+C1 met but no strict lift above matched-noise -> weakens (r1a_entropy_only_artefact). validate_experiments --strict --paths + dry-run smoke PASS (dry scale correctly self-routes substrate_not_ready_requeue; e2 untrained at 2-ep dry budget). Do NOT tag MECH-341 here -- its committed-class GAP-B retest is the concurrent V3-EXQ-660. Do NOT edit claims.yaml/governance; evidence folds in via a later /governance cycle once it runs.",
+      "status": "pending",
+      "conditions": 3,
+      "depends_on": [],
+      "episodes_per_run": 80,
+      "experiment_type": "v3_exq_569f_gapa_e2wf_matched_entropy_falsifier",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-654a",
       "title": "ARC-062 GAP-B behavioural falsifier (MECH-309/ARC-062) GATED RE-RUN of V3-EXQ-654 on the crf_persist-matured CandidateRuleField substrate (amend ree-v3 9797e84). Single-variable ARM_OFF (use_candidate_rule_field=False, legacy collapsed rule_state) vs ARM_ON (use_candidate_rule_field=True + crf_persist_rules_across_episode_reset=True, MATURED differentiated crf_source) on the matched 649 GAP-A / 643a authority / SD-056 / SP-CEM / MECH-341 stack. THREE fixes vs 654: (1) crf_persist=True so the rule pool matures across episodes and crf_frac_active clears the 0.30 C1c floor (654 cold-started 0.12); (2) a frozen-encoder P1 phase that TRAINS the SD-033a rule_bias_head via outcome-coupled REINFORCE (GAP-D; mirrors v3_exq_598b) so propagation is not vacuous; (3) a propagation non-vacuity precondition (ARM_ON lateral_pfc bias differs from ARM_OFF, else substrate_not_ready_requeue). PRIMARY DV = committed-class entropy; within-class-representative entropy = secondary negative control.",
       "script": "experiments/v3_exq_654a_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
@@ -88,23 +105,6 @@
       "episodes_per_run": 90,
       "experiment_type": "v3_exq_660_mech341_within_class_representative_diversity",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-569f",
-      "title": "ARC-065 GAP-A R1.b FP-2 matched-entropy action-contrastive behavioural falsifier on the V3-EXQ-649-validated shared-channel stack (REEConfig.candidate_summary_source). Successor to the 569 matched-entropy FP-2 lineage (frontier 569e); supersedes V3-EXQ-569d (pre-649, collapsed-proposer consumption). 3-arm single-variable design, 3 seeds: ARM_0_PROPOSER (candidate_summary_source=proposer, temperature=1.0; pre-649 baseline) / ARM_1_E2WF (candidate_summary_source=e2_world_forward, temperature=1.0; the 649 GAP-A fix, under test) / ARM_2_MATCHED_NOISE (proposer, temperature=2.5; FP-2 matched-entropy noise control). SP-CEM + shared E3-side bias channels (lateral_pfc + mech295) ON; SD-056 online contrastive trained on every arm with the 643a rollout-norm clamp ON. PRIMARY DV = selected_action_class_entropy: R1.b PASS = ARM_1 strictly above BOTH ARM_2_MATCHED_NOISE and ARM_0_PROPOSER per matched seed on >=2/3 seeds, with the ARM_1 consumed-summary spread readiness floor (the 649 statistic, 0.05) and the C1 e2.world_forward prediction-spread floor (0.03) both met.",
-      "experiment_type": "v3_exq_569f_gapa_e2wf_matched_entropy_falsifier",
-      "script": "experiments/v3_exq_569f_gapa_e2wf_matched_entropy_falsifier.py",
-      "priority": 250,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 250,
-      "episodes_per_run": 80,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_id": "ARC-065",
-      "supersedes": "V3-EXQ-569d",
-      "depends_on": [],
-      "note": "Real scored evidence (claim_ids=[ARC-065], experiment_purpose=evidence, evidence_direction_per_claim emitted). behavioral_diversity_isolation:GAP-A R1.b. Evidence-direction mapping protects ARC-065: readiness-below-floor OR C1-fail (SD-056 under-trained / amend not wired) -> non_contributory (substrate_not_ready_requeue, NOT weakens); PASS -> supports; readiness+C1 met but no strict lift above matched-noise -> weakens (r1a_entropy_only_artefact). validate_experiments --strict --paths + dry-run smoke PASS (dry scale correctly self-routes substrate_not_ready_requeue; e2 untrained at 2-ep dry budget). Do NOT tag MECH-341 here -- its committed-class GAP-B retest is the concurrent V3-EXQ-660. Do NOT edit claims.yaml/governance; evidence folds in via a later /governance cycle once it runs."
     }
   ]
 }
