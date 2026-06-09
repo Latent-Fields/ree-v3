@@ -8,6 +8,21 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-654",
+      "title": "arc_062 GAP-B behavioural falsifier (MECH-309/ARC-062): rule-creator present-vs-absent, committed-class diversity",
+      "script": "experiments/v3_exq_654_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
+      "priority": 250,
+      "machine_affinity": "any",
+      "estimated_minutes": 220,
+      "claim_id": "MECH-309",
+      "note": "IGW-20260609-004. arc_062_rule_apprehension:GAP-B behavioural falsifier for MECH-309/ARC-062. Single-variable: ARM_OFF (use_candidate_rule_field=False, legacy collapsed rule_state) vs ARM_ON (use_candidate_rule_field=True, differentiated crf_source) -- both on the matched 649 GAP-A (candidate_summary_source=e2_world_forward, e2 trained online in P0) / 643a authority / SD-056 / SP-CEM / MECH-341 stack with the SD-033a bias head un-zeroed (lateral_pfc_train_rule_bias_head=True). PRIMARY DV = COMMITTED-CLASS entropy (mechanistically matched: the rule bias is class-keyed -- per-candidate summary is first-action-keyed + compute_bias broadcasts one rule_state across K, so it cannot move within-class selection; within-class-representative entropy is retained as a SECONDARY NEGATIVE CONTROL, user-confirmed 2026-06-09 overriding the literal brief). C1 (non-vacuity, self-routes substrate_not_ready_requeue on fail) = committed-class axis exercisable + GAP-A consumed-summary divergence real (both arms) + ARM_ON minted >=2 distinct rules firing a non-zero rule_state; C2 (PRIMARY) = paired-by-seed ARM_ON > ARM_OFF committed-class entropy lift >=2/3 seeds -> supports; C1-ok/C2-fail -> weakens. evidence_direction_per_claim covers MECH-309 + ARC-062. P0=60 ep e2-train (frozen P1=60 ep measure); SD-056 rollout-norm clamp ON. dry-run smoke PASS (correct substrate_not_ready_requeue self-route at dry scale). queue-race note: rebuilt on origin/main 8ce59e8 after a phase3-queue snapshot re-materialised 655-claimed mid-append.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 120,
+      "experiment_type": "v3_exq_654_arc062_gapb_rule_apprehension_behavioural_falsifier",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-655",
       "title": "INV-074 crystallization-necessity: task-distribution-shift phase-3 redesign (supersedes 610f)",
       "script": "experiments/v3_exq_655_inv074_crystallization_necessity_taskshift.py",
@@ -26,21 +41,6 @@
       "conditions": 5,
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_655_inv074_crystallization_necessity_taskshift",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-654",
-      "title": "arc_062 GAP-B behavioural falsifier (MECH-309/ARC-062): rule-creator present-vs-absent, committed-class diversity",
-      "script": "experiments/v3_exq_654_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
-      "experiment_type": "v3_exq_654_arc062_gapb_rule_apprehension_behavioural_falsifier",
-      "priority": 250,
-      "machine_affinity": "any",
-      "estimated_minutes": 220,
-      "claim_id": "MECH-309",
-      "note": "IGW-20260609-004. arc_062_rule_apprehension:GAP-B behavioural falsifier for MECH-309/ARC-062. Single-variable: ARM_OFF (use_candidate_rule_field=False, legacy collapsed rule_state) vs ARM_ON (use_candidate_rule_field=True, differentiated crf_source) -- both on the matched 649 GAP-A (candidate_summary_source=e2_world_forward, e2 trained online in P0) / 643a authority / SD-056 / SP-CEM / MECH-341 stack with the SD-033a bias head un-zeroed (lateral_pfc_train_rule_bias_head=True). PRIMARY DV = COMMITTED-CLASS entropy (mechanistically matched: the rule bias is class-keyed -- per-candidate summary is first-action-keyed + compute_bias broadcasts one rule_state across K, so it cannot move within-class selection; within-class-representative entropy is retained as a SECONDARY NEGATIVE CONTROL, user-confirmed 2026-06-09 overriding the literal brief). C1 (non-vacuity, self-routes substrate_not_ready_requeue on fail) = committed-class axis exercisable + GAP-A consumed-summary divergence real (both arms) + ARM_ON minted >=2 distinct rules firing a non-zero rule_state; C2 (PRIMARY) = paired-by-seed ARM_ON > ARM_OFF committed-class entropy lift >=2/3 seeds -> supports; C1-ok/C2-fail -> weakens. evidence_direction_per_claim covers MECH-309 + ARC-062. P0=60 ep e2-train (frozen P1=60 ep measure); SD-056 rollout-norm clamp ON. dry-run smoke PASS (correct substrate_not_ready_requeue self-route at dry scale). queue-race note: rebuilt on origin/main 8ce59e8 after a phase3-queue snapshot re-materialised 655-claimed mid-append.",
-      "status": "pending",
-      "conditions": 2,
-      "episodes_per_run": 120,
       "seeds": 3
     }
   ]
