@@ -207,6 +207,7 @@ def compute_arm_fingerprint(
     extra_substrate_paths: Optional[Iterable[Path]] = None,
     repo_root: Optional[Path] = None,
     extra_ineligible_reasons: Optional[Sequence[str]] = None,
+    include_driver_script_in_hash: bool = True,
 ) -> Dict[str, Any]:
     """Compute the per-cell fingerprint payload to embed in a manifest arm row.
 
@@ -220,8 +221,25 @@ def compute_arm_fingerprint(
     seed
         The cell seed.
     script_path
-        The calling experiment script (its content joins the substrate hash).
-        Pass `Path(__file__)` from the experiment.
+        The calling experiment script. With include_driver_script_in_hash=True
+        (default) its content joins the substrate hash. With False, its content
+        is recorded separately (driver_script_hash) for human triage but is NOT
+        part of the reuse-critical hash. Pass `Path(__file__)` from the experiment.
+    include_driver_script_in_hash
+        DEFAULT True -- backward-compatible: the driver script's content folds
+        into substrate_hash (over-inclusion -> false misses only, the original
+        conservative behaviour; an existing mint's fingerprint is unchanged).
+        Set False ONLY when the cell's OFF computation is fully contained in a
+        canonical baseline module under experiments/_lib/** (which is already in
+        the substrate-hash glob): then the driver script that merely orchestrates
+        the cell is excluded from the reuse key, so a mint and a later consumer
+        with DIFFERENT driver scripts -- both constructing the OFF arm from the
+        same canonical module + config_slice + seed -- produce the SAME
+        fingerprint and the automated consumer (arm_reuse.try_reuse_cell) can HIT.
+        This is the deliberate "my OFF cell is a pure function of the hashed
+        substrate, not of my driver" assertion. False fingerprints can never
+        collide with True fingerprints (a discriminator enters the hash), so the
+        two modes are isolated; mint and consumer MUST agree on the flag to HIT.
     rng_fully_reset
         True iff reset_all_rng(seed) (or equivalent) ran at cell entry. False
         forces reuse_eligible=False.
@@ -233,8 +251,13 @@ def compute_arm_fingerprint(
     Returns a JSON-serialisable dict. Embed it as arm_results[i]["arm_fingerprint"].
     NOTHING here reads or consults any cache -- Phase 0 is emit-only.
     """
+    # Driver script folds into the reuse-critical hash only when the caller opts
+    # IN (the default). When excluded, record its content separately for triage --
+    # the canonical baseline module that actually defines the OFF computation is
+    # already captured by the experiments/_lib/** glob in compute_substrate_hash.
+    fold_script = bool(script_path) and include_driver_script_in_hash
     sub = compute_substrate_hash(
-        extra_paths=[script_path] if script_path else None,
+        extra_paths=[script_path] if fold_script else None,
         repo_root=repo_root,
     )
     if extra_substrate_paths:
@@ -245,6 +268,13 @@ def compute_arm_fingerprint(
             (sub["substrate_hash"] + ":" + extra["substrate_hash"]).encode("ascii")
         )
 
+    driver_script_hash: Optional[str] = None
+    if script_path:
+        try:
+            driver_script_hash = _sha256_hex(Path(script_path).read_bytes())
+        except OSError:
+            driver_script_hash = None
+
     mc = machine_class()
     fp_input = {
         "schema": FINGERPRINT_SCHEMA,
@@ -254,6 +284,11 @@ def compute_arm_fingerprint(
         "machine_class": mc,
         "regime": REGIME,
     }
+    # Discriminator: a driver-script-excluded fingerprint must NEVER collide with a
+    # driver-script-included one for the same cell. Added only on the non-default
+    # path so existing (include=True) fingerprints are byte-identical to before.
+    if not include_driver_script_in_hash:
+        fp_input["driver_script_excluded"] = True
     fingerprint = _sha256_hex(_canonical_json(fp_input).encode("utf-8"))
 
     reasons: List[str] = list(extra_ineligible_reasons or ())
@@ -274,6 +309,13 @@ def compute_arm_fingerprint(
         "config_slice_declared": bool(config_slice_declared),
         "reuse_eligible": reuse_eligible,
         "reuse_ineligible_reasons": reasons,
+        # Reuse-key scoping: did the driver script join the reuse-critical hash?
+        # Recorded so the index/consumer + a human reviewer can confirm both sides
+        # of a reuse used the same convention. driver_script_hash is observability
+        # only (never in the fingerprint when excluded) -- analogous to the git SHA
+        # recorded alongside the authoritative content hash (plan section 3.2).
+        "driver_script_in_substrate_hash": bool(include_driver_script_in_hash),
+        "driver_script_hash": driver_script_hash,
         # NOTE: Phase 0 is emit-only. No reuse is ever performed off this value.
     }
 
@@ -308,6 +350,7 @@ class _ArmCell:
         repo_root: Optional[Path] = None,
         extra_ineligible_reasons: Optional[Sequence[str]] = None,
         do_reset: bool = True,
+        include_driver_script_in_hash: bool = True,
     ) -> None:
         self.seed = int(seed)
         self._config_slice = config_slice
@@ -317,6 +360,7 @@ class _ArmCell:
         self._repo_root = repo_root
         self._extra_ineligible_reasons = extra_ineligible_reasons
         self._do_reset = do_reset
+        self._include_driver_script_in_hash = include_driver_script_in_hash
         self._rng_reset = False
         self.fingerprint: Optional[Dict[str, Any]] = None
 
@@ -337,6 +381,7 @@ class _ArmCell:
             extra_substrate_paths=self._extra_substrate_paths,
             repo_root=self._repo_root,
             extra_ineligible_reasons=self._extra_ineligible_reasons,
+            include_driver_script_in_hash=self._include_driver_script_in_hash,
         )
         if row is not None:
             row["arm_fingerprint"] = self.fingerprint
@@ -356,6 +401,7 @@ def arm_cell(
     repo_root: Optional[Path] = None,
     extra_ineligible_reasons: Optional[Sequence[str]] = None,
     do_reset: bool = True,
+    include_driver_script_in_hash: bool = True,
 ) -> _ArmCell:
     """One-liner per-cell helper: resets RNG on enter, stamps fingerprint on .stamp().
 
@@ -374,6 +420,7 @@ def arm_cell(
         repo_root=repo_root,
         extra_ineligible_reasons=extra_ineligible_reasons,
         do_reset=do_reset,
+        include_driver_script_in_hash=include_driver_script_in_hash,
     )
 
 

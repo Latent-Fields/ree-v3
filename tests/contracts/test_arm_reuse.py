@@ -394,3 +394,108 @@ def test_index_writer_collapse_prefers_newest(indexer_tree):
     idx = bei._write_arm_fingerprint_index(exp_dir, "now")
     assert idx["by_fingerprint"]["fp_dupe"]["run_id"] == "NEW"
     assert idx["n_fingerprints"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Driver-script-coupling fix (plan section 9.7): include_driver_script_in_hash
+# False lets a mint and a consumer with DIFFERENT driver scripts HIT, because the
+# OFF cell is anchored on the canonical baseline module (already in the substrate
+# glob) + config_slice + seed, not on the orchestrating driver. Default True
+# preserves the legacy coupling (a different driver -> MISS).
+# --------------------------------------------------------------------------- #
+
+def _build_index_for(fp, run_id, cell, assembly_root):
+    exp_dir = assembly_root / "evidence" / "experiments"
+    manifest_rel = "evidence/experiments/mint.json"
+    manifest = {"run_id": run_id, "experiment_type": "mint",
+                "outcome": "PASS", "arm_results": [cell]}
+    (assembly_root / manifest_rel).write_text(json.dumps(manifest, indent=2))
+    entry = _make_index_entry(fp, run_id, cell, manifest_rel=manifest_rel)
+    index = {"schema": ar.INDEX_SCHEMA, "regime": "A",
+             "by_fingerprint": {fp: entry}, "reverse_index": {},
+             "pending_reuse_revalidation": []}
+    idx_path = exp_dir / "arm_fingerprint_index.json"
+    idx_path.write_text(json.dumps(index, indent=2))
+    return idx_path
+
+
+def _mint_fp(config_slice, seed, script_path, include_driver):
+    return compute_arm_fingerprint(
+        config_slice=config_slice, seed=seed, script_path=script_path,
+        rng_fully_reset=True, config_slice_declared=True,
+        include_driver_script_in_hash=include_driver,
+    )["arm_fingerprint"]
+
+
+def test_exclude_driver_script_enables_cross_driver_hit(tmp_path):
+    """A mint and a consumer with DIFFERENT driver scripts HIT when both pass
+    include_driver_script_in_hash=False (the section-9.7 fix)."""
+    assembly_root = tmp_path / "REE_assembly"
+    (assembly_root / "evidence" / "experiments").mkdir(parents=True)
+    mint_drv = tmp_path / "mint_driver.py"
+    cons_drv = tmp_path / "consumer_driver.py"
+    mint_drv.write_text("# mints the OFF baseline\nprint('mint')\n")
+    cons_drv.write_text("# runs ARM_B/C fresh, reuses OFF\nprint('consume')\n")
+
+    cs = {"baseline_id": "exq610_off", "p0": 60}
+    fp = _mint_fp(cs, 42, mint_drv, include_driver=False)
+    cell = _make_cell(fp, 42)
+    idx_path = _build_index_for(fp, "MINT-610", cell, assembly_root)
+
+    # Consumer: different driver, same config/seed, exclude flag -> HIT.
+    d = ar.evaluate_reuse(
+        config_slice=cs, seed=42, script_path=cons_drv,
+        needed_keys=["mean_reward"], cite_run_id="MINT-610",
+        index_path=idx_path, assembly_root=assembly_root,
+        include_driver_script_in_hash=False,
+    )
+    assert d.reused is True, d.reason
+    assert d.source_run_id == "MINT-610"
+    assert d.cell["reused_from_run_id"] == "MINT-610"
+
+
+def test_default_include_driver_refuses_cross_driver(tmp_path):
+    """Default (include_driver_script_in_hash=True): a different driver -> the
+    fingerprint differs -> REFUSE (the legacy coupling, the safe outcome)."""
+    assembly_root = tmp_path / "REE_assembly"
+    (assembly_root / "evidence" / "experiments").mkdir(parents=True)
+    mint_drv = tmp_path / "mint_driver.py"
+    cons_drv = tmp_path / "consumer_driver.py"
+    mint_drv.write_text("# mint\nprint('mint')\n")
+    cons_drv.write_text("# consume\nprint('consume')\n")
+
+    cs = {"baseline_id": "exq610_off", "p0": 60}
+    fp = _mint_fp(cs, 42, mint_drv, include_driver=True)
+    cell = _make_cell(fp, 42)
+    idx_path = _build_index_for(fp, "MINT-610", cell, assembly_root)
+
+    d = ar.evaluate_reuse(
+        config_slice=cs, seed=42, script_path=cons_drv,
+        needed_keys=["mean_reward"], cite_run_id="MINT-610",
+        index_path=idx_path, assembly_root=assembly_root,
+        include_driver_script_in_hash=True,
+    )
+    assert d.reused is False
+    assert d.reason == ar.REFUSE_FP_NOT_IN_INDEX
+
+
+def test_exclude_and_include_fingerprints_never_collide(tmp_path):
+    """A mint emitted with exclude=False cannot be HIT by an include=True consumer
+    (and vice versa): the two modes are isolated by the hash discriminator."""
+    assembly_root = tmp_path / "REE_assembly"
+    (assembly_root / "evidence" / "experiments").mkdir(parents=True)
+    drv = tmp_path / "driver.py"
+    drv.write_text("# same driver both sides\nprint('x')\n")
+    cs = {"baseline_id": "exq610_off"}
+    # Mint excluded; consumer included (mode mismatch) -> MISS even with same driver.
+    fp_excl = _mint_fp(cs, 42, drv, include_driver=False)
+    cell = _make_cell(fp_excl, 42)
+    idx_path = _build_index_for(fp_excl, "MINT-610", cell, assembly_root)
+    d = ar.evaluate_reuse(
+        config_slice=cs, seed=42, script_path=drv,
+        needed_keys=["mean_reward"], cite_run_id="MINT-610",
+        index_path=idx_path, assembly_root=assembly_root,
+        include_driver_script_in_hash=True,
+    )
+    assert d.reused is False
+    assert d.reason == ar.REFUSE_FP_NOT_IN_INDEX

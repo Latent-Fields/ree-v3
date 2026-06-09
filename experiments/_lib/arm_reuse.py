@@ -34,14 +34,20 @@ implies same substrate_hash + config_slice + seed + machine_class + regime, so
 the machine-class and substrate guards are intrinsic: a Mac-run iteration cannot
 match a cloud-minted baseline -- the fingerprints differ and it simply re-runs.
 
-Because the fingerprint's substrate_hash folds in the calling `script_path`'s
-content (compute_arm_fingerprint passes script_path into compute_substrate_hash),
-a HIT requires the consumer to recompute the fingerprint with the SAME
-`script_path` (and config_slice) the mint used -- i.e. construct the OFF arm from
-the lineage's canonical baseline module and pass the matching script_path. If the
-caller passes its own (different) driver script, the substrate_hash differs, the
-fingerprint is not in the index, and reuse is REFUSED (the safe outcome). See the
-/queue-experiment opt-in step.
+Driver-script coupling and how to defeat it (the recommended path):
+By default the fingerprint's substrate_hash folds in the calling `script_path`'s
+content, so a HIT would require the consumer to recompute with the SAME
+`script_path` the mint used -- impractical, since a real consumer (610g / 643c)
+has its own driver. The supported fix is `include_driver_script_in_hash=False`
+(passed to BOTH the mint's compute_arm_fingerprint and this consumer): the driver
+script is then excluded from the reuse-critical hash and the OFF cell is anchored
+on the canonical baseline module under experiments/_lib/** (already in the
+substrate-hash glob) + config_slice + seed + machine_class. A mint and a later
+consumer with DIFFERENT drivers -- both built from the same canonical module --
+then produce the SAME fingerprint and this consumer HITs. The flag must match on
+both sides (an excluded-driver fingerprint can never collide with an included-driver
+one). If it does not match, the fingerprint is not in the index and reuse is
+REFUSED (the safe outcome). See the /queue-experiment opt-in step.
 
 ASCII-only output (repo rule). Stdlib only.
 """
@@ -170,6 +176,7 @@ def evaluate_reuse(
     assembly_root: Optional[Path] = None,
     extra_substrate_paths: Optional[Sequence[Path]] = None,
     repo_root: Optional[Path] = None,
+    include_driver_script_in_hash: bool = True,
 ) -> ReuseDecision:
     """Decide whether the requesting cell may reuse a cached cell. Pure / no I/O side effects.
 
@@ -198,6 +205,7 @@ def evaluate_reuse(
         config_slice_declared=True,
         extra_substrate_paths=extra_substrate_paths,
         repo_root=repo_root,
+        include_driver_script_in_hash=include_driver_script_in_hash,
     )
     fingerprint = fp_payload["arm_fingerprint"]
     requesting_schema = fp_payload["schema"]
@@ -274,6 +282,7 @@ def try_reuse_cell(
     assembly_root: Optional[Path] = None,
     extra_substrate_paths: Optional[Sequence[Path]] = None,
     repo_root: Optional[Path] = None,
+    include_driver_script_in_hash: bool = True,
     logger: Optional[Any] = None,
 ) -> Optional[Dict[str, Any]]:
     """Return a cached OFF-arm cell to reuse, or None if reuse is refused.
@@ -288,8 +297,14 @@ def try_reuse_cell(
     ----------
     config_slice, seed, script_path
         The same inputs Phase 0 passed to compute_arm_fingerprint for the OFF cell.
-        To get a HIT, these MUST reproduce the mint's fingerprint (canonical
-        baseline module + matching script_path); otherwise reuse is refused (safe).
+        To get a HIT, these MUST reproduce the mint's fingerprint. The practical
+        recipe: build the OFF arm from the lineage's canonical baseline module and
+        pass include_driver_script_in_hash=False on BOTH mint and consumer, so the
+        differing driver scripts drop out of the reuse key; otherwise reuse is
+        refused (safe).
+    include_driver_script_in_hash
+        Must equal the flag the mint used (default True). Pass False for the
+        canonical-baseline-module reuse path described above.
     needed_keys
         The OFF-arm metric keys this experiment reads. If the cached cell did not
         record all of them, reuse is refused (the section-9.2 correctness trap).
@@ -310,6 +325,7 @@ def try_reuse_cell(
         assembly_root=assembly_root,
         extra_substrate_paths=extra_substrate_paths,
         repo_root=repo_root,
+        include_driver_script_in_hash=include_driver_script_in_hash,
     )
     log = logger if callable(logger) else print
     fp12 = (decision.fingerprint or "")[:12]
