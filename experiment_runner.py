@@ -2662,6 +2662,21 @@ def main():
              "~30 min). A tighter threshold (e.g. 3 min) will make the laptop "
              "fail to yield to alive-but-idle cloud workers.",
     )
+    parser.add_argument(
+        "--laptop-yield-defer-min",
+        type=float,
+        default=10.0,
+        metavar="MINUTES",
+        help="Cloud-first bounded defer (laptop only). When no cloud worker is "
+             "awake+idle to yield an 'any'-affinity item to, hold the item "
+             "(skip it, leaving it pending) for up to this many minutes -- "
+             "re-checking each pass -- so the cloud-scaler has time to wake a "
+             "worker, which then claims it. Only after the window elapses with "
+             "no idle cloud worker does the laptop run it locally (the "
+             "anti-starvation fallback). Default: 10 min. Set 0 to disable the "
+             "defer (legacy behaviour: run locally immediately when no cloud "
+             "worker is idle).",
+    )
     args = parser.parse_args()
 
     if args.remote_control and _rrc is None:
@@ -2719,6 +2734,19 @@ def main():
             f"has a heartbeat within {args.laptop_yield_freshness_min} min)",
             flush=True,
         )
+        if args.laptop_yield_defer_min > 0:
+            print(
+                f"[runner] Cloud-first defer: ON (hold 'any' items up to "
+                f"{args.laptop_yield_defer_min:g} min for the scaler to wake a "
+                f"cloud worker before running locally)",
+                flush=True,
+            )
+        else:
+            print(
+                "[runner] Cloud-first defer: OFF (run locally immediately when "
+                "no cloud worker is idle)",
+                flush=True,
+            )
     if args.remote_control and _rrc is not None and ree_assembly_path:
         print(f"[runner] Remote-control: ON (heartbeats -> "
               f"{ree_assembly_path}/evidence/experiments/runner_heartbeats/)", flush=True)
@@ -2976,9 +3004,23 @@ def main():
     # despite 612c carrying its affinity.
     _pass_skip: set[str] = set()
 
+    # Cloud-first bounded defer (laptop only). Maps queue_id -> monotonic time
+    # the laptop FIRST wanted to yield this 'any'-affinity item but found no
+    # idle cloud worker. The item is skipped (left pending) on subsequent
+    # passes until args.laptop_yield_defer_min elapses, giving the cloud-scaler
+    # time to wake a worker; only then does the laptop fall back to a local run.
+    _yield_defer_first_seen: dict[str, float] = {}
+
     while True:
         ran_any = False
         _pass_skip.clear()
+
+        # Prune defer timers for items no longer in the queue (completed,
+        # removed, or claimed away by a cloud worker) so a stale timestamp
+        # cannot make a future same-id entry skip its defer window.
+        _live_ids = {it.get("queue_id") for it in items}
+        for _stale_id in [k for k in _yield_defer_first_seen if k not in _live_ids]:
+            _yield_defer_first_seen.pop(_stale_id, None)
 
         # Drain any pending remote-control commands at the top of each pass
         # (before claiming the next experiment). Commands like 'stop', 'pause',
@@ -3108,6 +3150,8 @@ def main():
                     item, args.laptop_yield_freshness_min, ree_assembly_path,
                 )
                 if yield_:
+                    # A cloud worker is awake+idle -- let it claim this item.
+                    _yield_defer_first_seen.pop(queue_id, None)
                     print(
                         f"[runner] Yielding {queue_id} (affinity=any) to "
                         f"{available_host} -- cloud worker idle and fresh "
@@ -3115,6 +3159,35 @@ def main():
                         flush=True,
                     )
                     continue
+                elif (
+                    args.laptop_yield_defer_min > 0
+                    and item.get("machine_affinity", "any") in ("any", None, "")
+                ):
+                    # Cloud-first bounded defer: no cloud worker is idle right
+                    # now, but the scaler wakes a worker on pending-queue depth.
+                    # Hold this item (leave it pending) for up to
+                    # laptop_yield_defer_min so a worker can come up and claim
+                    # it, before falling back to a local run.
+                    now = time.monotonic()
+                    first_seen = _yield_defer_first_seen.setdefault(queue_id, now)
+                    waited_min = (now - first_seen) / 60.0
+                    if waited_min < args.laptop_yield_defer_min:
+                        print(
+                            f"[runner] Deferring {queue_id} (affinity=any) -- no "
+                            f"idle cloud worker yet; waiting for the scaler to "
+                            f"wake one ({waited_min:.1f}/"
+                            f"{args.laptop_yield_defer_min:g} min before local "
+                            f"fallback)",
+                            flush=True,
+                        )
+                        continue
+                    _yield_defer_first_seen.pop(queue_id, None)
+                    print(
+                        f"[runner] Defer window elapsed for {queue_id} "
+                        f"(affinity=any) -- {args.laptop_yield_defer_min:g} min "
+                        f"with no idle cloud worker; running locally",
+                        flush=True,
+                    )
                 else:
                     print(
                         f"[runner] Not yielding {queue_id} (affinity=any) -- "
