@@ -60,7 +60,11 @@
       "machine_affinity": "ree-cloud-4",
       "estimated_minutes": 360,
       "note": "Substrate-readiness for infant_substrate:GAP-14 prereq (c) ONLY -- Phase 0->1 advancement-gate reachability under the landed H_POS_FRAC_OF_MAX=0.20 (recalibrated from the unreachable 0.70 on 2026-05-31). experiment_purpose=diagnostic, claim_ids=[]. Successor to V3-EXQ-591 (FAIL 2026-05-26, stuck Phase 0 under old 0.70 gate). PRIMARY C1: every seed reaches curriculum phase>=1. Full GAP-14 closure (curriculum-vs-flat, V3-EXQ-591 successor) still waits on prereq (b) goal-pipeline non-trivial z_goal, owned by goal_pipeline:GAP-4 / behavioral_diversity_isolation:GAP-C. Do NOT re-queue V3-EXQ-591 until prereq (b) clears.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-10T06:16:19Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 160,
