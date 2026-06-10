@@ -104,6 +104,22 @@
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_665_curriculum_affective_fishtank_showcase",
       "seeds": 1
+    },
+    {
+      "queue_id": "V3-EXQ-603o",
+      "title": "SD-059/MECH-358 escape-affordance bridge behavioural retest REDESIGN (headroom + continuous survival metric); successor to 603l",
+      "experiment_type": "v3_exq_603o_escape_affordance_bridge_behavioural_redesign",
+      "script": "experiments/v3_exq_603o_escape_affordance_bridge_behavioural_redesign.py",
+      "priority": 290,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 600,
+      "episodes_per_run": 235,
+      "seeds": 3,
+      "conditions": 5,
+      "claim_id": "SD-059",
+      "supersedes": "V3-EXQ-603l",
+      "note": "Routing output of failure_autopsy_V3-EXQ-603l_2026-06-10. REDESIGN carrying BOTH fixes: (a) harder Stage-H regime (num_hazards 4->6, proximity_harm 0.10->0.15) at full uniform 603k+603j substrate for headroom so ARM_BASE_IA_ONLY sits below the binary survival ceiling; (b) continuous mean Stage-H survival duration (mean episode length) as the load-bearing PRIMARY discrimination metric (full-bridge lift >=10% over base), binary G_H demoted to supplementary. Keeps the 5-arm discriminative harness + readiness/non-vacuity net (PAG freezes + ilPFC gate engage on base, each enabled bridge half credits >=2/3, base harm landscape discriminative >=2/3, else substrate_not_ready_requeue). claim_ids=[SD-059,MECH-358] multi-claim evidence; evidence_direction_per_claim. depends_on 603i/603j/603k. dry-run PASS end-to-end (self-routes substrate_not_ready at toy budget, as designed)."
     }
   ]
 }
