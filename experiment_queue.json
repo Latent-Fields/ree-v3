@@ -32,46 +32,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-485d",
-      "title": "SD-033b OFC trainable-head substrate-readiness diagnostic (mirror of SD-033a GAP-D / V3-EXQ-598b). Validates the train_state_bias_head enrichment landed 2026-06-09 (ree-v3 main 382db2c). 2-arm frozen-vs-trainable ablation, OFC isolated (gated_policy/dACC/lateral_pfc OFF) on the SD-054 bipartite reef/forage env; ofc_harm_dim>0 so z_harm enters the OFC state_code (aversive-devaluation-capable shape for the behavioural arm). Phased: P0 encoder warmup -> P1 OFC bias_head_parameters() trained via E3-gradient REINFORCE on frozen-encoder state_code -> P2 eval. C1 ARM_0 frozen head mean|bias| < 1e-4 (bit-identical-OFF); C2 (load-bearing) ARM_1 state_bias_head weight-delta-from-init L2 > 1e-3 on >=2/3 seeds (the unambiguous substrate-readiness signal, routed on head movement not the clamp-prone bias magnitude); PASS=C1 AND C2. C3 mean|bias|>=0.002 informational (clamp-calibration note; ofc_bias_scale=0.1 can saturate). Self-route below-floor -> substrate_not_ready_requeue. Unblocks commitment_closure:GAP-8 deferred trained-OFC-head behavioural arm.",
-      "script": "experiments/v3_exq_485d_sd033b_ofc_trainable_head_readiness.py",
-      "priority": 255,
-      "machine_affinity": "any",
-      "estimated_minutes": 55,
-      "note": "experiment_purpose=diagnostic, claim_ids=[] (substrate readiness; does NOT weight governance). Mirrors the SD-033a GAP-D rule_bias_head readiness (V3-EXQ-598b) for the SD-033b OFC state_bias_head. validate_experiments --strict --paths OK (emit_outcome + per-cell arm_fingerprint + readiness precondition + load_bearing criterion). Dry-run smoke PASS: ARM_0 head_delta=0.000000 + bias=0.000000 (silent) all seeds; ARM_1 head_delta 0.027-0.040 (head moves under gradient) -> C1/C2/C3 True, head_grad_ready=True, self-route ofc_trainable_head_substrate_ready. PASS unblocks the full SD-033b behavioural GAP-8 arm (aversive-devaluation, ofc_harm_dim>0). substrate landed ree-v3 main 382db2c.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-10T00:23:50Z"
-      },
-      "claim_ids": [],
-      "conditions": 2,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_485d_sd033b_ofc_trainable_head_readiness",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-654a",
-      "title": "ARC-062 GAP-B behavioural falsifier (MECH-309/ARC-062) GATED RE-RUN of V3-EXQ-654 on the crf_persist-matured CandidateRuleField substrate (amend ree-v3 9797e84). Single-variable ARM_OFF (use_candidate_rule_field=False, legacy collapsed rule_state) vs ARM_ON (use_candidate_rule_field=True + crf_persist_rules_across_episode_reset=True, MATURED differentiated crf_source) on the matched 649 GAP-A / 643a authority / SD-056 / SP-CEM / MECH-341 stack. THREE fixes vs 654: (1) crf_persist=True so the rule pool matures across episodes and crf_frac_active clears the 0.30 C1c floor (654 cold-started 0.12); (2) a frozen-encoder P1 phase that TRAINS the SD-033a rule_bias_head via outcome-coupled REINFORCE (GAP-D; mirrors v3_exq_598b) so propagation is not vacuous; (3) a propagation non-vacuity precondition (ARM_ON lateral_pfc bias differs from ARM_OFF, else substrate_not_ready_requeue). PRIMARY DV = committed-class entropy; within-class-representative entropy = secondary negative control.",
-      "script": "experiments/v3_exq_654a_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
-      "priority": 250,
-      "machine_affinity": "any",
-      "estimated_minutes": 300,
-      "supersedes": "V3-EXQ-654",
-      "claim_id": "MECH-309",
-      "note": "Real scored evidence (claim_ids=[MECH-309, ARC-062], experiment_purpose=evidence, evidence_direction_per_claim emitted), gated re-run of the C1c-blocked V3-EXQ-654 (confirmed failure_autopsy_V3-EXQ-654_2026-06-09). Unblocked by the ARC-063 cross-episode rule-persistence amend (ree-v3 main 9797e84). Phases: P0 (60 ep, e2 SD-056 contrastive warmup; field matures via crf_persist) -> P1 (40 ep, encoder FROZEN, bias-head REINFORCE) -> P2 (60 ep, all frozen, measurement). C1 readiness (class axis exercisable both arms + GAP-A consumed-summary divergence both arms + ARM_ON minted>=2 distinct rules AND crf_frac_active>=0.30 + propagation non-vacuity ARM_ON bias != ARM_OFF) self-routes substrate_not_ready_requeue on fail (NOT a weakens). C2 PRIMARY = paired ARM_ON>ARM_OFF committed-class entropy lift >=2/3 seeds. validate_experiments --strict + validate_queue + dry-run smoke all PASS (dry scale correctly self-routes substrate_not_ready_requeue). Do NOT weaken MECH-309/ARC-062; evidence folds in via a later /governance cycle once it runs.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-09T18:45:45Z"
-      },
-      "conditions": 2,
-      "depends_on": [],
-      "episodes_per_run": 160,
-      "experiment_type": "v3_exq_654a_arc062_gapb_rule_apprehension_behavioural_falsifier",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-655",
       "title": "INV-074 crystallization-necessity: task-distribution-shift phase-3 redesign (supersedes 610f)",
       "script": "experiments/v3_exq_655_inv074_crystallization_necessity_taskshift.py",
@@ -122,7 +82,11 @@
       "supersedes": "V3-EXQ-588",
       "claim_id": "MECH-189",
       "note": "Validates the MECH-189 SuperOrdinalGoalMemory (ContextMemory writes substrate, infant_substrate:GAP-11). NEW letter - do NOT re-queue 588. Diagnostic. Load-bearing C1 = ARM_ON-vs-ARM_OFF adult z_goal seeding discrimination; the 588/DEV-NEED-006 0.4 crossing is advisory (anchor-norm regime-bound on the untrained-encoder readiness harness).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-10T00:37:58Z"
+      },
       "conditions": 2,
       "episodes_per_run": 14,
       "experiment_type": "v3_exq_588c_mech189_super_ordinal_seeding",
