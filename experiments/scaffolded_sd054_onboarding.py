@@ -1261,7 +1261,7 @@ def _measure_harm_discriminativeness(
 
 
 def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float = 0.0,
-               p1_spawn_in_reef_half: bool = False):
+               p1_spawn_in_reef_half: bool = False, seed: Optional[int] = None):
     """
     Build a CausalGridWorldV2 instance for the named phase.
 
@@ -1273,6 +1273,11 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
     (scaffold_p1_reef_spawn_hold_fraction) extending P0's developmental safety
     into early P1. Default False = legacy midline P1 spawn (bit-identical).
     Ignored for non-p1 phases (stage0/p0 always reef-half; p2 always midline).
+
+    seed (default None): forwarded to CausalGridWorldV2(seed=...) so callers that
+    need a reproducible env layout (e.g. determinism in contract tests) can pin
+    it. Default None preserves the legacy OS-entropy seeding -- production
+    callers are bit-identical.
     """
     from ree_core.environment.causal_grid_world import CausalGridWorldV2
 
@@ -1294,6 +1299,7 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             reef_bipartite_axis=cfg.scaffold_reef_bipartite_axis,
             reef_bipartite_agent_band_radius=cfg.scaffold_reef_bipartite_agent_band_radius,
             reef_bipartite_agent_spawn_in_reef_half=True,
+            seed=seed,
         )
     if phase == "p0":
         return CausalGridWorldV2(
@@ -1309,6 +1315,7 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             reef_bipartite_axis=cfg.scaffold_reef_bipartite_axis,
             reef_bipartite_agent_band_radius=cfg.scaffold_reef_bipartite_agent_band_radius,
             reef_bipartite_agent_spawn_in_reef_half=True,
+            seed=seed,
         )
     if phase == "hazard":
         # Isolated hazard-avoidance stage (2026-06-07): hazards present, foraging
@@ -1333,6 +1340,7 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             reef_bipartite_agent_spawn_in_reef_half=bool(
                 cfg.scaffold_hazard_stage_spawn_in_reef_half
             ),
+            seed=seed,
         )
     if phase == "p1":
         hfa = _lerp(
@@ -1358,6 +1366,7 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             reef_bipartite_axis=cfg.scaffold_reef_bipartite_axis,
             reef_bipartite_agent_band_radius=cfg.scaffold_reef_bipartite_agent_band_radius,
             reef_bipartite_agent_spawn_in_reef_half=bool(p1_spawn_in_reef_half),
+            seed=seed,
         )
     if phase == "p2":
         # P2 measurement guard: when scaffold_p2_hazard_food_attraction_guard
@@ -1381,6 +1390,7 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             reef_bipartite_axis=cfg.scaffold_reef_bipartite_axis,
             reef_bipartite_agent_band_radius=cfg.scaffold_reef_bipartite_agent_band_radius,
             reef_bipartite_agent_spawn_in_reef_half=False,
+            seed=seed,
         )
     raise ValueError(f"unknown phase: {phase!r}")
 

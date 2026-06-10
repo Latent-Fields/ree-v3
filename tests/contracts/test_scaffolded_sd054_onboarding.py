@@ -1536,11 +1536,20 @@ def test_c11_build_env_p1_spawn_in_reef_half_param():
     half; default False keeps the midline band (bit-identical legacy P1)."""
     cfg = ScaffoldedSD054OnboardingConfig()
     reef_rows, mid_rows = [], []
-    for _ in range(40):
-        env_reef = _build_env(cfg, "p1", anneal_t=0.0, p1_spawn_in_reef_half=True)
+    # Pin a per-iteration seed so the env layout (and thus the spawn row) is
+    # deterministic -- _build_env otherwise forwards seed=None to
+    # CausalGridWorldV2, which OS-entropy-seeds np.random.default_rng and made
+    # the `>= 8` assertion RNG-flaky (~10% failures). Distinct seeds preserve
+    # the original spawn-row spread across the 40 envs.
+    for i in range(40):
+        env_reef = _build_env(
+            cfg, "p1", anneal_t=0.0, p1_spawn_in_reef_half=True, seed=i
+        )
         env_reef.reset()
         reef_rows.append(env_reef.agent_x)
-        env_mid = _build_env(cfg, "p1", anneal_t=0.0, p1_spawn_in_reef_half=False)
+        env_mid = _build_env(
+            cfg, "p1", anneal_t=0.0, p1_spawn_in_reef_half=False, seed=1000 + i
+        )
         env_mid.reset()
         mid_rows.append(env_mid.agent_x)
     # Reef-half spawn produces some rows >= 8; midline default never does.
