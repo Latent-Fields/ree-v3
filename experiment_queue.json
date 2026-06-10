@@ -15,7 +15,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 30,
       "note": "Substrate-readiness DIAGNOSTIC (claim_ids=[], experiment_purpose=diagnostic, evidence_direction=non_contributory) -- does NOT weight MECH-294 confidence. Validates the compose-coherence wiring just landed (ree-v3 53d4c75 / REE_assembly 4c680c03f5): compose_e3_bias now gates the per-candidate action-grounding bias by ThetaPacket.currency_coherence() (joint ~1.0 / alternation ~0.25 / shuffled 0.0) so the binding mode reaches E3 behaviour. Readout = committed-action-class distribution; TV margin 0.10 (memo S7.2). NON-VACUITY readiness (R0 candidate first-action diversity >=2 / R1 compose fired / R2 coherence mode-distinct) matched to the load-bearing TV criteria; below floor self-routes substrate_not_ready_requeue (the compose bias is action-alignment GATED by coherence, so a single-class CEM pool starves the criterion -- NOT a falsification). C1 TV(JOINT,ALT) / C2 TV(JOINT,SHUF) / C3 TV(ALT-coh-ON,ALT-coh-OFF) all load_bearing; PASS=R0&R1&R2 & C1&C2&C3. PASS unblocks the MECH-294 behavioural-EVIDENCE successor (claim_ids=[MECH-294]) as a SEPARATE later /queue-experiment session. validate_experiments --strict --paths OK (per-cell arm_fingerprint); dry-run runs end-to-end, coherence gate mode-distinct 1.0/0.25/0.0, dry-scale self-routes substrate_not_ready_requeue (1 seed < 2/3 + 24-step run too short for candidate diversity, as R0 guards -- expected, mirrors 657a dry FAIL).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-10T00:14:58Z"
+      },
       "claim_ids": [],
       "conditions": 5,
       "episodes_per_run": 12,
@@ -59,27 +63,6 @@
       "conditions": 2,
       "episodes_per_run": 80,
       "experiment_type": "v3_exq_485d_sd033b_ofc_trainable_head_readiness",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-569f",
-      "title": "ARC-065 GAP-A R1.b FP-2 matched-entropy action-contrastive behavioural falsifier on the V3-EXQ-649-validated shared-channel stack (REEConfig.candidate_summary_source). Successor to the 569 matched-entropy FP-2 lineage (frontier 569e); supersedes V3-EXQ-569d (pre-649, collapsed-proposer consumption). 3-arm single-variable design, 3 seeds: ARM_0_PROPOSER (candidate_summary_source=proposer, temperature=1.0; pre-649 baseline) / ARM_1_E2WF (candidate_summary_source=e2_world_forward, temperature=1.0; the 649 GAP-A fix, under test) / ARM_2_MATCHED_NOISE (proposer, temperature=2.5; FP-2 matched-entropy noise control). SP-CEM + shared E3-side bias channels (lateral_pfc + mech295) ON; SD-056 online contrastive trained on every arm with the 643a rollout-norm clamp ON. PRIMARY DV = selected_action_class_entropy: R1.b PASS = ARM_1 strictly above BOTH ARM_2_MATCHED_NOISE and ARM_0_PROPOSER per matched seed on >=2/3 seeds, with the ARM_1 consumed-summary spread readiness floor (the 649 statistic, 0.05) and the C1 e2.world_forward prediction-spread floor (0.03) both met.",
-      "script": "experiments/v3_exq_569f_gapa_e2wf_matched_entropy_falsifier.py",
-      "priority": 250,
-      "machine_affinity": "any",
-      "estimated_minutes": 250,
-      "supersedes": "V3-EXQ-569d",
-      "claim_id": "ARC-065",
-      "note": "Real scored evidence (claim_ids=[ARC-065], experiment_purpose=evidence, evidence_direction_per_claim emitted). behavioral_diversity_isolation:GAP-A R1.b. Evidence-direction mapping protects ARC-065: readiness-below-floor OR C1-fail (SD-056 under-trained / amend not wired) -> non_contributory (substrate_not_ready_requeue, NOT weakens); PASS -> supports; readiness+C1 met but no strict lift above matched-noise -> weakens (r1a_entropy_only_artefact). validate_experiments --strict --paths + dry-run smoke PASS (dry scale correctly self-routes substrate_not_ready_requeue; e2 untrained at 2-ep dry budget). Do NOT tag MECH-341 here -- its committed-class GAP-B retest is the concurrent V3-EXQ-660. Do NOT edit claims.yaml/governance; evidence folds in via a later /governance cycle once it runs.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-09T21:35:44Z"
-      },
-      "conditions": 3,
-      "depends_on": [],
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_569f_gapa_e2wf_matched_entropy_falsifier",
       "seeds": 3
     },
     {
