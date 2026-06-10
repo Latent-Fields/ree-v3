@@ -161,6 +161,47 @@ without operator intervention). It is informational, not an alarm.
 
 ---
 
+### Side-file sync (`PHASE3_SPOOL_SIDEFILES`)
+
+**What it fixes.** Under Phase 3 a run's result *manifest* reaches `origin` via the
+spool + `phase3_git_writer`, but its **companion side-files** -- chiefly the
+`<type>_<ts>_episode_log.json` that `fishtank_viz.html` reads through serve.py
+`/api/fishtank/logs` -- stayed on the worker's disk and never reached origin. A
+fishtank showcase that ran on a cloud worker stranded its episode_log there
+(confirmed for `V3-EXQ-664` on ree-cloud-3, 2026-06-10: a 753 KB episode_log had
+to be SSH-retrieved by powering the VM back on).
+
+**What the flag does.** With `PHASE3_SPOOL_SIDEFILES=1` set on BOTH the workers
+(runner) and the hub (sync_daemon):
+- the runner, after `POST /result`, enumerates the run's companions (an explicit
+  `companion_files` list in the manifest, plus auto-discovered `*_episode_log.json`
+  next to the manifest) and ships each to `POST /result/sidefile`, which spools it
+  under `<spool>/pending_sidefiles/<run_id>/`;
+- `phase3_git_writer` materialises each run's spooled companions into
+  `REE_assembly/evidence/experiments/<...>` and git-adds them into the **same**
+  `phase3:` commit as the manifest (or a follow-up commit if the companion arrives
+  after the manifest was already committed).
+
+**Safety.** Each companion's destination path is validated to live under
+`evidence/experiments/` with no traversal, both at spool time and at materialise
+time -- a hostile POST cannot write to `.git/` or `scripts/`. Companions ride the
+same clean-tree precondition, atomic-write, and foreign-commit guards as the
+manifest. Default OFF = bit-identical: the writer ignores the companion spool and
+commits only the flat manifest exactly as before.
+
+```bash
+# Enable: add to BOTH the worker ree-runner drop-ins AND the hub ree-sync-daemon
+# drop-in (read at process start), then restart each unit.
+#   (workers)        Environment=PHASE3_SPOOL_SIDEFILES=1
+#   (ree-sync-daemon)Environment=PHASE3_SPOOL_SIDEFILES=1
+```
+
+**Verify.** Run a fishtank showcase on a worker; confirm its `_episode_log.json`
+basename lands on `origin/master` near its manifest commit, and that serve.py
+`/api/fishtank/logs` surfaces it with no manual retrieval.
+
+---
+
 ## Your mental model (correct)
 
 You expected three simple stages:

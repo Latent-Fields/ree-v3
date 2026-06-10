@@ -24,12 +24,13 @@ same run_id is idempotent (record_result is PK-on-run_id).
 All printed text is ASCII-only (Windows cp1252 safety).
 """
 
+import hashlib
 import json
 import os
 import re
 import sys
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator, List, Optional, Tuple
 
 # run_id sanity: filesystem-safe ASCII tokens. Reject anything weird so we
 # cannot be tricked into writing outside the spool root via a crafted POST.
@@ -241,3 +242,206 @@ def derive_evidence_relpath(run_id: str, manifest: dict) -> str:
         # -- but defence-in-depth: refuse rather than synthesise a path.
         raise ValueError("unsafe run_id %r" % run_id)
     return "%s/%s.json" % (DEFAULT_EVIDENCE_PREFIX, run_id)
+
+
+# ---------------------------------------------------------------------------
+# Companion side-file spool (Phase 3 side-file sync, 2026-06-10)
+#
+# A run may emit COMPANION artifacts alongside its result manifest -- most
+# commonly a `<type>_<ts>_episode_log.json` that fishtank_viz.html reads via
+# serve.py /api/fishtank/logs. Under Phase 3 the manifest reaches origin via
+# the spool + writer path above, but companions stayed on the worker's disk
+# (confirmed stranded for V3-EXQ-664 on ree-cloud-3, 2026-06-10). This second
+# spool carries those companions worker -> coordinator -> origin so they land
+# in the SAME phase3: commit as their manifest.
+#
+# Layout (keyed by run_id so the writer can pick them up when it commits the
+# manifest for that run_id; sub-keyed by a hash of the destination relpath so
+# a re-POST of the same companion is idempotent):
+#   <spool>/pending_sidefiles/<run_id>/<relhash>.bin        raw bytes
+#   <spool>/pending_sidefiles/<run_id>/<relhash>.meta.json  {relpath, sha256,
+#                                                            bytes, received_at}
+# After the manifest commit lands, the writer deletes the whole <run_id>/ dir.
+#
+# The destination relpath is validated to live under evidence/experiments/
+# (no traversal) BOTH at spool time and at materialise time -- a hostile POST
+# cannot write to .git/ or scripts/.
+# ---------------------------------------------------------------------------
+
+
+def _sidefiles_dir() -> Optional[Path]:
+    root = spool_root()
+    if root is None:
+        return None
+    return root / "pending_sidefiles"
+
+
+def safe_companion_relpath(relpath: str) -> Optional[str]:
+    """Return a normalised repo-relative companion path under
+    evidence/experiments/, or None if it is unsafe (traversal / outside the
+    evidence prefix / empty). Shared by the spool writer and the materialiser
+    so both apply the identical boundary check."""
+    if not isinstance(relpath, str) or not relpath:
+        return None
+    rp = relpath.lstrip("/").replace("\\", "/")
+    if ".." in rp.split("/"):
+        return None
+    if not rp.startswith(DEFAULT_EVIDENCE_PREFIX + "/"):
+        return None
+    return rp
+
+
+def write_sidefile(
+    run_id: str,
+    relpath: str,
+    raw: bytes,
+    *,
+    received_at: Optional[str] = None,
+    sha256_hex: Optional[str] = None,
+) -> Optional[Path]:
+    """Atomically spool one companion side-file for `run_id`. Returns the
+    spooled bin path, or None when spooling is disabled / run_id or relpath is
+    unsafe / the write fails.
+
+    Idempotent on (run_id, relpath): a re-POST overwrites the prior bytes.
+    Atomic semantics mirror write_manifest -- meta is renamed before bin so a
+    reader never sees bin-without-meta.
+    """
+    base = _sidefiles_dir()
+    if base is None:
+        return None
+    if not _safe_run_id(run_id):
+        sys.stderr.write(
+            "[spool] WARN refusing sidefile for unsafe run_id %r\n" % (run_id,))
+        return None
+    rp = safe_companion_relpath(relpath)
+    if rp is None:
+        sys.stderr.write(
+            "[spool] WARN refusing unsafe sidefile relpath %r\n" % (relpath,))
+        return None
+
+    run_dir = base / run_id
+    try:
+        run_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        sys.stderr.write("[spool] WARN cannot mkdir %s: %r\n" % (run_dir, exc))
+        return None
+
+    stem = hashlib.sha256(rp.encode("utf-8")).hexdigest()[:32]
+    bin_path = run_dir / ("%s.bin" % stem)
+    meta_path = run_dir / ("%s.meta.json" % stem)
+    tmp_bin = run_dir / ("%s.bin.tmp" % stem)
+    tmp_meta = run_dir / ("%s.meta.json.tmp" % stem)
+
+    meta = {
+        "run_id": run_id,
+        "relpath": rp,
+        "received_at": received_at,
+        "sha256": sha256_hex,
+        "bytes": len(raw),
+    }
+    try:
+        with open(tmp_bin, "wb") as fh:
+            fh.write(raw)
+            fh.flush()
+            os.fsync(fh.fileno())
+        with open(tmp_meta, "w", encoding="utf-8") as fh:
+            json.dump(meta, fh, sort_keys=True)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_meta, meta_path)
+        os.replace(tmp_bin, bin_path)
+        return bin_path
+    except OSError as exc:
+        sys.stderr.write(
+            "[spool] WARN sidefile write failed for %s %s: %r\n" % (
+                run_id, rp, exc))
+        for p in (tmp_bin, tmp_meta):
+            try:
+                p.unlink()
+            except OSError:
+                pass
+        return None
+
+
+def list_pending_sidefile_run_ids() -> Iterator[str]:
+    """Yield run_ids that have at least one complete (.bin + .meta.json)
+    companion in the spool. Returns nothing when spooling is disabled."""
+    base = _sidefiles_dir()
+    if base is None or not base.is_dir():
+        return
+    for entry in sorted(base.iterdir()):
+        if not entry.is_dir():
+            continue
+        run_id = entry.name
+        if not _safe_run_id(run_id):
+            continue
+        for f in entry.iterdir():
+            if f.name.endswith(".meta.json"):
+                stem = f.name[: -len(".meta.json")]
+                if (entry / ("%s.bin" % stem)).is_file():
+                    yield run_id
+                    break
+
+
+def list_sidefiles_for_run(run_id: str) -> List[Tuple[str, Path]]:
+    """Return [(relpath, bin_path), ...] for one run_id. Skips partial states
+    (meta without bin), entries whose meta is unreadable, and entries whose
+    stored relpath fails the evidence-prefix boundary check (defence in depth
+    -- the spool writer validated it, but re-validate before materialising)."""
+    base = _sidefiles_dir()
+    if base is None or not _safe_run_id(run_id):
+        return []
+    run_dir = base / run_id
+    if not run_dir.is_dir():
+        return []
+    out: List[Tuple[str, Path]] = []
+    for f in sorted(run_dir.iterdir()):
+        if not f.name.endswith(".meta.json"):
+            continue
+        stem = f.name[: -len(".meta.json")]
+        bin_path = run_dir / ("%s.bin" % stem)
+        if not bin_path.is_file():
+            continue
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                meta = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        rp = safe_companion_relpath(meta.get("relpath", "") if isinstance(
+            meta, dict) else "")
+        if rp is None:
+            sys.stderr.write(
+                "[spool] WARN sidefile %s carries unsafe relpath; skipping\n"
+                % (f,))
+            continue
+        out.append((rp, bin_path))
+    return out
+
+
+def delete_sidefiles(run_id: str) -> bool:
+    """Remove the whole <run_id>/ companion directory. Returns True iff the
+    directory is gone afterward (already-absent counts as success)."""
+    base = _sidefiles_dir()
+    if base is None or not _safe_run_id(run_id):
+        return False
+    run_dir = base / run_id
+    if not run_dir.exists():
+        return True
+    ok = True
+    try:
+        for f in run_dir.iterdir():
+            try:
+                f.unlink()
+            except OSError as exc:
+                sys.stderr.write(
+                    "[spool] WARN sidefile delete failed for %s: %r\n" % (
+                        f, exc))
+                ok = False
+        run_dir.rmdir()
+    except OSError as exc:
+        sys.stderr.write(
+            "[spool] WARN sidefile dir cleanup failed for %s: %r\n" % (
+                run_dir, exc))
+        ok = False
+    return ok

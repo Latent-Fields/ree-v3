@@ -79,3 +79,16 @@ Environment=PHASE3_COMMANDS_VIA_COORDINATOR=1
 # OPERATOR_GUIDE.md "Queue-writer conflict-recovery" + reference_hub_writer_wedge.md.
 # LIVE on the hub since 2026-06-03 via the queue-conflict-recovery.conf drop-in.
 #   (on ree-sync-daemon)  Environment=PHASE3_QUEUE_CONFLICT_RECOVERY=1
+#
+# PHASE3_SPOOL_SIDEFILES=1 makes phase3_git_writer ALSO materialise each run's
+# spooled COMPANION side-files (e.g. an *_episode_log.json that fishtank_viz.html
+# reads) into REE_assembly/evidence/experiments/ and git-add them into the SAME
+# phase3: commit as the run's manifest -- so a fishtank showcase run on a cloud
+# worker lands its episode_log on origin (V3-EXQ-664 incident, 2026-06-10).
+# Enable on the workers (shadow.conf.worker.example) AND here together: the
+# worker spools the companion via POST /result/sidefile, this writer commits it.
+# Default OFF = bit-identical (writer ignores the companion spool). A late
+# companion (manifest already committed) is picked up on a follow-up tick.
+# Verify by checking an episode_log basename lands on origin/master near its
+# manifest commit, and that serve.py /api/fishtank/logs discovers it.
+#   (on ree-sync-daemon)  Environment=PHASE3_SPOOL_SIDEFILES=1

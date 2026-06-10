@@ -47,6 +47,16 @@ Environment=PHASE3_DISABLE_RUNNER_CLAIM_PUSH=1
 # writer materialises git. Does NOT gate the command channel -- no restart loop.
 Environment=PHASE3_RUNNER_TELEMETRY_OFF_GIT=1
 
+# Side-file sync (2026-06-10): ship a run's COMPANION artifacts (e.g. an
+# *_episode_log.json that fishtank_viz.html reads) to the coordinator after the
+# manifest POST, so a fishtank showcase that runs here lands its episode_log on
+# origin instead of stranding it on this worker's disk (V3-EXQ-664 incident).
+# Default OFF = bit-identical (no companion POSTs). Enable together with the hub
+# writer's PHASE3_SPOOL_SIDEFILES (shadow.conf.hub.example); the worker just
+# spools, the hub writer commits. Companions are read-only side data, so this is
+# safe on any worker.
+# Environment=PHASE3_SPOOL_SIDEFILES=1
+
 # Clean drain (exit 0) from a queued stop should respawn with latest disk bytes.
 Restart=always
 

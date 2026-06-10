@@ -23,6 +23,7 @@ Config (env):
   COORDINATOR_MODE         shadow (default) | coordinator
 """
 
+import base64
 import datetime
 import gzip
 import hashlib
@@ -620,6 +621,44 @@ class Handler(BaseHTTPRequestHandler):
                 )
             self._send(200, {"ok": True, "run_id": run_id,
                              "idempotent_noop": (not fresh)})
+            return
+
+        if path == "/result/sidefile":
+            # Phase 3 side-file sync: spool a run's COMPANION artifact (e.g.
+            # an *_episode_log.json) so sync_daemon's phase3_git_writer
+            # materialises it into REE_assembly/evidence/experiments/ in the
+            # same commit as the run's manifest. Body is a JSON envelope
+            # {run_id, relpath, content_b64[, sha256]} (gzip-encoded in
+            # transit). Spooling is a no-op when COORDINATOR_SPOOL_DIR is
+            # unset; the runner only POSTs here when PHASE3_SPOOL_SIDEFILES is
+            # set, so this endpoint is dormant by default.
+            if body is None:
+                self._send(400, {"error": "bad body"})
+                return
+            run_id = body.get("run_id")
+            relpath = body.get("relpath")
+            content_b64 = body.get("content_b64")
+            if not run_id or not relpath or content_b64 is None:
+                self._send(400, {"error":
+                                 "run_id, relpath, content_b64 required"})
+                return
+            try:
+                raw = base64.b64decode(content_b64)
+            except (ValueError, TypeError):
+                self._send(400, {"error": "content_b64 not valid base64"})
+                return
+            client_sha = body.get("sha256")
+            sha = hashlib.sha256(raw).hexdigest()
+            if client_sha and client_sha != sha:
+                self._send(400, {"error": "sha256 mismatch"})
+                return
+            spooled = manifest_spool.write_sidefile(
+                run_id, relpath, raw,
+                received_at=db.utcnow(), sha256_hex=sha)
+            self._send(200, {"ok": spooled is not None,
+                             "run_id": run_id, "relpath": relpath,
+                             "spooled": spooled is not None,
+                             "bytes": len(raw)})
             return
 
         if path == "/queue/remove":

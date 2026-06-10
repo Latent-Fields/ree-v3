@@ -26,7 +26,9 @@ Env:
 All printed/logged text is ASCII-only.
 """
 
+import base64
 import gzip
+import hashlib
 import json
 import os
 import time
@@ -212,6 +214,31 @@ def report_result(queue_id, run_id, manifest_path, outcome, machine):
         _log("report_result read failed %s: %r" % (manifest_path, exc))
         return None
     return _post("/result", body, gzip_body=True)
+
+
+def report_result_sidefile(run_id, relpath, file_path):
+    """Ship one COMPANION side-file (e.g. an *_episode_log.json) to the
+    coordinator so sync_daemon's writer commits it alongside the run's
+    manifest. `relpath` is the REE_assembly-relative destination path (must
+    live under evidence/experiments/). Idempotent on (run_id, relpath)
+    server-side. Best-effort: returns the response dict or None; never raises
+    into the runner."""
+    if not _ENABLED:
+        return None
+    try:
+        with open(file_path, "rb") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        _log("report_result_sidefile read failed %s: %r" % (file_path, exc))
+        return None
+    envelope = {
+        "run_id": run_id,
+        "relpath": relpath,
+        "content_b64": base64.b64encode(raw).decode("ascii"),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
+    body = gzip.compress(json.dumps(envelope).encode("utf-8"))
+    return _post("/result/sidefile", body, gzip_body=True)
 
 
 def report_queue_remove(queue_id, reason):

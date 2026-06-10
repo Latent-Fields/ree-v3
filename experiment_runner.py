@@ -758,6 +758,122 @@ def align_after_coordinator_result(
     ).start()
 
 
+def _phase3_sidefiles_enabled() -> bool:
+    """True when the runner should ship companion side-files to the
+    coordinator (PHASE3_SPOOL_SIDEFILES env). Default OFF -> bit-identical to
+    the manifest-only result path."""
+    return _phase3_gate("PHASE3_SPOOL_SIDEFILES")
+
+
+def _collect_companion_files(manifest_path: Path, manifest_doc: dict) -> list[Path]:
+    """Enumerate a run's companion side-files next to its manifest.
+
+    Two sources, deduplicated, existing files only, the manifest itself
+    excluded:
+      1. An explicit `companion_files` list in the manifest body (robust,
+         generalises beyond episode logs). Each entry is a basename or a path
+         resolved relative to the manifest's directory (absolute paths are
+         taken as-is).
+      2. Auto-discovery of `*_episode_log.json` in the manifest's directory
+         (convenience for the fishtank showcase pattern, which does not yet
+         declare companion_files).
+    """
+    manifest_dir = manifest_path.parent
+    manifest_resolved = manifest_path.resolve()
+    out: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add(p: Path) -> None:
+        rp = p.resolve()
+        if rp == manifest_resolved or rp in seen:
+            return
+        if not rp.is_file():
+            return
+        seen.add(rp)
+        out.append(rp)
+
+    declared = manifest_doc.get("companion_files") if isinstance(
+        manifest_doc, dict) else None
+    if isinstance(declared, (list, tuple)):
+        for entry in declared:
+            if not isinstance(entry, str) or not entry:
+                continue
+            p = Path(entry)
+            if not p.is_absolute():
+                p = manifest_dir / entry
+            _add(p)
+
+    for p in sorted(manifest_dir.glob("*_episode_log.json")):
+        _add(p)
+
+    return out
+
+
+def _evidence_relpath(ree_assembly_path: Path | None, cpath: Path) -> str | None:
+    """Return cpath as a REE_assembly-relative path under
+    evidence/experiments/, or None when it is outside that boundary (the
+    coordinator refuses anything else)."""
+    if ree_assembly_path is None:
+        return None
+    try:
+        rel = cpath.resolve().relative_to(Path(ree_assembly_path).resolve())
+    except ValueError:
+        return None
+    rel_str = str(rel).replace("\\", "/")
+    if ".." in rel_str.split("/") or not rel_str.startswith(
+            "evidence/experiments/"):
+        return None
+    return rel_str
+
+
+def _report_result_sidefiles(
+    ree_assembly_path: Path | None,
+    run_id: str | None,
+    manifest_path: str,
+    machine: str,
+) -> None:
+    """Ship a run's companion side-files to the coordinator so the Phase 3
+    writer commits them alongside the manifest. Gated by PHASE3_SPOOL_SIDEFILES
+    (default OFF). Best-effort; never raises."""
+    if not _phase3_sidefiles_enabled():
+        return
+    if not coordinator_client.enabled():
+        return
+    if not manifest_path:
+        return
+    mp = Path(manifest_path)
+    if not mp.is_file():
+        return
+    try:
+        doc = json.loads(mp.read_text())
+    except Exception:
+        doc = {}
+    # Spool under the manifest's own run_id so the writer materialises the
+    # companions when it commits that run_id (POST /result spools the manifest
+    # under manifest["run_id"] too -- keep them aligned).
+    spool_run_id = (doc.get("run_id") if isinstance(doc, dict) else None) or run_id
+    if not spool_run_id:
+        return
+    companions = _collect_companion_files(
+        mp, doc if isinstance(doc, dict) else {})
+    if not companions:
+        return
+    asm = Path(ree_assembly_path) if ree_assembly_path else None
+    for cpath in companions:
+        rel = _evidence_relpath(asm, cpath)
+        if rel is None:
+            print(f"[runner] WARN sidefile {cpath} not under "
+                  f"evidence/experiments/; skipping", flush=True)
+            continue
+        try:
+            coordinator_client.report_result_sidefile(
+                spool_run_id, rel, str(cpath))
+            print(f"[runner] sidefile reported: {rel} "
+                  f"(run_id={spool_run_id})", flush=True)
+        except Exception as exc:
+            print(f"[runner] sidefile report warn for {rel}: {exc}", flush=True)
+
+
 def _report_result_and_align(
     ree_assembly_path: Path | None,
     queue_id: str,
@@ -772,6 +888,11 @@ def _report_result_and_align(
             queue_id, run_id, manifest_path, outcome, machine)
     except Exception as exc:
         print(f"[runner] report_result warn for {queue_id}: {exc}", flush=True)
+    try:
+        _report_result_sidefiles(
+            ree_assembly_path, run_id, manifest_path, machine)
+    except Exception as exc:
+        print(f"[runner] sidefile report warn for {queue_id}: {exc}", flush=True)
     align_after_coordinator_result(ree_assembly_path, manifest_path)
 
 

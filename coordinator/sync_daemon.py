@@ -371,6 +371,22 @@ PHASE3_MATERIALIZE_RUNPACK = _validate_bool(
     os.environ.get("PHASE3_MATERIALIZE_RUNPACK", "0"),
     "PHASE3_MATERIALIZE_RUNPACK", False)
 
+# Phase 3 side-file sync (2026-06-10). When True, phase3_git_writer ALSO
+# materialises each run's spooled COMPANION artifacts (e.g. an
+# *_episode_log.json that fishtank_viz.html reads) into
+# REE_assembly/evidence/experiments/ and git-adds them into the SAME commit as
+# the run's manifest -- closing the gap where a side-file-emitting experiment
+# (a fishtank showcase) running on a cloud worker stranded its episode_log on
+# the worker's disk (confirmed for V3-EXQ-664 on ree-cloud-3, 2026-06-10). The
+# worker side is gated by PHASE3_SPOOL_SIDEFILES too (runner POSTs companions
+# only when set); enable both together. Default False = bit-identical: the
+# writer ignores the companion spool, committing only the flat manifest exactly
+# as before. Module-load validated -- set it in the systemd unit env BEFORE the
+# process starts (same constraint as the other PHASE3_* env knobs).
+PHASE3_SPOOL_SIDEFILES = _validate_bool(
+    os.environ.get("PHASE3_SPOOL_SIDEFILES", "0"),
+    "PHASE3_SPOOL_SIDEFILES", False)
+
 # Hub paths for the queue writer. ree-v3 checkout is separate from the
 # REE_assembly checkout used by the result writer.
 PHASE3_REE_V3 = _validate_abs_repo_path(
@@ -1424,6 +1440,78 @@ def _materialize_runpacks(asm, staged, log_prefix="[phase3]"):
     return n_files
 
 
+def _materialize_sidefiles(asm, run_ids, log_prefix="[phase3]"):
+    """For each run_id, write + git-add its spooled COMPANION side-files under
+    REE_assembly/<relpath>, so they land in the same commit as the run's
+    manifest. Returns (n_files_staged, processed_run_ids) where processed
+    run_ids are those that had at least one companion successfully staged (and
+    whose companion spool dir should be dropped after the batch commits).
+
+    SAFETY / reversibility mirrors _materialize_runpacks:
+      - Best-effort: any per-file failure logs a WARN and is skipped; the
+        manifest commit (already staged by the caller) is never blocked.
+      - Each destination relpath was validated under evidence/experiments/ at
+        spool time AND is re-validated by list_sidefiles_for_run.
+      - Atomic write (tmp + os.replace); a git-add failure reverts the
+        working-tree write so the next tick's clean-tree check still passes.
+      - Idempotent: re-committing a companion already on origin is a no-diff
+        git-add (harmless); the diff-cached short-circuit handles it.
+    """
+    n_files = 0
+    processed = []
+    for run_id in run_ids:
+        entries = manifest_spool.list_sidefiles_for_run(run_id)
+        if not entries:
+            continue
+        any_staged = False
+        for relpath, bin_path in entries:
+            try:
+                with open(bin_path, "rb") as fh:
+                    raw = fh.read()
+            except OSError as exc:
+                sys.stderr.write(
+                    "%s sidefile materialise: read failed %s: %r\n" % (
+                        log_prefix, bin_path, exc))
+                continue
+            target = os.path.join(asm, relpath)
+            target_dir = os.path.dirname(target)
+            tmp_target = target + ".phase3sf.tmp"
+            target_replaced = False
+            try:
+                os.makedirs(target_dir, exist_ok=True)
+                with open(tmp_target, "wb") as fh:
+                    fh.write(raw)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp_target, target)
+                target_replaced = True
+                _fsync_dir(target_dir)
+            except OSError as exc:
+                sys.stderr.write(
+                    "%s sidefile materialise: write failed %s -> %s: %r\n" % (
+                        log_prefix, run_id, relpath, exc))
+                try:
+                    os.unlink(tmp_target)
+                except OSError:
+                    pass
+                continue
+            try:
+                _git(asm, "add", relpath, timeout=15, check=True)
+                n_files += 1
+                any_staged = True
+            except (subprocess.CalledProcessError,
+                    subprocess.TimeoutExpired) as exc:
+                sys.stderr.write(
+                    "%s sidefile materialise: git add failed %s -> %s: %r. "
+                    "Reverting working-tree write.\n" % (
+                        log_prefix, run_id, relpath, exc))
+                if target_replaced:
+                    _revert_target_to_head(asm, relpath, target)
+        if any_staged:
+            processed.append(run_id)
+    return n_files, processed
+
+
 def phase3_git_writer(
     conn,
     queue_path,
@@ -1516,15 +1604,27 @@ def phase3_git_writer(
         return False
 
     pending_ids = list(manifest_spool.list_pending_run_ids())
-    if not pending_ids:
+    # Companion side-files (default OFF -> empty -> bit-identical). A run's
+    # companions may arrive AFTER its manifest was already committed+drained
+    # (POST ordering: manifest then companions), so process companion run_ids
+    # that are NOT in the manifest batch too -- otherwise a late companion
+    # would never be picked up.
+    sidefile_ids = (list(manifest_spool.list_pending_sidefile_run_ids())
+                    if PHASE3_SPOOL_SIDEFILES else [])
+    if not pending_ids and not sidefile_ids:
         return True  # idle tick is a successful no-op
 
     batch = pending_ids[:PHASE3_BATCH_SIZE]
+    _batch_set = set(batch)
+    sidefile_batch = (
+        list(batch) + [s for s in sidefile_ids if s not in _batch_set]
+    )[:PHASE3_BATCH_SIZE] if PHASE3_SPOOL_SIDEFILES else []
 
     if dry_run:
         sys.stdout.write(
-            "[phase3] dry_run tick: %d pending, would commit %d\n" % (
-                len(pending_ids), len(batch)))
+            "[phase3] dry_run tick: %d pending, would commit %d "
+            "(+%d run(s) with side-files)\n" % (
+                len(pending_ids), len(batch), len(sidefile_ids)))
         return True
 
     clean, reason = _hub_working_tree_clean_for_writer(asm, "phase3")
@@ -1611,32 +1711,54 @@ def phase3_git_writer(
             if target_replaced:
                 _revert_target_to_head(asm, relpath, target)
 
-    if not staged:
-        sys.stderr.write(
-            "[phase3] no manifests staged this tick; nothing to commit\n")
-        return False
-
     # Stage 1b (optional, default-OFF): ALSO materialise the canonical runs/
     # pack for each staged flat manifest so cloud results are immediately
     # scoreable on origin. The pack files are git-added here so they land in
     # the SAME commit as the flat manifest(s) below. Best-effort and gated:
     # with PHASE3_MATERIALIZE_RUNPACK off this is a no-op and the tick is
-    # bit-identical to the flat-only writer.
-    if PHASE3_MATERIALIZE_RUNPACK:
+    # bit-identical to the flat-only writer. Skipped when no manifest staged
+    # (a companion-only tick has no flat manifest to pack).
+    if PHASE3_MATERIALIZE_RUNPACK and staged:
         n_pack = _materialize_runpacks(asm, staged, "[phase3]")
         if n_pack:
             sys.stdout.write(
                 "[phase3] materialised %d run-pack file(s) alongside %d flat "
                 "manifest(s)\n" % (n_pack, len(staged)))
 
+    # Stage 1c (optional, default-OFF): materialise each run's COMPANION
+    # side-files (e.g. an *_episode_log.json) into evidence/experiments/ and
+    # git-add them so they land in the SAME commit as the manifest(s). With
+    # PHASE3_SPOOL_SIDEFILES off this is a no-op and the tick is bit-identical
+    # to the manifest-only writer.
+    n_sidefile = 0
+    staged_sidefiles = []
+    if PHASE3_SPOOL_SIDEFILES:
+        n_sidefile, staged_sidefiles = _materialize_sidefiles(
+            asm, sidefile_batch, "[phase3]")
+        if n_sidefile:
+            sys.stdout.write(
+                "[phase3] materialised %d side-file(s) for %d run(s)\n" % (
+                    n_sidefile, len(staged_sidefiles)))
+
+    if not staged and not staged_sidefiles:
+        sys.stderr.write(
+            "[phase3] no manifests or side-files staged this tick; "
+            "nothing to commit\n")
+        return False
+
     # Stage 2: single commit + single push for the whole batch.
     today = db.utcnow()[:10]
     # MED-A: build the subject from the same constant the foreign-commit
     # check reads. Drifting one without the other (e.g. dropping the
     # trailing space, or rewording the prefix locally) would make the
-    # writer reject its own commits as foreign.
+    # writer reject its own commits as foreign. The optional side-file
+    # clause is appended only when companions were staged, so a manifest-only
+    # tick's subject is byte-identical to the pre-side-file writer.
     commit_msg = "%s%d v3 result manifest(s) %s" % (
         _PHASE3_COMMIT_PREFIX, len(staged), today)
+    if n_sidefile:
+        commit_msg = "%s%d v3 result manifest(s) + %d side-file(s) %s" % (
+            _PHASE3_COMMIT_PREFIX, len(staged), n_sidefile, today)
     try:
         # Refresh origin/<branch> once at the top of the push-decision
         # block. Both the ahead-of-origin guard (HIGH-1) and the
@@ -1783,49 +1905,61 @@ def phase3_git_writer(
     # bytes ARE on origin, retaining the spool would replay forever
     # against the same missing-row condition.
     now = db.utcnow()
-    pre_existing = {
-        row["run_id"]
-        for row in conn.execute(
-            "SELECT run_id FROM results WHERE run_id IN (%s)" % (
-                ",".join("?" * len(staged))),
-            [run_id for run_id, _ in staged]).fetchall()
-    }
-    missing = [run_id for run_id, _ in staged
-               if run_id not in pre_existing]
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.executemany(
-            "UPDATE results SET committed_at=? WHERE run_id=? "
-            "AND committed_at IS NULL",
-            [(now, run_id) for run_id, _ in staged],
-        )
-        conn.execute("COMMIT")
-    except Exception as exc:  # noqa: BLE001 -- daemon must not die
-        sys.stderr.write(
-            "[phase3] WARN committed_at update failed: %r. Spool retained; "
-            "next tick will replay idempotently.\n" % exc)
+    # Guard the run-id IN (...) query against an empty `staged` -- a
+    # companion-only tick (no manifests committed this round, only side-files)
+    # has nothing to mark in `results`; `IN ()` is a SQLite syntax error.
+    if staged:
+        pre_existing = {
+            row["run_id"]
+            for row in conn.execute(
+                "SELECT run_id FROM results WHERE run_id IN (%s)" % (
+                    ",".join("?" * len(staged))),
+                [run_id for run_id, _ in staged]).fetchall()
+        }
+        missing = [run_id for run_id, _ in staged
+                   if run_id not in pre_existing]
         try:
-            conn.execute("ROLLBACK")
-        except Exception:  # noqa: BLE001
-            pass
-        return False
-    if missing:
-        sys.stderr.write(
-            "[phase3] WARN invariant violation: %d manifest(s) reached "
-            "origin via this commit but have no `results` row in the "
-            "coordinator DB: %s. Spool will be drained (bytes ARE on "
-            "origin); the DB/origin mismatch needs operator audit. "
-            "Likely causes: POST /result wrote spool bytes before "
-            "`db.record_result` recorded the row, or the row was "
-            "deleted out-of-band.\n" % (
-                len(missing), missing[:5]))
+            conn.execute("BEGIN IMMEDIATE")
+            conn.executemany(
+                "UPDATE results SET committed_at=? WHERE run_id=? "
+                "AND committed_at IS NULL",
+                [(now, run_id) for run_id, _ in staged],
+            )
+            conn.execute("COMMIT")
+        except Exception as exc:  # noqa: BLE001 -- daemon must not die
+            sys.stderr.write(
+                "[phase3] WARN committed_at update failed: %r. Spool "
+                "retained; next tick will replay idempotently.\n" % exc)
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:  # noqa: BLE001
+                pass
+            return False
+        if missing:
+            sys.stderr.write(
+                "[phase3] WARN invariant violation: %d manifest(s) reached "
+                "origin via this commit but have no `results` row in the "
+                "coordinator DB: %s. Spool will be drained (bytes ARE on "
+                "origin); the DB/origin mismatch needs operator audit. "
+                "Likely causes: POST /result wrote spool bytes before "
+                "`db.record_result` recorded the row, or the row was "
+                "deleted out-of-band.\n" % (
+                    len(missing), missing[:5]))
 
     for run_id, _ in staged:
         manifest_spool.delete_manifest(run_id)
 
+    # Drop the companion spool dirs for every run whose side-files were
+    # committed this tick (bytes are now on origin). Manifest-only ticks have
+    # no staged_sidefiles -> no-op.
+    for run_id in staged_sidefiles:
+        manifest_spool.delete_sidefiles(run_id)
+
     sys.stdout.write(
-        "[phase3] committed %d manifest(s) (%d remaining in spool)\n" % (
-            len(staged), max(0, len(pending_ids) - len(staged))))
+        "[phase3] committed %d manifest(s)%s (%d remaining in spool)\n" % (
+            len(staged),
+            (" + %d side-file(s)" % n_sidefile) if n_sidefile else "",
+            max(0, len(pending_ids) - len(staged))))
     return True
 
 
