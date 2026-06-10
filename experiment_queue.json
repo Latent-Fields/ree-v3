@@ -124,6 +124,21 @@
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_665_curriculum_affective_fishtank_showcase",
       "seeds": 1
+    },
+    {
+      "queue_id": "V3-EXQ-660a",
+      "title": "MECH-341 within-class-representative diversity GRADED confirmation (CEM pool-size dose-response; V3-EXQ-660 successor)",
+      "experiment_type": "v3_exq_660a_mech341_within_class_pool_size_graded_confirmation",
+      "script": "experiments/v3_exq_660a_mech341_within_class_pool_size_graded_confirmation.py",
+      "claim_id": "MECH-341",
+      "priority": 260,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 840,
+      "episodes_per_run": 90,
+      "seeds": 3,
+      "conditions": 8,
+      "note": "behavioral_diversity_isolation:GAP-B OWED graded confirmation. 660 PASSED but its within-class temperature sweep was byte-identical across T=0.5/1.0/2.0 (near-degenerate within-class scores -> softmax ~uniform at every T). This holds temperature FIXED and sweeps the CEM pool size K (cfg.hippocampal.num_candidates) in {16,32,64,128} -- the count of available within-class representatives, the actual graded axis. Pre-registered: non-vacuity (avail distinct within-class reps rise with K -> else substrate_not_ready_requeue) + C_GRADED (per-seed paired lift monotone-nondecreasing, Delta(128)-Delta(16)>=0.05 nats on >=2/3 seeds). NO supersede -- 660 stays standing. evidence; claim_ids=[MECH-341]. Dry-run PASS (K honored 16->128, avail rises 2.9->40.5, routing OK). Queued alongside concurrent V3-EXQ-603o; working-tree-vs-HEAD audit clean before append."
     }
   ]
 }
