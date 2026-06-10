@@ -28,26 +28,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-603n",
-      "title": "scaffolded_sd054 FULL curriculum readiness, CORRECTED G0: developmental positive-control floor (>0.3) for Stage-0 z_goal; G3 ecological gate kept strict at 0.4 (successor to 603m)",
-      "script": "experiments/v3_exq_603n_scaffolded_sd054_full_curriculum_readiness.py",
-      "priority": 275,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "supersedes": "V3-EXQ-603m",
-      "note": "Substrate-readiness diagnostic (claim_ids=[]). 603m FAILed the readiness gate at G0 ONLY (Stage-0 nursery z_goal>0.4 held 1/3: 0.477/0.389/0.371) while the three load-bearing legs PASSed (P1 survival 3/3, P2 contact 3/3, P2 ecological consumption-gated z_goal 2/3) with both non-vacuity preconditions met (harm_eval range 0.075, reached-P2-alive 3/3). Per failure_autopsy_V3-EXQ-603m_2026-06-10 (user-confirmed re-queue, 'retime don't loosen'): z_goal magnitude scales with substrate maturity; for EVERY seed ecological P2 z_goal EXCEEDS the pre-warmup Stage-0 nursery z_goal, so the mature 0.4 magnitude under-reads the least-mature stage (the INVERSE of a substrate-ceiling fingerprint). 603n recalibrates ONLY G0 to a developmentally-appropriate >0.3 positive-control floor (zero-init pre-feed baseline -> materially-above-baseline lift), keeping the load-bearing ecological G3 STRICT at 0.4 and G1/G2 unchanged. Effectively a confirmation run. PASS=G0 AND G1 AND G2 AND G3 (each >=2/3) -> next session flips scaffolded_sd054_onboarding ready=True + re-issues SD-049 Phase-2 behavioural validation (V3-EXQ-514l successor, MECH-229/230) closing goal_pipeline:GAP-2. Non-vacuity: harm-pathway-discriminative AND reached-P2-alive, else substrate_not_ready_requeue.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-10T16:05:46Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 235,
-      "experiment_type": "v3_exq_603n_scaffolded_sd054_full_curriculum_readiness",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-660a",
       "title": "MECH-341 within-class-representative diversity GRADED confirmation (CEM pool-size dose-response; V3-EXQ-660 successor)",
       "script": "experiments/v3_exq_660a_mech341_within_class_pool_size_graded_confirmation.py",
