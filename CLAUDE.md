@@ -8100,7 +8100,7 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   unblocked claims (ARC-065 / MECH-294 / ARC-062 / MECH-309 / MECH-341 + the existing
   MECH-314/320/Q-044/etc.) stay candidate / v3_pending / pending_retest_after_substrate;
   claims.yaml NOT modified.
-  Validation experiment: V3-EXQ-662 substrate-readiness diagnostic (claim_ids=[];
+  Validation experiment: V3-EXQ-663 substrate-readiness diagnostic (claim_ids=[];
   ARM_0 routing OFF vs ARM_1 routing ON, both authority ON + e2_world_forward + SD-056
   online). Acceptance: READINESS (load-bearing, RANGE) ARM_1 route_range > floor on
   >=2/3 seeds; C1 (load-bearing, same range stat) ARM_1 active + ARM_0 inactive;
@@ -8120,7 +8120,7 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   MECH-341 (entropy bonus -- a channel that already carries range in the accumulator),
   ARC-062/MECH-309 GAP-D (trainable rule_bias_head -- the beneficial-selection half for
   the rule_state behavioural retest), MECH-294 compose-coherence (the scalar-gate
-  channel the P0 gate correctly flags), V3-EXQ-662 (validation), MECH-090 (admission
+  channel the P0 gate correctly flags), V3-EXQ-663 (validation), MECH-090 (admission
   gate; unchanged), MECH-094 (N/A).
 
 ## SD-057: Object-bound incentive-salience layer (GAP-7 L2-L3-L4) (2026-06-04)

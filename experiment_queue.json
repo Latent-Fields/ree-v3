@@ -8,9 +8,9 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-662",
+      "queue_id": "V3-EXQ-663",
       "title": "modulatory-bias-selection-authority route-range AMEND substrate-readiness (P0 routed-range gate; 569f/661/654a)",
-      "script": "experiments/v3_exq_662_modulatory_channel_routing_substrate_readiness.py",
+      "script": "experiments/v3_exq_663_modulatory_channel_routing_substrate_readiness.py",
       "priority": 280,
       "machine_affinity": "any",
       "estimated_minutes": 240,
@@ -20,7 +20,7 @@
       "claim_ids": [],
       "conditions": 2,
       "episodes_per_run": 80,
-      "experiment_type": "v3_exq_662_modulatory_channel_routing_substrate_readiness",
+      "experiment_type": "v3_exq_663_modulatory_channel_routing_substrate_readiness",
       "seeds": 3
     },
     {

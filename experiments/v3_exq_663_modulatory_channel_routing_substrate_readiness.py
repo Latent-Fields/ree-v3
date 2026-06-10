@@ -1,4 +1,4 @@
-"""V3-EXQ-662: modulatory-bias-selection-authority route-range AMEND
+"""V3-EXQ-663: modulatory-bias-selection-authority route-range AMEND
 substrate-readiness diagnostic (P0 routed-range gate).
 
 Routed by failure_autopsy_569f-661-654a_2026-06-10 (confirmed; user-adjudicated).
@@ -61,13 +61,13 @@ Interpretation grid:
 | outcome                              | label                        | next                                                  |
 |--------------------------------------|------------------------------|-------------------------------------------------------|
 | READINESS+C1 (+C2)                   | route_range_substrate_ready  | /queue-experiment per-claim behavioural retests       |
-| readiness leg below floor/non-finite | substrate_not_ready_requeue  | re-queue as 662a at higher P0 (or fix e2/SD-056); do NOT weaken |
+| readiness leg below floor/non-finite | substrate_not_ready_requeue  | re-queue as 663a at higher P0 (or fix e2/SD-056); do NOT weaken |
 | readiness ok but C1 fails            | route_range_inert            | /failure-autopsy on the routing wiring                |
 
 SLEEP DRIVER: K=never (no sleep; waking action-selection diagnostic).
 
 Usage:
-  /opt/local/bin/python3 experiments/v3_exq_662_modulatory_channel_routing_substrate_readiness.py --dry-run
+  /opt/local/bin/python3 experiments/v3_exq_663_modulatory_channel_routing_substrate_readiness.py --dry-run
 """
 
 import argparse
@@ -95,8 +95,8 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 
-EXPERIMENT_TYPE = "v3_exq_662_modulatory_channel_routing_substrate_readiness"
-QUEUE_ID = "V3-EXQ-662"
+EXPERIMENT_TYPE = "v3_exq_663_modulatory_channel_routing_substrate_readiness"
+QUEUE_ID = "V3-EXQ-663"
 CLAIM_IDS: List[str] = []  # substrate-readiness diagnostic (gates per-claim behavioural retests)
 EXPERIMENT_PURPOSE = "diagnostic"
 
@@ -742,7 +742,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "criteria_non_degenerate": summary["criteria_non_degenerate"],
             "routing": {
                 "route_range_substrate_ready": "PASS -> /queue-experiment per-claim behavioural retests (ARC-065/MECH-294/ARC-062/MECH-309/MECH-341), each separate",
-                "substrate_not_ready_requeue": "re-queue as V3-EXQ-662a at higher P0 budget (or fix e2/SD-056 wiring); do NOT weaken",
+                "substrate_not_ready_requeue": "re-queue as V3-EXQ-663a at higher P0 budget (or fix e2/SD-056 wiring); do NOT weaken",
                 "route_range_inert": "FAIL -> /failure-autopsy on the routing wiring",
             },
         },
@@ -798,7 +798,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="V3-EXQ-662 modulatory-bias-selection-authority route-range substrate-readiness diagnostic"
+        description="V3-EXQ-663 modulatory-bias-selection-authority route-range substrate-readiness diagnostic"
     )
     parser.add_argument("--dry-run", action="store_true", help="Short smoke run.")
     args = parser.parse_args()
