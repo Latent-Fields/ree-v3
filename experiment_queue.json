@@ -105,26 +105,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-654b",
-      "title": "ARC-062 GAP-B rule-apprehension behavioural falsifier -- longer CRF maturation re-run of 654a",
-      "script": "experiments/v3_exq_654b_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
-      "priority": 245,
-      "machine_affinity": "any",
-      "estimated_minutes": 540,
-      "supersedes": "V3-EXQ-654a",
-      "claim_id": "ARC-062",
-      "note": "Longer-maturation re-run of V3-EXQ-654a (MECH-309 + ARC-062). 654a self-routed substrate_not_ready_requeue: crf_frac_active=0.137<0.30, 0/3 ON seeds matured even with crf_persist=True. ONLY change: maturation window P0+P1 100->240 ep (P0 60->150, P1 40->90) so the persisted CandidateRuleField clears the 0.3 C1c floor before scoring. Keeps crf_persist + within-arm rule_state counterfactual (recorded per seed) + C1c/C1d non-vacuity gate (self-routes non_contributory if maturation still fails). If matured-and-firing field STILL shows within-arm counterfactual ~0 + no committed-class lift, 654b joins the E3-commit-readout cluster (569f/661) confirming selection-authority coupling is the ceiling. Routed by failure_autopsy_569f-661-654a_2026-06-10.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-10T13:38:08Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 300,
-      "experiment_type": "v3_exq_654b_arc062_gapb_rule_apprehension_behavioural_falsifier",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-665",
       "title": "Curriculum-trained affective fishtank showcase (scaffolded curriculum + harm-pathway; counterpart to V3-EXQ-664)",
       "script": "experiments/v3_exq_665_curriculum_affective_fishtank_showcase.py",
