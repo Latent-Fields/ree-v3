@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-661",
-      "title": "MECH-294 compose-coherence substrate-readiness (behavioural wiring): with compose ON, does the theta-packet binding mode now CHANGE the committed-action distribution (joint vs alternation/shuffled), and is the within-cycle co-binding COHERENCE GATING the mechanism (alternation gate-ON vs gate-OFF)? Validates the 2026-06-09 compose_e3_bias coherence-gating wiring (ree-v3 53d4c75) that made the binding mode causally reach E3 behaviour (previously action-only -> mode-invariant). 5 arms x 3 seeds: OFF / JOINT / ALTERNATION / SHUFFLED / ALT_COH_OFF.",
-      "script": "experiments/v3_exq_661_mech294_compose_coherence_behavioural_readiness.py",
-      "priority": 270,
-      "machine_affinity": "any",
-      "estimated_minutes": 30,
-      "note": "Substrate-readiness DIAGNOSTIC (claim_ids=[], experiment_purpose=diagnostic, evidence_direction=non_contributory) -- does NOT weight MECH-294 confidence. Validates the compose-coherence wiring just landed (ree-v3 53d4c75 / REE_assembly 4c680c03f5): compose_e3_bias now gates the per-candidate action-grounding bias by ThetaPacket.currency_coherence() (joint ~1.0 / alternation ~0.25 / shuffled 0.0) so the binding mode reaches E3 behaviour. Readout = committed-action-class distribution; TV margin 0.10 (memo S7.2). NON-VACUITY readiness (R0 candidate first-action diversity >=2 / R1 compose fired / R2 coherence mode-distinct) matched to the load-bearing TV criteria; below floor self-routes substrate_not_ready_requeue (the compose bias is action-alignment GATED by coherence, so a single-class CEM pool starves the criterion -- NOT a falsification). C1 TV(JOINT,ALT) / C2 TV(JOINT,SHUF) / C3 TV(ALT-coh-ON,ALT-coh-OFF) all load_bearing; PASS=R0&R1&R2 & C1&C2&C3. PASS unblocks the MECH-294 behavioural-EVIDENCE successor (claim_ids=[MECH-294]) as a SEPARATE later /queue-experiment session. validate_experiments --strict --paths OK (per-cell arm_fingerprint); dry-run runs end-to-end, coherence gate mode-distinct 1.0/0.25/0.0, dry-scale self-routes substrate_not_ready_requeue (1 seed < 2/3 + 24-step run too short for candidate diversity, as R0 guards -- expected, mirrors 657a dry FAIL).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-10T00:14:58Z"
-      },
-      "claim_ids": [],
-      "conditions": 5,
-      "episodes_per_run": 12,
-      "experiment_type": "v3_exq_661_mech294_compose_coherence_behavioural_readiness",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-603l",
       "title": "SD-059/MECH-358 escape-affordance bridge BEHAVIOURAL re-test (scored evidence; successor to V3-EXQ-603i, the pending_retest_after_substrate). Full 4-arm + nav-control discriminative Stage-H run on the 603k+603j-fixed substrate: ARM_BASE_IA_ONLY (bridge OFF) / ARM_RELIEF_BRIDGE / ARM_SAFETY_BRIDGE / ARM_RELIEF_SAFETY_BRIDGE (bridge halves) / ARM_NAV_CONTROL (bridge OFF, spawn-in-reef nav-competence control). ALL arms turn ON the two now-validated substrate fixes: scaffold_train_harm_pathway=True (603k PASS -> clears the 603i PRIMARY nav/survival-competence ceiling; ARM_HARM_ON_NAV G_H 2/3 vs OFF 0/3, harm_eval range 0.133) and escape_use_trained_safety_signal=True + MECH-303 terrain + MECH-304 store + MECH-302 comparator (603j PASS -> the SAFETY half credits non-vacuously via the trained threat-absence signal, mean 0.89 >= 0.5 floor). PRIMARY DV best_bridge_G_H >= 2/3 AND > G_H_BASE. Per-half non-vacuity readiness preconditions retained as a SAFETY NET (each enabled bridge half credits >=2/3 before G_H scored; else self-route substrate_not_ready_requeue, NOT a false weakens).",
       "script": "experiments/v3_exq_603l_escape_affordance_bridge_behavioural_retest.py",
@@ -58,7 +39,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 55,
       "note": "experiment_purpose=diagnostic, claim_ids=[] (substrate readiness; does NOT weight governance). Mirrors the SD-033a GAP-D rule_bias_head readiness (V3-EXQ-598b) for the SD-033b OFC state_bias_head. validate_experiments --strict --paths OK (emit_outcome + per-cell arm_fingerprint + readiness precondition + load_bearing criterion). Dry-run smoke PASS: ARM_0 head_delta=0.000000 + bias=0.000000 (silent) all seeds; ARM_1 head_delta 0.027-0.040 (head moves under gradient) -> C1/C2/C3 True, head_grad_ready=True, self-route ofc_trainable_head_substrate_ready. PASS unblocks the full SD-033b behavioural GAP-8 arm (aversive-devaluation, ofc_harm_dim>0). substrate landed ree-v3 main 382db2c.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-10T00:23:50Z"
+      },
       "claim_ids": [],
       "conditions": 2,
       "episodes_per_run": 80,
