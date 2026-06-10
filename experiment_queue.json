@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-662",
-      "title": "modulatory-bias-selection-authority route-range AMEND substrate-readiness (P0 routed-range gate; 569f/661/654a)",
-      "script": "experiments/v3_exq_662_modulatory_channel_routing_substrate_readiness.py",
-      "priority": 280,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "claim_id": "",
-      "note": "Substrate-readiness diagnostic (claim_ids=[]) for the route-range AMEND. ARM_0 routing OFF vs ARM_1 routing ON (source=cand_world_summary), both with authority ON + e2_world_forward + SD-056 online. PASS (route_range_substrate_ready) confirms the P0 routed-range gate and unblocks the SEPARATE per-claim behavioural retests of ARC-065/MECH-294/ARC-062/MECH-309/MECH-341. Below-floor self-routes substrate_not_ready_requeue. Routed by failure_autopsy_569f-661-654a_2026-06-10.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-10T06:55:43Z"
-      },
-      "claim_ids": [],
-      "conditions": 2,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_662_modulatory_channel_routing_substrate_readiness",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-663",
       "title": "modulatory-bias-selection-authority route-range AMEND substrate-readiness (P0 routed-range gate; 569f/661/654a)",
       "script": "experiments/v3_exq_663_modulatory_channel_routing_substrate_readiness.py",
@@ -141,7 +121,11 @@
       "estimated_minutes": 55,
       "claim_id": "",
       "note": "Diagnostic TELEMETRY showcase (claim_ids=[], experiment_purpose=diagnostic); does NOT weight governance. Feeds the upgraded fishtank_viz.html (FISHTANK_VIZ_VERSION 2026-06-10.1) with an episode_log exposing the affective/protoemotional register: nociceptive cascade (z_harm_s/un/a), drive, wanting (z_goal), tonic vigor (MECH-320), orexin override (SD-037), PAG freeze (MECH-279, capped), blocked-agency assert pole (MECH-353 + env action-blocks), MECH-307 excite/dread valence. Affect stack runs as telemetry on the 524 reef stack so the fish stays behaviour-legible. Outcome = non-degeneracy of core channels (z_harm_a/un/drive) + blocked-agency engagement + freeze-not-locked. Dry-run smoke PASS. Script landed 2026-06-10 (ree-v3 9f3b1e1); queue-add was held ~16min on a dangling V3-EXQ-662 ghost (concurrent renumber-vs-DB-snapshot race) and added once the queue validated clean.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-10T10:49:34Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 50,
