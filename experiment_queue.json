@@ -77,13 +77,13 @@
       "machine_affinity": "DLAPTOP-4.local",
       "estimated_minutes": 55,
       "claim_id": "",
-      "claim_ids": [],
+      "note": "Diagnostic TELEMETRY showcase (claim_ids=[]); does NOT weight governance. The developmentally-scaffolded counterpart to V3-EXQ-664: trains the agent through the ScaffoldedSD054OnboardingScheduler curriculum (Stage-0/0b/P0/Stage-H/P1) WITH scaffold_train_harm_pathway ON, then runs an affective eval emitting the 664 affect schema for fishtank_viz.html. Dry-run smoke PASS: curriculum runs end-to-end, harm pathway trains (~180 steps), z_goal/wanting ACTIVE at eval (~0.39 vs 664's flat 0). PAG freeze motor-override disabled for the eval (the trained agent's chronic high z_harm_a otherwise freeze-locks it -- itself the z_harm_a-saturation story; affect telemetry stays faithful). MACHINE-PINNED to the Mac so the episode_log companion lands on origin (Phase-3 cloud workers strand episode_log side-files; see V3-EXQ-664).",
       "status": "pending",
-      "episodes_per_run": 220,
-      "seeds": 1,
+      "claim_ids": [],
       "conditions": 1,
+      "episodes_per_run": 220,
       "experiment_type": "v3_exq_665_curriculum_affective_fishtank_showcase",
-      "note": "Diagnostic TELEMETRY showcase (claim_ids=[]); does NOT weight governance. The developmentally-scaffolded counterpart to V3-EXQ-664: trains the agent through the ScaffoldedSD054OnboardingScheduler curriculum (Stage-0/0b/P0/Stage-H/P1) WITH scaffold_train_harm_pathway ON, then runs an affective eval emitting the 664 affect schema for fishtank_viz.html. Dry-run smoke PASS: curriculum runs end-to-end, harm pathway trains (~180 steps), z_goal/wanting ACTIVE at eval (~0.39 vs 664's flat 0). PAG freeze motor-override disabled for the eval (the trained agent's chronic high z_harm_a otherwise freeze-locks it -- itself the z_harm_a-saturation story; affect telemetry stays faithful). MACHINE-PINNED to the Mac so the episode_log companion lands on origin (Phase-3 cloud workers strand episode_log side-files; see V3-EXQ-664)."
+      "seeds": 1
     }
   ]
 }
