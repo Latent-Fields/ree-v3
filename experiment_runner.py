@@ -2653,8 +2653,42 @@ def main():
             # similar that wouldn't go through _post.
             pass
 
+    _stopped_hb_sent: list = []
+
+    def _finalize_stopped_heartbeat() -> None:
+        """Push a final heartbeat clearing current_exq before the runner exits.
+
+        During a run the heartbeat thread POSTs state="running" + current_exq=X
+        to the coordinator every tick. /shutdown_notify stamps last_shutdown_at
+        but does NOT clear current_exq, so the /machines dashboard (which reads
+        current_exq straight from the heartbeats row) keeps showing the last
+        experiment as running after the runner stops. This pushes one final
+        state="offline", current_exq=None heartbeat so the coordinator DB (and
+        the materialised git file) reflect that nothing is running. Best-effort,
+        idempotent, never raises. Must run BEFORE _announce_intentional_shutdown
+        so the fresh last_seen does not re-mark the machine live after the
+        shutdown notice lands."""
+        if _stopped_hb_sent:
+            return
+        _stopped_hb_sent.append(True)
+        if not (args.remote_control and _rrc is not None
+                and ree_assembly_path and machine):
+            return
+        try:
+            hb_path = _rrc.write_heartbeat(
+                ree_assembly_path, machine, state="offline",
+                current_exq=None,
+                runner_pid=os.getpid(),
+                runner_version=_RUNNER_VERSION,
+            )
+            if args.auto_sync and hb_path is not None:
+                _rrc.push_heartbeat(ree_assembly_path, hb_path)
+        except Exception as _exc:
+            print(f"[runner] final heartbeat warn: {_exc}", flush=True)
+
     def _do_immediate_exit() -> None:
         """Final cleanup steps shared by both force-exit and post-drain exit."""
+        _finalize_stopped_heartbeat()
         _announce_intentional_shutdown("runner_signal_exit")
         if args.auto_sync and _current_claim:
             release_active_claim(QUEUE_FILE, _current_claim[0], machine)
@@ -3480,6 +3514,12 @@ def main():
     status["current"] = None
     status["runner_pid"] = None
     write_status(status, status_path)
+    # Clear current_exq in the heartbeat/coordinator before announcing shutdown
+    # so the /machines dashboard stops showing the last experiment as running.
+    # Covers every loop-exit path: graceful drain, remote stop, remote
+    # force_stop, and natural queue exhaustion (the process is exiting in all
+    # of them).
+    _finalize_stopped_heartbeat()
     if _drain_flag:
         print("[runner] Graceful drain complete. Exiting.", flush=True)
         # Drain was signal-induced -- announce intentional shutdown so the
