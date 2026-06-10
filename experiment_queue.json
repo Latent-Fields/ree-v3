@@ -47,27 +47,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-591c",
-      "title": "InfantCurriculum Phase 0->1 reachability with exploration-diversity stack armed (591b seed-46 collapse re-test)",
-      "script": "experiments/v3_exq_591c_isef005_curriculum_phase_advance_readiness_diversity_v3.py",
-      "priority": 250,
-      "machine_affinity": "any",
-      "estimated_minutes": 320,
-      "claim_id": null,
-      "backlog_id": null,
-      "note": "Diagnose-first follow-up to failure_autopsy_V3-EXQ-591b_2026-06-10. Same Phase 0->1 reachability run as 591b (5 seeds 42-46, 160 ep, 200 steps/ep, landed H_POS_FRAC_OF_MAX=0.20 gate) with the exploration-diversity stack ARMED: MECH-313 noise floor (use_noise_floor=True) + MECH-314 structured curiosity (use_structured_curiosity=True) at landed default magnitudes; SP-CEM already main-path default. 591b ran SP-CEM-on but those two masters OFF; seed 46 collapsed to a near-stationary policy (h_pos_mean=0.0375) and never cleared the single-episode gate. claim_ids=[] diagnostic. PASS (all 5 reach Phase 1 + advanced seeds genuinely explored) -> diversity stack resolves the collapse, gate needs NO change. FAIL (collapse persists) -> routes to the gate-robustness work the autopsy deferred (K-of-N / EMA crossing or active Phase-0 exploration shaping), NEVER to lowering the threshold. Non-vacuity guard: advanced seeds must show genuine exploration (h_pos_mean>=0.2 AND >=2 eligible crossings), so the gate is not credited for admitting a non-explorer.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-06-10T15:10:22Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 160,
-      "experiment_type": "v3_exq_591c_isef005_curriculum_phase_advance_readiness_diversity",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-655",
       "title": "INV-074 crystallization-necessity: task-distribution-shift phase-3 redesign (supersedes 610f)",
       "script": "experiments/v3_exq_655_inv074_crystallization_necessity_taskshift.py",
@@ -97,7 +76,11 @@
       "estimated_minutes": 55,
       "claim_id": "",
       "note": "Diagnostic TELEMETRY showcase (claim_ids=[]); does NOT weight governance. The developmentally-scaffolded counterpart to V3-EXQ-664: trains the agent through the ScaffoldedSD054OnboardingScheduler curriculum (Stage-0/0b/P0/Stage-H/P1) WITH scaffold_train_harm_pathway ON, then runs an affective eval emitting the 664 affect schema for fishtank_viz.html. Dry-run smoke PASS: curriculum runs end-to-end, harm pathway trains (~180 steps), z_goal/wanting ACTIVE at eval (~0.39 vs 664's flat 0). PAG freeze motor-override disabled for the eval (the trained agent's chronic high z_harm_a otherwise freeze-locks it -- itself the z_harm_a-saturation story; affect telemetry stays faithful). MACHINE-PINNED to the Mac so the episode_log companion lands on origin (Phase-3 cloud workers strand episode_log side-files; see V3-EXQ-664).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-06-10T22:56:31Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 220,
