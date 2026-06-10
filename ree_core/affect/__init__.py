@@ -11,9 +11,17 @@ from ree_core.affect.blocked_agency import (
     BlockedAgencyConfig,
     BlockedAgencyOutput,
 )
+from ree_core.affect.harm_suffering_accumulator import (
+    HarmSufferingAccumulator,
+    HarmSufferingAccumulatorConfig,
+    HarmSufferingAccumulatorOutput,
+)
 
 __all__ = [
     "BlockedAgency",
     "BlockedAgencyConfig",
     "BlockedAgencyOutput",
+    "HarmSufferingAccumulator",
+    "HarmSufferingAccumulatorConfig",
+    "HarmSufferingAccumulatorOutput",
 ]

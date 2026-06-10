@@ -761,6 +761,7 @@ class LatentState:
     z_harm_un: Optional[torch.Tensor] = None  # SD-019a harm_unpleasantness_channel [batch, harm_dim]; EMA of z_harm_s, NOT modulated by controllability
     z_harm_intero: Optional[torch.Tensor] = None  # MECH-282 LPB interoceptive distress [batch, lpb_intero_z_dim]
     z_block: Optional[torch.Tensor] = None  # MECH-353 blocked-agency / control-failure readout [batch, 1]; integrated SD-029 action-outcome comparator mismatch, external-attribution + capacity gated. None when use_blocked_agency is off.
+    z_harm_suffering: Optional[torch.Tensor] = None  # MECH-219 (SD-019b) controllability-gated hysteretic suffering [batch, harm_dim]; same dim as z_harm_un, magnitude = accumulator s_t. None when use_harm_suffering_accumulator is off.
 
     def to_tensor(self) -> torch.Tensor:
         """Concatenate all channels into a single tensor (excludes z_harm)."""
@@ -795,6 +796,7 @@ class LatentState:
             z_harm_un=self.z_harm_un.detach() if self.z_harm_un is not None else None,
             z_harm_intero=self.z_harm_intero.detach() if self.z_harm_intero is not None else None,
             z_block=self.z_block.detach() if self.z_block is not None else None,
+            z_harm_suffering=self.z_harm_suffering.detach() if self.z_harm_suffering is not None else None,
         )
 
 

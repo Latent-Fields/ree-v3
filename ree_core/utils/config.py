@@ -2271,6 +2271,58 @@ class REEConfig:
     avoidance_noop_class: int = 0
 
     # ----------------------------------------------------------------
+    # MECH-219 (SD-019b): affective-harm hysteretic integrator. Turns the
+    # SD-019a medium-timescale unpleasantness channel (z_harm_un) into a slow,
+    # persistent, controllability-gated SUFFERING load state (z_harm_suffering)
+    # via an asymmetric (hysteretic) integrator. Pure-arithmetic regulator
+    # (ree_core/affect/harm_suffering_accumulator.py); bit-identical when
+    # use_harm_suffering_accumulator=False (agent.harm_suffering_accumulator is
+    # None, LatentState.z_harm_suffering stays None, no consumer redirect fires).
+    # The default escapability_mode=constant=1.0 gives g_t=0 -> s_t->0 so the
+    # integrator is also inert/maximally-relieving even when explicitly enabled.
+    # See REE_assembly/evidence/planning/mech_219_hysteretic_integrator_design.md.
+    use_harm_suffering_accumulator: bool = False
+    # Asymmetric accumulation rates: alpha_rise >> alpha_fall is the hysteresis
+    # (sticky suffering, slow recovery -- Baliki 2012 allostatic drift).
+    harm_suffering_alpha_rise: float = 0.2
+    harm_suffering_alpha_fall: float = 0.01
+    # Escapability source mode: constant (default, dependency-free) /
+    # avoidance_efficacy (SD-058 effective_efficacy(), the literal escapability
+    # construct -- adds a soft dependency on the v3_pending SD-058 substrate) /
+    # external (a validation experiment drives it via set_harm_suffering_escapability).
+    harm_suffering_escapability_mode: str = "constant"
+    # Escapability value used in the constant mode (1.0 = fully escapable -> g=0).
+    harm_suffering_escapability_constant: float = 1.0
+    # Initial value the external mode reports until a caller sets it.
+    harm_suffering_external_escapability: float = 1.0
+    # Hard clamp on the accumulated suffering scalar s_t.
+    harm_suffering_s_cap: float = 2.0
+    # SD-022 body-damage fold-in (memo Section 6 fork b): when > 0, ||z_harm_a||
+    # is added to the drive so the SD-022 / EXQ-319 / EXQ-323a evidence is
+    # preserved rather than orphaned. 0.0 -> pure z_harm_un drive.
+    harm_suffering_body_damage_weight: float = 0.0
+    # Optional SD-020 prediction-error driver (Q-036 secondary modulator); when
+    # > 0, pe_gain * unsigned_PE is added to drive AFTER the controllability gate.
+    harm_suffering_pe_gain: float = 0.0
+    # Optional Schmitt bistable latch (the "distinct load STATE" reading).
+    harm_suffering_use_bistable_latch: bool = False
+    harm_suffering_theta_on: float = 0.5
+    harm_suffering_theta_off: float = 0.3
+    # Per-consumer z_harm_a -> z_harm_suffering redirect flags (memo Section 6).
+    # Each redirects ONLY that consumer's scalar harm-magnitude read to
+    # ||z_harm_suffering||; all default OFF so the migration is staged and
+    # individually ablatable, and bit-identical when off. v1 wires the
+    # urgency / PAG / interrupt consumers (AIC, PAG, MECH-091); the dACC/pACC
+    # flags are reserved (their E2_harm_a forward models are keyed on the
+    # current z_harm_a dim -- migrate last after measuring R^2; left on legacy
+    # z_harm_a in v1 per memo R3, so these two flags are currently no-ops).
+    harm_suffering_redirect_aic: bool = False
+    harm_suffering_redirect_pag: bool = False
+    harm_suffering_redirect_mech091: bool = False
+    harm_suffering_redirect_dacc: bool = False
+    harm_suffering_redirect_pacc: bool = False
+
+    # ----------------------------------------------------------------
     # SD-059 / MECH-358: relief/safety escape-affordance bridge. Extends the
     # MECH-357 scalar avoidance_efficacy into a per-first-action-class credit
     # table (the DIRECTED escape MECH-357 lacks). Pure-arithmetic regulator
@@ -3551,6 +3603,26 @@ class REEConfig:
         blocked_agency_decommit_arc016_precision_max: float = 0.0,
         blocked_agency_predicted_effect_floor: float = 0.05,
         blocked_agency_noop_class: int = 0,
+        # MECH-219 (SD-019b): affective-harm hysteretic integrator. All defaults
+        # no-op (bit-identical when use_harm_suffering_accumulator=False; also
+        # inert under the default escapability_mode=constant=1.0).
+        use_harm_suffering_accumulator: bool = False,
+        harm_suffering_alpha_rise: float = 0.2,
+        harm_suffering_alpha_fall: float = 0.01,
+        harm_suffering_escapability_mode: str = "constant",
+        harm_suffering_escapability_constant: float = 1.0,
+        harm_suffering_external_escapability: float = 1.0,
+        harm_suffering_s_cap: float = 2.0,
+        harm_suffering_body_damage_weight: float = 0.0,
+        harm_suffering_pe_gain: float = 0.0,
+        harm_suffering_use_bistable_latch: bool = False,
+        harm_suffering_theta_on: float = 0.5,
+        harm_suffering_theta_off: float = 0.3,
+        harm_suffering_redirect_aic: bool = False,
+        harm_suffering_redirect_pag: bool = False,
+        harm_suffering_redirect_mech091: bool = False,
+        harm_suffering_redirect_dacc: bool = False,
+        harm_suffering_redirect_pacc: bool = False,
         # V3-EXQ-563: hard-inject per-class score bias after all naturalistic
         # signal generation. None = disabled (standard behaviour).
         forced_score_bias_per_class: Optional[List[float]] = None,
@@ -4384,6 +4456,29 @@ class REEConfig:
             blocked_agency_predicted_effect_floor
         )
         config.blocked_agency_noop_class = blocked_agency_noop_class
+
+        # MECH-219 (SD-019b): affective-harm hysteretic integrator.
+        config.use_harm_suffering_accumulator = use_harm_suffering_accumulator
+        config.harm_suffering_alpha_rise = harm_suffering_alpha_rise
+        config.harm_suffering_alpha_fall = harm_suffering_alpha_fall
+        config.harm_suffering_escapability_mode = harm_suffering_escapability_mode
+        config.harm_suffering_escapability_constant = (
+            harm_suffering_escapability_constant
+        )
+        config.harm_suffering_external_escapability = (
+            harm_suffering_external_escapability
+        )
+        config.harm_suffering_s_cap = harm_suffering_s_cap
+        config.harm_suffering_body_damage_weight = harm_suffering_body_damage_weight
+        config.harm_suffering_pe_gain = harm_suffering_pe_gain
+        config.harm_suffering_use_bistable_latch = harm_suffering_use_bistable_latch
+        config.harm_suffering_theta_on = harm_suffering_theta_on
+        config.harm_suffering_theta_off = harm_suffering_theta_off
+        config.harm_suffering_redirect_aic = harm_suffering_redirect_aic
+        config.harm_suffering_redirect_pag = harm_suffering_redirect_pag
+        config.harm_suffering_redirect_mech091 = harm_suffering_redirect_mech091
+        config.harm_suffering_redirect_dacc = harm_suffering_redirect_dacc
+        config.harm_suffering_redirect_pacc = harm_suffering_redirect_pacc
 
         config.forced_score_bias_per_class = forced_score_bias_per_class
 

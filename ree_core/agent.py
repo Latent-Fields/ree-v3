@@ -135,6 +135,10 @@ from ree_core.amygdala import (
 )
 from ree_core.comparator.tpj_comparator import TPJComparator
 from ree_core.affect.blocked_agency import BlockedAgency, BlockedAgencyConfig
+from ree_core.affect.harm_suffering_accumulator import (
+    HarmSufferingAccumulator,
+    HarmSufferingAccumulatorConfig,
+)
 from ree_core.regulators import (
     GABAergicDecayConfig,
     GABAergicDecayRegulator,
@@ -969,6 +973,46 @@ class REEAgent(nn.Module):
         # action-outcome and motor-agency comparators (None until first sense()).
         self._ba_prev_z_world: Optional[torch.Tensor] = None
         self._ba_prev_z_self: Optional[torch.Tensor] = None
+
+        # MECH-219 (SD-019b): affective-harm hysteretic integrator. Turns the
+        # SD-019a medium-timescale unpleasantness channel (z_harm_un) into a
+        # slow, persistent, controllability-gated SUFFERING load state
+        # (z_harm_suffering) via an asymmetric (hysteretic) integrator. Pure-
+        # arithmetic regulator; bit-identical when
+        # use_harm_suffering_accumulator=False (the accumulator is None,
+        # LatentState.z_harm_suffering stays None, no consumer redirect fires).
+        # Requires the SD-019a unpleasantness channel (use_harm_un=True) as its
+        # drive input. See
+        # REE_assembly/evidence/planning/mech_219_hysteretic_integrator_design.md.
+        self.harm_suffering_accumulator: Optional[HarmSufferingAccumulator] = None
+        if getattr(config, "use_harm_suffering_accumulator", False):
+            if not getattr(config.latent, "use_harm_un", False):
+                raise ValueError(
+                    "use_harm_suffering_accumulator=True requires use_harm_un=True "
+                    "(MECH-219 integrates the SD-019a z_harm_un unpleasantness "
+                    "channel; without it there is no drive signal)."
+                )
+            hsa_cfg = HarmSufferingAccumulatorConfig(
+                use_harm_suffering_accumulator=True,
+                alpha_rise=config.harm_suffering_alpha_rise,
+                alpha_fall=config.harm_suffering_alpha_fall,
+                escapability_mode=config.harm_suffering_escapability_mode,
+                escapability_constant=config.harm_suffering_escapability_constant,
+                s_cap=config.harm_suffering_s_cap,
+                body_damage_weight=config.harm_suffering_body_damage_weight,
+                pe_gain=config.harm_suffering_pe_gain,
+                use_bistable_latch=config.harm_suffering_use_bistable_latch,
+                theta_on=config.harm_suffering_theta_on,
+                theta_off=config.harm_suffering_theta_off,
+            )
+            self.harm_suffering_accumulator = HarmSufferingAccumulator(config=hsa_cfg)
+        # MECH-219 external-escapability seam: the `external` escapability mode
+        # reads this scalar (a validation experiment drives it via
+        # set_harm_suffering_escapability); ignored in constant/avoidance_efficacy
+        # modes.
+        self._harm_suffering_external_escapability: float = float(
+            getattr(config, "harm_suffering_external_escapability", 1.0)
+        )
 
         # SD-058 / MECH-357: ilPFC-analog instrumental-avoidance gate. Resolves
         # the Pavlovian-instrumental conflict (Moscarello & LeDoux 2013) -- a
@@ -2044,6 +2088,10 @@ class REEAgent(nn.Module):
         self._ba_prev_z_world = None
         self._ba_prev_z_self = None
 
+        # MECH-219: reset the suffering accumulator per episode (s_t -> 0).
+        if self.harm_suffering_accumulator is not None:
+            self.harm_suffering_accumulator.reset()
+
         # SD-058 / MECH-357: clear the within-episode threat trace ONLY -- the
         # learned avoidance_efficacy PERSISTS across episodes (developmental
         # acquisition does not un-learn at episode boundaries). Also clear the
@@ -2288,6 +2336,58 @@ class REEAgent(nn.Module):
             self._tpj_last_agency_signal = agency_signal.detach().clone()
             self._tpj_last_is_self_caused = is_self_caused.detach().clone()
         self._tpj_predicted_z_self = None
+
+    # ------------------------------------------------------------------
+    # MECH-219 escapability source resolution
+    # ------------------------------------------------------------------
+    def set_harm_suffering_escapability(self, value: float) -> None:
+        """MECH-219 `external` escapability mode seam.
+
+        Lets a validation experiment drive the controllability gate directly
+        (e.g. a scripted escapable-vs-inescapable schedule). Ignored unless
+        harm_suffering_escapability_mode == 'external'. Clamped to [0, 1].
+        """
+        self._harm_suffering_external_escapability = float(
+            max(0.0, min(1.0, value))
+        )
+
+    def _resolve_harm_suffering_escapability(self) -> float:
+        """Resolve the MECH-219 escapability scalar in [0, 1] for the current tick.
+
+        Source per config.harm_suffering_escapability_mode:
+          constant            -> harm_suffering_escapability_constant (default 1.0;
+                                 dependency-free; g=0 -> inert).
+          avoidance_efficacy  -> SD-058 InstrumentalAvoidanceGate.effective_efficacy()
+                                 (the literal escapability construct; soft dependency
+                                 on the v3_pending SD-058 substrate). Falls back to
+                                 the constant when the gate is absent.
+          external            -> the scalar set via set_harm_suffering_escapability()
+                                 (a validation experiment drives it).
+        Never sourced from MECH-353 capacity_belief (= 1 - w*||z_harm_a||) -- that
+        would close a z_harm_a -> capacity_belief -> z_harm_a loop; capacity_belief
+        is a validation cross-check only (memo Section 3 / R1).
+        """
+        mode = getattr(
+            self.config, "harm_suffering_escapability_mode", "constant"
+        )
+        if mode == "avoidance_efficacy":
+            if self.instrumental_avoidance is not None:
+                return float(
+                    max(0.0, min(1.0, self.instrumental_avoidance.effective_efficacy()))
+                )
+            return float(
+                getattr(self.config, "harm_suffering_escapability_constant", 1.0)
+            )
+        if mode == "external":
+            return float(
+                max(0.0, min(1.0, self._harm_suffering_external_escapability))
+            )
+        # constant (default)
+        return float(
+            max(0.0, min(1.0, getattr(
+                self.config, "harm_suffering_escapability_constant", 1.0
+            )))
+        )
 
     def _update_blocked_agency(self, new_latent: LatentState) -> None:
         """MECH-353: resolve the blocked-agency / control-failure readout.
@@ -2857,6 +2957,46 @@ class REEAgent(nn.Module):
                     )
             new_latent.z_harm_un = self._harm_un_ema.clone()
 
+        # MECH-219 (SD-019b): controllability-gated hysteretic suffering
+        # integrator. Reads the SD-019a unpleasantness magnitude ||z_harm_un||
+        # as the drive and the resolved escapability scalar as the
+        # controllability gate (g_t = 1 - escapability); accumulates with
+        # asymmetric alpha_rise >> alpha_fall into a slow suffering scalar s_t.
+        # The output z_harm_suffering LatentState vector points in the
+        # z_harm_un direction with magnitude s_t (same dim as z_harm_un). Runs
+        # BEFORE the SD-032 consumers (AIC below, pACC/PAG in select_action) so
+        # any per-consumer redirect reads the suffering output on the same tick.
+        # MECH-094: no-op under hypothesis_tag (replay must not accumulate
+        # suffering). Bit-identical when the accumulator is None, and inert under
+        # the default escapability_mode=constant=1.0 (g=0 -> s->0).
+        if (
+            self.harm_suffering_accumulator is not None
+            and new_latent.z_harm_un is not None
+        ):
+            sim_mode = bool(getattr(new_latent, "hypothesis_tag", False))
+            with torch.no_grad():
+                u_norm = float(new_latent.z_harm_un.detach().norm().item())
+                body_norm = 0.0
+                if new_latent.z_harm_a is not None:
+                    body_norm = float(new_latent.z_harm_a.detach().norm().item())
+                escap = self._resolve_harm_suffering_escapability()
+                out = self.harm_suffering_accumulator.update(
+                    unpleasantness_norm=u_norm,
+                    escapability=escap,
+                    body_damage_norm=body_norm,
+                    unsigned_pe=0.0,
+                    simulation_mode=sim_mode,
+                )
+                # Build the z_harm_suffering vector: the z_harm_un direction
+                # scaled to magnitude s_t (so ||z_harm_suffering|| == s_t).
+                zun = new_latent.z_harm_un.detach()
+                zun_norm = float(zun.norm().item())
+                if zun_norm > 1e-8:
+                    direction = zun / zun_norm
+                else:
+                    direction = torch.zeros_like(zun)
+                new_latent.z_harm_suffering = (direction * out.s).clone()
+
         # SD-037: tick the broadcast override regulator (orexin-analog).
         # Combines drive_level (SD-012) and a sustained-threat magnitude window
         # over z_harm into a scalar override_signal in [0, 1]. The signal is
@@ -2913,6 +3053,16 @@ class REEAgent(nn.Module):
                 aic_z_norm = float(new_latent.z_harm_a.norm().item())
             else:
                 aic_z_norm = 0.0
+            # MECH-219 (SD-019b) AIC redirect: when the suffering accumulator is
+            # on AND the AIC redirect flag is set, source AIC urgency from the
+            # slow suffering magnitude ||z_harm_suffering|| instead. Default off
+            # -> bit-identical. (Magnitude-only redirect; the AIC reads a scalar.)
+            if (
+                getattr(self.config, "use_harm_suffering_accumulator", False)
+                and getattr(self.config, "harm_suffering_redirect_aic", False)
+                and new_latent.z_harm_suffering is not None
+            ):
+                aic_z_norm = float(new_latent.z_harm_suffering.norm().item())
             aic_drive = 0.0
             if self.goal_state is not None:
                 aic_drive = float(getattr(self.goal_state, "_last_drive_level", 0.0))
@@ -3874,6 +4024,16 @@ class REEAgent(nn.Module):
                 and self._current_latent.z_harm_un is not None
             ):
                 _urgency_signal = self._current_latent.z_harm_un
+            # MECH-219 (SD-019b) MECH-091 redirect: source the urgency-interrupt
+            # signal from the slow suffering channel z_harm_suffering when the
+            # accumulator + redirect flag are on. Default off -> bit-identical.
+            if (
+                getattr(self.config, "use_harm_suffering_accumulator", False)
+                and getattr(self.config, "harm_suffering_redirect_mech091", False)
+                and self._current_latent is not None
+                and self._current_latent.z_harm_suffering is not None
+            ):
+                _urgency_signal = self._current_latent.z_harm_suffering
             if float(_urgency_signal.norm().item()) > urgency_threshold:
                 self.beta_gate.release()
                 self._committed_step_idx = 0
@@ -5601,6 +5761,18 @@ class REEAgent(nn.Module):
                 pag_z_norm = float(z_harm_a.detach().norm().item())
             else:
                 pag_z_norm = 0.0
+            # MECH-219 (SD-019b) PAG freeze-drive redirect: source the freeze
+            # drive from the slow suffering channel when the accumulator +
+            # redirect flag are on. Default off -> bit-identical.
+            if (
+                getattr(self.config, "use_harm_suffering_accumulator", False)
+                and getattr(self.config, "harm_suffering_redirect_pag", False)
+                and self._current_latent is not None
+                and self._current_latent.z_harm_suffering is not None
+            ):
+                pag_z_norm = float(
+                    self._current_latent.z_harm_suffering.detach().norm().item()
+                )
             pag_tone = (
                 float(self.gabaergic_decay.gaba_tone)
                 if self.gabaergic_decay is not None
