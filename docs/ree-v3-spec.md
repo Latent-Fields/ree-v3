@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-09
+**Last updated:** 2026-06-10
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-09)
+## 0. Current V3 State (2026-06-10)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -150,6 +150,9 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | ControlVector logging (rec-B telemetry) | telemetry.control_vector_logging -- read-only, default-OFF telemetry making value / effort / opportunity-cost-of-time / vigor separately inspectable each E3 tick. Exposes the ARC-068-vs-MECH-320 collapse (opportunity cost and vigor are both `w*v_t` for the SAME MECH-320 v_t scalar -- ARC-068 is registered but unbuilt). Recommendation B (logging only); causal first-class opportunity-cost split (C) + full four-axis controller (D) DEFERRED post-green-board, gated on ARC-068 lit-pull and MECH-320 regaining selection authority. Modules: REEConfig.use_control_vector_logging (default False) + bundle gains control_required + effort_term; E3Selector stores `last_raw_scores`; REEAgent `_assemble_control_vector()` writes `_last_control_vector` after e3.select. Bit-identical OFF (contract C4); 889 contracts + 4 new ControlVector contracts; activation smoke v_t=0.5 (forced floor; v_raw=-1.75 EXQ-624a sign/scale issue now visible). | Implemented 2026-06-07 (ree-v3 main). Stage-B C_time<->G_vigor collapse-correlation diagnostic queued via /queue-experiment (claim_ids=[]; pre-registered rho ~ 1.0). |
 | SD-058 / MECH-357 (instrumental-avoidance acquisition; ilPFC-analog) | defensive_action.instrumental_avoidance_acquisition -- closes the scaffolded_sd054_onboarding Stage-H / P1 survival-leg gap (V3-EXQ-603g G_H 0/3; goal_pipeline:GAP-2). The instrumental-ACQUISITION side REE was missing: REE had the Pavlovian/defensive REACTION side (SD-035 BLA/CeA salience + MECH-279 PAG freeze) but no learned avoidance. Per Moscarello & LeDoux 2013, active avoidance is the resolution of a Pavlovian-instrumental conflict requiring infralimbic PFC to SUPPRESS CeA-driven freezing; a freeze-only substrate freezes instead of learning to avoid. New module `ree_core/pfc/infralimbic_avoidance_gate.py` (`InstrumentalAvoidanceGate` + config + output; pure-arithmetic regulator, sibling to SD-035/MECH-279/MECH-313/MECH-320/MECH-342). Three pieces (all behind `use_instrumental_avoidance` default False): (a) per-candidate ASSERT action-pathway score-bias penalising the no-op/freeze class proportional to `effective_efficacy * threat_scale`; (b) ilPFC freeze-suppression gate at the MECH-279 application site (skips the no-op override when `effective_efficacy * threat_scale >= suppression_threshold`); (c) eligibility-trace avoidance-efficacy learning (scalar in [0,1] starting 0; directed action under threat that DROPS z_harm_a credits efficacy via EMA toward 1; freezing/failed-avoidance decays it). PROTECTIVE-SCAFFOLD anneal: `effective_efficacy = max(avoidance_efficacy, scaffold_floor)` with Stage-H curriculum starting high then annealing down (maternal-buffering / Turchetta 2020). Curriculum wiring in `scaffolded_sd054_onboarding.run_hazard_avoidance` under `scaffold_avoidance_driver_enabled` (False default) + `scaffold_avoidance_scaffold_floor_start` (0.8) / `..._floor_end` (0.0); LOAD-BEARING PREREQUISITE FOUND 2026-06-07: legacy scaffold called sense(body, world) with NO harm args so z_harm_a was None across the entire curriculum -- new flag `scaffold_feed_harm_stream` (False default) feeds env harm_obs + harm_obs_a so PAG/SD-035/SD-058 actually see threat (~0.34 in Stage-H). 912 contracts + 7/7 preflight PASS; 7 new MECH-357 contracts + 4 C13 in test_scaffolded_sd054_onboarding.py. MECH-094 no-op for compute methods + update under simulation_mode. | Implemented 2026-06-07 (ree-v3 main). v3_pending until V3-EXQ-603h Stage-H validation PASSes. V3-EXQ-603h FAILed adjudicated engaged-but-insufficient (gate engaged + suppressed PAG freeze on all INTACT seeds, readiness_met=true, but G_H_INTACT 0/3 not > LESION; scalar avoidance_efficacy decoupled from survival -- seed-43 inversion). Failure_autopsy_V3-EXQ-603h_2026-06-08 confirmed AND clean adjudicated; SD-058/MECH-357 stay candidate / v3_pending UNWEAKENED (claim_ids=[]). Discovered dependency = relief/safety escape-affordance bridge (SD-059 below). |
 | SD-059 / MECH-358 (escape-affordance bridge: relief/safety -> directed escape) | defensive_action.escape_affordance_bridge -- closes the V3-EXQ-603h directed-escape gap. SD-058 suppressed the MECH-279 freeze but `avoidance_efficacy` is a GLOBAL SCALAR that only penalises the no-op class; `compute_action_bias` by design "does NOT compute the escape direction". 603h: gate suppressed freeze on all INTACT seeds but G_H_INTACT=0/3; seed-43 reached scalar efficacy 0.633 yet survived WORST (11.0) -- agent un-froze without acquiring a DIRECTED escape. Per Moscarello & LeDoux 2013: active avoidance also needs the LA/BA->NAcc relief/safety action-credit half. REE owned relief (MECH-302/SD-050) + safety (MECH-303/304/SD-052/SD-051) but they were UNWIRED to avoidance. New module `ree_core/pfc/escape_affordance_bridge.py` (`EscapeAffordanceBridge` + config + output; pure-arithmetic, sibling to SD-058 in `ree_core/pfc/`). Extends MECH-357's scalar `avoidance_efficacy` into a per-FIRST-ACTION-CLASS credit table (the minimal V3 rendering of `escape_affordance[action]` -- directed escape direction in the discrete action space). Two togglable halves (so the 4-arm validation dissociates): RELIEF half (directed action under threat that DROPS z_harm_a credits `relief_affordance[action_class]` toward 1) + SAFETY half (directed action after which threat is absent credits `safety_affordance[action_class]`). Approach bonus under FUTURE threat: per-candidate NEGATIVE (favoured) score-bias toward each candidate whose first-action class carries combined affordance credit; the no-op/freeze class never gets a bonus. THREE guards: bias_scale clamp + threat-context gate (exactly zero when safe) + per-tick leak (no pathological habit loop). DISTINCT from reflexive escape (SD-037 orexin / MECH-281 urgency) and from the generic relief/safety rows (MECH-302/303/304 fire on the CURRENT state); this is learned-efficacy-gated DIRECTED approach binding an action to relief/safety for future-threat use. Bit-identical OFF; 8 new SD-059 contracts in test_sd_059_escape_affordance_bridge.py PASS. MECH-094 no-op under simulation_mode. | Implemented 2026-06-08 (ree-v3 main 6c856a5 post-603i E2 escape-affordance linker reuse/readout over E2). v3_pending until the 4-arm validation EXQ PASSes. V3-EXQ-603i (ARM_BASE_IA_ONLY / ARM_RELIEF_BRIDGE / ARM_SAFETY_BRIDGE / ARM_RELIEF_SAFETY_BRIDGE + nav-competence positive control) FAILed precondition_unmet -- the diagnostic self-route flagged for adjudication via failure-autopsy; substrate_queue CREATE escape-affordance-bridge (priority 1) carried over to the post-603i successor scaffolds below. |
+| MECH-189 super-ordinal goal-anchor ContextMemory writes substrate | development.super_ordinal_goal_anchor_writes -- closes infant_substrate:GAP-11. New `SuperOrdinalGoalMemory` in `ree_core/goal.py` (agent-owned + cue-indexed `key=z_world context / value=z_goal anchor`; NOT reset per episode). Write hook at `agent.update_z_goal` (child phase) gated on the MECH-189 conjunction `(high-salience drive-modulated benefit) AND (high contextual complexity)`; complexity policy pluggable via `super_ordinal_complexity_mode` (default novelty-vs-anchors; recurring high-salience contexts REINFORCE their existing anchor on salience alone). Read hook seeds the adult z_goal via `GoalState.cue_pull` from the retrieved anchor when z_goal sits below floor. 985/985 contracts + 8 new MECH-189 contracts + 7 preflight PASS; bit-identical OFF. | Substrate landed 2026-06-09 (ree-v3 main c7ac035; REE_assembly master f212523d80 + design doc `docs/architecture/mech_189_super_ordinal_goal_anchors.md`). V3-EXQ-588c readiness diagnostic queued (LOAD-BEARING C1 = ADULT z_goal seeding DISCRIMINATION ARM_ON vs ARM_OFF). MECH-189 stays candidate (substrate landing -- implementation_note only). |
+| MECH-294 multi-content theta-burst packet + compose-coherence amend | binding.theta_burst_packet -- per-cycle joint binding of {goal, action, risk, state} into a `ThetaPacket`. Compose path reads within-cycle co-binding via `ThetaPacket.currency_coherence()` (fraction of co-temporally-current streams: joint ~1.0 / alternation ~0.25 / shuffled 0.0) so the binding MODE causally reaches E3 behaviour rather than collapsing onto action-only similarity (the 657a coherence-metric autopsy fork). Parameter-free, no trained head, bit-identical OFF; per-candidate RANKING stays in-space action cosine (no cross-semantic-space comparison). Master `theta_packet_compose_into_e3_bias` still default False; new no-op flag `theta_packet_compose_use_joint_coherence` (default True; False = legacy action-only ablation). 8/8 packet contracts + 7/7 preflight PASS. | Substrate landed 2026-06-09 (ree-v3 main 53d4c75 + amend af97b23; REE_assembly master 4c680c03f5 -- claims.yaml MECH-294 implementation_note + `docs/architecture/mech_294_*.md` section 10 update). V3-EXQ-661 substrate-readiness 5-arm diagnostic queued (TV-margin readouts across OFF / JOINT / ALTERNATION / SHUFFLED / ALT-coh-OFF; non-vacuity gate). MECH-294 stays candidate / v3_pending. |
+| SD-033b GAP-8 OFC trainable state_bias_head | commitment_closure:GAP-8 mirror of SD-033a GAP-D. `OFCConfig.train_state_bias_head` (default False -> last Linear zeroed, bit-identical OFF) + `bias_head_parameters()` + REEConfig `ofc_train_state_bias_head` (from_dims + agent.py OFC build-site getattr). When True the OFC `state_bias_head` last Linear keeps random init so it trains via E3-gradient REINFORCE, unblocking the deferred behavioural arm. SUBSTRATE-CONSTRAINT recorded: OFC reads only z_world + z_harm (no appetitive / drive input) so the behavioural readout must be AVERSIVE devaluation (`ofc_harm_dim > 0`). | Substrate landed 2026-06-09 (ree-v3 main 382db2c + V3-EXQ-485d queue commit 8839724; REE_assembly master e7dc4f7152 + GAP-8 closure-plan node c5460ebb9f + SD-033b evidence_quality_note c8546ae0ff). V3-EXQ-485d 2-arm substrate-readiness diagnostic queued (frozen vs trainable; load-bearing C2 on head weight-delta-from-init under SP-CEM diversity; PASS unblocks the full GAP-8 behavioural arm, NOT yet queued). SD-033b stays candidate / v3_pending; this row only confirms the trainable arm is wired. |
 | Post-603i successor scaffolds (NOT validated substrate) | THREE post-603i successor options inspired by the 603i FAIL, scaffolded behind feature flags as forward-looking experiments only -- NOT replacements for the SD-059/MECH-358 active bridge and NOT changes to V3-EXQ-603i. **(a) Trainable escape-affordance learner** (`trainable_escape_affordance_learner`, module `ree_core/pfc/trainable_escape_affordance_learner.py`): local PyTorch relief/safety heads (shared trunk + action embedding + AdamW) trained on continuous relief targets, response-produced safety targets, extinction targets. Off by default (`use_trainable_escape_affordance_learner`); 23 contracts + diff-clean. **(b) Trainable relief/safety heads upgrade** (ree-v3 main 58535af): upgrades the learner from scalar/prototype tables to actual trainable PyTorch heads with lazy model+AdamW, detached compact state/context + action embedding, optimizer/no-op/simulation/hypothesis guards, prediction-based bounded threat-gated bias, reset persistence, diagnostics. 27 contracts. **(c) E2 escape-affordance linker** (`ree_core/pfc/e2_escape_affordance_linker.py`, ree-v3 main 6c856a5): post-603i REUSE/READOUT over E2 (cerebellar-analog) `E2.world_forward` per user mid-session correction -- NOT a duplicate forward predictor. Reads DETACHED E2 action-consequence features for the executed (prev_z_world, action) pair into escape-affordance viability readouts (harm_delta / threat_termination / safety_transition / refuge_reachability / survival_step) + hippocampal-style per-action viability index (readout only, no trajectory gen/reward/selection) + a bounded threat-gated E3 bias behind `use_e2_escape_linker_e3_bias`. Reuses E2; does NOT duplicate a forward predictor. 949 contracts + 7 preflight + boot matrix PASS. | Scaffolded 2026-06-08 (ree-v3 main 7a0a417 + 58535af + 6c856a5). All three are NOT validated substrate and do not change governance state for SD-058/MECH-357 or SD-059/MECH-358. V3-EXQ-653 (E2 escape-affordance linker readiness microdiagnostic; claim-free, forced-choice 4-action probe over the linker; 4 arms x 3 seeds; readiness gates G0-G8) queued via /queue-experiment as the validation gate; PASS routes back to a 603-lineage full behavioural bridge re-test; FAIL routes to failure-autopsy on this readiness diagnostic. |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
@@ -168,6 +171,114 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-10T01:10Z nightly read.** `evidence/experiments/` flat
+  top-level holds **346 `v3_exq_*.json` manifests** (recursive count
+  ~1053 incl. nested per-run dirs). Per-machine fleet
+  `runner_status/*.json` cards across DLAPTOP-4.local + Daniel-PC +
+  EWIN-PC + ree-cloud-1..4 + ree-worker-3 aggregate to **848 unique
+  V3 queue_ids completed** after dedup (286 PASS / 429 FAIL / 91 ERROR
+  / 41 UNKNOWN / 1 INCONCLUSIVE; 1632 total completion records
+  pre-dedup). **Pending review queue (regenerated 2026-06-09T21:09:04Z)
+  reads 0 items** -- 603i diagnostic-self-route `precondition_unmet`
+  flag previously listed there was adjudicated and the autopsy routed
+  successor work onto the 603-lineage behavioural bridge re-test
+  programme. **Currently queued (`experiment_queue.json` items[]): 3
+  items, all claimed** -- V3-EXQ-603l SD-059 / MECH-358
+  escape-affordance bridge BEHAVIOURAL re-test (claimed ree-cloud-2;
+  scored-evidence successor to V3-EXQ-603i, runs against the
+  trainable-relief / safety-half head substrate landed 2026-06-09);
+  V3-EXQ-655 INV-074 crystallization-necessity task-distribution-shift
+  Phase-3 redesign (claimed ree-cloud-1; supersedes V3-EXQ-610f);
+  V3-EXQ-660 MECH-341 committed-class diversity RETEST on the GAP-A-
+  ready / authority-ready stack using a WITHIN-CLASS-REPRESENTATIVE-
+  DIVERSITY readout (claimed DLAPTOP-4.local; arms GAP-A
+  `candidate_summary_source=e2_world_forward` + modulatory selection
+  authority gain 0.5 + SP-CEM + MECH-341 + SD-056). Substrate /
+  governance landings since the 2026-06-09T01:10Z spec sync (a heavy
+  governance + thought-intake day): (1) **MECH-189 super-ordinal
+  goal-anchor ContextMemory writes substrate** (ree-v3 main c7ac035 +
+  REE_assembly master f212523d80, 2026-06-09) -- closes
+  infant_substrate:GAP-11. New `SuperOrdinalGoalMemory` in
+  `ree_core/goal.py` (agent-owned, NOT reset per episode, cue-indexed
+  with key=z_world context / value=z_goal anchor); write hook at
+  `agent.update_z_goal` (child phase) gated on the MECH-189
+  conjunction (high-salience drive-modulated benefit AND high
+  contextual complexity, pluggable `super_ordinal_complexity_mode`
+  default novelty-vs-anchors); read hook seeds adult z_goal via
+  GoalState.cue_pull from the retrieved anchor when z_goal is below
+  floor. Recurring high-salience contexts REINFORCE their anchor on
+  salience alone toward the matured z_goal. 985 contracts + 8 new
+  MECH-189 contracts + 7 preflight PASS; bit-identical OFF.
+  V3-EXQ-588c readiness diagnostic queued (LOAD-BEARING C1 = ADULT
+  z_goal seeding DISCRIMINATION ARM_ON vs ARM_OFF). (2) **MECH-294
+  multi-content theta-burst packet substrate + compose-coherence
+  amend** (ree-v3 main 53d4c75 + af97b23, REE_assembly master
+  4c680c03f5, 2026-06-09) -- per-cycle joint binding of
+  {goal, action, risk, state} into `ThetaPacket`; compose path now
+  reads within-cycle co-binding coherence via
+  `currency_coherence()` so the binding mode (joint / alternation /
+  shuffled) causally reaches E3 behaviour rather than collapsing onto
+  action-only similarity. Parameter-free, no trained head, no-op
+  default. V3-EXQ-661 substrate-readiness 5-arm diagnostic queued
+  (TV-margin readouts + non-vacuity gate). (3) **SD-033b OFC trainable
+  state_bias_head substrate + V3-EXQ-485d readiness diagnostic** --
+  closes the SD-033a GAP-D mirror leg of commitment_closure:GAP-8;
+  `OFCConfig.train_state_bias_head` (default False -> last Linear
+  zeroed) + `bias_head_parameters()` + REEAgent build-site wiring;
+  V3-EXQ-485d 2-arm diagnostic queued (frozen vs trainable; load-
+  bearing C2 on head weight-delta-from-init under SP-CEM diversity).
+  SD-033b stays candidate / v3_pending; PASS unblocks the
+  behavioural-evidence arm. (4) **ARC-063 cross-episode rule-
+  persistence flag** (ree-v3 main, 2026-06-09) -- amend for V3-EXQ-654
+  GAP-B maturity. (5) **MECH-295 RE-SCOPED + goal_pipeline:GAP-4
+  CLOSED** (REE_assembly master, 2026-06-09 governance decision) --
+  MECH-295 narrowed to the MODULATORY reading (behavioural-necessity
+  terminally FALSIFIED by V3-EXQ-490j severed-bridge baseline; the
+  MODULATORY-SUFFICIENCY behavioural retest is retained as an OPTIONAL
+  non-GAP-blocking future test). `goal_pipeline:GAP-4` closed.
+  closure_status.md done 44 -> 45, overall_progress 72.4 -> 73.2%.
+  (6) **self_attribution GAP-1 / GAP-2 / GAP-3 + infant_substrate
+  GAP-13 re-adjudicated** (REE_assembly master, 2026-06-09) --
+  collapsed onto the SHARED selection-authority frontier paced by
+  V3-EXQ-660 (MECH-341) + V3-EXQ-643a authority + V3-EXQ-604c, since
+  ARC-065 SP-CEM became the main-path default 2026-05-17 and the
+  V3-EXQ-543l sleep-substrate run + V3-EXQ-614e CEM-pool collapse
+  autopsy together prove the SP-CEM lever alone does not move the
+  monomodal-equilibrium frontier. No code, no claim re-weighting --
+  resume_conditions repointed. (7) **IGW generator suppresses V4+
+  scoped claims from the proposal lane by PHASE/VERSION** (REE_assembly
+  master 3c3f37f2ff, 2026-06-09) -- generator now skips
+  `implementation_phase: v4|v5` and version-band-v4+ claims independent
+  of `epistemic_category`. Removes 7 plain-v4 proposal leaks (SD-033e
+  / MECH-264 / MECH-265 / MECH-129 / MECH-130). (8) **Heavy thought-
+  intake + REAP cycle** (REE_assembly master, 2026-06-09) -- six
+  separate intake sessions registered V4 / post-V5 claim clusters
+  (INV-077 evaluation-channel-integrity + Q-069 + EXT-008 meta-agent
+  failure mode; ARC-087 / MECH-372 / Q-065 sense-specific perceptual
+  manifolds; ARC-089 / MECH-374 / Q-066 spintronic-memristive
+  cognifold substrate; ARC-085 / MECH-365 / MECH-366 / Q-060
+  competitive-interactions cluster; MECH-359 / MECH-360 / MECH-361
+  candidate-differentiated affective gradients; MECH-362 + Q-057 CA3
+  developmental sparsification; MECH-364 + Q-059 laughter
+  load-release) -- all candidate / substrate_conditional /
+  implementation_phase v4 / v4_v5 (off the GAP-7 / V3 critical path).
+  (9) **infant_substrate:GAP-14 prereq-c InfantCurriculumScheduler
+  Phase 0->1 advancement gate retune** (in-flight under the active
+  21:48Z claim) -- queues V3-EXQ-591b readiness diagnostic. Bottleneck
+  (continuation): the **selection-authority frontier paced by
+  V3-EXQ-660 + V3-EXQ-604c** is now the cross-cutting blocker for
+  self_attribution / behavioral_diversity_isolation:GAP-B /
+  arc_062:GAP-B / sd_037_axis_b; the **603-lineage survival /
+  escape-affordance evidence loop** (V3-EXQ-603l) remains the second
+  in-flight gate; **V3-EXQ-485d / V3-EXQ-588c / V3-EXQ-661** are the
+  three new substrate-readiness diagnostics seeded by today's
+  substrate landings. Cluster-registration discipline: the 2026-06-09
+  thought-intake cycle confirmed the user's standing rule that
+  genuinely-new intake content is REGISTERED into `claims.yaml` (as
+  candidate / substrate_conditional / version-scoped claims) in the
+  same pass that authors the home doc, NOT left as "future-registration"
+  prose.
 
 - **2026-06-09T01:10Z nightly read.** `evidence/experiments/` flat
   top-level holds **334 `v3_exq_*.json` manifests** (recursive count
