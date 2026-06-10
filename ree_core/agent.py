@@ -53,7 +53,7 @@ from ree_core.predictors.e3_score_diversity import (
     E3ScoreDiversity,
     build_from_ree_config as build_e3_score_diversity_from_ree_config,
 )
-from ree_core.predictors.e3_selector import E3TrajectorySelector
+from ree_core.predictors.e3_selector import E3TrajectorySelector, project_channel_range
 from ree_core.residue.field import ResidueField
 from ree_core.hippocampal.ghost_goal_bank import PersistenceAppraisal
 from ree_core.hippocampal.module import HippocampalModule
@@ -4168,6 +4168,10 @@ class REEAgent(nn.Module):
         _bdc_curiosity: Optional[torch.Tensor] = None
         _bdc_vigor: Optional[torch.Tensor] = None
         _bdc_forced: Optional[torch.Tensor] = None
+        # route-range AMEND (569f/661/654a): MECH-294 compose per-candidate bias
+        # tracker, stashed so the "coherence" route source is available at the
+        # e3.select() site (parallel to the other _bdc_* per-candidate biases).
+        _bdc_coherence: Optional[torch.Tensor] = None
         # ControlVector logging (rec-B): reset the cached MECH-320 split each
         # tick so a tonic-vigor-off / no-fire tick does not carry stale state.
         self._cv_vigor = None
@@ -5197,6 +5201,7 @@ class REEAgent(nn.Module):
                     ),
                 )
                 if _tp_bias is not None:
+                    _bdc_coherence = _tp_bias.detach().clone()
                     if dacc_score_bias is None:
                         dacc_score_bias = _tp_bias
                     else:
@@ -5288,6 +5293,38 @@ class REEAgent(nn.Module):
                 "forced_bias_range_mean": _bdc_range_mean(_bdc_forced),
                 "total_bias_bias_range_mean": _bdc_range_mean(self._last_e3_score_bias),
             }
+        # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
+        # 2026-06-10): build the channel-under-test's per-candidate routed bias and
+        # pass it to E3 so its cross-candidate range is folded into the modulatory
+        # accumulator the authority rescales (instead of being flattened by the
+        # consuming bias head). The route source selects which channel's
+        # representation is projected (parameter-free, range-preserving):
+        #   cand_world_summary -> cand_world_summaries [K, world_dim] (the 569f
+        #     world-summary channel; the genuine [K, world_dim] projection case)
+        #   curiosity / gated_policy / mech295 / coherence -> the already-computed
+        #     per-candidate [K] bias for that channel (identity-routed).
+        # Default "none" -> channel_route_bias=None -> bit-identical.
+        channel_route_bias = None
+        if getattr(self.config, "use_modulatory_channel_routing", False):
+            _route_source = getattr(self.config, "modulatory_channel_route_source", "none")
+            _route_repr = None
+            if _route_source == "cand_world_summary":
+                # cand_world_summaries is set only inside the bias blocks; use the
+                # in-scope value when a block ran this tick, else build it (the
+                # e2_world_forward / proposer summaries via the ARC-065 GAP-A helper).
+                _route_repr = locals().get("cand_world_summaries", None)
+                if _route_repr is None:
+                    _route_repr = self._candidate_world_summaries(candidates)
+            elif _route_source == "curiosity":
+                _route_repr = _bdc_curiosity
+            elif _route_source == "gated_policy":
+                _route_repr = _bdc_gp
+            elif _route_source == "mech295":
+                _route_repr = _bdc_m295
+            elif _route_source == "coherence":
+                _route_repr = _bdc_coherence
+            if _route_repr is not None:
+                channel_route_bias = project_channel_range(_route_repr)
         result = self.e3.select(
             candidates, effective_temperature,
             goal_state=_goal_state_for_select,
@@ -5296,6 +5333,7 @@ class REEAgent(nn.Module):
             z_harm_a=z_harm_a,
             score_bias=dacc_score_bias,
             score_diversity=self.score_diversity,
+            channel_route_bias=channel_route_bias,
         )
         self._last_e3_selection_result = result
 

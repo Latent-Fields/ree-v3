@@ -440,6 +440,26 @@ class E3Config:
     modulatory_authority_gain: float = 0.5
     modulatory_authority_min_range_floor: float = 1e-6
 
+    # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a, 2026-06-10):
+    # The 2026-06-03/06-06 authority rescales _modulatory_accum (the composed
+    # score_bias chain + MECH-341 bonus). The 569f/661/654a cluster showed that a
+    # channel whose REPRESENTATION carries genuine cross-candidate range
+    # (world-summary spread 0.196; minted rule_state; coherence) still does not move
+    # the committed argmax, because that range is flattened by the consuming bias
+    # head before it reaches _modulatory_accum -- so the authority has nothing to
+    # amplify. use_modulatory_channel_routing folds a parameter-free,
+    # range-preserving projection of the channel-under-test's per-candidate
+    # representation into _modulatory_accum BEFORE the authority's range
+    # computation, guaranteeing the channel's range is ROUTED into the bias term the
+    # authority rescales (extends the necessary-but-not-sufficient note one link).
+    # P0 readiness gate: modulatory_channel_route_range (a diagnostic = range of the
+    # routed bias, measured pre-rescale) lets a retest assert the modulatory bias
+    # ITSELF carries cross-candidate range derived from the channel under test before
+    # any behavioural falsifier is scored. Default False (bit-identical OFF).
+    use_modulatory_channel_routing: bool = False
+    modulatory_channel_route_min_range_floor: float = 1e-6
+    modulatory_channel_route_weight: float = 1.0
+
 
 @dataclass
 class EventSegmenterScaleConfig:
@@ -2028,6 +2048,22 @@ class REEConfig:
     # temperature). Default False (bit-identical OFF). See E3Config fields
     # use_modulatory_selection_authority / modulatory_authority_gain.
     use_modulatory_selection_authority: bool = False
+
+    # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
+    # 2026-06-10). Top-level mirror of E3Config.use_modulatory_channel_routing
+    # (set onto config.e3 by from_dims) PLUS the agent-side source/weight knobs
+    # read in REEAgent.select_action via getattr. route_source selects which
+    # channel-under-test's per-candidate representation is projected (parameter-
+    # free, range-preserving) into the modulatory accumulator the authority
+    # rescales: "none" (default, no routing, bit-identical) / "cand_world_summary"
+    # (the [K, world_dim] world-summary channel -- ARC-065/569f cluster lead, the
+    # genuine projection case) / "curiosity" / "gated_policy" / "mech295" /
+    # "coherence" (each an already-computed per-candidate [K] bias, identity-
+    # routed). route_weight sets the routed-channel proportion in _modulatory_accum
+    # before the authority rescale.
+    use_modulatory_channel_routing: bool = False
+    modulatory_channel_route_source: str = "none"
+    modulatory_channel_route_weight: float = 1.0
 
     # ----------------------------------------------------------------
     # ControlVector logging (recommendation B, four-signal control
@@ -3684,6 +3720,11 @@ class REEConfig:
         use_modulatory_selection_authority: bool = False,
         modulatory_authority_gain: float = 0.5,
         modulatory_authority_min_range_floor: float = 1e-6,
+        # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a):
+        use_modulatory_channel_routing: bool = False,
+        modulatory_channel_route_min_range_floor: float = 1e-6,
+        modulatory_channel_route_source: str = "none",
+        modulatory_channel_route_weight: float = 1.0,
         # ControlVector logging (rec-B four-signal adjudication 2026-06-07):
         # read-only default-OFF telemetry; bit-identical when False.
         use_control_vector_logging: bool = False,
@@ -4507,6 +4548,18 @@ class REEConfig:
         config.e3.modulatory_authority_gain = modulatory_authority_gain
         config.e3.modulatory_authority_min_range_floor = modulatory_authority_min_range_floor
         config.use_modulatory_selection_authority = use_modulatory_selection_authority
+        # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
+        # 2026-06-10): the e3_selector additive site reads
+        # use_modulatory_channel_routing + min_range_floor from config.e3; the
+        # agent reads route_source + route_weight from the top-level mirror.
+        config.e3.use_modulatory_channel_routing = use_modulatory_channel_routing
+        config.e3.modulatory_channel_route_min_range_floor = (
+            modulatory_channel_route_min_range_floor
+        )
+        config.e3.modulatory_channel_route_weight = modulatory_channel_route_weight
+        config.use_modulatory_channel_routing = use_modulatory_channel_routing
+        config.modulatory_channel_route_source = modulatory_channel_route_source
+        config.modulatory_channel_route_weight = modulatory_channel_route_weight
         config.use_control_vector_logging = use_control_vector_logging
 
         # MECH-290: backward trajectory credit sweep

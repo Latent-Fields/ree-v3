@@ -90,6 +90,22 @@
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_591b_isef005_curriculum_phase_advance_readiness",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-662",
+      "title": "modulatory-bias-selection-authority route-range AMEND substrate-readiness (P0 routed-range gate; 569f/661/654a)",
+      "experiment_type": "v3_exq_662_modulatory_channel_routing_substrate_readiness",
+      "script": "experiments/v3_exq_662_modulatory_channel_routing_substrate_readiness.py",
+      "priority": 280,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 240,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "",
+      "note": "Substrate-readiness diagnostic (claim_ids=[]) for the route-range AMEND. ARM_0 routing OFF vs ARM_1 routing ON (source=cand_world_summary), both with authority ON + e2_world_forward + SD-056 online. PASS (route_range_substrate_ready) confirms the P0 routed-range gate and unblocks the SEPARATE per-claim behavioural retests of ARC-065/MECH-294/ARC-062/MECH-309/MECH-341. Below-floor self-routes substrate_not_ready_requeue. Routed by failure_autopsy_569f-661-654a_2026-06-10.",
+      "claim_ids": []
     }
   ]
 }

@@ -58,6 +58,62 @@ class SelectionResult:
     urgency: float = 0.0  # SD-011: z_harm_a urgency applied to commit threshold
 
 
+def project_channel_range(features: torch.Tensor) -> torch.Tensor:
+    """
+    modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a).
+
+    Parameter-free, range-preserving projection of a channel-under-test's
+    per-candidate representation into a per-candidate scalar bias [K], so that a
+    channel whose REPRESENTATION carries genuine cross-candidate range (e.g.
+    cand_world_summaries spread 0.196; minted rule_state) yields a per-candidate
+    bias that actually enters the modulatory accumulator the E3 selection
+    authority rescales. (569f/661/654a: the channel range existed in the
+    representation but was flattened by the consuming bias head before it reached
+    the bias term -- so the authority had nothing to amplify.)
+
+    - features [K, D] (a per-candidate feature matrix): center across the K
+      candidates and project onto the leading right-singular vector of the
+      centered matrix -> [K] signed scalar capturing the dominant cross-candidate
+      variation. Deterministic, no learned parameters; the projection preserves
+      the channel's cross-candidate range by construction. (The singular-vector
+      sign is arbitrary -- routing makes the channel range REACH and MOVE the
+      committed argmax, which is the readiness property; making the movement
+      BENEFICIAL is the channel's own trained head, the separate per-claim
+      evidence retest.)
+    - features [K] (an already-per-candidate bias): returned as-is (identity).
+
+    Returns a 1-D [K] tensor on the same device/dtype as ``features``. A
+    degenerate input (K < 2, or zero cross-candidate variation) yields a zeroed
+    [K] vector, which the P0 readiness gate reads as below-floor.
+    """
+    if features.dim() == 1:
+        return features
+    if features.dim() != 2:
+        features = features.reshape(features.shape[0], -1)
+    k = features.shape[0]
+    if k < 2:
+        return features.new_zeros(k)
+    centered = features - features.mean(dim=0, keepdim=True)  # [K, D]
+    if float(centered.abs().max().item()) <= 0.0:
+        return features.new_zeros(k)
+    # Leading right-singular vector of the centered matrix; project onto it.
+    # SVD on a detached copy (the routing direction is a parameter-free read of
+    # the channel structure, not a grad path); the projection itself uses the
+    # live centered tensor so any caller-supplied grad still flows if present.
+    try:
+        _, _, vh = torch.linalg.svd(centered.detach(), full_matrices=False)
+        u = vh[0]  # [D] leading right-singular vector
+    except Exception:
+        # Numerical fallback: per-candidate signed deviation along the pool-mean
+        # difference axis (still range-preserving for the common case).
+        u = centered.detach().abs().mean(dim=0)
+        nrm = float(u.norm().item())
+        if nrm <= 0.0:
+            return features.new_zeros(k)
+        u = u / nrm
+    return centered @ u.to(dtype=centered.dtype, device=centered.device)  # [K]
+
+
 def variance_commit_threshold(config_threshold: float) -> float:
     """
     Return the variance-space commit threshold (ARC-016).
@@ -661,6 +717,7 @@ class E3TrajectorySelector(nn.Module):
         z_harm_s_current: Optional[torch.Tensor] = None,
         score_bias: Optional[torch.Tensor] = None,
         score_diversity: Optional[Any] = None,
+        channel_route_bias: Optional[torch.Tensor] = None,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -697,6 +754,19 @@ class E3TrajectorySelector(nn.Module):
                                     stratified_select replaces argmin in the committed
                                     selection path (Option 2). None means no MECH-341
                                     intervention (backward compat default).
+            channel_route_bias:     modulatory-bias-selection-authority AMEND
+                                    (route-range, 569f/661/654a). Optional [K]
+                                    per-candidate bias projected (parameter-free,
+                                    range-preserving) from the channel-under-test's
+                                    per-candidate representation by the caller (see
+                                    project_channel_range). When
+                                    use_modulatory_channel_routing is True, it is
+                                    folded into the modulatory accumulator the
+                                    authority rescales, so the channel's
+                                    cross-candidate range reaches the committed argmax.
+                                    Its pre-rescale range is exposed as the P0
+                                    readiness diagnostic modulatory_channel_route_range.
+                                    None means no routing (backward compat default).
 
         Returns:
             SelectionResult
@@ -796,6 +866,49 @@ class E3TrajectorySelector(nn.Module):
                 else _modulatory_accum + mech341_bonus
             )
 
+        # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
+        # 2026-06-10): fold the channel-under-test's range-preserving per-candidate
+        # routed bias (caller-built via project_channel_range) into BOTH scores and
+        # the modulatory accumulator the authority rescales, so a channel whose
+        # REPRESENTATION carries cross-candidate range (world-summary / rule_state /
+        # curiosity / coherence) reaches the committed argmax instead of being
+        # flattened by its consuming bias head. modulatory_channel_route_range is the
+        # P0 readiness diagnostic = the RAW routed range (pre-normalise, pre-rescale):
+        # a retest asserts it > floor for the channel under test BEFORE scoring any
+        # behavioural falsifier (so an unrouted channel cannot self-route a false
+        # negative). The routed bias is normalised to unit zero-mean range so its
+        # contribution stays bounded even when the authority is OFF; when the
+        # authority is ON it re-normalises the combined accumulator to
+        # gain * raw_score_range regardless.
+        modulatory_channel_route_active = False
+        modulatory_channel_route_range = 0.0
+        if (getattr(self.config, "use_modulatory_channel_routing", False)
+                and channel_route_bias is not None):
+            route = channel_route_bias.to(dtype=scores.dtype, device=scores.device)
+            if route.shape != scores.shape:
+                raise ValueError(
+                    f"channel_route_bias shape {tuple(route.shape)} does not match "
+                    f"scores shape {tuple(scores.shape)}"
+                )
+            route_range = float((route.max() - route.min()).item())
+            modulatory_channel_route_range = route_range
+            route_floor = getattr(
+                self.config, "modulatory_channel_route_min_range_floor", 1e-6
+            )
+            if route_range > route_floor:
+                route_unit = (route - route.min()) / route_range  # [0, 1]
+                route_unit = route_unit - route_unit.mean()        # zero-mean, range 1
+                route_weight = float(
+                    getattr(self.config, "modulatory_channel_route_weight", 1.0)
+                )
+                routed = route_weight * route_unit
+                scores = scores + routed
+                _modulatory_accum = (
+                    routed if _modulatory_accum is None
+                    else _modulatory_accum + routed
+                )
+                modulatory_channel_route_active = True
+
         # modulatory-bias-selection-authority (2026-06-03): rescale the COMBINED
         # modulatory contribution (score_bias + mech341_bonus) so its range equals
         # modulatory_authority_gain * raw_score_range. Gives modulatory signals
@@ -857,6 +970,12 @@ class E3TrajectorySelector(nn.Module):
             # V3-EXQ-643a: the true cross-candidate modulatory range the gate
             # keyed on (explicitly tracked; immune to large-score cancellation).
             "modulatory_authority_range": modulatory_authority_range,
+            # route-range AMEND (569f/661/654a): P0 readiness gate signals.
+            # modulatory_channel_route_range = RAW cross-candidate range of the
+            # routed channel bias (pre-normalise, pre-rescale); a retest asserts
+            # it > floor for the channel under test before scoring a falsifier.
+            "modulatory_channel_route_active": modulatory_channel_route_active,
+            "modulatory_channel_route_range": modulatory_channel_route_range,
             # Filled in after selection (requires selected_idx).
             "selected_candidate_rank_before_bias": -1,
             "selected_candidate_rank_after_bias": -1,

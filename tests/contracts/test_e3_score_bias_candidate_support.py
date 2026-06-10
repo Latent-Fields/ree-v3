@@ -324,3 +324,133 @@ def test_modulatory_authority_survives_large_primary_scores():
     assert abs(diag["modulatory_authority_range"] - 0.5) < 1e-3
     assert diag["modulatory_authority_active"] is True
     assert diag["modulatory_authority_scale_factor"] > 0.0
+
+
+# ---------------------------------------------------------------------------
+# modulatory-bias-selection-authority AMEND: channel-range routing (569f/661/654a)
+# ---------------------------------------------------------------------------
+
+def _candidate_world_feats(action_class: int, world_vec, action_dim: int = 5):
+    """Candidate whose first-step world_state is the supplied per-candidate vector
+    (the [K, world_dim] representation a router projects)."""
+    world_dim = len(world_vec)
+    horizon = 3
+    states = [torch.zeros(1, world_dim) for _ in range(horizon + 1)]
+    world_states = [torch.tensor([list(world_vec)], dtype=torch.float32)
+                    for _ in range(horizon + 1)]
+    actions = torch.zeros(1, horizon, action_dim)
+    actions[:, 0, action_class] = 1.0
+    return Trajectory(states=states, actions=actions, world_states=world_states)
+
+
+def test_project_channel_range_preserves_range_and_identity():
+    """[K, D] projection is range-preserving + non-degenerate; [K] is identity;
+    a flat / single-candidate input yields a zeroed (below-floor) vector."""
+    from ree_core.predictors.e3_selector import project_channel_range
+
+    feats = torch.zeros(4, 8)
+    feats[0] += 3.0  # candidate 0 distinct -> genuine cross-candidate range
+    routed = project_channel_range(feats)
+    assert routed.shape == (4,)
+    assert float((routed.max() - routed.min()).item()) > 1e-3
+
+    bias = torch.tensor([0.1, -0.2, 0.0, 0.3])
+    assert torch.allclose(project_channel_range(bias), bias)  # identity for [K]
+
+    flat = torch.ones(4, 8)
+    assert float(project_channel_range(flat).abs().max().item()) == 0.0  # below floor
+    assert project_channel_range(torch.randn(1, 8)).shape == (1,)  # K<2 safe
+
+
+def test_channel_routing_OFF_bit_identical():
+    """use_modulatory_channel_routing=False (default): passing a channel_route_bias
+    is a no-op -- scores and selection are bit-identical to not passing it."""
+    from ree_core.utils.config import E3Config as FullE3Config
+
+    cfg = FullE3Config(world_dim=6, hidden_dim=8,
+                       use_modulatory_selection_authority=True)
+    selector = E3TrajectorySelector(cfg)
+    selector._running_variance = 0.0
+    torch.manual_seed(0)
+    with torch.no_grad():
+        for p in selector.parameters():
+            p.uniform_(-0.1, 0.1)
+    candidates = [_candidate(0), _candidate(1), _candidate(2)]
+
+    base = selector.select(candidates, temperature=1.0)
+    with_route = selector.select(
+        candidates, temperature=1.0,
+        channel_route_bias=torch.tensor([0.5, -0.5, 0.2]),  # ignored, flag OFF
+    )
+    assert torch.allclose(base.scores, with_route.scores)
+    assert base.selected_index == with_route.selected_index
+    # diagnostic reports inactive when routing is OFF
+    assert selector.last_score_diagnostics["modulatory_channel_route_active"] is False
+
+
+def test_channel_routing_ON_routes_range_into_rescaled_accumulator():
+    """With routing + authority ON, a channel whose REPRESENTATION carries
+    cross-candidate range yields a non-degenerate routed range (the P0 gate signal)
+    AND that range reaches the committed scores the authority rescales -- the scores
+    differ from the no-route path. (Whether the moved argmin is BENEFICIAL is the
+    behavioural retest, not a contract; contracts test wiring, not thresholds.)"""
+    from ree_core.utils.config import E3Config as FullE3Config
+    from ree_core.predictors.e3_selector import project_channel_range
+
+    cfg = FullE3Config(
+        world_dim=4, hidden_dim=8,
+        use_modulatory_selection_authority=True,
+        modulatory_authority_gain=0.5,
+        use_modulatory_channel_routing=True,
+        modulatory_channel_route_min_range_floor=1e-6,
+    )
+    selector = E3TrajectorySelector(cfg)
+    selector._running_variance = 0.0  # deterministic argmin path
+    torch.manual_seed(0)
+    with torch.no_grad():
+        for p in selector.parameters():
+            p.uniform_(-0.05, 0.05)
+
+    # Per-candidate world reps with genuine cross-candidate range (the world-summary
+    # channel) -> distinct primary scores (so raw_score_range > 0, the authority's
+    # precondition) and a non-degenerate projected route.
+    feats = [[0.0, 0.0, 0.0, 0.0],
+             [0.6, -0.4, 0.2, 0.1],
+             [2.0, 1.5, -1.0, 0.5]]
+    candidates = [_candidate_world_feats(i, feats[i]) for i in range(3)]
+    repr_mat = torch.stack([torch.tensor(f) for f in feats], dim=0)  # [K, D]
+    route = project_channel_range(repr_mat)
+
+    res_off = selector.select(candidates, temperature=1.0)  # route None -> no routing
+    res_on = selector.select(candidates, temperature=1.0, channel_route_bias=route)
+    diag = selector.last_score_diagnostics
+
+    # P0 readiness gate: the routed bias carries the channel's cross-candidate range.
+    assert diag["modulatory_channel_route_active"] is True
+    assert diag["modulatory_channel_route_range"] > 1e-6
+    # The channel range reaches the committed scores the authority rescales.
+    assert not torch.allclose(res_on.scores, res_off.scores)
+
+
+def test_channel_routing_below_floor_inactive():
+    """A channel whose routed bias has range below the floor leaves the router
+    inactive -- the P0 gate correctly reports no routed range (substrate_not_ready)."""
+    from ree_core.utils.config import E3Config as FullE3Config
+
+    cfg = FullE3Config(
+        world_dim=6, hidden_dim=8,
+        use_modulatory_selection_authority=True,
+        use_modulatory_channel_routing=True,
+        modulatory_channel_route_min_range_floor=1.0,  # high floor
+    )
+    selector = E3TrajectorySelector(cfg)
+    selector._running_variance = 0.0
+    candidates = [_candidate(0), _candidate(1), _candidate(2)]
+    # routed bias range 0.04 << floor 1.0
+    route = torch.tensor([0.0, 0.02, 0.04])
+
+    selector.select(candidates, temperature=1.0, channel_route_bias=route)
+    diag = selector.last_score_diagnostics
+    assert diag["modulatory_channel_route_active"] is False
+    assert diag["modulatory_channel_route_range"] > 0.0  # measured raw range
+    assert diag["modulatory_channel_route_range"] < 1.0
