@@ -8,6 +8,26 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-662",
+      "title": "modulatory-bias-selection-authority route-range AMEND substrate-readiness (P0 routed-range gate; 569f/661/654a)",
+      "script": "experiments/v3_exq_662_modulatory_channel_routing_substrate_readiness.py",
+      "priority": 280,
+      "machine_affinity": "any",
+      "estimated_minutes": 240,
+      "claim_id": "",
+      "note": "Substrate-readiness diagnostic (claim_ids=[]) for the route-range AMEND. ARM_0 routing OFF vs ARM_1 routing ON (source=cand_world_summary), both with authority ON + e2_world_forward + SD-056 online. PASS (route_range_substrate_ready) confirms the P0 routed-range gate and unblocks the SEPARATE per-claim behavioural retests of ARC-065/MECH-294/ARC-062/MECH-309/MECH-341. Below-floor self-routes substrate_not_ready_requeue. Routed by failure_autopsy_569f-661-654a_2026-06-10.",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-10T06:55:43Z"
+      },
+      "claim_ids": [],
+      "conditions": 2,
+      "episodes_per_run": 80,
+      "experiment_type": "v3_exq_662_modulatory_channel_routing_substrate_readiness",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-663",
       "title": "modulatory-bias-selection-authority route-range AMEND substrate-readiness (P0 routed-range gate; 569f/661/654a)",
       "script": "experiments/v3_exq_663_modulatory_channel_routing_substrate_readiness.py",
@@ -16,11 +36,31 @@
       "estimated_minutes": 240,
       "claim_id": "",
       "note": "Substrate-readiness diagnostic (claim_ids=[]) for the route-range AMEND. ARM_0 routing OFF vs ARM_1 routing ON (source=cand_world_summary), both with authority ON + e2_world_forward + SD-056 online. PASS (route_range_substrate_ready) confirms the P0 routed-range gate and unblocks the SEPARATE per-claim behavioural retests of ARC-065/MECH-294/ARC-062/MECH-309/MECH-341. Below-floor self-routes substrate_not_ready_requeue. Routed by failure_autopsy_569f-661-654a_2026-06-10.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-06-10T07:08:06Z"
+      },
       "claim_ids": [],
       "conditions": 2,
       "episodes_per_run": 80,
       "experiment_type": "v3_exq_663_modulatory_channel_routing_substrate_readiness",
+      "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-603m",
+      "title": "scaffolded_sd054 FULL three-leg readiness (harm-pathway ON): Stage-0 zgoal + P1 survival + P2 contact + P2 zgoal, the residual-leg gate after 603k",
+      "script": "experiments/v3_exq_603m_scaffolded_sd054_full_curriculum_readiness.py",
+      "priority": 275,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "supersedes": "V3-EXQ-603g",
+      "note": "Substrate-readiness diagnostic (claim_ids=[]). 603k cleared ONLY the survival leg (P1 survival 3/3); never exercised P2 benefit-contact / P2 z_goal; Stage-0 z_goal>0.4 on 1/3. 603m runs the FULL curriculum (Stage-0->Stage-0b->P0->Stage-H->P1->P2) with scaffold_train_harm_pathway=ON so the agent reaches P2 alive and all four legs are measurable. PASS=G0 AND G1 AND G2 AND G3 (each >=2/3) -> flips scaffolded_sd054_onboarding ready=True + unblocks SD-049 GAP-2 / MECH-229/230/260. Non-vacuity: harm-pathway-discriminative AND reached-P2-alive, else substrate_not_ready_requeue.",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 1,
+      "episodes_per_run": 235,
+      "experiment_type": "v3_exq_603m_scaffolded_sd054_full_curriculum_readiness",
       "seeds": 3
     },
     {
@@ -106,22 +146,6 @@
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_591b_isef005_curriculum_phase_advance_readiness",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-603m",
-      "title": "scaffolded_sd054 FULL three-leg readiness (harm-pathway ON): Stage-0 zgoal + P1 survival + P2 contact + P2 zgoal, the residual-leg gate after 603k",
-      "experiment_type": "v3_exq_603m_scaffolded_sd054_full_curriculum_readiness",
-      "script": "experiments/v3_exq_603m_scaffolded_sd054_full_curriculum_readiness.py",
-      "claim_ids": [],
-      "priority": 275,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 180,
-      "episodes_per_run": 235,
-      "seeds": 3,
-      "conditions": 1,
-      "supersedes": "V3-EXQ-603g",
-      "note": "Substrate-readiness diagnostic (claim_ids=[]). 603k cleared ONLY the survival leg (P1 survival 3/3); never exercised P2 benefit-contact / P2 z_goal; Stage-0 z_goal>0.4 on 1/3. 603m runs the FULL curriculum (Stage-0->Stage-0b->P0->Stage-H->P1->P2) with scaffold_train_harm_pathway=ON so the agent reaches P2 alive and all four legs are measurable. PASS=G0 AND G1 AND G2 AND G3 (each >=2/3) -> flips scaffolded_sd054_onboarding ready=True + unblocks SD-049 GAP-2 / MECH-229/230/260. Non-vacuity: harm-pathway-discriminative AND reached-P2-alive, else substrate_not_ready_requeue."
     }
   ]
 }
