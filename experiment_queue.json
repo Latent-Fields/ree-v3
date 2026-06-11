@@ -214,6 +214,24 @@
       "episodes_per_run": 400,
       "experiment_type": "v3_exq_669_mech329_wanting_first_goal_seeding",
       "seeds": 1
+    },
+    {
+      "queue_id": "V3-EXQ-670",
+      "title": "INV-048 pharmacological sleep disruption equivalence: REM-suppressed vs SWS-suppressed vs no-sleep attribution pipeline degradation",
+      "script": "experiments/v3_exq_670_inv048_pharmacological_sleep_disruption_equivalence.py",
+      "priority": 200,
+      "machine_affinity": "any",
+      "estimated_minutes": 10,
+      "claim_id": "INV-048",
+      "note": "EXP-0145 dispatch: tests INV-048 prediction that pharmacological sleep phase disruption (REM suppression like antidepressants, SWS suppression like benzodiazepines) produces attribution pipeline degradation equivalent to behavioral sleep deprivation, proportional to which phases are disrupted. Four arms (N=3 seeds each, K=5 cycles): ARM_A normal (SWS+REM), ARM_B REM-suppressed (SWS only), ARM_C SWS-suppressed (REM only), ARM_D no-sleep (neither). Deterministic two-context prototypes (safe vs dangerous). Metrics: slot_differentiation (schema organization), harm_discrimination (attribution performance), manipulation checks (sws_writes, rem_rollouts). PASS = (C1:ARM_A slot_diff > ARM_C+0.05 AND C2:ARM_A > ARM_D+0.05 AND C3:ARM_A harm_disc > ARM_D+0.10) OR (C1 AND C4:ARM_A harm_disc > ARM_B+0.05) on >=2/3 seeds. Supports INV-048 pharmacological-equivalence principle. Smoke test clean (manipulation checks fire correctly, all arms execute).",
+      "status": "pending",
+      "claim_ids": [
+        "INV-048"
+      ],
+      "conditions": 4,
+      "episodes_per_run": 0,
+      "experiment_type": "v3_exq_670_inv048_pharmacological_sleep_disruption_equivalence",
+      "seeds": 3
     }
   ]
 }
