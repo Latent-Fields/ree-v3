@@ -86,6 +86,22 @@
       "episodes_per_run": 100,
       "experiment_type": "v3_exq_666_arc063_crf_mature_pool_readiness",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-667",
+      "title": "Q-043 exploration-magnitude sweep: 591c-lineage curriculum Phase 0->1 reachability x joint noise_floor_alpha/curiosity_weight scale above defaults",
+      "script": "experiments/v3_exq_667_q043_exploration_magnitude_sweep.py",
+      "priority": 250,
+      "machine_affinity": "any",
+      "estimated_minutes": 480,
+      "claim_id": "Q-043",
+      "claim_ids": ["Q-043"],
+      "note": "PRIMARY routing output of failure_autopsy_V3-EXQ-591c_2026-06-11 (confirmed). Q-043 (registered open_question; relative-weight calibration of MECH-313 noise floor + MECH-314 curiosity) magnitude-scale sweep. Re-runs the EXACT 591c InfantCurriculumScheduler Phase 0->1 reachability probe (same 5 seeds 42-46, 160 ep x 200 steps, same landed H_POS_FRAC_OF_MAX=0.20 gate -- UNCHANGED) at 4 JOINT magnitude scales applied to BOTH knobs above their landed defaults: S=1x (alpha 0.1/cw 0.05, reproduces 591c anchor) / 2x / 4x / 8x (cw scales all three MECH-314 sub-flavour weights). FORK: (a) the worst-case collapse seed escapes Phase 0 with GENUINE exploration at some scale above default -> config-only fix (raise ARC-065 default magnitudes); (b) it stays collapsed at every scale (incl 8x) -> active Phase-0 exploration-shaping substrate required (passive noise+curiosity an insufficient translation of actively-driven early-dev exploration). experiment_purpose=diagnostic, claim_ids=[Q-043] (single claim, no per-claim direction needed). LOAD-BEARING readiness/non-vacuity (V3-EXQ-643 same-statistic lesson): on the healthy-seed positive control, the RANGE across magnitude arms of the healthy-seed-averaged h_pos_mean must clear 0.05 (SAME h_pos statistic the rescue criterion routes on) else substrate_not_ready_requeue (NEVER a substrate verdict). Gate threshold + genuine-exploration definition UNCHANGED -- the seed-45 gate-permissiveness brittleness is a SEPARATE ARC-046 K-of-N/EMA follow-on, explicitly OUT OF SCOPE; lowering the Phase 0->1 threshold is NOT the route. Multi-arm (seed x scale) grid with per-cell RNG reset + arm_fingerprint (arm_cell). validate_experiments --strict OK (0 readiness-warnings). Dry-run PASS end-to-end (self-routes substrate_not_ready at 2-ep toy scale as designed; healthy seed 42 h_pos 0.693->0.865 from 1x->8x confirms the swept knobs move exploration). working-tree-vs-HEAD queue audit clean before append (concurrent V3-EXQ-660b session's untracked script not swept).",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 160,
+      "experiment_type": "v3_exq_667_q043_exploration_magnitude_sweep",
+      "seeds": 5
     }
   ]
 }
