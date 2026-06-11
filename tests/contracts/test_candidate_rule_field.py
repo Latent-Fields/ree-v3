@@ -376,3 +376,112 @@ def test_c16_mature_and_context_flags_from_dims_and_agent_wiring():
     st = agent.candidate_rule_field.get_state()
     assert "crf_frac_active" in st
     assert st["crf_step"] > 0
+
+
+# ----------------------------------------------------------------------
+# crf-availability-maintenance (V3-EXQ-666 successor; ARC-063 amend)
+# ----------------------------------------------------------------------
+def _mint_two_then_silence(f, silent_ticks):
+    """Mint two distinct rules (A, B) then run many context-absent ticks feeding a
+    third orthogonal context C with a UNIQUE action-object each tick -- so C never
+    mints and never matches A/B. This is the sparse-matching regime the
+    V3-EXQ-666 differentiation<->persistence tension lives in: A and B are
+    differentiated but their context does not recur, so without maintenance their
+    availability erodes under the per-tick silence decay and they fall out of the
+    reactivatable pool (legacy mature), while activity-silent maintenance HOLDS
+    them (Mongillo)."""
+    A = torch.zeros(16); A[0] = 1.0; A[1] = 1.0; A = A / A.norm()
+    B = torch.zeros(16); B[2] = 1.0; B[3] = 1.0; B = B / B.norm()
+    C = torch.zeros(16); C[4] = 1.0; C[5] = -1.0; C = C / C.norm()
+    for _ in range(4):
+        f.step(A, action_object_idx=0, outcome_signal=0.5)
+    for _ in range(4):
+        f.step(B, action_object_idx=1, outcome_signal=0.5)
+    for t in range(silent_ticks):
+        f.step(C, action_object_idx=1000 + t, outcome_signal=0.0)
+    return f.get_state()
+
+
+def test_c17_maintenance_default_off_bit_identical_and_readout_keys():
+    # Default OFF (and inert even with absurd maintenance_* values when the master
+    # flag is off) -> bit-identical to legacy on a fixed sequence; new maintained-
+    # pool readout keys are present, consistent, and bounded.
+    cfg = CandidateRuleFieldConfig(use_candidate_rule_field=True)
+    assert cfg.availability_maintenance is False
+    legacy = _field(mature_pool_dynamics=True)
+    inert = _field(mature_pool_dynamics=True, availability_maintenance=False,
+                   maintenance_floor=0.99, maintenance_decay=0.5,
+                   engaged_sustain=True, engaged_sustain_rate=0.9)
+    s_legacy = _run_two_regime(legacy)
+    s_inert = _run_two_regime(inert)
+    assert s_legacy["crf_n_slots_minted"] == s_inert["crf_n_slots_minted"]
+    assert s_legacy["crf_n_minted_total"] == s_inert["crf_n_minted_total"]
+    assert abs(s_legacy["crf_frac_active"] - s_inert["crf_frac_active"]) < 1e-9
+    assert abs(s_legacy["crf_max_pairwise_rule_dist"]
+               - s_inert["crf_max_pairwise_rule_dist"]) < 1e-9
+    # maintained-pool readout keys present + consistent (always emitted).
+    for k in ("crf_n_maintained_reactivatable", "crf_maintained_pairwise_dist",
+              "crf_frac_maintained", "crf_maintained_reactivation_threshold"):
+        assert k in s_legacy
+    assert s_legacy["crf_n_maintained_reactivatable"] == len(
+        legacy.maintained_reactivatable_rules())
+    assert 0.0 <= s_legacy["crf_frac_maintained"] <= 1.0
+
+
+def test_c18_maintenance_holds_differentiated_pool_under_sparse_matching():
+    # The 666 fix: under sparse matching, activity-silent maintenance HOLDS a
+    # differentiated >=2-rule reactivatable pool where the legacy mature path lets
+    # it erode out of the reactivatable set.
+    legacy = _field(mature_pool_dynamics=True, availability_maintenance=False)
+    maint = _field(mature_pool_dynamics=True, availability_maintenance=True,
+                   maintenance_floor=0.45, maintenance_decay=0.0)
+    s_legacy = _mint_two_then_silence(legacy, silent_ticks=3000)
+    s_maint = _mint_two_then_silence(maint, silent_ticks=3000)
+    # Both mint two differentiated rules at the start.
+    assert s_maint["crf_max_pairwise_rule_dist"] > 0.1
+    # Maintenance: both rules stay maintained-and-reactivatable across the silence.
+    assert s_maint["crf_n_maintained_reactivatable"] >= 2
+    assert s_maint["crf_maintained_pairwise_dist"] > 0.1  # the readiness gate
+    # Legacy mature: silence erodes the pool below the reactivation floor (and/or
+    # retires it) -> fewer than two maintained-reactivatable rules.
+    assert s_legacy["crf_n_maintained_reactivatable"] < 2
+    # The CRF-readiness gate (maintained-pool form) clears for maintenance, not legacy.
+    maint_ready = (s_maint["crf_maintained_pairwise_dist"] > 0.1
+                   and s_maint["crf_n_maintained_reactivatable"] >= 2)
+    legacy_ready = (s_legacy["crf_maintained_pairwise_dist"] > 0.1
+                    and s_legacy["crf_n_maintained_reactivatable"] >= 2)
+    assert maint_ready is True
+    assert legacy_ready is False
+
+
+def test_c19_maintenance_flags_from_dims_and_agent_wiring():
+    cfg_off = REEConfig.from_dims(body_obs_dim=10, world_obs_dim=20, action_dim=4)
+    assert cfg_off.crf_availability_maintenance is False
+    agent, env = _build_agent(use_candidate_rule_field=True,
+                              use_lateral_pfc_analog=True,
+                              crf_mint_recurrence_threshold=2,
+                              crf_mature_pool_dynamics=True,
+                              crf_context_from_e2_world_forward=True,
+                              crf_availability_maintenance=True,
+                              crf_maintenance_floor=0.5)
+    f = agent.candidate_rule_field
+    assert f.config.availability_maintenance is True
+    assert abs(f.config.maintenance_floor - 0.5) < 1e-9
+    _flat, obs = env.reset()
+    body = obs["body_state"]; world = obs["world_state"]
+    if body.dim() == 1:
+        body = body.unsqueeze(0)
+    if world.dim() == 1:
+        world = world.unsqueeze(0)
+    with torch.no_grad():
+        for _ in range(20):
+            act = agent.act_with_split_obs(body, world)
+            _flat, _h, _d, _i, obs = env.step(int(act.argmax().item()))
+            body = obs["body_state"]; world = obs["world_state"]
+            if body.dim() == 1:
+                body = body.unsqueeze(0)
+            if world.dim() == 1:
+                world = world.unsqueeze(0)
+    st = f.get_state()
+    assert "crf_n_maintained_reactivatable" in st
+    assert "crf_maintained_pairwise_dist" in st

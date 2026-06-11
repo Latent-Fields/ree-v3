@@ -1731,6 +1731,20 @@ class REEConfig:
     # ARC-065 GAP-A re-sourcing so the mint-block does not collapse under low
     # raw-z_world spread. Default OFF -> raw z_world (bit-identical).
     crf_context_from_e2_world_forward: bool = False
+    # --- crf-availability-maintenance (V3-EXQ-666 successor; ARC-063 amend).
+    # Activity-silent maintenance of a differentiated rule pool: silence no longer
+    # erodes availability (only exception/interference does), and the readiness
+    # readout moves to the MAINTAINED pool. All consulted only when
+    # crf_availability_maintenance=True; default False -> bit-identical legacy
+    # path. Designed to run WITH crf_mature_pool_dynamics +
+    # crf_context_from_e2_world_forward (the differentiation source). See
+    # CandidateRuleFieldConfig for per-knob semantics.
+    crf_availability_maintenance: bool = False
+    crf_maintenance_floor: float = 0.45
+    crf_maintenance_decay: float = 0.0
+    crf_engaged_sustain: bool = False
+    crf_engaged_sustain_rate: float = 0.1
+    crf_maintained_reactivation_threshold: float = 0.0
 
     # SD-033b: OFC-analog (specific-outcome / task-structure substrate,
     # MECH-261 second consumer; MECH-263 falsification target). When True,
@@ -3431,6 +3445,13 @@ class REEConfig:
         crf_mature_mint_block_threshold: float = 0.8,
         crf_mature_mint_protection_ticks: int = 30,
         crf_context_from_e2_world_forward: bool = False,
+        # crf-availability-maintenance (V3-EXQ-666 successor; ARC-063 amend)
+        crf_availability_maintenance: bool = False,
+        crf_maintenance_floor: float = 0.45,
+        crf_maintenance_decay: float = 0.0,
+        crf_engaged_sustain: bool = False,
+        crf_engaged_sustain_rate: float = 0.1,
+        crf_maintained_reactivation_threshold: float = 0.0,
         # SD-033b: OFC-analog (specific-outcome / task-structure substrate)
         use_ofc_analog: bool = False,
         ofc_state_dim: int = 16,
@@ -4274,6 +4295,15 @@ class REEConfig:
         )
         config.crf_context_from_e2_world_forward = (
             crf_context_from_e2_world_forward
+        )
+        # crf-availability-maintenance (V3-EXQ-666 successor; ARC-063 amend)
+        config.crf_availability_maintenance = crf_availability_maintenance
+        config.crf_maintenance_floor = crf_maintenance_floor
+        config.crf_maintenance_decay = crf_maintenance_decay
+        config.crf_engaged_sustain = crf_engaged_sustain
+        config.crf_engaged_sustain_rate = crf_engaged_sustain_rate
+        config.crf_maintained_reactivation_threshold = (
+            crf_maintained_reactivation_threshold
         )
 
         # SD-033b: OFC-analog

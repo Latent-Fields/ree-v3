@@ -677,6 +677,22 @@ class REEAgent(nn.Module):
                 mature_mint_protection_ticks=getattr(
                     config, "crf_mature_mint_protection_ticks", 30
                 ),
+                # crf-availability-maintenance (V3-EXQ-666 successor): activity-
+                # silent maintenance trace + maintained-pool readout. getattr-
+                # fallback to the default so an absent flat REEConfig attr is
+                # bit-identical; consulted only when availability_maintenance=True.
+                availability_maintenance=getattr(
+                    config, "crf_availability_maintenance", False
+                ),
+                maintenance_floor=getattr(config, "crf_maintenance_floor", 0.45),
+                maintenance_decay=getattr(config, "crf_maintenance_decay", 0.0),
+                engaged_sustain=getattr(config, "crf_engaged_sustain", False),
+                engaged_sustain_rate=getattr(
+                    config, "crf_engaged_sustain_rate", 0.1
+                ),
+                maintained_reactivation_threshold=getattr(
+                    config, "crf_maintained_reactivation_threshold", 0.0
+                ),
             )
             self.candidate_rule_field = CandidateRuleField(
                 context_dim=config.latent.world_dim,

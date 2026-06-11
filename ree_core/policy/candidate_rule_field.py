@@ -160,6 +160,51 @@ class CandidateRuleFieldConfig:
     mature_tolerance_conflict_gain: float = 0.25
     mature_mint_block_threshold: float = 0.8
     mature_mint_protection_ticks: int = 30
+    # --- crf-availability-maintenance (V3-EXQ-666 successor; all consulted only
+    # when availability_maintenance=True; default False -> bit-identical legacy
+    # path). The B-leaning-hybrid resolution of the differentiation<->persistence
+    # tension (targeted_review_arc_063_crf_rule_cell_persistence SYNTHESIS): once
+    # crf_context_from_e2_world_forward delivers a DIFFERENTIATED pool (ARM_2:
+    # 10-16 distinct rules, dist 1.71), each narrowly-tuned rule matches a sparse
+    # context slice, so the match-triggered-EMA availability never accumulates
+    # above theta between matches and decays in the gaps (mature_availability_decay
+    # 0.001/tick) -> crf_frac_active collapses to 0.016, WORSE than the
+    # undifferentiated legacy 0.125. The activity-silent-synaptic literature
+    # (Mongillo 2008 facilitation; Stokes 2015; Lundqvist 2018) says the
+    # available-but-unselected POOL must be held silently across context-absent
+    # ticks, NOT kept firing -- so the fix is (1) hold availability across silence
+    # (remove the silence-driven decay; only exception/interference erodes it) and
+    # (2) re-state the readiness readout on the MAINTAINED pool, not the
+    # instantaneous active fraction (which is the averaged-activity artefact the
+    # lit warns against).
+    #   availability_maintenance: master switch.
+    #   maintenance_floor: a freshly minted DIFFERENTIATED rule starts with
+    #     availability at least this high (default 0.45, above the mature 2-way
+    #     match theta(1)=0.40) so a maintained rule would clear threshold if its
+    #     context recurred even against one competitor. Applied only at mint; the
+    #     silence-hold then keeps it there. NOT re-floored every tick, so the
+    #     negative-outcome credit exception/interference path can still erode a
+    #     consistently-bad rule below it and retire it.
+    #   maintenance_decay: optional slow long-horizon multiplicative leak per tick
+    #     that REPLACES the silence-driven (mature_)availability_decay under
+    #     maintenance (default 0.0 = pure hold -- the synaptic impression persists;
+    #     set small to model slow forgetting at a deliberately-long horizon).
+    #   engaged_sustain / engaged_sustain_rate: prescription 3 (optional,
+    #     secondary) -- a short sustained-activity reverberation for the
+    #     matched-and-selected (engaged) rule (Funahashi 1989 / Compte-Wang 2000),
+    #     pairing with Mongillo facilitation. NOT the pool fix; default OFF.
+    #   maintained_reactivation_threshold: a rule counts as
+    #     maintained-and-reactivatable in the readout when availability >= this.
+    #     Sentinel <=0 (default) derives it from the single-match gate floor
+    #     (mature_tolerance_floor when mature, else tolerance_floor) -- i.e. the
+    #     threshold the rule would clear if its context recurred and it were the
+    #     sole match (the realistic reactivation case for a narrowly-tuned rule).
+    availability_maintenance: bool = False
+    maintenance_floor: float = 0.45
+    maintenance_decay: float = 0.0
+    engaged_sustain: bool = False
+    engaged_sustain_rate: float = 0.1
+    maintained_reactivation_threshold: float = 0.0
 
 
 @dataclass
@@ -316,6 +361,12 @@ class CandidateRuleField:
             # discriminator's confidence that this context is a distinct regime.
             confidence = abs(float(arc062_seed) - 0.5) * 2.0
             init_avail = min(1.0, init_avail + 0.5 * confidence)
+        # crf-availability-maintenance: a freshly minted differentiated rule starts
+        # robustly maintained (>= maintenance_floor, above the mature 2-way-match
+        # theta) so the activity-silent hold below keeps it reactivatable across
+        # context-absent ticks. Applied only at mint; not re-floored every tick.
+        if self.config.availability_maintenance:
+            init_avail = min(1.0, max(init_avail, float(self.config.maintenance_floor)))
         self._rules[slot] = CandidateRule(
             rule_embedding=embedding,
             context_tag=context.detach().clone(),
@@ -432,13 +483,34 @@ class CandidateRuleField:
             else 0
         )
         decay_e = max(0.0, 1.0 - 1.0 / max(1, self.config.eligibility_window))
+        maint = self.config.availability_maintenance
         to_retire: List[int] = []
         for idx, r in self._rules.items():
             if r.eligibility > 1e-6:
                 w = alpha * r.eligibility
                 r.availability = (1.0 - w) * r.availability + w * target
             r.eligibility *= decay_e
-            r.availability *= (1.0 - decay)
+            if maint:
+                # crf-availability-maintenance (Mongillo 2008 / Stokes 2015 /
+                # Lundqvist 2018): the available POOL is held activity-silently --
+                # silence does NOT erode availability (the per-tick decay is
+                # REMOVED), only the negative-outcome eligibility credit above (the
+                # exception/interference path) drives a consistently-bad rule down
+                # and retires it. Optional long-horizon leak (maintenance_decay,
+                # default 0.0 = pure hold -- the synaptic impression persists).
+                r.availability *= (1.0 - self.config.maintenance_decay)
+                if self.config.engaged_sustain and r.eligibility > 1e-6:
+                    # Prescription 3 (optional, secondary): a short sustained-
+                    # activity reverberation for the engaged (recently-active) rule
+                    # (Funahashi 1989 / Compte-Wang 2000), pairing with Mongillo
+                    # facilitation. NOT the pool fix; default OFF.
+                    r.availability = min(
+                        1.0,
+                        r.availability
+                        + self.config.engaged_sustain_rate * r.eligibility,
+                    )
+            else:
+                r.availability *= (1.0 - decay)
             r.availability = float(min(1.0, max(0.0, r.availability)))
             # Mint-youth protection: a freshly minted rule is retirement-protected
             # for `protect` ticks so a 2nd differentiated rule has time to
@@ -523,8 +595,50 @@ class CandidateRuleField:
         d = torch.cdist(m.unsqueeze(0), m.unsqueeze(0)).squeeze(0)
         return float(d.max().item())
 
+    def maintained_reactivation_threshold(self) -> float:
+        """Availability bar a rule must clear to count as maintained-and-
+        reactivatable (crf-availability-maintenance readout).
+
+        Sentinel maintained_reactivation_threshold <= 0 derives it from the
+        single-match gate floor -- the threshold a rule clears when its context
+        recurs and it is the sole match (the realistic reactivation case for a
+        narrowly-tuned differentiated rule).
+        """
+        thr = float(self.config.maintained_reactivation_threshold)
+        if thr > 0.0:
+            return thr
+        if self.config.mature_pool_dynamics:
+            return float(self.config.mature_tolerance_floor)
+        return float(self.config.tolerance_floor)
+
+    def maintained_reactivatable_rules(self) -> List[CandidateRule]:
+        """Minted rules whose maintained availability WOULD clear threshold if
+        their context recurred -- independent of whether that context is present
+        this tick (the activity-silent 'is the rule still in the store?' question;
+        targeted_review_arc_063_crf_rule_cell_persistence prescription 2)."""
+        thr = self.maintained_reactivation_threshold()
+        return [r for r in self._rules.values() if r.availability >= thr]
+
+    def maintained_pairwise_distance(self) -> float:
+        """Max pairwise L2 distance among the MAINTAINED-reactivatable rules'
+        embeddings -- the differentiation of the silently-held pool. With
+        maintained count this forms the CRF-readiness gate the 666-successor
+        scores: crf_maintained_pairwise_dist > floor AND
+        crf_n_maintained_reactivatable >= 2 (replaces the crf_frac_active >= 0.30
+        target, which is the averaged-activity artefact for a sparsely-matched
+        differentiated pool)."""
+        embs = [
+            r.rule_embedding.reshape(-1) for r in self.maintained_reactivatable_rules()
+        ]
+        if len(embs) < 2:
+            return 0.0
+        m = torch.stack(embs, dim=0)
+        d = torch.cdist(m.unsqueeze(0), m.unsqueeze(0)).squeeze(0)
+        return float(d.max().item())
+
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
+        _n_maintained = len(self.maintained_reactivatable_rules())
         return {
             "crf_n_slots_minted": len(self._rules),
             "crf_n_minted_total": self._n_minted,
@@ -543,4 +657,18 @@ class CandidateRuleField:
             ),
             "crf_n_active_steps": self._n_active_steps,
             "crf_step": self._step,
+            # crf-availability-maintenance readout (the maintained-pool metric that
+            # REPLACES crf_frac_active as the readiness criterion per the B-leaning
+            # lit verdict). crf_frac_active above is retained as the secondary
+            # active-on-match efficiency readout, not the persistence criterion.
+            "crf_n_maintained_reactivatable": _n_maintained,
+            "crf_maintained_pairwise_dist": self.maintained_pairwise_distance(),
+            "crf_frac_maintained": (
+                _n_maintained / self.config.n_slots
+                if self.config.n_slots > 0
+                else 0.0
+            ),
+            "crf_maintained_reactivation_threshold": (
+                self.maintained_reactivation_threshold()
+            ),
         }
