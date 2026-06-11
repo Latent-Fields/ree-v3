@@ -105,25 +105,6 @@
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_667_q043_exploration_magnitude_sweep",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-666",
-      "title": "ARC-063 CRF mature-pool readiness diagnostic (654b amend validation)",
-      "script": "experiments/v3_exq_666_arc063_crf_mature_pool_readiness.py",
-      "priority": 240,
-      "machine_affinity": "any",
-      "estimated_minutes": 300,
-      "note": "CLAIM-FREE diagnostic (experiment_purpose=diagnostic, claim_ids=[], non_contributory) validating the 2026-06-11 ARC-063 mature-pool amend (landed ree-v3 main 7e2e0ef) routed by failure_autopsy_V3-EXQ-654b_2026-06-11. 3 arms x 3 seeds, matched 654b/649/SD-056/MECH-341 stack, all CRF-on + crf_persist; ONLY swept vars are the two amend flags. ARM_0_OFF (legacy) vs ARM_1_MATURE (crf_mature_pool_dynamics) vs ARM_2_MATURE_E2CTX (+crf_context_from_e2_world_forward). CRF-readiness gate: crf_max_pairwise_rule_dist>0.1 AND crf_frac_active>=0.30 on ARM_1 (and ARM_2) >=2/3 seeds, vs the 654b ARM_0 churn signature (dist~0.0, frac~0.13). Non-vacuity: all cells must mint else substrate_not_ready_requeue. Discrimination: ARM_0 must NOT clear the gate (else env non-discriminating, flagged). implement-substrate Step-8 follow-on. The 654c GAP-B behavioural re-run (committed-class entropy, MECH-309/ARC-062) is a SEPARATE later /queue-experiment session GATED on this readiness PASS. Dry-run PASS end-to-end; ARM_0 frac_active 0.126/dist 0.0 vs ARM_1 frac_active 0.69 / ARM_2 dist 0.497 even at dry-scale -- discrimination confirmed; full-scale needed for the gate.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-11T04:45:29Z"
-      },
-      "claim_ids": [],
-      "conditions": 3,
-      "episodes_per_run": 100,
-      "experiment_type": "v3_exq_666_arc063_crf_mature_pool_readiness",
-      "seeds": 3
     }
   ]
 }
