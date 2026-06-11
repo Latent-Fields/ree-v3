@@ -29,29 +29,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-514n",
-      "title": "MECH-229 wanting!=liking SD-057 OBJECT-BOUND retest: most-wanted z_goal pointer (MECH-346) != last-consumed type, on the 603n-validated scaffolded_sd054_onboarding curriculum; same-statistic WL non-vacuity readiness gate (the 514m vacuity fix)",
-      "script": "experiments/v3_exq_514n_sd049_phase2_mech229_object_bound_wanting_liking.py",
-      "priority": 320,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "claim_id": "MECH-229",
-      "note": "Substrate-faithful MECH-229 retest routed by confirmed failure_autopsy_V3-EXQ-514m_2026-06-11 (governance cycle #4 reclassified 514m C_WL=0.0/3-seeds VACUOUS -> non_contributory, measurement_test_design_defect: the legacy DV compared SD-014 residue VALENCE_WANTING/LIKING channels that 514m never wrote, so |w-l|>0.1 could never fire). This run measures the SD-057 OBJECT-BOUND wanting-target (MECH-346 most-wanted z_goal pointer = IncentiveTokenBank.most_wanted k* = argmax base_value*(1+kappa*per_axis_drive)) != liking-target (last-consumed type) dissociation -- the biologically+forward-faithful test the SD-049 verdict pre-registered, on the live SD-057 substrate (use_incentive_token_bank already on; landed 2026-06-04). Built through the FULL scaffolded_sd054_onboarding curriculum at the 603n config (Stage-0->0b->P0->Stage-H->P1->P2; ready=true 2026-06-11 per 603n PASS), identical to 514m, then a frozen-policy SD-049 Phase-2 eval binds the per-object token + seeds z_goal via the substrate's own update_z_goal(resource_type=...) at each consumption event and compares the most-wanted pointer to the consumed type. CONTACT GUARD retained (per-seed P2 contact_rate>0 AND z_goal_norm_at_contact_peak>0.4; <2/3 -> substrate_not_ready_requeue). NEW SAME-STATISTIC WL NON-VACUITY READINESS GATE (the exact gap the 514m contact guard lacked -- it checked foraging but not channel-write): leg1 positive-control cross-target separation (a constructed 2-token bank from this run's GoalConfig must yield a drive-favored most-wanted != designated last-consumed -- the SAME cross-target-inequality statistic C_WL routes on; instrument-can-fire) AND leg2 in-run bank populated >=2 distinct tokens at differing per-axis drives on >=2/3 guard-passing seeds (channels-written-this-run). Below floor -> substrate_not_ready_requeue (non_contributory), NEVER a false MECH-229 weakens (V3-EXQ-643 lesson). PASS (supports MECH-229) = contact non-vacuity AND WL readiness AND C_WL (mean object-bound wanting!=liking dissoc fraction >= 0.3); readiness-met-but-C_WL-unmet -> a GENUINE weakens. claim_ids=[MECH-229] ONLY -- MECH-230 NOT re-tagged (its supports stands from 514m C_ID/C_ANOVA). SUCCESSOR (NOT supersede) of V3-EXQ-514m (514m is non_contributory, not invalid-by-bug in any arm this re-tests). validate_experiments --strict --paths OK (0 readiness-warnings); --dry-run end-to-end PASS (curriculum runs, bank populates 2 tokens via Stage-0 cue-bind goal_r 0.958, self-routes substrate_not_ready at 1-seed toy scale as designed -- contact_rate=0 at dry budget). Closes goal_pipeline:GAP-2 on PASS. Runner NOT started.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-11T18:27:36Z"
-      },
-      "claim_ids": [
-        "MECH-229"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_514n_sd049_phase2_mech229_object_bound_wanting_liking",
-      "predecessor": "V3-EXQ-514m",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-569g",
       "title": "ARC-065 GAP-A R1.b matched-entropy behavioural falsifier on the V3-EXQ-662-validated route-range substrate (supersedes 569f)",
       "script": "experiments/v3_exq_569g_gapa_routerange_matched_entropy_falsifier.py",
