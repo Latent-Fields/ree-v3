@@ -649,6 +649,34 @@ class REEAgent(nn.Module):
                 persist_rules_across_episode_reset=getattr(
                     config, "crf_persist_rules_across_episode_reset", False
                 ),
+                # ARC-063 amend (V3-EXQ-654b): mature-pool gate/credit/retire
+                # dynamics. All getattr-fallback to the recalibrated default so an
+                # absent flat REEConfig attr is bit-identical; consulted only when
+                # mature_pool_dynamics is True.
+                mature_pool_dynamics=getattr(
+                    config, "crf_mature_pool_dynamics", False
+                ),
+                mature_availability_decay=getattr(
+                    config, "crf_mature_availability_decay", 0.001
+                ),
+                mature_retire_floor=getattr(
+                    config, "crf_mature_retire_floor", 0.05
+                ),
+                mature_availability_alpha_negative=getattr(
+                    config, "crf_mature_availability_alpha_negative", 0.02
+                ),
+                mature_tolerance_floor=getattr(
+                    config, "crf_mature_tolerance_floor", 0.15
+                ),
+                mature_tolerance_conflict_gain=getattr(
+                    config, "crf_mature_tolerance_conflict_gain", 0.25
+                ),
+                mature_mint_block_threshold=getattr(
+                    config, "crf_mature_mint_block_threshold", 0.8
+                ),
+                mature_mint_protection_ticks=getattr(
+                    config, "crf_mature_mint_protection_ticks", 30
+                ),
             )
             self.candidate_rule_field = CandidateRuleField(
                 context_dim=config.latent.world_dim,
@@ -4646,6 +4674,45 @@ class REEAgent(nn.Module):
                 _crf_source: Optional[torch.Tensor] = None
                 if self.candidate_rule_field is not None:
                     _crf_ctx = self._current_latent.z_world.detach().reshape(-1)
+                    # ARC-063 amend (V3-EXQ-654b): optionally source the CRF
+                    # mint/match context from e2.world_forward(z_world, prev_action)
+                    # instead of raw z_world, so the mint-block does not collapse
+                    # under low raw-z_world spread (mirrors ARC-065 GAP-A). no_grad
+                    # waking read; falls back to raw z_world when prev-action is
+                    # unset or e2 is unavailable. Default OFF -> raw z_world.
+                    if getattr(
+                        self.config, "crf_context_from_e2_world_forward", False
+                    ):
+                        _crf_e2 = getattr(self, "e2", None)
+                        _crf_pa = self._crf_prev_action_class
+                        if (
+                            _crf_e2 is not None
+                            and _crf_pa >= 0
+                            and len(candidates) > 0
+                        ):
+                            try:
+                                _crf_adim = int(candidates[0].actions.shape[-1])
+                            except (AttributeError, IndexError, TypeError):
+                                _crf_adim = 0
+                            if 0 <= _crf_pa < _crf_adim:
+                                _crf_z0 = (
+                                    self._current_latent.z_world.detach()
+                                )
+                                if _crf_z0.dim() == 1:
+                                    _crf_z0 = _crf_z0.unsqueeze(0)
+                                _crf_z0 = _crf_z0[:1]  # [1, world_dim]
+                                _crf_act = torch.zeros(
+                                    1,
+                                    _crf_adim,
+                                    device=_crf_z0.device,
+                                    dtype=_crf_z0.dtype,
+                                )
+                                _crf_act[0, _crf_pa] = 1.0
+                                with torch.no_grad():
+                                    _crf_pred = _crf_e2.world_forward(
+                                        _crf_z0, _crf_act
+                                    )
+                                _crf_ctx = _crf_pred.detach().reshape(-1)
                     _crf_outcome = 0.0
                     _z_ha = getattr(self._current_latent, "z_harm_a", None)
                     if _z_ha is not None:

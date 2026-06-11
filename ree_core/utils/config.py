@@ -1713,6 +1713,24 @@ class REEConfig:
     # accumulates ACROSS the per-episode agent.reset() instead of cold-starting
     # every ~26-tick episode. No-op default = bit-identical per-episode wipe.
     crf_persist_rules_across_episode_reset: bool = False
+    # ARC-063 amend (V3-EXQ-654b GAP-B maturity): mature-pool gate/credit/retire
+    # dynamics so a differentiated, persistently-active pool of >=2 rules can form
+    # (the 654/654a/654b crf_frac_active ~0.13 / crf_max_pairwise_rule_dist 0.0
+    # churn fix). All consulted only when crf_mature_pool_dynamics=True; default
+    # OFF -> bit-identical legacy dynamics.
+    crf_mature_pool_dynamics: bool = False
+    crf_mature_availability_decay: float = 0.001
+    crf_mature_retire_floor: float = 0.05
+    crf_mature_availability_alpha_negative: float = 0.02
+    crf_mature_tolerance_floor: float = 0.15
+    crf_mature_tolerance_conflict_gain: float = 0.25
+    crf_mature_mint_block_threshold: float = 0.8
+    crf_mature_mint_protection_ticks: int = 30
+    # When True the CRF context (mint/match key) is sourced from
+    # e2.world_forward(z_world, prev_action) instead of raw z_world, mirroring the
+    # ARC-065 GAP-A re-sourcing so the mint-block does not collapse under low
+    # raw-z_world spread. Default OFF -> raw z_world (bit-identical).
+    crf_context_from_e2_world_forward: bool = False
 
     # SD-033b: OFC-analog (specific-outcome / task-structure substrate,
     # MECH-261 second consumer; MECH-263 falsification target). When True,
@@ -3403,6 +3421,16 @@ class REEConfig:
         crf_context_match_threshold: float = 0.5,
         crf_seed_from_arc062: bool = True,
         crf_persist_rules_across_episode_reset: bool = False,
+        # ARC-063 amend (V3-EXQ-654b): mature-pool gate/credit/retire dynamics
+        crf_mature_pool_dynamics: bool = False,
+        crf_mature_availability_decay: float = 0.001,
+        crf_mature_retire_floor: float = 0.05,
+        crf_mature_availability_alpha_negative: float = 0.02,
+        crf_mature_tolerance_floor: float = 0.15,
+        crf_mature_tolerance_conflict_gain: float = 0.25,
+        crf_mature_mint_block_threshold: float = 0.8,
+        crf_mature_mint_protection_ticks: int = 30,
+        crf_context_from_e2_world_forward: bool = False,
         # SD-033b: OFC-analog (specific-outcome / task-structure substrate)
         use_ofc_analog: bool = False,
         ofc_state_dim: int = 16,
@@ -4228,6 +4256,24 @@ class REEConfig:
         config.crf_seed_from_arc062 = crf_seed_from_arc062
         config.crf_persist_rules_across_episode_reset = (
             crf_persist_rules_across_episode_reset
+        )
+        # ARC-063 amend (V3-EXQ-654b): mature-pool gate/credit/retire dynamics
+        config.crf_mature_pool_dynamics = crf_mature_pool_dynamics
+        config.crf_mature_availability_decay = crf_mature_availability_decay
+        config.crf_mature_retire_floor = crf_mature_retire_floor
+        config.crf_mature_availability_alpha_negative = (
+            crf_mature_availability_alpha_negative
+        )
+        config.crf_mature_tolerance_floor = crf_mature_tolerance_floor
+        config.crf_mature_tolerance_conflict_gain = (
+            crf_mature_tolerance_conflict_gain
+        )
+        config.crf_mature_mint_block_threshold = crf_mature_mint_block_threshold
+        config.crf_mature_mint_protection_ticks = (
+            crf_mature_mint_protection_ticks
+        )
+        config.crf_context_from_e2_world_forward = (
+            crf_context_from_e2_world_forward
         )
 
         # SD-033b: OFC-analog

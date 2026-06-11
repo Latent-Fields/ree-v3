@@ -218,3 +218,161 @@ def test_c11_config_wiring_from_dims_and_agent():
     assert agent.candidate_rule_field is not None
     assert (agent.candidate_rule_field.config
             .persist_rules_across_episode_reset is True)
+
+
+# ----------------------------------------------------------------------
+# ARC-063 amend (V3-EXQ-654b GAP-B maturity): mature-pool gate/credit/retire
+# dynamics so a differentiated, persistently-active pool of >=2 rules can form.
+# ----------------------------------------------------------------------
+def _collapsed_regime():
+    """Two context regimes at cosine ~0.7 (collapsed-but-distinguishable z_world,
+    the 654b monostrategy signature). Distinct recurrence keys come from the
+    differing action class, not the bucket."""
+    import math
+    torch.manual_seed(1)
+    base = torch.randn(16); base = base / base.norm()
+    perp = torch.randn(16); perp = perp - (perp @ base) * base; perp = perp / perp.norm()
+    ab = 0.7
+    ctxA = base.clone()
+    ctxB = ab * base + math.sqrt(1 - ab * ab) * perp
+    return ctxA / ctxA.norm(), ctxB / ctxB.norm()
+
+
+def _run_two_regime(f, ticks=400):
+    ctxA, ctxB = _collapsed_regime()
+    for t in range(ticks):
+        ctx, ao = (ctxA, 0) if t % 2 == 0 else (ctxB, 1)
+        outcome = -0.6 if (t % 5 == 0) else 0.2  # frequent hazard-env negatives
+        f.step(context=ctx, action_object_idx=ao, outcome_signal=outcome)
+    return f.get_state()
+
+
+def test_c12_mature_default_off_bit_identical_and_frac_active_readout():
+    # mature_* knobs default to recalibrated values but are INERT when the master
+    # flag is off -> a field with absurd mature_* values but mature_pool_dynamics
+    # False is bit-identical to the legacy default field on a fixed sequence.
+    cfg = CandidateRuleFieldConfig(use_candidate_rule_field=True)
+    assert cfg.mature_pool_dynamics is False
+    legacy = _field()
+    inert = _field(mature_pool_dynamics=False, mature_retire_floor=0.99,
+                   mature_tolerance_floor=5.0, mature_mint_block_threshold=0.0)
+    s_legacy = _run_two_regime(legacy)
+    s_inert = _run_two_regime(inert)
+    assert s_legacy["crf_n_slots_minted"] == s_inert["crf_n_slots_minted"]
+    assert s_legacy["crf_n_minted_total"] == s_inert["crf_n_minted_total"]
+    assert abs(s_legacy["crf_max_pairwise_rule_dist"]
+               - s_inert["crf_max_pairwise_rule_dist"]) < 1e-9
+    # frac_active readout (the CRF-readiness gate input) is present + in [0, 1].
+    assert "crf_frac_active" in s_legacy
+    assert 0.0 <= s_legacy["crf_frac_active"] <= 1.0
+
+
+def test_c13_mature_conflict_gate_admits_two_matched_rules():
+    # The latent deadlock: legacy theta = 0.3 + 1.0*n_competing -> 1.3 for two
+    # matched rules -> NEITHER can be active. Mature 0.15 + 0.25*n -> 0.40 ->
+    # both fire if availability >= 0.4.
+    cx = torch.zeros(16); cx[0] = 1.0
+
+    def _two_matched(mature):
+        f = _field(n_slots=8, mint_recurrence_threshold=1,
+                   context_match_threshold=0.3, mature_pool_dynamics=mature)
+        for idx in (0, 1):
+            f._rules[idx] = CandidateRule(
+                rule_embedding=f._pinned_directions[idx].clone(),
+                context_tag=cx.clone(), availability=0.5, eligibility=0.0,
+                minted_step=0)
+        return f
+
+    assert len(_two_matched(False).gate_and_select(cx)) == 0, \
+        "legacy conflict gate deadlocks >=2 matched rules"
+    assert len(_two_matched(True).gate_and_select(cx)) == 2, \
+        "mature conflict gate admits >=2 matched rules"
+
+
+def test_c14_mature_breaks_654b_signature_and_clears_readiness_gate():
+    # The headline 654b inversion under the collapsed-z_world regime: legacy
+    # mint-block (cos 0.7 >= 0.5) blocks the 2nd mint -> 1 rule present ->
+    # crf_max_pairwise_rule_dist 0.0 (READY=False). Mature mint-block at 0.8
+    # admits the 2nd -> >=2 differentiated co-present rules (READY=True).
+    s_legacy = _run_two_regime(_field())
+    s_mature = _run_two_regime(_field(mature_pool_dynamics=True))
+    assert s_legacy["crf_max_pairwise_rule_dist"] == 0.0
+    assert s_legacy["crf_n_slots_minted"] == 1
+    assert s_mature["crf_n_slots_minted"] >= 2
+    assert s_mature["crf_max_pairwise_rule_dist"] > 0.0
+    # CRF-readiness gate: max_pairwise_dist > floor AND frac_active >= 0.30.
+    legacy_ready = (s_legacy["crf_max_pairwise_rule_dist"] > 0.0
+                    and s_legacy["crf_frac_active"] >= 0.30)
+    mature_ready = (s_mature["crf_max_pairwise_rule_dist"] > 0.0
+                    and s_mature["crf_frac_active"] >= 0.30)
+    assert legacy_ready is False
+    assert mature_ready is True
+
+
+def test_c15_mature_retire_churn_youth_protection_and_asymmetric_credit():
+    cx = torch.zeros(16); cx[0] = 1.0
+
+    # Mint-youth protection: a fresh rule below the retire floor survives within
+    # mint_protection_ticks under mature; legacy retires it immediately.
+    def _fresh_below_floor(mature):
+        f = _field(mint_recurrence_threshold=1, mature_pool_dynamics=mature,
+                   mature_mint_protection_ticks=30, mature_retire_floor=0.05)
+        f._rules[0] = CandidateRule(
+            rule_embedding=f._pinned_directions[0].clone(),
+            context_tag=cx.clone(), availability=0.02, eligibility=0.0,
+            minted_step=0)
+        f.credit(outcome_signal=-1.0, step=5)  # 5 ticks old -> within protection
+        return 0 in f._rules
+
+    assert _fresh_below_floor(True) is True, "mature protects a fresh below-floor rule"
+    assert _fresh_below_floor(False) is False, "legacy retires it (floor 0.15)"
+
+    # Asymmetric negative credit: a negative outcome erodes availability less
+    # under mature (alpha_neg 0.02) than legacy (alpha 0.1).
+    def _neg_credit(mature):
+        f = _field(mature_pool_dynamics=mature,
+                   mature_availability_alpha_negative=0.02)
+        f._rules[0] = CandidateRule(
+            rule_embedding=f._pinned_directions[0].clone(),
+            context_tag=cx.clone(), availability=0.8, eligibility=1.0,
+            minted_step=0)
+        f.credit(outcome_signal=-1.0, step=1)
+        return f._rules[0].availability
+
+    assert _neg_credit(True) > _neg_credit(False), \
+        "mature negative credit is gentler -> higher residual availability"
+
+
+def test_c16_mature_and_context_flags_from_dims_and_agent_wiring():
+    # from_dims default OFF for both new flags.
+    cfg_off = REEConfig.from_dims(body_obs_dim=10, world_obs_dim=20, action_dim=4)
+    assert cfg_off.crf_mature_pool_dynamics is False
+    assert cfg_off.crf_context_from_e2_world_forward is False
+    # Explicit True propagates onto the agent's field config (mature) + REEConfig
+    # (context routing, read at the tick site), and the agent runs an act tick
+    # exercising the mature dynamics + e2-world-forward context path without error.
+    agent, env = _build_agent(use_candidate_rule_field=True,
+                              use_lateral_pfc_analog=True,
+                              crf_mint_recurrence_threshold=2,
+                              crf_mature_pool_dynamics=True,
+                              crf_context_from_e2_world_forward=True)
+    assert agent.candidate_rule_field.config.mature_pool_dynamics is True
+    assert agent.config.crf_context_from_e2_world_forward is True
+    _flat, obs = env.reset()
+    body = obs["body_state"]; world = obs["world_state"]
+    if body.dim() == 1:
+        body = body.unsqueeze(0)
+    if world.dim() == 1:
+        world = world.unsqueeze(0)
+    with torch.no_grad():
+        for _ in range(20):
+            act = agent.act_with_split_obs(body, world)
+            _flat, _h, _d, _i, obs = env.step(int(act.argmax().item()))
+            body = obs["body_state"]; world = obs["world_state"]
+            if body.dim() == 1:
+                body = body.unsqueeze(0)
+            if world.dim() == 1:
+                world = world.unsqueeze(0)
+    st = agent.candidate_rule_field.get_state()
+    assert "crf_frac_active" in st
+    assert st["crf_step"] > 0

@@ -93,6 +93,48 @@ class CandidateRuleFieldConfig:
             ~0.12 < 0.30 floor despite cumulative n_minted 131-408).
         pinned_seed: fixed seed for the deterministic pinned-distinct slot
             directions (Weber separability). Deterministic across runs.
+        mature_pool_dynamics: when True, recalibrate the GATE/CREDIT/RETIRE
+            dynamics so a differentiated, persistently-active pool of >=2 rules
+            can form and persist (routes the gate/credit/retire knobs below).
+            Default False = bit-identical to the legacy dynamics. Routed by
+            failure_autopsy_V3-EXQ-654b_2026-06-11: across 654 (per-episode wipe),
+            654a (crf_persist), 654b (crf_persist + 240 ep) crf_frac_active is
+            pinned at ~0.13 and crf_max_pairwise_rule_dist is 0.0 every ARM_ON
+            cell -- the pool churns (mint -> brief life -> retire -> re-mint) and
+            never holds >=2 rules present, so the maturation-BUDGET reading is
+            exhausted. The fix is the gate/credit/retire dynamics, not more
+            budget. When this flag is False NONE of the mature_* knobs are
+            consulted.
+        mature_availability_decay: slower passive availability decay per tick
+            under mature_pool_dynamics (default 0.001 vs legacy 0.005 -- 5x
+            slower so rules persist longer between activations).
+        mature_retire_floor: ABSOLUTE retirement floor under mature_pool_dynamics
+            (default 0.05). Replaces the legacy 0.5*tolerance_floor=0.15 so a
+            rule survives low availability long enough for a 2nd differentiated
+            rule to co-accumulate (the primary 654b retire-churn driver).
+        mature_availability_alpha_negative: asymmetric credit rate for NEGATIVE
+            outcomes under mature_pool_dynamics (default 0.02 vs the symmetric
+            legacy availability_alpha=0.1). Negative outcomes are frequent in a
+            hazard env; a gentler negative alpha slows the availability collapse
+            that empties the pool before differentiation.
+        mature_tolerance_floor / mature_tolerance_conflict_gain: recalibrated
+            conflict-gate pair under mature_pool_dynamics (default 0.15 / 0.25).
+            Legacy 0.3 + 1.0*n_competing gives theta>=1.3 > 1.0 max availability
+            whenever >=2 rules match a context, so >=2 matched rules can NEVER
+            both be active (the latent deadlock). 0.15 + 0.25*n keeps theta
+            reachable: theta(1)=0.40, theta(2)=0.65, theta(3)=0.90 (all < 1.0),
+            so up to 4 context-matched rules can be active together.
+        mature_mint_block_threshold: DECOUPLED mint-block cosine floor under
+            mature_pool_dynamics (default 0.8, higher than the 0.5
+            context_match_threshold used for retrieval). A new differentiated
+            mint is blocked only by a *very* similar existing rule, relieving the
+            secondary mint-block under low raw-z_world spread (the structural
+            relief is the e2_world_forward context routing on the agent side).
+        mature_mint_protection_ticks: a freshly minted rule is protected from
+            retirement for this many ticks under mature_pool_dynamics (default
+            30, 0 = no protection) so a 2nd differentiated rule has time to
+            co-accumulate before the first is retired (directly targets the
+            654b "rule drops below floor before a 2nd rule co-accumulates").
     """
 
     use_candidate_rule_field: bool = False
@@ -108,6 +150,16 @@ class CandidateRuleFieldConfig:
     seed_from_arc062: bool = True
     persist_rules_across_episode_reset: bool = False
     pinned_seed: int = 6063
+    # --- mature-pool dynamics (V3-EXQ-654b amend; all consulted only when
+    # mature_pool_dynamics=True; default False -> bit-identical legacy path) ---
+    mature_pool_dynamics: bool = False
+    mature_availability_decay: float = 0.001
+    mature_retire_floor: float = 0.05
+    mature_availability_alpha_negative: float = 0.02
+    mature_tolerance_floor: float = 0.15
+    mature_tolerance_conflict_gain: float = 0.25
+    mature_mint_block_threshold: float = 0.8
+    mature_mint_protection_ticks: int = 30
 
 
 @dataclass
@@ -179,8 +231,18 @@ class CandidateRuleField:
         self._last_n_active: int = 0
         self._last_n_matched: int = 0
         self._last_minted_this_step: int = 0
+        # Ticks on which >=1 rule fired (for crf_frac_active -- the CRF-readiness
+        # gate readout: crf_max_pairwise_rule_dist > floor AND frac_active >= 0.30).
+        self._n_active_steps: int = 0
         # The retirement floor below which a rule's availability frees its slot.
-        self._retire_floor: float = 0.5 * float(self.config.tolerance_floor)
+        # mature_pool_dynamics lowers it to an absolute floor (decoupled from
+        # tolerance_floor) so a rule survives long enough for a 2nd differentiated
+        # rule to co-accumulate (V3-EXQ-654b retire-churn fix). Default OFF keeps
+        # the legacy 0.5*tolerance_floor.
+        if self.config.mature_pool_dynamics:
+            self._retire_floor: float = float(self.config.mature_retire_floor)
+        else:
+            self._retire_floor = 0.5 * float(self.config.tolerance_floor)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -227,9 +289,18 @@ class CandidateRuleField:
         self._recurrence[key] = self._recurrence.get(key, 0) + 1
         if self._recurrence[key] < self.config.mint_recurrence_threshold:
             return 0
-        # Already covered by an existing rule?
+        # Already covered by an existing rule? Under mature_pool_dynamics the
+        # mint-block cosine floor is DECOUPLED from the retrieval threshold
+        # (raised to mature_mint_block_threshold) so a new differentiated mint is
+        # blocked only by a *very* similar existing rule -- relieving the
+        # secondary 654b mint-block under low raw-z_world spread.
+        mint_block_thresh = (
+            self.config.mature_mint_block_threshold
+            if self.config.mature_pool_dynamics
+            else self.config.context_match_threshold
+        )
         for rule in self._rules.values():
-            if self._cosine(context, rule.context_tag) >= self.config.context_match_threshold:
+            if self._cosine(context, rule.context_tag) >= mint_block_thresh:
                 return 0
         slot = self._free_slot_index()
         if slot is None:
@@ -280,12 +351,23 @@ class CandidateRuleField:
             if self._cosine(context, r.context_tag) >= self.config.context_match_threshold
         ]
         n_matched = len(matched)
+        # Conflict-gate pair: legacy 0.3 + 1.0*n_competing gives theta>=1.3 > 1.0
+        # max availability whenever >=2 rules match, so >=2 matched rules can
+        # NEVER both be active (the latent 654b deadlock). mature_pool_dynamics
+        # uses 0.15 + 0.25*n -> theta(1)=0.40, theta(2)=0.65, theta(3)=0.90, all
+        # reachable, so a differentiated pool of >=2 matched rules can co-fire.
+        if self.config.mature_pool_dynamics:
+            theta_floor = self.config.mature_tolerance_floor
+            theta_gain = self.config.mature_tolerance_conflict_gain
+        else:
+            theta_floor = self.config.tolerance_floor
+            theta_gain = self.config.tolerance_conflict_gain
         for r in self._rules.values():
             r.active = False
         active: List[CandidateRule] = []
         for r in matched:
             n_competing = n_matched - 1
-            theta = self.config.tolerance_floor + self.config.tolerance_conflict_gain * n_competing
+            theta = theta_floor + theta_gain * n_competing
             if r.availability >= theta:
                 r.active = True
                 r.eligibility = 1.0
@@ -293,6 +375,8 @@ class CandidateRuleField:
                 active.append(r)
         self._last_n_matched = n_matched
         self._last_n_active = len(active)
+        if active:
+            self._n_active_steps += 1
         return active
 
     def active_rule_state(
@@ -327,8 +411,26 @@ class CandidateRuleField:
         Kovach 2012 recency). Eligibility then decays; all availabilities decay
         slowly; rules below the retirement floor free their slot.
         """
-        alpha = self.config.availability_alpha
-        target = 1.0 if float(outcome_signal) >= 0.0 else 0.0
+        is_negative = float(outcome_signal) < 0.0
+        target = 0.0 if is_negative else 1.0
+        # Asymmetric credit under mature_pool_dynamics: negative outcomes (frequent
+        # in a hazard env) use a gentler alpha so they do not collapse availability
+        # below the retire floor before differentiation (654b retire-churn driver).
+        if self.config.mature_pool_dynamics and is_negative:
+            alpha = self.config.mature_availability_alpha_negative
+        else:
+            alpha = self.config.availability_alpha
+        decay = (
+            self.config.mature_availability_decay
+            if self.config.mature_pool_dynamics
+            else self.config.availability_decay
+        )
+        cur_step = step if step is not None else self._step
+        protect = (
+            self.config.mature_mint_protection_ticks
+            if self.config.mature_pool_dynamics
+            else 0
+        )
         decay_e = max(0.0, 1.0 - 1.0 / max(1, self.config.eligibility_window))
         to_retire: List[int] = []
         for idx, r in self._rules.items():
@@ -336,9 +438,15 @@ class CandidateRuleField:
                 w = alpha * r.eligibility
                 r.availability = (1.0 - w) * r.availability + w * target
             r.eligibility *= decay_e
-            r.availability *= (1.0 - self.config.availability_decay)
+            r.availability *= (1.0 - decay)
             r.availability = float(min(1.0, max(0.0, r.availability)))
-            if r.availability < self._retire_floor:
+            # Mint-youth protection: a freshly minted rule is retirement-protected
+            # for `protect` ticks so a 2nd differentiated rule has time to
+            # co-accumulate before the first is retired (the direct 654b
+            # "rule drops below floor before a 2nd rule co-accumulates" fix).
+            if r.availability < self._retire_floor and (
+                cur_step - r.minted_step
+            ) >= protect:
                 to_retire.append(idx)
         for idx in to_retire:
             del self._rules[idx]
@@ -400,6 +508,7 @@ class CandidateRuleField:
         self._last_n_active = 0
         self._last_n_matched = 0
         self._last_minted_this_step = 0
+        self._n_active_steps = 0
 
     def n_active_rules(self) -> int:
         return sum(1 for r in self._rules.values() if r.active)
@@ -425,5 +534,13 @@ class CandidateRuleField:
             "crf_n_minted_this_step": self._last_minted_this_step,
             "crf_n_simulation_skipped": self._n_simulation_skipped,
             "crf_max_pairwise_rule_dist": self.max_pairwise_rule_distance(),
+            # Fraction of ticks on which >=1 rule fired. With crf_max_pairwise_rule_dist
+            # this forms the CRF-readiness gate (frac_active >= 0.30 AND
+            # max_pairwise_rule_dist > floor) that must clear before a GAP-B
+            # behavioural falsifier (654c successor) is scored.
+            "crf_frac_active": (
+                self._n_active_steps / self._step if self._step > 0 else 0.0
+            ),
+            "crf_n_active_steps": self._n_active_steps,
             "crf_step": self._step,
         }
