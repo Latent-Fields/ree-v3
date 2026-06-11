@@ -232,6 +232,24 @@
       "episodes_per_run": 0,
       "experiment_type": "v3_exq_670_inv048_pharmacological_sleep_disruption_equivalence",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-671",
+      "title": "MECH-025b precision-responsibility attribution: test whether high-precision actions accumulate proportionally more residue than low-precision actions",
+      "script": "experiments/v3_exq_671_mech025b_precision_responsibility.py",
+      "priority": 100,
+      "machine_affinity": "any",
+      "estimated_minutes": 15,
+      "claim_id": "MECH-025b",
+      "note": "EXP-0150 dispatch: tests MECH-025b claim that precision level modulates responsibility attribution. Measures correlation between E3.current_precision and ResidueField accumulation during committed steps. Two key metrics: (1) Pearson r(precision, residue_delta) should be positive, (2) high-precision steps (above median) should accumulate proportionally more residue per harm than low-precision steps. PASS requires C1: precision_residue_correlation > 0.15, C2: high_precision_residue_ratio > 1.1, C3: committed_step_count >= 20, C4: world_forward_r2 > 0.05 (E2 functional), C5: harm_pred_std > 0.01 (E3 not collapsed), C6: no fatal errors. Smoke test clean (36 committed steps, no crashes).",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-025b"
+      ],
+      "conditions": 1,
+      "episodes_per_run": 550,
+      "experiment_type": "v3_exq_671_mech025b_precision_responsibility",
+      "seeds": 3
     }
   ]
 }
