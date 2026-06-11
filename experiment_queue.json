@@ -146,6 +146,22 @@
       "episodes_per_run": 90,
       "experiment_type": "v3_exq_590b_mech314a_novelty_goldilocks",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-569g",
+      "title": "ARC-065 GAP-A R1.b matched-entropy behavioural falsifier on the V3-EXQ-662-validated route-range substrate (supersedes 569f)",
+      "experiment_type": "v3_exq_569g_gapa_routerange_matched_entropy_falsifier",
+      "script": "experiments/v3_exq_569g_gapa_routerange_matched_entropy_falsifier.py",
+      "priority": 270,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 480,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "ARC-065",
+      "supersedes": "V3-EXQ-569f",
+      "note": "GAP-A behavioural retest successor to V3-EXQ-569f, routed by confirmed failure_autopsy_569f-661-654a_2026-06-10. Same 3-arm matched-entropy R1.a/R1.b decision rule; route-range substrate ON all arms (use_modulatory_channel_routing + source=cand_world_summary + authority gain 0.5, V3-EXQ-662-validated) so the e2_world_forward channel range reaches committed action (569f bit-identical-entropy washout). candidate_summary_source is the single swept variable. P0 route-range readiness gate (ARM_1 modulatory_channel_route_range > floor >=2/3 seeds) self-routes substrate_not_ready_requeue below floor -> non_contributory, never a weakens. claim_ids=[ARC-065] only. NOTE: recovered from a phase3-queue snapshot rebase conflict (re-appended onto the re-materialised snapshot)."
     }
   ]
 }
