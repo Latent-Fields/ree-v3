@@ -27,6 +27,23 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-666a",
+      "title": "ARC-063 crf-availability-maintenance CRF-readiness diagnostic: maintained-pool gate (crf_maintained_pairwise_dist>0.1 AND crf_n_maintained_reactivatable>=2), NOT crf_frac_active; ARM_2 maintenance vs ARM_1 no-maintenance persistence-collapse; supersedes V3-EXQ-666",
+      "script": "experiments/v3_exq_666a_arc063_crf_availability_maintenance_readiness.py",
+      "priority": 308,
+      "machine_affinity": "any",
+      "estimated_minutes": 600,
+      "supersedes": "V3-EXQ-666",
+      "claim_id": null,
+      "note": "Substrate-readiness diagnostic (claim_ids=[], non_contributory) for the 2026-06-11 crf-availability-maintenance amend (ree-v3 1d04e51) routed by failure_autopsy_V3-EXQ-666 + targeted_review_arc_063_crf_rule_cell_persistence (B-leaning verdict). READOUT REDEFINED vs 666: gate on the MAINTAINED pool not crf_frac_active (the averaged-activity artefact for a sparsely-matched pool). 3 arms x 3 seeds: ARM_0_OFF (legacy churn control) / ARM_1_MATURE_E2CTX (differentiates but persistence collapses, reproduces 666) / ARM_2_MATURE_E2CTX_MAINTENANCE (the fix). PASS = ARM_2 clears maintained-pool gate on >=2/3 AND ARM_1 does not, with non-vacuity (all cells mint >=2 AND e2ctx arms differentiate, same-statistic). PASS flips substrate_queue crf-availability-maintenance ready=True + unblocks the 654c GAP-B behavioural re-run (separate later session). Runner not started.",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 3,
+      "episodes_per_run": 100,
+      "experiment_type": "v3_exq_666a_arc063_crf_availability_maintenance_readiness",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-668",
       "title": "MECH-319 accumulated ghost-write arbitration-drift / overcommitment evidence (2nd contributory entry; sustained replay regime, distinct from 628 single-step)",
       "script": "experiments/v3_exq_668_mech319_accumulated_ghost_write_arbitration_drift_evidence.py",
@@ -178,23 +195,6 @@
       "episodes_per_run": 90,
       "experiment_type": "v3_exq_590b_mech314a_novelty_goldilocks",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-666a",
-      "title": "ARC-063 crf-availability-maintenance CRF-readiness diagnostic: maintained-pool gate (crf_maintained_pairwise_dist>0.1 AND crf_n_maintained_reactivatable>=2), NOT crf_frac_active; ARM_2 maintenance vs ARM_1 no-maintenance persistence-collapse; supersedes V3-EXQ-666",
-      "script": "experiments/v3_exq_666a_arc063_crf_availability_maintenance_readiness.py",
-      "priority": 308,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "claim_id": null,
-      "note": "Substrate-readiness diagnostic (claim_ids=[], non_contributory) for the 2026-06-11 crf-availability-maintenance amend (ree-v3 1d04e51) routed by failure_autopsy_V3-EXQ-666 + targeted_review_arc_063_crf_rule_cell_persistence (B-leaning verdict). READOUT REDEFINED vs 666: gate on the MAINTAINED pool not crf_frac_active (the averaged-activity artefact for a sparsely-matched pool). 3 arms x 3 seeds: ARM_0_OFF (legacy churn control) / ARM_1_MATURE_E2CTX (differentiates but persistence collapses, reproduces 666) / ARM_2_MATURE_E2CTX_MAINTENANCE (the fix). PASS = ARM_2 clears maintained-pool gate on >=2/3 AND ARM_1 does not, with non-vacuity (all cells mint >=2 AND e2ctx arms differentiate, same-statistic). PASS flips substrate_queue crf-availability-maintenance ready=True + unblocks the 654c GAP-B behavioural re-run (separate later session). Runner not started.",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 3,
-      "episodes_per_run": 100,
-      "experiment_type": "v3_exq_666a_arc063_crf_availability_maintenance_readiness",
-      "seeds": 3,
-      "supersedes": "V3-EXQ-666"
     }
   ]
 }
