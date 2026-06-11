@@ -16,7 +16,11 @@
       "estimated_minutes": 130,
       "supersedes": "V3-EXQ-666a",
       "note": "ARC-063 crf-availability-maintenance substrate-readiness diagnostic (claim_ids=[], non_contributory -- does NOT weight governance). Supersedes V3-EXQ-666a; routed by confirmed failure_autopsy_V3-EXQ-666a_2026-06-11 (measurement_test_design_defect, NOT substrate failure). RE-STATES the load-bearing readiness gate on the ISOLATING statistic crf_frac_maintained (maintained-reactivatable fraction = n_maintained/n_slots), NOT the gap-density-sensitive count floor crf_n_maintained_reactivatable>=2 that 666a used (and that differentiation-alone cleared). Same 3-arm matched stack ARM_0_OFF / ARM_1_MATURE_E2CTX / ARM_2_MATURE_E2CTX_MAINTENANCE on the SD-056-online e2 + lateral-PFC-head + crf_persist stack. Gate: ARM_2 crf_frac_maintained >= 0.625 clears AND ARM_1 < 0.5 fails (666a ARM_2 1.0/0.625/0.938 vs ARM_1 0.188/0.125/0.438). Adds a context-absent silence gap (CandidateRuleField.credit iterated 2000 ticks post-training) so differentiation-alone erodes below the floor while activity-silent maintenance (decay=0.0) HOLDS -- robust to gap density. Same-statistic non-vacuity discipline: minted>=2, full-pool differentiation (crf_max_pairwise_rule_dist>0.1 on e2ctx arms), AND the ARM_2 maintained pool the fraction gate counts is itself a >=2-rule differentiated pool (count + differentiation readiness on the positive control); any unmet -> substrate_not_ready_requeue, never a false verdict. ARM_2 maintenance-ON adopted as mature default. validate_experiments --strict OK (0 readiness-warnings, arm-fingerprint OK); dry-run end-to-end (self-routes substrate_not_ready at toy scale by design; dry artifact scrubbed). PASS -> /governance flips crf-availability-maintenance ready=true and unblocks the 654c GAP-B behavioural re-run (MECH-309/ARC-062), queued separately. MECH-309/ARC-062/ARC-063 stay candidate/substrate_ceiling/v3_pending/pending_retest_after_substrate.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-11T21:38:13Z"
+      },
       "claim_ids": [],
       "conditions": 3,
       "episodes_per_run": 100,
@@ -65,26 +69,6 @@
       "episodes_per_run": 90,
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_485f_sd033b_trained_ofc_head_behavioural",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-603o",
-      "title": "SD-059/MECH-358 escape-affordance bridge behavioural retest REDESIGN (headroom + continuous survival metric); successor to 603l",
-      "script": "experiments/v3_exq_603o_escape_affordance_bridge_behavioural_redesign.py",
-      "priority": 290,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "supersedes": "V3-EXQ-603l",
-      "claim_id": "SD-059",
-      "note": "Routing output of failure_autopsy_V3-EXQ-603l_2026-06-10. REDESIGN carrying BOTH fixes: (a) harder Stage-H regime (num_hazards 4->6, proximity_harm 0.10->0.15) at full uniform 603k+603j substrate for headroom so ARM_BASE_IA_ONLY sits below the binary survival ceiling; (b) continuous mean Stage-H survival duration (mean episode length) as the load-bearing PRIMARY discrimination metric (full-bridge lift >=10% over base), binary G_H demoted to supplementary. Keeps the 5-arm discriminative harness + readiness/non-vacuity net (PAG freezes + ilPFC gate engage on base, each enabled bridge half credits >=2/3, base harm landscape discriminative >=2/3, else substrate_not_ready_requeue). claim_ids=[SD-059,MECH-358] multi-claim evidence; evidence_direction_per_claim. depends_on 603i/603j/603k. dry-run PASS end-to-end (self-routes substrate_not_ready at toy budget, as designed).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-10T16:59:04Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 235,
-      "experiment_type": "v3_exq_603o_escape_affordance_bridge_behavioural_redesign",
       "seeds": 3
     },
     {
