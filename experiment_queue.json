@@ -162,6 +162,22 @@
       "claim_id": "ARC-065",
       "supersedes": "V3-EXQ-569f",
       "note": "GAP-A behavioural retest successor to V3-EXQ-569f, routed by confirmed failure_autopsy_569f-661-654a_2026-06-10. Same 3-arm matched-entropy R1.a/R1.b decision rule; route-range substrate ON all arms (use_modulatory_channel_routing + source=cand_world_summary + authority gain 0.5, V3-EXQ-662-validated) so the e2_world_forward channel range reaches committed action (569f bit-identical-entropy washout). candidate_summary_source is the single swept variable. P0 route-range readiness gate (ARM_1 modulatory_channel_route_range > floor >=2/3 seeds) self-routes substrate_not_ready_requeue below floor -> non_contributory, never a weakens. claim_ids=[ARC-065] only. NOTE: recovered from a phase3-queue snapshot rebase conflict (re-appended onto the re-materialised snapshot)."
+    },
+    {
+      "queue_id": "V3-EXQ-668",
+      "title": "MECH-319 accumulated ghost-write arbitration-drift / overcommitment evidence (2nd contributory entry; sustained replay regime, distinct from 628 single-step)",
+      "experiment_type": "v3_exq_668_mech319_accumulated_ghost_write_arbitration_drift_evidence",
+      "script": "experiments/v3_exq_668_mech319_accumulated_ghost_write_arbitration_drift_evidence.py",
+      "priority": 305,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 6,
+      "episodes_per_run": 60,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "MECH-319",
+      "predecessor": "V3-EXQ-628",
+      "note": "Second distinct MECH-319 evidence entry for the min_experimental_entries=2 promotion gate. Tests the claim's other pre-registered V3 path (overcommitment/drift over a SUSTAINED replay regime) vs 628's single-step rule_state divergence. Does NOT supersede 628. Pure-arithmetic (no training); fast. Same-statistic C_admit_live non-vacuity gate self-routes substrate_not_ready_requeue->non_contributory, never a false weakens."
     }
   ]
 }
