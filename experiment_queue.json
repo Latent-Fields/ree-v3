@@ -112,65 +112,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-590b",
-      "title": "MECH-314a per-candidate RBF novelty Goldilocks calibration on the 648a-validated e2_world_forward substrate (sweep modulatory_authority_gain -- the post-643a magnitude knob)",
-      "script": "experiments/v3_exq_590b_mech314a_novelty_goldilocks.py",
-      "priority": 240,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "claim_id": "MECH-314a",
-      "note": "The MECH-314a-Phase-2-impl re-queue path, unblocked 2026-06-11 by the V3-EXQ-648a load-bearing C2 PASS (per-candidate curiosity bias confirmed non-zero-RANGE on the e2.world_forward-fed substrate; gapA-cluster autopsy 2026-06-07). FIRST behavioural-evidence run for MECH-314a (the 590/590a lineage tested MECH-111 broadcast novelty -- a DIFFERENT mechanism -- so NO inherited claim_ids; not a supersede). Builds on the 648a-validated substrate (curiosity_candidate_source=e2_world_forward + SD-056 online + rollout-norm clamp + SP-CEM + V_s) with MECH-314a curiosity as the SOLE modulatory channel (dacc/lateral_pfc/ofc/mech295/tonic_vigor/noise_floor/e3_score_diversity all OFF) and the 643a-validated modulatory-selection-authority ON. SWEPT KNOB = modulatory_authority_gain {0.0,0.25,0.5,1.0,2.0}, NOT curiosity_novelty_weight: the authority renormalizes the combined modulatory range to gain*raw_score_range, so with curiosity the sole channel the weight (and the per-candidate pattern is scale-invariant too) is WASHED OUT -- sweeping it reproduces the 590a degenerate byte-identical-arms null (substrate_queue do_not_adopt_from_590a). The faithful post-643a magnitude knob is the authority gain (gain=0 = curiosity present+ranged but NO selection authority = behavioural control). curiosity_novelty_weight held FIXED at 0.25 (648a value) so the channel has stable per-candidate range to amplify. DV = env pos_entropy exploration (the 590-lineage H_pos), self-contained selected-action class entropy secondary. PASS (supports MECH-314a) = readiness met AND best non-zero gain lifts H_pos over the gain=0 control by >=0.05 on >=2/3 seeds (paired); nonmonotone=inverted-U over-authority ceiling reported. SAME-STATISTIC non-vacuity (V3-EXQ-643 lesson): readiness leg1 curiosity_bias_range>1e-4 on the highest-gain arm (channel live; the 643a scaling-zero guard) + leg2 H_pos RANGE across gain arms >=0.05 (the EXACT statistic the Goldilocks routes on) + leg3 max cand_world_pairwise_dist finite<1e6 (643a explosion guard). Any leg below floor -> substrate_not_ready_requeue (non_contributory), NEVER a MECH-314a weakens; readiness-met-but-no-lift -> does_not_support (FAIL). 5 gains x 3 seeds [42,43,44]; P0 60 ep SD-056 warmup + P1 30 ep measurement, 200 steps/ep; per-cell reset_all_rng + arm_fingerprint (online-e2 stateful -> reuse-ineligible). validate_experiments --strict --paths OK (0 readiness-warnings, arm-fingerprint OK); dry-run PASS end-to-end (all 5 arms run, progress+verdict lines emit, pos_entropy reads -- control 0.58 vs ARM_G25 0.86, authority gain moves exploration; self-routes substrate_not_ready at 2-ep toy scale as designed -- SD-056 untrained so the curiosity channel collapses). working-tree-vs-HEAD queue audit clean before append (concurrent claimed items 514m/603o/660b/655/667 untouched). On PASS: adopt the Goldilocks gain for the curiosity channel + section-8 MECH-314a/MECH-314/ARC-065 governance touch (governance applies; not here). Runner NOT started.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-11T15:40:36Z"
-      },
-      "claim_ids": [
-        "MECH-314a"
-      ],
-      "conditions": 5,
-      "episodes_per_run": 90,
-      "experiment_type": "v3_exq_590b_mech314a_novelty_goldilocks",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-669",
-      "title": "MECH-329 wanting-before-liking developmental goal seeding sequence (3-condition infant curriculum; super-ordinal anchor formation)",
-      "script": "experiments/v3_exq_669_mech329_wanting_first_goal_seeding.py",
-      "priority": 220,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "claim_id": "MECH-329",
-      "note": "Proposal EXP-0138 (MECH-329). Tests the wanting-before-liking temporal ordering hypothesis: approach-drive (z_goal) seeds super-ordinal goal anchors BEFORE hedonic evaluation (benefit_eval) calibrates. 3 conditions (matched seeds): wanting_first (z_goal Phase 0-1, benefit_eval Phase 2+), liking_first (benefit_eval Phase 0-1, z_goal Phase 2+), both_delayed (neither until Phase 2). Each runs 4-phase infant curriculum with SuperOrdinalGoalMemory writes enabled Phase 0-1 (child) and frozen at Phase 2 entry. C1: wanting_first anchor_count >= liking_first + 2 (wanting seeds more diverse anchors early). C2: wanting_first p01_writes >= liking_first + 3 (wanting writes happen earlier/more frequently). C3: wanting_first p01_mean_complexity >= both_delayed + 0.05 (wanting-driven contacts span more novel contexts). C4: both_delayed anchor_count >= 1 (substrate sanity). PASS = all 4 criteria on single matched seed. claim_ids=[MECH-329, MECH-189] (tests MECH-329 temporal ordering + validates MECH-189 SuperOrdinalGoalMemory substrate in phased regime). First MECH-329 experimental evidence entry. Smoke test: dry-run PASS, agent build with use_super_ordinal_goal_anchors verified. Queued 2026-06-11T08:50:09Z.",
-      "status": "pending",
-      "claim_ids": [
-        "MECH-329",
-        "MECH-189"
-      ],
-      "conditions": 3,
-      "episodes_per_run": 400,
-      "experiment_type": "v3_exq_669_mech329_wanting_first_goal_seeding",
-      "seeds": 1
-    },
-    {
-      "queue_id": "V3-EXQ-670",
-      "title": "INV-048 pharmacological sleep disruption equivalence: REM-suppressed vs SWS-suppressed vs no-sleep attribution pipeline degradation",
-      "script": "experiments/v3_exq_670_inv048_pharmacological_sleep_disruption_equivalence.py",
-      "priority": 200,
-      "machine_affinity": "any",
-      "estimated_minutes": 10,
-      "claim_id": "INV-048",
-      "note": "EXP-0145 dispatch: tests INV-048 prediction that pharmacological sleep phase disruption (REM suppression like antidepressants, SWS suppression like benzodiazepines) produces attribution pipeline degradation equivalent to behavioral sleep deprivation, proportional to which phases are disrupted. Four arms (N=3 seeds each, K=5 cycles): ARM_A normal (SWS+REM), ARM_B REM-suppressed (SWS only), ARM_C SWS-suppressed (REM only), ARM_D no-sleep (neither). Deterministic two-context prototypes (safe vs dangerous). Metrics: slot_differentiation (schema organization), harm_discrimination (attribution performance), manipulation checks (sws_writes, rem_rollouts). PASS = (C1:ARM_A slot_diff > ARM_C+0.05 AND C2:ARM_A > ARM_D+0.05 AND C3:ARM_A harm_disc > ARM_D+0.10) OR (C1 AND C4:ARM_A harm_disc > ARM_B+0.05) on >=2/3 seeds. Supports INV-048 pharmacological-equivalence principle. Smoke test clean (manipulation checks fire correctly, all arms execute).",
-      "status": "pending",
-      "claim_ids": [
-        "INV-048"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 0,
-      "experiment_type": "v3_exq_670_inv048_pharmacological_sleep_disruption_equivalence",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-671",
       "title": "MECH-025b precision-responsibility attribution: test whether high-precision actions accumulate proportionally more residue than low-precision actions",
       "script": "experiments/v3_exq_671_mech025b_precision_responsibility.py",
@@ -179,7 +120,11 @@
       "estimated_minutes": 15,
       "claim_id": "MECH-025b",
       "note": "EXP-0150 dispatch: tests MECH-025b claim that precision level modulates responsibility attribution. Measures correlation between E3.current_precision and ResidueField accumulation during committed steps. Two key metrics: (1) Pearson r(precision, residue_delta) should be positive, (2) high-precision steps (above median) should accumulate proportionally more residue per harm than low-precision steps. PASS requires C1: precision_residue_correlation > 0.15, C2: high_precision_residue_ratio > 1.1, C3: committed_step_count >= 20, C4: world_forward_r2 > 0.05 (E2 functional), C5: harm_pred_std > 0.01 (E3 not collapsed), C6: no fatal errors. Smoke test clean (36 committed steps, no crashes).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-11T21:18:13Z"
+      },
       "claim_ids": [
         "MECH-025b"
       ],
