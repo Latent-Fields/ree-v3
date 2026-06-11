@@ -184,6 +184,26 @@
       "episodes_per_run": 600,
       "experiment_type": "v3_exq_672_mech057b_trajectory_promotion_gate",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-485f",
+      "title": "SD-033b/MECH-263 trained-OFC-head BEHAVIOURAL retest (485e successor): defeat OFC clamp-saturation (ofc_bias_scale 0.1->0.5) + enable SD-056 e2_action_contrastive in P0 for an action-divergent candidate bank + absolute between_context_tv floor on C2; closes commitment_closure:GAP-8",
+      "script": "experiments/v3_exq_485f_sd033b_trained_ofc_head_behavioural.py",
+      "priority": 315,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "claim_id": "SD-033b",
+      "claim_ids": [
+        "SD-033b",
+        "MECH-263"
+      ],
+      "experiment_type": "v3_exq_485f_sd033b_trained_ofc_head_behavioural",
+      "experiment_purpose": "evidence",
+      "conditions": 2,
+      "episodes_per_run": 90,
+      "seeds": 3,
+      "status": "pending",
+      "note": "Successor (NOT supersede) to the non_contributory V3-EXQ-485e, routed by confirmed failure_autopsy_V3-EXQ-485e_2026-06-11 (substrate_not_ready_requeue; trained-head bias cross-candidate RANGE cleared the floor on only 1/3 seeds so every behavioural DV was vacuously ~0). 2-arm frozen-vs-trainable OFC head (ofc_train_state_bias_head), OFC isolated (gated_policy/dACC/lateral_pfc/modulatory-bias-selection-authority OFF), ofc_harm_dim>0, SD-054 reef/forage env. P0 encoder warmup (NOW with SD-056 e2_action_contrastive in-batch-negatives InfoNCE on world_forward) -> P1 head REINFORCE -> P2 behavioural eval (devaluation TV shift + task-role separation). THREE autopsy fixes: (1) ofc_bias_scale 0.1->0.5 defeats the 485e clamp-saturation that railed |bias|~0.1 on seeds 1&2; (2) SD-056 e2_action_contrastive enabled in P0 (landed but NOT enabled in 485e) so the proposer bank world_states[1] carries action-divergent z_world range (485e bank collapsed per V3-EXQ-571/ARC-065 GAP-A/SD-056); (3) absolute between_context_tv floor (0.05) on C2 so the separation ratio cannot pass vacuously on a near-zero denominator (485e C2 was a 322-or-0 artefact). Frozen head (bias==0) = GAP-1-analogue silence control. KEEP the same-statistic non-vacuity readiness gate: trained-head bias cross-candidate RANGE > floor on >=2/3 seeds AND head weight-delta > floor -> below-floor self-routes substrate_not_ready_requeue (non_contributory), NEVER a false weakens; readiness-met-but-DVs-fail -> honest weakens. evidence_direction_per_claim. validate_experiments --strict OK (0 readiness-warnings, arm-fingerprint OK); --dry-run PASS end-to-end (frozen silent, trainable trains+bias-range clears floor, self-routes substrate_not_ready at 1-seed toy scale as designed). Predecessors 485b/485c (representation-level PASS), 485d (substrate readiness), 485e (non_contributory)."
     }
   ]
 }
