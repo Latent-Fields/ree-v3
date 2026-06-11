@@ -195,6 +195,25 @@
       "episodes_per_run": 90,
       "experiment_type": "v3_exq_590b_mech314a_novelty_goldilocks",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-669",
+      "title": "MECH-329 wanting-before-liking developmental goal seeding sequence (3-condition infant curriculum; super-ordinal anchor formation)",
+      "script": "experiments/v3_exq_669_mech329_wanting_first_goal_seeding.py",
+      "priority": 220,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "claim_id": "MECH-329",
+      "note": "Proposal EXP-0138 (MECH-329). Tests the wanting-before-liking temporal ordering hypothesis: approach-drive (z_goal) seeds super-ordinal goal anchors BEFORE hedonic evaluation (benefit_eval) calibrates. 3 conditions (matched seeds): wanting_first (z_goal Phase 0-1, benefit_eval Phase 2+), liking_first (benefit_eval Phase 0-1, z_goal Phase 2+), both_delayed (neither until Phase 2). Each runs 4-phase infant curriculum with SuperOrdinalGoalMemory writes enabled Phase 0-1 (child) and frozen at Phase 2 entry. C1: wanting_first anchor_count >= liking_first + 2 (wanting seeds more diverse anchors early). C2: wanting_first p01_writes >= liking_first + 3 (wanting writes happen earlier/more frequently). C3: wanting_first p01_mean_complexity >= both_delayed + 0.05 (wanting-driven contacts span more novel contexts). C4: both_delayed anchor_count >= 1 (substrate sanity). PASS = all 4 criteria on single matched seed. claim_ids=[MECH-329, MECH-189] (tests MECH-329 temporal ordering + validates MECH-189 SuperOrdinalGoalMemory substrate in phased regime). First MECH-329 experimental evidence entry. Smoke test: dry-run PASS, agent build with use_super_ordinal_goal_anchors verified. Queued 2026-06-11T08:50:09Z.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-329",
+        "MECH-189"
+      ],
+      "conditions": 3,
+      "episodes_per_run": 400,
+      "experiment_type": "v3_exq_669_mech329_wanting_first_goal_seeding",
+      "seeds": 1
     }
   ]
 }
