@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-10
+**Last updated:** 2026-06-11
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-10)
+## 0. Current V3 State (2026-06-11)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -154,6 +154,8 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | MECH-294 multi-content theta-burst packet + compose-coherence amend | binding.theta_burst_packet -- per-cycle joint binding of {goal, action, risk, state} into a `ThetaPacket`. Compose path reads within-cycle co-binding via `ThetaPacket.currency_coherence()` (fraction of co-temporally-current streams: joint ~1.0 / alternation ~0.25 / shuffled 0.0) so the binding MODE causally reaches E3 behaviour rather than collapsing onto action-only similarity (the 657a coherence-metric autopsy fork). Parameter-free, no trained head, bit-identical OFF; per-candidate RANKING stays in-space action cosine (no cross-semantic-space comparison). Master `theta_packet_compose_into_e3_bias` still default False; new no-op flag `theta_packet_compose_use_joint_coherence` (default True; False = legacy action-only ablation). 8/8 packet contracts + 7/7 preflight PASS. | Substrate landed 2026-06-09 (ree-v3 main 53d4c75 + amend af97b23; REE_assembly master 4c680c03f5 -- claims.yaml MECH-294 implementation_note + `docs/architecture/mech_294_*.md` section 10 update). V3-EXQ-661 substrate-readiness 5-arm diagnostic queued (TV-margin readouts across OFF / JOINT / ALTERNATION / SHUFFLED / ALT-coh-OFF; non-vacuity gate). MECH-294 stays candidate / v3_pending. |
 | SD-033b GAP-8 OFC trainable state_bias_head | commitment_closure:GAP-8 mirror of SD-033a GAP-D. `OFCConfig.train_state_bias_head` (default False -> last Linear zeroed, bit-identical OFF) + `bias_head_parameters()` + REEConfig `ofc_train_state_bias_head` (from_dims + agent.py OFC build-site getattr). When True the OFC `state_bias_head` last Linear keeps random init so it trains via E3-gradient REINFORCE, unblocking the deferred behavioural arm. SUBSTRATE-CONSTRAINT recorded: OFC reads only z_world + z_harm (no appetitive / drive input) so the behavioural readout must be AVERSIVE devaluation (`ofc_harm_dim > 0`). | Substrate landed 2026-06-09 (ree-v3 main 382db2c + V3-EXQ-485d queue commit 8839724; REE_assembly master e7dc4f7152 + GAP-8 closure-plan node c5460ebb9f + SD-033b evidence_quality_note c8546ae0ff). V3-EXQ-485d 2-arm substrate-readiness diagnostic queued (frozen vs trainable; load-bearing C2 on head weight-delta-from-init under SP-CEM diversity; PASS unblocks the full GAP-8 behavioural arm, NOT yet queued). SD-033b stays candidate / v3_pending; this row only confirms the trainable arm is wired. |
 | Post-603i successor scaffolds (NOT validated substrate) | THREE post-603i successor options inspired by the 603i FAIL, scaffolded behind feature flags as forward-looking experiments only -- NOT replacements for the SD-059/MECH-358 active bridge and NOT changes to V3-EXQ-603i. **(a) Trainable escape-affordance learner** (`trainable_escape_affordance_learner`, module `ree_core/pfc/trainable_escape_affordance_learner.py`): local PyTorch relief/safety heads (shared trunk + action embedding + AdamW) trained on continuous relief targets, response-produced safety targets, extinction targets. Off by default (`use_trainable_escape_affordance_learner`); 23 contracts + diff-clean. **(b) Trainable relief/safety heads upgrade** (ree-v3 main 58535af): upgrades the learner from scalar/prototype tables to actual trainable PyTorch heads with lazy model+AdamW, detached compact state/context + action embedding, optimizer/no-op/simulation/hypothesis guards, prediction-based bounded threat-gated bias, reset persistence, diagnostics. 27 contracts. **(c) E2 escape-affordance linker** (`ree_core/pfc/e2_escape_affordance_linker.py`, ree-v3 main 6c856a5): post-603i REUSE/READOUT over E2 (cerebellar-analog) `E2.world_forward` per user mid-session correction -- NOT a duplicate forward predictor. Reads DETACHED E2 action-consequence features for the executed (prev_z_world, action) pair into escape-affordance viability readouts (harm_delta / threat_termination / safety_transition / refuge_reachability / survival_step) + hippocampal-style per-action viability index (readout only, no trajectory gen/reward/selection) + a bounded threat-gated E3 bias behind `use_e2_escape_linker_e3_bias`. Reuses E2; does NOT duplicate a forward predictor. 949 contracts + 7 preflight + boot matrix PASS. | Scaffolded 2026-06-08 (ree-v3 main 7a0a417 + 58535af + 6c856a5). All three are NOT validated substrate and do not change governance state for SD-058/MECH-357 or SD-059/MECH-358. V3-EXQ-653 (E2 escape-affordance linker readiness microdiagnostic; claim-free, forced-choice 4-action probe over the linker; 4 arms x 3 seeds; readiness gates G0-G8) queued via /queue-experiment as the validation gate; PASS routes back to a 603-lineage full behavioural bridge re-test; FAIL routes to failure-autopsy on this readiness diagnostic. |
+| MECH-219 / SD-019b (affective-harm hysteretic integrator; `z_harm_suffering`) | affect.affective_harm_hysteretic_integration -- tier-3 slow controllability-gated SUFFERING load state built on top of the SD-019a tier-2 `z_harm_un` EMA. Pure-arithmetic regulator in `ree_core/affect/harm_suffering_accumulator.py` owning the scalar suffering state `s_t`; the agent builds the `z_harm_suffering` vector in the `z_harm_un` direction at magnitude `s_t`. Dynamics: `u_t = ||z_harm_un|| (+ body_damage_weight*||z_harm_a||)`; `drive_t = (1 - escapability) * u_t (+ pe_gain * unsigned_PE)`; asymmetric `s_t = s_{t-1} + alpha*(drive_t - s_{t-1})` with `alpha_rise >> alpha_fall` (the hysteresis); optional Schmitt bistable latch. Escapability is PLUGGABLE (`constant` / `avoidance_efficacy` reading SD-058 `effective_efficacy()` / `external` validation seam); never sourced from MECH-353 capacity_belief (avoids the `z_harm_a -> capacity -> z_harm_a` loop). Per-consumer redirect flags (AIC / PAG / MECH-091 wired in v1 via `||z_harm_suffering||`; dACC / pACC defined but unwired pending an R^2 measurement against `z_harm_a`). Body-damage fold-in preserves SD-022 evidence. Precondition: requires `use_harm_un=True`. Bit-identical OFF + bit-identical under default `escapability_mode=constant=1.0` (drive collapses to zero). 11/11 new contracts + 7/7 preflight + full contract suite green. | Substrate landed 2026-06-10 (ree-v3 main; design doc `docs/architecture/mech_219_hysteretic_integrator.md` flipped plan-of-record -> IMPLEMENTED). SD-019b stays candidate / v3_pending until the controllability-dissociation falsifier (escapable vs inescapable matched-nociception) PASSes -- queued as a separate /queue-experiment session. |
+| modulatory-bias-selection-authority AMEND (route upstream-channel range into the bias the authority rescales) | ethics_engine_3.modulatory_bias_selection_authority.route_range_amend -- routed by `failure_autopsy_569f-661-654a_2026-06-10`. The 2026-06-03/06-06 authority rescales the composed `_modulatory_accum`; the 569f/661/654a cluster showed that a channel whose REPRESENTATION carries cross-candidate range still does not move committed action when that range is flattened by the consuming bias head (e.g. zeroed-last-layer SD-033a/b heads) before reaching the accumulator. Fix: new `project_channel_range` helper + `channel_route_bias` param on `e3_selector.select` that folds a unit-normalised per-candidate projection of the channel's representation (SVD on a detached copy of `cand_world_summaries`; identity for already-per-candidate biases) into BOTH scores and `_modulatory_accum` BEFORE the authority's range computation. Source selectable via `modulatory_channel_route_source`: `cand_world_summary` (the 569f world-summary case; reads the ARC-065 GAP-A `e2_world_forward` helper) / `curiosity` / `gated_policy` / `mech295` / `coherence`. P0 readiness diagnostic `modulatory_channel_route_range` lets a retest assert the bias itself carries cross-candidate range BEFORE behavioural scoring (prevents self-routing a false negative). Parameter-free, no trained head, no phased training, bit-identical OFF; default `none`. New contracts cover project_channel_range identity / range-preservation / OFF bit-identical / ON P0 range + scores-reach-rescaled-accumulator. HONEST SCOPE: routing makes the channel range REACH + MOVE the committed argmax (the readiness property), NOT necessarily move it beneficially -- that's the channel's own trained-head retest. | Substrate landed 2026-06-10 (ree-v3 main; design doc `docs/architecture/modulatory_bias_selection_authority.md` route-range amend section + `substrate_queue.json` modulatory-bias-selection-authority entry with 3 failure records 569f/661/654a applied 2026-06-10 governance). V3-EXQ-663 substrate-readiness diagnostic ran 2026-06-10 (reviewed in the 16:24Z + 17:23Z governance cycles); per-claim behavioural retests of ARC-065 / MECH-294 / ARC-062 / MECH-309 / MECH-341 / MECH-314 / MECH-320 stay candidate / v3_pending until queued separately. |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -171,6 +173,94 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-11T01:10Z nightly read.** `evidence/experiments/` flat
+  top-level holds **~1053 `v3_exq_*.json` manifests** by recursive count
+  (~997 unique V3 `run_id` records in `claim_evidence.v1.json` at
+  generation 2026-06-11T00:03Z: 357 PASS / 629 FAIL / 11 SOURCE per
+  unique-run-id status tally). `runner_status.json` fleet totals carry
+  840 dedup completion records (283 PASS / 437 FAIL / 87 ERROR /
+  32 UNKNOWN / 1 INCONCLUSIVE, last_updated 2026-06-09T06:00Z; the
+  Phase-3 coordinator now writes per-machine telemetry under
+  `runner_heartbeats/` + `runner_status/` so the legacy single-file
+  tally lags the per-machine cards). **Pending review queue
+  (regenerated 2026-06-11T00:11Z) reads 1 item** -- V3-EXQ-591c FAIL,
+  the curriculum Phase-0->1 readiness DIAGNOSTIC RE-RUN under the armed
+  diversity stack (claim-free; user-flagged for `/failure-autopsy`).
+  V3-EXQ-665 curriculum affective-fishtank showcase re-run was reviewed
+  in the 2026-06-11T00:13Z governance cycle (non_contributory PASS with
+  `vacuous_pass` flag on non-load-bearing channels; load-bearing core_channels
+  PASS non-vacuously). **Currently queued (`experiment_queue.json` items[]):
+  3 items, all claimed** -- V3-EXQ-603o SD-059/MECH-358 escape-affordance
+  bridge BEHAVIOURAL retest REDESIGN (claimed ree-cloud-3; supersedes
+  V3-EXQ-603l; carries the headroom + continuous-mean-survival
+  primary-DV fixes from the 603l autopsy); V3-EXQ-660a MECH-341 GAP-B
+  GRADED CEM pool-size confirmation (claimed ree-cloud-4; K in
+  {16,32,64,128} successor to 660 since 660's within-class temperature
+  sweep was byte-identical -- temperature has zero leverage at
+  near-degenerate within-class scores, so K is the viable graded axis);
+  V3-EXQ-655 INV-074 crystallization-necessity TASK-DISTRIBUTION-SHIFT
+  Phase-3 redesign (claimed ree-cloud-1; supersedes V3-EXQ-610f).
+  Substrate / governance landings since the 2026-06-10T01:10Z spec sync
+  (a heavy closure-roadmap + governance day): (1) **MECH-219 / SD-019b
+  affective-harm hysteretic integrator substrate** (ree-v3 main,
+  2026-06-10) -- tier-3 slow controllability-gated `z_harm_suffering`
+  load state on top of SD-019a's tier-2 `z_harm_un` EMA; pluggable
+  escapability (constant / SD-058 `effective_efficacy()` /
+  external-seam); per-consumer redirect (AIC + PAG + MECH-091 wired in
+  v1; dACC/pACC defined but unwired). SD-019b stays candidate /
+  v3_pending pending the controllability-dissociation falsifier.
+  (2) **modulatory-bias-selection-authority route-range AMEND** (ree-v3
+  main + REE_assembly master, 2026-06-10) -- routed by
+  `failure_autopsy_569f-661-654a_2026-06-10`. The authority now folds an
+  SVD-projected per-candidate channel-range bias into the accumulator
+  BEFORE rescaling, so a channel's representational range REACHES + MOVES
+  the committed argmax (the readiness property the cluster proved missing
+  for world-summary / coherence / rule_state channels). V3-EXQ-663
+  substrate-readiness diagnostic landed clean in the 2026-06-11T00:13Z
+  governance cycle. (3) **V3 closure roadmap V4/V5/V6 segmented partition
+  completed** (REE_assembly master, 2026-06-10..06-11) -- three
+  multi-agent workflow waves seeded the V4 individual-mind tier
+  (12 generation:v4 plans + 27 reaped candidate claims; +5 v4->v5
+  reassignments in wave 2), the V5 social-mind tier (6 generation:v5
+  plans + 23 candidate claims), and the V6 linguistic-mind tier
+  (5 generation:v6 plans + 16 candidate claims + 8 dedup mappings into
+  existing language cluster). V3 closure % stays **75.9% (75 nodes /
+  11 plans, byte-identical)** -- the closure map is generation-segmented
+  so V4/V5/V6 nodes never dilute V3. Total roadmap now **25 plans /
+  174 nodes across v3 / v4 / v5 / v6 / deferred** (the
+  deferred-by-commitment bucket landed 2026-06-11 with 4 reversal-
+  triggered nodes for TCL/phase ARC-053 cluster + ARC-084 signed coupling +
+  attention map; excluded from every % by construction). `closure.html`
+  now exposes the full V3/V4/V5/V6/deferred generation switch
+  (`CLOSURE_VERSION 2026-06-11.1`). (4) **Total claim count 759 -> 798**
+  (39 new candidate claims from the V4/V5/V6 waves; all
+  substrate_conditional / v3_pending / implementation_phase v4-v6 so the
+  governance Decision Queue produced 0 new actionable rec rows). (5) **Two
+  governance cycles run 2026-06-11T00:13Z and post-failure-autopsy
+  closure** -- pending_review walked from 2 -> 0 -> 1 (591c flagged for
+  autopsy and adjudicated under user-confirmed routing: ARC-065 substrate
+  load-bearing but UNDER-POWERED at default magnitudes for the
+  collapse-prone seed tail; primary follow-on = `/queue-experiment`
+  Q-043 magnitude sweep + substrate_queue ARC-065 amend with the 591b+591c
+  default-magnitude-insufficiency failure_record + ARC-046 K-of-N/EMA
+  gate-robustness follow-on noted). (6) **MECH-073 promoted candidate ->
+  provisional** (REE_assembly master, 2026-06-10) -- targeted single-claim
+  governance promotion driven by Phase-3 lit/exp decoupling: experimental
+  record CLEAN (EXQ-375 3/3 PASS; `genuine_exp_direction_counts` 3 supports
+  / 0 weakens; exp_conf 0.757 above the 0.62 bar). Lit-only conflict_note
+  resolved by Q-020 (2026-03-16); under Phase-3 lit signal does not gate
+  promotion. Sole genuinely-promotable claim among the 26
+  hold_candidate_resolve_conflict set; the other 25 are substrate-held
+  (gated on 603m, SD-016, commitment substrate) not conflict-resolvable.
+  Bottleneck (continuation): the **selection-authority frontier paced by
+  V3-EXQ-660a (MECH-341 within-class-rep diversity via CEM pool-size) +
+  V3-EXQ-603o (SD-059/MECH-358 escape-affordance bridge re-test with
+  continuous-mean-survival primary DV)** is the cross-cutting blocker;
+  V3-EXQ-655 (INV-074 task-distribution-shift) is the third in-flight
+  gate. The **infant-curriculum Phase 0->1 advancement gate** continues
+  under the 591c autopsy routing (ARC-065 default-magnitude under-power
+  is the load-bearing reading, NOT a gate-threshold defect).
 
 - **2026-06-10T01:10Z nightly read.** `evidence/experiments/` flat
   top-level holds **346 `v3_exq_*.json` manifests** (recursive count
