@@ -8,6 +8,22 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-514m",
+      "title": "SD-049 Phase-2 behavioural validation on a curriculum-built agent (closes goal_pipeline:GAP-2); successor to V3-EXQ-514l",
+      "script": "experiments/v3_exq_514m_sd049_phase2_behavioural_curriculum_built.py",
+      "priority": 300,
+      "machine_affinity": "any",
+      "estimated_minutes": 300,
+      "supersedes": "V3-EXQ-514l",
+      "claim_id": "MECH-229",
+      "note": "goal_pipeline:GAP-2 STAGE-B closer (Stage A cleared 2026-06-11: V3-EXQ-603n PASS -> scaffolded_sd054_onboarding ready=true). Re-issues the SD-049 Phase-2 hybrid-encoder behavioural validation on an agent BUILT THROUGH THE FULL ONBOARDING CURRICULUM (603n config: Stage-0->Stage-0b->P0->Stage-H->P1; harm-pathway training ON, 634c seeding calibration, foraging-competence amend ON) so z_goal forms ECOLOGICALLY, THEN measures the SD-049 Phase-2 behavioural DVs frozen-policy on the SD-049-enabled P2 env: DV1 identity-recovery linear probe (>=0.6), DV2 wanting!=liking fraction (>=0.6), DV3 per-axis drive ANOVA (F>4.605 = F(0.01,2,inf); scipy-free pre-registered critical). LOAD-BEARING per-seed foraging-contact non-vacuity guard (603n G2+G3: P2 contact_rate>0 AND z_goal_norm_at_contact_peak>0.4): a contact-zero seed is excluded; <2/3 seeds passing -> self-routes substrate_not_ready_requeue (NOT a false weakens; the 514/632/634 confound). 632 seed-42 (z_goal_norm 3.0115 at contact) is the clean MECH-230 anchor. claim_ids=[MECH-229,MECH-230] -> evidence_direction_per_claim emitted (MECH-229<-C_WL, MECH-230<-C_ID+C_ANOVA; both non_contributory if non-vacuity unmet). On PASS unblocks SD-049/SD-015/MECH-229/MECH-230/MECH-117/MECH-216/ARC-030/ARC-032/Q-030 (governance applies later) + the drafted V3-EXQ-495a. AST-validator OK; dry-run PASS end-to-end (curriculum builds, guard fires contact_rate 0.86 z_goal_at_contact 0.52, DVs+per-claim compute; dry-scale FAIL as designed). working-tree-vs-HEAD queue audit clean before append (concurrent claimed items 603o/660a/655 untouched).",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 250,
+      "experiment_type": "v3_exq_514m_sd049_phase2_behavioural_curriculum_built",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-603o",
       "title": "SD-059/MECH-358 escape-affordance bridge behavioural retest REDESIGN (headroom + continuous survival metric); successor to 603l",
       "script": "experiments/v3_exq_603o_escape_affordance_bridge_behavioural_redesign.py",
@@ -65,22 +81,6 @@
       "conditions": 5,
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_655_inv074_crystallization_necessity_taskshift",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-514m",
-      "title": "SD-049 Phase-2 behavioural validation on a curriculum-built agent (closes goal_pipeline:GAP-2); successor to V3-EXQ-514l",
-      "script": "experiments/v3_exq_514m_sd049_phase2_behavioural_curriculum_built.py",
-      "priority": 300,
-      "machine_affinity": "any",
-      "estimated_minutes": 300,
-      "supersedes": "V3-EXQ-514l",
-      "claim_id": "MECH-229",
-      "note": "goal_pipeline:GAP-2 STAGE-B closer (Stage A cleared 2026-06-11: V3-EXQ-603n PASS -> scaffolded_sd054_onboarding ready=true). Re-issues the SD-049 Phase-2 hybrid-encoder behavioural validation on an agent BUILT THROUGH THE FULL ONBOARDING CURRICULUM (603n config: Stage-0->Stage-0b->P0->Stage-H->P1; harm-pathway training ON, 634c seeding calibration, foraging-competence amend ON) so z_goal forms ECOLOGICALLY, THEN measures the SD-049 Phase-2 behavioural DVs frozen-policy on the SD-049-enabled P2 env: DV1 identity-recovery linear probe (>=0.6), DV2 wanting!=liking fraction (>=0.6), DV3 per-axis drive ANOVA (F>4.605 = F(0.01,2,inf); scipy-free pre-registered critical). LOAD-BEARING per-seed foraging-contact non-vacuity guard (603n G2+G3: P2 contact_rate>0 AND z_goal_norm_at_contact_peak>0.4): a contact-zero seed is excluded; <2/3 seeds passing -> self-routes substrate_not_ready_requeue (NOT a false weakens; the 514/632/634 confound). 632 seed-42 (z_goal_norm 3.0115 at contact) is the clean MECH-230 anchor. claim_ids=[MECH-229,MECH-230] -> evidence_direction_per_claim emitted (MECH-229<-C_WL, MECH-230<-C_ID+C_ANOVA; both non_contributory if non-vacuity unmet). On PASS unblocks SD-049/SD-015/MECH-229/MECH-230/MECH-117/MECH-216/ARC-030/ARC-032/Q-030 (governance applies later) + the drafted V3-EXQ-495a. AST-validator OK; dry-run PASS end-to-end (curriculum builds, guard fires contact_rate 0.86 z_goal_at_contact 0.52, DVs+per-claim compute; dry-scale FAIL as designed). working-tree-vs-HEAD queue audit clean before append (concurrent claimed items 603o/660a/655 untouched).",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_514m_sd049_phase2_behavioural_curriculum_built",
       "seeds": 3
     }
   ]
