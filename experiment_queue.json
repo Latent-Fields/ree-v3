@@ -127,6 +127,25 @@
       "episodes_per_run": 90,
       "experiment_type": "v3_exq_590b_mech314a_novelty_goldilocks",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-485e",
+      "title": "SD-033b GAP-8 evidence-grade trained-OFC-head BEHAVIOURAL devaluation+discrimination (frozen vs trainable head; OFC-bias-driven candidate-selection shift/separation)",
+      "script": "experiments/v3_exq_485e_sd033b_trained_ofc_head_behavioural.py",
+      "priority": 310,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "claim_id": "SD-033b",
+      "claim_ids": [
+        "SD-033b",
+        "MECH-263"
+      ],
+      "note": "Closes commitment_closure:GAP-8 -- the evidence-grade, governance-weighting trained-OFC-head BEHAVIOURAL validation (SD-033b candidate -> provisional). The trained-OFC-head substrate landed 2026-06-09 (ree-v3 main 382db2c: OFCConfig.train_state_bias_head + OFCAnalog.bias_head_parameters()); V3-EXQ-485d substrate-readiness PASSed (ARM_1 head weight-delta 0.231 >> 1e-3, the E3 gradient reaches+moves the head). Predecessors V3-EXQ-485b (devaluation) + 485c (task-role discrimination) validated both MECH-263 signatures at the REPRESENTATION level (state_code cosine distance) on the FROZEN head, reviewed 2026-06-04; this advances both to the BEHAVIOUR level on the TRAINED head. 2-arm frozen-vs-trainable OFC head, OFC isolated (gated_policy/dACC/lateral_pfc OFF), ofc_harm_dim>0 (aversive devaluation in the z_harm domain per the 485b substrate finding -- OFC reads only z_world+z_harm, no appetitive input), on the SD-054 bipartite reef/forage env. Phased training (485d machinery): P0 encoder warmup -> P1 head REINFORCE -> P2 behavioural eval. BEHAVIOUR = OFC-bias-driven candidate-selection distribution (softmax over -compute_bias) over a fixed bank of real candidate first-step z_world summaries, with the OFC as the SOLE bias channel (modulatory-bias-selection-authority deliberately OFF so the MECH-263 signal is not confounded with the separate 604a/643 drowning question). C1 devaluation: trained-head selection TV shift when z_harm is dropped at a fixed state, beyond the frozen control; C2 discrimination: trained-head selection separation across two perceptually-matched task-role histories vs within-context jitter (ratio>=3); C3: frozen head (bias==0 -> exactly-uniform selection) silent -- the GAP-1-analogue silence control proving the signature requires the trained head. claim_ids=[SD-033b,MECH-263], experiment_purpose=evidence, evidence_direction_per_claim emitted. SAME-STATISTIC non-vacuity gate (V3-EXQ-643 lesson): readiness asserts the trained-head bias cross-candidate RANGE on the high-threat positive control > 1e-3 (RANGE not magnitude -- the load-bearing selection DVs can be non-zero only if the bias has cross-candidate range; a clamp-saturated head has large |bias| but ~0 range, the 485d C3 concern) AND head weight-delta > 1e-3; below-floor (clamp-saturated/untrained) -> substrate_not_ready_requeue (non_contributory, re-queue at larger P1 budget / ofc_bias_scale), NEVER a false SD-033b weakens. PASS=readiness AND C1 AND C2 AND C3 on >=2/3 seeds (supports both claims); readiness-met-but-DVs-fail -> weakens (honest; route /failure-autopsy before stamping). 2 arms x 3 seeds [0,1,2]; P0 30 ep + P1 60 ep, 100 steps/ep; per-cell reset_all_rng + arm_fingerprint (arm_cell). validate_experiments --strict --paths OK (0 readiness-warnings, arm-fingerprint OK); dry-run PASS end-to-end (frozen arm silent: deval_shift 0 / sep_ratio 0; trainable arm head_delta 0.040 + bias_range 0.0013 + discrimination fires; self-routes substrate_not_ready at 1-seed toy scale as designed since readiness needs >=2/3 seeds). working-tree-vs-HEAD queue audit clean before append (concurrent implement-substrate-crf-availability-maintenance session's untracked script/entry not swept). Runner NOT started.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 90,
+      "experiment_type": "v3_exq_485e_sd033b_trained_ofc_head_behavioural",
+      "seeds": 3
     }
   ]
 }
