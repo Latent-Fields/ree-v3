@@ -280,3 +280,147 @@ def aggregate_per_tick_logs(logs: Dict[str, list]) -> Dict[str, float]:
         out[f"{k}_mean"] = float(arr.mean())
         out[f"{k}_max"] = float(arr.max())
     return out
+
+
+# -- Non-degeneracy self-report + P0 readiness abort gate --------------------
+#
+# These two helpers let an experiment self-report the degenerate / vacuous-
+# criterion failure mode that previously only a manual /failure-autopsy could
+# catch (V3-EXQ-514m C_WL pinned at 0.0; V3-EXQ-642 z_block identically 0).
+#
+#   check_degeneracy(...)  -> writes manifest fields non_degenerate /
+#       non_degenerate_per_claim / degeneracy_reason. The REE_assembly indexer
+#       (build_experiment_indexes.py) treats non_degenerate=false as
+#       scoring_excluded="degenerate" -- the run stays in the full log but does
+#       NOT weight claim confidence/conflict, exactly like "superseded".
+#
+#   p0_readiness_gate(...) -> a pre-registered abort gate. Call it after P0
+#       training and BEFORE the expensive measurement phase; on an unmet
+#       precondition it raises P0NotReady carrying a manifest-ready
+#       preconditions[] payload, so the script can write a
+#       substrate_not_ready_requeue manifest and skip P1/P2 rather than burn
+#       compute and emit a misleading FAIL.
+
+
+def metric_is_degenerate(
+    values,
+    *,
+    eps: float = 1e-9,
+    floor: Optional[float] = None,
+) -> tuple[bool, str]:
+    """A discriminative metric is DEGENERATE when it has no usable spread across
+    the observations its criterion compares -- pinned at a constant (zero
+    cross-arm/cross-seed variance) or floor-pinned on every observation -- so the
+    criterion can never fire regardless of behaviour (the V3-EXQ-514m C_WL=0.0 /
+    V3-EXQ-642 z_block=0 vacuous-criterion pattern).
+
+    `values` is the list/array of the metric's observed values across the cells
+    its criterion compares (e.g. per-arm-per-seed separations). Returns
+    (degenerate: bool, reason: str). reason is "" when non-degenerate.
+    """
+    arr = np.asarray([v for v in values if v is not None], dtype=float)
+    if arr.size == 0:
+        return True, "no finite observations"
+    if not np.all(np.isfinite(arr)):
+        return True, "non-finite observation(s) present"
+    spread = float(arr.max() - arr.min())
+    if spread <= eps:
+        return True, (f"zero spread (constant={float(arr.flat[0]):.6g}, "
+                      f"spread={spread:.3g}<=eps={eps:.3g})")
+    if floor is not None and float(arr.max()) <= float(floor):
+        return True, (f"floor-pinned (max={float(arr.max()):.6g}<=floor="
+                      f"{float(floor):.6g})")
+    return False, ""
+
+
+def check_degeneracy(
+    load_bearing_metrics: Dict[str, Any],
+    *,
+    eps: float = 1e-9,
+) -> Dict[str, Any]:
+    """Aggregate non-degeneracy self-report for a run's manifest.
+
+    `load_bearing_metrics` maps each load-bearing discriminative metric name to
+    EITHER the list of its observed values (across the cells its criterion
+    compares) OR a dict {"values": [...], "floor": <optional float>}. A run is
+    non_degenerate iff EVERY load-bearing metric has usable spread.
+
+    Returns a dict to merge into the manifest:
+        {"non_degenerate": bool,
+         "degeneracy_reason": str,                       # "" when non-degenerate
+         "degenerate_metrics": {name: reason, ...}}      # only the offenders
+
+    Writing non_degenerate=false makes the REE_assembly indexer exclude the run
+    from confidence/conflict scoring (scoring_excluded="degenerate").
+    """
+    degenerate: Dict[str, str] = {}
+    for name, spec in load_bearing_metrics.items():
+        if isinstance(spec, dict):
+            vals = spec.get("values", [])
+            floor = spec.get("floor")
+        else:
+            vals, floor = spec, None
+        is_deg, reason = metric_is_degenerate(vals, eps=eps, floor=floor)
+        if is_deg:
+            degenerate[name] = reason
+    non_degen = not degenerate
+    reason = "" if non_degen else "; ".join(
+        f"{k}: {v}" for k, v in degenerate.items())
+    return {
+        "non_degenerate": non_degen,
+        "degeneracy_reason": reason,
+        "degenerate_metrics": degenerate,
+    }
+
+
+class P0NotReady(Exception):
+    """Raised by p0_readiness_gate when a pre-registered precondition is unmet.
+
+    Carries the manifest-ready preconditions[] payload (each entry with
+    measured/threshold/direction/met) so the caller can write a
+    substrate_not_ready_requeue manifest and abort before the measurement phase.
+    """
+
+    def __init__(self, preconditions: list, reason: str):
+        self.preconditions = preconditions
+        self.reason = reason
+        super().__init__(reason)
+
+
+def p0_readiness_gate(checks: list) -> list:
+    """Pre-registered P0 abort gate -- assert the substrate is trained enough to
+    make the measurement non-vacuous BEFORE burning compute on P1/P2.
+
+    `checks` is a list of dicts, each:
+        {"name": str, "measured": float, "threshold": float,
+         "direction": "lower"|"upper"}   # lower=floor: met iff measured>=threshold
+                                         # upper=ceiling: met iff measured<=threshold
+    (direction defaults to "lower"). The semantics mirror the REE_assembly indexer's
+    _precondition_direction so the recorded preconditions[] adjudicate consistently.
+
+    Returns a manifest-ready preconditions[] list (each entry carries measured/
+    threshold/direction/met/kind="readiness") when ALL checks are met. Raises
+    P0NotReady (with the same payload) when any check fails, so the caller writes
+    interpretation={"label": "substrate_not_ready_requeue", "preconditions": ...}
+    and self-routes to non_contributory instead of a misleading FAIL.
+    """
+    preconditions = []
+    unmet = []
+    for c in checks:
+        m = float(c["measured"])
+        t = float(c["threshold"])
+        direction = str(c.get("direction", "lower"))
+        met = (m <= t) if direction == "upper" else (m >= t)
+        preconditions.append({
+            "name": str(c["name"]),
+            "measured": m,
+            "threshold": t,
+            "direction": direction,
+            "met": bool(met),
+            "kind": "readiness",
+        })
+        if not met:
+            unmet.append(str(c["name"]))
+    if unmet:
+        raise P0NotReady(preconditions, "P0 readiness unmet: " + ", ".join(unmet))
+    return preconditions
