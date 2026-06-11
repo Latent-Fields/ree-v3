@@ -16,7 +16,11 @@
       "estimated_minutes": 600,
       "claim_id": "MECH-229",
       "note": "Substrate-faithful MECH-229 retest routed by confirmed failure_autopsy_V3-EXQ-514m_2026-06-11 (governance cycle #4 reclassified 514m C_WL=0.0/3-seeds VACUOUS -> non_contributory, measurement_test_design_defect: the legacy DV compared SD-014 residue VALENCE_WANTING/LIKING channels that 514m never wrote, so |w-l|>0.1 could never fire). This run measures the SD-057 OBJECT-BOUND wanting-target (MECH-346 most-wanted z_goal pointer = IncentiveTokenBank.most_wanted k* = argmax base_value*(1+kappa*per_axis_drive)) != liking-target (last-consumed type) dissociation -- the biologically+forward-faithful test the SD-049 verdict pre-registered, on the live SD-057 substrate (use_incentive_token_bank already on; landed 2026-06-04). Built through the FULL scaffolded_sd054_onboarding curriculum at the 603n config (Stage-0->0b->P0->Stage-H->P1->P2; ready=true 2026-06-11 per 603n PASS), identical to 514m, then a frozen-policy SD-049 Phase-2 eval binds the per-object token + seeds z_goal via the substrate's own update_z_goal(resource_type=...) at each consumption event and compares the most-wanted pointer to the consumed type. CONTACT GUARD retained (per-seed P2 contact_rate>0 AND z_goal_norm_at_contact_peak>0.4; <2/3 -> substrate_not_ready_requeue). NEW SAME-STATISTIC WL NON-VACUITY READINESS GATE (the exact gap the 514m contact guard lacked -- it checked foraging but not channel-write): leg1 positive-control cross-target separation (a constructed 2-token bank from this run's GoalConfig must yield a drive-favored most-wanted != designated last-consumed -- the SAME cross-target-inequality statistic C_WL routes on; instrument-can-fire) AND leg2 in-run bank populated >=2 distinct tokens at differing per-axis drives on >=2/3 guard-passing seeds (channels-written-this-run). Below floor -> substrate_not_ready_requeue (non_contributory), NEVER a false MECH-229 weakens (V3-EXQ-643 lesson). PASS (supports MECH-229) = contact non-vacuity AND WL readiness AND C_WL (mean object-bound wanting!=liking dissoc fraction >= 0.3); readiness-met-but-C_WL-unmet -> a GENUINE weakens. claim_ids=[MECH-229] ONLY -- MECH-230 NOT re-tagged (its supports stands from 514m C_ID/C_ANOVA). SUCCESSOR (NOT supersede) of V3-EXQ-514m (514m is non_contributory, not invalid-by-bug in any arm this re-tests). validate_experiments --strict --paths OK (0 readiness-warnings); --dry-run end-to-end PASS (curriculum runs, bank populates 2 tokens via Stage-0 cue-bind goal_r 0.958, self-routes substrate_not_ready at 1-seed toy scale as designed -- contact_rate=0 at dry budget). Closes goal_pipeline:GAP-2 on PASS. Runner NOT started.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-11T18:27:36Z"
+      },
       "claim_ids": [
         "MECH-229"
       ],
@@ -106,28 +110,6 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_655_inv074_crystallization_necessity_taskshift",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-667",
-      "title": "Q-043 exploration-magnitude sweep: 591c-lineage curriculum Phase 0->1 reachability x joint noise_floor_alpha/curiosity_weight scale above defaults",
-      "script": "experiments/v3_exq_667_q043_exploration_magnitude_sweep.py",
-      "priority": 250,
-      "machine_affinity": "any",
-      "estimated_minutes": 480,
-      "claim_id": "Q-043",
-      "note": "PRIMARY routing output of failure_autopsy_V3-EXQ-591c_2026-06-11 (confirmed). Q-043 (registered open_question; relative-weight calibration of MECH-313 noise floor + MECH-314 curiosity) magnitude-scale sweep. Re-runs the EXACT 591c InfantCurriculumScheduler Phase 0->1 reachability probe (same 5 seeds 42-46, 160 ep x 200 steps, same landed H_POS_FRAC_OF_MAX=0.20 gate -- UNCHANGED) at 4 JOINT magnitude scales applied to BOTH knobs above their landed defaults: S=1x (alpha 0.1/cw 0.05, reproduces 591c anchor) / 2x / 4x / 8x (cw scales all three MECH-314 sub-flavour weights). FORK: (a) the worst-case collapse seed escapes Phase 0 with GENUINE exploration at some scale above default -> config-only fix (raise ARC-065 default magnitudes); (b) it stays collapsed at every scale (incl 8x) -> active Phase-0 exploration-shaping substrate required (passive noise+curiosity an insufficient translation of actively-driven early-dev exploration). experiment_purpose=diagnostic, claim_ids=[Q-043] (single claim, no per-claim direction needed). LOAD-BEARING readiness/non-vacuity (V3-EXQ-643 same-statistic lesson): on the healthy-seed positive control, the RANGE across magnitude arms of the healthy-seed-averaged h_pos_mean must clear 0.05 (SAME h_pos statistic the rescue criterion routes on) else substrate_not_ready_requeue (NEVER a substrate verdict). Gate threshold + genuine-exploration definition UNCHANGED -- the seed-45 gate-permissiveness brittleness is a SEPARATE ARC-046 K-of-N/EMA follow-on, explicitly OUT OF SCOPE; lowering the Phase 0->1 threshold is NOT the route. Multi-arm (seed x scale) grid with per-cell RNG reset + arm_fingerprint (arm_cell). validate_experiments --strict OK (0 readiness-warnings). Dry-run PASS end-to-end (self-routes substrate_not_ready at 2-ep toy scale as designed; healthy seed 42 h_pos 0.693->0.865 from 1x->8x confirms the swept knobs move exploration). working-tree-vs-HEAD queue audit clean before append (concurrent V3-EXQ-660b session's untracked script not swept).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-11T06:40:52Z"
-      },
-      "claim_ids": [
-        "Q-043"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 160,
-      "experiment_type": "v3_exq_667_q043_exploration_magnitude_sweep",
-      "seeds": 5
     },
     {
       "queue_id": "V3-EXQ-590b",
