@@ -307,16 +307,29 @@ def metric_is_degenerate(
     *,
     eps: float = 1e-9,
     floor: Optional[float] = None,
+    ceiling: Optional[float] = None,
 ) -> tuple[bool, str]:
     """A discriminative metric is DEGENERATE when it has no usable spread across
     the observations its criterion compares -- pinned at a constant (zero
-    cross-arm/cross-seed variance) or floor-pinned on every observation -- so the
-    criterion can never fire regardless of behaviour (the V3-EXQ-514m C_WL=0.0 /
-    V3-EXQ-642 z_block=0 vacuous-criterion pattern).
+    cross-arm/cross-seed variance), floor-pinned, or ceiling-saturated on every
+    observation -- so the criterion can never fire regardless of behaviour (the
+    V3-EXQ-514m C_WL=0.0 / V3-EXQ-642 z_block=0 vacuous-criterion pattern).
 
     `values` is the list/array of the metric's observed values across the cells
     its criterion compares (e.g. per-arm-per-seed separations). Returns
     (degenerate: bool, reason: str). reason is "" when non-degenerate.
+
+    `floor` / `ceiling` catch the *saturation* family the bare zero-spread test
+    misses when a readout is pinned at a rail with tiny residual jitter. A metric
+    is degenerate if every observation is <= floor (floor-pinned, e.g. an
+    approach-rate that never lifts off 0) OR >= ceiling (ceiling-saturated, e.g.
+    the V3-EXQ-651 goal_prox ~0.98 readout whose on-vs-off delta is below its own
+    resolution -- spread alone leaves it uncaught because the jitter exceeds eps).
+    Keep `eps` tight (1e-9): the bit-identical / exact-zero family is the safe
+    catch, and widening eps would false-positive genuine small-but-real spreads
+    (a near-miss separation is a weak result, NOT a vacuous criterion). Use the
+    floor/ceiling rails -- keyed to the metric's own bounds -- for saturation,
+    never a loosened eps.
     """
     arr = np.asarray([v for v in values if v is not None], dtype=float)
     if arr.size == 0:
@@ -330,7 +343,47 @@ def metric_is_degenerate(
     if floor is not None and float(arr.max()) <= float(floor):
         return True, (f"floor-pinned (max={float(arr.max()):.6g}<=floor="
                       f"{float(floor):.6g})")
+    if ceiling is not None and float(arr.min()) >= float(ceiling):
+        return True, (f"ceiling-saturated (min={float(arr.min()):.6g}>=ceiling="
+                      f"{float(ceiling):.6g})")
     return False, ""
+
+
+def metric_groups_are_degenerate(
+    groups,
+    *,
+    eps: float = 1e-9,
+    floor: Optional[float] = None,
+    ceiling: Optional[float] = None,
+) -> tuple[bool, str]:
+    """Paired/within-group variant of :func:`metric_is_degenerate`.
+
+    Use this when the criterion fires on a *within-group separation* -- e.g. an
+    ARM_ON-vs-ARM_OFF difference measured per seed -- rather than on raw values
+    pooled across cells. `groups` is a list of value-lists (one per seed / per
+    comparison block). The run is degenerate when EVERY group is internally
+    degenerate (its arms are bit-identical / pinned), even if the metric varies
+    ACROSS groups. This is the V3-EXQ-603 / 543e bit-identical-arms family: pool
+    the raw (seed x arm) values into one flat list and the cross-seed variance
+    masks the within-seed zero-difference, so :func:`metric_is_degenerate` on the
+    flat list wrongly passes; this checks each group in isolation.
+
+    An equivalent and often simpler producer-side option is to feed
+    :func:`metric_is_degenerate` the per-group SEPARATION directly (e.g.
+    [arm_on_i - arm_off_i for each seed i]); this helper exists for when the raw
+    per-cell values are what was logged.
+    """
+    groups = list(groups)
+    if not groups:
+        return True, "no groups"
+    reasons = []
+    for i, g in enumerate(groups):
+        is_deg, reason = metric_is_degenerate(
+            g, eps=eps, floor=floor, ceiling=ceiling)
+        if not is_deg:
+            return False, ""
+        reasons.append(f"group[{i}]: {reason}")
+    return True, "every group pinned -- " + "; ".join(reasons)
 
 
 def check_degeneracy(
@@ -342,8 +395,14 @@ def check_degeneracy(
 
     `load_bearing_metrics` maps each load-bearing discriminative metric name to
     EITHER the list of its observed values (across the cells its criterion
-    compares) OR a dict {"values": [...], "floor": <optional float>}. A run is
-    non_degenerate iff EVERY load-bearing metric has usable spread.
+    compares) OR a dict accepting any of:
+        {"values": [...],                 # flat per-cell observations
+         "floor":   <float>,              # degenerate if every value <= floor
+         "ceiling": <float>,              # degenerate if every value >= ceiling
+         "groups":  [[...], [...], ...]}  # per-seed/per-block arm values:
+                                          #   degenerate if EVERY group is pinned
+    Provide EITHER "values" OR "groups". A run is non_degenerate iff EVERY
+    load-bearing metric has usable spread.
 
     Returns a dict to merge into the manifest:
         {"non_degenerate": bool,
@@ -356,11 +415,17 @@ def check_degeneracy(
     degenerate: Dict[str, str] = {}
     for name, spec in load_bearing_metrics.items():
         if isinstance(spec, dict):
-            vals = spec.get("values", [])
             floor = spec.get("floor")
+            ceiling = spec.get("ceiling")
+            groups = spec.get("groups")
+            if groups is not None:
+                is_deg, reason = metric_groups_are_degenerate(
+                    groups, eps=eps, floor=floor, ceiling=ceiling)
+            else:
+                is_deg, reason = metric_is_degenerate(
+                    spec.get("values", []), eps=eps, floor=floor, ceiling=ceiling)
         else:
-            vals, floor = spec, None
-        is_deg, reason = metric_is_degenerate(vals, eps=eps, floor=floor)
+            is_deg, reason = metric_is_degenerate(spec, eps=eps)
         if is_deg:
             degenerate[name] = reason
     non_degen = not degenerate
