@@ -87,7 +87,11 @@
       "estimated_minutes": 650,
       "claim_id": "MECH-266",
       "note": "Successor (NOT supersede) to V3-EXQ-464b. Rewires to the FULL scaffolded_sd054_onboarding 603n curriculum (514n pattern) + SalienceCoordinator (SD-032a) + MECH-266 per-mode hysteresis rails. use_closure_operator OFF (closure injects a confounding mode-switch signal; 464b omitted it for the same reason). Eval = ARM_SYMMETRIC (legacy MECH-259) vs ARM_ASYM_STICKY_TASK (sticky exit rail on external_task) clones, in a GAP-3 dual_cue (two competing resource cues; requires SD-049, supplied by the scaffolded cue-recall bridge) env. Measures mode occupancy + switches. C1 asym task-occupancy >= sym + 0.10; C2 asym switches <= sym; C3 sym switches >= 1 (the mode-switching non-vacuity). TWO non-vacuity gates (603n contact guard + mode-switching gate: symmetric arm switched modes) self-route substrate_not_ready_requeue below floor, never a false weakens (the *b gap was n_switches=0). evidence_direction_per_claim. validate_experiments --strict OK; --dry-run end-to-end PASS (mode-switching ENGAGED: sym_switches=2 at dry scale -- the scaffolded agent switches modes, resolving the key risk). Runner NOT started.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-12T07:21:55Z"
+      },
       "claim_ids": [
         "MECH-266",
         "SD-032a"
