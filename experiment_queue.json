@@ -198,6 +198,25 @@
       "episodes_per_run": 330,
       "experiment_type": "v3_exq_673_mech171_vicious_cycle_sleep_disruption",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-629b",
+      "title": "commitment_closure:GAP-4 MECH-342 ecological maintenance-release evidence, REWIRED onto the 603n scaffolded_sd054_onboarding curriculum + ecological floor recalibration (successor to V3-EXQ-629 NO_NATURAL_COMMITMENT)",
+      "script": "experiments/v3_exq_629b_mech342_ecological_maintenance_release_evidence.py",
+      "experiment_type": "v3_exq_629b_mech342_ecological_maintenance_release_evidence",
+      "priority": 230,
+      "machine_affinity": "any",
+      "estimated_minutes": 720,
+      "claim_id": "MECH-342",
+      "claim_ids": [
+        "MECH-342"
+      ],
+      "seeds": 3,
+      "conditions": 1,
+      "episodes_per_run": 235,
+      "status": "pending",
+      "predecessor": "V3-EXQ-629",
+      "note": "Successor (NOT supersede) to V3-EXQ-629 (which FAILed non_contributory / NO_NATURAL_COMMITMENT 2026-06-02: ecological score margins ~0.0007 << the MECH-090 admission floor 0.05 -> R-c admission never fired -> no beta latch -> nothing for MECH-342 to release). 629b takes the autopsy's commitment-inducing-curriculum branch: the foraging-competent agent is BUILT THROUGH the FULL scaffolded_sd054_onboarding curriculum at the 603n config (514n pattern; ready=true 2026-06-11) so commitment happens naturally, AND applies the autopsy's score_margin_floor recalibration (a 629b probe measured ecological margins mean ~0.006 / max ~0.02 / frac>=0.05==0; the admission + MR score-margin floors are recalibrated to 0.001 so beta actually elevates) AND wires the degradation driver via the env mech090_readiness_outcome source (scheduled_limb_damage in the degraded window -> 1-mean(limb_damage) -> nav EMA below MR_NAV_FLOOR; SD-047 weather/drift layered for realism; the degraded window reduces num_hazards to 1 so the limb-impaired agent survives long enough to be released rather than dying). Agent trained ONCE per seed then cloned into ARM_0_RELEASE_OFF vs ARM_1_RELEASE_ON (MECH-342 has no trained params), so both arms share bit-identical weights and the ONLY variable is use_maintenance_release. TWO P2 windows: HEALTHY (no false abort) + DEGRADED (release authority). DISTINCT-FROM: 629 used use_harm_stream=False for the MECH-091 control, but the scaffolded curriculum REQUIRES the harm stream, so 629b keeps it ON and raises urgency_interrupt_threshold to 1e6 (MECH-091 inert; manifest asserts max_z_harm_a_norm<1e6); V_s/ghost-goal off; ARC-028 shared across arms. Acceptance: C1 baseline-commits (both arms, both windows; the 629 NO_NATURAL_COMMITMENT gap, now delivered), C2 degradation-occurred (>=10 degraded committed-ticks), C3 release-authority (ARM_1 degraded decommit>=1 AND mech342_fires>=1 AND beta-elevated-occupancy < ARM_0), C4 no-false-abort (ARM_1 healthy fires==0), C5 distinct-from. C1/C2 FAIL self-route substrate_not_ready_requeue / INVALID_HARNESS (non_contributory, raise intensity), NEVER a false weakens. validate_experiments --strict OK; seed-44 probe (4ep x 200steps) showed the full discriminating signal: ARM_1 betaocc 0.30 / fires 1 / decommit 4 vs ARM_0 betaocc 1.00 / fires 0, degr_ticks 235/323, contact guard 0.90 (the dry-run self-routes on 2-episode contact noise, as the cohort does). PASS = ecological evidence-grade MECH-342 (clears v3_pending subject to V3-pending rules). Completes commitment_closure:GAP-4 with the *c OCD cohort. Runner NOT started."
     }
   ]
 }
