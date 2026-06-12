@@ -37,7 +37,11 @@
       "estimated_minutes": 650,
       "claim_id": "SD-034",
       "note": "Successor (NOT supersede) to V3-EXQ-460b. Rewires the training harness from committed_mode_curriculum to the FULL scaffolded_sd054_onboarding curriculum at the 603n config (Stage-0->Stage-0b->P0->Stage-H->P1->P2; ready=true 2026-06-11 per 603n PASS; the 514n pattern) so the agent is foraging-competent, plus the commitment control-plane (bistable BetaGate + SD-034 ClosureOperator + SD-033a LateralPFC + SD-032 dACC/salience). Eval = ARM_CLOSURE_ON vs ARM_CLOSURE_OFF (same trained weights, closure off) in a P2-config env with subgoal_mode=True (LOAD-BEARING -- the waypoint-completion machinery hard-requires it; 460b never set it, so n_closures=0 was partly a wiring gap, not only the foraging-competence ceiling) + completion_tolerance(waypoint). Measures closure fires / beta releases / MECH-260 No-Go installs at completed-with-stable-rule_state ticks. TWO non-vacuity gates self-route substrate_not_ready_requeue below floor (never a false weakens): 603n contact guard + commitment+completion gate (ON committed AND reached sequence completions so closure had an opportunity to fire; n_closures=0 WITH completions=genuine weakens, WITHOUT=substrate-not-engaged). C1 n_closures>=1, C2 beta_release>=1, C3 nogo>=1, C4 OFF holds latch & never closes. evidence_direction_per_claim. validate_experiments --strict OK; --dry-run end-to-end PASS (curriculum builds, agent commits, completions occur). Closes commitment_closure:GAP-4 (with the rest of the *c cohort + 629b) on PASS. Runner NOT started.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-12T04:47:09Z"
+      },
       "claim_ids": [
         "SD-034",
         "MECH-260",
@@ -186,11 +190,7 @@
       "estimated_minutes": 960,
       "claim_id": "MECH-171",
       "note": "EXP-0153 dispatch (IGW-20260611-203): first genuine experiment for MECH-171 (sleep disruption vicious cycle). Tests whether early sleep phase disruption triggers cascading degradation through consolidation failure -> attribution failure -> behavioral disorientation -> increased arousal -> further sleep disruption. Three-arm comparison: ARM_A_HEALTHY (baseline), ARM_B_EARLY (disruption at ep 50), ARM_C_LATE (disruption at ep 150). PASS requires (C1 AND C3 AND C5) OR (C2 AND C4): C1 slot diversity A>B+0.05, C2 B<C-0.03, C3 harm rate A<B+0.01, C4 B>C+0.005, C5 pred loss A<B+0.05. Smoke test clean (3 seeds x 3 arms x 18 train eps + 2 eval eps x 20 steps, no crashes). Full run: 3 seeds x 3 arms x 300 train eps + 30 eval eps x 150 steps.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-06-12T04:40:59Z"
-      },
+      "status": "pending",
       "claim_ids": [
         "MECH-171"
       ],
