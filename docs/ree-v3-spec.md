@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-11
+**Last updated:** 2026-06-12
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-11)
+## 0. Current V3 State (2026-06-12)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -173,6 +173,123 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-12T01:10Z nightly read.** `evidence/experiments/` flat
+  top-level holds **~373 `v3_exq_*.json` manifests** on disk; **990
+  unique V3 `run_id` records in `claim_evidence.v1.json` (356 PASS /
+  634 FAIL)** at the most recent generation. **Pending review queue
+  reads 1 item** -- V3-EXQ-667 (Q-043 magnitude sweep; autopsy
+  completed and routed to a substrate_queue amend on
+  modulatory-bias-selection-authority + 667a retest, but the manifest
+  itself was not walked by the closing 2026-06-11 governance cycle
+  because it landed after the snapshot; deferred-to-next-cycle).
+  **Currently queued (`experiment_queue.json` items[]): 3 items, all
+  claimed** -- V3-EXQ-655 INV-074 task-distribution-shift Phase-3
+  redesign (ree-cloud-1; supersedes V3-EXQ-610f); V3-EXQ-672 MECH-057b
+  trajectory-promotion-gate first genuine experiment (ree-cloud-4;
+  EXP-0152 IGW-204 dispatch; ARM_0_NO_GATE vs ARM_1_COMPLETION_GATE on
+  hippocampal trajectory completion filtering); V3-EXQ-673 MECH-171
+  vicious-cycle sleep disruption (pending, MECH-171; EXP-0153 IGW-203
+  dispatch; three-arm ARM_A_HEALTHY / ARM_B_EARLY / ARM_C_LATE).
+  Substrate / governance landings since the 2026-06-11T01:10Z spec
+  sync (a heavy autopsy + governance day with five confirmed
+  failure-autopsies + four governance cycles): (1) **ARC-063 CRF
+  mature-pool dynamics amend** (ree-v3 main 7e2e0ef, 2026-06-11) --
+  closes V3-EXQ-654b GAP-B maturity. Master flag
+  `crf_mature_pool_dynamics` routes a bundle of recalibrated knobs:
+  tolerance-conflict deadlock (theta=1.3 > 1.0 max availability when
+  >=2 rules match -> never co-fire) fixed by `mature_tolerance_floor`
+  0.15 + `mature_tolerance_conflict_gain` 0.25 (theta(1..3)=
+  0.40/0.65/0.90 < 1.0); 5x slower availability_decay; asymmetric
+  availability_alpha_negative; mint_protection_ticks 30;
+  mint_block_threshold 0.8 decoupled from retrieval threshold 0.5.
+  Companion flag `crf_context_from_e2_world_forward` re-sources the
+  CRF mint/match context from `e2.world_forward(z_world,
+  prev_action_onehot)` (action-regime-separated; mirrors ARC-065
+  GAP-A re-sourcing). (2) **ARC-063 crf-availability-maintenance
+  amend** (ree-v3 main 1d04e51, 2026-06-11) -- closes the V3-EXQ-666
+  successor gap. Master flag `crf_availability_maintenance` removes
+  the per-tick silence decay in `credit()` (Mongillo 2008 /
+  Stokes 2015 / Lundqvist 2018 activity-silent synaptic maintenance;
+  minted differentiated rules HOLD availability across context-absent
+  ticks; eligibility-gated negative-outcome credit + retirement
+  UNTOUCHED so a consistently-bad rule still erodes);
+  `maintenance_floor` 0.45 at mint; new readiness readout
+  `crf_n_maintained_reactivatable` + `crf_maintained_pairwise_dist` +
+  `crf_frac_maintained` retires the wrong-axis
+  `crf_frac_active >= 0.30` target. V3-EXQ-666a / V3-EXQ-666b
+  CRF-readiness validation queued (666b re-states the gate on the
+  isolating `crf_frac_maintained` after 666a's count-floor measurement
+  defect). (3) **Indexer non-degeneracy scoring net** (REE_assembly
+  master 974e1305fd, 2026-06-11) -- manifest `non_degenerate: false` or
+  `non_degenerate_per_claim: {...}` excludes the entry from confidence
+  / conflict scoring (parallel to `superseded`/`stale_substrate`); new
+  `ree-v3/experiments/_metrics.py` `check_degeneracy()` +
+  `p0_readiness_gate()` helpers + `validate_experiments.py` + both
+  `/queue-experiment` mirrors require producer self-report.
+  Bit-identical OFF; 0 false-exclusions on the live evidence matrix.
+  (4) **Epistemic stance derived view shown / believed / asked**
+  (REE_assembly master 3da6340726, 2026-06-11) -- `build_claims_json.py`
+  derives `epistemic_stance` per claim from `exp_conf >= 0.62`
+  (shown=71) + `epistemic_category in {answer_state, derivational,
+  out_of_domain}` (asked=74) + remainder (believed=653);
+  `validate_claims.py` warns on `what_would_answer:` missing in the
+  asked bucket (74 hits warn-only). View-only; claims.yaml content
+  UNTOUCHED. (5) **Five confirmed failure autopsies + four governance
+  cycles applied**: V3-EXQ-514m MECH-229 vacuous FAIL ->
+  non_contributory + reroute V3-EXQ-514n (SD-057 wanting!=liking on
+  most-wanted z_goal pointer vs last-consumed type); V3-EXQ-485e
+  substrate_not_ready_requeue -> non_contributory + reroute V3-EXQ-485f
+  (SD-033b trained-OFC retest, ofc_bias_scale 0.1->0.5 +
+  e2_action_contrastive in P0 + absolute between_context_tv floor);
+  V3-EXQ-660b MECH-341 graded sub-axis weakens=measurement_test_design_defect
+  (latent nested-manifest scoring bug fix landed; retire
+  graded-in-pool-size falsifier); V3-EXQ-666a CRF availability-
+  maintenance count-floor differentiation-clearable ->
+  measurement_test_design_defect (substrate_queue amend on
+  crf-availability-maintenance; ready stays FALSE pending V3-EXQ-666b
+  PASS on the re-gated isolating-fraction diagnostic); V3-EXQ-667 Q-043
+  magnitude sweep (MECH-313 + MECH-314 jointly 1x/2x/4x/8x on the
+  591c InfantCurriculumScheduler Phase-0 probe) confirmed
+  substrate_not_ready_requeue -- 4/5 seeds byte-identical on EVERY
+  per-cell statistic across the full 8x joint knob scaling -> the swept
+  ARC-065 knobs have ZERO authority over the committed E3 argmin
+  (convergent with 604a/624a/614d/660b/569f/661/654a); substrate_queue
+  amend on modulatory-bias-selection-authority adding 667 as a
+  blocked-retest failure record (ready stays FALSE), re-issue
+  V3-EXQ-667a GATED on the route-range amend + ARC-065 GAP-A
+  readiness_range>=0.05 positive-control clearing; Q-043 stays open /
+  pending_retest_after_substrate (exempt from exp_conf gating); NO
+  `/claim-synthesis` (clean calibration question, single known blocker;
+  lineage 591/591b/591c->667 is convergent substrate engineering). NO
+  claim promotions/demotions applied this cycle. (6) **infant_substrate
+  Phase 0->1 H_pos floor recalibration** (ree-v3 main, 2026-06-11) --
+  `H_POS_FRAC_OF_MAX` 0.70 -> 0.20 to sit inside the V3-EXQ-591
+  observed band 0.03-1.08 (threshold drops from ~3.48 -- structurally
+  unreachable -- to ~0.99 with ~9% upper-margin). INTENTIONAL non-no-op
+  default change behind the exception precedent of MECH-307 default-
+  tweaks (2026-05-12) + ARC-065 SP-CEM main-path landing (2026-05-17).
+  (7) **`/thought-digestion` first bounded run** (REE_assembly master
+  24852aa0b8, 2026-06-11) -- digested 5 asked claims
+  (Q-021 / Q-015 / Q-007 / Q-023 / Q-019) with falsification
+  conditions; minted EXP-0356 (Q-019 reframed-testable). 10 SKILL.md
+  refinements applied to both `.claude/` + `.agents/` mirrors.
+  Bottleneck (continuation): the **selection-authority frontier paced
+  by the `modulatory-bias-selection-authority` route-range amend's
+  behavioural validation reaching meaningful magnitudes** is the
+  cross-cutting blocker. V3-EXQ-667's 4/5 byte-identical seeds across
+  an 8x joint knob scaling on MECH-313 / MECH-314 adds a third
+  high-confidence failure record to the substrate_queue entry,
+  confirming the amend's honest scope ("routing makes the range REACH
+  and MOVE the committed argmax (the readiness property), NOT
+  necessarily move it beneficially"). V3-EXQ-667a will be the first
+  retest gated on the route-range amend + ARC-065 GAP-A
+  readiness_range>=0.05 clearing. The **ARC-063 CandidateRule field's
+  V3-EXQ-666b validation** is the second in-flight readiness gate
+  (re-states the load-bearing readiness on the isolating
+  `crf_frac_maintained` statistic now that 666a confirmed maintenance
+  WORKS on the right metric but the gate was on the wrong one).
+  V3-EXQ-655 + V3-EXQ-672 are the two scored-evidence gates in flight.
 
 - **2026-06-11T01:10Z nightly read.** `evidence/experiments/` flat
   top-level holds **~1053 `v3_exq_*.json` manifests** by recursive count
