@@ -18,6 +18,10 @@ from ree_core.sleep.bayesian_aggregator import (
     GaussianPosterior,
     PosteriorUpdate,
 )
+from ree_core.sleep.cross_module_consolidation import (
+    CrossModuleConsolidator,
+    CrossModuleConsolidatorConfig,
+)
 from ree_core.sleep.phase_manager import (
     SleepCycleState,
     SleepLoopManager,
@@ -41,6 +45,8 @@ from ree_core.sleep.sleep_onset_gate import (
 __all__ = [
     "BayesianAggregator",
     "BayesianAggregatorConfig",
+    "CrossModuleConsolidator",
+    "CrossModuleConsolidatorConfig",
     "GaussianPosterior",
     "PosteriorUpdate",
     "SleepCycleState",

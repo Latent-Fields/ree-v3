@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 if TYPE_CHECKING:  # pragma: no cover -- typing only
     from ree_core.agent import REEAgent
     from ree_core.sleep.bayesian_aggregator import BayesianAggregator
+    from ree_core.sleep.cross_module_consolidation import CrossModuleConsolidator
     from ree_core.sleep.replay_sampler import SleepReplaySampler
     from ree_core.sleep.routing_gate import RoutingGate
     from ree_core.sleep.self_model_aggregator import SelfModelAggregator
@@ -105,6 +106,11 @@ class SleepLoopManager:
         use_rem_precision_recalibration: bool = False,
         rem_precision_recalibration_step: float = 0.1,
         use_mech272_routing_consumer: bool = False,
+        cross_module_consolidator: Optional["CrossModuleConsolidator"] = None,
+        cross_module_consolidation_steps: int = 0,
+        cross_module_consolidation_schedule: str = "interleaved",
+        cross_module_consolidation_lr: float = 1e-3,
+        cross_module_consolidation_batch: int = 16,
     ) -> None:
         if cycle_every_k_episodes < 1:
             raise ValueError(
@@ -140,6 +146,14 @@ class SleepLoopManager:
             )
         self.rem_precision_recalibration_step = float(rem_precision_recalibration_step)
         self.use_mech272_routing_consumer = bool(use_mech272_routing_consumer)
+        # MECH-423 R3: module-tagged interleaved cross-module consolidation.
+        self.cross_module_consolidator = cross_module_consolidator
+        self.cross_module_consolidation_steps = int(cross_module_consolidation_steps)
+        self.cross_module_consolidation_schedule = str(
+            cross_module_consolidation_schedule
+        )
+        self.cross_module_consolidation_lr = float(cross_module_consolidation_lr)
+        self.cross_module_consolidation_batch = int(cross_module_consolidation_batch)
         self.state = SleepCycleState()
         self._cycle_history: List[Dict[str, float]] = []
 
@@ -401,6 +415,40 @@ class SleepLoopManager:
             merged.update(self.self_model_aggregator.get_metrics())
         if writeback_metrics:
             merged.update(writeback_metrics)
+
+        # MECH-423 R3: module-tagged interleaved cross-module consolidation.
+        # Runs AFTER the existing writeback (additive). Builds default E1 + E2
+        # loss closures from the agent's existing replay losses and runs the
+        # configured schedule; merges the cross_module_replay_share / interleaved
+        # / update-count readouts into the sleep-cycle metrics so they are a
+        # readout of the LIVE MECH-121 consolidation pipeline. No-op (skipped
+        # entirely) when the consolidator is None or steps <= 0 -> bit-identical.
+        if (
+            self.cross_module_consolidator is not None
+            and self.cross_module_consolidation_steps > 0
+            and getattr(agent, "e1", None) is not None
+            and getattr(agent, "e2", None) is not None
+        ):
+            _batch = self.cross_module_consolidation_batch
+            cmc_metrics = self.cross_module_consolidator.consolidate(
+                module_losses={
+                    # E1 world-model replay loss (over _world_experience_buffer).
+                    "e1": lambda: agent.compute_prediction_loss(),
+                    # E2 forward-model replay loss (over _e2_transition_buffer).
+                    "e2": lambda: agent.compute_e2_loss(batch_size=_batch),
+                },
+                module_params={
+                    "e1": list(agent.e1.parameters()),
+                    "e2": list(agent.e2.parameters()),
+                },
+                n_steps=self.cross_module_consolidation_steps,
+                schedule=self.cross_module_consolidation_schedule,
+                lr=self.cross_module_consolidation_lr,
+                simulation_mode=False,  # legitimate offline weight consolidation
+            )
+            merged.update(
+                {f"cross_module_consolidation_{k}": v for k, v in cmc_metrics.items()}
+            )
 
         # infant_substrate:GAP-8 -- post_sleep_z_goal_retention telemetry.
         # -1.0 sentinel when goal_state absent or z_goal_before <= 1e-8

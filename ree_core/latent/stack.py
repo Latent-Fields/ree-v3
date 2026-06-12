@@ -28,7 +28,7 @@ Module read/write contract:
 """
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 
 import torch
 import torch.nn as nn
@@ -762,6 +762,7 @@ class LatentState:
     z_harm_intero: Optional[torch.Tensor] = None  # MECH-282 LPB interoceptive distress [batch, lpb_intero_z_dim]
     z_block: Optional[torch.Tensor] = None  # MECH-353 blocked-agency / control-failure readout [batch, 1]; integrated SD-029 action-outcome comparator mismatch, external-attribution + capacity gated. None when use_blocked_agency is off.
     z_harm_suffering: Optional[torch.Tensor] = None  # MECH-219 (SD-019b) controllability-gated hysteretic suffering [batch, harm_dim]; same dim as z_harm_un, magnitude = accumulator s_t. None when use_harm_suffering_accumulator is off.
+    inference_convergence: Optional[Dict[str, object]] = None  # MECH-423 R2: iterative-inference settling readout. Plain-float dict {per_step_rel_delta: [floats], converged: bool, n_iters: int, final_rel_delta: float}. None when use_iterative_inference is off (legacy single-round amortized encode).
 
     def to_tensor(self) -> torch.Tensor:
         """Concatenate all channels into a single tensor (excludes z_harm)."""
@@ -797,6 +798,7 @@ class LatentState:
             z_harm_intero=self.z_harm_intero.detach() if self.z_harm_intero is not None else None,
             z_block=self.z_block.detach() if self.z_block is not None else None,
             z_harm_suffering=self.z_harm_suffering.detach() if self.z_harm_suffering is not None else None,
+            inference_convergence=self.inference_convergence,  # plain-float dict; no graph to detach
         )
 
 
@@ -1255,6 +1257,56 @@ class LatentStack(nn.Module):
             body_obs, world_obs, topdown=topdown_split
         )
 
+        # MECH-423 R2: iterative-inference settling readout (ARC-004 machinery).
+        # The block above is a FIXED two-pass amortized recognition (round 1: one
+        # top-down round). When use_iterative_inference is on, generalise that
+        # single round into a predictive-coding settling loop -- iterate the
+        # recurrent top-down map with the bottom-up data terms (combined_init,
+        # z_beta_init, body_obs, world_obs) held fixed -- and expose the
+        # per-round relative-delta of the shared z_beta/z_theta/z_delta stack.
+        # Run BEFORE the SD-007 reafference correction + EMA so the settled
+        # instantaneous estimate is what gets smoothed. Bit-identical OFF: the
+        # whole block is skipped and inference_convergence stays None.
+        inference_convergence: Optional[Dict[str, object]] = None
+        if getattr(self.config, "use_iterative_inference", False):
+            settle_iters = max(1, int(getattr(self.config, "inference_settle_iters", 1)))
+            rel_tol = float(getattr(self.config, "inference_convergence_rel_tol", 0.05))
+            eps = 1e-8
+            prev_shared = torch.cat([z_beta, z_theta, z_delta], dim=-1)
+            per_step_rel_delta: List[float] = []
+            n_iters = 1
+            final_rel = float("nan")
+            converged = False
+            # Rounds 2..settle_iters: repeat the round-1 top-down map.
+            for _ in range(settle_iters - 1):
+                topdown_theta = self.delta_to_theta(z_delta)
+                z_theta, prec_theta = self.theta_encoder(z_beta_init, topdown_theta)
+                topdown_beta = self.theta_to_beta(z_theta)
+                z_beta, prec_beta = self.beta_encoder(combined_init, topdown_beta)
+                topdown_split = self.beta_to_split(z_beta)
+                z_self, z_world, prec_self, prec_world, z_harm, event_logits, resource_prox_pred = self.split_encoder(
+                    body_obs, world_obs, topdown=topdown_split
+                )
+                z_delta, prec_delta = self.delta_encoder(z_theta)
+                new_shared = torch.cat([z_beta, z_theta, z_delta], dim=-1)
+                # per-sample relative L2 delta, batch-mean (pure-arithmetic readout)
+                num = (new_shared - prev_shared).norm(dim=-1)
+                den = new_shared.norm(dim=-1) + eps
+                rel = float((num / den).mean().item())
+                per_step_rel_delta.append(rel)
+                final_rel = rel
+                n_iters += 1
+                prev_shared = new_shared
+                if rel < rel_tol:
+                    converged = True
+                    break
+            inference_convergence = {
+                "per_step_rel_delta": per_step_rel_delta,
+                "converged": bool(converged),
+                "n_iters": int(n_iters),
+                "final_rel_delta": float(final_rel),
+            }
+
         # SD-007: Reafference correction — subtract expected perspective shift from z_world.
         # Applied before EMA so the corrected signal is what gets smoothed.
         # Condition: predictor enabled, prev_action provided, not the very first step.
@@ -1358,6 +1410,7 @@ class LatentStack(nn.Module):
             z_resource=z_resource,  # SD-015: None if resource encoder not enabled
             resource_prox_pred_r=resource_prox_pred_r,  # SD-015 aux head: None if disabled
             identity_logits=identity_logits,  # SD-049 Phase 2: None if identity classifier disabled
+            inference_convergence=inference_convergence,  # MECH-423 R2: None unless use_iterative_inference
         )
 
     def predict(self, state: LatentState) -> LatentState:
