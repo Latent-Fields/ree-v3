@@ -193,6 +193,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
+from _metrics import check_degeneracy
 from infant_curriculum import InfantCurriculumScheduler
 from experiments._lib.arm_fingerprint import arm_cell
 
@@ -1091,7 +1092,38 @@ def _evaluate(results: List[Dict]) -> Dict:
     else:
         overall_direction = "unknown"
 
+    # ---- Non-degeneracy self-report (failure_autopsy_batch9 Structural Pattern 1) ----
+    # D1-D4 all route on per-arm selected-action ENTROPY at phase 2/3. That read is
+    # VACUOUS if the entropies are byte-identical across arms (the policy collapses to
+    # a fixed value regardless of arm -- the 670/671/673 byte-identical-across-arms
+    # signature, zero cross-arm spread) OR pinned at the ln(5) uniform ceiling (the
+    # policy never trained, so "the stripped control did not collapse" is an
+    # untrained-uniform artefact, not evidence). check_degeneracy flags both; the
+    # existing policy_trained_nonuniform guard is folded in as the behavioural
+    # complement of the ceiling check. A degenerate run is scoring-excluded by the
+    # indexer (non_contributory) instead of pressing INV-074 / MECH-341 / MECH-313.
+    _degen = check_degeneracy({
+        "cross_arm_phase2_entropy": {
+            "values": [a0_p2, a1_p2, a2_p2, a3_p2, a4_p2],
+            "ceiling": LN5 - 1e-3,
+        },
+        "cross_arm_phase3_entropy": {
+            "values": [a0_p3, a1_p3, a2_p3, a3_p3, a4_p3],
+            "ceiling": LN5 - 1e-3,
+        },
+    })
+    non_degenerate = bool(_degen["non_degenerate"]) and bool(policy_trained_nonuniform)
+    degeneracy_reason = _degen["degeneracy_reason"]
+    if not policy_trained_nonuniform and not degeneracy_reason:
+        degeneracy_reason = (
+            f"policy untrained/uniform at phase-2 (mean_phase2_entropy={mean_phase2:.4f} "
+            f"vs ln5_uniform_ceiling={LN5:.4f}) -- entropy-collapse DVs vacuous"
+        )
+
     return {
+        "non_degenerate": non_degenerate,
+        "degeneracy_reason": degeneracy_reason,
+        "degenerate_metrics": _degen["degenerate_metrics"],
         "d1_crystallization_preserves_diversity": d1_pass,
         "d1_delta": d1_delta,
         "d2_control_shows_collapse": d2_pass,
@@ -1390,6 +1422,8 @@ if __name__ == "__main__":
             "outcome": eval_out["verdict"],
             "evidence_direction": eval_out["evidence_direction"],
             "evidence_direction_per_claim": eval_out["evidence_direction_per_claim"],
+            "non_degenerate": eval_out["non_degenerate"],
+            "degeneracy_reason": eval_out["degeneracy_reason"],
             "completed_at": _utc_iso_now(),
             "timestamp_utc": _utc_iso_now(),
             "acceptance": eval_out,

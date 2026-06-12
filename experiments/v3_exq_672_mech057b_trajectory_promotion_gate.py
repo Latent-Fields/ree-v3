@@ -49,7 +49,10 @@ Motivation (2026-06-11):
 """
 
 import sys
+import os
+import json
 import random
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -64,6 +67,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from ree_core.predictors.e2_fast import Trajectory
 from experiment_protocol import emit_outcome
+from _metrics import check_degeneracy
 
 
 EXPERIMENT_TYPE = "v3_exq_672_mech057b_trajectory_promotion_gate"
@@ -463,15 +467,17 @@ def main():
         print("ERROR: Insufficient results to evaluate", flush=True)
         print(f"ARM_0 results: {len(arm0_results)}, ARM_1 results: {len(arm1_results)}", flush=True)
         print(f"Fatal errors: {fatal}", flush=True)
-        # emit_outcome with FAIL on all criteria
-        emit_outcome(
-            "FAIL",
-            manifest_path=None,
-            extra={
+        # FAIL on all criteria; emitted by the __main__ block (runner contract).
+        return {
+            "outcome": "FAIL",
+            "manifest_path": None,
+            "extra": {
                 "error": "insufficient_results",
                 "arm0_count": len(arm0_results),
                 "arm1_count": len(arm1_results),
                 "fatal_count": fatal,
+                "non_degenerate": False,
+                "degeneracy_reason": "insufficient results to evaluate (ARM_0/ARM_1 cells missing) -- no cross-arm contrast",
                 "criteria": {
                     "C1_harm_reduction": False,
                     "C2_completion_improvement": False,
@@ -482,8 +488,7 @@ def main():
                     "C7_no_fatal_errors": False,
                 },
             },
-        )
-        return
+        }
 
     mean_harm_rate_arm0 = _mean_safe([r["mean_harm_rate"] for r in arm0_results])
     mean_harm_rate_arm1 = _mean_safe([r["mean_harm_rate"] for r in arm1_results])
@@ -529,24 +534,119 @@ def main():
 
     outcome = "PASS" if all(criteria_met.values()) else "FAIL"
 
-    # Emit outcome
-    emit_outcome(
-        outcome,
-        manifest_path=None,
-        extra={
-            "mean_harm_rate_ARM_0": mean_harm_rate_arm0,
-            "mean_harm_rate_ARM_1": mean_harm_rate_arm1,
-            "mean_completion_signal_ARM_0": mean_completion_signal_arm0,
-            "mean_completion_signal_ARM_1": mean_completion_signal_arm1,
-            "mean_filtered_fraction_ARM_1": mean_filtered_fraction_arm1,
-            "mean_e3_candidate_count_ARM_1": mean_e3_candidate_count_arm1,
-            "mean_precision_ARM_1": mean_precision_arm1,
-            "goal_success_rate_ARM_0": goal_success_rate_arm0,
+    # ---- Non-degeneracy self-report (failure_autopsy_batch9 Structural Pattern 1) ----
+    # The load-bearing discriminative criteria C1 (cross-arm harm) and C2 (cross-arm
+    # completion_signal) press MECH-057b. Both read a channel that does not move if the
+    # completion gate has no behavioural effect (the hippocampal completion_signal is a
+    # flat readout, or the gate filters nothing) -- the 670/671/673 "vacuous read on an
+    # unwritten/untrained channel" family. Build per-seed matched (ARM_0, ARM_1) pairs so
+    # cross-seed variance cannot mask a within-seed byte-identical contrast
+    # (metric_groups rationale); a NON-VACUITY gate on filtered_fraction additionally
+    # marks the run degenerate when the ARM_1 manipulation never engaged. A degenerate
+    # run is scoring-excluded by the indexer (non_contributory), NOT a MECH-057b weakens.
+    by_seed_arm0 = {r["seed"]: r["eval_result"] for r in results if r["arm"] == "ARM_0_NO_GATE"}
+    by_seed_arm1 = {r["seed"]: r["eval_result"] for r in results if r["arm"] == "ARM_1_COMPLETION_GATE"}
+    matched_seeds = sorted(set(by_seed_arm0) & set(by_seed_arm1))
+    completion_groups = [
+        [by_seed_arm0[s]["mean_completion_signal"], by_seed_arm1[s]["mean_completion_signal"]]
+        for s in matched_seeds
+    ]
+    harm_groups = [
+        [by_seed_arm0[s]["mean_harm_rate"], by_seed_arm1[s]["mean_harm_rate"]]
+        for s in matched_seeds
+    ]
+    _degen = check_degeneracy({
+        "C2_completion_signal_cross_arm": {"groups": completion_groups},
+        "C1_harm_rate_cross_arm": {"groups": harm_groups},
+    })
+    gate_engaged = mean_filtered_fraction_arm1 > 1e-9
+    non_degenerate = bool(_degen["non_degenerate"]) and gate_engaged
+    degeneracy_reason = _degen["degeneracy_reason"]
+    if not gate_engaged and not degeneracy_reason:
+        degeneracy_reason = (
+            f"completion gate filtered ~0 candidates "
+            f"(mean_filtered_fraction_ARM_1={mean_filtered_fraction_arm1:.3g}) -- "
+            "ARM_1 manipulation inert; the C1/C2 cross-arm contrast is vacuous"
+        )
+
+    print("\n=== NON-DEGENERACY ===", flush=True)
+    print(f"non_degenerate: {non_degenerate}  reason: {degeneracy_reason or '(none)'}", flush=True)
+
+    evidence_direction = "supports" if outcome == "PASS" else "weakens"
+    extra = {
+        "mean_harm_rate_ARM_0": mean_harm_rate_arm0,
+        "mean_harm_rate_ARM_1": mean_harm_rate_arm1,
+        "mean_completion_signal_ARM_0": mean_completion_signal_arm0,
+        "mean_completion_signal_ARM_1": mean_completion_signal_arm1,
+        "mean_filtered_fraction_ARM_1": mean_filtered_fraction_arm1,
+        "mean_e3_candidate_count_ARM_1": mean_e3_candidate_count_arm1,
+        "mean_precision_ARM_1": mean_precision_arm1,
+        "goal_success_rate_ARM_0": goal_success_rate_arm0,
+        "criteria": criteria_met,
+        "fatal_count": fatal,
+        "non_degenerate": non_degenerate,
+        "degeneracy_reason": degeneracy_reason,
+    }
+
+    # Write a flat-JSON evidence manifest with root-level non_degenerate so the indexer's
+    # scoring-exclusion net can read it. dry-runs write no manifest (manifest_path=None).
+    manifest_path = None
+    if not args.dry_run:
+        run_id = f"{EXPERIMENT_TYPE}_{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}_v3"
+        evidence_dir = Path(__file__).resolve().parents[2] / "REE_assembly" / "evidence" / "experiments"
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = evidence_dir / f"{run_id}.json"
+        manifest = {
+            "experiment_type": EXPERIMENT_TYPE,
+            "run_id": run_id,
+            "queue_id": os.environ.get("REE_QUEUE_ID", "V3-EXQ-672"),
+            "claim_ids": CLAIM_IDS,
+            "claim_ids_tested": CLAIM_IDS,
+            "architecture_epoch": "ree_hybrid_guardrails_v1",
+            "experiment_purpose": "evidence",
+            "outcome": outcome,
+            "evidence_direction": evidence_direction,
+            "evidence_direction_per_claim": {"MECH-057b": evidence_direction},
+            "non_degenerate": non_degenerate,
+            "degeneracy_reason": degeneracy_reason,
+            "degenerate_metrics": _degen["degenerate_metrics"],
+            "timestamp_utc": datetime.utcnow().isoformat() + "Z",
             "criteria": criteria_met,
-            "fatal_count": fatal,
-        },
-    )
+            "metrics": {
+                "mean_harm_rate_ARM_0": mean_harm_rate_arm0,
+                "mean_harm_rate_ARM_1": mean_harm_rate_arm1,
+                "mean_completion_signal_ARM_0": mean_completion_signal_arm0,
+                "mean_completion_signal_ARM_1": mean_completion_signal_arm1,
+                "mean_filtered_fraction_ARM_1": mean_filtered_fraction_arm1,
+                "mean_e3_candidate_count_ARM_1": mean_e3_candidate_count_arm1,
+                "mean_precision_ARM_1": mean_precision_arm1,
+                "goal_success_rate_ARM_0": goal_success_rate_arm0,
+                "fatal_count": fatal,
+            },
+            "params": {
+                "seeds": seeds,
+                "size": 8, "num_hazards": 2, "num_resources": 1,
+                "completion_threshold": 2.0, "min_candidates": 2,
+            },
+        }
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, indent=2, sort_keys=True)
+            f.write("\n")
+        print(f"[V3-EXQ-672] Manifest written: {manifest_path}", flush=True)
+
+    # Outcome emitted by the __main__ block (runner contract; keeps emit_outcome
+    # lexically inside `if __name__ == "__main__":` for validate_experiments).
+    return {
+        "outcome": outcome,
+        "manifest_path": str(manifest_path) if manifest_path is not None else None,
+        "extra": extra,
+    }
 
 
 if __name__ == "__main__":
-    main()
+    _result = main()
+    emit_outcome(
+        _result["outcome"],
+        manifest_path=_result["manifest_path"],
+        extra=_result["extra"],
+    )

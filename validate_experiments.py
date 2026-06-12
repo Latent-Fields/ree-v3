@@ -283,6 +283,28 @@ _RNG_RESET_NAMES = ("reset_all_rng", "arm_cell")           # arm_cell resets on 
 _ARM_FP_EXEMPT_MARKER = "ARM_FINGERPRINT_EXEMPT"            # opt-out constant/marker
 
 
+# Degeneracy self-report enforcement (failure_autopsy_batch9_2026-06-12 Structural
+# Pattern 1; the non_degenerate net + _metrics.check_degeneracy() landed 2026-06-11).
+# A script that ADJUDICATES a claim-pressing discriminative criterion -- it writes an
+# `evidence_direction`, carries a non-empty `claim_ids`/`CLAIM_IDS`, or uses the
+# `load_bearing` criterion convention -- but never SELF-REPORTS non-degeneracy is the
+# "vacuous read on an unwritten/untrained channel" failure mode (V3-EXQ-670/671/673/
+# 514m/642/666a): the PASS/FAIL it emits is a property of the test design, not the
+# claim. The obligation is discharged by ANY token below: a producer-side
+# _metrics.check_degeneracy() / metric_is_degenerate() call, a written
+# non_degenerate / degeneracy_reason manifest field, the diagnostic
+# criteria_non_degenerate adjudication, or a P0 readiness / substrate_not_ready_requeue
+# non-vacuity self-route (which makes a below-floor run non_contributory rather than a
+# misleading verdict). This is the gate that would have caught 670/671/673 at queue time.
+_DEGEN_SELFREPORT_TOKENS = (
+    "check_degeneracy", "metric_is_degenerate", "metric_groups_are_degenerate",
+    "non_degenerate", "non_degenerate_per_claim", "degeneracy_reason",
+    "criteria_non_degenerate", "p0_readiness_gate", "P0NotReady",
+    "substrate_not_ready_requeue",
+)
+_DEGEN_SELFREPORT_EXEMPT_MARKER = "DEGENERACY_SELFREPORT_EXEMPT"   # opt-out constant/marker
+
+
 def arm_fingerprint_lint(path: Path) -> Optional[str]:
     """Multi-arm fingerprint-emission check. Return an issue string, or None.
 
@@ -347,6 +369,102 @@ def arm_fingerprint_lint(path: Path) -> Optional[str]:
             + "See arm_reuse_fingerprint_plan.md + /queue-experiment.")
 
 
+def degeneracy_selfreport_lint(path: Path) -> Optional[str]:
+    """Degeneracy self-report check. Return an issue string, or None.
+
+    A script ADJUDICATES a claim-pressing discriminative criterion iff (with a
+    `__main__` entry point) it does at least one of: writes an `evidence_direction`
+    (it weighs governance), carries a non-empty `claim_ids` / `CLAIM_IDS` list (it
+    presses a claim), or uses the `load_bearing` criterion convention. Such a script
+    MUST self-report non-degeneracy at measurement time so the "vacuous read on an
+    unwritten/untrained channel" family (V3-EXQ-670/671/673/514m/642/666a) is caught
+    by the indexer's scoring-exclusion net rather than by a manual failure-autopsy.
+    The obligation is discharged by ANY of _DEGEN_SELFREPORT_TOKENS: a producer-side
+    _metrics.check_degeneracy() / metric_is_degenerate() call, a written
+    non_degenerate / degeneracy_reason manifest field, the diagnostic
+    criteria_non_degenerate adjudication, or a P0 readiness / substrate_not_ready_requeue
+    self-route (the non-vacuity discipline that makes a below-floor run
+    non_contributory instead of a misleading verdict).
+
+    A pure substrate-readiness smoke (`claim_ids=[]`, no evidence_direction, no
+    load_bearing) presses no claim and is not gated -- correctly exempt.
+
+    Opt-out: DEGENERACY_SELFREPORT_EXEMPT = "<reason>" for a script whose
+    discriminative criterion is provably non-degenerate by construction (e.g. it
+    routes on an exact-equality / structural check, not a learned-channel magnitude).
+
+    Static name/string-scan only -- same limitation class as readiness_lint /
+    arm_fingerprint_lint: it keys on plain identifier/string/list-literal presence,
+    so it can over-fire if a token appears only in a comment/docstring and can miss a
+    claim_ids list or marker assembled at runtime. Whether this blocks is decided in
+    main(): HARD when the script is named via --paths (the /queue-experiment authoring
+    path -- a new claim-pressing script without self-report is a real error),
+    advisory in full-glob (grandfathers the pre-2026-06-12 backlog).
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _has_main_block(tree) is None:
+        return None  # library-style helper, no entry point -- exempt
+
+    names: set = set()
+    strings: set = set()
+    has_nonempty_claim_ids = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.alias):
+            names.add((node.asname or node.name).split(".")[-1])
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            strings.add(node.value)
+        elif isinstance(node, ast.Assign):
+            # CLAIM_IDS = [...] / claim_ids = [...]  with a non-empty list literal.
+            for tgt in node.targets:
+                if (isinstance(tgt, ast.Name)
+                        and tgt.id.lower() in ("claim_ids", "claim_ids_tested")
+                        and isinstance(node.value, ast.List) and node.value.elts):
+                    has_nonempty_claim_ids = True
+        elif isinstance(node, ast.Dict):
+            # {"claim_ids": [...], ...}  with a non-empty list literal.
+            for k, v in zip(node.keys, node.values):
+                if (isinstance(k, ast.Constant)
+                        and k.value in ("claim_ids", "claim_ids_tested")
+                        and isinstance(v, ast.List) and v.elts):
+                    has_nonempty_claim_ids = True
+
+    if _DEGEN_SELFREPORT_EXEMPT_MARKER in names or _DEGEN_SELFREPORT_EXEMPT_MARKER in strings:
+        return None
+
+    adjudicates = (
+        has_nonempty_claim_ids
+        or ("evidence_direction" in strings)
+        or ("load_bearing" in strings)
+    )
+    if not adjudicates:
+        return None  # presses no claim / no discriminative direction -- nothing to gate
+
+    self_reports = (any(t in names for t in _DEGEN_SELFREPORT_TOKENS)
+                    or any(t in strings for t in _DEGEN_SELFREPORT_TOKENS))
+    if self_reports:
+        return None
+
+    return ("adjudicates a claim-pressing discriminative criterion "
+            "(evidence_direction / non-empty claim_ids / load_bearing) but never "
+            "self-reports non-degeneracy -- add a measurement-time "
+            "_metrics.check_degeneracy(...) (writes non_degenerate / degeneracy_reason "
+            "at the manifest root) or a P0 readiness / substrate_not_ready_requeue "
+            "non-vacuity self-route, so the indexer can scoring-exclude a vacuous read "
+            "instead of leaving it to a manual failure-autopsy (V3-EXQ-670/671/673 "
+            "family). Exempt with DEGENERACY_SELFREPORT_EXEMPT = \"<reason>\". "
+            "See experiments/_metrics.check_degeneracy + /queue-experiment + "
+            "failure_autopsy_batch9_2026-06-12.")
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -374,12 +492,18 @@ def main() -> int:
     # a full sweep. A missing fingerprint on a NEW script the author is about to
     # queue is a real error; the same gap on a historical script is a backlog item.
     arm_fp_hard = bool(args.paths)
+    # Degeneracy self-report enforcement: same hard-under-`--paths` / advisory-in-
+    # full-glob policy as the arm-fingerprint gate. A NEW claim-pressing script the
+    # author is queuing without a non-degeneracy self-report is a real error; the same
+    # gap on a historical script is a backlog item.
+    degen_hard = bool(args.paths)
 
     n_ok = 0
     n_exempt = 0
     failures: List[Tuple[Path, str]] = []
     warnings: List[Tuple[Path, str]] = []
     arm_fp_warnings: List[Tuple[Path, str]] = []
+    degen_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         ok, reason = check_script(p)
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
@@ -403,12 +527,28 @@ def main() -> int:
                 failures.append((p, arm_fp))
             else:
                 arm_fp_warnings.append((p, arm_fp))
+        degen = degeneracy_selfreport_lint(p)
+        if degen:
+            if degen_hard:
+                failures.append((p, degen))
+            else:
+                degen_warnings.append((p, degen))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
           f"{n_ok} OK, {n_exempt} exempt, {len(failures)} non-conforming, "
           f"{len(warnings)} readiness-warning(s), "
-          f"{len(arm_fp_warnings)} arm-fingerprint-backlog", flush=True)
+          f"{len(arm_fp_warnings)} arm-fingerprint-backlog, "
+          f"{len(degen_warnings)} degeneracy-self-report-backlog", flush=True)
+    if degen_warnings:
+        # Advisory in full-glob mode only (hard failures route to `failures` when
+        # --paths is explicit). This is the pre-2026-06-12 backlog -- claim-pressing
+        # scripts that predate the non_degenerate self-report net (2026-06-11).
+        print("", flush=True)
+        print("[validate_experiments] Degeneracy-self-report BACKLOG (advisory; hard under --paths):", flush=True)
+        for p, warn in degen_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if arm_fp_warnings:
         # Advisory in full-glob mode only (hard failures route to `failures` when
         # --paths is explicit). This is the pre-2026-06-07 multi-arm backlog --
