@@ -74,6 +74,24 @@
       "episodes_per_run": 600,
       "experiment_type": "v3_exq_672_mech057b_trajectory_promotion_gate",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-674",
+      "title": "MECH-087 cross-plane non-rescue: degraded serotonin/map-geometry not rescued by dopamine gain; degraded dopamine/selection rescued by dopamine gain not terrain adjustment",
+      "script": "experiments/v3_exq_674_mech087_cross_plane_nonrescue.py",
+      "experiment_type": "v3_exq_674_mech087_cross_plane_nonrescue",
+      "priority": 245,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "status": "pending",
+      "claim_id": "MECH-087",
+      "claim_ids": [
+        "MECH-087"
+      ],
+      "seeds": 3,
+      "conditions": 7,
+      "episodes_per_run": 30,
+      "note": "Licenses the receptor_subtype_intervention_layer.md Section 4 plane-level dissociation logic (the single V3-tractable experiment named there). Controlled probe of the REAL e3.select() softmax-selection stage (no env/training -> no monostrategy/z_goal-collapse confound), forced uncommitted so temperature is the operative selection-gain knob (committed branch is a temperature-blind argmin -- verified in P0). Substrate mapping: dopamine selection-gain = E3 softmax temperature (e3_selector.py probs=softmax(-scores/temperature)); serotonin map-geometry terrain = the per-candidate score landscape injected via the real score_bias path over an identical-z_world base. 7 arms = CTRL + TERR_LESION + DOPA_LESION + 2x2 {terrain-lesion,dopamine-lesion}x{dopamine-gain-rescue(low temp),terrain-adjust-rescue(restore clean geometry)}. Terrain lesion = blend toward a value-uninformative scrambled landscape (TERR_MIX=0.95). DV = TRUE(clean-landscape) quality of the E3-selected candidate (rescue_fraction vs lesion-only baseline) + selection decisiveness. PASS = axis-specific rescue asymmetry on >=2/3 seeds: terrain lesion rescued by terrain-adjust NOT dopamine-gain (rf_B-rf_A>=0.5, rf_B>=0.5, rf_A<=0.25) AND dopamine lesion rescued by dopamine-gain NOT terrain-adjust (rf_C-rf_D>=0.5, rf_C>=0.5, rf_D<=0.25). Non-degeneracy: _metrics.check_degeneracy over per-cell quality + P0 readiness gate self-routing to substrate_not_ready_requeue if a lesion is inert (clean-landscape discriminative; terrain distortion moves the argmin >=0.5; temperature modulates decisiveness; regime uncommitted). claim_ids=[MECH-087] only (MECH-085/086 mappings interpretive; receptor-subtype out_of_domain for V3). Smoke: --dry-run PASS, validate_experiments --strict --paths OK (runner-conformance+arm_fingerprint+degeneracy-lint clean); per-seed full-scale check 3/3 both dissociations (rf_A<=0.18, rf_B=1.0, rf_C>=1.5, rf_D=0)."
     }
   ]
 }
