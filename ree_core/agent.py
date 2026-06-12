@@ -1278,6 +1278,12 @@ class REEAgent(nn.Module):
                 closure_signal_value=config.closure_signal_value,
                 reset_pe_ema=config.closure_reset_pe_ema,
                 pe_cap_after_closure=config.closure_pe_cap_after,
+                # SD-034 commitment-closure-control-plane (2026-06-12):
+                # de-commitment hold/refractory on the closure-driven release.
+                # getattr fallback keeps from_dims-absent callers bit-identical.
+                decommit_hold_ticks=getattr(
+                    config, "closure_decommit_hold_ticks", 0
+                ),
             )
             self.closure_operator = ClosureOperator(
                 config=clo_cfg,
@@ -1628,6 +1634,36 @@ class REEAgent(nn.Module):
         self.sleep_routing_gate = None  # Phase C (MECH-272)
         self.sleep_bayesian_aggregator = None  # Phase D (MECH-275)
         self.sleep_self_model_aggregator = None  # Phase E (MECH-273)
+
+        # MECH-423 R3: module-tagged interleaved cross-module consolidation.
+        # Built independent of use_sleep_loop so an experiment can drive it
+        # standalone via agent.cross_module_consolidator; also passed to the
+        # SleepLoopManager below when the sleep loop is active. None (default)
+        # -> bit-identical: nothing in the waking or sleep pipeline references it.
+        self.cross_module_consolidator = None
+        if getattr(config, "use_cross_module_consolidation", False):
+            from ree_core.sleep.cross_module_consolidation import (
+                CrossModuleConsolidator,
+                CrossModuleConsolidatorConfig,
+            )
+            self.cross_module_consolidator = CrossModuleConsolidator(
+                CrossModuleConsolidatorConfig(
+                    schedule=str(
+                        getattr(
+                            config,
+                            "cross_module_consolidation_schedule",
+                            "interleaved",
+                        )
+                    ),
+                    n_steps=int(
+                        getattr(config, "cross_module_consolidation_steps", 0)
+                    ),
+                    lr=float(
+                        getattr(config, "cross_module_consolidation_lr", 1e-3)
+                    ),
+                )
+            )
+
         if getattr(config, "use_sleep_loop", False):
             # Phase B: when use_mech285_sampler is on AND anchor_set exists,
             # construct SleepReplaySampler over the broad pool. Falls back
@@ -1788,6 +1824,24 @@ class REEAgent(nn.Module):
                 use_mech272_routing_consumer=bool(
                     getattr(config, "use_mech272_routing_consumer", False)
                 ),
+                # MECH-423 R3: pass the consolidator + schedule knobs so the
+                # cross-module consolidation runs inside the live MECH-121
+                # sleep pipeline. None -> the SleepLoopManager hook is skipped.
+                cross_module_consolidator=self.cross_module_consolidator,
+                cross_module_consolidation_steps=int(
+                    getattr(config, "cross_module_consolidation_steps", 0)
+                ),
+                cross_module_consolidation_schedule=str(
+                    getattr(
+                        config, "cross_module_consolidation_schedule", "interleaved"
+                    )
+                ),
+                cross_module_consolidation_lr=float(
+                    getattr(config, "cross_module_consolidation_lr", 1e-3)
+                ),
+                cross_module_consolidation_batch=int(
+                    getattr(config, "cross_module_consolidation_batch", 16)
+                ),
             )
 
         # Observation encoders (maps raw body/world obs to latent input)
@@ -1812,6 +1866,10 @@ class REEAgent(nn.Module):
         self._e2_transition_buffer: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
         # GAP-4 / MECH-273: waking-stream (z_harm_s, action) pairs for sleep WRITEBACK.
         self._harm_replay_buffer: List[Tuple[torch.Tensor, torch.Tensor]] = []
+
+        # MECH-423 R2: cached iterative-inference convergence readout (None unless
+        # use_iterative_inference; populated each sense() tick from the LatentState).
+        self.last_inference_convergence: Optional[Dict[str, object]] = None
 
         # MECH-057a: cached E3 candidates for action-loop gate
         self._committed_candidates: Optional[List[Trajectory]] = None
@@ -2770,6 +2828,12 @@ class REEAgent(nn.Module):
             harm_obs_a=obs_harm_a,   # SD-011: affective harm stream (None = disabled)
             harm_history=obs_harm_history,  # SD-011 second source (None = disabled)
             volatility_signal=vol_signal,
+        )
+
+        # MECH-423 R2: cache the iterative-inference convergence readout for the
+        # EXP-0380 R2 readiness check (None unless use_iterative_inference is on).
+        self.last_inference_convergence = getattr(
+            new_latent, "inference_convergence", None
         )
 
         # MECH-282: LPB interoceptive channel (non-trainable routing).
@@ -6031,6 +6095,52 @@ class REEAgent(nn.Module):
                 pass
 
         return action
+
+    def notify_env_completion(
+        self,
+        action_class: Optional[int] = None,
+        z_world: Optional[torch.Tensor] = None,
+        bypass_mode_conditioning: bool = False,
+        simulation_mode: bool = False,
+    ):
+        """
+        SD-034 commitment-closure-control-plane explicit env-completion hook.
+
+        Routes the environment's task-completion event (e.g.
+        info["transition_type"] == "sequence_complete") into
+        ClosureOperator.emit_closure -- the explicit hook the closure docstring
+        describes but the *c cohort left unwired (V3-EXQ-460c got n_closures=0
+        despite real env completions because the experiment relied solely on the
+        automatic rule_state-stability detector). The caller (experiment harness)
+        invokes this right after env.step() on a completion tick, passing the
+        just-executed action class.
+
+        Returns the ClosureEvent (so the caller can count fires / No-Go installs)
+        or None when the hook is disabled / no operator / simulation. No-op when:
+          - use_closure_env_completion_hook is False (default -> bit-identical),
+          - self.closure_operator is None,
+          - simulation_mode / hypothesis_tag is True (MECH-094: a replay/DMN
+            completion must not emit a waking closure done-token).
+
+        z_world defaults to the current latent's z_world (the post-step location
+        at which residue discharge is centred) when not supplied.
+        """
+        if not getattr(self.config, "use_closure_env_completion_hook", False):
+            return None
+        if self.closure_operator is None:
+            return None
+        if simulation_mode:
+            return None
+        zw = z_world
+        if zw is None:
+            if self._current_latent is None:
+                return None
+            zw = self._current_latent.z_world
+        return self.closure_operator.emit_closure(
+            action_class=action_class,
+            z_world=zw,
+            bypass_mode_conditioning=bypass_mode_conditioning,
+        )
 
     def act(
         self,

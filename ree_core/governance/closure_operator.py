@@ -153,6 +153,13 @@ class ClosureOperatorConfig:
     # demarcate outcome epochs. Set False to ablate the closure ->
     # outcome reset coupling independently of the pe_ema reset.
     reset_outcome_history: bool = True
+    # SD-034 de-commitment hold / refractory (commitment-closure-control-plane,
+    # 2026-06-12). When > 0, _fire() installs a refractory window of this many
+    # ticks on the MECH-090 BetaGate (beta_gate.apply_refractory) so the
+    # closure-driven release survives more than one tick and produces a
+    # measurable latch-occupancy drop instead of an immediate re-commit (the
+    # V3-EXQ-468c committed_frac defect). Default 0 -> no hold -> bit-identical.
+    decommit_hold_ticks: int = 0
     diagnostic_logging: bool = True
 
 
@@ -179,6 +186,7 @@ class ClosureEvent:
     pe_ema_reset: bool = False
     pe_cap_applied: Optional[float] = None
     outcome_history_reset: bool = False
+    decommit_refractory_applied: int = 0
 
 
 class ClosureOperator:
@@ -484,6 +492,21 @@ class ClosureOperator:
             self.beta_gate.release()
             beta_released = True
 
+        # (a.2) SD-034 de-commitment hold / refractory. On any closure fire,
+        # install a refractory window on the BetaGate so the just-completed
+        # rule cannot immediately re-commit -- the closure-driven release must
+        # survive >1 tick to produce a measurable latch-occupancy drop
+        # (V3-EXQ-468c). No-op when decommit_hold_ticks == 0 (bit-identical) or
+        # the gate lacks apply_refractory (older BetaGate).
+        decommit_refractory_applied = 0
+        if (
+            self.beta_gate is not None
+            and self.config.decommit_hold_ticks > 0
+            and hasattr(self.beta_gate, "apply_refractory")
+        ):
+            self.beta_gate.apply_refractory(self.config.decommit_hold_ticks)
+            decommit_refractory_applied = int(self.config.decommit_hold_ticks)
+
         # (b) MECH-260 targeted No-Go injection
         if self.dacc is not None and action_class is not None:
             if hasattr(self.dacc, "inject_nogo"):
@@ -549,6 +572,7 @@ class ClosureOperator:
             pe_ema_reset=pe_ema_reset,
             pe_cap_applied=pe_cap_applied,
             outcome_history_reset=outcome_history_reset,
+            decommit_refractory_applied=decommit_refractory_applied,
         )
 
         if self.config.diagnostic_logging:

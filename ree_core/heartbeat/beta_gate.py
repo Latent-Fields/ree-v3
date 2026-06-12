@@ -53,18 +53,50 @@ class BetaGate:
         self._n_elevation_blocked: int = 0
         self._n_elevation_single_candidate: int = 0
         self._last_readiness_score_margin: float = 0.0
+        # SD-034 de-commitment hold / refractory (commitment-closure-control-plane,
+        # 2026-06-12). A closure-driven release installs a refractory window via
+        # apply_refractory(n); while it is active elevate() is a no-op so the latch
+        # cannot immediately re-commit, producing a measurable latch-occupancy drop
+        # (the V3-EXQ-468c committed_frac defect). Decremented once per propagate()
+        # tick. Default 0 -> never installed -> bit-identical to pre-amend BetaGate.
+        self._refractory_remaining: int = 0
+        self._n_elevation_refractory_blocked: int = 0
 
     @property
     def is_elevated(self) -> bool:
         """True when beta is elevated (commitment active, propagation suppressed)."""
         return self._beta_elevated
 
+    @property
+    def refractory_remaining(self) -> int:
+        """Ticks remaining in the SD-034 post-closure de-commitment hold (0 = inactive)."""
+        return self._refractory_remaining
+
+    def apply_refractory(self, n_ticks: int) -> None:
+        """
+        Install a de-commitment refractory window (SD-034 closure hold).
+
+        While the window is active (refractory_remaining > 0), elevate() is a
+        no-op so a just-released latch cannot immediately re-commit. The window
+        is decremented once per propagate() tick. n_ticks <= 0 is a no-op.
+        Takes the max with any existing window so overlapping closures extend
+        rather than truncate the hold.
+        """
+        if n_ticks > 0:
+            self._refractory_remaining = max(self._refractory_remaining, int(n_ticks))
+
     def elevate(self) -> None:
         """
         Elevate beta state (sequence commitment begins).
 
-        After this, propagate() will hold E3 state.
+        After this, propagate() will hold E3 state. NO-OP while a de-commitment
+        refractory window is active (SD-034 hold) -- the just-released latch must
+        survive the hold before it can re-commit. Bit-identical to pre-amend when
+        no refractory has been installed (refractory_remaining stays 0).
         """
+        if self._refractory_remaining > 0:
+            self._n_elevation_refractory_blocked += 1
+            return
         self._beta_elevated = True
 
     def release(self) -> None:
@@ -88,6 +120,11 @@ class BetaGate:
         Returns:
             e3_policy_state if gate is open (beta not elevated), else None.
         """
+        # SD-034 de-commitment hold: tick down the refractory window once per
+        # propagate() call (propagate runs every select_action tick). No-op when
+        # no window is active.
+        if self._refractory_remaining > 0:
+            self._refractory_remaining -= 1
         if self._beta_elevated:
             self._held_policy_state = e3_policy_state.detach()
             self._hold_count += 1
@@ -200,6 +237,9 @@ class BetaGate:
             "mech090_n_elevation_blocked": self._n_elevation_blocked,
             "mech090_n_elevation_single_candidate": self._n_elevation_single_candidate,
             "mech090_last_readiness_score_margin": self._last_readiness_score_margin,
+            # SD-034 de-commitment hold / refractory diagnostics.
+            "sd034_refractory_remaining": self._refractory_remaining,
+            "sd034_n_elevation_refractory_blocked": self._n_elevation_refractory_blocked,
         }
 
     def reset(self) -> None:
@@ -213,3 +253,7 @@ class BetaGate:
         self._n_elevation_blocked = 0
         self._n_elevation_single_candidate = 0
         self._last_readiness_score_margin = 0.0
+        # SD-034 de-commitment hold: clear the refractory window + diagnostic per
+        # episode (a fresh trial starts with no carried-over hold).
+        self._refractory_remaining = 0
+        self._n_elevation_refractory_blocked = 0

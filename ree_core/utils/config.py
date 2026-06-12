@@ -141,6 +141,31 @@ class LatentStackConfig:
     # the z_self/z_world split itself (vs. unified latent) provides efficiency gains.
     unified_latent_mode: bool = False
 
+    # MECH-423 R2 (iterative-inference convergence readout; ARC-004 inference
+    # machinery). The legacy encode() is a FIXED two-pass amortized recognition
+    # (bottom-up init -> one top-down round): there is no settling loop, so the
+    # per-inference-step ||delta z_shared|| the EXP-0380 R2 readiness check needs
+    # has no source. When use_iterative_inference=True, encode() generalises the
+    # single top-down round into a predictive-coding settling loop over the shared
+    # z_beta -> z_theta -> z_delta stack (run BEFORE the EMA smoothing), tracking
+    # per-round relative-delta and exposing a convergence readout on the returned
+    # LatentState.inference_convergence (and agent.last_inference_convergence).
+    # Grounds Gershman & Goodman 2014 (amortized inference; the amortization gap
+    # makes "converged" measurable). Disabled by default -- bit-identical OFF
+    # (inference_settle_iters is forced to 1 in the OFF path, i.e. the legacy
+    # single round, and inference_convergence stays None).
+    use_iterative_inference: bool = False
+    # Maximum number of settling rounds when use_iterative_inference is True
+    # (round 1 == the legacy top-down round; rounds 2..K are the extra settling
+    # iterations). 1 == legacy behaviour even when the master flag is on.
+    inference_settle_iters: int = 1
+    # Relative-delta early-stop tolerance: the loop stops once
+    # ||z_shared_k - z_shared_{k-1}|| / (||z_shared_k|| + eps) < this value, and
+    # inference_convergence["converged"] reports whether that fixed point was
+    # reached within inference_settle_iters rounds. EXP-0380 R2 asserts
+    # final_rel_delta < 0.05.
+    inference_convergence_rel_tol: float = 0.05
+
     # ARC-033: E2_harm_s forward model (sensory-discriminative harm stream predictor).
     # When True, experiments should construct an E2HarmSForward instance and train it
     # on z_harm_s transitions (P1 phase, after P0 HarmEncoder warmup).
@@ -2535,6 +2560,21 @@ class REEConfig:
     # If nonzero, register closure_event affinity toward internal_planning
     # on the SalienceCoordinator (biases mode relaxation post-closure).
     closure_signal_affinity_internal_planning: float = 0.5
+    # SD-034 commitment-closure-control-plane (2026-06-12).
+    # Master switch for the explicit env-completion hook seam: when True,
+    # REEAgent.notify_env_completion(action_class, z_world) routes the env's
+    # transition_type == "sequence_complete" signal into
+    # closure_operator.emit_closure (the explicit hook the closure docstring
+    # describes but the *c cohort left unwired -> V3-EXQ-460c n_closures=0).
+    # No-op (returns None) when False -> bit-identical. Requires
+    # use_closure_operator=True to do anything.
+    use_closure_env_completion_hook: bool = False
+    # SD-034 de-commitment hold / refractory window in ticks. When > 0, a
+    # closure fire installs a BetaGate refractory of this length so the
+    # closure-driven release survives >1 tick and produces a measurable
+    # latch-occupancy drop (V3-EXQ-468c committed_frac defect). Default 0 ->
+    # no hold -> bit-identical.
+    closure_decommit_hold_ticks: int = 0
 
     # ----------------------------------------------------------------
     # SD-035: Amygdala analogue (BLAAnalog + CeAAnalog peer modules)
@@ -3094,6 +3134,34 @@ class REEConfig:
     sd049_salience_per_axis_combiner: str = "max"
     sd049_override_per_axis_combiner: str = "max"
     sd049_mech295_per_axis_combiner: str = "max"
+
+    # MECH-423 R3 (module-tagged interleaved cross-module consolidation; MECH-121
+    # consolidation cluster). The legacy MECH-121 offline pass trains e2_harm_s
+    # ALONE (sleep/phase_manager.py) with region-keyed traces carrying no module
+    # identity, so cross_module_replay_share is unmeasurable and the integrated
+    # E1<->E2 representation cannot be acquired under an interleaved schedule.
+    # When use_cross_module_consolidation=True, SleepLoopManager._run_cycle runs a
+    # CrossModuleConsolidator pass (sleep/cross_module_consolidation.py) AFTER the
+    # existing writeback: an interleaved (alternate-modules-step-by-step) gradient
+    # schedule over E1 (world-model) + E2 (world_forward) sourced from the agent's
+    # replay buffers, tagging each replayed trace by which modules it updated, and
+    # merging {cross_module_consolidation_n_updates,
+    # cross_module_consolidation_cross_module_replay_share,
+    # cross_module_consolidation_interleaved, ...} into the sleep-cycle metrics.
+    # MECH-094: this is the SAME explicit exception the e2_harm_s writeback uses --
+    # a weight-update pass with optimisers constructed LOCALLY over only the named
+    # modules' parameters; it writes NO residue / anchor / memory content.
+    # Grounds McClelland 1995 + Kumaran 2016 CLS (interleaving is necessary for
+    # shared-representation integration; a blocked schedule -> catastrophic
+    # interference -> sub-additive artefact). Disabled by default -> bit-identical
+    # OFF (consolidator not built; _run_cycle unchanged). EXP-0380 R3 asserts
+    # n_updates > 0 AND cross_module_replay_share > 0 AND interleaved == True;
+    # schedule="blocked" is the pre-registered control.
+    use_cross_module_consolidation: bool = False
+    cross_module_consolidation_schedule: str = "interleaved"  # "interleaved" | "blocked"
+    cross_module_consolidation_steps: int = 0  # offline gradient steps per cycle (0 == none)
+    cross_module_consolidation_lr: float = 1e-3
+    cross_module_consolidation_batch: int = 16
 
     def __post_init__(self) -> None:
         # MECH-307 master flag resolver. When the convenience master flag
@@ -3694,6 +3762,9 @@ class REEConfig:
         closure_pe_cap_after: Optional[float] = None,
         closure_reset_outcome_history: bool = True,
         closure_signal_affinity_internal_planning: float = 0.5,
+        # SD-034 commitment-closure-control-plane (2026-06-12); both no-op default.
+        use_closure_env_completion_hook: bool = False,
+        closure_decommit_hold_ticks: int = 0,
         # SD-035: amygdala analogue (BLAAnalog + CeAAnalog peer modules)
         use_amygdala_analog: bool = False,
         use_bla_analog: bool = True,
@@ -4576,6 +4647,9 @@ class REEConfig:
         config.closure_pe_cap_after = closure_pe_cap_after
         config.closure_reset_outcome_history = closure_reset_outcome_history
         config.closure_signal_affinity_internal_planning = closure_signal_affinity_internal_planning
+        # SD-034 commitment-closure-control-plane (2026-06-12).
+        config.use_closure_env_completion_hook = use_closure_env_completion_hook
+        config.closure_decommit_hold_ticks = closure_decommit_hold_ticks
 
         # SD-035: amygdala analogue (BLAAnalog + CeAAnalog peer modules)
         config.use_amygdala_analog = use_amygdala_analog
@@ -4850,6 +4924,37 @@ class REEConfig:
         config.sd049_salience_per_axis_combiner = sd049_salience_per_axis_combiner
         config.sd049_override_per_axis_combiner = sd049_override_per_axis_combiner
         config.sd049_mech295_per_axis_combiner = sd049_mech295_per_axis_combiner
+
+        # MECH-423 R2 + R3 readiness instrumentation. Surfaced via kwargs.pop
+        # (signature-stable, matching the use_resource_encoder / goal-stream pop
+        # precedent) so the from_dims() positional argument order is unchanged.
+        # All default no-op -> bit-identical OFF.
+        #   R2 (LatentStackConfig): iterative-inference convergence readout.
+        config.latent.use_iterative_inference = bool(
+            kwargs.pop("use_iterative_inference", False)
+        )
+        config.latent.inference_settle_iters = int(
+            kwargs.pop("inference_settle_iters", 1)
+        )
+        config.latent.inference_convergence_rel_tol = float(
+            kwargs.pop("inference_convergence_rel_tol", 0.05)
+        )
+        #   R3 (REEConfig): module-tagged interleaved cross-module consolidation.
+        config.use_cross_module_consolidation = bool(
+            kwargs.pop("use_cross_module_consolidation", False)
+        )
+        config.cross_module_consolidation_schedule = str(
+            kwargs.pop("cross_module_consolidation_schedule", "interleaved")
+        )
+        config.cross_module_consolidation_steps = int(
+            kwargs.pop("cross_module_consolidation_steps", 0)
+        )
+        config.cross_module_consolidation_lr = float(
+            kwargs.pop("cross_module_consolidation_lr", 1e-3)
+        )
+        config.cross_module_consolidation_batch = int(
+            kwargs.pop("cross_module_consolidation_batch", 16)
+        )
 
         return config
 
