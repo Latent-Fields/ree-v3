@@ -141,6 +141,24 @@
       "episodes_per_run": 600,
       "experiment_type": "v3_exq_672_mech057b_trajectory_promotion_gate",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-673",
+      "title": "MECH-180 Novelty Sleep Upregulation Probe: test whether high prediction error during wake produces increased sleep replay activity",
+      "script": "experiments/v3_exq_673_mech180_novelty_sleep_upregulation_probe.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "claim_id": "MECH-180",
+      "note": "EXP-0184/EVB-0089 dispatch: first experimental evidence for MECH-180 (novelty-driven sleep upregulation). Tests correlational proxy: does HIGH novelty/prediction error environment produce MORE sleep replay activity (SWS writes + REM rollouts) vs LOW novelty? ARM_HIGH_NOVELTY: frequent env drift (interval=3), context switching every 5 eps. ARM_LOW_NOVELTY: stable (drift 999, no context switch). Both: sleep cycle every 10 eps, use_sleep_aggregation_cluster=True, 100 eps x 200 steps, phased training P0/P1. PASS requires ALL: C1 manipulation check (HIGH pred error > LOW + 0.01), C2 SWS upregulation (HIGH > LOW * 1.25), C3 REM upregulation (HIGH > LOW * 1.25), C4 substrate functional (>= 3 SWS, >= 2 REM), C5 agent functional (>= 0.03 goal success). Smoke test PASSED. 3 seeds x 2 arms x 100 eps.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-180"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 100,
+      "experiment_type": "v3_exq_673_mech180_novelty_sleep_upregulation_probe",
+      "seeds": 3
     }
   ]
 }
