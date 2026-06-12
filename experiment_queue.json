@@ -27,28 +27,6 @@
       "episodes_per_run": 2500,
       "experiment_type": "v3_exq_655_inv074_crystallization_necessity_taskshift",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-672",
-      "title": "MECH-057b trajectory-promotion-gate: test whether filtering incomplete hippocampal trajectories before E3 improves harm avoidance",
-      "script": "experiments/v3_exq_672_mech057b_trajectory_promotion_gate.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 480,
-      "claim_id": "MECH-057b",
-      "note": "EXP-0152 dispatch (IGW-20260611-204): first genuine experiment for MECH-057b (hippocampal sequence completion gate). Tests whether trajectory candidates from HippocampalModule should be filtered by completion quality (residue cost) before reaching E3. ARM_0_NO_GATE: baseline (all candidates reach E3, current V3 behavior). ARM_1_COMPLETION_GATE: test (filter high-residue trajectories, pass only best-scoring + minimum 2 candidates). PASS requires ALL: C1: harm_rate reduction >=10%, C2: completion_signal improvement >=5%, C3: gate filters >=15% of candidates, C4: E3 not deadlocked (>=2 candidates), C5: E3 functional (precision >=0.5), C6: baseline not collapsed (goal_success >=0.05), C7: no fatal errors. Smoke test clean (2 seeds x 2 arms x 2 train eps + 2 eval eps, no crashes). 3 seeds x 2 arms x 500 train eps + 100 eval eps x 200 steps.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-12T08:01:07Z"
-      },
-      "claim_ids": [
-        "MECH-057b"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 600,
-      "experiment_type": "v3_exq_672_mech057b_trajectory_promotion_gate",
-      "seeds": 3
     }
   ]
 }
