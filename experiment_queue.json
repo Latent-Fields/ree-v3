@@ -8,27 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-666b",
-      "title": "ARC-063 CRF availability-maintenance readiness: re-state gate on the ISOLATING statistic crf_frac_maintained (supersedes 666a)",
-      "script": "experiments/v3_exq_666b_arc063_crf_availability_maintenance_readiness_fracgate.py",
-      "priority": 330,
-      "machine_affinity": "any",
-      "estimated_minutes": 130,
-      "supersedes": "V3-EXQ-666a",
-      "note": "ARC-063 crf-availability-maintenance substrate-readiness diagnostic (claim_ids=[], non_contributory -- does NOT weight governance). Supersedes V3-EXQ-666a; routed by confirmed failure_autopsy_V3-EXQ-666a_2026-06-11 (measurement_test_design_defect, NOT substrate failure). RE-STATES the load-bearing readiness gate on the ISOLATING statistic crf_frac_maintained (maintained-reactivatable fraction = n_maintained/n_slots), NOT the gap-density-sensitive count floor crf_n_maintained_reactivatable>=2 that 666a used (and that differentiation-alone cleared). Same 3-arm matched stack ARM_0_OFF / ARM_1_MATURE_E2CTX / ARM_2_MATURE_E2CTX_MAINTENANCE on the SD-056-online e2 + lateral-PFC-head + crf_persist stack. Gate: ARM_2 crf_frac_maintained >= 0.625 clears AND ARM_1 < 0.5 fails (666a ARM_2 1.0/0.625/0.938 vs ARM_1 0.188/0.125/0.438). Adds a context-absent silence gap (CandidateRuleField.credit iterated 2000 ticks post-training) so differentiation-alone erodes below the floor while activity-silent maintenance (decay=0.0) HOLDS -- robust to gap density. Same-statistic non-vacuity discipline: minted>=2, full-pool differentiation (crf_max_pairwise_rule_dist>0.1 on e2ctx arms), AND the ARM_2 maintained pool the fraction gate counts is itself a >=2-rule differentiated pool (count + differentiation readiness on the positive control); any unmet -> substrate_not_ready_requeue, never a false verdict. ARM_2 maintenance-ON adopted as mature default. validate_experiments --strict OK (0 readiness-warnings, arm-fingerprint OK); dry-run end-to-end (self-routes substrate_not_ready at toy scale by design; dry artifact scrubbed). PASS -> /governance flips crf-availability-maintenance ready=true and unblocks the 654c GAP-B behavioural re-run (MECH-309/ARC-062), queued separately. MECH-309/ARC-062/ARC-063 stay candidate/substrate_ceiling/v3_pending/pending_retest_after_substrate.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-11T21:38:13Z"
-      },
-      "claim_ids": [],
-      "conditions": 3,
-      "episodes_per_run": 100,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_666b_arc063_crf_availability_maintenance_readiness_fracgate",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-655",
       "title": "INV-074 crystallization-necessity: task-distribution-shift phase-3 redesign (supersedes 610f)",
       "script": "experiments/v3_exq_655_inv074_crystallization_necessity_taskshift.py",
@@ -80,7 +59,11 @@
       "estimated_minutes": 960,
       "claim_id": "MECH-171",
       "note": "EXP-0153 dispatch (IGW-20260611-203): first genuine experiment for MECH-171 (sleep disruption vicious cycle). Tests whether early sleep phase disruption triggers cascading degradation through consolidation failure -> attribution failure -> behavioral disorientation -> increased arousal -> further sleep disruption. Three-arm comparison: ARM_A_HEALTHY (baseline), ARM_B_EARLY (disruption at ep 50), ARM_C_LATE (disruption at ep 150). PASS requires (C1 AND C3 AND C5) OR (C2 AND C4): C1 slot diversity A>B+0.05, C2 B<C-0.03, C3 harm rate A<B+0.01, C4 B>C+0.005, C5 pred loss A<B+0.05. Smoke test clean (3 seeds x 3 arms x 18 train eps + 2 eval eps x 20 steps, no crashes). Full run: 3 seeds x 3 arms x 300 train eps + 30 eval eps x 150 steps.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-12T00:52:49Z"
+      },
       "claim_ids": [
         "MECH-171"
       ],
