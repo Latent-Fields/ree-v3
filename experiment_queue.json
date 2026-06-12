@@ -38,29 +38,33 @@
       "supersedes": "V3-EXQ-669",
       "claim_id": "MECH-329",
       "note": "diagnose-errors fix of V3-EXQ-669 ERROR (exit 1, 2.1s, no sentinel on ree-cloud-4). Root cause: the hand-rolled act/train loop was written against a stale/nonexistent agent API -- env.to() on a numpy env, no-arg select_action(), nonexistent public e1_tick/e2_tick/e3_tick, a 4-tuple env.step unpack of a 5-tuple, and a mis-ordered emit_outcome(manifest, outcome, run_id) that also never wrote a manifest. The inner loop was rewritten onto the canonical StepHarness (experiments/_harness.py: one sense / one update_z_goal-with-super-ordinal-writes / one select_action / one update_residue per tick); E1+E2 trained via compute_prediction_loss/compute_e2_loss after each step (E3 running_variance driven by update_residue); manifest now writes flat JSON to evidence/experiments with a _v3 run_id + emit_outcome(outcome=, manifest_path=). claim_ids=[MECH-329, MECH-189] (user-confirmed): tests wanting-before-liking ordering AND exercises the MECH-189 super-ordinal goal-anchor substrate (use_super_ordinal_goal_anchors=True). Smoke: 3 conditions run end-to-end; 50/60-ep light run confirmed benefit contacts (23) -> super-ordinal write path reachable.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-12T23:40:40Z"
+      },
       "experiment_type": "v3_exq_669a_mech329_wanting_first_goal_seeding"
     },
     {
       "queue_id": "V3-EXQ-460d",
       "title": "SD-034 commitment-closure-control-plane retest: env-completion hook + de-commit hold (supersedes 460c)",
-      "experiment_type": "v3_exq_460d_sd034_closure_control_plane_behavioural",
       "script": "experiments/v3_exq_460d_sd034_closure_control_plane_behavioural.py",
       "priority": 1,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 170,
-      "episodes_per_run": 265,
-      "seeds": 3,
-      "conditions": 1,
+      "supersedes": "V3-EXQ-460c",
       "claim_id": "SD-034",
+      "note": "Validation of the 2026-06-12 commitment-closure-control-plane amend (ree-v3 6fdb111): Leg-A env sequence_complete -> agent.notify_env_completion -> emit_closure (eval loop) + Leg-B closure_decommit_hold_ticks=5 + Leg-C lateral_pfc_train_rule_bias_head=True. Readiness gate (642 lesson): ON n_closures>0 reachable on >=2/3 completion-engaged seeds -> else substrate_not_ready_requeue (never a false weakens). Acceptance: C1 n_closures>=1 + C3 nogo_installed>=1 + C2 + C4(OFF holds latch) on >=2/3. diagnostic. Re-applied after phase3-queue snapshot b89ebb5 dropped the first append (the documented 603d-class race).",
+      "status": "pending",
       "claim_ids": [
         "SD-034",
         "MECH-260",
         "MECH-261"
       ],
-      "supersedes": "V3-EXQ-460c",
-      "note": "Validation of the 2026-06-12 commitment-closure-control-plane amend (ree-v3 6fdb111): Leg-A env sequence_complete -> agent.notify_env_completion -> emit_closure (eval loop) + Leg-B closure_decommit_hold_ticks=5 + Leg-C lateral_pfc_train_rule_bias_head=True. Readiness gate (642 lesson): ON n_closures>0 reachable on >=2/3 completion-engaged seeds -> else substrate_not_ready_requeue (never a false weakens). Acceptance: C1 n_closures>=1 + C3 nogo_installed>=1 + C2 + C4(OFF holds latch) on >=2/3. diagnostic. Re-applied after phase3-queue snapshot b89ebb5 dropped the first append (the documented 603d-class race)."
+      "conditions": 1,
+      "episodes_per_run": 265,
+      "experiment_type": "v3_exq_460d_sd034_closure_control_plane_behavioural",
+      "seeds": 3
     }
   ]
 }
