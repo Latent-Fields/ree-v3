@@ -54,30 +54,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-464c",
-      "title": "commitment_closure:GAP-4 MECH-266/SD-032a competing-goals switch-cost behavioural, REWIRED onto the 603n scaffolded_sd054_onboarding curriculum (supersedes the committed_mode_curriculum harness 464b used); *c cohort",
-      "script": "experiments/v3_exq_464c_mech266_competing_goals_behavioural.py",
-      "priority": 230,
-      "machine_affinity": "any",
-      "estimated_minutes": 650,
-      "claim_id": "MECH-266",
-      "note": "Successor (NOT supersede) to V3-EXQ-464b. Rewires to the FULL scaffolded_sd054_onboarding 603n curriculum (514n pattern) + SalienceCoordinator (SD-032a) + MECH-266 per-mode hysteresis rails. use_closure_operator OFF (closure injects a confounding mode-switch signal; 464b omitted it for the same reason). Eval = ARM_SYMMETRIC (legacy MECH-259) vs ARM_ASYM_STICKY_TASK (sticky exit rail on external_task) clones, in a GAP-3 dual_cue (two competing resource cues; requires SD-049, supplied by the scaffolded cue-recall bridge) env. Measures mode occupancy + switches. C1 asym task-occupancy >= sym + 0.10; C2 asym switches <= sym; C3 sym switches >= 1 (the mode-switching non-vacuity). TWO non-vacuity gates (603n contact guard + mode-switching gate: symmetric arm switched modes) self-route substrate_not_ready_requeue below floor, never a false weakens (the *b gap was n_switches=0). evidence_direction_per_claim. validate_experiments --strict OK; --dry-run end-to-end PASS (mode-switching ENGAGED: sym_switches=2 at dry scale -- the scaffolded agent switches modes, resolving the key risk). Runner NOT started.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-12T07:21:55Z"
-      },
-      "claim_ids": [
-        "MECH-266",
-        "SD-032a"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_type": "v3_exq_464c_mech266_competing_goals_behavioural",
-      "predecessor": "V3-EXQ-464b",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-466c",
       "title": "commitment_closure:GAP-4 SD-034/MECH-094 satisficing residue-discharge behavioural, REWIRED onto the 603n scaffolded_sd054_onboarding curriculum (supersedes the committed_mode_curriculum harness 466b used); *c cohort",
       "script": "experiments/v3_exq_466c_sd034_satisficing_residue_discharge_behavioural.py",
@@ -110,7 +86,11 @@
       "estimated_minutes": 700,
       "claim_id": "MECH-266",
       "note": "Successor (NOT supersede) to V3-EXQ-467b. Rewires to the FULL scaffolded_sd054_onboarding 603n curriculum (514n pattern) + SalienceCoordinator (SD-032a). use_closure_operator OFF (confounding mode-switch signal). Sweeps the uniform exit-rail ratio r in {0.10,0.50,1.00,1.50,2.00} via set_hysteresis_ratio on clones, in a GAP-3 dual_cue env, measuring mode dwell + switches. C1 mean_dwell monotone non-increasing in r; C2 dwell(r=0.10) >= 2.0 x dwell(r=2.00); C3 high-r-arm switches >= 1 (mode-switching non-vacuity). TWO non-vacuity gates (603n contact guard + mode-switching gate) self-route substrate_not_ready_requeue below floor, never a false weakens (the *b gap was n_switches=0). conditions=5 = the 5 ratios; episodes_per_run counts the 6 curriculum stages + 5x12 ratio evals per seed. evidence_direction_per_claim. validate_experiments --strict OK; --dry-run end-to-end PASS (contact guard PASSED + high_r_switches=2 + real verdict residual_dose_response_open -- mechanism fully engaged). Runner NOT started.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-12T11:52:24Z"
+      },
       "claim_ids": [
         "MECH-266",
         "SD-032a"
