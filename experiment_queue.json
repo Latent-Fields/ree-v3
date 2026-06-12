@@ -29,31 +29,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-461c",
-      "title": "commitment_closure:GAP-4 MECH-090/SD-033a/SD-034 delayed-reward persistence behavioural, REWIRED onto the 603n scaffolded_sd054_onboarding curriculum (supersedes the committed_mode_curriculum harness 461b used); *c cohort",
-      "script": "experiments/v3_exq_461c_mech090_sd033a_delayed_reward_persistence_behavioural.py",
-      "priority": 230,
-      "machine_affinity": "any",
-      "estimated_minutes": 650,
-      "claim_id": "MECH-090",
-      "note": "Successor (NOT supersede) to V3-EXQ-461b. Rewires to the FULL scaffolded_sd054_onboarding 603n curriculum (514n pattern) + commitment control-plane. Eval = ARM_HOLD_ON (bistable) vs ARM_NO_HOLD_OFF (same trained weights, beta_gate_bistable=False) in a subgoal_mode + completion_tolerance(waypoint) env. Measures committed Hold-window length (delay), SD-033a rule_state persistence ratio (release/entry), and SD-034 closure coupling within 2 ticks of the delayed resolution. subgoal_mode=True is LOAD-BEARING (461b never set it; committed windows never formed -> n_windows=0). TWO non-vacuity gates (603n contact guard + commitment non-vacuity: ON n_windows>0) self-route substrate_not_ready_requeue below floor, never a false weakens. C1 n_delay_windows>=1 AND persistence>=0.5; C2 closure-coupled resolutions>=1; C3 ON mean_window_len > OFF. evidence_direction_per_claim. validate_experiments --strict OK; --dry-run end-to-end PASS (contact guard PASSED + commitment non-vacuity PASSED + real verdict residual_persistence_open at dry scale -- mechanism fully engaged). Runner NOT started.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-06-12T05:10:55Z"
-      },
-      "claim_ids": [
-        "MECH-090",
-        "SD-033a",
-        "SD-034"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_type": "v3_exq_461c_mech090_sd033a_delayed_reward_persistence_behavioural",
-      "predecessor": "V3-EXQ-461b",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-672",
       "title": "MECH-057b trajectory-promotion-gate: test whether filtering incomplete hippocampal trajectories before E3 improves harm avoidance",
       "script": "experiments/v3_exq_672_mech057b_trajectory_promotion_gate.py",
