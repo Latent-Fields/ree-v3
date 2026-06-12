@@ -29,31 +29,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-460c",
-      "title": "commitment_closure:GAP-4 SD-034/MECH-260/MECH-261 verified-but-not-released behavioural, REWIRED onto the 603n scaffolded_sd054_onboarding curriculum (supersedes the committed_mode_curriculum harness 460b used); *c cohort",
-      "script": "experiments/v3_exq_460c_sd034_verified_but_not_released_behavioural.py",
-      "priority": 230,
-      "machine_affinity": "any",
-      "estimated_minutes": 650,
-      "claim_id": "SD-034",
-      "note": "Successor (NOT supersede) to V3-EXQ-460b. Rewires the training harness from committed_mode_curriculum to the FULL scaffolded_sd054_onboarding curriculum at the 603n config (Stage-0->Stage-0b->P0->Stage-H->P1->P2; ready=true 2026-06-11 per 603n PASS; the 514n pattern) so the agent is foraging-competent, plus the commitment control-plane (bistable BetaGate + SD-034 ClosureOperator + SD-033a LateralPFC + SD-032 dACC/salience). Eval = ARM_CLOSURE_ON vs ARM_CLOSURE_OFF (same trained weights, closure off) in a P2-config env with subgoal_mode=True (LOAD-BEARING -- the waypoint-completion machinery hard-requires it; 460b never set it, so n_closures=0 was partly a wiring gap, not only the foraging-competence ceiling) + completion_tolerance(waypoint). Measures closure fires / beta releases / MECH-260 No-Go installs at completed-with-stable-rule_state ticks. TWO non-vacuity gates self-route substrate_not_ready_requeue below floor (never a false weakens): 603n contact guard + commitment+completion gate (ON committed AND reached sequence completions so closure had an opportunity to fire; n_closures=0 WITH completions=genuine weakens, WITHOUT=substrate-not-engaged). C1 n_closures>=1, C2 beta_release>=1, C3 nogo>=1, C4 OFF holds latch & never closes. evidence_direction_per_claim. validate_experiments --strict OK; --dry-run end-to-end PASS (curriculum builds, agent commits, completions occur). Closes commitment_closure:GAP-4 (with the rest of the *c cohort + 629b) on PASS. Runner NOT started.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-12T04:47:09Z"
-      },
-      "claim_ids": [
-        "SD-034",
-        "MECH-260",
-        "MECH-261"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_type": "v3_exq_460c_sd034_verified_but_not_released_behavioural",
-      "predecessor": "V3-EXQ-460b",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-461c",
       "title": "commitment_closure:GAP-4 MECH-090/SD-033a/SD-034 delayed-reward persistence behavioural, REWIRED onto the 603n scaffolded_sd054_onboarding curriculum (supersedes the committed_mode_curriculum harness 461b used); *c cohort",
       "script": "experiments/v3_exq_461c_mech090_sd033a_delayed_reward_persistence_behavioural.py",
@@ -111,7 +86,11 @@
       "estimated_minutes": 650,
       "claim_id": "SD-034",
       "note": "Successor (NOT supersede) to V3-EXQ-466b. Rewires to the FULL scaffolded_sd054_onboarding 603n curriculum (514n pattern) + commitment control-plane. Eval = ARM_CLOSURE_ON vs ARM_CLOSURE_OFF in a subgoal_mode + completion_tolerance(waypoint) env. Measures SD-034 closure-driven ResidueField.discharge_domain (discharge_events = closures with residue_centers_discharged>=1). subgoal_mode=True is LOAD-BEARING (466b never set it; completions never occurred -> n_closures=0). TWO non-vacuity gates (603n contact guard + commitment+completion gate) self-route substrate_not_ready_requeue below floor, never a false weakens. C1 n_closures>=1, C2 discharge_events>=1, C3 OFF n_closures==0 AND discharge==0. evidence_direction_per_claim. validate_experiments --strict OK; --dry-run end-to-end PASS (curriculum builds, agent commits beta_elev=8, completions=1, C3 true). Runner NOT started.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-12T09:00:23Z"
+      },
       "claim_ids": [
         "SD-034",
         "MECH-094"
