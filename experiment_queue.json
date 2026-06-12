@@ -29,6 +29,21 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-676",
+      "title": "MECH-423 readiness-readouts non-vacuity diagnostic (R2 inference-convergence + R3 interleaved cross-module consolidation + R1 shared-latent grad probe)",
+      "script": "experiments/v3_exq_676_mech423_readiness_readouts_nonvacuous.py",
+      "priority": 240,
+      "machine_affinity": "any",
+      "estimated_minutes": 15,
+      "note": "implement-substrate Step-8 validation for the MECH-423 super-additivity READINESS substrate (R1/R2/R3) landed 2026-06-12. claim_ids=[] diagnostic; does NOT test super-additivity (that is the separate EXP-0380 ablation this unblocks). PASS = R2 final_rel_delta<0.05 + R3 interleaved share>0/blocked share=0 + R1 coupled, on >=2/3 seeds; below-floor self-routes substrate_not_ready_requeue. Queue entry re-applied after a phase3-queue snapshot dropped the original append (commit 78fe92c landed the script without the entry). See REE_assembly/docs/architecture/mech_423_superadditivity_readiness_substrate.md.",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 1,
+      "episodes_per_run": 20,
+      "experiment_type": "v3_exq_676_mech423_readiness_readouts_nonvacuous",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-669a",
       "title": "MECH-329/MECH-189 wanting-before-liking developmental goal seeding (3-condition infant curriculum; super-ordinal anchor formation) -- supersedes 669; StepHarness loop rewrite",
       "script": "experiments/v3_exq_669a_mech329_wanting_first_goal_seeding.py",
@@ -55,7 +70,11 @@
       "supersedes": "V3-EXQ-460c",
       "claim_id": "SD-034",
       "note": "Validation of the 2026-06-12 commitment-closure-control-plane amend (ree-v3 6fdb111): Leg-A env sequence_complete -> agent.notify_env_completion -> emit_closure (eval loop) + Leg-B closure_decommit_hold_ticks=5 + Leg-C lateral_pfc_train_rule_bias_head=True. Readiness gate (642 lesson): ON n_closures>0 reachable on >=2/3 completion-engaged seeds -> else substrate_not_ready_requeue (never a false weakens). Acceptance: C1 n_closures>=1 + C3 nogo_installed>=1 + C2 + C4(OFF holds latch) on >=2/3. diagnostic. Re-applied after phase3-queue snapshot b89ebb5 dropped the first append (the documented 603d-class race).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-12T23:42:46Z"
+      },
       "claim_ids": [
         "SD-034",
         "MECH-260",
@@ -65,21 +84,6 @@
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_460d_sd034_closure_control_plane_behavioural",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-676",
-      "title": "MECH-423 readiness-readouts non-vacuity diagnostic (R2 inference-convergence + R3 interleaved cross-module consolidation + R1 shared-latent grad probe)",
-      "experiment_type": "v3_exq_676_mech423_readiness_readouts_nonvacuous",
-      "script": "experiments/v3_exq_676_mech423_readiness_readouts_nonvacuous.py",
-      "priority": 240,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 15,
-      "episodes_per_run": 20,
-      "seeds": 3,
-      "conditions": 1,
-      "claim_ids": [],
-      "note": "implement-substrate Step-8 validation for the MECH-423 super-additivity READINESS substrate (R1/R2/R3) landed 2026-06-12. claim_ids=[] diagnostic; does NOT test super-additivity (that is the separate EXP-0380 ablation this unblocks). PASS = R2 final_rel_delta<0.05 + R3 interleaved share>0/blocked share=0 + R1 coupled, on >=2/3 seeds; below-floor self-routes substrate_not_ready_requeue. Queue entry re-applied after a phase3-queue snapshot dropped the original append (commit 78fe92c landed the script without the entry). See REE_assembly/docs/architecture/mech_423_superadditivity_readiness_substrate.md."
     }
   ]
 }
