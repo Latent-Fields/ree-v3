@@ -88,23 +88,23 @@
     {
       "queue_id": "V3-EXQ-468d",
       "title": "SD-034 de-commit hold retest: non-cap-pinned committed-fraction DV (supersedes 468c)",
-      "experiment_type": "v3_exq_468d_sd034_mech268_decommit_hold_behavioural",
       "script": "experiments/v3_exq_468d_sd034_mech268_decommit_hold_behavioural.py",
       "priority": 1,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 180,
-      "episodes_per_run": 265,
-      "seeds": 3,
-      "conditions": 1,
+      "supersedes": "V3-EXQ-468c",
       "claim_id": "SD-034",
+      "note": "Validation of the 2026-06-12 commitment-closure-control-plane amend Leg-B de-commit hold (ree-v3 6fdb111). closure_decommit_hold_ticks=5 makes a closure-coupled release survive >1 tick. C2 is the NON-CAP-PINNED DV the autopsy required: ON committed_frac_post_absolute (committed_post/post_window_steps in [0,1]) < OFF by margin -- replaces the 468c committed_frac_post_vs_pre ratio that pinned >=1. Also wires Leg-A env-completion hook + Leg-C trained rule_bias_head. Readiness: ON committed + contradiction engaged + both arms have a non-empty post-window -> else substrate_not_ready_requeue. diagnostic. Concurrency: pathspec under TASK_CLAIMS implement-substrate-commitment-closure-control-plane (snapshot-race aware).",
+      "status": "pending",
       "claim_ids": [
         "SD-034",
         "MECH-268",
         "MECH-090"
       ],
-      "supersedes": "V3-EXQ-468c",
-      "note": "Validation of the 2026-06-12 commitment-closure-control-plane amend Leg-B de-commit hold (ree-v3 6fdb111). closure_decommit_hold_ticks=5 makes a closure-coupled release survive >1 tick. C2 is the NON-CAP-PINNED DV the autopsy required: ON committed_frac_post_absolute (committed_post/post_window_steps in [0,1]) < OFF by margin -- replaces the 468c committed_frac_post_vs_pre ratio that pinned >=1. Also wires Leg-A env-completion hook + Leg-C trained rule_bias_head. Readiness: ON committed + contradiction engaged + both arms have a non-empty post-window -> else substrate_not_ready_requeue. diagnostic. Concurrency: pathspec under TASK_CLAIMS implement-substrate-commitment-closure-control-plane (snapshot-race aware)."
+      "conditions": 1,
+      "episodes_per_run": 265,
+      "experiment_type": "v3_exq_468d_sd034_mech268_decommit_hold_behavioural",
+      "seeds": 3
     }
   ]
 }
