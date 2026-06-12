@@ -67,6 +67,27 @@
       "episodes_per_run": 330,
       "experiment_type": "v3_exq_673_mech171_vicious_cycle_sleep_disruption",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-468c",
+      "title": "commitment_closure:GAP-4 SD-034/MECH-268/MECH-090 commitment-vs-contradiction behavioural, REWIRED onto the 603n-validated scaffolded_sd054_onboarding curriculum (supersedes the committed_mode_curriculum harness 468b used); pilot of the *c cohort",
+      "script": "experiments/v3_exq_468c_sd034_mech268_commitment_vs_contradiction_behavioural.py",
+      "experiment_type": "v3_exq_468c_sd034_mech268_commitment_vs_contradiction_behavioural",
+      "priority": 230,
+      "machine_affinity": "any",
+      "estimated_minutes": 650,
+      "claim_id": "SD-034",
+      "claim_ids": [
+        "SD-034",
+        "MECH-268",
+        "MECH-090"
+      ],
+      "seeds": 3,
+      "conditions": 1,
+      "episodes_per_run": 265,
+      "status": "pending",
+      "predecessor": "V3-EXQ-468b",
+      "note": "Successor (NOT supersede) to V3-EXQ-468b, the commitment_closure:GAP-4 Phase-4/5 OCD behavioural cohort. ROUTING: the *b cohort (460b/461b/463b/464b/466b/467b/468b) all RAN 2026-06-04; 6/7 were reclassified non_contributory + substrate_ceiling because in the committed_mode_curriculum loop the agent committed (beta latch engaged) but never tolerance-completed a waypoint / never hit a contradiction (n_closures = beta_release = n_windows = contradictions = 0 in EVERY arm). 468b was built on the committed_mode_curriculum (run_p0_warmup -> run_p1_consolidation), which trains commitment but NOT foraging competence, so it could not deliver runtime goal completions. This rewires the TRAINING harness to the FULL scaffolded_sd054_onboarding curriculum at the 603n config (Stage-0 -> Stage-0b -> P0 -> Stage-H -> P1 -> P2; ready=true 2026-06-11 per V3-EXQ-603n PASS), the 514n pattern -- the substrate that DELIVERS the foraging competence the *b cohort lacked. The agent is built with the 603n foraging substrate PLUS the commitment control-plane (bistable BetaGate MECH-090 + SD-034 ClosureOperator + MECH-268 dACC PE saturation + SD-033a LateralPFC + SD-032 dACC/salience) layered on; a frozen-policy commitment-vs-contradiction eval (ARM_SUBSTRATE_ON vs ARM_SUBSTRATE_OFF, same trained weights with closure+saturation off) runs in a P2-config env that ADDS the GAP-3 completion_tolerance(waypoint) + counter_evidence primitives. TWO env fixes 468b lacked (found at pilot 2026-06-12): (1) subgoal_mode=True -- LOAD-BEARING: both waypoint-completion paths AND the counter_evidence gate hard-require it (causal_grid_world 1664/1740/2067); 468b never set it, so its GAP-3 contradiction machinery was inert (contradictions=0 was partly a wiring gap, not only the foraging-competence ceiling). (2) num_waypoints=4 + tuned counter_evidence cadence (interval=5, prob=0.85) so injections fire DURING the brief committed windows (probe: 23 injections / 16 beta-releases-near-contradiction on the scaffolded-built agent). TWO non-vacuity gates self-route a substrate-not-engaged read to non_contributory (never a false weakens, the V3-EXQ-643/514n lesson): (a) the 603n contact guard (per-seed P2 contact_rate>0 AND z_goal_norm_at_contact_peak>0.4, >=2/3 seeds); (b) the commitment non-vacuity gate (ON-arm total_beta_elevated>0 AND episodes_with_contradiction>0, >=2/3 guard-passing seeds). Only when BOTH are met do C1 (beta_release_near_contradiction>=1) / C2 (ON committed_frac drop) / C3 (OFF perseverates) drive supports/weakens. evidence_direction_per_claim. validate_experiments --strict --paths OK; --dry-run end-to-end PASS (curriculum builds, contact guard passes, agent commits, contradiction fires, C1=True / C3=True at dry scale, routes residual_perseveration_open -- a real verdict, not substrate_not_ready). Pilot of the *c cohort (460c/461c/464c/466c/467c + 629b owed); 463b EXCLUDED (lone PASS, dACC saturation measured directly not closure-gated). Closes commitment_closure:GAP-4 (with 629b) on PASS. Runner NOT started."
     }
   ]
 }
