@@ -84,7 +84,11 @@
       "estimated_minutes": 960,
       "claim_id": "MECH-171",
       "note": "EXP-0153 dispatch (IGW-20260611-203): first genuine experiment for MECH-171 (sleep disruption vicious cycle). Tests whether early sleep phase disruption triggers cascading degradation through consolidation failure -> attribution failure -> behavioral disorientation -> increased arousal -> further sleep disruption. Three-arm comparison: ARM_A_HEALTHY (baseline), ARM_B_EARLY (disruption at ep 50), ARM_C_LATE (disruption at ep 150). PASS requires (C1 AND C3 AND C5) OR (C2 AND C4): C1 slot diversity A>B+0.05, C2 B<C-0.03, C3 harm rate A<B+0.01, C4 B>C+0.005, C5 pred loss A<B+0.05. Smoke test clean (3 seeds x 3 arms x 18 train eps + 2 eval eps x 20 steps, no crashes). Full run: 3 seeds x 3 arms x 300 train eps + 30 eval eps x 150 steps.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-06-12T03:12:10Z"
+      },
       "claim_ids": [
         "MECH-171"
       ],
