@@ -1465,6 +1465,24 @@ class REEAgent(nn.Module):
                     ),
                 }
 
+        # mode-governance-engagement substrate (2026-06-13): register the
+        # external_task_drive signal slot on the SalienceCoordinator. Registered in
+        # BOTH affinity_weights (-> external_task, mode SELECTION pull) AND
+        # salience_weights (-> aggregate, so a switch INTO external_task can fire the
+        # MECH-259 trigger). The engagement scalar is injected per-tick in
+        # select_action (see the tick block below). No-op default: slot registered
+        # only when use_external_task_drive=True, so OFF leaves the coordinator
+        # bit-identical (the signal name never enters _input_signals).
+        if getattr(config, "use_external_task_drive", False) and self.salience is not None:
+            self.salience.config.affinity_weights["external_task_drive"] = {
+                "external_task": float(
+                    getattr(config, "external_task_drive_affinity_weight", 1.0)
+                ),
+            }
+            self.salience.config.salience_weights["external_task_drive"] = float(
+                getattr(config, "external_task_drive_salience_weight", 1.0)
+            )
+
         # MECH-282: LPB interoceptive harm routing (parallel to external z_harm).
         self.lpb_router: Optional[LPBInteroceptiveRouter] = None
         self._lpb_last_output: Optional[LPBInteroceptiveRoutingOutput] = None
@@ -4571,6 +4589,44 @@ class REEAgent(nn.Module):
                     "override_signal",
                     float(self.broadcast_override.override_signal),
                 )
+            # mode-governance-engagement substrate (2026-06-13): inject the
+            # external_task_drive engagement scalar BEFORE tick so external_task can
+            # win the mode argmax (affinity) AND clear the MECH-259 switch aggregate
+            # (salience) during committed pursuit of an active goal. engagement =
+            # goal_active ? clip(commit_w*float(beta_elevated)
+            # + prox_w*goal_proximity(z_world), 0, 1) : 0. DYNAMIC -> releases toward
+            # internal_planning when the goal is inactive / uncommitted, preserving
+            # genuine mode competition (not the 464b 100%-external_task saturation).
+            # MECH-094: waking-only by call-site scoping (select_action), as with the
+            # AIC / CeA / override injections above. No-op default (flag off).
+            if getattr(self.config, "use_external_task_drive", False):
+                _et_require_goal = getattr(
+                    self.config, "external_task_drive_require_goal_active", True
+                )
+                _et_goal_active = (not _et_require_goal) or (
+                    self.goal_state is not None and self.goal_state.is_active()
+                )
+                _et_engagement = 0.0
+                if _et_goal_active:
+                    _et_commit_w = float(
+                        getattr(self.config, "external_task_drive_commit_weight", 1.0)
+                    )
+                    _et_prox_w = float(
+                        getattr(self.config, "external_task_drive_proximity_weight", 1.0)
+                    )
+                    _et_commit = _et_commit_w * (1.0 if self.beta_gate.is_elevated else 0.0)
+                    _et_prox = 0.0
+                    if (
+                        _et_prox_w != 0.0
+                        and self.goal_state is not None
+                        and self._current_latent is not None
+                    ):
+                        _et_zp = self.goal_state.goal_proximity(
+                            self._current_latent.z_world
+                        )
+                        _et_prox = _et_prox_w * float(_et_zp.reshape(-1)[0].item())
+                    _et_engagement = max(0.0, min(1.0, _et_commit + _et_prox))
+                self.salience.update_signal("external_task_drive", _et_engagement)
             self._salience_last_tick = self.salience.tick(
                 dacc_bundle=sal_bundle,
                 drive_level=sal_drive,

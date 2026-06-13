@@ -1505,6 +1505,34 @@ class REEConfig:
     # compatible (dACC bias unaffected).
     salience_apply_to_dacc_bias: bool = False
 
+    # mode-governance-engagement substrate (2026-06-13): external_task salience
+    # SOURCE. On the 603n foraging substrate the SalienceCoordinator never sees a
+    # signal that puts the agent in external_task mode (drive_level ~0.016, dACC
+    # PE/foraging/difficulty all push internal_planning), so fraction_in_external_task
+    # is structurally 0 and MECH-266's exit-rail has no contested mode to bind. When
+    # use_external_task_drive=True, REEAgent injects a goal-pursuit-derived
+    # "external_task_drive" signal into the coordinator (registered in BOTH
+    # affinity_weights -> external_task AND salience_weights -> aggregate, so a switch
+    # INTO external_task can fire), sourced from the committed-pursuit-of-an-active-goal
+    # engagement scalar:
+    #   engagement = goal_active ? clip(commit_w*float(beta_gate.is_elevated)
+    #                                   + prox_w*goal_proximity(z_world), 0, 1) : 0
+    # DYNAMIC by design (gated on an active goal, graded by commit x proximity) so it
+    # releases toward internal_planning during deliberation / between-goals, preserving
+    # genuine mode competition (NOT the 464b "100% external_task, 0 switches" saturation
+    # degeneracy). All no-op default -> bit-identical OFF. See MECH-266 / SD-032a.
+    use_external_task_drive: bool = False
+    # engagement -> external_task affinity logit (mode SELECTION pull).
+    external_task_drive_affinity_weight: float = 1.0
+    # engagement -> salience_aggregate (enables the MECH-259 switch INTO external_task).
+    external_task_drive_salience_weight: float = 1.0
+    # beta-elevation (committed motor program) term in the engagement scalar.
+    external_task_drive_commit_weight: float = 1.0
+    # goal_proximity term in the engagement scalar.
+    external_task_drive_proximity_weight: float = 1.0
+    # gate engagement on goal_state.is_active() (no active goal -> engagement 0).
+    external_task_drive_require_goal_active: bool = True
+
     # SD-032c: AIC-analog interoceptive-salience / urgency module.
     # Master switch -- when True, REEAgent instantiates an AICAnalog that
     # reads z_harm_a_norm + drive_level + beta_gate_elevated + operating_mode
@@ -3454,6 +3482,13 @@ class REEConfig:
         salience_dacc_pe_weight: float = 1.0,
         salience_dacc_foraging_weight: float = 0.5,
         salience_apply_to_dacc_bias: bool = False,
+        # mode-governance-engagement: external_task salience source (no-op default).
+        use_external_task_drive: bool = False,
+        external_task_drive_affinity_weight: float = 1.0,
+        external_task_drive_salience_weight: float = 1.0,
+        external_task_drive_commit_weight: float = 1.0,
+        external_task_drive_proximity_weight: float = 1.0,
+        external_task_drive_require_goal_active: bool = True,
         # SD-032c: AIC-analog interoceptive-salience / urgency
         use_aic_analog: bool = False,
         aic_baseline_alpha: float = 0.02,
@@ -4292,6 +4327,13 @@ class REEConfig:
         config.salience_dacc_pe_weight = salience_dacc_pe_weight
         config.salience_dacc_foraging_weight = salience_dacc_foraging_weight
         config.salience_apply_to_dacc_bias = salience_apply_to_dacc_bias
+        # mode-governance-engagement: external_task salience source.
+        config.use_external_task_drive = use_external_task_drive
+        config.external_task_drive_affinity_weight = external_task_drive_affinity_weight
+        config.external_task_drive_salience_weight = external_task_drive_salience_weight
+        config.external_task_drive_commit_weight = external_task_drive_commit_weight
+        config.external_task_drive_proximity_weight = external_task_drive_proximity_weight
+        config.external_task_drive_require_goal_active = external_task_drive_require_goal_active
 
         # SD-032c: AIC-analog interoceptive-salience / urgency
         config.use_aic_analog = use_aic_analog

@@ -28,6 +28,11 @@ Architectural scope (SD-032a v3 minimum-viable):
     - aic_salience    (SD-032c)  : scalar urgency salience
     - pcc_stability   (SD-032d)  : scalar in [0, 1]; high resists transitions
     - pacc_autonomic  (SD-032e)  : scalar autonomic write-back
+  Inputs (registered externally by REEAgent under flags; arbitrary named signals):
+    - cea_mode_prior / cea_fast_prime (SD-035), override_signal (SD-037),
+      external_task_drive (mode-governance-engagement: committed-goal-pursuit
+      engagement; affinity -> external_task AND a salience-aggregate contribution so
+      a switch INTO external_task can fire on the foraging substrate).
 
 Outputs:
     operating_mode      Dict[str, float]    soft probability vector
