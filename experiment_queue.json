@@ -6,5 +6,25 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-672a",
+      "title": "MECH-057b trajectory-promotion-gate (relative completion bar): supersedes degenerate V3-EXQ-672",
+      "script": "experiments/v3_exq_672a_mech057b_trajectory_promotion_gate.py",
+      "experiment_type": "v3_exq_672a_mech057b_trajectory_promotion_gate",
+      "priority": 50,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 480,
+      "episodes_per_run": 500,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-057b",
+      "claim_ids": [
+        "MECH-057b"
+      ],
+      "supersedes": "V3-EXQ-672",
+      "note": "Re-author + re-queue of V3-EXQ-672 (self-reported DEGENERATE, mean_filtered_fraction_ARM_1=0, scoring-excluded by the 2026-06-13 AM governance cycle). ROOT CAUSE: 672 used an ABSOLUTE completion gate (completion_threshold=2.0 on the residue-completion score), which sat above the entire residue-cost distribution on this small/low-harm env -> the gate suppressed nothing -> the C1/C2 cross-arm contrast was vacuous. FIX: ARM_1 now promotes candidates by a DATA-RELATIVE quantile bar (suppress the highest-residue DROP_FRACTION=0.4 of the pool; >=MIN_CANDIDATES=2 always promoted), which adapts to the substrate's residue magnitude. Added a readiness precondition self-routing substrate_not_ready_requeue (non_degenerate=False, NOT a MECH-057b weakens) when mean_filtered_fraction_ARM_1 < FILTER_FLOOR=0.10 (the relative bar cannot bite a flat candidate pool, so filtered_fraction folds in the score-spread requirement). claim_ids=[MECH-057b] only (verified: tests the hippocampal completion-quality gate before E3, scoring on _score_trajectory = the same residue-completion score compute_completion_signal consumes). Dry-run smoke: gate filters 32->19 candidates (filtered_fraction=0.4062 vs 0.0 in 672); gate_engaged=True; non_degenerate=True; runs end-to-end; emit_outcome + validate_experiments --strict clean. 3 seeds x 2 arms x 500 train + 100 eval eps x 200 steps. check_degeneracy net on C1/C2 cross-arm groups retained."
+    }
+  ]
 }
