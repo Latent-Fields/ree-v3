@@ -95,6 +95,24 @@
       "episodes_per_run": 500,
       "experiment_type": "v3_exq_672a_mech057b_trajectory_promotion_gate",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-677",
+      "title": "MECH-180 novelty-driven adaptive sleep upregulation",
+      "script": "experiments/v3_exq_677_mech180_novelty_sleep_upregulation_probe.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 60,
+      "claim_id": "MECH-180",
+      "note": "Tests whether novel environments and high prediction error during wake produce measurably increased sleep replay activity (SWS writes + REM rollouts). Two arms: HIGH_NOVELTY (env_drift_interval=3, context switching every 5 eps) vs LOW_NOVELTY (stable env, env_drift_interval=999). Both use sleep_aggregation_cluster=True, sleep every 10 episodes. 3 seeds x 2 conditions x 100 episodes x 200 steps. Primary DVs: cumulative_sws_writes, cumulative_rem_rollouts. Acceptance: C1 (novelty manipulation check: mean_e1_pred_error_HIGH > LOW + 0.01), C2/C3 (25% more SWS/REM activity in HIGH arm), C4 (substrate functional: both arms >= 3 SWS writes and >= 2 REM rollouts), C5 (agent functional: goal_success >= 0.03 both arms). PASS all 5 -> supports MECH-180; C1 PASS but C2/C3 FAIL -> weakens; C1 FAIL -> non_contributory; C4/C5 FAIL -> substrate_failure. Phased training: P0 (0-40 eps encoder warmup), P1 (40-100 eps train with frozen encoder). Smoke test passed: sleep cycle fires (sws_n_writes=8.0, rem_n_rollouts=6.0), env dims correct, agent sleep_aggregation enabled.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-180"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 100,
+      "experiment_type": "v3_exq_677_mech180_novelty_sleep_upregulation_probe",
+      "seeds": 3
     }
   ]
 }
