@@ -36,7 +36,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 15,
       "note": "implement-substrate Step-8 validation for the MECH-423 super-additivity READINESS substrate (R1/R2/R3) landed 2026-06-12. claim_ids=[] diagnostic; does NOT test super-additivity (that is the separate EXP-0380 ablation this unblocks). PASS = R2 final_rel_delta<0.05 + R3 interleaved share>0/blocked share=0 + R1 coupled, on >=2/3 seeds; below-floor self-routes substrate_not_ready_requeue. Queue entry re-applied after a phase3-queue snapshot dropped the original append (commit 78fe92c landed the script without the entry). See REE_assembly/docs/architecture/mech_423_superadditivity_readiness_substrate.md.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-13T00:00:35Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 20,
