@@ -6,29 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-464d",
-      "title": "MECH-266 competing-goals / switch-cost asymmetry on mode-governance-engagement substrate (use_external_task_drive); successor to 464c with occupancy-keyed readiness gate",
-      "script": "experiments/v3_exq_464d_mech266_competing_goals_behavioural.py",
-      "priority": 60,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "claim_id": "MECH-266",
-      "note": "Validation of the mode-governance-engagement substrate (ree-v3 use_external_task_drive, landed 2026-06-13 commit 13dece2). Successor (NOT supersede) of V3-EXQ-464c, which FAILed non_contributory because fraction_in_external_task=0.0 on both arms (no external_task salience SOURCE). TWO changes vs 464c: (1) use_external_task_drive=True (calibrated affinity_weight=3.0 / salience_weight=2.0 so a committed foraging step decisively contests external_task vs the dACC internal_planning push -- probe-verified non-vacuous: committed engagement ~1.0 -> aggregate 3.2 > enter_threshold 1.0 -> external_task wins+switches; uncommitted ~0.1 -> internal_planning wins); (2) the non-vacuity gate is RE-STATED to min_across_arms(fraction_in_external_task) > 0.1 (the SAME occupancy statistic C1 routes on) replacing the 464c n_switches>=1 gate. claim_ids=[MECH-266,SD-032a]; experiment_purpose=evidence. PROMOTES NOTHING (MECH-266 provisional / SD-032a stable; pending_retest holds). DEPENDS_ON (unresolved): scaffolded_sd054_onboarding nav-competence (Stage-H) -- may legitimately self-route substrate_not_ready_requeue if the agent doesn't forage/survive long enough; the contact + occupancy gates make that a non_contributory, never a false weakens. Dry-run: end-to-end, self-routes substrate_not_ready at dry scale (occupancy gate), validate_experiments --strict clean.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-13T10:35:50Z"
-      },
-      "claim_ids": [
-        "MECH-266",
-        "SD-032a"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_type": "v3_exq_464d_mech266_competing_goals_behavioural",
-      "seeds": 3
-    }
-  ]
+  "items": []
 }
