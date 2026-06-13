@@ -8,27 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-655",
-      "title": "INV-074 crystallization-necessity: task-distribution-shift phase-3 redesign (supersedes 610f)",
-      "script": "experiments/v3_exq_655_inv074_crystallization_necessity_taskshift.py",
-      "priority": 250,
-      "machine_affinity": "any",
-      "estimated_minutes": 2200,
-      "supersedes": "V3-EXQ-610f",
-      "claim_id": "INV-074",
-      "backlog_id": "EVB-0270",
-      "note": "IGW-20260609-038 / failure_autopsy_V3-EXQ-610f_2026-06-08 user-confirmed route (a). Replaces the noise-only phase-3 with a genuine TASK-DISTRIBUTION SHIFT (SD-054 reef-bipartite layout + hazard_food_attraction=0.8 -> flee-to-reef single dominant optimum conflicting with the phase-0-2 forage policy) so the un-crystallized control suffers catastrophic forgetting (D2 collapse) while the EWC-anchored arm resists (D1). reef_enabled in all phases keeps world_obs_dim=275 constant. Decisive substrate-incapacity fork pre-registered: if D2 still fails on a genuine task-shift -> accept INV-074 substrate_ceiling and STOP the 610 cascade. 5 arms x 3 seeds (42/43/44) x 2500 ep x 200 steps; verified wiring (_assert_fixes_wired) + D3 non-vacuity gate carried from 610f.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-09T05:22:15Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 2500,
-      "experiment_type": "v3_exq_655_inv074_crystallization_necessity_taskshift",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-669a",
       "title": "MECH-329/MECH-189 wanting-before-liking developmental goal seeding (3-condition infant curriculum; super-ordinal anchor formation) -- supersedes 669; StepHarness loop rewrite",
       "script": "experiments/v3_exq_669a_mech329_wanting_first_goal_seeding.py",
