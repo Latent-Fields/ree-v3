@@ -6,23 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-669a",
-      "title": "MECH-329/MECH-189 wanting-before-liking developmental goal seeding (3-condition infant curriculum; super-ordinal anchor formation) -- supersedes 669; StepHarness loop rewrite",
-      "script": "experiments/v3_exq_669a_mech329_wanting_first_goal_seeding.py",
-      "priority": 100,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-669",
-      "claim_id": "MECH-329",
-      "note": "diagnose-errors fix of V3-EXQ-669 ERROR (exit 1, 2.1s, no sentinel on ree-cloud-4). Root cause: the hand-rolled act/train loop was written against a stale/nonexistent agent API -- env.to() on a numpy env, no-arg select_action(), nonexistent public e1_tick/e2_tick/e3_tick, a 4-tuple env.step unpack of a 5-tuple, and a mis-ordered emit_outcome(manifest, outcome, run_id) that also never wrote a manifest. The inner loop was rewritten onto the canonical StepHarness (experiments/_harness.py: one sense / one update_z_goal-with-super-ordinal-writes / one select_action / one update_residue per tick); E1+E2 trained via compute_prediction_loss/compute_e2_loss after each step (E3 running_variance driven by update_residue); manifest now writes flat JSON to evidence/experiments with a _v3 run_id + emit_outcome(outcome=, manifest_path=). claim_ids=[MECH-329, MECH-189] (user-confirmed): tests wanting-before-liking ordering AND exercises the MECH-189 super-ordinal goal-anchor substrate (use_super_ordinal_goal_anchors=True). Smoke: 3 conditions run end-to-end; 50/60-ep light run confirmed benefit contacts (23) -> super-ordinal write path reachable.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-12T23:40:40Z"
-      },
-      "experiment_type": "v3_exq_669a_mech329_wanting_first_goal_seeding"
-    }
-  ]
+  "items": []
 }
