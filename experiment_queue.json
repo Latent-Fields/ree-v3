@@ -29,25 +29,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-676",
-      "title": "MECH-423 readiness-readouts non-vacuity diagnostic (R2 inference-convergence + R3 interleaved cross-module consolidation + R1 shared-latent grad probe)",
-      "script": "experiments/v3_exq_676_mech423_readiness_readouts_nonvacuous.py",
-      "priority": 240,
-      "machine_affinity": "any",
-      "estimated_minutes": 15,
-      "note": "implement-substrate Step-8 validation for the MECH-423 super-additivity READINESS substrate (R1/R2/R3) landed 2026-06-12. claim_ids=[] diagnostic; does NOT test super-additivity (that is the separate EXP-0380 ablation this unblocks). PASS = R2 final_rel_delta<0.05 + R3 interleaved share>0/blocked share=0 + R1 coupled, on >=2/3 seeds; below-floor self-routes substrate_not_ready_requeue. Queue entry re-applied after a phase3-queue snapshot dropped the original append (commit 78fe92c landed the script without the entry). See REE_assembly/docs/architecture/mech_423_superadditivity_readiness_substrate.md.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-13T00:00:35Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 20,
-      "experiment_type": "v3_exq_676_mech423_readiness_readouts_nonvacuous",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-669a",
       "title": "MECH-329/MECH-189 wanting-before-liking developmental goal seeding (3-condition infant curriculum; super-ordinal anchor formation) -- supersedes 669; StepHarness loop rewrite",
       "script": "experiments/v3_exq_669a_mech329_wanting_first_goal_seeding.py",
@@ -99,7 +80,11 @@
       "supersedes": "V3-EXQ-468c",
       "claim_id": "SD-034",
       "note": "Validation of the 2026-06-12 commitment-closure-control-plane amend Leg-B de-commit hold (ree-v3 6fdb111). closure_decommit_hold_ticks=5 makes a closure-coupled release survive >1 tick. C2 is the NON-CAP-PINNED DV the autopsy required: ON committed_frac_post_absolute (committed_post/post_window_steps in [0,1]) < OFF by margin -- replaces the 468c committed_frac_post_vs_pre ratio that pinned >=1. Also wires Leg-A env-completion hook + Leg-C trained rule_bias_head. Readiness: ON committed + contradiction engaged + both arms have a non-empty post-window -> else substrate_not_ready_requeue. diagnostic. Concurrency: pathspec under TASK_CLAIMS implement-substrate-commitment-closure-control-plane (snapshot-race aware).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-13T00:02:03Z"
+      },
       "claim_ids": [
         "SD-034",
         "MECH-268",
