@@ -75,6 +75,22 @@
       "episodes_per_run": 500,
       "experiment_type": "v3_exq_672a_mech057b_trajectory_promotion_gate",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-669b",
+      "title": "MECH-329 wanting-before-liking goal seeding (669a forced-feed-nursery fix)",
+      "experiment_type": "v3_exq_669b_mech329_wanting_first_goal_seeding",
+      "script": "experiments/v3_exq_669b_mech329_wanting_first_goal_seeding.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 45,
+      "episodes_per_run": 14,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "MECH-329",
+      "supersedes": "V3-EXQ-669a",
+      "note": "Re-issue of degenerate V3-EXQ-669a (failure_autopsy_V3-EXQ-669a_2026-06-13: non_contributory/substrate_ceiling; anchor/write/p01=0 in ALL arms incl c4 positive control under the ecological InfantCurriculum GAP-2 z_goal-seeding ceiling). Same scientific question (MECH-329 wanting-before-liking ordering), harness fix: runs the 3-arm ordering test (wanting_first/liking_first/both_delayed) on the scaffolded_sd054_onboarding Stage-0 forced-feed nursery (z_goal_enabled=True + drive_weight=2.0) so the MECH-189 super-ordinal write gate fires, mirroring V3-EXQ-588c. claim_ids=[MECH-329, MECH-189]. Pre-registered non-vacuity readiness gate (R1 both_delayed anchor>=1 AND total_writes>=1; R2 wanting-schedule manipulation took; R3 anchor-hierarchy max>=2) self-routes substrate_not_ready_requeue (non_degenerate=false), NEVER a weakens, when unmet. Load-bearing scored criteria C1(anchor count)+C3(p01 complexity); C2(p01 writes) is a manipulation-check precondition."
     }
   ]
 }
