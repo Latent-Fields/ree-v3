@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-13
+**Last updated:** 2026-06-14
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-13)
+## 0. Current V3 State (2026-06-14)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -175,6 +175,117 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-14T01:10Z nightly read.** `evidence/experiments/` flat
+  top-level holds **~395 `v3_exq_*.json` manifests** on disk (latest
+  letter frontier through V3-EXQ-677); legacy fleet `runner_status.json`
+  unchanged at the **2026-06-09T06:00Z snapshot of 840 dedup completion
+  records (283 PASS / 437 FAIL / 87 ERROR / 32 UNKNOWN / 1 INCONCLUSIVE)**
+  -- under Phase 3 the per-machine cards under `runner_heartbeats/` +
+  `runner_status/` lead the legacy single-file tally. **Pending review
+  queue (regenerated 2026-06-13T22:12:00Z) reads 2 items** -- both held
+  by the evening governance cycle for `/failure-autopsy` per user
+  directive (no `evidence_direction` assigned, stay pending): V3-EXQ-677
+  MECH-180 novelty-sleep-upregulation probe (FAIL); V3-EXQ-672a
+  MECH-057b trajectory-promotion-gate (FAIL). **Currently queued
+  (`experiment_queue.json` items[]): 0 items** -- the 2026-06-13 IGW
+  queue-6 Step-2.5 triage of 6 ready proposals (EXP-0143/MECH-423,
+  EXP-0190/MECH-044, EXP-0191/MECH-048, EXP-0194/MECH-191,
+  EXP-0195/MECH-270, INV-074 retest) found 0 cleanly queueable as
+  evidence experiments: EXP-0143/MECH-423 deferred (proper experiment
+  is EXP-0380 3-arm ablation gated on integration-readiness lit-pull;
+  the R1/R2/R3 readiness substrate landed 2026-06-12 but EXP-0380
+  itself stays a dedicated session); EXP-0190/MECH-044 needs bespoke
+  relational-task design (no clean grid-world surface); EXP-0191/MECH-048
+  switching-pressure half empirically substrate-blocked (smoke v3_exq_678
+  wrote then deleted -- 0 mode switches across default + aggressive
+  dACC-boost configs on a converged warmup; entropy half tautological;
+  fix = mode-governance-engagement substrate); EXP-0194/MECH-191 skipped
+  (active parallel IGW-220 worktree); EXP-0195/MECH-270 skipped (ephaptic
+  lit-pull territory, "not an implementation requirement"); INV-074
+  substrate_ceiling confirmed 2026-06-13T20:04Z by V3-EXQ-655 (7th
+  iteration, decisive substrate-incapacity). Substrate / governance
+  landings since the 2026-06-13T01:10Z spec sync: (1) **IGW plan-reconcile
+  sweep + close-out** (REE_assembly master 6530f3c822 / d4d8c08990 /
+  c9fd874, 2026-06-13) -- 7 stale-status IGW (plan reconcile) nodes
+  flipped open -> done across the 2026-06-13 cycle as their architectural-
+  commitment claims are already registered in claims.yaml: ABM-1 (Q-060
+  decision -- distinct autobiographical-event memory type vs tag/indexing
+  convention), GDL-1 (single-vs-multi-slot fork on SD-046), OBJ-ABS-1
+  (substrate-gated; V3 atomic-only vocabulary missing), DRV-1 (SD-060 +
+  MECH-111 drive-axes-as-first-class-register), OBJ-1 (ARC-080
+  type-vs-token-vs-anchor primitive), ARR-1 (ARC-102), GRAM-1 (ARC-100 /
+  INV-003 / INV-007), LANG-1 (INV-003 / ARC-009), LTI-1 (INV-007 /
+  ARC-104), INF-1 (ARC-091), EMP-1/EMP-2 fast_empathy
+  (ARC-094/ARC-095). Workset regenerated; ready (plan reconcile) lane
+  trimmed. (2) **Closing-out lit-pull sprint -- 5 closures + 3 partner
+  claims registered** (REE_assembly master c347e38b9e / 72c784be94 /
+  381d9d05ba / d63faaf658 / d71360b679 / 53f5f2ddfa / 57d7af5bea /
+  d42cfdaba6 / 652402209b, 2026-06-13) -- DMN-8 (developmental DMN /
+  ARC-090, MECH-380/381/382/383 -- replaces analogy anchors with
+  neuroscience mechanism; raises ARC-090 0.752, MECH-380/381 0.74,
+  MECH-382 0.71, MECH-383 0.76); SELF-8 (self-model integration L1
+  body-ownership + L2 agency / efference-copy + L3 interoceptive --
+  SD-030 0.831, MECH-215 0.828, INV-064 0.725, ARC-081 0.718,
+  MECH-214 0.71); INF-7 (belief-state inference L1-L5 + failure-mode
+  register mapped onto MECH-126 -- Q-070 0.859, ARC-091 0.866); GDL-8
+  (frontopolar deliberation -- first-ever lit grounding for the
+  previously-ZERO-lit SD-046/SD-027/SD-028/MECH-254 cluster; SD-046
+  0.822); AE-9 (per-candidate affect; MECH-359/360/364/369 + ARC-088);
+  HPL-9 (Sinclair 2021 ACh/PE settles MECH-207 directionality 0.56
+  -> 0.75 supports; closes the lit-pull DONE); ABM-9 FINISH
+  (autobiographical-store + MECH-366 0.55 -> 0.83 + MECH-429 0.735).
+  3 proposal-first partner claims registered: **MECH-432** dACC<->FPC
+  reciprocal arbitration loop (mechanism_hypothesis, candidate, v4,
+  substrate_conditional); **MECH-433** LC-NE-analog explore/exploit
+  gain-control governing MECH-264 disengagement (NAMES the missing
+  NE-analog substrate as a genuine gap); **Q-077** discrete-slot vs
+  flexible-precision-resource open_question on SD-046 (what_would_answer
+  = escalating-load step-function-vs-power-law degradation); **MECH-434**
+  epistemic-commitment-timing axis (epistemic-freezing
+  <-> anti-epistemic-panic; depends_on ARC-091/MECH-385/MECH-388/MECH-061/
+  MECH-090/Q-044, distinct_from MECH-126; lit_conf 0.865; PROMOTES
+  NOTHING -- v4/substrate_conditional); **AE-10** roadmap node
+  (slow-modulator decommit-friction substrate gap; MECH-369 amended with
+  Aston-Jones&Cohen 2005 LC-NE adaptive-gain grounding). claims.yaml
+  802 -> 815/816 across the day. (3) **Backward-traceability gate fix**
+  (REE_assembly master f8d71de093, 2026-06-13) -- added DEV-NEED-048
+  register row for MECH-428 subgoal_bootstrapped_goal_seeding (the one
+  developmental claim flagged untraced by
+  `scripts/check_backward_traceability.py` via the 'curriculum'
+  keyword); checker now 71 developmental claims, 0 missing -> 
+  `governance.sh` Step 4b / G2 no longer halts (SKIP_TRACEABILITY=1
+  no longer needed). (4) **Evening governance cycle (2026-06-13)** --
+  851-file holistic governance regen + MECH-171 out_of_domain mis-fire
+  note (REE_assembly master 81f671004e / 71f58ab); 2 pending FAILs
+  (V3-EXQ-677 MECH-180 / V3-EXQ-672a MECH-057b) HELD for
+  `/failure-autopsy` per user, no `evidence_direction` assigned, stay
+  pending. MECH-171 keep candidate (mis-fire note); Q-054 keep broad;
+  MECH-057b/SD-033b + 31 V3-pending recs accepted keep-held. Closure
+  drift clean; substrate_queue unchanged (no new evidence/autopsies).
+  Excluded IGW-owned `inter_governance_workset.*` edits. No claim
+  promotions/demotions applied this cycle. (5) **Indexer reads runs/
+  pack not flat JSON note** (memory) -- recorded that
+  `build_experiment_indexes.py:546` reads `runs/<run_id>/manifest.json`,
+  NOT the flat `evidence/experiments/*.json`, so failure-autopsy
+  corrections (`non_contributory`/`non_degenerate`) written only to the
+  flat manifest are silently ignored -> MECH-171/057b mis-fires recur
+  (does_not_support is NOT in the scoring-exclude set); fix is to
+  propagate corrections into the pack copy. Recorded as a flag on the
+  prior evening governance cycle. Bottleneck: the **SD-034 commitment-
+  closure-control-plane validation pair (V3-EXQ-460d + V3-EXQ-468d)**
+  remains the in-flight gate for the cohort-wide closure-cluster
+  pending_retest reroute; on the spec read no items are queued in
+  `experiment_queue.json items[]`, so the next experimental signal
+  depends on coordinator-side claims (which the runner heartbeats /
+  per-machine cards drive) rather than the local queue file. V3-EXQ-655
+  INV-074 task-distribution-shift returned a 7th-iteration decisive
+  substrate-incapacity 2026-06-13T20:04Z (substrate_ceiling confirmed).
+  V3-EXQ-460d / 468d / 669a remain in flight on the cloud workers.
+  The two FAILs held for autopsy (677/672a) are the next adjudication
+  decisions. The R1/R2/R3 MECH-423 readiness substrate landed 2026-06-12
+  so EXP-0380 cross-model super-additivity remains the queued readiness
+  check pending a dedicated session.
 
 - **2026-06-13T01:10Z nightly read.** `evidence/experiments/`
   `claim_evidence.v1.json` carries **2816 unique V3 `run_id` records**
