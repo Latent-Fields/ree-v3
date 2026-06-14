@@ -17,7 +17,11 @@
       "supersedes": "V3-EXQ-680b",
       "claim_id": "MECH-423",
       "note": "680c re-runs the SAME MECH-423 super-additivity hypothesis + SAME hardened delta-scaled+floored margin as 680b, with four robustness fixes from failure_autopsy_V3-EXQ-680b_2026-06-14 (adjudicated 680b's lone -1.19 seed as numerical instability, not negative-transfer weakens): (a) grad-clip world/affordance/proxy heads + shared encoder; (b) bound each held-out R2 at -1.0 so a divergent seed cannot dominate delta_SD and inflate the margin; (c) re-wire the R1 negative-transfer cosine probe onto the shared encoder params (680b's disjoint-latent-slice probe pinned the cosine at exactly 0.0, so the guard could not fire); (d) n=5 seeds, MIN_SEEDS_PASS=3 majority. evidence.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-14T23:22:51Z"
+      },
       "conditions": 3,
       "episodes_per_run": 40,
       "experiment_type": "v3_exq_680c_mech423_superadditivity_ablation",
@@ -121,25 +125,6 @@
       "episodes_per_run": 200,
       "experiment_type": "v3_exq_666c_arc063_crf_availability_maintenance_readiness_fracgate",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-591d",
-      "title": "ARC-046 / GAP-14 InfantCurriculumScheduler Phase 0->1 gate-robustness (K-of-N / EMA vs single-episode crossing)",
-      "script": "experiments/v3_exq_591d_isef005_phase01_gate_robustness_v3.py",
-      "priority": 240,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "note": "Claim-free gate-robustness diagnostic (claim_ids=[], experiment_purpose=diagnostic; does NOT weight governance) for ARC-046 / infant_substrate:GAP-14. Tests defect (2) of the user-adjudicated failure_autopsy_V3-EXQ-591c_2026-06-11: the single-episode-crossing Phase 0->1 gate (_try_phase_0_to_1, H_POS_FRAC_OF_MAX=0.20) admitted seed-45's near-stationary policy (h_pos_mean 0.140, 2 crossings). Re-runs the SAME 591c diversity-armed reachability probe (5 seeds 42-46, 160 ep, 200 steps/ep, MECH-313+MECH-314 ON, SP-CEM default-on; fully RNG-seeded -> deterministically reproduces the 591c traces + reproducibility check), records the full per-episode h_pos sequence per seed, and replays each through BASELINE single-episode / K-of-N (K=5,N=10) / EMA (alpha=0.2) Phase 0->1 criteria OFFLINE. The shared infant_curriculum.py scheduler is NOT mutated (610e/669/586/667 depend on its default gate). PRIMARY load-bearing C_gate_discriminates: at least one of {K-of-N,EMA} REJECTS every false-advancer (baseline-admitted but h_pos_mean<0.20 OR <2 crossings) AND ADMITS every genuine explorer (seeds 42-44). Non-vacuity preconditions (else substrate_not_ready_requeue): max h_pos>=0.20 movement floor; >=2 genuine explorers; >=1 false advancer. Seed-46 staying in Phase 0 under ALL criteria is OUT OF SCOPE -- orthogonal exploration-STRENGTH defect (Q-043/667->667a modulatory-bias-selection-authority thread), NOT a gate-criterion defect. PASS routes to /implement-substrate (K-of-N/EMA replacement for _try_phase_0_to_1); the full curriculum-vs-flat EXQ-ISEF-005 (V3-EXQ-591 successor) stays blocked until BOTH this gate fix AND the exploration-strength fix land. Smoke 2026-06-14: validate_experiments --strict OK + --dry-run runs end-to-end (criteria replay + dry-scale substrate_not_ready self-route + emit_outcome sentinel). ARC-046 stays candidate (conf 0.0); not weakened.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-14T20:25:17Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 160,
-      "experiment_type": "v3_exq_591d_isef005_phase01_gate_robustness",
-      "seeds": 5
     }
   ]
 }
