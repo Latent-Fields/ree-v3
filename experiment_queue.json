@@ -28,6 +28,22 @@
       "episodes_per_run": 500,
       "experiment_type": "v3_exq_672b_mech057b_trajectory_promotion_gate",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-680a",
+      "title": "EXP-0380 MECH-423 super-additivity 3-arm ablation (680a: encoder-in-optimizer fix; supersedes 680)",
+      "experiment_type": "v3_exq_680a_mech423_superadditivity_ablation",
+      "script": "experiments/v3_exq_680a_mech423_superadditivity_ablation.py",
+      "priority": 200,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 240,
+      "episodes_per_run": 40,
+      "seeds": 3,
+      "conditions": 3,
+      "supersedes": "V3-EXQ-680",
+      "claim_id": "MECH-423",
+      "note": "MANUAL proposal EXP-0380 (no EVB backlog_id; EVB-0380 is a DIFFERENT proposal=SD-027). BUGFIX of V3-EXQ-680: 680's P0 optimizer held only the head params, so gradient into the shared encoder (latent_stack) was DISCARDED -- the encoder never trained, integration was inert, iso==pair (2/3 seeds byte-identical), 680 self-routed inconclusive/additive_below_margin (scoring-excluded). 680a puts latent_stack in the P0 optimizer (integration locus actually learns) + a floor-based integration-effect degeneracy guard (catches inert runs the groups-check misses on single-seed jitter). Smoke confirms iso!=pair now (encoder co-shapes). claim_ids=[MECH-423], evidence; ISOLATED(gradient-stop) vs INTEGRATED_PAIR(load-bearing) vs INTEGRATED_TRIPLE(proxy ARC-080 attachment surface, exploratory). P0 R1/R2/R3 readiness gate -> substrate_not_ready_requeue. supersedes 680 (mark 680 manifest superseded at next governance)."
     }
   ]
 }
