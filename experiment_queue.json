@@ -30,6 +30,21 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-682",
+      "title": "GAP-A in-arm route-range collapse diagnostic (locate 569g applied route_range=0.0 -> cause i/ii/iii)",
+      "script": "experiments/v3_exq_682_gapa_inarm_routerange_collapse_diagnostic.py",
+      "priority": 290,
+      "machine_affinity": "any",
+      "estimated_minutes": 55,
+      "note": "Diagnose-first (user-chosen 2026-06-14) for behavioral_diversity_isolation:GAP-A. Claim-free (claim_ids=[]), experiment_purpose=diagnostic. Locates why V3-EXQ-569g applied modulatory_channel_route_range=0.0 in its falsifier arms despite the readiness probe certifying ARM_1=0.18: measures the LIVE in-arm cand_world_summaries cross-candidate spread + project_channel_range output + applied route_range at the actual select tick across ARM_0/ARM_1/ARM_2, attributing the 0.0 to cause_i (live summary re-collapse) / cause_ii (project_channel_range) / cause_iii (routing-source wiring). Routed by failure_autopsy_V3-EXQ-569g_2026-06-14 (instrumentation-defect adjudication: readiness gate certifies the channel-representation spread, not the applied per-candidate routed bias). Gates the 4th modulatory-bias-selection-authority /implement-substrate amend + the eventual V3-EXQ-569h post-fix falsifier. SD-056-NaN prime-suspect disconfirmed (569f e2_world_forward divergent=TRUE; V3-EXQ-617 already fixed the multistep NaN).",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 3,
+      "episodes_per_run": 70,
+      "experiment_type": "v3_exq_682_gapa_inarm_routerange_collapse_diagnostic",
+      "seeds": 2
+    },
+    {
       "queue_id": "V3-EXQ-666c",
       "title": "ARC-063 CRF availability-maintenance readiness -- clean fraction-gated re-run (666b pre-gap differentiation fix + enlarged maturation)",
       "script": "experiments/v3_exq_666c_arc063_crf_availability_maintenance_readiness_fracgate.py",
@@ -67,21 +82,6 @@
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_591d_isef005_phase01_gate_robustness",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-682",
-      "title": "GAP-A in-arm route-range collapse diagnostic (locate 569g applied route_range=0.0 -> cause i/ii/iii)",
-      "experiment_type": "v3_exq_682_gapa_inarm_routerange_collapse_diagnostic",
-      "script": "experiments/v3_exq_682_gapa_inarm_routerange_collapse_diagnostic.py",
-      "priority": 290,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 55,
-      "episodes_per_run": 70,
-      "seeds": 2,
-      "conditions": 3,
-      "note": "Diagnose-first (user-chosen 2026-06-14) for behavioral_diversity_isolation:GAP-A. Claim-free (claim_ids=[]), experiment_purpose=diagnostic. Locates why V3-EXQ-569g applied modulatory_channel_route_range=0.0 in its falsifier arms despite the readiness probe certifying ARM_1=0.18: measures the LIVE in-arm cand_world_summaries cross-candidate spread + project_channel_range output + applied route_range at the actual select tick across ARM_0/ARM_1/ARM_2, attributing the 0.0 to cause_i (live summary re-collapse) / cause_ii (project_channel_range) / cause_iii (routing-source wiring). Routed by failure_autopsy_V3-EXQ-569g_2026-06-14 (instrumentation-defect adjudication: readiness gate certifies the channel-representation spread, not the applied per-candidate routed bias). Gates the 4th modulatory-bias-selection-authority /implement-substrate amend + the eventual V3-EXQ-569h post-fix falsifier. SD-056-NaN prime-suspect disconfirmed (569f e2_world_forward divergent=TRUE; V3-EXQ-617 already fixed the multistep NaN).",
-      "claim_ids": []
     }
   ]
 }
