@@ -32,18 +32,18 @@
     {
       "queue_id": "V3-EXQ-680",
       "title": "EXP-0380 MECH-423 cross-model super-additivity 3-arm ablation (ISOLATED vs INTEGRATED_PAIR vs INTEGRATED_TRIPLE-proxy)",
-      "experiment_type": "v3_exq_680_mech423_superadditivity_ablation",
       "script": "experiments/v3_exq_680_mech423_superadditivity_ablation.py",
       "priority": 200,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 240,
-      "episodes_per_run": 40,
-      "seeds": 3,
-      "conditions": 3,
-      "backlog_id": "EXP-0380",
       "claim_id": "MECH-423",
-      "note": "Actual EVIDENCE experiment for MECH-423 (exp_conf currently 0). Integration locus = shared encoder (latent_stack): INTEGRATED arms let both task heads' gradients flow into the shared latent (co-shaping); ISOLATED applies a gradient stop. P0 R1/R2/R3 readiness gate (readiness validated by V3-EXQ-679 2026-06-14) -> substrate_not_ready_requeue on below-floor, never a false sub-additive verdict. ARM_INTEGRATED_TRIPLE uses a PROXY object-binding head as a V4/ARC-080 attachment surface (ARC-080 is candidate/v3_pending/v4; object_file_buffer is non-trainable) -- the triple delta is EXPLORATORY, NOT tagged to ARC-080; the MECH-423 verdict rests on the ISOLATED-vs-PAIR contrast. Per user decision 2026-06-14 (3-arm with proxy spine; ARC-080 stays V4 since MECH-423's V3 verdict does not depend on the triple arm). Smoke: dry-run end-to-end PASS, readiness non-vacuous, non_degenerate net + emit_outcome wired. POST-COMMIT DROPPED-FILE HAZARD: phase3-queue snapshot race -- verify git show --stat HEAD + jq queue_id before push."
+      "backlog_id": "EXP-0380",
+      "note": "Actual EVIDENCE experiment for MECH-423 (exp_conf currently 0). Integration locus = shared encoder (latent_stack): INTEGRATED arms let both task heads' gradients flow into the shared latent (co-shaping); ISOLATED applies a gradient stop. P0 R1/R2/R3 readiness gate (readiness validated by V3-EXQ-679 2026-06-14) -> substrate_not_ready_requeue on below-floor, never a false sub-additive verdict. ARM_INTEGRATED_TRIPLE uses a PROXY object-binding head as a V4/ARC-080 attachment surface (ARC-080 is candidate/v3_pending/v4; object_file_buffer is non-trainable) -- the triple delta is EXPLORATORY, NOT tagged to ARC-080; the MECH-423 verdict rests on the ISOLATED-vs-PAIR contrast. Per user decision 2026-06-14 (3-arm with proxy spine; ARC-080 stays V4 since MECH-423's V3 verdict does not depend on the triple arm). Smoke: dry-run end-to-end PASS, readiness non-vacuous, non_degenerate net + emit_outcome wired. POST-COMMIT DROPPED-FILE HAZARD: phase3-queue snapshot race -- verify git show --stat HEAD + jq queue_id before push.",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 40,
+      "experiment_type": "v3_exq_680_mech423_superadditivity_ablation",
+      "seeds": 3
     }
   ]
 }
