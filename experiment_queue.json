@@ -28,6 +28,22 @@
       "episodes_per_run": 500,
       "experiment_type": "v3_exq_672b_mech057b_trajectory_promotion_gate",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-680b",
+      "title": "EXP-0380 MECH-423 super-additivity 3-arm ablation (680b: hardened PASS criterion; supersedes 680a)",
+      "script": "experiments/v3_exq_680b_mech423_superadditivity_ablation.py",
+      "priority": 200,
+      "machine_affinity": "any",
+      "estimated_minutes": 240,
+      "supersedes": "V3-EXQ-680a",
+      "claim_id": "MECH-423",
+      "note": "MANUAL proposal EXP-0380 (no EVB backlog_id; EVB-0380 is a DIFFERENT proposal=SD-027). Supersedes V3-EXQ-680a, which RAN and recorded a PASS/supports for MECH-423 (manifest v3_exq_680a..._20260614T191656Z_v3) on a METHODOLOGICALLY WEAK margin: it scaled the super-additivity noise on the across-seed SD of the baseline LEVEL (pstdev(iso_scores)), not the SD of the DELTA -- which collapses toward 0 on a reproducible substrate so a trivially-small consistent positive delta can clear an ~0 margin and falsely report supports. On 680a's OWN data (delta_pair=[+1.57,+1.24,-1.19]) the effect is not reliably positive (2 seeds strongly super-additive, 1 strongly sub-additive) yet it cleared the level-scaled margin 0.1024 on 2/3 seeds. 680b ONLY tightens the PASS gate: margin = max(SUPERADD_SD_MULT*pstdev(delta_pair), SUPERADD_MIN_EFFECT_FLOOR=0.02) -- noise on the SD of the delta itself, hard-floored by an absolute minimum super-additive effect size (combined world_R2+affordance_R2 units; > the 1e-3 inertness guard). Sub-floor / high-variance positive deltas now route to additive_below_margin/inconclusive, never supports; 680a's data -> inconclusive under the new gate. FAIL/weakens (mean_delta<=0) and FAIL/inconclusive branches preserved verbatim; the change is strictly TIGHTER (margin can only rise) so it cannot manufacture a false PASS. Identical 3-arm ISOLATED/INTEGRATED_PAIR/INTEGRATED_TRIPLE ablation + P0 R1/R2/R3 readiness gate -> substrate_not_ready_requeue. claim_ids=[MECH-423], evidence. GOVERNANCE: mark the 680a manifest evidence_direction=superseded at next governance (weak-criterion PASS; do not let it keep weighting MECH-423). Smoke: validate_experiments --strict OK + --dry-run runs all 3 arms + readiness gate; margin floored at 0.02 (vanishing-margin pathology closed).",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 40,
+      "experiment_type": "v3_exq_680b_mech423_superadditivity_ablation",
+      "seeds": 3
     }
   ]
 }
