@@ -10,18 +10,18 @@
     {
       "queue_id": "V3-EXQ-679",
       "title": "MECH-423 R1/R2/R3 readiness-validation diagnostic",
-      "experiment_type": "v3_exq_679_mech423_readiness_validation_diagnostic",
       "script": "experiments/v3_exq_679_mech423_readiness_validation_diagnostic.py",
       "priority": 50,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 35,
-      "claim_ids": [],
-      "episodes_per_run": 24,
-      "seeds": 3,
-      "conditions": 1,
       "backlog_id": "EVB-0143",
-      "note": "EXPERIMENT_PURPOSE=diagnostic, claim_ids=[] -- validates the MECH-423 super-additivity readiness INSTRUMENTATION (R1 shared-latent grad coupling, R2 iterative-inference convergence, R3 interleaved cross-module consolidation) is NON-VACUOUS on a briefly-trained substrate. This is the readiness GATE for EXP-0380, NOT the EXP-0380 ablation itself -- do NOT mark EVB-0143/EXP-0380 executed on this run's PASS. Self-routes substrate_not_ready_requeue if a readout is starved (V3-EXQ-643-style preconditions assert the same statistic each criterion routes on). PASS unblocks the separate EXP-0380 3-arm super-additivity ablation session. Smoke PASS 2026-06-14 (R1 coupled / R2 converged / R3 interleaved=1.0 vs blocked=0.0)."
+      "note": "EXPERIMENT_PURPOSE=diagnostic, claim_ids=[] -- validates the MECH-423 super-additivity readiness INSTRUMENTATION (R1 shared-latent grad coupling, R2 iterative-inference convergence, R3 interleaved cross-module consolidation) is NON-VACUOUS on a briefly-trained substrate. This is the readiness GATE for EXP-0380, NOT the EXP-0380 ablation itself -- do NOT mark EVB-0143/EXP-0380 executed on this run's PASS. Self-routes substrate_not_ready_requeue if a readout is starved (V3-EXQ-643-style preconditions assert the same statistic each criterion routes on). PASS unblocks the separate EXP-0380 3-arm super-additivity ablation session. Smoke PASS 2026-06-14 (R1 coupled / R2 converged / R3 interleaved=1.0 vs blocked=0.0).",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 1,
+      "episodes_per_run": 24,
+      "experiment_type": "v3_exq_679_mech423_readiness_validation_diagnostic",
+      "seeds": 3
     }
   ]
 }
