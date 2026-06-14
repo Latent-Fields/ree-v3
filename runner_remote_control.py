@@ -255,19 +255,31 @@ def write_heartbeat(
 def _active_claim_on_evidence_dir(ree_assembly_path: Path) -> bool:
     """Return True if TASK_CLAIMS.json has an active claim covering any
     REE_assembly/evidence/ subdirectory (experiments/, planning/, literature/,
-    or any future evidence sibling).
+    or any future evidence sibling) OR the central claims registry under
+    REE_assembly/docs/claims/ (claims.yaml).
 
     Used by push_heartbeat / push_commands to skip the per-minute pull-rebase-
-    autostash dance whenever a Claude session is mid-edit on evidence files.
-    The autostash mechanism is mostly safe but can lose uncommitted edits in
-    rare interleavings (e.g. autostash-pop conflict that the loop then talks
-    over with subsequent commits). Best-effort -- returns False on any error.
+    autostash dance whenever a Claude session is mid-edit on a high-contention
+    governance file. The autostash mechanism is mostly safe but can lose
+    uncommitted edits in rare interleavings (e.g. autostash-pop conflict that
+    the loop then talks over with subsequent commits). Best-effort -- returns
+    False on any error.
 
     Scope was originally just 'evidence/experiments/' (added 2026-05-01 after
     the EXQ-232 ARC-026 supersession revert incident); broadened 2026-05-08
     to the 'evidence/' prefix after the same signature reappeared on an
     evidence/planning/substrate_queue.json edit. The autostash mechanism is
     not specific to experiments/, so the guard should not be either.
+
+    Broadened again 2026-06-14 to also cover 'docs/claims/' (claims.yaml).
+    docs/claims/ is OUTSIDE the evidence/ prefix, yet claims.yaml is the
+    single most-contended governance file -- edited under an active claim by
+    nearly every governance / IGW / registration session. During a 2026-06-14
+    high-contention IGW window a heartbeat autostash cycle was observed
+    transiently sweeping one session's (ABM-1/Q-060) uncommitted claims.yaml
+    edits out of the working tree (it briefly showed clean) and then restoring
+    them on a later tick -- the identical shape to the two confirmed evidence/
+    autostash-revert incidents. claims.yaml deserves the same protection.
     """
     try:
         claims_path = ree_assembly_path.parent / "TASK_CLAIMS.json"
@@ -278,7 +290,7 @@ def _active_claim_on_evidence_dir(ree_assembly_path: Path) -> bool:
             if entry.get("status") != "active":
                 continue
             for res in entry.get("resources", []):
-                if "evidence/" in res:
+                if "evidence/" in res or "docs/claims/" in res:
                     return True
         return False
     except Exception:

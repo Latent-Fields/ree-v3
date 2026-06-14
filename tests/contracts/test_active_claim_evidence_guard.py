@@ -12,6 +12,12 @@ History:
   autostash-revert signature reappeared on an evidence/planning/
   substrate_queue.json edit. The autostash mechanism is not specific to
   experiments/, so the guard should not be either.
+- 2026-06-14: scope broadened to also cover 'docs/claims/' (claims.yaml).
+  docs/claims/ is OUTSIDE the evidence/ prefix, yet claims.yaml is the single
+  most-contended governance file. A high-contention IGW window was observed
+  transiently sweeping one session's uncommitted claims.yaml edits via the
+  autostash cycle (same shape as the evidence/ incidents); no data was lost
+  that time, but the vulnerability is identical.
 
 Contracts:
   C1. No TASK_CLAIMS.json file -> guard returns False (best-effort default).
@@ -23,9 +29,12 @@ Contracts:
       (forward-compat: any evidence/ subdir).
   C6. Done / completed claims do not fire the guard, even when the resource
       list contains an evidence/ path.
-  C7. Resource paths outside REE_assembly/evidence/ (e.g. claims.yaml,
-      WORKSPACE_STATE.md, ree-v3 source) do not fire the guard.
+  C7. Resource paths outside evidence/ AND docs/claims/ (e.g.
+      WORKSPACE_STATE.md, ree-v3 source, serve.py) do not fire the guard.
   C8. Malformed JSON / missing keys -> False (no exception leaks).
+  C9. Active claim with a resource path under docs/claims/ (claims.yaml)
+      -> True (this is the 2026-06-14 broadening; was False -- and was the
+      C7 non-firing example -- under the old guard).
 """
 
 from __future__ import annotations
@@ -148,7 +157,41 @@ def test_c6_done_claim_does_not_fire(fake_repo: Path) -> None:
     assert _active_claim_on_evidence_dir(fake_repo) is False
 
 
-def test_c7_non_evidence_resources_do_not_fire(fake_repo: Path) -> None:
+def test_c7_non_guarded_resources_do_not_fire(fake_repo: Path) -> None:
+    """Resources outside evidence/ AND docs/claims/ do not fire the guard.
+
+    Note: REE_assembly/docs/claims/claims.yaml USED to be the example here
+    (non-firing) until the 2026-06-14 broadening; it now fires -- see C9.
+    """
+    from runner_remote_control import _active_claim_on_evidence_dir
+
+    _write_claims(
+        fake_repo,
+        [
+            {
+                "session_id": "s",
+                "status": "active",
+                "resources": [
+                    "WORKSPACE_STATE.md",
+                    "ree-v3/experiments/foo.py",
+                    "REE_assembly/serve.py",
+                ],
+            }
+        ],
+    )
+    assert _active_claim_on_evidence_dir(fake_repo) is False
+
+
+def test_c9_active_claim_on_docs_claims_fires(fake_repo: Path) -> None:
+    """2026-06-14 broadening: docs/claims/ (claims.yaml) must be covered.
+
+    Real-world observation: during a high-contention IGW window an autostash
+    cycle transiently swept one session's uncommitted claims.yaml edits out of
+    the working tree (briefly showing clean) and restored them a tick later --
+    the same shape as the two confirmed evidence/ autostash-revert incidents.
+    claims.yaml is the single most-contended governance file and lives OUTSIDE
+    the evidence/ prefix, so it needs its own clause in the guard.
+    """
     from runner_remote_control import _active_claim_on_evidence_dir
 
     _write_claims(
@@ -159,13 +202,11 @@ def test_c7_non_evidence_resources_do_not_fire(fake_repo: Path) -> None:
                 "status": "active",
                 "resources": [
                     "REE_assembly/docs/claims/claims.yaml",
-                    "WORKSPACE_STATE.md",
-                    "ree-v3/experiments/foo.py",
                 ],
             }
         ],
     )
-    assert _active_claim_on_evidence_dir(fake_repo) is False
+    assert _active_claim_on_evidence_dir(fake_repo) is True
 
 
 def test_c8_malformed_json_returns_false(fake_repo: Path) -> None:
