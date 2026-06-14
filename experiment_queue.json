@@ -64,6 +64,21 @@
       "status": "pending",
       "note": "Claim-free diagnostic (claim_ids=[], experiment_purpose=diagnostic; does NOT weight governance). Clean re-run of V3-EXQ-666b crf_frac_maintained fraction-gate, fixing the ONE defect that starved 666b: the e2ctx full-pool differentiation NON-VACUITY precondition is now measured PRE-gap (crf_max_pairwise_rule_dist at end-of-training, before the 2000-tick context-absent silence gap erodes ARM_1's pool to empty by design; 666b read it post-gap so min-over-ARM_1+ARM_2 = 0.0 starved it even though both load-bearing criteria PASSED), and the maturation window is enlarged N_EPISODES 100->200 so the e2ctx context differentiates a >=2-rule full pool PRE-gap on every seed. LOAD-BEARING discrimination unchanged + POST-gap: ARM_2 (maintenance) crf_frac_maintained >=0.625 where ARM_1 (mature+e2ctx, no maintenance) <0.5. PASS clears substrate_queue crf-availability-maintenance ready=true + unblocks the 654c GAP-B behavioural falsifier (MECH-309/ARC-062, queued separately); substrate_not_ready_requeue (non-vacuity unmet) -> re-queue at larger P0; maintenance_insufficient / differentiation_alone_clears_ceiling -> /failure-autopsy. Dry-run smoke PASS 2026-06-14 (9 cells end-to-end, pre-gap readout functional pre_gap_dist=1.491, correct dry-scale substrate_not_ready self-route, emit_outcome sentinel written). validate_experiments --strict + validate_queue clean. MECH-309/ARC-062/ARC-063 stay candidate/substrate_ceiling/v3_pending/pending_retest_after_substrate -- NOT weakened.",
       "claim_ids": []
+    },
+    {
+      "queue_id": "V3-EXQ-681",
+      "title": "SD-057 wanting!=liking channel-write forced-contact microdiagnostic (V3-EXQ-514o precursor)",
+      "script": "experiments/v3_exq_681_sd057_wl_channel_write_forced_contact_microdiagnostic.py",
+      "experiment_type": "v3_exq_681_sd057_wl_channel_write_forced_contact_microdiagnostic",
+      "priority": 320,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "status": "pending",
+      "claim_ids": [],
+      "seeds": 1,
+      "conditions": 4,
+      "episodes_per_run": 40,
+      "note": "RE-APPLIED after a phase3-queue snapshot writer-race dropped the first push (de5f9be) from the materialized file. Diagnostic precursor de-risking V3-EXQ-514o goal_pipeline:GAP-2. 514n FAILed substrate_not_ready_requeue (n_scored=0 despite distinct_tokens=3): co-timing defect -- eval sourced the liking target via _contacted_resource_type(obs_dict)=post-consumption-cleared resource_type_at_agent; consumed tag is in info[sd049_consumed_type_tag_this_tick]. Forces contact (626b-style): C1 instrument sep=1.0, C2 forced dissociation (>=2 tokens,>=5 scored,wl_frac>=0.3), C3 null parity wl_frac~0, C4 structural obs/info split. claim_ids=[] diagnostic. Smoke PASS; validate clean."
     }
   ]
 }
