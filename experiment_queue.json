@@ -124,6 +124,22 @@
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_591d_isef005_phase01_gate_robustness",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-680c",
+      "title": "MECH-423 cross-model super-additivity 3-arm ablation (680b numerical-stability + measurement-robustness fix)",
+      "experiment_type": "v3_exq_680c_mech423_superadditivity_ablation",
+      "script": "experiments/v3_exq_680c_mech423_superadditivity_ablation.py",
+      "priority": 315,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 20,
+      "episodes_per_run": 40,
+      "seeds": 5,
+      "conditions": 3,
+      "claim_id": "MECH-423",
+      "supersedes": "V3-EXQ-680b",
+      "note": "680c re-runs the SAME MECH-423 super-additivity hypothesis + SAME hardened delta-scaled+floored margin as 680b, with four robustness fixes from failure_autopsy_V3-EXQ-680b_2026-06-14 (adjudicated 680b's lone -1.19 seed as numerical instability, not negative-transfer weakens): (a) grad-clip world/affordance/proxy heads + shared encoder; (b) bound each held-out R2 at -1.0 so a divergent seed cannot dominate delta_SD and inflate the margin; (c) re-wire the R1 negative-transfer cosine probe onto the shared encoder params (680b's disjoint-latent-slice probe pinned the cosine at exactly 0.0, so the guard could not fire); (d) n=5 seeds, MIN_SEEDS_PASS=3 majority. evidence."
     }
   ]
 }
