@@ -8,21 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-681",
-      "title": "SD-057 wanting!=liking channel-write forced-contact microdiagnostic (V3-EXQ-514o precursor)",
-      "script": "experiments/v3_exq_681_sd057_wl_channel_write_forced_contact_microdiagnostic.py",
-      "priority": 320,
-      "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "note": "Diagnostic precursor de-risking the full V3-EXQ-514o goal_pipeline:GAP-2 successor BEFORE a multi-seed curriculum run. V3-EXQ-514n FAILed substrate_not_ready_requeue (n_scored_wl_steps=0 / run_bank_populated=false on guard-passing seed42 despite distinct_tokens_max=3, drive_spread 0.012>floor). CO-TIMING ROOT CAUSE (code-confirmed): 514n's eval sourced the LIKING target via scaffolded_sd054_onboarding._contacted_resource_type(obs_dict), which reads obs_dict['resource_type_at_agent']=_resource_type_grid[ax,ay]; the env CLEARS that cell at consumption so it reads 0 post-step -> rtype=None at every contact -> bank.update never fired in the eval AND the scorer's (rtype is not None) gate never held. The consumed tag lives in info['sd049_consumed_type_tag_this_tick'] (NOT obs_dict). This micro FORCES contact (benefit+consumed-tag supplied directly, 626b-style, decoupled from foraging) and proves the SD-057 IncentiveTokenBank channel-write + WL scoring fires: C1 constructed-bank instrument separates 1.0 (=514n readiness leg-1); C2 real agent + bank, forced liking alternating vs drive-favored wanting -> >=2 tokens, >=5 scored, wl_frac>=0.3; C3 null/parity (liking==wanting) -> wl_frac~0; C4 structural assert consumed tag in info NOT obs_dict + resource_type_at_agent in obs_dict (the literal 514n bug). claim_ids=[] (diagnostic; weights no claim). Smoke PASS 2026-06-14 dry-run: C1 sep=1.0, C2 scored=6 wl_frac=0.500 distinct=2 populated=True, C3 wl_frac=0.000, C4 consumed_in_obs=False/consumed_in_info=True/at_agent_in_obs=True -> overall PASS. validate_experiments --strict + validate_queue clean. PASS -> source the liking target from info in V3-EXQ-514o.",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 4,
-      "episodes_per_run": 40,
-      "experiment_type": "v3_exq_681_sd057_wl_channel_write_forced_contact_microdiagnostic",
-      "seeds": 1
-    },
-    {
       "queue_id": "V3-EXQ-672b",
       "title": "MECH-057b hippocampal trajectory promotion gate (672a non_contributory requeue)",
       "script": "experiments/v3_exq_672b_mech057b_trajectory_promotion_gate.py",
