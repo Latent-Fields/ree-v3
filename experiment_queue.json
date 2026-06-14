@@ -86,22 +86,6 @@
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_591d_isef005_phase01_gate_robustness",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-603o",
-      "title": "SD-059/MECH-358 escape-affordance bridge behavioural retest REDESIGN (headroom + continuous survival metric)",
-      "experiment_type": "v3_exq_603o_escape_affordance_bridge_continuous_retest",
-      "script": "experiments/v3_exq_603o_escape_affordance_bridge_continuous_retest.py",
-      "priority": 285,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 600,
-      "episodes_per_run": 235,
-      "seeds": 3,
-      "conditions": 5,
-      "claim_id": "SD-059",
-      "supersedes": "V3-EXQ-603l",
-      "note": "Autopsy-mandated REDESIGN (failure_autopsy_V3-EXQ-603l_2026-06-10, confirmed; 603l reclassified weakens->non_contributory). Both Section-7 fixes: (a) HEADROOM via harder Stage-H hazard regime (num_hazards 4->6, proximity_harm 0.1->0.2) so ARM_BASE_IA_ONLY sits below the binary survival ceiling 603l saturated at (G_H=1.0, structurally unsatisfiable), 603k harm-pathway training kept ON for nav competence; (b) CONTINUOUS PRIMARY metric = mean hazard-stage episode length (SD-of-delta + abs-floor margin), binary G_H supplementary. Same 4 arms + nav control, 5x3. Pre-registered base-at-ceiling + vacuous-DV self-routes -> substrate_not_ready_requeue/non_contributory + non_degenerate=False so a saturated/collapsed regime is never a false weakens. claim_ids=[SD-059,MECH-358]. Next step after this settles: Q-045 4-arm tonic-noise ablation (MECH-313/MECH-260) -- NOT queued this session."
     }
   ]
 }
