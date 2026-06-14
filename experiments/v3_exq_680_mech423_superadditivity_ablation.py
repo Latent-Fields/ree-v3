@@ -609,7 +609,10 @@ def main(dry_run: bool = False):
         "architecture_epoch": "ree_hybrid_guardrails_v1",
         "timestamp_utc": ts,
         "started_utc": datetime.utcnow().isoformat() + "Z",
-        "backlog_id": "EXP-0380",
+        # Audit link to the MANUAL proposal EXP-0380 (manual proposals carry no
+        # EVB backlog_id; the evidence link is claim_ids). NOTE: EVB-0380 is a
+        # DIFFERENT proposal (SD-027) -- do not conflate.
+        "proposal_id": "EXP-0380",
         "sleep_driver_pattern": "N/A (CrossModuleConsolidator.consolidate() called directly; no sleep cycle)",
         "thresholds": {
             "min_grad_floor": MIN_GRAD_FLOOR,
