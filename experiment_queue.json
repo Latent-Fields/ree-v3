@@ -48,26 +48,6 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_654c_arc062_gapb_rule_apprehension_behavioural_falsifier",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-591f",
-      "title": "InfantCurriculumScheduler Phase 0->1 gate-CRITERION robust sweep: EMA-of-level + window-mean + EMA-with-hold(H=5) + crossing-count>=3 (supersedes V3-EXQ-591e)",
-      "script": "experiments/v3_exq_591f_isef005_phase01_gate_criterion_v3.py",
-      "priority": 281,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-591e",
-      "note": "Claim-free gate-CRITERION diagnostic (ARC-046 / infant_substrate:GAP-14 leg c-2); supersedes V3-EXQ-591e (robust-sweep correction of 591e's spike-vulnerable EMA-of-level-only criterion; user-chosen via AskUserQuestion 2026-06-15). 591e replayed ONE candidate EMA(alpha=0.2)-of-level vs the ~0.20 floor; numerically that EMA is spike-responsive (a single per-episode h_pos of 1.453 -- which seed 45 has inside the decision window, baseline advanced 45 at ep 142 -- pushes EMA(0.2) from ~0.1 to ~0.37 > floor, RE-ADMITTING the false-advancer; confirmed in an offline unit-check). 591f replays the SAME deterministic 5-seed (42-46) 160-ep diversity-armed reachability traces (MECH-313 noise floor + MECH-314 curiosity at landed defaults, SP-CEM main-path) through BASELINE single-episode SPIKE (informational) + a SWEEP of 4 sustained-level candidates gated at the genuine-explorer floor ~0.20 (NOT the 0.994 spike bar): B1 EMA-of-level@0.20, B2 trailing-window-mean(W=20)@0.20, B3 EMA-of-level@0.20-with-hold(H=5), B4 crossing-count>=3 of the 0.994 bar. PASS if ANY candidate ADMITS every genuine explorer (42/43/44, mean 0.32-0.84) AND REJECTS the false-advancer (45, mean 0.14, 2 crossings) at the real decision episodes; recommended_criterion is the first discriminating candidate in the preference order [ema_hold, window_mean, crossing_count, ema_level]. PERSISTS full per-episode h_pos arrays (591d kept only per-seed summaries, so the online sustained-level behaviour at the decision episode was unvalidatable from 591d). ep_min=100; same non-vacuity preconditions + two-leg discrimination. PURE OFFLINE replay -- infant_curriculum.py NOT mutated (610e/669/586/667 depend on its default gate). A discriminating PASS routes to /implement-substrate on infant_curriculum.py:_try_phase_0_to_1 as the sustained-level replacement. Seed-46 exploration-STRENGTH collapse is OUT OF SCOPE (orthogonal Q-043/667->667a thread, leg c-1). Does NOT queue EXQ-ISEF-005 (blocked until BOTH GAP-14 legs resolve). claim-free: weights/promotes nothing. The superseded EMA-only V3-EXQ-591e is being held via the coordinator so it does not burn a run. Smoke: validate_experiments --strict OK; --dry-run end-to-end (sentinel written; degenerate-but-exercised at dry scale by design). Queued by the takeover session per user AskUserQuestion 2026-06-15.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-15T08:57:30Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 160,
-      "experiment_type": "v3_exq_591f_isef005_phase01_gate_criterion",
-      "seeds": 5
     }
   ]
 }
