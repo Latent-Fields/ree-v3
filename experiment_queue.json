@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-684a",
-      "title": "GAP-A conversion readiness HYBRID control redesign (carry ARM_STD_G2 gain=2; matched-noise-at-proposer -> NEGATIVE control; C_CONVERSION = directed-gain strict-above LEGACY >=2/3; committed-layer metric-can-move guard; supersedes 684 mis-designed positive control)",
-      "script": "experiments/v3_exq_684a_modulatory_conversion_readiness.py",
-      "priority": 320,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-684",
-      "note": "Test-design-fixed successor per failure_autopsy_V3-EXQ-684_2026-06-15 (confirmed/applied). 684's load-bearing C_CONVERSION already PASSED (ARM_STD_G2 gain=2 committed entropy 0.989 strict-above legacy 0.775, 2/3) but its readiness gate FAILed on a MIS-DESIGNED matched-noise positive control (raises proposer temperature, structurally washed out by the F-dominated committed argmin -> can never lift = unsatisfiable; V3-EXQ-642 pattern). HYBRID fix (user-chosen 2026-06-15): carry ARM_STD_G2 (std basis, gain 2.0) forward as the leading conversion config (684 showed STD_G1 weaker 1/3, SHORTLIST hurt 0/3 -- both dropped); matched-noise-at-proposer reinterpreted as an UNDIRECTED NEGATIVE control (must NOT lift over proposer; informational sanity); LOAD-BEARING C_CONVERSION = ARM_STD_G2 committed entropy strict-above ARM_LEGACY_E2WF on >=2/3; committed-layer metric-can-move non-vacuity guard = ARM_LEGACY_E2WF committed entropy strict-above the collapsed ARM_PROPOSER reference on >=2/3 (proves the committed-selection-layer entropy metric is not pinned post-F). Retains the route-range + e2-divergence preconditions (both 3/3 in 684). claim_ids=[] diagnostic; cannot weaken ARC-065/MECH-341/ARC-062/MECH-309/MECH-294. PASS (conversion_mechanism_identified) selects the ARM_STD_G2 config for V3-EXQ-569h (the GAP-A falsifier, GATED on this PASS); readiness-unmet self-routes substrate_not_ready_requeue; readiness-met+no-lift -> conversion_ceiling_persists_under_levers -> /failure-autopsy. HONEST SCOPE: a true undirected-post-F-noise arm (option-a verbatim) would need a substrate lever that does not exist; the guard is rendered substrate-free. No substrate change (conversion amend 1acc343 implemented+functional). Dry-run smoke PASS (4 arms end-to-end, substrate_not_ready at dry scale by design).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-15T18:41:09Z"
-      },
-      "claim_ids": [],
-      "conditions": 4,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_684a_modulatory_conversion_readiness",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-514q",
       "title": "MECH-229 wanting!=liking: drive-coupled dissociation delta under effect-size gate (corrected criterion; supersedes 514p raw-C_WL)",
       "script": "experiments/v3_exq_514q_sd049_phase2_mech229_drive_coupled_wanting_liking.py",
