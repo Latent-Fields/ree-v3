@@ -10,18 +10,18 @@
     {
       "queue_id": "V3-EXQ-514q",
       "title": "MECH-229 wanting!=liking: drive-coupled dissociation delta under effect-size gate (corrected criterion; supersedes 514p raw-C_WL)",
-      "experiment_type": "v3_exq_514q_sd049_phase2_mech229_drive_coupled_wanting_liking",
       "script": "experiments/v3_exq_514q_sd049_phase2_mech229_drive_coupled_wanting_liking.py",
       "priority": 300,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 300,
-      "episodes_per_run": 265,
-      "seeds": 6,
-      "conditions": 1,
-      "claim_id": "MECH-229",
       "supersedes": "V3-EXQ-514p",
-      "note": "Corrected-criterion successor per failure_autopsy_V3-EXQ-514p_2026-06-15 (user-adjudicated). Makes the DRIVE-COUPLED dissociation delta (WL_drive - WL_nodrive) the LOAD-BEARING criterion under an effect-size gate mean_delta>=max(k*pstdev(delta),FLOOR), k=1.0 FLOOR=0.15 (user-chosen 2026-06-15; SD-of-delta NOT SD-of-baseline per feedback_effect_size_pass_gate_margin); raw C_WL>=0.6 demoted to a non-vacuity diagnostic. 6 seeds [42-47] (pools 514o+514p triples) + BEHAV 15->30 for a stable per-seed delta. Retains 603n contact guard + same-statistic WL readiness gate; gates a/b/b2 self-route substrate_not_ready_requeue (non_contributory) never a false weakens. supports if (c) else GENUINE weakens -> Woo/Spelke OFF+overshoot off-ramp. substrate built (SD-057 2026-06-04); substrate_queue action=none; MECH-229 stays provisional, no demotion."
+      "claim_id": "MECH-229",
+      "note": "Corrected-criterion successor per failure_autopsy_V3-EXQ-514p_2026-06-15 (user-adjudicated). Makes the DRIVE-COUPLED dissociation delta (WL_drive - WL_nodrive) the LOAD-BEARING criterion under an effect-size gate mean_delta>=max(k*pstdev(delta),FLOOR), k=1.0 FLOOR=0.15 (user-chosen 2026-06-15; SD-of-delta NOT SD-of-baseline per feedback_effect_size_pass_gate_margin); raw C_WL>=0.6 demoted to a non-vacuity diagnostic. 6 seeds [42-47] (pools 514o+514p triples) + BEHAV 15->30 for a stable per-seed delta. Retains 603n contact guard + same-statistic WL readiness gate; gates a/b/b2 self-route substrate_not_ready_requeue (non_contributory) never a false weakens. supports if (c) else GENUINE weakens -> Woo/Spelke OFF+overshoot off-ramp. substrate built (SD-057 2026-06-04); substrate_queue action=none; MECH-229 stays provisional, no demotion.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 265,
+      "experiment_type": "v3_exq_514q_sd049_phase2_mech229_drive_coupled_wanting_liking",
+      "seeds": 6
     }
   ]
 }
