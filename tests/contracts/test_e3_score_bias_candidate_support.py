@@ -454,3 +454,130 @@ def test_channel_routing_below_floor_inactive():
     assert diag["modulatory_channel_route_active"] is False
     assert diag["modulatory_channel_route_range"] > 0.0  # measured raw range
     assert diag["modulatory_channel_route_range"] < 1.0
+
+
+# ---------------------------------------------------------------------------
+# CONVERSION amend (569g/682, 2026-06-15): gain/contrast normalize_basis (a)
+# + shortlist-then-modulate (b). behavioral_diversity_isolation:GAP-A.
+# ---------------------------------------------------------------------------
+
+
+def _conversion_selector(**overrides):
+    """Deterministically-weighted selector so the primary score range is
+    reproducible regardless of pytest-randomly ordering (mirrors the existing
+    authority tests)."""
+    from ree_core.utils.config import E3Config as FullE3Config
+
+    sel = E3TrajectorySelector(FullE3Config(world_dim=6, hidden_dim=8, **overrides))
+    sel._running_variance = 0.0  # deterministic argmin path
+    torch.manual_seed(0)
+    with torch.no_grad():
+        for p in sel.parameters():
+            p.uniform_(-0.3, 0.3)
+    return sel
+
+
+def test_conversion_amend_OFF_bit_identical():
+    """basis='range' + shortlist OFF (the defaults) is bit-identical to the
+    pre-conversion-amend authority path, and the new diagnostics are seeded."""
+    candidates = [_candidate_big_world(i % 5, 0.4 + 0.3 * i) for i in range(6)]
+    bias = torch.tensor([0.05, -0.02, 0.1, 0.0, -0.03, 0.01])
+
+    sel_default = _conversion_selector()
+    sel_explicit = _conversion_selector(
+        modulatory_authority_normalize_basis="range",
+        use_modulatory_shortlist_then_modulate=False,
+    )
+    r_default = sel_default.select(candidates, temperature=1.0, score_bias=bias.clone())
+    r_explicit = sel_explicit.select(candidates, temperature=1.0, score_bias=bias.clone())
+
+    assert r_default.selected_index == r_explicit.selected_index
+    assert torch.allclose(r_default.scores, r_explicit.scores, atol=1e-12)
+    d = sel_default.last_score_diagnostics
+    assert d["modulatory_authority_normalize_basis"] == "range"
+    assert d["modulatory_shortlist_active"] is False
+    assert d["modulatory_shortlist_size"] == 0
+
+
+def test_conversion_std_basis_distinct_scale():
+    """Lever (a): at the same gain, basis='std' anchors the authority to
+    raw_score_std (rescaled by the modulatory std), so its scale_factor differs
+    from the legacy range-basis scale on the same inputs. Both fire."""
+    candidates = [_candidate_big_world(i % 5, 0.4 + 0.3 * i) for i in range(6)]
+    bias = torch.tensor([0.05, -0.03, 0.08, 0.0, -0.06, 0.02])
+
+    sel_range = _conversion_selector(
+        use_modulatory_selection_authority=True,
+        modulatory_authority_gain=1.0,
+        modulatory_authority_normalize_basis="range",
+    )
+    sel_std = _conversion_selector(
+        use_modulatory_selection_authority=True,
+        modulatory_authority_gain=1.0,
+        modulatory_authority_normalize_basis="std",
+    )
+    sel_range.select(candidates, temperature=1.0, score_bias=bias.clone())
+    sel_std.select(candidates, temperature=1.0, score_bias=bias.clone())
+
+    d_range = sel_range.last_score_diagnostics
+    d_std = sel_std.last_score_diagnostics
+    assert d_range["e3_raw_score_range_mean"] > 1e-6
+    assert d_range["modulatory_authority_active"] is True
+    assert d_std["modulatory_authority_active"] is True
+    assert d_std["modulatory_authority_normalize_basis"] == "std"
+    assert abs(
+        d_range["modulatory_authority_scale_factor"]
+        - d_std["modulatory_authority_scale_factor"]
+    ) > 1e-6
+
+
+def test_conversion_shortlist_restricts_to_near_tie_and_preserves_safety():
+    """Lever (b): F filters to a near-tie set; a clearly-worse-PRIMARY candidate
+    is NEVER selected even with the strongest modulatory pull (the safety bound
+    additive gain >= 1.0 would break). The winner sits inside the F shortlist."""
+    candidates = [_candidate_big_world(i % 5, 0.4 + 0.3 * i) for i in range(6)]
+
+    # Baseline raw scores (no bias) to identify the worst-primary candidate.
+    sel0 = _conversion_selector()
+    sel0.select(candidates, temperature=1.0, score_bias=torch.zeros(6))
+    raw = sel0.last_raw_scores.clone()
+    worst = int(raw.argmax().item())
+    raw_range = float((raw.max() - raw.min()).item())
+    assert raw_range > 1e-6
+
+    # Give the WORST-primary candidate an overwhelming modulatory pull.
+    bias = torch.zeros(6)
+    bias[worst] = -100.0
+    margin = 0.1
+    sel = _conversion_selector(
+        use_modulatory_shortlist_then_modulate=True,
+        modulatory_shortlist_margin=margin,
+    )
+    res = sel.select(candidates, temperature=1.0, score_bias=bias)
+    d = sel.last_score_diagnostics
+    cutoff = float(raw.min().item()) + margin * raw_range
+
+    assert d["modulatory_shortlist_active"] is True
+    assert d["modulatory_shortlist_size"] >= 1
+    assert res.selected_index != worst  # safety: clearly-worse primary excluded
+    assert float(raw[res.selected_index].item()) <= cutoff + 1e-6  # within the F set
+
+
+def test_conversion_shortlist_arbitrates_by_modulatory_within_set():
+    """Lever (b) conversion property: when the primary is tied (all eligible), the
+    modulatory channel ALONE decides the winner (argmin of the routed bias) -- the
+    structured channel is load-bearing within the near-tie set."""
+    # Zero world_states -> all primary scores equal -> every candidate eligible.
+    candidates = [_candidate(i % 5) for i in range(5)]
+    bias = torch.tensor([0.0, -0.3, 0.0, -0.9, 0.0])  # unique min at index 3
+
+    sel = _conversion_selector(
+        use_modulatory_shortlist_then_modulate=True,
+        modulatory_shortlist_margin=0.25,
+    )
+    res = sel.select(candidates, temperature=1.0, score_bias=bias)
+    d = sel.last_score_diagnostics
+
+    assert d["modulatory_shortlist_active"] is True
+    assert d["modulatory_shortlist_size"] == 5  # all tied -> all eligible
+    assert res.selected_index == 3  # modulatory-argmin within the set

@@ -485,6 +485,42 @@ class E3Config:
     modulatory_channel_route_min_range_floor: float = 1e-6
     modulatory_channel_route_weight: float = 1.0
 
+    # modulatory-bias-selection-authority AMEND (CONVERSION, 569g/682, 2026-06-15):
+    # V3-EXQ-682 (no_collapse_reproduced) confirmed the route-range amend SOLVED
+    # REACH (ARM_1 applied in-arm route_range ~0.20, all upstream-collapse causes
+    # ruled out incl seed 43); V3-EXQ-569g showed the residual gap is CONVERSION --
+    # the gap-relative ADDITIVE authority at gain 0.5 (modrange = 0.5*raw_score_range)
+    # is subdominant to the F-dominated primary (88-89% of E3 variance, V3-EXQ-571),
+    # so the routed range flips only near-tie OUTLIERS, not near-decisive winners
+    # (569g 1/3 seeds strict-above matched-noise). Two no-op-default conversion
+    # levers let the routed range MOVE the committed argmax. See
+    # failure_autopsy_V3-EXQ-569g_2026-06-14 + behavioral_diversity_isolation:GAP-A.
+    #
+    # (a) normalize_basis -- how the additive authority anchors its target range.
+    #     "range" (default, legacy bit-identical): target = gain * raw_score_range
+    #     (outlier-sensitive -> only near-tie). "std": target = gain * raw_score_std,
+    #     rescaling by the modulatory STD (robust to outliers) so the structured
+    #     channel competes against the TYPICAL primary spread (near-decisive
+    #     candidates), not just the two outliers that set the range. gain stays
+    #     sweepable. NOTE: additive gain >= 1.0 breaks the safety bound (modulatory
+    #     can override a clearly-harmful rejection); keep gain < 1.0 on the additive
+    #     path for the shipped config, or use the shortlist lever (b), which
+    #     preserves safety at any internal strength.
+    modulatory_authority_normalize_basis: str = "range"
+    #
+    # (b) shortlist-then-modulate -- the pre-registered architectural fallback. When
+    #     True, F (raw primary scores) filters to a near-tie set (candidates within
+    #     modulatory_shortlist_margin * raw_score_range of the best raw score), then
+    #     the modulatory channel (_modulatory_accum) ARBITRATES the winner WITHIN
+    #     that set. The structured channel is load-bearing within the shortlist
+    #     without out-magnitude-ing F globally, and SAFETY is preserved at any
+    #     internal strength (clearly-harmful candidates outside the shortlist are
+    #     never selectable). Takes precedence over the additive-authority rescale +
+    #     argmin/stratified selection at the selection site when enabled.
+    #     Default False (bit-identical OFF).
+    use_modulatory_shortlist_then_modulate: bool = False
+    modulatory_shortlist_margin: float = 0.25
+
 
 @dataclass
 class EventSegmenterScaleConfig:
@@ -3952,6 +3988,10 @@ class REEConfig:
         modulatory_channel_route_min_range_floor: float = 1e-6,
         modulatory_channel_route_source: str = "none",
         modulatory_channel_route_weight: float = 1.0,
+        # modulatory-bias-selection-authority AMEND (CONVERSION, 569g/682, 2026-06-15):
+        modulatory_authority_normalize_basis: str = "range",
+        use_modulatory_shortlist_then_modulate: bool = False,
+        modulatory_shortlist_margin: float = 0.25,
         # ControlVector logging (rec-B four-signal adjudication 2026-06-07):
         # read-only default-OFF telemetry; bit-identical when False.
         use_control_vector_logging: bool = False,
@@ -4847,6 +4887,14 @@ class REEConfig:
         config.use_modulatory_channel_routing = use_modulatory_channel_routing
         config.modulatory_channel_route_source = modulatory_channel_route_source
         config.modulatory_channel_route_weight = modulatory_channel_route_weight
+        # modulatory-bias-selection-authority CONVERSION amend (569g/682, 2026-06-15)
+        config.e3.modulatory_authority_normalize_basis = (
+            modulatory_authority_normalize_basis
+        )
+        config.e3.use_modulatory_shortlist_then_modulate = (
+            use_modulatory_shortlist_then_modulate
+        )
+        config.e3.modulatory_shortlist_margin = modulatory_shortlist_margin
         config.use_control_vector_logging = use_control_vector_logging
 
         # MECH-290: backward trajectory credit sweep

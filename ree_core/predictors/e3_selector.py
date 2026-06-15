@@ -934,10 +934,25 @@ class E3TrajectorySelector(nn.Module):
                 modulatory_total = scores.new_zeros(scores.shape)
             modulatory_range = float((modulatory_total.max() - modulatory_total.min()).item())
             modulatory_authority_range = modulatory_range
-            if modulatory_range > self.config.modulatory_authority_min_range_floor:
-                # Rescale modulatory contribution to gain * raw_score_range
+            # CONVERSION amend (a) (569g/682, 2026-06-15): normalize_basis selects
+            # how the additive authority anchors its target. "range" (default,
+            # bit-identical legacy) matches gain*raw_score_RANGE -> outlier-sensitive,
+            # flips only near-tie outliers. "std" matches gain*raw_score_STD and
+            # rescales by the modulatory STD (robust to outliers) so the structured
+            # channel competes against the TYPICAL primary spread (near-decisive
+            # candidates), the 569g residual-conversion fix. See E3Config.
+            basis = getattr(
+                self.config, "modulatory_authority_normalize_basis", "range"
+            )
+            if basis == "std":
+                modulatory_spread = float(modulatory_total.std().item())
+                target_range = self.config.modulatory_authority_gain * raw_score_std
+            else:
+                modulatory_spread = modulatory_range
                 target_range = self.config.modulatory_authority_gain * raw_score_range
-                scale_factor = target_range / modulatory_range
+            if modulatory_spread > self.config.modulatory_authority_min_range_floor:
+                # Rescale modulatory contribution to target_range (basis-dependent).
+                scale_factor = target_range / modulatory_spread
                 modulatory_authority_scale_factor = scale_factor
                 modulatory_authority_active = True
                 # Apply: scores = raw_scores + scale_factor * (modulatory_total)
@@ -976,6 +991,15 @@ class E3TrajectorySelector(nn.Module):
             # it > floor for the channel under test before scoring a falsifier.
             "modulatory_channel_route_active": modulatory_channel_route_active,
             "modulatory_channel_route_range": modulatory_channel_route_range,
+            # CONVERSION amend (569g/682, 2026-06-15): which normalize basis the
+            # additive authority used, and the shortlist-then-modulate diagnostics
+            # (active + near-tie-set size). Pre-seeded here; shortlist keys are
+            # overwritten at the selection site when lever (b) fires.
+            "modulatory_authority_normalize_basis": getattr(
+                self.config, "modulatory_authority_normalize_basis", "range"
+            ),
+            "modulatory_shortlist_active": False,
+            "modulatory_shortlist_size": 0,
             # Filled in after selection (requires selected_idx).
             "selected_candidate_rank_before_bias": -1,
             "selected_candidate_rank_after_bias": -1,
@@ -1022,7 +1046,49 @@ class E3TrajectorySelector(nn.Module):
             committed = harm_score_variance < effective_threshold
         else:
             committed = self._running_variance < effective_threshold
-        if committed:
+        # CONVERSION amend (b) -- shortlist-then-modulate (569g/682, 2026-06-15).
+        # The pre-registered architectural fallback: F (raw primary scores) filters
+        # to a near-tie set (candidates within modulatory_shortlist_margin *
+        # raw_score_range of the best raw score), then the modulatory channel
+        # (_modulatory_accum) arbitrates the winner WITHIN that set -- argmin when
+        # committed, softmax-sampled when uncommitted. The structured channel is
+        # load-bearing without out-magnitude-ing F, and SAFETY is preserved at any
+        # internal strength (clearly-harmful candidates outside the shortlist are
+        # never selectable). Takes precedence over the additive-authority rescale +
+        # argmin/stratified selection when enabled. Bit-identical OFF. See
+        # failure_autopsy_V3-EXQ-569g_2026-06-14 + behavioral_diversity_isolation:GAP-A.
+        shortlist_idx: Optional[int] = None
+        if (
+            getattr(self.config, "use_modulatory_shortlist_then_modulate", False)
+            and _modulatory_accum is not None
+            and raw_scores.shape[0] >= 2
+        ):
+            margin = float(
+                getattr(self.config, "modulatory_shortlist_margin", 0.25)
+            )
+            best_raw = float(raw_scores.min().item())
+            cutoff = best_raw + margin * raw_score_range
+            eligible_idx = torch.nonzero(
+                raw_scores <= cutoff, as_tuple=False
+            ).flatten()
+            n_eligible = int(eligible_idx.numel())
+            if n_eligible >= 1:
+                mod_eligible = _modulatory_accum.detach()[eligible_idx]
+                if committed or n_eligible == 1:
+                    local = int(mod_eligible.argmin().item())
+                else:
+                    shortlist_probs = F.softmax(
+                        -mod_eligible / temperature, dim=0
+                    )
+                    local = int(torch.multinomial(shortlist_probs, 1).item())
+                shortlist_idx = int(eligible_idx[local].item())
+            self.last_score_diagnostics["modulatory_shortlist_active"] = True
+            self.last_score_diagnostics["modulatory_shortlist_size"] = n_eligible
+
+        if shortlist_idx is not None:
+            # Lever (b) selected within the F-filtered near-tie set.
+            selected_idx = int(shortlist_idx)
+        elif committed:
             # MECH-341 Option 2 (class-stratified selection): replace argmin
             # with softmax-sampling across first-action-class representatives
             # whenever the pool admits stratification. Forces >= 2 first-
