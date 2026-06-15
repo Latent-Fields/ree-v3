@@ -44,23 +44,6 @@
       "episodes_per_run": 170,
       "experiment_type": "v3_exq_603p_base_harm_landscape_discriminativeness_diagnostic",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-683",
-      "title": "MECH-048 mu/kappa stability overlay probe (temperature proxy for commitment stability)",
-      "script": "experiments/v3_exq_683_mech048_mu_kappa_stability_probe.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "note": "EXP-0182 (EVB-0337) targeted_probe for MECH-048. Tests whether stability overlays modulate mode entropy and switching as predicted. Uses temperature as proxy: mu_condition (T=0.5) should reduce entropy and switching, kappa_condition (T=2.0) should increase entropy and switching vs baseline (T=1.0). 3 conditions x 3 seeds x 100 episodes. PASS requires: mu shows lower entropy and switching than baseline, kappa shows higher entropy and switching than baseline. Evidence: PASS->supports, FAIL->weakens MECH-048. Generated 2026-06-15 by IGW-201 auto-spawned session.",
-      "status": "pending",
-      "claim_ids": [
-        "MECH-048"
-      ],
-      "conditions": 3,
-      "episodes_per_run": 100,
-      "experiment_type": "v3_exq_683_mech048_mu_kappa_stability_probe",
-      "seeds": 3
     }
   ]
 }
