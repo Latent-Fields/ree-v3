@@ -87,21 +87,6 @@
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_591f_isef005_phase01_gate_criterion",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-685",
-      "title": "arm-reuse P1-auto: first AUTOMATED index-HIT demo (mint False-mode OFF cell + try_reuse_cell cross-driver HIT + flip-refuse)",
-      "script": "experiments/v3_exq_685_arm_reuse_automated_hit_demo.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "estimated_minutes": 10,
-      "note": "arm_reuse_fingerprint:P1-auto. Self-contained infra demo (experiment_purpose=baseline, claim_ids=[]): mints a False-mode OFF baseline cell from the 610 canonical module, runs the real indexer over a temp corpus, consumes via try_reuse_cell from a DIFFERENT driver (the automated index-HIT), confirms reused_from_run_id in-manifest + a one-byte config flip refuses. Never touches the committed arm_fingerprint_index.json. 610g (the natural trigger) is cancelled after V3-EXQ-655 fork-(b) substrate_ceiling 2026-06-13.",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 5,
-      "experiment_type": "v3_exq_685_arm_reuse_automated_hit_demo",
-      "seeds": 1
     }
   ]
 }
