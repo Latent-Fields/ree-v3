@@ -25,29 +25,6 @@
       "episodes_per_run": 80,
       "experiment_type": "v3_exq_684_modulatory_conversion_readiness",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-654c",
-      "title": "arc_062 GAP-B behavioural falsifier (MECH-309/ARC-062): committed-class entropy on the 666c-validated crf-availability-maintenance substrate (supersedes V3-EXQ-654b)",
-      "script": "experiments/v3_exq_654c_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
-      "priority": 300,
-      "machine_affinity": "any",
-      "estimated_minutes": 620,
-      "supersedes": "V3-EXQ-654b",
-      "note": "arc_062_rule_apprehension:GAP-B committed-class entropy behavioural falsifier (MECH-309/ARC-062), supersedes V3-EXQ-654b. Port of the 654b single-variable ARM_OFF vs ARM_ON falsifier onto the NOW-VALIDATED crf-availability-maintenance substrate: V3-EXQ-666c PASSed 2026-06-15 (ARM_2 mean_frac_maintained 0.854 > 0.625 floor, all 4 readiness preconditions met) and flipped substrate_queue crf-availability-maintenance ready=True (REE_assembly origin/master be7261d9ca). 654/654a/654b ALL FAILed non_contributory / substrate_not_ready_requeue for the SAME reason: the C1c readiness floor crf_frac_active>=0.30 was never met (654b measured 0.130) because the CandidateRuleField pool churned (mint->retire->re-mint) and never HELD >=2 differentiated rules active, so the committed-class falsifier DV never scored. 654c arms ARM_ON with the 666c ARM_2 levers crf_mature_pool_dynamics + crf_context_from_e2_world_forward + crf_availability_maintenance (floor 0.45 / decay 0.0) on top of crf_persist, at an ENLARGED P0 maturation window 200 ep (was 150; matches the 666c budget that formed full-pool differentiation PRE-gap on all 3 seeds), with the frozen-encoder P1 trained-bias-head REINFORCE phase (GAP-D leg). PRIMARY DV = committed-class entropy. Pre-registered non-vacuity preconditions, each self-routing substrate_not_ready_requeue (NEVER a false weakens): (i) C1c crf_frac_active>=0.30 actually clears now; (ii) propagation non-vacuity -- ARM_ON committed lateral_pfc bias differs from ARM_OFF (the bias reaches committed action). claim_ids=[MECH-309, ARC-062]: ONLY the PASS branch (C2 committed-class entropy lift on >=2/3 seeds) weights them, as supports. OFF-RAMP (pre-registered, NO weakens branch): if the matured+maintained+differentiated pool clears C1c AND the bias reaches committed action (C1d) but STILL fails to lift committed-class entropy, that is the SHARED selection-authority CONVERSION ceiling (behavioral_diversity_isolation:GAP-A; failure_autopsy_V3-EXQ-569g_2026-06-14 + V3-EXQ-682: route-range reaches the E3 accumulator but does not move the F-dominated committed argmax), self-routes non_contributory + route /implement-substrate (same gain/contrast amend as GAP-A) -- NOT a MECH-309/ARC-062 falsification. C1-fail self-routes substrate_not_ready_requeue. Smoke: validate_experiments --strict OK; --dry-run end-to-end both arms (substrate_not_ready_requeue at dry scale by design, sentinel written). experiment_purpose=evidence.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-15T04:46:50Z"
-      },
-      "claim_ids": [
-        "MECH-309",
-        "ARC-062"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 350,
-      "experiment_type": "v3_exq_654c_arc062_gapb_rule_apprehension_behavioural_falsifier",
-      "seeds": 3
     }
   ]
 }
