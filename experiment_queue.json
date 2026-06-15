@@ -17,7 +17,11 @@
       "supersedes": "V3-EXQ-680c",
       "claim_id": "MECH-423",
       "note": "Supersedes V3-EXQ-680c. Per the confirmed failure_autopsy_V3-EXQ-680c_2026-06-15: 680c self-routed substrate_not_ready_requeue because the readiness cosine went NaN -- 4/5 INTEGRATED_PAIR seeds diverged to the world_R2 -1 clamp floor (shared-encoder grads -> inf) despite GRAD_CLIP_NORM=1.0; the one stable seed (789) showed a genuine net-negative shared-encoder cosine (-0.40). MECH-423 NOT weakened (the self-route is the claim-designed non_degenerate response; 680b's 2/3 super-additive seeds stand). TWO coupled fixes: (a) STABILISE the integrated co-training -- separate LOWER encoder LR (ENC_LR=1e-4 vs HEAD_LR=1e-3) via Adam param groups, an encoder-gradient WARMUP (shared latent detached for the first 10 P0 episodes for the integrated arms, then co-train), and a per-step non-finite-loss guard; GRAD_CLIP_NORM=1.0 + R2_SCORE_FLOOR=-1.0 retained. Acceptance precondition: >=4/5 PAIR seeds USABLE (finite world_R2 off the -1 floor AND finite R1 grad/cosine) before any cosine is read. (b) GUARD the readiness cosine -- min_cos over usable seeds only; separate n_diverged_seeds readout. PRE-REGISTERED 3-WAY FORK: FORK 1 diverged-seeds dominate (n_usable<4) -> substrate_not_ready_requeue/co_training_diverged -> diagnose/stronger stabiliser, do NOT iterate blindly; FORK 2 stable + cosine>=0 on usable seeds -> readiness MET -> super-additivity verdict runs (the actual MECH-423 test); FORK 3 stable + FINITE net-negative cosine -> substrate_not_ready_requeue/r1_grad_cosine_net_negative -> /implement-substrate (shared-latent objective reconciliation) or narrow MECH-423, NOT another re-queue. experiment_purpose=evidence (self-routes non_contributory/non_degenerate=False when readiness unmet; weights MECH-423 only when FORK 2 fires). Smoke: validate_experiments --strict OK; --dry-run end-to-end (warmup + non-finite guard + FORK-1 self-route at dry scale + sentinel).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-06-15T04:31:54Z"
+      },
       "claim_ids": [
         "MECH-423"
       ],
