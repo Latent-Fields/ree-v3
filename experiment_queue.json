@@ -35,7 +35,11 @@
       "estimated_minutes": 220,
       "claim_id": "MECH-229",
       "note": "Confirmatory replication of V3-EXQ-514o (PASS/supports 2026-06-15, GAP-2/GAP-7 closed). Independent seed triple [45,46,47] vs 514o [42,43,44]. 4th genuine experimental entry to clear MECH-229 provisional->stable (needs >=4 exp entries; exp_conf 0.868 already > 0.80 floor; 514o was the 3rd). Dry-run smoke PASS 2026-06-15 (seed 45: C_WL 0.778, 9 scored WL steps, non_degenerate). Substrate-marginal contact guard + falsifier off-ramp identical to 514o.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-15T05:27:07Z"
+      },
       "conditions": 1,
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_514p_sd049_phase2_mech229_object_bound_wanting_liking",
