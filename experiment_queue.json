@@ -84,6 +84,22 @@
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_591e_isef005_phase01_gate_criterion",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-514p",
+      "title": "MECH-229 confirmatory replication of 514o (independent seeds 45/46/47) -> 4th genuine exp entry for provisional->stable",
+      "experiment_type": "v3_exq_514p_sd049_phase2_mech229_object_bound_wanting_liking",
+      "script": "experiments/v3_exq_514p_sd049_phase2_mech229_object_bound_wanting_liking.py",
+      "priority": 310,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 220,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "MECH-229",
+      "predecessor": "V3-EXQ-514o",
+      "note": "Confirmatory replication of V3-EXQ-514o (PASS/supports 2026-06-15, GAP-2/GAP-7 closed). Independent seed triple [45,46,47] vs 514o [42,43,44]. 4th genuine experimental entry to clear MECH-229 provisional->stable (needs >=4 exp entries; exp_conf 0.868 already > 0.80 floor; 514o was the 3rd). Dry-run smoke PASS 2026-06-15 (seed 45: C_WL 0.778, 9 scored WL steps, non_degenerate). Substrate-marginal contact guard + falsifier off-ramp identical to 514o."
     }
   ]
 }
