@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-14
+**Last updated:** 2026-06-15
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-14)
+## 0. Current V3 State (2026-06-15)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -175,6 +175,106 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-15T01:10Z nightly read.** `evidence/experiments/` flat
+  top-level holds **382 `*_v3.json` manifests** on disk (latest letter
+  frontier through V3-EXQ-682; the headline tally is a slight day-over-
+  day adjustment of the prior ~395 estimate after a 2026-06-14
+  governance-cycle reconcile and the 680/680a supersession sweep);
+  legacy fleet `runner_status.json` unchanged at the 2026-06-09T06:00Z
+  snapshot of 840 dedup completion records (Phase 3 per-machine cards
+  under `runner_heartbeats/` + `runner_status/` lead the legacy
+  single-file tally). **Pending review queue (regenerated
+  2026-06-14T22:16:17Z) reads 1 item** -- V3-EXQ-680b MECH-423
+  cross-model super-additivity (FAIL/inconclusive/additive_below_margin;
+  delta_pair [+1.57, +1.24, -1.19], hardened margin 2.46 -> NOT
+  super-additive); user-routed to `/failure-autopsy` which adjudicated
+  the -1.19 seed as numerical-instability (NOT negative-transfer
+  weakens) and routed to V3-EXQ-680c (supersedes 680b) with four
+  robustness fixes: grad-clip world/affordance/proxy heads + shared
+  encoder, R2 score floor at -1.0, re-wire the R1 cosine probe onto
+  shared-encoder params (the 680b probe was structurally pinned at 0.0),
+  n=5 seeds with 3/5 majority gate. **Currently queued
+  (`experiment_queue.json` items[]): 5 items** -- V3-EXQ-514o
+  (MECH-229 SD-049 Phase-2 wanting!=liking dissociation; sources the
+  consumed type tag from `info[sd049_consumed_type_tag_this_tick]` per
+  the 681 C4 fix; priority 310, ree-cloud-4), V3-EXQ-672b (MECH-057b
+  trajectory-promotion-gate, ree-cloud-1), V3-EXQ-682 (GAP-A in-arm
+  route-range collapse diagnostic; user-directed diagnose-first over a
+  4th blind /implement-substrate amend; priority 290,
+  `DLAPTOP-4.local`), V3-EXQ-603p (SD-059/MECH-358 base
+  harm-landscape discriminativeness diagnostic on the 603o
+  substrate_not_ready re-queue; ree-cloud-2), V3-EXQ-666c
+  (arc_062:GAP-B CRF-readiness fraction-gated re-run with pre-gap
+  e2ctx differentiation + N_EPISODES 100->200; supersedes 666b;
+  ree-cloud-3). 680c is queued post-spec read at priority 315 and
+  appears in the coordinator `/queue/active` tick. Substrate /
+  governance landings since the 2026-06-14T01:10Z spec sync:
+  (1) **Super-additivity PASS gate hardened** (ree-v3, EXQ versioning
+  680a -> 680b -> 680c) -- the original `pstdev(iso_scores)` noise
+  scale collapsed toward 0 on a reproducible substrate and let a
+  trivially-small consistent positive delta look super-additive;
+  hardened to `max(SUPERADD_SD_MULT * pstdev(delta_pair),
+  SUPERADD_MIN_EFFECT_FLOOR=0.02)` so noise scales on the SD of the
+  DELTA itself with an absolute effect-size floor (Daniel's memory
+  rule: SD-of-delta + absolute floor, never SD of baseline level).
+  680a manifest superseded; 680b confirmed the hardened gate flips the
+  weak-criterion PASS to inconclusive on identical data. (2) **Indexer
+  hardened: flat-manifest governance corrections now authoritative
+  over the stale runs/ pack copy** (REE_assembly 074ab9401e) -- the
+  indexer scored ONLY `runs/<run_id>/manifest.json` (the pack), so
+  `/failure-autopsy` corrections written only to the flat sibling
+  were silently ignored -> recurring MECH-171/057b/180 mis-fires.
+  `_scan_runs` now auto-merges the flat sibling onto the pack, gated
+  on `_is_annotated` (flat wins ONLY when it carries a note/reason the
+  pack lacks; preserves pack-authoritative v3_exq_150-series). Surfaced
+  ~20 claims to re-score; the late-evening governance cycle baked them
+  in and surfaced no new promote/demote recs at the gate. (3) **Late-
+  evening governance cycle** (REE_assembly a2d949d506; 864-file
+  holistic regen) -- baked the flat-authoritative indexer 20-claim
+  shift; user-directed promote **MECH-314a candidate_substrate_landed
+  -> provisional** (exp_conf 0.759 > 0.62 gate, v3_pending cleared
+  2026-06-08 via 604c). 5-item pending walk routed V3-EXQ-680b to
+  `/failure-autopsy`; 679/681 PASS diagnostics marked reviewed.
+  (4) **Plan-doc reconciles** -- sd_037_axis_b:P1b
+  blocked_pending_substrate -> upstream_blocked (substrate BUILD half
+  met; committed-action diversity half NOT met, downstream of GAP-A);
+  behavioral_diversity_isolation:GAP-A/B/C drift absorbed (569f+569g
+  FAIL/non_contributory, 603l autopsy-applied, 603n PASS), GAP-A/B
+  reverse `cross_plan_link` to sd_037_axis_b:P1b added for
+  bidirectional discoverability; MECH-341 ratified
+  candidate -> provisional via claims.yaml-direct (80f4fcf250) +
+  closure-node + decision_state reconcile (the derive-only gotcha
+  noted in memory). (5) **GAP-A 569g autopsy correction** -- the prior
+  20:34Z autopsy misread arm_results[0/1/2] as "all three falsifier
+  arms applied route_range=0.0"; the corrected reading found ARM_1
+  applied route_range 0.18 in-arm but committed entropy stayed
+  bit-identical = genuine shared CONVERSION ceiling (gap-relative
+  additive authority at gain 0.5; subdominant to F-dominated primary
+  88-89%). Routing: implement-substrate amend the gain/contrast lever
+  AFTER V3-EXQ-682 confirms the in-arm route-range reach. (6)
+  **Critical-path synthesis doc** (REE_assembly 9d5f2a6760) --
+  consolidated the five 2026-06-14 V3-closure critical-path drill-down
+  sessions: bdiv GAP-A (V3-EXQ-682 -> /implement-substrate gain
+  amend -> 569h falsifier) is the **master choke** gating 7 downstream
+  nodes (entire sd_037 axis-b chain + entire self_attribution chain);
+  arc_062 GAP-B (666c -> 654c) is the 2nd choke (4 nodes);
+  goal_pipeline GAP-2 (514o) the only direct claim-closer in flight.
+  Theme: every path's latest FAIL was an instrumentation defect
+  (read-timing/post-gap/manifest-misread/marginal-guard), not a
+  falsification -> diagnose-first is the correct default while the
+  substrate is marginal. (7) **Heartbeat active-claim guard broadened
+  to docs/claims/** (ree-v3 f61afb9 / REE_assembly badac028da) -- the
+  per-minute autostash cycle was confirmed to transiently sweep
+  uncommitted claims.yaml edits in a 2026-06-14 IGW window
+  (ABM-1/Q-060); guard now skips the heartbeat push when any active
+  TASK_CLAIMS entry lists a path under `evidence/` OR `docs/claims/`.
+  Bottleneck: **bdiv GAP-A (V3-EXQ-682 diagnostic ->
+  /implement-substrate gain/contrast amend -> V3-EXQ-569h falsifier)
+  is the master choke** for the V3 closure frontier; arc_062 GAP-B
+  (666c readiness -> 654c falsifier) is the 2nd choke; MECH-423
+  cross-model super-additivity awaits V3-EXQ-680c on the hardened
+  delta-scaled+floored margin (the substantive evidence path).
 
 - **2026-06-14T01:10Z nightly read.** `evidence/experiments/` flat
   top-level holds **~395 `v3_exq_*.json` manifests** on disk (latest

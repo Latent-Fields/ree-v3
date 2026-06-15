@@ -198,6 +198,74 @@ SD-004 and SD-005 are interdependent: action objects require z_world to exist; z
 
 **2026-05-30T01:10Z nightly read.** Central `evidence/experiments/runner_status.json` reports **768 cumulative completions (+7 since 2026-05-29T01:10Z)** (183 PASS / 308 FAIL / 84 ERROR / 193 UNKNOWN; deltas PASS +5, FAIL +1, ERROR +1, UNKNOWN +0); last_updated 2026-05-29T20:17:10Z -- ~5h fresh at this read. The Phase-3 coordinator -> central-index merge stayed caught up across the day. **Pending review queue (regenerated 2026-05-29T23:36Z; last review 2026-05-29T21:35Z) reads 2 items** -- V3-EXQ-483d FAIL (Tier-1 library rebuild successor to 483c; C1+C2+C3+C4 PASS but C3_lift_vs_baseline FAIL 1/2 arms; manifest tags SD-037=weakens; flagged for `/failure-autopsy`) and V3-EXQ-612b ERROR (Phase 3 cutover cloud-2 smoke, no-sentinel; queued for `/diagnose-errors`). **Currently queued (`experiment_queue.json`): 1 item** -- V3-EXQ-592c (MECH-090 R-c commit-readiness gate validation on ree-cloud-3, claimed 2026-05-29T22:46Z; supersedes V3-EXQ-592b which silent-dropped on FAIL on DLAPTOP-4 2026-05-29T08:32Z and motivated the runner-side FAIL/ERROR-branch manifest-persistence fix). **Substrate / governance landings since the 2026-05-29T01:10Z snapshot:** (1) **SD-056 E2 action-conditional divergence preservation** (ree-v3 main 041a974) -- contrastive next-state InfoNCE auxiliary on `world_forward`; resolves the V3-EXQ-571 root-cause finding (`cand_world_pairwise_dist` collapsed to 0.0); two new `E2FastPredictor` helpers; bit-identical OFF default; 539/539 contracts + 7/7 preflight PASS; V3-EXQ-613 substrate-readiness PASS, V3-EXQ-569a behavioural falsifier queued same day but crashed twice with NaN in `torch.multinomial` (self-anchored InfoNCE targets caused E2 weights to diverge); `/diagnose-errors` superseded 569a with V3-EXQ-569b using observation-anchored targets from a rolling buffer. (2) **MECH-090 R-c continuation (nav_competence axis)** -- pass 2 of 2 for `commitment_closure:GAP-4`; CommitReadiness module landed; both R-c axes AND-compose at both BetaGate elevate sites; V3-EXQ-592b grid extended to 4 arms for the orthogonal-axis falsifier. (3) **MECH-341 parameter retune** (ree-v3 a45ca7f) -- `e3_diversity_entropy_lambda` 0.05 -> 0.5 (10x) and `e3_diversity_entropy_bias_scale` 0.1 -> 1.0 for headroom, triggered by V3-EXQ-611c PASS interpretation (C1=True stratified fires, C2=False lambda too small, C3=True diversity produced, R2c=True all ready); routed to V3-EXQ-614 behavioural successor per `behavioral_diversity_isolation_plan.md`. (4) **Runner FAIL/ERROR manifest-persistence fix** (ree-v3 41c3411) -- `experiment_runner.py` FAIL branch (2267-2305) and ERROR branch (2229-2265) now invoke the three-call sequence (`_result_manifest_exists` + `git_push_results` + `coordinator_client.report_result`) the PASS branch retrofitted on 2026-05-08; FAIL/ERROR with claimed-but-disk-missing manifest now WARN + `release_active_claim` + `_pass_skip` (leaves queue entry) instead of silently removing; 4 new source-inspection contract tests; 543/543 contracts PASS. (5) **`/governance` cycle 2026-05-29 evening** -- 13 evidence_quality_note appends + 7 `pending_retest_after_substrate` flags + 1 SD-033a `narrow_supports_flag`; substrate_queue net: 1 CREATE (`scaffolded_sd054_onboarding`) + 1 amend ARC-046 + 1 amend MECH-341 (no-op) + 1 amend `scaffolded_sd054_onboarding` cluster; 6 failure-autopsies applied (598/606/596-602/603-followon-604-605/490g-cohort/MECH-341-cluster). (6) **Phase 3 writer auto-recovery + coordinator.db committed_at backfill** (ree-v3 d3d3c7a) -- opt-in `PHASE3_AUTO_RESET_ON_REBASE_CONFLICT` self-heal on `sync_daemon`; one-shot backfill script resolved 8/8 NULL `committed_at` rows against manifests on `origin/master`. (7) **GAP-4 Tier-1 library rebuild + V3-EXQ-483d/490h queued** (ree-v3 3eb2601) -- `experiments/_lib/goal_pipeline_tier1.py`: `cfg.use_dacc=True` now unconditional; `C3_lift_vs_baseline` default metric switched from `approach_commit_rate` (saturated 1.0 in OFF_OFF) to `goal_norm_peak` delta vs baseline (cross-claim-comparable). **Bottleneck:** the **goal-pipeline / training-regime substrate enrichment** identified by the 2026-05-29 V3-EXQ-490g cohort autopsy (Cluster B disposition; substrate-uniform monomodal-V_s monostrategy tail signature across 483c / 524a / 603 / 603a / 603b / 603c / 604 / 605 / 540a-e / 590a / 591 / 598 / 598b) is the load-bearing constraint behind the diversity-cluster non_contributory chain; the new substrate_queue entry **`scaffolded_sd054_onboarding`** (priority 1, unblocks 9 claims: Q-045 / MECH-313 / MECH-260 / MECH-295 / MECH-307 / MECH-117 / SD-049-Phase-2 / ARC-030 / Q-040; design_doc `evidence/planning/sd_054_scaffolded_onboarding_substrate_design.md`) is the next substrate-implementation session-of-record. The V3-EXQ-543k disposition gap (carried forward from 2026-05-21) remains outstanding.
 
+## Current Status (2026-06-15)
+
+**2026-06-15T01:10Z nightly read.** Pending review queue
+(`evidence/experiments/pending_review.md`, regenerated 2026-06-14T22:16Z)
+reads **1 item** -- V3-EXQ-680b MECH-423 cross-model super-additivity
+(FAIL/inconclusive/additive_below_margin; delta_pair [+1.57, +1.24,
+-1.19], hardened margin 2.46 -> NOT super-additive); user-routed to
+`/failure-autopsy` which adjudicated the -1.19 seed as
+numerical-instability (NOT negative-transfer weakens) on three
+independent grounds (only the world head collapsed; that seed's R1
+grad-norm was ~10x the stable seeds; the script's OWN weakens gate
+needs mean delta <=0 but mean is +0.539). Routed to V3-EXQ-680c
+(supersedes 680b) with four robustness fixes: grad-clip world/affordance/
+proxy heads + shared encoder (GRAD_CLIP_NORM=1.0), R2 score floor at
+-1.0, re-wire the R1 negative-transfer cosine probe onto shared-encoder
+params (the 680b probe wired disjoint latent halves so cosine was
+mathematically pinned at exactly 0.0 and the guard was inert), n=5
+seeds with 3/5 majority gate. **Currently queued
+(`experiment_queue.json` items[]): 5 items** -- V3-EXQ-514o (MECH-229
+SD-049 Phase-2 wanting!=liking dissociation; reads the consumed
+type tag from `info[sd049_consumed_type_tag_this_tick]` per the 681 C4
+fix), V3-EXQ-672b (MECH-057b trajectory-promotion-gate), V3-EXQ-682
+(behavioral_diversity_isolation:GAP-A in-arm route-range collapse
+diagnostic, user-directed diagnose-first), V3-EXQ-603p (SD-059/MECH-358
+base harm-landscape discriminativeness on the 603o substrate_not_ready
+re-queue), V3-EXQ-666c (arc_062:GAP-B CRF-readiness fraction-gated
+re-run, supersedes 666b). V3-EXQ-680c (MECH-423 cross-model
+super-additivity, hardened delta-scaled+floored margin) queued
+post-spec read at priority 315. **Substrate / governance landings
+since the 2026-06-14T01:10Z spec sync** -- (1) **super-additivity PASS
+gate hardened** via EXQ versioning 680a -> 680b -> 680c (the original
+`pstdev(iso_scores)` noise scale collapsed toward 0 on a reproducible
+substrate; hardened to `max(SUPERADD_SD_MULT * pstdev(delta_pair),
+SUPERADD_MIN_EFFECT_FLOOR=0.02)` so noise scales on the SD of the
+DELTA itself with an absolute effect-size floor); (2) **indexer
+hardened to be flat-manifest authoritative over the stale runs/ pack
+copy** (REE_assembly 074ab9401e; flat wins when annotated --
+`/failure-autopsy` corrections written only to the flat sibling were
+silently ignored; surfaced a ~20-claim exp_conf shift baked in by the
+evening governance cycle); (3) **late-evening governance cycle**
+(REE_assembly a2d949d506; 864-file regen) -- user-directed promote
+**MECH-314a candidate_substrate_landed -> provisional** (exp_conf
+0.759 > 0.62 gate); (4) plan-doc reconciles -- sd_037_axis_b:P1b
+blocked_pending_substrate -> upstream_blocked, behavioral_diversity_isolation
+GAP-A/B/C drift absorbed (603l autopsy-applied + 603n PASS), MECH-341
+ratified provisional via claims.yaml-direct + closure-node +
+decision_state reconciles; (5) **GAP-A 569g autopsy CORRECTED** --
+the prior reading was a manifest misread; corrected reading found
+ARM_1 applied route_range 0.18 in-arm but committed entropy stayed
+bit-identical = genuine shared CONVERSION ceiling (gap-relative
+additive authority at gain 0.5, subdominant to F-dominated primary
+88-89%); routing flipped to /implement-substrate gain/contrast amend
+AFTER V3-EXQ-682 confirms route-range reach; (6) **critical-path
+synthesis doc** (REE_assembly 9d5f2a6760) consolidating the five
+2026-06-14 V3-closure drill-down sessions -- bdiv GAP-A is the master
+choke gating 7 downstream nodes, arc_062 GAP-B the 2nd choke (4 nodes),
+goal_pipeline GAP-2 (V3-EXQ-514o) the only direct claim-closer in
+flight; (7) **heartbeat active-claim guard broadened to docs/claims/**
+(ree-v3 f61afb9) so the per-minute autostash cycle no longer transiently
+sweeps uncommitted claims.yaml edits (confirmed shape after a 2026-06-14
+IGW-window observation on ABM-1/Q-060 edits). **Bottleneck:** behavioral
+diversity isolation **GAP-A (V3-EXQ-682 in-arm route-range diagnostic
+-> /implement-substrate gain/contrast amend -> V3-EXQ-569h falsifier)
+is the master choke** for the V3 closure frontier; arc_062 GAP-B
+(666c readiness -> 654c behavioural falsifier) is the 2nd choke;
+MECH-423 cross-model super-additivity awaits V3-EXQ-680c on the
+hardened margin.
+
 ## Current Status (2026-05-29)
 
 **2026-05-29T01:10Z nightly read.** Central `evidence/experiments/runner_status.json` reports **761 cumulative completions (+5 since 2026-05-28T01:10Z)** (178 PASS / 307 FAIL / 83 ERROR / 193 UNKNOWN; deltas PASS +0, FAIL +3, ERROR +2); last_updated 2026-05-28T17:26:40Z -- ~7h45m fresh at this read. The Phase-2 coordinator -> central-index merge remains caught up from yesterday's improvement. **Pending review queue (regenerated 2026-05-27T17:40:25Z; last review 2026-05-27T17:35Z) reads 1 item unchanged from yesterday** -- V3-EXQ-598b (commitment_closure GAP-1 SD-033a bias-head trainable ablation, `claim_ids=[MECH-262, SD-033a]`) FAIL 2026-05-27T12:03Z `evidence_direction=does_not_support`; queued for the next governance pending walk. **Currently queued (`experiment_queue.json`): 3 items, all Phase-3 cutover smoke** -- V3-EXQ-612 (DLAPTOP-4.local claimed 2026-05-28T17:24Z), V3-EXQ-612c (ree-cloud-2 pending, supersedes 612b which lacked the `verdict: PASS` stdout sentinel), V3-EXQ-612d (ree-cloud-3 pending, supersedes 612c after `emit_outcome` wiring fix). The MECH-090 R-c readiness conjunction validation V3-EXQ-592b and the MECH-341 retune validation V3-EXQ-611b queued by the 2026-05-28 substrate-landing sessions do NOT appear in `items[]` at this read -- both were runner-claimed earlier in the day (611b on DLAPTOP-4.local @17:26:40Z per the MECH-341 retune session close note; 592b similarly claimed by the active MECH-090 R-c session). **Substrate landings since the 2026-05-28T01:10Z snapshot:** (1) **MECH-090 R-c commit-entry readiness conjunction** (per ree-v3 CLAUDE.md MECH-090 section, landed 2026-05-28 in the active `implement-substrate-mech090-rc-conjunction` session) -- BetaGate.should_admit_elevation gate at the two `beta_gate.elevate()` call sites in REEAgent.select_action; reading R-c single-gate conjunction strongest per the 28-entry MECH-090 lit synthesis (commit 9e68c5ca8a) with R-b Tandetnik 2021 retained as fallback; bit-identical OFF default; V3-EXQ-592b 2-arm GATED / GATED_FORCED_READY validation queued. (2) **MECH-341 retune** (ree-v3 e02e77f) -- stratified_select call-site expanded from committed-only to BOTH committed and uncommitted branches in `ree_core/predictors/e3_selector.py` (resolves V3-EXQ-611 ARM_2 n_stratified_fired=0 zero-fires failure: committed branch was never entered during validation); V3-EXQ-611b 6-arm factorial parameter sweep queued (3 option groups x 2 entropy_bias_scale values 1.0/2.0). (3) **coord-env runner-start fix** (REE_assembly fc08812b62 + ree-v3 9fc0e02) -- serve.py `start_runner()` default-injects shadow env (`COORDINATION_MODE` + `COORDINATOR_URL` + `COORDINATOR_TOKEN`) from `coordinator.env` when `extra_env is None` and env file is configured; `runner_remote_control.py` `write_heartbeat` surfaces `coordination_mode` field auto-read from `os.environ` for cross-machine status visibility without SSH audit; `/queue-experiment` skill (both `.claude/` and `.agents/` mirrors) + `cloud_workers.md` gain a verification step warning if any active runner is in git mode or missing the field. (4) **E2 action-conditional divergence substrate-design memo** (REE_assembly 7cb1200332) -- lever B contrastive next-state (InfoNCE-style auxiliary on `E2.world_forward` with K-1 in-batch negatives drawn from sibling CEM candidates with different first-actions) chosen over PLSM (lever A) and SWIRL (lever C) per the 2026-05-28 lit-pull SYNTHESIS verdict (REE_assembly 04bc1f3727; 6 entries balanced across ML world-model + biology forward-model literatures, lit_conf 0.78); decision deferred to a separate `/implement-substrate` session. (5) **E2 action-conditional divergence lit-pull** (REE_assembly 04bc1f3727) -- 6-entry SYNTHESIS on the V3-EXQ-571 root-cause finding (E2 world-forward per-candidate signal collapse, `cand_world_pairwise_dist=0.0`); verdict: option (ii) fix E2 is the architecturally faithful target; methodological gap surfaced (no published paper reports per-action pairwise distance between predicted latents as headline metric -- REE could publish the `cand_world_pairwise_dist` diagnostic as a standalone contribution). (6) **IGW housekeeping batch** -- IGW-008 GAP-A plan resync, IGW-010 GAP-C plan-doc refresh + workset regen (V3-EXQ-611 FAIL cluster-absorbed into V3-EXQ-591 autopsy), IGW-011 GAP-D doc-sync + R4.b flag. **Bottleneck:** the **upstream E2 world-forward per-candidate z_world collapse** identified in the 2026-05-25 V3-EXQ-571 root-cause investigation remains the structural root cause of the score_bias-chain flatness; the E2 action-divergence design memo (2026-05-28) makes lever B (contrastive next-state via InfoNCE) the plan-of-record fix; landing it is the next `/implement-substrate` session-of-record after V3-EXQ-611b and V3-EXQ-592b return validation signal. **MECH-341 substrate retune** and **MECH-090 R-c readiness conjunction** today both address Layer-B (post-CEM scoring) and the commit-entry predicate respectively, but neither removes the Layer-A (E2 forward-model collapse) cause flagged as the root structural blocker. The V3-EXQ-543k disposition gap (carried forward from 2026-05-21) remains outstanding.
