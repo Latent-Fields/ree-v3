@@ -8,6 +8,22 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-514p",
+      "title": "MECH-229 confirmatory replication of 514o (independent seeds 45/46/47) -> 4th genuine exp entry for provisional->stable",
+      "script": "experiments/v3_exq_514p_sd049_phase2_mech229_object_bound_wanting_liking.py",
+      "priority": 310,
+      "machine_affinity": "any",
+      "estimated_minutes": 220,
+      "claim_id": "MECH-229",
+      "note": "Confirmatory replication of V3-EXQ-514o (PASS/supports 2026-06-15, GAP-2/GAP-7 closed). Independent seed triple [45,46,47] vs 514o [42,43,44]. 4th genuine experimental entry to clear MECH-229 provisional->stable (needs >=4 exp entries; exp_conf 0.868 already > 0.80 floor; 514o was the 3rd). Dry-run smoke PASS 2026-06-15 (seed 45: C_WL 0.778, 9 scored WL steps, non_degenerate). Substrate-marginal contact guard + falsifier off-ramp identical to 514o.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 250,
+      "experiment_type": "v3_exq_514p_sd049_phase2_mech229_object_bound_wanting_liking",
+      "predecessor": "V3-EXQ-514o",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-654c",
       "title": "arc_062 GAP-B behavioural falsifier (MECH-309/ARC-062): committed-class entropy on the 666c-validated crf-availability-maintenance substrate (supersedes V3-EXQ-654b)",
       "script": "experiments/v3_exq_654c_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
@@ -64,42 +80,6 @@
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_591f_isef005_phase01_gate_criterion",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-591e",
-      "title": "InfantCurriculumScheduler Phase 0->1 gate-CRITERION diagnostic: EMA-of-LEVEL @ ~0.20 floor (supersedes V3-EXQ-591d)",
-      "script": "experiments/v3_exq_591e_isef005_phase01_gate_criterion_v3.py",
-      "priority": 280,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-591d",
-      "note": "Claim-free gate-CRITERION diagnostic (ARC-046 / infant_substrate:GAP-14 leg c-2); supersedes V3-EXQ-591d (corrected parameterization, same scientific question). Per the confirmed failure_autopsy_V3-EXQ-591d_2026-06-15 Section 8 (user-chosen via AskUserQuestion 2026-06-15): 591d FAILed because BOTH candidate robust criteria (K-of-N 5/10, EMA) reused the single-episode SPIKE threshold (0.994 = 0.20*ln(144)) as the bar for a SUSTAINED statistic, so they correctly rejected the seed-45 false-advancer (591c over-permissiveness FIXED) but ALSO rejected genuine explorers 42/43 (mean h_pos 0.32-0.56, below the spike bar). The discriminating signal is the MEAN LEVEL (the genuine-explorer oracle's own floor ~0.20), not crossing density. 591e replays the SAME 5-seed (42-46) 160-ep diversity-armed reachability traces (MECH-313 noise floor + MECH-314 curiosity at landed defaults, SP-CEM main-path) through ONE corrected criterion -- EMA(alpha=0.2) of the per-episode h_pos LEVEL vs GENUINE_EXPLORATION_H_POS_MEAN_FLOOR (~0.20), NOT the 0.994 spike threshold. ep_min=100, same non-vacuity preconditions + two-leg C_gate_discriminates. PURE OFFLINE replay -- infant_curriculum.py NOT mutated (610e/669/586/667 depend on its default gate). Expected (from 591d per-seed levels): EMA-of-level@0.2 admits 42/43/44 (means 0.32-0.84 > 0.2) and rejects 45 (0.14 < 0.2) -> discriminates -> a discriminating PASS routes to /implement-substrate on infant_curriculum.py:_try_phase_0_to_1 as the EMA-of-level replacement for the single-episode gate. Seed-46 exploration-STRENGTH collapse is OUT OF SCOPE (orthogonal Q-043/667->667a thread; leg c-1). Does NOT queue EXQ-ISEF-005 (blocked until BOTH GAP-14 legs resolve). claim-free: weights/promotes nothing (ARC-046 architectural_commitment/substrate_ceiling not movable). Smoke: validate_experiments --strict OK; --dry-run end-to-end (movement floor met, substrate_not_ready_requeue at dry scale by design, sentinel written).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-15T04:45:41Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 160,
-      "experiment_type": "v3_exq_591e_isef005_phase01_gate_criterion",
-      "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-514p",
-      "title": "MECH-229 confirmatory replication of 514o (independent seeds 45/46/47) -> 4th genuine exp entry for provisional->stable",
-      "experiment_type": "v3_exq_514p_sd049_phase2_mech229_object_bound_wanting_liking",
-      "script": "experiments/v3_exq_514p_sd049_phase2_mech229_object_bound_wanting_liking.py",
-      "priority": 310,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 220,
-      "episodes_per_run": 250,
-      "seeds": 3,
-      "conditions": 1,
-      "claim_id": "MECH-229",
-      "predecessor": "V3-EXQ-514o",
-      "note": "Confirmatory replication of V3-EXQ-514o (PASS/supports 2026-06-15, GAP-2/GAP-7 closed). Independent seed triple [45,46,47] vs 514o [42,43,44]. 4th genuine experimental entry to clear MECH-229 provisional->stable (needs >=4 exp entries; exp_conf 0.868 already > 0.80 floor; 514o was the 3rd). Dry-run smoke PASS 2026-06-15 (seed 45: C_WL 0.778, 9 scored WL steps, non_degenerate). Substrate-marginal contact guard + falsifier off-ramp identical to 514o."
     }
   ]
 }
