@@ -8,29 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-514o",
-      "title": "SD-049 Phase-2 MECH-229 object-bound wanting!=liking L9 dissociation (closes goal_pipeline:GAP-2 + GAP-7); 681-C4 liking-source fix on full 603n curriculum",
-      "script": "experiments/v3_exq_514o_sd049_phase2_mech229_object_bound_wanting_liking.py",
-      "priority": 310,
-      "machine_affinity": "any",
-      "estimated_minutes": 300,
-      "supersedes": null,
-      "claim_id": "MECH-229",
-      "note": "L9 wanting!=liking dissociation successor to V3-EXQ-514n (NOT a supersede); a PASS closes goal_pipeline:GAP-2 and thereby goal_pipeline:GAP-7 (gated only on this L9 retest). The full 603n lever stack is ported VERBATIM (already present in 514n; _make_scaffold_cfg == 603n). LOAD-BEARING FIX (681-C4): the liking target AND the L2-bind resource_type are now sourced from info['sd049_consumed_type_tag_this_tick'] returned by env.step() (the authoritative consumption signal), NOT _contacted_resource_type(obs_dict) which at eval read-time reads the post-consumption-cleared cell and returns None -- the cause of 514n's n_scored_wl_steps=0 on the guard-passing seed. V3-EXQ-681 PASS (forced-contact WL channel-write) C4 established consumed_tag_in_obs_dict=false / consumed_tag_in_info=true. Pre-registered gates IN ORDER, each self-routing substrate_not_ready_requeue (non_contributory), NEVER a false MECH-229 weakens: (a) contact non-vacuity guard>=2/3 (P2 contact_rate>0 AND z_goal@contact>0.4); (b) WL readiness (leg-1 constructed-bank positive-control separation==1.0 AND leg-2 in-run bank>=2 distinct drive-differentiated tokens with n_scored_wl_steps>=5 on >=2/3 guard-passing seeds -- the same-statistic V3-EXQ-643 lesson); (c) L9 acceptance C_WL mean drive-coupled wanting!=liking fraction>=0.6 over guard-passing seeds. A within-eval drive-uniform control (WL_nodrive) is the drive-dependence diagnostic. SUBSTRATE-CEILING CAVEAT: the contact guard is substrate-marginal (603n itself cleared G3 only 2/3 seed44 0.374; 514n seed43 0.391; env layout default_rng(None) is OS-entropy), so a contact_guard_unmet self-route is a foraging-competence substrate-ceiling finding (route /implement-substrate), NOT a weakens. FALSIFIER OFF-RAMP pre-registered (substrate_queue SD-049-PHASE-2 row-6 Woo/Spelke): a genuine weakens here triggers the off/control arm (bank disabled -> WL~0) + overshoot arm (n_resource_types=5); JOINT failure routes MECH-229 -> substrate_conditional with V4-1 multi-agent-ecology dependency (clean exit). claim_ids=[MECH-229] ONLY; experiment_purpose=evidence; non_degenerate self-reported. Smoke 2026-06-14: validate_experiments --strict OK; --dry-run runs the full Stage-0->...->P2 curriculum + WL eval end-to-end, scored=9 WL steps (514n got 0 -> the 681-C4 fix fires during real foraging), readiness met, emit_outcome sentinel.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-14T22:05:34Z"
-      },
-      "claim_ids": [
-        "MECH-229"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_514o_sd049_phase2_mech229_object_bound_wanting_liking",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-682",
       "title": "GAP-A in-arm route-range collapse diagnostic (locate 569g applied route_range=0.0 -> cause i/ii/iii)",
       "script": "experiments/v3_exq_682_gapa_inarm_routerange_collapse_diagnostic.py",
