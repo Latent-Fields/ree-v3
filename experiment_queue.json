@@ -8,27 +8,23 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-680d",
-      "title": "MECH-423 cross-model super-additivity 3-arm ablation (supersedes 680c): stabilise integrated co-training + inf/NaN-guarded readiness cosine",
-      "script": "experiments/v3_exq_680d_mech423_superadditivity_ablation.py",
-      "priority": 315,
+      "queue_id": "V3-EXQ-654c",
+      "title": "arc_062 GAP-B behavioural falsifier (MECH-309/ARC-062): committed-class entropy on the 666c-validated crf-availability-maintenance substrate (supersedes V3-EXQ-654b)",
+      "script": "experiments/v3_exq_654c_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
+      "priority": 300,
       "machine_affinity": "any",
-      "estimated_minutes": 150,
-      "supersedes": "V3-EXQ-680c",
-      "claim_id": "MECH-423",
-      "note": "Supersedes V3-EXQ-680c. Per the confirmed failure_autopsy_V3-EXQ-680c_2026-06-15: 680c self-routed substrate_not_ready_requeue because the readiness cosine went NaN -- 4/5 INTEGRATED_PAIR seeds diverged to the world_R2 -1 clamp floor (shared-encoder grads -> inf) despite GRAD_CLIP_NORM=1.0; the one stable seed (789) showed a genuine net-negative shared-encoder cosine (-0.40). MECH-423 NOT weakened (the self-route is the claim-designed non_degenerate response; 680b's 2/3 super-additive seeds stand). TWO coupled fixes: (a) STABILISE the integrated co-training -- separate LOWER encoder LR (ENC_LR=1e-4 vs HEAD_LR=1e-3) via Adam param groups, an encoder-gradient WARMUP (shared latent detached for the first 10 P0 episodes for the integrated arms, then co-train), and a per-step non-finite-loss guard; GRAD_CLIP_NORM=1.0 + R2_SCORE_FLOOR=-1.0 retained. Acceptance precondition: >=4/5 PAIR seeds USABLE (finite world_R2 off the -1 floor AND finite R1 grad/cosine) before any cosine is read. (b) GUARD the readiness cosine -- min_cos over usable seeds only; separate n_diverged_seeds readout. PRE-REGISTERED 3-WAY FORK: FORK 1 diverged-seeds dominate (n_usable<4) -> substrate_not_ready_requeue/co_training_diverged -> diagnose/stronger stabiliser, do NOT iterate blindly; FORK 2 stable + cosine>=0 on usable seeds -> readiness MET -> super-additivity verdict runs (the actual MECH-423 test); FORK 3 stable + FINITE net-negative cosine -> substrate_not_ready_requeue/r1_grad_cosine_net_negative -> /implement-substrate (shared-latent objective reconciliation) or narrow MECH-423, NOT another re-queue. experiment_purpose=evidence (self-routes non_contributory/non_degenerate=False when readiness unmet; weights MECH-423 only when FORK 2 fires). Smoke: validate_experiments --strict OK; --dry-run end-to-end (warmup + non-finite guard + FORK-1 self-route at dry scale + sentinel).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-15T04:31:54Z"
-      },
+      "estimated_minutes": 620,
+      "supersedes": "V3-EXQ-654b",
+      "note": "arc_062_rule_apprehension:GAP-B committed-class entropy behavioural falsifier (MECH-309/ARC-062), supersedes V3-EXQ-654b. Port of the 654b single-variable ARM_OFF vs ARM_ON falsifier onto the NOW-VALIDATED crf-availability-maintenance substrate: V3-EXQ-666c PASSed 2026-06-15 (ARM_2 mean_frac_maintained 0.854 > 0.625 floor, all 4 readiness preconditions met) and flipped substrate_queue crf-availability-maintenance ready=True (REE_assembly origin/master be7261d9ca). 654/654a/654b ALL FAILed non_contributory / substrate_not_ready_requeue for the SAME reason: the C1c readiness floor crf_frac_active>=0.30 was never met (654b measured 0.130) because the CandidateRuleField pool churned (mint->retire->re-mint) and never HELD >=2 differentiated rules active, so the committed-class falsifier DV never scored. 654c arms ARM_ON with the 666c ARM_2 levers crf_mature_pool_dynamics + crf_context_from_e2_world_forward + crf_availability_maintenance (floor 0.45 / decay 0.0) on top of crf_persist, at an ENLARGED P0 maturation window 200 ep (was 150; matches the 666c budget that formed full-pool differentiation PRE-gap on all 3 seeds), with the frozen-encoder P1 trained-bias-head REINFORCE phase (GAP-D leg). PRIMARY DV = committed-class entropy. Pre-registered non-vacuity preconditions, each self-routing substrate_not_ready_requeue (NEVER a false weakens): (i) C1c crf_frac_active>=0.30 actually clears now; (ii) propagation non-vacuity -- ARM_ON committed lateral_pfc bias differs from ARM_OFF (the bias reaches committed action). claim_ids=[MECH-309, ARC-062]: ONLY the PASS branch (C2 committed-class entropy lift on >=2/3 seeds) weights them, as supports. OFF-RAMP (pre-registered, NO weakens branch): if the matured+maintained+differentiated pool clears C1c AND the bias reaches committed action (C1d) but STILL fails to lift committed-class entropy, that is the SHARED selection-authority CONVERSION ceiling (behavioral_diversity_isolation:GAP-A; failure_autopsy_V3-EXQ-569g_2026-06-14 + V3-EXQ-682: route-range reaches the E3 accumulator but does not move the F-dominated committed argmax), self-routes non_contributory + route /implement-substrate (same gain/contrast amend as GAP-A) -- NOT a MECH-309/ARC-062 falsification. C1-fail self-routes substrate_not_ready_requeue. Smoke: validate_experiments --strict OK; --dry-run end-to-end both arms (substrate_not_ready_requeue at dry scale by design, sentinel written). experiment_purpose=evidence.",
+      "status": "pending",
       "claim_ids": [
-        "MECH-423"
+        "MECH-309",
+        "ARC-062"
       ],
-      "conditions": 3,
-      "episodes_per_run": 40,
-      "experiment_type": "v3_exq_680d_mech423_superadditivity_ablation",
-      "seeds": 5
+      "conditions": 2,
+      "episodes_per_run": 350,
+      "experiment_type": "v3_exq_654c_arc062_gapb_rule_apprehension_behavioural_falsifier",
+      "seeds": 3
     },
     {
       "queue_id": "V3-EXQ-603p",
@@ -58,31 +54,16 @@
       "estimated_minutes": 240,
       "supersedes": "V3-EXQ-591d",
       "note": "Claim-free gate-CRITERION diagnostic (ARC-046 / infant_substrate:GAP-14 leg c-2); supersedes V3-EXQ-591d (corrected parameterization, same scientific question). Per the confirmed failure_autopsy_V3-EXQ-591d_2026-06-15 Section 8 (user-chosen via AskUserQuestion 2026-06-15): 591d FAILed because BOTH candidate robust criteria (K-of-N 5/10, EMA) reused the single-episode SPIKE threshold (0.994 = 0.20*ln(144)) as the bar for a SUSTAINED statistic, so they correctly rejected the seed-45 false-advancer (591c over-permissiveness FIXED) but ALSO rejected genuine explorers 42/43 (mean h_pos 0.32-0.56, below the spike bar). The discriminating signal is the MEAN LEVEL (the genuine-explorer oracle's own floor ~0.20), not crossing density. 591e replays the SAME 5-seed (42-46) 160-ep diversity-armed reachability traces (MECH-313 noise floor + MECH-314 curiosity at landed defaults, SP-CEM main-path) through ONE corrected criterion -- EMA(alpha=0.2) of the per-episode h_pos LEVEL vs GENUINE_EXPLORATION_H_POS_MEAN_FLOOR (~0.20), NOT the 0.994 spike threshold. ep_min=100, same non-vacuity preconditions + two-leg C_gate_discriminates. PURE OFFLINE replay -- infant_curriculum.py NOT mutated (610e/669/586/667 depend on its default gate). Expected (from 591d per-seed levels): EMA-of-level@0.2 admits 42/43/44 (means 0.32-0.84 > 0.2) and rejects 45 (0.14 < 0.2) -> discriminates -> a discriminating PASS routes to /implement-substrate on infant_curriculum.py:_try_phase_0_to_1 as the EMA-of-level replacement for the single-episode gate. Seed-46 exploration-STRENGTH collapse is OUT OF SCOPE (orthogonal Q-043/667->667a thread; leg c-1). Does NOT queue EXQ-ISEF-005 (blocked until BOTH GAP-14 legs resolve). claim-free: weights/promotes nothing (ARC-046 architectural_commitment/substrate_ceiling not movable). Smoke: validate_experiments --strict OK; --dry-run end-to-end (movement floor met, substrate_not_ready_requeue at dry scale by design, sentinel written).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-15T04:45:41Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_591e_isef005_phase01_gate_criterion",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-654c",
-      "title": "arc_062 GAP-B behavioural falsifier (MECH-309/ARC-062): committed-class entropy on the 666c-validated crf-availability-maintenance substrate (supersedes V3-EXQ-654b)",
-      "script": "experiments/v3_exq_654c_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
-      "experiment_type": "v3_exq_654c_arc062_gapb_rule_apprehension_behavioural_falsifier",
-      "priority": 300,
-      "machine_affinity": "any",
-      "estimated_minutes": 620,
-      "status": "pending",
-      "supersedes": "V3-EXQ-654b",
-      "claim_ids": [
-        "MECH-309",
-        "ARC-062"
-      ],
-      "seeds": 3,
-      "conditions": 2,
-      "episodes_per_run": 350,
-      "note": "arc_062_rule_apprehension:GAP-B committed-class entropy behavioural falsifier (MECH-309/ARC-062), supersedes V3-EXQ-654b. Port of the 654b single-variable ARM_OFF vs ARM_ON falsifier onto the NOW-VALIDATED crf-availability-maintenance substrate: V3-EXQ-666c PASSed 2026-06-15 (ARM_2 mean_frac_maintained 0.854 > 0.625 floor, all 4 readiness preconditions met) and flipped substrate_queue crf-availability-maintenance ready=True (REE_assembly origin/master be7261d9ca). 654/654a/654b ALL FAILed non_contributory / substrate_not_ready_requeue for the SAME reason: the C1c readiness floor crf_frac_active>=0.30 was never met (654b measured 0.130) because the CandidateRuleField pool churned (mint->retire->re-mint) and never HELD >=2 differentiated rules active, so the committed-class falsifier DV never scored. 654c arms ARM_ON with the 666c ARM_2 levers crf_mature_pool_dynamics + crf_context_from_e2_world_forward + crf_availability_maintenance (floor 0.45 / decay 0.0) on top of crf_persist, at an ENLARGED P0 maturation window 200 ep (was 150; matches the 666c budget that formed full-pool differentiation PRE-gap on all 3 seeds), with the frozen-encoder P1 trained-bias-head REINFORCE phase (GAP-D leg). PRIMARY DV = committed-class entropy. Pre-registered non-vacuity preconditions, each self-routing substrate_not_ready_requeue (NEVER a false weakens): (i) C1c crf_frac_active>=0.30 actually clears now; (ii) propagation non-vacuity -- ARM_ON committed lateral_pfc bias differs from ARM_OFF (the bias reaches committed action). claim_ids=[MECH-309, ARC-062]: ONLY the PASS branch (C2 committed-class entropy lift on >=2/3 seeds) weights them, as supports. OFF-RAMP (pre-registered, NO weakens branch): if the matured+maintained+differentiated pool clears C1c AND the bias reaches committed action (C1d) but STILL fails to lift committed-class entropy, that is the SHARED selection-authority CONVERSION ceiling (behavioral_diversity_isolation:GAP-A; failure_autopsy_V3-EXQ-569g_2026-06-14 + V3-EXQ-682: route-range reaches the E3 accumulator but does not move the F-dominated committed argmax), self-routes non_contributory + route /implement-substrate (same gain/contrast amend as GAP-A) -- NOT a MECH-309/ARC-062 falsification. C1-fail self-routes substrate_not_ready_requeue. Smoke: validate_experiments --strict OK; --dry-run end-to-end both arms (substrate_not_ready_requeue at dry scale by design, sentinel written). experiment_purpose=evidence."
     }
   ]
 }
