@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-686",
+      "title": "MECH-191 signal-state discriminability probe: internal functional states produce discriminable output patterns",
+      "script": "experiments/v3_exq_686_mech191_signal_state_discriminability.py",
+      "priority": 100,
+      "machine_affinity": "any",
+      "estimated_minutes": 60,
+      "claim_id": "MECH-191",
+      "note": "Tests whether different internal functional states (wanting, nociception, frustration) produce discriminable signal patterns. Samples z_goal_norm, z_harm_a_norm, z_block_norm from agent's internal state during episodes that induce each functional state. Trains a simple logistic classifier to predict which functional state produced each signal. PASS if classification accuracy >=70% per state and overall >50% (above 3-way chance). Supports MECH-191 (stereotyped signals are causal externalizations) if signals are discriminable by functional state. 3 seeds, 20 episodes per condition per seed, ~150 steps per episode. Proposal EXP-0186 / EVB-0091 from IGW-20260616-196.",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 60,
+      "experiment_type": "v3_exq_686_mech191_signal_state_discriminability",
+      "seeds": 3
+    }
+  ]
 }
