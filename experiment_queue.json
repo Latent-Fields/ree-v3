@@ -66,6 +66,27 @@
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_603q_sd059_mech358_escape_affordance_bridge_evidence",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-460e",
+      "title": "SD-034 closure-control-plane de-commit authority re-run on the TRAINED rule_bias_head (commitment_closure:GAP-4 Leg C); non-cap-pinned ON<OFF latch-occupancy-drop DV",
+      "experiment_type": "v3_exq_460e_sd034_closure_control_plane_behavioural",
+      "script": "experiments/v3_exq_460e_sd034_closure_control_plane_behavioural.py",
+      "priority": 325,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 190,
+      "episodes_per_run": 265,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "SD-034",
+      "claim_ids": [
+        "SD-034",
+        "MECH-260",
+        "MECH-261"
+      ],
+      "supersedes": "V3-EXQ-460d",
+      "note": "commitment_closure:GAP-4. Supersedes 460d. The Leg-C scaffold_train_rule_bias_head leg (598b REINFORCE in P1) landed 2026-06-16 (ree-v3 3ccc48a) -- 460d set lateral_pfc_train_rule_bias_head=True but never optimized the head, so the rule_state carried no magnitude and the de-commit had no MECH-090 latch authority (460d C2/C4 FAIL). 460e enables the scaffold leg + reads de-commit on a NON-CAP-PINNED ON<OFF beta-latch-occupancy drop (replaces 460d count-based C2 + cap-pinned C4). FOUR readiness gates self-route substrate_not_ready_requeue (never a false weakens): contact / rule_bias_head-trained (mean |bias| > floor -- the direct anti-460d-bug gate) / beta-engagement-both-arms (the 468d commit-without-beta guard) / closure-trigger. PASS -> supports SD-034/MECH-261, MECH-260 supports; readiness-met-criteria-unmet -> genuine weakens (route /failure-autopsy). Smoke: validator --strict OK; dry-run end-to-end self-routes substrate_not_ready (rule_bias leg trained, mean |bias| 0.036). Do NOT start runner (cloud auto-claims)."
     }
   ]
 }
