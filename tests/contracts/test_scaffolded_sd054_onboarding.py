@@ -2157,3 +2157,166 @@ def test_c16_warmup_zero_leaves_lr_at_base():
     _harm_pathway_step(cfg, agent, lat, od, harm_s_buf, harm_opt, harm_diag,
                        dev, cfg.scaffold_batch_size)
     assert abs(harm_opt.param_groups[0]["lr"] - base_lr) < 1e-12
+
+
+# ---------------------------------------------------------------------------
+# C17: Leg C rule_bias_head training (commitment_closure:GAP-4, 2026-06-16)
+# ---------------------------------------------------------------------------
+
+import torch  # noqa: E402
+from ree_core.utils.config import REEConfig  # noqa: E402
+from ree_core.agent import REEAgent  # noqa: E402
+from experiments.scaffolded_sd054_onboarding import (  # noqa: E402
+    _rule_bias_params,
+    _new_rule_bias_diag,
+    _build_rule_bias_snap,
+    _selected_candidate_index,
+    _rule_bias_reinforce_loss,
+)
+
+
+def _mk_rule_bias_agent(train_head: bool, use_lpfc: bool = True):
+    """Goal-enabled agent with the SD-033a lateral-PFC analog + (optionally) the
+    GAP-D trainable rule_bias_head un-zeroed."""
+    cfg = ScaffoldedSD054OnboardingConfig(use_scaffolded_sd054_onboarding_scheduler=True)
+    env = _build_env(cfg, "p2")
+    rc = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim, world_obs_dim=env.world_obs_dim,
+        action_dim=env.action_dim, self_dim=32, world_dim=32, alpha_world=0.9,
+        z_goal_enabled=True, drive_weight=2.0,
+        use_lateral_pfc_analog=use_lpfc,
+        lateral_pfc_train_rule_bias_head=train_head,
+    )
+    return REEAgent(rc)
+
+
+def test_c17_rule_bias_config_defaults_are_noop():
+    """All Leg C knobs default to no-op; master flag off -> bit-identical."""
+    c = ScaffoldedSD054OnboardingConfig()
+    assert c.scaffold_train_rule_bias_head is False
+    assert c.scaffold_rule_bias_lr == 5e-4
+    assert c.scaffold_rule_bias_batch_size == 32
+    assert c.scaffold_rule_bias_record_every_n_steps == 4
+    assert c.scaffold_rule_bias_outcome_buf_max == 512
+    assert c.scaffold_rule_bias_n_probe_candidates == 8
+    assert c.scaffold_rule_bias_policy_temperature == 1.0
+    assert c.scaffold_rule_bias_adv_min_threshold == 0.005
+    assert c.scaffold_rule_bias_ema_decay == 0.9
+
+
+def test_c17_make_rule_bias_pathway_off_returns_none():
+    """_make_rule_bias_pathway is (None,None,None) when the master flag is off."""
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_train_rule_bias_head=False)
+    agent = _mk_rule_bias_agent(train_head=True)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    opt, runtime, diag = sched._make_rule_bias_pathway(agent, train_rule_bias=False)
+    assert opt is None and runtime is None and diag is None
+
+
+def test_c17_make_rule_bias_pathway_on_builds_optimizer():
+    """ON + trainable head -> Adam over bias_head_parameters() + runtime + diag."""
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_train_rule_bias_head=True)
+    agent = _mk_rule_bias_agent(train_head=True)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    opt, runtime, diag = sched._make_rule_bias_pathway(agent, train_rule_bias=True)
+    assert opt is not None
+    n_opt = sum(p.numel() for g in opt.param_groups for p in g["params"])
+    n_head = sum(p.numel() for p in agent.lateral_pfc.bias_head_parameters())
+    assert n_opt == n_head and n_head > 0
+    assert runtime == {"outcome_buf": [], "baseline": 0.0}
+    assert diag == _new_rule_bias_diag()
+
+
+def test_c17_inert_when_head_zeroed_or_no_lateral_pfc():
+    """Misconfig guard: master flag on but the head is zeroed-and-frozen
+    (lateral_pfc_train_rule_bias_head=False) OR no lateral_pfc -> [] params ->
+    no optimizer (the leg is a clean no-op, never silently trains the baseline)."""
+    cfg = ScaffoldedSD054OnboardingConfig(scaffold_train_rule_bias_head=True)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    # head zeroed-and-frozen
+    a_frozen = _mk_rule_bias_agent(train_head=False, use_lpfc=True)
+    assert _rule_bias_params(cfg, a_frozen) == []
+    opt, _, _ = sched._make_rule_bias_pathway(a_frozen, train_rule_bias=True)
+    assert opt is None
+    # no lateral_pfc at all
+    a_nolpfc = _mk_rule_bias_agent(train_head=False, use_lpfc=False)
+    assert _rule_bias_params(cfg, a_nolpfc) == []
+
+
+def test_c17_build_snap_and_selected_index():
+    """_build_rule_bias_snap returns [K, world_dim]; selection-match recovers the
+    candidate whose first-action class equals the executed action."""
+    from types import SimpleNamespace
+    K, wd, ad = 8, 32, 4
+    cands = []
+    for i in range(K):
+        ws0 = torch.zeros(1, wd)
+        ws1 = torch.full((1, wd), float(i))  # distinct per candidate
+        fa = torch.zeros(1, 1, ad)
+        fa[0, 0, i % ad] = 1.0  # first-action class = i % ad
+        cands.append(SimpleNamespace(world_states=[ws0, ws1], actions=fa))
+    feats = _build_rule_bias_snap(cands, n_probe=K)
+    assert feats is not None and tuple(feats.shape) == (K, wd)
+    # executed action = class 2 -> first candidate with (i % 4)==2 is index 2
+    action = torch.zeros(1, ad); action[0, 2] = 1.0
+    assert _selected_candidate_index(cands, action, n_probe=K) == 2
+    # too few candidates -> None (snap skipped, never fabricated)
+    assert _build_rule_bias_snap(cands[:2], n_probe=K) is None
+
+
+def test_c17_reinforce_loss_gradient_reaches_rule_bias_head():
+    """The load-bearing contract (inverts the 460d bug): the REINFORCE loss is
+    differentiable w.r.t. the rule_bias_head params -- a backward() populates
+    non-zero gradients on the head. 460d set the flag but never put the head in any
+    optimizer, so no gradient ever reached it."""
+    cfg = ScaffoldedSD054OnboardingConfig()
+    agent = _mk_rule_bias_agent(train_head=True)
+    wd = agent.config.latent.world_dim
+    # Two distinct candidate-feature snapshots with selected indices + returns whose
+    # advantage (return - baseline) clears the threshold.
+    feats_a = torch.randn(8, wd)
+    feats_b = torch.randn(8, wd)
+    outcome_buf = [(feats_a, 1, -2.0), (feats_b, 3, 1.0)]
+    loss = _rule_bias_reinforce_loss(
+        agent, outcome_buf, baseline=0.0, batch_size=8,
+        temperature=1.0, adv_min=0.0, device=torch.device("cpu"),
+    )
+    assert loss.requires_grad, "REINFORCE loss is not differentiable -- the 460d gap"
+    agent.lateral_pfc.zero_grad(set_to_none=True)
+    loss.backward()
+    grads = [
+        p.grad for p in agent.lateral_pfc.bias_head_parameters() if p.grad is not None
+    ]
+    assert grads, "no rule_bias_head param received a gradient (460d signature)"
+    assert any(float(g.abs().sum()) > 0 for g in grads), "all head grads are zero"
+
+
+def test_c17_run_p1_trains_head_on_vs_bit_identical_off():
+    """End-to-end: run_p1 with the leg ON changes the rule_bias_head weights and
+    flags rule_bias_pathway_enabled=True; OFF leaves the head byte-unchanged and the
+    flag False (bit-identical). The 460d failure was the head NEVER changing."""
+    def _run(train_flag):
+        cfg = ScaffoldedSD054OnboardingConfig(
+            use_scaffolded_sd054_onboarding_scheduler=True,
+            scaffold_p1_episode_budget=3, scaffold_steps_per_episode=20,
+            scaffold_p1_survival_gate_steps=1, scaffold_p1_stability_window=2,
+            scaffold_train_rule_bias_head=train_flag,
+            scaffold_rule_bias_record_every_n_steps=1,
+            scaffold_rule_bias_adv_min_threshold=0.0,
+        )
+        torch.manual_seed(0)
+        agent = _mk_rule_bias_agent(train_head=True)
+        w0 = agent.lateral_pfc.rule_bias_head[-1].weight.detach().clone()
+        sched = ScaffoldedSD054OnboardingScheduler(cfg)
+        p1 = sched.run_p1(agent, torch.device("cpu"))
+        dw = float((agent.lateral_pfc.rule_bias_head[-1].weight.detach() - w0).abs().max())
+        return p1, dw
+
+    p1_on, dw_on = _run(True)
+    p1_off, dw_off = _run(False)
+    assert p1_on.rule_bias_pathway_enabled is True
+    assert dw_on > 0.0, "rule_bias_head did not train when ON (the 460d bug)"
+    assert p1_on.rule_bias_diag.get("n_train_steps", 0) > 0
+    assert p1_off.rule_bias_pathway_enabled is False
+    assert dw_off == 0.0, "rule_bias_head changed when OFF -- not bit-identical"
+    assert p1_off.rule_bias_diag == {}

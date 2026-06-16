@@ -503,6 +503,45 @@ class ScaffoldedSD054OnboardingConfig:
     #       Gradient-stabilization lever. 0 -> no warmup (bit-identical).
     scaffold_harm_pathway_warmup_steps: int = 0
 
+    # -------- Leg C: rule_bias_head training (commitment_closure:GAP-4, 2026-06-16) -----
+    # Root cause (failure_autopsy_SD-034-closure-control-plane-d_2026-06-13): the
+    # 460d/468d *d retests set lateral_pfc_train_rule_bias_head=True (un-zeroing the
+    # SD-033a/ARC-062 GAP-D head's last Linear) but NEVER added it to any optimizer, so
+    # the rule_state handed to the SD-034 ClosureOperator carried no task-shaped
+    # magnitude -- the automatic rule-stability detector stayed inert and the
+    # closure-coupled de-commit had no net authority over the MECH-090 latch (460d C2/C4
+    # FAIL; 468d commit-without-beta on 2/3 seeds). This leg TRAINS the head during P1
+    # (goal-unfrozen, ecological-contact, commitment forms) via the V3-EXQ-598b
+    # outcome-coupled E3-gradient REINFORCE pattern, mirroring scaffold_train_harm_pathway.
+    # The substrate (lateral_pfc.bias_head_parameters() + compute_bias) already exists in
+    # ree_core (SD-033a GAP-D, landed 2026-05-17) -- this is a harness-layer training leg.
+    # All additive + no-op default (master scaffold_train_rule_bias_head False ->
+    # bit-identical; the V3-EXQ-460e re-issue opts in). Requires the agent built with
+    # use_lateral_pfc_analog=True AND lateral_pfc_train_rule_bias_head=True (else the head
+    # is zeroed-and-frozen and training is an inert no-op, correctly skipped).
+    scaffold_train_rule_bias_head: bool = False
+    # Adam LR over agent.lateral_pfc.bias_head_parameters() (598b LR_LPFC_BIAS).
+    scaffold_rule_bias_lr: float = 5e-4
+    # REINFORCE replay batch size drawn from the outcome buffer (598b BATCH_SIZE).
+    scaffold_rule_bias_batch_size: int = 32
+    # Record a (candidate_features, selected_index) snapshot every N P1 steps for the
+    # episode-end REINFORCE update (598b RECORD_EVERY_N_STEPS) -- subsamples to bound cost.
+    scaffold_rule_bias_record_every_n_steps: int = 4
+    # Max (candidate_features, sel_idx, ep_return) entries retained across P1 episodes
+    # (598b OUTCOME_BUF_MAX).
+    scaffold_rule_bias_outcome_buf_max: int = 512
+    # Number of leading CEM candidates the snapshot + selection-match span (598b
+    # N_PROBE_CANDIDATES). compute_bias is recomputed over exactly these at replay.
+    scaffold_rule_bias_n_probe_candidates: int = 8
+    # Softmax temperature on -bias for the REINFORCE log-prob (598b POLICY_TEMPERATURE).
+    scaffold_rule_bias_policy_temperature: float = 1.0
+    # Skip a replayed sample whose |advantage| (ep_return - EMA baseline) is below this
+    # floor -- a near-baseline episode carries no learning signal (598b ADV_MIN_THRESHOLD).
+    scaffold_rule_bias_adv_min_threshold: float = 0.005
+    # EMA decay for the per-episode return baseline (598b EMA_DECAY); advantage =
+    # ep_return - baseline; baseline <- decay*baseline + (1-decay)*ep_return.
+    scaffold_rule_bias_ema_decay: float = 0.9
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -647,6 +686,14 @@ class P1OnboardingResult:
     # when the bridge is off -> bit-identical readout. Turns cue_fires=0 into an
     # attributed nonfire reason (no_token / resource_field_absent / ...).
     cue_diag: Dict[str, Any] = field(default_factory=dict)
+    # Leg C rule_bias_head training (commitment_closure:GAP-4, 2026-06-16). Default
+    # False / empty when scaffold_train_rule_bias_head is off -> bit-identical. When on,
+    # rule_bias_diag carries the REINFORCE training counters + bias-magnitude samples
+    # (see _new_rule_bias_diag) so a validation run can gate non-vacuity: the head
+    # actually learned a non-trivial per-candidate bias (vs the ~0 the 460d untrained
+    # head produced). Read mean_bias_abs_mean = sum_bias_abs_mean / max(1, n_bias_samples).
+    rule_bias_pathway_enabled: bool = False
+    rule_bias_diag: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -1342,6 +1389,170 @@ def _measure_harm_discriminativeness(
     }
 
 
+# ---------------------------------------------------------------------------
+# Leg C: rule_bias_head training (commitment_closure:GAP-4, 2026-06-16)
+# ---------------------------------------------------------------------------
+#
+# The scaffold curriculum trains E1 + E2 (+ the harm pathway). The SD-033a /
+# ARC-062 GAP-D lateral-PFC rule_bias_head -- the per-candidate top-down bias the
+# SD-034 ClosureOperator's automatic rule-stability detector reads -- is never in
+# any optimizer, so on the 460d/468d *d retests it stayed at its (un-zeroed but
+# untrained) random init: the rule_state carried no task-shaped magnitude, the
+# closure-coupled de-commit had no net authority over the MECH-090 latch (460d
+# C2/C4 FAIL), and the agent committed-without-beta on 2/3 seeds (468d). These
+# helpers train the existing-but-untrained head during P1 (goal-unfrozen,
+# ecological contact, commitment forms) via the V3-EXQ-598b outcome-coupled
+# E3-gradient REINFORCE pattern -- the same _lpfc_reinforce_loss, parameterised
+# off cfg. All gated behind cfg.scaffold_train_rule_bias_head (default False ->
+# these are never called). ree_core is UNTOUCHED -- the block calls the existing
+# lateral_pfc.compute_bias / bias_head_parameters substrate (SD-033a GAP-D).
+
+
+def _rule_bias_params(cfg: ScaffoldedSD054OnboardingConfig, agent) -> List[Any]:
+    """The rule_bias_head parameters to train, or [] (inert no-op). Requires the
+    agent built with use_lateral_pfc_analog=True AND lateral_pfc_train_rule_bias_head=True
+    (the GAP-D un-zero flag) -- with the head zeroed-and-frozen, adding it to an
+    optimizer would silently start training the baseline-OFF head, so we skip it.
+    The 460e validation config sets both flags; a misconfig (scaffold flag on but
+    head still zeroed) yields an empty list -> opt None -> the leg is a clean
+    no-op, surfaced via rule_bias_pathway_enabled=False on the manifest."""
+    if not cfg.scaffold_train_rule_bias_head:
+        return []
+    lp = getattr(agent, "lateral_pfc", None)
+    if lp is None:
+        return []
+    lpc = getattr(lp, "config", None)
+    if lpc is None or not getattr(lpc, "use_lateral_pfc_analog", False):
+        return []
+    if not getattr(lpc, "train_rule_bias_head", False):
+        return []
+    return list(lp.bias_head_parameters())
+
+
+def _new_rule_bias_diag() -> Dict[str, Any]:
+    """Per-stage rule_bias REINFORCE training diagnostics accumulator."""
+    return {
+        "n_train_steps": 0,
+        "n_snaps": 0,
+        "sum_loss": 0.0,
+        "last_baseline": 0.0,
+        "outcome_buf_size": 0,
+        # Live bias-magnitude samples (lateral_pfc._last_bias_abs_mean after each
+        # select_action during P1) -- the non-vacuity readout: a TRAINED head
+        # produces a non-trivial per-candidate |bias| (vs ~0 for the untrained
+        # 460d head). mean = sum_bias_abs_mean / max(1, n_bias_samples).
+        "sum_bias_abs_mean": 0.0,
+        "n_bias_samples": 0,
+        "last_bias_abs_mean": 0.0,
+    }
+
+
+def _build_rule_bias_snap(candidates: List, n_probe: int):
+    """Per-candidate feature snapshot for the REINFORCE replay (598b _build_snap
+    candidate_features): the first predicted-step z_world (world_states[1]) of the
+    leading n_probe candidates, [n_probe, world_dim]. Detached clone so the buffer
+    holds graph-free leaves; compute_bias is recomputed (with gradient) at replay.
+    Returns None when the candidate pool is too small / malformed (the snap is
+    skipped, never fabricated)."""
+    if not isinstance(candidates, list) or len(candidates) < n_probe:
+        return None
+    feats = []
+    for c in candidates[:n_probe]:
+        ws = getattr(c, "world_states", None)
+        if ws is None or len(ws) < 2:
+            return None
+        feats.append(ws[1].detach().clone())
+    return torch.cat(feats, dim=0)
+
+
+def _selected_candidate_index(candidates: List, action, n_probe: int) -> int:
+    """Index (within the leading n_probe) of the candidate whose first-action class
+    matches the executed action (598b selection-match). Falls back to 0 when no
+    candidate matches (defensive; the replay clamps sel to bias length)."""
+    if action is None:
+        return 0
+    aa = int(action.argmax(-1).item())
+    for ci, c in enumerate(candidates[:n_probe]):
+        acts = getattr(c, "actions", None)
+        if acts is not None and acts.shape[1] >= 1:
+            if int(acts[:, 0, :].argmax(-1).item()) == aa:
+                return ci
+    return 0
+
+
+def _rule_bias_reinforce_loss(
+    agent, outcome_buf: List, baseline: float, batch_size: int,
+    temperature: float, adv_min: float, device: torch.device,
+) -> torch.Tensor:
+    """598b _lpfc_reinforce_loss: outcome-coupled REINFORCE on the rule_bias_head.
+    For a sampled (candidate_features, sel_idx, ep_return): advantage = ep_return -
+    baseline; recompute bias = lateral_pfc.compute_bias(candidate_features) (gradient
+    flows into the head); log_p = log_softmax(-bias / T) (REE lower-is-better favours
+    a lower-score candidate); term = -adv * log_p[sel]. Near-baseline episodes
+    (|adv| < adv_min) carry no signal and are skipped."""
+    lp = getattr(agent, "lateral_pfc", None)
+    if lp is None or len(outcome_buf) < 2:
+        return torch.zeros(1, device=device)
+    k = min(batch_size, len(outcome_buf))
+    idxs = torch.randperm(len(outcome_buf))[:k].tolist()
+    terms: List[torch.Tensor] = []
+    for i in idxs:
+        cand_features, sel_idx, ep_return = outcome_buf[int(i)]
+        adv = float(ep_return) - float(baseline)
+        if abs(adv) < adv_min:
+            continue
+        bias = lp.compute_bias(cand_features.to(device))
+        log_p = F.log_softmax(-bias / temperature, dim=0)
+        terms.append(-adv * log_p[min(int(sel_idx), bias.shape[0] - 1)])
+    if not terms:
+        return torch.zeros(1, device=device)
+    return torch.stack(terms).mean()
+
+
+def _rule_bias_episode_update(
+    cfg: ScaffoldedSD054OnboardingConfig, agent, rule_bias_opt, rule_bias_runtime,
+    rule_bias_diag, ep_buf: List, ep_reward: float, device: torch.device,
+) -> None:
+    """End-of-P1-episode REINFORCE step on the rule_bias_head. Updates the EMA
+    return baseline, pushes this episode's (candidate_features, sel_idx, ep_return)
+    snaps into the persistent outcome buffer (capped), and takes one Adam step on
+    lateral_pfc.bias_head_parameters() over a sampled batch. No-op when the optimizer
+    is absent (training off / head zeroed)."""
+    if rule_bias_opt is None or rule_bias_runtime is None:
+        return
+    decay = float(cfg.scaffold_rule_bias_ema_decay)
+    rule_bias_runtime["baseline"] = (
+        decay * float(rule_bias_runtime["baseline"]) + (1.0 - decay) * float(ep_reward)
+    )
+    baseline = rule_bias_runtime["baseline"]
+    buf = rule_bias_runtime["outcome_buf"]
+    for cand_features, sel in ep_buf:
+        buf.append((cand_features, int(sel), float(ep_reward)))
+    cap = int(cfg.scaffold_rule_bias_outcome_buf_max)
+    if len(buf) > cap:
+        del buf[: len(buf) - cap]
+    loss = _rule_bias_reinforce_loss(
+        agent, buf, baseline,
+        int(cfg.scaffold_rule_bias_batch_size),
+        float(cfg.scaffold_rule_bias_policy_temperature),
+        float(cfg.scaffold_rule_bias_adv_min_threshold),
+        device,
+    )
+    if loss.requires_grad:
+        rule_bias_opt.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(
+            list(agent.lateral_pfc.bias_head_parameters()), 1.0
+        )
+        rule_bias_opt.step()
+        if rule_bias_diag is not None:
+            rule_bias_diag["n_train_steps"] += 1
+            rule_bias_diag["sum_loss"] += float(loss.detach())
+    if rule_bias_diag is not None:
+        rule_bias_diag["last_baseline"] = float(baseline)
+        rule_bias_diag["outcome_buf_size"] = len(buf)
+
+
 def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float = 0.0,
                p1_spawn_in_reef_half: bool = False, seed: Optional[int] = None):
     """
@@ -1891,6 +2102,22 @@ class ScaffoldedSD054OnboardingScheduler:
         harm_s_buf: Deque = deque(maxlen=self.cfg.scaffold_harm_s_buf_max)
         return harm_opt, harm_s_buf, _new_harm_diag()
 
+    def _make_rule_bias_pathway(self, agent, train_rule_bias: bool):
+        """Build the rule_bias_head REINFORCE optimizer + persistent runtime (outcome
+        buffer + EMA baseline) + diagnostics for P1. Returns (None, None, None) when
+        training is off OR the head is not trainable (use_lateral_pfc_analog +
+        lateral_pfc_train_rule_bias_head both required) -> bit-identical no-op. The
+        runtime persists across P1 episodes (the baseline EMA + outcome buffer
+        accumulate) -- unlike the per-step harm pathway, REINFORCE is episode-level."""
+        if not train_rule_bias:
+            return None, None, None
+        params = _rule_bias_params(self.cfg, agent)
+        if not params:
+            return None, None, None
+        rule_bias_opt = optim.Adam(params, lr=self.cfg.scaffold_rule_bias_lr)
+        rule_bias_runtime = {"outcome_buf": [], "baseline": 0.0}
+        return rule_bias_opt, rule_bias_runtime, _new_rule_bias_diag()
+
     # ---------------- P0 ---------------- #
 
     def run_p0(self, agent, device: torch.device) -> P0OnboardingResult:
@@ -2148,6 +2375,15 @@ class ScaffoldedSD054OnboardingScheduler:
         n_reef_spawn = 0
         goal_write_diag = _new_goal_write_diag()
         cue_diag = _new_cue_diag()
+        # Leg C (commitment_closure:GAP-4): train the SD-033a/GAP-D rule_bias_head
+        # via the 598b outcome-coupled REINFORCE during P1. (None, None, None) when
+        # scaffold_train_rule_bias_head is off OR the head is not trainable
+        # (use_lateral_pfc_analog + lateral_pfc_train_rule_bias_head) -> bit-identical.
+        train_rule_bias = bool(self.cfg.scaffold_train_rule_bias_head)
+        rule_bias_opt, rule_bias_runtime, rule_bias_diag = self._make_rule_bias_pathway(
+            agent, train_rule_bias
+        )
+        rule_bias_active = rule_bias_opt is not None
         for ep in range(n_eps):
             raw_t = ep / max(1, n_eps - 1) if n_eps > 1 else 1.0
             # Staged withdrawal: hold full nursery relaxation (anneal_t=0) for
@@ -2172,6 +2408,10 @@ class ScaffoldedSD054OnboardingScheduler:
                 gating_threshold=gating_threshold,
                 goal_write_diag=goal_write_diag,
                 cue_diag=cue_diag,
+                train_rule_bias=rule_bias_active,
+                rule_bias_opt=rule_bias_opt,
+                rule_bias_runtime=rule_bias_runtime,
+                rule_bias_diag=rule_bias_diag,
             )
             all_episode_lengths.append(ep_len)
             recent_lengths.append(ep_len)
@@ -2218,6 +2458,8 @@ class ScaffoldedSD054OnboardingScheduler:
             reconciled_gating_threshold=float(gating_threshold),
             n_cue_recall_fires=int(goal_write_diag.get("n_cue_recall_fires", 0)),
             cue_diag=dict(cue_diag),
+            rule_bias_pathway_enabled=rule_bias_active,
+            rule_bias_diag=dict(rule_bias_diag) if rule_bias_diag is not None else {},
         )
         return self._p1_result
 
@@ -2372,9 +2614,24 @@ class ScaffoldedSD054OnboardingScheduler:
         harm_opt=None,
         harm_s_buf: Optional[Deque] = None,
         harm_diag: Optional[Dict[str, Any]] = None,
+        train_rule_bias: bool = False,
+        rule_bias_opt=None,
+        rule_bias_runtime: Optional[Dict[str, Any]] = None,
+        rule_bias_diag: Optional[Dict[str, Any]] = None,
     ) -> int:
         """
         One training episode. Returns realised episode length in steps.
+
+        train_rule_bias (2026-06-16 Leg C, commitment_closure:GAP-4): when True
+        (rule_bias_opt not None), collect a (candidate_features, selected_index)
+        snapshot every scaffold_rule_bias_record_every_n_steps steps and accumulate
+        the episode return (-harm); at episode end run _rule_bias_episode_update --
+        one outcome-coupled REINFORCE step on agent.lateral_pfc.bias_head_parameters()
+        (the SD-033a/ARC-062 GAP-D head) via the 598b pattern. Off by default
+        (rule_bias_opt None) -> bit-identical. This trains the rule_state magnitude
+        the SD-034 ClosureOperator's de-commit authority reads (the 460d/468d
+        flag-set-but-untrained gap). Only fires in P1 (run_p1 builds the optimizer);
+        P0 / Stage-H / Stage-0 leave it None.
 
         train_harm (2026-06-09 Stage-H harm-pathway amend): when True, after each
         sense() and BEFORE the E1 tick / action selection (so the encoder graph is
@@ -2413,6 +2670,13 @@ class ScaffoldedSD054OnboardingScheduler:
         z_world_prev: Optional[torch.Tensor] = None
         z_harm_prev: Optional[torch.Tensor] = None
         action_prev: Optional[torch.Tensor] = None
+
+        # Leg C: per-episode REINFORCE collection (no-op when train_rule_bias off).
+        rule_bias_on = bool(train_rule_bias and rule_bias_opt is not None)
+        rb_ep_buf: List = []
+        rb_ep_reward = 0.0
+        rb_n_probe = int(self.cfg.scaffold_rule_bias_n_probe_candidates)
+        rb_record_every = max(1, int(self.cfg.scaffold_rule_bias_record_every_n_steps))
 
         for step in range(self.cfg.scaffold_steps_per_episode):
             obs_body = obs_dict["body_state"].to(device)
@@ -2459,6 +2723,25 @@ class ScaffoldedSD054OnboardingScheduler:
             action = agent.select_action(candidates, ticks)
             action_idx = int(action.argmax(dim=-1).item())
 
+            # Leg C: record a (candidate_features, selected_index) snapshot every N
+            # steps for the episode-end REINFORCE, and sample the live per-candidate
+            # bias magnitude (non-vacuity readout). compute_bias already ran inside
+            # select_action, so _last_bias_abs_mean reflects this tick.
+            if rule_bias_on:
+                if step % rb_record_every == 0:
+                    cand_feats = _build_rule_bias_snap(candidates, rb_n_probe)
+                    if cand_feats is not None:
+                        sel = _selected_candidate_index(candidates, action, rb_n_probe)
+                        rb_ep_buf.append((cand_feats, sel))
+                        if rule_bias_diag is not None:
+                            rule_bias_diag["n_snaps"] += 1
+                lp = getattr(agent, "lateral_pfc", None)
+                if lp is not None and rule_bias_diag is not None:
+                    bam = float(getattr(lp, "_last_bias_abs_mean", 0.0))
+                    rule_bias_diag["sum_bias_abs_mean"] += bam
+                    rule_bias_diag["n_bias_samples"] += 1
+                    rule_bias_diag["last_bias_abs_mean"] = bam
+
             # E1 prediction loss.
             e1_opt.zero_grad()
             e1_loss = agent.compute_prediction_loss()
@@ -2494,6 +2777,10 @@ class ScaffoldedSD054OnboardingScheduler:
             z_harm_prev = z_harm_curr
             action_prev = action.detach()
             _, _harm_signal, done, _, obs_dict = env.step(action_idx)
+            # Leg C REINFORCE return (598b ep_reward = sum of harm; -harm is better,
+            # so a higher running total = a less-harmful episode -> positive advantage).
+            if rule_bias_on:
+                rb_ep_reward += float(_harm_signal)
 
             # Goal-pipeline seeding (P1 only): drive z_goal from the post-step
             # body-state, mirroring goal_stream_stages_sd054.py:537. Without this
@@ -2587,8 +2874,18 @@ class ScaffoldedSD054OnboardingScheduler:
                         )
 
             if done:
-                return step + 1
-        return self.cfg.scaffold_steps_per_episode
+                ep_len = step + 1
+                break
+        else:
+            ep_len = self.cfg.scaffold_steps_per_episode
+        # Leg C: end-of-episode REINFORCE step on the rule_bias_head (no-op when off).
+        # Runs regardless of how the loop exited so a terminated episode still trains.
+        if rule_bias_on:
+            _rule_bias_episode_update(
+                self.cfg, agent, rule_bias_opt, rule_bias_runtime, rule_bias_diag,
+                rb_ep_buf, rb_ep_reward, device,
+            )
+        return ep_len
 
     def _eval_episode(
         self,
