@@ -2049,3 +2049,111 @@ def test_c15_harm_discriminativeness_measured_only_when_on():
     assert r_on.harm_pathway_enabled is True
     assert "harm_eval_range" in r_on.harm_discriminativeness
     assert "harm_eval_prox_corr" in r_on.harm_discriminativeness
+
+
+# ---------------------------------------------------------------------------
+# C16: harm-pathway training STABILIZATION (603p seed-fragility amend, 2026-06-16)
+# The base harm landscape forms on only 1/3 seeds at proximity_harm=0.10 and a 3x
+# global LR COLLAPSES it -- a single Adam LR co-trains the latent_stack encoder AND
+# the harm heads. Two no-op-default levers decouple the encoder LR from the head LR
+# and add a linear LR warmup, WITHOUT raising the global LR. Both default OFF ->
+# bit-identical to the 2026-06-09 harm-pathway optimizer.
+# ---------------------------------------------------------------------------
+
+
+def test_c16_stabilization_config_defaults_are_noop():
+    cfg = ScaffoldedSD054OnboardingConfig()
+    assert cfg.scaffold_harm_pathway_encoder_lr is None
+    assert cfg.scaffold_harm_pathway_warmup_steps == 0
+
+
+def test_c16_encoder_lr_none_keeps_single_legacy_group():
+    """encoder_lr=None -> a single Adam param group at scaffold_harm_pathway_lr
+    (bit-identical to the pre-amend flat optimizer); base-LR stash recorded."""
+    import torch  # noqa: F401
+    cfg = ScaffoldedSD054OnboardingConfig(
+        scaffold_train_harm_pathway=True, scaffold_harm_pathway_lr=1e-3,
+    )
+    agent = _mk_harm_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    harm_opt, _, _ = sched._make_harm_pathway(agent, train_harm=True)
+    assert len(harm_opt.param_groups) == 1
+    assert harm_opt.param_groups[0]["lr"] == 1e-3
+    assert harm_opt._harm_base_lrs == [1e-3]
+
+
+def test_c16_encoder_lr_decouples_into_two_groups():
+    """encoder_lr set -> two disjoint Adam groups: latent_stack encoder at encoder_lr,
+    harm heads + E2_harm_s at scaffold_harm_pathway_lr. No param in both groups."""
+    import torch  # noqa: F401
+    cfg = ScaffoldedSD054OnboardingConfig(
+        scaffold_train_harm_pathway=True, scaffold_harm_pathway_lr=1e-3,
+        scaffold_harm_pathway_encoder_lr=3e-4,
+    )
+    agent = _mk_harm_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    harm_opt, _, _ = sched._make_harm_pathway(agent, train_harm=True)
+    assert len(harm_opt.param_groups) == 2
+    enc_grp, head_grp = harm_opt.param_groups[0], harm_opt.param_groups[1]
+    assert enc_grp["lr"] == 3e-4 and head_grp["lr"] == 1e-3
+    assert harm_opt._harm_base_lrs == [3e-4, 1e-3]
+    enc_ids = {id(p) for p in agent.latent_stack.parameters()}
+    he_ids = {id(p) for p in agent.e3.harm_eval_head.parameters()}
+    assert all(id(p) in enc_ids for p in enc_grp["params"])  # encoder group = latent_stack
+    assert any(id(p) in he_ids for p in head_grp["params"])   # head group has harm_eval_head
+    g0 = {id(p) for p in enc_grp["params"]}
+    g1 = {id(p) for p in head_grp["params"]}
+    assert g0.isdisjoint(g1)  # no param shared across groups (Adam would error)
+
+
+def test_c16_warmup_ramps_then_holds_lr():
+    """Linear warmup scales the harm-pathway LR from base/N up to base across the
+    first N steps, then holds at base. Driven through real _harm_pathway_step calls."""
+    import torch
+    from experiments.scaffolded_sd054_onboarding import (
+        _harm_pathway_step, _sense_with_optional_harm,
+    )
+    base_lr, warm = 1e-3, 4
+    cfg = ScaffoldedSD054OnboardingConfig(
+        scaffold_train_harm_pathway=True, scaffold_harm_pathway_lr=base_lr,
+        scaffold_harm_pathway_warmup_steps=warm, scaffold_feed_harm_stream=True,
+    )
+    agent = _mk_harm_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    harm_opt, harm_s_buf, harm_diag = sched._make_harm_pathway(agent, train_harm=True)
+    dev = torch.device("cpu")
+    env = _build_env(cfg, "hazard")
+    _, od = env.reset()
+    ob = od["body_state"].to(dev); ow = od["world_state"].to(dev)
+    for k in range(warm + 2):
+        lat = _sense_with_optional_harm(agent, ob, ow, od, dev, feed_harm=True)
+        _harm_pathway_step(cfg, agent, lat, od, harm_s_buf, harm_opt, harm_diag,
+                           dev, cfg.scaffold_batch_size)
+        expected = base_lr * min(1.0, (k + 1) / float(warm))
+        assert abs(harm_opt.param_groups[0]["lr"] - expected) < 1e-12
+    # Beyond the warmup window the LR is restored to base.
+    assert abs(harm_opt.param_groups[0]["lr"] - base_lr) < 1e-12
+
+
+def test_c16_warmup_zero_leaves_lr_at_base():
+    """warmup_steps=0 -> the LR is never scaled (bit-identical); stays at base."""
+    import torch
+    from experiments.scaffolded_sd054_onboarding import (
+        _harm_pathway_step, _sense_with_optional_harm,
+    )
+    base_lr = 1e-3
+    cfg = ScaffoldedSD054OnboardingConfig(
+        scaffold_train_harm_pathway=True, scaffold_harm_pathway_lr=base_lr,
+        scaffold_harm_pathway_warmup_steps=0, scaffold_feed_harm_stream=True,
+    )
+    agent = _mk_harm_agent(cfg)
+    sched = ScaffoldedSD054OnboardingScheduler(cfg)
+    harm_opt, harm_s_buf, harm_diag = sched._make_harm_pathway(agent, train_harm=True)
+    dev = torch.device("cpu")
+    env = _build_env(cfg, "hazard")
+    _, od = env.reset()
+    ob = od["body_state"].to(dev); ow = od["world_state"].to(dev)
+    lat = _sense_with_optional_harm(agent, ob, ow, od, dev, feed_harm=True)
+    _harm_pathway_step(cfg, agent, lat, od, harm_s_buf, harm_opt, harm_diag,
+                       dev, cfg.scaffold_batch_size)
+    assert abs(harm_opt.param_groups[0]["lr"] - base_lr) < 1e-12

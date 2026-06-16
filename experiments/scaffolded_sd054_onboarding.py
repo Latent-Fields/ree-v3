@@ -477,6 +477,32 @@ class ScaffoldedSD054OnboardingConfig:
     # triples (mirrors scaffold_wf_buf_max for the world-forward buffer).
     scaffold_harm_s_buf_max: int = 2000
 
+    # -------- Harm-pathway training STABILIZATION (603p seed-fragility amend, 2026-06-16) --
+    # Root cause (failure_autopsy_V3-EXQ-603p): the base harm landscape forms a
+    # discriminative head (harm_eval_range >= 0.02) on only 1/3 seeds at the EASIEST
+    # regime (proximity_harm=0.10), and tripling the global harm-pathway LR to 3e-3
+    # COLLAPSES it to ~1e-23 on all three seeds. A SINGLE Adam LR co-trains the
+    # latent_stack ENCODER (the SD-018 proximity MSE backprops into it so z_world
+    # becomes hazard-discriminative) AND the harm HEADS; raising that one LR drives
+    # the encoder to the trivial constant-z_world solution (range -> 0, the 3x-LR
+    # collapse), while 1e-3 leaves most seeds under-converged. The mechanism is right
+    # (where it forms, prox_corr 0.44-0.83); convergence is the gap. These two
+    # no-op-default levers stabilize convergence WITHOUT raising the global LR (the
+    # autopsy's explicit "do NOT raise LR -- it collapses the landscape" constraint).
+    #
+    #   (1) SEPARATE (typically LOWER) encoder LR: when set, the latent_stack encoder
+    #       params get their own Adam param group at this LR while the harm heads +
+    #       E2_harm_s keep scaffold_harm_pathway_lr -- so the encoder moves gently
+    #       (escaping the collapse-to-constant basin) while the heads still extract
+    #       the proximity mapping at the base rate. None -> single Adam group at
+    #       scaffold_harm_pathway_lr (bit-identical to the pre-amend optimizer).
+    scaffold_harm_pathway_encoder_lr: Optional[float] = None
+    #   (2) Linear LR WARMUP over the first N harm-pathway training steps: scales every
+    #       param group's LR from base/N up to base across the warmup window -- easing
+    #       the early-training basin where the encoder is most prone to the collapse.
+    #       Gradient-stabilization lever. 0 -> no warmup (bit-identical).
+    scaffold_harm_pathway_warmup_steps: int = 0
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -1114,6 +1140,48 @@ def _harm_pathway_params(cfg: ScaffoldedSD054OnboardingConfig, agent) -> List[An
     return params
 
 
+def _harm_pathway_param_groups(
+    cfg: ScaffoldedSD054OnboardingConfig, agent, base_lr: float, encoder_lr: float
+) -> List[Dict[str, Any]]:
+    """Adam param groups for the harm-pathway optimizer with a DECOUPLED encoder LR
+    (603p stabilization amend). The latent_stack ENCODER params (whose unstable
+    co-training collapses z_world to a constant under a too-high LR) get their own
+    (typically lower) LR group; the harm HEADS + E2_harm_s keep base_lr. Dedup is
+    shared across groups (encoder-first), so a param never appears in two groups
+    (Adam would otherwise error). Only used when scaffold_harm_pathway_encoder_lr is
+    set -- the None path keeps the legacy flat optimizer (bit-identical)."""
+    seen = set()
+
+    def _dedup(plist):
+        out = []
+        for p in plist:
+            if id(p) not in seen:
+                seen.add(id(p))
+                out.append(p)
+        return out
+
+    need_encoder = (
+        cfg.scaffold_train_harm_eval_head
+        or cfg.scaffold_train_z_harm_sensory
+        or cfg.scaffold_train_z_harm_affective
+    )
+    encoder_params = _dedup(list(agent.latent_stack.parameters())) if need_encoder else []
+    head_params: List[Any] = []
+    if cfg.scaffold_train_harm_eval_head:
+        head_params += _dedup(list(agent.e3.harm_eval_head.parameters()))
+    if cfg.scaffold_train_z_harm_sensory:
+        head_params += _dedup(list(agent.e3.harm_eval_z_harm_head.parameters()))
+    if cfg.scaffold_train_e2_harm_s_forward and getattr(agent, "e2_harm_s", None) is not None:
+        head_params += _dedup(list(agent.e2_harm_s.parameters()))
+
+    groups: List[Dict[str, Any]] = []
+    if encoder_params:
+        groups.append({"params": encoder_params, "lr": float(encoder_lr)})
+    if head_params:
+        groups.append({"params": head_params, "lr": float(base_lr)})
+    return groups
+
+
 def _new_harm_diag() -> Dict[str, Any]:
     """Per-stage harm-pathway training diagnostics accumulator."""
     return {
@@ -1195,6 +1263,20 @@ def _harm_pathway_step(
             l_e2 = float(term.detach())
             if harm_diag is not None:
                 harm_diag["n_e2_harm_s_steps"] += 1
+
+    # Linear LR warmup over the first N harm-pathway steps (603p stabilization amend):
+    # scale each param group's LR from base/N up to base across the warmup window,
+    # then hold at base. Eases the early-training basin where the encoder is most
+    # prone to the collapse-to-constant-z_world failure. No-op (bit-identical) when
+    # scaffold_harm_pathway_warmup_steps == 0. n_train_steps is incremented AFTER this
+    # call, so it is the current step's 0-based index.
+    warmup = int(getattr(cfg, "scaffold_harm_pathway_warmup_steps", 0) or 0)
+    base_lrs = getattr(harm_opt, "_harm_base_lrs", None)
+    if warmup > 0 and base_lrs is not None:
+        step_idx = harm_diag["n_train_steps"] if harm_diag is not None else 0
+        factor = min(1.0, (step_idx + 1) / float(warmup))
+        for grp, blr in zip(harm_opt.param_groups, base_lrs):
+            grp["lr"] = blr * factor
 
     # Single optimizer step over all enabled terms.
     for grp in harm_opt.param_groups:
@@ -1789,10 +1871,23 @@ class ScaffoldedSD054OnboardingScheduler:
         (SD-018 semantics)."""
         if not train_harm:
             return None, None, None
-        params = _harm_pathway_params(self.cfg, agent)
-        if not params:
-            return None, None, None
-        harm_opt = optim.Adam(params, lr=self.cfg.scaffold_harm_pathway_lr)
+        base_lr = self.cfg.scaffold_harm_pathway_lr
+        enc_lr = self.cfg.scaffold_harm_pathway_encoder_lr
+        if enc_lr is None:
+            # Legacy single-group optimizer (bit-identical to the pre-amend path).
+            params = _harm_pathway_params(self.cfg, agent)
+            if not params:
+                return None, None, None
+            harm_opt = optim.Adam(params, lr=base_lr)
+        else:
+            # Decoupled encoder-vs-head LR (603p stabilization amend): the encoder
+            # moves gently while the heads keep base_lr.
+            groups = _harm_pathway_param_groups(self.cfg, agent, base_lr, enc_lr)
+            if not groups:
+                return None, None, None
+            harm_opt = optim.Adam(groups)
+        # Stash per-group base LRs for the linear-warmup scaling in _harm_pathway_step.
+        harm_opt._harm_base_lrs = [float(g["lr"]) for g in harm_opt.param_groups]
         harm_s_buf: Deque = deque(maxlen=self.cfg.scaffold_harm_s_buf_max)
         return harm_opt, harm_s_buf, _new_harm_diag()
 
