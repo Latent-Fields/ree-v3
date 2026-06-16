@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-569h",
-      "title": "ARC-065 GAP-A committed-action diversity falsifier on the CONVERSION substrate (ARM_STD_G2 + in-arm route-range gate)",
-      "script": "experiments/v3_exq_569h_gapa_conversion_committed_action_falsifier.py",
-      "priority": 320,
-      "machine_affinity": "any",
-      "estimated_minutes": 210,
-      "supersedes": "V3-EXQ-569g",
-      "claim_id": "ARC-065",
-      "note": "GATED ON + ROUTED BY V3-EXQ-684a PASS (conversion_mechanism_identified; confirmed coordinator DB + manifest non-vacuous, readiness_ok=true, ARM_STD_G2 C_CONVERSION 3/3). 3-arm single-variable matched-entropy falsifier (ARM_0 proposer baseline / ARM_1 e2_world_forward STD_G2 under test / ARM_2 proposer T=2.5 matched-entropy NEGATIVE control), ARMED with the 684a-identified ARM_STD_G2 conversion config as the constant on all arms (use_modulatory_channel_routing + source=cand_world_summary + use_modulatory_selection_authority + authority_gain=2.0 + authority_normalize_basis=std). IN-ARM route-range non-vacuity gate (V3-EXQ-662 statistic read live at the select tick). claim_ids=[ARC-065] only. PASS (r1b_diversity_reaches_committed_action) = ARM_1 committed entropy strict-above BOTH controls on >=2/3 seeds with route-range + e2-divergence readiness met => supports. Route/e2 below floor => substrate_not_ready_requeue (non_contributory, NEVER weakens). Readiness met + no lift => conversion_ceiling_persists_despite_routing => OFF-RAMP /implement-substrate (NOT a falsification). No weakens path. MECH-341 GAP-B substrate inactive (use_e3_score_diversity=False) so untagged; ARC-062/MECH-309/MECH-294 untouched.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-16T07:33:57Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_569h_gapa_conversion_committed_action_falsifier",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-654d",
       "title": "ARC-062 GAP-B committed-class entropy falsifier on the GAP-A de-collapsed substrate (ARM_STD_G2 conversion lever armed)",
       "script": "experiments/v3_exq_654d_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
