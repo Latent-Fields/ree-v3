@@ -17,7 +17,11 @@
       "supersedes": "V3-EXQ-514q",
       "claim_id": "MECH-229",
       "note": "Pre-registered disambiguator routed by failure_autopsy_V3-EXQ-514q_2026-06-16 (confirmed). 514q C_WL_DRIVE delta=0.0 exact (WL_drive==WL_nodrive); the readiness gate green-lit a vacuous comparison (spread>1e-3, not argmax-relevant) and ran no overshoot control. 514r adds (i) overshoot most_wanted under artificially large per-axis drive -- overshoot_flip>=0.6 on >=2/3 seeds => drive CAN carve at adequate magnitude => 514q FAIL is env/magnitude artifact (non_contributory, substrate_ceiling, /implement-substrate amend SD-049-PHASE-2 differential-depletion), NOT a weakens; overshoot CANNOT flip => genuine MECH-229 drive-coupling weakens; (ii) OFF/bank-disabled wanting==liking floor sanity; (iii) recalibrated readiness = argmax-relevance positive control (overshoot must flip a realistic base_value gap, natural must not). claim_ids=[MECH-229] sub-leg (b) drive-modulated wanting ONLY; sub-leg (a) wanting!=liking established by 514o PASS and NOT under test (must not weaken (a)). Supports path retained (natural delta>=effect_margin). All readiness gates self-route substrate_not_ready_requeue, never a false weakens. validate_experiments --strict OK; dry-run smoke PASS end-to-end.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-06-16T19:53:55Z"
+      },
       "conditions": 1,
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_514r_sd049_phase2_mech229_drive_coupling_disambiguator",
