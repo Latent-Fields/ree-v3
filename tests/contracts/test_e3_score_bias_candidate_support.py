@@ -581,3 +581,114 @@ def test_conversion_shortlist_arbitrates_by_modulatory_within_set():
     assert d["modulatory_shortlist_active"] is True
     assert d["modulatory_shortlist_size"] == 5  # all tied -> all eligible
     assert res.selected_index == 3  # modulatory-argmin within the set
+
+
+# ---------------------------------------------------------------------------
+# TOP-K shortlist mode (569h-autopsy CONVERSION amend, 2026-06-16).
+# behavioral_diversity_isolation:GAP-A.
+# ---------------------------------------------------------------------------
+
+
+def test_conversion_topk_mode_default_is_margin_and_off_bit_identical():
+    """modulatory_shortlist_mode defaults to 'margin'; setting mode='top_k' while
+    the shortlist master is OFF is inert (bit-identical), and the mode diagnostic
+    is seeded either way."""
+    candidates = [_candidate_big_world(i % 5, 0.4 + 0.3 * i) for i in range(6)]
+    bias = torch.tensor([0.05, -0.02, 0.1, 0.0, -0.03, 0.01])
+
+    sel_default = _conversion_selector()
+    sel_topk_off = _conversion_selector(
+        use_modulatory_shortlist_then_modulate=False,
+        modulatory_shortlist_mode="top_k",
+        modulatory_shortlist_k=2,
+    )
+    r_d = sel_default.select(candidates, temperature=1.0, score_bias=bias.clone())
+    r_off = sel_topk_off.select(candidates, temperature=1.0, score_bias=bias.clone())
+
+    assert r_d.selected_index == r_off.selected_index
+    assert torch.allclose(r_d.scores, r_off.scores, atol=1e-12)
+    assert sel_default.last_score_diagnostics["modulatory_shortlist_mode"] == "margin"
+    assert sel_topk_off.last_score_diagnostics["modulatory_shortlist_active"] is False
+
+
+def test_conversion_topk_restricts_to_k_and_preserves_safety():
+    """Top-k mode shortlists exactly the k F-best candidates by primary score; a
+    clearly-worse-PRIMARY candidate is never eligible even with an overwhelming
+    modulatory pull, and the winner sits inside the k F-best."""
+    candidates = [_candidate_big_world(i % 5, 0.4 + 0.3 * i) for i in range(6)]
+
+    sel0 = _conversion_selector()
+    sel0.select(candidates, temperature=1.0, score_bias=torch.zeros(6))
+    raw = sel0.last_raw_scores.clone()
+    worst = int(raw.argmax().item())
+    kbest = set(torch.topk(raw, 2, largest=False).indices.tolist())
+    assert worst not in kbest
+
+    bias = torch.zeros(6)
+    bias[worst] = -100.0  # overwhelming pull on the worst-primary candidate
+    sel = _conversion_selector(
+        use_modulatory_shortlist_then_modulate=True,
+        modulatory_shortlist_mode="top_k",
+        modulatory_shortlist_k=2,
+    )
+    res = sel.select(candidates, temperature=1.0, score_bias=bias)
+    d = sel.last_score_diagnostics
+
+    assert d["modulatory_shortlist_active"] is True
+    assert d["modulatory_shortlist_mode"] == "top_k"
+    assert d["modulatory_shortlist_size"] == 2  # FIXED k, not margin-relative
+    assert res.selected_index in kbest          # selected within the k F-best
+    assert res.selected_index != worst          # safety preserved
+
+
+def test_conversion_topk_set_smaller_than_loose_margin():
+    """The 569h fix: on the SAME spread pool, top_k gives a small FIXED eligible
+    set where a loose margin admits a near-whole, state-stable set (the
+    V3-EXQ-684 size 6.25-8.54 collapse cause)."""
+    candidates = [_candidate_big_world(i % 5, 0.4 + 0.3 * i) for i in range(6)]
+    bias = torch.tensor([0.0, -0.1, 0.0, -0.2, 0.0, -0.05])
+
+    sel_margin = _conversion_selector(
+        use_modulatory_shortlist_then_modulate=True,
+        modulatory_shortlist_mode="margin",
+        modulatory_shortlist_margin=0.9,  # loose -> admits most of the pool
+    )
+    sel_topk = _conversion_selector(
+        use_modulatory_shortlist_then_modulate=True,
+        modulatory_shortlist_mode="top_k",
+        modulatory_shortlist_k=2,
+    )
+    sel_margin.select(candidates, temperature=1.0, score_bias=bias.clone())
+    sel_topk.select(candidates, temperature=1.0, score_bias=bias.clone())
+
+    margin_size = sel_margin.last_score_diagnostics["modulatory_shortlist_size"]
+    topk_size = sel_topk.last_score_diagnostics["modulatory_shortlist_size"]
+    assert topk_size == 2
+    assert margin_size > topk_size
+
+
+def test_conversion_topk_arbitrates_by_modulatory_within_topk():
+    """Conversion property: among the k F-best, the routed modulatory channel
+    ALONE decides the winner (argmin of the accumulated bias within the top-k)."""
+    candidates = [_candidate_big_world(i % 5, 0.4 + 0.3 * i) for i in range(6)]
+
+    sel0 = _conversion_selector()
+    sel0.select(candidates, temperature=1.0, score_bias=torch.zeros(6))
+    raw = sel0.last_raw_scores.clone()
+    kbest = torch.topk(raw, 3, largest=False).indices.tolist()
+
+    # Strongest (most-favoured) modulatory pull on the SECOND-best-by-F, a weaker
+    # pull on the F-best -> within the top-3 the modulatory argmin is the second.
+    bias = torch.zeros(6)
+    target = kbest[1]
+    bias[target] = -0.5
+    bias[kbest[0]] = -0.1
+    sel = _conversion_selector(
+        use_modulatory_shortlist_then_modulate=True,
+        modulatory_shortlist_mode="top_k",
+        modulatory_shortlist_k=3,
+    )
+    res = sel.select(candidates, temperature=1.0, score_bias=bias)
+
+    assert sel.last_score_diagnostics["modulatory_shortlist_size"] == 3
+    assert res.selected_index == target

@@ -520,6 +520,21 @@ class E3Config:
     #     Default False (bit-identical OFF).
     use_modulatory_shortlist_then_modulate: bool = False
     modulatory_shortlist_margin: float = 0.25
+    #     TOP-K shortlist mode (569h-autopsy conversion amend, 2026-06-16). The
+    #     V3-EXQ-684 margin shortlist admitted ~7/8 candidates
+    #     (modulatory_shortlist_size_mean 6.25-8.54) = a near-whole, state-STABLE
+    #     eligible set, so the committed-branch argmin collapsed to the modulatory
+    #     channel's global favorite (ARM_SHORTLIST entropy 0.337 < proposer 0.549).
+    #     "top_k" instead shortlists the k F-best candidates by primary score (k
+    #     smallest raw_scores; lower-is-better). A SMALL fixed k gives an eligible
+    #     set whose MEMBERSHIP rotates with state, so the within-set argmin of the
+    #     routed modulatory channel converts the per-candidate range into
+    #     committed-action diversity (and beats unstructured matched-noise = the
+    #     C_R1B non-vacuity bar). Safety is preserved: only the k F-best are
+    #     selectable, so clearly-harmful candidates are never eligible. "margin"
+    #     (default) is the legacy bit-identical path.
+    modulatory_shortlist_mode: str = "margin"
+    modulatory_shortlist_k: int = 3
 
 
 @dataclass
@@ -3992,6 +4007,9 @@ class REEConfig:
         modulatory_authority_normalize_basis: str = "range",
         use_modulatory_shortlist_then_modulate: bool = False,
         modulatory_shortlist_margin: float = 0.25,
+        # modulatory-bias-selection-authority AMEND (TOP-K shortlist, 569h, 2026-06-16):
+        modulatory_shortlist_mode: str = "margin",
+        modulatory_shortlist_k: int = 3,
         # ControlVector logging (rec-B four-signal adjudication 2026-06-07):
         # read-only default-OFF telemetry; bit-identical when False.
         use_control_vector_logging: bool = False,
@@ -4895,6 +4913,9 @@ class REEConfig:
             use_modulatory_shortlist_then_modulate
         )
         config.e3.modulatory_shortlist_margin = modulatory_shortlist_margin
+        # modulatory-bias-selection-authority TOP-K shortlist amend (569h, 2026-06-16)
+        config.e3.modulatory_shortlist_mode = modulatory_shortlist_mode
+        config.e3.modulatory_shortlist_k = modulatory_shortlist_k
         config.use_control_vector_logging = use_control_vector_logging
 
         # MECH-290: backward trajectory credit sweep

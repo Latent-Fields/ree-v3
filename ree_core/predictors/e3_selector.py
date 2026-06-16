@@ -1000,6 +1000,9 @@ class E3TrajectorySelector(nn.Module):
             ),
             "modulatory_shortlist_active": False,
             "modulatory_shortlist_size": 0,
+            "modulatory_shortlist_mode": getattr(
+                self.config, "modulatory_shortlist_mode", "margin"
+            ),
             # Filled in after selection (requires selected_idx).
             "selected_candidate_rank_before_bias": -1,
             "selected_candidate_rank_after_bias": -1,
@@ -1063,14 +1066,36 @@ class E3TrajectorySelector(nn.Module):
             and _modulatory_accum is not None
             and raw_scores.shape[0] >= 2
         ):
-            margin = float(
-                getattr(self.config, "modulatory_shortlist_margin", 0.25)
+            shortlist_mode = str(
+                getattr(self.config, "modulatory_shortlist_mode", "margin")
             )
-            best_raw = float(raw_scores.min().item())
-            cutoff = best_raw + margin * raw_score_range
-            eligible_idx = torch.nonzero(
-                raw_scores <= cutoff, as_tuple=False
-            ).flatten()
+            if shortlist_mode == "top_k":
+                # TOP-K shortlist (569h-autopsy CONVERSION amend, 2026-06-16):
+                # the F-best k candidates by primary score (lower-is-better ->
+                # k smallest raw_scores). A SMALL fixed k gives an eligible set
+                # whose MEMBERSHIP rotates with state, so the within-set argmin
+                # of the routed modulatory channel converts the per-candidate
+                # range into committed-action diversity -- where the margin mode
+                # (a near-whole, state-stable set: V3-EXQ-684 size 6.25-8.54)
+                # collapsed to the channel's global favorite (entropy 0.337 <
+                # proposer 0.549). Safety preserved: only the k F-best are
+                # selectable, so clearly-harmful candidates are never eligible.
+                k = int(getattr(self.config, "modulatory_shortlist_k", 3))
+                k = max(1, min(k, int(raw_scores.shape[0])))
+                eligible_idx = torch.topk(
+                    raw_scores, k, largest=False
+                ).indices.flatten()
+            else:
+                # MARGIN shortlist (legacy, bit-identical): near-tie set within
+                # modulatory_shortlist_margin * raw_score_range of the best raw.
+                margin = float(
+                    getattr(self.config, "modulatory_shortlist_margin", 0.25)
+                )
+                best_raw = float(raw_scores.min().item())
+                cutoff = best_raw + margin * raw_score_range
+                eligible_idx = torch.nonzero(
+                    raw_scores <= cutoff, as_tuple=False
+                ).flatten()
             n_eligible = int(eligible_idx.numel())
             if n_eligible >= 1:
                 mod_eligible = _modulatory_accum.detach()[eligible_idx]
@@ -1084,6 +1109,7 @@ class E3TrajectorySelector(nn.Module):
                 shortlist_idx = int(eligible_idx[local].item())
             self.last_score_diagnostics["modulatory_shortlist_active"] = True
             self.last_score_diagnostics["modulatory_shortlist_size"] = n_eligible
+            self.last_score_diagnostics["modulatory_shortlist_mode"] = shortlist_mode
 
         if shortlist_idx is not None:
             # Lever (b) selected within the F-filtered near-tie set.
