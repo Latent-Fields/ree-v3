@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-15
+**Last updated:** 2026-06-16
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-15)
+## 0. Current V3 State (2026-06-16)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -175,6 +175,122 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-16T01:10Z nightly read.** `evidence/experiments/` flat
+  top-level holds **~385 `v3_exq_*.json` manifests** on disk (latest
+  letter frontier through V3-EXQ-685; the day-over-day delta over the
+  2026-06-15 read absorbs the 684/682/591d/591e/603p autopsy artifact
+  pairs + the 685 arm_reuse_fingerprint smoke + the cleared 2026-06-15
+  governance cycle). Legacy fleet `runner_status.json` unchanged at the
+  2026-06-09T06:00Z snapshot of 840 dedup completion records (Phase-3
+  per-machine cards under `runner_heartbeats/` + `runner_status/` lead
+  the legacy single-file tally). **Pending review queue (regenerated
+  2026-06-15T17:45:45Z) reads 0 items** -- the 2026-06-15T04:00Z
+  governance cycle walked 7 pendings -> 0 and applied two consequential
+  governance landings (see (1) below). **Currently queued
+  (`experiment_queue.json` items[]): 1 item** -- V3-EXQ-514q
+  (MECH-229 wanting!=liking corrected-criterion successor under the
+  drive-coupled dissociation delta + effect-size gate
+  `max(k*pstdev(delta), FLOOR=0.15)`; supersedes V3-EXQ-514p per the
+  failure_autopsy_V3-EXQ-514p_2026-06-15 routing; claimed by
+  ree-cloud-1 at 2026-06-15T17:20:14Z, priority 300, 6 seeds [42-47]).
+  Multiple coordinator-side items queued by today's sessions ride the
+  DB beyond the file snapshot: V3-EXQ-684a HYBRID GAP-A conversion-
+  readiness (carries ARM_STD_G2 forward, matched-noise-at-proposer ->
+  NEGATIVE control, load-bearing C_CONVERSION=committed-entropy
+  strict-above LEGACY >=2/3 with the committed-layer metric-can-move
+  guard; supersedes V3-EXQ-684), V3-EXQ-654c arc_062 GAP-B committed-
+  class entropy behavioural falsifier (port of 654b on the now-
+  validated crf-availability-maintenance substrate; ready=True after
+  666c PASS), V3-EXQ-680d MECH-423 super-additivity stabilise-
+  integrated-co-training + inf/NaN-guard readiness cosine (supersedes
+  680c), V3-EXQ-591f Phase 0->1 gate-criterion ROBUST sweep over four
+  sustained-level candidates (supersedes the spike-vulnerable 591e),
+  V3-EXQ-685 arm_reuse_fingerprint P1-auto demo of a False-mode
+  index-HIT consumer (queued + smoke PASS, awaiting fleet claim).
+  Substrate / governance landings since the 2026-06-15T01:10Z spec
+  sync: (1) **Morning governance cycle baked the indexer flat-merge
+  shift + delivered MECH-229 SUBSTRATE CEILING LIFTED** (REE_assembly
+  master be7261d9ca, 04:00Z; 874-file regen). MECH-229 V3-EXQ-514o
+  PASS adjudicated: `substrate_ceiling -> standard`,
+  `pending_retest_after_substrate -> false`, `narrow_supports -> false`,
+  `exp_conf 0.868 -> confirmed_established`. **goal_pipeline:GAP-2 +
+  GAP-7 CLOSED** on the terminal L9 wanting!=liking dissociation (the
+  decisive substrate-readiness PASS the SD-049 / SD-057 / MECH-229
+  closure chain was gated on). MECH-057b 672b genuine non-degenerate
+  weakens recorded (conflict-hold stands; exp_conf 0.325; first counted
+  experiment). MECH-423 680b -> superseded(by 680c) + 680c ->
+  non_contributory (both autopsied, NOT weakened); 591d/666c/682 claim-
+  free diagnostics reviewed. Pending review 7 -> 0; closure drift 0/0;
+  overall 78.3%. crf-availability-maintenance flipped `ready=True`
+  on 666c PASS (4d29688 substrate gate clear). (2) **V3-EXQ-682 GAP-A
+  in-arm route-range PASS no_collapse_reproduced** (ree-v3 manifest
+  20260615T032040Z) -- ARM_1_E2WF in-arm applied_route_range 0.204, all
+  four 569g collapse causes RULED OUT incl seed 43 (the 569g failure
+  seed). Confirmed Branch A: REACH solved, residual is genuine
+  CONVERSION ceiling (not an upstream re-collapse). (3) **GAP-A 569g
+  CONVERSION amend landed + 684 -> 684a HYBRID readiness sweep
+  designed** (ree-v3 main 1acc343 + 37ff9b6; REE_assembly master
+  012fca3a62 + 74112b99e9) -- two no-op-default conversion levers
+  on the e3_selector authority block: (a) `modulatory_authority_normalize_basis`
+  std vs range (anchor authority on the typical primary spread so the
+  structured channel competes against near-decisive candidates), and
+  (b) `use_modulatory_shortlist_then_modulate` + `modulatory_shortlist_margin`
+  (F filters to a near-tie set, modulatory arbitrates the winner
+  within -- safety preserved at any internal strength). 684 ran a
+  6-arm readiness sweep on the live stack; 684a is the routed HYBRID
+  redesign (ARM_STD_G2 forward, matched-noise-at-proposer turned
+  NEGATIVE control, committed-layer metric-can-move non-vacuity guard
+  added). 569h is GATED on 684a readiness PASS, NOT pre-queued on a
+  guessed config. (4) **V3-EXQ-603p Stage-H harm-pathway autopsied
+  -> /implement-substrate Branch B** (REE_assembly master d1a3a8e1c6)
+  -- 603p was the diagnose-first locator for 603o's one failing
+  readiness gate (`harm_landscape_discriminative_on_base`). Positive
+  control (proximity_harm=0.10, harm_lr=1e-3) cleared the >=0.02
+  range gate on only 1/3 seeds; ALL standard cells clear 1/3 (a
+  different seed each cell, seed 44 never); 3x-LR rescue COLLAPSES the
+  landscape to ~1e-23 on all seeds. Confirms GAP-C Branch B: the
+  scaffolded_sd054_onboarding harm-VALUATION pathway training (603k)
+  is SEED-FRAGILE -- not a regime-difficulty result. Substrate_queue
+  amend slot opened on harm-pathway stability (>=2/3 seeds at the easy
+  regime; more steps / lower LR / grad-stabilisation / seed-robust
+  init, NOT raising LR). Do **NOT** queue V3-EXQ-603q (its located-
+  parameter premise is false). (5) **V3-EXQ-591d/591e gate-criterion
+  cluster autopsied + 591f robust sweep queued** (REE_assembly master
+  86633d2a9f + 82f5950b99 + ree-v3 main 770a778) -- 591d FAIL adjudicated:
+  neither K-of-N nor EMA-of-LEVEL@0.20 discriminates because both reuse
+  the single-episode spike threshold 0.994 as the bar for a SUSTAINED
+  statistic while genuine explorers' mean h_pos sits below it. 591e
+  EMA-only re-admitted seed-45 (the causal one-way-latching EMA spikes
+  over 0.20 on a late burst). 591f is the user-chosen ROBUST sustained-
+  level sweep over four candidates (EMA-of-level / window-mean(W=20) /
+  EMA-with-hold(H=5) / crossing-count>=3 of 0.994); PASS if ANY admits
+  42/43/44 AND rejects 45. The parallel session's 591e queue entry was
+  HELD via the coordinator so the flawed run does not execute.
+  (6) **arm_reuse_fingerprint:P1-auto mint+consume cycle queued
+  via V3-EXQ-685** (ree-v3 main 51906a9; REE_assembly master 7632783
+  plan-doc) -- the gating owner V3-EXQ-610g is dead (655 resolved
+  fork-(b) 2026-06-13: INV-074 substrate_ceiling, 610 cascade STOPPED
+  by user decision), so the automated index-HIT will not arise
+  naturally. 685 is a minimal purpose-built consumer: False-mode
+  (`include_driver_script_in_hash=False`) mint of one canonical-baseline
+  OFF cell + a distinct-driver consumer that automated-HITs it via
+  `try_reuse_cell` (`reused_from_run_id` stamped) AND flips back to a
+  fresh run on a one-byte config flip (section-9.5 step-6 acceptance).
+  P1-auto status STAYS blocked until 685 runs+PASSes on the fleet.
+  Bottleneck: **bdiv GAP-A is now a single sweep away from a verdict**
+  -- V3-EXQ-684a (HYBRID readiness sweep with the load-bearing
+  committed-entropy strict-above-LEGACY gate) is the gate that turns
+  the landed gain/contrast + shortlist amend into a falsifier-ready
+  config; on PASS, V3-EXQ-569h queues with the winning conversion
+  config and the master choke gating 7 downstream nodes (entire sd_037
+  axis-b chain + entire self_attribution chain) resolves. arc_062
+  GAP-B (V3-EXQ-654c on the now-validated crf-availability-maintenance
+  substrate) is the 2nd choke; MECH-423 super-additivity awaits 680d
+  on the stabilised integrated co-training + NaN-guarded readiness
+  cosine. The Stage-H harm-pathway substrate amend is the only
+  blocking item on the goal_pipeline GAP-2 survival-leg cohort now
+  that the MECH-229 ceiling is lifted.
 
 - **2026-06-15T01:10Z nightly read.** `evidence/experiments/` flat
   top-level holds **382 `*_v3.json` manifests** on disk (latest letter
