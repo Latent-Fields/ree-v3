@@ -8,6 +8,26 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-687",
+      "title": "Q-045 / MECH-313 / MECH-260 4-arm tonic-noise / exploration-floor ablation (both-OFF / 313-only / 260-only / both-ON) on the now-survival-competent scaffolded_sd054_onboarding substrate; ARC-062 gated-policy on all arms",
+      "script": "experiments/v3_exq_687_q045_mech313_mech260_4arm_tonic_noise_ablation.py",
+      "priority": 330,
+      "machine_affinity": "any",
+      "estimated_minutes": 1320,
+      "claim_id": "Q-045",
+      "note": "The registered Q-045 four-arm ablation (both-OFF / MECH-313-only / MECH-260-only / both-ON), finally runnable: the survival-competent successor to the 603a-e Q-045 chain that ALL bottomed at substrate-readiness (effective N=1 from seed death, z_goal=0, MECH-260 FIFO non-operative -> Q-045 routed substrate_ceiling 2026-05-27). New number because the 603-series drifted entirely to the SD-059/MECH-358 bridge/harm lineage; same scientific question, substantially new (now survivable) substrate. The full Stage-0/0b/P0/Stage-H/P1 survival-competence config is ported VERBATIM from V3-EXQ-603q (PASS 2026-06-17T04:28:30Z) and held CONSTANT across all 4 arms (scaffolding, not under test): harm-pathway training+stabilization (603k+603q amend), SD-058/MECH-357 IA gate + driver, SD-059/MECH-358 escape bridge, PAG, fed harm stream, nursery + developmental window + 634c seeding calibration + SD-057 cue-recall. The ONLY cross-arm variables are use_noise_floor/noise_floor_alpha (MECH-313) and use_dacc/dacc_suppression_weight=0.5/memory=8 (MECH-260); ARC-062 use_gated_policy enabled on all arms (the Q-045 spec). After the curriculum a FROZEN-POLICY P2 (30 ep x 300 steps, FIFO warmup 30) measures selected-action-class entropy (primary diversity DV) + reef occupancy + z_goal + dACC FIFO diagnostics. claim_ids=[Q-045,MECH-313,MECH-260] -> evidence_direction_per_claim. FOUR pre-registered non-vacuity preconditions self-route substrate_not_ready_requeue / non_contributory, NEVER a false weakens: PRE_REACH (>=2/3 seeds per arm reach P2 with measured_steps>=100 -- the effective-N=1 killer), PRE_ZGOAL (z_goal_norm_peak>0.4 on >=2/3 P2 cells), PRE_MECH260 (dACC FIFO operative on >=2/3 seeds of EACH dACC arm -- guards the 603 call-path-bypass bug), PRE_NONDEGEN (entropy metric non-degenerate via _metrics.check_degeneracy). A genuine `weakens` (fail_no_diversity) is reachable ONLY when all preconditions hold. Evidence grid maps to Q-045's registered outcomes (mutually-load-bearing / 313-dominates / 260-dominates) + the R4 lit-pull DIRECTIONALLY-COUPLED 4th category (Tervo 2014, flags the 8-cell follow-on). experiment_purpose=evidence. Validator --strict OK; dry-run smoke PASS (full pipeline end-to-end, all 4 arms, z_goal forms 0.44-0.53; correctly self-routed substrate_not_ready_requeue at dry scale by design -- undertrained toy agent dies before the P2 FIFO warmup so measured_steps=0). Q-045 stays open/substrate_ceiling; MECH-313 candidate_substrate_landed; MECH-260 candidate -- no status change pending the run. Do NOT start the runner (cloud auto-claims).",
+      "status": "pending",
+      "claim_ids": [
+        "Q-045",
+        "MECH-313",
+        "MECH-260"
+      ],
+      "conditions": 4,
+      "episodes_per_run": 220,
+      "experiment_type": "v3_exq_687_q045_mech313_mech260_4arm_tonic_noise_ablation",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-460e",
       "title": "SD-034 closure-control-plane de-commit authority re-run on the TRAINED rule_bias_head (commitment_closure:GAP-4 Leg C); non-cap-pinned ON<OFF latch-occupancy-drop DV",
       "script": "experiments/v3_exq_460e_sd034_closure_control_plane_behavioural.py",
@@ -47,26 +67,6 @@
       "episodes_per_run": 270,
       "experiment_type": "v3_exq_625d_sd037_axis_b_phase1b_joint_composite",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-687",
-      "title": "Q-045 / MECH-313 / MECH-260 4-arm tonic-noise / exploration-floor ablation (both-OFF / 313-only / 260-only / both-ON) on the now-survival-competent scaffolded_sd054_onboarding substrate; ARC-062 gated-policy on all arms",
-      "experiment_type": "v3_exq_687_q045_mech313_mech260_4arm_tonic_noise_ablation",
-      "script": "experiments/v3_exq_687_q045_mech313_mech260_4arm_tonic_noise_ablation.py",
-      "priority": 330,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 1320,
-      "episodes_per_run": 220,
-      "seeds": 3,
-      "conditions": 4,
-      "claim_id": "Q-045",
-      "claim_ids": [
-        "Q-045",
-        "MECH-313",
-        "MECH-260"
-      ],
-      "note": "The registered Q-045 four-arm ablation (both-OFF / MECH-313-only / MECH-260-only / both-ON), finally runnable: the survival-competent successor to the 603a-e Q-045 chain that ALL bottomed at substrate-readiness (effective N=1 from seed death, z_goal=0, MECH-260 FIFO non-operative -> Q-045 routed substrate_ceiling 2026-05-27). New number because the 603-series drifted entirely to the SD-059/MECH-358 bridge/harm lineage; same scientific question, substantially new (now survivable) substrate. The full Stage-0/0b/P0/Stage-H/P1 survival-competence config is ported VERBATIM from V3-EXQ-603q (PASS 2026-06-17T04:28:30Z) and held CONSTANT across all 4 arms (scaffolding, not under test): harm-pathway training+stabilization (603k+603q amend), SD-058/MECH-357 IA gate + driver, SD-059/MECH-358 escape bridge, PAG, fed harm stream, nursery + developmental window + 634c seeding calibration + SD-057 cue-recall. The ONLY cross-arm variables are use_noise_floor/noise_floor_alpha (MECH-313) and use_dacc/dacc_suppression_weight=0.5/memory=8 (MECH-260); ARC-062 use_gated_policy enabled on all arms (the Q-045 spec). After the curriculum a FROZEN-POLICY P2 (30 ep x 300 steps, FIFO warmup 30) measures selected-action-class entropy (primary diversity DV) + reef occupancy + z_goal + dACC FIFO diagnostics. claim_ids=[Q-045,MECH-313,MECH-260] -> evidence_direction_per_claim. FOUR pre-registered non-vacuity preconditions self-route substrate_not_ready_requeue / non_contributory, NEVER a false weakens: PRE_REACH (>=2/3 seeds per arm reach P2 with measured_steps>=100 -- the effective-N=1 killer), PRE_ZGOAL (z_goal_norm_peak>0.4 on >=2/3 P2 cells), PRE_MECH260 (dACC FIFO operative on >=2/3 seeds of EACH dACC arm -- guards the 603 call-path-bypass bug), PRE_NONDEGEN (entropy metric non-degenerate via _metrics.check_degeneracy). A genuine `weakens` (fail_no_diversity) is reachable ONLY when all preconditions hold. Evidence grid maps to Q-045's registered outcomes (mutually-load-bearing / 313-dominates / 260-dominates) + the R4 lit-pull DIRECTIONALLY-COUPLED 4th category (Tervo 2014, flags the 8-cell follow-on). experiment_purpose=evidence. Validator --strict OK; dry-run smoke PASS (full pipeline end-to-end, all 4 arms, z_goal forms 0.44-0.53; correctly self-routed substrate_not_ready_requeue at dry scale by design -- undertrained toy agent dies before the P2 FIFO warmup so measured_steps=0). Q-045 stays open/substrate_ceiling; MECH-313 candidate_substrate_landed; MECH-260 candidate -- no status change pending the run. Do NOT start the runner (cloud auto-claims)."
     }
   ]
 }
