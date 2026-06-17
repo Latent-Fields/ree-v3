@@ -16,7 +16,11 @@
       "estimated_minutes": 1320,
       "claim_id": "Q-045",
       "note": "The registered Q-045 four-arm ablation (both-OFF / MECH-313-only / MECH-260-only / both-ON), finally runnable: the survival-competent successor to the 603a-e Q-045 chain that ALL bottomed at substrate-readiness (effective N=1 from seed death, z_goal=0, MECH-260 FIFO non-operative -> Q-045 routed substrate_ceiling 2026-05-27). New number because the 603-series drifted entirely to the SD-059/MECH-358 bridge/harm lineage; same scientific question, substantially new (now survivable) substrate. The full Stage-0/0b/P0/Stage-H/P1 survival-competence config is ported VERBATIM from V3-EXQ-603q (PASS 2026-06-17T04:28:30Z) and held CONSTANT across all 4 arms (scaffolding, not under test): harm-pathway training+stabilization (603k+603q amend), SD-058/MECH-357 IA gate + driver, SD-059/MECH-358 escape bridge, PAG, fed harm stream, nursery + developmental window + 634c seeding calibration + SD-057 cue-recall. The ONLY cross-arm variables are use_noise_floor/noise_floor_alpha (MECH-313) and use_dacc/dacc_suppression_weight=0.5/memory=8 (MECH-260); ARC-062 use_gated_policy enabled on all arms (the Q-045 spec). After the curriculum a FROZEN-POLICY P2 (30 ep x 300 steps, FIFO warmup 30) measures selected-action-class entropy (primary diversity DV) + reef occupancy + z_goal + dACC FIFO diagnostics. claim_ids=[Q-045,MECH-313,MECH-260] -> evidence_direction_per_claim. FOUR pre-registered non-vacuity preconditions self-route substrate_not_ready_requeue / non_contributory, NEVER a false weakens: PRE_REACH (>=2/3 seeds per arm reach P2 with measured_steps>=100 -- the effective-N=1 killer), PRE_ZGOAL (z_goal_norm_peak>0.4 on >=2/3 P2 cells), PRE_MECH260 (dACC FIFO operative on >=2/3 seeds of EACH dACC arm -- guards the 603 call-path-bypass bug), PRE_NONDEGEN (entropy metric non-degenerate via _metrics.check_degeneracy). A genuine `weakens` (fail_no_diversity) is reachable ONLY when all preconditions hold. Evidence grid maps to Q-045's registered outcomes (mutually-load-bearing / 313-dominates / 260-dominates) + the R4 lit-pull DIRECTIONALLY-COUPLED 4th category (Tervo 2014, flags the 8-cell follow-on). experiment_purpose=evidence. Validator --strict OK; dry-run smoke PASS (full pipeline end-to-end, all 4 arms, z_goal forms 0.44-0.53; correctly self-routed substrate_not_ready_requeue at dry scale by design -- undertrained toy agent dies before the P2 FIFO warmup so measured_steps=0). Q-045 stays open/substrate_ceiling; MECH-313 candidate_substrate_landed; MECH-260 candidate -- no status change pending the run. Do NOT start the runner (cloud auto-claims).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-17T08:20:41Z"
+      },
       "claim_ids": [
         "Q-045",
         "MECH-313",
@@ -61,7 +65,11 @@
       "estimated_minutes": 330,
       "supersedes": "V3-EXQ-625c",
       "note": "sd_037_axis_b:P1b. Resumes the Phase-1b gate now that committed-action diversity is demonstrated (V3-EXQ-569i PASS/supports, ARC-065, 2026-06-16). Replaces 625c's warmup_train base policy (which monostrategy-locked) with a policy trained THROUGH the scaffolded_sd054_onboarding full curriculum (603n config) running under the 569i-validated conversion config (use_modulatory_channel_routing + route_source=cand_world_summary + use_modulatory_selection_authority gain=2.0 normalize_basis=std + use_modulatory_shortlist_then_modulate mode=top_k k=3 + candidate_summary_source=e2_world_forward) + MECH-341 (use_e3_score_diversity stratified+entropy) + SD-056 (e2_action_contrastive trained online on the axis-(b) env). Measures z_harm_a dynamic crossings (sharpened C3a >=1 above->below AND C3b >=1 below->above per seed, >=2/3 seeds, per failure_autopsy_V3-EXQ-625b Section 8.3) under the SD-029 sustained-threat overlay (scheduled_external_hazard interval=20 prob=0.7 adjacent_only + hazard_harm=0.2 + proximity_harm_scale=0.2) on a dim-matched scaffold p2 env. claim_ids=[] (diagnostic; weights no claim). FOUR pre-registered non-vacuity gates (R1 curriculum-fired 3/3, R2 z_harm_a-nonzero, R3 route_range+cand_world_pairwise_dist > floors, R4 committed-action entropy > floor) self-route substrate_not_ready_requeue on a miss -- NEVER a weakens. PASS clears P1b and makes the P2->P3->P4 chain (V3-EXQ-483f terminal, shared with axis-a) workable. SD-037/MECH-280/MECH-281 stay substrate_ceiling/pending_retest_after_substrate. Dry-run smoke PASS (full pipeline end-to-end; correctly self-routed substrate_not_ready at dry scale).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-17T08:20:45Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 270,
