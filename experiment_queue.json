@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-654e",
-      "title": "arc_062 GAP-B committed-class-entropy behavioural falsifier (MECH-309/ARC-062) ported onto the CRF-gate calibration amend (crf-availability-maintenance at the CRF locus, ungated from GAP-A); supersedes 654d",
-      "script": "experiments/v3_exq_654e_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
-      "priority": 335,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "supersedes": "V3-EXQ-654d",
-      "claim_id": "MECH-309",
-      "note": "The 654d-routed GAP-B re-queue on the CRF-gate calibration amend (landed ree-v3 main 42895f6, 2026-06-17). VERIFY-FIRST finding (user-confirmed): 569i's top-k GAP-A substrate DOES de-collapse the consumed_summary spread (0.073/0.089/0.084 > 0.05 floor, 3/3), but failure_autopsy_V3-EXQ-654d_2026-06-16 proved GAP-A de-collapse is the WRONG lever -- 654d armed an equivalent de-collapse and crf_frac_active stayed EXACTLY 0.0 on all 3 ARM_ON seeds (even where consumed_summary cleared the floor) because the real GAP-B blocker is the CRF conflict-gate lockout (7-8 rules co-match -> theta(7)=0.15+0.25*6=1.65 >> maintenance_floor 0.45 -> every matched rule gated out), INDEPENDENT of GAP-A (different vectors/loci: consumed_summary=cross-candidate E3 channel, n_matched=cross-rule CRF context-match). FIX: three no-op-default CRF-gate levers landed at the CRF locus -- crf_mature_context_match_threshold=0.7 (FAULT 1: sharpen gate match cutoff -> n_matched ~2-3) + crf_tolerance_conflict_cap=3 (FAULT 2a: theta<=0.90<1.0) + crf_maintenance_couple_to_theta=True (FAULT 2b: floor maintained avail to max(floor, theta+eps) so the maintained differentiated pool clears the gate). ree-v3 contracts C20-C24 + activation smoke confirm the 654d inversion (crowded maintained pool frac_active 0.000 legacy -> 0.98 armed). CLONE-AND-MODIFY of 654d (minimal diff): same 2-arm ARM_OFF/ARM_ON design, only swept var=use_candidate_rule_field; the matched ARM_STD_G2 GAP-A constant is RETAINED on both arms (de-collapses E3 channel + gives C2 authority gain); same crf_persist + mature_pool_dynamics + availability_maintenance + context_from_e2_world_forward + trained-bias-head P1 REINFORCE arm (GAP-D) + SD-056 + 649/643a/SP-CEM/MECH-341 stack; ARM_ON additionally arms the three CRF-gate levers (inert in ARM_OFF, no field built). PRIMARY DV = COMMITTED-CLASS entropy. C1c crf_frac_active>=0.30 self-routing precondition RETAINED (now EXPECTED to clear; if still <0.30 -> substrate_not_ready_requeue, NEVER a false weakens). Three-branch routing, NO weakens: PASS (committed-class entropy lift ARM_ON>ARM_OFF on >=2/3 seeds) -> supports MECH-309/ARC-062; C1-fail -> substrate_not_ready_requeue; C1-holds/C2-fail -> shared CONVERSION ceiling -> non_contributory + /implement-substrate or /claim-synthesis. Records crf_n_matched_last + crf_frac_active + crf_last_theta (the 654d-autopsy discriminators) so the manifest shows the gate firing (n_matched ~2-3, theta<1.0, frac_active>=0.30). validate_experiments --strict OK; dry-run smoke PASS (both arms end-to-end, correctly self-routes substrate_not_ready at toy scale by design -- field cannot mature in 2 ep). MECH-309/ARC-062/ARC-063 stay candidate/substrate_ceiling/v3_pending; no claims.yaml edits. Do NOT start the runner (cloud auto-claims). Budget 2 arms x 3 seeds x 350 ep x 200 steps.",
-      "status": "pending",
-      "claim_ids": [
-        "MECH-309",
-        "ARC-062"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 350,
-      "experiment_type": "v3_exq_654e_arc062_gapb_rule_apprehension_behavioural_falsifier",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-687",
       "title": "Q-045 / MECH-313 / MECH-260 4-arm tonic-noise / exploration-floor ablation (both-OFF / 313-only / 260-only / both-ON) on the now-survival-competent scaffolded_sd054_onboarding substrate; ARC-062 gated-policy on all arms",
       "script": "experiments/v3_exq_687_q045_mech313_mech260_4arm_tonic_noise_ablation.py",
@@ -49,31 +29,6 @@
       "conditions": 4,
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_687_q045_mech313_mech260_4arm_tonic_noise_ablation",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-460e",
-      "title": "SD-034 closure-control-plane de-commit authority re-run on the TRAINED rule_bias_head (commitment_closure:GAP-4 Leg C); non-cap-pinned ON<OFF latch-occupancy-drop DV",
-      "script": "experiments/v3_exq_460e_sd034_closure_control_plane_behavioural.py",
-      "priority": 325,
-      "machine_affinity": "any",
-      "estimated_minutes": 190,
-      "supersedes": "V3-EXQ-460d",
-      "claim_id": "SD-034",
-      "note": "commitment_closure:GAP-4. Supersedes 460d. The Leg-C scaffold_train_rule_bias_head leg (598b REINFORCE in P1) landed 2026-06-16 (ree-v3 3ccc48a) -- 460d set lateral_pfc_train_rule_bias_head=True but never optimized the head, so the rule_state carried no magnitude and the de-commit had no MECH-090 latch authority (460d C2/C4 FAIL). 460e enables the scaffold leg + reads de-commit on a NON-CAP-PINNED ON<OFF beta-latch-occupancy drop (replaces 460d count-based C2 + cap-pinned C4). FOUR readiness gates self-route substrate_not_ready_requeue (never a false weakens): contact / rule_bias_head-trained (mean |bias| > floor -- the direct anti-460d-bug gate) / beta-engagement-both-arms (the 468d commit-without-beta guard) / closure-trigger. PASS -> supports SD-034/MECH-261, MECH-260 supports; readiness-met-criteria-unmet -> genuine weakens (route /failure-autopsy). Smoke: validator --strict OK; dry-run end-to-end self-routes substrate_not_ready (rule_bias leg trained, mean |bias| 0.036). Do NOT start runner (cloud auto-claims).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-17T04:20:33Z"
-      },
-      "claim_ids": [
-        "SD-034",
-        "MECH-260",
-        "MECH-261"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_type": "v3_exq_460e_sd034_closure_control_plane_behavioural",
       "seeds": 3
     },
     {
