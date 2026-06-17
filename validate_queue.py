@@ -26,10 +26,13 @@ QUEUE_FILE = Path(__file__).resolve().parent / "experiment_queue.json"
 VALID_STATUSES = {"pending", "claimed", "failed", "suspended"}
 VALID_AFFINITIES = {"any", "DLAPTOP-4.local", "Daniel-PC", "EWIN-PC", "ree-cloud-1", "ree-cloud-2", "ree-cloud-3", "ree-cloud-4"}
 
-# queue_id must match: V3-EXQ-<digits>[optional letter][optional -<letter>]
+# queue_id must match: V<gen>-EXQ-<digits>[optional letter][optional -<letter>]
 # OR onboarding smoke tests: V3-ONBOARD-smoke-<machine-name>
-# Examples: V3-EXQ-047, V3-EXQ-047j, V3-EXQ-001-a, V3-ONBOARD-smoke-EWIN-PC
-RE_QUEUE_ID = re.compile(r"^V3-EXQ-\d+[a-z]?(-[a-z])?$|^V3-ONBOARD-smoke-.+$")
+# Examples: V3-EXQ-047, V3-EXQ-047j, V3-EXQ-001-a, V3-ONBOARD-smoke-EWIN-PC,
+#           V4-EXQ-001 (first V4 experiment, self_model_v4:SELF-4, 2026-06-17)
+# The generation prefix is V<digits> so the V4/V5 experiment namespaces
+# (V4-EXQ-NNN parallel to V3-EXQ-NNN) validate -- precedent set by V4-EXQ-001.
+RE_QUEUE_ID = re.compile(r"^V\d+-EXQ-\d+[a-z]?(-[a-z])?$|^V3-ONBOARD-smoke-.+$")
 
 # Contract with experiment_runner.py RE_SAVED_TO (line 73).
 # If a script writes a manifest under evidence/experiments, it MUST print
