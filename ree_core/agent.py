@@ -693,6 +693,19 @@ class REEAgent(nn.Module):
                 maintained_reactivation_threshold=getattr(
                     config, "crf_maintained_reactivation_threshold", 0.0
                 ),
+                # CRF conflict-gate calibration amend (V3-EXQ-654d successor;
+                # crf-availability-maintenance at the CRF locus). getattr-fallback to
+                # the no-op sentinel so an absent flat REEConfig attr is bit-identical;
+                # consulted only when mature_pool_dynamics is True.
+                mature_context_match_threshold=getattr(
+                    config, "crf_mature_context_match_threshold", -1.0
+                ),
+                tolerance_conflict_cap=getattr(
+                    config, "crf_tolerance_conflict_cap", -1
+                ),
+                maintenance_couple_to_theta=getattr(
+                    config, "crf_maintenance_couple_to_theta", False
+                ),
             )
             self.candidate_rule_field = CandidateRuleField(
                 context_dim=config.latent.world_dim,
@@ -1898,6 +1911,11 @@ class REEAgent(nn.Module):
         self._last_action: Optional[torch.Tensor] = None
         self._last_e3_selection_result: Optional[Any] = None
         self._last_e3_score_bias: Optional[torch.Tensor] = None
+        # DR-12 (self_model_v4:SELF-4): optional injected per-candidate E2 forward-PE
+        # [K] for the E3 confidence down-weight. None -> bit-identical (no penalty).
+        # Set per tick via set_injected_e2_forward_pe(); the lever applies it only
+        # when E3Config.use_pe_confidence_weighting is True.
+        self._injected_e2_forward_pe: Optional[torch.Tensor] = None
         # V3-EXQ-571: per-component bias decomposition (written when e3.e3_score_decomp_enabled)
         self._last_score_bias_decomp: dict = {}
         # ControlVector logging (rec-B four-signal adjudication 2026-06-07):
@@ -2470,6 +2488,18 @@ class REEAgent(nn.Module):
         self._harm_suffering_external_escapability = float(
             max(0.0, min(1.0, value))
         )
+
+    def set_injected_e2_forward_pe(self, pe: "Optional[torch.Tensor]") -> None:
+        """DR-12 (self_model_v4:SELF-4) per-candidate E2-forward-PE injection seam.
+
+        Lets a validation experiment supply the per-candidate E2 forward-PE [K]
+        consumed by the E3 confidence down-weight on the next select_action tick.
+        None clears it (bit-identical). The lever applies it only when
+        E3Config.use_pe_confidence_weighting is True; supplying a PE with the lever
+        OFF is a no-op. The caller is responsible for matching the current
+        candidate count K.
+        """
+        self._injected_e2_forward_pe = pe
 
     def _resolve_harm_suffering_escapability(self) -> float:
         """Resolve the MECH-219 escapability scalar in [0, 1] for the current tick.
@@ -5697,6 +5727,12 @@ class REEAgent(nn.Module):
             score_bias=dacc_score_bias,
             score_diversity=self.score_diversity,
             channel_route_bias=channel_route_bias,
+            # DR-12 (self_model_v4:SELF-4): optional injected per-candidate E2
+            # forward-PE for the confidence down-weight. Default None ->
+            # bit-identical. v1 source is caller-supplied (the DR-12 pilot is a
+            # controlled probe); the ecological region-PE auto-source is a
+            # documented follow-on.
+            e2_forward_pe_per_candidate=getattr(self, "_injected_e2_forward_pe", None),
         )
         self._last_e3_selection_result = result
 

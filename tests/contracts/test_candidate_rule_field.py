@@ -485,3 +485,114 @@ def test_c19_maintenance_flags_from_dims_and_agent_wiring():
     st = f.get_state()
     assert "crf_n_maintained_reactivatable" in st
     assert "crf_maintained_pairwise_dist" in st
+
+
+# ----------------------------------------------------------------------
+# CRF conflict-gate calibration amend (V3-EXQ-654d successor;
+# crf-availability-maintenance at the CRF locus, UNGATED from GAP-A).
+# ----------------------------------------------------------------------
+def _crowded_maintained_field(n_rules=8, avail=0.45, **cfg_kw):
+    """A maintained, DIFFERENTIATED pool whose context_tags are clustered so they
+    co-match a single query at cosine >= 0.5 but spread across [0.52, 0.80] -- the
+    654d 'differentiated-but-gated-out' state (n_matched 7-8 -> theta(7) >> 0.45).
+    Rules inserted directly with pinned-distinct embeddings at maintenance_floor.
+    Returns (field, query_context)."""
+    cfg = CandidateRuleFieldConfig(
+        use_candidate_rule_field=True, mature_pool_dynamics=True,
+        availability_maintenance=True, maintenance_floor=avail, **cfg_kw,
+    )
+    f = CandidateRuleField(context_dim=16, config=cfg)
+    base = torch.zeros(16); base[0] = 1.0
+    g = torch.Generator(); g.manual_seed(7)
+    cosines = torch.linspace(0.52, 0.80, n_rules)
+    for i in range(n_rules):
+        a = float(cosines[i])
+        perp = torch.randn(16, generator=g); perp[0] = 0.0
+        perp = perp / perp.norm()
+        ctx = a * base + (1.0 - a * a) ** 0.5 * perp  # exact cosine a to base
+        f._rules[i] = CandidateRule(
+            rule_embedding=f._pinned_directions[i].clone(),
+            context_tag=ctx, availability=avail, eligibility=0.0,
+            minted_step=0, last_active_step=-1, active=False, action_object_idx=i,
+        )
+    return f, base
+
+
+def _frac_active_over(f, query, ticks=50):
+    for i in range(1, ticks + 1):
+        f._step = i
+        f.credit(outcome_signal=0.0, step=i)   # maintenance hold + optional couple
+        f.gate_and_select(query, step=i)
+    return f._n_active_steps / ticks
+
+
+def test_c20_gate_levers_default_off_bit_identical():
+    # Defaults: sharpen sentinel <0 -> legacy cutoff; cap sentinel <0 -> no cap;
+    # couple off. The crowded maintained pool stays gated out (the 654d lockout).
+    f, q = _crowded_maintained_field()  # no levers
+    assert abs(f._gate_match_threshold() - f.config.context_match_threshold) < 1e-12
+    # theta matches the legacy mature formula (no cap)
+    assert abs(f._theta_for(8) - (0.15 + 0.25 * 7)) < 1e-9
+    frac = _frac_active_over(f, q)
+    assert frac == 0.0, "legacy gate must lock out the crowded pool (frac_active 0)"
+
+
+def test_c21_sharpen_match_threshold_reduces_n_matched():
+    # FAULT 1: the sharpened gate cutoff matches fewer of the clustered tags.
+    f_legacy, q = _crowded_maintained_field()
+    f_legacy.gate_and_select(q, step=1)
+    n_legacy = f_legacy.get_state()["crf_n_matched_last"]
+    f_sharp, q2 = _crowded_maintained_field(mature_context_match_threshold=0.7)
+    f_sharp.gate_and_select(q2, step=1)
+    n_sharp = f_sharp.get_state()["crf_n_matched_last"]
+    assert n_legacy >= 7, f"setup: legacy cutoff should crowd-match (got {n_legacy})"
+    assert n_sharp < n_legacy, f"sharpen must reduce n_matched ({n_sharp} !< {n_legacy})"
+    assert n_sharp >= 1, "sharpen must not starve the gate to zero on this pool"
+
+
+def test_c22_conflict_cap_bounds_theta():
+    # FAULT 2a: cap n_competing so theta stays reachable (< 1.0).
+    f_uncapped, _ = _crowded_maintained_field()
+    assert f_uncapped._theta_for(8) > 1.0  # the 654d unreachable theta
+    f_capped, _ = _crowded_maintained_field(tolerance_conflict_cap=3)
+    assert abs(f_capped._theta_for(8) - (0.15 + 0.25 * 3)) < 1e-9  # 0.90
+    assert f_capped._theta_for(8) < 1.0
+    # cap does not lower theta below the genuine count when n_competing <= cap
+    assert abs(f_capped._theta_for(3) - (0.15 + 0.25 * 2)) < 1e-9
+
+
+def test_c23_couple_cap_sharpen_clears_654d_gate_lockout():
+    # LOAD-BEARING: the 654d inversion. The SAME crowded maintained differentiated
+    # pool that legacy gates out wholesale (frac_active 0) clears the gate under
+    # sharpen + cap + couple-to-theta (frac_active >= 0.30) -- maintained != active
+    # becomes maintained AND active.
+    f_legacy, q1 = _crowded_maintained_field()
+    frac_legacy = _frac_active_over(f_legacy, q1)
+    f_armed, q2 = _crowded_maintained_field(
+        mature_context_match_threshold=0.7,
+        tolerance_conflict_cap=3,
+        maintenance_couple_to_theta=True,
+    )
+    frac_armed = _frac_active_over(f_armed, q2)
+    assert frac_legacy < 0.30, f"legacy must lock out (got {frac_legacy})"
+    assert frac_armed >= 0.30, f"armed must clear the gate (got {frac_armed})"
+    # couple is inert without mature_pool_dynamics (guarded) -- no crash, legacy path
+    assert f_armed.get_state()["crf_last_theta"] < 1.0
+
+
+def test_c24_gate_amend_flags_from_dims_and_agent_wiring():
+    cfg_off = REEConfig.from_dims(body_obs_dim=10, world_obs_dim=20, action_dim=4)
+    assert cfg_off.crf_mature_context_match_threshold == -1.0
+    assert cfg_off.crf_tolerance_conflict_cap == -1
+    assert cfg_off.crf_maintenance_couple_to_theta is False
+    agent, _ = _build_agent(use_candidate_rule_field=True,
+                            use_lateral_pfc_analog=True,
+                            crf_mature_pool_dynamics=True,
+                            crf_availability_maintenance=True,
+                            crf_mature_context_match_threshold=0.7,
+                            crf_tolerance_conflict_cap=3,
+                            crf_maintenance_couple_to_theta=True)
+    f = agent.candidate_rule_field
+    assert abs(f.config.mature_context_match_threshold - 0.7) < 1e-9
+    assert f.config.tolerance_conflict_cap == 3
+    assert f.config.maintenance_couple_to_theta is True

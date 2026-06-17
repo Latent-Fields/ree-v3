@@ -51,6 +51,10 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 
+# Small headroom added above theta when maintenance_couple_to_theta floors a
+# maintained rule's availability so it strictly CLEARS the gate (>=, not just ==).
+MAINTENANCE_THETA_EPS: float = 1e-3
+
 
 @dataclass
 class CandidateRuleFieldConfig:
@@ -205,6 +209,45 @@ class CandidateRuleFieldConfig:
     engaged_sustain: bool = False
     engaged_sustain_rate: float = 0.1
     maintained_reactivation_threshold: float = 0.0
+    # --- CRF conflict-gate calibration amend (V3-EXQ-654d successor; the
+    # crf-availability-maintenance substrate_queue entry). All consulted only
+    # under mature_pool_dynamics; defaults are no-op (bit-identical legacy gate).
+    # Routed by failure_autopsy_V3-EXQ-654d_2026-06-16: the 666c maintenance amend
+    # built + maintained a differentiated pool (crf_max_pairwise_rule_dist 1.711),
+    # but activation collapsed to crf_frac_active=0.0 because the 16 minted rules'
+    # context_tags are mutually within context_match_threshold (cosine >= 0.5) ->
+    # 7-8 co-match per tick -> gate_and_select theta = mature_tolerance_floor(0.15)
+    # + mature_tolerance_conflict_gain(0.25)*(n_matched-1) ~= 1.65 >> maintenance_floor
+    # 0.45 -> EVERY matched rule gated out. 654d proved this lockout is INDEPENDENT
+    # of the GAP-A selection-authority conversion (it persists on the seeds where
+    # the consumed_summary spread clears the 0.05 floor) -- the CRF rule-match
+    # context key and the E3 selection channel are distinct loci.
+    #   mature_context_match_threshold (FAULT 1, context-key crowding): sentinel
+    #     <0 (default) -> gate_and_select uses context_match_threshold (legacy).
+    #     When >=0 (e.g. 0.7) the GATE match cutoff is sharpened so fewer of the
+    #     clustered context_tags co-match a per-tick context -> n_matched falls to
+    #     ~2-3. Decoupled from the retrieval threshold (context_match_threshold,
+    #     still used by maintained_reactivatable_rules) and from mint-block
+    #     (mature_mint_block_threshold, 0.8): the differentiated pool stays minted,
+    #     only fewer co-fire per tick.
+    #   tolerance_conflict_cap (FAULT 2a, theta growth): sentinel <0 (default) ->
+    #     no cap. When >=0 (e.g. 3) theta uses min(n_competing, cap), so theta is
+    #     bounded at theta_floor + theta_gain*cap (0.15 + 0.25*3 = 0.90 < 1.0) and
+    #     stays reachable under match-crowding spikes.
+    #   maintenance_couple_to_theta (FAULT 2b, winner-admit): default False ->
+    #     legacy maintenance hold. When True (with availability_maintenance +
+    #     mature_pool_dynamics) the per-tick maintenance step floors each maintained
+    #     rule's availability to max(maintenance_floor, theta(_last_n_matched)+eps)
+    #     (eps=MAINTENANCE_THETA_EPS) so the maintained, differentiated pool CLEARS
+    #     the (capped) gate under realistic crowding rather than being suppressed
+    #     wholesale -- electing the differentiated set to co-fire (the autopsy:
+    #     "a maintained set of differentiated rules must be SELECTABLE, not gated
+    #     out by mutual crowding"). Effective only with the cap (or a sharpened
+    #     match threshold) keeping theta < 1.0; an uncapped theta>1.0 cannot be
+    #     cleared even at maximal availability.
+    mature_context_match_threshold: float = -1.0
+    tolerance_conflict_cap: int = -1
+    maintenance_couple_to_theta: bool = False
 
 
 @dataclass
@@ -383,6 +426,47 @@ class CandidateRuleField:
     # ------------------------------------------------------------------
     # GATE + SELECT -- tolerance-gated, context-bound retrieval
     # ------------------------------------------------------------------
+    def _gate_match_threshold(self) -> float:
+        """The cosine cutoff gate_and_select uses to decide which rules co-match.
+
+        CRF-gate amend (FAULT 1): under mature_pool_dynamics a non-negative
+        mature_context_match_threshold SHARPENS the gate cutoff (above the legacy
+        context_match_threshold) so fewer of the clustered context_tags co-match a
+        per-tick context -- reducing n_matched (the 654d 7-8 -> ~2-3 fix). The
+        legacy context_match_threshold is unchanged and still used for retrieval /
+        mint-block / maintained_reactivatable readouts. Sentinel <0 -> legacy.
+        """
+        if (
+            self.config.mature_pool_dynamics
+            and self.config.mature_context_match_threshold >= 0.0
+        ):
+            return float(self.config.mature_context_match_threshold)
+        return float(self.config.context_match_threshold)
+
+    def _theta_for(self, n_matched: int) -> float:
+        """Conflict-scaled availability threshold for the current match count.
+
+        theta = theta_floor + theta_gain * n_competing, n_competing = n_matched-1.
+        Legacy 0.3 + 1.0*n gives theta>=1.3 > 1.0 max availability whenever >=2
+        rules match (the latent 654b deadlock); mature_pool_dynamics uses
+        0.15 + 0.25*n. CRF-gate amend (FAULT 2a): a non-negative
+        tolerance_conflict_cap (mature regime only) caps n_competing so theta is
+        bounded at theta_floor + theta_gain*cap (e.g. 0.90 at cap=3) and stays
+        reachable under match-crowding spikes. Shared by gate_and_select and the
+        maintenance_couple_to_theta credit step so both agree on the gate.
+        """
+        if self.config.mature_pool_dynamics:
+            theta_floor = self.config.mature_tolerance_floor
+            theta_gain = self.config.mature_tolerance_conflict_gain
+            n_competing = max(0, int(n_matched) - 1)
+            if self.config.tolerance_conflict_cap >= 0:
+                n_competing = min(n_competing, int(self.config.tolerance_conflict_cap))
+        else:
+            theta_floor = self.config.tolerance_floor
+            theta_gain = self.config.tolerance_conflict_gain
+            n_competing = max(0, int(n_matched) - 1)
+        return float(theta_floor + theta_gain * n_competing)
+
     def gate_and_select(
         self, context: torch.Tensor, step: Optional[int] = None
     ) -> List[CandidateRule]:
@@ -396,29 +480,18 @@ class CandidateRuleField:
         """
         if step is None:
             step = self._step
+        match_thresh = self._gate_match_threshold()
         matched: List[CandidateRule] = [
             r
             for r in self._rules.values()
-            if self._cosine(context, r.context_tag) >= self.config.context_match_threshold
+            if self._cosine(context, r.context_tag) >= match_thresh
         ]
         n_matched = len(matched)
-        # Conflict-gate pair: legacy 0.3 + 1.0*n_competing gives theta>=1.3 > 1.0
-        # max availability whenever >=2 rules match, so >=2 matched rules can
-        # NEVER both be active (the latent 654b deadlock). mature_pool_dynamics
-        # uses 0.15 + 0.25*n -> theta(1)=0.40, theta(2)=0.65, theta(3)=0.90, all
-        # reachable, so a differentiated pool of >=2 matched rules can co-fire.
-        if self.config.mature_pool_dynamics:
-            theta_floor = self.config.mature_tolerance_floor
-            theta_gain = self.config.mature_tolerance_conflict_gain
-        else:
-            theta_floor = self.config.tolerance_floor
-            theta_gain = self.config.tolerance_conflict_gain
+        theta = self._theta_for(n_matched)
         for r in self._rules.values():
             r.active = False
         active: List[CandidateRule] = []
         for r in matched:
-            n_competing = n_matched - 1
-            theta = theta_floor + theta_gain * n_competing
             if r.availability >= theta:
                 r.active = True
                 r.eligibility = 1.0
@@ -509,6 +582,25 @@ class CandidateRuleField:
                         r.availability
                         + self.config.engaged_sustain_rate * r.eligibility,
                     )
+                if (
+                    self.config.maintenance_couple_to_theta
+                    and self.config.mature_pool_dynamics
+                ):
+                    # CRF-gate amend (FAULT 2b, the winner-admit): couple the
+                    # maintained availability to the per-tick (capped) theta so a
+                    # maintained, differentiated rule CLEARS the conflict gate under
+                    # realistic match-crowding instead of being suppressed wholesale
+                    # (654d: maintained != active when theta(n_matched) >> the fixed
+                    # maintenance_floor). Floor to max(maintenance_floor, theta+eps),
+                    # clamped to [0,1]. theta uses _last_n_matched (the most recent
+                    # gate count); with the cap keeping theta < 1.0 the floor is
+                    # reachable, so the next gate_and_select admits the pool.
+                    theta_target = self._theta_for(self._last_n_matched)
+                    coupled_floor = min(
+                        1.0, theta_target + MAINTENANCE_THETA_EPS
+                    )
+                    if r.availability < coupled_floor:
+                        r.availability = coupled_floor
             else:
                 r.availability *= (1.0 - decay)
             r.availability = float(min(1.0, max(0.0, r.availability)))
@@ -657,6 +749,12 @@ class CandidateRuleField:
             ),
             "crf_n_active_steps": self._n_active_steps,
             "crf_step": self._step,
+            # CRF-gate amend (654d successor) diagnostics: the (capped) conflict-gate
+            # threshold at the last match count + the match cutoff actually used.
+            # crf_frac_active >= 0.30 with crf_last_theta reachable (<= 1.0) is the
+            # gate-firing readiness signal the 654e falsifier's C1c precondition reads.
+            "crf_last_theta": self._theta_for(self._last_n_matched),
+            "crf_gate_match_threshold": self._gate_match_threshold(),
             # crf-availability-maintenance readout (the maintained-pool metric that
             # REPLACES crf_frac_active as the readiness criterion per the B-leaning
             # lit verdict). crf_frac_active above is retained as the secondary

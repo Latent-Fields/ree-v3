@@ -536,6 +536,31 @@ class E3Config:
     modulatory_shortlist_mode: str = "margin"
     modulatory_shortlist_k: int = 3
 
+    # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
+    # E2 forward prediction-error modulates E3 trajectory-scoring confidence.
+    # E3 currently trusts the E2 rollout unconditionally; high E2 forward-PE in a
+    # trajectory's region does NOT down-weight that trajectory's viability. This is
+    # a NEW lever on EXISTING machinery -- E3 already consumes E1-novelty
+    # (_novelty_ema, MECH-111) and world-forward running-variance PE
+    # (_running_variance, ARC-016); DR-12 adds an E2-forward-PE confidence
+    # down-weight alongside them. When use_pe_confidence_weighting is True AND a
+    # per-trajectory e2_forward_pe is supplied to score_trajectory(), the score
+    # (a COST; lower is better) gains a positive penalty = pe_confidence_weight *
+    # monotone(e2_forward_pe), so a trajectory in a poorly-modelled (high-PE)
+    # region is discounted. Threaded per-candidate via select()'s
+    # e2_forward_pe_per_candidate so a varying PE can change the committed argmin
+    # (a uniform scalar would be argmin-invariant -- the V3-EXQ-571 lesson).
+    # Default False (bit-identical OFF). generation:v4, off the V3 critical path,
+    # promotes nothing in V3. v1 source is caller-supplied (the DR-12 pilot
+    # V4-EXQ-001 is a controlled probe); an ecological region-PE auto-source is the
+    # documented follow-on. See docs/architecture/dr12_pe_conditioned_e3_confidence.md.
+    use_pe_confidence_weighting: bool = False
+    pe_confidence_weight: float = 0.0
+    # monotone penalty form: "linear" (penalty = pe) | "saturating"
+    # (penalty = 1 - exp(-pe / pe_confidence_scale), bounded [0,1) confidence-deficit).
+    pe_confidence_mode: str = "linear"
+    pe_confidence_scale: float = 1.0
+
 
 @dataclass
 class EventSegmenterScaleConfig:
@@ -1849,6 +1874,13 @@ class REEConfig:
     crf_engaged_sustain: bool = False
     crf_engaged_sustain_rate: float = 0.1
     crf_maintained_reactivation_threshold: float = 0.0
+    # CRF conflict-gate calibration amend (V3-EXQ-654d successor;
+    # crf-availability-maintenance at the CRF locus, UNGATED from GAP-A). All no-op
+    # default; consulted only under crf_mature_pool_dynamics. See the
+    # CandidateRuleFieldConfig docstring for the three faults these address.
+    crf_mature_context_match_threshold: float = -1.0
+    crf_tolerance_conflict_cap: int = -1
+    crf_maintenance_couple_to_theta: bool = False
 
     # SD-033b: OFC-analog (specific-outcome / task-structure substrate,
     # MECH-261 second consumer; MECH-263 falsification target). When True,
@@ -3606,6 +3638,10 @@ class REEConfig:
         crf_engaged_sustain: bool = False,
         crf_engaged_sustain_rate: float = 0.1,
         crf_maintained_reactivation_threshold: float = 0.0,
+        # CRF conflict-gate calibration amend (V3-EXQ-654d successor; no-op default)
+        crf_mature_context_match_threshold: float = -1.0,
+        crf_tolerance_conflict_cap: int = -1,
+        crf_maintenance_couple_to_theta: bool = False,
         # SD-033b: OFC-analog (specific-outcome / task-structure substrate)
         use_ofc_analog: bool = False,
         ofc_state_dim: int = 16,
@@ -4010,6 +4046,12 @@ class REEConfig:
         # modulatory-bias-selection-authority AMEND (TOP-K shortlist, 569h, 2026-06-16):
         modulatory_shortlist_mode: str = "margin",
         modulatory_shortlist_k: int = 3,
+        # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
+        # E2 forward-PE -> E3 trajectory-scoring confidence down-weight. No-op default.
+        use_pe_confidence_weighting: bool = False,
+        pe_confidence_weight: float = 0.0,
+        pe_confidence_mode: str = "linear",
+        pe_confidence_scale: float = 1.0,
         # ControlVector logging (rec-B four-signal adjudication 2026-06-07):
         # read-only default-OFF telemetry; bit-identical when False.
         use_control_vector_logging: bool = False,
@@ -4473,6 +4515,11 @@ class REEConfig:
         config.crf_maintenance_decay = crf_maintenance_decay
         config.crf_engaged_sustain = crf_engaged_sustain
         config.crf_engaged_sustain_rate = crf_engaged_sustain_rate
+        config.crf_mature_context_match_threshold = (
+            crf_mature_context_match_threshold
+        )
+        config.crf_tolerance_conflict_cap = crf_tolerance_conflict_cap
+        config.crf_maintenance_couple_to_theta = crf_maintenance_couple_to_theta
         config.crf_maintained_reactivation_threshold = (
             crf_maintained_reactivation_threshold
         )
@@ -4916,6 +4963,12 @@ class REEConfig:
         # modulatory-bias-selection-authority TOP-K shortlist amend (569h, 2026-06-16)
         config.e3.modulatory_shortlist_mode = modulatory_shortlist_mode
         config.e3.modulatory_shortlist_k = modulatory_shortlist_k
+        # DR-12 (self_model_v4:SELF-4, 2026-06-17): E2 forward-PE -> E3 confidence
+        # down-weight. The score_trajectory penalty reads these from config.e3.
+        config.e3.use_pe_confidence_weighting = use_pe_confidence_weighting
+        config.e3.pe_confidence_weight = pe_confidence_weight
+        config.e3.pe_confidence_mode = pe_confidence_mode
+        config.e3.pe_confidence_scale = pe_confidence_scale
         config.use_control_vector_logging = use_control_vector_logging
 
         # MECH-290: backward trajectory credit sweep
