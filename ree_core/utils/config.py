@@ -3466,6 +3466,7 @@ class REEConfig:
         incentive_decay: float = 0.005,  # SD-057 L3: per-object token slow decay
         incentive_value_alpha: float = 0.1,  # SD-057 L3: token revaluation EMA rate
         incentive_drive_kappa_weight: float = 2.0,  # SD-057 L3: relocated drive_weight for value x kappa(drive)
+        incentive_drive_kappa_scale: float = 1.0,  # SD-049-PHASE-2 drive-coupling amend: no-op-default scale on effective kappa (1.0=bit-identical; >1 lets a realistic per-axis drive spread compete with real object base_value gaps)
         incentive_use_per_axis_drive: bool = True,  # SD-057 L3: drive-specific (per-axis) wanting
         use_cue_recall: bool = False,  # SD-057 phase-2 L6 (MECH-347): cue-triggered wanting path
         cue_recall_gain: float = 0.05,  # SD-057 L6: z_goal cue-pull strength
@@ -4262,6 +4263,7 @@ class REEConfig:
             "incentive_decay",  # SD-057 L3
             "incentive_value_alpha",  # SD-057 L3
             "incentive_drive_kappa_weight",  # SD-057 L3
+            "incentive_drive_kappa_scale",  # SD-049-PHASE-2 drive-coupling amend
             "incentive_use_per_axis_drive",  # SD-057 L3
             "use_cue_recall",  # SD-057 L6
             "cue_recall_gain",  # SD-057 L6
@@ -4294,6 +4296,7 @@ class REEConfig:
             "incentive_decay": incentive_decay,  # SD-057 L3
             "incentive_value_alpha": incentive_value_alpha,  # SD-057 L3
             "incentive_drive_kappa_weight": incentive_drive_kappa_weight,  # SD-057 L3
+            "incentive_drive_kappa_scale": incentive_drive_kappa_scale,  # SD-049-PHASE-2 drive-coupling amend
             "incentive_use_per_axis_drive": incentive_use_per_axis_drive,  # SD-057 L3
             "use_cue_recall": use_cue_recall,  # SD-057 L6
             "cue_recall_gain": cue_recall_gain,  # SD-057 L6

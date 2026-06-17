@@ -136,6 +136,17 @@ class GoalConfig:
     # (Zhang 2009 V = r * kappa(drive)). Default mirrors GoalConfig.drive_weight.
     incentive_drive_kappa_weight: float = 2.0
 
+    # SD-049-PHASE-2 drive-coupling amend (failure_autopsy_V3-EXQ-514r, MECH-436):
+    # no-op-default scale on the effective drive->score coupling kappa. The
+    # effective kappa is incentive_drive_kappa_weight * incentive_drive_kappa_scale.
+    # At 1.0 (default) wanting() is byte-identical. The 514r autopsy showed the
+    # in-run per-axis drive spread (~0.006) times the fixed kappa is swamped by
+    # real object base_value gaps (>0.5 on seeds 45/46/47), so even an overshoot
+    # drive cannot flip most_wanted at the current kappa -- scaling kappa is the
+    # load-bearing half (paired with env standing differential depletion) that lets
+    # a realistic drive spread compete with the real object-value landscape.
+    incentive_drive_kappa_scale: float = 1.0
+
     # SD-057 L3: when True (default) wanting uses per-axis drive (SD-049
     # hunger/thirst/curiosity) so wanting is drive-specific / identity-matched
     # (specific PIT). When False, the scalar drive_level is applied uniformly.
@@ -543,8 +554,14 @@ class IncentiveTokenBank:
         return float(scalar_drive)
 
     def wanting(self, per_axis_drive=None, scalar_drive: float = 1.0) -> dict:
-        """L3 recall: wanting[k] = base_value[k] * (1 + kappa * drive_axis[k])."""
-        kappa = self.config.incentive_drive_kappa_weight
+        """L3 recall: wanting[k] = base_value[k] * (1 + kappa * drive_axis[k]).
+
+        kappa = incentive_drive_kappa_weight * incentive_drive_kappa_scale
+        (SD-049-PHASE-2 drive-coupling amend; scale defaults 1.0 = bit-identical).
+        """
+        kappa = self.config.incentive_drive_kappa_weight * float(
+            getattr(self.config, "incentive_drive_kappa_scale", 1.0)
+        )
         out = {}
         for k, base in self._base_value.items():
             drive_axis = self._drive_axis_for(k, per_axis_drive, scalar_drive)

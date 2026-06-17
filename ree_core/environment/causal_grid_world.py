@@ -323,6 +323,15 @@ class CausalGridWorld:
         per_axis_drive_enabled: bool = False,
         per_axis_drive_decay: tuple = (0.001, 0.0015, 0.0005),
         per_axis_drive_combiner: str = "max",
+        # SD-049-PHASE-2 drive-coupling amend (failure_autopsy_V3-EXQ-514r, MECH-436):
+        # fraction of the curve-determined deficit restored on contact. Default 1.0
+        # is bit-identical to the pre-amend full-restore-to-0 behaviour. A value < 1.0
+        # leaves STANDING per-axis drive on restored axes, so a frequently-but-
+        # incompletely-restored axis carries residual drive at the WL scoring moment
+        # (which happens around consumption events) -- the env half of the amend that,
+        # paired with a divergent per_axis_drive_decay tuple, produces a persistent
+        # argmax-relevant per-axis drive spread instead of the equalised ~0.006.
+        per_axis_restoration_fraction: float = 1.0,
         novelty_familiarity_increment: float = 0.2,
         novelty_familiarity_recovery: float = 0.0,
         resource_introduction_schedule: Optional[Dict[str, int]] = None,
@@ -693,6 +702,11 @@ class CausalGridWorld:
         if per_axis_drive_combiner not in ("max", "mean", "sum"):
             per_axis_drive_combiner = "max"
         self.per_axis_drive_combiner = per_axis_drive_combiner
+        # SD-049-PHASE-2 drive-coupling amend: clamp to [0, 1]; 1.0 = full restore
+        # (bit-identical pre-amend), <1.0 leaves standing per-axis drive.
+        self.per_axis_restoration_fraction = float(
+            np.clip(per_axis_restoration_fraction, 0.0, 1.0)
+        )
         # Novelty per-cell familiarity dynamics (used only when
         # any benefit curve is "novelty_decay"; harmless arithmetic otherwise).
         self.novelty_familiarity_increment = float(novelty_familiarity_increment)
@@ -1639,6 +1653,9 @@ class CausalGridWorld:
                         restore = cur_drive * 1.0
                     else:
                         restore = cur_drive * 1.0
+                    # SD-049-PHASE-2 drive-coupling amend: partial restoration leaves
+                    # standing drive on restored axes. fraction=1.0 -> bit-identical.
+                    restore = restore * self.per_axis_restoration_fraction
                     self._per_axis_drive[contact_type_idx] = float(
                         np.clip(cur_drive - restore, 0.0, 1.0)
                     )
