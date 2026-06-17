@@ -2686,6 +2686,19 @@ class REEConfig:
     # latch-occupancy drop (V3-EXQ-468c committed_frac defect). Default 0 ->
     # no hold -> bit-identical.
     closure_decommit_hold_ticks: int = 0
+    # SD-034 commitment-closure-control-plane BETA-ENGAGEMENT amend
+    # (2026-06-17, failure_autopsy_V3-EXQ-460e): couple the closure-plane
+    # installed commitment (e3._committed_trajectory is not None) to bistable
+    # BetaGate elevation, decoupling the de-commit latch-occupancy DV from the
+    # fragile natural running_variance crossing (result.committed, which fires
+    # on only 1/3 seeds on the 603n foraging substrate -> commit-without-beta
+    # dissociation, total_beta_elevated=0). When True, the bistable elevate
+    # block treats (result.committed OR closure-plane commit active) as the
+    # commit-for-beta trigger, so beta occupancy is non-zero on every seed where
+    # a closure-plane commitment forms and the Leg-B de-commit refractory
+    # produces a measurable ON<OFF latch-occupancy drop. Default False -> no-op
+    # -> bit-identical (the bistable block keys on result.committed alone).
+    use_closure_commit_beta_coupling: bool = False
 
     # ----------------------------------------------------------------
     # SD-035: Amygdala analogue (BLAAnalog + CeAAnalog peer modules)
@@ -3888,6 +3901,8 @@ class REEConfig:
         # SD-034 commitment-closure-control-plane (2026-06-12); both no-op default.
         use_closure_env_completion_hook: bool = False,
         closure_decommit_hold_ticks: int = 0,
+        # SD-034 beta-engagement amend (2026-06-17); no-op default.
+        use_closure_commit_beta_coupling: bool = False,
         # SD-035: amygdala analogue (BLAAnalog + CeAAnalog peer modules)
         use_amygdala_analog: bool = False,
         use_bla_analog: bool = True,
@@ -4800,6 +4815,7 @@ class REEConfig:
         # SD-034 commitment-closure-control-plane (2026-06-12).
         config.use_closure_env_completion_hook = use_closure_env_completion_hook
         config.closure_decommit_hold_ticks = closure_decommit_hold_ticks
+        config.use_closure_commit_beta_coupling = use_closure_commit_beta_coupling
 
         # SD-035: amygdala analogue (BLAAnalog + CeAAnalog peer modules)
         config.use_amygdala_analog = use_amygdala_analog

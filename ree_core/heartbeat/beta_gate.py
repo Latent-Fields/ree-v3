@@ -61,6 +61,14 @@ class BetaGate:
         # tick. Default 0 -> never installed -> bit-identical to pre-amend BetaGate.
         self._refractory_remaining: int = 0
         self._n_elevation_refractory_blocked: int = 0
+        # SD-034 commitment-closure-control-plane BETA-ENGAGEMENT amend
+        # (2026-06-17). Counts elevations driven by the closure-plane
+        # commit->beta coupling (use_closure_commit_beta_coupling) rather than a
+        # natural running_variance crossing (result.committed). Read by the
+        # V3-EXQ-460f manifest as the non-vacuity readout that the coupling, not
+        # the fragile natural commit-entry, is what engaged the latch.
+        # Cleared per-episode in reset(). Stays 0 when the coupling flag is off.
+        self._n_closure_coupled_elevations: int = 0
 
     @property
     def is_elevated(self) -> bool:
@@ -84,6 +92,17 @@ class BetaGate:
         """
         if n_ticks > 0:
             self._refractory_remaining = max(self._refractory_remaining, int(n_ticks))
+
+    def note_closure_coupled_elevation(self) -> None:
+        """
+        Record that the just-fired elevate() was driven by the SD-034
+        closure-plane commit->beta coupling, not a natural running_variance
+        crossing (commitment-closure-control-plane beta-engagement amend,
+        2026-06-17). Pure diagnostic; does not change gate state. The caller
+        (REEAgent.select_action) calls this immediately after elevate() when
+        the coupling, not result.committed, was the trigger.
+        """
+        self._n_closure_coupled_elevations += 1
 
     def elevate(self) -> None:
         """
@@ -240,6 +259,8 @@ class BetaGate:
             # SD-034 de-commitment hold / refractory diagnostics.
             "sd034_refractory_remaining": self._refractory_remaining,
             "sd034_n_elevation_refractory_blocked": self._n_elevation_refractory_blocked,
+            # SD-034 beta-engagement amend (2026-06-17).
+            "sd034_n_closure_coupled_elevations": self._n_closure_coupled_elevations,
         }
 
     def reset(self) -> None:
@@ -257,3 +278,5 @@ class BetaGate:
         # episode (a fresh trial starts with no carried-over hold).
         self._refractory_remaining = 0
         self._n_elevation_refractory_blocked = 0
+        # SD-034 beta-engagement amend: per-episode reset of the coupling counter.
+        self._n_closure_coupled_elevations = 0

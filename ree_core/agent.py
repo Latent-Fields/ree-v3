@@ -5857,8 +5857,30 @@ class REEAgent(nn.Module):
             # Release is triggered by hippocampal completion signal in _e3_tick(),
             # not by variance re-evaluation. This prevents flickering when variance
             # hovers near the commit threshold.
+            # SD-034 commitment-closure-control-plane BETA-ENGAGEMENT amend
+            # (2026-06-17, failure_autopsy_V3-EXQ-460e). With both MECH-090 R-c
+            # gates OFF the natural trigger is result.committed (running_variance <
+            # commit_threshold), a decisive crossing that fires on only 1/3 seeds on
+            # the 603n foraging substrate -- so beta never elevates even though the
+            # closure control-plane installs a committed_trajectory + fires closures
+            # (commit-without-beta dissociation; total_beta_elevated=0 on 2/3 seeds).
+            # When use_closure_commit_beta_coupling is set, an active closure-plane
+            # commitment (e3._committed_trajectory is not None) ALSO triggers
+            # elevation, so latch occupancy is readable on every seed where a
+            # commitment forms and the Leg-B de-commit refractory yields a
+            # measurable ON<OFF occupancy drop (the 460f DV). The
+            # should_admit_elevation / _readiness_admits conjunction is preserved so
+            # the coupling composes with MECH-090 when those gates are on (both
+            # return True permissively on the coupled path when result.committed is
+            # False). No-op default -> _commit_for_beta == result.committed ->
+            # bit-identical.
+            _closure_commit_active = (
+                getattr(self.config, "use_closure_commit_beta_coupling", False)
+                and self.e3._committed_trajectory is not None
+            )
+            _commit_for_beta = bool(result.committed) or _closure_commit_active
             if (
-                result.committed
+                _commit_for_beta
                 and not self.beta_gate.is_elevated
                 and self.beta_gate.should_admit_elevation(
                     score_margin=_readiness_margin, n_candidates=_n_candidates
@@ -5866,6 +5888,10 @@ class REEAgent(nn.Module):
                 and _readiness_admits
             ):
                 self.beta_gate.elevate()
+                # SD-034 diagnostic: count elevations driven by the closure-plane
+                # coupling rather than a natural running_variance crossing.
+                if _closure_commit_active and not result.committed:
+                    self.beta_gate.note_closure_coupled_elevation()
                 self._committed_step_idx = 0  # reset step counter on new commitment
                 # MECH-342: zero the maintenance-release pressure accumulator
                 # at commit entry so each committed program accumulates
