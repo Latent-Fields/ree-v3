@@ -8,6 +8,26 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-654f",
+      "title": "arc_062 GAP-B behavioural falsifier (MECH-309 / ARC-062): rule-creator committed-class diversity on the CRF-GATE CALIBRATION AMEND (crf-availability-maintenance, ungated from GAP-A); ARM_OFF legacy-collapsed vs ARM_ON matured+maintained+gate-cleared differentiated crf_source. RECOVERY re-queue of V3-EXQ-654e.",
+      "script": "experiments/v3_exq_654f_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
+      "priority": 341,
+      "machine_affinity": "any",
+      "estimated_minutes": 1150,
+      "supersedes": "V3-EXQ-654e",
+      "claim_id": "MECH-309",
+      "note": "RECOVERY re-queue of V3-EXQ-654e (science UNCHANGED). 654e was queued (ree-v3 488ec03), claimed+started on the hub ree-cloud-1 (2026-06-17T08:53:05Z) but CRASHED ~3s later on a TRANSIENT cross-checkout kwarg skew (TypeError: E3TrajectorySelector.select() got unexpected kwarg 'e2_forward_pe_per_candidate' -- DR-12 added the e3_selector param; ARC-063 added the unconditional agent.select_action call-site; the hub runner checkout briefly had the call-site WITHOUT the param). The runner caught the ERROR, moved 654e to 'completed', dropped it from the queue with NO manifest -> phantom coordinator-DB row (results empty); re-queuing under the SAME id will NOT run (runner skips completed ids). Skew RESOLVED: origin/main + hub runner checkout both carry the e3_selector param AND the agent call-site (verified 6/5 occurrences). 654f re-runs the identical experiment under a new id. SCIENCE (unchanged from 654e): GAP-B behavioural falsifier on the crf-availability-maintenance CRF-GATE CALIBRATION AMEND (3 no-op-default levers under mature_pool_dynamics; landed ree-v3 main 42895f6), UNGATED from GAP-A. 654d (confirmed failure_autopsy non_contributory) proved the GAP-A de-collapse was the WRONG lever (crf_frac_active stayed 0.0 even where consumed_summary cleared the 0.05 floor; the CRF conflict gate locks out 7-8 co-matching rules, theta(7)=1.65 >> maintenance_floor 0.45, INDEPENDENT of GAP-A). ARM_ON arms 0.7/3/True (crf_mature_context_match_threshold=0.7 + crf_tolerance_conflict_cap=3 + crf_maintenance_couple_to_theta=True); the 684a-validated ARM_STD_G2 GAP-A conversion constant RETAINED on both arms. PRIMARY DV = COMMITTED-CLASS entropy. THREE-branch NO-weakens routing: (a) C1 readiness met (crf_frac_active>=0.30 + propagation non-vacuous) AND C2 committed-class lift (>=2/3 seeds) -> PASS -> MECH-309/ARC-062 supports; (b) C1 met AND C2 fails -> shared selection-authority CONVERSION ceiling (GAP-A 569g/682) -> non_contributory + /implement-substrate, NOT a falsification; (c) C1 fails -> non_contributory/substrate_not_ready_requeue -> re-queue. P0 200 / P1 90 (frozen-encoder bias-head REINFORCE) / P2 60. Validator --strict --paths OK; dry-run smoke PASS (both arms end-to-end through P0/P1/P2, no TypeError, emit_outcome sentinel correct; correctly self-routed substrate_not_ready_requeue at dry scale by design). Do NOT flip substrate_queue ready (that is a LATER governance step on 654f PASS). Do NOT start the runner (cloud auto-claims). Concurrency: pathspec-committed with only this script + queue entry; post-commit dropped-file + jq grep check per CLAUDE.md before push.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-309",
+        "ARC-062"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 350,
+      "experiment_type": "v3_exq_654f_arc062_gapb_rule_apprehension_behavioural_falsifier",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-514s",
       "title": "MECH-436 drive-coupling retest on the SD-049-PHASE-2 kappa-scale + standing differential-depletion substrate (514r successor)",
       "script": "experiments/v3_exq_514s_sd049_phase2_mech436_drive_coupling_retest.py",
@@ -49,26 +69,6 @@
       "conditions": 4,
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_687_q045_mech313_mech260_4arm_tonic_noise_ablation",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-654f",
-      "title": "arc_062 GAP-B behavioural falsifier (MECH-309 / ARC-062): rule-creator committed-class diversity on the CRF-GATE CALIBRATION AMEND (crf-availability-maintenance, ungated from GAP-A); ARM_OFF legacy-collapsed vs ARM_ON matured+maintained+gate-cleared differentiated crf_source. RECOVERY re-queue of V3-EXQ-654e.",
-      "script": "experiments/v3_exq_654f_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
-      "priority": 341,
-      "machine_affinity": "any",
-      "estimated_minutes": 1150,
-      "supersedes": "V3-EXQ-654e",
-      "claim_id": "MECH-309",
-      "claim_ids": [
-        "MECH-309",
-        "ARC-062"
-      ],
-      "note": "RECOVERY re-queue of V3-EXQ-654e (science UNCHANGED). 654e was queued (ree-v3 488ec03), claimed+started on the hub ree-cloud-1 (2026-06-17T08:53:05Z) but CRASHED ~3s later on a TRANSIENT cross-checkout kwarg skew (TypeError: E3TrajectorySelector.select() got unexpected kwarg 'e2_forward_pe_per_candidate' -- DR-12 added the e3_selector param; ARC-063 added the unconditional agent.select_action call-site; the hub runner checkout briefly had the call-site WITHOUT the param). The runner caught the ERROR, moved 654e to 'completed', dropped it from the queue with NO manifest -> phantom coordinator-DB row (results empty); re-queuing under the SAME id will NOT run (runner skips completed ids). Skew RESOLVED: origin/main + hub runner checkout both carry the e3_selector param AND the agent call-site (verified 6/5 occurrences). 654f re-runs the identical experiment under a new id. SCIENCE (unchanged from 654e): GAP-B behavioural falsifier on the crf-availability-maintenance CRF-GATE CALIBRATION AMEND (3 no-op-default levers under mature_pool_dynamics; landed ree-v3 main 42895f6), UNGATED from GAP-A. 654d (confirmed failure_autopsy non_contributory) proved the GAP-A de-collapse was the WRONG lever (crf_frac_active stayed 0.0 even where consumed_summary cleared the 0.05 floor; the CRF conflict gate locks out 7-8 co-matching rules, theta(7)=1.65 >> maintenance_floor 0.45, INDEPENDENT of GAP-A). ARM_ON arms 0.7/3/True (crf_mature_context_match_threshold=0.7 + crf_tolerance_conflict_cap=3 + crf_maintenance_couple_to_theta=True); the 684a-validated ARM_STD_G2 GAP-A conversion constant RETAINED on both arms. PRIMARY DV = COMMITTED-CLASS entropy. THREE-branch NO-weakens routing: (a) C1 readiness met (crf_frac_active>=0.30 + propagation non-vacuous) AND C2 committed-class lift (>=2/3 seeds) -> PASS -> MECH-309/ARC-062 supports; (b) C1 met AND C2 fails -> shared selection-authority CONVERSION ceiling (GAP-A 569g/682) -> non_contributory + /implement-substrate, NOT a falsification; (c) C1 fails -> non_contributory/substrate_not_ready_requeue -> re-queue. P0 200 / P1 90 (frozen-encoder bias-head REINFORCE) / P2 60. Validator --strict --paths OK; dry-run smoke PASS (both arms end-to-end through P0/P1/P2, no TypeError, emit_outcome sentinel correct; correctly self-routed substrate_not_ready_requeue at dry scale by design). Do NOT flip substrate_queue ready (that is a LATER governance step on 654f PASS). Do NOT start the runner (cloud auto-claims). Concurrency: pathspec-committed with only this script + queue entry; post-commit dropped-file + jq grep check per CLAUDE.md before push.",
-      "status": "pending",
-      "conditions": 2,
-      "episodes_per_run": 350,
-      "experiment_type": "v3_exq_654f_arc062_gapb_rule_apprehension_behavioural_falsifier",
       "seeds": 3
     }
   ]
