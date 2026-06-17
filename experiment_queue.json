@@ -74,6 +74,38 @@
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_687_q045_mech313_mech260_4arm_tonic_noise_ablation",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-460f",
+      "title": "SD-034 closure-control-plane de-commit authority retest on the BETA-ENGAGEMENT-amended substrate (use_closure_commit_beta_coupling): ARM_CLOSURE_ON vs OFF non-cap-pinned ON<OFF beta-latch-occupancy drop, beta now engaged via the closure->beta coupling. Supersedes V3-EXQ-460e.",
+      "experiment_type": "v3_exq_460f_sd034_closure_control_plane_decommit_behavioural",
+      "script": "experiments/v3_exq_460f_sd034_closure_control_plane_decommit_behavioural.py",
+      "priority": 345,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 420,
+      "episodes_per_run": 265,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "SD-034",
+      "supersedes": "V3-EXQ-460e",
+      "note": "commitment_closure:GAP-4 de-commit retest on the landed beta-engagement amend (mechanism a; ree-v3 main f4ceea4 use_closure_commit_beta_coupling). 460e self-routed substrate_not_ready_requeue on beta_engagement_not_met_both_arms (1/3 seeds); the coupling makes beta occupancy track the closure-plane commitment so the C2 non-cap-pinned ON<OFF latch-occupancy drop is readable (dry-run: beta_engaged_both=True, on_occ 3.50<off_occ 6.00, c1/c2/c3 PASS). claim_ids=[SD-034,MECH-260,MECH-261]; experiment_purpose=evidence. Four readiness gates (contact / trained-head / beta-engagement-both-arms / closure-trigger) self-route substrate_not_ready_requeue when unmet, NEVER a false weakens; sd034_n_closure_coupled_elevations is the coupling non-vacuity readout. SD-034/MECH-260/MECH-261 stay provisional/candidate + pending_retest_after_substrate; promotes nothing until a contributory PASS. Queued with V3-EXQ-468e."
+    },
+    {
+      "queue_id": "V3-EXQ-468e",
+      "title": "SD-034/MECH-268/MECH-090 commitment-vs-contradiction de-commit-hold retest on the BETA-ENGAGEMENT-amended substrate (use_closure_commit_beta_coupling): commit-with-beta now reliable so the contradiction-release / non-cap-pinned committed-frac-post DV is exercisable. Supersedes V3-EXQ-468d.",
+      "experiment_type": "v3_exq_468e_sd034_mech268_decommit_hold_behavioural",
+      "script": "experiments/v3_exq_468e_sd034_mech268_decommit_hold_behavioural.py",
+      "priority": 344,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 420,
+      "episodes_per_run": 265,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "SD-034",
+      "supersedes": "V3-EXQ-468d",
+      "note": "MECH-090 commit-entry conjunction under the trained head, on the landed beta-engagement amend. 468d's commitment non-vacuity gate (total_beta_elevated>0 both arms) is the same commit-with-beta precondition 460e showed fails 2/3 seeds; the coupling resolves it (dry-run beta_elev=14 confirms beta engages). Dry-run self-routes substrate_not_ready_requeue on episodes_with_contradiction=0 at toy budget (the designed self-route; full budget fires contradictions). claim_ids=[SD-034,MECH-268,MECH-090]; experiment_purpose=diagnostic. Promotes nothing; pending_retest_after_substrate. Queued with V3-EXQ-460f."
     }
   ]
 }
