@@ -589,6 +589,28 @@ class E3TrajectorySelector(nn.Module):
 
         return harm_total
 
+    def _pe_confidence_penalty(
+        self, e2_forward_pe: torch.Tensor, device, dtype
+    ) -> torch.Tensor:
+        """DR-12 (self_model_v4:SELF-4): monotone confidence-deficit penalty from the
+        E2 forward-PE magnitude attributed to a trajectory's region.
+
+        Returns a non-negative scalar penalty (in score/cost units) that is monotone
+        non-decreasing in the E2 forward-PE magnitude. Added to score_trajectory's
+        cost so a poorly-modelled (high-PE) trajectory is discounted. Modes:
+          "linear"     : penalty = pe_magnitude
+          "saturating" : penalty = 1 - exp(-pe_magnitude / pe_confidence_scale) in [0,1)
+        """
+        pe = e2_forward_pe.to(device=device, dtype=dtype).reshape(())
+        pe_mag = pe.clamp(min=0.0)  # PE magnitude is non-negative; guard
+        mode = getattr(self.config, "pe_confidence_mode", "linear")
+        if mode == "saturating":
+            scale = float(getattr(self.config, "pe_confidence_scale", 1.0))
+            scale = scale if scale > 1e-12 else 1.0
+            return 1.0 - torch.exp(-pe_mag / scale)
+        # default: linear (penalty == PE magnitude)
+        return pe_mag
+
     def score_trajectory(
         self,
         trajectory: Trajectory,
@@ -598,6 +620,7 @@ class E3TrajectorySelector(nn.Module):
         harm_forward_model: Optional["nn.Module"] = None,
         z_harm_s_current: Optional[torch.Tensor] = None,
         z_harm_a: Optional[torch.Tensor] = None,
+        e2_forward_pe: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Total score J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ) - β·B(ζ).
@@ -687,6 +710,22 @@ class E3TrajectorySelector(nn.Module):
             if self.e3_score_decomp_enabled:
                 _dc_goal_w = float((self.config.goal_weight * g).detach().mean().item())
 
+        # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build): E2 forward-PE
+        # confidence down-weight. score is a COST (lower is better), so a positive
+        # penalty proportional to a monotone function of the E2 forward-PE magnitude
+        # in this trajectory's region DISCOUNTS the trajectory's viability/confidence.
+        # NEW lever on EXISTING machinery (sibling to _running_variance / _novelty_ema
+        # PE consumption). Bit-identical OFF: skipped unless use_pe_confidence_weighting
+        # AND a per-trajectory e2_forward_pe is supplied (per-candidate via select()).
+        # generation:v4, off the V3 critical path; promotes nothing in V3.
+        if (getattr(self.config, "use_pe_confidence_weighting", False)
+                and e2_forward_pe is not None
+                and self.config.pe_confidence_weight != 0.0):
+            pen = self._pe_confidence_penalty(
+                e2_forward_pe, device=score.device, dtype=score.dtype
+            )
+            score = score + self.config.pe_confidence_weight * pen
+
         if self.e3_score_decomp_enabled:
             self._last_traj_components = {
                 "f": float(f.detach().mean().item()),
@@ -718,6 +757,7 @@ class E3TrajectorySelector(nn.Module):
         score_bias: Optional[torch.Tensor] = None,
         score_diversity: Optional[Any] = None,
         channel_route_bias: Optional[torch.Tensor] = None,
+        e2_forward_pe_per_candidate: Optional[torch.Tensor] = None,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -776,13 +816,23 @@ class E3TrajectorySelector(nn.Module):
 
         _score_list = []
         _cand_components = [] if self.e3_score_decomp_enabled else None
-        for _cand_t in candidates:
+        for _i, _cand_t in enumerate(candidates):
+            # DR-12 (self_model_v4:SELF-4): per-candidate E2 forward-PE so the
+            # confidence down-weight can change the committed argmin. None ->
+            # bit-identical (no penalty). A uniform scalar would be argmin-invariant
+            # (V3-EXQ-571 lesson), so the signal is supplied per-candidate.
+            _pe_i = (
+                e2_forward_pe_per_candidate[_i]
+                if e2_forward_pe_per_candidate is not None
+                else None
+            )
             _s = self.score_trajectory(
                 _cand_t, goal_state=goal_state, harm_bridge=harm_bridge,
                 terrain_weight=terrain_weight,
                 harm_forward_model=harm_forward_model,
                 z_harm_s_current=z_harm_s_current,
                 z_harm_a=z_harm_a,
+                e2_forward_pe=_pe_i,
             )
             _score_list.append(_s)
             if self.e3_score_decomp_enabled:
@@ -963,6 +1013,34 @@ class E3TrajectorySelector(nn.Module):
             score_bias.detach().to(dtype=raw_scores.dtype, device=raw_scores.device)
             if score_bias is not None else raw_scores.new_zeros(raw_scores.shape)
         )
+
+        # DR-12 (self_model_v4:SELF-4) diagnostics: the cross-candidate range of the
+        # supplied E2 forward-PE (the pilot's NON-VACUITY gate -- a flat PE cannot
+        # change selection) and of the applied penalty. pe_confidence_active is True
+        # only when the lever is enabled AND a per-candidate PE was supplied.
+        _pe_active = bool(
+            getattr(self.config, "use_pe_confidence_weighting", False)
+            and e2_forward_pe_per_candidate is not None
+            and self.config.pe_confidence_weight != 0.0
+        )
+        _pe_range = 0.0
+        _pe_penalty_range = 0.0
+        if e2_forward_pe_per_candidate is not None:
+            _pe_vec = e2_forward_pe_per_candidate.detach().reshape(-1).to(
+                dtype=raw_scores.dtype, device=raw_scores.device
+            )
+            if _pe_vec.numel() >= 1:
+                _pe_range = float((_pe_vec.max() - _pe_vec.min()).item())
+                if _pe_active:
+                    _pen_vec = torch.stack([
+                        self._pe_confidence_penalty(
+                            _pe_vec[_j], device=raw_scores.device, dtype=raw_scores.dtype
+                        )
+                        for _j in range(_pe_vec.numel())
+                    ])
+                    _pen_vec = self.config.pe_confidence_weight * _pen_vec
+                    _pe_penalty_range = float((_pen_vec.max() - _pen_vec.min()).item())
+
         self.last_score_diagnostics = {
             "e3_raw_score_range_mean": raw_score_range,
             "e3_raw_score_std_mean": raw_score_std,
@@ -1003,6 +1081,13 @@ class E3TrajectorySelector(nn.Module):
             "modulatory_shortlist_mode": getattr(
                 self.config, "modulatory_shortlist_mode", "margin"
             ),
+            # DR-12 (self_model_v4:SELF-4): E2 forward-PE -> E3 confidence down-weight.
+            "pe_confidence_active": _pe_active,
+            "pe_confidence_weight": float(
+                getattr(self.config, "pe_confidence_weight", 0.0)
+            ),
+            "e2_forward_pe_range": _pe_range,
+            "pe_confidence_penalty_range": _pe_penalty_range,
             # Filled in after selection (requires selected_idx).
             "selected_candidate_rank_before_bias": -1,
             "selected_candidate_rank_after_bias": -1,
