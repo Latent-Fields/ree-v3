@@ -32,6 +32,21 @@
       "seeds": 3
     },
     {
+      "queue_id": "V4-EXQ-001",
+      "title": "DR-12 pilot (FIRST V4 experiment, self_model_v4:SELF-4): controlled wiring falsifier for the E2 forward-PE -> E3 confidence down-weight lever. ARM OFF (unconditional-trust) vs DIFFERENTIAL (high PE on the primary-best -> must flip away from the poorly-modelled region) vs UNIFORM (high PE on all -> must stay inert, the per-candidate control). PASS = wiring live; non-flip under met preconditions = inert wiring (DR-12 buys nothing).",
+      "script": "experiments/v4_exq_001_dr12_pe_conditioned_confidence_falsifier.py",
+      "priority": 230,
+      "machine_affinity": "any",
+      "estimated_minutes": 2,
+      "note": "FIRST V4 EXPERIMENT. generation:v4, off the V3 critical path, PROMOTES NOTHING in V3. claim_ids=[] (diagnostic/substrate-readiness); unblocks_claims=MECH-215 (DR-10+DR-12 self-model prerequisite for agentive prediction). PRECEDENT: manifest architecture_epoch='ree_self_model_v1' (NEW V4 epoch per v4_spec.md:267, parallel to V3 ree_hybrid_guardrails_v1); run_id suffix '_v4'; V4-EXQ-NNN namespace. owner_exq=V4-EXQ-001 assigned to self_model_v4:SELF-4 (generation:v4 -- verified check_closure_drift.py:497 skips non-v3 plans + closure snapshot/serve.py segment v4 out of the V3 closure %). Caller-supplied per-candidate PE (controlled probe); ecological region-PE auto-source is a documented follow-on. Substrate landed ree-v3 main f5eba3b + 42895f6; design doc REE_assembly docs/architecture/dr12_pe_conditioned_e3_confidence.md. Smoke 3/3 seeds PASS (diff flips, uniform inert). Do NOT start runner; cloud auto-claims.",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 1,
+      "episodes_per_run": 1,
+      "experiment_type": "v4_exq_001_dr12_pe_conditioned_confidence_falsifier",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-625d",
       "title": "SD-037 axis-(b) Phase-1b JOINT-COMPOSITE substrate-readiness falsifier: scaffold-trained policy + 569i-validated conversion config (top-k shortlist + authority gain=2.0 std + e2_world_forward) + MECH-341 + SD-056, z_harm_a dynamic crossings (sharpened C3a/C3b) under the axis-(b) sustained-threat overlay",
       "script": "experiments/v3_exq_625d_sd037_axis_b_phase1b_joint_composite.py",
@@ -50,21 +65,6 @@
       "episodes_per_run": 270,
       "experiment_type": "v3_exq_625d_sd037_axis_b_phase1b_joint_composite",
       "seeds": 3
-    },
-    {
-      "queue_id": "V4-EXQ-001",
-      "title": "DR-12 pilot (FIRST V4 experiment, self_model_v4:SELF-4): controlled wiring falsifier for the E2 forward-PE -> E3 confidence down-weight lever. ARM OFF (unconditional-trust) vs DIFFERENTIAL (high PE on the primary-best -> must flip away from the poorly-modelled region) vs UNIFORM (high PE on all -> must stay inert, the per-candidate control). PASS = wiring live; non-flip under met preconditions = inert wiring (DR-12 buys nothing).",
-      "experiment_type": "v4_exq_001_dr12_pe_conditioned_confidence_falsifier",
-      "script": "experiments/v4_exq_001_dr12_pe_conditioned_confidence_falsifier.py",
-      "priority": 230,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 2,
-      "episodes_per_run": 1,
-      "seeds": 3,
-      "conditions": 1,
-      "note": "FIRST V4 EXPERIMENT. generation:v4, off the V3 critical path, PROMOTES NOTHING in V3. claim_ids=[] (diagnostic/substrate-readiness); unblocks_claims=MECH-215 (DR-10+DR-12 self-model prerequisite for agentive prediction). PRECEDENT: manifest architecture_epoch='ree_self_model_v1' (NEW V4 epoch per v4_spec.md:267, parallel to V3 ree_hybrid_guardrails_v1); run_id suffix '_v4'; V4-EXQ-NNN namespace. owner_exq=V4-EXQ-001 assigned to self_model_v4:SELF-4 (generation:v4 -- verified check_closure_drift.py:497 skips non-v3 plans + closure snapshot/serve.py segment v4 out of the V3 closure %). Caller-supplied per-candidate PE (controlled probe); ecological region-PE auto-source is a documented follow-on. Substrate landed ree-v3 main f5eba3b + 42895f6; design doc REE_assembly docs/architecture/dr12_pe_conditioned_e3_confidence.md. Smoke 3/3 seeds PASS (diff flips, uniform inert). Do NOT start runner; cloud auto-claims.",
-      "claim_ids": []
     }
   ]
 }
