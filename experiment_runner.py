@@ -896,6 +896,87 @@ def _report_result_and_align(
     align_after_coordinator_result(ree_assembly_path, manifest_path)
 
 
+def _write_synthetic_error_manifest(
+    ree_assembly_path: Path | None,
+    queue_id: str,
+    item: dict,
+    result: dict,
+    machine: str,
+) -> tuple[str | None, str | None]:
+    """Synthesize a minimal, REVIEWABLE manifest for a crash-before-manifest.
+
+    When a script dies with a non-zero exit and never wrote a manifest
+    (result==ERROR, output_file empty), the legacy ERROR branch flipped the
+    coordinator DB row to completed via report_queue_remove WITHOUT creating a
+    results row or any manifest -- the FAIL/ERROR-class twin of the fixed
+    UNKNOWN silent-drop (f36461d). The phantom completion was invisible to
+    pending_review.md and never routed to /diagnose-errors (incident
+    V3-EXQ-654e, 2026-06-17). Its only trace was the worker's journalctl.
+
+    This writes a flat ERROR manifest to evidence/experiments/<run_id>.json so
+    the caller can ship it via _report_result_and_align (creating a coordinator
+    results row + materialising the manifest on origin) and so
+    generate_pending_review.py surfaces it as an ERROR record. The manifest is
+    deliberately scoring-neutral: claim_ids=[] + experiment_purpose=diagnostic
+    + evidence_direction=non_contributory so a crash never weights any claim's
+    confidence (it is not evidence for or against the hypothesis -- the code
+    crashed before producing any). The stdout-derived result is NOT trusted
+    (the V3-EXQ-624 crash-magnet lesson); only the classify summary / exit code
+    are recorded.
+
+    Returns (run_id, manifest_path) on success, (None, None) when no
+    REE_assembly checkout is available to write into (the caller then falls
+    back to the legacy queue-removal path, with the runner_status ERROR entry
+    as the only surface).
+    """
+    if ree_assembly_path is None:
+        return None, None
+    evidence_dir = ree_assembly_path / "evidence" / "experiments"
+    if not evidence_dir.is_dir():
+        return None, None
+    # run_id must end _v3 and start v3_ so it matches the flat-manifest
+    # conventions (_UNTRACKED_FLAT_MANIFEST_RE, the indexer, the spool
+    # _RUN_ID_RE) and the spool writer materialises it at the flat path
+    # evidence/experiments/<run_id>.json that pending_review scans.
+    qid_slug = re.sub(r"[^a-z0-9]+", "_", queue_id.lower()).strip("_") or "unknown"
+    ts_compact = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_id = f"v3_{qid_slug}_runner_error_{ts_compact}_v3"
+    script = item.get("script", "") or ""
+    experiment_type = Path(script).stem if script else "runner_crash_error"
+    manifest = {
+        "run_id": run_id,
+        "queue_id": queue_id,
+        "experiment_type": experiment_type,
+        "machine": machine,
+        "outcome": "ERROR",
+        "result": "ERROR",
+        "evidence_direction": "non_contributory",
+        "evidence_direction_note": (
+            "Synthetic runner ERROR record for a crash-before-manifest "
+            "(script exited non-zero with no sentinel and no manifest). "
+            "Scoring-neutral; routes to /diagnose-errors."
+        ),
+        "claim_ids": [],
+        "experiment_purpose": "diagnostic",
+        "architecture_epoch": "ree_hybrid_guardrails_v1",
+        "dry_run": False,
+        "error_record": True,
+        "crash_before_manifest": True,
+        "exit_code": result.get("exit_code"),
+        "has_sentinel": bool(result.get("has_sentinel", False)),
+        # Classify summary only -- NEVER a stdout-derived PASS/FAIL verdict.
+        "result_summary": (result.get("result_summary") or "")[:2000],
+        "started_at": result.get("started_at", ""),
+        "completed_at": result.get("completed_at", ""),
+        "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "script": script,
+        "title": item.get("title", ""),
+    }
+    manifest_path = evidence_dir / f"{run_id}.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    return run_id, str(manifest_path)
+
+
 def _sync_pull_tick(ree_assembly_path: Path | None) -> None:
     """One iteration of the --auto-sync background pull. Never raises.
 
@@ -3364,11 +3445,10 @@ def main():
                 # V3-EXQ-592b autopsy fix (2026-05-29): when an ERROR result
                 # claims a manifest (output_file non-empty), enforce the same
                 # manifest-existence contract the PASS branch uses (line ~2331).
-                # An ERROR with empty output_file is a normal script crash and
-                # the existing flow proceeds to queue removal. An ERROR that
-                # NAMES a manifest but the manifest is missing on disk is the
-                # FAIL/ERROR-class counterpart of the line-1394 UNKNOWN bug;
-                # leave the queue entry in place for operator investigation.
+                # An ERROR that NAMES a manifest but the manifest is missing on
+                # disk is the FAIL/ERROR-class counterpart of the line-1394
+                # UNKNOWN bug; leave the queue entry in place for operator
+                # investigation (this guard MUST stay -- do not regress).
                 _err_manifest_str = result.get("output_file") or ""
                 if _err_manifest_str and not _result_manifest_exists(result):
                     print(f"[runner] WARN: {queue_id} reports ERROR but manifest "
@@ -3379,20 +3459,48 @@ def main():
                         release_active_claim(QUEUE_FILE, queue_id, machine)
                     _pass_skip.add(queue_id)
                     continue
-                # Ship manifest BEFORE queue removal (mirrors PASS branch at
-                # line ~2397-2412). When output_file is non-empty and the
-                # manifest exists, push it to REE_assembly and report to the
-                # coordinator so the manifest reaches origin/master before the
-                # queue removal commits the experiment as "done".
-                if args.auto_sync and ree_assembly_path and _err_manifest_str:
+                # Crash-before-manifest observability fix (V3-EXQ-654e,
+                # 2026-06-17): an ERROR with EMPTY output_file is a script that
+                # died before writing any manifest. The legacy flow proceeded
+                # straight to report_queue_remove, flipping the coordinator DB
+                # row to completed with NO results row and NO manifest -- a
+                # phantom completion invisible to pending_review and never routed
+                # to /diagnose-errors (the FAIL/ERROR-class twin of the fixed
+                # UNKNOWN silent-drop). Synthesize a scoring-neutral ERROR
+                # manifest so the crash becomes a reviewable record. Transient/
+                # infra crashes ({137,-9,-11,-15,143} no-sentinel) were already
+                # intercepted upstream (kept in queue, claim released), so only
+                # genuine code crashes reach here.
+                _err_run_id = result.get("run_id")
+                _err_manifest_path = _err_manifest_str
+                if not _err_manifest_str:
                     try:
-                        git_push_results(ree_assembly_path, [result["output_file"]])
+                        _err_run_id, _err_manifest_path = (
+                            _write_synthetic_error_manifest(
+                                ree_assembly_path, queue_id, item, result, machine))
+                        if _err_manifest_path:
+                            print(f"[runner] {queue_id} crash-before-manifest: wrote "
+                                  f"synthetic ERROR record {_err_run_id} "
+                                  f"(reviewable; routes to /diagnose-errors)",
+                                  flush=True)
+                    except Exception as _se:
+                        print(f"[runner] warn: could not write synthetic ERROR "
+                              f"manifest for {queue_id}: {_se}", flush=True)
+                        _err_manifest_path = ""
+                # Ship manifest (real or synthetic) BEFORE queue removal (mirrors
+                # PASS branch at line ~2397-2412): push it to REE_assembly and
+                # report to the coordinator so the manifest + results row reach
+                # origin/master before the queue removal commits the experiment
+                # as "done".
+                if args.auto_sync and ree_assembly_path and _err_manifest_path:
+                    try:
+                        git_push_results(ree_assembly_path, [_err_manifest_path])
                     except Exception as _re:
                         print(f"[runner] warn: per-experiment ERROR results push "
                               f"failed for {queue_id}: {_re}", flush=True)
                     _report_result_and_align(
-                        ree_assembly_path, queue_id, result.get("run_id"),
-                        result["output_file"], result["result"], machine)
+                        ree_assembly_path, queue_id, _err_run_id,
+                        _err_manifest_path, "ERROR", machine)
                 try:
                     qdata = json.loads(QUEUE_FILE.read_text())
                     qdata["items"] = [qi for qi in qdata.get("items", [])
