@@ -37,7 +37,11 @@
       "supersedes": "V3-EXQ-468d",
       "claim_id": "SD-034",
       "note": "MECH-090 commit-entry conjunction under the trained head, on the landed beta-engagement amend. 468d's commitment non-vacuity gate (total_beta_elevated>0 both arms) is the same commit-with-beta precondition 460e showed fails 2/3 seeds; the coupling resolves it (dry-run beta_elev=14 confirms beta engages). Dry-run self-routes substrate_not_ready_requeue on episodes_with_contradiction=0 at toy budget (the designed self-route; full budget fires contradictions). claim_ids=[SD-034,MECH-268,MECH-090]; experiment_purpose=diagnostic. Promotes nothing; pending_retest_after_substrate. Queued with V3-EXQ-460f.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-06-17T18:00:06Z"
+      },
       "conditions": 1,
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_468e_sd034_mech268_decommit_hold_behavioural",
