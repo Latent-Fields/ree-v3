@@ -595,6 +595,59 @@ def _refresh_runner_version() -> None:
         _RUNNER_VERSION = disk
 
 
+# ---------------------------------------------------------------------------
+# Guard B (Version-Layering Doctrine): V3-parity preflight smoke before claiming.
+#
+# The startup regression-suite preflight (tests/preflight, incl.
+# test_v3_parity_smoke) validates LAUNCH-TIME code. But a long-lived --loop
+# runner can have a cross-checkout skew land MID-SESSION via the per-pass
+# `git pull` (a V4/V5 call-site into a shared V3 path against an older/skewed
+# shared module -- incident 2026-06-17 V3-EXQ-654e). This in-process gate runs
+# the SAME default-path select_action smoke (all V4/V5 flags OFF) before the
+# claim loop; if it raises, the worker REFUSES to claim this pass (logs + skips)
+# rather than claiming and crash-burning the experiment. The skew self-heals on
+# the next pull, so we do NOT exit the runner. Cheap: only re-runs when ree-v3
+# HEAD changed since the last successful smoke (a skew is introduced by a pull).
+# Honoured via REE_SKIP_PREFLIGHT=1 / --skip-preflight, like the startup layer.
+# See ree_core/version_layering.py + the Version-Layering Doctrine.
+# ---------------------------------------------------------------------------
+_V3_PARITY_BLOCK_REASON: str | None = None   # set when the in-loop smoke raises
+_V3_PARITY_SMOKED_HEAD: str | None = None     # ree-v3 HEAD the smoke last validated
+
+
+def _run_v3_parity_gate(force: bool = False) -> None:
+    """Run the default-path V3-parity smoke; on raise, set the refuse-to-claim flag.
+
+    Re-runs only when ree-v3 HEAD changed since the last successful smoke (unless
+    force=True). Never raises -- any failure (TypeError on a skewed call-site,
+    AssertionError on a version-layering violation, import/build crash) is caught
+    and turned into the module-level _V3_PARITY_BLOCK_REASON the claim loop reads.
+    """
+    global _V3_PARITY_BLOCK_REASON, _V3_PARITY_SMOKED_HEAD
+    if os.environ.get("REE_SKIP_PREFLIGHT") == "1":
+        return
+    head = _git_code_version("HEAD")
+    if not force and head is not None and head == _V3_PARITY_SMOKED_HEAD:
+        return  # already validated this checkout
+    try:
+        from tests.v3_parity_smoke import run_v3_parity_smoke
+        run_v3_parity_smoke()
+    except BaseException as exc:  # noqa: BLE001 -- ANY failure must refuse the claim
+        _V3_PARITY_BLOCK_REASON = "{}: {}".format(type(exc).__name__, exc)
+        print(
+            "[runner] V3-parity smoke FAILED -- REFUSING to claim this pass "
+            "(default select_action raised: {}). Likely a cross-checkout skew "
+            "(a V4/V5 call-site into a shared V3 path); will retry after the next "
+            "pull. Bypass with REE_SKIP_PREFLIGHT=1.".format(_V3_PARITY_BLOCK_REASON),
+            flush=True,
+        )
+        return
+    if _V3_PARITY_BLOCK_REASON is not None:
+        print("[runner] V3-parity smoke recovered -- claiming resumed.", flush=True)
+    _V3_PARITY_BLOCK_REASON = None
+    _V3_PARITY_SMOKED_HEAD = head
+
+
 def git_pull(repo_path: Path, label: str) -> None:
     """Pull latest changes. Retries on transient lock errors. Never raises.
 
@@ -2794,6 +2847,9 @@ def main():
             print("[runner] Preflight: OK", flush=True)
         else:
             print("[runner] Preflight: tests/preflight not found -- skipping.", flush=True)
+        # Guard B: seed the in-process V3-parity gate against launch-time HEAD so
+        # the loop only re-runs the smoke when a later pull changes the checkout.
+        _run_v3_parity_gate(force=True)
 
     machine = _get_machine_name(args.machine)
     status_path = args.status_file or find_default_status_path(machine)
@@ -3137,9 +3193,22 @@ def main():
                 # Heartbeat update at the bottom will record state=paused.
                 pass
 
+        # Guard B (Version-Layering Doctrine): refuse to claim when the in-process
+        # V3-parity smoke is failing -- a mid-session cross-checkout skew (a V4/V5
+        # call-site into a shared V3 path). Skip the claim loop this pass; the
+        # post-pull re-smoke at the bottom clears the flag once the checkout is
+        # consistent again, so the runner self-heals instead of crash-burning.
+        _skip_claims_v3_parity = _V3_PARITY_BLOCK_REASON is not None
+        if _skip_claims_v3_parity:
+            print(
+                "[runner] V3-parity gate active ({}); skipping claims this pass."
+                .format(_V3_PARITY_BLOCK_REASON),
+                flush=True,
+            )
+
         for item in items:
-            if _pause_flag:
-                break  # paused: don't pick up new experiments this pass
+            if _pause_flag or _skip_claims_v3_parity:
+                break  # paused or V3-parity gate active: don't pick up new experiments
             queue_id = item["queue_id"]
 
             if queue_id in _pass_skip:
@@ -3775,6 +3844,11 @@ def main():
             # Refresh the readable runner version off the freshly-pulled HEAD.
             # Between-pass only: never runs git while an experiment is live.
             _refresh_runner_version()
+            # Guard B: the pull may have landed a cross-checkout skew. Re-run the
+            # V3-parity smoke (HEAD-gated, so it only fires when the checkout
+            # actually changed) BEFORE the next pass tries to claim.
+            if not args.skip_preflight:
+                _run_v3_parity_gate()
 
         # Re-merge peer status after pull so monolithic file stays current and
         # completed_ids absorbs anything another machine finished since last pass.

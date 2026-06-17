@@ -5718,8 +5718,17 @@ class REEAgent(nn.Module):
                 _route_repr = _bdc_coherence
             if _route_repr is not None:
                 channel_route_bias = project_channel_range(_route_repr)
-        result = self.e3.select(
-            candidates, effective_temperature,
+        # DR-12 (self_model_v4:SELF-4) VERSION-LAYERING GUARD (2026-06-17): the
+        # e2_forward_pe_per_candidate kwarg is a V4 call-site into the shared V3
+        # E3.select path. It is passed ONLY when the V4 DR-12 feature is engaged
+        # (config.e3.use_pe_confidence_weighting) OR a per-candidate PE has been
+        # injected. The DEFAULT V3 path therefore never passes the kwarg, so a
+        # skewed / older e3_selector.select() that lacks the param cannot raise a
+        # TypeError on the V3 critical path. This is the fix for the 2026-06-17
+        # V3-EXQ-654e crash-burn (an unconditional V4 call-site entered the V3
+        # hot path). See ree_core/version_layering.py + the Version-Layering
+        # Doctrine (REE_assembly/docs/architecture/version_layering_doctrine.md).
+        _e3_select_kwargs = dict(
             goal_state=_goal_state_for_select,
             terrain_weight=self._cue_terrain_weight,
             sweep_threshold_reduction=sweep_reduction,
@@ -5727,12 +5736,16 @@ class REEAgent(nn.Module):
             score_bias=dacc_score_bias,
             score_diversity=self.score_diversity,
             channel_route_bias=channel_route_bias,
-            # DR-12 (self_model_v4:SELF-4): optional injected per-candidate E2
-            # forward-PE for the confidence down-weight. Default None ->
-            # bit-identical. v1 source is caller-supplied (the DR-12 pilot is a
-            # controlled probe); the ecological region-PE auto-source is a
-            # documented follow-on.
-            e2_forward_pe_per_candidate=getattr(self, "_injected_e2_forward_pe", None),
+        )
+        _injected_e2_pe = getattr(self, "_injected_e2_forward_pe", None)
+        if (
+            getattr(self.config.e3, "use_pe_confidence_weighting", False)
+            or _injected_e2_pe is not None
+        ):
+            _e3_select_kwargs["e2_forward_pe_per_candidate"] = _injected_e2_pe
+        result = self.e3.select(
+            candidates, effective_temperature,
+            **_e3_select_kwargs,
         )
         self._last_e3_selection_result = result
 
