@@ -31,6 +31,25 @@
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_460e_sd034_closure_control_plane_behavioural",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-683",
+      "title": "MECH-048 mu/kappa stability overlay probe (temperature as proxy for stability modulation)",
+      "script": "experiments/v3_exq_683_mech048_mu_kappa_stability_probe.py",
+      "priority": 250,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "claim_id": "MECH-048",
+      "backlog_id": "EVB-0337",
+      "note": "Tests MECH-048 using temperature modulation as a proxy for mu/kappa stability overlays. mu_condition (T=0.5) should reduce entropy and switching, kappa_condition (T=2.0) should increase both. Measures action entropy, switching rate, and commitment duration across 3 conditions x 3 seeds. Part of EXP-0183 proposal.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-048"
+      ],
+      "conditions": 3,
+      "episodes_per_run": 100,
+      "experiment_type": "v3_exq_683_mech048_mu_kappa_stability_probe",
+      "seeds": 3
     }
   ]
 }
