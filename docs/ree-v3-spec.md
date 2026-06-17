@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-16
+**Last updated:** 2026-06-17
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-16)
+## 0. Current V3 State (2026-06-17)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -176,39 +176,50 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
-- **2026-06-16T01:10Z nightly read.** `evidence/experiments/` flat
-  top-level holds **~385 `v3_exq_*.json` manifests** on disk (latest
+- **2026-06-17T07:30Z nightly read.** `evidence/experiments/` flat
+  top-level holds **~421 `v3_exq_*.json` manifests** on disk (latest
   letter frontier through V3-EXQ-685; the day-over-day delta over the
-  2026-06-15 read absorbs the 684/682/591d/591e/603p autopsy artifact
-  pairs + the 685 arm_reuse_fingerprint smoke + the cleared 2026-06-15
-  governance cycle). Legacy fleet `runner_status.json` unchanged at the
-  2026-06-09T06:00Z snapshot of 840 dedup completion records (Phase-3
-  per-machine cards under `runner_heartbeats/` + `runner_status/` lead
-  the legacy single-file tally). **Pending review queue (regenerated
-  2026-06-15T17:45:45Z) reads 0 items** -- the 2026-06-15T04:00Z
-  governance cycle walked 7 pendings -> 0 and applied two consequential
-  governance landings (see (1) below). **Currently queued
-  (`experiment_queue.json` items[]): 1 item** -- V3-EXQ-514q
-  (MECH-229 wanting!=liking corrected-criterion successor under the
-  drive-coupled dissociation delta + effect-size gate
-  `max(k*pstdev(delta), FLOOR=0.15)`; supersedes V3-EXQ-514p per the
-  failure_autopsy_V3-EXQ-514p_2026-06-15 routing; claimed by
-  ree-cloud-1 at 2026-06-15T17:20:14Z, priority 300, 6 seeds [42-47]).
-  Multiple coordinator-side items queued by today's sessions ride the
-  DB beyond the file snapshot: V3-EXQ-684a HYBRID GAP-A conversion-
-  readiness (carries ARM_STD_G2 forward, matched-noise-at-proposer ->
-  NEGATIVE control, load-bearing C_CONVERSION=committed-entropy
-  strict-above LEGACY >=2/3 with the committed-layer metric-can-move
-  guard; supersedes V3-EXQ-684), V3-EXQ-654c arc_062 GAP-B committed-
-  class entropy behavioural falsifier (port of 654b on the now-
-  validated crf-availability-maintenance substrate; ready=True after
-  666c PASS), V3-EXQ-680d MECH-423 super-additivity stabilise-
-  integrated-co-training + inf/NaN-guard readiness cosine (supersedes
-  680c), V3-EXQ-591f Phase 0->1 gate-criterion ROBUST sweep over four
-  sustained-level candidates (supersedes the spike-vulnerable 591e),
-  V3-EXQ-685 arm_reuse_fingerprint P1-auto demo of a False-mode
-  index-HIT consumer (queued + smoke PASS, awaiting fleet claim).
-  Substrate / governance landings since the 2026-06-15T01:10Z spec
+  2026-06-16 read absorbs the 514q FAIL + the 569h/654d autopsies +
+  the V3-EXQ-460e (Leg-C scaffold) + V3-EXQ-569i (TOP-K shortlist
+  falsifier) + V3-EXQ-514r (MECH-229 disambiguator) queuings + the
+  evening governance cycle still in flight). Legacy fleet
+  `runner_status.json` unchanged at the 2026-06-09T06:00Z snapshot of
+  840 dedup completion records (Phase-3 per-machine cards under
+  `runner_heartbeats/` + `runner_status/` lead the legacy single-file
+  tally).
+
+  **Pending review queue (regenerated 2026-06-16T22:00:39Z) reads 1
+  item** -- V3-EXQ-514q (MECH-229 drive-coupled wanting/liking
+  weakens; the 514p-successor under the SD-of-delta + FLOOR=0.15
+  effect-size gate). Active governance cycle
+  (governance-20260616T2159Z) opened ~9.5h ago and is the named
+  reviewer; expected to walk this single item alongside the
+  per-claim weakens-vs-genuine adjudication. **Currently queued
+  (`experiment_queue.json` items[]): 1 item** -- V3-EXQ-460e
+  (SD-034 commitment_closure:GAP-4 Leg C, the trained
+  rule_bias_head behavioural re-run on the freshly-landed scaffold;
+  supersedes V3-EXQ-460d; claimed by ree-cloud-1 at 2026-06-17T04:20:33Z;
+  priority 325; 3 seeds). Multiple coordinator-side items queued by
+  the 2026-06-16 evening pass ride the DB beyond the file snapshot:
+  V3-EXQ-569h GAP-A behavioural-diversity falsifier (3-arm
+  matched-entropy, in-arm route-range gate, ARM_STD_G2 = std-basis +
+  gain 2.0 + e2_world_forward conversion config; FAILed 1/3 seeds 2026-06-16
+  -> 7th-autopsy adjudicated genuine conversion-ceiling; routed to
+  /implement-substrate amend modulatory-bias-selection-authority TOP-K
+  shortlist), V3-EXQ-569i (the TOP-K shortlist conversion-architecture
+  falsifier, queued same evening on the landed amend; ARC-065 claim_ids;
+  awaiting fleet claim), V3-EXQ-514r (MECH-229 drive-coupling
+  disambiguator -- n=5 overshoot arm + OFF wanting==liking floor +
+  recalibrated readiness gate; supersedes V3-EXQ-514q on the pre-registered
+  routing; priority 320), V3-EXQ-654d / V3-EXQ-684a / V3-EXQ-680d /
+  V3-EXQ-591f / V3-EXQ-685 (from the 2026-06-16 morning + day-cycle
+  paths; awaiting fleet claim or in flight). V3-EXQ-654d (the de-collapsed
+  GAP-B falsifier) FAILed 2026-06-16 with the same crf-availability-maintenance
+  gate-lockout signature -> autopsy routed to /implement-substrate amend
+  on a CRF maintenance-theta cap (the GAP-B fault is independent of the
+  GAP-A context-collapse signal it was originally co-gated on; corrects
+  the prior cohort framing). Substrate / governance landings since the
+  2026-06-15T01:10Z spec
   sync: (1) **Morning governance cycle baked the indexer flat-merge
   shift + delivered MECH-229 SUBSTRATE CEILING LIFTED** (REE_assembly
   master be7261d9ca, 04:00Z; 874-file regen). MECH-229 V3-EXQ-514o
