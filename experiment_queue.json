@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-514s",
-      "title": "MECH-436 drive-coupling retest on the SD-049-PHASE-2 kappa-scale + standing differential-depletion substrate (514r successor)",
-      "script": "experiments/v3_exq_514s_sd049_phase2_mech436_drive_coupling_retest.py",
-      "priority": 340,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "supersedes": "V3-EXQ-514r",
-      "claim_id": "MECH-436",
-      "note": "514r-successor MECH-436 retest on the landed SD-049-PHASE-2 drive-coupling amend (kappa_scale=6.0 + WL-scoring-env partial restoration 0.3 + divergent decay). LOAD-BEARING PASS = natural drive-coupled delta mean(WL_drive-WL_nodrive) >= max(k*pstdev,0.15) on >=2/3 seeds -> MECH-436 substrate_ceiling->supports. NEW enriched-spread non-vacuity precondition (in-run drive_spread_max >= 0.10) + 514r overshoot/OFF/argmax-relevance readiness gates self-route substrate_not_ready_requeue, NEVER a false weakens. MECH-229 leg (a) untouched. Re-applied DB-authoritatively after a concurrent queue-conflict rebase.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-17T16:24:32Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_type": "v3_exq_514s_sd049_phase2_mech436_drive_coupling_retest",
-      "seeds": 6
-    }
-  ]
+  "items": []
 }
