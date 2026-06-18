@@ -1504,6 +1504,16 @@ def _build_manifest(
         "outcome": result["outcome"],
         "evidence_direction": result["overall_direction"],
         "evidence_direction_per_claim": result["evidence_direction_per_claim"],
+        # Mirror the self-route block at the manifest top level so the indexer's
+        # _compute_adjudication (build_experiment_indexes.py: reads
+        # manifest.get("interpretation") at the TOP level) surfaces the label.
+        # The block is also nested under result[...]; these two keys make it
+        # visible to top-level readers (governance / pending_review) without
+        # diving into the nested result dict. Emit-hygiene only (the adjudication
+        # FLAG stays "n/a" for experiment_purpose="evidence"); per
+        # failure_autopsy_V3-EXQ-654f_2026-06-18 Section 4.
+        "interpretation_label": result["interpretation_label"],
+        "interpretation": result["interpretation"],
         "evidence_direction_note": (
             f"V3-EXQ-654f arc_062 GAP-B behavioural falsifier (MECH-309 / ARC-062), "
             f"supersedes V3-EXQ-654e (recovery re-queue of the silently-stalled 654e run; science unchanged), ported onto the CRF-GATE CALIBRATION AMEND "
