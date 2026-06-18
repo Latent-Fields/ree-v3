@@ -26,6 +26,22 @@
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_514s_sd049_phase2_mech436_drive_coupling_retest",
       "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-688",
+      "title": "MECH-044 hippocampal relational binding vs ablation (detect spatial relation changes)",
+      "script": "experiments/v3_exq_688_mech044_hippocampal_relational_binding.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "backlog_id": "EVB-0295",
+      "claim_id": "MECH-044",
+      "note": "Proposal EXP-0184. Tests whether hippocampal anchor system (MECH-269, SD-039) detects RELATIONAL changes (entity positions swap) vs ABSOLUTE changes (both entities shift preserving relation). 3 arms x 3 seeds x 30 trials. Criteria: relational_sensitivity >= 0.5, ablation margin >= 0.3, anchor resets on relational change > 0.",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 30,
+      "experiment_type": "v3_exq_688_mech044_hippocampal_relational_binding",
+      "seeds": 3
     }
   ]
 }
