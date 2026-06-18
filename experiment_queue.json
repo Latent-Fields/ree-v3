@@ -6,21 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-686",
-      "title": "MECH-191 signal-state discriminability probe",
-      "experiment_type": "v3_exq_686_mech191_signal_state_discriminability",
-      "script": "experiments/v3_exq_686_mech191_signal_state_discriminability.py",
-      "claim_id": "MECH-191",
-      "priority": 40,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 30,
-      "episodes_per_run": 60,
-      "seeds": 3,
-      "conditions": 3,
-      "note": "Tests whether different internal functional states (wanting, nociception, frustration) produce discriminable output patterns. Queued via IGW-20260618-181 (EXP-0186 proposal)."
-    }
-  ]
+  "items": []
 }
