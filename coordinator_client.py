@@ -247,6 +247,23 @@ def report_queue_remove(queue_id, reason):
     return _post("/queue/remove", {"queue_id": queue_id, "reason": reason})
 
 
+def add_queue_item(item):
+    """Authoritatively add a NEW queue item to the coordinator DB.
+
+    `item` is the full experiment_queue.json item dict (queue_id + script +
+    priority + machine_affinity + ...). Under Phase 3 the DB owns the queue
+    and experiment_queue.json is a derived view; a producer that only commits
+    the git file can lose its addition to the phase3 snapshot-writer race.
+    POSTing here upserts the item into the experiments table so it survives
+    re-materialisation (the git commit is then a legacy/fallback signal only).
+    Returns the parsed response ({ok, applied, queue_id, existed}) or None
+    when disabled / on any transport failure. A 409 (terminal-id reuse) comes
+    back as the parsed error dict, not None."""
+    if not _ENABLED:
+        return None
+    return _post("/queue/add", {"item": item})
+
+
 def fetch_commands(machine):
     if not _ENABLED:
         return None

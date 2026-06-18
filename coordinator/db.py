@@ -343,6 +343,17 @@ def mark_queue_removed(conn, queue_id, reason):
     return cur.rowcount > 0
 
 
+def get_queue_status(conn, queue_id):
+    """Return the current status string for `queue_id`, or None if the row
+    is absent. Used by POST /queue/add to refuse re-adding a queue_id whose
+    DB row is already terminal (completed/failed) -- mirrors validate_queue's
+    "never re-run a completed id" rule at the coordinator ingress."""
+    row = conn.execute(
+        "SELECT status FROM experiments WHERE queue_id=?", (queue_id,)
+    ).fetchone()
+    return row["status"] if row is not None else None
+
+
 def is_explained_divergence(git_verdict, coord_verdict, detail=""):
     """Harness artifacts that must not block Phase 2 (see SOAK_LOG.md)."""
     d = detail or ""

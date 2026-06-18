@@ -661,6 +661,74 @@ class Handler(BaseHTTPRequestHandler):
                              "bytes": len(raw)})
             return
 
+        if path == "/queue/add":
+            # Authoritative DB ingress for a NEW queue item. Under Phase 3 the
+            # DB owns the queue and experiment_queue.json is a derived view
+            # (phase3_queue_writer re-materialises it from the experiments
+            # table). A producer that only `git commit`s the queue file can
+            # have its addition ERASED by the next snapshot-writer tick if
+            # reconcile loses the writer race (or the hub is wedged). POSTing
+            # the item here upserts it directly into the experiments table, so
+            # it survives re-materialisation; the git commit is kept only as a
+            # legacy/fallback worklist signal. Mirror of /queue/remove on the
+            # add side.
+            if body is None:
+                self._send(400, {"error": "bad body"})
+                return
+            item = body.get("item")
+            if item is None and body.get("queue_id"):
+                # Convenience: allow the bare item dict as the body.
+                item = {k: v for k, v in body.items()}
+            if not isinstance(item, dict) or not item.get("queue_id"):
+                self._send(400, {"error": "item with queue_id required"})
+                return
+            if not item.get("script"):
+                self._send(400, {"error": "item.script required"})
+                return
+            qid = item["queue_id"]
+            force_rerun = bool(item.get("force_rerun"))
+            # Shadow mode: git is authoritative, so a direct DB add would be
+            # reconciled away (reconcile_once deletes DB rows missing from the
+            # git file under shadow's upsert_only=False). Do not mutate; the
+            # caller's git commit is the ingress in shadow. Mirror /queue/remove.
+            if MODE == "shadow":
+                self._send(200, {"ok": True, "applied": False,
+                                 "queue_id": qid, "note": "shadow mode; "
+                                 "git is authoritative"})
+                return
+            conn = db.connect(DB_PATH)
+            try:
+                existing = db.get_queue_status(conn, qid)
+                if existing in ("completed", "failed") and not force_rerun:
+                    # Re-adding a terminal id silently re-runs a done
+                    # experiment. Refuse (mirrors validate_queue + the runner
+                    # skip-completed guard). Caller should use a new
+                    # letter/number, or set force_rerun:true deliberately.
+                    self._send(409, {"ok": False, "applied": False,
+                                     "queue_id": qid, "existing_status":
+                                     existing, "error": "queue_id already has "
+                                     "a terminal DB row; use a new id or "
+                                     "force_rerun"})
+                    return
+                # A fresh add is always pending and unclaimed; never let a
+                # caller inject a claimed/completed state. preserve_claim=True
+                # keeps the DB's own claim/status for an in-flight (non-
+                # terminal) re-add so a running experiment is not clobbered;
+                # for a brand-new row (existing is None) it inserts pending.
+                # A deliberate force_rerun RESETS the row, so preserve_claim
+                # is False there (otherwise the old terminal status survives
+                # and the rerun never re-enters the worklist).
+                add = dict(item)
+                add["status"] = "pending"
+                add.pop("claimed_by", None)
+                db.upsert_experiment(
+                    conn, add, preserve_claim=not force_rerun)
+            finally:
+                conn.close()
+            self._send(200, {"ok": True, "applied": True, "queue_id": qid,
+                             "existed": existing is not None})
+            return
+
         if path == "/queue/remove":
             if body is None or not body.get("queue_id"):
                 self._send(400, {"error": "queue_id required"})
