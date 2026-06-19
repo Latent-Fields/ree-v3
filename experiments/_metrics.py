@@ -489,3 +489,347 @@ def p0_readiness_gate(checks: list) -> list:
     if unmet:
         raise P0NotReady(preconditions, "P0 readiness unmet: " + ", ".join(unmet))
     return preconditions
+
+
+# -- Crystallization-necessity harness guards (MECH-334 / INV-074; 610-655 lineage) --
+#
+# The INV-074 / MECH-334 crystallization-necessity test has a recurring harness
+# no-op that wasted runs across V3-EXQ-610c/610d/610e/610f/655: either the policy
+# was never genuinely trained before crystallize(), or the EWC penalty was never
+# actually added to the optimized loss when closure was on, or the ARM_0 "control"
+# carried diversity floors (entropy_bonus / noise floor / E3 diversity) that
+# prevented it from collapsing -- so the D1/D2 control arms were non-discriminative
+# BY CONSTRUCTION and every run self-routed to non_contributory.
+#
+# 655 fixed all three inline (its `_assert_fixes_wired` preflight), but that block
+# lives in one script: the NEXT MECH-334 retest is a copy-and-modify of 655 and can
+# silently re-introduce the no-op (a stale claim_ids / a dropped assertion / an
+# ARM_0 that quietly turns a floor back on). These guards extract the three checks
+# into the shared harness so the retest INHERITS them by import and cannot ship a
+# no-op without a guard firing.
+#
+# Convention: a guard FAILURE means the EXPERIMENT IS MISWIRED -- it would produce
+# a vacuous result -- so the run must NOT proceed. The guard raises HarnessGuardError
+# (an AssertionError subclass, distinct from P0NotReady's scientific self-route).
+# Call them in a fresh / dedicated-agent preflight BEFORE the real arms run.
+
+
+class HarnessGuardError(AssertionError):
+    """Raised by a pre-run harness guard when an experiment WIRING precondition is
+    unmet -- i.e. the experiment as configured would silently produce a no-op /
+    vacuous result (the 610c-655 crystallization-no-op family).
+
+    Distinct from P0NotReady: P0NotReady is a *scientific* readiness self-route
+    (the substrate is honestly not trained enough; the run writes a
+    substrate_not_ready_requeue manifest). HarnessGuardError is a *wiring bug* --
+    the loss is mis-built or the control arm is mis-configured -- and the run must
+    be fixed, not requeued. Let it propagate; do NOT catch-and-continue.
+    """
+
+
+def assert_policy_trained(
+    params,
+    pre_train_snapshot,
+    *,
+    grad_seen: Optional[bool] = None,
+    min_weight_delta: float = 1e-4,
+    trained_action_entropy: Optional[float] = None,
+    untrained_entropy_ceiling: Optional[float] = None,
+    label: str = "policy",
+) -> Dict[str, Any]:
+    """Guard (1): assert the policy was GENUINELY TRAINED (non-trivial weight delta)
+    BEFORE crystallize().
+
+    The 610c/610d no-op signature: crystallize() fired on a policy whose parameters
+    never moved, so there was no learned distribution for crystallization to
+    preserve and D1 (crystallization-preserves-diversity) was unreadable.
+
+    `params` is the live list of policy parameters (e.g.
+    [p for p in agent.gated_policy.parameters() if p.requires_grad]); ``pre_train_snapshot``
+    is the matching list of detached clones taken BEFORE the training loop
+    (``[p.detach().clone() for p in params]``). The guard computes the total L1
+    weight movement and requires it to exceed ``min_weight_delta``.
+
+    Optional stronger checks (mirroring 655's FIX 1):
+      - ``grad_seen``: if provided, must be True (a non-zero gradient was observed
+        during training). False/None-with-no-movement is the dead-policy signature.
+      - ``trained_action_entropy`` + ``untrained_entropy_ceiling``: if both provided,
+        require trained_action_entropy < untrained_entropy_ceiling (the policy learned
+        a NON-UNIFORM action distribution -- e.g. 655's UNTRAINED_BAND_LOW=1.04 below
+        ln(5)). A trained weight delta with a still-uniform action distribution is a
+        weaker but real no-op.
+
+    Returns a diagnostics dict (merge into fix_verification). Raises HarnessGuardError
+    on any failed check.
+    """
+    params = list(params)
+    pre = list(pre_train_snapshot)
+    if not params:
+        raise HarnessGuardError(
+            f"[{label}] assert_policy_trained: empty parameter list -- nothing to "
+            f"train (no requires_grad params? wrong module?). This is the "
+            f"610c/610d untrained-policy signature.")
+    if len(params) != len(pre):
+        raise HarnessGuardError(
+            f"[{label}] assert_policy_trained: param/snapshot length mismatch "
+            f"({len(params)} vs {len(pre)}) -- snapshot was taken over a different "
+            f"parameter set than the one trained.")
+    weight_delta = 0.0
+    for p, p0 in zip(params, pre):
+        weight_delta += float((p.detach() - p0.detach()).abs().sum().item())
+    n_params = int(sum(p.numel() for p in params))
+
+    trained = weight_delta >= float(min_weight_delta)
+    out: Dict[str, Any] = {
+        "policy_trained": bool(trained),
+        "policy_weight_delta": weight_delta,
+        "policy_n_params": n_params,
+        "policy_min_weight_delta": float(min_weight_delta),
+    }
+    if grad_seen is not None:
+        out["policy_grad_seen"] = bool(grad_seen)
+    if trained_action_entropy is not None:
+        out["policy_trained_action_entropy"] = float(trained_action_entropy)
+        out["policy_untrained_entropy_ceiling"] = (
+            None if untrained_entropy_ceiling is None
+            else float(untrained_entropy_ceiling))
+
+    if not trained:
+        raise HarnessGuardError(
+            f"[{label}] assert_policy_trained FAILED: weight delta "
+            f"{weight_delta:.6g} < min {float(min_weight_delta):.6g} over "
+            f"{n_params} params -- the policy did NOT move before crystallize(). "
+            f"This is the 610c/610d harness no-op (crystallizing an untrained "
+            f"policy). Do NOT queue.")
+    if grad_seen is not None and not grad_seen:
+        raise HarnessGuardError(
+            f"[{label}] assert_policy_trained FAILED: grad_seen=False -- the "
+            f"policy params never received a non-zero gradient (the optimizer "
+            f"stepped over a detached / disconnected loss). Do NOT queue.")
+    if (trained_action_entropy is not None
+            and untrained_entropy_ceiling is not None
+            and not (float(trained_action_entropy)
+                     < float(untrained_entropy_ceiling))):
+        raise HarnessGuardError(
+            f"[{label}] assert_policy_trained FAILED: trained action entropy "
+            f"{float(trained_action_entropy):.4f} is NOT below the untrained band "
+            f"edge {float(untrained_entropy_ceiling):.4f} -- the policy weights "
+            f"moved but the action distribution stayed ~uniform (no learned "
+            f"preference). Do NOT queue.")
+    return out
+
+
+def assert_ewc_penalty_live(
+    residue_field,
+    *,
+    perturb: bool = True,
+    perturb_scale: float = 0.5,
+    min_penalty: float = 1e-8,
+    label: str = "ewc",
+) -> Dict[str, Any]:
+    """Guard (2a): assert the EWC penalty is a LIVE, DIFFERENTIABLE term when closure
+    is on -- i.e. it can actually contribute to the optimized loss.
+
+    The 610c/610d no-op signature for closure: ``ewc_penalty()`` returned exactly 0
+    (anchor never snapshotted, or residue_ewc_lambda left at 0) so adding it to the
+    loss was a no-op and MECH-334's write-protect was never exercised.
+
+    Mirrors 655's FIX 3. Requires:
+      - ``residue_field.ewc_anchored`` is True (snapshot_ewc_anchor() was called);
+      - ``ewc_penalty()`` > ``min_penalty`` once the field differs from its anchor
+        (the guard optionally PERTURBS the rbf weights to force a non-zero penalty,
+        so it must be called on a FRESH / throwaway agent, never the training agent);
+      - the penalty back-propagates a non-zero gradient onto the residue rbf params
+        (centers + weights) -- proving it is a real optimization target.
+
+    Returns a diagnostics dict. Raises HarnessGuardError on any failed check.
+    """
+    if not getattr(residue_field, "ewc_anchored", False):
+        raise HarnessGuardError(
+            f"[{label}] assert_ewc_penalty_live FAILED: residue_field.ewc_anchored "
+            f"is False -- snapshot_ewc_anchor() was not called (or EWC is not armed: "
+            f"check crystallize_at_phase3 -> ewc_enabled / residue_ewc_lambda). The "
+            f"EWC penalty cannot be in the loss if no anchor exists. Do NOT queue.")
+    rbf = residue_field.rbf_field
+    if perturb:
+        # Force the field off its anchor so the penalty is provably non-zero even on
+        # a just-snapshotted field. Mutates rbf weights -> use a throwaway agent.
+        with torch.no_grad():
+            rbf.weights.add_(float(perturb_scale) * rbf.active_mask.float())
+
+    penalty = residue_field.ewc_penalty()
+    pv = float(penalty.detach().item())
+    if not (pv > float(min_penalty)):
+        raise HarnessGuardError(
+            f"[{label}] assert_ewc_penalty_live FAILED: ewc_penalty()={pv:.6g} is "
+            f"not > {float(min_penalty):.6g} after anchoring"
+            + (" + perturbation" if perturb else "")
+            + " -- the penalty is inert (residue_ewc_lambda=0 / anchor==current). "
+              "Adding it to the loss is a no-op. Do NOT queue.")
+
+    res_params = [rbf.centers, rbf.weights]
+    for p in res_params:
+        if getattr(p, "grad", None) is not None:
+            p.grad = None
+    penalty.backward()
+    res_grad = float(sum(
+        p.grad.abs().sum().item() for p in res_params if p.grad is not None))
+    if not (res_grad > 0.0):
+        raise HarnessGuardError(
+            f"[{label}] assert_ewc_penalty_live FAILED: ewc_penalty().backward() "
+            f"produced no gradient on the residue rbf params (grad_sum={res_grad:.6g}) "
+            f"-- the penalty is not a real optimization target. Do NOT queue.")
+    return {
+        "ewc_penalty_live": True,
+        "ewc_penalty_value": pv,
+        "ewc_residue_grad_sum": res_grad,
+    }
+
+
+def assert_ewc_term_in_loss(
+    loss_without_ewc,
+    ewc_term,
+    total_loss,
+    *,
+    atol: float = 1e-5,
+    label: str = "ewc",
+) -> Dict[str, Any]:
+    """Guard (2b): assert the EWC penalty is ACTUALLY ADDED to the optimized loss --
+    the loss-construction-site check that catches "penalty computed but dropped".
+
+    Call this at the loss-summation site inside the training step (where closure is
+    on), passing the loss BEFORE the EWC add, the EWC term itself, and the resulting
+    total. Catches BOTH 610c/610d failure modes at the point they happen:
+      - ``ewc_term`` is ~0 (the penalty was inert -> nothing real was added);
+      - ``total_loss`` does not actually include the term (it was computed into a
+        local and then forgotten, so total == loss_without_ewc).
+
+    All three args are scalars (tensors or floats). Raises HarnessGuardError if the
+    term is non-positive OR if total_loss is not (loss_without_ewc + ewc_term)
+    within ``atol`` AND distinct from loss_without_ewc.
+    """
+    def _f(x) -> float:
+        return float(x.detach().item()) if hasattr(x, "detach") else float(x)
+
+    l0 = _f(loss_without_ewc)
+    et = _f(ewc_term)
+    lt = _f(total_loss)
+    out = {
+        "ewc_term_in_loss": True,
+        "ewc_term_value": et,
+        "loss_without_ewc": l0,
+        "total_loss": lt,
+    }
+    if not (et > 0.0):
+        raise HarnessGuardError(
+            f"[{label}] assert_ewc_term_in_loss FAILED: ewc_term={et:.6g} is not "
+            f"> 0 -- the penalty was inert at the loss site (the 610c/610d "
+            f"closure no-op). Do NOT queue.")
+    if abs(lt - (l0 + et)) > float(atol):
+        raise HarnessGuardError(
+            f"[{label}] assert_ewc_term_in_loss FAILED: total_loss={lt:.6g} != "
+            f"loss_without_ewc({l0:.6g}) + ewc_term({et:.6g}) within atol="
+            f"{float(atol):.3g} -- the EWC term was NOT added to the optimized "
+            f"loss (computed but dropped). Do NOT queue.")
+    if abs(lt - l0) <= float(atol):
+        raise HarnessGuardError(
+            f"[{label}] assert_ewc_term_in_loss FAILED: total_loss is "
+            f"indistinguishable from loss_without_ewc (delta {abs(lt - l0):.6g} "
+            f"<= atol {float(atol):.3g}) -- the EWC penalty made no difference to "
+            f"the loss. Do NOT queue.")
+    return out
+
+
+# Canonical ARM_0 true-negative control config: a no-closure arm with every
+# diversity floor OFF, so it can MEASURABLY COLLAPSE its action diversity under
+# post-Phase-3 pressure (the D2 precondition). Keys map to the 655-lineage arm-config
+# schema. assert_true_negative_arm0() validates an arm_config against this.
+TRUE_NEGATIVE_ARM0_CONTRACT = {
+    "crystallize": False,         # no closure -> nothing resists collapse
+    "entropy_bonus_phase3": 0.0,  # no entropy-bonus diversity floor in Phase 3
+    "use_noise_floor": False,     # MECH-313 exploration noise floor OFF
+    "use_e3_diversity": False,    # MECH-341 E3 score-diversity floor OFF
+}
+
+
+def assert_true_negative_arm0(
+    arm_config: Dict[str, Any],
+    *,
+    label: str = "ARM_0",
+) -> Dict[str, Any]:
+    """Guard (3): assert the ARM_0 control is a TRUE NEGATIVE -- no closure AND every
+    diversity floor OFF -- so a no-closure arm can measurably collapse under
+    post-Phase-3 pressure (the D2 control-collapse precondition, delta >= +0.10).
+
+    The 610e no-op signature: ARM_0 quietly carried structured-curiosity / a noise
+    floor / E3 diversity, so it never collapsed and D1 (crystallization preserves)
+    had no contrast to measure -- a confounded control.
+
+    Validates the arm_config against TRUE_NEGATIVE_ARM0_CONTRACT: crystallize=False,
+    entropy_bonus_phase3==0.0, use_noise_floor=False, use_e3_diversity=False. Any
+    floor left on is a confound. Returns diagnostics; raises HarnessGuardError listing
+    every violation.
+    """
+    violations = []
+    for key, want in TRUE_NEGATIVE_ARM0_CONTRACT.items():
+        if key not in arm_config:
+            violations.append(f"{key} MISSING (must be {want!r})")
+            continue
+        got = arm_config[key]
+        if key == "entropy_bonus_phase3":
+            if abs(float(got)) > 1e-12:
+                violations.append(f"{key}={got!r} (must be 0.0 -- entropy floor on)")
+        elif bool(got) != bool(want):
+            violations.append(f"{key}={got!r} (must be {want!r} -- floor on)")
+    out = {
+        "arm0_is_true_negative": not violations,
+        "arm0_violations": violations,
+    }
+    if violations:
+        raise HarnessGuardError(
+            f"[{label}] assert_true_negative_arm0 FAILED: the control arm is NOT a "
+            f"true negative -- it carries diversity floors that prevent collapse, so "
+            f"D2 is non-discriminative by construction (the 610e confound): "
+            + "; ".join(violations) + ". Do NOT queue.")
+    return out
+
+
+def assert_d2_control_collapsed(
+    end_phase2_entropy,
+    end_phase3_entropy,
+    *,
+    min_delta: float = 0.10,
+    label: str = "ARM_0",
+) -> Dict[str, Any]:
+    """Companion to guard (3): the POST-run D2 acceptance check -- the true-negative
+    control's action entropy must measurably COLLAPSE from its Phase-2 peak under
+    post-Phase-3 pressure (delta = end_p2 - end_p3 >= min_delta, default +0.10).
+
+    Pre-run, guard (3) (assert_true_negative_arm0) guarantees the control CAN collapse
+    (no floors on). Post-run, this checks that it DID -- the D2 precondition without
+    which D1 (crystallization preserves diversity) is unreadable. A FAIL here is NOT a
+    wiring bug; it is a genuine substrate-incapacity finding (the 655 substrate_ceiling
+    verdict). So this returns the verdict in the dict (d2_collapsed) AND raises only
+    when ``min_delta`` is treated as a hard gate by the caller -- by default it RAISES
+    so a misconfigured collapse cannot pass silently; pass a try/except at the call
+    site if you want to route a genuine non-collapse to /failure-autopsy instead.
+    """
+    p2 = float(end_phase2_entropy)
+    p3 = float(end_phase3_entropy)
+    delta = p2 - p3
+    out = {
+        "d2_collapsed": delta >= float(min_delta),
+        "d2_delta": delta,
+        "d2_min_delta": float(min_delta),
+        "arm0_end_phase2_entropy": p2,
+        "arm0_end_phase3_entropy": p3,
+    }
+    if delta < float(min_delta):
+        raise HarnessGuardError(
+            f"[{label}] assert_d2_control_collapsed: D2 control-collapse delta "
+            f"{delta:.4f} < min {float(min_delta):.4f} (end_p2 {p2:.4f} -> end_p3 "
+            f"{p3:.4f}) -- the true-negative control did NOT collapse, so D1 is "
+            f"unreadable. If the arm is verified-clean (guard 3 passed) this is a "
+            f"genuine substrate-incapacity finding, NOT a wiring bug: route to "
+            f"/failure-autopsy rather than re-queueing blind.")
+    return out
