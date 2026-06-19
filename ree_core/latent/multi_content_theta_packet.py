@@ -102,6 +102,15 @@ class ThetaPacket:
     state_summary: Optional[torch.Tensor] = None       # [1, world_dim] (MECH-089 averaged z_world)
     vintage: Dict[str, ThetaPacketVintage] = field(default_factory=dict)
     action_proposal_age: int = 0
+    # MECH-294 per-candidate co-binding coherence (cross-candidate-range rendering
+    # of currency_coherence): per V_s-gated stream, the action_proposal that was
+    # co-bound WITH that stream this cycle (action_refs) and its currency weight
+    # (coherence_weights). JOINT -> all four refs = this-cycle action (w 1.0);
+    # ALTERNATION -> live = this action (w 1.0), held = prior co-bound action
+    # (w coherence_hold_weight); SHUFFLED -> nothing co-bound (w 0.0). Consumed by
+    # MultiContentThetaPacket.compose_per_candidate_coherence. Empty == not built.
+    action_refs: Dict[str, Optional[torch.Tensor]] = field(default_factory=dict)
+    coherence_weights: Dict[str, float] = field(default_factory=dict)
 
     # -- completeness / vintage diagnostics --------------------------------
 
@@ -221,6 +230,12 @@ class MultiContentThetaPacketConfig:
     hold_threshold: float = 0.4                # MECH-269b reuse (0.4-0.5 dead-band)
     history_length: int = 8                    # per-stream history depth for "shuffled"
     unknown_stream_passes: bool = True         # a stream with no V_s entry passes (current)
+    # MECH-294 per-candidate co-binding coherence: weight on a held (alternation
+    # non-live) stream's PRIOR co-bound action. 1.0 = held counts as fully as the
+    # live stream; 0.0 = pure currency-gating (only co-temporally-current streams
+    # contribute). Default 0.5 = held streams give alternation a per-candidate
+    # PATTERN distinct from joint (not just a smaller magnitude).
+    coherence_hold_weight: float = 0.5
 
 
 class MultiContentThetaPacket:
@@ -263,6 +278,11 @@ class MultiContentThetaPacket:
         self._snapshots: Dict[str, torch.Tensor] = {}
         self._snapshot_age: Dict[str, int] = {}
 
+        # MECH-294 per-candidate co-binding coherence: per-stream snapshot of the
+        # action_proposal that was current when that stream was last refreshed
+        # (its co-bound action). Mirror of self._snapshots on the action side.
+        self._action_snapshots: Dict[str, torch.Tensor] = {}
+
         # Per-stream history of sealed current-values for the "shuffled" control.
         hl = max(2, int(self.config.history_length))
         self._history: Dict[str, Deque[torch.Tensor]] = {
@@ -282,6 +302,10 @@ class MultiContentThetaPacket:
         self.n_compose_calls: int = 0
         self.last_compose_coherence: float = 0.0
         self.last_compose_bias_absmax: float = 0.0
+        # Per-candidate co-binding coherence diagnostics (the carve-able channel).
+        self.n_per_candidate_coherence_calls: int = 0
+        self.last_per_candidate_coherence_range: float = 0.0
+        self.last_per_candidate_coherence_absmax: float = 0.0
 
     # -- window accumulation ----------------------------------------------
 
@@ -491,6 +515,42 @@ class MultiContentThetaPacket:
             is_current=(action_age == 0), age_ticks=max(0, action_age), v_s=None,
         )
 
+        # MECH-294 per-candidate co-binding coherence references. Bind, per
+        # V_s-gated stream, the action co-bound WITH that stream this cycle + a
+        # currency weight, so a downstream per-candidate coherence can carry a
+        # mode-distinct cross-candidate RANGE (the route-range authority + 569i
+        # top-k carve it). Does NOT touch currency_coherence() / the bound content
+        # slots -- the scalar mode-discrimination is preserved bit-identically.
+        action_refs: Dict[str, Optional[torch.Tensor]] = {}
+        coherence_weights: Dict[str, float] = {}
+        cur_action = self._win_action
+        for name in ALTERNATION_ORDER:
+            meta = vintage_meta.get(name)
+            if mode == "shuffled":
+                # No stream is co-bound this cycle (every slot drawn from a
+                # different past cycle) -> nothing contributes -> zeros -> the
+                # authority reads below-floor (matches currency_coherence 0.0).
+                action_refs[name] = None
+                coherence_weights[name] = 0.0
+                continue
+            if meta is not None and meta.is_current:
+                # This stream refreshed this cycle -> its co-bound action is the
+                # current window action. Refresh the per-stream action snapshot.
+                if cur_action is not None:
+                    self._action_snapshots[name] = cur_action.detach().reshape(1, -1).clone()
+                ref = self._action_snapshots.get(name)
+                action_refs[name] = ref
+                coherence_weights[name] = 1.0 if ref is not None else 0.0
+            else:
+                # Held (alternation non-live): the action co-bound when this stream
+                # was last live, at the held weight -> a per-candidate PATTERN
+                # distinct from joint (mixes prior co-bound actions).
+                ref = self._action_snapshots.get(name)
+                action_refs[name] = ref
+                coherence_weights[name] = (
+                    float(self.config.coherence_hold_weight) if ref is not None else 0.0
+                )
+
         packet = ThetaPacket(
             cycle_index=self._cycle_index,
             binding_mode=mode,
@@ -501,6 +561,8 @@ class MultiContentThetaPacket:
             state_summary=bound.get(STREAM_STATE),
             vintage=vintage_meta,
             action_proposal_age=max(0, action_age),
+            action_refs=action_refs,
+            coherence_weights=coherence_weights,
         )
 
         # Open a fresh window: clear per-cycle accumulators (snapshots and
@@ -574,6 +636,77 @@ class MultiContentThetaPacket:
         self.last_compose_bias_absmax = float(bias.abs().max().item()) if bias.numel() else 0.0
         return bias
 
+    def compose_per_candidate_coherence(
+        self,
+        candidate_first_actions: torch.Tensor,
+        bias_scale: float = 0.1,
+    ) -> Optional[torch.Tensor]:
+        """Per-candidate co-binding coherence bias [K] -- the cross-candidate-RANGE
+        rendering of the (scalar) currency_coherence (substrate-ceiling-lifted
+        triage 2026-06-19). The scalar coherence only SCALES a single action-only
+        cosine to the bound action_proposal -- a per-candidate PATTERN identical
+        across binding modes (V3-EXQ-661: committed-distribution TV ~0 incl
+        gate-ON-vs-OFF), which the route-range authority's unit-range normalisation
+        washes out (joint == alternation) or floors (shuffled == 0). So the
+        authority / 569i top-k had nothing mode-distinct to carve.
+
+        This instead aligns each candidate's first action with the action co-bound
+        WITH each V_s-gated content stream this cycle, weighted by that stream's
+        currency (sealed onto the packet as action_refs / coherence_weights):
+          - JOINT       -- all four streams co-bound to THIS cycle's action ->
+                           bias == cosine(cand, a)               (full cross-candidate range)
+          - ALTERNATION -- live stream's current action + the held streams' prior
+                           co-bound actions at coherence_hold_weight ->
+                           a DIFFERENT per-candidate pattern      (mode-distinct, not just smaller)
+          - SHUFFLED    -- nothing co-bound this cycle (weights 0) ->
+                           None / zeros                           (~0 range -> authority below-floor)
+
+        Weighted-mean over streams (in [-1, 1]); REE lower-is-better, so favour
+        aligned candidates with a negative bias; clamped to [-bias_scale,
+        +bias_scale]. In-action-space throughout (no cross-semantic-space
+        comparison; cf. the V3-EXQ-657a coherence-metric autopsy). Returns None
+        when no stream is co-bound (shuffled / empty packet) or no action is bound.
+        currency_coherence() is NOT consulted or modified here.
+        """
+        pkt = self.last_packet
+        if pkt is None or not pkt.action_refs:
+            return None
+        cand = candidate_first_actions.reshape(candidate_first_actions.shape[0], -1)
+        if cand.shape[0] == 0:
+            return None
+        total: Optional[torch.Tensor] = None
+        wsum = 0.0
+        for name in ALTERNATION_ORDER:
+            ref = pkt.action_refs.get(name)
+            w = float(pkt.coherence_weights.get(name, 0.0))
+            if ref is None or w <= 0.0:
+                continue
+            r = ref.reshape(1, -1)
+            d = min(r.shape[-1], cand.shape[-1])
+            if d == 0:
+                continue
+            r_n = torch.nn.functional.normalize(r[:, :d], dim=-1)
+            c_n = torch.nn.functional.normalize(cand[:, :d], dim=-1)
+            align = (c_n * r_n).sum(dim=-1)  # [K] cosine in [-1, 1]
+            total = (w * align) if total is None else (total + w * align)
+            wsum += w
+        if total is None or wsum <= 0.0:
+            return None
+        coherence = total / wsum  # weighted-mean per-candidate coherence in [-1, 1]
+        bias = (-bias_scale * coherence).clamp(-bias_scale, bias_scale)
+        # Diagnostics for the validation manifest (the carve-able quantity).
+        self.n_per_candidate_coherence_calls += 1
+        if bias.numel() >= 2:
+            self.last_per_candidate_coherence_range = float(
+                (bias.max() - bias.min()).item()
+            )
+        else:
+            self.last_per_candidate_coherence_range = 0.0
+        self.last_per_candidate_coherence_absmax = (
+            float(bias.abs().max().item()) if bias.numel() else 0.0
+        )
+        return bias
+
     # -- diagnostics / reset ----------------------------------------------
 
     def get_diagnostics(self) -> Dict[str, float]:
@@ -590,6 +723,9 @@ class MultiContentThetaPacket:
             "mech294_n_compose_calls": float(self.n_compose_calls),
             "mech294_last_compose_coherence": float(self.last_compose_coherence),
             "mech294_last_compose_bias_absmax": float(self.last_compose_bias_absmax),
+            "mech294_n_per_candidate_coherence_calls": float(self.n_per_candidate_coherence_calls),
+            "mech294_last_per_candidate_coherence_range": float(self.last_per_candidate_coherence_range),
+            "mech294_last_per_candidate_coherence_absmax": float(self.last_per_candidate_coherence_absmax),
             "mech294_cycle_index": float(self._cycle_index),
         }
 
@@ -603,6 +739,7 @@ class MultiContentThetaPacket:
         self._action_last_refit_cycle = -1
         self._snapshots.clear()
         self._snapshot_age.clear()
+        self._action_snapshots.clear()
         for k in self._history:
             self._history[k].clear()
         self._cycle_index = 0
@@ -615,3 +752,6 @@ class MultiContentThetaPacket:
         self.n_compose_calls = 0
         self.last_compose_coherence = 0.0
         self.last_compose_bias_absmax = 0.0
+        self.n_per_candidate_coherence_calls = 0
+        self.last_per_candidate_coherence_range = 0.0
+        self.last_per_candidate_coherence_absmax = 0.0

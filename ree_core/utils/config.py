@@ -1409,6 +1409,22 @@ class REEConfig:
     # action-only cosine (gate==1.0) bit-for-bit (the ablation). No-op unless
     # theta_packet_compose_into_e3_bias is also True.
     theta_packet_compose_use_joint_coherence: bool = True
+    # MECH-294 per-candidate co-binding coherence (route-range amend, substrate-
+    # ceiling-lifted triage 2026-06-19): currency_coherence() is a SCALAR
+    # (rescale-invisible) so the modulatory selection authority + 569i top-k have
+    # no per-candidate range to carve (V3-EXQ-661: committed-dist TV ~0 incl
+    # gate-ON-vs-OFF). When True, the compose path produces a per-candidate
+    # co-binding coherence bias whose cross-candidate RANGE is mode-distinct
+    # (JOINT all four streams co-bound to this-cycle action -> full range;
+    # ALTERNATION live + held-prior -> different pattern; SHUFFLED none co-bound
+    # -> zeros). Routed via _bdc_coherence so the route-range authority rescales
+    # it. No-op unless theta_packet_compose_into_e3_bias is also True; OFF (the
+    # default) recovers the legacy scalar-gated action-only compose bit-for-bit.
+    theta_packet_compose_per_candidate_coherence: bool = False
+    # Weight on a held (alternation non-live) stream's PRIOR co-bound action in
+    # the per-candidate coherence. 1.0 = held streams count as fully as the live
+    # stream; 0.0 = pure currency-gating (only co-temporally-current streams).
+    theta_packet_coherence_hold_weight: float = 0.5
 
     # MECH-205: surprise-gated replay. When True, prediction error from
     # E3.post_action_update() populates VALENCE_SURPRISE in the residue field,
@@ -4083,6 +4099,8 @@ class REEConfig:
         theta_packet_compose_into_e3_bias: bool = False,
         theta_packet_bias_scale: float = 0.1,
         theta_packet_compose_use_joint_coherence: bool = True,
+        theta_packet_compose_per_candidate_coherence: bool = False,
+        theta_packet_coherence_hold_weight: float = 0.5,
         # MECH-269 / MECH-287 / MECH-288: V_s invalidation runtime (Phase 1 + 2)
         use_per_stream_vs: bool = False,
         use_event_segmenter: bool = False,
@@ -4459,6 +4477,8 @@ class REEConfig:
         config.theta_packet_compose_into_e3_bias = theta_packet_compose_into_e3_bias
         config.theta_packet_bias_scale = theta_packet_bias_scale
         config.theta_packet_compose_use_joint_coherence = theta_packet_compose_use_joint_coherence
+        config.theta_packet_compose_per_candidate_coherence = theta_packet_compose_per_candidate_coherence
+        config.theta_packet_coherence_hold_weight = theta_packet_coherence_hold_weight
 
         # MECH-120: SHY normalization
         config.shy_enabled = shy_enabled

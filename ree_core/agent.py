@@ -327,6 +327,8 @@ class REEAgent(nn.Module):
                     snapshot_refresh_threshold=getattr(
                         config, "theta_packet_snapshot_refresh_threshold", 0.5),
                     hold_threshold=getattr(config, "theta_packet_hold_threshold", 0.4),
+                    coherence_hold_weight=getattr(
+                        config, "theta_packet_coherence_hold_weight", 0.5),
                 )
             )
 
@@ -5758,13 +5760,28 @@ class REEAgent(nn.Module):
                     _tp_fa_list.append(_a[:, 0, :].reshape(-1))
             if _tp_fa_list:
                 _tp_cand_fa = torch.stack(_tp_fa_list, dim=0)  # [K, action_dim]
-                _tp_bias = self.multi_content_theta_packet.compose_e3_bias(
-                    _tp_cand_fa,
-                    bias_scale=getattr(self.config, "theta_packet_bias_scale", 0.1),
-                    use_joint_coherence=getattr(
-                        self.config, "theta_packet_compose_use_joint_coherence", True
-                    ),
-                )
+                # Per-candidate co-binding coherence (route-range amend, triage
+                # 2026-06-19): when on, the compose bias carries a mode-distinct
+                # cross-candidate RANGE (joint full / alternation different pattern
+                # / shuffled ~0) so the route-range authority + 569i top-k can
+                # carve it -- instead of the legacy scalar-gated action-only cosine
+                # whose per-candidate pattern is mode-invariant. _bdc_coherence
+                # (the route source "coherence") then routes the carve-able channel.
+                if getattr(
+                    self.config, "theta_packet_compose_per_candidate_coherence", False
+                ):
+                    _tp_bias = self.multi_content_theta_packet.compose_per_candidate_coherence(
+                        _tp_cand_fa,
+                        bias_scale=getattr(self.config, "theta_packet_bias_scale", 0.1),
+                    )
+                else:
+                    _tp_bias = self.multi_content_theta_packet.compose_e3_bias(
+                        _tp_cand_fa,
+                        bias_scale=getattr(self.config, "theta_packet_bias_scale", 0.1),
+                        use_joint_coherence=getattr(
+                            self.config, "theta_packet_compose_use_joint_coherence", True
+                        ),
+                    )
                 if _tp_bias is not None:
                     _bdc_coherence = _tp_bias.detach().clone()
                     if dacc_score_bias is None:
