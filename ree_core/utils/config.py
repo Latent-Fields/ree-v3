@@ -535,6 +535,46 @@ class E3Config:
     #     (default) is the legacy bit-identical path.
     modulatory_shortlist_mode: str = "margin"
     modulatory_shortlist_k: int = 3
+    #
+    # CONVERSION-CEILING / F-DOMINANCE conflict-grade amend (MECH-439, 2026-06-18).
+    # Two RENDERINGS OF ONE PRINCIPLE -- the BG hyperdirect conflict-grade: grade the
+    # committed decision by the normalized top-F gap (gap_norm in [0,1], from raw_scores
+    # / raw_score_range). F monopolises ~88-89%% of E3 committed-selection variance
+    # (V3-EXQ-571), so a FIXED top-k=3 shortlist + a HARD argmin let the F-dominated
+    # winner reassert except at near-ties. These two no-op-default levers grade BOTH the
+    # eligibility width and the commit decisiveness by the per-tick F-gap.
+    #
+    # FACTOR A -- conflict-graded shortlist width (the safety-hard primary). When
+    #   modulatory_shortlist_conflict_graded is True (and mode == "top_k"), the fixed k
+    #   is replaced by k = clamp(round(k_max - (k_max-1)*gap_norm), 1, K): near-ties
+    #   (small gap) -> wider k / slower commit (the STN threshold-raise); a decisive
+    #   F-gap -> k -> 1 / fast commit. F still gates ELIGIBILITY only; it is ABSENT from
+    #   the within-set arbitration (the routed modulatory channel argmin/sample picks
+    #   inside the eligible set). SAFETY: because the eligible set is the k F-best, a
+    #   clearly-harmful candidate (large F-gap above the best) is never admitted. Default
+    #   False -> the fixed modulatory_shortlist_k path is bit-identical.
+    modulatory_shortlist_conflict_graded: bool = False
+    modulatory_shortlist_k_max: int = 6
+    #
+    # FACTOR B -- gap-scaled entropy-regularized commit (the complement). The committed
+    #   selection is otherwise a HARD argmin over the F-dominated scores (or the routed
+    #   modulatory channel within a shortlist). When use_gap_scaled_commit_temperature is
+    #   True, the committed pick becomes multinomial(softmax(-q / T_eff)) over the
+    #   eligible set, with T_eff = base_temperature + gap_scaled_commit_entropy_alpha *
+    #   (1 - gap_norm): near-ties -> hotter (softer argmax); a decisive gap -> cold
+    #   (T_eff -> base, preserves the decisive F-winner). q is the routed modulatory
+    #   channel within an active Factor-A shortlist (F-bounded eligible set = the safety
+    #   guarantee), else the F-dominated scores restricted to an F-eligibility envelope
+    #   (candidates within gap_scaled_commit_harm_floor * raw_score_range of the best raw
+    #   score) so a hot commit-T in a near-tie can NEVER softmax-promote a clearly-harmful
+    #   candidate. This softens the COMMITTED hard-argmin (where the monostrategy lives);
+    #   distinct from MECH-313 tonic-noise (gap-blind, pre-select) and from the existing
+    #   uncommitted multinomial. A FLAT (gap-blind) commit-T reduces to the 569g
+    #   temperature control that under-lifted -- the (1 - gap_norm) gap-scaling is
+    #   load-bearing. Default False -> the hard argmin path is bit-identical.
+    use_gap_scaled_commit_temperature: bool = False
+    gap_scaled_commit_entropy_alpha: float = 1.0
+    gap_scaled_commit_harm_floor: float = 0.25
 
     # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
     # E2 forward prediction-error modulates E3 trajectory-scoring confidence.
@@ -4083,6 +4123,12 @@ class REEConfig:
         # modulatory-bias-selection-authority AMEND (TOP-K shortlist, 569h, 2026-06-16):
         modulatory_shortlist_mode: str = "margin",
         modulatory_shortlist_k: int = 3,
+        # CONVERSION-CEILING / F-dominance conflict-grade amend (MECH-439, 2026-06-18):
+        modulatory_shortlist_conflict_graded: bool = False,
+        modulatory_shortlist_k_max: int = 6,
+        use_gap_scaled_commit_temperature: bool = False,
+        gap_scaled_commit_entropy_alpha: float = 1.0,
+        gap_scaled_commit_harm_floor: float = 0.25,
         # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
         # E2 forward-PE -> E3 trajectory-scoring confidence down-weight. No-op default.
         use_pe_confidence_weighting: bool = False,
@@ -5007,6 +5053,16 @@ class REEConfig:
         # modulatory-bias-selection-authority TOP-K shortlist amend (569h, 2026-06-16)
         config.e3.modulatory_shortlist_mode = modulatory_shortlist_mode
         config.e3.modulatory_shortlist_k = modulatory_shortlist_k
+        # CONVERSION-CEILING / F-dominance conflict-grade amend (MECH-439, 2026-06-18)
+        config.e3.modulatory_shortlist_conflict_graded = (
+            modulatory_shortlist_conflict_graded
+        )
+        config.e3.modulatory_shortlist_k_max = modulatory_shortlist_k_max
+        config.e3.use_gap_scaled_commit_temperature = (
+            use_gap_scaled_commit_temperature
+        )
+        config.e3.gap_scaled_commit_entropy_alpha = gap_scaled_commit_entropy_alpha
+        config.e3.gap_scaled_commit_harm_floor = gap_scaled_commit_harm_floor
         # DR-12 (self_model_v4:SELF-4, 2026-06-17): E2 forward-PE -> E3 confidence
         # down-weight. The score_trajectory penalty reads these from config.e3.
         config.e3.use_pe_confidence_weighting = use_pe_confidence_weighting

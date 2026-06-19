@@ -742,6 +742,37 @@ class E3TrajectorySelector(nn.Module):
     # Selection                                                            #
     # ------------------------------------------------------------------ #
 
+    def _gap_scaled_commit_pick(
+        self,
+        cost: torch.Tensor,
+        gap_norm: float,
+        base_temperature: float,
+    ) -> int:
+        """Factor B (MECH-439): gap-scaled entropy-regularized committed pick.
+
+        Softens a HARD argmin over ``cost`` (a per-eligible cost vector,
+        lower-is-better) into a multinomial sample whose temperature is graded
+        by the normalized top-F gap. T_eff = base_temperature +
+        gap_scaled_commit_entropy_alpha * (1 - gap_norm): near-ties
+        (gap_norm ~ 0) commit HOTTER (softer argmax); a decisive gap (~1)
+        commits COLD (T_eff -> base, recovering the argmin in the limit). The
+        (1 - gap_norm) scaling is load-bearing -- a flat (gap-blind) commit-T
+        reduces to the 569g temperature control that under-lifted. Returns the
+        index into ``cost`` of the sampled element.
+        """
+        alpha = float(
+            getattr(self.config, "gap_scaled_commit_entropy_alpha", 1.0)
+        )
+        t_eff = base_temperature + alpha * (1.0 - float(gap_norm))
+        t_eff = max(t_eff, 1e-6)
+        self.last_score_diagnostics["gap_scaled_commit_active"] = True
+        self.last_score_diagnostics["gap_scaled_commit_gap_norm"] = float(gap_norm)
+        self.last_score_diagnostics["gap_scaled_commit_temperature_eff"] = float(
+            t_eff
+        )
+        probs = F.softmax(-cost.detach() / t_eff, dim=0)
+        return int(torch.multinomial(probs, 1).item())
+
     def select(
         self,
         candidates: List[Trajectory],
@@ -1081,6 +1112,17 @@ class E3TrajectorySelector(nn.Module):
             "modulatory_shortlist_mode": getattr(
                 self.config, "modulatory_shortlist_mode", "margin"
             ),
+            # CONVERSION-CEILING / F-dominance conflict-grade (MECH-439, 2026-06-18).
+            # conflict_gap_norm is ALWAYS set (when >= 2 candidates) regardless of
+            # which factor is active, so the per-tick F-gap regression falsifier can
+            # bin every tick (incl. fixed-k / hard-argmin control cells) uniformly.
+            "conflict_gap_norm": -1.0,
+            "modulatory_shortlist_conflict_graded": False,
+            "modulatory_shortlist_k_effective": -1,
+            "modulatory_shortlist_gap_norm": -1.0,
+            "gap_scaled_commit_active": False,
+            "gap_scaled_commit_gap_norm": -1.0,
+            "gap_scaled_commit_temperature_eff": -1.0,
             # DR-12 (self_model_v4:SELF-4): E2 forward-PE -> E3 confidence down-weight.
             "pe_confidence_active": _pe_active,
             "pe_confidence_weight": float(
@@ -1145,6 +1187,24 @@ class E3TrajectorySelector(nn.Module):
         # never selectable). Takes precedence over the additive-authority rescale +
         # argmin/stratified selection when enabled. Bit-identical OFF. See
         # failure_autopsy_V3-EXQ-569g_2026-06-14 + behavioral_diversity_isolation:GAP-A.
+        #
+        # CONVERSION-CEILING / F-dominance conflict-grade (MECH-439, 2026-06-18).
+        # Normalized top-F gap in [0, 1]: the gap between the F-best and
+        # F-second-best raw (primary) scores, scaled by the raw-score range. This
+        # ONE quantity drives BOTH Factor A (conflict-graded shortlist width) and
+        # Factor B (gap-scaled commit temperature) -- two renderings of the BG
+        # hyperdirect conflict-grade (grade the decision by the top-F gap). None
+        # when there are < 2 candidates (both factors then no-op).
+        _conflict_gap_norm: Optional[float] = None
+        if raw_scores.shape[0] >= 2:
+            _sorted_raw, _ = torch.sort(raw_scores)
+            _top_f_gap = float((_sorted_raw[1] - _sorted_raw[0]).item())
+            _conflict_gap_norm = max(
+                0.0, min(1.0, _top_f_gap / (raw_score_range + 1e-8))
+            )
+            self.last_score_diagnostics["conflict_gap_norm"] = float(
+                _conflict_gap_norm
+            )
         shortlist_idx: Optional[int] = None
         if (
             getattr(self.config, "use_modulatory_shortlist_then_modulate", False)
@@ -1165,8 +1225,43 @@ class E3TrajectorySelector(nn.Module):
                 # collapsed to the channel's global favorite (entropy 0.337 <
                 # proposer 0.549). Safety preserved: only the k F-best are
                 # selectable, so clearly-harmful candidates are never eligible.
-                k = int(getattr(self.config, "modulatory_shortlist_k", 3))
-                k = max(1, min(k, int(raw_scores.shape[0])))
+                #
+                # FACTOR A (MECH-439): conflict-graded width. When enabled, the
+                # fixed k is replaced by a state-graded k that widens at near-ties
+                # and narrows to 1 at a decisive F-gap:
+                #   k = clamp(round(k_max - (k_max-1)*gap_norm), 1, K)
+                # gap_norm ~ 0 (near-tie) -> k = k_max (wider eligible set, slower
+                # commit, the STN threshold-raise); gap_norm ~ 1 (decisive) ->
+                # k = 1 (fast commit on the F-winner). F still gates ELIGIBILITY
+                # only -- absent from the within-set arbitration below. Safety is
+                # the same top-k guarantee (a candidate with a large F-gap above
+                # the best is never admitted). Bit-identical OFF (fixed-k path).
+                if (
+                    getattr(
+                        self.config,
+                        "modulatory_shortlist_conflict_graded",
+                        False,
+                    )
+                    and _conflict_gap_norm is not None
+                ):
+                    k_max = int(
+                        getattr(self.config, "modulatory_shortlist_k_max", 6)
+                    )
+                    k_max = max(1, min(k_max, int(raw_scores.shape[0])))
+                    k = int(round(k_max - (k_max - 1) * _conflict_gap_norm))
+                    k = max(1, min(k, int(raw_scores.shape[0])))
+                    self.last_score_diagnostics[
+                        "modulatory_shortlist_conflict_graded"
+                    ] = True
+                    self.last_score_diagnostics[
+                        "modulatory_shortlist_k_effective"
+                    ] = k
+                    self.last_score_diagnostics[
+                        "modulatory_shortlist_gap_norm"
+                    ] = float(_conflict_gap_norm)
+                else:
+                    k = int(getattr(self.config, "modulatory_shortlist_k", 3))
+                    k = max(1, min(k, int(raw_scores.shape[0])))
                 eligible_idx = torch.topk(
                     raw_scores, k, largest=False
                 ).indices.flatten()
@@ -1184,8 +1279,29 @@ class E3TrajectorySelector(nn.Module):
             n_eligible = int(eligible_idx.numel())
             if n_eligible >= 1:
                 mod_eligible = _modulatory_accum.detach()[eligible_idx]
-                if committed or n_eligible == 1:
-                    local = int(mod_eligible.argmin().item())
+                if n_eligible == 1:
+                    local = 0
+                elif committed:
+                    # FACTOR B (MECH-439): gap-scaled entropy-regularized commit.
+                    # Soften the within-shortlist committed argmin over the routed
+                    # modulatory channel into a gap-scaled multinomial. SAFETY is
+                    # preserved by Factor A: the eligible set is the F-bounded
+                    # near-tie set, so a hot commit-T cannot promote a clearly-
+                    # harmful candidate (none are eligible). Bit-identical OFF
+                    # (hard argmin path).
+                    if (
+                        getattr(
+                            self.config,
+                            "use_gap_scaled_commit_temperature",
+                            False,
+                        )
+                        and _conflict_gap_norm is not None
+                    ):
+                        local = self._gap_scaled_commit_pick(
+                            mod_eligible, _conflict_gap_norm, temperature
+                        )
+                    else:
+                        local = int(mod_eligible.argmin().item())
                 else:
                     shortlist_probs = F.softmax(
                         -mod_eligible / temperature, dim=0
@@ -1215,6 +1331,32 @@ class E3TrajectorySelector(nn.Module):
                 )
             if stratified_idx is not None:
                 selected_idx = int(stratified_idx)
+            elif (
+                getattr(self.config, "use_gap_scaled_commit_temperature", False)
+                and _conflict_gap_norm is not None
+            ):
+                # FACTOR B standalone (no Factor-A shortlist active): soften the
+                # committed argmin over the F-dominated scores, but RESTRICT the
+                # softmax to an F-eligibility envelope (candidates within
+                # gap_scaled_commit_harm_floor * raw_score_range of the best raw
+                # score) so a hot commit-T in a near-tie can NEVER softmax-promote
+                # a clearly-harmful candidate -- the SAFETY GATE the backfill
+                # flagged. Bit-identical OFF (hard argmin path).
+                harm_floor = float(
+                    getattr(self.config, "gap_scaled_commit_harm_floor", 0.25)
+                )
+                best_raw = float(raw_scores.min().item())
+                envelope = best_raw + harm_floor * raw_score_range
+                env_idx = torch.nonzero(
+                    raw_scores <= envelope, as_tuple=False
+                ).flatten()
+                if int(env_idx.numel()) <= 1:
+                    selected_idx = int(scores.argmin().item())
+                else:
+                    local = self._gap_scaled_commit_pick(
+                        scores[env_idx], _conflict_gap_norm, temperature
+                    )
+                    selected_idx = int(env_idx[local].item())
             else:
                 selected_idx = int(scores.argmin().item())
         else:

@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-689",
+      "title": "MECH-439 F-dominance conflict-grade 2-factor (2x2) falsifier: conflict-graded shortlist width x gap-scaled commit-T on the GAP-A foraging substrate",
+      "experiment_type": "v3_exq_689_mech439_conflict_grade_2factor_falsifier",
+      "script": "experiments/v3_exq_689_mech439_conflict_grade_2factor_falsifier.py",
+      "priority": 350,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 600,
+      "episodes_per_run": 80,
+      "seeds": 3,
+      "conditions": 6,
+      "claim_id": "MECH-439",
+      "note": "FIRST falsifier for MECH-439 (conversion-ceiling F-dominance root; F=88-89% of E3 committed-selection variance, V3-EXQ-571). 2x2 = Factor A (fixed-k=3 vs conflict-graded shortlist width) x Factor B (hard argmin vs gap-scaled commit-T), CRF stack constant, PLUS collapsed-proposer + matched-noise controls; all arms on the GAP-A-ready foraging substrate (SD-056-trained e2.world_forward + ARC-065 GAP-A candidate_summary_source=e2_world_forward = the divergent eligible set / non-vacuity precondition). PRIMARY: ARM_A1B1 committed_action_class_entropy strict-above BOTH controls on >=2/3 seeds. LOAD-BEARING pre-registered F-gap falsifier: committed-entropy lift MUST correlate with per-tick top-F gap (ARM_A1B1 per-gap-bin entropy slope negative + more negative than fixed-k ARM_A0B0). Readiness (route-range + e2-divergence + grading-engaged k/T_eff/gap spread) self-routes substrate_not_ready_requeue. NO weakens path; preconditions-met fail routes to the synthesis-doc V4 directions. Dry-run smoke PASS (runs end-to-end all 6 arms, self-routes substrate_not_ready at dry scale by design). conversion_ceiling_phase0_synthesis_2026-06-18."
+    }
+  ]
 }
