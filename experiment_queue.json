@@ -60,6 +60,25 @@
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_485g_sd033b_trained_ofc_head_behavioural",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-654g",
+      "title": "arc_062 GAP-B falsifier (MECH-309/ARC-062) on the 569i-validated TOP-K shortlist conversion; supersedes V3-EXQ-654f",
+      "script": "experiments/v3_exq_654g_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
+      "experiment_type": "v3_exq_654g_arc062_gapb_rule_apprehension_behavioural_falsifier",
+      "priority": 335,
+      "machine_affinity": "any",
+      "estimated_minutes": 600,
+      "status": "pending",
+      "supersedes": "V3-EXQ-654f",
+      "claim_ids": [
+        "MECH-309",
+        "ARC-062"
+      ],
+      "episodes_per_run": 350,
+      "seeds": 3,
+      "conditions": 2,
+      "note": "Experiment-owed half of arc_062_rule_apprehension:GAP-B. Ports the GAP-B committed-class-entropy falsifier onto the 569i-VALIDATED TOP-K SHORTLIST conversion (V3-EXQ-569i PASS/supports 2026-06-17; ARC-065 promoted stable): use_modulatory_shortlist_then_modulate + modulatory_shortlist_mode=top_k + modulatory_shortlist_k=3 as a matched-stack CONSTANT on BOTH arms; the now-working CRF stack (mature + maintenance + persist + e2-context + trained-bias-head P1 GAP-D) and candidate_summary_source=e2_world_forward are CONSTANT; ONLY use_candidate_rule_field is swept (ARM_OFF vs ARM_ON). Supersedes V3-EXQ-654f (FAIL non_contributory 2026-06-18; confirmed failure_autopsy_V3-EXQ-654f_2026-06-18): 654f's CRF-gate amend WORKED (C1 fully met, crf_frac_active 0.83-0.97) but it armed the SUPERSEDED additive ARM_STD_G2 lever standalone (569h FAIL 1/3). 654g does NOT arm ARM_STD_G2 standalone and adds NO further CRF amend (CRF is done). PRIMARY DV = committed-class entropy lift (>=2/3 seeds). Three-branch NO-weakens map: (a) C1 met + C2 lift -> PASS -> MECH-309/ARC-062 supports; (b) C1 met + C2 fails -> deeper shared selection-authority conversion ceiling / F-dominance (MECH-439) -> non_contributory + /implement-substrate, NOT a falsification; (c) C1 fails -> non_contributory / substrate_not_ready_requeue. NO weakens branch while the conversion ceiling framing holds. KNOWN OPEN RISK (does NOT block queuing): per the MECH-439 Phase-0 synthesis the top-k 2/3-seed margin is thin and may not survive the composite; if C2 fails that is branch (b), not a falsification. Dry-run smoke PASS: both arms run end-to-end, self-routes substrate_not_ready_requeue at dry scale (C1 unmet, CRF cannot mature in 2 ep); top-k shortlist verified wired into action selection (modulatory_shortlist_active=True, mode=top_k at every select tick). machine any. NOTE (audit trail): queued under concurrent experiment_queue.json writers (485g/460g); working-tree-vs-HEAD audit + post-commit dropped-file check applied per queue-experiment Step 5/8 (phase3-queue snapshot race)."
     }
   ]
 }
