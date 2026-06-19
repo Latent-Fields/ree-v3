@@ -96,6 +96,22 @@
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_514t_sd049_phase2_mech436_drive_coupling_retest",
       "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-625e",
+      "title": "SD-037 axis-b P1b joint-composite RECALIBRATED (trained-harm-pathway threat: 10x-lower + pulsed; 603q-stabilized harm config)",
+      "experiment_type": "v3_exq_625e_sd037_axis_b_phase1b_joint_composite_recalibrated",
+      "script": "experiments/v3_exq_625e_sd037_axis_b_phase1b_joint_composite_recalibrated.py",
+      "priority": 250,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 330,
+      "episodes_per_run": 270,
+      "seeds": 3,
+      "conditions": 1,
+      "supersedes": "V3-EXQ-625d",
+      "note": "sd_037_axis_b:P1b gate. Successor to 625d per failure_autopsy_V3-EXQ-625d_2026-06-18 S7: recalibrate axis-b threat for the TRAINED harm pathway (hazard_harm/proximity_harm_scale 0.2->0.02 + pulsed scheduled-hazard duty cycle ON40/OFF40 so z_harm_a relieves+crosses 0.4 downward) + 603q-stabilized harm pathway (encoder_lr 3e-4 + warmup 250 + Stage-H num_hazards=6) + full scaffold curriculum + 569i top-k conversion + MECH-341/SD-056. R1-R4 non-vacuity guards UNCHANGED (R3/R4 self-route substrate_not_ready_requeue on a GAP-A conversion-propagation miss, NEVER a weakens). Sharpened C3a>=1 above->below AND C3b>=1 below->above per seed, >=2/3. claim_ids=[] (substrate-readiness diagnostic). Dry-run smoke PASS (z_harm_a_max 0.34 sub-saturating band vs 625d's ~6; self-routes substrate_not_ready at dry scale).",
+      "claim_ids": []
     }
   ]
 }
