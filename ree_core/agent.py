@@ -78,6 +78,8 @@ from ree_core.cingulate import (
     PCCConfig,
     SalienceCoordinator,
     SalienceCoordinatorConfig,
+    StuckStateDetector,
+    StuckStateDetectorConfig,
 )
 from ree_core.latent.stack import HarmForwardTrunk
 from ree_core.pfc import LateralPFCAnalog, OFCAnalog
@@ -111,6 +113,8 @@ from ree_core.policy import (
     CommitMaintenanceReleaseConfig,
     CommitReadiness,
     CommitReadinessConfig,
+    DifficultyGatedProposalEntropy,
+    DifficultyGatedProposalEntropyConfig,
     GatedPolicy,
     GatedPolicyConfig,
     NoiseFloor,
@@ -899,6 +903,64 @@ class REEAgent(nn.Module):
                 ),
             )
             self.maintenance_release = CommitMaintenanceRelease(config=mr_cfg)
+
+        # SD-061: difficulty-gated proposal-entropy regulator (MECH-343 blocker
+        # part 2). A stuck-state detector integrates goal-progress stall + dACC
+        # choice difficulty + E3 score margin + committed-action diversity
+        # (guarded by goal salience) into a graded stuck_score; the regulator
+        # maps it to a transient gain on the ARC-018/CEM proposal layer (wider
+        # candidate set + within-class temperature), decaying as the impasse
+        # clears. Bit-identical baseline when
+        # use_difficulty_gated_proposal_entropy=False (both are None and the
+        # _e3_tick proposal-gain + select_action detector-update blocks are
+        # skipped). See ree_core/cingulate/stuck_state_detector.py,
+        # ree_core/policy/difficulty_gated_proposal_entropy.py and
+        # REE_assembly/docs/architecture/sd_061_difficulty_gated_proposal_entropy.md.
+        self.stuck_state_detector: Optional[StuckStateDetector] = None
+        self.difficulty_gated_proposal_entropy: Optional[
+            DifficultyGatedProposalEntropy
+        ] = None
+        self._last_stuck_score: float = 0.0
+        if getattr(config, "use_difficulty_gated_proposal_entropy", False):
+            self.stuck_state_detector = StuckStateDetector(
+                config=StuckStateDetectorConfig(
+                    use_stuck_state_detector=True,
+                    progress_window=getattr(config, "stuck_progress_window", 8),
+                    progress_stall_eps=getattr(
+                        config, "stuck_progress_stall_eps", 0.01
+                    ),
+                    score_margin_floor=getattr(
+                        config, "stuck_score_margin_floor", 0.05
+                    ),
+                    committed_diversity_window=getattr(
+                        config, "stuck_committed_diversity_window", 8
+                    ),
+                    committed_diversity_floor=getattr(
+                        config, "stuck_committed_diversity_floor", 0.34
+                    ),
+                    choice_difficulty_ref=getattr(
+                        config, "stuck_choice_difficulty_ref", 0.05
+                    ),
+                    goal_salience_floor=getattr(
+                        config, "stuck_goal_salience_floor", 0.05
+                    ),
+                    ema_alpha_rise=getattr(config, "stuck_ema_alpha_rise", 0.3),
+                    ema_alpha_fall=getattr(config, "stuck_ema_alpha_fall", 0.05),
+                    stuck_threshold=getattr(config, "stuck_threshold", 0.5),
+                    combine_mode=getattr(config, "stuck_combine_mode", "mean"),
+                )
+            )
+            self.difficulty_gated_proposal_entropy = DifficultyGatedProposalEntropy(
+                config=DifficultyGatedProposalEntropyConfig(
+                    use_difficulty_gated_proposal_entropy=True,
+                    candidate_widen_max=getattr(
+                        config, "dgpe_candidate_widen_max", 8
+                    ),
+                    temperature_gain_max=getattr(
+                        config, "dgpe_temperature_gain_max", 1.0
+                    ),
+                )
+            )
 
         # MECH-314 (ARC-065): structured_curiosity_bonus (frontopolar / EFE
         # analog). State-DEPENDENT score-bias on E3 candidate scoring.
@@ -2229,6 +2291,14 @@ class REEAgent(nn.Module):
         # pressure.
         if self.maintenance_release is not None:
             self.maintenance_release.reset()
+        # SD-061: reset the stuck-state detector + proposal-entropy regulator
+        # per episode (preserve no cross-episode impasse state) + the lagged
+        # stuck_score the next _e3_tick reads.
+        if self.stuck_state_detector is not None:
+            self.stuck_state_detector.reset()
+        if self.difficulty_gated_proposal_entropy is not None:
+            self.difficulty_gated_proposal_entropy.reset()
+        self._last_stuck_score = 0.0
         # MECH-353: reset blocked-agency integrator + the per-tick latent caches.
         if self.blocked_agency is not None:
             self.blocked_agency.reset()
@@ -3927,15 +3997,52 @@ class REEAgent(nn.Module):
             else None
         )
         _persistence_appraisal = self._compute_persistence_appraisal(z_world_for_e3)
-        candidates = self.hippocampal.propose_trajectories(
-            z_world=z_world_for_e3,
-            z_self=latent_state.z_self,
-            num_candidates=num_candidates,
-            e1_prior=e1_prior,
-            action_bias=self._cue_action_bias,
-            current_z_goal=_current_z_goal,
-            persistence_appraisal=_persistence_appraisal,
-        )
+        # SD-061: difficulty-gated proposal-entropy. When stuck (the previous
+        # tick's stuck_score), transiently WIDEN the CEM candidate set and lift
+        # the within-class CEM sampling temperature on the PROPOSAL layer
+        # (ARC-018), restoring both afterward. No-op when the regulator is None
+        # or stuck_score=0 -> bit-identical proposal. Scoring / commitment /
+        # selection authority are untouched (a hard problem widens proposals,
+        # not behaviour).
+        _dgpe_num_candidates = num_candidates
+        _dgpe_temp_restore: Optional[float] = None
+        if self.difficulty_gated_proposal_entropy is not None:
+            _dgpe_extra, _dgpe_temp_gain = (
+                self.difficulty_gated_proposal_entropy.compute_proposal_gain(
+                    self._last_stuck_score, simulation_mode=False
+                )
+            )
+            if _dgpe_extra > 0:
+                _dgpe_base = (
+                    num_candidates
+                    if num_candidates is not None
+                    else getattr(self.hippocampal.config, "num_candidates", 0)
+                )
+                _dgpe_num_candidates = int(_dgpe_base) + int(_dgpe_extra)
+            if _dgpe_temp_gain > 1.0 and hasattr(
+                self.hippocampal.config, "differentiable_cem_temperature"
+            ):
+                _dgpe_temp_restore = float(
+                    self.hippocampal.config.differentiable_cem_temperature
+                )
+                self.hippocampal.config.differentiable_cem_temperature = (
+                    _dgpe_temp_restore * _dgpe_temp_gain
+                )
+        try:
+            candidates = self.hippocampal.propose_trajectories(
+                z_world=z_world_for_e3,
+                z_self=latent_state.z_self,
+                num_candidates=_dgpe_num_candidates,
+                e1_prior=e1_prior,
+                action_bias=self._cue_action_bias,
+                current_z_goal=_current_z_goal,
+                persistence_appraisal=_persistence_appraisal,
+            )
+        finally:
+            if _dgpe_temp_restore is not None:
+                self.hippocampal.config.differentiable_cem_temperature = (
+                    _dgpe_temp_restore
+                )
         self._committed_candidates = candidates
 
         # MECH-294: this is the theta-cycle (E3-heartbeat) boundary -- push the
@@ -4262,6 +4369,62 @@ class REEAgent(nn.Module):
                 # observable (the V3-EXQ-592f probe measures
                 # e3._committed_trajectory presence as the decommit signal).
                 self.e3._committed_trajectory = None
+
+        # SD-061: update the stuck-state detector every tick (not gated on beta
+        # elevation -- impasse can build before commitment). Feeds the next
+        # tick's _e3_tick proposal-gain via self._last_stuck_score (one-tick
+        # lag, the standard regulator seam). All inputs are read defensively;
+        # an absent signal is inert (None). No-op when the detector is None.
+        if self.stuck_state_detector is not None:
+            _ss_margin: Optional[float] = None
+            _ss_n: int = 0
+            try:
+                if self.e3.last_scores is not None:
+                    _ss_scores = self.e3.last_scores.detach()
+                    _ss_n = int(_ss_scores.numel())
+                    if _ss_n >= 2:
+                        _ss_sorted, _ = torch.sort(_ss_scores)
+                        _ss_margin = float(
+                            _ss_sorted[1].item() - _ss_sorted[0].item()
+                        )
+            except (AttributeError, RuntimeError, TypeError):
+                _ss_margin = None
+                _ss_n = 0
+            _ss_choice_difficulty: Optional[float] = None
+            _ss_bundle = getattr(self, "_dacc_last_bundle", None)
+            if isinstance(_ss_bundle, dict) and "choice_difficulty" in _ss_bundle:
+                try:
+                    _ss_choice_difficulty = float(_ss_bundle["choice_difficulty"])
+                except (TypeError, ValueError):
+                    _ss_choice_difficulty = None
+            _ss_goal_prox: Optional[float] = None
+            _ss_goal_salience: Optional[float] = None
+            _ss_committed_class: Optional[int] = None
+            if self.goal_state is not None and self.goal_state.is_active():
+                try:
+                    _ss_zw = self._current_latent.z_world
+                    _ss_goal_prox = float(self.goal_state.goal_proximity(_ss_zw))
+                    _ss_goal_salience = float(self.goal_state.goal_norm())
+                except (AttributeError, RuntimeError, TypeError):
+                    _ss_goal_prox = None
+                    _ss_goal_salience = None
+            try:
+                _ss_traj = self.e3._committed_trajectory
+                if _ss_traj is not None and _ss_traj.actions is not None:
+                    _ss_committed_class = int(
+                        torch.argmax(_ss_traj.actions[0, 0, :]).item()
+                    )
+            except (AttributeError, RuntimeError, TypeError, IndexError):
+                _ss_committed_class = None
+            self._last_stuck_score = self.stuck_state_detector.update(
+                goal_proximity=_ss_goal_prox,
+                score_margin=_ss_margin,
+                n_candidates=_ss_n,
+                committed_action_class=_ss_committed_class,
+                choice_difficulty=_ss_choice_difficulty,
+                goal_salience=_ss_goal_salience,
+                simulation_mode=False,
+            )
 
         # MECH-353 DECOMMIT consumer: if z_block asserted hard across the window
         # but the block persisted (assertion failed), release the blocked

@@ -2346,6 +2346,30 @@ class REEConfig:
     # no consumer when agent.maintenance_release is None.
     # See ree_core/policy/commit_maintenance_release.py and
     # REE_assembly/docs/architecture/mech_342_commit_maintenance_release.md.
+    # SD-061 difficulty-gated proposal-entropy regulator (MECH-343 blocker 2):
+    # a stuck-state detector + a transient gain on the ARC-018 / CEM proposal
+    # layer (wider candidate set + within-class CEM temperature), decaying as
+    # the impasse clears. All no-op default -> bit-identical OFF. See
+    # ree_core/cingulate/stuck_state_detector.py +
+    # ree_core/policy/difficulty_gated_proposal_entropy.py +
+    # REE_assembly/docs/architecture/sd_061_difficulty_gated_proposal_entropy.md.
+    use_difficulty_gated_proposal_entropy: bool = False
+    # Stuck-state detector knobs.
+    stuck_progress_window: int = 8
+    stuck_progress_stall_eps: float = 0.01
+    stuck_score_margin_floor: float = 0.05
+    stuck_committed_diversity_window: int = 8
+    stuck_committed_diversity_floor: float = 0.34
+    stuck_choice_difficulty_ref: float = 0.05
+    stuck_goal_salience_floor: float = 0.05
+    stuck_ema_alpha_rise: float = 0.3
+    stuck_ema_alpha_fall: float = 0.05
+    stuck_threshold: float = 0.5
+    stuck_combine_mode: str = "mean"
+    # Difficulty-gated proposal-entropy regulator knobs.
+    dgpe_candidate_widen_max: int = 8
+    dgpe_temperature_gain_max: float = 1.0
+
     use_maintenance_release: bool = False
     # Decisiveness (score_margin) floor: at/below this the within-tick
     # decisiveness axis is "failing" and contributes release-pressure
@@ -3882,6 +3906,22 @@ class REEConfig:
         commit_readiness_window: int = 20,
         commit_readiness_ema_alpha: float = 0.1,
         commit_readiness_initial: float = 1.0,
+        # SD-061: difficulty-gated proposal-entropy regulator (MECH-343
+        # blocker part 2). All no-op default -> bit-identical OFF.
+        use_difficulty_gated_proposal_entropy: bool = False,
+        stuck_progress_window: int = 8,
+        stuck_progress_stall_eps: float = 0.01,
+        stuck_score_margin_floor: float = 0.05,
+        stuck_committed_diversity_window: int = 8,
+        stuck_committed_diversity_floor: float = 0.34,
+        stuck_choice_difficulty_ref: float = 0.05,
+        stuck_goal_salience_floor: float = 0.05,
+        stuck_ema_alpha_rise: float = 0.3,
+        stuck_ema_alpha_fall: float = 0.05,
+        stuck_threshold: float = 0.5,
+        stuck_combine_mode: str = "mean",
+        dgpe_candidate_widen_max: int = 8,
+        dgpe_temperature_gain_max: float = 1.0,
         # MECH-342: maintenance-time readiness-driven commitment release
         # (B3b). The release-side complement to the MECH-090 admission
         # conjunction. See ree_core/policy/commit_maintenance_release.py.
@@ -4783,6 +4823,24 @@ class REEConfig:
         # behave identically to direct-construction configs.
         if use_mech090_readiness_conjunction:
             config.use_commit_readiness = True
+
+        # SD-061: difficulty-gated proposal-entropy regulator.
+        config.use_difficulty_gated_proposal_entropy = (
+            use_difficulty_gated_proposal_entropy
+        )
+        config.stuck_progress_window = stuck_progress_window
+        config.stuck_progress_stall_eps = stuck_progress_stall_eps
+        config.stuck_score_margin_floor = stuck_score_margin_floor
+        config.stuck_committed_diversity_window = stuck_committed_diversity_window
+        config.stuck_committed_diversity_floor = stuck_committed_diversity_floor
+        config.stuck_choice_difficulty_ref = stuck_choice_difficulty_ref
+        config.stuck_goal_salience_floor = stuck_goal_salience_floor
+        config.stuck_ema_alpha_rise = stuck_ema_alpha_rise
+        config.stuck_ema_alpha_fall = stuck_ema_alpha_fall
+        config.stuck_threshold = stuck_threshold
+        config.stuck_combine_mode = stuck_combine_mode
+        config.dgpe_candidate_widen_max = dgpe_candidate_widen_max
+        config.dgpe_temperature_gain_max = dgpe_temperature_gain_max
 
         # MECH-342: maintenance-time readiness-driven commitment release.
         config.use_maintenance_release = use_maintenance_release

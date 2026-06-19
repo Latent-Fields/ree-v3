@@ -21,6 +21,10 @@ from ree_core.policy.commit_readiness import (
     CommitReadiness,
     CommitReadinessConfig,
 )
+from ree_core.policy.difficulty_gated_proposal_entropy import (
+    DifficultyGatedProposalEntropy,
+    DifficultyGatedProposalEntropyConfig,
+)
 from ree_core.policy.gated_policy import (
     GatedPolicy,
     GatedPolicyConfig,

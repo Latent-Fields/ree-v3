@@ -53,8 +53,14 @@ from ree_core.cingulate.salience_coordinator import (
     SalienceCoordinator,
     SalienceCoordinatorConfig,
 )
+from ree_core.cingulate.stuck_state_detector import (
+    StuckStateDetector,
+    StuckStateDetectorConfig,
+)
 
 __all__ = [
+    "StuckStateDetector",
+    "StuckStateDetectorConfig",
     "AICAnalog",
     "AICConfig",
     "DACCAdaptiveControl",
