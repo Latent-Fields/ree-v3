@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-18
+**Last updated:** 2026-06-19
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-18)
+## 0. Current V3 State (2026-06-19)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -177,6 +177,83 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-19T01:10Z nightly read (scheduled `/update-docs`).**
+  Queue + pending-review churn day with no new substrate landings.
+  Yesterday's two queued items (V3-EXQ-468e SD-034
+  commitment-vs-contradiction de-commit-hold retest on the
+  BETA-ENGAGEMENT-amended substrate; V3-EXQ-514s MECH-436
+  drive-coupling retest on the SD-049-PHASE-2 kappa-scale + standing-
+  differential-depletion substrate) both ran to completion and
+  **FAILed** -- neither the SD-034 closure-control-plane Legs A/B/C
+  + beta-engagement amend bundle nor the SD-049-PHASE-2 kappa-scale
+  amend produced the pre-registered ON<OFF / `substrate_ceiling ->
+  supports` lift this cycle; the 2026-06-18 governance cycle's
+  prior closure-control-plane adjudication (468e flagged for
+  `/failure-autopsy`; 460f autopsied at 460f to `non_contributory`)
+  stands as the load-bearing reading. **Pending review queue
+  (regenerated 2026-06-18T08:15:03Z) reads 5 items, all FAIL** --
+  (a) `V3-EXQ-468e` (SD-034 / MECH-268 / MECH-090 commit-vs-
+  contradiction de-commit-hold retest on the beta-engagement-amended
+  substrate; FAIL, flagged for `/failure-autopsy` adjudication per
+  the 2026-06-18 governance cycle note); (b-d) `V3-EXQ-688` x3
+  (`mech044_hippocampal_relational_binding`; FAIL with diagnostic
+  self-route `substrate_not_ready_requeue` adjudicated
+  `precondition_unmet` on all three timestamps -- the diagnostic-
+  adjudication gate blocks the self-route from driving any
+  governance action until a `/failure-autopsy` adjudicates whether
+  the precondition gap is substrate or wiring); (e) `V3-EXQ-514s`
+  (MECH-436 drive-coupling retest on the SD-049-PHASE-2 kappa-scale
+  amend; FAIL, supersedes V3-EXQ-514r; routes back to the kappa /
+  standing-differential-depletion calibration line per the pre-
+  registered 514r-autopsy off-ramp). 3 diagnostic self-route flags
+  carried forward from the 688 cluster. **Currently queued
+  (`experiment_queue.json` items[]): 0 items** -- both yesterday's
+  queued items drained without successors yet queued; the active
+  /failure-autopsy work on 468e (TASK_CLAIMS `failure-autopsy-468e`)
+  and the 688 cluster adjudication are the next steps before any
+  re-queue. **Substrate / governance landings since the 2026-06-18T01:10Z
+  spec sync** are infrastructure-only (no claim-touching substrate
+  edits): the queue-experiment skill **audit R7 hardening** landed
+  (REE_assembly master 8a4571f) -- the skill now wires the
+  `POST /queue/add` coordinator ingress to the live `/queue/add`
+  endpoint so queued items reach the coordinator DB without manual
+  re-curl steps (a follow-on to the 2026-06-17 IGW R6/R8 reaper
+  hardening; closes the queue-experiment session's audit residual);
+  the **IGW R6+R8 reaper hardening session closed** (REE_assembly
+  master 1aff9ac) -- the WORKSPACE_STATE Recent Work + claim entry
+  documents the test green at 50/50 and confirms the generator-
+  timeout fallback to the last-good workset is in production; the
+  **failure-autopsy 468e session opened** (TASK_CLAIMS
+  `failure-autopsy-468e`) per the 2026-06-18T0804Z governance cycle
+  routing note flagging 468e for adjudication. `evidence/experiments/`
+  flat top-level: **~440 manifests on disk** (frontier through
+  V3-EXQ-688 + V4-EXQ-001 the first-ever V4 manifest; the 18->19
+  delta absorbs 468e + 688 x3 + 514s + the 2026-06-18 governance
+  pending_review walk). Legacy fleet `runner_status.json` unchanged
+  at the **840 dedup completion records** snapshot from earlier in
+  June (Phase-3 per-machine cards under `runner_heartbeats/` +
+  `runner_status/` lead the legacy single-file tally;
+  outcome-breakdown unchanged on the legacy file). **Bottleneck
+  (continuation):** the **SD-034 closure-control-plane Legs A/B/C +
+  beta-engagement V3-EXQ-468e adjudication** is the live in-flight
+  call -- the autopsy will decide whether 468e is genuine
+  weakens-on-substrate-ceiling or another commit-without-beta /
+  precondition_unmet case; **the V3-EXQ-688 MECH-044 hippocampal
+  relational binding precondition-unmet cluster** needs the same
+  diagnostic-adjudication gate cleared before any 688-successor can
+  be queued; **SD-049-PHASE-2 MECH-436 drive-coupling FAIL at
+  V3-EXQ-514s** routes back to the kappa / standing-differential-
+  depletion calibration line (the 514s-successor stays unqueued
+  pending the routing call); **bdiv GAP-A conversion-architecture
+  frontier paced by V3-EXQ-569i** (TOP-K shortlist falsifier, still
+  in flight on the coordinator) remains the master conversion-
+  ceiling choke; **Stage-H harm-pathway stabilization 603q** is the
+  only blocking item left on the goal_pipeline GAP-2 survival-leg
+  cohort. **V4-EXQ-001 PASS** (2026-06-18 governance walk applied;
+  MECH-215 stays candidate / `implementation_phase=v4` -- DR-12
+  cleared, MECH-215 awaits DR-10 + experiments) -- the first V4
+  datapoint sits established in the record.
 
 - **2026-06-18T01:10Z nightly read (scheduled `/update-docs`).**
   `evidence/experiments/` flat top-level holds **431
