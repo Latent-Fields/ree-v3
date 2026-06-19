@@ -91,6 +91,26 @@
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_485g_sd033b_trained_ofc_head_behavioural",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-688a",
+      "title": "MECH-044 hippocampal relational binding: full harness fix + non-vacuity guards (supersedes V3-EXQ-688)",
+      "script": "experiments/v3_exq_688a_mech044_hippocampal_relational_binding.py",
+      "priority": 150,
+      "machine_affinity": "any",
+      "estimated_minutes": 10,
+      "supersedes": "V3-EXQ-688",
+      "backlog_id": "EVB-0295",
+      "claim_id": "MECH-044",
+      "note": "Copy-and-modify of V3-EXQ-688 per the CONFIRMED failure_autopsy_V3-EXQ-688_2026-06-18: 688's FAIL/non_contributory was a precondition_unmet VACUOUS self-route (G1 read per_stream_vs.get('z_world',1.0) while use_per_stream_vs=False -> vs_change=0.0 BY CONSTRUCTION; G2 fed the MECH-288 segmenter i.i.d. white noise -> 0 boundary events). MECH-269/MECH-288 substrate is IMPLEMENTED+AVAILABLE; 688 simply did not arm/stimulate it -> NOT a substrate gap, NO substrate_queue entry. 688a FIXES: (1) arm use_per_stream_vs=True so G1 is a real measurement; (2) STRUCTURED-stimulus G2 -- canonical 10x+ sustained-spike alternation (not white noise) on a fresh-agent segmenter, with the boundary-event count as the existence proof; (3) NON-VACUITY GUARD G3 z_world_relational_discriminative -- relation-class Fisher ratio (A-north vs A-south across random placements) >= 1.0, so a random-init/synthetic-obs encoder (dominated by absolute position) self-routes substrate_not_ready_requeue HONESTLY rather than a spurious PASS/FAIL; (4) displacement-matched relational vs absolute manipulations (removes 688's motion-magnitude confound). Interpretation grid: readiness unmet -> non_contributory/substrate_not_ready_requeue (NEVER a false weakens); readiness met + C1+C2+C3 -> supports; readiness met + C1/C2 fail -> honest weakens; only C3 fail -> mixed. claim_ids=[MECH-044]; MECH-044 stays provisional, unweakened. Dry-run smoke PASS: self-routes substrate_not_ready_requeue with G0=0.134 met / G1=0.168 met (ARMED, real) / G2=1 met (segmenter verified live+stimulated) / G3=0.20 UNMET (the load-bearing discriminative guard on the untrained encoder) -- the trustworthy self-route 688's vacuous one masked; a fair PASS needs a discriminative encoder (future trained-encoder successor). validate_experiments --strict --paths OK. NOTE (audit trail): queued under concurrent experiment_queue.json writers (689/460g/654g/485g); working-tree-vs-HEAD audit + post-commit dropped-file check applied per queue-experiment Step 5/8 (phase3-queue snapshot race). Optional follow-on (NOT blocking): /lit-pull targeted_review for the MECH-044 cluster's recorded no-biology-lit-pull flag (claims.yaml ~37558).",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-044"
+      ],
+      "conditions": 1,
+      "episodes_per_run": 30,
+      "experiment_type": "v3_exq_688a_mech044_hippocampal_relational_binding",
+      "seeds": 1
     }
   ]
 }
