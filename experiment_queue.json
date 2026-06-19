@@ -36,10 +36,33 @@
       "supersedes": "V3-EXQ-460f",
       "claim_id": "SD-034",
       "note": "Re-issue of 460f (supersedes) on the de-commit-authority-MAGNITUDE-amended substrate (committed-run-scaled Leg-B refractory, ree-v3 main 2cd0aa2). Arms closure_decommit_hold_scale_with_run=0.1 + max_ticks=60 ON TOP of beta_gate_bistable + use_closure_commit_beta_coupling + Leg-A env hook + Leg-B hold + Leg-C scaffold_train_rule_bias_head. Part(b): C2 redesigned to a PAIRED within-ON-arm around-closure pre-vs-post occupancy delta (460f between-arm DV kept as secondary diagnostic); non-vacuity gate tightened to sd034_n_closure_coupled_elevations>0. claim_ids SD-034/MECH-260/MECH-261; MECH-261 stays non_contributory unless the automatic mode-conditioned detector fires (460f autopsy protection). Five readiness gates self-route substrate_not_ready_requeue when unmet. The 468e MECH-090 leg is separately owed. dry-run runs end-to-end (self-routes substrate_not_ready at dry scale, as designed).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-06-19T14:15:28Z"
+      },
       "conditions": 1,
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_460g_sd034_closure_control_plane_decommit_magnitude",
+      "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-654g",
+      "title": "arc_062 GAP-B falsifier (MECH-309/ARC-062) on the 569i-validated TOP-K shortlist conversion; supersedes V3-EXQ-654f",
+      "script": "experiments/v3_exq_654g_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
+      "priority": 335,
+      "machine_affinity": "any",
+      "estimated_minutes": 600,
+      "supersedes": "V3-EXQ-654f",
+      "note": "Experiment-owed half of arc_062_rule_apprehension:GAP-B. Ports the GAP-B committed-class-entropy falsifier onto the 569i-VALIDATED TOP-K SHORTLIST conversion (V3-EXQ-569i PASS/supports 2026-06-17; ARC-065 promoted stable): use_modulatory_shortlist_then_modulate + modulatory_shortlist_mode=top_k + modulatory_shortlist_k=3 as a matched-stack CONSTANT on BOTH arms; the now-working CRF stack (mature + maintenance + persist + e2-context + trained-bias-head P1 GAP-D) and candidate_summary_source=e2_world_forward are CONSTANT; ONLY use_candidate_rule_field is swept (ARM_OFF vs ARM_ON). Supersedes V3-EXQ-654f (FAIL non_contributory 2026-06-18; confirmed failure_autopsy_V3-EXQ-654f_2026-06-18): 654f's CRF-gate amend WORKED (C1 fully met, crf_frac_active 0.83-0.97) but it armed the SUPERSEDED additive ARM_STD_G2 lever standalone (569h FAIL 1/3). 654g does NOT arm ARM_STD_G2 standalone and adds NO further CRF amend (CRF is done). PRIMARY DV = committed-class entropy lift (>=2/3 seeds). Three-branch NO-weakens map: (a) C1 met + C2 lift -> PASS -> MECH-309/ARC-062 supports; (b) C1 met + C2 fails -> deeper shared selection-authority conversion ceiling / F-dominance (MECH-439) -> non_contributory + /implement-substrate, NOT a falsification; (c) C1 fails -> non_contributory / substrate_not_ready_requeue. NO weakens branch while the conversion ceiling framing holds. KNOWN OPEN RISK (does NOT block queuing): per the MECH-439 Phase-0 synthesis the top-k 2/3-seed margin is thin and may not survive the composite; if C2 fails that is branch (b), not a falsification. Dry-run smoke PASS: both arms run end-to-end, self-routes substrate_not_ready_requeue at dry scale (C1 unmet, CRF cannot mature in 2 ep); top-k shortlist verified wired into action selection (modulatory_shortlist_active=True, mode=top_k at every select tick). machine any. NOTE (audit trail): queued under concurrent experiment_queue.json writers (485g/460g); working-tree-vs-HEAD audit + post-commit dropped-file check applied per queue-experiment Step 5/8 (phase3-queue snapshot race).",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-309",
+        "ARC-062"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 350,
+      "experiment_type": "v3_exq_654g_arc062_gapb_rule_apprehension_behavioural_falsifier",
       "seeds": 3
     },
     {
@@ -51,7 +74,11 @@
       "estimated_minutes": 240,
       "supersedes": "V3-EXQ-485f",
       "note": "Experiment-owed half of commitment_closure:GAP-8 (trained-OFC-head behavioural arm). Supersedes V3-EXQ-485f (FAILed non_contributory 2026-06-11: cleared bias-range 0.00898 but ~50x below the 0.05 DV floor). Fixes BOTH 485f failures: (a) BIAS_RANGE_FLOOR raised 1e-3 -> 0.05 (== DEVAL_SHIFT_MARGIN) so a vacuous DV cannot certify 'ready'; (b) outcome-coupled, threat-conditioned, PER-CANDIDATE REINFORCE-over-candidates driver (adv = gain*threat*(mean_harm - per-candidate harm_eval) over all K) sharpening the SD-033a/598b pattern onto the OFC MECH-263 devaluation function, LR_OFC_BIAS 5e-4 -> 2e-3, P1 60 -> 120 ep. Non-circular: low-threat gradient is zero, so readiness-met-but-DVs-fail is an honest weakens and below-0.05-range is substrate_not_ready_requeue (never a false weakens). Runs on the trained-OFC-head substrate (OFCConfig.train_state_bias_head / REEConfig.ofc_train_state_bias_head, landed 2026-06-09 ree-v3 382db2c, default-OFF bit-identical). Dry-run smoke PASS: ARM_1 trainable head_delta=0.124 vs ARM_0 frozen 0.0; C3 frozen-silence 1/1; self-routes substrate_not_ready_requeue at dry scale by design.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-19T14:16:43Z"
+      },
       "claim_ids": [
         "SD-033b",
         "MECH-263"
@@ -60,25 +87,6 @@
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_485g_sd033b_trained_ofc_head_behavioural",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-654g",
-      "title": "arc_062 GAP-B falsifier (MECH-309/ARC-062) on the 569i-validated TOP-K shortlist conversion; supersedes V3-EXQ-654f",
-      "script": "experiments/v3_exq_654g_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
-      "experiment_type": "v3_exq_654g_arc062_gapb_rule_apprehension_behavioural_falsifier",
-      "priority": 335,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "status": "pending",
-      "supersedes": "V3-EXQ-654f",
-      "claim_ids": [
-        "MECH-309",
-        "ARC-062"
-      ],
-      "episodes_per_run": 350,
-      "seeds": 3,
-      "conditions": 2,
-      "note": "Experiment-owed half of arc_062_rule_apprehension:GAP-B. Ports the GAP-B committed-class-entropy falsifier onto the 569i-VALIDATED TOP-K SHORTLIST conversion (V3-EXQ-569i PASS/supports 2026-06-17; ARC-065 promoted stable): use_modulatory_shortlist_then_modulate + modulatory_shortlist_mode=top_k + modulatory_shortlist_k=3 as a matched-stack CONSTANT on BOTH arms; the now-working CRF stack (mature + maintenance + persist + e2-context + trained-bias-head P1 GAP-D) and candidate_summary_source=e2_world_forward are CONSTANT; ONLY use_candidate_rule_field is swept (ARM_OFF vs ARM_ON). Supersedes V3-EXQ-654f (FAIL non_contributory 2026-06-18; confirmed failure_autopsy_V3-EXQ-654f_2026-06-18): 654f's CRF-gate amend WORKED (C1 fully met, crf_frac_active 0.83-0.97) but it armed the SUPERSEDED additive ARM_STD_G2 lever standalone (569h FAIL 1/3). 654g does NOT arm ARM_STD_G2 standalone and adds NO further CRF amend (CRF is done). PRIMARY DV = committed-class entropy lift (>=2/3 seeds). Three-branch NO-weakens map: (a) C1 met + C2 lift -> PASS -> MECH-309/ARC-062 supports; (b) C1 met + C2 fails -> deeper shared selection-authority conversion ceiling / F-dominance (MECH-439) -> non_contributory + /implement-substrate, NOT a falsification; (c) C1 fails -> non_contributory / substrate_not_ready_requeue. NO weakens branch while the conversion ceiling framing holds. KNOWN OPEN RISK (does NOT block queuing): per the MECH-439 Phase-0 synthesis the top-k 2/3-seed margin is thin and may not survive the composite; if C2 fails that is branch (b), not a falsification. Dry-run smoke PASS: both arms run end-to-end, self-routes substrate_not_ready_requeue at dry scale (C1 unmet, CRF cannot mature in 2 ep); top-k shortlist verified wired into action selection (modulatory_shortlist_active=True, mode=top_k at every select tick). machine any. NOTE (audit trail): queued under concurrent experiment_queue.json writers (485g/460g); working-tree-vs-HEAD audit + post-commit dropped-file check applied per queue-experiment Step 5/8 (phase3-queue snapshot race)."
     }
   ]
 }
