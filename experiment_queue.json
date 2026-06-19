@@ -8,45 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-689",
-      "title": "MECH-439 F-dominance conflict-grade 2-factor (2x2) falsifier: conflict-graded shortlist width x gap-scaled commit-T on the GAP-A foraging substrate",
-      "script": "experiments/v3_exq_689_mech439_conflict_grade_2factor_falsifier.py",
-      "priority": 350,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "claim_id": "MECH-439",
-      "note": "FIRST falsifier for MECH-439 (conversion-ceiling F-dominance root; F=88-89% of E3 committed-selection variance, V3-EXQ-571). 2x2 = Factor A (fixed-k=3 vs conflict-graded shortlist width) x Factor B (hard argmin vs gap-scaled commit-T), CRF stack constant, PLUS collapsed-proposer + matched-noise controls; all arms on the GAP-A-ready foraging substrate (SD-056-trained e2.world_forward + ARC-065 GAP-A candidate_summary_source=e2_world_forward = the divergent eligible set / non-vacuity precondition). PRIMARY: ARM_A1B1 committed_action_class_entropy strict-above BOTH controls on >=2/3 seeds. LOAD-BEARING pre-registered F-gap falsifier: committed-entropy lift MUST correlate with per-tick top-F gap (ARM_A1B1 per-gap-bin entropy slope negative + more negative than fixed-k ARM_A0B0). Readiness (route-range + e2-divergence + grading-engaged k/T_eff/gap spread) self-routes substrate_not_ready_requeue. NO weakens path; preconditions-met fail routes to the synthesis-doc V4 directions. Dry-run smoke PASS (runs end-to-end all 6 arms, self-routes substrate_not_ready at dry scale by design). conversion_ceiling_phase0_synthesis_2026-06-18.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-19T14:10:28Z"
-      },
-      "conditions": 6,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_689_mech439_conflict_grade_2factor_falsifier",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-460g",
-      "title": "SD-034 closure-control-plane de-commit retest on the MAGNITUDE-amended substrate (committed-run-scaled refractory) + within-arm C2 DV",
-      "script": "experiments/v3_exq_460g_sd034_closure_control_plane_decommit_magnitude.py",
-      "priority": 340,
-      "machine_affinity": "any",
-      "estimated_minutes": 360,
-      "supersedes": "V3-EXQ-460f",
-      "claim_id": "SD-034",
-      "note": "Re-issue of 460f (supersedes) on the de-commit-authority-MAGNITUDE-amended substrate (committed-run-scaled Leg-B refractory, ree-v3 main 2cd0aa2). Arms closure_decommit_hold_scale_with_run=0.1 + max_ticks=60 ON TOP of beta_gate_bistable + use_closure_commit_beta_coupling + Leg-A env hook + Leg-B hold + Leg-C scaffold_train_rule_bias_head. Part(b): C2 redesigned to a PAIRED within-ON-arm around-closure pre-vs-post occupancy delta (460f between-arm DV kept as secondary diagnostic); non-vacuity gate tightened to sd034_n_closure_coupled_elevations>0. claim_ids SD-034/MECH-260/MECH-261; MECH-261 stays non_contributory unless the automatic mode-conditioned detector fires (460f autopsy protection). Five readiness gates self-route substrate_not_ready_requeue when unmet. The 468e MECH-090 leg is separately owed. dry-run runs end-to-end (self-routes substrate_not_ready at dry scale, as designed).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-19T14:15:28Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_type": "v3_exq_460g_sd034_closure_control_plane_decommit_magnitude",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-468f",
       "title": "SD-034/MECH-268/MECH-090 perseveration retest on the MAGNITUDE-amended substrate + GRADED within-arm around-contradiction de-commit DV",
       "script": "experiments/v3_exq_468f_sd034_mech268_decommit_hold_behavioural.py",
@@ -56,7 +17,11 @@
       "supersedes": "V3-EXQ-468e",
       "claim_id": "SD-034",
       "note": "Perseveration-side sibling of the de-commit re-issue 460g (owed GAP-4 action 2; supersedes 468e). 468e's beta-engagement amend engaged the substrate fairly (C1 beta_release_near_contradiction PASS 3/3 ON>OFF) but C2 committed_frac_post_absolute FAILED 3/3 pinned at the 1.0 ceiling -- the de-commit fires with correct sign but sub-threshold authority MAGNITUDE (independent DV confirming the 460f gap). This re-issue arms (a) the committed-run-scaled Leg-B refractory MAGNITUDE lever (closure_decommit_hold_scale_with_run=0.1 + max_ticks=60, ree-v3 main 2cd0aa2) on top of beta_gate_bistable + use_closure_commit_beta_coupling + Leg-A env hook + Leg-B hold + Leg-C scaffold_train_rule_bias_head; and (b) redesigns C2 to a GRADED PAIRED within-ON-arm around-contradiction committed-occupancy delta (pre-vs-post-contradiction window) replacing the 1.0-saturated absolute fraction. Non-vacuity TIGHTENED to sd034_n_closure_coupled_elevations>0 AND a contradiction fired on scored seeds. claim_ids SD-034/MECH-268/MECH-090; MECH-090 keys on C1 (latch release) NOT the C2-gated overall (468e autopsy mis-attribution fix); MECH-261 NOT tagged (hook-driven closures, mode-conditioning unexercised). FOUR readiness gates self-route substrate_not_ready_requeue when unmet -- never a false weakens. dry-run runs end-to-end (self-routes substrate_not_ready at dry scale, as designed: rule_bias trains 0.0587, C1 fires rel_near=2, 6 within-arm windows scored, coupled=0 at toy budget).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-06-19T18:59:49Z"
+      },
       "conditions": 1,
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_468f_sd034_mech268_decommit_hold_behavioural",
