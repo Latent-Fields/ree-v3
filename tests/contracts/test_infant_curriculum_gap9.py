@@ -16,6 +16,12 @@ Covers:
   C9  Full walk 0->1->2->3 via hard counts; phase_summary keys present.
   C10 benefit_contacts window gate: phase 1->2 blocked when recent
       contacts below threshold.
+  C11 H_POS_FRAC_OF_MAX recalibration regression guards (2026-05-31).
+  C12 V3-EXQ-591f crossing-count Phase 0->1 criterion (GAP-14 c-2):
+      default-off bit-identical single-episode gate; opt-in crossing-count
+      requires >= count_min spike-bar crossings (rejects the 2-crossing
+      false-advancer, admits >=3-crossing genuine explorers); no-telemetry
+      hard-count path unchanged; matches the 591f offline replay.
 """
 
 import math
@@ -383,3 +389,136 @@ def test_c10_benefit_contacts_gate():
         s.update(501, z_goal_norm=Z_GOAL_THRESHOLD + 0.1, benefit_contacts=1)
     p = s.update(502, z_goal_norm=Z_GOAL_THRESHOLD + 0.1, benefit_contacts=0)
     assert p == 2, f"Expected phase 2 after contacts accumulated, got {p}"
+
+
+# ------------------------------------------------------------------
+# C12: V3-EXQ-591f crossing-count Phase 0->1 criterion (infant_substrate:GAP-14 c-2)
+#
+# The 591f PASS (2026-06-15) found that the discriminating Phase 0->1 criterion
+# is the CROSSING-COUNT of the sustained h_pos level: advance only once the
+# cumulative count of post-ep_min episodes crossing the spike bar reaches a
+# minimum (default 3). It admits genuine explorers (seeds 42/43/44 cross 7/6/36x)
+# and rejects the seed-45 false-advancer (one transient h_pos_max=1.453 spike but
+# only 2 crossings). The criterion is OPT-IN; default OFF preserves the legacy
+# single-episode SPIKE gate bit-identically.
+# ------------------------------------------------------------------
+
+_H_MAX_12 = math.log(12 ** 2)
+_SPIKE = H_POS_FRAC_OF_MAX * _H_MAX_12   # ~0.9940 spike bar at grid=12
+_ABOVE = _SPIKE * 1.05                   # crosses the bar
+_BELOW = _SPIKE * 0.5                    # below the bar (no crossing; still >= 0)
+
+
+def test_c12_default_flag_off_is_single_episode_gate():
+    """Default scheduler keeps the legacy single-episode SPIKE gate: the FIRST
+    post-ep_min crossing advances, and the crossing-count flag reports off."""
+    s = make_sched(grid_size=12)
+    assert s.phase_summary()["phase_0to1_use_crossing_count"] is False
+    p = s.update(100, h_pos=_ABOVE)  # first crossing -> immediate advance (legacy)
+    assert p == 1
+    assert s.phase_changed
+
+
+def test_c12_crossing_count_requires_min_crossings():
+    """Criterion ON: one or two spike-bar crossings do NOT advance; the 3rd does
+    (default phase_0to1_crossing_count_min=3)."""
+    s = InfantCurriculumScheduler(grid_size=12, phase_0to1_use_crossing_count=True)
+    assert s.update(100, h_pos=_ABOVE) == 0   # crossing 1
+    assert s.update(101, h_pos=_ABOVE) == 0   # crossing 2
+    assert s.update(102, h_pos=_BELOW) == 0   # no crossing
+    assert s.update(103, h_pos=_ABOVE) == 1   # crossing 3 -> advance
+    assert s.phase_changed
+    assert s.phase_summary()["phase01_crossing_count"] == 3
+
+
+def test_c12_crossing_count_rejects_two_crossing_false_advancer():
+    """seed-45 profile: a near-stationary trajectory with only TWO spike-bar
+    crossings inside the decision window stays in Phase 0 (the 591f
+    over-permissiveness fix; the legacy single-episode gate would have advanced
+    on the first spike)."""
+    s = InfantCurriculumScheduler(grid_size=12, phase_0to1_use_crossing_count=True)
+    for ep in range(100, 160):
+        s.update(ep, h_pos=_ABOVE if ep in (142, 150) else _BELOW)
+    assert s.current_phase == 0
+    assert s.phase_summary()["phase01_crossing_count"] == 2
+
+
+def test_c12_crossing_count_admits_genuine_explorer():
+    """A genuine explorer crossing the bar >=3 times advances at the 3rd
+    crossing episode."""
+    s = InfantCurriculumScheduler(grid_size=12, phase_0to1_use_crossing_count=True)
+    cross_eps = {105, 120, 137, 150}
+    advanced_at = None
+    for ep in range(100, 160):
+        prev = s.current_phase
+        s.update(ep, h_pos=_ABOVE if ep in cross_eps else _BELOW)
+        if prev == 0 and s.current_phase == 1 and advanced_at is None:
+            advanced_at = ep
+    assert s.current_phase == 1
+    assert advanced_at == 137  # 3rd crossing of 105/120/137
+
+
+def test_c12_crossings_before_ep_min_do_not_count():
+    """Crossings before PHASE_EP_MIN[1] are never counted (the gate returns early
+    below ep_min), matching the 591f range(ep_min, len(seq)) replay."""
+    s = InfantCurriculumScheduler(grid_size=12, phase_0to1_use_crossing_count=True)
+    for ep in range(0, 100):
+        s.update(ep, h_pos=_ABOVE)
+    assert s.current_phase == 0
+    assert s.phase_summary()["phase01_crossing_count"] == 0
+    s.update(100, h_pos=_ABOVE)  # count 1
+    s.update(101, h_pos=_ABOVE)  # count 2
+    assert s.current_phase == 0
+    s.update(102, h_pos=_ABOVE)  # count 3 -> advance
+    assert s.current_phase == 1
+
+
+def test_c12_crossing_count_no_telemetry_hard_count_unchanged():
+    """No-telemetry path is unchanged under the criterion: the hard episode-count
+    minimum alone advances at ep_min (the crossing-count gate has no signal)."""
+    s = InfantCurriculumScheduler(grid_size=12, phase_0to1_use_crossing_count=True)
+    assert s.update(99) == 0
+    assert s.update(100) == 1  # no h_pos -> hard count governs
+
+
+def test_c12_crossing_count_custom_min():
+    """phase_0to1_crossing_count_min is honoured (e.g. 2 advances on the 2nd
+    crossing)."""
+    s = InfantCurriculumScheduler(
+        grid_size=12, phase_0to1_use_crossing_count=True,
+        phase_0to1_crossing_count_min=2,
+    )
+    assert s.update(100, h_pos=_ABOVE) == 0
+    assert s.update(101, h_pos=_ABOVE) == 1
+
+
+def test_c12_crossing_count_matches_591f_offline_replay():
+    """The online scheduler advance episode equals the 591f offline
+    _advance_crossing_count(seq, spike, ep_min, min_count) verdict, for both a
+    genuine-explorer and a seed-45-like sequence. Oracle replicated inline to keep
+    the contract import-light (the 591f script pulls torch + ree_core)."""
+    def offline_crossing_count(seq, spike, ep_min, min_count):
+        count = 0
+        for ep in range(ep_min, len(seq)):
+            if seq[ep] >= spike:
+                count += 1
+                if count >= min_count:
+                    return True, ep
+        return False, None
+
+    ep_min = PHASE_EP_MIN[1]
+    sequences = [
+        [_ABOVE if e in (105, 120, 137, 150) else _BELOW for e in range(160)],  # genuine
+        [_ABOVE if e in (142, 150) else _BELOW for e in range(160)],            # seed-45-like
+    ]
+    for seq in sequences:
+        want_adv, want_ep = offline_crossing_count(seq, _SPIKE, ep_min, 3)
+        s = InfantCurriculumScheduler(grid_size=12, phase_0to1_use_crossing_count=True)
+        got_ep = None
+        for ep in range(len(seq)):
+            prev = s.current_phase
+            s.update(ep, h_pos=seq[ep])
+            if prev == 0 and s.current_phase == 1 and got_ep is None:
+                got_ep = ep
+        assert (got_ep is not None) == want_adv
+        assert got_ep == want_ep

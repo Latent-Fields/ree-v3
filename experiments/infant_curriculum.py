@@ -20,6 +20,13 @@ Phase transitions:
   provided.  If the metric is None, the hard episode count alone governs.
 - Phases only advance, never retreat.  Even if metrics drop after a
   transition the scheduler stays in the later phase.
+- Phase 0->1 H_pos gate: by default the single-episode SPIKE gate (advance
+  on the first post-ep_min episode whose H_pos crosses the spike bar). The
+  V3-EXQ-591f-validated crossing-count criterion (advance only once the
+  cumulative post-ep_min spike-bar crossings reach a minimum, default 3) is
+  available via ``phase_0to1_use_crossing_count=True`` -- it discriminates
+  genuine explorers from a single-transient-spike false-advancer
+  (infant_substrate:GAP-14 c-2). Default OFF preserves the legacy gate.
 
 Usage:
     sched = InfantCurriculumScheduler(grid_size=12)
@@ -59,6 +66,17 @@ RESIDUE_COVERAGE_THRESHOLD = 0.15  # residue_coverage_pct for Phase 2 exit
 # Benefit-contacts rolling window length (episodes).
 BENEFIT_CONTACTS_WINDOW = 100
 
+# V3-EXQ-591f Phase 0->1 crossing-count criterion (infant_substrate:GAP-14 c-2).
+# OPT-IN replacement for the single-episode SPIKE gate (default OFF): advance only
+# when the cumulative count of post-PHASE_EP_MIN[1] episodes whose H_pos crosses the
+# spike bar (H_POS_FRAC_OF_MAX * ln(grid_cells)) reaches this minimum. 591f PASS
+# (2026-06-15): crossing-count>=3 ADMITS genuine explorers (seeds 42/43/44 cross the
+# spike bar 7/6/36x post-ep_min) and REJECTS the seed-45 false-advancer (one transient
+# h_pos_max=1.453 spike but crosses only 2x); the single-episode SPIKE gate, K-of-N,
+# and EMA-of-level criteria all failed to discriminate (591d/591e). Matches the offline
+# _advance_crossing_count replay in v3_exq_591f_isef005_phase01_gate_criterion_v3.py.
+PHASE_01_CROSSING_COUNT_MIN = 3
+
 
 class InfantCurriculumScheduler:
     """
@@ -73,6 +91,8 @@ class InfantCurriculumScheduler:
         self,
         grid_size: int = 12,
         on_phase3_entry: Optional[Callable[[], Any]] = None,
+        phase_0to1_use_crossing_count: bool = False,
+        phase_0to1_crossing_count_min: int = PHASE_01_CROSSING_COUNT_MIN,
     ) -> None:
         """
         grid_size: side length of the CausalGridWorldV2 grid.  Used to
@@ -85,6 +105,21 @@ class InfantCurriculumScheduler:
             ``agent.residue_field.snapshot_ewc_anchor()``.  Kept as a
             caller-supplied callback so this helper stays ree_core-free.
             None (default) = no-op, bit-identical legacy behaviour.
+        phase_0to1_use_crossing_count: OPT-IN (default False) for the
+            V3-EXQ-591f-validated Phase 0->1 advancement criterion
+            (infant_substrate:GAP-14 c-2).  When False the legacy
+            single-episode SPIKE gate runs (advance on the first post-ep_min
+            episode whose H_pos crosses the spike bar) -- bit-identical to
+            the pre-591f scheduler.  When True the gate instead advances only
+            once the CUMULATIVE count of post-ep_min episodes crossing the
+            spike bar reaches ``phase_0to1_crossing_count_min`` -- the
+            sustained-level criterion that discriminates genuine explorers
+            from a single-transient-spike false-advancer (591f PASS
+            2026-06-15).
+        phase_0to1_crossing_count_min: crossings of the spike bar required to
+            leave Phase 0 under the crossing-count criterion (default 3, the
+            591f CROSSING_COUNT_MIN).  Ignored when
+            ``phase_0to1_use_crossing_count`` is False.
         """
         self._grid_size = grid_size
         self._current_phase: int = 0
@@ -95,6 +130,12 @@ class InfantCurriculumScheduler:
         # INV-074 / MECH-334 Phase-3 crystallization hook.
         self._on_phase3_entry = on_phase3_entry
         self._phase3_hook_fired: bool = False
+        # V3-EXQ-591f Phase 0->1 crossing-count criterion (GAP-14 c-2).
+        self._phase_0to1_use_crossing_count = bool(phase_0to1_use_crossing_count)
+        self._phase_0to1_crossing_count_min = int(phase_0to1_crossing_count_min)
+        # Cumulative count of post-ep_min episodes crossing the spike bar
+        # (only accumulated when the crossing-count criterion is enabled).
+        self._phase01_crossing_count: int = 0
 
     # ------------------------------------------------------------------
     # Read-only properties
@@ -288,13 +329,26 @@ class InfantCurriculumScheduler:
             return
         if episode < PHASE_EP_MIN[1]:
             return
-        # Telemetry gate.
-        if h_pos is not None:
-            h_max = math.log(self._grid_size ** 2)
-            if h_pos < H_POS_FRAC_OF_MAX * h_max:
-                return  # threshold not met; stay in Phase 0
-        # Either threshold met or no telemetry -> advance.
-        self._current_phase = 1
+        # No telemetry: the hard episode-count minimum alone governs (unchanged
+        # under both criteria -- the crossing-count gate has no signal to count).
+        if h_pos is None:
+            self._current_phase = 1
+            return
+        h_max = math.log(self._grid_size ** 2)
+        crossed = h_pos >= H_POS_FRAC_OF_MAX * h_max
+        if not self._phase_0to1_use_crossing_count:
+            # Legacy single-episode SPIKE gate (default; bit-identical): advance
+            # on the first post-ep_min episode that crosses the spike bar.
+            if crossed:
+                self._current_phase = 1
+            return
+        # V3-EXQ-591f crossing-count criterion (GAP-14 c-2): accumulate spike-bar
+        # crossings over post-ep_min episodes; advance once the count reaches the
+        # minimum. Mirrors _advance_crossing_count in the 591f offline replay.
+        if crossed:
+            self._phase01_crossing_count += 1
+        if self._phase01_crossing_count >= self._phase_0to1_crossing_count_min:
+            self._current_phase = 1
 
     def _try_phase_1_to_2(self, episode: int, z_goal_norm: Optional[float]) -> None:
         if self._current_phase != 1:
@@ -337,4 +391,6 @@ class InfantCurriculumScheduler:
             "benefit_window_sum": sum(self._benefit_window),
             "benefit_window_len": len(self._benefit_window),
             "phase3_hook_fired": self._phase3_hook_fired,
+            "phase_0to1_use_crossing_count": self._phase_0to1_use_crossing_count,
+            "phase01_crossing_count": self._phase01_crossing_count,
         }
