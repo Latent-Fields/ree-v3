@@ -31,26 +31,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-468f",
-      "title": "SD-034/MECH-268/MECH-090 perseveration retest on the MAGNITUDE-amended substrate + GRADED within-arm around-contradiction de-commit DV",
-      "script": "experiments/v3_exq_468f_sd034_mech268_decommit_hold_behavioural.py",
-      "priority": 340,
-      "machine_affinity": "any",
-      "estimated_minutes": 360,
-      "supersedes": "V3-EXQ-468e",
-      "claim_id": "SD-034",
-      "note": "Perseveration-side sibling of the de-commit re-issue 460g (owed GAP-4 action 2; supersedes 468e). 468e's beta-engagement amend engaged the substrate fairly (C1 beta_release_near_contradiction PASS 3/3 ON>OFF) but C2 committed_frac_post_absolute FAILED 3/3 pinned at the 1.0 ceiling -- the de-commit fires with correct sign but sub-threshold authority MAGNITUDE (independent DV confirming the 460f gap). This re-issue arms (a) the committed-run-scaled Leg-B refractory MAGNITUDE lever (closure_decommit_hold_scale_with_run=0.1 + max_ticks=60, ree-v3 main 2cd0aa2) on top of beta_gate_bistable + use_closure_commit_beta_coupling + Leg-A env hook + Leg-B hold + Leg-C scaffold_train_rule_bias_head; and (b) redesigns C2 to a GRADED PAIRED within-ON-arm around-contradiction committed-occupancy delta (pre-vs-post-contradiction window) replacing the 1.0-saturated absolute fraction. Non-vacuity TIGHTENED to sd034_n_closure_coupled_elevations>0 AND a contradiction fired on scored seeds. claim_ids SD-034/MECH-268/MECH-090; MECH-090 keys on C1 (latch release) NOT the C2-gated overall (468e autopsy mis-attribution fix); MECH-261 NOT tagged (hook-driven closures, mode-conditioning unexercised). FOUR readiness gates self-route substrate_not_ready_requeue when unmet -- never a false weakens. dry-run runs end-to-end (self-routes substrate_not_ready at dry scale, as designed: rule_bias trains 0.0587, C1 fires rel_near=2, 6 within-arm windows scored, coupled=0 at toy budget).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-19T18:59:49Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_type": "v3_exq_468f_sd034_mech268_decommit_hold_behavioural",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-460h",
       "title": "SD-034 de-commit retest for MECH-446 (de-commit-authority magnitude) on a REFRACTORY-INDEPENDENT closure-coupling metric; supersedes V3-EXQ-460g",
       "script": "experiments/v3_exq_460h_sd034_decommit_refractory_independent.py",
@@ -91,22 +71,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-694",
-      "title": "SD-061 difficulty-gated proposal-entropy substrate-readiness diagnostic (regulator OFF vs ON under induced stuck-state; widens proposal + decays; claim-free)",
-      "script": "experiments/v3_exq_694_sd061_difficulty_gated_proposal_entropy_readiness.py",
-      "priority": 245,
-      "machine_affinity": "any",
-      "estimated_minutes": 15,
-      "claim_id": null,
-      "note": "SD-061 (MECH-343 blocker part 2) substrate-readiness probe. PASS clears the readiness gate; the Q-056 3-arm governance falsifier is a separate later session.",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 2,
-      "episodes_per_run": 1,
-      "experiment_type": "v3_exq_694_sd061_difficulty_gated_proposal_entropy_readiness",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-693",
       "title": "SD-049 Phase-2 4-arm substrate-gradient behavioural validation (V3-EXQ-514l successor) on the foraging-competent 603n curriculum",
       "script": "experiments/v3_exq_693_sd049_phase2_4arm_substrate_gradient_validation.py",
@@ -115,7 +79,11 @@
       "estimated_minutes": 840,
       "claim_id": "SD-049",
       "note": "The still-owed SD-049/SD-015 4-arm SUBSTRATE-GRADIENT validation (the 514n-t lineage forked to MECH-229/MECH-436; 514t tests MECH-436, NOT this). New number: 514 letter-exhausted through 514t. Per arm+seed, builds a fresh agent through the FULL scaffolded_sd054_onboarding 603n curriculum (Stage-0->Stage-0b->P0->Stage-H->P1->P2) -- the foraging-competence ceiling that sank 514j/k/l (~0.2% consumption, 23 vs 818 samples; failure_autopsy_V3-EXQ-514l) is lifted by the curriculum (603n PASS 2026-06-11; 514m reached n=3455 id samples / C_ID 0.926 / C_ANOVA F~1019 on it). 4 arms differ ONLY in SD-049 substrate richness via scaffold_cue_n_resource_types: ARM_0 OFF(single-resource) / ARM_1 2-type / ARM_2 3-type+novelty (PRIMARY) / ARM_3 5-type overshoot. Four pre-registered lifts: (C_GR) goal_resource_r as a NON-SATURATING identity-discrimination margin (same-type minus diff-type cosine of z_goal vs per-type mean z_resource), lift ARM_2-ARM_0>=0.4 -- fixes the 514l C5 defect where legacy cosine(z_goal,z_world) saturated ARM_0~1.0; (C_WL) object-bound wanting!=liking fraction via the SD-057 most-wanted(MECH-346)-vs-last-consumed read >=0.6 ARM_2 -- fixes the 514m vacuous C_WL=0.0 (legacy residue-valence channels never written), adopted from V3-EXQ-514n; (C_ANOVA) per-axis homeostatic drive one-way ANOVA F>4.605 ARM_2; (C_ID) z_resource identity-recovery linear probe >0.6 ARM_2. THREE non-vacuity self-route guards -> substrate_not_ready_requeue, NEVER a false weakens: R1 consumption (ARM_0 AND ARM_2 each >=2/3 seeds forage+consume above floor), R2 identity-probe-fireable (ARM_2 pooled id samples>=30), R3 WL-channel-fireable (514n same-statistic gate: leg-1 config-built positive-control separation==1.0 AND leg-2 ARM_2 bank populated>=2 tokens + >=5 scored WL events + drive spread). PER-CLAIM evidence_direction_per_claim: non-vacuity-unmet -> both non_contributory; else SD-015 supports iff C_ID&C_GR, SD-049 supports iff all four, partial->mixed (a WL-flat-only outcome is the SD-049 falsifier-branch substrate_conditional re-route candidate, NOT a standalone weakens -- route via /failure-autopsy). claim_ids=[SD-049,SD-015]; experiment_purpose=evidence. On PASS, governance reconciles pending_retest_after_substrate and SD-049+SD-015 drop out of the substrate-ceiling-lifted bucket; NO claim status changed by this run. Dry-run PASS end-to-end (both env modes; correct substrate_not_ready_requeue self-route at dry scale). machine any (prefer cloud). AUDIT: queued under concurrent experiment_queue.json writers (690/691/694 landed mid-session; original 692 number collided with the SD-061 readiness entry -> renumbered to 693); working-tree-vs-HEAD audit + post-commit dropped-file check applied per queue-experiment Step 5/8.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-06-19T22:47:17Z"
+      },
       "claim_ids": [
         "SD-049",
         "SD-015"
