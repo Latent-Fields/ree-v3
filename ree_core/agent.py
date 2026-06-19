@@ -6068,6 +6068,17 @@ class REEAgent(nn.Module):
                 and self.e3._committed_trajectory is not None
             )
             _commit_for_beta = bool(result.committed) or _closure_commit_active
+            # SD-034 460h refractory-INDEPENDENT coupling certifier
+            # (failure_autopsy_V3-EXQ-460g). Count the closure-plane commit INTENT
+            # -- a closure-coupled commitment forming while the natural
+            # running_variance path did NOT fire -- BEFORE the elevate/refractory
+            # gate, so MECH-445 coupling engagement is certifiable even when the
+            # 460g de-commit-magnitude lever pins the refractory at its cap and a
+            # no-op elevate() suppresses note_closure_coupled_elevation (the S5
+            # entanglement). No-op when use_closure_commit_beta_coupling is off
+            # (_closure_commit_active stays False) -> bit-identical.
+            if _closure_commit_active and not result.committed:
+                self.beta_gate.note_closure_commit_intent()
             if (
                 _commit_for_beta
                 and not self.beta_gate.is_elevated

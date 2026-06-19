@@ -138,3 +138,88 @@ def test_c5_coupling_off_no_elevation_under_dissociation():
         "never elevate from a closure-plane commitment"
     )
     assert a.beta_gate.get_state()["sd034_n_closure_coupled_elevations"] == 0
+
+
+# ---------------------------------------------------------------------------
+# SD-034 460h refractory-INDEPENDENT coupling certifier
+# (failure_autopsy_V3-EXQ-460g_2026-06-19). The 460f-prescribed
+# sd034_n_closure_coupled_elevations counts only elevations that SURVIVE the
+# refractory; the 460g committed-run-scaled de-commit lever pins apply_refractory
+# at its cap, making elevate() a no-op for the rest of the post-closure episode,
+# so the coupled counter collapsed 36 -> 0 on seed 42 even though the de-commit
+# DID act (within-arm occupancy 0.333 -> 0.0). The new intent counter, counted
+# BEFORE the elevate/refractory gate, certifies MECH-445 coupling engagement
+# regardless of whether the magnitude lever (MECH-446) then blocks the elevate.
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# C6 -- BetaGate primitive: commit-intent counter is a pure readout, advances
+#       regardless of an active refractory window, get_state + reset
+# ---------------------------------------------------------------------------
+def test_c6_betagate_commit_intent_counter():
+    g = BetaGate()
+    assert g.get_state()["sd034_n_closure_commit_intent"] == 0
+    g.note_closure_commit_intent()
+    g.note_closure_commit_intent()
+    assert g.get_state()["sd034_n_closure_commit_intent"] == 2
+    # pure diagnostic -- does not change gate state
+    assert not g.is_elevated
+    # refractory-independent: the intent counter advances while a refractory
+    # window (which no-ops elevate()) is active, and does not touch it
+    g.apply_refractory(60)
+    g.note_closure_commit_intent()
+    assert g.get_state()["sd034_n_closure_commit_intent"] == 3
+    assert g.refractory_remaining == 60
+    g.reset()
+    assert g.get_state()["sd034_n_closure_commit_intent"] == 0
+
+
+# ---------------------------------------------------------------------------
+# C7 -- the load-bearing 460h property: while the elevate gate is BLOCKED (the
+#       460g latch/refractory suppression, here a held latch + no-op elevate),
+#       the per-entry coupled-elevation counter stays suppressed but the
+#       refractory-independent intent counter keeps certifying coupling per tick
+# ---------------------------------------------------------------------------
+def test_c7_commit_intent_certifies_while_elevate_gate_blocked():
+    torch.manual_seed(11)
+    a = _build_agent(coupling=True)
+    _force_dissociation(a)
+    # Deterministic stand-in for the 460g refractory/latch block that drove
+    # sd034_n_closure_coupled_elevations 36 -> 0: hold the latch elevated and
+    # make elevate()/release() no-ops, so the elevate if-block (guarded by
+    # `not is_elevated`) is never entered and the gate can never re-fire.
+    a.beta_gate._beta_elevated = True
+    a.beta_gate.elevate = lambda: None
+    a.beta_gate.release = lambda: None
+    # run enough acts to span multiple E3 ticks (the bistable elevate block --
+    # and the intent count -- runs on the E3 cadence of the multi-rate loop)
+    for i in range(16):
+        a.act(torch.full((262,), 0.01 * i))
+    st = a.beta_gate.get_state()
+    assert st["sd034_n_closure_coupled_elevations"] == 0, (
+        "the per-entry coupled-elevation counter must stay suppressed while the "
+        "elevate gate is blocked (the 460g binding fault)"
+    )
+    assert st["sd034_n_closure_commit_intent"] > 0, (
+        "the refractory-independent intent counter must certify closure->beta "
+        "coupling engagement even when the elevate gate is blocked and the "
+        "coupled-elevation counter is suppressed (the 460h fix), got %d"
+        % st["sd034_n_closure_commit_intent"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# C8 -- bit-identical OFF: with the coupling flag off the intent counter never
+#       advances (_closure_commit_active stays False)
+# ---------------------------------------------------------------------------
+def test_c8_commit_intent_zero_when_coupling_off():
+    torch.manual_seed(11)
+    a = _build_agent(coupling=False)
+    _force_dissociation(a)
+    for i in range(12):
+        a.act(torch.full((262,), 0.01 * i))
+    assert a.beta_gate.get_state()["sd034_n_closure_commit_intent"] == 0, (
+        "with the coupling flag OFF the closure-plane intent counter must never "
+        "advance -> bit-identical to pre-460h"
+    )

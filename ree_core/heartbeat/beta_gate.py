@@ -81,6 +81,19 @@ class BetaGate:
         # the fragile natural commit-entry, is what engaged the latch.
         # Cleared per-episode in reset(). Stays 0 when the coupling flag is off.
         self._n_closure_coupled_elevations: int = 0
+        # SD-034 commitment-closure-control-plane 460h REFRACTORY-INDEPENDENT
+        # coupling certifier (2026-06-19, failure_autopsy_V3-EXQ-460g). Counts
+        # closure-plane commit INTENTS -- a closure-coupled commitment forming
+        # while the natural running_variance commit path did NOT fire -- counted
+        # by the caller BEFORE the elevate/refractory gate. The 460f-prescribed
+        # sd034_n_closure_coupled_elevations above counts only elevations that
+        # SURVIVE the refractory, so the 460g committed-run-scaled de-commit lever
+        # (which pins apply_refractory at its cap, making elevate() a no-op for
+        # the rest of the post-closure episode) SUPPRESSES it (36 -> 0 on seed 42).
+        # This counter is the non-vacuity certifier for MECH-445 coupling
+        # engagement that the de-commit-magnitude lever (MECH-446) cannot zero.
+        # Cleared per-episode in reset(). Stays 0 when the coupling flag is off.
+        self._n_closure_commit_intent: int = 0
 
     @property
     def is_elevated(self) -> bool:
@@ -125,6 +138,23 @@ class BetaGate:
         the coupling, not result.committed, was the trigger.
         """
         self._n_closure_coupled_elevations += 1
+
+    def note_closure_commit_intent(self) -> None:
+        """
+        Record a closure-plane commit INTENT (SD-034 460h refractory-independent
+        coupling certifier, 2026-06-19). The caller (REEAgent.select_action)
+        invokes this when a closure-coupled commitment has formed
+        (_closure_commit_active) while the natural running_variance commit path
+        did NOT fire (not result.committed), BEFORE the elevate/refractory gate.
+
+        Unlike note_closure_coupled_elevation -- which counts only elevations
+        that survive the refractory window -- this increments regardless of
+        whether the refractory then blocks elevate(), so MECH-445 coupling
+        engagement is certifiable even when the 460g de-commit-magnitude lever
+        pins the refractory at its cap. Pure diagnostic; does not change gate
+        state.
+        """
+        self._n_closure_commit_intent += 1
 
     def elevate(self) -> None:
         """
@@ -295,6 +325,8 @@ class BetaGate:
             "sd034_committed_run_length": self._committed_run_length,
             # SD-034 beta-engagement amend (2026-06-17).
             "sd034_n_closure_coupled_elevations": self._n_closure_coupled_elevations,
+            # SD-034 460h refractory-independent coupling certifier (2026-06-19).
+            "sd034_n_closure_commit_intent": self._n_closure_commit_intent,
         }
 
     def reset(self) -> None:
@@ -316,3 +348,5 @@ class BetaGate:
         self._committed_run_length = 0
         # SD-034 beta-engagement amend: per-episode reset of the coupling counter.
         self._n_closure_coupled_elevations = 0
+        # SD-034 460h: per-episode reset of the refractory-independent intent counter.
+        self._n_closure_commit_intent = 0
