@@ -188,6 +188,22 @@
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_514t_sd049_phase2_mech436_drive_coupling_retest",
       "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-460h",
+      "title": "SD-034 de-commit retest for MECH-446 (de-commit-authority magnitude) on a REFRACTORY-INDEPENDENT closure-coupling metric; supersedes V3-EXQ-460g",
+      "experiment_type": "v3_exq_460h_sd034_decommit_refractory_independent",
+      "script": "experiments/v3_exq_460h_sd034_decommit_refractory_independent.py",
+      "priority": 250,
+      "machine_affinity": "any",
+      "estimated_minutes": 360,
+      "status": "pending",
+      "episodes_per_run": 265,
+      "seeds": 3,
+      "conditions": 1,
+      "supersedes": "V3-EXQ-460g",
+      "claim_id": "MECH-446",
+      "note": "SECONDARY action of failure_autopsy_V3-EXQ-460g (PRIMARY = /claim-synthesis decomposition into MECH-445 coupling-engagement + MECH-446 de-commit-magnitude). 460g's magnitude lever + coupling gate (keyed on sd034_n_closure_coupled_elevations) were self-defeating: the lever pins the refractory at cap and the old counter only counts elevations that ENTER the bistable elevate if-block, so a held/blocked latch froze it (36->0 seed42) even though the de-commit acted (within-arm 0.333->0.0). Substrate amend (ree-v3 main 167b3b7: BetaGate.note_closure_commit_intent + sd034_n_closure_commit_intent) adds a REFRACTORY-INDEPENDENT commit-intent counter (closure-plane commit INTENT before the elevate/refractory gate). 460h = SAME magnitude lever + within-arm C2 DV, gating non-vacuity on sd034_n_closure_commit_intent>0 (NOT the coupled counter). Acceptance: commit-intent>0 on >=2/3 (MECH-445 precondition) AND within-arm post-closure occupancy < pre-closure by >=DECOMMIT_MIN_DROP_FRAC on >=2/3 (MECH-446 scored). 5 readiness gates self-route substrate_not_ready_requeue when unmet (never a false weakens). MECH-260/261 NOT re-tagged (protected). claim_ids=[MECH-446,MECH-445]. Dry-run end-to-end PASS (self-routes substrate_not_ready at dry scale, by design); validate_experiments --strict OK. Do NOT re-author 460d/e/f/g. Phase3 dropped-file check applied at commit."
     }
   ]
 }
