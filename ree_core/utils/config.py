@@ -2686,6 +2686,25 @@ class REEConfig:
     # latch-occupancy drop (V3-EXQ-468c committed_frac defect). Default 0 ->
     # no hold -> bit-identical.
     closure_decommit_hold_ticks: int = 0
+    # SD-034 commitment-closure-control-plane DE-COMMIT-AUTHORITY MAGNITUDE amend
+    # (2026-06-19, failure_autopsy_V3-EXQ-460f): the fixed Leg-B refractory
+    # (closure_decommit_hold_ticks ~5) suppresses only ~20-35 tick-blocks of
+    # latch occupancy, swamped by ~530-560 natural-commit elevated steps, so the
+    # de-commit occupancy-drop DV is underpowered. This lever scales the
+    # refractory installed at a closure fire by the committed-run length at the
+    # moment of closure (the BetaGate.committed_run_length captured BEFORE the
+    # closure's own release()): n = closure_decommit_hold_ticks +
+    # round(closure_decommit_hold_scale_with_run * run_length), clamped to
+    # closure_decommit_hold_max_ticks (0 = uncapped). So a long committed run --
+    # exactly the source of the swamping occupancy -- triggers a proportionally
+    # long post-closure hold, scaling the de-commit authority with the magnitude
+    # it must overcome. Default 0.0 -> the refractory uses
+    # closure_decommit_hold_ticks unchanged -> bit-identical (and with
+    # closure_decommit_hold_ticks 0 too, no refractory at all).
+    closure_decommit_hold_scale_with_run: float = 0.0
+    # Hard clamp on the committed-run-scaled refractory length (ticks). 0 ->
+    # uncapped. Read only when closure_decommit_hold_scale_with_run > 0.
+    closure_decommit_hold_max_ticks: int = 0
     # SD-034 commitment-closure-control-plane BETA-ENGAGEMENT amend
     # (2026-06-17, failure_autopsy_V3-EXQ-460e): couple the closure-plane
     # installed commitment (e3._committed_trajectory is not None) to bistable
@@ -3901,6 +3920,8 @@ class REEConfig:
         # SD-034 commitment-closure-control-plane (2026-06-12); both no-op default.
         use_closure_env_completion_hook: bool = False,
         closure_decommit_hold_ticks: int = 0,
+        closure_decommit_hold_scale_with_run: float = 0.0,
+        closure_decommit_hold_max_ticks: int = 0,
         # SD-034 beta-engagement amend (2026-06-17); no-op default.
         use_closure_commit_beta_coupling: bool = False,
         # SD-035: amygdala analogue (BLAAnalog + CeAAnalog peer modules)
@@ -4815,6 +4836,10 @@ class REEConfig:
         # SD-034 commitment-closure-control-plane (2026-06-12).
         config.use_closure_env_completion_hook = use_closure_env_completion_hook
         config.closure_decommit_hold_ticks = closure_decommit_hold_ticks
+        config.closure_decommit_hold_scale_with_run = (
+            closure_decommit_hold_scale_with_run
+        )
+        config.closure_decommit_hold_max_ticks = closure_decommit_hold_max_ticks
         config.use_closure_commit_beta_coupling = use_closure_commit_beta_coupling
 
         # SD-035: amygdala analogue (BLAAnalog + CeAAnalog peer modules)

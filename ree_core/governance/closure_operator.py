@@ -160,6 +160,22 @@ class ClosureOperatorConfig:
     # measurable latch-occupancy drop instead of an immediate re-commit (the
     # V3-EXQ-468c committed_frac defect). Default 0 -> no hold -> bit-identical.
     decommit_hold_ticks: int = 0
+    # SD-034 commitment-closure-control-plane DE-COMMIT-AUTHORITY MAGNITUDE amend
+    # (2026-06-19, failure_autopsy_V3-EXQ-460f). When > 0, the refractory
+    # installed at a closure fire is SCALED by the committed-run length captured
+    # from the BetaGate BEFORE this fire's own release():
+    #   n = decommit_hold_ticks
+    #       + round(decommit_hold_scale_with_run * committed_run_length)
+    # clamped to decommit_hold_max_ticks (0 = uncapped). A long committed run --
+    # the source of the ~530-560 natural-commit elevated steps that swamped the
+    # bare ~5-tick refractory in 460f -- triggers a proportionally long
+    # post-closure hold, scaling the de-commit authority with the latch occupancy
+    # it must overcome. Default 0.0 -> the refractory uses decommit_hold_ticks
+    # unchanged -> bit-identical.
+    decommit_hold_scale_with_run: float = 0.0
+    # Hard clamp on the committed-run-scaled refractory (ticks). 0 -> uncapped.
+    # Read only when decommit_hold_scale_with_run > 0.
+    decommit_hold_max_ticks: int = 0
     diagnostic_logging: bool = True
 
 
@@ -479,6 +495,15 @@ class ClosureOperator:
         """Execute the 5-part coordinated signal. Records a ClosureEvent."""
         self._n_closures += 1
 
+        # SD-034 de-commit-authority magnitude lever: capture the committed-run
+        # length BEFORE step (a) release() resets it, so the Leg-B refractory
+        # (installed in step a.2) can scale with the just-ended run.
+        run_length_at_fire = 0
+        if self.beta_gate is not None and self.config.decommit_hold_scale_with_run > 0.0:
+            run_length_at_fire = int(
+                getattr(self.beta_gate, "committed_run_length", 0)
+            )
+
         beta_released = False
         nogo_pushed = 0
         residue_discharged = 0
@@ -498,14 +523,30 @@ class ClosureOperator:
         # survive >1 tick to produce a measurable latch-occupancy drop
         # (V3-EXQ-468c). No-op when decommit_hold_ticks == 0 (bit-identical) or
         # the gate lacks apply_refractory (older BetaGate).
+        # Magnitude lever: scale the refractory with the just-ended committed-run
+        # length when decommit_hold_scale_with_run > 0 (clamped to
+        # decommit_hold_max_ticks; 0 = uncapped). With scale 0.0 (default),
+        # hold_ticks == decommit_hold_ticks -> bit-identical to the fixed hold.
+        hold_ticks = int(self.config.decommit_hold_ticks)
+        if self.config.decommit_hold_scale_with_run > 0.0:
+            hold_ticks = int(self.config.decommit_hold_ticks) + int(
+                round(
+                    self.config.decommit_hold_scale_with_run
+                    * run_length_at_fire
+                )
+            )
+            if self.config.decommit_hold_max_ticks > 0:
+                hold_ticks = min(
+                    hold_ticks, int(self.config.decommit_hold_max_ticks)
+                )
         decommit_refractory_applied = 0
         if (
             self.beta_gate is not None
-            and self.config.decommit_hold_ticks > 0
+            and hold_ticks > 0
             and hasattr(self.beta_gate, "apply_refractory")
         ):
-            self.beta_gate.apply_refractory(self.config.decommit_hold_ticks)
-            decommit_refractory_applied = int(self.config.decommit_hold_ticks)
+            self.beta_gate.apply_refractory(hold_ticks)
+            decommit_refractory_applied = int(hold_ticks)
 
         # (b) MECH-260 targeted No-Go injection
         if self.dacc is not None and action_class is not None:

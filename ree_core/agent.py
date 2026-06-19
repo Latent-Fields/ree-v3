@@ -1297,6 +1297,15 @@ class REEAgent(nn.Module):
                 decommit_hold_ticks=getattr(
                     config, "closure_decommit_hold_ticks", 0
                 ),
+                # SD-034 de-commit-authority MAGNITUDE amend (2026-06-19):
+                # scale the Leg-B refractory by committed-run length. getattr
+                # fallback keeps from_dims-absent callers bit-identical.
+                decommit_hold_scale_with_run=getattr(
+                    config, "closure_decommit_hold_scale_with_run", 0.0
+                ),
+                decommit_hold_max_ticks=getattr(
+                    config, "closure_decommit_hold_max_ticks", 0
+                ),
             )
             self.closure_operator = ClosureOperator(
                 config=clo_cfg,

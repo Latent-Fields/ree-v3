@@ -61,6 +61,18 @@ class BetaGate:
         # tick. Default 0 -> never installed -> bit-identical to pre-amend BetaGate.
         self._refractory_remaining: int = 0
         self._n_elevation_refractory_blocked: int = 0
+        # SD-034 commitment-closure-control-plane DE-COMMIT-AUTHORITY MAGNITUDE
+        # amend (2026-06-19). Per-run committed-length counter: ticks the latch
+        # has been continuously elevated since the most recent elevate()
+        # transition. Incremented once per propagate() tick while elevated;
+        # reset to 0 on a fresh elevate() (not-elevated -> elevated transition)
+        # and on release(). The ClosureOperator reads committed_run_length
+        # (captured BEFORE its own release() at a closure fire) to scale the
+        # Leg-B refractory with the just-ended run length, so a long committed
+        # run -- the source of the swamping latch occupancy -- triggers a
+        # proportionally long post-closure hold. Pure bookkeeping; never read
+        # unless the magnitude lever is armed, so bit-identical when off.
+        self._committed_run_length: int = 0
         # SD-034 commitment-closure-control-plane BETA-ENGAGEMENT amend
         # (2026-06-17). Counts elevations driven by the closure-plane
         # commit->beta coupling (use_closure_commit_beta_coupling) rather than a
@@ -79,6 +91,16 @@ class BetaGate:
     def refractory_remaining(self) -> int:
         """Ticks remaining in the SD-034 post-closure de-commitment hold (0 = inactive)."""
         return self._refractory_remaining
+
+    @property
+    def committed_run_length(self) -> int:
+        """Ticks the latch has been continuously elevated since the last entry.
+
+        SD-034 de-commit-authority magnitude lever: the ClosureOperator reads
+        this (before its own release()) to scale the Leg-B refractory by the
+        just-ended committed-run length. 0 when not elevated.
+        """
+        return self._committed_run_length
 
     def apply_refractory(self, n_ticks: int) -> None:
         """
@@ -116,6 +138,11 @@ class BetaGate:
         if self._refractory_remaining > 0:
             self._n_elevation_refractory_blocked += 1
             return
+        # SD-034 magnitude lever: a fresh elevation (not-elevated -> elevated)
+        # starts a new committed run; a re-elevate while already elevated leaves
+        # the run length unchanged.
+        if not self._beta_elevated:
+            self._committed_run_length = 0
         self._beta_elevated = True
 
     def release(self) -> None:
@@ -125,6 +152,8 @@ class BetaGate:
         After this, the next propagate() call will pass through E3 state.
         """
         self._beta_elevated = False
+        # SD-034 magnitude lever: releasing ends the committed run.
+        self._committed_run_length = 0
 
     def propagate(self, e3_policy_state: torch.Tensor) -> Optional[torch.Tensor]:
         """
@@ -147,6 +176,9 @@ class BetaGate:
         if self._beta_elevated:
             self._held_policy_state = e3_policy_state.detach()
             self._hold_count += 1
+            # SD-034 magnitude lever: advance the per-run committed-length
+            # counter once per tick while the latch is elevated.
+            self._committed_run_length += 1
             return None
         else:
             self._held_policy_state = None
@@ -259,6 +291,8 @@ class BetaGate:
             # SD-034 de-commitment hold / refractory diagnostics.
             "sd034_refractory_remaining": self._refractory_remaining,
             "sd034_n_elevation_refractory_blocked": self._n_elevation_refractory_blocked,
+            # SD-034 de-commit-authority magnitude lever.
+            "sd034_committed_run_length": self._committed_run_length,
             # SD-034 beta-engagement amend (2026-06-17).
             "sd034_n_closure_coupled_elevations": self._n_closure_coupled_elevations,
         }
@@ -278,5 +312,7 @@ class BetaGate:
         # episode (a fresh trial starts with no carried-over hold).
         self._refractory_remaining = 0
         self._n_elevation_refractory_blocked = 0
+        # SD-034 magnitude lever: per-episode reset of the committed-run counter.
+        self._committed_run_length = 0
         # SD-034 beta-engagement amend: per-episode reset of the coupling counter.
         self._n_closure_coupled_elevations = 0
