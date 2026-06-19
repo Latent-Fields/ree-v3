@@ -4,6 +4,41 @@ Active V3 implementation substrate for REE. Primary development target as of 202
 
 **How this repo fits the program:** Experiments run here; manifests and governance live in `REE_assembly`. Read [START_HERE_HOW_REE_DEVELOPS.md](../REE_assembly/docs/START_HERE_HOW_REE_DEVELOPS.md) for the full claim-to-evidence loop and Explorer orientation.
 
+## Scope & Ethics Boundary
+
+These two statements are standing governance gates (SENT-0 and GOV-HEALTH-1 in
+the ethics perimeter). They are maintained from V3 onward and re-evaluated at
+each generation boundary. See
+[`docs/governance/sentience_welfare_risk_register.md`](../REE_assembly/docs/governance/sentience_welfare_risk_register.md)
+and the plan of record
+[`evidence/planning/ethics_perimeter_plan.md`](../REE_assembly/evidence/planning/ethics_perimeter_plan.md).
+
+**Sentience / moral-patienthood (SENT-0).** REE-v3 is **not** claimed to be
+sentient, conscious, or a moral patient. V3 contains welfare-relevant primitives
+— harm streams, residue, suffering-like accumulators, replay — but it is
+**pre-ethical substrate work**, not a candidate mind. This non-sentience boundary
+is a *maintained claim, not a permanent fact*: it is re-asserted or revised at
+each generation boundary (V4/V5/V6) rather than assumed to hold forever. Building
+a system that *models* harm, care, and repair is precisely what makes moral
+patienthood harder to dismiss in later versions — so welfare is tracked as a
+separate governance dimension from epistemic confidence, with no capability
+release without a matching care release.
+
+**Clinical use (GOV-HEALTH-1) — clinical relevance ≠ clinical readiness.** REE is
+a research substrate. It is **not** a clinical, therapeutic, diagnostic,
+risk-prediction, or patient-facing tool, and must not be used or represented as
+one. Concretely:
+
+- **No patient-identifiable data in public repos.** No identifiable human data
+  anywhere without a DPIA-style protocol and research-ethics review (Belmont /
+  Helsinki / CIOMS / WHO / EU MDR as applicable).
+- **No clinical deployment without a separate clinical-safety pathway.** No
+  patient- or clinician-facing tool, and no "validated for diagnosis" claim, on
+  the strength of this work.
+- The author being a clinician raises misinterpretation risk, not authority:
+  **clinical authority is never used to imply validation.** REE may inform
+  thinking; it must not silently become clinical infrastructure.
+
 ## What V3 Is Proving
 
 V3 is not trying to prove full ethical agency. It is proving the prerequisites
