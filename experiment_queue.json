@@ -29,7 +29,10 @@
       "priority": 300,
       "machine_affinity": "any",
       "estimated_minutes": 240,
-      "claim_ids": ["SD-033b", "MECH-263"],
+      "claim_ids": [
+        "SD-033b",
+        "MECH-263"
+      ],
       "supersedes": "V3-EXQ-485f",
       "note": "Experiment-owed half of commitment_closure:GAP-8 (trained-OFC-head behavioural arm). Supersedes V3-EXQ-485f (FAILed non_contributory 2026-06-11: cleared bias-range 0.00898 but ~50x below the 0.05 DV floor). Fixes BOTH 485f failures: (a) BIAS_RANGE_FLOOR raised 1e-3 -> 0.05 (== DEVAL_SHIFT_MARGIN) so a vacuous DV cannot certify 'ready'; (b) outcome-coupled, threat-conditioned, PER-CANDIDATE REINFORCE-over-candidates driver (adv = gain*threat*(mean_harm - per-candidate harm_eval) over all K) sharpening the SD-033a/598b pattern onto the OFC MECH-263 devaluation function, LR_OFC_BIAS 5e-4 -> 2e-3, P1 60 -> 120 ep. Non-circular: low-threat gradient is zero, so readiness-met-but-DVs-fail is an honest weakens and below-0.05-range is substrate_not_ready_requeue (never a false weakens). Runs on the trained-OFC-head substrate (OFCConfig.train_state_bias_head / REEConfig.ofc_train_state_bias_head, landed 2026-06-09 ree-v3 382db2c, default-OFF bit-identical). Dry-run smoke PASS: ARM_1 trainable head_delta=0.124 vs ARM_0 frozen 0.0; C3 frozen-silence 1/1; self-routes substrate_not_ready_requeue at dry scale by design.",
       "status": "pending",
@@ -37,6 +40,22 @@
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_485g_sd033b_trained_ofc_head_behavioural",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-460g",
+      "title": "SD-034 closure-control-plane de-commit retest on the MAGNITUDE-amended substrate (committed-run-scaled refractory) + within-arm C2 DV",
+      "experiment_type": "v3_exq_460g_sd034_closure_control_plane_decommit_magnitude",
+      "script": "experiments/v3_exq_460g_sd034_closure_control_plane_decommit_magnitude.py",
+      "priority": 340,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 360,
+      "episodes_per_run": 265,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "SD-034",
+      "supersedes": "V3-EXQ-460f",
+      "note": "Re-issue of 460f (supersedes) on the de-commit-authority-MAGNITUDE-amended substrate (committed-run-scaled Leg-B refractory, ree-v3 main 2cd0aa2). Arms closure_decommit_hold_scale_with_run=0.1 + max_ticks=60 ON TOP of beta_gate_bistable + use_closure_commit_beta_coupling + Leg-A env hook + Leg-B hold + Leg-C scaffold_train_rule_bias_head. Part(b): C2 redesigned to a PAIRED within-ON-arm around-closure pre-vs-post occupancy delta (460f between-arm DV kept as secondary diagnostic); non-vacuity gate tightened to sd034_n_closure_coupled_elevations>0. claim_ids SD-034/MECH-260/MECH-261; MECH-261 stays non_contributory unless the automatic mode-conditioned detector fires (460f autopsy protection). Five readiness gates self-route substrate_not_ready_requeue when unmet. The 468e MECH-090 leg is separately owed. dry-run runs end-to-end (self-routes substrate_not_ready at dry scale, as designed)."
     }
   ]
 }
