@@ -47,6 +47,22 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-468f",
+      "title": "SD-034/MECH-268/MECH-090 perseveration retest on the MAGNITUDE-amended substrate + GRADED within-arm around-contradiction de-commit DV",
+      "script": "experiments/v3_exq_468f_sd034_mech268_decommit_hold_behavioural.py",
+      "priority": 340,
+      "machine_affinity": "any",
+      "estimated_minutes": 360,
+      "supersedes": "V3-EXQ-468e",
+      "claim_id": "SD-034",
+      "note": "Perseveration-side sibling of the de-commit re-issue 460g (owed GAP-4 action 2; supersedes 468e). 468e's beta-engagement amend engaged the substrate fairly (C1 beta_release_near_contradiction PASS 3/3 ON>OFF) but C2 committed_frac_post_absolute FAILED 3/3 pinned at the 1.0 ceiling -- the de-commit fires with correct sign but sub-threshold authority MAGNITUDE (independent DV confirming the 460f gap). This re-issue arms (a) the committed-run-scaled Leg-B refractory MAGNITUDE lever (closure_decommit_hold_scale_with_run=0.1 + max_ticks=60, ree-v3 main 2cd0aa2) on top of beta_gate_bistable + use_closure_commit_beta_coupling + Leg-A env hook + Leg-B hold + Leg-C scaffold_train_rule_bias_head; and (b) redesigns C2 to a GRADED PAIRED within-ON-arm around-contradiction committed-occupancy delta (pre-vs-post-contradiction window) replacing the 1.0-saturated absolute fraction. Non-vacuity TIGHTENED to sd034_n_closure_coupled_elevations>0 AND a contradiction fired on scored seeds. claim_ids SD-034/MECH-268/MECH-090; MECH-090 keys on C1 (latch release) NOT the C2-gated overall (468e autopsy mis-attribution fix); MECH-261 NOT tagged (hook-driven closures, mode-conditioning unexercised). FOUR readiness gates self-route substrate_not_ready_requeue when unmet -- never a false weakens. dry-run runs end-to-end (self-routes substrate_not_ready at dry scale, as designed: rule_bias trains 0.0587, C1 fires rel_near=2, 6 within-arm windows scored, coupled=0 at toy budget).",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 265,
+      "experiment_type": "v3_exq_468f_sd034_mech268_decommit_hold_behavioural",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-654g",
       "title": "arc_062 GAP-B falsifier (MECH-309/ARC-062) on the 569i-validated TOP-K shortlist conversion; supersedes V3-EXQ-654f",
       "script": "experiments/v3_exq_654g_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
@@ -111,22 +127,6 @@
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_514t_sd049_phase2_mech436_drive_coupling_retest",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-468f",
-      "title": "SD-034/MECH-268/MECH-090 perseveration retest on the MAGNITUDE-amended substrate + GRADED within-arm around-contradiction de-commit DV",
-      "script": "experiments/v3_exq_468f_sd034_mech268_decommit_hold_behavioural.py",
-      "experiment_type": "v3_exq_468f_sd034_mech268_decommit_hold_behavioural",
-      "priority": 340,
-      "machine_affinity": "any",
-      "estimated_minutes": 360,
-      "supersedes": "V3-EXQ-468e",
-      "claim_id": "SD-034",
-      "note": "Perseveration-side sibling of the de-commit re-issue 460g (owed GAP-4 action 2; supersedes 468e). 468e's beta-engagement amend engaged the substrate fairly (C1 beta_release_near_contradiction PASS 3/3 ON>OFF) but C2 committed_frac_post_absolute FAILED 3/3 pinned at the 1.0 ceiling -- the de-commit fires with correct sign but sub-threshold authority MAGNITUDE (independent DV confirming the 460f gap). This re-issue arms (a) the committed-run-scaled Leg-B refractory MAGNITUDE lever (closure_decommit_hold_scale_with_run=0.1 + max_ticks=60, ree-v3 main 2cd0aa2) on top of beta_gate_bistable + use_closure_commit_beta_coupling + Leg-A env hook + Leg-B hold + Leg-C scaffold_train_rule_bias_head; and (b) redesigns C2 to a GRADED PAIRED within-ON-arm around-contradiction committed-occupancy delta (pre-vs-post-contradiction window) replacing the 1.0-saturated absolute fraction. Non-vacuity TIGHTENED to sd034_n_closure_coupled_elevations>0 AND a contradiction fired on scored seeds. claim_ids SD-034/MECH-268/MECH-090; MECH-090 keys on C1 (latch release) NOT the C2-gated overall (468e autopsy mis-attribution fix); MECH-261 NOT tagged (hook-driven closures, mode-conditioning unexercised). FOUR readiness gates self-route substrate_not_ready_requeue when unmet -- never a false weakens. dry-run runs end-to-end (self-routes substrate_not_ready at dry scale, as designed: rule_bias trains 0.0587, C1 fires rel_near=2, 6 within-arm windows scored, coupled=0 at toy budget).",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "seeds": 3
     }
   ]
 }
