@@ -18,6 +18,22 @@ C3  restoration_fraction default 1.0 -> contact fully restores the axis (legacy)
 C4  restoration_fraction < 1.0 -> contact leaves standing drive on the axis.
 C5  from_dims surfaces incentive_drive_kappa_scale onto cfg.goal; default 1.0.
 C6  restoration_fraction clamps to [0, 1]; the kappa_scale getattr fallback is 1.0.
+
+Bounded-raise amend (failure_autopsy_V3-EXQ-514s, 2026-06-18) -- the 514s retest
+proved lever (b) standing-differential-depletion WORKED but kappa_scale=6.0 was short
+on 3/5 seeds. The retune RAISES kappa above 6.0 (V3-EXQ-514t uses 12.0) + deepens the
+spread (restoration 0.3 -> 0.15), BOUNDED so drive does not swamp base_value. Two
+invariants must survive the raise:
+
+C7  OFF-floor-hard-zero: kappa acts ONLY through per-axis drive, so with ZERO drive
+    wanting()==base_value for ANY kappa_scale -- raising kappa cannot manufacture a
+    drive-induced dissociation when there is no drive signal (the experiment's
+    bank-disabled / no-drive WL floor stays hard-zero at the bounded kappa).
+C8  bounded / wanting!=liking-from-base_value intact (MECH-229 leg-(a)): at the bounded
+    retest kappa (12.0) a CLEARLY-LARGER base_value gap is NOT flipped by a realistic
+    standing drive spread -- a sated agent still wants the clearly-better object, so
+    drive does not dominate base_value. Brackets C2 (a MODERATE gap IS flipped): kappa
+    carves near-ties without overriding a decisive base_value gap.
 """
 import torch
 
@@ -132,3 +148,55 @@ def test_c4_partial_restoration_leaves_standing_drive():
 def test_c6_restoration_fraction_clamps():
     assert CausalGridWorldV2(size=8, per_axis_restoration_fraction=-1.0).per_axis_restoration_fraction == 0.0
     assert CausalGridWorldV2(size=8, per_axis_restoration_fraction=5.0).per_axis_restoration_fraction == 1.0
+
+
+# --- Bounded-raise amend (V3-EXQ-514s autopsy): invariants that survive a high kappa ---
+
+# The V3-EXQ-514t retest's bounded kappa_scale (mirrors the experiment constant). The
+# raise is BOUNDED: high enough to flip surmountable base_value gaps with a realistic
+# standing drive spread, but NOT so high that drive overrides a clearly-larger base_value.
+BOUNDED_KAPPA_SCALE = 12.0
+
+
+def test_c7_off_floor_hard_zero_under_high_kappa():
+    # OFF-floor-hard-zero: kappa multiplies ONLY the per-axis drive term
+    # (wanting[k] = base[k] * (1 + kappa * drive[k])), so with ZERO drive the wanting
+    # vector is base_value for EVERY kappa_scale -- the bounded raise cannot manufacture
+    # a drive-induced dissociation absent a drive signal. This is the substrate guarantee
+    # behind the experiment's bank-disabled / wl_off_floor_fraction ~ 0 control.
+    food = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+    water = torch.tensor([[0.0, 1.0, 0.0, 0.0]])
+    zero_drive = torch.tensor([0.0, 0.0, 0.0])
+
+    for ks in (1.0, BOUNDED_KAPPA_SCALE):
+        bank = _bank(incentive_drive_kappa_weight=2.0, incentive_drive_kappa_scale=ks)
+        bank.update(1, 1.0, food)
+        bank.update(2, 0.6, water)
+        w = bank.wanting(per_axis_drive=zero_drive)
+        # wanting == base_value at zero drive, independent of kappa_scale.
+        assert abs(w[1] - 1.0) < 1e-6 and abs(w[2] - 0.6) < 1e-6
+        # most_wanted ranks by base_value alone (== the consummatory/liking ranking) ->
+        # no kappa-induced flip -> the WL floor stays hard-zero.
+        k_star, _, _ = bank.most_wanted(per_axis_drive=zero_drive)
+        assert k_star == 1
+
+
+def test_c8_bounded_kappa_does_not_dominate_base_value():
+    # MECH-229 leg-(a) wanting!=liking-from-base_value intact: at the BOUNDED retest
+    # kappa, a CLEARLY-LARGER base_value gap (food 1.0 vs water 0.10 = 10x) is NOT flipped
+    # by a realistic standing drive spread (the high-drive low-base axis loses), so a
+    # sated agent still wants the clearly-better object -- drive does not swamp base_value.
+    food = torch.tensor([[1.0, 0.0, 0.0, 0.0]])   # base_value 1.0, axis 0 (low/sated drive)
+    water = torch.tensor([[0.0, 1.0, 0.0, 0.0]])  # base_value 0.10, axis 1 (high/depleted drive)
+    drive = torch.tensor([0.05, 0.30, 0.0])       # realistic standing spread ~0.25
+
+    bank = _bank(incentive_drive_kappa_weight=2.0, incentive_drive_kappa_scale=BOUNDED_KAPPA_SCALE)
+    bank.update(1, 1.0, food)
+    bank.update(2, 0.10, water)
+    k_star, z_star, _ = bank.most_wanted(per_axis_drive=drive)
+    # 1.0*(1+24*0.05)=2.20 vs 0.10*(1+24*0.30)=0.82 -> food (the clearly-larger base) holds.
+    assert k_star == 1 and torch.allclose(z_star, food)
+    # And it remains finite/bounded: the kappa term is a multiplier on a real drive,
+    # never a base_value-independent override.
+    w = bank.wanting(per_axis_drive=drive)
+    assert w[1] > w[2]  # clearly-larger base_value object stays most-wanted
