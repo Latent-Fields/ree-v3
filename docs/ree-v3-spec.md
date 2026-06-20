@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-19
+**Last updated:** 2026-06-20
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-19)
+## 0. Current V3 State (2026-06-20)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -160,6 +160,14 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-034 commitment-closure-control-plane BETA-ENGAGEMENT amend (couple closure -> beta elevation) | governance.closure_operator.commitment_closure_control_plane_beta_engagement_amend -- no-op-default `REEConfig.use_closure_commit_beta_coupling` couples the closure-plane commit (`e3._committed_trajectory is not None`) to the bistable BetaGate elevate path so beta occupancy tracks closure commitment on every seed where one forms, making the Leg-B de-commit refractory's ON<OFF latch-occupancy drop measurable. Closes the V3-EXQ-460e commit-without-beta dissociation (seeds 42/43 committed 2415/2019 steps but `total_beta_elevated=0`; closures fire 7/6 -> coupling resolves it on every seed where a closure forms). `BetaGate.note_closure_coupled_elevation()` + `_n_closure_coupled_elevations` diagnostic; full `should_admit_elevation` AND `_readiness_admits` conjunction preserved (composes cleanly with MECH-090 R-c). Bit-identical OFF; 5/5 new contracts + 7/7 preflight + 1084 contracts pass. PROMOTES NOTHING -- SD-034 provisional / MECH-260 candidate / MECH-261 stable all stay `non_contributory` + `pending_retest_after_substrate` until V3-EXQ-460f scores a contributory PASS. | Substrate landed 2026-06-17 (ree-v3 main f4ceea4 + ccb36db; REE_assembly master bf0e530; design doc `docs/architecture/sd_034_governance_closure_operator.md` + substrate_queue `commitment-closure-control-plane` entry). V3-EXQ-460f (de-commit retest on non-cap-pinned ON<OFF latch-occupancy DV) + V3-EXQ-468e (MECH-090 commit-entry conjunction under the trained head) queued TOGETHER on the amended substrate, both arming `beta_gate_bistable=True` + `use_closure_commit_beta_coupling=True` + Leg-A env hook + Leg-B hold + Leg-C `scaffold_train_rule_bias_head`. Substrate_queue ready stays false. |
 | DR-12 / `self_model_v4:SELF-4` (E2 forward-PE -> E3 trajectory-scoring confidence down-weight; FIRST V4 SUBSTRATE BUILD) | ethics_engine_3.pe_conditioned_confidence_weighting -- the FIRST-EVER V4 substrate build (`generation:v4`, OFF the V3 critical path; PROMOTES NOTHING in V3). User-approved via `self_model_v4_plan.md` SELF-4 `graduation_decision_2026_06_16`. A new lever on existing machinery (no learned parameters, no z_self state): in `E3TrajectorySelector.score_trajectory()`, when `use_pe_confidence_weighting=True` and a per-trajectory `e2_forward_pe` is supplied and `pe_confidence_weight != 0.0`, the score (a COST; lower-is-better) is increased by `pe_confidence_weight * penalty(e2_forward_pe)`. Penalty modes `linear` (penalty = pe) / `saturating` (penalty = 1 - exp(-pe/scale) in [0,1)). Threaded PER-CANDIDATE via `select(e2_forward_pe_per_candidate=[K])` so a varying PE can change the committed argmin (a UNIFORM scalar is argmin-invariant; the V3-EXQ-571 deleted-broadcast lesson; C3 contract pins this). Diagnostics: `pe_confidence_active`, `pe_confidence_weight`, `e2_forward_pe_range` (the non-vacuity gate), `pe_confidence_penalty_range`. Config (E3Config + REEConfig.from_dims, all no-op default): `use_pe_confidence_weighting` (False, master) + `pe_confidence_weight` (0.0) + `pe_confidence_mode` ("linear") + `pe_confidence_scale` (1.0). Per-candidate PE source in v1 is CALLER-SUPPLIED via `agent.set_injected_e2_forward_pe()` (the DR-12 pilot is a controlled probe; ecological region-PE auto-source is documented as a separate follow-on). Precedents set: `architecture_epoch = ree_self_model_v1`, `run_id` suffix `_v4`, `V4-EXQ-NNN` namespace (`validate_queue.py` widened to `V<gen>-EXQ`), `owner_exq=V4-EXQ-001` on SELF-4; `check_closure_drift.py` confirmed to skip `generation:v4` plans so V3 closure % stays clean. 8 DR-12 contracts + full suite pass; bit-identical OFF guaranteed. | Substrate landed 2026-06-17 (ree-v3 main f5eba3b + 394ccf4 + c4fc5bd; REE_assembly master 08f92b0d3e; design doc `docs/architecture/dr12_pe_conditioned_e3_confidence.md`; plan node `evidence/planning/self_model_v4_plan.md` SELF-4). V4-EXQ-001 (DR-12 pilot falsifier) RAN PASS on ree-cloud-1 (`dr12_pe_conditioning_changes_selection`; 3/3 diff-flipped, 3/3 uniform-inert; manifest `v4_exq_001_dr12_pe_conditioned_confidence_falsifier_20260617T105251Z_v4` 405ce947, `architecture_epoch=ree_self_model_v1`, on origin/master via the first push 394ccf4). MECH-215 (claim DR-10+DR-12 unblock) stays `candidate` / `implementation_phase=v4` -- DR-12 alone doesn't unblock it (DR-10 + experiments remain). First V4 manifest pending governance review. |
 | modulatory-bias-selection-authority AMEND (route upstream-channel range into the bias the authority rescales) | ethics_engine_3.modulatory_bias_selection_authority.route_range_amend -- routed by `failure_autopsy_569f-661-654a_2026-06-10`. The 2026-06-03/06-06 authority rescales the composed `_modulatory_accum`; the 569f/661/654a cluster showed that a channel whose REPRESENTATION carries cross-candidate range still does not move committed action when that range is flattened by the consuming bias head (e.g. zeroed-last-layer SD-033a/b heads) before reaching the accumulator. Fix: new `project_channel_range` helper + `channel_route_bias` param on `e3_selector.select` that folds a unit-normalised per-candidate projection of the channel's representation (SVD on a detached copy of `cand_world_summaries`; identity for already-per-candidate biases) into BOTH scores and `_modulatory_accum` BEFORE the authority's range computation. Source selectable via `modulatory_channel_route_source`: `cand_world_summary` (the 569f world-summary case; reads the ARC-065 GAP-A `e2_world_forward` helper) / `curiosity` / `gated_policy` / `mech295` / `coherence`. P0 readiness diagnostic `modulatory_channel_route_range` lets a retest assert the bias itself carries cross-candidate range BEFORE behavioural scoring (prevents self-routing a false negative). Parameter-free, no trained head, no phased training, bit-identical OFF; default `none`. New contracts cover project_channel_range identity / range-preservation / OFF bit-identical / ON P0 range + scores-reach-rescaled-accumulator. HONEST SCOPE: routing makes the channel range REACH + MOVE the committed argmax (the readiness property), NOT necessarily move it beneficially -- that's the channel's own trained-head retest. | Substrate landed 2026-06-10 (ree-v3 main; design doc `docs/architecture/modulatory_bias_selection_authority.md` route-range amend section + `substrate_queue.json` modulatory-bias-selection-authority entry with 3 failure records 569f/661/654a applied 2026-06-10 governance). V3-EXQ-663 substrate-readiness diagnostic ran 2026-06-10 (reviewed in the 16:24Z + 17:23Z governance cycles); per-claim behavioural retests of ARC-065 / MECH-294 / ARC-062 / MECH-309 / MECH-341 / MECH-314 / MECH-320 stay candidate / v3_pending until queued separately. |
+| modulatory-bias-selection-authority AMEND (TOP-K shortlist mode; small fixed F-best eligible set with rotating membership) | ethics_engine_3.modulatory_bias_selection_authority.top_k_shortlist_amend -- routed by `failure_autopsy_V3-EXQ-569h_2026-06-16`. The 2026-06-15 margin shortlist admitted ~7 of ~8 candidates (a state-STABLE near-whole eligible set) so within-set argmin collapsed to the channel's global favourite. New `modulatory_shortlist_mode='top_k'` + `modulatory_shortlist_k=3` lever uses a SMALL fixed top-k by primary score whose MEMBERSHIP ROTATES with state; within-set argmin of the routed `_modulatory_accum` (committed) / softmax-multinomial (uncommitted) selects the winner. SAFETY preserved at any internal strength -- only the k F-best are eligible, so a clearly-harmful candidate is never selectable. Bit-identical OFF (mode default `margin`); 22/22 conversion + shortlist contracts pass (18 prior + 4 new top-k). | Substrate landed 2026-06-16 (ree-v3 main; design doc `docs/architecture/modulatory_bias_selection_authority.md` TOP-K shortlist amend section). V3-EXQ-569i (the gated GAP-A behavioural falsifier on the now-validated TOP-K conversion + e2_world_forward pool divergence) PASSed 2/3 seeds on the 569 lineage (thin clearance over collapsed-proposer + matched-noise controls); the **V3-EXQ-689a gap-blind controls falsifier** rides on top of 569i + ARC-065 GAP-A. PROMOTES NOTHING -- ARC-065 stays provisional / substrate_ceiling / pending_retest_after_substrate. |
+| MECH-439 F-dominance conflict-grade levers (Factor A conflict-graded shortlist width + Factor B gap-scaled commit-T) | ethics_engine_3.f_dominance_conflict_grade -- the conversion-ceiling campaign's V3 fix for the live root (F-dominance). V3-EXQ-571 established the primary harm/goal F monopolises ~88-89% of E3 committed-selection variance, unchanged by the full diversity stack -- so every diversity channel reaches the E3 accumulator but cannot move the F-dominated committed argmax. ONE shared quantity `gap_norm` in [0,1] computed once from raw_scores (top-F to second-best gap / raw_score_range) drives BOTH new levers. **Factor A** (`modulatory_shortlist_conflict_graded`) grades the top-k shortlist width: `k = round(k_max - (k_max-1)*gap_norm)` clamped to [1,K] -- near-ties widen to `k_max`, decisive F-gaps shrink to k=1; F gates ELIGIBILITY only, ABSENT from the within-set arbitration the routed modulatory channel performs. **Factor B** (`use_gap_scaled_commit_temperature`) softens the committed hard-argmin into multinomial(softmax(-q/T_eff)) with `T_eff = base + alpha*(1 - gap_norm)` -- near-ties hot, decisive gaps cold; F-bounded eligible set guarantees safety at any internal strength. Both no-op default + bit-identical OFF; 12 new contracts pass (within-set arbitration safety, gap-scaling monotonicity, dead-band hold, gap-blind reduces to hot flat softmax control). NO encoder head, no phased training; pure-arithmetic. | Substrate landed 2026-06-18 (ree-v3 main; design doc `docs/architecture/modulatory_bias_selection_authority.md` MECH-439 conflict-grade section; synthesis `evidence/planning/conversion_ceiling_phase0_synthesis_2026-06-18.md`). **V3-EXQ-689a** queued 2026-06-19 (`MECH-439 conflict-grade GAP-BLIND control-arm falsifier`; supersedes V3-EXQ-689 which self-routed substrate_not_ready_requeue with gap_spread=0 -- the redesign LEADS with gap-BLIND control arms ARM_FIXED_KMAX / ARM_FIXED_HOT_T so the `gap-concentrated vs uniform lift` becomes an arm contrast that sidesteps the uncomputable per-gap-bin regression). MECH-439 stays candidate; this is its first falsifier. |
+| MECH-294 AMEND (per-candidate co-binding coherence; cross-candidate-range rendering so the route-range authority + 569i top-k can carve) | latent.multi_content_theta_packet.per_candidate_coherence_amend -- routed by V3-EXQ-661 + the substrate-ceiling-lifted triage 2026-06-19 (verdict (b) MECH-294 STILL CEILINGED). Prior `currency_coherence()` was a SCALAR; the 2026-06-09 compose path's `bias = -scale * coherence * cosine(cand, action_proposal)` produced a per-candidate PATTERN identical across binding modes (seal sets `action_proposal = _win_action` regardless of mode) and only scaled magnitude -- erased by the route-range authority's unit-range normalisation (joint == alternation; shuffled = 0). Fix (no-op-default, bit-identical OFF): `seal()` now binds, per V_s-gated content stream, the action_proposal CO-BOUND WITH that stream this cycle (`action_refs` + `coherence_weights`); new `compose_per_candidate_coherence` produces a mode-distinct per-candidate PATTERN (JOINT full range / ALTERNATION live + held-prior weighted distinct pattern (smoke joint-vs-alt cosine 0.82, NOT a uniform scaling) / SHUFFLED none ~0). Composes via the existing `coherence` modulatory_channel_route_source so the per-candidate range is the routed bias the authority rescales + the 569i top-k shortlists. Flags `theta_packet_compose_per_candidate_coherence` (False default) + `theta_packet_coherence_hold_weight` (0.5). Pure-arithmetic; no learned parameters; 7 new contracts. PROMOTES NOTHING -- MECH-294 stays candidate / substrate_ceiling / v3_pending; the 2026-04-26 governance hold stands until the behavioural falsifier on this channel PASSes. | Substrate landed 2026-06-19 (ree-v3 main a154664; REE_assembly master 33ce8424b1; design doc `docs/architecture/modulatory_bias_selection_authority.md`). NO behavioural EXQ queued in this pass (the MECH-294 falsifier on this channel is gated on candidate first-action diversity AND is a separate `/queue-experiment` step). |
+| SD-034 commitment-closure-control-plane DE-COMMIT-AUTHORITY MAGNITUDE amend (committed-run-scaled Leg-B refractory) | governance.closure_operator.commitment_closure_control_plane_de_commit_authority_magnitude_amend -- routed by `failure_autopsy_V3-EXQ-460f_2026-06-18`. The 2026-06-17 beta-engagement amend ran (all 4 readiness gates cleared; C2 de-commit DV ran for the first time -- PASS seed 42 -33.5%, FAIL 2/3) but on strong-natural-commit seeds the closure->beta coupling was INERT and the Leg-B 5-tick refractory was SWAMPED by 530-560 natural-commit elevated steps. NEW levers `closure_decommit_hold_scale_with_run` (default 0.0) + `closure_decommit_hold_max_ticks` (0 = uncapped) scale the de-commit hold by committed-run length captured at fire BEFORE `release()` (which resets the counter), clamped to `max_ticks`. BetaGate gains `_committed_run_length` counter + `committed_run_length` property + `sd034_committed_run_length` get_state key; ClosureOperator `_fire()` installs the scaled hold. Both flags no-op default + bit-identical OFF; 6 new contracts pass. PROMOTES NOTHING -- SD-034 provisional, MECH-260 candidate, MECH-261 stable. | Substrate landed 2026-06-19 (ree-v3 main; design doc `docs/architecture/sd_034_governance_closure_operator.md`). V3-EXQ-460g queued + ran 2026-06-19 (de-commit retest arming the magnitude lever on the beta-engagement-amended substrate) -- adjudicated FAIL/non_contributory (the de-commit MAGNITUDE lever was SELF-DEFEATING: scaled refractory at 60-tick cap pins beta + suppresses its own coupling certifier `sd034_n_closure_coupled_elevations` (the 460f-prescribed non-vacuity gate)). |
+| SD-034 commitment-closure-control-plane REFRACTORY-INDEPENDENT commit-intent counter amend (decouple the de-commit lever from its non-vacuity metric) | governance.closure_operator.commitment_closure_control_plane_refractory_independent_amend -- routed by `failure_autopsy_V3-EXQ-460g_2026-06-19`. The 460f-prescribed coupling non-vacuity gate keys on `sd034_n_closure_coupled_elevations`, counted only on the bistable elevate transition -- but the 460g committed-run-scaled de-commit-MAGNITUDE lever apply_refractory cap 60 blocks re-elevation, so scaling de-commit authority UP suppresses its own coupling certifier (counter collapsed 36 -> 0 on seed 42). New `BetaGate.note_closure_commit_intent()` + `_n_closure_commit_intent` counter + `sd034_n_closure_commit_intent` get_state key, called BEFORE the elevate gate so the closure-plane commit INTENT is certified every tick a closure-coupled commitment forms WITHOUT a natural running_variance crossing -- regardless of whether the latch is already elevated OR refractory-blocked. The new counter is the MECH-445 coupling-engagement certifier the MECH-446 magnitude lever cannot zero. Bit-identical OFF (rides `use_closure_commit_beta_coupling`); 3 new contracts pass. | Substrate landed 2026-06-19 (ree-v3 main; design doc `docs/architecture/sd_034_governance_closure_operator.md`). **V3-EXQ-460h** queued (supersedes 460g; the new MECH-446 de-commit-magnitude scored DV gates non-vacuity on `sd034_n_closure_commit_intent > 0`, NOT the refractory-suppressed coupled-elevations counter; `claim_ids=[MECH-446]`). Companion `/claim-synthesis` 2026-06-19 DECOMPOSED SD-034 (REE_assembly master 6a35087fd6): SD-034 narrowed + new claims **MECH-445** closure->beta coupling engagement + **MECH-446** de-commit-authority magnitude registered. SD-034 closure cluster `pending_retest` reroute stands. |
+| SD-049-PHASE-2 BOUNDED kappa raise + deeper standing spread amend | substrate.sd_049_phase_2.bounded_kappa_amend -- routed by `failure_autopsy_V3-EXQ-514s_2026-06-18`. 514s established lever (b) standing-differential-depletion WORKED (enriched_spread 1.0 / mean_drive_spread_max 0.211 vs 514q's equalised ~0.006); residual shortfall is lever (a) kappa-SCALE on argmax-flip-gated WL metric. Calibration only -- NO ree_core default change, NO new flag (the 2026-06-17 levers `incentive_drive_kappa_scale` + `per_axis_restoration_fraction` both bit-identical OFF). Bounded operating point validated against the live `wanting()` formula: kappa_scale=12.0 (eff_kappa=24) flips a moderate 1.0-vs-0.6 base_value gap under realistic standing spread (~0.25) but HOLDS a clearly-larger 10x gap (1.0-vs-0.10) -- drive carves near-ties without overriding decisive base_value. Two new invariant guard contracts: **C7** OFF-floor-hard-zero (kappa multiplies ONLY the drive term -> zero drive => wanting == base_value at any kappa_scale; bank-disabled WL floor stays hard-zero) + **C8** bounded / MECH-229-leg-(a)-intact (kappa_scale=12 does NOT flip a clearly-larger 10x base_value gap). 9/9 SD-049-PHASE-2 contracts pass. | Substrate landed 2026-06-19 (ree-v3 main bc2d084; REE_assembly master 218bb78bdc; design doc `docs/architecture/sd_049_multi_resource_heterogeneity.md` bounded-raise amend section + `substrate_queue.json` SD-049-PHASE-2). **V3-EXQ-514t** queued (supersedes V3-EXQ-514s; arms kappa_scale=12.0 + restoration_fraction=0.15 only on the WL-scoring env; pre-registers natural drive-coupled delta >= max(k*pstdev,0.15) on >=2/3 seeds as the MECH-436 `substrate_ceiling -> supports` criterion). MECH-229 leg (a) wanting!=liking + MECH-436 unchanged status. |
+| SD-061: difficulty-gated proposal-entropy regulator (stuck-state detector + transient CEM proposal-widening; MECH-343 blocker part 2 / Q-056) | control_plane.difficulty_gated_proposal_entropy -- the substrate MECH-343 was substrate_conditional on (blocker part 1 = modulatory-bias-selection-authority, NOW implemented via 569i top-k). Two coupled no-op-default modules: (1) `ree_core/cingulate/stuck_state_detector.py` integrates goal-progress stall + E3 first-action score margin + committed-action-class lock-in + dACC choice_difficulty into a graded `stuck_score` in [0,1] guarded by goal salience (the stuck-WITH-goal distinction); asymmetric EMA (rise >> fall) -> fast rise, slow decay; (2) `ree_core/policy/difficulty_gated_proposal_entropy.py` maps `stuck_score` to a transient PROPOSAL-layer gain: `extra_candidates = round(candidate_widen_max * s)` + `temperature_gain = 1 + temperature_gain_max * s`. Identity at s=0. `_e3_tick` applies the gain to `HippocampalModule.propose_trajectories` (`num_candidates += extra`; `differentiable_cem_temperature *= gain`, transient, restored in finally). Scoring + commitment (MECH-090/342) + selection authority (569i top-k / MECH-341) UNTOUCHED -- a hard problem widens proposals, not behaviour. Pure-arithmetic; no learned parameters; 8 new contracts pass. **PROMOTES NOTHING** -- MECH-343 stays candidate / substrate_conditional / v3_pending; claims.yaml registers SD-061 as a new substrate. | Substrate landed 2026-06-19 (ree-v3 main; design doc `docs/architecture/sd_061_difficulty_gated_proposal_entropy.md`; triage `evidence/planning/q054_q055_q056_buildability_triage_2026-06-19.md`). Q-056 falsifier (3-arm off / stuck-gated / always-high) queued as a separate /queue-experiment session once a substrate-readiness diagnostic PASSes. |
+| ETHICS-PERIMETER Phase 0 (new `epistemic_category = governance_rule` + 20 SENT-* / GOV-* standing-gate claims + node ethical metadata carry-forward) | governance.ethics_perimeter -- consolidates the 11 ethics thought intakes (sentience/welfare register + creation-ethics + pre-meaning valley + anti-retrospective-justification + assembly-routing + responsible-release + external-framework + health-data + security-misuse + AI-welfare-crosswalk + ethics-process-translation) into REE's claim-governed loop. Spine: ethical agency != moral patienthood -> welfare is a SEPARATE governance dimension from epistemic confidence, progressively binding by version, no capability release without care release. Schema: new `epistemic_category=governance_rule` added to `validate_claims.py` VALID_EPISTEMIC_CATEGORIES + `build_experiment_indexes.py` EPISTEMIC_CATEGORIES (+ resolver / gating docstrings) + CLAUDE.md table row -- it is non-`standard` so the indexer suppresses promote/demote/narrow automatically (conflict alerts may still fire). New `claim_type=governance_rule` (outside SUBSTRATE_CLAIM_TYPES so it does NOT enter the substrate-status map). Registered 20 standing-gate claims in claims.yaml (844 total): SENT-0..15 (welfare boundary statement, indicator matrix, welfare budget, combination gate, welfare-preserving design, denial audit, external review, creation ethics, minimal necessary suffering, care obligation, pre-meaning valley, anti-retro-justification, refusal channel, assembly routing, responsible release, AI-welfare crosswalk) + GOV-EXT-1 (external framework crosswalk EU AI Act / CoE / NIST RMF / ISO 42001+23894 / OECD) + GOV-HEALTH-1 (clinical-use prohibition + DPIA/Belmont/Helsinki/CIOMS/WHO/MDR/3Rs) + GOV-SEC-1 (OWASP GenAI / MITRE ATLAS misuse gate) + GOV-PROC-1 (ethics-as-process). Each: candidate / `blocks_v3_green_board=false` / progressive `binds_at_version` v3..v6. CARRY-FORWARD: GOV-PROC-1 §2 implemented via per-node `ethical_metadata` field set (welfare_relevance / applicable_ethics_gates / requires_welfare_review / forbidden_combinations), 50 welfare-relevant nodes tagged across 16 generation:v4/v5/v6 plans; V3 nodes untouched. **NON-BLOCKING for V3 green-board 2026-07-19**; Phases 1-3 (V3 boundary statement + docs/governance registers + release/legal/security docs) deferred to the plan. | Substrate landed 2026-06-19 (REE_assembly master 7023c94bab + 2012e7a8cb; plan-of-record `evidence/planning/ethics_perimeter_plan.md`; closure scripts unchanged -- V3 80.4% / drift 0/7/0 IDENTICAL before/after the node-metadata tagging). GOV-HEALTH-1 public-repo data audit ran CLEAN 2026-06-19 (zero patient-identifiable data in any of the 9 public Latent-Fields REE repos; verification doc `docs/governance/public_repo_data_audit_2026-06.md`). |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -177,6 +185,158 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-20T01:10Z nightly read (scheduled `/update-docs`).**
+  Heavy-substrate day; the live root choke is now explicit. `evidence/experiments/`
+  flat top-level holds **448 `v3_exq_*.json` manifests + 1 `v4_exq_*.json`** on disk
+  (frontier through V3-EXQ-693 + V4-EXQ-001). Legacy fleet `runner_status.json`
+  unchanged at the **840 dedup completion records** snapshot from earlier in June
+  (under Phase 3 the per-machine cards under `runner_heartbeats/` + `runner_status/`
+  lead the legacy single-file tally). **Pending review queue (regenerated
+  2026-06-19T21:50:12Z): 0 items** -- the 2026-06-19T20:13Z + 21:41Z governance cycles
+  closed everything pending. **Currently queued (`experiment_queue.json` items[]):
+  6 items** -- (a) **V3-EXQ-689a** MECH-439 conflict-grade GAP-BLIND control-arm
+  falsifier (gap-blind controls `ARM_FIXED_KMAX` + `ARM_FIXED_HOT_T` on the
+  569i-validated top-k shortlist; supersedes 689; claim_ids=[MECH-439]; priority
+  400; first falsifier of MECH-439); (b) **V3-EXQ-460h** SD-034 de-commit retest
+  for MECH-446 on the refractory-INDEPENDENT commit-intent gate (supersedes 460g;
+  priority 250); (c) **V3-EXQ-693** SD-049 Phase-2 4-arm substrate-gradient
+  behavioural validation (V3-EXQ-514l successor; full curriculum on the 603n
+  substrate; claim_ids=[SD-049, SD-015]; priority 240); (d) **V3-EXQ-690** Q-054
+  ARC-062 minimum trajectory-class diversity floor sweep (priority 230); (e)
+  **V3-EXQ-691** Q-055 SD-017 sleep consolidation diversity persistence
+  (priority 225); (f) **V3-EXQ-514t** SD-049-PHASE-2 MECH-436 drive-coupling retest
+  on the BOUNDED kappa raise (priority 200). **Substrate / governance landings
+  since the 2026-06-19T01:10Z spec sync (a heavy substrate day):** (1) **MECH-439
+  F-dominance conflict-grade levers landed** (ree-v3 main; design doc
+  `docs/architecture/modulatory_bias_selection_authority.md` MECH-439 section +
+  synthesis `evidence/planning/conversion_ceiling_phase0_synthesis_2026-06-18.md`)
+  -- the conversion-ceiling campaign's V3 fix for the live root: Factor A
+  conflict-graded shortlist width + Factor B gap-scaled commit-T, both bit-identical
+  OFF, both keying off one shared `gap_norm`; 12 new contracts pass. **V3-EXQ-689a
+  is the first MECH-439 falsifier** (689 self-routed substrate_not_ready_requeue
+  with gap_spread=0; the redesign LEADS with gap-BLIND control arms so
+  gap-concentrated-vs-uniform is an arm contrast sidestepping the uncomputable
+  per-gap-bin regression). (2) **modulatory-bias-selection-authority TOP-K shortlist
+  amend documented** (2026-06-16 ree-v3 main; the 7th GAP-A autopsy routing) --
+  `modulatory_shortlist_mode='top_k'` + `modulatory_shortlist_k=3` lever uses a
+  SMALL fixed top-k by primary score whose membership ROTATES with state. **V3-EXQ-569i**
+  PASSed 2/3 seeds (thin clearance over collapsed-proposer + matched-noise);
+  ARC-065 stays provisional / substrate_ceiling / pending_retest. (3) **MECH-294
+  per-candidate co-binding coherence amend landed** (ree-v3 main a154664;
+  REE_assembly master 33ce8424b1) -- closes V3-EXQ-661 byte-identical-committed-dist
+  by rendering the scalar coherence as a cross-candidate-range per-candidate bias
+  so it ROUTES into the route-range authority + 569i top-k can carve. MECH-294
+  stays candidate / substrate_ceiling / v3_pending. (4) **SD-034 closure-control-plane
+  DOUBLE amend landed (2026-06-19)**: (4a) de-commit-AUTHORITY MAGNITUDE
+  (committed-run-scaled Leg-B refractory) -- routed by `failure_autopsy_V3-EXQ-460f_2026-06-18`;
+  V3-EXQ-460g RAN FAIL 2026-06-19, autopsy adjudicated it self-defeating (scaled
+  refractory pins beta + suppresses its own coupling certifier); (4b) refractory-INDEPENDENT
+  commit-intent counter -- routed by `failure_autopsy_V3-EXQ-460g_2026-06-19`;
+  new `sd034_n_closure_commit_intent` get_state key + counter called BEFORE the
+  elevate gate so the closure-plane commit INTENT is certified every tick a
+  closure-coupled commitment forms regardless of refractory. (5) **`/claim-synthesis`
+  SD-034 closure cluster DECOMPOSITION landed** (REE_assembly master 6a35087fd6) --
+  7-autopsy granularity-debt route: SD-034 NARROWED + new claims **MECH-445**
+  closure->beta coupling engagement + **MECH-446** de-commit-authority magnitude
+  registered; coupling-measurability-under-refractory REFUSED as a measurement
+  property (the 460h fix, not a claim). **V3-EXQ-460h** queued with claim_ids=[MECH-446]
+  and a non-vacuity gate on `sd034_n_closure_commit_intent > 0` (NOT the
+  refractory-suppressed coupled-elevations counter). (6) **SD-049-PHASE-2 BOUNDED
+  kappa raise amend landed** (ree-v3 main bc2d084; REE_assembly master 218bb78bdc)
+  -- CALIBRATION only, no new flag, no ree_core default change (kappa_scale 6.0
+  -> 12.0 and per_axis_restoration_fraction 0.3 -> 0.15 only on the WL-scoring env
+  in the 514t experiment config); two new invariant guard contracts C7 OFF-floor-hard-zero
+  + C8 bounded / MECH-229 leg-(a)-intact. **V3-EXQ-514t** queued (supersedes 514s).
+  (7) **SD-061 difficulty-gated proposal-entropy regulator landed** (ree-v3 main) --
+  closes the MECH-343 substrate-conditional blocker part 2 (Q-056): stuck-state
+  detector + transient CEM proposal-widening (extra_candidates +
+  differentiable_cem_temperature gain, transient + restored in finally); scoring +
+  commitment + selection authority UNTOUCHED -- a hard problem widens proposals,
+  not behaviour. PROMOTES NOTHING (MECH-343 stays candidate / substrate_conditional
+  / v3_pending). (8) **ETHICS-PERIMETER Phase 0 landed** (REE_assembly master
+  7023c94bab + 2012e7a8cb) -- new `epistemic_category = governance_rule` +
+  `claim_type = governance_rule` in `validate_claims.py` / `build_experiment_indexes.py`
+  + CLAUDE.md table row, 20 standing-gate claims registered (SENT-0..15 welfare
+  register + GOV-EXT-1 external framework crosswalk + GOV-HEALTH-1 clinical-use
+  prohibition + GOV-SEC-1 misuse gate + GOV-PROC-1 ethics-as-process; all candidate
+  / `blocks_v3_green_board=false` / progressive `binds_at_version` v3..v6); per-node
+  `ethical_metadata` carry-forward (50 welfare-relevant nodes tagged across 16
+  generation:v4/v5/v6 plans). V3 80.4% / drift 0/7/0 IDENTICAL before/after. NEW
+  governance dimension separated from epistemic confidence; **NON-BLOCKING for V3
+  green-board 2026-07-19**. (9) **GOV-HEALTH-1 public-repo data audit CLEAN**
+  (REE_assembly master 13ba5e5e72 + d0e31c3486) -- first verification of the
+  ethics-perimeter "no patient-identifiable data in public repos" bright line.
+  All 9 public Latent-Fields REE repos scanned; ZERO patient-identifiable data,
+  clinical records, real-names+health-context, referral/service data, or secrets;
+  visibility-correction landed (5 PUBLIC / 4 PRIVATE; corrected the prior
+  unverified assertion that all Latent-Fields repos were public). (10) **Crystallization
+  harness guards landed** (ree-v3 main 10dee76; `experiments/_metrics.py`) -- three
+  durable MECH-334/INV-074 crystallization-necessity guards extracted from the
+  655 inline preflight: `assert_policy_trained` + `assert_ewc_penalty_in_loss` +
+  `assert_true_negative_arm0` so the next MECH-334 retest (copy-modify of 655)
+  cannot silently regress to the 610c-f no-op (13 fire-on-deliberately-broken
+  contracts + 6 happy-path; HarnessGuardError separates wiring bug from scientific
+  self-route). (11) **InfantCurriculumScheduler Phase 0->1 crossing-count criterion
+  wired** (ree-v3 main) -- closes `infant_substrate:GAP-14` defect (c-2)
+  gate-over-permissiveness at the criterion level (591f PASS evidence;
+  recommended_criterion=crossing_count). New flag
+  `phase_0to1_use_crossing_count` (default False = legacy single-episode SPIKE
+  gate) + `phase_0to1_crossing_count_min` (3 = 591f CROSSING_COUNT_MIN); mirrors
+  the 591f offline replay EXACTLY (contract verified). (12) **Convergence Demand
+  Pipeline HANDOFF-REACTIVATE node executed** (REE_assembly master 1014ee1f35;
+  REE_convergence master 4043cce) -- first batch since 2026-02-24, three June
+  promotion packets validated gate-ready + adjudicated (the tool only mirrors
+  receipts and does NOT write claims; CDQ-001..003 reconciled IN_FLIGHT ->
+  COMPLETED + 3 receipts landed both sides). PROCESS-lane closure 72.3% -> 92.3%;
+  V3/V4/V5/V6/governance % UNCHANGED. (13) **CDQ-005 MECH-442/443/444
+  decide-to-build packets landed** (REE_assembly master f861372e70 + 4f17018435)
+  -- MECH-442 (QD-archive single-elite archive selection) verdict (b) DESIGN GAP
+  -> CDQ-006 descriptor-variant query filed in REE_convergence; MECH-443
+  (priority_weighted_replay_write_selection) verdict (b) DESIGN GAP -> BUILDABLE
+  NOW on the landed MECH-319 write primitive; MECH-444
+  (staleness_gated_target_refresh_on_replay_write) verdict (c) DON'T-BUILD-yet
+  pending a not-yet-existing target-recompute-and-compare primitive. All three
+  CDQ-005 entries carry `ceiling_decision: deferred` markers + revisit triggers.
+  (14) **ARC-046 V3-EXQ-591 evidence-record drift fix** (REE_assembly master
+  75933a8215) -- first-run manifest `evidence_direction: does_not_support` ->
+  `non_contributory` per the 2026-05-27 autopsy override (the nested flat manifest
+  was outside the indexer's flat-overlay merge path); ARC-046 weakens 1 -> 0,
+  exp_conf 0.274 -> 0.0 (substrate_ceiling, NOT weakened). (15) **MECH-439
+  F-dominance front stood up** (REE_assembly master 88b13aaf3a) -- closure node
+  `behavioral_diversity_isolation:GAP-I` minted (MECH-439 in scope_claims; owner_exq
+  V3-EXQ-689a; load-bearing; full fallback ladder); `substrate_queue.json`
+  entry `f_dominance_conversion_ceiling` (IGW blocked_by linkage + F-variance
+  trajectory + 5-rung action ladder; unblocks 11+ claims); living "Campaign Status
+  & Action Ladder" section in the conversion_ceiling synthesis doc. Three
+  structurally-different channels (V3-EXQ-654g CRF rule_state / V3-EXQ-485h OFC
+  bias / V3-EXQ-569g/682 modulatory bias) all converge on MECH-439 as the single
+  shared blocker. (16) **3 confirmed governance cycles** walked V3-EXQ-485h (OFC
+  behavioural; non_contributory) + V3-EXQ-460g (de-commit magnitude; non_contributory)
+  + V3-EXQ-689 (MECH-439 substrate_not_ready_requeue) + V3-EXQ-654g (ARC-062 GAP-B;
+  non_contributory). 485g and 654f -> superseded. SD-034 / MECH-261 / MECH-260 /
+  ARC-062 / MECH-309 stay candidate / substrate_ceiling / pending_retest. (17)
+  **INV-074 `pending_retest_after_substrate` reconcile** (REE_assembly master
+  ee1c3f180d) -- cleared the contradiction between the 2026-06-13 user-decision
+  to STOP the 610 cascade (INV-074 substrate_ceiling accepted) and the pending_retest
+  flag; future test redirected to the V4 plasticity_neuromodulation_v4 plan, NOT
+  a V3 substrate retest. (18) **V3-EXQ-625e queued** (SD-037 axis-b P1b RECALIBRATED;
+  supersedes 625d) and **V3-EXQ-693 queued** (SD-049 Phase-2 4-arm substrate-gradient
+  validation, the still-owed 514l successor on the 603n-amended substrate).
+  **Bottleneck (continuation):** **MECH-439 F-dominance conversion ceiling is the
+  live root choke** -- 3 structurally-different behavioural channels (V3-EXQ-654g
+  CRF / V3-EXQ-485h OFC / V3-EXQ-569g/682 modulatory) all converge on it; V3-EXQ-689a
+  (the gap-blind controls falsifier on the 569i-validated top-k shortlist) is the
+  load-bearing falsifier. On PASS -> 11+ downstream claims unblock per the
+  f_dominance_conversion_ceiling substrate_queue entry; on FAIL -> routes to
+  fallback ladder (rank-preserving F-to-eligibility demotion / commit-T schedules).
+  **SD-034 closure-control-plane decomposition + V3-EXQ-460h** is the second
+  in-flight gate (MECH-446 de-commit magnitude on the refractory-independent
+  commit-intent gate). **SD-049-PHASE-2 V3-EXQ-514t** is the MECH-436 bounded
+  kappa retest. **ETHICS-PERIMETER Phase 0 datum** is on the record; Phases 1-3
+  deferred (V3 boundary statement + docs/governance registers + release/legal/security
+  docs). **V4-EXQ-001 PASS** the first V4 datapoint stands established;
+  MECH-215 stays candidate / `implementation_phase=v4`.
 
 - **2026-06-19T01:10Z nightly read (scheduled `/update-docs`).**
   Queue + pending-review churn day with no new substrate landings.
