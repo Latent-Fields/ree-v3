@@ -8,6 +8,24 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-689b",
+      "title": "PARALLEL HEDGE of V3-EXQ-689a on ree-cloud-4 (MECH-439 conflict-grade gap-blind falsifier; same script). Whichever of 689a(Mac)/689b(cloud-4) finishes first gives the MECH-439/MECH-442 verdict; the other is then redundant.",
+      "script": "experiments/v3_exq_689a_mech439_conflict_grade_gapblind_falsifier.py",
+      "priority": 410,
+      "machine_affinity": "ree-cloud-4",
+      "estimated_minutes": 300,
+      "claim_id": "MECH-439",
+      "note": "PARALLEL RUN of V3-EXQ-689a (NOT a fix/iteration -- same already-validated script experiments/v3_exq_689a_mech439_conflict_grade_gapblind_falsifier.py). User-directed hedge 2026-06-20T17:35Z: 689a was 23/24 cells in on DLAPTOP-4.local but the Mac was swap-thrashing (system-wide memory pressure from other apps; the experiment itself is light, RSS ~336MB) and wedged/crawling, so a parallel run was started on the freshly-woken ree-cloud-4 (dedicated, 3.8GB RAM, no app contention -> no swap). Mac 689a left RUNNING; do NOT stop it. Whichever completes first is the verdict; mark the slower duplicate non_contributory/superseded at review. NO supersedes set (parallel, not a correction). claim_ids=[MECH-439]; experiment_purpose=evidence. machine_affinity pinned ree-cloud-4 so it never falls back to the contended Mac.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-439"
+      ],
+      "conditions": 8,
+      "episodes_per_run": 80,
+      "experiment_type": "v3_exq_689a_mech439_conflict_grade_gapblind_falsifier",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-689a",
       "title": "MECH-439 conflict-grade GAP-BLIND control-arm falsifier (gap-concentrated vs uniform lift, via arm contrast); supersedes V3-EXQ-689",
       "script": "experiments/v3_exq_689a_mech439_conflict_grade_gapblind_falsifier.py",
@@ -75,24 +93,6 @@
       "conditions": 4,
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_693a_sd049_phase2_4arm_substrate_gradient_validation",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-689b",
-      "title": "PARALLEL HEDGE of V3-EXQ-689a on ree-cloud-4 (MECH-439 conflict-grade gap-blind falsifier; same script). Whichever of 689a(Mac)/689b(cloud-4) finishes first gives the MECH-439/MECH-442 verdict; the other is then redundant.",
-      "script": "experiments/v3_exq_689a_mech439_conflict_grade_gapblind_falsifier.py",
-      "priority": 410,
-      "machine_affinity": "ree-cloud-4",
-      "estimated_minutes": 300,
-      "claim_id": "MECH-439",
-      "note": "PARALLEL RUN of V3-EXQ-689a (NOT a fix/iteration -- same already-validated script experiments/v3_exq_689a_mech439_conflict_grade_gapblind_falsifier.py). User-directed hedge 2026-06-20T17:35Z: 689a was 23/24 cells in on DLAPTOP-4.local but the Mac was swap-thrashing (system-wide memory pressure from other apps; the experiment itself is light, RSS ~336MB) and wedged/crawling, so a parallel run was started on the freshly-woken ree-cloud-4 (dedicated, 3.8GB RAM, no app contention -> no swap). Mac 689a left RUNNING; do NOT stop it. Whichever completes first is the verdict; mark the slower duplicate non_contributory/superseded at review. NO supersedes set (parallel, not a correction). claim_ids=[MECH-439]; experiment_purpose=evidence. machine_affinity pinned ree-cloud-4 so it never falls back to the contended Mac.",
-      "status": "pending",
-      "claim_ids": [
-        "MECH-439"
-      ],
-      "conditions": 8,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_689a_mech439_conflict_grade_gapblind_falsifier",
       "seeds": 3
     }
   ]
