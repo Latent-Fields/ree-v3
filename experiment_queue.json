@@ -98,6 +98,25 @@
       "episodes_per_run": 260,
       "experiment_type": "v3_exq_691_q055_sleep_consolidation_diversity_persistence",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-514u",
+      "title": "SD-049-PHASE-2 MECH-436 drive-coupling MEASUREMENT REDESIGN: continuous incentive-amplitude readout at moderate kappa (6.0); supersedes V3-EXQ-514t",
+      "script": "experiments/v3_exq_514u_sd049_phase2_mech436_drive_coupling_continuous_amplitude.py",
+      "experiment_type": "v3_exq_514u_sd049_phase2_mech436_drive_coupling_continuous_amplitude",
+      "priority": 200,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 600,
+      "episodes_per_run": 265,
+      "seeds": 6,
+      "conditions": 1,
+      "supersedes": "V3-EXQ-514t",
+      "claim_id": "MECH-436",
+      "claim_ids": [
+        "MECH-436"
+      ],
+      "note": "MEASUREMENT-REDESIGN retest of the SD-049-PHASE-2 drive-coupling leg (failure_autopsy_V3-EXQ-514t_2026-06-20 confirmed/user-adjudicated; the deferred fork failure_autopsy_V3-EXQ-514s Section 7 pre-registered IF the kappa amend stalls -- it has). 514t (supersedes) showed the kappa-magnitude lever is EXHAUSTED as a monotone repair: doubling incentive_drive_kappa_scale 6.0->12.0 REGRESSED the natural flip-gated WL delta (514s +0.064/sd0.109/2-of-5-clear -> 514t -0.037/sd0.188/1-of-5-clear, 2 seeds strongly negative); at kappa_eff=24 drive over-amplifies base_value so most_wanted->argmax(per_axis_drive), destabilising the argmax through a near-tie landscape the argmax-flip-gated metric reads as sign-unstable noise. THE REDESIGN: add a CONTINUOUS incentive-amplitude readout (the normalized-wanting re-weighting toward the most-depleted axis under natural per-axis drive vs the uniform-drive baseline: share_natural[k_dep]-share_uniform[k_dep] in (-1,1), sub-flip, robust to argmax noise) ALONGSIDE the existing flip-gated delta (kept secondary). The continuous metric is the LOAD-BEARING supports gate. kappa REVERTED 12.0->6.0 (the 514s bimodal-positive point; kappa_eff=12, <= the C8 bounded-kappa upper bound that 12.0/kappa_eff=24 violated); DO NOT raise kappa again -- FALSIFIED as a monotone repair. per_axis_restoration_fraction stays 0.15 (lever b done; enriched_spread ~0.19 met on all 514t seeds; not deepened). KEPT controls: overshoot positive control (flip mag 5.0; the genuine-weakens off-ramp), OFF/bank-disabled floor (flip + continuous, hard zero), recalibrated argmax-relevance readiness, enriched-spread gate, contact guard. Effect-size gate on the continuous metric: max(CONT_K_SD*pstdev(per_seed_shift), CONT_FLOOR=0.05) on SD-of-DELTA + absolute floor -- NEVER pstdev(baseline_level). Pre-registered promotion target: continuous drive-coupled amplitude shift toward the depleted axis >= the effect-size floor on >=2/3 seeds -> MECH-436 substrate_ceiling -> supports. The five+1 non-vacuity preconditions self-route substrate_not_ready_requeue (NEVER a false weakens); a preconditions-met continuous-below-margin FAIL with overshoot still flipping is substrate_ceiling (NOT a falsification); only overshoot-cannot-flip is a genuine weakens. MECH-436 stays candidate/substrate_ceiling/pending_retest_after_substrate (NOT promoted; governance applies). PROTECT MECH-229 leg (a) wanting!=liking (V3-EXQ-514o PASS 0.80) -- NOT under test, must not be weakened (the hard-zero OFF floor confirms drive is not manufacturing a comparator artifact). Dry-run smoke PASS: runs end-to-end through the full 603n curriculum; all 6 readiness gates fire; continuous metric cont_shift=+0.138 (supports) DIVERGES from the flip delta -0.182 (the redesign's point -- sub-flip re-weighting the argmax-gate read as noise); continuous OFF floor structurally hard-zero (0.00e+00); overshoot positive control flips 1.0; enriched_spread met. NOTE (audit trail): queued under concurrent experiment_queue.json writers; working-tree-vs-HEAD audit (WT==HEAD) + post-commit dropped-file check applied per queue-experiment Step 5/8 (phase3-queue snapshot race)."
     }
   ]
 }
