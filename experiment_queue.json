@@ -8,6 +8,21 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-689c",
+      "title": "MECH-439 Factor-B-alone (gap-scaled commit-T) isolation retest",
+      "script": "experiments/v3_exq_689c_mech439_factor_b_gap_scaled_t_isolation.py",
+      "priority": 410,
+      "machine_affinity": "ree-cloud-3",
+      "estimated_minutes": 840,
+      "claim_id": "MECH-439",
+      "note": "Factor-B-alone (gap-scaled commit-T, ARM_A0B1) isolation retest the V3-EXQ-689a decomposition pointed at. Re-points the pre-registered PRIMARY from A1B1 (both levers, FAILED) to A0B1 (Factor B alone, the only converter: 0.850, beat its flat-hot control + proposer 2/3 seeds, resisted seed-43 collapse). 6 arms (PROPOSER_CTRL/MATCHED_NOISE/A0B0-topk/A0B1-PRIMARY/A1B1-confirmatory[A poisons B]/FIXED_HOT_T-flat-control); dropped the Factor-A-only arms (A1B0, FIXED_KMAX). LOAD-BEARING C_GAPBLIND_B = A0B1 strict-above FIXED_HOT_T (gap-scaling beats flat-hot); C_PRIMARY = A0B1 strict-above both collapsed controls; readiness route_range + e2-pairwise + t_eff-VARIES (NOT k_varies, Factor A off). NO supersedes (689a's combined-conflict-grade verdict stands; this isolates a sub-lever). Pinned ree-cloud-3 (cloud, not the Mac) per the duration/affinity lesson. Gating input for the MECH-442 decide-to-build packet Section 6.",
+      "status": "pending",
+      "conditions": 6,
+      "episodes_per_run": 80,
+      "experiment_type": "v3_exq_689c_mech439_factor_b_gap_scaled_t_isolation",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-514u",
       "title": "SD-049-PHASE-2 MECH-436 drive-coupling MEASUREMENT REDESIGN: continuous incentive-amplitude readout at moderate kappa (6.0); supersedes V3-EXQ-514t",
       "script": "experiments/v3_exq_514u_sd049_phase2_mech436_drive_coupling_continuous_amplitude.py",
@@ -53,21 +68,6 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_693a_sd049_phase2_4arm_substrate_gradient_validation",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-689c",
-      "title": "MECH-439 Factor-B-alone (gap-scaled commit-T) isolation retest",
-      "experiment_type": "v3_exq_689c_mech439_factor_b_gap_scaled_t_isolation",
-      "script": "experiments/v3_exq_689c_mech439_factor_b_gap_scaled_t_isolation.py",
-      "priority": 410,
-      "machine_affinity": "ree-cloud-3",
-      "status": "pending",
-      "estimated_minutes": 840,
-      "episodes_per_run": 80,
-      "seeds": 3,
-      "conditions": 6,
-      "claim_id": "MECH-439",
-      "note": "Factor-B-alone (gap-scaled commit-T, ARM_A0B1) isolation retest the V3-EXQ-689a decomposition pointed at. Re-points the pre-registered PRIMARY from A1B1 (both levers, FAILED) to A0B1 (Factor B alone, the only converter: 0.850, beat its flat-hot control + proposer 2/3 seeds, resisted seed-43 collapse). 6 arms (PROPOSER_CTRL/MATCHED_NOISE/A0B0-topk/A0B1-PRIMARY/A1B1-confirmatory[A poisons B]/FIXED_HOT_T-flat-control); dropped the Factor-A-only arms (A1B0, FIXED_KMAX). LOAD-BEARING C_GAPBLIND_B = A0B1 strict-above FIXED_HOT_T (gap-scaling beats flat-hot); C_PRIMARY = A0B1 strict-above both collapsed controls; readiness route_range + e2-pairwise + t_eff-VARIES (NOT k_varies, Factor A off). NO supersedes (689a's combined-conflict-grade verdict stands; this isolates a sub-lever). Pinned ree-cloud-3 (cloud, not the Mac) per the duration/affinity lesson. Gating input for the MECH-442 decide-to-build packet Section 6."
     }
   ]
 }
