@@ -68,6 +68,24 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_693a_sd049_phase2_4arm_substrate_gradient_validation",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-689d",
+      "title": "MECH-448 (ARC-107) rank-preserving F->eligibility demotion falsifier (689a-successor; the constitutional LEAD lever)",
+      "script": "experiments/v3_exq_689d_mech448_f_eligibility_demotion_falsifier.py",
+      "priority": 410,
+      "machine_affinity": "ree-cloud-3",
+      "estimated_minutes": 560,
+      "claim_id": "MECH-448",
+      "claim_ids": [
+        "MECH-448"
+      ],
+      "note": "MECH-448 (ARC-107) FIRST falsifier of the rank-preserving F->eligibility demotion lever -- the 689a-successor and the constitutional LEAD lever (NOT a re-queue of the conflict-grade near-tie parametric family 689/689a/689c, adjudicated EXHAUSTED by the user-ratified failure_autopsy_V3-EXQ-689a_2026-06-20 Step-8 'elevate the constitutional build'). NEW question, NO supersedes. Tests the e3_selector.py lever (use_f_eligibility_demotion / f_eligibility_envelope_floor=0.30 / f_eligibility_dn_sigma=0.0): F decides ELIGIBILITY only via a graded rank-preserving divisive-normalisation envelope (absolute share floor); the existing within-eligible _modulatory_accum arbitration picks the committed action with F REMOVED from the final argmin. 4 arms on the GAP-A-ready foraging substrate (SD-056 e2.world_forward online + ARC-065 candidate_summary_source=e2_world_forward + route-range routing + shortlist-then-modulate + lateral_pfc/mech295 = _modulatory_accum non-None): ARM_PROPOSER_CTRL (collapsed-channel floor) / ARM_MATCHED_NOISE (VERIFIED-LIFTING flat-hot T=2.5 sampling-noise negative control) / ARM_OFF (hard env-conditional top-k F-prefix = the 569i lever, demotion OFF) / ARM_ON (graded DN envelope, demotion ON). MECH-439 conflict-grade levers OFF on all arms. PASS=demotion_converts_committed_diversity (supports) = READINESS (IN-ARM route-range>floor + e2-divergence>floor + NON-DEGENERACY: f_eligibility_excluded_count>0 across the divergent pool, else substrate_not_ready_requeue) AND C_RANK_PRESERVING (eligible set is an F-rank prefix, order preserved on the numerators) AND C_PRIMARY (committed-class entropy strict-above BOTH collapsed controls = reaches the proposer ceiling + NOT noise-as-diversity) AND C_SAFETY (ON harm-per-tick <= OFF + tol; no harmful-class disinhibition). Off-ramps: all-admit envelope/under-trained -> substrate_not_ready_requeue; rank fraction<1.0 -> rank_alteration_not_prefix_diagnose (/diagnose-errors); no lift -> conversion_ceiling_persists_despite_demotion (MECH-449 Go/No-Go follow-on [double-gated] / V4); ONLY a C_SAFETY fail (admits harmful classes / global F-flatten) WEAKENS. claim_ids=[MECH-448] only; ARC-107/MECH-447/MECH-449/MECH-439/Q-078 untouched; MECH-448 stays candidate (PROMOTES NOTHING; governance applies). Pinned ree-cloud-3 (cloud, not the Mac) per the duration/affinity lesson; clusters with the 689-lineage. validate_experiments --strict PASS; dry-run smoke PASS (end-to-end 4 arms, self-routes substrate_not_ready_requeue at toy budget as designed). Queued under concurrent experiment_queue.json writers; working-tree-vs-HEAD audit (WT==HEAD) + post-commit dropped-file check applied per Step 5/8 (phase3-queue snapshot race).",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 80,
+      "experiment_type": "v3_exq_689d_mech448_f_eligibility_demotion_falsifier",
+      "seeds": 3
     }
   ]
 }
