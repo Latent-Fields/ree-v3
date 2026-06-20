@@ -30,6 +30,10 @@ from ree_core.policy.gated_policy import (
     GatedPolicyConfig,
     GatedPolicyOutput,
 )
+from ree_core.policy.natural_commit_urgency import (
+    NaturalCommitUrgencyRelease,
+    NaturalCommitUrgencyReleaseConfig,
+)
 from ree_core.policy.noise_floor import (
     NoiseFloor,
     NoiseFloorConfig,
@@ -52,6 +56,8 @@ __all__ = [
     "CommitMaintenanceReleaseConfig",
     "CommitReadiness",
     "CommitReadinessConfig",
+    "NaturalCommitUrgencyRelease",
+    "NaturalCommitUrgencyReleaseConfig",
     "GatedPolicy",
     "GatedPolicyConfig",
     "GatedPolicyOutput",

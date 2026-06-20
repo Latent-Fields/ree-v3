@@ -113,6 +113,8 @@ from ree_core.policy import (
     CommitMaintenanceReleaseConfig,
     CommitReadiness,
     CommitReadinessConfig,
+    NaturalCommitUrgencyRelease,
+    NaturalCommitUrgencyReleaseConfig,
     DifficultyGatedProposalEntropy,
     DifficultyGatedProposalEntropyConfig,
     GatedPolicy,
@@ -905,6 +907,47 @@ class REEAgent(nn.Module):
                 ),
             )
             self.maintenance_release = CommitMaintenanceRelease(config=mr_cfg)
+
+        # Commit/release-DURATION lever: graded natural-commit-occupancy release
+        # (rung-6 of f_dominance_conversion_ceiling; the duration face PARALLEL to
+        # the selection-face MECH-448). Reduces the F-driven natural-commit latch
+        # occupancy (~2400-2600 steps on strong seeds, V3-EXQ-460h) so weak-
+        # natural-commit is the norm across seeds. BG-3 SYNTHESIS divergence D1:
+        # GRADED release (Thura/Cisek 2022 urgency + Jin 2014 behaviour-co-
+        # extensive), NOT another fixed refractory. Reuses BetaGate.committed_run_length
+        # (no parallel latch; ARC-106 G2). No-op when the master flag is False
+        # (self.natural_commit_urgency is None) -> bit-identical. See
+        # ree_core/policy/natural_commit_urgency.py and
+        # REE_assembly/docs/architecture/natural_commit_occupancy_release.md.
+        self.natural_commit_urgency: Optional[NaturalCommitUrgencyRelease] = None
+        if getattr(config, "use_natural_commit_urgency_release", False):
+            ncur_cfg = NaturalCommitUrgencyReleaseConfig(
+                use_natural_commit_urgency_release=True,
+                urgency_mode=getattr(
+                    config, "natural_commit_release_urgency_mode", True
+                ),
+                action_extent_mode=getattr(
+                    config, "natural_commit_release_action_extent_mode", True
+                ),
+                urgency_rate=getattr(
+                    config, "natural_commit_urgency_rate", 0.01
+                ),
+                release_bound=getattr(
+                    config, "natural_commit_urgency_release_bound", 1.0
+                ),
+                urgency_cap=getattr(
+                    config, "natural_commit_urgency_cap", 1.5
+                ),
+                gap_entry_sensitivity=getattr(
+                    config, "natural_commit_gap_entry_sensitivity", 1.0
+                ),
+                onset_ticks=getattr(
+                    config, "natural_commit_urgency_onset_ticks", 0
+                ),
+            )
+            self.natural_commit_urgency = NaturalCommitUrgencyRelease(
+                config=ncur_cfg
+            )
 
         # SD-061: difficulty-gated proposal-entropy regulator (MECH-343 blocker
         # part 2). A stuck-state detector integrates goal-progress stall + dACC
@@ -2293,6 +2336,10 @@ class REEAgent(nn.Module):
         # pressure.
         if self.maintenance_release is not None:
             self.maintenance_release.reset()
+        # Commit/release-DURATION lever: per-episode reset of the natural-commit
+        # urgency accumulator + diagnostics (no cross-episode hold carried over).
+        if self.natural_commit_urgency is not None:
+            self.natural_commit_urgency.reset()
         # SD-061: reset the stuck-state detector + proposal-entropy regulator
         # per episode (preserve no cross-episode impasse state) + the lagged
         # stuck_score the next _e3_tick reads.
@@ -4372,6 +4419,43 @@ class REEAgent(nn.Module):
                 # e3._committed_trajectory presence as the decommit signal).
                 self.e3._committed_trajectory = None
 
+        # Commit/release-DURATION lever: graded natural-commit-occupancy release
+        # (rung-6 of f_dominance_conversion_ceiling; the duration face PARALLEL to
+        # MECH-448). Fires when a natural F-driven commit has held too long
+        # (Thura/Cisek graded urgency, rate scaled by entry decisiveness) OR when
+        # its executed action sequence completes (Jin maintenance-co-extensive).
+        # Distinct from MECH-342 above (which fires on DEGRADED readiness and is
+        # silent on the healthy-but-prolonged decisive commit that monopolises the
+        # latch -- the 460h ~2400-2600-step occupancy). No-op when the lever is
+        # disabled (self.natural_commit_urgency is None). Only acts on a run armed
+        # by note_commit_entry at a natural commit; tick() returns False otherwise.
+        if (
+            self.natural_commit_urgency is not None
+            and self.beta_gate.is_elevated
+        ):
+            # action_sequence_complete: the agent has stepped through all of the
+            # committed trajectory's actions (_committed_step_idx reaches the
+            # horizon) rather than repeating the last action indefinitely.
+            _ncur_seq_complete = False
+            _ncur_traj = self.e3._committed_trajectory
+            if _ncur_traj is not None:
+                try:
+                    _ncur_horizon = int(_ncur_traj.actions.shape[1])
+                    _ncur_seq_complete = (
+                        self._committed_step_idx >= _ncur_horizon
+                    )
+                except (AttributeError, IndexError, TypeError):
+                    _ncur_seq_complete = False
+            if self.natural_commit_urgency.tick(
+                committed_run_length=self.beta_gate.committed_run_length,
+                action_sequence_complete=_ncur_seq_complete,
+                simulation_mode=False,
+            ):
+                self.beta_gate.release()
+                self._committed_step_idx = 0
+                self._committed_anchor_keys = None
+                self.e3._committed_trajectory = None
+
         # SD-061: update the stuck-state detector every tick (not gated on beta
         # elevation -- impasse can build before commitment). Feeds the next
         # tick's _e3_tick proposal-gain via self._last_stuck_score (one-tick
@@ -6098,6 +6182,38 @@ class REEAgent(nn.Module):
                 # release pressure independently. No-op when disabled.
                 if self.maintenance_release is not None:
                     self.maintenance_release.reset_pressure()
+                # Commit/release-DURATION lever: arm the natural-commit-occupancy
+                # release at a fresh NATURAL commit entry (result.committed). A
+                # purely closure-coupled elevation (result.committed False) is NOT
+                # armed -- its occupancy is governed by the SD-034 machinery.
+                # gap_norm = normalised top-F decisiveness in [0,1] (1 = a
+                # decisive F-gap = the kind of commit that monopolises the latch).
+                # No-op when the lever is disabled (natural_commit_urgency None).
+                if (
+                    self.natural_commit_urgency is not None
+                    and result.committed
+                ):
+                    _ncur_gap_norm = 1.0
+                    try:
+                        _ncur_scores = result.scores.detach()
+                        if int(_ncur_scores.numel()) >= 2:
+                            _ncur_sorted, _ = torch.sort(_ncur_scores)
+                            _ncur_gap = float(
+                                _ncur_sorted[1].item() - _ncur_sorted[0].item()
+                            )
+                            _ncur_range = float(
+                                _ncur_sorted[-1].item() - _ncur_sorted[0].item()
+                            )
+                            _ncur_gap_norm = (
+                                _ncur_gap / (_ncur_range + 1e-8)
+                                if _ncur_range > 0.0
+                                else 1.0
+                            )
+                    except (AttributeError, RuntimeError, TypeError):
+                        _ncur_gap_norm = 1.0
+                    self.natural_commit_urgency.note_commit_entry(
+                        _ncur_gap_norm
+                    )
                 # MECH-269 / MECH-090: snapshot active anchor keys at commit entry.
                 # Read by select_action()'s V_s -> commit release block on
                 # subsequent ticks. No-op when use_vs_commit_release is False.

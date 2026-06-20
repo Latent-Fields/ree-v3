@@ -2460,6 +2460,40 @@ class REEConfig:
     maintenance_release_pressure_cap: float = 1.5
 
     # ----------------------------------------------------------------
+    # Commit/release-DURATION lever: graded natural-commit-occupancy release
+    # (the rung-6 lever of f_dominance_conversion_ceiling -- the duration face,
+    # PARALLEL to the selection-face MECH-448). Reduces the F-driven natural-
+    # commit latch occupancy (~2400-2600 steps on strong seeds, V3-EXQ-460h) so
+    # weak-natural-commit is the norm across seeds, dissolving the 460h MECH-445/
+    # MECH-446 disjoint-certifier problem. Per BG-3 SYNTHESIS divergence D1 this
+    # is a GRADED release (Thura/Cisek 2022 urgency + Jin 2014 behaviour-co-
+    # extensive maintenance), NOT another fixed refractory clock. Pure-arithmetic
+    # regulator (ree_core/policy/natural_commit_urgency.py) reusing
+    # BetaGate.committed_run_length (no parallel latch module, ARC-106 G2). All
+    # defaults no-op (bit-identical when use_natural_commit_urgency_release=False).
+    # See REE_assembly/docs/architecture/natural_commit_occupancy_release.md.
+    use_natural_commit_urgency_release: bool = False
+    # Sub-mode (1): Thura/Cisek graded urgency rising with the held duration,
+    # rate scaled by the commit-entry decisiveness. Consulted only when master on.
+    natural_commit_release_urgency_mode: bool = True
+    # Sub-mode (2): Jin maintenance-co-extensive release (fire when the executed
+    # action sequence completes). Consulted only when master on.
+    natural_commit_release_action_extent_mode: bool = True
+    # Per-tick base urgency increment (before the gap-scaled decisiveness scale).
+    natural_commit_urgency_rate: float = 0.01
+    # Urgency threshold at which the urgency-mode release fires.
+    natural_commit_urgency_release_bound: float = 1.0
+    # Hard clamp on accumulated urgency (numerical guard); must be >= bound.
+    natural_commit_urgency_cap: float = 1.5
+    # LOAD-BEARING: scales how strongly commit-entry decisiveness (gap_norm in
+    # [0,1]) raises the urgency rate. >0 -> an F-decisive (monopolising) commit
+    # accrues urgency faster -> the strongest-F holds are shortened most.
+    # 0.0 -> a flat fixed-rate timeout (the contrasted "fixed refractory" control).
+    natural_commit_gap_entry_sensitivity: float = 1.0
+    # Grace ticks at the start of a committed run before urgency begins accruing.
+    natural_commit_urgency_onset_ticks: int = 0
+
+    # ----------------------------------------------------------------
     # MECH-353: blocked-agency / control-failure affect stream (z_block).
     # Pure-arithmetic regulator (ree_core/affect/blocked_agency.py) that
     # integrates the SD-029 agency comparator applied to the action-outcome /
@@ -3988,6 +4022,17 @@ class REEConfig:
         maintenance_release_leak_rate: float = 0.1,
         maintenance_release_bound: float = 1.0,
         maintenance_release_pressure_cap: float = 1.5,
+        # Commit/release-DURATION lever: graded natural-commit-occupancy release
+        # (rung-6 of f_dominance_conversion_ceiling; duration face, parallel to
+        # MECH-448). All defaults no-op (bit-identical when the master is False).
+        use_natural_commit_urgency_release: bool = False,
+        natural_commit_release_urgency_mode: bool = True,
+        natural_commit_release_action_extent_mode: bool = True,
+        natural_commit_urgency_rate: float = 0.01,
+        natural_commit_urgency_release_bound: float = 1.0,
+        natural_commit_urgency_cap: float = 1.5,
+        natural_commit_gap_entry_sensitivity: float = 1.0,
+        natural_commit_urgency_onset_ticks: int = 0,
         # MECH-353: blocked-agency / control-failure affect stream (z_block).
         # Pure-arithmetic regulator on the SD-029 action-outcome comparator;
         # all defaults no-op (bit-identical when use_blocked_agency=False).
@@ -4921,6 +4966,28 @@ class REEConfig:
         config.maintenance_release_leak_rate = maintenance_release_leak_rate
         config.maintenance_release_bound = maintenance_release_bound
         config.maintenance_release_pressure_cap = maintenance_release_pressure_cap
+
+        # Commit/release-DURATION lever: graded natural-commit-occupancy release.
+        config.use_natural_commit_urgency_release = (
+            use_natural_commit_urgency_release
+        )
+        config.natural_commit_release_urgency_mode = (
+            natural_commit_release_urgency_mode
+        )
+        config.natural_commit_release_action_extent_mode = (
+            natural_commit_release_action_extent_mode
+        )
+        config.natural_commit_urgency_rate = natural_commit_urgency_rate
+        config.natural_commit_urgency_release_bound = (
+            natural_commit_urgency_release_bound
+        )
+        config.natural_commit_urgency_cap = natural_commit_urgency_cap
+        config.natural_commit_gap_entry_sensitivity = (
+            natural_commit_gap_entry_sensitivity
+        )
+        config.natural_commit_urgency_onset_ticks = (
+            natural_commit_urgency_onset_ticks
+        )
 
         # MECH-353: blocked-agency / control-failure affect stream (z_block).
         config.use_blocked_agency = use_blocked_agency
