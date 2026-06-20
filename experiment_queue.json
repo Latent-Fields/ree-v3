@@ -26,29 +26,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-689a",
-      "title": "MECH-439 conflict-grade GAP-BLIND control-arm falsifier (gap-concentrated vs uniform lift, via arm contrast); supersedes V3-EXQ-689",
-      "script": "experiments/v3_exq_689a_mech439_conflict_grade_gapblind_falsifier.py",
-      "priority": 400,
-      "machine_affinity": "any",
-      "estimated_minutes": 300,
-      "supersedes": "V3-EXQ-689",
-      "claim_id": "MECH-439",
-      "note": "MECH-439's FIRST falsifier, REDESIGNED (gap-BLIND control arms) per failure_autopsy_V3-EXQ-689_2026-06-19 (user-ratified S6). Same scientific question: does conflict-grading convert committed-action diversity, and is the lift gap-CONCENTRATED (real conflict-grading) vs UNIFORM (a bigger fixed shortlist / hotter flat softmax). 689 self-routed substrate_not_ready_requeue on the grading-non-vacuity gap-spread leg (gap_spread 0/3; F-gap pinned in the near-tie bin; the per-gap-bin C_FGAP regression uncomputable, a1b1_gap_bins_used=2<3). ADJUDICATED as a test-design/MEASUREMENT gap, NOT substrate-under-trained: GAP-A readiness PASSED (route_range 0.566, e2 pairwise_dist 0.164, C1 divergent) and BOTH levers ENGAGED (k 3/3, t_eff 3/3 -- the grading DID act); the near-tie concentration is itself a manifestation of the F-dominance MECH-439 asserts (F=88-89% of E3 variance, V3-EXQ-571), so a higher-P0 re-queue cannot open an ecology-pinned gap. REDESIGN: copy 689's 2x2 + 2 collapsed controls, ADD two GAP-BLIND controls -- ARM_FIXED_KMAX (k pinned k_max=6, gap-blind, Factor-A control) + ARM_FIXED_HOT_T (gap_scaled_alpha=0 + base T=2.5 -> T_eff=2.5 constant over the divergent e2_world_forward source, gap-blind Factor-B control; distinct from ARM_MATCHED_NOISE which keeps the COLLAPSED proposer source). LOAD-BEARING C_GAPBLIND (the C_FGAP replacement): ARM_A1B1 (gap-SCALED both levers) strict-above BOTH gap-blind controls on committed-action-class entropy on >=2/3 seeds = the lift is gap-CONCENTRATED (conflict-grading); a gap-blind control matching it = uniform lift, NOT conflict-grading (arm contrast sidesteps the uncomputable regression). C_PRIMARY (strict-above both collapsed controls) kept as the no-lift-at-all off-ramp discriminator. SECONDARY non-gating readouts: quantile-adaptive gap binning (equal-mass bins -> >=3 populated even on a concentrated gap) + the 689 fixed-width regression. READINESS DECOUPLED: 'levers engaged' (k/T_eff vary) is separated from 'gap-spread'; a levers-engaged + regression-uncomputable run reaches the arm contrast, NO LONGER self-routing substrate_not_ready on gap-spread. PRESERVED genuine non-vacuity gates (IN-ARM route-range floor, e2 pairwise-dist floor, levers-engaged k/T_eff-vary) -> below floor still self-routes substrate_not_ready_requeue (NEVER a false weakens). 3 seeds x 8 arms = 24 runs (P0=60 + P1=20 = 80 ep/run, 200 steps/ep). claim_ids=[MECH-439]; experiment_purpose=evidence. MECH-439 stays candidate -- a PASS moves toward supports; a preconditions-met fail routes to the synthesis-doc V4 directions / rank_preserving_F_to_eligibility_demotion fallback, NOT a dead end; NO weakens path. validate_experiments --strict --paths exit 0; dry-run smoke PASS (all 8 arms end-to-end, self-routes substrate_not_ready at dry scale by design). machine_affinity any (prefer cloud). NOTE (audit trail): queued under concurrent experiment_queue.json + parallel ree_core (SD-061 / q054-q056) untracked work; working-tree-vs-HEAD audit + post-commit dropped-file check applied per queue-experiment Step 5/8 (phase3-queue snapshot race); pathspec-limited to my script + the queue only.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-06-19T20:25:17Z"
-      },
-      "claim_ids": [
-        "MECH-439"
-      ],
-      "conditions": 8,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_689a_mech439_conflict_grade_gapblind_falsifier",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-514u",
       "title": "SD-049-PHASE-2 MECH-436 drive-coupling MEASUREMENT REDESIGN: continuous incentive-amplitude readout at moderate kappa (6.0); supersedes V3-EXQ-514t",
       "script": "experiments/v3_exq_514u_sd049_phase2_mech436_drive_coupling_continuous_amplitude.py",
