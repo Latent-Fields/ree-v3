@@ -52,6 +52,26 @@
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_514u_sd049_phase2_mech436_drive_coupling_continuous_amplitude",
       "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-693a",
+      "title": "SD-049 Phase-2 4-arm substrate-gradient validation: measurement re-issue of V3-EXQ-693 porting the working 514t info-tag WL-scoring harness so the R3 non-vacuity guard fires; supersedes V3-EXQ-693",
+      "experiment_type": "v3_exq_693a_sd049_phase2_4arm_substrate_gradient_validation",
+      "script": "experiments/v3_exq_693a_sd049_phase2_4arm_substrate_gradient_validation.py",
+      "priority": 80,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 720,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 4,
+      "supersedes": "V3-EXQ-693",
+      "claim_id": "SD-049",
+      "claim_ids": [
+        "SD-049",
+        "SD-015"
+      ],
+      "note": "failure_autopsy_V3-EXQ-693_2026-06-20 (confirmed): 693 self-routed substrate_not_ready_requeue/non_vacuity_unmet with R3 (WL-channel-fireable) the sole unmet guard (n_scored_wl_steps_total=0 all 4 arms/3 seeds) = INSTRUMENTATION gap (693 forked from 514l pre-514n; stale WL-scoring harness), NOT a substrate ceiling/falsification. 693a ports the 514t info-tag WL read (liking target + L2 bind from info['sd049_consumed_type_tag_this_tick'] captured pre-clear; WL scoring gated on a genuine consumption event); 4-arm gradient + identity probe + ANOVA + R1/R2/R3 self-route guards unchanged; R1 contact counter keeps benefit-OR-consumed gate so ARM_0 (SD-049 OFF) not regressed. Dry-run smoke: WL scored 9 (693=0), probe 0.733/n=347, ANOVA 55.3, pc_sep 1.0. WATCH (carried from autopsy S5, gated behind R3 in 693): C_GR margin lift was near-zero (ARM_2-ARM_0=0.0067; -0.0087 ARM_3) -> a margin-near-zero outcome post-WL-fix is a likely conversion-side substrate_ceiling/substrate_conditional re-route (via /failure-autopsy), NOT a falsification."
     }
   ]
 }
