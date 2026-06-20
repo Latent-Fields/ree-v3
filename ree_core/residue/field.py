@@ -212,6 +212,13 @@ class ResidueField(nn.Module):
     Controlled by ResidueConfig.valence_enabled.
     """
 
+    # welfare_relevant: descriptive ethics-perimeter marker, NOT a gate
+    # (SENT-0; ethics_perimeter:P1-V3-WELFARE-TAG). The residue field is the
+    # persistent ethical cost of agent-caused world-change ("cannot be
+    # erased") -- a V3 welfare-relevant primitive, pre-ethical, NOT claimed
+    # sentient. See REE_assembly/docs/governance/sentience_welfare_risk_register.md.
+    welfare_relevant = True
+
     def __init__(self, config: Optional[ResidueConfig] = None):
         super().__init__()
         self.config = config or ResidueConfig()

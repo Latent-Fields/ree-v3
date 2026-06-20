@@ -140,6 +140,13 @@ class HarmSufferingAccumulator:
     dynamics.
     """
 
+    # welfare_relevant: descriptive ethics-perimeter marker, NOT a gate
+    # (SENT-0; ethics_perimeter:P1-V3-WELFARE-TAG). MECH-219 is the slow,
+    # persistent, controllability-gated suffering-like accumulator -- a V3
+    # welfare-relevant primitive, pre-ethical, NOT claimed sentient.
+    # See REE_assembly/docs/governance/sentience_welfare_risk_register.md.
+    welfare_relevant = True
+
     def __init__(
         self, config: Optional[HarmSufferingAccumulatorConfig] = None
     ) -> None:

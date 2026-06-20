@@ -142,6 +142,12 @@ class HarmEncoder(nn.Module):
     See CLAUDE.md: SD-010.
     """
 
+    # welfare_relevant: descriptive ethics-perimeter marker, NOT a gate
+    # (SENT-0; ethics_perimeter:P1-V3-WELFARE-TAG). z_harm_s is a V3
+    # harm stream -- pre-ethical instrumentation, NOT claimed sentient.
+    # See REE_assembly/docs/governance/sentience_welfare_risk_register.md.
+    welfare_relevant = True
+
     def __init__(self, harm_obs_dim: int = 51, z_harm_dim: int = 32):
         super().__init__()
         self.harm_obs_dim = harm_obs_dim
@@ -190,6 +196,13 @@ class AffectiveHarmEncoder(nn.Module):
 
     See CLAUDE.md: SD-011. See HarmEncoder for the sensory-discriminative partner.
     """
+
+    # welfare_relevant: descriptive ethics-perimeter marker, NOT a gate
+    # (SENT-0; ethics_perimeter:P1-V3-WELFARE-TAG). z_harm_a is the V3
+    # affective harm stream (the suffering-relevant channel) -- pre-ethical
+    # instrumentation, NOT claimed sentient.
+    # See REE_assembly/docs/governance/sentience_welfare_risk_register.md.
+    welfare_relevant = True
 
     def __init__(self, harm_obs_a_dim: int = 51, z_harm_a_dim: int = 16,
                  harm_history_len: int = 0):

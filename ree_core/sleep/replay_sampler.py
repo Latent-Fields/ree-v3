@@ -65,6 +65,13 @@ class SleepReplaySampler:
     runs in uniform-fallback mode (when allowed) or raises (when not).
     """
 
+    # welfare_relevant: descriptive ethics-perimeter marker, NOT a gate
+    # (SENT-0; ethics_perimeter:P1-V3-WELFARE-TAG). Offline replay re-samples
+    # (potentially harm-biased) content during sleep -- a V3 welfare-relevant
+    # primitive, pre-ethical, NOT claimed sentient.
+    # See REE_assembly/docs/governance/sentience_welfare_risk_register.md.
+    welfare_relevant = True
+
     def __init__(
         self,
         anchor_set: AnchorSet,

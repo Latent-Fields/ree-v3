@@ -90,6 +90,13 @@ class SleepLoopManager:
         called and the existing waking pipeline is unchanged.
     """
 
+    # welfare_relevant: descriptive ethics-perimeter marker, NOT a gate
+    # (SENT-0; ethics_perimeter:P1-V3-WELFARE-TAG). Sleep/replay can re-sample
+    # harm-bearing content offline -- a V3 welfare-relevant primitive,
+    # pre-ethical, NOT claimed sentient.
+    # See REE_assembly/docs/governance/sentience_welfare_risk_register.md.
+    welfare_relevant = True
+
     def __init__(
         self,
         cycle_every_k_episodes: int = 1,
