@@ -106,6 +106,45 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_693a_sd049_phase2_4arm_substrate_gradient_validation",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-695",
+      "title": "ARC-062/MECH-309 modulatory-bias monomodal-collapse retest on the implemented modulatory/rule channel (569i top-k; route-range P0 gate); supersedes 654g",
+      "script": "experiments/v3_exq_695_arc062_mech309_modulatory_bias_monomodal_retest.py",
+      "experiment_type": "v3_exq_695_arc062_mech309_modulatory_bias_monomodal_retest",
+      "priority": 50,
+      "machine_affinity": "ree-cloud-3",
+      "estimated_minutes": 600,
+      "supersedes": "V3-EXQ-654g",
+      "claim_id": "MECH-309",
+      "claim_ids": [
+        "MECH-309",
+        "ARC-062"
+      ],
+      "seeds": 3,
+      "conditions": 2,
+      "episodes_per_run": 350,
+      "status": "pending",
+      "note": "Substrate-landing RETEST of substrate_ceiling MECH-309+ARC-062 on the now-implemented modulatory-bias/rule-apprehension channel; supersedes V3-EXQ-654g (non_contributory 2026-06-19). Single-var ARM_OFF (collapsed rule_state) vs ARM_ON (matured differentiated crf_source) on the 569i top-k shortlist conversion stack; PRIMARY DV committed-class entropy vs ARM_OFF AND proposer first-action dist. ENTANGLEMENT: residual ceiling IS the shared MECH-439 F-dominance conversion ceiling, MID-BUILD (MECH-448 lever landed 2026-06-20; falsifier V3-EXQ-689d queued); 695 keeps ALL 689-family levers OFF on every arm, distinct from 689d, priority<689-cluster so the build runs first (sequence after 689d per agent caveat). SAME-STATISTIC P0 gate (R5 ARM_ON modulatory_channel_route_range>floor, the route-range stat the conversion authority routes on; +R1 class-axis/R2 e2-div/R3 matured pool/R4 propagation) self-routes substrate_not_ready_requeue; three branches, no weakens: PASS(supports)/readiness-holds-C2-fail(F-dominance ceiling, /implement-substrate)/readiness-fail(re-queue). Queued via /governance ceiling-audit may-have-lifted routing 2026-06-20."
+    },
+    {
+      "queue_id": "V3-EXQ-696",
+      "title": "SD-033b/MECH-263 OFC-analog outcome-prediction substrate-ceiling retest (3-arm trained vs OFF vs matched-noise; route-range P0 gate)",
+      "script": "experiments/v3_exq_696_sd033b_mech263_ofc_outcome_prediction_ceiling_retest.py",
+      "experiment_type": "v3_exq_696_sd033b_mech263_ofc_outcome_prediction_ceiling_retest",
+      "priority": 50,
+      "machine_affinity": "ree-cloud-3",
+      "estimated_minutes": 220,
+      "claim_id": "SD-033b",
+      "claim_ids": [
+        "SD-033b",
+        "MECH-263"
+      ],
+      "seeds": 3,
+      "conditions": 3,
+      "episodes_per_run": 150,
+      "status": "pending",
+      "note": "Substrate-landing retest of SD-033b+MECH-263 substrate_ceiling: does the trained OFC-analog specific-outcome-prediction channel lift the previously-ceiling'd behavioural devaluation+task-role-discrimination metric strictly above OFF + a frozen-head matched-noise control? 3-arm (ARM_0_OFF/ARM_1_ON/ARM_2_MATCHED_NOISE) x 3-seed, phased P0->P1(frozen-encoder head)->P2. ENTANGLEMENT: per substrate_queue f_dominance_conversion_ceiling the OFC channel is channel 1 and F-dominance channel 2 of an active conversion ceiling mid-build (MECH-448 lever; falsifier V3-EXQ-689d queued); a non-PASS most likely corroborates the conversion ceiling, NOT refutes OFC. SAME-STATISTIC P0 gate: self-routes substrate_not_ready_requeue/non_contributory (NEVER a SD-033b/MECH-263 weakens) if the trained-head bias cross-candidate RANGE is below the 0.05 floor (the stat the load-bearing DVs route on); a readiness-met C1-fail records devalued-state range + diagnostic live-E3 F-test for /failure-autopsy adjudication. priority<689-cluster. Queued via /governance ceiling-audit may-have-lifted routing 2026-06-20."
     }
   ]
 }
