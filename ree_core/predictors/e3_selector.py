@@ -742,6 +742,56 @@ class E3TrajectorySelector(nn.Module):
     # Selection                                                            #
     # ------------------------------------------------------------------ #
 
+    def _f_eligibility_envelope(
+        self,
+        raw_scores: torch.Tensor,
+    ) -> torch.Tensor:
+        """MECH-448 (ARC-107): graded, rank-preserving F->eligibility envelope.
+
+        The pallidal-permission reading of the conversion ceiling: F decides who
+        is ELIGIBLE to compete, not who wins. F (``raw_scores``, a per-candidate
+        cost, lower-is-better) is renormalised against the COMPETING FIELD by a
+        divisive-normalisation analog and thresholded by an ABSOLUTE share floor:
+
+            merit[i] = clamp(raw_scores.max() - raw_scores[i], min=0)  # best=highest
+            pooled   = f_eligibility_dn_sigma + merit.sum()
+            elig[i]  = merit[i] / pooled                               # share of field
+            eligible = { i : elig[i] >= f_eligibility_envelope_floor }
+
+        The absolute-share floor (NOT a fraction-of-max, which cancels the pooled
+        term and degenerates to the margin shortlist) makes the envelope graded,
+        conflict-scaled, and env-general: a decisive F-winner commands most of the
+        merit share so others fall below the floor (narrow envelope); a near-tie
+        spreads the share (wide envelope). ``elig`` is monotone in ``merit`` ->
+        monotone in -F, so the eligible set is an F-RANK PREFIX (rank-preserving).
+
+        Returns a 1-D LongTensor of eligible candidate indices. Guaranteed
+        non-empty: when F cannot discriminate (range ~ 0) or the floor admits no
+        candidate (a genuine N-way tie where no candidate clears the share floor),
+        the envelope falls back to ALL candidates -- the correct "low conflict ->
+        wide envelope" behaviour (and reported as excluded_count == 0, the
+        non-degeneracy signal the falsifier checks against a divergent pool).
+        """
+        n = int(raw_scores.shape[0])
+        all_idx = torch.arange(n, device=raw_scores.device)
+        if n < 2:
+            return all_idx
+        merit = (raw_scores.max() - raw_scores).clamp(min=0.0)
+        merit_sum = float(merit.sum().item())
+        if merit_sum <= 1e-8:
+            # Flat F -- no discrimination -> wide envelope (all eligible).
+            return all_idx
+        sigma = float(getattr(self.config, "f_eligibility_dn_sigma", 0.0))
+        pooled = sigma + merit_sum
+        elig = merit / (pooled + 1e-8)
+        floor = float(getattr(self.config, "f_eligibility_envelope_floor", 0.30))
+        eligible_idx = torch.nonzero(elig >= floor, as_tuple=False).flatten()
+        if int(eligible_idx.numel()) == 0:
+            # Floor admits nobody (e.g. an exact N-way tie whose per-candidate
+            # share is below the floor) -> genuine low-conflict case -> wide.
+            return all_idx
+        return eligible_idx
+
     def _gap_scaled_commit_pick(
         self,
         cost: torch.Tensor,
@@ -1123,6 +1173,19 @@ class E3TrajectorySelector(nn.Module):
             "gap_scaled_commit_active": False,
             "gap_scaled_commit_gap_norm": -1.0,
             "gap_scaled_commit_temperature_eff": -1.0,
+            # MECH-448 / ARC-107 rank-preserving F->eligibility demotion (2026-06-20).
+            # Pre-seeded; overwritten at the selection site when the lever fires.
+            # f_eligibility_excluded_count > 0 is the NON-DEGENERACY signal (the
+            # envelope actually excluded a candidate -- not an all-admit vacuous
+            # self-route); f_eligibility_winner_neq_f_argmin records when the
+            # committed winner differs from the F-argmin (F demoted at commit);
+            # f_eligibility_rank_preserving confirms the eligible set is an F-rank
+            # prefix (the order-preserving-numerators falsifier check).
+            "f_eligibility_demotion_active": False,
+            "f_eligibility_envelope_size": -1,
+            "f_eligibility_excluded_count": -1,
+            "f_eligibility_winner_neq_f_argmin": False,
+            "f_eligibility_rank_preserving": True,
             # DR-12 (self_model_v4:SELF-4): E2 forward-PE -> E3 confidence down-weight.
             "pe_confidence_active": _pe_active,
             "pe_confidence_weight": float(
@@ -1205,16 +1268,33 @@ class E3TrajectorySelector(nn.Module):
             self.last_score_diagnostics["conflict_gap_norm"] = float(
                 _conflict_gap_norm
             )
+        _f_demotion_active = bool(
+            getattr(self.config, "use_f_eligibility_demotion", False)
+        )
         shortlist_idx: Optional[int] = None
         if (
-            getattr(self.config, "use_modulatory_shortlist_then_modulate", False)
+            (
+                getattr(self.config, "use_modulatory_shortlist_then_modulate", False)
+                or _f_demotion_active
+            )
             and _modulatory_accum is not None
             and raw_scores.shape[0] >= 2
         ):
-            shortlist_mode = str(
-                getattr(self.config, "modulatory_shortlist_mode", "margin")
+            # MECH-448 (ARC-107) f_demotion takes precedence over the margin/top_k
+            # shortlist modes when both flags are set.
+            shortlist_mode = (
+                "f_demotion" if _f_demotion_active
+                else str(getattr(self.config, "modulatory_shortlist_mode", "margin"))
             )
-            if shortlist_mode == "top_k":
+            if shortlist_mode == "f_demotion":
+                # MECH-448 / ARC-107 (2026-06-20): F decides ELIGIBILITY only. Build
+                # the graded, rank-preserving divisive-normalisation envelope
+                # (share-of-competing-field, absolute floor); the existing
+                # within-eligible _modulatory_accum arbitration below then picks the
+                # committed action with F REMOVED from the final argmin (the
+                # constitutional escalation past the conflict-grade near-tie family).
+                eligible_idx = self._f_eligibility_envelope(raw_scores)
+            elif shortlist_mode == "top_k":
                 # TOP-K shortlist (569h-autopsy CONVERSION amend, 2026-06-16):
                 # the F-best k candidates by primary score (lower-is-better ->
                 # k smallest raw_scores). A SMALL fixed k gives an eligible set
@@ -1308,9 +1388,43 @@ class E3TrajectorySelector(nn.Module):
                     )
                     local = int(torch.multinomial(shortlist_probs, 1).item())
                 shortlist_idx = int(eligible_idx[local].item())
-            self.last_score_diagnostics["modulatory_shortlist_active"] = True
-            self.last_score_diagnostics["modulatory_shortlist_size"] = n_eligible
-            self.last_score_diagnostics["modulatory_shortlist_mode"] = shortlist_mode
+            if _f_demotion_active:
+                # MECH-448 diagnostics. excluded_count > 0 is the NON-DEGENERACY
+                # signal (the envelope actually excluded a candidate, not all-admit);
+                # winner_neq_f_argmin records F demoted at commit; rank_preserving
+                # confirms the eligible set is an F-rank prefix (every eligible cost
+                # <= every excluded cost -- tie-robust).
+                _n_total = int(raw_scores.shape[0])
+                _f_argmin = int(raw_scores.argmin().item())
+                if 0 < n_eligible < _n_total:
+                    _mask = torch.ones(
+                        _n_total, dtype=torch.bool, device=raw_scores.device
+                    )
+                    _mask[eligible_idx] = False
+                    _excl_idx = torch.nonzero(_mask, as_tuple=False).flatten()
+                    _rank_preserving = bool(
+                        (
+                            raw_scores[eligible_idx].max()
+                            <= raw_scores[_excl_idx].min() + 1e-6
+                        ).item()
+                    )
+                else:
+                    _rank_preserving = True
+                self.last_score_diagnostics["f_eligibility_demotion_active"] = True
+                self.last_score_diagnostics["f_eligibility_envelope_size"] = n_eligible
+                self.last_score_diagnostics["f_eligibility_excluded_count"] = (
+                    _n_total - n_eligible
+                )
+                self.last_score_diagnostics["f_eligibility_winner_neq_f_argmin"] = bool(
+                    shortlist_idx is not None and shortlist_idx != _f_argmin
+                )
+                self.last_score_diagnostics["f_eligibility_rank_preserving"] = (
+                    _rank_preserving
+                )
+            else:
+                self.last_score_diagnostics["modulatory_shortlist_active"] = True
+                self.last_score_diagnostics["modulatory_shortlist_size"] = n_eligible
+                self.last_score_diagnostics["modulatory_shortlist_mode"] = shortlist_mode
 
         if shortlist_idx is not None:
             # Lever (b) selected within the F-filtered near-tie set.

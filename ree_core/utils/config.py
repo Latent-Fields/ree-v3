@@ -576,6 +576,44 @@ class E3Config:
     gap_scaled_commit_entropy_alpha: float = 1.0
     gap_scaled_commit_harm_floor: float = 0.25
 
+    # MECH-448 / ARC-107 -- rank-preserving F->eligibility demotion (LEAD lever of
+    # the basal-ganglia E3-selector constitution, 2026-06-20). The pallidal-permission
+    # reading of the conversion ceiling: F (the primary harm/goal score) decides who is
+    # ELIGIBLE to compete, NOT who wins. F monopolises ~88-89%% of E3 committed-selection
+    # variance (V3-EXQ-571); the conflict-grade near-tie family (MECH-447 / 689a) is
+    # exhausted, so this is the constitutional escalation routed by the 689a autopsy.
+    #
+    # F is renormalised against the COMPETING FIELD by a rank-preserving divisive-
+    # normalisation analog (Carandini & Heeger 2012; value DN, Louie/Khaw/Glimcher 2013):
+    #   merit[i]  = clamp(raw_scores.max() - raw_scores[i], min=0)   # lower-cost = higher
+    #   pooled    = f_eligibility_dn_sigma + merit.sum()
+    #   elig[i]   = merit[i] / pooled                                # share of the field
+    #   eligible  = { i : elig[i] >= f_eligibility_envelope_floor }  # absolute share floor
+    # The absolute-share floor (NOT a fraction-of-max, which would cancel the pooled term
+    # and collapse to the margin shortlist) makes the envelope GRADED + CONFLICT-SCALED +
+    # ENV-GENERAL: a candidate must command at least floor of the total competing merit to
+    # be eligible, so a decisive F-winner narrows the envelope (others fall below floor)
+    # and a near-tie widens it -- the hyperdirect conflict-grade emerging from the field
+    # structure, not a hard top-k count. Order-preserving in merit -> RANK-PRESERVING in F
+    # (the eligible set is an F-rank prefix). Then the existing _modulatory_accum arbitrates
+    # the committed action WITHIN the eligible set with F REMOVED from the final argmin
+    # (reuses the shortlist-then-modulate within-set arbitration). Requires a modulatory
+    # channel (_modulatory_accum not None) -- with no modulation there is nothing to demote
+    # F to, so the block is skipped (bit-identical, legacy F argmin).
+    #
+    # DIVERGENCE (ARC-106 ledger): canonical DN is ORDER-PRESERVING + POOLED-SYMMETRIC.
+    # REE demotes ONLY F and removes it from the commit argmin (rank-ALTERING at COMMIT) --
+    # this EXCEEDS canonical DN. LOAD-BEARING divergence (the QD/MAP-Elites justification),
+    # validated by the 689a-successor falsifier (NOT queued here).
+    # SAFETY: a clearly-harmful candidate has near-zero merit -> near-zero share -> below
+    # floor -> excluded, so no global disinhibition (the envelope is itself the F-bound).
+    # NON-DEGENERACY: the falsifier must show the envelope actually EXCLUDES on a divergent
+    # pool (f_eligibility_excluded_count > 0); an all-admit envelope is a vacuous self-route.
+    # Default False -> bit-identical OFF (the legacy argmin / shortlist path is untouched).
+    use_f_eligibility_demotion: bool = False
+    f_eligibility_envelope_floor: float = 0.30
+    f_eligibility_dn_sigma: float = 0.0
+
     # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
     # E2 forward prediction-error modulates E3 trajectory-scoring confidence.
     # E3 currently trusts the E2 rollout unconditionally; high E2 forward-PE in a
@@ -4187,6 +4225,11 @@ class REEConfig:
         use_gap_scaled_commit_temperature: bool = False,
         gap_scaled_commit_entropy_alpha: float = 1.0,
         gap_scaled_commit_harm_floor: float = 0.25,
+        # MECH-448 / ARC-107 -- rank-preserving F->eligibility demotion (LEAD lever,
+        # 2026-06-20). No-op default; bit-identical OFF.
+        use_f_eligibility_demotion: bool = False,
+        f_eligibility_envelope_floor: float = 0.30,
+        f_eligibility_dn_sigma: float = 0.0,
         # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
         # E2 forward-PE -> E3 trajectory-scoring confidence down-weight. No-op default.
         use_pe_confidence_weighting: bool = False,
@@ -5141,6 +5184,10 @@ class REEConfig:
         )
         config.e3.gap_scaled_commit_entropy_alpha = gap_scaled_commit_entropy_alpha
         config.e3.gap_scaled_commit_harm_floor = gap_scaled_commit_harm_floor
+        # MECH-448 / ARC-107 rank-preserving F->eligibility demotion (2026-06-20)
+        config.e3.use_f_eligibility_demotion = use_f_eligibility_demotion
+        config.e3.f_eligibility_envelope_floor = f_eligibility_envelope_floor
+        config.e3.f_eligibility_dn_sigma = f_eligibility_dn_sigma
         # DR-12 (self_model_v4:SELF-4, 2026-06-17): E2 forward-PE -> E3 confidence
         # down-weight. The score_trajectory penalty reads these from config.e3.
         config.e3.use_pe_confidence_weighting = use_pe_confidence_weighting
