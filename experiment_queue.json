@@ -55,28 +55,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-690",
-      "title": "Q-054 ARC-062 minimum trajectory-class diversity floor sweep (graded first-action-entropy sweep, 569i top-k conversion armed; brackets whether SP-CEM 0.497 nats clears the discriminator floor)",
-      "script": "experiments/v3_exq_690_q054_arc062_diversity_floor_sweep.py",
-      "priority": 230,
-      "machine_affinity": "any",
-      "estimated_minutes": 1100,
-      "claim_id": "ARC-062",
-      "note": "Q-054 buildability triage (2026-06-19): GAP-A conversion ceiling lifted by 569i; floor sweep now readable. Self-routes substrate_not_ready_requeue if realised entropy range collapses.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-19T23:36:44Z"
-      },
-      "claim_ids": [
-        "ARC-062"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 210,
-      "experiment_type": "v3_exq_690_q054_arc062_diversity_floor_sweep",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-514u",
       "title": "SD-049-PHASE-2 MECH-436 drive-coupling MEASUREMENT REDESIGN: continuous incentive-amplitude readout at moderate kappa (6.0); supersedes V3-EXQ-514t",
       "script": "experiments/v3_exq_514u_sd049_phase2_mech436_drive_coupling_continuous_amplitude.py",
