@@ -30,25 +30,6 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_654h_arc062_gapb_rule_apprehension_behavioural_falsifier",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-697",
-      "title": "ARC-013 residue-separability falsifier (residue vs salience+uncertainty)",
-      "script": "experiments/v3_exq_697_arc013_residue_separability_falsifier.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "claim_id": "ARC-013",
-      "note": "Offline re-ranking separability test: is residue's per-candidate E3 decision influence reducible to salience(z_world visitation-novelty)+uncertainty(_running_variance)? PASS=separable primitive (Q-079 HA2 corroboration); FAIL=reducible. Replaces the role Q-079/DLIF notes mis-attributed to V3-EXQ-587 (harm-gradient geometry, ran 2026-05-19 FAIL/non_contributory, reviewed). Off the v3 strict green-board (low priority).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-21T06:21:59Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 85,
-      "experiment_type": "v3_exq_697_arc013_residue_separability_falsifier",
-      "seeds": 5
     }
   ]
 }
