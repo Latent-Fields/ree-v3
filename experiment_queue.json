@@ -37,7 +37,11 @@
       "supersedes": "V3-EXQ-654g",
       "claim_id": "MECH-309",
       "note": "V3-EXQ-654h SUPERSEDES V3-EXQ-654g (FAIL non_contributory 2026-06-19, the CRF lineage TERMINUS; label shared_selection_authority_conversion_ceiling_route_implement_substrate). 654g proved the CRF stack is DONE (C1 met) and wired the 569i top-k shortlist, yet C1 held while C2 (committed-class entropy lift) FAILED -- self-routing the shared selection-authority CONVERSION CEILING (behavioral_diversity_isolation:GAP-A/GAP-I; MECH-439 F-dominance live root, F ~88-89%% of committed variance per V3-EXQ-571). 654h ports the 654g harness with the MECH-448 (ARC-107) RANK-PRESERVING F->ELIGIBILITY DEMOTION lever ARMED as a matched-stack CONSTANT on BOTH arms (use_f_eligibility_demotion=True + f_eligibility_envelope_floor=0.30 + f_eligibility_dn_sigma=0.0); per e3_selector.py the f_demotion mode TAKES PRECEDENCE over the retained 569i top_k keys (eligible set = graded DN envelope, F removed from the final argmin; the within-eligible _modulatory_accum arbitration is identical) = the V3-EXQ-689d ARM_ON config. The 2026-06-21 governance cycle promoted MECH-448 to provisional on the V3-EXQ-689d PASS (committed entropy 0.938 vs ARM_OFF hard-top-k 0.371; all 4 load-bearing criteria met), operationally LIFTING the F-dominance conversion ceiling 654g's C2 was stuck under; the substrate-ceiling audit (scripts/check_substrate_ceiling_audit.py) flags MECH-309/ARC-062 ceiling-may-have-lifted. 654h is the FIRST downstream confirmation the demotion lever generalises off the GAP-A foraging substrate onto the GAP-B rule-apprehension composite. ONLY swept variable = use_candidate_rule_field (ARM_OFF legacy collapsed rule_state vs ARM_ON matured+active differentiated crf_source); the now-working CRF stack (crf_persist + 666c maintenance + CRF-gate amend) + candidate_summary_source=e2_world_forward + SP-CEM + 643a authority + route-range + MECH-341 + SD-056 + GAP-D-trained SD-033a bias head are matched constants. PRIMARY DV = committed-class entropy ARM_ON strict-above-by-margin ARM_OFF (>=2/3 seeds). C1 (non-vacuity, self-routes substrate_not_ready_requeue): class axis exercisable + GAP-A divergence (both arms) + ARM_ON matured (crf_frac_active>=0.30) + propagation non-vacuous + the MECH-448 demotion lever LIVE (active>=0.8 of P2 ticks AND excluded_count>0 on the divergent pool, both arms). THREE-branch NO-weakens routing: PASS (C1+C2) supports MECH-309/ARC-062 + closes GAP-I; C1-holds-C2-fails -> conversion_ceiling_persists_despite_demotion (route MECH-449 Go/No-Go follow-on / V4); C1-fails -> substrate_not_ready_requeue. claim_ids=[MECH-309, ARC-062]; experiment_purpose=evidence; PROMOTES NOTHING by itself. machine_affinity 'any' (was ree-cloud-3; broadened 2026-06-21 per user -- Mac runner turned OFF so 'any' routes to a cloud worker (cloud-1/3/4); resilient to the cloud-2-offline/cloud-3 churn). py_compile + validate_experiments --strict (multi-arm fingerprint met) + dry-run smoke (end-to-end both arms; self-routes substrate_not_ready_requeue at toy budget as designed, no manifest leak) + validate_queue all PASS. Working-tree-vs-HEAD audit (WT==HEAD) + post-commit dropped-file check applied per Step 5/8 (phase3-queue snapshot race).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-06-21T09:32:36Z"
+      },
       "claim_ids": [
         "MECH-309",
         "ARC-062"
@@ -69,30 +73,6 @@
       "conditions": 1,
       "episodes_per_run": 295,
       "experiment_type": "v3_exq_460j_natural_commit_occupancy_release_decommit_falsifier",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-693a",
-      "title": "SD-049 Phase-2 4-arm substrate-gradient validation: measurement re-issue of V3-EXQ-693 porting the working 514t info-tag WL-scoring harness so the R3 non-vacuity guard fires; supersedes V3-EXQ-693",
-      "script": "experiments/v3_exq_693a_sd049_phase2_4arm_substrate_gradient_validation.py",
-      "priority": 80,
-      "machine_affinity": "any",
-      "estimated_minutes": 720,
-      "supersedes": "V3-EXQ-693",
-      "claim_id": "SD-049",
-      "note": "failure_autopsy_V3-EXQ-693_2026-06-20 (confirmed): 693 self-routed substrate_not_ready_requeue/non_vacuity_unmet with R3 (WL-channel-fireable) the sole unmet guard (n_scored_wl_steps_total=0 all 4 arms/3 seeds) = INSTRUMENTATION gap (693 forked from 514l pre-514n; stale WL-scoring harness), NOT a substrate ceiling/falsification. 693a ports the 514t info-tag WL read (liking target + L2 bind from info['sd049_consumed_type_tag_this_tick'] captured pre-clear; WL scoring gated on a genuine consumption event); 4-arm gradient + identity probe + ANOVA + R1/R2/R3 self-route guards unchanged; R1 contact counter keeps benefit-OR-consumed gate so ARM_0 (SD-049 OFF) not regressed. Dry-run smoke: WL scored 9 (693=0), probe 0.733/n=347, ANOVA 55.3, pc_sep 1.0. WATCH (carried from autopsy S5, gated behind R3 in 693): C_GR margin lift was near-zero (ARM_2-ARM_0=0.0067; -0.0087 ARM_3) -> a margin-near-zero outcome post-WL-fix is a likely conversion-side substrate_ceiling/substrate_conditional re-route (via /failure-autopsy), NOT a falsification.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-20T16:49:15Z"
-      },
-      "claim_ids": [
-        "SD-049",
-        "SD-015"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_693a_sd049_phase2_4arm_substrate_gradient_validation",
       "seeds": 3
     },
     {
