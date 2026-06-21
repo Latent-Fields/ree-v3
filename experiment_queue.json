@@ -8,6 +8,22 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-485j",
+      "title": "SD-033b/MECH-263 trained-OFC-head behavioural on MECH-448 demotion-enabled E3 selector, with envelope floor CALIBRATED to the behavioural bank (supersedes 485i excluded_count==0 no-op)",
+      "script": "experiments/v3_exq_485j_sd033b_demotion_envelope_calibrated_behavioural.py",
+      "priority": 410,
+      "machine_affinity": "any",
+      "estimated_minutes": 400,
+      "supersedes": "V3-EXQ-485i",
+      "claim_id": "SD-033b",
+      "note": "commitment_closure:GAP-8 evidence follow-on. Supersedes V3-EXQ-485i (FAIL/self-routed substrate_not_ready_requeue 2026-06-21: MECH-448 demotion envelope admitted ALL candidates, f_eligibility_excluded_count==0, on the OFC-isolated behavioural bank's SPREAD F -> all-admit no-op, ARM_2==ARM_1, DVs never ran demoted). FIX (failure_autopsy_V3-EXQ-485i_2026-06-21, behavioural-harness calibration NOT a MECH-439 F-variance rebalance): demotion-on arms CALIBRATE the absolute f_eligibility_envelope_floor per (arm,seed) to the bank's measured merit-share distribution (keep F-best top-k in [2,4] at largest share-gap; raw_scores bias-independent + constant across drives) so the MECH-448 envelope genuinely EXCLUDES; KEEP absolute share floor + dn_sigma=0.0; KEEP precond-3 (excluded_count>0 on >=2/3 seeds) a HARD readiness gate before C1/C2 (flat F -> calibration fails -> all-admit -> self-route). claim_ids=[SD-033b,MECH-263]; experiment_purpose=evidence; PROMOTES NOTHING. Dry-run: calibration engages (ARM_2 excluded=4, floor 0.125, nondegen 1/1); self-routes at toy budget on gate-1 as designed.",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 150,
+      "experiment_type": "v3_exq_485j_sd033b_demotion_envelope_calibrated_behavioural",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-654h",
       "title": "arc_062 GAP-B committed-class-entropy falsifier on MECH-448 F->eligibility demotion (654g-successor; demotion lever matched constant; sweep use_candidate_rule_field)",
       "script": "experiments/v3_exq_654h_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
@@ -30,22 +46,6 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_654h_arc062_gapb_rule_apprehension_behavioural_falsifier",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-485j",
-      "title": "SD-033b/MECH-263 trained-OFC-head behavioural on MECH-448 demotion-enabled E3 selector, with envelope floor CALIBRATED to the behavioural bank (supersedes 485i excluded_count==0 no-op)",
-      "experiment_type": "v3_exq_485j_sd033b_demotion_envelope_calibrated_behavioural",
-      "script": "experiments/v3_exq_485j_sd033b_demotion_envelope_calibrated_behavioural.py",
-      "priority": 410,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 400,
-      "episodes_per_run": 150,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_id": "SD-033b",
-      "supersedes": "V3-EXQ-485i",
-      "note": "commitment_closure:GAP-8 evidence follow-on. Supersedes V3-EXQ-485i (FAIL/self-routed substrate_not_ready_requeue 2026-06-21: MECH-448 demotion envelope admitted ALL candidates, f_eligibility_excluded_count==0, on the OFC-isolated behavioural bank's SPREAD F -> all-admit no-op, ARM_2==ARM_1, DVs never ran demoted). FIX (failure_autopsy_V3-EXQ-485i_2026-06-21, behavioural-harness calibration NOT a MECH-439 F-variance rebalance): demotion-on arms CALIBRATE the absolute f_eligibility_envelope_floor per (arm,seed) to the bank's measured merit-share distribution (keep F-best top-k in [2,4] at largest share-gap; raw_scores bias-independent + constant across drives) so the MECH-448 envelope genuinely EXCLUDES; KEEP absolute share floor + dn_sigma=0.0; KEEP precond-3 (excluded_count>0 on >=2/3 seeds) a HARD readiness gate before C1/C2 (flat F -> calibration fails -> all-admit -> self-route). claim_ids=[SD-033b,MECH-263]; experiment_purpose=evidence; PROMOTES NOTHING. Dry-run: calibration engages (ARM_2 excluded=4, floor 0.125, nondegen 1/1); self-routes at toy budget on gate-1 as designed."
     }
   ]
 }
