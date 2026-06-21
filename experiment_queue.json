@@ -6,5 +6,26 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-654i",
+      "title": "arc_062 GAP-B committed-class-entropy falsifier on MECH-448 F->eligibility demotion (654h-successor; 485j-style envelope-floor calibration so the demotion lever excludes on the arc_062 bank; sweep use_candidate_rule_field)",
+      "script": "experiments/v3_exq_654i_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
+      "priority": 410,
+      "machine_affinity": "any",
+      "estimated_minutes": 600,
+      "supersedes": "V3-EXQ-654h",
+      "claim_id": "MECH-309",
+      "note": "V3-EXQ-654i SUPERSEDES V3-EXQ-654h (FAIL non_contributory 2026-06-21, self-routed substrate_not_ready_requeue). 654h's ONLY unmet readiness gate was the MECH-448 non-degeneracy precondition C1e_mech448_demotion_live_and_excluding: f_eligibility_excluded_count==0 on the arc_062 rule-apprehension bank -- the 689d-tuned absolute envelope floor (0.30) admitted EVERY candidate on the bank's SPREAD/non-divergent F pool -> all-admit fallback -> ARM_ON==ARM_OFF -> the F->eligibility demotion was a STRUCTURAL no-op -> the load-bearing C2 committed-class-entropy-lift DV never ran through a genuinely-demoted selector. IDENTICAL signature to V3-EXQ-485i (same MECH-448 lever, OFC bank). 654i FIX (per failure_autopsy_V3-EXQ-654h_2026-06-21, mirrors 485i->485j): LAGGED per-(arm,seed) envelope-floor CALIBRATION (_calibrate_envelope_floor) -- after each select the absolute f_eligibility_envelope_floor is re-derived from the live raw-F merit-share distribution so the MECH-448 envelope keeps the F-best top-k in [2,4] and EXCLUDES a non-empty tail (excluded_count>0) on the arc_062 bank. KEEP an ABSOLUTE share floor (a fraction-of-max degenerates to the margin shortlist); KEEP f_eligibility_dn_sigma=0.0. use_candidate_rule_field stays the ONLY swept variable; use_f_eligibility_demotion=True is a matched-stack CONSTANT on BOTH arms (f_demotion mode overrides the retained 569i top_k). C1e stays a HARD readiness gate -- a non-engaging envelope still self-routes substrate_not_ready_requeue (never a false weakens); a fired-but-non-converting outcome (excluded_count>0 but C2 flat) scores a genuine MECH-309/ARC-062 weakens, NOT another no-op requeue. Re-queue GATE CLEARED by failure_autopsy_V3-EXQ-485j: MECH-448 demotion GENERALISES off the GAP-A foraging substrate for the discrimination/committed-diversity family 654 tests (C2 converted via a clean 3-arm dissociation; only the orthogonal OFC C1 devaluation signature -- a devalued-head/test-design gap, NOT the lever/envelope/MECH-448 -- did not). PRIMARY DV = committed-class entropy ARM_ON strict-above-by-margin ARM_OFF (>=2/3 seeds). claim_ids=[MECH-309, ARC-062]; experiment_purpose=evidence; PROMOTES NOTHING by itself. py_compile + validate_experiments --strict (multi-arm fingerprint met) + dry-run smoke (end-to-end both arms; self-routes substrate_not_ready_requeue at toy budget as designed, no manifest leak) PASS. Working-tree-vs-HEAD audit (WT==HEAD) + post-commit dropped-file check applied per Step 5/8 (phase3-queue snapshot race).",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-309",
+        "ARC-062"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 350,
+      "experiment_type": "v3_exq_654i_arc062_gapb_rule_apprehension_behavioural_falsifier",
+      "seeds": 3
+    }
+  ]
 }
