@@ -50,6 +50,21 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_654i_arc062_gapb_rule_apprehension_behavioural_falsifier",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-689f",
+      "title": "MECH-449/ARC-107 No-Go-necessity falsifier: positive trigger for the Go/No-Go opponency build (rank-preserving MECH-448 demotion admits high-F undesirables an active No-Go would suppress)",
+      "experiment_type": "v3_exq_689f_nogo_necessity_falsifier",
+      "script": "experiments/v3_exq_689f_nogo_necessity_falsifier.py",
+      "priority": 415,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "episodes_per_run": 1,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "MECH-449",
+      "note": "Anti-partial-instantiation guard (ARC-107). Property test of the LIVE _f_eligibility_envelope: rank-preserving F->eligibility demotion is order-preserving over F, so it admits high-F undesirable (unsafe/stale/perseverative) candidates that an active No-Go (the missing MECH-449) would suppress. PASS=demotion_insufficient_nogo_necessary (regime present on the channel-adaptive floor + No-Go reference closes it + F-rank-prefix preserved) -> positive build trigger for MECH-449, replacing the old 'build only if MECH-448 fails' gate. diagnostic; claim_ids=[MECH-449,ARC-107]; PROMOTES NOTHING. Selection-face/commitment-free (avoids the don't-queue-commitment-dependent-behaviour gate). Cross-ref arc_107_selector_constitution_design_2026-06-20.md s6 step 4b."
     }
   ]
 }
