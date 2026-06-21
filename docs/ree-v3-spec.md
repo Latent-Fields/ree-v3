@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-20
+**Last updated:** 2026-06-21
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -185,6 +185,111 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-21T01:10Z nightly read (scheduled `/update-docs`).** ARC-107 BG-selector
+  constitution build day. `evidence/experiments/` flat top-level now holds
+  **458 `v3_exq_*.json` manifests + 1 `v4_exq_*.json`** on disk (frontier through
+  V3-EXQ-696 + V4-EXQ-001; +10 since the 2026-06-20 read). Legacy fleet
+  `runner_status.json` snapshot held at the **840 dedup completion records** (V3
+  subset 811 = PASS 267 / FAIL 424 / ERROR 87 / UNKNOWN 32 / INCONCLUSIVE 1) -- the
+  per-machine Phase-3 cards under `runner_heartbeats/` + `runner_status/` lead the
+  legacy single-file tally. **Pending review queue (regenerated 2026-06-20T21:45Z):
+  1 item** -- V3-EXQ-696 SD-033b / MECH-263 OFC outcome-prediction ceiling retest
+  (FAIL 2026-06-20T21:29Z; freshly queued via the 2026-06-20 `/governance` ceiling-audit
+  may-have-lifted routing alongside V3-EXQ-695). **Currently queued
+  (`experiment_queue.json` items[]): 6 items, 5 claimed + 1 pending** -- (a)
+  **V3-EXQ-460i** rung-6 commit/release-DURATION lever de-commit falsifier
+  (graded natural-commit-occupancy release tested via 460h disjoint-certifier
+  recovery; claim_ids=[MECH-446, MECH-445]; cloud-2; priority 410); (b) **V3-EXQ-689c**
+  MECH-439 Factor-B-alone (gap-scaled commit-T) isolation retest (the 689a
+  decomposition Factor-B sub-lever check; kept queued per the 2026-06-20
+  biology-fidelity steer as PURE NO-AUTHORITY confirmatory data; cloud-4; priority
+  410); (c) **V3-EXQ-689d** MECH-448 / ARC-107 rank-preserving F->eligibility
+  demotion falsifier (the 689a-successor and constitutional LEAD lever; on the
+  GAP-A-ready foraging substrate; claim_ids=[MECH-448]; DLAPTOP-4.local;
+  priority 410); (d) **V3-EXQ-693a** SD-049 Phase-2 4-arm substrate-gradient
+  measurement re-issue (ports the working 514t info-tag WL-scoring harness so R3
+  WL-fireable non-vacuity guard fires; supersedes 693; claim_ids=[SD-049, SD-015];
+  cloud-1; priority 80); (e) **V3-EXQ-695** ARC-062 / MECH-309 modulatory-bias
+  monomodal-collapse retest on the implemented modulatory / rule channel (569i
+  top-k; route-range P0 gate; supersedes 654g; claim_ids=[MECH-309, ARC-062];
+  cloud-3; priority 50); (f) **V3-EXQ-696** SD-033b / MECH-263 OFC-analog
+  outcome-prediction substrate-ceiling retest (3-arm trained vs OFF vs matched-noise;
+  route-range P0 gate; FAILed 2026-06-20T21:29Z, pending governance review;
+  cloud-3; priority 50). **Substrate / governance landings since the
+  2026-06-20T01:10Z spec sync (one major architectural pivot):** (1) **MECH-448 /
+  ARC-107: rank-preserving F->eligibility demotion (LEAD lever of the
+  basal-ganglia E3-selector constitution) landed** (ree-v3 main 4c9b3c9;
+  REE_assembly master 5bdf97c105) -- the user-adjudicated 689a failure-autopsy's
+  "elevate the constitutional build" branch (the conflict-grade near-tie
+  parametric family MECH-447 is exhausted). New `_f_eligibility_envelope` graded
+  divisive-normalisation envelope (rank-preserving, absolute share floor 0.30
+  default; `f_demotion` mode of the shortlist-then-modulate block reuses the
+  existing within-eligible `_modulatory_accum` arbitration with F REMOVED from the
+  final argmin); 3 E3Config flags `use_f_eligibility_demotion` /
+  `f_eligibility_envelope_floor` / `f_eligibility_dn_sigma` no-op-default,
+  bit-identical OFF; 10 new contracts + 8 preflight + 1158 full contracts PASS;
+  THE FIRST major worked application of ARC-106 (brain-like construction:
+  divergence ledger anchors the rank-ALTERING-at-commit departure from canonical
+  DN; psychiatric-failure-mode column: envelope-too-wide -> impulsivity/mania,
+  envelope-too-tight -> bradykinesia/avolition). PROMOTES NOTHING (MECH-448
+  stays candidate). V3-EXQ-689d (claim_ids=[MECH-448]) is the falsifier.
+  (2) **Commit/release-DURATION lever: graded natural-commit-occupancy release
+  landed PARALLEL to MECH-448** (ree-v3 main ab2c1a9; REE_assembly master
+  fd98756f87) -- rung-6 of `f_dominance_conversion_ceiling`; BG-3 SYNTHESIS
+  divergence D1 says biology times the commitment hold with a GRADED BG/pallidal
+  urgency (Thura/Cisek 2022) and/or maintenance co-extensive with the executing
+  action (Jin 2014), NOT a fixed refractory clock. New
+  `ree_core/policy/natural_commit_urgency.py` regulator (reuses
+  `BetaGate.committed_run_length`; NO parallel latch -- ARC-106 G2 reuse-before-
+  duplicate guardrail); two D1-faithful modes (gap-scaled urgency LOAD-BEARING;
+  action-extent Jin sibling); both togglable so the V3-EXQ-460i falsifier
+  discriminates which lifts. NOT touched: e3_selector (clean separation from
+  MECH-448), claims.yaml (PROMOTES NOTHING). 10 new contracts + 1169 full PASS;
+  agent smoke OFF 0/20 vs ON 20/20 ticks demote-at-commit with bit-identical OFF.
+  (3) **ARC-107 + MECH-449 + Q-078 elevated** by the 689a autopsy (the BG-constitution
+  spine + Go/No-Go follow-on (double-gated) + Q-078 umbrella); MECH-439
+  non_contributory + substrate_ceiling + pending_retest_after_substrate;
+  MECH-447 weakened+split; SD-034 / MECH-260 / MECH-261 / ARC-062 / MECH-309 stay
+  candidate / substrate_ceiling / pending_retest. (4) **Targeted lit-pulls grounding
+  ARC-107 + BG-3** -- 5 new PubMed anchors in
+  `targeted_review_connectome_mech_439/` (D1/D2 Go/No-Go opponency Kravitz 2010;
+  Mink 1996 focused-selection + surround inhibition; Chevalier-Deniau 1990
+  disinhibition-as-permission-to-commit; Hikosaka 2000 SNr->SC permission gate;
+  Maia/Frank 2011 Go/No-Go imbalance -> Parkinson's/OCD/Tourette's/ADHD -- the
+  psychiatric-failure-mode column ARC-106 mandates) + new dir
+  `targeted_review_commit_release_duration_latch/` (5 anchors for BG-3
+  commit/release-DURATION: Resulaj/Shadlen 2009 change-of-mind; Jin/Tecuapetla/Costa
+  2014 BG start/stop+sustained maintenance; Thura/Cisek 2022 graded BG/pallidal
+  urgency D1 anchor; Loh/Rolls/Deco 2007 one-stability-parameter -> both psychiatric
+  poles; Seif 2025 catatonia=No-Go over-pressure over-maintenance pole). Both
+  reach ARC-106 grounding-ladder L2 with divergence ledgers + two-poled psychiatric
+  columns. (5) **MECH-442 decision packet biology-fidelity-governs-build steer
+  recorded** (REE_assembly master feb5184) -- Section 7 ARC-106 anti-shortcut
+  corollary: do not let a cheap parametric near-tie lever substitute for / skip
+  the biologically-faithful build, even when it moves a metric; V3-EXQ-689c stripped
+  of decision authority (kept as confirmatory data only). (6) **closure-link-validator
+  wired into governance.sh** -- new `scripts/check_closure_links.py` flags truly-
+  dangling `depends_on` / `cross_plan_link` refs so closure-map edge typos surface
+  automatically instead of silently dropping in `closure.html`. (7) **Goblin tale
+  episode "The Blow That Lit the Seam" landed** in `ree-paper/fantasy/` + the
+  public `REE_assembly/docs/ree_for_my_parents.md` mirror -- chronicle-first /
+  creative-second (Part-13 rule), failure-honest, constitution unratified, gate
+  left shut, names no soul; provenance file
+  `goblin_chronicle_2026-06-20_boss_gate_constitution.md`. (8) **proposal-gen skip
+  resolved/oodomain/derivational/governance_rule claims** in
+  `build_experiment_indexes.py` -- Q-020/Q-035/Q-079 (and the new SENT/GOV
+  governance_rule claims) no longer mint experimental EXP-* proposals. **Bottleneck
+  (continuation):** **MECH-439 F-dominance conversion ceiling is the live root
+  choke**; the parametric near-tie family is exhausted and the response is the
+  ARC-107 BG-constitution build (MECH-448 lead lever now in flight via V3-EXQ-689d
+  on the GAP-A-ready substrate, with the commit/release-DURATION lever in parallel
+  via V3-EXQ-460i). Constitutional path PRIMARY; V3-EXQ-689c kept as cheap
+  confirmatory data on the dispreferred parametric path. The 695 / 696 ceiling-audit
+  retests are the may-have-lifted side bets (696 FAIL on cloud-3 confirms the OFC
+  channel is still substrate-ceiling'd at this conversion-ceiling stage; 695 in
+  flight). **ETHICS-PERIMETER Phase 0 datum** stays on the record (Phases 1-3
+  deferred; NON-BLOCKING for V3 green-board 2026-07-19).
 
 - **2026-06-20T01:10Z nightly read (scheduled `/update-docs`).**
   Heavy-substrate day; the live root choke is now explicit. `evidence/experiments/`
