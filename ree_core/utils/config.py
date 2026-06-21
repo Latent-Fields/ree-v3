@@ -2492,6 +2492,33 @@ class REEConfig:
     natural_commit_gap_entry_sensitivity: float = 1.0
     # Grace ticks at the start of a committed run before urgency begins accruing.
     natural_commit_urgency_onset_ticks: int = 0
+    # ----------------------------------------------------------------
+    # Natural-commit LATCH-HOLD lever (rung-6 amend, 2026-06-21,
+    # failure_autopsy_V3-EXQ-460i). SEPARATE from use_natural_commit_urgency_release
+    # (the RELEASE): this is the HOLD that establishes a sustained natural-commit
+    # beta-latch occupancy for the release to act on. V3-EXQ-460i found the lever
+    # fired ZERO because the 460h sustained ~2400-step monolithic natural-commit
+    # hold did not reproduce -- the active SD-034 de-commit control-plane fragments
+    # the latch to ~1-tick blips even with the lever OFF, so there was no sustained
+    # occupancy to shorten. When use_natural_commit_latch_hold=True, a natural commit
+    # (result.committed) ARMS a hold; while armed AND the committed trajectory
+    # persists, the beta latch is RE-ASSERTED each tick (kept elevated against the
+    # de-commit churn) so the natural-commit occupancy sustains BY CONSTRUCTION. The
+    # hold YIELDS to (does NOT override) the three PRINCIPLED releases: the MECH-091
+    # genuine-threat urgency interrupt (safety -- never overridden), the rung-6
+    # NaturalCommitUrgencyRelease's own duration release (so the lever CAN shorten
+    # the hold -- the whole point), and an SD-034 closure de-commit (so the MECH-446
+    # within-arm occupancy-drop DV stays measurable). Independent of the release
+    # lever, so it arms in the ARM_LEVER_OFF baseline too (hold ON + release OFF ->
+    # sustained reference; hold ON + graded urgency ON -> sustained then shortened).
+    # Default False -> bit-identical (no arm, no re-assert). See
+    # REE_assembly/docs/architecture/natural_commit_occupancy_release.md.
+    use_natural_commit_latch_hold: bool = False
+    # Safety cap on how many ticks the hold re-asserts a single natural-commit run
+    # before disarming (guards a degenerate config from latching forever).
+    # 0 -> unbounded (the hold persists until a principled release / the committed
+    # trajectory ends).
+    natural_commit_latch_hold_max_ticks: int = 0
 
     # ----------------------------------------------------------------
     # MECH-353: blocked-agency / control-failure affect stream (z_block).
@@ -4033,6 +4060,8 @@ class REEConfig:
         natural_commit_urgency_cap: float = 1.5,
         natural_commit_gap_entry_sensitivity: float = 1.0,
         natural_commit_urgency_onset_ticks: int = 0,
+        use_natural_commit_latch_hold: bool = False,
+        natural_commit_latch_hold_max_ticks: int = 0,
         # MECH-353: blocked-agency / control-failure affect stream (z_block).
         # Pure-arithmetic regulator on the SD-029 action-outcome comparator;
         # all defaults no-op (bit-identical when use_blocked_agency=False).
@@ -4984,6 +5013,10 @@ class REEConfig:
         config.natural_commit_urgency_cap = natural_commit_urgency_cap
         config.natural_commit_gap_entry_sensitivity = (
             natural_commit_gap_entry_sensitivity
+        )
+        config.use_natural_commit_latch_hold = use_natural_commit_latch_hold
+        config.natural_commit_latch_hold_max_ticks = (
+            natural_commit_latch_hold_max_ticks
         )
         config.natural_commit_urgency_onset_ticks = (
             natural_commit_urgency_onset_ticks

@@ -949,6 +949,26 @@ class REEAgent(nn.Module):
                 config=ncur_cfg
             )
 
+        # Natural-commit LATCH-HOLD (rung-6 amend, 2026-06-21,
+        # failure_autopsy_V3-EXQ-460i). SEPARATE from the release lever above (and
+        # independent of it -- arms even when natural_commit_urgency is None, e.g.
+        # the ARM_LEVER_OFF baseline). Establishes a sustained natural-commit
+        # beta-latch occupancy for the rung-6 release to act on: a natural commit
+        # (result.committed) arms the hold; while armed AND the committed trajectory
+        # persists, the beta latch is RE-ASSERTED each tick against the SD-034
+        # de-commit churn that fragmented the 460i latch to ~1-tick blips. The hold
+        # YIELDS to the three principled releases (MECH-091 threat, the rung-6
+        # duration release, an SD-034 closure de-commit via the active refractory).
+        # Default False -> _ncl_hold_active stays False, no re-assert -> bit-identical.
+        self._ncl_hold_active: bool = False
+        self._ncl_hold_ticks: int = 0
+        self._ncl_hold_reassert_count: int = 0
+        # Per-tick principled-release flags (cleared at the top of each select_action
+        # release region; set at the MECH-091 / rung-6 release sites; read by the
+        # end-of-tick hold re-assertion so the hold yields rather than fights them).
+        self._ncl_mech091_fired: bool = False
+        self._ncl_lever_fired: bool = False
+
         # SD-061: difficulty-gated proposal-entropy regulator (MECH-343 blocker
         # part 2). A stuck-state detector integrates goal-progress stall + dACC
         # choice difficulty + E3 score margin + committed-action diversity
@@ -2340,6 +2360,13 @@ class REEAgent(nn.Module):
         # urgency accumulator + diagnostics (no cross-episode hold carried over).
         if self.natural_commit_urgency is not None:
             self.natural_commit_urgency.reset()
+        # Natural-commit latch-hold: per-episode reset of the hold state +
+        # diagnostics (a fresh trial starts with no carried-over hold).
+        self._ncl_hold_active = False
+        self._ncl_hold_ticks = 0
+        self._ncl_hold_reassert_count = 0
+        self._ncl_mech091_fired = False
+        self._ncl_lever_fired = False
         # SD-061: reset the stuck-state detector + proposal-entropy regulator
         # per episode (preserve no cross-episode impasse state) + the lagged
         # stuck_score the next _e3_tick reads.
@@ -4308,6 +4335,13 @@ class REEAgent(nn.Module):
         ):
             z_harm_a = self._current_latent.z_harm_un
 
+        # Natural-commit latch-hold: clear the per-tick principled-release flags
+        # at the top of the release region. The MECH-091 and rung-6 release sites
+        # set them; the end-of-tick hold re-assertion reads them so the hold yields
+        # to (does not re-fight) a principled release. No-op when the hold is off.
+        self._ncl_mech091_fired = False
+        self._ncl_lever_fired = False
+
         # MECH-091: urgency interrupt -- phase-reset commitment on high harm signal.
         # When beta is elevated (committed) and affective harm load is extreme,
         # abort the committed trajectory and fall through to fresh E3 selection.
@@ -4359,6 +4393,9 @@ class REEAgent(nn.Module):
                 self.beta_gate.release()
                 self._committed_step_idx = 0
                 self._committed_anchor_keys = None
+                # Natural-commit latch-hold yields to a genuine-threat interrupt
+                # (safety -- the hold must NEVER override MECH-091).
+                self._ncl_mech091_fired = True
 
         # MECH-342: maintenance-time readiness-driven commitment release (B3b).
         # Architecturally adjacent to the MECH-091 urgency block above, but a
@@ -4455,6 +4492,10 @@ class REEAgent(nn.Module):
                 self._committed_step_idx = 0
                 self._committed_anchor_keys = None
                 self.e3._committed_trajectory = None
+                # Natural-commit latch-hold yields to the rung-6 duration release
+                # -- this IS the lever shortening the held natural commit (the
+                # whole point); the hold disarms so the occupancy stays shortened.
+                self._ncl_lever_fired = True
 
         # SD-061: update the stuck-state detector every tick (not gated on beta
         # elevation -- impasse can build before commitment). Feeds the next
@@ -4657,6 +4698,44 @@ class REEAgent(nn.Module):
                 self.beta_gate.release()
                 self._committed_step_idx = 0
                 self._committed_anchor_keys = None
+
+        # Natural-commit LATCH-HOLD re-assertion (rung-6 amend, 2026-06-21,
+        # failure_autopsy_V3-EXQ-460i). Runs every tick (E3 + non-E3), AFTER all
+        # release sites, BEFORE the between-tick branch. While a natural-commit-armed
+        # hold is active and the committed trajectory persists, RE-ASSERT the beta
+        # latch (keep it elevated against the SD-034 de-commit churn that fragmented
+        # the 460i latch to ~1-tick blips) so the natural-commit occupancy sustains
+        # by construction -- the sustained reference the rung-6 release shortens and
+        # the gate-3 sustained-hold proxy certifies. YIELDS to (disarms on) the three
+        # PRINCIPLED releases so it never papers over them: (a) an SD-034 closure
+        # de-commit (refractory_remaining > 0 -> the latch is being held DOWN by the
+        # closure; don't fight it -- preserves the MECH-446 occupancy-drop DV), (b)
+        # the MECH-091 genuine-threat interrupt (safety -- NEVER overridden), (c) the
+        # rung-6 NaturalCommitUrgencyRelease's own duration release (the lever
+        # shortening the hold -- the whole point). Also disarms when the committed
+        # trajectory ends or the optional max-ticks safety cap is reached. No-op when
+        # use_natural_commit_latch_hold is False (self._ncl_hold_active stays False).
+        if (
+            getattr(self.config, "use_natural_commit_latch_hold", False)
+            and self._ncl_hold_active
+        ):
+            _ncl_max = int(
+                getattr(self.config, "natural_commit_latch_hold_max_ticks", 0)
+            )
+            _ncl_yield = (
+                self.e3._committed_trajectory is None
+                or self.beta_gate.refractory_remaining > 0
+                or self._ncl_mech091_fired
+                or self._ncl_lever_fired
+                or (_ncl_max > 0 and self._ncl_hold_ticks >= _ncl_max)
+            )
+            if _ncl_yield:
+                self._ncl_hold_active = False
+            else:
+                self._ncl_hold_ticks += 1
+                if not self.beta_gate.is_elevated:
+                    self.beta_gate.elevate()
+                    self._ncl_hold_reassert_count += 1
 
         if not ticks["e3_tick"] and self._last_action is not None:
             # Between E3 ticks: step through committed trajectory (Layer 1) or hold.
@@ -6176,6 +6255,22 @@ class REEAgent(nn.Module):
                 # coupling rather than a natural running_variance crossing.
                 if _closure_commit_active and not result.committed:
                     self.beta_gate.note_closure_coupled_elevation()
+                # Natural-commit latch-hold: ARM on a fresh NATURAL commit
+                # (result.committed) so the end-of-tick re-assertion sustains its
+                # beta-latch occupancy. A purely closure-coupled elevation
+                # (result.committed False) does NOT arm the hold -- its occupancy is
+                # governed by the SD-034 closure machinery, not the rung-6 hold.
+                # No-op when use_natural_commit_latch_hold is False. Re-arming an
+                # already-active hold (a re-commit while held) just restarts its
+                # tick budget on the fresh natural commit.
+                if (
+                    getattr(
+                        self.config, "use_natural_commit_latch_hold", False
+                    )
+                    and result.committed
+                ):
+                    self._ncl_hold_active = True
+                    self._ncl_hold_ticks = 0
                 self._committed_step_idx = 0  # reset step counter on new commitment
                 # MECH-342: zero the maintenance-release pressure accumulator
                 # at commit entry so each committed program accumulates
