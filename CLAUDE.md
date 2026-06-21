@@ -1181,6 +1181,9 @@ specific magnitude or sign from an EXQ manifest, that belongs in an experiment
 script, not the regression suite. The regression suite is the thing that has to
 keep working when experiments and claim state evolve.
 
+## Arm-Reuse Baselines (`experiments/_lib/baselines/`)
+Canonical OFF/baseline modules live in `experiments/_lib/baselines/<lineage>.py` (today: `exq610_inv074_crystallization_baseline`, `exq643_modulatory_authority_baseline`), each exposing `build_off_arm(seed)` / `train_off_arm(...)` / `off_path_config_slice()`. **Save a baseline here by default** when a multi-arm family will re-run an *expensive*, *frozen-substrate* OFF arm on the *cloud* class: factor it into a module, then queue a low-priority cloud mint (`experiment_purpose="baseline"`, emit with `include_driver_script_in_hash=False`) so later iterations skip re-training it. The producer recipe + WHEN gate are in the `/queue-experiment` skill ("Saving a baseline for reuse"); design/validity in `REE_assembly/evidence/planning/arm_reuse_fingerprint_plan.md` §7b/§9. The module is auto-bound into `substrate_hash` via the `_lib/**` glob, so any edit to it correctly refuses a stale reuse (a false miss is free; a false hit corrupts science).
+
 ## Key Architecture Constraints
 - E2 trains on motor-sensory error (z_self). NOT harm/goal error.
 - E3 is the harm evaluator. harm_eval() belongs on E3Selector.
