@@ -15,7 +15,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 160,
       "note": "Substrate-readiness for the channel-adaptive (mean-relative) f_eligibility floor landed this session (use_f_eligibility_adaptive_floor). 2 channels (arc_062 rule-apprehension lateral_pfc+gated_policy+mech295 on the busy 654h foraging env; SD-033b OFC analog on a sharper-contrast env) x 3 arms (OFF/FIXED-0.30/ADAPTIVE-mean_factor1.0) x 3 seeds. PASS=adaptive excludes productively (excluded_count>0, 1<=envelope_size<K) on BOTH channels with the SAME global config + rank-preserving; self-routes substrate_not_ready_requeue if a pool is non-divergent OR the adaptive floor still no-ops on any channel. claim_ids=[]; MECH-448 stays candidate. Mechanism confirmed end-to-end in smoke (ADAPTIVE excl>0_frac=1.0 env~17/32 BOTH channels vs FIXED excl>0_frac~0.01-0.02 env~31/32 all-admit no-op).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-21T19:16:11Z"
+      },
       "claim_ids": [],
       "conditions": 6,
       "episodes_per_run": 40,
