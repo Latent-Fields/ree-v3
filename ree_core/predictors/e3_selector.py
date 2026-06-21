@@ -765,6 +765,24 @@ class E3TrajectorySelector(nn.Module):
         spreads the share (wide envelope). ``elig`` is monotone in ``merit`` ->
         monotone in -F, so the eligible set is an F-RANK PREFIX (rank-preserving).
 
+        CHANNEL-ADAPTIVE floor (use_f_eligibility_adaptive_floor, 2026-06-21): the
+        FIXED absolute floor (default 0.30) was tuned to the GAP-A foraging bank
+        (V3-EXQ-689d); each downstream channel has a different F-merit distribution
+        so the same fixed floor mis-fires (654h: every share < 0.30 -> all-admit
+        no-op; 485i: needed a bespoke per-seed floor to engage). With the adaptive
+        flag set, the floor is computed RELATIVE to the field's own mean share --
+        ``floor = f_eligibility_adaptive_mean_factor * elig.mean()`` -- so a
+        candidate is eligible iff it commands at least ``mean_factor`` of the field
+        AVERAGE share rather than an absolute constant. Mean-relative is
+        scale-invariant (auto-calibrates per channel, no hand-tuning) AND keeps the
+        conflict-grade: a decisive winner pulls the mean up so others fall below
+        (narrow), a near-tie sits near the mean (wide). It is still a threshold on
+        ``elig`` (monotone in merit), so the eligible set stays an F-RANK PREFIX
+        (rank-preserving). For mean_factor >= 1.0 on any NON-uniform field at least
+        one candidate is below the mean share, so the envelope EXCLUDES
+        (excluded_count > 0) by construction -- the 654h all-admit no-op cannot
+        recur. Default False -> reads the fixed floor -> bit-identical.
+
         Returns a 1-D LongTensor of eligible candidate indices. Guaranteed
         non-empty: when F cannot discriminate (range ~ 0) or the floor admits no
         candidate (a genuine N-way tie where no candidate clears the share floor),
@@ -784,7 +802,19 @@ class E3TrajectorySelector(nn.Module):
         sigma = float(getattr(self.config, "f_eligibility_dn_sigma", 0.0))
         pooled = sigma + merit_sum
         elig = merit / (pooled + 1e-8)
-        floor = float(getattr(self.config, "f_eligibility_envelope_floor", 0.30))
+        if bool(getattr(self.config, "use_f_eligibility_adaptive_floor", False)):
+            # CHANNEL-ADAPTIVE: floor relative to the field's own MEAN share, so
+            # the threshold auto-calibrates to each channel's F-merit distribution
+            # (no per-channel hand-tuned absolute floor) while staying a threshold
+            # on ``elig`` -> rank-preserving. mean_factor >= 1.0 keeps "above the
+            # average share" candidates and excludes the below-average ones, so a
+            # non-uniform field always excludes (excluded_count > 0).
+            mean_factor = float(
+                getattr(self.config, "f_eligibility_adaptive_mean_factor", 1.0)
+            )
+            floor = mean_factor * float(elig.mean().item())
+        else:
+            floor = float(getattr(self.config, "f_eligibility_envelope_floor", 0.30))
         eligible_idx = torch.nonzero(elig >= floor, as_tuple=False).flatten()
         if int(eligible_idx.numel()) == 0:
             # Floor admits nobody (e.g. an exact N-way tie whose per-candidate

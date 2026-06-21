@@ -613,6 +613,27 @@ class E3Config:
     use_f_eligibility_demotion: bool = False
     f_eligibility_envelope_floor: float = 0.30
     f_eligibility_dn_sigma: float = 0.0
+    # CHANNEL-ADAPTIVE envelope amend (2026-06-21): the absolute share floor
+    # (f_eligibility_envelope_floor=0.30) was tuned to PASS on the GAP-A foraging
+    # bank (V3-EXQ-689d). Each downstream channel has a different F-merit
+    # distribution, so the SAME fixed floor mis-fires: V3-EXQ-654h (arc_062) had
+    # every share below 0.30 -> all-admit no-op (excluded_count==0, the lever
+    # never engaged); V3-EXQ-485i (OFC) needed a bespoke per-seed floor
+    # recalibration to engage. use_f_eligibility_adaptive_floor replaces the
+    # fixed floor with a MEAN-RELATIVE one: a candidate is eligible iff its share
+    # of the competing merit exceeds f_eligibility_adaptive_mean_factor times the
+    # field's OWN mean share. Mean-relative -> scale-invariant across channel
+    # F-distributions (auto-calibrates, no per-channel hand-tuning) AND retains
+    # the MECH-448 conflict-grade (a decisive F-winner pulls the mean up so others
+    # fall below -> narrow envelope; a near-tie sits near the mean -> wide). On any
+    # non-uniform field at least one candidate is below the mean share, so the
+    # envelope EXCLUDES (excluded_count > 0) by construction -- collapsing the
+    # ~5 per-channel hand-floor dances (654h/485i/485j + pending 625/445/687) into
+    # one global knob. Order-preserving in merit -> RANK-PRESERVING in F
+    # (eligible set is still an F-rank prefix). Default False -> reads the legacy
+    # fixed floor -> bit-identical OFF.
+    use_f_eligibility_adaptive_floor: bool = False
+    f_eligibility_adaptive_mean_factor: float = 1.0
 
     # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
     # E2 forward prediction-error modulates E3 trajectory-scoring confidence.
@@ -4304,6 +4325,10 @@ class REEConfig:
         use_f_eligibility_demotion: bool = False,
         f_eligibility_envelope_floor: float = 0.30,
         f_eligibility_dn_sigma: float = 0.0,
+        # Channel-adaptive envelope amend (2026-06-21): mean-relative floor so the
+        # demotion auto-calibrates per channel. No-op default; bit-identical OFF.
+        use_f_eligibility_adaptive_floor: bool = False,
+        f_eligibility_adaptive_mean_factor: float = 1.0,
         # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
         # E2 forward-PE -> E3 trajectory-scoring confidence down-weight. No-op default.
         use_pe_confidence_weighting: bool = False,
@@ -5288,6 +5313,8 @@ class REEConfig:
         config.e3.use_f_eligibility_demotion = use_f_eligibility_demotion
         config.e3.f_eligibility_envelope_floor = f_eligibility_envelope_floor
         config.e3.f_eligibility_dn_sigma = f_eligibility_dn_sigma
+        config.e3.use_f_eligibility_adaptive_floor = use_f_eligibility_adaptive_floor
+        config.e3.f_eligibility_adaptive_mean_factor = f_eligibility_adaptive_mean_factor
         # DR-12 (self_model_v4:SELF-4, 2026-06-17): E2 forward-PE -> E3 confidence
         # down-weight. The score_trajectory penalty reads these from config.e3.
         config.e3.use_pe_confidence_weighting = use_pe_confidence_weighting

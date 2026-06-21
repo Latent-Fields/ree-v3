@@ -234,3 +234,126 @@ def test_exact_tie_wide_fallback_non_degenerate_false():
     assert d["f_eligibility_envelope_size"] == 4
     assert d["f_eligibility_excluded_count"] == 0  # the vacuity signal
     assert d["f_eligibility_rank_preserving"] is True
+
+
+# --------------------------------------------------------------------------- #
+# CHANNEL-ADAPTIVE floor amend (2026-06-21)                                    #
+# --------------------------------------------------------------------------- #
+#
+# The fixed absolute floor (0.30) was tuned to the GAP-A foraging bank
+# (V3-EXQ-689d). use_f_eligibility_adaptive_floor replaces it with a
+# mean-relative floor (floor = mean_factor * mean(elig-share)) so the demotion
+# auto-calibrates per channel: scale-invariant (no per-channel hand-tuning),
+# conflict-graded (preserved), excluded_count > 0 on any non-uniform field,
+# rank-preserving. Default OFF -> reads the fixed floor -> bit-identical.
+
+
+def test_adaptive_config_defaults_are_noop():
+    cfg = E3Config(world_dim=6, hidden_dim=8)
+    assert cfg.use_f_eligibility_adaptive_floor is False
+    assert cfg.f_eligibility_adaptive_mean_factor == 1.0
+
+
+def test_adaptive_from_dims_surfaces_flags_onto_e3():
+    cfg = REEConfig.from_dims(
+        body_obs_dim=10, world_obs_dim=10, action_dim=4,
+        self_dim=16, world_dim=16,
+        use_f_eligibility_demotion=True,
+        use_f_eligibility_adaptive_floor=True,
+        f_eligibility_adaptive_mean_factor=1.5,
+    )
+    assert cfg.e3.use_f_eligibility_adaptive_floor is True
+    assert cfg.e3.f_eligibility_adaptive_mean_factor == 1.5
+    cfg_off = REEConfig.from_dims(
+        body_obs_dim=10, world_obs_dim=10, action_dim=4,
+        self_dim=16, world_dim=16,
+    )
+    assert cfg_off.e3.use_f_eligibility_adaptive_floor is False
+    assert cfg_off.e3.f_eligibility_adaptive_mean_factor == 1.0
+
+
+def test_adaptive_off_bit_identical_to_fixed_floor():
+    """With the adaptive flag OFF the envelope is exactly the legacy fixed-floor
+    envelope -- a decisive pool excludes the same candidates."""
+    costs = [0.0, 1.0, 1.0, 1.0]
+    sel_fixed = _selector(use_f_eligibility_demotion=True)  # adaptive flag default OFF
+    cands_f = [_candidate(i) for i in range(4)]
+    _patch_raw(sel_fixed, cands_f, costs)
+    sel_fixed.select(cands_f, temperature=1.0, score_bias=torch.zeros(4))
+    d_fixed = sel_fixed.last_score_diagnostics
+    # The fixed-floor envelope on a decisive pool: only the winner clears 0.30.
+    assert d_fixed["f_eligibility_envelope_size"] == 1
+    assert d_fixed["f_eligibility_excluded_count"] == 3
+
+
+def test_adaptive_excludes_across_two_differing_scale_distributions():
+    """The headline channel-adaptivity property: across >= 2 synthetic merit
+    distributions with DIFFERENT scales, the adaptive floor lands a productive
+    NON-ZERO excluded_count -- WHERE THE FIXED 0.30 FLOOR MIS-FIRES (D1: every
+    share < 0.30 -> all-admit no-op, the V3-EXQ-654h signature; D2: collapses to
+    an envelope of one). Same global config drives both -- no per-channel
+    hand-tuning."""
+    # D1: spread near-uniform field (the 654h all-admit case under the fixed floor).
+    d1 = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    # D2: one strong F-winner + a tight cluster, ~3x larger magnitude.
+    d2 = [0.0, 1.5, 1.8, 2.0, 2.1, 2.15, 2.18, 2.2]
+
+    # --- fixed floor 0.30 mis-fires on D1 (all-admit no-op) ---
+    sel_fix = _selector(use_f_eligibility_demotion=True)
+    cf = [_candidate(i) for i in range(8)]
+    _patch_raw(sel_fix, cf, d1)
+    sel_fix.select(cf, temperature=1.0, score_bias=torch.zeros(8))
+    assert sel_fix.last_score_diagnostics["f_eligibility_excluded_count"] == 0
+
+    # --- adaptive engages on BOTH distributions (excluded_count > 0) ---
+    for dist in (d1, d2):
+        sel = _selector(
+            use_f_eligibility_demotion=True,
+            use_f_eligibility_adaptive_floor=True,
+        )
+        cands = [_candidate(i) for i in range(8)]
+        _patch_raw(sel, cands, dist)
+        sel.select(cands, temperature=1.0, score_bias=torch.zeros(8))
+        d = sel.last_score_diagnostics
+        assert d["f_eligibility_demotion_active"] is True
+        assert d["f_eligibility_excluded_count"] > 0
+        # productive envelope (not a degenerate all-admit, not collapsed to one)
+        assert 1 <= d["f_eligibility_envelope_size"] < 8
+        assert d["f_eligibility_rank_preserving"] is True
+
+
+def test_adaptive_rank_preserving_eligible_is_f_prefix():
+    """Adaptive floor is a threshold on the (merit-monotone) share, so the
+    eligible set remains an F-rank prefix."""
+    sel = _selector(
+        use_f_eligibility_demotion=True,
+        use_f_eligibility_adaptive_floor=True,
+    )
+    candidates = [_candidate(i) for i in range(6)]
+    _patch_raw(sel, candidates, [0.0, 0.05, 0.1, 0.2, 0.4, 0.8])
+    sel.select(candidates, temperature=1.0, score_bias=torch.zeros(6))
+    d = sel.last_score_diagnostics
+    assert d["f_eligibility_rank_preserving"] is True
+    assert d["f_eligibility_excluded_count"] > 0
+
+
+def test_adaptive_conflict_graded_near_tie_wider_than_decisive():
+    """The adaptive floor PRESERVES the MECH-448 conflict-grade: a near-tie
+    admits more than a decisive winner (a fixed quantile would not)."""
+    sel_near = _selector(
+        use_f_eligibility_demotion=True, use_f_eligibility_adaptive_floor=True
+    )
+    cn = [_candidate(i) for i in range(4)]
+    _patch_raw(sel_near, cn, [0.0, 0.05, 0.10, 0.15])
+    sel_near.select(cn, temperature=1.0, score_bias=torch.zeros(4))
+    n_near = sel_near.last_score_diagnostics["f_eligibility_envelope_size"]
+
+    sel_dec = _selector(
+        use_f_eligibility_demotion=True, use_f_eligibility_adaptive_floor=True
+    )
+    cd = [_candidate(i) for i in range(4)]
+    _patch_raw(sel_dec, cd, [0.0, 2.0, 2.0, 2.0])
+    sel_dec.select(cd, temperature=1.0, score_bias=torch.zeros(4))
+    n_dec = sel_dec.last_score_diagnostics["f_eligibility_envelope_size"]
+
+    assert n_near > n_dec
