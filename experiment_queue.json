@@ -8,30 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-485i",
-      "title": "SD-033b/MECH-263 trained-OFC-head behavioural conversion on MECH-448 F->eligibility demotion-enabled E3 selector (485h-successor; commitment_closure:GAP-8)",
-      "script": "experiments/v3_exq_485i_sd033b_demotion_enabled_behavioural.py",
-      "priority": 410,
-      "machine_affinity": "any",
-      "estimated_minutes": 420,
-      "supersedes": "V3-EXQ-485h",
-      "claim_id": "SD-033b",
-      "note": "V3-EXQ-485i SUPERSEDES V3-EXQ-485h (RAN FAIL / non_contributory 2026-06-19 = the MECH-439 F-dominance conversion-ceiling signature: a genuinely-trained OFC head produced a real cross-candidate bias RANGE ~0.50 with ZERO behavioural conversion). commitment_closure:GAP-8 trained-OFC-head behavioural falsifier (SD-033b devaluation sensitivity + task-role discrimination = MECH-263 signatures a+b). WHY NOW: the 2026-06-21 governance cycle promoted MECH-448 (ARC-107 rank-preserving F->eligibility demotion) to provisional on the V3-EXQ-689d PASS, operationally LIFTING the shared MECH-439 F-dominance conversion ceiling (F ~88-89%% of committed-selection variance, V3-EXQ-571) that 485h's behavioural DVs were stuck under; the substrate-ceiling audit (scripts/check_substrate_ceiling_audit.py) flags SD-033b/MECH-263 ceiling-may-have-lifted. THE GAP-8 SIBLING of V3-EXQ-654h (which carries the SAME demotion lever onto the GAP-B arc_062 composite): 485i is the first GAP-8 confirmation the lever converts the OFC valuation channel. KEY HARNESS CHANGE vs 485h: the PRIMARY DVs (names unchanged: C1 devaluation_selection_shift, C2 between-context TV) are re-targeted from 485h's ISOLATED OFC softmax (F not in the loop) to the COMMITTED selection through the REAL E3.select() (SelectionResult.selected_index) with the OFC bias passed as score_bias -- where F dominates and where MECH-448 demotes it to eligibility, letting the OFC channel arbitrate the committed action with F removed from the final argmin (EVAL_COMMIT_THRESHOLD forces the deterministic argmin-within-eligible path). 3-arm dissociation attributes conversion to the CONJUNCTION trained-head AND demotion: ARM_0_frozen_demotion_on (silence control) / ARM_1_trained_demotion_off (F-dominance ceiling control = the 485h regime) / ARM_2_trained_demotion_on (use_f_eligibility_demotion=True + f_eligibility_envelope_floor=0.30 + f_eligibility_dn_sigma=0.0 = the V3-EXQ-689d ARM_ON config; the test). READINESS / non-vacuity (self-routes substrate_not_ready_requeue, NEVER a weakens): ARM_2 OFC bias cross-candidate RANGE > 0.05 (same statistic the DVs route on) AND head trained (weight-delta > 1e-3) AND MECH-448 NON-DEGENERACY f_eligibility_excluded_count>0 + demotion_active (F genuinely demoted on a divergent pool, not all-admit) on >=2/3 seeds. PRIMARY: C1 ARM_2 devaluation_selection_shift > 0.05 AND > ARM_1 ceiling + 0.05 (>=2/3 seeds); C2 ARM_2 between-context TV >= 0.05 AND separation_ratio >= 3.0 AND > ARM_1 + 0.05 (>=2/3 seeds); C3 ARM_0 silence (shift + between < 1e-9). THREE-branch NO-weakens routing: PASS (READINESS+C1+C2+C3) supports SD-033b/MECH-263 -> SD-033b candidate -> provisional behavioural evidence + contributes to closing behavioral_diversity_isolation:GAP-I; readiness-met-but-DVs-fail -> conversion_ceiling_persists_despite_demotion (route /failure-autopsy / MECH-449 follow-on, an honest weakens); readiness-unmet -> substrate_not_ready_requeue (non_contributory). claim_ids=[SD-033b, MECH-263]; experiment_purpose=evidence; PROMOTES NOTHING by itself. Pinned ree-cloud-2 (cloud, not the Mac; prefer-cloud). py_compile + validate_experiments --strict (multi-arm arm_fingerprint met) + dry-run smoke (end-to-end all 3 arms; self-routes substrate_not_ready_requeue at toy budget as designed, no manifest leak -- emit_outcome dry_run relocation verified) + validate_queue all PASS. Rebased onto the DB-materialized origin queue after a phase3-queue snapshot race; durable ingress via POST /queue/add per Step 8.6.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-21T11:43:58Z"
-      },
-      "claim_ids": [
-        "SD-033b",
-        "MECH-263"
-      ],
-      "conditions": 3,
-      "episodes_per_run": 150,
-      "experiment_type": "v3_exq_485i_sd033b_demotion_enabled_behavioural",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-654h",
       "title": "arc_062 GAP-B committed-class-entropy falsifier on MECH-448 F->eligibility demotion (654g-successor; demotion lever matched constant; sweep use_candidate_rule_field)",
       "script": "experiments/v3_exq_654h_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
