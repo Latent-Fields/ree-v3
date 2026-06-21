@@ -30,6 +30,24 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_654h_arc062_gapb_rule_apprehension_behavioural_falsifier",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-686",
+      "title": "MECH-191 signal-state discriminability probe: do internal functional states produce discriminable signal patterns?",
+      "script": "experiments/v3_exq_686_mech191_signal_state_discriminability.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 15,
+      "claim_id": "MECH-191",
+      "note": "Tests necessary precondition for MECH-191 (stereotyped signals as causal externalizations): do distinct internal functional states (wanting=high z_goal / nociception=high z_harm_a / frustration=high z_goal+z_block) produce discriminable output patterns within a single agent? Samples signal vectors [z_goal_norm, z_harm_a_norm, z_block_norm] across three scenario-induced functional states and trains a PyTorch logistic classifier (no sklearn dependency). PASS criteria: per-state accuracy >=70% + overall accuracy >50% (above 3-way chance). PASS supports MECH-191 (signals causally tied to functional states); FAIL weakens. Low-priority targeted probe for IGW-20260620-186 (lit_only_above_cap, missing_experimental_evidence for MECH-191). Script amended 2026-06-21: replaced sklearn.LogisticRegression with PyTorch nn.Linear classifier (sklearn not installed), added config.goal.z_goal_enabled=True (required per scaffolded_sd054_onboarding substrate notes). Dry-run smoke test PASS. experiment_purpose=evidence; no supersedes. claim_ids=[MECH-191].",
+      "claim_ids": [
+        "MECH-191"
+      ],
+      "conditions": 3,
+      "episodes_per_run": 20,
+      "experiment_type": "v3_exq_686_mech191_signal_state_discriminability",
+      "seeds": 3,
+      "status": "pending"
     }
   ]
 }

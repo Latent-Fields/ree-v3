@@ -188,6 +188,7 @@ def _train_classifier(
 ) -> Dict:
     """
     Train a simple logistic classifier to discriminate functional states.
+    Uses PyTorch (no sklearn dependency).
 
     Returns classification metrics.
     """
@@ -209,23 +210,53 @@ def _train_classifier(
         for s in test_samples
     ])
 
-    # Simple logistic regression (3-way classifier)
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.metrics import accuracy_score, confusion_matrix
+    # Convert to tensors
+    X_train_t = torch.tensor(X_train, dtype=torch.float32)
+    y_train_t = torch.tensor(y_train, dtype=torch.long)
+    X_test_t = torch.tensor(X_test, dtype=torch.float32)
+    y_test_t = torch.tensor(y_test, dtype=torch.long)
 
-    clf = LogisticRegression(max_iter=1000, random_state=42)
-    clf.fit(X_train, y_train)
+    # Simple 3-way logistic classifier in PyTorch
+    n_features = X_train_t.shape[1]
+    n_classes = 3
 
-    y_pred = clf.predict(X_test)
+    classifier = nn.Linear(n_features, n_classes)
+    optimizer = optim.SGD(classifier.parameters(), lr=0.1)
+    criterion = nn.CrossEntropyLoss()
 
-    accuracy = accuracy_score(y_test, y_pred)
-    conf_matrix = confusion_matrix(y_test, y_pred)
+    # Train for 1000 iterations
+    classifier.train()
+    for _ in range(1000):
+        optimizer.zero_grad()
+        logits = classifier(X_train_t)
+        loss = criterion(logits, y_train_t)
+        loss.backward()
+        optimizer.step()
+
+    # Evaluate on test set
+    classifier.eval()
+    with torch.no_grad():
+        test_logits = classifier(X_test_t)
+        y_pred_t = test_logits.argmax(dim=1)
+
+    # Compute accuracy
+    y_pred = y_pred_t.numpy()
+    overall_acc = float((y_pred == y_test).mean())
+
+    # Confusion matrix (manual computation, no sklearn)
+    conf_matrix = np.zeros((n_classes, n_classes), dtype=int)
+    for true_label, pred_label in zip(y_test, y_pred):
+        conf_matrix[true_label, pred_label] += 1
 
     # Per-class accuracy
-    per_class_acc = conf_matrix.diagonal() / conf_matrix.sum(axis=1)
+    class_totals = conf_matrix.sum(axis=1)
+    per_class_acc = np.zeros(n_classes)
+    for i in range(n_classes):
+        if class_totals[i] > 0:
+            per_class_acc[i] = conf_matrix[i, i] / class_totals[i]
 
     return {
-        "overall_accuracy": float(accuracy),
+        "overall_accuracy": float(overall_acc),
         "wanting_accuracy": float(per_class_acc[0]) if len(per_class_acc) > 0 else 0.0,
         "nociception_accuracy": float(per_class_acc[1]) if len(per_class_acc) > 1 else 0.0,
         "frustration_accuracy": float(per_class_acc[2]) if len(per_class_acc) > 2 else 0.0,
@@ -257,6 +288,8 @@ def run_experiment(dry_run: bool = False) -> Dict:
         config.num_hazards = 2  # More hazards for nociception scenario
         config.num_resources = 2
         config.use_blocked_agency = True  # Enable z_block for frustration
+        config.goal.z_goal_enabled = True  # Enable z_goal for wanting scenario
+        config.goal.drive_weight = 2.0  # Standard drive weight
 
         env = CausalGridWorld(
             size=config.world_size,
