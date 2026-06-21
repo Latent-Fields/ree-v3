@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -86,6 +87,41 @@ def _resolve_signal_dir() -> Path:
     return d
 
 
+DRY_RUN_SCRATCH_DIRNAME = "ree_dry_run_manifests"
+
+
+def _relocate_dry_run_manifest(manifest_path: Path) -> Path:
+    """Move a --dry-run smoke manifest out of the evidence/experiments tree.
+
+    A --dry-run smoke is NOT evidence (e.g. 1 seed, a handful of toy episodes),
+    but most experiment scripts' write_manifest() writes to
+    evidence/experiments/ unconditionally. Left there, the manifest is reachable
+    by build_experiment_indexes.py and surfaces in pending_review.md as an
+    action-required FAIL (incident V3-EXQ-696, 2026-06-21). Relocating it to a
+    throwaway scratch dir under the system tempdir means it never reaches the
+    indexer or the review queue at all.
+
+    Best-effort: on any error (e.g. missing file, permission) the original path
+    is returned unchanged. generate_pending_review.py independently excludes
+    dry_run-flagged manifests, so this relocation is the going-forward
+    belt-and-suspenders, not the sole guard.
+    """
+    try:
+        if not manifest_path.exists():
+            return manifest_path
+        scratch = Path(tempfile.gettempdir()) / DRY_RUN_SCRATCH_DIRNAME
+        scratch.mkdir(parents=True, exist_ok=True)
+        dest = scratch / manifest_path.name
+        # shutil.move handles the cross-filesystem case (tempdir vs evidence on
+        # a different mount) that os.replace would reject.
+        if dest.exists():
+            dest.unlink()
+        shutil.move(str(manifest_path), str(dest))
+        return Path(dest)
+    except Exception:
+        return manifest_path
+
+
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_str = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
@@ -115,6 +151,7 @@ def emit_outcome(
     exit_reason: str = "ok",
     extra: Optional[Mapping[str, Any]] = None,
     signal_dir: Optional[Union[str, Path]] = None,
+    dry_run: bool = False,
 ) -> Path:
     """
     Emit the runner-conformance sentinel.
@@ -143,6 +180,13 @@ def emit_outcome(
             fixed schema.
         signal_dir: Override sentinel directory. Test/diagnostic only;
             default is REE_RUNNER_SIGNAL_DIR / REE_assembly auto-discover.
+        dry_run: Pass args.dry_run. When True and manifest_path is set, the
+            just-written manifest is relocated out of evidence/experiments/ to
+            a throwaway scratch dir (system tempdir / ree_dry_run_manifests/)
+            BEFORE the sentinel is written, and the sentinel records the scratch
+            path. This keeps --dry-run smoke manifests out of the indexer and
+            pending_review.md (incident V3-EXQ-696). Default False is
+            bit-identical to the pre-existing behaviour.
 
     Returns:
         Path of the written sentinel.
@@ -176,7 +220,12 @@ def emit_outcome(
 
     manifest_str: Optional[str] = None
     if manifest_path is not None:
-        manifest_str = str(Path(manifest_path).resolve())
+        resolved_manifest = Path(manifest_path).resolve()
+        if dry_run:
+            # Move the dry-run manifest out of evidence/ so it never reaches the
+            # indexer or pending_review; record the scratch path in the sentinel.
+            resolved_manifest = _relocate_dry_run_manifest(resolved_manifest).resolve()
+        manifest_str = str(resolved_manifest)
 
     payload = {
         "schema_version": SCHEMA_VERSION,
@@ -185,6 +234,7 @@ def emit_outcome(
         "outcome": outcome,
         "exit_reason": exit_reason,
         "manifest_path": manifest_str,
+        "dry_run": dry_run,
         "emitted_at": _utc_iso_now(),
         "pid": os.getpid(),
         "script": str(Path(sys.argv[0]).resolve()) if sys.argv and sys.argv[0] else None,
