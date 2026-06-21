@@ -105,7 +105,11 @@
       "estimated_minutes": 120,
       "claim_id": "ARC-013",
       "note": "Offline re-ranking separability test: is residue's per-candidate E3 decision influence reducible to salience(z_world visitation-novelty)+uncertainty(_running_variance)? PASS=separable primitive (Q-079 HA2 corroboration); FAIL=reducible. Replaces the role Q-079/DLIF notes mis-attributed to V3-EXQ-587 (harm-gradient geometry, ran 2026-05-19 FAIL/non_contributory, reviewed). Off the v3 strict green-board (low priority).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-06-21T06:21:59Z"
+      },
       "conditions": 1,
       "episodes_per_run": 85,
       "experiment_type": "v3_exq_697_arc013_residue_separability_falsifier",
