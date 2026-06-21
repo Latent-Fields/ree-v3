@@ -30,6 +30,26 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-460j",
+      "title": "rung-6 natural-commit-occupancy-release de-commit falsifier + natural-commit LATCH-HOLD amend (460i-successor; gate-3 sustained-hold redesign)",
+      "script": "experiments/v3_exq_460j_natural_commit_occupancy_release_decommit_falsifier.py",
+      "priority": 400,
+      "machine_affinity": "ree-cloud-3",
+      "estimated_minutes": 650,
+      "supersedes": "v3_exq_460i_natural_commit_occupancy_release_decommit_falsifier",
+      "claim_id": "MECH-446",
+      "note": "V3-EXQ-460j SUPERSEDES V3-EXQ-460i. The rung-6 de-commit falsifier re-run with the natural-commit LATCH-HOLD substrate amend (use_natural_commit_latch_hold, landed today via /implement-substrate; agent.py + config.py) ARMED in ALL arms so the ARM_LEVER_OFF baseline SUSTAINS a natural-commit beta latch BY CONSTRUCTION, plus the gate-3 redesign the user-adjudicated failure_autopsy_V3-EXQ-460i_2026-06-21 (Option B) prescribed. 460i fired ZERO releases + self-routed substrate_not_ready_requeue at gate 3: the lever was correctly ARMED but the 460h sustained ~2400-step monolithic natural-commit hold did not reproduce -- the active SD-034 de-commit control-plane fragmented the latch to ~1-tick blips EVEN WITH THE LEVER OFF, and gate-3's mean_beta_elevated_steps proxy was BLIND to sustained-vs-fragmented. The latch-hold re-asserts the natural-commit-armed beta latch against the churn (YIELDS to the closure de-commit / MECH-091 threat / the rung-6 release, so the MECH-446 occupancy-drop DV stays measurable). NEW readiness gate 3 (REDESIGN): ARM_LEVER_OFF mean per-commit hold length total_beta_elevated/max(1,beta_release_events) >= SUSTAINED_HOLD_MEAN_FLOOR (5.0; 460i OFF was ~1.0) on >=2/3 guard seeds CERTIFIES the sustained regime is present (+ max_consecutive_beta_run + ncl_hold_reassert_total reported) BEFORE gate 4 (lever fired ncur_n_releases_total>0 + >= LEVER_OCC_DROP_FRAC occupancy drop vs OFF on ARM_GAP_SCALED) + the CO_OCCURRENCE DV. 4 eval arms (one trained substrate/seed, lever toggled at eval via clone; hold armed in all): ARM_LEVER_OFF (sustained reference) / ARM_GAP_SCALED (graded urgency, PRIMARY) / ARM_FLAT_RATE (D1 fixed-refractory control) / ARM_ACTION_EXTENT (Jin). Seven readiness gates self-route substrate_not_ready_requeue when unmet (NEVER a false weakens; incl the new sustained-hold gate). PASS = MECH-445 commit-intent + MECH-446 within-arm occupancy-drop co-occur on >=2/3 seeds (dissolves the 460h disjoint-certifier problem). claim_ids=[MECH-446 scored, MECH-445 commit-intent precondition]; MECH-446/445 stay candidate/v3_pending/pending_retest_after_substrate (PROMOTES NOTHING; governance applies). Do NOT re-author 460d/e/f/g/h/i. Pinned ree-cloud-3 (cloud, not the Mac) per the duration/affinity lesson; 460-lineage runs on cloud. validate_experiments --strict PASS; dry-run smoke PASS (end-to-end, self-routes substrate_not_ready_requeue at the new gate-3 at toy budget as designed, no manifest written). Working-tree-vs-HEAD audit (WT==HEAD) + post-commit dropped-file check applied per Step 5/8 (phase3-queue snapshot race).",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-446",
+        "MECH-445"
+      ],
+      "conditions": 1,
+      "episodes_per_run": 295,
+      "experiment_type": "v3_exq_460j_natural_commit_occupancy_release_decommit_falsifier",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-693a",
       "title": "SD-049 Phase-2 4-arm substrate-gradient validation: measurement re-issue of V3-EXQ-693 porting the working 514t info-tag WL-scoring harness so the R3 non-vacuity guard fires; supersedes V3-EXQ-693",
       "script": "experiments/v3_exq_693a_sd049_phase2_4arm_substrate_gradient_validation.py",
@@ -114,26 +134,6 @@
       "episodes_per_run": 85,
       "experiment_type": "v3_exq_697_arc013_residue_separability_falsifier",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-460j",
-      "title": "rung-6 natural-commit-occupancy-release de-commit falsifier + natural-commit LATCH-HOLD amend (460i-successor; gate-3 sustained-hold redesign)",
-      "script": "experiments/v3_exq_460j_natural_commit_occupancy_release_decommit_falsifier.py",
-      "experiment_type": "v3_exq_460j_natural_commit_occupancy_release_decommit_falsifier",
-      "priority": 400,
-      "machine_affinity": "ree-cloud-3",
-      "status": "pending",
-      "estimated_minutes": 650,
-      "episodes_per_run": 295,
-      "seeds": 3,
-      "conditions": 1,
-      "claim_id": "MECH-446",
-      "claim_ids": [
-        "MECH-446",
-        "MECH-445"
-      ],
-      "supersedes": "v3_exq_460i_natural_commit_occupancy_release_decommit_falsifier",
-      "note": "V3-EXQ-460j SUPERSEDES V3-EXQ-460i. The rung-6 de-commit falsifier re-run with the natural-commit LATCH-HOLD substrate amend (use_natural_commit_latch_hold, landed today via /implement-substrate; agent.py + config.py) ARMED in ALL arms so the ARM_LEVER_OFF baseline SUSTAINS a natural-commit beta latch BY CONSTRUCTION, plus the gate-3 redesign the user-adjudicated failure_autopsy_V3-EXQ-460i_2026-06-21 (Option B) prescribed. 460i fired ZERO releases + self-routed substrate_not_ready_requeue at gate 3: the lever was correctly ARMED but the 460h sustained ~2400-step monolithic natural-commit hold did not reproduce -- the active SD-034 de-commit control-plane fragmented the latch to ~1-tick blips EVEN WITH THE LEVER OFF, and gate-3's mean_beta_elevated_steps proxy was BLIND to sustained-vs-fragmented. The latch-hold re-asserts the natural-commit-armed beta latch against the churn (YIELDS to the closure de-commit / MECH-091 threat / the rung-6 release, so the MECH-446 occupancy-drop DV stays measurable). NEW readiness gate 3 (REDESIGN): ARM_LEVER_OFF mean per-commit hold length total_beta_elevated/max(1,beta_release_events) >= SUSTAINED_HOLD_MEAN_FLOOR (5.0; 460i OFF was ~1.0) on >=2/3 guard seeds CERTIFIES the sustained regime is present (+ max_consecutive_beta_run + ncl_hold_reassert_total reported) BEFORE gate 4 (lever fired ncur_n_releases_total>0 + >= LEVER_OCC_DROP_FRAC occupancy drop vs OFF on ARM_GAP_SCALED) + the CO_OCCURRENCE DV. 4 eval arms (one trained substrate/seed, lever toggled at eval via clone; hold armed in all): ARM_LEVER_OFF (sustained reference) / ARM_GAP_SCALED (graded urgency, PRIMARY) / ARM_FLAT_RATE (D1 fixed-refractory control) / ARM_ACTION_EXTENT (Jin). Seven readiness gates self-route substrate_not_ready_requeue when unmet (NEVER a false weakens; incl the new sustained-hold gate). PASS = MECH-445 commit-intent + MECH-446 within-arm occupancy-drop co-occur on >=2/3 seeds (dissolves the 460h disjoint-certifier problem). claim_ids=[MECH-446 scored, MECH-445 commit-intent precondition]; MECH-446/445 stay candidate/v3_pending/pending_retest_after_substrate (PROMOTES NOTHING; governance applies). Do NOT re-author 460d/e/f/g/h/i. Pinned ree-cloud-3 (cloud, not the Mac) per the duration/affinity lesson; 460-lineage runs on cloud. validate_experiments --strict PASS; dry-run smoke PASS (end-to-end, self-routes substrate_not_ready_requeue at the new gate-3 at toy budget as designed, no manifest written). Working-tree-vs-HEAD audit (WT==HEAD) + post-commit dropped-file check applied per Step 5/8 (phase3-queue snapshot race)."
     }
   ]
 }
