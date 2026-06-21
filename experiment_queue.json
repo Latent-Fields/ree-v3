@@ -80,7 +80,7 @@
       "title": "SD-033b/MECH-263 OFC-analog outcome-prediction substrate-ceiling retest (3-arm trained vs OFF vs matched-noise; route-range P0 gate)",
       "script": "experiments/v3_exq_696_sd033b_mech263_ofc_outcome_prediction_ceiling_retest.py",
       "priority": 50,
-      "machine_affinity": "ree-cloud-3",
+      "machine_affinity": "any",
       "estimated_minutes": 220,
       "claim_id": "SD-033b",
       "note": "Substrate-landing retest of SD-033b+MECH-263 substrate_ceiling: does the trained OFC-analog specific-outcome-prediction channel lift the previously-ceiling'd behavioural devaluation+task-role-discrimination metric strictly above OFF + a frozen-head matched-noise control? 3-arm (ARM_0_OFF/ARM_1_ON/ARM_2_MATCHED_NOISE) x 3-seed, phased P0->P1(frozen-encoder head)->P2. ENTANGLEMENT: per substrate_queue f_dominance_conversion_ceiling the OFC channel is channel 1 and F-dominance channel 2 of an active conversion ceiling mid-build (MECH-448 lever; falsifier V3-EXQ-689d queued); a non-PASS most likely corroborates the conversion ceiling, NOT refutes OFC. SAME-STATISTIC P0 gate: self-routes substrate_not_ready_requeue/non_contributory (NEVER a SD-033b/MECH-263 weakens) if the trained-head bias cross-candidate RANGE is below the 0.05 floor (the stat the load-bearing DVs route on); a readiness-met C1-fail records devalued-state range + diagnostic live-E3 F-test for /failure-autopsy adjudication. priority<689-cluster. Queued via /governance ceiling-audit may-have-lifted routing 2026-06-20.",
