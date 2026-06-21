@@ -156,6 +156,24 @@
       "episodes_per_run": 85,
       "experiment_type": "v3_exq_697_arc013_residue_separability_falsifier",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-698",
+      "title": "MECH-175 anticholinergic dual-pathway dementia risk (REM suppression + waking cholinergic deficit)",
+      "script": "experiments/v3_exq_698_mech175_anticholinergic_dual_pathway.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 2,
+      "claim_id": "MECH-175",
+      "note": "Tests MECH-175's dual-pathway hypothesis for anticholinergic dementia risk: (1) nocturnal REM suppression impairing MECH-123 precision recalibration, and (2) diurnal cholinergic deficit mimicry degrading attention/encoding. Four arms (N=3 seeds, K=5 sleep cycles): ARM_A normal (full sleep + normal encoding), ARM_B REM-suppressed only (nocturnal pathway), ARM_C waking-impaired only (diurnal pathway via 0.3x encoder lr analog), ARM_D dual pathway (both REM suppression + waking impairment). Key prediction: ARM_D shows ADDITIVE impairment (worse than either single pathway alone), supporting pathway independence. Metrics: context discrimination (slot differentiation), harm attribution. PASS requires main effect (normal > dual on both metrics) AND additivity evidence (dual < min(single pathways)). Proposal EXP-0199 (backlog EVB-0100). First experimental evidence for MECH-175 (currently lit_only). Queued 2026-06-21 via /queue-experiment skill (IGW-20260619-185, mismatch resolved: worktree incorrectly labeled ARC-050 but EXP-0199 is for MECH-175; ARC-050 requires unimplemented play mode). Smoke test PASS (manipulation checks met, script executes end-to-end).",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-175"
+      ],
+      "conditions": 4,
+      "episodes_per_run": 0,
+      "experiment_type": "v3_exq_698_mech175_anticholinergic_dual_pathway",
+      "seeds": 3
     }
   ]
 }
