@@ -635,6 +635,52 @@ class E3Config:
     use_f_eligibility_adaptive_floor: bool = False
     f_eligibility_adaptive_mean_factor: float = 1.0
 
+    # MECH-449 / ARC-107: Go/No-Go eligibility constitution (2026-06-21). The
+    # core opponency leg of the basal-ganglia E3-selector constitution -- the
+    # bounded Go (eligibility-PROMOTION) + bounded No-Go (eligibility-SUPPRESSION)
+    # pressure set governing which candidates may compete for the pallidal-like
+    # permission-to-commit gate (the MECH-448 eligibility envelope / shortlist).
+    # Generalises MECH-260 (dACC anti-recency No-Go) from a drowned score-bias
+    # into an ELIGIBILITY-ACCESS gate (reuse-before-duplicate, ARC-106 G2: the
+    # perseveration No-Go axis CONSUMES MECH-260's per-candidate suppression
+    # vector; the other axes are genuinely new functions MECH-260 lacks).
+    #
+    # The gate acts on the eligible set AFTER the MECH-448 envelope / shortlist
+    # builds it and BEFORE the within-eligible _modulatory_accum arbitration:
+    #   No-Go suppresses a candidate (drops it from the eligible set) when ANY
+    #     bounded axis exceeds its floor -- safety / staleness / perseveration /
+    #     low-viability -- on an axis ORTHOGONAL to F-rank (rank-preserving
+    #     demotion is order-preserving over F and structurally CANNOT exclude an
+    #     F-eligible-but-undesirable candidate; only an active No-Go can; this is
+    #     exactly what V3-EXQ-689f demonstrates).
+    #   Go promotes a candidate that F demoted OUT of the envelope back into the
+    #     eligible set when its go-evidence clears the threshold (bounded by
+    #     gng_go_max_promote) -- lawful channel-specific ACCESS, not scalar
+    #     F-dominance, decides.
+    # SAFETY: a No-Go'd candidate is removed from the eligible set, so the
+    # within-eligible argmin can never select it regardless of how large its
+    # modulatory pull is (the orthogonal-to-F property; contract-verified).
+    # FAIL-OPEN guard (gng_protect_min_eligible): No-Go never drops the eligible
+    # set below this many survivors UNLESS the survivors are themselves
+    # safety-No-Go'd -- guards the No-Go-over-pressure -> catatonia/avolition
+    # failure pole (grounding synthesis 2.1/2.5) from deadlocking the gate.
+    # Per-candidate signals are supplied via select(go_nogo_signals=...) (each an
+    # optional [K] tensor); a missing axis is inert. Default master OFF ->
+    # the gate block is skipped entirely -> bit-identical OFF. PROMOTES NOTHING.
+    use_go_nogo_constitution: bool = False
+    # No-Go axis floors (a candidate is No-Go'd if its signal on that axis
+    # crosses the floor in the suppressing direction).
+    gng_safety_floor: float = 0.5          # No-Go if safety-undesirability >= floor
+    gng_staleness_floor: float = 0.5       # No-Go if staleness >= floor
+    gng_perseveration_floor: float = 0.5   # No-Go if recency-share (MECH-260) >= floor
+    gng_viability_floor: float = 0.1       # No-Go if viability < floor (LOW-viability)
+    # Bounded Go promotion.
+    gng_go_threshold: float = 0.5          # Go-promote a demoted candidate if go-evidence >= threshold
+    gng_go_max_promote: int = 2            # at most this many Go promotions per tick (bounded)
+    # Fail-open: No-Go keeps at least this many candidates eligible unless they
+    # are safety-No-Go'd (safety is never overridden by the fail-open).
+    gng_protect_min_eligible: int = 1
+
     # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
     # E2 forward prediction-error modulates E3 trajectory-scoring confidence.
     # E3 currently trusts the E2 rollout unconditionally; high E2 forward-PE in a
@@ -4329,6 +4375,16 @@ class REEConfig:
         # demotion auto-calibrates per channel. No-op default; bit-identical OFF.
         use_f_eligibility_adaptive_floor: bool = False,
         f_eligibility_adaptive_mean_factor: float = 1.0,
+        # MECH-449 / ARC-107 Go/No-Go eligibility constitution (2026-06-21).
+        # No-op default; bit-identical OFF. PROMOTES NOTHING.
+        use_go_nogo_constitution: bool = False,
+        gng_safety_floor: float = 0.5,
+        gng_staleness_floor: float = 0.5,
+        gng_perseveration_floor: float = 0.5,
+        gng_viability_floor: float = 0.1,
+        gng_go_threshold: float = 0.5,
+        gng_go_max_promote: int = 2,
+        gng_protect_min_eligible: int = 1,
         # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
         # E2 forward-PE -> E3 trajectory-scoring confidence down-weight. No-op default.
         use_pe_confidence_weighting: bool = False,
@@ -5315,6 +5371,15 @@ class REEConfig:
         config.e3.f_eligibility_dn_sigma = f_eligibility_dn_sigma
         config.e3.use_f_eligibility_adaptive_floor = use_f_eligibility_adaptive_floor
         config.e3.f_eligibility_adaptive_mean_factor = f_eligibility_adaptive_mean_factor
+        # MECH-449 / ARC-107 Go/No-Go eligibility constitution (2026-06-21).
+        config.e3.use_go_nogo_constitution = use_go_nogo_constitution
+        config.e3.gng_safety_floor = gng_safety_floor
+        config.e3.gng_staleness_floor = gng_staleness_floor
+        config.e3.gng_perseveration_floor = gng_perseveration_floor
+        config.e3.gng_viability_floor = gng_viability_floor
+        config.e3.gng_go_threshold = gng_go_threshold
+        config.e3.gng_go_max_promote = gng_go_max_promote
+        config.e3.gng_protect_min_eligible = gng_protect_min_eligible
         # DR-12 (self_model_v4:SELF-4, 2026-06-17): E2 forward-PE -> E3 confidence
         # down-weight. The score_trajectory penalty reads these from config.e3.
         config.e3.use_pe_confidence_weighting = use_pe_confidence_weighting

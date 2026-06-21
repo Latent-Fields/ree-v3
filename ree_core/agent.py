@@ -2052,6 +2052,13 @@ class REEAgent(nn.Module):
         # Set per tick via set_injected_e2_forward_pe(); the lever applies it only
         # when E3Config.use_pe_confidence_weighting is True.
         self._injected_e2_forward_pe: Optional[torch.Tensor] = None
+        # MECH-449 (ARC-107): optional injected per-candidate Go/No-Go signals
+        # (dict of [K] tensors keyed safety/staleness/perseveration/viability/go)
+        # for the eligibility constitution. The MECH-449 falsifier sets the
+        # constructed-bank axes per tick via set_injected_go_nogo_signals(); the
+        # default waking loop wires only the MECH-260 perseveration reuse. None ->
+        # bit-identical (the gate is also master-gated by use_go_nogo_constitution).
+        self._injected_go_nogo_signals: Optional[Dict[str, Any]] = None
         # V3-EXQ-571: per-component bias decomposition (written when e3.e3_score_decomp_enabled)
         self._last_score_bias_decomp: dict = {}
         # ControlVector logging (rec-B four-signal adjudication 2026-06-07):
@@ -2655,6 +2662,22 @@ class REEAgent(nn.Module):
         candidate count K.
         """
         self._injected_e2_forward_pe = pe
+
+    def set_injected_go_nogo_signals(
+        self, signals: "Optional[Dict[str, Any]]"
+    ) -> None:
+        """MECH-449 (ARC-107) per-candidate Go/No-Go signal injection seam.
+
+        Lets the MECH-449 falsifier supply the constructed-bank per-candidate
+        Go/No-Go axes (dict of [K] tensors keyed safety / staleness /
+        perseveration / viability / go) consumed by the eligibility constitution
+        on the next select_action tick. These merge over (and override) the
+        default MECH-260 perseveration reuse. None clears it (bit-identical). The
+        gate applies them only when E3Config.use_go_nogo_constitution is True;
+        supplying signals with the constitution OFF is a no-op. The caller is
+        responsible for matching the current candidate count K.
+        """
+        self._injected_go_nogo_signals = signals
 
     def _resolve_harm_suffering_escapability(self) -> float:
         """Resolve the MECH-219 escapability scalar in [0, 1] for the current tick.
@@ -6089,6 +6112,28 @@ class REEAgent(nn.Module):
             score_diversity=self.score_diversity,
             channel_route_bias=channel_route_bias,
         )
+        # MECH-449 (ARC-107): Go/No-Go eligibility constitution. The perseveration
+        # No-Go axis REUSES MECH-260 (dACC anti-recency suppression) -- the
+        # existing per-candidate recency-share vector from the dACC bundle is
+        # routed in as the perseveration signal (generalising MECH-260 from a
+        # drowned score-bias into an eligibility-access gate, ARC-106 G2). The
+        # other axes (safety / staleness / viability / go) are experiment-supplied
+        # on a constructed candidate bank (the MECH-449 falsifier); the default
+        # waking loop wires only the always-available MECH-260 reuse. Passed ONLY
+        # when the constitution is engaged (version-layering guard: the default
+        # path never sends the kwarg, so an older e3.select cannot raise).
+        if getattr(self.config.e3, "use_go_nogo_constitution", False):
+            _gng_signals: Dict[str, Any] = {}
+            _gng_bundle = getattr(self, "_dacc_last_bundle", None)
+            if _gng_bundle is not None:
+                _gng_supp = _gng_bundle.get("suppression", None)
+                if _gng_supp is not None:
+                    _gng_signals["perseveration"] = _gng_supp
+            _injected_gng = getattr(self, "_injected_go_nogo_signals", None)
+            if _injected_gng:
+                _gng_signals.update(_injected_gng)
+            if _gng_signals:
+                _e3_select_kwargs["go_nogo_signals"] = _gng_signals
         _injected_e2_pe = getattr(self, "_injected_e2_forward_pe", None)
         if (
             getattr(self.config.e3, "use_pe_confidence_weighting", False)

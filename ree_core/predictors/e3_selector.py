@@ -822,6 +822,163 @@ class E3TrajectorySelector(nn.Module):
             return all_idx
         return eligible_idx
 
+    def _go_nogo_eligibility_gate(
+        self,
+        eligible_idx: torch.Tensor,
+        raw_scores: torch.Tensor,
+        signals: Optional[Dict[str, Any]],
+    ) -> torch.Tensor:
+        """MECH-449 (ARC-107): bounded Go/No-Go eligibility constitution.
+
+        The core opponency leg of the basal-ganglia selector constitution. Acts
+        on the MECH-448 eligible set AFTER the envelope/shortlist builds it and
+        BEFORE the within-eligible ``_modulatory_accum`` arbitration -- governing
+        WHICH candidates may compete for the pallidal-like permission-to-commit
+        gate, so lawful channel-specific ACCESS (not scalar F-dominance) decides.
+
+        Generalises MECH-260 (dACC anti-recency No-Go) from a drowned score-bias
+        into an eligibility-access gate (reuse-before-duplicate, ARC-106 G2: the
+        ``perseveration`` axis CONSUMES MECH-260's per-candidate suppression
+        vector). Two opponent pressures over the candidate set
+        (``raw_scores`` = per-candidate F cost, lower = better; ``eligible_idx``
+        = the F-graded eligible set):
+
+          No-Go (suppress): drop a candidate from the eligible set when ANY
+            bounded axis crosses its floor -- ``safety`` (undesirability >=
+            gng_safety_floor), ``staleness`` (>= gng_staleness_floor),
+            ``perseveration`` (recency-share >= gng_perseveration_floor;
+            MECH-260 reuse), ``viability`` (< gng_viability_floor = low). These
+            act on an axis ORTHOGONAL to F-rank: rank-preserving demotion is
+            order-preserving over F and CANNOT exclude an F-eligible-but-
+            undesirable candidate -- only an active No-Go can (V3-EXQ-689f).
+
+          Go (promote): add back into the eligible set, bounded by
+            gng_go_max_promote, any candidate F demoted OUT of the envelope whose
+            ``go`` evidence >= gng_go_threshold (and that is not itself No-Go'd).
+
+        SAFETY: a No-Go'd candidate is removed from the eligible set, so the
+        within-eligible argmin can never select it regardless of its modulatory
+        pull (the orthogonal-to-F guarantee). FAIL-OPEN: No-Go never drops the
+        eligible set below ``gng_protect_min_eligible`` survivors UNLESS those
+        survivors are SAFETY-No-Go'd (safety is never overridden by the fail-open
+        -- a clearly-harmful candidate stays suppressed even if it is the last
+        one). This guards the No-Go-over-pressure -> catatonia/avolition failure
+        pole from deadlocking the gate.
+
+        ``signals`` is an optional dict of per-candidate [K] tensors keyed
+        ``safety`` / ``staleness`` / ``perseveration`` / ``viability`` / ``go``;
+        a missing axis is inert. Returns the (possibly modified) eligible-index
+        LongTensor; never returns empty.
+        """
+        n = int(raw_scores.shape[0])
+        all_idx = torch.arange(n, device=raw_scores.device)
+        # Eligible-set membership mask over all K candidates.
+        elig_mask = torch.zeros(n, dtype=torch.bool, device=raw_scores.device)
+        elig_mask[eligible_idx] = True
+
+        def _axis(name: str) -> Optional[torch.Tensor]:
+            if not signals:
+                return None
+            v = signals.get(name, None)
+            if v is None:
+                return None
+            t = v if isinstance(v, torch.Tensor) else torch.as_tensor(
+                v, dtype=raw_scores.dtype, device=raw_scores.device
+            )
+            return t.detach().to(device=raw_scores.device).reshape(-1)
+
+        safety = _axis("safety")
+        staleness = _axis("staleness")
+        perseveration = _axis("perseveration")
+        viability = _axis("viability")
+        go_evidence = _axis("go")
+
+        # SAFETY No-Go is the absolute, fail-open-immune suppression.
+        safety_nogo = torch.zeros(n, dtype=torch.bool, device=raw_scores.device)
+        if safety is not None and safety.numel() == n:
+            safety_nogo = safety >= float(self.config.gng_safety_floor)
+        # Soft No-Go axes (staleness / perseveration / low-viability) -- subject
+        # to the fail-open protect-min guard.
+        soft_nogo = torch.zeros(n, dtype=torch.bool, device=raw_scores.device)
+        if staleness is not None and staleness.numel() == n:
+            soft_nogo = soft_nogo | (staleness >= float(self.config.gng_staleness_floor))
+        if perseveration is not None and perseveration.numel() == n:
+            soft_nogo = soft_nogo | (
+                perseveration >= float(self.config.gng_perseveration_floor)
+            )
+        if viability is not None and viability.numel() == n:
+            soft_nogo = soft_nogo | (viability < float(self.config.gng_viability_floor))
+
+        # Apply No-Go to the eligible set: safety always; soft subject to fail-open.
+        n_safety_nogo = int((safety_nogo & elig_mask).sum().item())
+        elig_mask = elig_mask & (~safety_nogo)
+        # Candidates the soft axes WOULD suppress, restricted to those still eligible.
+        soft_drop_candidates = soft_nogo & elig_mask
+        n_soft_requested = int(soft_drop_candidates.sum().item())
+        protect_min = int(self.config.gng_protect_min_eligible)
+        n_soft_applied = 0
+        if n_soft_requested > 0:
+            # Fail-open: keep at least protect_min eligible survivors. Drop the
+            # soft-No-Go'd candidates in WORST-F-first order (highest cost first)
+            # so the protected survivors are the strongest-F of the soft set.
+            applied_mask = soft_drop_candidates.clone()
+            n_remaining_after = int((elig_mask & (~applied_mask)).sum().item())
+            if n_remaining_after < protect_min:
+                # Re-admit the strongest-F (lowest raw cost) soft-No-Go'd
+                # candidates until protect_min survivors remain.
+                drop_idx = torch.nonzero(applied_mask, as_tuple=False).flatten()
+                # order soft-drops by descending cost (worst first to actually drop)
+                order = torch.argsort(raw_scores[drop_idx], descending=True)
+                ordered_drop = drop_idx[order]
+                n_can_drop = max(
+                    0, int(elig_mask.sum().item()) - protect_min
+                )
+                keep_dropping = ordered_drop[:n_can_drop]
+                applied_mask = torch.zeros_like(applied_mask)
+                if keep_dropping.numel() > 0:
+                    applied_mask[keep_dropping] = True
+            elig_mask = elig_mask & (~applied_mask)
+            n_soft_applied = int(applied_mask.sum().item())
+
+        # Bounded Go promotion: re-admit demoted candidates with go-evidence.
+        n_go = 0
+        if go_evidence is not None and go_evidence.numel() == n:
+            go_max = int(self.config.gng_go_max_promote)
+            go_thr = float(self.config.gng_go_threshold)
+            # Candidates not currently eligible, not No-Go'd, clearing the Go bar.
+            blocked = safety_nogo | soft_nogo
+            go_candidates = (~elig_mask) & (~blocked) & (go_evidence >= go_thr)
+            go_idx = torch.nonzero(go_candidates, as_tuple=False).flatten()
+            if go_idx.numel() > 0 and go_max > 0:
+                # Promote the highest-go-evidence candidates first, bounded.
+                order = torch.argsort(go_evidence[go_idx], descending=True)
+                promote = go_idx[order][:go_max]
+                elig_mask[promote] = True
+                n_go = int(promote.numel())
+
+        new_eligible = torch.nonzero(elig_mask, as_tuple=False).flatten()
+        if int(new_eligible.numel()) == 0:
+            # Last-resort: every eligible candidate was No-Go'd. Per SAFETY, do
+            # NOT re-admit a safety-No-Go'd candidate; fall back to the
+            # strongest-F candidate that is not safety-No-Go'd, else (all unsafe)
+            # the strongest-F overall (the gate cannot manufacture a safe option
+            # that does not exist; this is the avolition pole, flagged below).
+            safe_pool = torch.nonzero(~safety_nogo, as_tuple=False).flatten()
+            pool = safe_pool if safe_pool.numel() > 0 else all_idx
+            best = int(pool[torch.argmin(raw_scores[pool]).item()].item())
+            new_eligible = torch.tensor(
+                [best], dtype=torch.long, device=raw_scores.device
+            )
+        self.last_score_diagnostics["go_nogo_constitution_active"] = True
+        self.last_score_diagnostics["go_nogo_n_safety_nogo"] = n_safety_nogo
+        self.last_score_diagnostics["go_nogo_n_soft_requested"] = n_soft_requested
+        self.last_score_diagnostics["go_nogo_n_soft_applied"] = n_soft_applied
+        self.last_score_diagnostics["go_nogo_n_go_promoted"] = n_go
+        self.last_score_diagnostics["go_nogo_envelope_size"] = int(
+            new_eligible.numel()
+        )
+        return new_eligible
+
     def _gap_scaled_commit_pick(
         self,
         cost: torch.Tensor,
@@ -869,6 +1026,7 @@ class E3TrajectorySelector(nn.Module):
         score_diversity: Optional[Any] = None,
         channel_route_bias: Optional[torch.Tensor] = None,
         e2_forward_pe_per_candidate: Optional[torch.Tensor] = None,
+        go_nogo_signals: Optional[Dict[str, Any]] = None,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -1386,6 +1544,18 @@ class E3TrajectorySelector(nn.Module):
                 eligible_idx = torch.nonzero(
                     raw_scores <= cutoff, as_tuple=False
                 ).flatten()
+            # MECH-449 (ARC-107): the Go/No-Go eligibility constitution governs
+            # WHICH candidates may compete for the pallidal gate. It acts on the
+            # F-built eligible set BEFORE the within-eligible arbitration, so
+            # No-Go suppression on an axis ORTHOGONAL to F-rank (safety/staleness/
+            # perseveration/low-viability) reaches the committed argmin where
+            # rank-preserving demotion structurally cannot, and bounded Go can
+            # re-admit a lawfully-eligible demoted channel. No-op default ->
+            # gate skipped -> bit-identical OFF.
+            if getattr(self.config, "use_go_nogo_constitution", False):
+                eligible_idx = self._go_nogo_eligibility_gate(
+                    eligible_idx, raw_scores, go_nogo_signals
+                )
             n_eligible = int(eligible_idx.numel())
             if n_eligible >= 1:
                 mod_eligible = _modulatory_accum.detach()[eligible_idx]
