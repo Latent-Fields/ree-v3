@@ -8,6 +8,22 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-689e",
+      "title": "MECH-448/ARC-107 channel-adaptive eligibility-floor readiness: f_eligibility_excluded_count>0 lands productive on >=2 real channels (arc_062 654h-regime + OFC 485i-regime) with ONE global adaptive config; fixed-floor all-admit no-op as the contrast + bit-identical-OFF negative control. Substrate-readiness diagnostic; PROMOTES NOTHING.",
+      "script": "experiments/v3_exq_689e_mech448_channel_adaptive_envelope_readiness.py",
+      "priority": 420,
+      "machine_affinity": "any",
+      "estimated_minutes": 160,
+      "note": "Substrate-readiness for the channel-adaptive (mean-relative) f_eligibility floor landed this session (use_f_eligibility_adaptive_floor). 2 channels (arc_062 rule-apprehension lateral_pfc+gated_policy+mech295 on the busy 654h foraging env; SD-033b OFC analog on a sharper-contrast env) x 3 arms (OFF/FIXED-0.30/ADAPTIVE-mean_factor1.0) x 3 seeds. PASS=adaptive excludes productively (excluded_count>0, 1<=envelope_size<K) on BOTH channels with the SAME global config + rank-preserving; self-routes substrate_not_ready_requeue if a pool is non-divergent OR the adaptive floor still no-ops on any channel. claim_ids=[]; MECH-448 stays candidate. Mechanism confirmed end-to-end in smoke (ADAPTIVE excl>0_frac=1.0 env~17/32 BOTH channels vs FIXED excl>0_frac~0.01-0.02 env~31/32 all-admit no-op).",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 6,
+      "episodes_per_run": 40,
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_689e_mech448_channel_adaptive_envelope_readiness",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-485k",
       "title": "SD-033b/MECH-263 CORRECTED devaluation behavioural arm on the MECH-448 demotion-enabled E3 selector (supersedes 485j; re-ranking devalued-state OFC driver replaces the anti-range-flat collapse + C1 readiness precondition re-targeted to the devalued-state bias range)",
       "script": "experiments/v3_exq_485k_sd033b_demotion_devalued_rerank_behavioural.py",
@@ -54,22 +70,6 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_654i_arc062_gapb_rule_apprehension_behavioural_falsifier",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-689e",
-      "title": "MECH-448/ARC-107 channel-adaptive eligibility-floor readiness: f_eligibility_excluded_count>0 lands productive on >=2 real channels (arc_062 654h-regime + OFC 485i-regime) with ONE global adaptive config; fixed-floor all-admit no-op as the contrast + bit-identical-OFF negative control. Substrate-readiness diagnostic; PROMOTES NOTHING.",
-      "experiment_type": "v3_exq_689e_mech448_channel_adaptive_envelope_readiness",
-      "script": "experiments/v3_exq_689e_mech448_channel_adaptive_envelope_readiness.py",
-      "priority": 420,
-      "machine_affinity": "any",
-      "estimated_minutes": 160,
-      "claim_ids": [],
-      "experiment_purpose": "diagnostic",
-      "episodes_per_run": 40,
-      "seeds": 3,
-      "conditions": 6,
-      "status": "pending",
-      "note": "Substrate-readiness for the channel-adaptive (mean-relative) f_eligibility floor landed this session (use_f_eligibility_adaptive_floor). 2 channels (arc_062 rule-apprehension lateral_pfc+gated_policy+mech295 on the busy 654h foraging env; SD-033b OFC analog on a sharper-contrast env) x 3 arms (OFF/FIXED-0.30/ADAPTIVE-mean_factor1.0) x 3 seeds. PASS=adaptive excludes productively (excluded_count>0, 1<=envelope_size<K) on BOTH channels with the SAME global config + rank-preserving; self-routes substrate_not_ready_requeue if a pool is non-divergent OR the adaptive floor still no-ops on any channel. claim_ids=[]; MECH-448 stays candidate. Mechanism confirmed end-to-end in smoke (ADAPTIVE excl>0_frac=1.0 env~17/32 BOTH channels vs FIXED excl>0_frac~0.01-0.02 env~31/32 all-admit no-op)."
     }
   ]
 }
