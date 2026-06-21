@@ -26,6 +26,26 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_654i_arc062_gapb_rule_apprehension_behavioural_falsifier",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-485k",
+      "title": "SD-033b/MECH-263 CORRECTED devaluation behavioural arm on the MECH-448 demotion-enabled E3 selector (supersedes 485j; re-ranking devalued-state OFC driver replaces the anti-range-flat collapse + C1 readiness precondition re-targeted to the devalued-state bias range)",
+      "experiment_type": "v3_exq_485k_sd033b_demotion_devalued_rerank_behavioural",
+      "script": "experiments/v3_exq_485k_sd033b_demotion_devalued_rerank_behavioural.py",
+      "priority": 410,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 400,
+      "episodes_per_run": 150,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "SD-033b",
+      "claim_ids": [
+        "SD-033b",
+        "MECH-263"
+      ],
+      "supersedes": "V3-EXQ-485j",
+      "note": "CORRECTED DEVALUATION arm. Supersedes V3-EXQ-485j (run_id v3_exq_485j_sd033b_demotion_envelope_calibrated_behavioural_20260621T180033Z_v3), a SPLIT result (failure_autopsy_V3-EXQ-485j_2026-06-21): C2 task-role discrimination CONVERTED (between_context_tv 1.0 on 2/3 seeds; ARM_1 demotion-off control = 0.0; ARM_0 silent) = the FIRST cross-substrate corroboration that the MECH-448 BG F->eligibility demotion lever generalises off GAP-A foraging to the OFC valuation channel; but C1 devaluation FAILED because the 485h/485j paired driver's DEVALUED_ANTIRANGE_WEIGHT=0.5 trained the OFC head FLAT at the devalued state (bias range ~0.02 < the 0.05 floor), so the correctly-firing demotion selector (excluded_count=5, winner!=F-argmin) had nothing to re-rank -> devaluation_selection_shift=0. The FAIL was C1-ONLY and ORTHOGONAL to the demotion envelope (which fired correctly) -- so 485k does NOT recalibrate the envelope. TWO 485k FIXES (off the 485j harness): (1) the devalued-state OFC head DRIVER now RE-RANKS (inverted high-threat outcome-coupling -> favour high predicted harm at the devalued state via the SAME REINFORCE-over-candidates form), so devaluation produces a DIFFERENTIATED devalued bias that down-biases the previously-preferred candidate / up-biases an alternative (Rudebeck & Murray 2014; Dickinson & Balleine) and ACTIVELY MOVES the committed selection; a secondary high-vs-devalued OFC bias-VECTOR readout (L2 + cosine) is recorded. (2) the C1 readiness precondition is RE-TARGETED from the high-threat range to the DEVALUED-state range (the SAME statistic C1 routes on), so a below-floor devalued range self-routes substrate_not_ready_requeue (non_contributory), NEVER a false weakens (the V3-EXQ-642 same-statistic miss). KEPT VERBATIM from 485j: ofc_bias_scale=0.5, SD-056 P0 warmup, the MECH-448 demotion-on config (use_f_eligibility_demotion / dn_sigma=0.0) + the per-(arm,seed) f_eligibility_envelope_floor calibration with the excluded_count>0 HARD non-degeneracy gate, and the 3-arm dissociation (ARM_0 frozen+demotion / ARM_1 trained+demotion-off / ARM_2 trained+demotion-on). claim_ids=[SD-033b, MECH-263]; experiment_purpose=evidence; PROMOTES NOTHING by itself (a PASS = provisional behavioural evidence for the devaluation half, completing the 485j discrimination conversion; contributes to behavioral_diversity_isolation:GAP-I). py_compile + validate_experiments --strict --paths (multi-arm fingerprint met, 0 readiness warnings) + dry-run smoke (end-to-end all 3 arms; re-ranking driver + new devalued-range gate + secondary bias-vector readout engaged; self-routes substrate_not_ready_requeue at toy budget as designed, no manifest leak into evidence/) PASS. Working-tree-vs-HEAD audit (WT==HEAD, preserving foreign V3-EXQ-654i) + post-commit dropped-file check applied per Step 5/8 (phase3-queue snapshot race)."
     }
   ]
 }
