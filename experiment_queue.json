@@ -8,30 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-460i",
-      "title": "460h-successor de-commit falsifier on the rung-6 commit/release-DURATION lever (graded natural-commit-occupancy release): does shortening the F-driven natural-commit latch make MECH-445 commit-intent + MECH-446 occupancy-drop co-occur on >=2/3 seeds (dissolve the 460h disjoint-certifier problem)? 4 arms OFF/gap-scaled/flat-control/action-extent.",
-      "script": "experiments/v3_exq_460i_natural_commit_occupancy_release_decommit_falsifier.py",
-      "priority": 410,
-      "machine_affinity": "any",
-      "estimated_minutes": 620,
-      "claim_id": "MECH-446",
-      "note": "Rung-6 of f_dominance_conversion_ceiling (substrate_queue falsifier_next for the commit/release-DURATION lever; ree-v3 main ab2c1a9). Arms the graded natural-commit-occupancy release (ree_core/policy/natural_commit_urgency.py) on the FULL 460h/460g 603n foraging substrate (beta_gate_bistable + use_closure_commit_beta_coupling + Leg-A env-completion hook + Leg-B/decommit-magnitude refractory + Leg-C scaffold_train_rule_bias_head). One curriculum build per seed (lever OFF during training), then 4 eval arms cloned from the same trained weights (lever has no params): ARM_LEVER_OFF (460h baseline / occupancy reference) / ARM_GAP_SCALED (urgency, gap_entry_sensitivity=1.0 -- PRIMARY load-bearing) / ARM_FLAT_RATE (gap_entry_sensitivity=0.0 -- D1 fixed-refractory control) / ARM_ACTION_EXTENT (Jin rendering). LOAD-BEARING co-occurrence on ARM_GAP_SCALED: sd034_n_closure_commit_intent>0 (MECH-445) AND within-arm post-closure occupancy drop (MECH-446) on the SAME seed, >=2/3 seeds. Six readiness gates self-route substrate_not_ready_requeue when unmet (NEVER a false weakens), incl the lever-shortened-occupancy non-vacuity gate (gap-scaled ncur_n_releases_total>0 + mean beta-occupancy < ARM_LEVER_OFF). D1 'graded beats fixed' (GAP_SCALED vs FLAT_RATE) + urgency-vs-action-extent reported as SECONDARY. claim_ids=[MECH-446 scored, MECH-445 precondition]; PROMOTES NOTHING (SD-034/MECH-090/MECH-342/MECH-445/MECH-446 stay candidate). py_compile + validate_experiments --strict + --dry-run smoke (self-routes substrate_not_ready_requeue at toy budget, as designed) all PASS. cloud worker (NOT the Mac, per the duration/affinity lesson).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-20T21:35:48Z"
-      },
-      "claim_ids": [
-        "MECH-446",
-        "MECH-445"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 295,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_460i_natural_commit_occupancy_release_decommit_falsifier",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-689d",
       "title": "MECH-448 (ARC-107) rank-preserving F->eligibility demotion falsifier (689a-successor; the constitutional LEAD lever)",
       "script": "experiments/v3_exq_689d_mech448_f_eligibility_demotion_falsifier.py",
