@@ -116,6 +116,26 @@
       "episodes_per_run": 85,
       "experiment_type": "v3_exq_697_arc013_residue_separability_falsifier",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-654h",
+      "title": "arc_062 GAP-B committed-class-entropy falsifier on MECH-448 F->eligibility demotion (654g-successor; demotion lever matched constant; sweep use_candidate_rule_field)",
+      "experiment_type": "v3_exq_654h_arc062_gapb_rule_apprehension_behavioural_falsifier",
+      "script": "experiments/v3_exq_654h_arc062_gapb_rule_apprehension_behavioural_falsifier.py",
+      "priority": 410,
+      "machine_affinity": "ree-cloud-3",
+      "status": "pending",
+      "estimated_minutes": 600,
+      "episodes_per_run": 350,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-309",
+      "claim_ids": [
+        "MECH-309",
+        "ARC-062"
+      ],
+      "supersedes": "V3-EXQ-654g",
+      "note": "V3-EXQ-654h SUPERSEDES V3-EXQ-654g (FAIL non_contributory 2026-06-19, the CRF lineage TERMINUS; label shared_selection_authority_conversion_ceiling_route_implement_substrate). 654g proved the CRF stack is DONE (C1 met) and wired the 569i top-k shortlist, yet C1 held while C2 (committed-class entropy lift) FAILED -- self-routing the shared selection-authority CONVERSION CEILING (behavioral_diversity_isolation:GAP-A/GAP-I; MECH-439 F-dominance live root, F ~88-89%% of committed variance per V3-EXQ-571). 654h ports the 654g harness with the MECH-448 (ARC-107) RANK-PRESERVING F->ELIGIBILITY DEMOTION lever ARMED as a matched-stack CONSTANT on BOTH arms (use_f_eligibility_demotion=True + f_eligibility_envelope_floor=0.30 + f_eligibility_dn_sigma=0.0); per e3_selector.py the f_demotion mode TAKES PRECEDENCE over the retained 569i top_k keys (eligible set = graded DN envelope, F removed from the final argmin; the within-eligible _modulatory_accum arbitration is identical) = the V3-EXQ-689d ARM_ON config. The 2026-06-21 governance cycle promoted MECH-448 to provisional on the V3-EXQ-689d PASS (committed entropy 0.938 vs ARM_OFF hard-top-k 0.371; all 4 load-bearing criteria met), operationally LIFTING the F-dominance conversion ceiling 654g's C2 was stuck under; the substrate-ceiling audit (scripts/check_substrate_ceiling_audit.py) flags MECH-309/ARC-062 ceiling-may-have-lifted. 654h is the FIRST downstream confirmation the demotion lever generalises off the GAP-A foraging substrate onto the GAP-B rule-apprehension composite. ONLY swept variable = use_candidate_rule_field (ARM_OFF legacy collapsed rule_state vs ARM_ON matured+active differentiated crf_source); the now-working CRF stack (crf_persist + 666c maintenance + CRF-gate amend) + candidate_summary_source=e2_world_forward + SP-CEM + 643a authority + route-range + MECH-341 + SD-056 + GAP-D-trained SD-033a bias head are matched constants. PRIMARY DV = committed-class entropy ARM_ON strict-above-by-margin ARM_OFF (>=2/3 seeds). C1 (non-vacuity, self-routes substrate_not_ready_requeue): class axis exercisable + GAP-A divergence (both arms) + ARM_ON matured (crf_frac_active>=0.30) + propagation non-vacuous + the MECH-448 demotion lever LIVE (active>=0.8 of P2 ticks AND excluded_count>0 on the divergent pool, both arms). THREE-branch NO-weakens routing: PASS (C1+C2) supports MECH-309/ARC-062 + closes GAP-I; C1-holds-C2-fails -> conversion_ceiling_persists_despite_demotion (route MECH-449 Go/No-Go follow-on / V4); C1-fails -> substrate_not_ready_requeue. claim_ids=[MECH-309, ARC-062]; experiment_purpose=evidence; PROMOTES NOTHING by itself. Pinned ree-cloud-3 (cloud, not the Mac; 689-lineage convention). py_compile + validate_experiments --strict (multi-arm fingerprint met) + dry-run smoke (end-to-end both arms; self-routes substrate_not_ready_requeue at toy budget as designed, no manifest leak) + validate_queue all PASS. Working-tree-vs-HEAD audit (WT==HEAD) + post-commit dropped-file check applied per Step 5/8 (phase3-queue snapshot race)."
     }
   ]
 }
