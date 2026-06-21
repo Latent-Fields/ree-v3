@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-689g",
-      "title": "MECH-449/ARC-107 Go/No-Go eligibility constitution CONVERSION falsifier: does the BUILT Go/No-Go gate (use_go_nogo_constitution, e3_selector._go_nogo_eligibility_gate) CONVERT the committed selection beyond MECH-448 demotion alone -- suppressing an F-eligible-but-undesirable candidate (orthogonal to F-rank) so a previously-gated channel commits. Selection-face/single-decision; PROMOTES NOTHING (gates MECH-449 promotion).",
-      "script": "experiments/v3_exq_689g_mech449_go_nogo_conversion_falsifier.py",
-      "priority": 430,
-      "machine_affinity": "any",
-      "estimated_minutes": 6,
-      "claim_id": "MECH-449",
-      "note": "MECH-449's FIRST falsifier (the ABLATION falsifier the build gates promotion on; design note arc_107_selector_constitution_design_2026-06-20.md s3.2 / claims.yaml MECH-449 what_would_answer). Built this session via /implement-substrate: the bounded Go/No-Go pressure set on E3TrajectorySelector (_go_nogo_eligibility_gate) acting on the MECH-448 eligible set; perseveration axis REUSES MECH-260 (ARC-106 G2). SELECTION-FACE, single-decision through the real select() path -- NOT a sustained multi-step foraging behavioural DV (that would re-derive the F-dominance conversion ceiling on the still-incomplete BG circuit, ARC-107 s6b ledger; the sanctioned discipline cf 689f). 2 arms (ARM_DEMOTION = MECH-448 demotion ON/No-Go OFF vs ARM_CONSTITUTION = demotion ON + Go/No-Go ON) x 3 seeds x 24 divergent banks; U = the F-best-but-undesirable candidate (safety-No-Go'd), modulatory pull 1e3 toward U (overwhelming). DVs: conversion_rate (demotion picks U -> constitution converts to a previously-gated non-U channel; LOAD-BEARING), safety_violations (==0; No-Go suppresses the harmful class even under overwhelming pull -- orthogonal-to-F guarantee), specificity (no spurious conversion on a control bank with nothing to suppress). Non-vacuity self-route substrate_not_ready_requeue if the pool is not divergent (raw-F RANGE / modulatory RANGE below floor -- the SAME range statistic the DV depends on) OR the Go/No-Go variables do not vary (ARM_DEMOTION admits U + ARM_CONSTITUTION excluded_count>0). PRE-REGISTERED: built-but-no-conversion (preconditions met, safety holds) WEAKENS MECH-449 (over-specification) but does NOT falsify ARC-107 (non_contributory). PROMOTES NOTHING -- MECH-449 stays candidate/substrate_conditional until this scores. py_compile + validate_experiments --strict --paths (arm_fingerprint met, 0 readiness-warnings) + dry-run smoke (PASS, no manifest leak -- dry_run relocates to tempdir) PASS; full mechanism confirmed (conversion 1.0/1.0/1.0, 0 safety violations) -- the manual full-scale manifest was scrubbed; the runner writes the canonical PASS manifest. Working-tree-vs-HEAD audit (WT==HEAD) + atomicity + post-commit dropped-file check applied per Step 5/8.",
-      "status": "pending",
-      "claim_ids": [
-        "MECH-449",
-        "ARC-107"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 24,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_689g_mech449_go_nogo_conversion_falsifier",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-689e",
       "title": "MECH-448/ARC-107 channel-adaptive eligibility-floor readiness: f_eligibility_excluded_count>0 lands productive on >=2 real channels (arc_062 654h-regime + OFC 485i-regime) with ONE global adaptive config; fixed-floor all-admit no-op as the contrast + bit-identical-OFF negative control. Substrate-readiness diagnostic; PROMOTES NOTHING.",
       "script": "experiments/v3_exq_689e_mech448_channel_adaptive_envelope_readiness.py",
