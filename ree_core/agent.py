@@ -977,6 +977,29 @@ class REEAgent(nn.Module):
         # end-of-tick hold re-assertion so the hold yields rather than fights them).
         self._ncl_mech091_fired: bool = False
         self._ncl_lever_fired: bool = False
+        # Closure-exclusive de-commit eval mode (rung-6 BUILD, 2026-06-22, the named
+        # dissociable substrate from failure_autopsy_V3-EXQ-460j). When on, the eval
+        # makes beta elevation closure-exclusive (the F-driven result.committed path
+        # is suppressed from _commit_for_beta) AND arms the latch-hold on the
+        # closure-coupled commit (_closure_commit_active), so a sustained occupancy
+        # forms via the closure plane independently of the fragile natural commit and
+        # the SD-034 closure de-commit can act on it. PRECONDITION: requires both the
+        # closure->beta coupling and the latch-hold (the eval has nothing to form/sustain
+        # the occupancy otherwise). Counter certifies the eval-mode arm path fired.
+        self._ncl_hold_closure_armed_count: int = 0
+        if getattr(config, "closure_exclusive_decommit_eval", False):
+            if not getattr(config, "use_closure_commit_beta_coupling", False):
+                raise ValueError(
+                    "closure_exclusive_decommit_eval=True requires "
+                    "use_closure_commit_beta_coupling=True (the closure->beta coupling "
+                    "is the only beta-elevation path in the eval)."
+                )
+            if not getattr(config, "use_natural_commit_latch_hold", False):
+                raise ValueError(
+                    "closure_exclusive_decommit_eval=True requires "
+                    "use_natural_commit_latch_hold=True (the latch-hold sustains the "
+                    "closure-coupled occupancy the de-commit acts on)."
+                )
 
         # SD-061: difficulty-gated proposal-entropy regulator (MECH-343 blocker
         # part 2). A stuck-state detector integrates goal-progress stall + dACC
@@ -2381,6 +2404,7 @@ class REEAgent(nn.Module):
         self._ncl_hold_active = False
         self._ncl_hold_ticks = 0
         self._ncl_hold_reassert_count = 0
+        self._ncl_hold_closure_armed_count = 0
         self._ncl_mech091_fired = False
         self._ncl_lever_fired = False
         # SD-061: reset the stuck-state detector + proposal-entropy regulator
@@ -6284,7 +6308,15 @@ class REEAgent(nn.Module):
                 getattr(self.config, "use_closure_commit_beta_coupling", False)
                 and self.e3._committed_trajectory is not None
             )
-            _commit_for_beta = bool(result.committed) or _closure_commit_active
+            # Closure-exclusive de-commit eval mode (rung-6 BUILD, 460j): SUPPRESS the
+            # fragile F-driven natural commit (result.committed) from beta elevation so
+            # the occupancy is formed EXCLUSIVELY by the closure->beta coupling -- the
+            # named dissociable substrate. Default (flag off) -> the legacy union
+            # (result.committed OR _closure_commit_active), bit-identical.
+            if getattr(self.config, "closure_exclusive_decommit_eval", False):
+                _commit_for_beta = _closure_commit_active
+            else:
+                _commit_for_beta = bool(result.committed) or _closure_commit_active
             # SD-034 460h refractory-INDEPENDENT coupling certifier
             # (failure_autopsy_V3-EXQ-460g). Count the closure-plane commit INTENT
             # -- a closure-coupled commitment forming while the natural
@@ -6312,19 +6344,39 @@ class REEAgent(nn.Module):
                 # Natural-commit latch-hold: ARM on a fresh NATURAL commit
                 # (result.committed) so the end-of-tick re-assertion sustains its
                 # beta-latch occupancy. A purely closure-coupled elevation
-                # (result.committed False) does NOT arm the hold -- its occupancy is
-                # governed by the SD-034 closure machinery, not the rung-6 hold.
+                # (result.committed False) does NOT arm the hold by default -- its
+                # occupancy is governed by the SD-034 closure machinery, not the
+                # rung-6 hold. EXCEPTION: under closure_exclusive_decommit_eval the
+                # hold ALSO arms on the closure-coupled commit (_closure_commit_active),
+                # because the fragile result.committed does not form on this substrate
+                # (460j ncl_hold_reassert_total=0) -- arming on the closure plane is
+                # what makes a sustained occupancy form for the de-commit to act on.
                 # No-op when use_natural_commit_latch_hold is False. Re-arming an
                 # already-active hold (a re-commit while held) just restarts its
-                # tick budget on the fresh natural commit.
+                # tick budget on the fresh commit.
+                _ncl_eval = getattr(
+                    self.config, "closure_exclusive_decommit_eval", False
+                )
+                # The eval-mode closure-arm respects the SD-034 closure de-commit: do
+                # NOT re-arm while a refractory is actively holding beta down (the hold
+                # must yield to the de-commit, preserving the MECH-446 occupancy-drop;
+                # it re-arms only once the refractory expires and a fresh closure commit
+                # re-elevates). The legacy result.committed arm path is unchanged.
+                _ncl_closure_arm = (
+                    _ncl_eval
+                    and _closure_commit_active
+                    and self.beta_gate.refractory_remaining == 0
+                )
                 if (
                     getattr(
                         self.config, "use_natural_commit_latch_hold", False
                     )
-                    and result.committed
+                    and (bool(result.committed) or _ncl_closure_arm)
                 ):
                     self._ncl_hold_active = True
                     self._ncl_hold_ticks = 0
+                    if _ncl_closure_arm and not result.committed:
+                        self._ncl_hold_closure_armed_count += 1
                 self._committed_step_idx = 0  # reset step counter on new commitment
                 # MECH-342: zero the maintenance-release pressure accumulator
                 # at commit entry so each committed program accumulates

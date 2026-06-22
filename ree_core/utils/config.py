@@ -2604,6 +2604,28 @@ class REEConfig:
     # 0 -> unbounded (the hold persists until a principled release / the committed
     # trajectory ends).
     natural_commit_latch_hold_max_ticks: int = 0
+    # Closure-exclusive de-commit eval mode (rung-6 BUILD, 2026-06-22, the named
+    # dissociable substrate from failure_autopsy_V3-EXQ-460j). The 460j ARM_LEVER_OFF
+    # baseline showed the latch-hold NEVER armed (ncl_hold_reassert_total=0): it arms
+    # only on a decisive natural commit (result.committed), which does not form on the
+    # full closure-coupling substrate, so natural-commit and the SD-034 closure
+    # de-commit were NON-DISSOCIABLE (no sustained occupancy for the de-commit to act
+    # on). When closure_exclusive_decommit_eval=True, the eval makes beta elevation
+    # CLOSURE-EXCLUSIVE -- _commit_for_beta is driven ONLY by _closure_commit_active
+    # (the closure->beta coupling), the fragile F-driven result.committed path is
+    # SUPPRESSED from beta elevation -- AND the natural-commit latch-hold arms on
+    # _closure_commit_active. So a sustained commit occupancy forms via the closure
+    # plane independently of the F-driven natural commit, and the SD-034 closure
+    # de-commit (refractory) then acts on it (the existing yield-on-refractory at the
+    # re-assertion site), making natural-commit and closure-de-commit DISSOCIABLE and
+    # MECH-445 commit-intent + MECH-446 occupancy-drop co-measurable on the same seed.
+    # PRECONDITIONS (enforced loud at REEAgent.__init__): requires
+    # use_closure_commit_beta_coupling=True AND use_natural_commit_latch_hold=True.
+    # Default False -> bit-identical (natural path unsuppressed, hold arms only on
+    # result.committed). NOT a yield-clause patch (the refused 460k): this changes the
+    # ARM SOURCE of the occupancy (the 460j root cause), not the release/yield logic.
+    # See REE_assembly/docs/architecture/natural_commit_occupancy_release.md.
+    closure_exclusive_decommit_eval: bool = False
 
     # ----------------------------------------------------------------
     # MECH-353: blocked-agency / control-failure affect stream (z_block).
@@ -4151,6 +4173,7 @@ class REEConfig:
         natural_commit_urgency_onset_ticks: int = 0,
         use_natural_commit_latch_hold: bool = False,
         natural_commit_latch_hold_max_ticks: int = 0,
+        closure_exclusive_decommit_eval: bool = False,
         # MECH-353: blocked-agency / control-failure affect stream (z_block).
         # Pure-arithmetic regulator on the SD-029 action-outcome comparator;
         # all defaults no-op (bit-identical when use_blocked_agency=False).
@@ -5124,6 +5147,7 @@ class REEConfig:
         config.natural_commit_latch_hold_max_ticks = (
             natural_commit_latch_hold_max_ticks
         )
+        config.closure_exclusive_decommit_eval = closure_exclusive_decommit_eval
         config.natural_commit_urgency_onset_ticks = (
             natural_commit_urgency_onset_ticks
         )
