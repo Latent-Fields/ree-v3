@@ -8,6 +8,22 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-654j",
+      "title": "arc_062 GAP-B rule-apprehension committed-class behavioural falsifier (MECH-449 active Go/No-Go constitution engaged; supersedes 654i)",
+      "script": "experiments/v3_exq_654j_arc062_gapb_rule_apprehension_nogo_behavioural_falsifier.py",
+      "priority": 430,
+      "machine_affinity": "any",
+      "estimated_minutes": 600,
+      "supersedes": "V3-EXQ-654i",
+      "claim_id": "MECH-309",
+      "note": "MECH-449-engaging successor to V3-EXQ-654i (FAIL/non_contributory, failure_autopsy_V3-EXQ-654i_2026-06-22; conversion_ceiling_persists_despite_demotion_route_mech449). 654i was the CLEANEST conversion-ceiling instance: ALL C1 readiness gates MET + non-degenerate (rule field 0.913, propagation 0.027, MECH-448 demotion LIVE excluding 18.4) yet the load-bearing C2 committed-class entropy lift FAILED -- demotion (order-preserving over F) cannot express the active No-Go WITHDRAWAL conversion needs. RE-DERIVE BRAKE RELEASED: the 654i autopsy fired the brake (16-17 prior substrate_ceiling/non_contributory autopsies on MECH-309/ARC-062) and refused a same-substrate 654j; this 654j engages a DIFFERENT mechanism -- the newly-built+validated MECH-449 (ARC-107) Go/No-Go eligibility constitution (built 2026-06-21; selection-face falsifier V3-EXQ-689g PASS 3/3; promoted candidate->provisional 2026-06-22). FIXES vs 654i: (1) use_go_nogo_constitution=True + use_dacc=True armed as matched-stack constants on BOTH arms -> the active No-Go is fed ecologically via the MECH-260 recency-share perseveration axis (the autopsy's named 'active No-Go withdrawal' dependency), dropping the F-eligible-but-perseverative winner before the within-eligible arbitration; (2) use_f_eligibility_adaptive_floor=True (689e PASS) replaces 654i's per-(arm,seed) manual _calibrate_envelope_floor recalibration; (3) NEW C1f readiness gate -- the active No-Go must be LIVE AND actually SUPPRESSING on both arms, else substrate_not_ready_requeue (never a false weakens). ONLY use_candidate_rule_field is swept (ARM_OFF legacy collapsed rule_state vs ARM_ON matured+active crf_source). PRIMARY DV = committed-class entropy; phased P0(200 e2-train)/P1(90 frozen-encoder bias-head REINFORCE)/P2(60 frozen measure). THREE-BRANCH NO-weakens map: PASS(C1+C2)->supports MECH-309/ARC-062, closes behavioral_diversity_isolation:GAP-I; FAIL(C1 holds,C2 fails)->conversion_ceiling_persists_despite_active_nogo (genuine signal the Go/No-Go leg ALONE is insufficient; route to next ARC-107 ledger component, NOT a weakens); FAIL(C1 fails)->substrate_not_ready_requeue. claim_ids=[MECH-309,ARC-062]; experiment_purpose=evidence. PROMOTES NOTHING by itself. Standing-guidance note: commitment-dependent behavioural DV on the incomplete ARC-107 layer (components 2/4/5 open) -- adjudicated runnable because it engages MECH-449 (a new mechanism) and the C1-holds/C2-fails branch routes to the next ledger component rather than re-deriving the ceiling as a verdict; C1f non-vacuity guarantees the No-Go genuinely engaged. Dry-run smoke PASS (both arms end-to-end, exit 0; toy-scale self-routes substrate_not_ready_requeue as designed -- full-scale matures the pool/No-Go). Prefer cloud (689-lineage).",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 350,
+      "experiment_type": "v3_exq_654j_arc062_gapb_rule_apprehension_nogo_behavioural_falsifier",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-485l",
       "title": "SD-033b corrected OFC outcome-devaluation behavioural retest (MECH-449 active No-Go engaged; supersedes 485k)",
       "script": "experiments/v3_exq_485l_sd033b_devaluation_nogo_behavioural.py",
@@ -26,22 +42,6 @@
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_485l_sd033b_devaluation_nogo_behavioural",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-654j",
-      "title": "arc_062 GAP-B rule-apprehension committed-class behavioural falsifier (MECH-449 active Go/No-Go constitution engaged; supersedes 654i)",
-      "script": "experiments/v3_exq_654j_arc062_gapb_rule_apprehension_nogo_behavioural_falsifier.py",
-      "experiment_type": "v3_exq_654j_arc062_gapb_rule_apprehension_nogo_behavioural_falsifier",
-      "priority": 430,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "supersedes": "V3-EXQ-654i",
-      "claim_id": "MECH-309",
-      "status": "pending",
-      "conditions": 2,
-      "seeds": 3,
-      "episodes_per_run": 350,
-      "note": "MECH-449-engaging successor to V3-EXQ-654i (FAIL/non_contributory, failure_autopsy_V3-EXQ-654i_2026-06-22; conversion_ceiling_persists_despite_demotion_route_mech449). 654i was the CLEANEST conversion-ceiling instance: ALL C1 readiness gates MET + non-degenerate (rule field 0.913, propagation 0.027, MECH-448 demotion LIVE excluding 18.4) yet the load-bearing C2 committed-class entropy lift FAILED -- demotion (order-preserving over F) cannot express the active No-Go WITHDRAWAL conversion needs. RE-DERIVE BRAKE RELEASED: the 654i autopsy fired the brake (16-17 prior substrate_ceiling/non_contributory autopsies on MECH-309/ARC-062) and refused a same-substrate 654j; this 654j engages a DIFFERENT mechanism -- the newly-built+validated MECH-449 (ARC-107) Go/No-Go eligibility constitution (built 2026-06-21; selection-face falsifier V3-EXQ-689g PASS 3/3; promoted candidate->provisional 2026-06-22). FIXES vs 654i: (1) use_go_nogo_constitution=True + use_dacc=True armed as matched-stack constants on BOTH arms -> the active No-Go is fed ecologically via the MECH-260 recency-share perseveration axis (the autopsy's named 'active No-Go withdrawal' dependency), dropping the F-eligible-but-perseverative winner before the within-eligible arbitration; (2) use_f_eligibility_adaptive_floor=True (689e PASS) replaces 654i's per-(arm,seed) manual _calibrate_envelope_floor recalibration; (3) NEW C1f readiness gate -- the active No-Go must be LIVE AND actually SUPPRESSING on both arms, else substrate_not_ready_requeue (never a false weakens). ONLY use_candidate_rule_field is swept (ARM_OFF legacy collapsed rule_state vs ARM_ON matured+active crf_source). PRIMARY DV = committed-class entropy; phased P0(200 e2-train)/P1(90 frozen-encoder bias-head REINFORCE)/P2(60 frozen measure). THREE-BRANCH NO-weakens map: PASS(C1+C2)->supports MECH-309/ARC-062, closes behavioral_diversity_isolation:GAP-I; FAIL(C1 holds,C2 fails)->conversion_ceiling_persists_despite_active_nogo (genuine signal the Go/No-Go leg ALONE is insufficient; route to next ARC-107 ledger component, NOT a weakens); FAIL(C1 fails)->substrate_not_ready_requeue. claim_ids=[MECH-309,ARC-062]; experiment_purpose=evidence. PROMOTES NOTHING by itself. Standing-guidance note: commitment-dependent behavioural DV on the incomplete ARC-107 layer (components 2/4/5 open) -- adjudicated runnable because it engages MECH-449 (a new mechanism) and the C1-holds/C2-fails branch routes to the next ledger component rather than re-deriving the ceiling as a verdict; C1f non-vacuity guarantees the No-Go genuinely engaged. Dry-run smoke PASS (both arms end-to-end, exit 0; toy-scale self-routes substrate_not_ready_requeue as designed -- full-scale matures the pool/No-Go). Prefer cloud (689-lineage)."
     }
   ]
 }
