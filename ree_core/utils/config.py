@@ -495,6 +495,15 @@ class E3Config:
     learned_channel_value_baseline_beta: float = 0.05  # V-hat_t slow-EMA baseline rate
     learned_channel_asym_potentiation: float = 1.0     # D1-LTP gain on delta_t >= 0
     learned_channel_asym_depression: float = 0.5       # D2-LTD gain on delta_t < 0 (slower)
+    # ARC-108 sec-7 C3 ablation (divergence B5): the teaching signal that drives the
+    # w_chan AND W_lat three-factor updates. "signed" (default) uses the SIGNED RPE
+    # delta_t = R_t - V-hat_t -- bit-identical to the current substrate. "unsigned"
+    # substitutes the UNSIGNED ARC-016 prediction-error magnitude (e3._running_variance,
+    # always >= 0), removing the directional potentiate-vs-depress credit. This is the
+    # C3 falsifier knob (the signed-RPE claim is refuted if unsigned converts just as
+    # well -> route back to ARC-016). Only the LEARNING updates change; the signed
+    # delta_t is kept intact for the JOB-2 habenula de-commit + the V-hat_t baseline EMA.
+    learned_channel_rpe_mode: Literal["signed", "unsigned"] = "signed"
     # ARC-108 JOB-2 (d): the e3-level mirror of REEConfig.use_habenula_decommit.
     # post_action_update reads THIS (self.config is the E3Config) to decide whether
     # to compute the signed RPE delta_t = R_t - V-hat_t + advance the shared V-hat_t
@@ -4524,6 +4533,7 @@ class REEConfig:
         learned_channel_value_baseline_beta: float = 0.05,
         learned_channel_asym_potentiation: float = 1.0,
         learned_channel_asym_depression: float = 0.5,
+        learned_channel_rpe_mode: Literal["signed", "unsigned"] = "signed",
         # ARC-108 JOB-1 step-2 / MECH-450 recurrent-settling step (learned W_lat)
         use_learned_settling_step: bool = False,
         learned_settling_rounds: int = 3,
@@ -5541,6 +5551,7 @@ class REEConfig:
         )
         config.e3.learned_channel_asym_potentiation = learned_channel_asym_potentiation
         config.e3.learned_channel_asym_depression = learned_channel_asym_depression
+        config.e3.learned_channel_rpe_mode = learned_channel_rpe_mode
         # ARC-108 JOB-1 step-2 / MECH-450 recurrent-settling step (learned W_lat)
         config.e3.use_learned_settling_step = use_learned_settling_step
         config.e3.learned_settling_rounds = learned_settling_rounds

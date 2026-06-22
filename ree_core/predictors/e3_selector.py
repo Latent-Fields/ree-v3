@@ -2044,36 +2044,53 @@ class E3TrajectorySelector(nn.Module):
                 # is updated toward R_t.
                 v_hat = self._lcg_value_baseline
                 delta_t = R_t - v_hat
+                # ARC-108 sec-7 C3 (divergence B5): the LEARNING teaching signal that
+                # drives BOTH w_chan and W_lat. learned_channel_rpe_mode "signed"
+                # (default) uses the SIGNED delta_t -- bit-identical to the original
+                # substrate. "unsigned" substitutes the UNSIGNED ARC-016 prediction-error
+                # magnitude (self._running_variance, always >= 0), removing the
+                # directional potentiate-vs-depress credit a learned gate needs (the
+                # B5 ablation that MUST fail to convert; if it converts the mechanism
+                # collapses to a precision re-weighting -> route back to ARC-016). The
+                # signed delta_t itself is kept intact for the JOB-2 habenula de-commit
+                # and the V-hat_t baseline EMA below.
+                if getattr(self.config, "learned_channel_rpe_mode", "signed") == "unsigned":
+                    learn_signal = abs(float(self._running_variance))
+                else:
+                    learn_signal = delta_t
                 # asym renders the D1-LTP / D2-LTD asymmetry as a single asymmetric
-                # gain: a positive delta_t potentiates the voting channels faster than
-                # a negative delta_t depresses them (the V3 single-vector rendering;
-                # the D1/D2 opponent-population split is the deferred ARC-109 V4 cut).
-                asym = (
+                # gain: a positive teaching signal potentiates the voting channels faster
+                # than a negative one depresses them (the V3 single-vector rendering; the
+                # D1/D2 opponent-population split is the deferred ARC-109 V4 cut). Under
+                # the unsigned ablation learn_signal >= 0 always, so asym is fixed at
+                # potentiation -- the structural reason an unsigned signal CANNOT produce
+                # opposite-sign w_chan moves (the C3/C7 contract).
+                learn_asym = (
                     float(getattr(self.config, "learned_channel_asym_potentiation", 1.0))
-                    if delta_t >= 0.0
+                    if learn_signal >= 0.0
                     else float(getattr(self.config, "learned_channel_asym_depression", 0.5))
                 )
                 if _lcg_on:
                     eta = float(getattr(self.config, "learned_channel_gating_eta", 0.01))
-                    # Delta w[c] = eta * delta_t * eligibility_c * asym
+                    # Delta w[c] = eta * learn_signal * eligibility_c * asym
                     self.w_chan.add_(
-                        eta * delta_t * asym * self._lcg_elig_trace.to(
+                        eta * learn_signal * learn_asym * self._lcg_elig_trace.to(
                             dtype=self.w_chan.dtype, device=self.w_chan.device
                         )
                     )
-                    self._lcg_last_delta = delta_t
+                    self._lcg_last_delta = learn_signal
                     self._lcg_n_updates += 1
                 if _wlat_on:
                     # MECH-450: SAME three-factor rule, applied to W_lat over the
                     # decayed Hebbian class co-activation trace recorded during the
-                    # settling step.  Delta W_lat[i,j] = eta_w * delta_t * coact[i,j] * asym.
+                    # settling step.  Delta W_lat[i,j] = eta_w * learn_signal * coact[i,j] * asym.
                     eta_w = float(getattr(self.config, "learned_settling_eta", 0.01))
                     self.W_lat.add_(
-                        eta_w * delta_t * asym * self._wlat_coact_trace.to(
+                        eta_w * learn_signal * learn_asym * self._wlat_coact_trace.to(
                             dtype=self.W_lat.dtype, device=self.W_lat.device
                         )
                     )
-                    self._wlat_last_delta = delta_t
+                    self._wlat_last_delta = learn_signal
                     self._wlat_n_updates += 1
                 # Update the slow value baseline toward the realised R_t (shared; once).
                 beta = float(

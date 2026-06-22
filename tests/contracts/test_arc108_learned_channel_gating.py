@@ -25,6 +25,12 @@ Coverage:
   - C6 envelope intact / safety: the F-bounded MECH-448 eligible set is
         w_chan-invariant, so a learned weight can never re-admit an F-excluded
         (No-Go-suppressed) candidate however strongly it favours that channel.
+  - C7 unsigned-RPE ablation (ARC-108 sec-7 C3 / divergence B5): with
+        learned_channel_rpe_mode="unsigned" the teaching signal is the always->=0
+        ARC-016 prediction-error magnitude, so a good outcome and a bad outcome
+        move w_chan in the SAME direction -- the unsigned mode CANNOT produce the
+        opposite-sign moves C5 shows for the signed delta_t (the structural reason
+        unsigned must fail to convert directed credit).
 """
 
 from __future__ import annotations
@@ -95,6 +101,7 @@ def test_c1_config_defaults_are_noop():
     assert cfg.learned_channel_value_baseline_beta == 0.05
     assert cfg.learned_channel_asym_potentiation == 1.0
     assert cfg.learned_channel_asym_depression == 0.5
+    assert cfg.learned_channel_rpe_mode == "signed"
 
 
 def test_c1_from_dims_surfaces_flags_onto_e3():
@@ -258,3 +265,40 @@ def test_c6_learned_weight_cannot_readmit_excluded_candidate():
     r_huge = _sel(20.0)  # softplus(20) ~ 20: 20x amplified modulatory pull
     assert r_init.selected_index != 2
     assert r_huge.selected_index != 2  # excluded candidate never re-admitted
+
+
+# --------------------------------------------------------------------------- #
+# C7 unsigned-RPE ablation (ARC-108 sec-7 C3 / divergence B5)                  #
+# --------------------------------------------------------------------------- #
+
+def test_c7_unsigned_rpe_cannot_potentiate_vs_depress():
+    # Mirror of C5, but with learned_channel_rpe_mode="unsigned": the teaching
+    # signal is the always->=0 ARC-016 prediction-error magnitude
+    # (e3._running_variance), so a good outcome and a bad outcome move the voting
+    # channel's weight in the SAME direction. The opposite-sign credit C5 shows
+    # for the signed delta_t is structurally impossible under the unsigned mode.
+    cands = [_candidate(i) for i in range(3)]
+    bias = torch.tensor([-1.0, 0.2, 0.3])  # channel 0 (score_bias) votes for cand 0
+
+    def _one(benefit, harm):
+        sel = _selector(use_learned_channel_gating=True,
+                        learned_channel_gating_eta=0.1,
+                        learned_channel_value_baseline_beta=0.0,  # hold V-hat at 0
+                        learned_channel_rpe_mode="unsigned")
+        _patch_raw(sel, cands, [0.0, 0.5, 1.0])
+        sel.select(cands, score_bias=bias.clone())  # committed (rv pinned to 0)
+        _patch_heads(sel, benefit, harm)
+        # A non-zero realised state drives a positive ARC-016 running variance
+        # (the unsigned teaching signal). R_t is fixed by the constant heads, so
+        # it is independent of this state -- only the unsigned magnitude varies.
+        sel.post_action_update(torch.full((1, WORLD_DIM), 0.5), harm_occurred=False)
+        return float(sel.w_chan[0] - _LCG_W_INIT)  # change on the voting channel
+
+    dw_pos = _one(0.9, 0.1)   # R_t = +0.8 (a signed delta_t would POTENTIATE)
+    dw_neg = _one(0.1, 0.9)   # R_t = -0.8 (a signed delta_t would DEPRESS)
+    # Both move the same way: the unsigned magnitude carries no sign.
+    assert dw_pos != 0.0      # the unsigned signal is non-zero (rv > 0)
+    assert dw_neg != 0.0
+    assert dw_pos * dw_neg > 0.0   # SAME sign -- C5's signed mode gives < 0
+    # No directional credit: the realised-outcome sign did not flip the move.
+    assert (dw_pos > 0.0) == (dw_neg > 0.0)
