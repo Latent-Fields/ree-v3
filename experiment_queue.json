@@ -90,6 +90,26 @@
       "episodes_per_run": 280,
       "experiment_type": "v3_exq_460l_job2_control_plane_ramp_habenula_falsifier",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-701",
+      "title": "INV-050 MEL-measurability diagnostic: does graded waking novelty produce a measurable, monotonic accumulated prediction-error (Model Error Load) signal?",
+      "script": "experiments/v3_exq_701_inv050_mel_measurability_diagnostic.py",
+      "priority": 40,
+      "machine_affinity": "ree-cloud-4",
+      "estimated_minutes": 360,
+      "claim_id": "INV-050",
+      "claim_ids": [
+        "INV-050"
+      ],
+      "backlog_id": "EVB-0098",
+      "experiment_type": "v3_exq_701_inv050_mel_measurability_diagnostic",
+      "experiment_purpose": "diagnostic",
+      "conditions": 4,
+      "seeds": 3,
+      "episodes_per_run": 30,
+      "status": "pending",
+      "note": "Commitment-free IV-precondition diagnostic for INV-050 (IGW-20260622-188 / EVB-0098). INV-050's directly-testable corollary MECH-180 (novelty adaptively upregulates the sleep learning drive) is substrate-BLOCKED: V3-EXQ-677 FAILed non_contributory+degenerate (autopsy failure_autopsy_V3-EXQ-677_2026-06-14) because sleep counts are scheduler-pinned (zero cross-arm variance) AND the novelty manipulation never moved the prediction-error signal (8.8e-7). The adaptive sleep-cadence enrichment build is DEFERRED (user 2026-06-14), so the sleep DV is off-limits here. This probe tests ONLY the IV precondition the 677 autopsy flagged as the necessary next step: instrument MEL = accumulated per-step world-model prediction error and ask whether a GRADED waking novelty manipulation (env-drift levels NONE/LOW/MED/HIGH x 3 seeds) yields a measurable, MONOTONIC MEL signal. Fixes 677's measurement bug: reads the RAW per-step e3.post_action_update prediction_error (actual_z_world vs E2 one-step rollout; updated every step per ARC-016), accumulated over a FROZEN-model measurement window (no adaptation to wash out the transient) -- NOT the batch training loss 677 averaged. NO sleep machinery touched (commitment-free). experiment_purpose=diagnostic (excluded from governance confidence/conflict scoring). Readiness gate (R1 PE responds to a max-novelty shock as a RANGE -- same statistic C1 routes on; R2 P0 world model converged) self-routes substrate_not_ready_requeue rather than a false verdict. Interpretation: C1 PASS -> MEL measurable+monotonic, the deferred sleep-cadence enrichment now has a non-vacuous IV and is worth building; C1 FAIL (substrate ready) -> MEL not modulated by env-drift novelty, need a stronger manipulation before building the enrichment (NOT a falsification of INV-050). RE-DERIVE BRAKE EXEMPT (Step 2.5b, verify-then-ignore): 0 substrate_ceiling/non_contributory autopsies tag INV-050 (the 677 autopsy tags MECH-180), and a commitment-free diagnostic that discriminates WHY the ceiling holds is explicitly not the re-derive loop. Validator OK (--strict --paths, 0 readiness/fingerprint/degeneracy warnings); dry-run smoke exit 0, correctly self-routed substrate_not_ready_requeue at toy 2-episode scale. PROMOTES NOTHING."
     }
   ]
 }
