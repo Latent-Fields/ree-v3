@@ -52,26 +52,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-460k",
-      "title": "rung-6 commit/release-DURATION lever on the BUILT closure-exclusive de-commit eval substrate (supersedes 460j)",
-      "script": "experiments/v3_exq_460k_natural_commit_occupancy_release_decommit_falsifier.py",
-      "priority": 425,
-      "machine_affinity": "any",
-      "estimated_minutes": 540,
-      "supersedes": "V3-EXQ-460j",
-      "claim_id": "MECH-446",
-      "note": "f_dominance_conversion_ceiling rung-6 (commit/release-DURATION face) retest on the now-BUILT closure-exclusive de-commit eval substrate. Sets closure_exclusive_decommit_eval=True (+ required use_closure_commit_beta_coupling=True + use_natural_commit_latch_hold=True) on EVERY arm (the BUILT flag, ree-v3 main e52158d 2026-06-22; the named dissociable substrate from the 460j park). Beta elevation is closure-EXCLUSIVE (_commit_for_beta=_closure_commit_active only; fragile F-driven result.committed suppressed) AND the latch-hold arms on the closure-coupled commit, so the ARM_LEVER_OFF baseline now SUSTAINS a natural-commit occupancy via the closure plane (460j ARM_LEVER_OFF had reassert=0/armed=0 -> off_baseline_not_sustained). Re-states the rung-6 gates: (NEW gate 2.5) closure-exclusive eval ARMED the closure-coupled hold (ncl_hold_closure_armed_total + ncl_hold_reassert_total > 0 on ARM_LEVER_OFF >=2/3 seeds; the counters 460j had at 0); (gate 3) OFF baseline sustains (mean per-commit hold >= floor); (gate 4) ARM_GAP_SCALED rung-6 release SHORTENS the occupancy (ncur_n_releases_total>0 + >= LEVER_OCC_DROP_FRAC drop vs OFF); THEN MECH-445 commit-intent (sd034_n_closure_commit_intent>0) + MECH-446 within-arm occupancy-drop CO-OCCUR on the SAME seeds >=2/3. SEVEN readiness gates self-route substrate_not_ready_requeue when unmet -- NEVER a false MECH-445/446 weakening (incl. the new closure-exclusive-eval-armed gate). claim_ids=[MECH-446 scored (within-arm occupancy-drop), MECH-445 commit-intent precondition]; experiment_purpose=evidence; supersedes V3-EXQ-460j. MECH-445/446 stay candidate/standard/v3_pending/pending_retest_after_substrate -- PROMOTES NOTHING until it scores. re-derive brake RELEASED: the named upstream substrate (closure-exclusive de-commit eval mode) is now BUILT (substrate_queue f_dominance_conversion_ceiling fallback_ladder[5] rung 6 BUILT, build_record_460j; autopsies 460h/460i/460j braked it), so this is a meaningful retest on built substrate, NOT another letter circling the parked lever. Do NOT re-author 460d/e/f/g/h/i/j. validate_experiments --strict OK; dry-run smoke runs 4 arms end-to-end, exit 0, toy-scale self-routes substrate_not_ready_requeue (closure_exclusive_eval_did_not_arm_hold) as designed (no closures form on the toy substrate).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-22T15:31:09Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 295,
-      "experiment_type": "v3_exq_460k_natural_commit_occupancy_release_decommit_falsifier",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-460l",
       "title": "ARC-108 JOB-2 control-plane L0/L1/L2 falsifier (rho_t maintenance ramp + habenula de-commit DRIVER pair; supersedes 460k)",
       "script": "experiments/v3_exq_460l_job2_control_plane_ramp_habenula_falsifier.py",
