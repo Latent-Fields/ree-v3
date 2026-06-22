@@ -147,6 +147,28 @@ class OFCConfig:
     # Default False = last Linear zeroed (bit-identical to the original SD-033b
     # landing; bias output stays 0 until deliberately trained).
     train_state_bias_head: bool = False
+    # SD-033b commitment_closure:GAP-8 devaluation-head DECOUPLE (failure_autopsy
+    # V3-EXQ-485l, 2026-06-22). When True, OFCAnalog builds a SECOND output head
+    # (devaluation_bias_head) sharing the state_code + per-candidate input but with
+    # its OWN clamp (devaluation_bias_scale, independent of bias_scale). The single
+    # shared head under the +/-bias_scale clamp has no feasible gain band: a gain
+    # large enough to differentiate the devalued re-ranking saturates the clamp
+    # (485k range 0.0) while an in-band gain undershoots the readout floor (485l
+    # 0.031 < 0.05), because the same head + clamp must also carry the C2 high-threat
+    # discrimination range. Decoupling gives the devaluation re-ranking its own
+    # dynamic range so a supra-floor differentiated devalued range fits without
+    # saturating, and leaves the C2 head's clamp untouched. Default False = no
+    # second head (compute_devaluation_bias returns zeros); bit-identical to the
+    # original landing.
+    use_devaluation_head: bool = False
+    # Independent clamp on |devaluation_bias_head| output; larger than bias_scale by
+    # intent. Consulted only when use_devaluation_head is True.
+    devaluation_bias_scale: float = 2.0
+    # Mirror of train_state_bias_head for the devaluation head: when True, the
+    # devaluation_bias_head last Linear is NOT zeroed at init so it trains via the
+    # E3 score-aggregation gradient (the 485-lineage behavioural retest optimizer).
+    # Default False = last Linear zeroed (bias output stays 0 until trained).
+    train_devaluation_head: bool = False
 
 
 class OFCAnalog(nn.Module):
@@ -192,6 +214,26 @@ class OFCAnalog(nn.Module):
                 last_linear.weight.zero_()
                 last_linear.bias.zero_()
 
+        # GAP-8 devaluation-head decouple. A SECOND output head sharing the
+        # state_code + per-candidate input but clamped to +/-devaluation_bias_scale
+        # (independent of bias_scale) so the devalued re-ranking magnitude is not
+        # traded against the C2 discrimination range. Built only when
+        # use_devaluation_head; None otherwise (no parameters, bit-identical OFF).
+        # Last Linear zeroed unless train_devaluation_head (mirror of the
+        # state_bias_head GAP-8 zeroing).
+        self.devaluation_bias_head: Optional[nn.Sequential] = None
+        if self.config.use_devaluation_head:
+            self.devaluation_bias_head = nn.Sequential(
+                nn.Linear(state_dim + world_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, 1),
+            )
+            if not self.config.train_devaluation_head:
+                with torch.no_grad():
+                    last_dev_linear = self.devaluation_bias_head[-1]
+                    last_dev_linear.weight.zero_()
+                    last_dev_linear.bias.zero_()
+
         self.register_buffer(
             "state_code",
             torch.zeros(1, state_dim),
@@ -201,6 +243,7 @@ class OFCAnalog(nn.Module):
         self._last_gate: float = 0.0
         self._last_effective_eta: float = 0.0
         self._last_bias_abs_mean: float = 0.0
+        self._last_devaluation_bias_abs_mean: float = 0.0
         self._last_outcome_prediction: Optional[torch.Tensor] = None
 
     def update(
@@ -295,6 +338,67 @@ class OFCAnalog(nn.Module):
         """
         return self.state_bias_head.parameters()
 
+    def compute_devaluation_bias(
+        self,
+        candidate_world_summaries: torch.Tensor,
+    ) -> torch.Tensor:
+        """Per-candidate devaluation re-ranking bias from the DECOUPLED head.
+
+        SD-033b commitment_closure:GAP-8 (failure_autopsy V3-EXQ-485l). Mirrors
+        compute_bias() but uses the separate devaluation_bias_head clamped to
+        [-devaluation_bias_scale, +devaluation_bias_scale] -- an independent
+        dynamic range so the devalued re-ranking magnitude is not compressed
+        against the C2 discrimination range by the shared +/-bias_scale clamp.
+
+        Args:
+            candidate_world_summaries: [K, world_dim].
+
+        Returns:
+            devaluation_bias: [K] tensor, clamped to
+            [-devaluation_bias_scale, +devaluation_bias_scale]. Returns zeros
+            (no head built) when use_devaluation_head is False, so a caller that
+            unconditionally reads this is bit-identical to the original landing.
+            Initial output is exactly zero (last Linear zeroed) until the head is
+            deliberately trained.
+        """
+        if (
+            not self.config.use_ofc_analog
+            or not self.config.use_devaluation_head
+            or self.devaluation_bias_head is None
+        ):
+            return torch.zeros(
+                candidate_world_summaries.shape[0],
+                device=candidate_world_summaries.device,
+                dtype=candidate_world_summaries.dtype,
+            )
+
+        k = candidate_world_summaries.shape[0]
+        state_repeated = self.state_code.expand(k, -1)
+        joined = torch.cat([state_repeated, candidate_world_summaries], dim=-1)
+        bias_raw = self.devaluation_bias_head(joined).squeeze(-1)
+        bias = bias_raw.clamp(
+            min=-self.config.devaluation_bias_scale,
+            max=self.config.devaluation_bias_scale,
+        )
+
+        with torch.no_grad():
+            self._last_devaluation_bias_abs_mean = float(bias.abs().mean().item())
+
+        return bias
+
+    def devaluation_bias_head_parameters(self):
+        """Return devaluation_bias_head parameters for experiment optimizer inclusion.
+
+        SD-033b GAP-8 devaluation-head decouple. Experiment scripts that set
+        train_devaluation_head=True add these to their P1 optimizer:
+            optim.Adam(list(agent.ofc.devaluation_bias_head_parameters()), lr=LR)
+        Gradient flows: E3 loss -> devaluation_bias -> compute_devaluation_bias()
+        -> these weights. Returns an empty iterator when the head is not built.
+        """
+        if self.devaluation_bias_head is None:
+            return iter(())
+        return self.devaluation_bias_head.parameters()
+
     @property
     def oracle_is_ready(self) -> bool:
         """True when the specific-outcome oracle path is enabled (MECH-263)."""
@@ -338,6 +442,7 @@ class OFCAnalog(nn.Module):
         self._last_gate = 0.0
         self._last_effective_eta = 0.0
         self._last_bias_abs_mean = 0.0
+        self._last_devaluation_bias_abs_mean = 0.0
         self._last_outcome_prediction = None
 
     def get_state(self) -> dict:
@@ -349,6 +454,10 @@ class OFCAnalog(nn.Module):
             "last_bias_abs_mean": self._last_bias_abs_mean,
             "oracle_enabled": self.config.use_outcome_oracle,
             "train_state_bias_head": self.config.train_state_bias_head,
+            "use_devaluation_head": self.config.use_devaluation_head,
+            "train_devaluation_head": self.config.train_devaluation_head,
+            "devaluation_bias_scale": float(self.config.devaluation_bias_scale),
+            "last_devaluation_bias_abs_mean": self._last_devaluation_bias_abs_mean,
         }
         if self._last_outcome_prediction is not None:
             result["last_oracle_pred_norm"] = float(

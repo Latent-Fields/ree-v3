@@ -746,6 +746,15 @@ class REEAgent(nn.Module):
                 train_state_bias_head=getattr(
                     config, "ofc_train_state_bias_head", False
                 ),
+                use_devaluation_head=getattr(
+                    config, "use_ofc_devaluation_head", False
+                ),
+                devaluation_bias_scale=getattr(
+                    config, "ofc_devaluation_bias_scale", 2.0
+                ),
+                train_devaluation_head=getattr(
+                    config, "ofc_train_devaluation_head", False
+                ),
             )
             self.ofc = OFCAnalog(
                 world_dim=config.latent.world_dim,

@@ -2078,6 +2078,24 @@ class REEConfig:
     # (bit-identical to the original SD-033b landing; bias output stays 0 until
     # deliberately trained -- the deferred trained-OFC-head behavioural arm).
     ofc_train_state_bias_head: bool = False
+    # SD-033b commitment_closure:GAP-8 devaluation-head DECOUPLE (failure_autopsy
+    # V3-EXQ-485l, 2026-06-22). When True, OFCAnalog builds a SECOND output head
+    # (devaluation_bias_head) sharing the state_code+candidate input but with its
+    # OWN clamp (ofc_devaluation_bias_scale, independent of ofc_bias_scale), so the
+    # devalued re-ranking magnitude is not traded against the C2 discrimination
+    # range under the single +/-ofc_bias_scale clamp (the 485k saturate / 485l
+    # undershoot bracket). Default False = no second head, bit-identical (existing
+    # experiments read only compute_bias).
+    use_ofc_devaluation_head: bool = False
+    # Independent clamp on |devaluation_bias_head| output. Larger than ofc_bias_scale
+    # by intent so an in-band re-ranking gain produces a supra-floor differentiated
+    # devalued range without saturating. Consulted only when use_ofc_devaluation_head.
+    ofc_devaluation_bias_scale: float = 2.0
+    # Mirror of ofc_train_state_bias_head for the devaluation head: when True, the
+    # devaluation_bias_head last Linear is NOT zeroed at init so it trains via the
+    # E3 score-aggregation gradient (the 485-lineage behavioural retest optimizer).
+    # Default False = last Linear zeroed (bias output stays 0 until trained).
+    ofc_train_devaluation_head: bool = False
 
     # ----------------------------------------------------------------
     # ARC-062 (Phase 1, weak reading): gated-policy heads + learned
@@ -3931,6 +3949,10 @@ class REEConfig:
         ofc_harm_dim: int = 0,
         use_ofc_outcome_oracle: bool = False,
         ofc_train_state_bias_head: bool = False,
+        # SD-033b GAP-8 devaluation-head decouple (failure_autopsy V3-EXQ-485l)
+        use_ofc_devaluation_head: bool = False,
+        ofc_devaluation_bias_scale: float = 2.0,
+        ofc_train_devaluation_head: bool = False,
         # ARC-062 Phase 1: gated-policy heads + context discriminator
         use_gated_policy: bool = False,
         gated_policy_n_heads: int = 2,
@@ -4877,6 +4899,9 @@ class REEConfig:
         config.ofc_harm_dim = ofc_harm_dim
         config.use_ofc_outcome_oracle = use_ofc_outcome_oracle
         config.ofc_train_state_bias_head = ofc_train_state_bias_head
+        config.use_ofc_devaluation_head = use_ofc_devaluation_head
+        config.ofc_devaluation_bias_scale = ofc_devaluation_bias_scale
+        config.ofc_train_devaluation_head = ofc_train_devaluation_head
 
         # ARC-062 Phase 1: gated-policy heads + context discriminator
         config.use_gated_policy = use_gated_policy
