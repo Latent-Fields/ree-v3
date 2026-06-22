@@ -496,6 +496,37 @@ class E3Config:
     learned_channel_asym_potentiation: float = 1.0     # D1-LTP gain on delta_t >= 0
     learned_channel_asym_depression: float = 0.5       # D2-LTD gain on delta_t < 0 (slower)
 
+    # ARC-108 JOB-1 step-2 / MECH-450 (the coupled recurrent-settling step,
+    # dopamine_into_gating design 2026-06-22 sec 4): the SECOND factor of the
+    # learned-gating 2x2. A bounded recurrent lateral-inhibition SETTLING step over
+    # the F-bounded eligible set BEFORE the within-eligible commit -- a few rounds R
+    # of  a = softmax(-accum/T); accum += W_lat-coupled inhibition  on
+    # _modulatory_accum[eligible_idx] -- then commit = argmin(settled accum)
+    # (committed) / sample(softmax(-settled accum/T)) (uncommitted). Fixes divergence
+    # B1 (one-shot argmin -> recurrent settling) AND B3-blend (additive
+    # _modulatory_accum blend -> competitive winner-take-most) together. W_lat is the
+    # LEARNED lateral-inhibition matrix over candidate first-action CLASSES (a stable
+    # [C, C] object -- the per-candidate set is variable-size with no stable identity,
+    # so the inhibition is parametrised by action class: the BG surround-inhibition
+    # between competing motor programs, Mink 1996, which MECH-449 already grounds).
+    # W_lat is a register_buffer (NOT nn.Parameter -- the three-factor plasticity is a
+    # LOCAL update, never an optimizer/autograd target), init 0 -> the settling step
+    # is a no-op -> BIT-IDENTICAL OFF and bit-identical at init. W_lat is learned by
+    # the SAME signed-RPE three-factor rule as w_chan (sharing the JOB-1 delta_t /
+    # V-hat_t / D1-D2 asym): Delta W_lat ~ eta * delta_t * asym(delta_t) * coact_trace,
+    # where coact_trace is the decayed Hebbian co-activation of the settling-step class
+    # activations. The settling composes INSIDE the F-bounded MECH-448/449 eligible set
+    # (it transforms only _modulatory_accum[eligible_idx]; raw scores / F untouched), so
+    # safety is inherited from the envelope -- a learned W_lat can never re-admit a
+    # No-Go-excluded candidate. Waking-only (no settling / W_lat write on a simulation
+    # tick, mirroring the JOB-1 gate). Default False -> bit-identical OFF.
+    use_learned_settling_step: bool = False
+    learned_settling_rounds: int = 3                   # R: mutual-inhibition rounds per tick
+    learned_settling_temperature: float = 1.0          # T: softmax temperature for the support a
+    learned_settling_eta: float = 0.01                 # W_lat three-factor learning rate
+    learned_settling_elig_decay: float = 0.9           # cross-tick decay of the co-activation trace
+    learned_settling_n_action_classes: int = 8         # W_lat dimension = first-action class count (clamped)
+
     # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a, 2026-06-10):
     # The 2026-06-03/06-06 authority rescales _modulatory_accum (the composed
     # score_bias chain + MECH-341 bonus). The 569f/661/654a cluster showed that a
@@ -4431,6 +4462,13 @@ class REEConfig:
         learned_channel_value_baseline_beta: float = 0.05,
         learned_channel_asym_potentiation: float = 1.0,
         learned_channel_asym_depression: float = 0.5,
+        # ARC-108 JOB-1 step-2 / MECH-450 recurrent-settling step (learned W_lat)
+        use_learned_settling_step: bool = False,
+        learned_settling_rounds: int = 3,
+        learned_settling_temperature: float = 1.0,
+        learned_settling_eta: float = 0.01,
+        learned_settling_elig_decay: float = 0.9,
+        learned_settling_n_action_classes: int = 8,
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a):
         use_modulatory_channel_routing: bool = False,
         modulatory_channel_route_min_range_floor: float = 1e-6,
@@ -5429,6 +5467,13 @@ class REEConfig:
         )
         config.e3.learned_channel_asym_potentiation = learned_channel_asym_potentiation
         config.e3.learned_channel_asym_depression = learned_channel_asym_depression
+        # ARC-108 JOB-1 step-2 / MECH-450 recurrent-settling step (learned W_lat)
+        config.e3.use_learned_settling_step = use_learned_settling_step
+        config.e3.learned_settling_rounds = learned_settling_rounds
+        config.e3.learned_settling_temperature = learned_settling_temperature
+        config.e3.learned_settling_eta = learned_settling_eta
+        config.e3.learned_settling_elig_decay = learned_settling_elig_decay
+        config.e3.learned_settling_n_action_classes = learned_settling_n_action_classes
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
         # 2026-06-10): the e3_selector additive site reads
         # use_modulatory_channel_routing + min_range_floor from config.e3; the

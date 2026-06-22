@@ -301,6 +301,30 @@ class E3TrajectorySelector(nn.Module):
         self._lcg_last_delta: float = 0.0       # last signed RPE delta_t (diagnostic)
         self._lcg_n_updates: int = 0            # count of w_chan updates (diagnostic)
 
+        # ARC-108 JOB-1 step-2 / MECH-450: the learned lateral-inhibition matrix W_lat
+        # over candidate first-action CLASSES (the SECOND factor of the learned-gating
+        # 2x2, sharing the JOB-1 signed-RPE delta_t / V-hat_t / D1-D2 asym). register_buffer
+        # (NOT nn.Parameter -- the three-factor plasticity is a LOCAL update, never touched
+        # by an optimizer / autograd; rides device + state_dict). Init 0 -> the settling
+        # step is a no-op -> bit-identical OFF and bit-identical at init. Per-action-class
+        # (not per-candidate [K,K] -- the candidate set is variable-size with no stable
+        # identity) keeps W_lat a stable learned object: the BG surround-inhibition between
+        # competing motor programs (Mink 1996; MECH-449 grounds the same opponency). The
+        # cross-tick decayed co-activation trace + the pending flag mirror the w_chan
+        # eligibility plumbing. All inert unless config.use_learned_settling_step is True.
+        _lcg_nc = int(getattr(self.config, "learned_settling_n_action_classes", 8))
+        _lcg_nc = max(1, _lcg_nc)
+        self.register_buffer(
+            "W_lat", torch.zeros((_lcg_nc, _lcg_nc), dtype=torch.float32)
+        )
+        self.register_buffer(
+            "_wlat_coact_trace", torch.zeros((_lcg_nc, _lcg_nc), dtype=torch.float32)
+        )
+        self._wlat_pending: bool = False        # a waking settling trace awaits an outcome
+        self._wlat_last_delta: float = 0.0       # last signed RPE delta_t applied to W_lat (diag)
+        self._wlat_n_updates: int = 0            # count of W_lat updates (diagnostic)
+        self._wlat_last_settle_delta: float = 0.0  # L2 cross-round movement of accum (non-vacuity)
+
     # ------------------------------------------------------------------ #
     # Dynamic precision (ARC-016)                                         #
     # ------------------------------------------------------------------ #
@@ -1046,6 +1070,86 @@ class E3TrajectorySelector(nn.Module):
         probs = F.softmax(-cost.detach() / t_eff, dim=0)
         return int(torch.multinomial(probs, 1).item())
 
+    def _lateral_settle(
+        self,
+        mod_eligible: torch.Tensor,
+        candidates: List[Trajectory],
+        eligible_idx: torch.Tensor,
+    ) -> torch.Tensor:
+        """MECH-450 (ARC-108 JOB-1 factor 2): bounded recurrent lateral-inhibition
+        settling over the F-bounded eligible set, parametrised by the LEARNED
+        per-action-class inhibition matrix ``W_lat``.
+
+        ``mod_eligible`` [n_elig] is the within-eligible modulatory accumulator
+        (``_modulatory_accum[eligible_idx]``, COST units, lower = better). The
+        settling runs a few rounds of mutual inhibition so the committed winner
+        emerges from a recurrent SETTLING competition rather than a one-shot global
+        argmin (divergence B1), and so the additive blend becomes a competitive
+        winner-take-most (divergence B3-blend):
+
+            accum = mod_eligible
+            for r in range(R):
+                a       = softmax(-accum / T)            # support over eligible (low cost -> high support)
+                a_class = onehot.T @ a                   # [C] per-action-class aggregated support
+                inhib   = onehot @ (W_lat @ a_class)     # [n_elig] inhibition received per candidate
+                accum   = accum + inhib                  # raise the cost of inhibited candidates
+
+        ``W_lat[i, j]`` is how much class i is suppressed by class j (a candidate
+        whose rival classes carry strong support has its cost raised). At init
+        ``W_lat == 0`` -> ``inhib == 0`` -> ``accum`` unchanged across rounds ->
+        bit-identical to the legacy one-shot path. ``W_lat`` may go negative (the
+        signed three-factor rule renders dis-inhibition) but SAFETY is inherited from
+        the envelope regardless: the settling transforms ONLY the eligible subset, so
+        a No-Go-excluded candidate is never touched and never selectable however the
+        weights move.
+
+        Records the decayed Hebbian class co-activation trace (the outer product of
+        the per-round class activations) and arms ``_wlat_pending`` so the next
+        ``post_action_update`` applies the same signed-RPE three-factor update used
+        for ``w_chan``. The caller has already gated this on the waking path
+        (``not simulation_mode``), so a replay/DMN tick neither settles nor records a
+        trace (MECH-094). Returns the SETTLED accumulator (same shape as the input).
+        """
+        n = int(mod_eligible.numel())
+        n_classes = int(self.W_lat.shape[0])
+        dtype = mod_eligible.dtype
+        device = mod_eligible.device
+
+        # First-action class of each eligible candidate (clamped into W_lat's range).
+        cls = []
+        for gi in eligible_idx.tolist():
+            a0 = candidates[int(gi)].actions[:, 0, :].reshape(-1)
+            cls.append(min(int(a0.argmax().item()), n_classes - 1))
+        cls_t = torch.tensor(cls, dtype=torch.long, device=device)
+        onehot = torch.zeros((n, n_classes), dtype=dtype, device=device)
+        onehot[torch.arange(n, device=device), cls_t] = 1.0
+
+        rounds = int(getattr(self.config, "learned_settling_rounds", 3))
+        temp = max(float(getattr(self.config, "learned_settling_temperature", 1.0)), 1e-6)
+        W = self.W_lat.to(dtype=dtype, device=device)
+
+        accum = mod_eligible.clone()
+        accum0 = accum.clone()
+        coact = torch.zeros((n_classes, n_classes), dtype=dtype, device=device)
+        for _r in range(max(0, rounds)):
+            a = F.softmax(-accum / temp, dim=0)        # [n_elig] support (low cost -> high)
+            a_class = onehot.t() @ a                   # [C] per-class aggregated support
+            inhib = onehot @ (W @ a_class)             # [n_elig] received inhibition
+            accum = accum + inhib                      # raise inhibited candidates' cost
+            coact = coact + torch.outer(a_class, a_class)  # Hebbian class co-activation
+
+        # Record the decayed co-activation trace + arm the W_lat update (waking only).
+        decay = float(getattr(self.config, "learned_settling_elig_decay", 0.9))
+        self._wlat_coact_trace = (
+            decay * self._wlat_coact_trace
+            + coact.detach().to(
+                dtype=self._wlat_coact_trace.dtype, device=self._wlat_coact_trace.device
+            )
+        )
+        self._wlat_pending = True
+        self._wlat_last_settle_delta = float((accum - accum0).norm().item())
+        return accum
+
     def select(
         self,
         candidates: List[Trajectory],
@@ -1444,6 +1548,13 @@ class E3TrajectorySelector(nn.Module):
             "f_eligibility_excluded_count": -1,
             "f_eligibility_winner_neq_f_argmin": False,
             "f_eligibility_rank_preserving": True,
+            # MECH-450 (ARC-108 factor 2) recurrent-settling step. Pre-seeded;
+            # overwritten at the within-eligible site when the settling runs.
+            # learned_settling_round_delta is the L2 cross-round movement of the
+            # eligible accumulator -- the NON-DEGENERACY signal (the settling actually
+            # MOVED the field, not a no-op pass) the falsifier checks.
+            "learned_settling_active": False,
+            "learned_settling_round_delta": -1.0,
             # DR-12 (self_model_v4:SELF-4): E2 forward-PE -> E3 confidence down-weight.
             "pe_confidence_active": _pe_active,
             "pe_confidence_weight": float(
@@ -1629,6 +1740,23 @@ class E3TrajectorySelector(nn.Module):
             n_eligible = int(eligible_idx.numel())
             if n_eligible >= 1:
                 mod_eligible = _modulatory_accum.detach()[eligible_idx]
+                # MECH-450 (ARC-108 factor 2): bounded recurrent lateral-inhibition
+                # settling over the eligible set BEFORE the within-eligible commit, so
+                # the committed action emerges from a settling competition (B1) and the
+                # additive blend becomes competitive winner-take-most (B3-blend). Operates
+                # ONLY on the eligible subset -> safety inherited from the envelope.
+                # Waking-only (no settling on a simulation tick); no-op at init (W_lat==0)
+                # -> bit-identical OFF. Needs >= 2 eligible candidates to compete.
+                if (getattr(self.config, "use_learned_settling_step", False)
+                        and not simulation_mode
+                        and n_eligible >= 2):
+                    mod_eligible = self._lateral_settle(
+                        mod_eligible, candidates, eligible_idx
+                    )
+                    self.last_score_diagnostics["learned_settling_active"] = True
+                    self.last_score_diagnostics["learned_settling_round_delta"] = (
+                        self._wlat_last_settle_delta
+                    )
                 if n_eligible == 1:
                     local = 0
                 elif committed:
@@ -1874,12 +2002,22 @@ class E3TrajectorySelector(nn.Module):
             )
             metrics["residue_updated"] = torch.tensor(1.0)
 
-        # ARC-108 JOB-1 step-1: signed-RPE three-factor update of w_chan, on the
-        # waking committed-selection path only (gated on a pending eligibility trace
-        # recorded by a non-simulation select() this tick). A replay/DMN tick leaves
-        # _lcg_pending False -> no delta_t, no w_chan write (MECH-094).
-        if (getattr(self.config, "use_learned_channel_gating", False)
-                and self._lcg_pending):
+        # ARC-108 JOB-1: ONE signed-RPE delta_t drives BOTH the learned per-channel
+        # selection weights w_chan (step 1) AND the learned lateral-inhibition matrix
+        # W_lat (MECH-450 step 2). On the waking committed-selection path only (each
+        # gated on a pending trace recorded by a non-simulation select() this tick); a
+        # replay/DMN tick leaves both pending flags False -> no delta_t, no write
+        # (MECH-094). delta_t / V-hat_t / the D1-D2 asym are SHARED so the two learned
+        # objects ride a single dopaminergic RPE.
+        _lcg_on = bool(
+            getattr(self.config, "use_learned_channel_gating", False)
+            and self._lcg_pending
+        )
+        _wlat_on = bool(
+            getattr(self.config, "use_learned_settling_step", False)
+            and self._wlat_pending
+        )
+        if _lcg_on or _wlat_on:
             with torch.no_grad():
                 # R_t = realised outcome valence at the resulting state, from the
                 # ALREADY-TRAINED valuation heads (reuse; no new encoder, no phased
@@ -1906,38 +2044,61 @@ class E3TrajectorySelector(nn.Module):
                     if delta_t >= 0.0
                     else float(getattr(self.config, "learned_channel_asym_depression", 0.5))
                 )
-                eta = float(getattr(self.config, "learned_channel_gating_eta", 0.01))
-                # Delta w[c] = eta * delta_t * eligibility_c * asym
-                self.w_chan.add_(
-                    eta * delta_t * asym * self._lcg_elig_trace.to(
-                        dtype=self.w_chan.dtype, device=self.w_chan.device
+                if _lcg_on:
+                    eta = float(getattr(self.config, "learned_channel_gating_eta", 0.01))
+                    # Delta w[c] = eta * delta_t * eligibility_c * asym
+                    self.w_chan.add_(
+                        eta * delta_t * asym * self._lcg_elig_trace.to(
+                            dtype=self.w_chan.dtype, device=self.w_chan.device
+                        )
                     )
-                )
-                # Update the slow value baseline toward the realised R_t.
+                    self._lcg_last_delta = delta_t
+                    self._lcg_n_updates += 1
+                if _wlat_on:
+                    # MECH-450: SAME three-factor rule, applied to W_lat over the
+                    # decayed Hebbian class co-activation trace recorded during the
+                    # settling step.  Delta W_lat[i,j] = eta_w * delta_t * coact[i,j] * asym.
+                    eta_w = float(getattr(self.config, "learned_settling_eta", 0.01))
+                    self.W_lat.add_(
+                        eta_w * delta_t * asym * self._wlat_coact_trace.to(
+                            dtype=self.W_lat.dtype, device=self.W_lat.device
+                        )
+                    )
+                    self._wlat_last_delta = delta_t
+                    self._wlat_n_updates += 1
+                # Update the slow value baseline toward the realised R_t (shared; once).
                 beta = float(
                     getattr(self.config, "learned_channel_value_baseline_beta", 0.05)
                 )
                 self._lcg_value_baseline = (1.0 - beta) * v_hat + beta * R_t
-                self._lcg_last_delta = delta_t
-                self._lcg_n_updates += 1
-            self._lcg_pending = False
-            metrics["lcg_delta_t"] = torch.tensor(self._lcg_last_delta)
-            metrics["lcg_value_baseline"] = torch.tensor(self._lcg_value_baseline)
-            metrics["lcg_w_chan_range"] = torch.tensor(
-                float((self.w_chan.max() - self.w_chan.min()).item())
-            )
+            if _lcg_on:
+                self._lcg_pending = False
+                metrics["lcg_delta_t"] = torch.tensor(self._lcg_last_delta)
+                metrics["lcg_value_baseline"] = torch.tensor(self._lcg_value_baseline)
+                metrics["lcg_w_chan_range"] = torch.tensor(
+                    float((self.w_chan.max() - self.w_chan.min()).item())
+                )
+            if _wlat_on:
+                self._wlat_pending = False
+                metrics["wlat_delta_t"] = torch.tensor(self._wlat_last_delta)
+                metrics["wlat_range"] = torch.tensor(
+                    float((self.W_lat.max() - self.W_lat.min()).item())
+                )
 
         self._committed_trajectory = None
         return metrics
 
     def clear_learned_channel_eligibility(self) -> None:
-        """ARC-108 JOB-1 step-1: per-episode clear of the within-episode credit
-        window. The learned state (w_chan, V-hat_t) PERSISTS across episodes -- only
-        the Hebbian eligibility trace + the pending-update flag are cleared so a
-        dangling commit at an episode boundary does not credit the first outcome of
-        the next episode. No-op (cheap zero) when learned gating is off."""
+        """ARC-108 JOB-1: per-episode clear of the within-episode credit window for
+        BOTH learned objects (w_chan step 1 + MECH-450 W_lat step 2). The learned
+        state (w_chan, W_lat, V-hat_t) PERSISTS across episodes -- only the Hebbian
+        traces + the pending-update flags are cleared so a dangling commit at an
+        episode boundary does not credit the first outcome of the next episode. No-op
+        (cheap zero) when learned gating / the settling step is off."""
         self._lcg_elig_trace = torch.zeros_like(self._lcg_elig_trace)
         self._lcg_pending = False
+        self._wlat_coact_trace = torch.zeros_like(self._wlat_coact_trace)
+        self._wlat_pending = False
 
     def get_commitment_state(self) -> Dict[str, float]:
         return {
