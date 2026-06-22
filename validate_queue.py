@@ -65,6 +65,27 @@ EMIT_OUTCOME_DISALLOWED_KWARGS = (
 )
 
 # ------------------------------------------------------------------
+# Re-derive brake backstop (MOVE-3, assembly_vs_closure_plan.md)
+# ------------------------------------------------------------------
+# WARN-ONLY code gate hardening the /failure-autopsy Step 7 + /queue-experiment
+# Step 2.5b "re-derive brake" so a hand-edited queue append cannot bypass it.
+# The skill-doc brake stops the 7-12x-lettered-re-run-circling-one-substrate-ceiling
+# pathology: on the Nth (default 2) substrate_ceiling/non_contributory autopsy for the
+# same claim, /queue-experiment refuses a new same-granularity test of that claim
+# unless the named upstream substrate now shows IMPLEMENTED/VALIDATED in
+# ree-v3/CLAUDE.md. This validator re-applies the EXACT counting logic at
+# queue-validate time (PreToolUse commit hook + runner startup) and WARNs (never
+# blocks) so a queue entry that the skill would have braked is surfaced even when the
+# skill was bypassed. Warn-only by design (user-confirmed 2026-06-22), mirroring
+# validate_claims.py's warn-only enum checks; elevate to ERROR once it stabilises.
+RE_DERIVE_BRAKE_THRESHOLD = 2
+
+# Matches the trailing _YYYY-MM-DD date in a failure_autopsy_<slug>_YYYY-MM-DD.json
+# filename, used to pick the MOST RECENT counted autopsy (the one whose
+# recommended_substrate_queue_entry names the current upstream substrate).
+RE_AUTOPSY_DATE = re.compile(r"_(\d{4}-\d{2}-\d{2})\.json$")
+
+# ------------------------------------------------------------------
 # Field specs: (field_name, required, expected_type_or_None_for_any)
 # ------------------------------------------------------------------
 TOP_LEVEL_REQUIRED = [
@@ -155,6 +176,111 @@ def _scan_completed_queue_ids() -> dict[str, list[tuple[str, str, str]]]:
                 (f.name, entry.get("result", "?"), entry.get("completed_at", ""))
             )
     return out
+
+
+# ------------------------------------------------------------------
+# Re-derive brake helpers (MOVE-3 backstop)
+# ------------------------------------------------------------------
+_REE_ASSEMBLY_PLANNING_DIR_CANDIDATES = [
+    QUEUE_FILE.parent.parent / "REE_assembly" / "evidence" / "planning",
+    Path.home() / "REE_Working" / "REE_assembly" / "evidence" / "planning",
+]
+
+_REE_V3_CLAUDE_MD_CANDIDATES = [
+    QUEUE_FILE.parent / "CLAUDE.md",
+    Path.home() / "REE_Working" / "ree-v3" / "CLAUDE.md",
+]
+
+
+def _find_planning_dir() -> "Path | None":
+    for cand in _REE_ASSEMBLY_PLANNING_DIR_CANDIDATES:
+        if cand.is_dir():
+            return cand
+    return None
+
+
+def _read_ree_v3_claude_md() -> str:
+    """Read ree-v3/CLAUDE.md text; '' (fail-soft) if it cannot be read."""
+    for cand in _REE_V3_CLAUDE_MD_CANDIDATES:
+        try:
+            if cand.is_file():
+                return cand.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+    return ""
+
+
+def _scan_substrate_ceiling_autopsies() -> "dict[str, list[tuple[str, str, dict]]]":
+    """Scan failure_autopsy_*.json for substrate_ceiling / non_contributory readings.
+
+    Returns claim_id -> list of (autopsy_filename, date_str, matching_target_dict),
+    one entry per (file, claim) using the first matching target in that file --
+    EXACTLY the count the /queue-experiment Step 2.5b + /failure-autopsy Step 7
+    snippet produces (it appends the filename once per claim and ``break``s at the
+    first matching target). Fail-soft to {} if the planning dir is missing.
+    """
+    planning = _find_planning_dir()
+    if planning is None:
+        return {}
+    out: "dict[str, list[tuple[str, str, dict]]]" = {}
+    for f in sorted(planning.glob("failure_autopsy_*.json")):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        m = RE_AUTOPSY_DATE.search(f.name)
+        date_str = m.group(1) if m else ""
+        # First matching target per claim in this file (mirrors the skill's break).
+        first_match: "dict[str, dict]" = {}
+        for t in data.get("targets", []) or []:
+            if not isinstance(t, dict):
+                continue
+            cat = str(t.get("recommended_epistemic_category") or "")
+            direction = str(t.get("recommended_evidence_direction") or "")
+            if not ("substrate_ceiling" in cat or "non_contributory" in direction):
+                continue
+            for claim in t.get("claim_ids", []) or []:
+                if isinstance(claim, str) and claim not in first_match:
+                    first_match[claim] = t
+        for claim, t in first_match.items():
+            out.setdefault(claim, []).append((f.name, date_str, t))
+    return out
+
+
+def _upstream_substrate_from_target(target: dict) -> str:
+    """The named upstream substrate the brake routes to, per the skill's lookup order:
+    recommended_substrate_queue_entry.target_sd_id / .sd_id_suggested, then
+    re_derive_brake.upstream_substrate. '' when none is recorded."""
+    rsqe = target.get("recommended_substrate_queue_entry") or {}
+    if isinstance(rsqe, dict):
+        for key in ("target_sd_id", "sd_id_suggested"):
+            val = rsqe.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    rdb = target.get("re_derive_brake") or {}
+    if isinstance(rdb, dict):
+        val = rdb.get("upstream_substrate")
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def _substrate_is_built(substrate_id: str, claude_md_text: str) -> bool:
+    """True iff `substrate_id` appears on a SINGLE ree-v3/CLAUDE.md line that also
+    carries IMPLEMENTED or VALIDATED -- the brake-release condition.
+
+    Same-line (not windowed) is deliberate: CLAUDE.md status declarations put the id
+    and its IMPLEMENTED/VALIDATED token on one physical line ('- SD-058 ... -- IMPLEMENTED'),
+    while a windowed match would falsely clear e.g. 'f_dominance_conversion_ceiling'
+    off a NEARBY but unrelated 'natural_commit_occupancy_release -- IMPLEMENTED' header.
+    The id is matched as a standalone token so 'MECH-448' does not match 'MECH-4480'."""
+    if not substrate_id or not claude_md_text:
+        return False
+    id_pat = re.compile(r"(?<![\w-])" + re.escape(substrate_id) + r"(?![\w-])")
+    for line in claude_md_text.splitlines():
+        if ("IMPLEMENTED" in line or "VALIDATED" in line) and id_pat.search(line):
+            return True
+    return False
 
 
 def _type_name(t) -> str:
@@ -276,6 +402,21 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
     seen_ids: dict[str, int] = {}
     completed_scan = _scan_completed_queue_ids()
 
+    # Re-derive brake backstop (MOVE-3): scan substrate_ceiling/non_contributory
+    # autopsies once, but only when at least one item carries a claim tag (avoids the
+    # ~150-file scan on a claimless queue). Read ree-v3/CLAUDE.md once for the
+    # brake-release (substrate IMPLEMENTED/VALIDATED) check. Both fail-soft to empty.
+    _any_claim_tagged = any(
+        isinstance(it, dict)
+        and (
+            (isinstance(it.get("claim_id"), str) and it.get("claim_id").strip())
+            or (isinstance(it.get("claim_ids"), list) and len(it.get("claim_ids")) > 0)
+        )
+        for it in items
+    )
+    _brake_autopsies = _scan_substrate_ceiling_autopsies() if _any_claim_tagged else {}
+    _brake_claude_md = _read_ree_v3_claude_md() if _brake_autopsies else ""
+
     for idx, item in enumerate(items):
         prefix = f"items[{idx}]"
 
@@ -365,6 +506,53 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                 f"claim(s) under test, or claim_ids: [] to mark an intentional "
                 f"claimless diagnostic."
             )
+
+        # Re-derive brake backstop (MOVE-3, WARN-only). For every claim this item
+        # tags, count the prior substrate_ceiling / non_contributory autopsies; if a
+        # claim has >= RE_DERIVE_BRAKE_THRESHOLD and the named upstream substrate is
+        # not yet IMPLEMENTED/VALIDATED in ree-v3/CLAUDE.md, this is the same-claim
+        # re-test the /queue-experiment Step 2.5b brake refuses. Warn (do not block) --
+        # a redesign of a DIFFERENT mechanism, a commitment-free read, or a diagnostic
+        # is exempt and cannot be told apart from the queue entry alone. An item whose
+        # note documents a brake clearance is skipped (the skill records the release).
+        if _brake_autopsies:
+            _note = item.get("note")
+            _note_clears = isinstance(_note, str) and "re-derive brake" in _note.lower()
+            if not _note_clears:
+                _claims_to_check: list[str] = []
+                if _has_claim_id:
+                    _claims_to_check.append(_cid.strip())
+                if isinstance(_cids, list):
+                    _claims_to_check.extend(
+                        c.strip() for c in _cids if isinstance(c, str) and c.strip()
+                    )
+                for _claim in dict.fromkeys(_claims_to_check):  # dedup, preserve order
+                    _counted = _brake_autopsies.get(_claim, [])
+                    if len(_counted) < RE_DERIVE_BRAKE_THRESHOLD:
+                        continue
+                    # Most recent counted autopsy by filename date (fallback: last).
+                    _recent = max(_counted, key=lambda e: e[1])
+                    _upstream = _upstream_substrate_from_target(_recent[2])
+                    if _upstream and _substrate_is_built(_upstream, _brake_claude_md):
+                        continue  # brake released -- substrate now built
+                    _slugs = ", ".join(
+                        e[0].replace(".json", "") for e in sorted(_counted, key=lambda e: e[1])[-3:]
+                    )
+                    _sub_txt = (
+                        f"the named upstream substrate '{_upstream}' is not yet "
+                        f"IMPLEMENTED/VALIDATED in ree-v3/CLAUDE.md"
+                        if _upstream
+                        else "no upstream substrate is named in the latest counted autopsy"
+                    )
+                    _LAST_WARNINGS.append(
+                        f"{prefix}: re-derive brake -- claim '{_claim}' has "
+                        f"{len(_counted)} substrate_ceiling/non_contributory autopsies "
+                        f"on record (recent: {_slugs}) and {_sub_txt}. A same-granularity "
+                        f"lettered re-test re-derives the ceiling; build the upstream "
+                        f"substrate via /implement-substrate first (see /queue-experiment "
+                        f"Step 2.5b). EXEMPT (verify, then ignore): a redesign of a "
+                        f"different mechanism, a commitment-free read, or a diagnostic."
+                    )
 
         if "seeds" in item:
             errors.extend(_validate_run_axis(prefix, "seeds", item["seeds"], int))
