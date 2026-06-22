@@ -10,18 +10,18 @@
     {
       "queue_id": "V3-EXQ-485l",
       "title": "SD-033b corrected OFC outcome-devaluation behavioural retest (MECH-449 active No-Go engaged; supersedes 485k)",
-      "experiment_type": "v3_exq_485l_sd033b_devaluation_nogo_behavioural",
       "script": "experiments/v3_exq_485l_sd033b_devaluation_nogo_behavioural.py",
       "priority": 420,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 400,
-      "episodes_per_run": 150,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_id": "SD-033b",
       "supersedes": "V3-EXQ-485k",
-      "note": "MECH-449-engaging successor to V3-EXQ-485k (FAIL/non_contributory, failure_autopsy_V3-EXQ-485k_2026-06-21). Engages the MECH-449 Go/No-Go eligibility constitution (built 2026-06-21, 689g PASS, promoted candidate->provisional 2026-06-22) so the trained OFC devalued valuation drives an active No-Go WITHDRAWAL of the previously-preferred candidate (demotion-alone cannot express it). FIXES: (1) MECH-449 constitution armed as matched-stack constant on both demotion-on arms + injected viability No-Go at the devaluation comparison; (2) in-band re-rank gain 1.5/0.3 (no +/-0.5 clamp saturation); (3) C2 discrimination protected (go_nogo_signals=None, demotion-alone as 485j converted); (4) bias-vector l2/cosine inversion promoted to SCORED DV C1b; (5) use_f_eligibility_adaptive_floor replaces the 485i/485j bespoke per-seed floor calibration; per-seed readiness preconditions (>=2/3, the 485k aggregate-max bug fix / 642 same-statistic miss). claim_ids=[SD-033b,MECH-263]. PROMOTES NOTHING. CLEARS a re-derive brake on SD-033b/MECH-263 (>=2 substrate_ceiling/non_contributory autopsies): named upstream substrate MECH-449 now BUILT/VALIDATED (689g PASS) + use_f_eligibility_adaptive_floor (689e PASS). Dry-run smoke PASS: ARM_2 excluded=5/nogo_applied=1/cosine -0.70, ARM_0 frozen nogo_applied=0 (dissociation holds); readiness self-routes substrate_not_ready at dry-scale (full-scale trains the head)."
+      "claim_id": "SD-033b",
+      "note": "MECH-449-engaging successor to V3-EXQ-485k (FAIL/non_contributory, failure_autopsy_V3-EXQ-485k_2026-06-21). Engages the MECH-449 Go/No-Go eligibility constitution (built 2026-06-21, 689g PASS, promoted candidate->provisional 2026-06-22) so the trained OFC devalued valuation drives an active No-Go WITHDRAWAL of the previously-preferred candidate (demotion-alone cannot express it). FIXES: (1) MECH-449 constitution armed as matched-stack constant on both demotion-on arms + injected viability No-Go at the devaluation comparison; (2) in-band re-rank gain 1.5/0.3 (no +/-0.5 clamp saturation); (3) C2 discrimination protected (go_nogo_signals=None, demotion-alone as 485j converted); (4) bias-vector l2/cosine inversion promoted to SCORED DV C1b; (5) use_f_eligibility_adaptive_floor replaces the 485i/485j bespoke per-seed floor calibration; per-seed readiness preconditions (>=2/3, the 485k aggregate-max bug fix / 642 same-statistic miss). claim_ids=[SD-033b,MECH-263]. PROMOTES NOTHING. CLEARS a re-derive brake on SD-033b/MECH-263 (>=2 substrate_ceiling/non_contributory autopsies): named upstream substrate MECH-449 now BUILT/VALIDATED (689g PASS) + use_f_eligibility_adaptive_floor (689e PASS). Dry-run smoke PASS: ARM_2 excluded=5/nogo_applied=1/cosine -0.70, ARM_0 frozen nogo_applied=0 (dissociation holds); readiness self-routes substrate_not_ready at dry-scale (full-scale trains the head).",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 150,
+      "experiment_type": "v3_exq_485l_sd033b_devaluation_nogo_behavioural",
+      "seeds": 3
     }
   ]
 }
