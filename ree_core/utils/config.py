@@ -495,6 +495,14 @@ class E3Config:
     learned_channel_value_baseline_beta: float = 0.05  # V-hat_t slow-EMA baseline rate
     learned_channel_asym_potentiation: float = 1.0     # D1-LTP gain on delta_t >= 0
     learned_channel_asym_depression: float = 0.5       # D2-LTD gain on delta_t < 0 (slower)
+    # ARC-108 JOB-2 (d): the e3-level mirror of REEConfig.use_habenula_decommit.
+    # post_action_update reads THIS (self.config is the E3Config) to decide whether
+    # to compute the signed RPE delta_t = R_t - V-hat_t + advance the shared V-hat_t
+    # on every waking post-action (NOT gated on a JOB-1 eligibility trace), and emit
+    # habenula_delta_t for REEAgent.update_residue to route into the SD-034 habenula
+    # abort. Set from the single from_dims param onto BOTH REEConfig (agent wiring /
+    # operator) and config.e3 (this). Default False -> bit-identical.
+    use_habenula_decommit: bool = False
 
     # ARC-108 JOB-1 step-2 / MECH-450 (the coupled recurrent-settling step,
     # dopamine_into_gating design 2026-06-22 sec 4): the SECOND factor of the
@@ -2690,6 +2698,52 @@ class REEConfig:
     closure_exclusive_decommit_eval: bool = False
 
     # ----------------------------------------------------------------
+    # ARC-108 JOB-2 control-plane DRIVER pair (the dopaminergic driver of the
+    # commit/maintain/de-commit machinery REE built but never gave its
+    # neuromodulator; unified_dopamine_substrate_design_2026-06-22.md secs 3-6).
+    # Both no-op-default -> bit-identical OFF. Pure-arithmetic / waking-only
+    # (MECH-094); compose with MECH-090/342/SD-034 (gate + operator + refractory
+    # kept as safety plumbing), no parallel module (ARC-106 G2). PROMOTES NOTHING.
+    #
+    # (c) rho_t MAINTENANCE RAMP -- REPLACES the flat-hold maintenance DRIVER of
+    # the natural-commit latch-hold (the per-tick unconditional beta re-assert,
+    # deviation B6 / the 460h ~2400-step monolithic hold). rho_t = goal-proximity
+    # x value (reuse the goal/benefit valuation feeding F) ramps up while
+    # approaching the goal and DECLINES past the proximity peak, so the hold
+    # self-limits instead of running monolithically. Pure-arithmetic regulator
+    # ree_core/policy/rho_maintenance_ramp.py. PRECONDITION (loud at __init__):
+    # requires use_natural_commit_latch_hold=True (the hold this ramp drives).
+    # Default False -> the latch-hold's flat re-assertion is unchanged
+    # (bit-identical). See REE_assembly/docs/architecture/arc_108_job2_control_plane.md.
+    use_rho_maintenance_ramp: bool = False
+    # Below this rho_t the ramp releases (no value left to maintain).
+    rho_hold_floor: float = 0.05
+    # Release once rho_t has declined from its running peak by >= margin * peak
+    # (the peaks-then-declines self-limit; the structural B6 fix).
+    rho_release_margin: float = 0.5
+    # Grace ticks at commit entry before the ramp may self-limit (let it rise to
+    # its proximity peak first; guards against an early-tick spurious release).
+    rho_onset_grace_ticks: int = 3
+    #
+    # (d) HABENULA negative-delta_t DE-COMMIT -- a new INTERNAL-scalar abort input
+    # to the SD-034 ClosureOperator. A negative phasic RPE (delta_t = R_t - V-hat_t
+    # below threshold = "worse than expected", the lateral-habenula analog) fires a
+    # de-commit (closure) -- content-driven, dissociable from the latch's own
+    # refractory state. ADDED alongside the existing refractory-timer release; the
+    # operator/refractory/No-Go machinery is NOT replaced. Internal scalar only --
+    # the routed GPi->habenula efferent drain stays V4. Reuses the SAME delta_t /
+    # V-hat_t the ARC-108 JOB-1 learned-gating slice computes in
+    # e3_selector.post_action_update (broadened to compute when JOB-1 OR this flag
+    # is on). Requires use_closure_operator=True (forwarded onto
+    # ClosureOperatorConfig.habenula_abort_enabled via the closure_decommit_hold_ticks
+    # getattr-fallback pattern). Default False -> bit-identical OFF.
+    use_habenula_decommit: bool = False
+    # The habenula abort fires when delta_t < this (a negative "worse-than-expected"
+    # margin). 0.0 = fire on any negative RPE; set more negative to require a larger
+    # disappointment. Read only when use_habenula_decommit is True.
+    habenula_decommit_delta_threshold: float = 0.0
+
+    # ----------------------------------------------------------------
     # MECH-353: blocked-agency / control-failure affect stream (z_block).
     # Pure-arithmetic regulator (ree_core/affect/blocked_agency.py) that
     # integrates the SD-029 agency comparator applied to the action-outcome /
@@ -4236,6 +4290,14 @@ class REEConfig:
         use_natural_commit_latch_hold: bool = False,
         natural_commit_latch_hold_max_ticks: int = 0,
         closure_exclusive_decommit_eval: bool = False,
+        # ARC-108 JOB-2 control-plane DRIVER pair (rho_t maintenance ramp +
+        # habenula negative-delta_t de-commit); all no-op default, bit-identical OFF.
+        use_rho_maintenance_ramp: bool = False,
+        rho_hold_floor: float = 0.05,
+        rho_release_margin: float = 0.5,
+        rho_onset_grace_ticks: int = 3,
+        use_habenula_decommit: bool = False,
+        habenula_decommit_delta_threshold: float = 0.0,
         # MECH-353: blocked-agency / control-failure affect stream (z_block).
         # Pure-arithmetic regulator on the SD-029 action-outcome comparator;
         # all defaults no-op (bit-identical when use_blocked_agency=False).
@@ -5227,6 +5289,18 @@ class REEConfig:
         config.natural_commit_urgency_onset_ticks = (
             natural_commit_urgency_onset_ticks
         )
+        # ARC-108 JOB-2 control-plane DRIVER pair (rho_t ramp + habenula de-commit).
+        config.use_rho_maintenance_ramp = use_rho_maintenance_ramp
+        config.rho_hold_floor = rho_hold_floor
+        config.rho_release_margin = rho_release_margin
+        config.rho_onset_grace_ticks = rho_onset_grace_ticks
+        config.use_habenula_decommit = use_habenula_decommit
+        config.habenula_decommit_delta_threshold = (
+            habenula_decommit_delta_threshold
+        )
+        # Mirror onto E3Config so e3_selector.post_action_update (which reads
+        # self.config == E3Config) computes the signed RPE delta_t for the habenula.
+        config.e3.use_habenula_decommit = use_habenula_decommit
 
         # MECH-353: blocked-agency / control-failure affect stream (z_block).
         config.use_blocked_agency = use_blocked_agency

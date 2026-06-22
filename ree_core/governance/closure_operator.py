@@ -176,6 +176,22 @@ class ClosureOperatorConfig:
     # Hard clamp on the committed-run-scaled refractory (ticks). 0 -> uncapped.
     # Read only when decommit_hold_scale_with_run > 0.
     decommit_hold_max_ticks: int = 0
+    # ARC-108 JOB-2 (d): HABENULA negative-RPE de-commit abort input
+    # (unified_dopamine_substrate_design_2026-06-22.md sec 3d / 4). A NEW abort
+    # input ALONGSIDE the rule-stability detector (tick) and the refractory-timer
+    # release: a negative phasic RPE (delta_t below habenula_delta_threshold =
+    # "worse than expected", the lateral-habenula -> RMTg -> DA-inhibition analog;
+    # Matsumoto 2007, Hong 2011, Sosa 2021) fires the SAME 5-part closure (_fire)
+    # so the de-commit is CONTENT-DRIVEN (outcome valence) and DISSOCIABLE from the
+    # latch's own refractory state -- the property the rung-6 timer lineage could
+    # not produce. Internal scalar only (the routed GPi->habenula efferent drain
+    # stays V4). Default False -> habenula_tick is a no-op -> bit-identical. The
+    # threshold is supplied by the agent (REEConfig.habenula_decommit_delta_threshold)
+    # via the closure_decommit_hold_ticks getattr-fallback build pattern.
+    habenula_abort_enabled: bool = False
+    # delta_t must be strictly below this to fire the abort (a negative
+    # "worse-than-expected" margin; 0.0 = fire on any negative RPE).
+    habenula_delta_threshold: float = 0.0
     diagnostic_logging: bool = True
 
 
@@ -246,6 +262,9 @@ class ClosureOperator:
         self._stable_tick_count: int = 0
         self._n_ticks: int = 0
         self._n_closures: int = 0
+        # ARC-108 JOB-2: habenula negative-RPE de-commit abort fires (a subset of
+        # _n_closures -- the content-driven, dissociable de-commits, the D3 readout).
+        self._n_habenula_aborts: int = 0
         self._event_log: list[ClosureEvent] = []
         # Used to propagate pe_cap_after_closure into DACCConfig after firing.
         self._active_pe_cap: Optional[float] = None
@@ -481,6 +500,119 @@ class ClosureOperator:
         )
 
     # ------------------------------------------------------------------
+    # ARC-108 JOB-2: habenula negative-RPE de-commit abort
+    # ------------------------------------------------------------------
+    def habenula_tick(
+        self,
+        delta_t: float,
+        z_world: torch.Tensor,
+        action_class: Optional[int] = None,
+        current_mode: Optional[str] = None,
+        sd033a_gate: Optional[float] = None,
+        hypothesis_tag: bool = False,
+    ) -> ClosureEvent:
+        """SD-034 habenula negative-RPE de-commit abort (ARC-108 JOB-2 (d)).
+
+        A NEW abort input ADDED ALONGSIDE the automatic rule-stability detector
+        (tick) and the refractory-timer release: when the signed phasic RPE
+        delta_t is sufficiently NEGATIVE ("worse than expected", the lateral-
+        habenula analog), fire the SAME 5-part closure (_fire) -- so the de-commit
+        is CONTENT-DRIVEN (outcome valence) and DISSOCIABLE from the latch's own
+        refractory state. delta_t is the same signed RPE the ARC-108 JOB-1
+        learned-gating slice computes (R_t - V-hat_t in e3_selector); the agent
+        passes it in from REEAgent.update_residue after E3.post_action_update.
+
+        The operator/refractory/No-Go machinery is NOT replaced -- this only adds
+        a new trigger for the existing release. Internal scalar only (the routed
+        GPi->habenula efferent drain stays V4).
+
+        No-op (returns fired=False) when:
+          - use_closure_operator is False (operator disabled),
+          - habenula_abort_enabled is False (default -> bit-identical),
+          - hypothesis_tag is True (MECH-094: a replay/DMN outcome must not abort
+            a waking commitment),
+          - beta is not elevated (nothing committed to de-commit),
+          - delta_t >= habenula_delta_threshold (outcome not worse-than-expected).
+
+        Args:
+            delta_t : the signed phasic RPE (R_t - V-hat_t). Fires when strictly
+                below config.habenula_delta_threshold.
+            z_world : location at which residue discharge is centred if the abort
+                fires (passed through to _fire untouched).
+            action_class : MECH-260 No-Go injection target for the de-committed
+                action class (None -> No-Go skipped, other signals still fire).
+            current_mode / sd033a_gate : resolved from the salience coordinator
+                when None (diagnostic / pass-through; the abort does NOT gate on
+                mode-conditioning -- a worse-than-expected outcome aborts content-
+                wise regardless of operating mode).
+
+        Returns:
+            ClosureEvent with fired=True when the abort fired, else fired=False
+            with a skipped:<cause> reason.
+        """
+        self._n_ticks += 1
+
+        if not self.config.use_closure_operator:
+            return ClosureEvent(
+                fired=False, tick_index=self._n_ticks, reason="skipped:disabled"
+            )
+        if not self.config.habenula_abort_enabled:
+            return ClosureEvent(
+                fired=False,
+                tick_index=self._n_ticks,
+                reason="skipped:habenula_disabled",
+            )
+        if hypothesis_tag:
+            return ClosureEvent(
+                fired=False,
+                tick_index=self._n_ticks,
+                reason="skipped:hypothesis_tag",
+            )
+
+        beta_elevated = False
+        if self.beta_gate is not None:
+            beta_elevated = bool(getattr(self.beta_gate, "is_elevated", False))
+        if not beta_elevated:
+            return ClosureEvent(
+                fired=False,
+                tick_index=self._n_ticks,
+                reason="skipped:beta_not_elevated",
+                beta_was_elevated=False,
+            )
+
+        if float(delta_t) >= float(self.config.habenula_delta_threshold):
+            return ClosureEvent(
+                fired=False,
+                tick_index=self._n_ticks,
+                reason=f"skipped:delta_above_threshold({delta_t:.4f})",
+                beta_was_elevated=True,
+            )
+
+        # Resolve mode / gate for diagnostics (NOT a gate -- the abort fires
+        # content-wise regardless of operating mode).
+        mode = current_mode
+        gate = sd033a_gate
+        if self.salience is not None:
+            if mode is None:
+                mode = getattr(self.salience, "current_mode", "external_task")
+            if gate is None:
+                gate = self.salience.write_gate("sd_033a")
+        if mode is None:
+            mode = "external_task"
+        if gate is None:
+            gate = 1.0
+
+        self._n_habenula_aborts += 1
+        return self._fire(
+            reason="habenula",
+            action_class=action_class,
+            z_world=z_world,
+            current_mode=mode,
+            sd033a_gate=float(gate),
+            beta_was_elevated=True,
+        )
+
+    # ------------------------------------------------------------------
     # Internal: the 5-part signal
     # ------------------------------------------------------------------
     def _fire(
@@ -669,6 +801,9 @@ class ClosureOperator:
         return {
             "n_ticks": self._n_ticks,
             "n_closures": self._n_closures,
+            # ARC-108 JOB-2: habenula negative-RPE de-commit aborts (the D3
+            # dissociable-de-commit readout; a subset of n_closures).
+            "n_habenula_aborts": self._n_habenula_aborts,
             "stable_tick_count": self._stable_tick_count,
             "active_pe_cap": self._active_pe_cap,
             "last_event": (

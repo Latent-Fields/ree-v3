@@ -115,6 +115,8 @@ from ree_core.policy import (
     CommitReadinessConfig,
     NaturalCommitUrgencyRelease,
     NaturalCommitUrgencyReleaseConfig,
+    RhoMaintenanceRamp,
+    RhoMaintenanceRampConfig,
     DifficultyGatedProposalEntropy,
     DifficultyGatedProposalEntropyConfig,
     GatedPolicy,
@@ -1001,6 +1003,34 @@ class REEAgent(nn.Module):
                     "closure-coupled occupancy the de-commit acts on)."
                 )
 
+        # ARC-108 JOB-2 (c): rho_t MAINTENANCE RAMP -- the proximity-scaled driver
+        # that REPLACES the flat-hold maintenance DRIVER of the natural-commit
+        # latch-hold above (the per-tick unconditional re-assert / deviation B6).
+        # rho_t = goal-proximity x value (reuse the goal/benefit valuation feeding
+        # F) ramps up while approaching the goal and DECLINES past the proximity
+        # peak, so the hold self-limits instead of running ~2400 steps. COMPOSES
+        # with the latch machinery (gate/operator/refractory kept); the ramp only
+        # decides WHEN the hold ends. PRECONDITION: requires the latch-hold (the
+        # hold this ramp drives). Default False -> the latch-hold's flat re-assertion
+        # is unchanged (bit-identical). See ree_core/policy/rho_maintenance_ramp.py.
+        self.rho_maintenance_ramp: Optional[RhoMaintenanceRamp] = None
+        if getattr(config, "use_rho_maintenance_ramp", False):
+            if not getattr(config, "use_natural_commit_latch_hold", False):
+                raise ValueError(
+                    "use_rho_maintenance_ramp=True requires "
+                    "use_natural_commit_latch_hold=True (the rho_t ramp REPLACES the "
+                    "flat-hold maintenance driver of the natural-commit latch-hold; "
+                    "there is no hold to drive otherwise)."
+                )
+            self.rho_maintenance_ramp = RhoMaintenanceRamp(
+                config=RhoMaintenanceRampConfig(
+                    use_rho_maintenance_ramp=True,
+                    hold_floor=getattr(config, "rho_hold_floor", 0.05),
+                    release_margin=getattr(config, "rho_release_margin", 0.5),
+                    onset_grace_ticks=getattr(config, "rho_onset_grace_ticks", 3),
+                )
+            )
+
         # SD-061: difficulty-gated proposal-entropy regulator (MECH-343 blocker
         # part 2). A stuck-state detector integrates goal-progress stall + dACC
         # choice difficulty + E3 score margin + committed-action diversity
@@ -1464,6 +1494,14 @@ class REEAgent(nn.Module):
                 ),
                 decommit_hold_max_ticks=getattr(
                     config, "closure_decommit_hold_max_ticks", 0
+                ),
+                # ARC-108 JOB-2 (d): habenula negative-RPE de-commit abort input.
+                # getattr fallback keeps from_dims-absent callers bit-identical.
+                habenula_abort_enabled=getattr(
+                    config, "use_habenula_decommit", False
+                ),
+                habenula_delta_threshold=getattr(
+                    config, "habenula_decommit_delta_threshold", 0.0
                 ),
             )
             self.closure_operator = ClosureOperator(
@@ -2402,6 +2440,9 @@ class REEAgent(nn.Module):
         # urgency accumulator + diagnostics (no cross-episode hold carried over).
         if self.natural_commit_urgency is not None:
             self.natural_commit_urgency.reset()
+        # ARC-108 JOB-2: per-episode reset of the rho_t maintenance ramp.
+        if self.rho_maintenance_ramp is not None:
+            self.rho_maintenance_ramp.reset()
         # Natural-commit latch-hold: per-episode reset of the hold state +
         # diagnostics (a fresh trial starts with no carried-over hold).
         self._ncl_hold_active = False
@@ -4788,6 +4829,20 @@ class REEAgent(nn.Module):
                 or self._ncl_lever_fired
                 or (_ncl_max > 0 and self._ncl_hold_ticks >= _ncl_max)
             )
+            # ARC-108 JOB-2 (c): rho_t MAINTENANCE RAMP -- REPLACE the flat
+            # (unconditional) re-assert DRIVER with a proximity-scaled one. The ramp
+            # gives the hold an intrinsic decay term it lacked: rho_t = goal-proximity
+            # x value peaks-then-declines, so when it has fallen past its proximity
+            # peak the hold SELF-LIMITS (the structural B6 / 460h-monolith fix). This
+            # ADDS a yield condition; all the existing safety-bearing yields above are
+            # kept. No-op when the ramp is disabled -> the flat re-assert is unchanged.
+            if (
+                not _ncl_yield
+                and self.rho_maintenance_ramp is not None
+                and self.rho_maintenance_ramp.is_active
+            ):
+                if self.rho_maintenance_ramp.tick(self._compute_rho_t()):
+                    _ncl_yield = True
             if _ncl_yield:
                 self._ncl_hold_active = False
             else:
@@ -6380,6 +6435,12 @@ class REEAgent(nn.Module):
                     self._ncl_hold_ticks = 0
                     if _ncl_closure_arm and not result.committed:
                         self._ncl_hold_closure_armed_count += 1
+                    # ARC-108 JOB-2 (c): arm the rho_t maintenance ramp on the same
+                    # hold entry (reset its running proximity peak). The ramp then
+                    # drives the hold's self-limit at the end-of-tick re-assertion.
+                    # No-op when the ramp is disabled.
+                    if self.rho_maintenance_ramp is not None:
+                        self.rho_maintenance_ramp.note_commit_entry()
                 self._committed_step_idx = 0  # reset step counter on new commitment
                 # MECH-342: zero the maintenance-release pressure accumulator
                 # at commit entry so each committed program accumulates
@@ -6747,6 +6808,33 @@ class REEAgent(nn.Module):
 
         return action
 
+    def _compute_rho_t(self) -> float:
+        """ARC-108 JOB-2 (c): the proximity-scaled maintenance drive rho_t.
+
+        rho_t = goal_proximity(z_world) x value, reusing the goal/benefit valuation
+        already feeding F (no new substrate): goal_proximity in [0, 1] from
+        GoalState (rises approaching the goal, peaks at it, declines past it) x the
+        benefit valuation E3.benefit_eval_head(z_world) clamped >= 0. Returns 0.0
+        when there is no active goal / latent (the ramp then releases at the floor;
+        the falsifier's readiness gate -- not the substrate -- guards a no-proximity-
+        variance regime). Pure read; no state mutation.
+        """
+        if self.goal_state is None or self._current_latent is None:
+            return 0.0
+        z_world = self._current_latent.z_world
+        try:
+            prox = float(self.goal_state.goal_proximity(z_world))
+        except Exception:
+            return 0.0
+        try:
+            benefit = float(
+                self.e3.benefit_eval_head(z_world.detach()).mean().item()
+            )
+        except Exception:
+            benefit = 0.0
+        value = max(0.0, benefit)
+        return max(0.0, prox) * value
+
     def notify_env_completion(
         self,
         action_class: Optional[int] = None,
@@ -6959,6 +7047,47 @@ class REEAgent(nn.Module):
                 harm_occurred=(harm_signal < 0),
             )
             metrics.update({f"e3_{k}": v for k, v in e3_metrics.items()})
+
+            # ARC-108 JOB-2 (d): HABENULA negative-RPE de-commit. post_action_update
+            # surfaced the signed RPE delta_t (= R_t - V-hat_t, the SAME signal JOB-1
+            # uses) as e3_metrics["habenula_delta_t"] when use_habenula_decommit is on.
+            # Route it into the SD-034 ClosureOperator's habenula abort: a negative
+            # ("worse than expected") delta_t fires a content-driven de-commit,
+            # dissociable from the latch's refractory state. The operator no-ops when
+            # the abort is disabled / beta not elevated / delta_t above threshold, so
+            # this is bit-identical OFF. Waking-only: update_residue is the waking
+            # post-action path; hypothesis_tag passed through (MECH-094).
+            if (
+                getattr(self.config, "use_habenula_decommit", False)
+                and self.closure_operator is not None
+            ):
+                _hab_delta = e3_metrics.get("habenula_delta_t")
+                if _hab_delta is not None:
+                    _hab_action_class = None
+                    if self._last_action is not None:
+                        try:
+                            _ha = (
+                                self._last_action[0]
+                                if self._last_action.dim() > 1
+                                else self._last_action
+                            )
+                            _hab_action_class = int(_ha.argmax().item())
+                        except Exception:
+                            _hab_action_class = None
+                    _hab_event = self.closure_operator.habenula_tick(
+                        delta_t=float(_hab_delta.item()),
+                        z_world=z_world,
+                        action_class=_hab_action_class,
+                        hypothesis_tag=hypothesis_tag,
+                    )
+                    if _hab_event.fired:
+                        # Mirror the SD-034 de-commit cleanup the other release sites
+                        # perform so the de-committed program is fully torn down.
+                        self._committed_step_idx = 0
+                        self._committed_anchor_keys = None
+                        self.e3._committed_trajectory = None
+                        self._ncl_hold_active = False
+                        metrics["habenula_decommit_fired"] = torch.tensor(1.0)
 
             # MECH-205: populate VALENCE_SURPRISE on residue field
             if self.config.surprise_gated_replay:

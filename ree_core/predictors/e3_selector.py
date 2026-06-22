@@ -2017,7 +2017,16 @@ class E3TrajectorySelector(nn.Module):
             getattr(self.config, "use_learned_settling_step", False)
             and self._wlat_pending
         )
-        if _lcg_on or _wlat_on:
+        # ARC-108 JOB-2 (control plane): the habenula negative-delta_t de-commit
+        # REUSES the SAME signed-RPE delta_t / V-hat_t this block forms. When
+        # use_habenula_decommit is on, compute delta_t + advance the shared V-hat_t
+        # on EVERY waking post-action (NOT gated on a JOB-1 eligibility trace -- the
+        # de-commit must read the realised outcome whenever the agent acts) and emit
+        # it so REEAgent.update_residue can route a negative delta_t into the SD-034
+        # ClosureOperator's habenula abort. No w_chan / W_lat write on this path.
+        # Bit-identical when use_habenula_decommit is False (condition unchanged).
+        _hab_on = bool(getattr(self.config, "use_habenula_decommit", False))
+        if _lcg_on or _wlat_on or _hab_on:
             with torch.no_grad():
                 # R_t = realised outcome valence at the resulting state, from the
                 # ALREADY-TRAINED valuation heads (reuse; no new encoder, no phased
@@ -2083,6 +2092,15 @@ class E3TrajectorySelector(nn.Module):
                 metrics["wlat_delta_t"] = torch.tensor(self._wlat_last_delta)
                 metrics["wlat_range"] = torch.tensor(
                     float((self.W_lat.max() - self.W_lat.min()).item())
+                )
+            if _hab_on:
+                # ARC-108 JOB-2: surface the signed RPE so the habenula de-commit
+                # (REEAgent.update_residue) can fire the SD-034 abort on a negative
+                # ("worse than expected") delta_t. delta_t is in scope here whenever
+                # the block ran. No-op metric when use_habenula_decommit is False.
+                metrics["habenula_delta_t"] = torch.tensor(delta_t)
+                metrics["habenula_value_baseline"] = torch.tensor(
+                    self._lcg_value_baseline
                 )
 
         self._committed_trajectory = None
