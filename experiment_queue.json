@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-699",
+      "title": "P-comp: MECH-448 demotion x MECH-449 Go/No-Go composition at committed-class entropy (2x2 diagnostic)",
+      "experiment_type": "v3_exq_699_pcomp_demotion_x_gonogo_composition",
+      "script": "experiments/v3_exq_699_pcomp_demotion_x_gonogo_composition.py",
+      "priority": 430,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 600,
+      "episodes_per_run": 350,
+      "seeds": 3,
+      "conditions": 4,
+      "claim_id": "MECH-448",
+      "note": "conversion_ceiling_campaign:P-comp prong (prong map node P-comp; user decision 2026-06-22). 2x2 (use_f_eligibility_demotion {OFF,ON} x use_go_nogo_constitution {OFF,ON}) over a matched stack on the arc_062 GAP-B bank; swept variable = LEVER COMBINATION (NOT use_candidate_rule_field, which is a matched constant True). use_f_eligibility_adaptive_floor (689e) + use_dacc + top_k shortlist scaffold + 643a authority/routing + MECH-341 + SD-056 + trained lateral_pfc bias head + matured CRF pool all matched constants. PRIMARY DV committed-class entropy (C2). Characterizes whether MECH-448 demotion and MECH-449 Go/No-Go COMPOUND or CANCEL when co-armed (Factor A x Factor B CANCELLED at 689a; this pair UNKNOWN). Per-arm conditional readiness: C1e demotion-live on demotion-armed arms (ARM_DEM/ARM_BOTH), C1f No-Go-live on gng-armed arms (ARM_GNG/ARM_BOTH). 3-way verdict levers_compound/levers_cancel/levers_neutral; readiness-unmet or bit-identical-arms self-routes substrate_not_ready_requeue. experiment_purpose=diagnostic; claim_ids=[MECH-448,MECH-449] context only (scoring-excluded); PROMOTES NOTHING. Re-derive-brake EXEMPT: tests lever COMPOSITION (distinct question), not a GAP-B same-lever letter, not a Factor-B test; both levers 0 substrate_ceiling autopsies + face-validated (689d/689g/689e PASS). Runnable now (built+face-validated levers only). Feeds conversion_ceiling_campaign:FULLSTACK composition-readiness gate. validate_experiments --strict OK; dry-run smoke PASS (4 arms end-to-end, exit 0, toy-scale self-routes substrate_not_ready as designed)."
+    }
+  ]
 }
