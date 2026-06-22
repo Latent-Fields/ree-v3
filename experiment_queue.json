@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-485m",
-      "title": "SD-033b/MECH-263 OFC outcome-devaluation behavioural retest on the DECOUPLED devaluation head (supersedes 485l)",
-      "script": "experiments/v3_exq_485m_sd033b_devaluation_decoupled_head_behavioural.py",
-      "priority": 440,
-      "machine_affinity": "ree-cloud-4",
-      "estimated_minutes": 400,
-      "supersedes": "V3-EXQ-485l",
-      "claim_id": "SD-033b",
-      "note": "Clears the re-derive brake fired by failure_autopsy_V3-EXQ-485l (10th non_contributory autopsy on SD-033b/MECH-263): the named upstream substrate -- the OFC devaluation-head clamp DECOUPLE (OFCConfig.use_devaluation_head / compute_devaluation_bias, +/-ofc_devaluation_bias_scale, default 2.0) -- is now BUILT (ree-v3 main 758956f, ree-v3/CLAUDE.md 'SD-033b GAP-8 DECOUPLE'), so this re-test is meaningful (decoupled-head structural redesign on built substrate, NOT another letter circling the shared-clamp ceiling, NOT the refused plain 485m gain-tweak). Drives+reads the devalued re-ranking + MECH-449 No-Go viability from the SEPARATE devaluation_bias_head (own larger clamp); C2 discrimination stays on state_bias_head (+/-0.5, untraded); readiness gate (b) re-stated on the decoupled-head devalued range. claim_ids=[SD-033b, MECH-263]; PROMOTES NOTHING until it scores. Smoke: end-to-end dry-run on the ree-cloud-1 (linux-x86_64-py3.10) class PASS (FAIL/substrate_not_ready_requeue self-route correct at dry scale; nogo_applied=1, excluded=5, C3 silence 1/1). Pinned ree-cloud-4 (Mac at load 167; heavy phased-training run).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-22T13:41:07Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 150,
-      "experiment_type": "v3_exq_485m_sd033b_devaluation_decoupled_head_behavioural",
-      "seeds": 3
-    }
-  ]
+  "items": []
 }
