@@ -2273,6 +2273,9 @@ class REEAgent(nn.Module):
         self._last_e3_selection_result = None
         self._last_e3_score_bias = None
         self._committed_step_idx = 0
+        # ARC-108 JOB-1 step-1: clear the within-episode learned-channel-gating
+        # eligibility trace + pending flag (w_chan / V-hat_t persist across episodes).
+        self.e3.clear_learned_channel_eligibility()
         # MECH-269 / MECH-090 read-side hook: clear V_s -> commit release snapshot.
         self._committed_anchor_keys = None
         self._cue_action_bias    = None

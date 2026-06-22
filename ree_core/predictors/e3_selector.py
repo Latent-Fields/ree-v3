@@ -23,6 +23,7 @@ Scoring equation J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ) remains a working
 hypothesis — see ARCHITECTURE NOTE below. All weights are placeholder.
 """
 
+import math
 from dataclasses import dataclass
 from typing import Any, List, Optional, Dict, Tuple
 
@@ -31,6 +32,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ree_core.utils.config import E3Config
+
+# ARC-108 JOB-1 step-1 (learned dopamine-gated E3 gating): the modulatory channels
+# that feed _modulatory_accum at the select() composition site. Each is a genuinely
+# separable per-candidate bias term added to the accumulator; the learned per-channel
+# weight vector w_chan is indexed by this fixed registry (a channel absent on a given
+# tick simply does not contribute, so w_chan stays a stable learned object). NOTE: at
+# this composition site "score_bias" is already the composed dACC+lPFC+OFC+MECH-295+
+# MECH-314+MECH-320 chain (summed UPSTREAM in agent.py before reaching select()); a
+# finer per-head channel split is a documented follow-on, out of step-1 scope.
+_LCG_CHANNEL_NAMES: Tuple[str, ...] = ("score_bias", "mech341", "route")
+_LCG_CHANNEL_INDEX: Dict[str, int] = {n: i for i, n in enumerate(_LCG_CHANNEL_NAMES)}
+# w_chan init value x s.t. softplus(x) == 1.0 exactly -> bit-identical unweighted
+# accumulator at init: ln(1 + e^x) = 1  =>  x = ln(e - 1).
+_LCG_W_INIT: float = math.log(math.e - 1.0)
 from ree_core.predictors.e2_fast import Trajectory
 from ree_core.residue.field import ResidueField
 from ree_core.goal import GoalState
@@ -264,6 +279,27 @@ class E3TrajectorySelector(nn.Module):
         # the experiment training loop when adding to the benefit buffer).
         self._benefit_samples_seen: int = 0
         self._BENEFIT_WARMUP_SAMPLES: int = 50
+
+        # ARC-108 JOB-1 step-1: learned per-channel selection-weight vector w_chan.
+        # register_buffer (NOT nn.Parameter) -- the three-factor plasticity rule is a
+        # LOCAL update, not gradient descent, so w_chan is never touched by an
+        # optimizer / autograd (it still rides device + state_dict). Init so
+        # softplus(w_chan[c]) == 1.0 for every channel -> bit-identical OFF. The
+        # eligibility trace (decayed |channel_bias_c[selected]| Hebbian co-activation)
+        # and the slow value baseline V-hat_t live alongside it. All inert unless
+        # config.use_learned_channel_gating is True. MECH-450 settling weights W_lat
+        # are NOT instantiated here -- factor 2, OFF in this build.
+        _lcg_n = len(_LCG_CHANNEL_NAMES)
+        self.register_buffer(
+            "w_chan", torch.full((_lcg_n,), _LCG_W_INIT, dtype=torch.float32)
+        )
+        self.register_buffer(
+            "_lcg_elig_trace", torch.zeros(_lcg_n, dtype=torch.float32)
+        )
+        self._lcg_value_baseline: float = 0.0   # V-hat_t (slow EMA of realised R_t)
+        self._lcg_pending: bool = False         # a waking eligibility trace awaits an outcome
+        self._lcg_last_delta: float = 0.0       # last signed RPE delta_t (diagnostic)
+        self._lcg_n_updates: int = 0            # count of w_chan updates (diagnostic)
 
     # ------------------------------------------------------------------ #
     # Dynamic precision (ARC-016)                                         #
@@ -1027,6 +1063,7 @@ class E3TrajectorySelector(nn.Module):
         channel_route_bias: Optional[torch.Tensor] = None,
         e2_forward_pe_per_candidate: Optional[torch.Tensor] = None,
         go_nogo_signals: Optional[Dict[str, Any]] = None,
+        simulation_mode: bool = False,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -1134,6 +1171,15 @@ class E3TrajectorySelector(nn.Module):
         # (scores - raw_scores) in exact arithmetic; numerically robust.
         _modulatory_accum: Optional[torch.Tensor] = None
 
+        # ARC-108 JOB-1 step-1: collect the genuinely-separable per-channel bias
+        # terms (channel_index, [K] tensor) as they are added to _modulatory_accum,
+        # so the learned per-channel weight w_chan can recompose the accumulator as
+        # sum_c softplus(w_chan[c]) * channel_bias_c below, and the post-selection
+        # eligibility trace can read |channel_bias_c[selected]|. Populated only at
+        # the three _modulatory_accum add-sites; inert (unused) unless
+        # use_learned_channel_gating is True.
+        _lcg_terms: List[Tuple[int, torch.Tensor]] = []
+
         # SD-032b dACC bias: additive, same sign convention as raw scores.
         # Applied before last_scores / softmax so downstream consumers see
         # the biased values consistently.
@@ -1164,6 +1210,7 @@ class E3TrajectorySelector(nn.Module):
             scores = scores + bias_tensor
             # Explicit modulatory-contribution tracking (see note above).
             _modulatory_accum = bias_tensor
+            _lcg_terms.append((_LCG_CHANNEL_INDEX["score_bias"], bias_tensor))
 
         # MECH-341 Option 1 (entropy bonus): per-candidate POSITIVE bias on
         # first-action classes over-represented in the pool. Composed AFTER
@@ -1184,6 +1231,7 @@ class E3TrajectorySelector(nn.Module):
                 mech341_bonus if _modulatory_accum is None
                 else _modulatory_accum + mech341_bonus
             )
+            _lcg_terms.append((_LCG_CHANNEL_INDEX["mech341"], mech341_bonus))
 
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
         # 2026-06-10): fold the channel-under-test's range-preserving per-candidate
@@ -1226,7 +1274,29 @@ class E3TrajectorySelector(nn.Module):
                     routed if _modulatory_accum is None
                     else _modulatory_accum + routed
                 )
+                _lcg_terms.append((_LCG_CHANNEL_INDEX["route"], routed))
                 modulatory_channel_route_active = True
+
+        # ARC-108 JOB-1 step-1: recompose _modulatory_accum as the LEARNED weighted
+        # sum  sum_c softplus(w_chan[c]) * channel_bias_c  over the channels actually
+        # present this tick. At init softplus(w_chan[c]) == 1.0 -> this reproduces the
+        # unweighted accumulator EXACTLY (bit-identical OFF, and bit-identical at init
+        # even when ON). Only _modulatory_accum is re-weighted -- raw scores / F (the
+        # MECH-448 envelope + the commit decision) are untouched, so learning
+        # composes strictly INSIDE the F-bounded MECH-448/449 eligible set the
+        # within-eligible shortlist-argmin + the authority rescale consume, and a
+        # learned weight can never re-admit a No-Go-suppressed candidate. MECH-450
+        # settling (learned W_lat) would compose HERE as factor 2 -- OFF in this
+        # build (W_lat == 0): integration point reserved, not enabled.
+        if getattr(self.config, "use_learned_channel_gating", False) and _lcg_terms:
+            w_soft = F.softplus(self.w_chan)  # [C], all == 1.0 at init
+            _lcg_acc = None
+            for ch_idx, term in _lcg_terms:
+                weighted = w_soft[ch_idx].to(
+                    dtype=term.dtype, device=term.device
+                ) * term
+                _lcg_acc = weighted if _lcg_acc is None else _lcg_acc + weighted
+            _modulatory_accum = _lcg_acc
 
         # modulatory-bias-selection-authority (2026-06-03): rescale the COMBINED
         # modulatory contribution (score_bias + mech341_bonus) so its range equals
@@ -1729,6 +1799,25 @@ class E3TrajectorySelector(nn.Module):
         # Always store for rv updates (ARC-016 deadlock fix)
         self._last_selected_trajectory = selected_trajectory
 
+        # ARC-108 JOB-1 step-1: record the Hebbian co-activation eligibility trace
+        # (how much each channel "spoke for" the committed action this tick) so the
+        # next post_action_update can credit the channels that voted for the realised
+        # outcome. eligibility_c = |channel_bias_c[selected]|, accumulated into a
+        # decayed last-K-ticks trace. Recorded ONLY on the waking selection path
+        # (simulation_mode False): a replay/DMN tick records no eligibility, so it
+        # forms no delta_t and writes no w_chan (MECH-094). Setting _lcg_pending arms
+        # the three-factor update for the next post_action_update.
+        if (getattr(self.config, "use_learned_channel_gating", False)
+                and not simulation_mode and _lcg_terms):
+            decay = float(getattr(self.config, "learned_channel_gating_elig_decay", 0.9))
+            contribution = self._lcg_elig_trace.new_zeros(self._lcg_elig_trace.shape)
+            for ch_idx, term in _lcg_terms:
+                contribution[ch_idx] = contribution[ch_idx] + term[selected_idx].detach().abs().to(
+                    dtype=contribution.dtype, device=contribution.device
+                )
+            self._lcg_elig_trace = decay * self._lcg_elig_trace + contribution
+            self._lcg_pending = True
+
         return SelectionResult(
             selected_trajectory=selected_trajectory,
             selected_index=selected_idx,
@@ -1785,8 +1874,70 @@ class E3TrajectorySelector(nn.Module):
             )
             metrics["residue_updated"] = torch.tensor(1.0)
 
+        # ARC-108 JOB-1 step-1: signed-RPE three-factor update of w_chan, on the
+        # waking committed-selection path only (gated on a pending eligibility trace
+        # recorded by a non-simulation select() this tick). A replay/DMN tick leaves
+        # _lcg_pending False -> no delta_t, no w_chan write (MECH-094).
+        if (getattr(self.config, "use_learned_channel_gating", False)
+                and self._lcg_pending):
+            with torch.no_grad():
+                # R_t = realised outcome valence at the resulting state, from the
+                # ALREADY-TRAINED valuation heads (reuse; no new encoder, no phased
+                # training): benefit (Go) minus harm (No-Go). Detached -- the
+                # three-factor rule is a LOCAL update, not backprop into the heads.
+                zw = actual_z_world.detach()
+                benefit = self.benefit_eval_head(zw).mean()
+                harm = self.harm_eval_head(zw).mean()
+                R_t = float((benefit - harm).item())
+                # delta_t = SIGNED dopaminergic-RPE analog = R_t - V-hat_t. This is
+                # explicitly NOT the unsigned ARC-016 prediction-error variance
+                # (_running_variance), which is kept separate (divergence B5): an
+                # unsigned magnitude cannot supply the directional credit a learned
+                # gate needs. V-hat_t (the slow EMA "expected" term) is read BEFORE it
+                # is updated toward R_t.
+                v_hat = self._lcg_value_baseline
+                delta_t = R_t - v_hat
+                # asym renders the D1-LTP / D2-LTD asymmetry as a single asymmetric
+                # gain: a positive delta_t potentiates the voting channels faster than
+                # a negative delta_t depresses them (the V3 single-vector rendering;
+                # the D1/D2 opponent-population split is the deferred ARC-109 V4 cut).
+                asym = (
+                    float(getattr(self.config, "learned_channel_asym_potentiation", 1.0))
+                    if delta_t >= 0.0
+                    else float(getattr(self.config, "learned_channel_asym_depression", 0.5))
+                )
+                eta = float(getattr(self.config, "learned_channel_gating_eta", 0.01))
+                # Delta w[c] = eta * delta_t * eligibility_c * asym
+                self.w_chan.add_(
+                    eta * delta_t * asym * self._lcg_elig_trace.to(
+                        dtype=self.w_chan.dtype, device=self.w_chan.device
+                    )
+                )
+                # Update the slow value baseline toward the realised R_t.
+                beta = float(
+                    getattr(self.config, "learned_channel_value_baseline_beta", 0.05)
+                )
+                self._lcg_value_baseline = (1.0 - beta) * v_hat + beta * R_t
+                self._lcg_last_delta = delta_t
+                self._lcg_n_updates += 1
+            self._lcg_pending = False
+            metrics["lcg_delta_t"] = torch.tensor(self._lcg_last_delta)
+            metrics["lcg_value_baseline"] = torch.tensor(self._lcg_value_baseline)
+            metrics["lcg_w_chan_range"] = torch.tensor(
+                float((self.w_chan.max() - self.w_chan.min()).item())
+            )
+
         self._committed_trajectory = None
         return metrics
+
+    def clear_learned_channel_eligibility(self) -> None:
+        """ARC-108 JOB-1 step-1: per-episode clear of the within-episode credit
+        window. The learned state (w_chan, V-hat_t) PERSISTS across episodes -- only
+        the Hebbian eligibility trace + the pending-update flag are cleared so a
+        dangling commit at an episode boundary does not credit the first outcome of
+        the next episode. No-op (cheap zero) when learned gating is off."""
+        self._lcg_elig_trace = torch.zeros_like(self._lcg_elig_trace)
+        self._lcg_pending = False
 
     def get_commitment_state(self) -> Dict[str, float]:
         return {

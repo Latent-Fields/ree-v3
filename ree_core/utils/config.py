@@ -465,6 +465,37 @@ class E3Config:
     modulatory_authority_gain: float = 0.5
     modulatory_authority_min_range_floor: float = 1e-6
 
+    # ARC-108 JOB-1 step-1 (learned dopamine-gated E3 gating, dopamine_into_gating
+    # design 2026-06-22 secs 2-4): a single LEARNED per-channel selection-weight
+    # vector w_chan over the modulatory channels that feed _modulatory_accum
+    # (score_bias chain / MECH-341 entropy bonus / route bias), composed as
+    # _modulatory_accum = sum_c softplus(w_chan[c]) * channel_bias_c (was the
+    # unweighted sum). At init w_chan is set so softplus(w_chan[c]) == 1.0 for all
+    # c -> BIT-IDENTICAL to the current unweighted accumulator. w_chan is updated
+    # by a three-factor rule -- Delta w[c] = eta * delta_t * eligibility_c *
+    # asym(delta_t) -- where delta_t is a SIGNED dopaminergic-RPE analog
+    # (R_t - V-hat_t; R_t = benefit_eval - harm_eval at the realised state from the
+    # ALREADY-TRAINED valuation heads; V-hat_t a slow EMA baseline), eligibility_c
+    # is the decayed Hebbian co-activation trace |channel_bias_c[selected]|, and
+    # asym renders the D1-LTP/D2-LTD asymmetry as a single asymmetric gain
+    # (potentiation on delta_t>=0 faster than depression on delta_t<0). delta_t is
+    # SIGNED and is explicitly NOT the unsigned ARC-016 prediction-error VARIANCE
+    # (e3._running_variance) -- divergence B5; they are kept separate. Learning
+    # composes INSIDE the F-bounded MECH-448/449 eligible set (it re-weights only
+    # _modulatory_accum, never raw scores/F), so safety is inherited from the
+    # envelope -- a learned weight can never re-admit a No-Go-suppressed candidate.
+    # The update runs ONLY on the waking committed-selection path (a replay/DMN
+    # simulation tick forms no delta_t and writes no w_chan). The MECH-450
+    # recurrent-settling step (learned W_lat) is the SECOND factor and is OFF in
+    # this build (W_lat == 0 -- the integration point is reserved, not enabled).
+    # Default False -> bit-identical OFF.
+    use_learned_channel_gating: bool = False
+    learned_channel_gating_eta: float = 0.01           # three-factor learning rate
+    learned_channel_gating_elig_decay: float = 0.9     # Hebbian eligibility-trace decay (last-K-ticks window)
+    learned_channel_value_baseline_beta: float = 0.05  # V-hat_t slow-EMA baseline rate
+    learned_channel_asym_potentiation: float = 1.0     # D1-LTP gain on delta_t >= 0
+    learned_channel_asym_depression: float = 0.5       # D2-LTD gain on delta_t < 0 (slower)
+
     # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a, 2026-06-10):
     # The 2026-06-03/06-06 authority rescales _modulatory_accum (the composed
     # score_bias chain + MECH-341 bonus). The 569f/661/654a cluster showed that a
@@ -4393,6 +4424,13 @@ class REEConfig:
         use_modulatory_selection_authority: bool = False,
         modulatory_authority_gain: float = 0.5,
         modulatory_authority_min_range_floor: float = 1e-6,
+        # ARC-108 JOB-1 step-1: learned per-channel selection-gating (no-op default)
+        use_learned_channel_gating: bool = False,
+        learned_channel_gating_eta: float = 0.01,
+        learned_channel_gating_elig_decay: float = 0.9,
+        learned_channel_value_baseline_beta: float = 0.05,
+        learned_channel_asym_potentiation: float = 1.0,
+        learned_channel_asym_depression: float = 0.5,
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a):
         use_modulatory_channel_routing: bool = False,
         modulatory_channel_route_min_range_floor: float = 1e-6,
@@ -5381,6 +5419,16 @@ class REEConfig:
         config.e3.modulatory_authority_gain = modulatory_authority_gain
         config.e3.modulatory_authority_min_range_floor = modulatory_authority_min_range_floor
         config.use_modulatory_selection_authority = use_modulatory_selection_authority
+        # ARC-108 JOB-1 step-1: learned per-channel selection-gating reads from
+        # config.e3 (the e3_selector _modulatory_accum composition site).
+        config.e3.use_learned_channel_gating = use_learned_channel_gating
+        config.e3.learned_channel_gating_eta = learned_channel_gating_eta
+        config.e3.learned_channel_gating_elig_decay = learned_channel_gating_elig_decay
+        config.e3.learned_channel_value_baseline_beta = (
+            learned_channel_value_baseline_beta
+        )
+        config.e3.learned_channel_asym_potentiation = learned_channel_asym_potentiation
+        config.e3.learned_channel_asym_depression = learned_channel_asym_depression
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
         # 2026-06-10): the e3_selector additive site reads
         # use_modulatory_channel_routing + min_range_floor from config.e3; the
