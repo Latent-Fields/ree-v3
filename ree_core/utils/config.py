@@ -2735,6 +2735,24 @@ class REEConfig:
     # rule-stability precursor (completion_rule_delta_threshold * 10.0 trivially-stable
     # filter). Only read when use_closure_commit_entry=True.
     closure_commit_entry_rule_norm_floor: float = 0.01
+    # Closure-plane commit-ENTRY TRAJECTORY primitive (rung-6 amend extension;
+    # commitment_closure:GAP-4; failure_autopsy_V3-EXQ-460k/460l). The bool latch
+    # use_closure_commit_entry above arms + SUSTAINS the beta occupancy (C-KEY) but a
+    # bare bool cannot be STEPPED: the between-E3-tick path (agent.py) reads
+    # e3._committed_trajectory to advance a committed program, so a closure-armed hold
+    # with only a bool falls through to repeating _last_action (no closure-formed
+    # program executes -- the C-STEP gap). When use_closure_commit_entry_trajectory is
+    # on (REQUIRES use_closure_commit_entry), REEAgent.select_action ALSO installs the
+    # goal/rule-directed result.selected_trajectory into a PARALLEL sticky latch
+    # e3._closure_committed_trajectory; the between-tick stepping + the latch-hold
+    # persistence + the _closure_commit_active arm gate all read the UNION
+    # (_committed_trajectory OR _closure_committed_trajectory), so the closure-formed
+    # occupancy advances an actual committed trajectory. CLEARED at the same de-commit /
+    # closure-fire / reset sites as the bool latch. Default False -> the trajectory latch
+    # is never set -> every union reduces to the bool-latch behaviour -> bit-identical to
+    # the use_closure_commit_entry-only path. See
+    # REE_assembly/docs/architecture/natural_commit_occupancy_release.md.
+    use_closure_commit_entry_trajectory: bool = False
 
     # ----------------------------------------------------------------
     # ARC-108 JOB-2 control-plane DRIVER pair (the dopaminergic driver of the
@@ -4332,6 +4350,8 @@ class REEConfig:
         # Closure-plane commit-ENTRY primitive (rung-6 amend; commitment_closure:GAP-4).
         use_closure_commit_entry: bool = False,
         closure_commit_entry_rule_norm_floor: float = 0.01,
+        # Closure-plane commit-ENTRY TRAJECTORY extension (C-STEP; requires the bool flag).
+        use_closure_commit_entry_trajectory: bool = False,
         # ARC-108 JOB-2 control-plane DRIVER pair (rho_t maintenance ramp +
         # habenula negative-delta_t de-commit); all no-op default, bit-identical OFF.
         use_rho_maintenance_ramp: bool = False,
@@ -5332,6 +5352,9 @@ class REEConfig:
         config.use_closure_commit_entry = use_closure_commit_entry
         config.closure_commit_entry_rule_norm_floor = (
             closure_commit_entry_rule_norm_floor
+        )
+        config.use_closure_commit_entry_trajectory = (
+            use_closure_commit_entry_trajectory
         )
         config.natural_commit_urgency_onset_ticks = (
             natural_commit_urgency_onset_ticks

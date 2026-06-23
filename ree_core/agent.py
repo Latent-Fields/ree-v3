@@ -1022,6 +1022,16 @@ class REEAgent(nn.Module):
                     "use_natural_commit_latch_hold=True (the latch-hold sustains the "
                     "closure-formed occupancy the commit-entry latch arms)."
                 )
+        # The C-STEP trajectory extension rides on the bool latch; arming the trajectory
+        # without the parent flag would install a closure trajectory that the
+        # _closure_commit_active arm gate never reads -- surface the misconfig loud.
+        if getattr(config, "use_closure_commit_entry_trajectory", False):
+            if not getattr(config, "use_closure_commit_entry", False):
+                raise ValueError(
+                    "use_closure_commit_entry_trajectory=True requires "
+                    "use_closure_commit_entry=True (the trajectory latch extends the "
+                    "F-independent closure-plane commit-entry bool latch)."
+                )
 
         # ARC-108 JOB-2 (c): rho_t MAINTENANCE RAMP -- the proximity-scaled driver
         # that REPLACES the flat-hold maintenance DRIVER of the natural-commit
@@ -2474,6 +2484,7 @@ class REEAgent(nn.Module):
         # rung-6 amend: clear the F-independent closure-plane commit-entry latch on the
         # episode boundary (a fresh trial starts with no carried-over closure commit).
         self.e3._closure_committed_active = False
+        self.e3._closure_committed_trajectory = None  # C-STEP extension: clear on reset
         # SD-061: reset the stuck-state detector + proposal-entropy regulator
         # per episode (preserve no cross-episode impasse state) + the lagged
         # stuck_score the next _e3_tick reads.
@@ -4581,6 +4592,7 @@ class REEAgent(nn.Module):
                 # rung-6 amend: tear down the F-independent closure-plane commit-entry
                 # latch on this de-commit so it cannot keep re-arming the eval.
                 self.e3._closure_committed_active = False
+                self.e3._closure_committed_trajectory = None  # C-STEP extension
 
         # Commit/release-DURATION lever: graded natural-commit-occupancy release
         # (rung-6 of f_dominance_conversion_ceiling; the duration face PARALLEL to
@@ -4619,6 +4631,7 @@ class REEAgent(nn.Module):
                 self._committed_anchor_keys = None
                 self.e3._committed_trajectory = None
                 self.e3._closure_committed_active = False  # rung-6 amend: clear latch
+                self.e3._closure_committed_trajectory = None  # C-STEP extension
                 # Natural-commit latch-hold yields to the rung-6 duration release
                 # -- this IS the lever shortening the held natural commit (the
                 # whole point); the hold disarms so the occupancy stays shortened.
@@ -4709,6 +4722,7 @@ class REEAgent(nn.Module):
                     self._committed_anchor_keys = None
                     self.e3._committed_trajectory = None
                     self.e3._closure_committed_active = False  # rung-6 amend: clear latch
+                    self.e3._closure_committed_trajectory = None  # C-STEP extension
 
         # MECH-269 / MECH-090 read-side hook: V_s -> commit release.
         # If any anchor key snapshotted at commit entry has dropped out of the
@@ -4865,6 +4879,10 @@ class REEAgent(nn.Module):
             _ncl_commit_present = (
                 self.e3._committed_trajectory is not None
                 or self.e3._closure_committed_active
+                # C-STEP extension: a closure-FORMED committed trajectory also keeps the
+                # hold present so it re-asserts beta instead of yielding (None unless the
+                # trajectory flag is on -> bit-identical to the bool-latch union).
+                or self.e3._closure_committed_trajectory is not None
             )
             _ncl_yield = (
                 not _ncl_commit_present
@@ -4897,8 +4915,17 @@ class REEAgent(nn.Module):
 
         if not ticks["e3_tick"] and self._last_action is not None:
             # Between E3 ticks: step through committed trajectory (Layer 1) or hold.
-            if self.beta_gate.is_elevated and self.e3._committed_trajectory is not None:
-                traj = self.e3._committed_trajectory
+            # C-STEP extension: prefer the F-driven _committed_trajectory; fall back to
+            # the closure-FORMED _closure_committed_trajectory (None unless the trajectory
+            # flag is on) so a closure-armed hold advances an actual committed PROGRAM
+            # instead of repeating _last_action. Bit-identical when the closure latch is
+            # unused (the `or` reduces to _committed_trajectory).
+            _step_traj = (
+                self.e3._committed_trajectory
+                or self.e3._closure_committed_trajectory
+            )
+            if self.beta_gate.is_elevated and _step_traj is not None:
+                traj = _step_traj
                 horizon = traj.actions.shape[1]
                 step_idx = min(self._committed_step_idx, horizon - 1)
                 action = traj.actions[:, step_idx, :]
@@ -6314,6 +6341,25 @@ class REEAgent(nn.Module):
             )
             if _rule_norm >= _rule_floor:
                 self.e3._closure_committed_active = True
+                # C-STEP extension: also install the goal/rule-directed selected
+                # trajectory into the PARALLEL sticky latch so the between-E3-tick
+                # stepping path can advance a closure-formed committed PROGRAM rather
+                # than repeat _last_action. On a FRESH closure arm (latch was None)
+                # reset the step counter so stepping starts at the program head; on
+                # subsequent E3 ticks the trajectory is refreshed but the counter keeps
+                # advancing across the held occupancy (mirrors the F-commit stepping,
+                # which resets _committed_step_idx only on beta release / reset). No-op
+                # default: skipped unless use_closure_commit_entry_trajectory is on, so
+                # _closure_committed_trajectory stays None and every union below reduces
+                # to the bool-latch behaviour.
+                if getattr(
+                    self.config, "use_closure_commit_entry_trajectory", False
+                ):
+                    if self.e3._closure_committed_trajectory is None:
+                        self._committed_step_idx = 0
+                    self.e3._closure_committed_trajectory = (
+                        result.selected_trajectory
+                    )
 
         # ControlVector logging (rec-B four-signal adjudication 2026-06-07).
         # Read-only assembly of the four control signals AFTER selection, so
@@ -6453,6 +6499,10 @@ class REEAgent(nn.Module):
                 and (
                     self.e3._committed_trajectory is not None
                     or self.e3._closure_committed_active
+                    # C-STEP extension: a closure-FORMED committed trajectory also arms
+                    # the coupling (None unless use_closure_commit_entry_trajectory is on
+                    # -> bit-identical to the bool-latch union when unused).
+                    or self.e3._closure_committed_trajectory is not None
                 )
             )
             # Closure-exclusive de-commit eval mode (rung-6 BUILD, 460j): SUPPRESS the
@@ -6896,6 +6946,7 @@ class REEAgent(nn.Module):
                 # the F-independent closure-plane commit-entry latch.
                 if _auto_closure_evt is not None and _auto_closure_evt.fired:
                     self.e3._closure_committed_active = False
+                    self.e3._closure_committed_trajectory = None  # C-STEP extension
             except Exception:
                 # Closure detector failure must not break action selection.
                 pass
@@ -8750,7 +8801,10 @@ class REEAgent(nn.Module):
             running_variance=self.e3._running_variance,
             step=self._step_count,
             harm_accumulated=self._harm_this_episode,
-            is_committed=self.e3._committed_trajectory is not None,
+            is_committed=(
+                self.e3._committed_trajectory is not None
+                or self.e3._closure_committed_trajectory is not None
+            ),
             beta_elevated=self.beta_gate.is_elevated,
             e3_steps_per_tick=self.clock.e3_steps_per_tick,
             serotonin_state=self.serotonin.get_state() if self.serotonin.enabled else None,

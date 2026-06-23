@@ -269,6 +269,17 @@ class E3TrajectorySelector(nn.Module):
         # init False -> with use_closure_commit_entry off, _closure_commit_active reduces to
         # the legacy `_committed_trajectory is not None` -> bit-identical.
         self._closure_committed_active: bool = False
+        # Closure-plane commit-ENTRY TRAJECTORY primitive (rung-6 amend extension;
+        # use_closure_commit_entry_trajectory). The PARALLEL sticky trajectory the bool
+        # latch above lacks: SET by REEAgent.select_action (to the goal/rule-directed
+        # result.selected_trajectory) on a closure-coupled commit when the trajectory
+        # flag is on, and CLEARED at the same de-commit / closure-fire / reset sites as
+        # the bool latch. Unlike _committed_trajectory it is NOT torn down by
+        # post_action_update -- it persists across ticks so the between-E3-tick stepping
+        # path can advance a closure-formed committed PROGRAM (C-STEP) rather than
+        # repeating _last_action. init None -> with the trajectory flag off every
+        # consuming union reduces to the bool-latch behaviour -> bit-identical.
+        self._closure_committed_trajectory: Optional[Trajectory] = None
         # ARC-016: store last selected trajectory for rv updates regardless of
         # commitment.  Without this, rv only updates when committed, creating a
         # deadlock: rv starts above commit_threshold -> agent never commits ->
@@ -2154,7 +2165,13 @@ class E3TrajectorySelector(nn.Module):
             "running_variance": self._running_variance,
             "commit_threshold": self.commit_threshold,
             "committed_now": self._running_variance < self.commit_threshold,
-            "is_committed": self._committed_trajectory is not None,
+            # rung-6 amend: is_committed reflects a closure-FORMED commit too (honest
+            # telemetry on the closure-exclusive eval where _committed_trajectory stays
+            # None); bit-identical when the trajectory latch is unused (None).
+            "is_committed": (
+                self._committed_trajectory is not None
+                or self._closure_committed_trajectory is not None
+            ),
         }
 
     def forward(
