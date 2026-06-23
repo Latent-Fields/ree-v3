@@ -2706,6 +2706,36 @@ class REEConfig:
     # See REE_assembly/docs/architecture/natural_commit_occupancy_release.md.
     closure_exclusive_decommit_eval: bool = False
 
+    # Closure-plane commit-ENTRY primitive (rung-6 amend, failure_autopsy_V3-EXQ-460k/460l
+    # 2026-06-22; commitment_closure:GAP-4). The closure-exclusive de-commit eval above
+    # arms the latch-hold ONLY via _closure_commit_active, which (agent.py:6365) gates on
+    # e3._committed_trajectory is not None -- whose ONLY non-None writer is e3_selector.py
+    # under `if committed:` (pure running_variance/F). On the 460j substrate the F-commit
+    # never sustains (off_baseline_not_sustained), so _committed_trajectory is rarely
+    # non-None -> the eval rarely arms (ncl_hold_closure_armed_total=0, the 460k/460l
+    # signature). The design semantics ("closure-plane commitment forming, F-independent")
+    # and the implementation (F-commit trajectory presence) contradict. When
+    # use_closure_commit_entry=True an F-INDEPENDENT latch e3._closure_committed_active is
+    # SET on a goal-active rule-directed commitment (goal_state.is_active() AND a trajectory
+    # selected toward it AND lateral_pfc.rule_state norm above a floor -- faithful to SD-034:
+    # closure governs rule-directed commitments) and CLEARED on the SD-034 closure fire /
+    # de-commit refractory install / episode reset; _closure_commit_active (agent.py:6365)
+    # is then the UNION (legacy F-commit OR the new closure-plane entry). So the
+    # closure-exclusive eval can arm + sustain a closure-formed occupancy with ZERO
+    # F-commits. PRECONDITIONS (enforced loud at REEAgent.__init__): requires
+    # use_closure_commit_beta_coupling=True AND use_natural_commit_latch_hold=True. Default
+    # False -> _closure_committed_active never set -> _closure_commit_active reduces to the
+    # legacy `_committed_trajectory is not None` -> bit-identical for every existing run.
+    # MECH-094: the latch is a waking control-state transition (no replay/memory write
+    # surface); SET is a no-op under simulation/hypothesis_tag. See
+    # REE_assembly/docs/architecture/natural_commit_occupancy_release.md.
+    use_closure_commit_entry: bool = False
+    # rule_state norm floor above which a rule is considered "being followed" for the
+    # closure-plane commit-entry SET predicate. Mirrors the closure_operator's
+    # rule-stability precursor (completion_rule_delta_threshold * 10.0 trivially-stable
+    # filter). Only read when use_closure_commit_entry=True.
+    closure_commit_entry_rule_norm_floor: float = 0.01
+
     # ----------------------------------------------------------------
     # ARC-108 JOB-2 control-plane DRIVER pair (the dopaminergic driver of the
     # commit/maintain/de-commit machinery REE built but never gave its
@@ -4299,6 +4329,9 @@ class REEConfig:
         use_natural_commit_latch_hold: bool = False,
         natural_commit_latch_hold_max_ticks: int = 0,
         closure_exclusive_decommit_eval: bool = False,
+        # Closure-plane commit-ENTRY primitive (rung-6 amend; commitment_closure:GAP-4).
+        use_closure_commit_entry: bool = False,
+        closure_commit_entry_rule_norm_floor: float = 0.01,
         # ARC-108 JOB-2 control-plane DRIVER pair (rho_t maintenance ramp +
         # habenula negative-delta_t de-commit); all no-op default, bit-identical OFF.
         use_rho_maintenance_ramp: bool = False,
@@ -5296,6 +5329,10 @@ class REEConfig:
             natural_commit_latch_hold_max_ticks
         )
         config.closure_exclusive_decommit_eval = closure_exclusive_decommit_eval
+        config.use_closure_commit_entry = use_closure_commit_entry
+        config.closure_commit_entry_rule_norm_floor = (
+            closure_commit_entry_rule_norm_floor
+        )
         config.natural_commit_urgency_onset_ticks = (
             natural_commit_urgency_onset_ticks
         )

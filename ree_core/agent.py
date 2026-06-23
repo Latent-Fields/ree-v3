@@ -1003,6 +1003,26 @@ class REEAgent(nn.Module):
                     "closure-coupled occupancy the de-commit acts on)."
                 )
 
+        # Closure-plane commit-ENTRY primitive (rung-6 amend; commitment_closure:GAP-4;
+        # failure_autopsy_V3-EXQ-460k/460l). The F-INDEPENDENT latch that lets the
+        # closure-exclusive eval arm WITHOUT a sustained F-commit. PRECONDITIONS: it feeds
+        # _closure_commit_active (gated on the coupling) and arms the latch-hold, so both
+        # must be on -- a misconfig is surfaced loud (the MECH-269b / SD-058 precondition
+        # pattern), never a silent no-op.
+        if getattr(config, "use_closure_commit_entry", False):
+            if not getattr(config, "use_closure_commit_beta_coupling", False):
+                raise ValueError(
+                    "use_closure_commit_entry=True requires "
+                    "use_closure_commit_beta_coupling=True (the closure->beta coupling is "
+                    "the consumer of the F-independent closure-plane commit-entry latch)."
+                )
+            if not getattr(config, "use_natural_commit_latch_hold", False):
+                raise ValueError(
+                    "use_closure_commit_entry=True requires "
+                    "use_natural_commit_latch_hold=True (the latch-hold sustains the "
+                    "closure-formed occupancy the commit-entry latch arms)."
+                )
+
         # ARC-108 JOB-2 (c): rho_t MAINTENANCE RAMP -- the proximity-scaled driver
         # that REPLACES the flat-hold maintenance DRIVER of the natural-commit
         # latch-hold above (the per-tick unconditional re-assert / deviation B6).
@@ -2451,6 +2471,9 @@ class REEAgent(nn.Module):
         self._ncl_hold_closure_armed_count = 0
         self._ncl_mech091_fired = False
         self._ncl_lever_fired = False
+        # rung-6 amend: clear the F-independent closure-plane commit-entry latch on the
+        # episode boundary (a fresh trial starts with no carried-over closure commit).
+        self.e3._closure_committed_active = False
         # SD-061: reset the stuck-state detector + proposal-entropy regulator
         # per episode (preserve no cross-episode impasse state) + the lagged
         # stuck_score the next _e3_tick reads.
@@ -4555,6 +4578,9 @@ class REEAgent(nn.Module):
                 # observable (the V3-EXQ-592f probe measures
                 # e3._committed_trajectory presence as the decommit signal).
                 self.e3._committed_trajectory = None
+                # rung-6 amend: tear down the F-independent closure-plane commit-entry
+                # latch on this de-commit so it cannot keep re-arming the eval.
+                self.e3._closure_committed_active = False
 
         # Commit/release-DURATION lever: graded natural-commit-occupancy release
         # (rung-6 of f_dominance_conversion_ceiling; the duration face PARALLEL to
@@ -4592,6 +4618,7 @@ class REEAgent(nn.Module):
                 self._committed_step_idx = 0
                 self._committed_anchor_keys = None
                 self.e3._committed_trajectory = None
+                self.e3._closure_committed_active = False  # rung-6 amend: clear latch
                 # Natural-commit latch-hold yields to the rung-6 duration release
                 # -- this IS the lever shortening the held natural commit (the
                 # whole point); the hold disarms so the occupancy stays shortened.
@@ -4681,6 +4708,7 @@ class REEAgent(nn.Module):
                     self._committed_step_idx = 0
                     self._committed_anchor_keys = None
                     self.e3._committed_trajectory = None
+                    self.e3._closure_committed_active = False  # rung-6 amend: clear latch
 
         # MECH-269 / MECH-090 read-side hook: V_s -> commit release.
         # If any anchor key snapshotted at commit entry has dropped out of the
@@ -4822,8 +4850,24 @@ class REEAgent(nn.Module):
             _ncl_max = int(
                 getattr(self.config, "natural_commit_latch_hold_max_ticks", 0)
             )
+            # rung-6 amend (commit-ENTRY primitive): the "committed trajectory persists"
+            # persistence check is UNION-aware -- the hold also persists while the
+            # F-INDEPENDENT closure-plane commit-entry latch is active. Without this the
+            # F-independent occupancy would arm then immediately yield (the F-commit
+            # _committed_trajectory is None on the 460j substrate, and the user's design
+            # forbids installing a trajectory on the closure plane), so the sustained
+            # occupancy the de-commit acts on could never form. Bit-identical OFF:
+            # use_closure_commit_entry off -> _closure_committed_active always False ->
+            # _ncl_commit_present reduces to (_committed_trajectory is not None) and the
+            # yield reduces to the legacy (_committed_trajectory is None). The other
+            # principled yields (closure refractory / MECH-091 / rung-6 lever / max-ticks)
+            # are unchanged, so the SD-034 de-commit still tears the hold down.
+            _ncl_commit_present = (
+                self.e3._committed_trajectory is not None
+                or self.e3._closure_committed_active
+            )
             _ncl_yield = (
-                self.e3._committed_trajectory is None
+                not _ncl_commit_present
                 or self.beta_gate.refractory_remaining > 0
                 or self._ncl_mech091_fired
                 or self._ncl_lever_fired
@@ -6237,6 +6281,40 @@ class REEAgent(nn.Module):
         )
         self._last_e3_selection_result = result
 
+        # Closure-plane commit-ENTRY primitive (rung-6 amend; commitment_closure:GAP-4;
+        # failure_autopsy_V3-EXQ-460k/460l 2026-06-22). Option A (user-confirmed): SET the
+        # F-INDEPENDENT latch e3._closure_committed_active when a goal-active, rule-directed
+        # commitment forms -- goal_state.is_active() AND a trajectory was selected toward it
+        # (the hippocampal proposer is goal-seeded under an active goal, so any selection is
+        # goal-directed) AND a rule is being followed (lateral_pfc.rule_state norm above the
+        # closure_commit_entry_rule_norm_floor, mirroring the SD-034 closure operator's
+        # rule-stability precursor). This is the F-independent path the closure-exclusive
+        # de-commit eval needs: on the 460j substrate the F-driven natural commit never
+        # sustains, so _committed_trajectory is rarely non-None and the eval never arms
+        # (ncl_hold_closure_armed_total=0, the 460k/460l signature). The latch is STICKY
+        # across ticks (it is NOT torn down by post_action_update like _committed_trajectory)
+        # and is cleared only on a principled closure teardown (SD-034 closure fire /
+        # de-commit refractory install / episode reset). MECH-094: waking control-state
+        # transition only (select_action is the waking path, simulation_mode=False here, as
+        # the neighbouring tonic_vigor / closure-coupling sites assume); no replay/memory
+        # write surface. No-op default -> the latch is never set -> agent.py:6365
+        # _closure_commit_active reduces to the legacy `_committed_trajectory is not None` ->
+        # bit-identical for every existing run.
+        if (
+            getattr(self.config, "use_closure_commit_entry", False)
+            and self.goal_state is not None
+            and self.goal_state.is_active()
+            and result is not None
+            and result.selected_action is not None
+            and self.lateral_pfc is not None
+        ):
+            _rule_norm = float(self.lateral_pfc.rule_state.norm().item())
+            _rule_floor = float(
+                getattr(self.config, "closure_commit_entry_rule_norm_floor", 0.01)
+            )
+            if _rule_norm >= _rule_floor:
+                self.e3._closure_committed_active = True
+
         # ControlVector logging (rec-B four-signal adjudication 2026-06-07).
         # Read-only assembly of the four control signals AFTER selection, so
         # V_outcome reflects the realised primary scores. No scoring/selection
@@ -6362,9 +6440,20 @@ class REEAgent(nn.Module):
             # return True permissively on the coupled path when result.committed is
             # False). No-op default -> _commit_for_beta == result.committed ->
             # bit-identical.
+            # Closure-plane commit-entry UNION (rung-6 amend, 460k/460l). The closure
+            # plane is "actively committed" when EITHER the legacy F-driven commit
+            # trajectory is present OR the F-INDEPENDENT closure-plane commit-entry latch
+            # is set (use_closure_commit_entry, SET above after e3.select). The union
+            # preserves the legacy path exactly (latch never set when the flag is off ->
+            # bit-identical), and gives the closure-exclusive eval a way to arm WITHOUT a
+            # sustained F-commit -- closing the 460k/460l ncl_hold_closure_armed_total=0
+            # signature. See REE_assembly/docs/architecture/natural_commit_occupancy_release.md.
             _closure_commit_active = (
                 getattr(self.config, "use_closure_commit_beta_coupling", False)
-                and self.e3._committed_trajectory is not None
+                and (
+                    self.e3._committed_trajectory is not None
+                    or self.e3._closure_committed_active
+                )
             )
             # Closure-exclusive de-commit eval mode (rung-6 BUILD, 460j): SUPPRESS the
             # fragile F-driven natural commit (result.committed) from beta elevation so
@@ -6795,13 +6884,18 @@ class REEAgent(nn.Module):
                     if self.salience is not None
                     else None
                 )
-                self.closure_operator.tick(
+                _auto_closure_evt = self.closure_operator.tick(
                     current_z_world=self._current_latent.z_world,
                     current_action_class=action_class,
                     current_mode=current_mode,
                     sd033a_gate=sd033a_gate,
                     hypothesis_tag=False,
                 )
+                # rung-6 amend: an SD-034 closure fire (auto rule-stability detector;
+                # _fire installs the de-commit refractory + releases beta) tears down
+                # the F-independent closure-plane commit-entry latch.
+                if _auto_closure_evt is not None and _auto_closure_evt.fired:
+                    self.e3._closure_committed_active = False
             except Exception:
                 # Closure detector failure must not break action selection.
                 pass
@@ -6875,11 +6969,17 @@ class REEAgent(nn.Module):
             if self._current_latent is None:
                 return None
             zw = self._current_latent.z_world
-        return self.closure_operator.emit_closure(
+        _env_closure_evt = self.closure_operator.emit_closure(
             action_class=action_class,
             z_world=zw,
             bypass_mode_conditioning=bypass_mode_conditioning,
         )
+        # rung-6 amend: a fired env-completion closure (SD-034 _fire installs the
+        # de-commit refractory + releases beta) tears down the F-independent
+        # closure-plane commit-entry latch.
+        if _env_closure_evt is not None and _env_closure_evt.fired:
+            self.e3._closure_committed_active = False
+        return _env_closure_evt
 
     def act(
         self,
@@ -7086,6 +7186,7 @@ class REEAgent(nn.Module):
                         self._committed_step_idx = 0
                         self._committed_anchor_keys = None
                         self.e3._committed_trajectory = None
+                        self.e3._closure_committed_active = False  # rung-6 amend: clear latch
                         self._ncl_hold_active = False
                         metrics["habenula_decommit_fired"] = torch.tensor(1.0)
 

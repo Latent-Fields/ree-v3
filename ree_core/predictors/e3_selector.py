@@ -256,6 +256,19 @@ class E3TrajectorySelector(nn.Module):
 
         # Commitment state
         self._committed_trajectory: Optional[Trajectory] = None
+        # Closure-plane commit-ENTRY primitive (rung-6 amend; commitment_closure:GAP-4;
+        # failure_autopsy_V3-EXQ-460k/460l). An F-INDEPENDENT sticky latch SET by
+        # REEAgent.select_action on a goal-active rule-directed commitment (Option A:
+        # goal_state.is_active() AND a trajectory selected toward it AND lateral_pfc
+        # rule_state norm above a floor) when use_closure_commit_entry is on, and CLEARED
+        # on the SD-034 closure fire / de-commit refractory install / episode reset. Unlike
+        # _committed_trajectory (set ONLY under the F-driven `if committed:` path and torn
+        # down every tick by post_action_update), this latch persists across ticks until a
+        # principled closure teardown, so agent.py:6365 _closure_commit_active (now the
+        # UNION of the two) can arm the closure-exclusive eval without a sustained F-commit.
+        # init False -> with use_closure_commit_entry off, _closure_commit_active reduces to
+        # the legacy `_committed_trajectory is not None` -> bit-identical.
+        self._closure_committed_active: bool = False
         # ARC-016: store last selected trajectory for rv updates regardless of
         # commitment.  Without this, rv only updates when committed, creating a
         # deadlock: rv starts above commit_threshold -> agent never commits ->
