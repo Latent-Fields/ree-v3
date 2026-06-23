@@ -78,6 +78,21 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-460m",
+      "title": "Closure-plane commit-ENTRY primitive readiness: does use_closure_commit_entry arm + sustain a closure-formed occupancy with zero F-commits? (2-arm diagnostic)",
+      "script": "experiments/v3_exq_460m_closure_commit_entry_readiness.py",
+      "priority": 432,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "note": "rung-6 of f_dominance_conversion_ceiling / commitment_closure:GAP-4. CLAIM-FREE substrate-readiness diagnostic (claim_ids=[]; experiment_purpose=diagnostic; PROMOTES NOTHING, no governance weight) validating the F-independent closure-plane commit-ENTRY primitive use_closure_commit_entry (ree-v3 main 84c1e7c). Runs on the closure-exclusive de-commit eval substrate (closure_exclusive_decommit_eval + use_closure_commit_beta_coupling + use_natural_commit_latch_hold + beta_gate_bistable + use_lateral_pfc_analog + Leg-C trained rule_bias_head, ARMED in BOTH arms); the ONLY swept variable is use_closure_commit_entry. ARM_ENTRY_OFF reproduces the 460k/460l ncl_hold_closure_armed_total=0 baseline; ARM_ENTRY_ON SETs a sticky F-independent latch on a goal-active rule-directed commitment. PRIMARY load-bearing gate (a): ARM_ENTRY_ON armed_and_sustained (ncl_hold_closure_armed_total>0 AND max_consecutive_beta_run>=2, i.e. a multi-tick closure-formed beta occupancy) on >=2/3 seeds, with n_f_commits reported as F-independence context (the occupancy forms WITHOUT sustained F-commit). NON-VACUITY self-route substrate_not_ready_requeue (NEVER a falsification) if ARM_ENTRY_ON never forms a goal-active rule-directed commitment the latch could set on (n_rule_directed_commit_ticks below floor). PASS clears gate (a); the 460-lineage successor (NEW letter, supersedes the parked 460k/460l line) then runs the full de-commit falsifier (rung-6 release shortens the occupancy + MECH-445 commit-intent + MECH-446 occupancy-drop co-occur) -- queued separately ONLY after this readiness diagnostic clears. Do NOT re-author 460d/e/f/g/h/i/j/k/l. Design doc: REE_assembly/docs/architecture/natural_commit_occupancy_release.md (closure-plane commit-ENTRY primitive amend section). Unit contract: ree-v3/tests/contracts/test_closure_commit_entry.py (C3 C-KEY). validate_experiments --strict --paths OK; dry-run smoke clean (2 arms end-to-end, toy-scale self-routes substrate_not_ready_requeue as designed, ARM_ENTRY_OFF armed=0 contrast already visible).",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 1,
+      "episodes_per_run": 265,
+      "experiment_type": "v3_exq_460m_closure_commit_entry_readiness",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-699",
       "title": "P-comp: MECH-448 demotion x MECH-449 Go/No-Go composition at committed-class entropy (2x2 diagnostic)",
       "script": "experiments/v3_exq_699_pcomp_demotion_x_gonogo_composition.py",
@@ -95,21 +110,6 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_699_pcomp_demotion_x_gonogo_composition",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-460m",
-      "title": "Closure-plane commit-ENTRY primitive readiness: does use_closure_commit_entry arm + sustain a closure-formed occupancy with zero F-commits? (2-arm diagnostic)",
-      "script": "experiments/v3_exq_460m_closure_commit_entry_readiness.py",
-      "experiment_type": "v3_exq_460m_closure_commit_entry_readiness",
-      "claim_ids": [],
-      "priority": 432,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "episodes_per_run": 265,
-      "seeds": 3,
-      "conditions": 1,
-      "status": "pending",
-      "note": "rung-6 of f_dominance_conversion_ceiling / commitment_closure:GAP-4. CLAIM-FREE substrate-readiness diagnostic (claim_ids=[]; experiment_purpose=diagnostic; PROMOTES NOTHING, no governance weight) validating the F-independent closure-plane commit-ENTRY primitive use_closure_commit_entry (ree-v3 main 84c1e7c). Runs on the closure-exclusive de-commit eval substrate (closure_exclusive_decommit_eval + use_closure_commit_beta_coupling + use_natural_commit_latch_hold + beta_gate_bistable + use_lateral_pfc_analog + Leg-C trained rule_bias_head, ARMED in BOTH arms); the ONLY swept variable is use_closure_commit_entry. ARM_ENTRY_OFF reproduces the 460k/460l ncl_hold_closure_armed_total=0 baseline; ARM_ENTRY_ON SETs a sticky F-independent latch on a goal-active rule-directed commitment. PRIMARY load-bearing gate (a): ARM_ENTRY_ON armed_and_sustained (ncl_hold_closure_armed_total>0 AND max_consecutive_beta_run>=2, i.e. a multi-tick closure-formed beta occupancy) on >=2/3 seeds, with n_f_commits reported as F-independence context (the occupancy forms WITHOUT sustained F-commit). NON-VACUITY self-route substrate_not_ready_requeue (NEVER a falsification) if ARM_ENTRY_ON never forms a goal-active rule-directed commitment the latch could set on (n_rule_directed_commit_ticks below floor). PASS clears gate (a); the 460-lineage successor (NEW letter, supersedes the parked 460k/460l line) then runs the full de-commit falsifier (rung-6 release shortens the occupancy + MECH-445 commit-intent + MECH-446 occupancy-drop co-occur) -- queued separately ONLY after this readiness diagnostic clears. Do NOT re-author 460d/e/f/g/h/i/j/k/l. Design doc: REE_assembly/docs/architecture/natural_commit_occupancy_release.md (closure-plane commit-ENTRY primitive amend section). Unit contract: ree-v3/tests/contracts/test_closure_commit_entry.py (C3 C-KEY). validate_experiments --strict --paths OK; dry-run smoke clean (2 arms end-to-end, toy-scale self-routes substrate_not_ready_requeue as designed, ARM_ENTRY_OFF armed=0 contrast already visible)."
     }
   ]
 }
