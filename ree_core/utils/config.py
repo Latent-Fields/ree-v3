@@ -2860,6 +2860,33 @@ class REEConfig:
     # Action class treated as no-op (matches MECH-279 / MECH-320 convention).
     blocked_agency_noop_class: int = 0
 
+    # MECH-276: scientist-agent counterfactual-backed attribution feedstock.
+    # The waking-phase mechanism that feeds the MECH-275 sleep-phase Bayesian
+    # aggregator. On each waking tick the agent computes a counterfactual-backed
+    # attribution from the SD-031 E2WorldForward (domain "place") and/or ARC-033
+    # E2HarmSForward (domain "self") comparators and buffers it per (domain,
+    # region); the sleep loop reads the buffered feedstock as the aggregator
+    # evidence INSTEAD of the MECH-284 staleness scalar when this is on.
+    # All defaults no-op; agent.scientist_attribution_buffer is None when off ->
+    # bit-identical (the sleep loop sources staleness exactly as before).
+    # PRECONDITION: requires use_e2_world_forward OR use_e2_harm_s_forward
+    # (the buffer has no comparator to source attributions from otherwise).
+    use_scientist_attribution: bool = False
+    # Counterfactual-contrast threshold above which an attribution is treated as
+    # counterfactual-backed (a discriminating intervention); below it the
+    # attribution is correlational. The falsifiable distinction the MECH-275
+    # claim turns on.
+    scientist_attribution_cf_margin: float = 0.05
+    # When True (default), correlational (contrast < cf_margin) records are NOT
+    # buffered -> structured feedstock. False = correlational-control arm of the
+    # readiness diagnostic (feed everything -> predicted noise-fit).
+    scientist_attribution_only_counterfactual_backed: bool = True
+    # EMA rate per record applied to the per-region attribution.
+    scientist_attribution_ema_alpha: float = 0.3
+    # Per-cycle multiplicative decay applied to each region EMA at sleep cycle
+    # end (1.0 = no decay; parallels the BayesianAggregator decay_factor).
+    scientist_attribution_decay: float = 1.0
+
     # SD-058 / MECH-357: instrumental-avoidance acquisition (ilPFC-analog
     # freeze-suppression gate + instrumental-avoidance action pathway +
     # eligibility-trace avoidance-efficacy learning). REE has the defensive
@@ -4360,6 +4387,15 @@ class REEConfig:
         rho_onset_grace_ticks: int = 3,
         use_habenula_decommit: bool = False,
         habenula_decommit_delta_threshold: float = 0.0,
+        # MECH-276: scientist-agent counterfactual-backed attribution feedstock
+        # (waking-phase mechanism feeding the MECH-275 sleep aggregator). All
+        # no-op default; bit-identical when use_scientist_attribution=False.
+        # See ree_core/attribution/scientist_attribution_buffer.py.
+        use_scientist_attribution: bool = False,
+        scientist_attribution_cf_margin: float = 0.05,
+        scientist_attribution_only_counterfactual_backed: bool = True,
+        scientist_attribution_ema_alpha: float = 0.3,
+        scientist_attribution_decay: float = 1.0,
         # MECH-353: blocked-agency / control-failure affect stream (z_block).
         # Pure-arithmetic regulator on the SD-029 action-outcome comparator;
         # all defaults no-op (bit-identical when use_blocked_agency=False).
@@ -5371,6 +5407,14 @@ class REEConfig:
         # Mirror onto E3Config so e3_selector.post_action_update (which reads
         # self.config == E3Config) computes the signed RPE delta_t for the habenula.
         config.e3.use_habenula_decommit = use_habenula_decommit
+        # MECH-276 scientist-agent attribution feedstock.
+        config.use_scientist_attribution = use_scientist_attribution
+        config.scientist_attribution_cf_margin = scientist_attribution_cf_margin
+        config.scientist_attribution_only_counterfactual_backed = (
+            scientist_attribution_only_counterfactual_backed
+        )
+        config.scientist_attribution_ema_alpha = scientist_attribution_ema_alpha
+        config.scientist_attribution_decay = scientist_attribution_decay
 
         # MECH-353: blocked-agency / control-failure affect stream (z_block).
         config.use_blocked_agency = use_blocked_agency

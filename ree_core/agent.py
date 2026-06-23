@@ -147,6 +147,10 @@ from ree_core.affect.harm_suffering_accumulator import (
     HarmSufferingAccumulator,
     HarmSufferingAccumulatorConfig,
 )
+from ree_core.attribution.scientist_attribution_buffer import (
+    ScientistAttributionBuffer,
+    ScientistAttributionConfig,
+)
 from ree_core.regulators import (
     GABAergicDecayConfig,
     GABAergicDecayRegulator,
@@ -1289,6 +1293,38 @@ class REEAgent(nn.Module):
         self._harm_suffering_external_escapability: float = float(
             getattr(config, "harm_suffering_external_escapability", 1.0)
         )
+
+        # MECH-276: scientist-agent counterfactual-backed attribution buffer.
+        # The waking-phase feedstock for the MECH-275 sleep aggregator. On each
+        # waking tick the agent computes a counterfactual-backed attribution
+        # from the SD-031 E2WorldForward (domain "place") and/or ARC-033
+        # E2HarmSForward (domain "self") comparators and buffers it keyed by the
+        # current MECH-269 anchor region. Backward compatible: None when off.
+        # PRECONDITION: requires a comparator to source attributions from --
+        # use_e2_world_forward OR use_e2_harm_s_forward (loud, not silent).
+        self.scientist_attribution_buffer: Optional[ScientistAttributionBuffer] = None
+        if getattr(config, "use_scientist_attribution", False):
+            if self.e2_world is None and self.e2_harm_s is None:
+                raise ValueError(
+                    "use_scientist_attribution=True requires a single-pass "
+                    "comparator to source attributions from: set "
+                    "use_e2_world_forward=True (SD-031, domain 'place') and/or "
+                    "use_e2_harm_s_forward=True (ARC-033, domain 'self'). "
+                    "MECH-276 has no feedstock source without one."
+                )
+            sci_cfg = ScientistAttributionConfig(
+                cf_margin=float(getattr(config, "scientist_attribution_cf_margin", 0.05)),
+                only_counterfactual_backed=bool(
+                    getattr(config, "scientist_attribution_only_counterfactual_backed", True)
+                ),
+                ema_alpha=float(getattr(config, "scientist_attribution_ema_alpha", 0.3)),
+                decay=float(getattr(config, "scientist_attribution_decay", 1.0)),
+            )
+            self.scientist_attribution_buffer = ScientistAttributionBuffer(config=sci_cfg)
+        # MECH-276 prev-latent caches (one-tick lag, mirroring the MECH-353
+        # blocked-agency comparator cache).
+        self._sci_prev_z_world: Optional[torch.Tensor] = None
+        self._sci_prev_z_harm_s: Optional[torch.Tensor] = None
 
         # SD-058 / MECH-357: ilPFC-analog instrumental-avoidance gate. Resolves
         # the Pavlovian-instrumental conflict (Moscarello & LeDoux 2013) -- a
@@ -2499,6 +2535,13 @@ class REEAgent(nn.Module):
         self._ba_prev_z_world = None
         self._ba_prev_z_self = None
 
+        # MECH-276: clear the scientist-attribution prev caches. The buffer
+        # itself PERSISTS across episodes (the MECH-275 aggregator runs
+        # cross-episode); it is reset only by the sleep cycle decay / an explicit
+        # buffer.reset(), not the per-episode agent.reset().
+        self._sci_prev_z_world = None
+        self._sci_prev_z_harm_s = None
+
         # MECH-219: reset the suffering accumulator per episode (s_t -> 0).
         if self.harm_suffering_accumulator is not None:
             self.harm_suffering_accumulator.reset()
@@ -2989,6 +3032,147 @@ class REEAgent(nn.Module):
         self._ba_prev_z_world = zw_now.detach().clone()
         self._ba_prev_z_self = zs_now.detach().clone()
 
+    def _scientist_attribution_region(self) -> Tuple[str, str]:
+        """Current MECH-269 anchor region (scale, segment_id) for MECH-276.
+
+        Reads the most-recently-active anchor from the hippocampal AnchorSet so
+        attribution records are keyed on the same RegionKey the sleep loop
+        routes on (matches phase_manager's (anchor.key[0], anchor.key[1])). When
+        no anchor substrate / active anchor is available, returns the
+        ScientistAttributionBuffer.GLOBAL_REGION sentinel -- those records still
+        contribute to the global-mean fallback the sleep loop reads.
+        """
+        hippocampal = getattr(self, "hippocampal", None)
+        anchor_set = getattr(hippocampal, "anchor_set", None)
+        if anchor_set is not None:
+            try:
+                actives = anchor_set.active_anchors()
+            except Exception:  # pragma: no cover -- defensive
+                actives = []
+            if actives:
+                # Most recently created active anchor is the current region.
+                chosen = max(
+                    actives, key=lambda a: getattr(a, "created_at", 0)
+                )
+                key = getattr(chosen, "key", None)
+                if (
+                    isinstance(key, tuple)
+                    and len(key) >= 2
+                    and isinstance(key[0], str)
+                    and isinstance(key[1], str)
+                ):
+                    return (key[0], key[1])
+        return ScientistAttributionBuffer.GLOBAL_REGION
+
+    def _update_scientist_attribution(self, new_latent: LatentState) -> None:
+        """MECH-276: buffer this tick's counterfactual-backed attribution.
+
+        The waking-phase feedstock for the MECH-275 sleep aggregator. Using the
+        prev-latent caches (one-tick lag, mirroring _update_blocked_agency),
+        runs the single-pass comparators on (z_prev, observed, a_actual):
+
+          place domain (SD-031 E2WorldForward, requires attribution_ready /
+            world_dim>=128): attribution = ||z_world_obs - E2(z_prev, a)||;
+            counterfactual_contrast = ||E2(z_prev, a) - E2(z_prev, a_cf)||.
+          self domain (ARC-033 E2HarmSForward): attribution = ||z_harm_s_obs -
+            E2_harm_s(z_prev, a)||; counterfactual_contrast =
+            ||E2_harm_s(z_prev, a) - E2_harm_s.counterfactual_forward(z_prev, a_cf)||.
+
+        a_cf is a deterministic argmax-shifted action (a discriminating
+        alternative). The buffer flags the attribution counterfactual-backed
+        iff the contrast clears cf_margin; correlational records are skipped
+        when only_counterfactual_backed.
+
+        No-op (nothing buffered) when use_scientist_attribution is off. MECH-094:
+        a hypothesis-tagged (replay / simulation) latent buffers nothing (the
+        comparators return zeros under simulation_mode AND record() is a no-op).
+        """
+        buf = self.scientist_attribution_buffer
+        if buf is None:
+            return
+
+        sim = bool(getattr(new_latent, "hypothesis_tag", False))
+
+        # First waking tick / simulation tick: just refresh caches (no record).
+        have_history = self._last_action is not None and (
+            self._sci_prev_z_world is not None
+            or self._sci_prev_z_harm_s is not None
+        )
+        if sim or not have_history:
+            if not sim:
+                if new_latent.z_world is not None:
+                    self._sci_prev_z_world = new_latent.z_world.detach().clone()
+                if new_latent.z_harm is not None:
+                    self._sci_prev_z_harm_s = new_latent.z_harm.detach().clone()
+            return
+
+        region = self._scientist_attribution_region()
+
+        with torch.no_grad():
+            # One-hot of the discrete action the env actually executed.
+            _raw_a = self._last_action.detach()
+            if _raw_a.dim() == 1:
+                _raw_a = _raw_a.unsqueeze(0)
+            n_act = _raw_a.shape[-1]
+            _a_idx = int(_raw_a.argmax(dim=-1).flatten()[0].item())
+            a_in = torch.zeros_like(_raw_a)
+            a_in[0, _a_idx] = 1.0
+            # Deterministic discriminating counterfactual: the next action class.
+            _cf_idx = (_a_idx + 1) % max(1, n_act)
+            a_cf = torch.zeros_like(_raw_a)
+            a_cf[0, _cf_idx] = 1.0
+
+            # Place domain -- SD-031 E2WorldForward causal-footprint comparator.
+            if (
+                self.e2_world is not None
+                and self.e2_world.attribution_ready
+                and self._sci_prev_z_world is not None
+                and new_latent.z_world is not None
+            ):
+                zw_prev = self._sci_prev_z_world
+                zw_obs = new_latent.z_world.detach()
+                if zw_obs.dim() == 1:
+                    zw_obs = zw_obs.unsqueeze(0)
+                pred_actual = self.e2_world.forward(zw_prev, a_in)
+                pred_cf = self.e2_world.forward(zw_prev, a_cf)
+                attribution = float((zw_obs - pred_actual).norm(dim=-1).mean().item())
+                cf_contrast = float((pred_actual - pred_cf).norm(dim=-1).mean().item())
+                buf.record(
+                    domain="place",
+                    region=region,
+                    attribution=attribution,
+                    counterfactual_contrast=cf_contrast,
+                    simulation_mode=False,
+                )
+
+            # Self domain -- ARC-033 E2HarmSForward (SD-003 causal_sig).
+            if (
+                self.e2_harm_s is not None
+                and self._sci_prev_z_harm_s is not None
+                and new_latent.z_harm is not None
+            ):
+                zh_prev = self._sci_prev_z_harm_s
+                zh_obs = new_latent.z_harm.detach()
+                if zh_obs.dim() == 1:
+                    zh_obs = zh_obs.unsqueeze(0)
+                pred_actual = self.e2_harm_s.forward(zh_prev, a_in)
+                pred_cf = self.e2_harm_s.counterfactual_forward(zh_prev, a_cf)
+                attribution = float((zh_obs - pred_actual).norm(dim=-1).mean().item())
+                cf_contrast = float((pred_actual - pred_cf).norm(dim=-1).mean().item())
+                buf.record(
+                    domain="self",
+                    region=region,
+                    attribution=attribution,
+                    counterfactual_contrast=cf_contrast,
+                    simulation_mode=False,
+                )
+
+        # Refresh caches for the next tick.
+        if new_latent.z_world is not None:
+            self._sci_prev_z_world = new_latent.z_world.detach().clone()
+        if new_latent.z_harm is not None:
+            self._sci_prev_z_harm_s = new_latent.z_harm.detach().clone()
+
     def _get_context_memory_code_contributions(
         self,
         z_self: torch.Tensor,
@@ -3201,6 +3385,11 @@ class REEAgent(nn.Module):
         # sees the freshly observed z_world / z_self. No-op when
         # use_blocked_agency is False.
         self._update_blocked_agency(new_latent)
+
+        # MECH-276: buffer this tick's counterfactual-backed attribution (the
+        # waking-phase feedstock for the MECH-275 sleep aggregator). No-op when
+        # use_scientist_attribution is False (buffer is None).
+        self._update_scientist_attribution(new_latent)
 
         # SD-058 / MECH-357: advance the avoidance-efficacy eligibility trace.
         # Compares the current z_harm_a (SD-011 affective stream) to the threat

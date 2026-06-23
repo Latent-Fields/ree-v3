@@ -423,6 +423,14 @@ class SleepLoopManager:
         if writeback_metrics:
             merged.update(writeback_metrics)
 
+        # MECH-276: merge the scientist-attribution feedstock readout + apply the
+        # per-cycle decay so newer counterfactual-backed evidence can overcome a
+        # stale prior. No-op when the buffer is absent (bit-identical OFF).
+        sci_buf = getattr(agent, "scientist_attribution_buffer", None)
+        if sci_buf is not None:
+            merged.update(sci_buf.get_metrics())
+            sci_buf.decay_cycle()
+
         # MECH-423 R3: module-tagged interleaved cross-module consolidation.
         # Runs AFTER the existing writeback (additive). Builds default E1 + E2
         # loss closures from the agent's existing replay losses and runs the
@@ -485,13 +493,28 @@ class SleepLoopManager:
 
     @staticmethod
     def _build_evidence_snapshot(agent: "REEAgent") -> Dict:
-        """Snapshot the per-region staleness map at SLEEP_ENTRY.
+        """Snapshot the per-region evidence map at SLEEP_ENTRY.
 
-        Phase D place-domain evidence is the staleness scalar at the
-        replay anchor's region. Read from the agent's StalenessAccumulator
-        when available; otherwise return an empty dict (lookups fall
-        back to 0.0 evidence, so the posterior pulls toward the prior).
+        MECH-276 (when use_scientist_attribution is on): the aggregator
+        evidence IS the waking-phase counterfactual-backed attribution
+        feedstock (claims.yaml MECH-275: sleep aggregates counterfactual-backed
+        attribution, not arbitrary correlation). The buffer's region -> attribution
+        snapshot REPLACES the staleness scalar as the evidence source, and
+        carries a GLOBAL_REGION sentinel for the _lookup_evidence fallback.
+
+        Legacy (MECH-276 off): Phase D place-domain evidence is the MECH-284
+        staleness scalar at the replay anchor's region. Read from the agent's
+        StalenessAccumulator when available; otherwise return an empty dict
+        (lookups fall back to 0.0 evidence, so the posterior pulls toward the
+        prior). Bit-identical to the pre-MECH-276 path.
         """
+        sci_buf = getattr(agent, "scientist_attribution_buffer", None)
+        if sci_buf is not None:
+            try:
+                return dict(sci_buf.evidence_snapshot())
+            except Exception:  # pragma: no cover -- defensive
+                return {}
+
         hippocampal = getattr(agent, "hippocampal", None)
         staleness = getattr(hippocampal, "staleness_accumulator", None)
         if staleness is None:
@@ -540,9 +563,22 @@ class SleepLoopManager:
             return (event[0], event[1])
         return None
 
-    @staticmethod
-    def _lookup_evidence(routed, snapshot: Dict) -> float:
-        """Look up the evidence scalar for a routed event's region key."""
+    # MECH-276 ScientistAttributionBuffer.GLOBAL_REGION sentinel: the snapshot
+    # may carry a global-mean attribution under this key for fallback lookups of
+    # routed regions not visited during the preceding waking phase. Staleness
+    # snapshots never carry it (their .get() falls back to 0.0 as before), so
+    # the legacy evidence path is bit-identical.
+    _GLOBAL_REGION_SENTINEL = ("__global__", "")
+
+    @classmethod
+    def _lookup_evidence(cls, routed, snapshot: Dict) -> float:
+        """Look up the evidence scalar for a routed event's region key.
+
+        Falls back to the MECH-276 GLOBAL_REGION sentinel (global-mean
+        attribution) when the routed region is absent from the snapshot, then to
+        0.0. The fallback is a no-op for staleness snapshots (no sentinel key).
+        """
+        fallback = float(snapshot.get(cls._GLOBAL_REGION_SENTINEL, 0.0))
         event = routed.event
         key_attr = getattr(event, "key", None)
         if (
@@ -551,12 +587,12 @@ class SleepLoopManager:
             and isinstance(key_attr[0], str)
             and isinstance(key_attr[1], str)
         ):
-            return float(snapshot.get((key_attr[0], key_attr[1]), 0.0))
+            return float(snapshot.get((key_attr[0], key_attr[1]), fallback))
         if (
             isinstance(event, tuple)
             and len(event) >= 2
             and isinstance(event[0], str)
             and isinstance(event[1], str)
         ):
-            return float(snapshot.get((event[0], event[1]), 0.0))
-        return 0.0
+            return float(snapshot.get((event[0], event[1]), fallback))
+        return fallback
