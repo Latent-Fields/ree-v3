@@ -1,0 +1,15 @@
+# REE live-status writer -- force-updates the github.com `live-status` branch
+# with a fresh fleet-progress snapshot. Restores the github-readable progress
+# view that the retired 30-min heartbeat liveness tick used to provide, WITHOUT
+# the permanent git-history bloat (the branch is force-reset every tick).
+# Install: copy to /etc/systemd/system/ + `systemctl enable --now ree-live-status.timer`.
+[Unit]
+Description=REE live-status branch writer (github fleet-progress snapshot)
+After=network-online.target ree-coordinator.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/ree-coordinator.env
+ExecStart=/usr/bin/python3 /home/ree/REE_Working/ree-v3/coordinator/deploy/live-status-writer.py
+# Isolated dedicated repo dir; never touches the sync_daemon's tree.

@@ -1,0 +1,14 @@
+# Drives ree-live-status.service. 3-minute cadence: fresh enough to watch an
+# experiment progress, far cheaper than the old per-tick permanent commits
+# (each push abandons the prior snapshot, so nothing accumulates).
+[Unit]
+Description=Run the REE live-status writer every 3 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3min
+AccuracySec=15s
+Persistent=false
+
+[Install]
+WantedBy=timers.target
