@@ -29,10 +29,13 @@ Authoritative invariants preserved from the bash version (DO NOT REMOVE):
   (3) Surge sister-worker pre-check -- cloud-4 is considered AFTER cloud-2
       and cloud-3 in the WORKERS list so their power state and held-count
       are available when cloud-4's surge decision is made.
-  (4) HEARTBEAT_FRESH_MIN >= 35 -- the phase3 sync_daemon heartbeat-writer
-      refreshes the file on state-changes only with a 5-min debounce and
-      a 30-min liveness floor. Tighter values regress to the heartbeat-
-      aging bug fixed 2026-05-31.
+  (4) HEARTBEAT_FRESH_MIN >= 35 -- the FALLBACK floor for the git heartbeat
+      mirror. Since 2026-06-23 freshness/state primarily comes from the
+      coordinator /shadow/status (DB-authoritative, sub-second fresh), so
+      heartbeat_aging effectively never trips for a live worker. The floor
+      still guards the git-fallback path (coordinator unreachable), where
+      the file is refreshed on state-changes only. Tighter values regress
+      to the heartbeat-aging bug fixed 2026-05-31 on that fallback path.
 
 All printed output is ASCII-only.
 """
@@ -43,6 +46,8 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 
 
@@ -54,6 +59,18 @@ DEFAULT_HEARTBEATS_DIR = (
     "/home/ree/REE_Working/REE_assembly/evidence/experiments/runner_heartbeats"
 )
 DEFAULT_ANNOUNCE_SCRIPT = "/usr/local/bin/coordinator_announce_shutdown.sh"
+
+# Phase-3 telemetry transport (2026-06-23). Freshness/state/current_exq now
+# come from the coordinator DB over WireGuard (COORDINATOR_URL/shadow/status,
+# DB-authoritative, no git-commit lag) instead of the git-materialised
+# heartbeat file. This is what let the sync_daemon retire its 30-minute
+# forced "liveness tick" commit -- the single biggest source of REE_assembly
+# git-history churn. The git heartbeat mirror is kept as a fallback when the
+# coordinator is unreachable (bit-identical to the pre-Phase-3 transport) and
+# is still the source for the recent_completed grace window. Both values are
+# read from the scaler's existing EnvironmentFile (/etc/ree-coordinator.env).
+DEFAULT_COORDINATOR_URL = "http://10.8.0.1:8787"
+COORDINATOR_FETCH_TIMEOUT_SECONDS = 6.0
 
 
 # Defaults match cloud-scaler.yml env block exactly.
@@ -164,37 +181,105 @@ def count_held_by_self(queue, affinity):
     return n
 
 
+def fetch_coordinator_status(coordinator_url, coordinator_token,
+                             timeout=COORDINATOR_FETCH_TIMEOUT_SECONDS):
+    """Return {machine: row} from the coordinator /shadow/status, or {} when
+    unconfigured / unreachable / unauthorised. NEVER raises -- a coordinator
+    blip must degrade the scaler to the git-mirror fallback, not crash the
+    tick. Each row carries the DB-authoritative last_seen / state /
+    current_exq the scaler needs (the same columns the git mirror is
+    materialised from, but without the commit lag the liveness tick used to
+    paper over).
+    """
+    url = (coordinator_url or "").rstrip("/")
+    if not url or not coordinator_token:
+        return {}
+    try:
+        req = urllib.request.Request(
+            url + "/shadow/status",
+            headers={"Authorization": "Bearer " + coordinator_token},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            doc = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError,
+            json.JSONDecodeError, ValueError) as exc:
+        log("WARN coordinator /shadow/status fetch failed (%r) -- falling "
+            "back to git heartbeat mirror for this tick" % exc)
+        return {}
+    out = {}
+    for m in doc.get("machines") or []:
+        name = m.get("machine")
+        if name:
+            out[name] = m
+    return out
+
+
+def _read_git_heartbeat(heartbeats_dir, affinity):
+    """Read the git-materialised heartbeat file for one affinity.
+
+    Returns the parsed dict, None when the file is absent, or a sentinel
+    {"_unreadable": "<repr>"} when it exists but cannot be parsed.
+    """
+    path = os.path.join(heartbeats_dir, "%s.json" % affinity)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception as exc:  # noqa: BLE001
+        return {"_unreadable": repr(exc)}
+
+
 def evaluate_heartbeat(heartbeats_dir, affinity, idle_grace_min,
-                       heartbeat_fresh_min, now=None):
+                       heartbeat_fresh_min, now=None, coord_row=None):
     """Return (idle_ok: 0|1, reason: str) describing whether the runner
     is genuinely idle and the shutdown grace window has expired.
 
-    Mirrors the bash inline python decision tree exactly:
+    Decision tree (unchanged from the bash original):
       - heartbeat missing -> idle_ok=1 reason=no_heartbeat
       - tick > 1h stale   -> idle_ok=1 reason=heartbeat_stale (dead)
       - tick > fresh_min  -> idle_ok=0 reason=heartbeat_aging (uncertain)
       - state != idle or current_exq set -> idle_ok=0 reason=state_...
       - last completed within grace -> idle_ok=0 reason=grace_window
       - else -> idle_ok=1 reason=clean_idle
+
+    Transport (2026-06-23): when coord_row (a /shadow/status machine row) is
+    supplied, freshness (last_seen), state, and current_exq are read from the
+    coordinator DB -- always current, no git-commit lag -- which is why the
+    sync_daemon no longer forces a 30-minute liveness commit. The
+    recent_completed grace window still reads the git mirror (result and
+    state-change commits keep it fresh; the coordinator snapshot carries no
+    completion history). When coord_row is None (coordinator unreachable / not
+    configured), the whole decision falls back to the git heartbeat file --
+    bit-identical to the pre-Phase-3 transport.
     """
     if now is None:
         now = datetime.now(timezone.utc)
 
-    path = os.path.join(heartbeats_dir, "%s.json" % affinity)
-    if not os.path.exists(path):
+    git_hb = _read_git_heartbeat(heartbeats_dir, affinity)
+
+    if coord_row is not None:
+        last_tick = parse_utc(coord_row.get("last_seen"))
+        state = coord_row.get("state")
+        current_exq = coord_row.get("current_exq")
+    elif git_hb is None:
         return 1, "no_heartbeat"
-
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            hb = json.load(fh)
-    except Exception as exc:  # noqa: BLE001
+    elif "_unreadable" in git_hb:
         # Treat as no heartbeat rather than crashing -- best-effort tick.
-        return 1, "no_heartbeat_unreadable(%r)" % exc
+        return 1, "no_heartbeat_unreadable(%s)" % git_hb["_unreadable"]
+    else:
+        last_tick = parse_utc(git_hb.get("last_tick_utc"))
+        state = git_hb.get("state")
+        current_exq = git_hb.get("current_exq")
 
-    last_tick = parse_utc(hb.get("last_tick_utc"))
-    state = hb.get("state")
-    current_exq = hb.get("current_exq")
-    completed = hb.get("recent_completed") or []
+    # recent_completed grace window -- always from the git mirror. It is
+    # fed by result + state-change commits (which continue), and a
+    # completion timestamp does not go stale, so it stays correct even
+    # though the file's own last_tick no longer advances every 30 minutes.
+    completed = []
+    if git_hb and "_unreadable" not in git_hb:
+        completed = git_hb.get("recent_completed") or []
     last_completed = None
     for c in completed:
         t = parse_utc(c.get("completed_at"))
@@ -287,12 +372,24 @@ def announce_shutdown(affinity, announce_script, dry_run=False):
 
 def run_once(queue_path, heartbeats_dir, announce_script,
              idle_grace_min, heartbeat_fresh_min, surge_queue_threshold,
-             hub_name, workers, dry_run=False):
+             hub_name, workers, dry_run=False,
+             coordinator_url=None, coordinator_token=None):
     """One pass over the WORKERS list. Mirrors the bash for-loop body
     one-to-one. Returns 0 on success."""
     queue = load_queue(queue_path)
     if queue is None:
         return 1
+
+    # Coordinator telemetry snapshot (one fetch per tick, shared across all
+    # workers). {} when unconfigured/unreachable -> every worker degrades to
+    # the git heartbeat mirror, exactly the pre-Phase-3 behaviour.
+    coord_status = fetch_coordinator_status(coordinator_url, coordinator_token)
+    if coord_status:
+        log("telemetry source=coordinator (%d machine(s) in /shadow/status)"
+            % len(coord_status))
+    else:
+        log("telemetry source=git_mirror_fallback (coordinator "
+            "unconfigured/unreachable this tick)")
 
     # Per-affinity state for the surge-mode sister-worker pre-check.
     # The WORKERS list is ordered so cloud-2 and cloud-3 are populated
@@ -314,9 +411,12 @@ def run_once(queue_path, heartbeats_dir, announce_script,
 
         claimable = count_claimable(queue, affinity)
         held_by_self = count_held_by_self(queue, affinity)
+        coord_row = coord_status.get(affinity)
         idle_ok, idle_reason = evaluate_heartbeat(
             heartbeats_dir, affinity, idle_grace_min, heartbeat_fresh_min,
+            coord_row=coord_row,
         )
+        hb_src = "coord" if coord_row is not None else "git"
         status = hcloud_describe_status(server_name, dry_run=dry_run)
 
         # Stash for the surge branch on a later worker (cloud-4).
@@ -324,9 +424,9 @@ def run_once(queue_path, heartbeats_dir, announce_script,
         worker_held[affinity] = held_by_self
 
         log("[%s affinity=%s] claimable=%d held_by_self=%d status=%s "
-            "idle_ok=%d reason=%s"
+            "idle_ok=%d reason=%s hb_src=%s"
             % (server_name, affinity, claimable, held_by_self, status,
-               idle_ok, idle_reason))
+               idle_ok, idle_reason, hb_src))
 
         if status == "unknown":
             log("  -> server not provisioned yet, skipping")
@@ -436,6 +536,14 @@ def main(argv=None):
         "SURGE_QUEUE_THRESHOLD", DEFAULTS["SURGE_QUEUE_THRESHOLD"])
     hub_name = os.environ.get("HUB_NAME") or DEFAULTS["HUB_NAME"]
 
+    # Coordinator telemetry transport (read from the same EnvironmentFile,
+    # /etc/ree-coordinator.env, that already supplies COORDINATOR_URL +
+    # COORDINATOR_SCALER_TOKEN to this service). When either is absent the
+    # scaler silently uses the git heartbeat mirror.
+    coordinator_url = (os.environ.get("COORDINATOR_URL")
+                       or DEFAULT_COORDINATOR_URL)
+    coordinator_token = os.environ.get("COORDINATOR_SCALER_TOKEN") or ""
+
     # Floor on HEARTBEAT_FRESH_MIN: tighter values regress to the
     # heartbeat-aging idle-stall bug fixed 2026-05-31. If an operator
     # sets a value below 35, clamp and warn.
@@ -453,9 +561,10 @@ def main(argv=None):
         log("WARN HCLOUD_TOKEN not set in environment -- hcloud calls "
             "will likely fail; check /etc/ree-coordinator.env")
 
-    log("cloud-scaler tick: queue=%s heartbeats=%s "
+    log("cloud-scaler tick: queue=%s heartbeats=%s coordinator=%s(token:%s) "
         "idle_grace=%d heartbeat_fresh=%d surge_threshold=%d hub=%s"
-        % (args.queue, args.heartbeats_dir,
+        % (args.queue, args.heartbeats_dir, coordinator_url,
+           "set" if coordinator_token else "MISSING",
            idle_grace_min, heartbeat_fresh_min, surge_queue_threshold,
            hub_name))
 
@@ -469,6 +578,8 @@ def main(argv=None):
         hub_name=hub_name,
         workers=WORKERS,
         dry_run=args.dry_run,
+        coordinator_url=coordinator_url,
+        coordinator_token=coordinator_token,
     )
     return rc
 
