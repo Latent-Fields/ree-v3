@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-22
+**Last updated:** 2026-06-23
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-20)
+## 0. Current V3 State (2026-06-23)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -176,6 +176,10 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | MECH-189: super-ordinal goal-anchor ContextMemory writes substrate (infant_substrate:GAP-11; cross-episode persistent z_goal memory) | development.super_ordinal_goal_formation -- the cross-episode super-ordinal z_goal store that distinguishes a childhood-formed goal hierarchy from an episodic z_goal. New `SuperOrdinalGoalMemory` class in goal.py (sibling to IncentiveTokenBank); AGENT-owned (REEAgent.super_ordinal_goal_memory) and NOT reset by per-episode agent.reset() -- cross-episode persistence is the point. Cue-indexed slots (key = z_world context, value = z_goal anchor, strength); high-salience + high-context-complexity WRITE (allocate-vs-reinforce: contact within merge-similarity REINFORCES an existing anchor; else ALLOCATE a new slot). ADULT READ pulls a sub-floor z_goal toward the best-matching anchor (no benefit pulse), bridging child-phase formation to adult-phase z_goal seeding across novel episodes. Curriculum freeze hook `set_super_ordinal_write_enabled(False)` for the child->adult transition. Pure-arithmetic; no trained parameters; no phased training. 11 GoalConfig fields no-op default; bit-identical OFF; 8 new contracts + 7/7 preflight + 985 contracts pass. | Substrate landed 2026-06-09 (ree-v3 main; design doc `docs/architecture/mech_189_super_ordinal_goal_anchors.md`; closure node `infant_substrate:GAP-11`). **V3-EXQ-588c** (claim_ids=[MECH-189], `supersedes` V3-EXQ-588; LOAD-BEARING acceptance is DISCRIMINATION ARM_ON adult median z_goal > 0.1 AND > per-seed ARM_OFF + 0.1 on >=2/3 seeds; the 0.4 crossing is ADVISORY given the matured-z_goal anchor norm ceilings ~0.37 on the untrained-encoder harness) queued. PROMOTES NOTHING (MECH-189 stays candidate). |
 | MECH-219 (SD-019b): affective-harm hysteretic integrator (z_harm_suffering) | affect.affective_harm_hysteretic_integration -- the tier-2 -> tier-3 step of the harm-affect hierarchy. SD-019a builds z_harm_un (symmetric EMA of z_harm_s); MECH-219 turns it into a slow, persistent, controllability-gated SUFFERING load state (z_harm_suffering). New `HarmSufferingAccumulator` in `ree_core/affect/` (sibling to BlockedAgency). Asymmetric hysteresis: `s_t = s_{t-1} + alpha*(drive_t - s_{t-1})` with `alpha_rise >> alpha_fall` (fast rise, slow fall under recovery); optional Schmitt bistable latch; output `z_harm_suffering = z_harm_un direction scaled to magnitude s_t`. Escapability source PLUGGABLE: constant (default 1.0 -> g=0 -> inert) / `avoidance_efficacy` (reads SD-058 InstrumentalAvoidanceGate.effective_efficacy() -- the literal escapability construct) / external (REEAgent.set_harm_suffering_escapability() seam). NEVER sourced from MECH-353 capacity_belief (avoids the z_harm_a -> capacity_belief -> z_harm_a loop). Body-damage fold-in (default 0.0 weight) preserves SD-022 non-redundancy evidence. v1 wires the urgency/PAG/MECH-091 consumers via per-consumer redirect flags (`harm_suffering_redirect_{aic,pag,mech091}`); dACC/pACC flags defined but UNWIRED in v1 (their E2_harm_a forward models migrate last). 17 REEConfig fields no-op default + bit-identical OFF; 11 new contracts + 7/7 preflight pass. | Substrate landed 2026-06-10 (ree-v3 main; design doc `docs/architecture/mech_219_hysteretic_integrator.md`; plan-of-record `evidence/planning/mech_219_hysteretic_integrator_design.md`). PROMOTES NOTHING (SD-019b stays v3_pending until the controllability-dissociation falsifier C1/C2/C3/C4 PASSes -- separate /queue-experiment session). |
 | MECH-423 readiness substrate: R2 iterative-inference convergence + R3 interleaved cross-module consolidation + R1 shared-latent grad probe | superadditivity.readiness_instrumentation -- the three readiness readouts EXP-0380 super-additivity acceptance_checks require but the live ree-v3 eval path lacked (so the super-additivity ablation would self-route substrate_not_ready_requeue every run = vacuous probe). R2 (iterative-inference convergence; ARC-004 amend): `LatentStack.encode` generalises the single top-down round into a predictive-coding settling loop over the shared z_beta / z_theta / z_delta stack, tracking per-round `||delta z_shared||` with early-stop. R3 (module-tagged interleaved cross-module consolidation; MECH-121 amend): new `CrossModuleConsolidator` takes named modules + loss closures + param lists, tags each replayed trace by which modules it ACTUALLY updated, returns `cross_module_replay_share` (interleaved -> share 1.0 the integrated case; blocked -> share 0.0 the catastrophic-interference control). R1 (reusable utility): `shared_latent_gradient_probe(z_shared, {module: loss_fn})` returns `min_grad_norm` + `mean_pairwise_cosine` (Yu/PCGrad 2020 conflict diagnostic). All 3 no-op default + bit-identical OFF; 12 new contracts pass. | Substrate landed 2026-06-12 (ree-v3 main; design doc `docs/architecture/mech_423_superadditivity_readiness_substrate.md`). PROMOTES NOTHING (MECH-423 stays candidate / v3_pending; EXP-0380 super-additivity ablation flipped blocked_substrate -> proposed). |
+| ARC-108 JOB-1 step-1: learned dopamine-gated E3 selection (signed-RPE w_chan; the next MECH-439 attack -- LEARNED, not arithmetic) | ethics_engine_3.learned_channel_gating -- the first DOPAMINE-INTO-GATING build (ARC-108 ratified into V3 2026-06-22 by user; the V3-minimal slice keeps the routed-habenula efferent + ARC-109 D1/D2 split + full thalamo-cortical loop in v4). w_chan = single learned per-channel selection-weight vector over the `_modulatory_accum` channels (score_bias / mech341 / route); softplus-weighted composition (register_buffer init `ln(e-1)` -> softplus==1.0 EXACTLY float32 -> bit-identical OFF AT INIT + with master flag OFF). Signed RPE `delta_t = R_t - V_hat_t` (R from the trained harm_eval/benefit_eval heads, detached; V from a slow EMA) -- SIGNED and kept SEPARATE from ARC-016 unsigned variance (B5: signed-vs-unsigned is its own falsifier). Three-factor Hebbian x signed-RPE x D1/D2-asymmetric-gain update in `post_action_update`; eligibility recorded in `select()`. Waking-only via `simulation_mode` (MECH-094); `agent.reset()` clears the within-episode trace, w_chan / V_hat persist across episodes. Composes INSIDE the F-bounded MECH-448/449 eligible set (raw scores / F untouched -> safety inherited from the BG constitution). All in `e3_selector.py` (NO parallel module per ARC-106 G2). E3Config flag `use_learned_channel_gating` + 5 sub-knobs no-op default. 9/9 new contracts + 8/8 preflight + 1222/1225 full suite (3 documented pre-existing flakes). | Substrate landed 2026-06-22 (ree-v3 main ae907b5; REE_assembly master 62ed204c9d; design doc `docs/architecture/dopamine_into_gating.md`). **V3-EXQ-700** (sec-7 selection 2x2 falsifier `use_learned_channel_gating x use_learned_settling_step` + verified-lifting ARM_NOISE control; priority 435; queued 2026-06-22) is the headline falsifier. ARC-108 stays candidate / substrate_conditional / v3 (PROMOTES NOTHING; falsifier gates promotion). |
+| MECH-450 (ARC-108 JOB-1 step-2): learned recurrent-settling step + learned lateral-inhibition W_lat (factor 2 of the learned-gating 2x2; B1 + B3-blend repair) | ethics_engine_3.learned_settling_step -- recurrent-settling step over the F-bounded eligible set BEFORE the within-eligible commit argmin/sample. W_lat = LEARNED per-action-class [C, C] inhibition matrix (register_buffer init zero -> settling no-op -> bit-identical OFF + AT INIT). A few rounds (R ~ 3) of mutual lateral-inhibition over `_modulatory_accum[eligible_idx]` carve a competitive winner-take-most (fixes B1 one-shot-argmin -> recurrent-settling AND B3-blend additive-blend -> competitive-winner-take-most together). W_lat updated by the SAME three-factor Hebbian-coactivation x signed-RPE x D1/D2-asymmetric-gain rule as w_chan, sharing the JOB-1 signed-RPE `delta_t` from the post_action_update RPE block (no second forward). Composes INSIDE the MECH-448/449 eligible set (raw scores / F untouched; never re-admits an excluded candidate). Waking-only (mirrors JOB-1 simulation_mode gate); `agent.reset()` clears the within-episode `_lateral_settle` trace via `clear_learned_channel_eligibility`. E3Config flag `use_learned_settling_step` no-op default. Contracts: bit-identical OFF, W_lat moves under non-flat delta_t, settling MOVES `_modulatory_accum` across rounds when ON. | Substrate landed 2026-06-22 (ree-v3 main 9839492; REE_assembly master 89928dc9f6 implementation_note; design doc `docs/architecture/dopamine_into_gating.md` factor-2 section). The 2x2 V3-EXQ-700 falsifier is the validator (factor 2 = `use_learned_settling_step`); MECH-450 stays candidate / substrate_conditional. |
+| ARC-108 JOB-2: dopaminergic control-plane DRIVER pair -- rho_t maintenance ramp + habenula negative-delta_t de-commit (the driver of the commit/maintain/de-commit machinery REE built but never gave its neuromodulator) | control_plane.dopaminergic_driver_pair -- two coupled levers per `unified_dopamine_substrate_design_2026-06-22.md` sec 7.2. (1) rho_t maintenance ramp (new `ree_core/policy/rho_maintenance_ramp.py`) = goal_proximity x benefit valuation; REPLACES the flat-hold maintenance driver of the natural-commit latch-hold re-assert so the hold self-limits past the proximity peak (B6 / V3-EXQ-460h structural fix; composes with MECH-090/342/SD-034, all yields kept; precondition `use_natural_commit_latch_hold`). (2) Habenula negative-delta_t de-commit = new internal-scalar abort input to the SD-034 ClosureOperator (`habenula_tick` reason='habenula', same 5-part `_fire`) fired from `agent.update_residue` on `delta_t < threshold`; ADDED alongside the refractory release (not replaced); content-driven + dissociable from the refractory clock (D3 discriminator); routed efferent stays V4. REUSES the JOB-1 signed-RPE `delta_t = R_t - V_hat_t` (post_action_update broadened: compute when JOB-1 OR habenula on; JOB-1 path bit-identical). No-op-default flags `use_rho_maintenance_ramp` + `use_habenula_decommit` -> bit-identical OFF; waking-only (MECH-094); no parallel module (ARC-106 G2). 8/8 new contracts + 8/8 preflight + 1240 full pass. | Substrate landed 2026-06-22 (ree-v3 main c5614ab; REE_assembly master 45b6821217; design doc `docs/architecture/arc_108_job2_control_plane.md`). **V3-EXQ-460l** (JOB-2 control-plane L0 / L1 / L2 falsifier on the closure-exclusive de-commit eval substrate; supersedes V3-EXQ-460k; priority 424; queued 2026-06-22) is the falsifier. ARC-108 / MECH-445 / MECH-446 stay candidate / substrate_conditional / v3 (PROMOTES NOTHING). |
+| ARC-108 sec-7 C3: learned_channel_rpe_mode signed / unsigned ablation flag (the signed-RPE-is-load-bearing falsifier knob; unblocks V3-EXQ-700 C3 arm) | ethics_engine_3.learned_channel_rpe_mode -- a runtime knob on the JOB-1 RPE substitution: `signed` (default) uses `delta_t = R_t - V_hat_t`; `unsigned` substitutes abs running_variance as the teaching signal in BOTH w_chan and W_lat updates (the same substitution in both factors so C3 is a single switch, not two). Adds the substrate the C3 falsifier needs without touching scientific defaults. No-op default = signed (bit-identical to the JOB-1/MECH-450 path); from_dims-mirrored E3Config flag; contracts pin signed/unsigned divergence under non-flat delta_t. | Substrate landed 2026-06-22 (ree-v3 main 55742c1; design doc `docs/architecture/dopamine_into_gating.md` C3 ablation section). **V3-EXQ-700a** (ARC-108 sec-7 C3 signed-vs-unsigned-RPE ablation falsifier; 4 arms x 3 seeds; sibling of V3-EXQ-700 not a supersede; priority 433; queued 2026-06-22) is the falsifier; PROMOTES NOTHING (ARC-108 substrate_conditional). |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -193,6 +197,92 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-23T01:13Z nightly read (scheduled `/update-docs`).** ARC-108 dopamine-into-gating
+  V3-minimal build day -- the JOB-1 selection learner + JOB-2 control-plane DRIVER pair both
+  landed; ARC-108 was ratified V4 -> V3 by the user 2026-06-22 and the V3-minimal slice
+  (shared primitive `delta_t` / `V_hat_t` / `rho_t` + JOB-1 learned w_chan + MECH-450 W_lat
+  settling + JOB-2 maintenance-ramp + habenula internal-de-commit) is now in tree.
+  `evidence/experiments/` flat top-level now holds **482 `v3_exq_*.json` manifests + 1
+  `v4_exq_*.json`** (PASS 145 / FAIL 295 / other 42 by status field; ~7 since the
+  2026-06-22 read). Aggregated across the 8 per-machine Phase-3 `runner_status/` cards:
+  **895 unique completed queue_ids** (PASS 292 / FAIL 439 / ERROR 103 / UNKNOWN 60 /
+  INCONCLUSIVE 1; the legacy single-file `runner_status.json` is fully retired -- the
+  per-machine cards are now the only telemetry surface). **Pending review queue
+  (regenerated 2026-06-22T21:09Z): 1 item** -- **V3-EXQ-460k** natural-commit-occupancy-release
+  rung-6 de-commit falsifier (FAIL 2026-06-22T19:17Z; `claim_ids=[MECH-445, MECH-446]`;
+  the confirmed failure-autopsy `failure_autopsy_V3-EXQ-460k_2026-06-22` ruled it
+  non_contributory + fired the 4th substrate-ceiling re-derive brake of the lineage,
+  routing the next attack at the dopaminergic control-plane build via the JOB-2 pair).
+  **Currently queued (`experiment_queue.json` items[]): 3 items** -- all three are the
+  freshly-queued ARC-108 selection / C3 / control-plane falsifiers on the just-built
+  substrate: **(a) V3-EXQ-699** (priority 430; `claim_ids=[MECH-448]`; arc_062 GAP-A
+  envelope-vs-top-k contrast on the BG-constitution-amended substrate);
+  **(b) V3-EXQ-700** (priority 435; `claim_ids=[MECH-439, ARC-108, MECH-450]`; the
+  headline ARC-108 sec-7 SELECTION 2x2 `use_learned_channel_gating x use_learned_settling_step`
+  falsifier + verified-lifting ARM_NOISE control); **(c) V3-EXQ-700a** (priority 433;
+  `claim_ids=[MECH-439, ARC-108, MECH-450]`; the sibling ARC-108 sec-7 C3 signed-vs-unsigned-RPE
+  ablation falsifier using the just-built `learned_channel_rpe_mode` flag).
+  **Substrate / governance landings since the 2026-06-22T01:12Z spec sync (ARC-108
+  unified-dopamine V3-minimal slice in three coupled passes):** (1) **ARC-108 JOB-1
+  step-1: learned dopamine-gated E3 selection landed** (ree-v3 main ae907b5;
+  REE_assembly master 62ed204c9d; design doc `docs/architecture/dopamine_into_gating.md`).
+  w_chan single learned per-channel selection-weight vector over the `_modulatory_accum`
+  channels, softplus-weighted composition (init `ln(e-1)` -> softplus==1.0 EXACTLY
+  float32 -> bit-identical OFF AT INIT); signed RPE `delta_t = R_t - V_hat_t` (R from
+  trained harm_eval / benefit_eval heads, detached; V from a slow EMA), SIGNED and kept
+  SEPARATE from ARC-016 unsigned variance (B5 ablation reserved as its own falsifier);
+  three-factor Hebbian x signed-RPE x D1/D2-asymmetric-gain update in `post_action_update`;
+  eligibility recorded in `select()`. Composes INSIDE the F-bounded MECH-448 / MECH-449
+  eligible set (raw scores / F untouched -> safety inherited). All in `e3_selector.py`
+  (NO parallel module per ARC-106 G2). E3Config flag `use_learned_channel_gating` + 5
+  sub-knobs no-op default. 9/9 new contracts + 8/8 preflight + 1222/1225 full suite
+  (3 documented pre-existing flakes; CONFIRMED on clean stash). (2) **MECH-450 JOB-1
+  step-2: learned recurrent-settling step + W_lat landed** (ree-v3 main 9839492;
+  REE_assembly master 89928dc9f6 implementation_note). W_lat learned per-action-class
+  [C, C] inhibition matrix (register_buffer init zero -> settling no-op -> bit-identical
+  OFF + AT INIT); a few rounds (R ~ 3) of mutual lateral-inhibition over the F-bounded
+  eligible set BEFORE the within-eligible commit argmin / sample (fixes B1 one-shot-argmin
+  -> recurrent-settling AND B3-blend additive-blend -> competitive-winner-take-most
+  together). W_lat updated by the SAME three-factor rule as w_chan, sharing the JOB-1
+  signed-RPE `delta_t` (no second forward). Waking-only; `agent.reset()` clears the
+  within-episode `_lateral_settle` trace via `clear_learned_channel_eligibility`.
+  Composes inside the MECH-448 / MECH-449 eligible set; never re-admits an excluded
+  candidate. The 2x2 V3-EXQ-700 falsifier is the validator. (3) **ARC-108 JOB-2 control-plane
+  DRIVER pair landed** (ree-v3 main c5614ab; REE_assembly master 45b6821217; design doc
+  `docs/architecture/arc_108_job2_control_plane.md`). rho_t maintenance ramp (new
+  `ree_core/policy/rho_maintenance_ramp.py`) = goal_proximity x benefit valuation;
+  REPLACES the flat-hold maintenance driver so the natural-commit latch-hold self-limits
+  past the proximity peak (B6 / 460h structural fix; composes with MECH-090 / MECH-342 /
+  SD-034). Habenula negative-delta_t de-commit = new internal-scalar abort input to the
+  SD-034 ClosureOperator (`habenula_tick` reason='habenula', same 5-part `_fire`) fired
+  from `agent.update_residue` on `delta_t < threshold`; ADDED alongside the refractory
+  release; content-driven + dissociable. REUSES the JOB-1 signed-RPE `delta_t` (no second
+  forward; JOB-1 path bit-identical). 8/8 new contracts + 8/8 preflight + 1240 full pass.
+  (4) **ARC-108 sec-7 C3 ablation flag landed** (ree-v3 main 55742c1) -- runtime
+  `learned_channel_rpe_mode` (signed / unsigned) switches the teaching signal in BOTH
+  w_chan and W_lat updates so V3-EXQ-700a can run C3 as a single switch, not two. Signed
+  is default (bit-identical to the JOB-1/MECH-450 path). (5) **ARC-108 pulled v4 -> v3**
+  (REE_assembly master earlier in the day) -- user ratification 2026-06-22 of the
+  V3-minimal slice; the V4 sub-cuts (routed habenula efferent, ARC-109 D1/D2 split,
+  full thalamo-cortical loop) stay v4. (6) **ARC-110 (parallel segregated motor /
+  cognitive-set / motivational loops) + ARC-111 (context-conditioned weights proper)
+  registered** in claims.yaml (REE_assembly master 3080dc8371) -- ARC-110 = 4th
+  basal-ganglia missing piece per the assembly map, wired BOTH ways with ARC-108
+  (Haber dopamine-spiral co-requisite); ARC-111 = weight-form sibling of the ARC-044
+  gain unifier, first instance = ARC-108 w_chan. MECH-062 stable -> candidate
+  (tri-loop gating asserted-but-COLLAPSED in v3 per assembly-map A.2). **Bottleneck
+  (continuation):** **MECH-439 F-dominance conversion ceiling stays the live root
+  choke**, the arithmetic-envelope BG-constitution build (MECH-448 promoted candidate ->
+  provisional; MECH-449 Go/No-Go OPPONENCY leg in flight via V3-EXQ-689g) has set the
+  matched constant across all downstream retests, and the next attack is now LEARNED
+  dopamine-gated selection via the ARC-108 sec-7 SELECTION 2x2 (V3-EXQ-700) + the
+  SIGNED-RPE-is-load-bearing C3 ablation (V3-EXQ-700a) + the JOB-2 control-plane
+  driver pair (V3-EXQ-460l). All three runs are blocked on a worker waking + claiming
+  them; the cloud scaler is the gate -- the local Mac is dispreferred for new work
+  (no spin-up; cloud-first per the prefer-cloud-over-laptop convention).
+  **ETHICS-PERIMETER Phase 0 datum** stays on the record (Phases 1-3 deferred;
+  NON-BLOCKING for V3 green-board 2026-07-19).
 
 - **2026-06-22T01:12Z nightly read (scheduled `/update-docs`).** ARC-107 BG-selector
   constitution OPPONENCY-leg build day -- MECH-449 Go/No-Go follow-on landed alongside
