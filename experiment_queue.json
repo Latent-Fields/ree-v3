@@ -8,30 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-701a",
-      "title": "INV-050 MEL-measurability diagnostic, CONVERGED-P0 re-issue (recon-primary world-forward P0 + per-seed R2 gate); supersedes V3-EXQ-701",
-      "script": "experiments/v3_exq_701a_inv050_mel_measurability_converged_p0.py",
-      "priority": 436,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-701",
-      "claim_id": "INV-050",
-      "note": "INV-050 MEL-measurability diagnostic, converged-P0 re-issue. SUPERSEDES V3-EXQ-701 (confirmed failure_autopsy_V3-EXQ-701_2026-06-23: non_contributory on a P0-convergence confound -- BOTH readiness gates unmet: R2 world_model_converged=-2.60 [the SD-056 P0 world-forward DIVERGED, per-step PE rose ~260% over CONV_EPISODES=20] + R1 pe_response=-0.005, making the R1/C1 novelty-flatness uninterpretable, the V3-EXQ-642 untrained-substrate confound). ROOT CAUSE (code-confirmed): e2.world_forward is 'NOT trained as E2 primary objective' (e2_fast.py:185); the 701 P0 trained ONLY the SD-056 InfoNCE contrastive (action-DIVERGENCE) loss with NO reconstruction anchor, so world_forward drifted to maximise action-spread while absolute one-step PE (= the e3 prediction_error the MEL reads, e3_selector.py:2002) DEGRADED. THE FIX: (1) P0 trains the world-forward RECONSTRUCTION MSE as the PRIMARY objective (||world_forward(z0,a)-z1||^2 over the buffered transitions) with the SD-056 contrastive demoted to a small auxiliary (L_E2 = L_recon + w_contrast*L_contrast, the SD-056 design 701 omitted); (2) CONV_EPISODES 20->60; (3) PER-SEED R2 readiness gate -- interpret R1 (pe_response) + C1 (MEL monotonic) ONLY on seeds where conv_rel_drop>=MIN_REL_CONV_DROP=0.10, self-route substrate_not_ready_requeue unless >=2/3 seeds converge; (4) KEEP the raw per-step e3 prediction_error frozen-window MEL instrument (fixes 677's batch-loss wash-out). Commitment-free / NO sleep (waking-side IV probe only). DECISIVE OUTCOME: R2 met + R1 met + C1 FAIL -> mel_not_modulated_by_novelty = the GENUINE MEL-measurability ceiling on V3 (no longer the 642/701 P0 confound) -> route to substrate enrichment / a stronger MEL manipulation and fire the INV-050 re-derive brake at autopsy; C1 lifts -> INV-050 IV precondition MET (the deferred adaptive sleep-cadence enrichment becomes worth building). 4 graded-novelty arms x 3 seeds. claim_ids=[INV-050]; experiment_purpose=diagnostic (scoring-excluded); PROMOTES NOTHING (INV-050 invariant, substrate-blocked/v3_pending). RE-DERIVE BRAKE NOT FIRED (Step 2.5b): INV-050 has 1 prior non_contributory autopsy under its tag (the 701 autopsy itself; threshold 2), AND a `diagnostic` re-queue that discriminates WHY the ceiling holds is brake-exempt by rule; the 701 autopsy explicitly set re_derive_brake.fired=false + routing=queue-experiment + recommended_substrate_queue_entry.action=none (test-bed construction, not substrate enrichment). RECURRENCE: 677 (MECH-180 sleep-side) + 701 (INV-050 no-sleep IV) both showed novelty not moving PE, each under a confound; this converged-P0 run is the decisive test. GATES: py_compile OK; ASCII clean (0 non-ascii); validate_experiments --strict --paths OK (runner conformance + multi-arm arm_fingerprint); validate_queue OK; dry-run smoke exit 0 -- the recon-primary P0 CONVERGED even at toy scale (R2 True, conv_frac 1.00, vs 701's diverged -2.60) and correctly self-routed substrate_not_ready_requeue (toy R1 shock probe unmet); dry-run manifest relocated out of evidence/ by emit_outcome(dry_run=True).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-23T05:10:45Z"
-      },
-      "claim_ids": [
-        "INV-050"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 70,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_701a_inv050_mel_measurability_converged_p0",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-700",
       "title": "ARC-108 sec-7 learned-gating 2x2 falsifier (learned w_chan x learned W_lat settling) on the GAP-A foraging substrate",
       "script": "experiments/v3_exq_700_arc108_sec7_learned_gating_2x2.py",
