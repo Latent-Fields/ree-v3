@@ -71,25 +71,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-588d",
-      "title": "MECH-189 trained-encoder forced-feed super-ordinal absolute-0.4-crossing readiness diagnostic (GAP-11b; 588c successor)",
-      "script": "experiments/v3_exq_588d_mech189_trained_encoder_absolute_crossing.py",
-      "priority": 428,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "note": "infant_substrate:GAP-11b. DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[] -> scoring-excluded; PROMOTES NOTHING). The trained-encoder evidence successor that closed infant_substrate:GAP-11 (V3-EXQ-588c PASS) deferred: does a TRAINED z_world encoder (P0 SD-018 proximity warmup -> larger ||z_world|| -> larger matured z_goal -> larger stored anchor) lift the adult MECH-189 seeding readout across the DEV-NEED-006 0.4 ABSOLUTE gate that 588c near-missed at 0.394 on the untrained-encoder harness? BRAKE-EXEMPT per user 2026-06-23: MECH-189 has 2 substrate_ceiling autopsies (588/669a) + is substrate_ceiling/pending_retest with a 2026-06-19 'don't re-queue the 669 line until context-diversity lands' note, but this is NOT the 669 line -- it uses the 588c forced-feed SINGLE-ANCHOR harness (bypasses both 669a ecological-contact starvation and 669b nursery anchor-store context-diversity saturation) to test a DIFFERENT root (untrained-encoder z_world-magnitude artifact vs context-diversity). Self-routes: readiness unmet (encoder didn't train / no anchors / no seeding) -> substrate_not_ready_requeue; readiness met + crosses 0.4 -> trained_encoder_absolute_crossing_met (route a claim-tagged MECH-189/DEV-NEED-006 evidence successor); readiness met + no cross -> absolute_crossing_ceiling_persists (genuine ceiling survives a trained encoder; route substrate enrichment + fire the MECH-189 re-derive brake at autopsy; NOT a falsification). Smoke: dry-run exit 0, readiness met, OFF baseline ~0 (non-degeneracy), 0.4 not crossed at toy scale -> ceiling_persists verdict as designed; dry manifest relocated out of evidence/.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-23T07:30:40Z"
-      },
-      "claim_ids": [],
-      "conditions": 2,
-      "episodes_per_run": 44,
-      "experiment_type": "v3_exq_588d_mech189_trained_encoder_absolute_crossing",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-703",
       "title": "MECH-276 scientist-agent counterfactual-backed attribution feedstock -- substrate-readiness diagnostic (claim_ids=[]; PROMOTES NOTHING; does NOT promote MECH-275)",
       "script": "experiments/v3_exq_703_mech276_scientist_attribution_readiness.py",
@@ -97,7 +78,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 60,
       "note": "Substrate-readiness for the MECH-276 feedstock landed 2026-06-23 (ree_core/attribution/scientist_attribution_buffer.py). P0 trains SD-031 E2WorldForward on real action-conditional env transitions (positive-control readiness world_forward_r2); ARM_CF_BACKED vs ARM_CORRELATIONAL (only_counterfactual_backed lever) vs ARM_OFF (legacy staleness). Self-routes substrate_not_ready_requeue if world_forward untrained OR cf_margin does not straddle (recalibrate), NEVER a substrate-verdict label. PASS unblocks the SEPARATE MECH-275 sleep-aggregation promotion run + re-adding MECH-275 to sleep_substrate:GAP-3b unblocks_claims. Diagnostic -> excluded from governance scoring. Prefer cloud (world_dim=128 + P0 training).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-23T07:42:19Z"
+      },
       "claim_ids": [],
       "conditions": 3,
       "episodes_per_run": 300,
