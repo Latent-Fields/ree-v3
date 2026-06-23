@@ -369,6 +369,54 @@ The panel and this guide exist to keep the story at your three-step level.
 
 ---
 
+## Hub telemetry transport + services (2026-06-23)
+
+Three hub-local pieces govern how fleet telemetry reaches git / GitHub. The
+units/script are version-controlled in `deploy/`, but the systemd files +
+drop-in live in `/etc` and are **not auto-applied** -- re-apply on a hub rebuild.
+
+1. **Liveness-tick retired (git-churn fix).** The heartbeat writer used to force
+   a `phase3-heartbeats: liveness tick` commit every 30 min even when nothing
+   changed -- the dominant source of `REE_assembly` git-history bloat. Retired via
+   a drop-in raising the floor to once-daily:
+   ```
+   # /etc/systemd/system/ree-sync-daemon.service.d/heartbeat-liveness.conf
+   [Service]
+   Environment=PHASE3_HEARTBEAT_LIVENESS_INTERVAL=86400
+   ```
+   The writer still commits every **state-change** (start/finish/switch/idle/
+   silent/restart), so no event data is lost -- only the redundant "still alive"
+   pings stopped. Consequence: `overall_pct` / `episodes_done` / `recent_lines`
+   on `origin/master` are **stale between state-changes by design**. Do NOT lower
+   the interval to "fix" this -- read live progress from the sources in (3).
+
+2. **cloud-scaler reads telemetry coordinator-primary.** `deploy/cloud-scaler.py`
+   sources freshness/state/`current_exq` from the coordinator `/shadow/status`
+   (DB-authoritative) using its existing `COORDINATOR_URL` + `COORDINATOR_SCALER_TOKEN`
+   env, with the git heartbeat mirror only as an unreachable-coordinator fallback
+   (+ the `recent_completed` grace window). This is why retiring the liveness tick
+   is safe -- the scaler no longer depends on the git file's freshness.
+   `HEARTBEAT_FRESH_MIN >= 35` now only guards the git fallback path.
+
+3. **Live progress -> the `live-status` branch.** `deploy/live-status-writer.py`
+   (driven by `ree-live-status.timer`, ~3 min) force-updates the `live-status`
+   branch of `REE_assembly` with a Markdown + JSON fleet snapshot (current EXQ,
+   episodes-done, `overall_pct`, ETA, queue), read at
+   <https://github.com/Latent-Fields/REE_assembly/blob/live-status/FLEET_STATUS.md>.
+   The branch is force-reset to a **parentless single commit** each tick, so each
+   push abandons the prior snapshot (it dangles + gc-reclaims on the hub and
+   GitHub) and `master` history never grows. The writer runs in an **isolated
+   dedicated repo dir** (`/home/ree/live-status-repo`) so it can never dirty the
+   `sync_daemon` tree. Install:
+   ```
+   sudo cp ~/REE_Working/ree-v3/coordinator/deploy/ree-live-status.{service,timer} \
+           /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now ree-live-status.timer
+   ```
+
+Also live (no git): the explorer `/machines` dashboard and coordinator
+`/shadow/status` -- both sub-second fresh from the DB.
+
 ## File map
 
 | Question | Read |
