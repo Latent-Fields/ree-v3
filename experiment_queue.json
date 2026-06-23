@@ -33,31 +33,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-700a",
-      "title": "ARC-108 sec-7 C3 signed-vs-unsigned-RPE ablation falsifier (A1_SIGNED must convert vs C3_A1_UNSIGNED must FAIL) on the GAP-A foraging substrate",
-      "script": "experiments/v3_exq_700a_arc108_sec7_c3_signed_vs_unsigned_rpe.py",
-      "priority": 433,
-      "machine_affinity": "any",
-      "estimated_minutes": 560,
-      "claim_id": "ARC-108",
-      "note": "ARC-108 sec-7 C3 signed-vs-unsigned-RPE ablation falsifier (design-of-record dopamine_into_gating_design_2026-06-22.md sec 5.2 C3; build record ree-v3/CLAUDE.md 'ARC-108 sec-7 C3'). SIBLING of V3-EXQ-700 (adds the deferred C3 arm), NOT a supersede -- 700 delivers C1/C2 on the 2x2; 700a delivers C3. The deferred C3 is now runnable via the just-landed E3Config.learned_channel_rpe_mode flag (ree-v3 55742c1): under 'unsigned' the three-factor update substitutes abs(ARC-016 running_variance) for the signed delta_t in BOTH the w_chan and W_lat updates (divergence B5); 'signed' is bit-identical. 4 arms x 3 seeds: A0_ENVELOPE_ONLY (conversion baseline) / A1_SIGNED (use_learned_channel_gating, rpe_mode=signed default -- must convert) / C3_A1_UNSIGNED (A1 config + rpe_mode=unsigned -- must FAIL to convert) / ARM_NOISE (verified-lifting matched-noise bar, 569g/684). The landed arithmetic envelope (demotion + adaptive-floor + go_nogo + modulatory-authority/top_k shortlist + matured CRF stack) is a MATCHED CONSTANT on all arms (exactly as V3-EXQ-699/700); settling W_lat OFF on all arms (C3 isolates the w_chan signed-vs-unsigned). PRIMARY DV = committed-action-class entropy. PASS supports = A1_SIGNED converts (strict-above BOTH A0 AND the verified-lifting noise control on >=2/3 seeds) AND C3_A1_UNSIGNED does NOT -> the SIGN (directional credit) is load-bearing. If unsigned converts JUST AS WELL -> signed-RPE REFUTED -> route back to ARC-016 (precision re-weighting), do NOT mint a learning claim (weakens ARC-108/MECH-450; MECH-439 still supports the liftability). C3-SPECIFIC non-vacuity self-route substrate_not_ready_requeue if the UNSIGNED arm's OWN learning signal (abs running_variance, emitted as lcg_delta_t) is flat OR its w_chan never moves (a no-conversion there would be vacuous, not a falsification); plus the GAP-A guards (pool divergent / signed delta_t flat / signed weights never move / noise control not lifting). MECH-450 (W_lat, OFF here) borne-on via the SHARED signed-RPE teaching signal the rpe_mode flag substitutes identically in the W_lat update. experiment_purpose=evidence. PROMOTES NOTHING (MECH-439 substrate_ceiling + ARC-108/MECH-450 substrate_conditional => promote/demote suppressed). RE-DERIVE BRAKE RELEASED (Step 2.5b): brake fired on MECH-439 (3 substrate_ceiling autopsies: 689/689a/f-dominance-cluster) but those circled the ARITHMETIC-envelope levers (MECH-447/448/449), a DIFFERENT mechanism class than learned gating; AND the specific upstream substrate the C3 needs (E3Config.learned_channel_rpe_mode) is freshly BUILT (ree-v3 55742c1, documented IMPLEMENTED in ree-v3/CLAUDE.md). ARC-108/MECH-450: 0 autopsies. GATES: py_compile OK; validate_experiments --strict --paths OK (runner conformance + multi-arm arm_fingerprint with rpe_mode folded in); ASCII clean; validate_queue OK; wiring probe confirmed rpe_mode threads to cfg.e3.learned_channel_rpe_mode per arm (only C3_A1_UNSIGNED=unsigned; settle_on=False all arms; all 4 agents construct); verdict-branch smoke PASSED all 4 C3 outcome branches deterministically (signed-converts+unsigned-fails->supports / both-converge->refute-weakens / signed-no-lift->non_contributory / unsigned-vacuous->substrate_not_ready) + manifest contract (run_id _v3, epoch). FULL torch --dry-run BLOCKED by Mac memory thrash (load 35+, ~60MB free RAM); training loop is byte-identical to the passing V3-EXQ-700 scaffold (rpe_mode bit-identical under 'signed'; unsigned path proven by substrate contracts C5/C7); user-approved queue-now 2026-06-22.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-22T20:25:49Z"
-      },
-      "claim_ids": [
-        "MECH-439",
-        "ARC-108",
-        "MECH-450"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 250,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_700a_arc108_sec7_c3_signed_vs_unsigned_rpe",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-460m",
       "title": "Closure-plane commit-ENTRY primitive readiness: does use_closure_commit_entry arm + sustain a closure-formed occupancy with zero F-commits? (2-arm diagnostic)",
       "script": "experiments/v3_exq_460m_closure_commit_entry_readiness.py",
@@ -96,21 +71,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-702",
-      "title": "GAP-3b sleep-cluster promotion: discriminative ARM-ON-vs-OFF use_sleep_aggregation_cluster -> MECH-285/272/273 evidence",
-      "script": "experiments/v3_exq_702_gap3b_sleep_cluster_promotion.py",
-      "priority": 431,
-      "machine_affinity": "any",
-      "estimated_minutes": 20,
-      "claim_id": "MECH-285",
-      "note": "sleep_substrate:GAP-3b owed promotion run. Discriminative ARM_OFF vs ARM_ON over use_sleep_aggregation_cluster (offline-consolidation pathway); per-claim scoreable evidence for MECH-285 (staleness-priority replay skew), MECH-272 (SWS routing regime shift), MECH-273 (self-model E2_harm_s aggregation from GAP-4 replay-derived buffer). MECH-275 NOT tagged (substrate_conditional, gated on unbuilt MECH-276). Commitment-free; no F-dominance dependency. claim_ids+evidence_direction_per_claim+non_degenerate_per_claim in manifest. Queued via /queue-experiment concurrent with 2 implement-substrate sessions on the queue file (disjoint sleep-domain new number; pathspec commit + post-commit dropped-file check applied).",
-      "status": "pending",
-      "conditions": 2,
-      "episodes_per_run": 40,
-      "experiment_type": "v3_exq_702_gap3b_sleep_cluster_promotion",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-588d",
       "title": "MECH-189 trained-encoder forced-feed super-ordinal absolute-0.4-crossing readiness diagnostic (GAP-11b; 588c successor)",
       "script": "experiments/v3_exq_588d_mech189_trained_encoder_absolute_crossing.py",
@@ -118,7 +78,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 90,
       "note": "infant_substrate:GAP-11b. DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[] -> scoring-excluded; PROMOTES NOTHING). The trained-encoder evidence successor that closed infant_substrate:GAP-11 (V3-EXQ-588c PASS) deferred: does a TRAINED z_world encoder (P0 SD-018 proximity warmup -> larger ||z_world|| -> larger matured z_goal -> larger stored anchor) lift the adult MECH-189 seeding readout across the DEV-NEED-006 0.4 ABSOLUTE gate that 588c near-missed at 0.394 on the untrained-encoder harness? BRAKE-EXEMPT per user 2026-06-23: MECH-189 has 2 substrate_ceiling autopsies (588/669a) + is substrate_ceiling/pending_retest with a 2026-06-19 'don't re-queue the 669 line until context-diversity lands' note, but this is NOT the 669 line -- it uses the 588c forced-feed SINGLE-ANCHOR harness (bypasses both 669a ecological-contact starvation and 669b nursery anchor-store context-diversity saturation) to test a DIFFERENT root (untrained-encoder z_world-magnitude artifact vs context-diversity). Self-routes: readiness unmet (encoder didn't train / no anchors / no seeding) -> substrate_not_ready_requeue; readiness met + crosses 0.4 -> trained_encoder_absolute_crossing_met (route a claim-tagged MECH-189/DEV-NEED-006 evidence successor); readiness met + no cross -> absolute_crossing_ceiling_persists (genuine ceiling survives a trained encoder; route substrate enrichment + fire the MECH-189 re-derive brake at autopsy; NOT a falsification). Smoke: dry-run exit 0, readiness met, OFF baseline ~0 (non-degeneracy), 0.4 not crossed at toy scale -> ceiling_persists verdict as designed; dry manifest relocated out of evidence/.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-06-23T07:30:40Z"
+      },
       "claim_ids": [],
       "conditions": 2,
       "episodes_per_run": 44,
