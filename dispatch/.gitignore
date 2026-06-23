@@ -3,6 +3,7 @@ dispatch.db
 dispatch.db-wal
 dispatch.db-shm
 dispatch_tokens.json
+.dispatch_client.json
 dispatch-logs/
 dispatch-worktrees/
 __pycache__/

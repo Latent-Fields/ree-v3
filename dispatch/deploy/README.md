@@ -118,8 +118,44 @@ In REE_assembly, via the /queue-experiment skill, author + queue the behavioural
 promotion experiment for sleep_substrate:GAP-3b (MECH-285/272/275/273) ...
 EOF
 ```
-It lands as `staged`; Launch it from the phone when you want it to run. (You can
-wire this into a hook so every chip you spawn is mirrored automatically.)
+It lands as `staged`; Launch it from the phone when you want it to run.
+
+### Auto-mirror every chip (PostToolUse hook)
+
+So you never have to mirror by hand, a Claude Code **PostToolUse hook** mirrors
+every `spawn_task` chip into the queue automatically. The hook script is
+`hooks/mirror_chip_to_dispatch.py` (committed); it reads the chip's prompt from
+the hook's stdin and POSTs it as a `staged` job. It is **fail-open** (always
+exits 0) so a chip is never disrupted, and a **silent no-op** until configured.
+
+1. Tell the hook where the service is (token stays out of git + settings.json):
+   ```
+   cat > ree-v3/dispatch/.dispatch_client.json <<'EOF'
+   { "url": "http://10.8.0.1:8799", "token": "<the phone token>" }
+   EOF
+   ```
+   (`.dispatch_client.json` is git-ignored. Alternatively export `DISPATCH_URL`
+   + `DISPATCH_TOKEN` in the environment Claude Code runs in.)
+
+2. Wire the hook in `.claude/settings.json` (this file is git-ignored, so it is
+   recorded here for reproducibility). Add under `"hooks"`:
+   ```json
+   "PostToolUse": [
+     {
+       "matcher": "mcp__ccd_session__spawn_task",
+       "hooks": [
+         { "type": "command", "timeout": 10,
+           "command": "/opt/local/bin/python3 \"$CLAUDE_PROJECT_DIR/ree-v3/dispatch/hooks/mirror_chip_to_dispatch.py\"" }
+       ]
+     }
+   ]
+   ```
+   The matcher is an exact match on the MCP tool name; stdin delivers
+   `tool_input` (the chip's title/prompt/cwd). Open `/hooks` once (or restart) if
+   the watcher doesn't pick up the edit. Verified firing 2026-06-23.
+
+Now every chip you (or Claude) spawn appears on the phone page as `staged`,
+ready to Launch.
 
 ---
 

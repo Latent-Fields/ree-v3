@@ -215,6 +215,41 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("dispatch/" + jid, branches)
 
 
+    def test_08_mirror_hook(self):
+        # Simulate a PostToolUse spawn_task hook firing: pipe the hook JSON to
+        # the mirror script with DISPATCH_URL/TOKEN env -> a staged chip job.
+        mirror = os.path.join(HERE, "hooks", "mirror_chip_to_dispatch.py")
+        hook_json = json.dumps({
+            "tool_name": "mcp__ccd_session__spawn_task",
+            "tool_input": {"title": "chip via hook", "prompt": "do the chip work",
+                           "tldr": "x", "cwd": "/some/repo"},
+            "tool_response": {"task_id": "task_x"},
+        })
+        env = dict(os.environ)
+        env.update({"DISPATCH_URL": self.base, "DISPATCH_TOKEN": TOKEN})
+        res = subprocess.run([sys.executable, mirror], input=hook_json, env=env,
+                             capture_output=True, text=True, timeout=15)
+        self.assertEqual(res.returncode, 0)  # fail-open: always 0
+        code, d = http("GET", self.base + "/api/jobs")
+        chip = next((j for j in d["jobs"]
+                     if j["title"] == "chip via hook"), None)
+        self.assertIsNotNone(chip)
+        self.assertEqual(chip["status"], "staged")
+        self.assertEqual(chip["source"], "chip")
+        self.assertEqual(chip["cwd"], "/some/repo")
+
+    def test_09_mirror_hook_failopen_when_unconfigured(self):
+        # No DISPATCH_URL/TOKEN, no client config -> silent no-op, exit 0.
+        mirror = os.path.join(HERE, "hooks", "mirror_chip_to_dispatch.py")
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("DISPATCH_URL", "DISPATCH_TOKEN")}
+        # point CLIENT_CONFIG lookup at a dir with no config by running from /tmp
+        res = subprocess.run([sys.executable, mirror],
+                             input='{"tool_input":{"prompt":"x"}}',
+                             env=env, capture_output=True, text=True, timeout=15)
+        self.assertEqual(res.returncode, 0)
+
+
 class SummarizeUnitTest(unittest.TestCase):
     def setUp(self):
         os.environ.setdefault("DISPATCH_URL", "http://x")
