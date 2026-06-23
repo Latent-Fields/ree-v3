@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd agent for the REE dispatch SERVICE on the Mac (Design B, Mac-hosted).
+     Use this when the phone reaches the Mac directly over WireGuard (the Mac is
+     10.8.0.11 on wg0, same address the explorer is served on) instead of a
+     separate always-on hub. Bind to the WireGuard IP so only WG peers reach it.
+
+     Install:
+       cp com.ree.dispatch-service.plist ~/Library/LaunchAgents/
+       # edit DISPATCH_TOKEN / paths below, then:
+       launchctl load ~/Library/LaunchAgents/com.ree.dispatch-service.plist
+       curl -s http://10.8.0.11:8799/health
+
+     Note: the Mac sleeps, so jobs are enqueued+run while it is awake. For a
+     truly always-on queue, host dispatch_service.py on the hub instead
+     (deploy/ree-dispatch.service) and keep only the executor here. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.ree.dispatch-service</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/local/bin/python3</string>
+    <string>/Users/dgolden/REE_Working/ree-v3/dispatch/dispatch_service.py</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DISPATCH_BIND_HOST</key><string>10.8.0.11</string>
+    <key>DISPATCH_BIND_PORT</key><string>8799</string>
+    <key>DISPATCH_DB</key><string>/Users/dgolden/REE_Working/ree-v3/dispatch/dispatch.db</string>
+    <key>DISPATCH_TOKENS_FILE</key><string>/Users/dgolden/REE_Working/ree-v3/dispatch/dispatch_tokens.json</string>
+    <key>DISPATCH_NTFY_TOPIC</key><string></string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/ree-dispatch-service.out</string>
+  <key>StandardErrorPath</key><string>/tmp/ree-dispatch-service.err</string>
+</dict>
+</plist>
