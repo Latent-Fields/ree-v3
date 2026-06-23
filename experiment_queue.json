@@ -148,17 +148,17 @@
     {
       "queue_id": "V3-EXQ-703",
       "title": "MECH-276 scientist-agent counterfactual-backed attribution feedstock -- substrate-readiness diagnostic (claim_ids=[]; PROMOTES NOTHING; does NOT promote MECH-275)",
-      "experiment_type": "v3_exq_703_mech276_scientist_attribution_readiness",
       "script": "experiments/v3_exq_703_mech276_scientist_attribution_readiness.py",
       "priority": 250,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 60,
-      "episodes_per_run": 300,
-      "seeds": 3,
-      "conditions": 3,
       "note": "Substrate-readiness for the MECH-276 feedstock landed 2026-06-23 (ree_core/attribution/scientist_attribution_buffer.py). P0 trains SD-031 E2WorldForward on real action-conditional env transitions (positive-control readiness world_forward_r2); ARM_CF_BACKED vs ARM_CORRELATIONAL (only_counterfactual_backed lever) vs ARM_OFF (legacy staleness). Self-routes substrate_not_ready_requeue if world_forward untrained OR cf_margin does not straddle (recalibrate), NEVER a substrate-verdict label. PASS unblocks the SEPARATE MECH-275 sleep-aggregation promotion run + re-adding MECH-275 to sleep_substrate:GAP-3b unblocks_claims. Diagnostic -> excluded from governance scoring. Prefer cloud (world_dim=128 + P0 training).",
-      "claim_ids": []
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 3,
+      "episodes_per_run": 300,
+      "experiment_type": "v3_exq_703_mech276_scientist_attribution_readiness",
+      "seeds": 3
     }
   ]
 }
