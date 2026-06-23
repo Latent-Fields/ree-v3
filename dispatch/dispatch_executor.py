@@ -59,6 +59,21 @@ JOB_TIMEOUT = float(os.environ.get("DISPATCH_JOB_TIMEOUT", "3600"))
 KEEP_WORKTREE = os.environ.get("DISPATCH_KEEP_WORKTREE", "1") == "1"
 ONESHOT = os.environ.get("DISPATCH_ONESHOT", "0") == "1"
 
+# Unattended-automation commit identity for the headless `claude -p` session.
+# This runs on the Mac, OUTSIDE HSE employment hours-tracking; the clinical-hours
+# guard (REE_Working/scripts/clinical_hours_guard.py + the pre-commit hook) blocks
+# a PERSONAL-identity commit during clinical hours and tells the caller to set
+# REE_OFFDUTY=1 or re-author as the bot. A headless session cannot answer that, so
+# its commits author as the bot up front -> the guard never blocks dispatched work
+# and personal-authorship provenance stays clean. Name/email MUST match BOT_NAME /
+# BOT_EMAIL in clinical_hours_guard.py + scripts/ree_bot_identity.sh. The noreply
+# email is the same address the cloud "REE Cloud Worker" phase3-* writers use.
+# Scoped to the `claude -p` subprocess env only (run_claude) -- NOT exported
+# globally, so it never touches the operator's interactive shell.
+BOT_GIT_NAME = os.environ.get("DISPATCH_BOT_GIT_NAME", "REE Automation (Mac)")
+BOT_GIT_EMAIL = os.environ.get(
+    "DISPATCH_BOT_GIT_EMAIL", "nooarche@users.noreply.github.com")
+
 
 def now_iso():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -111,9 +126,24 @@ def update(job_id, status, **fields):
 # --------------------------------------------------------------------------
 # git worktree + claude run
 # --------------------------------------------------------------------------
-def _run(cmd, cwd=None, timeout=None):
+def _run(cmd, cwd=None, timeout=None, env=None):
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
-                          timeout=timeout)
+                          timeout=timeout, env=env)
+
+
+def _bot_git_env():
+    """Process env with GIT_{AUTHOR,COMMITTER}_{NAME,EMAIL} pinned to the bot.
+
+    Inherits the current environment and overrides only the four git-identity
+    vars, so the dispatched `claude -p` session's commits are bot-authored while
+    everything else (PATH, auth, etc.) is preserved.
+    """
+    env = os.environ.copy()
+    env["GIT_AUTHOR_NAME"] = BOT_GIT_NAME
+    env["GIT_AUTHOR_EMAIL"] = BOT_GIT_EMAIL
+    env["GIT_COMMITTER_NAME"] = BOT_GIT_NAME
+    env["GIT_COMMITTER_EMAIL"] = BOT_GIT_EMAIL
+    return env
 
 
 def repo_root_for(cwd):
@@ -150,7 +180,7 @@ def run_claude(prompt, cwd, log_path):
             cwd, now_iso()))
         lf.flush()
         try:
-            res = _run(cmd, cwd=cwd, timeout=JOB_TIMEOUT)
+            res = _run(cmd, cwd=cwd, timeout=JOB_TIMEOUT, env=_bot_git_env())
         except subprocess.TimeoutExpired:
             lf.write("\nTIMEOUT after %ss\n" % JOB_TIMEOUT)
             return 124, "timed out after %ss" % int(JOB_TIMEOUT), "timeout"
