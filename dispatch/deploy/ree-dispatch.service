@@ -1,0 +1,41 @@
+# systemd unit for the REE phone-dispatch service (HUB: ree-cloud-1).
+# Standalone + isolated from ree-coordinator/ree-sync-daemon: its own port,
+# db, and token. If it dies it cannot affect the coordinator (sole git writer).
+#
+# Install on the hub:
+#   sudo cp ree-dispatch.service /etc/systemd/system/
+#   # edit paths/user/topic below to match the hub, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ree-dispatch
+#   systemctl status ree-dispatch
+#   curl -s http://10.8.0.1:8799/health
+#
+# Generate the token first:  python3 deploy/gen_token.py
+[Unit]
+Description=REE phone-dispatch service (standalone job queue)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ree
+WorkingDirectory=/home/ree/REE_Working/ree-v3/dispatch
+# Bind to the WireGuard interface IP ONLY (never 0.0.0.0): the phone reaches it
+# over WireGuard; nothing else should.
+Environment=DISPATCH_BIND_HOST=10.8.0.1
+Environment=DISPATCH_BIND_PORT=8799
+Environment=DISPATCH_DB=/home/ree/REE_Working/ree-v3/dispatch/dispatch.db
+Environment=DISPATCH_TOKENS_FILE=/home/ree/REE_Working/ree-v3/dispatch/dispatch_tokens.json
+# Phone push on done/failed (optional). Pick a long random topic; anyone who
+# knows it can read your notifications, so treat it as a secret.
+Environment=DISPATCH_NTFY_TOPIC=
+Environment=DISPATCH_NTFY_SERVER=https://ntfy.sh
+ExecStart=/usr/bin/python3 /home/ree/REE_Working/ree-v3/dispatch/dispatch_service.py
+Restart=on-failure
+RestartSec=5
+# Hardening: this service only needs its own dir + network.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

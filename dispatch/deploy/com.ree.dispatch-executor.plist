@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd agent for the REE dispatch EXECUTOR (runs on the Mac).
+     Polls the hub, runs `claude -p` in a worktree when a job is pending.
+
+     Install:
+       cp com.ree.dispatch-executor.plist ~/Library/LaunchAgents/
+       # edit DISPATCH_URL/DISPATCH_TOKEN/paths below, then:
+       launchctl load ~/Library/LaunchAgents/com.ree.dispatch-executor.plist
+       launchctl start com.ree.dispatch-executor
+       tail -f /tmp/ree-dispatch-executor.out
+
+     The Mac only acts on jobs while awake; jobs wait safely in the hub queue
+     otherwise. RunAtLoad + KeepAlive restart the poller on login/crash.
+
+     IMPORTANT: set DISPATCH_CLAUDE_FLAGS to the autonomy level you want for
+     headless sessions (a bare `claude -p` can stall on a permission prompt).
+     See deploy/README.md "Claude permissions". -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.ree.dispatch-executor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/local/bin/python3</string>
+    <string>/Users/dgolden/REE_Working/ree-v3/dispatch/dispatch_executor.py</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DISPATCH_URL</key><string>http://10.8.0.1:8799</string>
+    <key>DISPATCH_TOKEN</key><string>PASTE_TOKEN_HERE</string>
+    <key>DISPATCH_MACHINE</key><string>macbook</string>
+    <key>DISPATCH_DEFAULT_CWD</key><string>/Users/dgolden/REE_Working/REE_assembly</string>
+    <key>DISPATCH_POLL_SECONDS</key><string>20</string>
+    <key>DISPATCH_CLAUDE_BIN</key><string>claude</string>
+    <key>DISPATCH_CLAUDE_FLAGS</key><string></string>
+    <key>DISPATCH_JOB_TIMEOUT</key><string>3600</string>
+    <!-- claude must be on PATH for a launchd agent; set PATH explicitly. -->
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/ree-dispatch-executor.out</string>
+  <key>StandardErrorPath</key><string>/tmp/ree-dispatch-executor.err</string>
+</dict>
+</plist>

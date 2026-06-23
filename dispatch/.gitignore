@@ -1,0 +1,8 @@
+# Runtime state -- never commit (secrets + local data).
+dispatch.db
+dispatch.db-wal
+dispatch.db-shm
+dispatch_tokens.json
+dispatch-logs/
+dispatch-worktrees/
+__pycache__/
