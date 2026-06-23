@@ -114,6 +114,21 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_699_pcomp_demotion_x_gonogo_composition",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-702",
+      "title": "GAP-3b sleep-cluster promotion: discriminative ARM-ON-vs-OFF use_sleep_aggregation_cluster -> MECH-285/272/273 evidence",
+      "experiment_type": "v3_exq_702_gap3b_sleep_cluster_promotion",
+      "script": "experiments/v3_exq_702_gap3b_sleep_cluster_promotion.py",
+      "priority": 431,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 20,
+      "episodes_per_run": 40,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-285",
+      "note": "sleep_substrate:GAP-3b owed promotion run. Discriminative ARM_OFF vs ARM_ON over use_sleep_aggregation_cluster (offline-consolidation pathway); per-claim scoreable evidence for MECH-285 (staleness-priority replay skew), MECH-272 (SWS routing regime shift), MECH-273 (self-model E2_harm_s aggregation from GAP-4 replay-derived buffer). MECH-275 NOT tagged (substrate_conditional, gated on unbuilt MECH-276). Commitment-free; no F-dominance dependency. claim_ids+evidence_direction_per_claim+non_degenerate_per_claim in manifest. Queued via /queue-experiment concurrent with 2 implement-substrate sessions on the queue file (disjoint sleep-domain new number; pathspec commit + post-commit dropped-file check applied)."
     }
   ]
 }
