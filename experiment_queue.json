@@ -11,16 +11,20 @@
       "queue_id": "V3-EXQ-700b",
       "title": "ARC-108 sec-7 learned-gating settling C3 (test-design-fixed re-run of 700/700a)",
       "script": "experiments/v3_exq_700b_arc108_sec7_learned_gating_settling_c3.py",
-      "experiment_type": "v3_exq_700b_arc108_sec7_learned_gating_settling_c3",
       "priority": 440,
       "machine_affinity": "ree-cloud-4",
-      "machine_affinity_note": "user-pinned to ree-cloud-4 2026-06-23",
-      "status": "pending",
       "estimated_minutes": 420,
-      "claim_id": "MECH-439",
-      "claim_ids": ["MECH-439", "ARC-108", "MECH-450"],
       "supersedes": "V3-EXQ-700",
-      "note": "Test-design-fixed re-run of the ARC-108 sec-7 learned-gating MECH-439 F-dominance falsifier; routed by failure_autopsy_V3-EXQ-700-cluster_2026-06-23 (700 SELECTION 2x2 + 700a C3 both FAILed on a BRITTLE HARNESS, not the claims). Harness fixes: (1) verified-lifting noise bar NOISE_FLOOR_ALPHA 1.0->2.0 kept as a precondition; (2) per-seed-divergent gating (interpret C1/C2/C3 only on divergent seeds, 701a-style, so a degenerate monostrategy cell self-excludes); (3) 6 seeds; (4) focus the settling arm (A2/A3, drop the below-noise w_chan-only A1); (5) fold C3 signed-vs-unsigned-RPE (learned_channel_rpe_mode) in as arms. Positive 700 signal: clean divergent seed 42 -> learned settling (MECH-450 W_lat) lifted committed-class entropy +0.25 over A0 and beat noise; settling is the lever. Matched constant on ALL arms (do NOT toggle): landed arithmetic envelope use_f_eligibility_demotion + adaptive_floor (689e) + use_go_nogo_constitution (689g) + modulatory-authority/top_k k=3 (569i), use_differentiable_cem=False (SD-055 safety). Env reef-bipartite foraging size 12 hazard_food_attraction 0.7; phased P0(e2-train)/P1(bias REINFORCE)/P2(measure). Re-derive brake on MECH-439 (4 autopsies) + ARC-108 (2): EXEMPT per the autopsy (fired:false, user-adjudicated) + standard release path (ARC-108/MECH-450 substrate IMPLEMENTED 2026-06-20/22) -- do NOT re-trip. PRE-REGISTER decisive-or-escalate: STILL no conversion with a now-verified noise bar + per-seed gating -> route to V4 full BG-thalamo-cortical loop (no_lift_preconditions_met_escalate_v4_full_loop), NOT another V3 letter; preconditions-unmet self-routes substrate_not_ready_requeue. Governance: MECH-439 stays substrate_ceiling; ARC-108/MECH-450 stay substrate_conditional; pending_retest_after_substrate; PROMOTES NOTHING. Smoke 2026-06-23: 5/5 arms run end-to-end incl unsigned-RPE path; self-routes substrate_not_ready at toy scale (correct), no manifest leak."
+      "claim_id": "MECH-439",
+      "note": "Test-design-fixed re-run of the ARC-108 sec-7 learned-gating MECH-439 F-dominance falsifier; routed by failure_autopsy_V3-EXQ-700-cluster_2026-06-23 (700 SELECTION 2x2 + 700a C3 both FAILed on a BRITTLE HARNESS, not the claims). Harness fixes: (1) verified-lifting noise bar NOISE_FLOOR_ALPHA 1.0->2.0 kept as a precondition; (2) per-seed-divergent gating (interpret C1/C2/C3 only on divergent seeds, 701a-style, so a degenerate monostrategy cell self-excludes); (3) 6 seeds; (4) focus the settling arm (A2/A3, drop the below-noise w_chan-only A1); (5) fold C3 signed-vs-unsigned-RPE (learned_channel_rpe_mode) in as arms. Positive 700 signal: clean divergent seed 42 -> learned settling (MECH-450 W_lat) lifted committed-class entropy +0.25 over A0 and beat noise; settling is the lever. Matched constant on ALL arms (do NOT toggle): landed arithmetic envelope use_f_eligibility_demotion + adaptive_floor (689e) + use_go_nogo_constitution (689g) + modulatory-authority/top_k k=3 (569i), use_differentiable_cem=False (SD-055 safety). Env reef-bipartite foraging size 12 hazard_food_attraction 0.7; phased P0(e2-train)/P1(bias REINFORCE)/P2(measure). Re-derive brake on MECH-439 (4 autopsies) + ARC-108 (2): EXEMPT per the autopsy (fired:false, user-adjudicated) + standard release path (ARC-108/MECH-450 substrate IMPLEMENTED 2026-06-20/22) -- do NOT re-trip. PRE-REGISTER decisive-or-escalate: STILL no conversion with a now-verified noise bar + per-seed gating -> route to V4 full BG-thalamo-cortical loop (no_lift_preconditions_met_escalate_v4_full_loop), NOT another V3 letter; preconditions-unmet self-routes substrate_not_ready_requeue. Governance: MECH-439 stays substrate_ceiling; ARC-108/MECH-450 stay substrate_conditional; pending_retest_after_substrate; PROMOTES NOTHING. Smoke 2026-06-23: 5/5 arms run end-to-end incl unsigned-RPE path; self-routes substrate_not_ready at toy scale (correct), no manifest leak.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-439",
+        "ARC-108",
+        "MECH-450"
+      ],
+      "experiment_type": "v3_exq_700b_arc108_sec7_learned_gating_settling_c3",
+      "machine_affinity_note": "user-pinned to ree-cloud-4 2026-06-23"
     }
   ]
 }
