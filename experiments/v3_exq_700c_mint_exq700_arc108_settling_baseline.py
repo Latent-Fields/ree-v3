@@ -2,6 +2,33 @@
 """
 V3-EXQ-700c-mint -- low-priority cloud BASELINE MINT for the ARC-108 sec-7 settling lineage.
 
+STATUS: RETAINED AS DOCUMENTATION -- NOT QUEUED (dequeued 2026-06-24).
+--------------------------------------------------------------------
+This script is intentionally NOT in experiment_queue.json. It was queued briefly as
+V3-EXQ-700c-m (machine_affinity ree-cloud-4) and then DEQUEUED because it would have
+DOUBLED work for zero benefit on this run:
+
+  * V3-EXQ-700c SELF-MINTS the four reusable arms AS IT RUNS. The consumer already emits a
+    reuse-ELIGIBLE per-cell `arm_fingerprint` for A0/A2/A3/C3 (the same shared
+    `arm_config_slice`, `include_driver_script_in_hash=False`, `config_slice_declared=True`),
+    so after 700c lands its manifest the governance indexer puts those 24 cells into
+    `arm_fingerprint_index.json` -- reusable by any future consumer at ZERO extra cost.
+  * 700c is PRE-REGISTERED TERMINAL (any further null failure escalates to V4 loop-
+    segregation, a different machine-class; no further V3 letters), so there is no future
+    V3 sibling to consume a separately-minted baseline.
+  * A separate mint only pays off when the baseline must be banked BEFORE a consumer runs
+    so the consumer can SKIP re-training. Here the mint was low-priority (would run AFTER
+    700c) AND 700c self-mints AND there is no successor -- so it was pure redundant compute.
+
+WHEN THIS SCRIPT WOULD BE WORTH QUEUING (the mint path it documents): a NON-terminal family
+of letters/siblings sharing this exact OFF/settling config where you want the baseline
+minted ahead of time so each iteration reuses it. To use it then: re-add an entry to
+experiment_queue.json (queue_id pattern V<gen>-EXQ-<n><letter>(-<letter>), e.g.
+V3-EXQ-700c-m), pin machine_affinity to the consumer's worker class (ree-cloud-4 /
+linux-x86_64-py3.10), let it run FIRST, then set REUSE_BASELINE_FROM=<this run_id> in the
+consuming harness + record the run_id in
+experiments/_lib/baselines/exq700_arc108_settling_baseline.py.
+
 Mints the four REUSABLE arms (A0_ENVELOPE_ONLY / A2_SETTLING_SIGNED / A3_BOTH_SIGNED /
 C3_SETTLING_UNSIGNED) x the 6 seeds of the V3-EXQ-700c harness so a LATER iteration (a
 700d / a sibling falsifier) can arm-reuse them instead of re-training. The fifth arm
