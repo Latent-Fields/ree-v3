@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-23
+**Last updated:** 2026-06-24
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-23)
+## 0. Current V3 State (2026-06-24)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -180,6 +180,8 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | MECH-450 (ARC-108 JOB-1 step-2): learned recurrent-settling step + learned lateral-inhibition W_lat (factor 2 of the learned-gating 2x2; B1 + B3-blend repair) | ethics_engine_3.learned_settling_step -- recurrent-settling step over the F-bounded eligible set BEFORE the within-eligible commit argmin/sample. W_lat = LEARNED per-action-class [C, C] inhibition matrix (register_buffer init zero -> settling no-op -> bit-identical OFF + AT INIT). A few rounds (R ~ 3) of mutual lateral-inhibition over `_modulatory_accum[eligible_idx]` carve a competitive winner-take-most (fixes B1 one-shot-argmin -> recurrent-settling AND B3-blend additive-blend -> competitive-winner-take-most together). W_lat updated by the SAME three-factor Hebbian-coactivation x signed-RPE x D1/D2-asymmetric-gain rule as w_chan, sharing the JOB-1 signed-RPE `delta_t` from the post_action_update RPE block (no second forward). Composes INSIDE the MECH-448/449 eligible set (raw scores / F untouched; never re-admits an excluded candidate). Waking-only (mirrors JOB-1 simulation_mode gate); `agent.reset()` clears the within-episode `_lateral_settle` trace via `clear_learned_channel_eligibility`. E3Config flag `use_learned_settling_step` no-op default. Contracts: bit-identical OFF, W_lat moves under non-flat delta_t, settling MOVES `_modulatory_accum` across rounds when ON. | Substrate landed 2026-06-22 (ree-v3 main 9839492; REE_assembly master 89928dc9f6 implementation_note; design doc `docs/architecture/dopamine_into_gating.md` factor-2 section). The 2x2 V3-EXQ-700 falsifier is the validator (factor 2 = `use_learned_settling_step`); MECH-450 stays candidate / substrate_conditional. |
 | ARC-108 JOB-2: dopaminergic control-plane DRIVER pair -- rho_t maintenance ramp + habenula negative-delta_t de-commit (the driver of the commit/maintain/de-commit machinery REE built but never gave its neuromodulator) | control_plane.dopaminergic_driver_pair -- two coupled levers per `unified_dopamine_substrate_design_2026-06-22.md` sec 7.2. (1) rho_t maintenance ramp (new `ree_core/policy/rho_maintenance_ramp.py`) = goal_proximity x benefit valuation; REPLACES the flat-hold maintenance driver of the natural-commit latch-hold re-assert so the hold self-limits past the proximity peak (B6 / V3-EXQ-460h structural fix; composes with MECH-090/342/SD-034, all yields kept; precondition `use_natural_commit_latch_hold`). (2) Habenula negative-delta_t de-commit = new internal-scalar abort input to the SD-034 ClosureOperator (`habenula_tick` reason='habenula', same 5-part `_fire`) fired from `agent.update_residue` on `delta_t < threshold`; ADDED alongside the refractory release (not replaced); content-driven + dissociable from the refractory clock (D3 discriminator); routed efferent stays V4. REUSES the JOB-1 signed-RPE `delta_t = R_t - V_hat_t` (post_action_update broadened: compute when JOB-1 OR habenula on; JOB-1 path bit-identical). No-op-default flags `use_rho_maintenance_ramp` + `use_habenula_decommit` -> bit-identical OFF; waking-only (MECH-094); no parallel module (ARC-106 G2). 8/8 new contracts + 8/8 preflight + 1240 full pass. | Substrate landed 2026-06-22 (ree-v3 main c5614ab; REE_assembly master 45b6821217; design doc `docs/architecture/arc_108_job2_control_plane.md`). **V3-EXQ-460l** (JOB-2 control-plane L0 / L1 / L2 falsifier on the closure-exclusive de-commit eval substrate; supersedes V3-EXQ-460k; priority 424; queued 2026-06-22) is the falsifier. ARC-108 / MECH-445 / MECH-446 stay candidate / substrate_conditional / v3 (PROMOTES NOTHING). |
 | ARC-108 sec-7 C3: learned_channel_rpe_mode signed / unsigned ablation flag (the signed-RPE-is-load-bearing falsifier knob; unblocks V3-EXQ-700 C3 arm) | ethics_engine_3.learned_channel_rpe_mode -- a runtime knob on the JOB-1 RPE substitution: `signed` (default) uses `delta_t = R_t - V_hat_t`; `unsigned` substitutes abs running_variance as the teaching signal in BOTH w_chan and W_lat updates (the same substitution in both factors so C3 is a single switch, not two). Adds the substrate the C3 falsifier needs without touching scientific defaults. No-op default = signed (bit-identical to the JOB-1/MECH-450 path); from_dims-mirrored E3Config flag; contracts pin signed/unsigned divergence under non-flat delta_t. | Substrate landed 2026-06-22 (ree-v3 main 55742c1; design doc `docs/architecture/dopamine_into_gating.md` C3 ablation section). **V3-EXQ-700a** (ARC-108 sec-7 C3 signed-vs-unsigned-RPE ablation falsifier; 4 arms x 3 seeds; sibling of V3-EXQ-700 not a supersede; priority 433; queued 2026-06-22) is the falsifier; PROMOTES NOTHING (ARC-108 substrate_conditional). |
+| MECH-276: scientist-agent counterfactual-backed attribution feedstock (the waking-phase mechanism the MECH-275 sleep aggregator was structurally blocked on) | agent.scientist_intervention -- new `ree_core/attribution/scientist_attribution_buffer.py` (`ScientistAttributionBuffer` + config; pure-arithmetic, no nn.Module). COMPOSES the existing single-pass comparators (NO new comparator, ARC-106 G2 reuse): SD-031 E2WorldForward (z_world, domain "place") + ARC-033 E2HarmSForward (z_harm_s / SD-003, domain "self"). Per waking tick: `attribution = ||z_observed - E2(z_prev, a_actual)||`; counterfactual_contrast against an argmax-shifted `a_cf`; record iff `cf_contrast >= cf_margin` (only_counterfactual_backed=True default). Per-(domain, region) EMA keyed on the MECH-284/MECH-269 (scale, segment_id) anchor RegionKey, with a GLOBAL_REGION sentinel fallback. `evidence_snapshot()` merges domains into a region->attribution map; `phase_manager._build_evidence_snapshot` SOURCES this feedstock REPLACING the MECH-284 staleness scalar when the buffer is present (`_lookup_evidence` honours the sentinel; absent buffer -> legacy staleness path bit-identical). `use_scientist_attribution` master flag (default False -> agent.scientist_attribution_buffer is None -> bit-identical). PRECONDITION: requires `use_e2_world_forward` OR `use_e2_harm_s_forward` (loud ValueError otherwise). Buffer PERSISTS across episodes; agent.reset() clears only the prev-latent caches. MECH-094: record() is a no-op under simulation_mode. DETECTOR DEPENDS ON A TRAINED comparator (untrained world_forward floors to vacuous zero, same SD-031 / V3-EXQ-642 lesson). | Substrate landed 2026-06-23 (ree-v3 main 34afa82; REE_assembly master 6b887cdd3f; design doc `docs/architecture/scientist_agent_developmental_ordering.md` updated, MECH-276 V3 substrate IMPLEMENTED). **V3-EXQ-703** substrate-readiness diagnostic (`claim_ids=[]`; cf-backed vs correlational-control arm; world_dim=128 trained encoder + SD-056 P0) queued; FAILed and is in the autopsy chain (precondition_unmet -- the cf_margin sat above the trained cf_contrast band on this readiness probe; routed queue-experiment re-queue under a NEW letter with the converged-P0 fix mirror of 701->701a). MECH-276 stays candidate / v3_pending; MECH-275 stays substrate_conditional pending the converged-P0 re-queue PASS + the SEPARATE MECH-275 sleep-aggregation promotion run. PROMOTES NOTHING. |
+| F-independent closure-plane commit-ENTRY primitive + C-STEP TRAJECTORY extension (rung-6 BUILD of f_dominance_conversion_ceiling; the F-INDEPENDENT arm source the closure-exclusive de-commit eval lacked) | control_plane.closure_commit_entry + closure_commit_entry_trajectory -- the named awaited substrate the parked rung-6 release was on. ROOT (V3-EXQ-460k/l autopsies): `_closure_commit_active` was gated by `e3._committed_trajectory is not None`, whose only writer is `e3_selector.py:1926` under `if committed:` (pure F variance), so on the closure-exclusive eval the F-driven natural commit rarely sustains and the latch-hold rarely arms (ncl_hold_closure_armed_total=0 signature). TWO STEPS, both no-op default + bit-identical OFF: (1) BOOL latch `use_closure_commit_entry` -- new F-INDEPENDENT sticky `e3._closure_committed_active` SET at the bistable elevate site when (goal_state.is_active() AND a trajectory was selected toward it AND lateral_pfc.rule_state.norm() >= floor); `_closure_commit_active` redefined as the UNION (`_committed_trajectory is not None OR _closure_committed_active`); the latch-hold persistence check made union-aware so the closure-formed occupancy sustains; CLEARED at the four agent de-commit sites + the SD-034 closure fire + agent.reset(); contracts C-KEY (the F-INDEPENDENT latch arms + the hold sustains) + C-DECOMMIT (yields to the closure refractory) + C-OFF (bit-identical) + C-RESET (episode boundary). PRECONDITION: requires `use_closure_commit_beta_coupling` + `use_natural_commit_latch_hold`. (2) TRAJECTORY latch `use_closure_commit_entry_trajectory` (C-STEP extension) -- parallel sticky `e3._closure_committed_trajectory` installed at the SAME SET predicate; three UNION sites read (`_committed_trajectory` OR `_closure_committed_trajectory`): the `_closure_commit_active` arm gate, the `_ncl_commit_present` latch-hold-persistence union, and the between-tick stepping (steps the closure-formed committed PROGRAM instead of repeating `_last_action` -- the C-STEP gap a bare bool cannot close); cleared at the same sites as the bool latch; `is_committed` telemetry widened. PRECONDITION: requires `use_closure_commit_entry` (the bool it extends). 11 new contracts (bool + trajectory) + 8/8 preflight + full suite green. | Substrate landed 2026-06-23 (ree-v3 main 84c1e7c bool latch + 96ee30c trajectory; design doc `docs/architecture/natural_commit_occupancy_release.md` closure-plane commit-ENTRY / C-STEP sections; substrate_queue `f_dominance_conversion_ceiling` rung-6 implementation_log amended via REE_assembly master 880c6c789a). **V3-EXQ-460m** + **V3-EXQ-460n** were the original readiness diagnostics (3-arm ENTRY_OFF / BOOL / TRAJECTORY); both self-routed substrate_not_ready_requeue under the closure-exclusive eval because `_eval_arm_behaviour` never called `agent.update_z_goal` -> the F-independent SET predicate's `goal_state.is_active()` precondition starved (n_rule_directed_commit_ticks=0 on every arm). The 2026-06-23 confirmed `failure_autopsy_V3-EXQ-460m-460n` re-issued them as **V3-EXQ-460o / 460p** (HARNESS FIX: seed z_goal each eval step consumption-gated + clone live GoalConfig calibration onto the eval clones; ree-v3 main 6b90de3; both queued 2026-06-23, claimed; priority 432). MECH-445/446 stay candidate / standard / v3_pending / pending_retest_after_substrate. PROMOTES NOTHING. |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -197,6 +199,98 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-24T01:10Z nightly read (scheduled `/update-docs`).** Closure-plane
+  rung-6 BUILD day on top of the ARC-108 dopamine-into-gating V3-minimal slice.
+  The F-independent closure-plane commit-ENTRY primitive (bool latch + C-STEP
+  trajectory extension) landed, finally giving the closure-exclusive de-commit
+  eval an F-independent occupancy source so the parked natural_commit_occupancy_release
+  rung-6 has a sustained baseline to act on; MECH-276 scientist-attribution
+  feedstock also landed, closing the upstream substrate block on the MECH-275
+  sleep aggregator. `evidence/experiments/` flat top-level now holds **492
+  `v3_exq_*.json` manifests + 1 `v4_exq_*.json`** on disk (+10 since the
+  2026-06-23 read). Per-machine Phase-3 cards under `runner_heartbeats/` +
+  `runner_status/` continue to lead the legacy tally (legacy single-file
+  `runner_status.json` retired). **Pending review queue (regenerated
+  2026-06-23T23:37Z): 0 items** -- "All experiments reviewed. Nothing pending."
+  The 2026-06-23T22:14Z `/governance` cycle applied **V3-EXQ-588e PASS**
+  (MECH-189 supports +1; `infant_substrate:GAP-11b` closed; SD-033b/MECH-263
+  ceiling preserved); promoted **MECH-272 / MECH-273 candidate -> provisional**
+  off the sleep-cluster evidence; the 23:28Z governance close indexed the new
+  manifest, refreshed `pending_review.md`, and rebuilt the Workset. The day's
+  failure_autopsies (701 / 701a / 460k-l / 460m-n / 703 / 588 / 654 / 689a /
+  689b cluster) drained every freshly-flagged pending item to zero. **Currently
+  queued (`experiment_queue.json` items[]): 4 items, ALL CLAIMED + running** --
+  **(a) V3-EXQ-700b** (priority 440; `claim_ids=[MECH-439, ARC-108, MECH-450]`;
+  ARC-108 sec-7 learned-gating SETTLING re-issue, supersedes V3-EXQ-700 and
+  FOLDS the V3-EXQ-700a C3 ablation onto the W_lat settling arm; full-harness
+  fix per the V3-EXQ-700-cluster autopsy = verified-lifting matched-noise +
+  per-seed-divergent gating + 6 seeds + drop the w_chan-only A1; pinned
+  ree-cloud-4 17:58Z; pre-registered decisive-or-escalate-to-V4 full-loop);
+  **(b) V3-EXQ-701b** (priority 434; `claim_ids=[INV-050]`; INV-050 MEL
+  measurability diagnostic frozen-probe re-issue, supersedes 701a; the
+  701/701a chain established that the per-seed R2 convergence gate was
+  episode-rollout-PE-confounded -- 701b replaces it with a FROZEN held-out
+  probe-state metric on the frozen world_forward + recon-only-vs-recon+contrastive
+  ablation; experiment_purpose=diagnostic, brake-exempt); **(c) V3-EXQ-460o**
+  + **(d) V3-EXQ-460p** (priority 432 each; `claim_ids=[]`; rung-6 closure-commit-ENTRY
+  bool-vs-trajectory readiness diagnostics on the just-landed substrate, supersede
+  V3-EXQ-460m / 460n; HARNESS FIX = seed `z_goal` each eval step in the
+  closure-commit-ENTRY eval loop so `goal_state.is_active()` is met). **Substrate
+  / governance landings since the 2026-06-23T01:13Z spec sync:** (1) **F-independent
+  closure-plane commit-ENTRY primitive landed** (ree-v3 main 84c1e7c bool +
+  96ee30c trajectory; substrate_queue rung-6 implementation_log via REE_assembly
+  master 880c6c789a) -- routed by the confirmed V3-EXQ-460k/l autopsies' design
+  fork ("suppress the natural path" + "B build BOTH"); new sticky F-independent
+  `e3._closure_committed_active` (bool) + parallel `e3._closure_committed_trajectory`
+  (trajectory; closes the C-STEP gap the bool can't fill -- the between-tick
+  path now STEPS a closure-formed committed program instead of repeating
+  `_last_action`); both no-op-default + bit-identical OFF; preconditions
+  guarded; cleared at the four agent de-commit sites + the SD-034 closure
+  fire + agent.reset(). The named awaited substrate the parked rung-6
+  natural_commit_occupancy_release lever was on. (2) **MECH-276 scientist-attribution
+  feedstock landed** (ree-v3 main 34afa82; REE_assembly master 6b887cdd3f) --
+  new `ree_core/attribution/scientist_attribution_buffer.py` composing SD-031
+  (z_world) + ARC-033 (z_harm_s) single-pass comparators; `phase_manager._build_evidence_snapshot`
+  SOURCES this feedstock REPLACING the MECH-284 staleness scalar when on,
+  with a GLOBAL_REGION sentinel fallback. Closes the structural block on the
+  MECH-275 sleep aggregator ("only coherent given a waking-phase feedstock of
+  counterfactual-backed attributions produced by MECH-276 -- aggregating
+  arbitrary correlation would produce noise-fit"). MECH-276 stays candidate /
+  v3_pending; MECH-275 stays substrate_conditional pending the converged-P0
+  re-queue PASS + the SEPARATE MECH-275 sleep-aggregation promotion run.
+  (3) **MECH-309 substrate-ceiling-lifted triage resolved as DEFER/park**
+  (REE_assembly master 268a6f3f98) -- sibling resolution of ARC-062's same-day
+  park; the audit flag named SD-056/E2 contrastive world-forward + 569i top-k
+  k=3 lifts, both ALREADY consumed without converting (543l / 569f / 604a for
+  SD-056; 654i / 654j for top-k), residual is structural + DOWNSTREAM of
+  selection (MECH-439 F-dominance) being decisively tested by in-flight
+  V3-EXQ-700b. `ceiling_decision: deferred` + full `ceiling_routing_note`
+  applied; audit buckets MECH-309 `parked` (parked 16 -> 17, ceiling-may-have-lifted
+  1 -> 0). PROMOTES NOTHING; remove the marker only if 700b PASSes.
+  (4) **Six confirmed `/failure-autopsy` sessions** drained the day's pending
+  cluster (V3-EXQ-701 / 701a INV-050 MEL converged-P0; 460k / 460l natural-commit
+  arm-source; 460m / 460n closure-commit-ENTRY readiness harness; 703 MECH-276
+  feedstock; 588 / 588d MECH-189 trained-encoder readiness; 654 ARC-063
+  cross-episode persistence) + the **infant_substrate:GAP-11b closure** routed
+  the **V3-EXQ-588e MECH-189 trained-encoder ABSOLUTE-CROSSING successor** to
+  PASS (the load-bearing DEV-NEED-006 0.4 gate cleared 2/3 seeds with the
+  trained encoder substrate). (5) **Indexer superseded-warn guard + queue
+  V3-EXQ-588e ingestion** (REE_assembly master 8ecb6f3c43 + ree-v3 main
+  876d834) -- the indexer no longer mis-fires the multi-claim per-claim-direction
+  lint on a run-level-superseded manifest. **Bottleneck (continuation):**
+  **MECH-439 F-dominance conversion ceiling stays the live root choke**; the
+  ARC-108 dopamine-into-gating V3-minimal slice is the live attack and the
+  full BG constitution (MECH-448 provisional + MECH-449 v3_pending behavioural)
+  remains the matched constant across all retests. The four in-flight runs
+  resolve in three parallel layers: V3-EXQ-700b on the LEARNED selection face
+  (decisive-or-escalate-to-V4); V3-EXQ-460o/p on the rung-6 commit/release-DURATION
+  closure-commit-ENTRY readiness face (gates the de-commit successor); V3-EXQ-701b
+  on the INV-050 MEL-measurability instrument face (orthogonal -- repairs a
+  broken readiness gate, NOT MECH-439). MECH-276 / MECH-275 sleep-aggregation
+  closure is GATED on the V3-EXQ-703 converged-P0 re-queue PASS (out-of-scope
+  for the F-dominance attack). **ETHICS-PERIMETER Phase 0 datum** stays on
+  the record; Phases 1-3 deferred (NON-BLOCKING for V3 green-board 2026-07-19).
 
 - **2026-06-23T01:13Z nightly read (scheduled `/update-docs`).** ARC-108 dopamine-into-gating
   V3-minimal build day -- the JOB-1 selection learner + JOB-2 control-plane DRIVER pair both
