@@ -1,0 +1,823 @@
+"""
+V3-EXQ-466d (EXP-0162 behavioural): SD-034 satisficing / residue discharge,
+measured on a foraging-competent agent built through the FULL
+scaffolded_sd054_onboarding curriculum at the 603n config. Supersedes
+V3-EXQ-466c.
+
+ROOT-CAUSE FIX (466c failure_autopsy_SD-034-closure-cluster-ext_2026-06-12):
+466c relied solely on the automatic rule_state-stability detector to trigger
+emit_closure. That detector's conjunction (delta<0.001 x3 + meaningful
+magnitude + sd_033a gate>=0.5 + allowed mode) was NOT met on the
+untrained/zeroed rule_bias_head + SP-CEM-perturbed agent, so n_closures=0
+on all 3 seeds despite n_sequence_completions=11/6/5 and beta elevated.
+
+466d wires the commitment-closure-control-plane Leg A env-completion hook
+(REEAgent.notify_env_completion, IMPLEMENTED 2026-06-12):
+  - _make_config() sets use_closure_env_completion_hook=True (ARM_CLOSURE_ON)
+  - _eval_residue_discharge() calls agent.notify_env_completion(action_class)
+    after each env.step() where transition_type=='sequence_complete'
+  This EXPLICITLY routes each env completion into emit_closure, bypassing the
+  automatic stability-conjunction gate.
+
+SUBSTRATE NOTES:
+  - scaffolded_sd054_onboarding full curriculum (603n config, ready 2026-06-11)
+  - commitment-closure-control-plane Leg A IMPLEMENTED 2026-06-12
+  - Re-derive brake RELEASED: both flagged upstream substrates are now built
+    (466b: scaffolded_sd054_onboarding / GAP-11 done; 466c: commitment-closure
+    Leg A notify_env_completion)
+
+WHAT THIS MEASURES (unchanged from 466b/466c): the ocd4 satisficing /
+over-checking dissociation. With closure PRESENT, a satisficing completion
+discharges rule-domain residue (multiplicative decay with a 1e-6 floor;
+discharge_events accumulate). With closure ABSENT (same weights), residue
+accumulates unchecked (over-checking) -- zero discharge.
+
+ARMS (one curriculum build per seed, two frozen-policy evals):
+  ARM_CLOSURE_ON   -- full closure + bistable + Leg-A hook ON. Expect
+                      n_closures > 0 AND discharge_events >= 1.
+  ARM_CLOSURE_OFF  -- same trained weights, closure OFF (hook also OFF).
+                      Zero closure fires, zero residue discharge.
+
+CONTACT GUARD (603n G2 + G3): per-seed contact_rate > 0 AND z_goal_norm_at_contact_peak
+  > 0.4; < 2/3 seeds passing -> substrate_not_ready_requeue (non_contributory).
+
+COMMITMENT / COMPLETION NON-VACUITY GATE: before scoring, assert the ON arm
+  committed (total_beta_elevated > 0) AND reached completions
+  (n_sequence_completions > 0) on >= 2/3 guard-passing seeds. In 466d,
+  n_sequence_completions > 0 guarantees notify_env_completion was called at
+  least once (the Leg A hook path), so closure genuinely had the explicit-hook
+  opportunity to fire -- not only the auto-stability route that was unmet in 466c.
+  Below floor -> substrate_not_ready_requeue (non_contributory), NEVER a false
+  weakens.
+
+NON-VACUITY EXTENSION (n_closures=0 despite hook calls): if n_sequence_completions
+  > 0 and n_env_completion_hook_calls > 0 but n_closures == 0, this IS a
+  genuine scientific signal (emit_closure did not fire via the Leg A path) and
+  routes as criteria_unmet_genuine_weakens (C1 fails). Manifests with
+  n_env_completion_hook_calls > 0 and n_closures == 0 are NOT substrate-not-engaged.
+
+PRE-REGISTERED ACCEPTANCE (constants; PASS = majority 2/3 guard seeds):
+  C1  ARM_CLOSURE_ON  n_closures >= 1
+  C2  ARM_CLOSURE_ON  discharge_events >= 1
+  C3  ARM_CLOSURE_OFF n_closures == 0 AND discharge_events == 0
+  Per-seed PASS = C1 AND C2 AND C3.
+
+PER-CLAIM DIRECTION:
+  contact / completion non-vacuity NOT met -> non_contributory (substrate_not_ready_requeue).
+  both met:  SD-034 = supports if overall PASS else weakens; MECH-094 = supports if
+             overall PASS else weakens (closure mode-conditioning is the MECH-094
+             generalisation -- discharge fires only in allowed modes).
+
+claim_ids: SD-034, MECH-094.
+experiment_purpose: evidence
+supersedes: V3-EXQ-466c
+
+SLEEP DRIVER: N/A (waking goal-pipeline onboarding scheduler; no sleep loop).
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+import torch
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(REPO_ROOT / "experiments") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "experiments"))
+
+from experiment_protocol import emit_outcome  # noqa: E402
+from ree_core.agent import REEAgent  # noqa: E402
+from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
+from ree_core.heartbeat.beta_gate import BetaGate  # noqa: E402
+from ree_core.utils.config import REEConfig  # noqa: E402
+from scaffolded_sd054_onboarding import (  # noqa: E402
+    ScaffoldedSD054OnboardingConfig,
+    ScaffoldedSD054OnboardingScheduler,
+    _sd049_kwargs,
+    _sense_with_optional_harm,
+    stage_plan,
+)
+
+EXPERIMENT_TYPE = "v3_exq_466d_sd034_satisficing_residue_discharge_behavioural"
+QUEUE_ID = "V3-EXQ-466d"
+CLAIM_IDS: List[str] = ["SD-034", "MECH-094"]
+EXPERIMENT_PURPOSE = "evidence"
+SUPERSEDES = "V3-EXQ-466c"
+
+SEEDS = [42, 43, 44]
+CONDITION_LABEL = "CURRICULUM_BUILT_SATISFICING_RESIDUE_DISCHARGE_LEG_A"
+
+WORLD_DIM = 32
+HARM_A_DIM = 16
+HARM_OBS_A_DIM = 7
+HARM_HISTORY_LEN = 10
+DRIVE_WEIGHT = 2.0
+
+STAGE0_BUDGET = 20
+STAGE0B_BUDGET = 10
+P0_BUDGET = 100
+HAZARD_STAGE_BUDGET = 40
+P1_BUDGET = 50
+P2_BUDGET = 15
+DISCHARGE_EVAL_EPISODES = 15
+TRAIN_STEPS = 200
+P1_HOLD_FRACTION = 0.3
+P0_NUM_HAZARDS = 1
+P2_HFA_GUARD = 0.3
+P1_REEF_SPAWN_HOLD_FRACTION = 0.4
+
+HAZARD_STAGE_NUM_HAZARDS = 4
+HAZARD_STAGE_NUM_RESOURCES = 2
+HAZARD_STAGE_HFA = 0.0
+HAZARD_STAGE_PROXIMITY_HARM = 0.1
+HAZARD_STAGE_SPAWN_IN_REEF = True
+HAZARD_STAGE_SURVIVAL_GATE_STEPS = 75
+HAZARD_STAGE_STABILITY_WINDOW = 10
+
+SEED_GAIN = 1.5
+SEED_BENEFIT_THRESHOLD = 0.02
+SEED_DRIVE_FLOOR = 0.9
+N_RESOURCE_TYPES = 3
+CUE_RECALL_GAIN = 0.2
+
+AVOIDANCE_SCAFFOLD_FLOOR_START = 0.8
+AVOIDANCE_SCAFFOLD_FLOOR_END = 0.0
+AVOIDANCE_THREAT_REF = 0.35
+PAG_THETA_FREEZE = 0.8
+PAG_DURATION_INPUT_THRESHOLD = 0.2
+HARM_PATHWAY_LR = 1e-3
+STAGE0B_RETENTION_GATE = 0.75
+
+P2_ZGOAL_GATE = 0.4
+CONTACT_GATE = 0.0
+MIN_FRACTION = 2.0 / 3.0
+C1_MIN_CLOSURES = 1
+C2_MIN_DISCHARGE_EVENTS = 1
+
+
+def _make_scaffold_cfg(dry_run: bool) -> ScaffoldedSD054OnboardingConfig:
+    if dry_run:
+        stage0, stage0b, p0, hazard, p1, p2, steps = 2, 2, 5, 5, 5, 2, 30
+    else:
+        stage0, stage0b, p0, hazard, p1, p2, steps = (
+            STAGE0_BUDGET, STAGE0B_BUDGET, P0_BUDGET, HAZARD_STAGE_BUDGET,
+            P1_BUDGET, P2_BUDGET, TRAIN_STEPS,
+        )
+    cfg = ScaffoldedSD054OnboardingConfig(
+        use_scaffolded_sd054_onboarding_scheduler=True,
+        scaffold_stage0_enabled=True,
+        scaffold_stage0_episode_budget=stage0,
+        scaffold_p0_episode_budget=p0,
+        scaffold_p1_episode_budget=p1,
+        scaffold_p2_episode_budget=p2,
+        scaffold_steps_per_episode=steps,
+        scaffold_p0_num_hazards=P0_NUM_HAZARDS,
+        scaffold_p1_anneal_hold_fraction=P1_HOLD_FRACTION,
+        scaffold_p2_hazard_food_attraction_guard=P2_HFA_GUARD,
+        scaffold_developmental_window_enabled=True,
+        scaffold_stage0b_enabled=True,
+        scaffold_stage0b_episode_budget=stage0b,
+        scaffold_stage0b_retention_gate=STAGE0B_RETENTION_GATE,
+        scaffold_contact_gated_goal_updates=True,
+        scaffold_z_goal_seeding_gain=SEED_GAIN,
+        scaffold_benefit_threshold=SEED_BENEFIT_THRESHOLD,
+        scaffold_drive_floor=SEED_DRIVE_FLOOR,
+        scaffold_auto_reconcile_gating_to_seeding=True,
+        scaffold_p1_reef_spawn_hold_fraction=P1_REEF_SPAWN_HOLD_FRACTION,
+        scaffold_cue_recall_bridge_enabled=True,
+        scaffold_cue_n_resource_types=N_RESOURCE_TYPES,
+        scaffold_stage0_bind_incentive_token=True,
+        scaffold_hazard_stage_enabled=True,
+        scaffold_hazard_stage_episode_budget=hazard,
+        scaffold_hazard_stage_num_hazards=HAZARD_STAGE_NUM_HAZARDS,
+        scaffold_hazard_stage_num_resources=HAZARD_STAGE_NUM_RESOURCES,
+        scaffold_hazard_stage_hazard_food_attraction=HAZARD_STAGE_HFA,
+        scaffold_hazard_stage_proximity_harm_scale=HAZARD_STAGE_PROXIMITY_HARM,
+        scaffold_hazard_stage_spawn_in_reef_half=HAZARD_STAGE_SPAWN_IN_REEF,
+        scaffold_hazard_stage_survival_gate_steps=HAZARD_STAGE_SURVIVAL_GATE_STEPS,
+        scaffold_hazard_stage_stability_window=HAZARD_STAGE_STABILITY_WINDOW,
+        scaffold_avoidance_driver_enabled=True,
+        scaffold_avoidance_scaffold_floor_start=AVOIDANCE_SCAFFOLD_FLOOR_START,
+        scaffold_avoidance_scaffold_floor_end=AVOIDANCE_SCAFFOLD_FLOOR_END,
+        scaffold_feed_harm_stream=True,
+        scaffold_train_harm_pathway=True,
+        scaffold_harm_pathway_lr=HARM_PATHWAY_LR,
+        scaffold_harm_pathway_in_p0=True,
+    )
+    if steps < 75:
+        cfg.scaffold_p1_survival_gate_steps = max(1, steps // 4)
+        cfg.scaffold_hazard_stage_survival_gate_steps = max(1, steps // 4)
+    return cfg
+
+
+def _make_config(env) -> REEConfig:
+    cfg = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim,
+        world_obs_dim=env.world_obs_dim,
+        action_dim=env.action_dim,
+        self_dim=32,
+        world_dim=WORLD_DIM,
+        alpha_world=0.9,
+        use_harm_stream=True,
+        use_affective_harm_stream=True,
+        z_harm_a_dim=HARM_A_DIM,
+        harm_obs_a_dim=HARM_OBS_A_DIM,
+        harm_history_len=HARM_HISTORY_LEN,
+        use_e2_harm_s_forward=True,
+        use_support_preserving_cem=True,
+        support_preserving_stratified_elites=True,
+        support_preserving_ao_std_floor=0.2,
+        support_preserving_min_first_action_classes=2,
+        z_goal_enabled=True,
+        drive_weight=DRIVE_WEIGHT,
+        use_mech295_liking_bridge=True,
+        use_mech307_conjunction=True,
+        use_incentive_token_bank=True,
+        use_cue_recall=True,
+        cue_recall_gain=CUE_RECALL_GAIN,
+        e2_action_contrastive_enabled=True,
+        use_pag_freeze_gate=True,
+        pag_theta_freeze=PAG_THETA_FREEZE,
+        pag_duration_input_threshold=PAG_DURATION_INPUT_THRESHOLD,
+        use_instrumental_avoidance=True,
+        avoidance_threat_ref=AVOIDANCE_THREAT_REF,
+        use_dacc=True,
+        use_salience_coordinator=True,
+        use_lateral_pfc_analog=True,
+        use_closure_operator=True,
+    )
+    cfg.latent.use_resource_encoder = True
+    cfg.heartbeat.beta_gate_bistable = True
+    # Leg A: explicit env-completion hook (the 466c n_closures=0 root-cause fix).
+    # Routes transition_type=='sequence_complete' into emit_closure bypassing
+    # the automatic rule_state-stability conjunction that was unmet in 466c.
+    cfg.use_closure_env_completion_hook = True
+    return cfg
+
+
+def _build_closure_env(scaffold_cfg: ScaffoldedSD054OnboardingConfig) -> CausalGridWorldV2:
+    """P2-config foraging env (world_obs_dim parity) WITH subgoal_mode + waypoint
+    tolerance-band completion so the SD-034 closure operator has completions to
+    fire its residue discharge on. subgoal_mode=True is LOAD-BEARING (466b never
+    set it; the GAP-3 waypoint-completion machinery was inert there)."""
+    p2_hfa = (
+        scaffold_cfg.scaffold_p2_hazard_food_attraction_guard
+        if scaffold_cfg.scaffold_p2_hazard_food_attraction_guard >= 0.0
+        else scaffold_cfg.scaffold_p2_hazard_food_attraction
+    )
+    return CausalGridWorldV2(
+        size=scaffold_cfg.scaffold_env_size,
+        num_hazards=scaffold_cfg.scaffold_p2_num_hazards,
+        num_resources=scaffold_cfg.scaffold_p2_num_resources,
+        hazard_food_attraction=p2_hfa,
+        proximity_harm_scale=scaffold_cfg.scaffold_p2_proximity_harm_scale,
+        limb_damage_enabled=True,
+        reef_enabled=True,
+        reef_bipartite_layout=True,
+        reef_bipartite_axis=scaffold_cfg.scaffold_reef_bipartite_axis,
+        reef_bipartite_agent_band_radius=scaffold_cfg.scaffold_reef_bipartite_agent_band_radius,
+        reef_bipartite_agent_spawn_in_reef_half=False,
+        subgoal_mode=True,
+        num_waypoints=2,
+        completion_tolerance_enabled=True,
+        completion_tolerance_frac=0.25,
+        completion_tolerance_metric="chebyshev",
+        completion_tolerance_targets="waypoint",
+        **_sd049_kwargs(scaffold_cfg),
+    )
+
+
+def _clone_closure_off(trained_agent: REEAgent, device: torch.device) -> REEAgent:
+    cfg_off = copy.deepcopy(trained_agent.config)
+    cfg_off.use_closure_operator = False
+    # Explicitly disable the Leg A hook on the OFF clone so the eval harness
+    # cannot accidentally call notify_env_completion into a None operator.
+    cfg_off.use_closure_env_completion_hook = False
+    cfg_off.heartbeat.beta_gate_bistable = True
+    agent_off = REEAgent(cfg_off).to(device)
+    state = {k: v.detach().clone() for k, v in trained_agent.state_dict().items()}
+    try:
+        agent_off.load_state_dict(state)
+    except RuntimeError:
+        agent_off.load_state_dict(state, strict=False)
+    agent_off.e3._running_variance = float(trained_agent.e3._running_variance)
+    agent_off.beta_gate = BetaGate(completion_release_threshold=2.0)
+    return agent_off
+
+
+def _eval_residue_discharge(
+    agent: REEAgent,
+    env: CausalGridWorldV2,
+    scaffold_cfg: ScaffoldedSD054OnboardingConfig,
+    device: torch.device,
+    n_eps: int,
+    steps_per_episode: int,
+) -> Dict[str, Any]:
+    """Frozen-policy eval instrumented for SD-034 residue-discharge behaviour
+    (ported from 466b/466c, using _sense_with_optional_harm). Tracks closure
+    fires, discharge events (closures with residue_centers_discharged >= 1),
+    mean active-weight reduction, beta-elevated steps, sequence completions,
+    and the Leg-A env-completion hook call count.
+
+    KEY CHANGE vs 466c: after each env.step() with transition_type==
+    'sequence_complete', calls agent.notify_env_completion(action_class=action_idx)
+    when has_closure is True. This is the Leg A explicit-hook path that was
+    absent in 466c (which relied solely on the automatic stability-conjunction
+    detector that was unmet on the foraging substrate)."""
+    agent.eval()
+    world_dim = agent.config.latent.world_dim
+    has_closure = agent.closure_operator is not None
+    feed_harm = scaffold_cfg.scaffold_feed_harm_stream
+
+    closures_pre = int(agent.closure_operator._n_closures) if has_closure else 0
+    discharge_events = 0
+    weight_reductions: List[float] = []
+    total_committed_steps = 0
+    total_beta_elevated = 0
+    n_sequence_completions = 0
+    n_env_completion_hook_calls = 0
+
+    with torch.no_grad():
+        for _ in range(n_eps):
+            _, obs_dict = env.reset()
+            agent.reset()
+            prev_beta = bool(agent.beta_gate.is_elevated)
+
+            for _ in range(steps_per_episode):
+                obs_body = obs_dict["body_state"].to(device)
+                obs_world = obs_dict["world_state"].to(device)
+                latent = _sense_with_optional_harm(
+                    agent, obs_body, obs_world, obs_dict, device, feed_harm
+                )
+
+                n_closures_before = (
+                    int(agent.closure_operator._n_closures) if has_closure else 0
+                )
+                if has_closure and agent.residue_field.rbf_field.active_mask.any():
+                    w_sum_before = float(
+                        agent.residue_field.rbf_field.weights.data[
+                            agent.residue_field.rbf_field.active_mask
+                        ].sum().item()
+                    )
+                else:
+                    w_sum_before = 0.0
+
+                ticks = agent.clock.advance()
+                e1_prior = (
+                    agent._e1_tick(latent) if ticks.get("e1_tick")
+                    else torch.zeros(1, world_dim, device=device)
+                )
+                candidates = agent.generate_trajectories(latent, e1_prior, ticks)
+                action = agent.select_action(candidates, ticks)
+                action_idx = int(action.argmax(dim=-1).item())
+
+                if has_closure:
+                    fired_now = int(agent.closure_operator._n_closures) - n_closures_before
+                    if fired_now > 0 and agent.closure_operator._event_log:
+                        last_event = agent.closure_operator._event_log[-1]
+                        if last_event.residue_centers_discharged >= 1:
+                            discharge_events += 1
+                            if agent.residue_field.rbf_field.active_mask.any():
+                                w_sum_after = float(
+                                    agent.residue_field.rbf_field.weights.data[
+                                        agent.residue_field.rbf_field.active_mask
+                                    ].sum().item()
+                                )
+                                weight_reductions.append(w_sum_before - w_sum_after)
+
+                if agent.e3._committed_trajectory is not None:
+                    total_committed_steps += 1
+                cur_beta = bool(agent.beta_gate.is_elevated)
+                if cur_beta:
+                    total_beta_elevated += 1
+                prev_beta = cur_beta
+
+                _, _harm, done, info, obs_dict = env.step(action_idx)
+                if info.get("transition_type") == "sequence_complete":
+                    n_sequence_completions += 1
+                    # Leg A fix (the 466c root-cause): explicitly route the env
+                    # completion into emit_closure via the registered hook.
+                    # The automatic rule_state-stability detector was the ONLY
+                    # path in 466c; it was not firing on the foraging substrate.
+                    if has_closure:
+                        n_env_completion_hook_calls += 1
+                        agent.notify_env_completion(action_class=action_idx)
+                if done:
+                    break
+
+    n_closures = (
+        int(agent.closure_operator._n_closures) - closures_pre if has_closure else 0
+    )
+    mean_reduction = float(np.mean(weight_reductions)) if weight_reductions else 0.0
+    return {
+        "n_closures": n_closures,
+        "discharge_events": discharge_events,
+        "mean_residue_weight_reduction": mean_reduction,
+        "total_committed_steps": total_committed_steps,
+        "total_beta_elevated": total_beta_elevated,
+        "n_sequence_completions": n_sequence_completions,
+        "n_env_completion_hook_calls": n_env_completion_hook_calls,
+        "n_eval_episodes": n_eps,
+        "closure_present": has_closure,
+    }
+
+
+def _aborted_seed_record(seed: int, stage: str, reason: str) -> Dict[str, Any]:
+    empty = {
+        "n_closures": 0, "discharge_events": 0, "mean_residue_weight_reduction": 0.0,
+        "total_committed_steps": 0, "total_beta_elevated": 0,
+        "n_sequence_completions": 0, "n_env_completion_hook_calls": 0,
+        "n_eval_episodes": 0, "closure_present": False,
+    }
+    return {
+        "seed": seed, "aborted_at": stage, "abort_reason": reason,
+        "guard_pass": False,
+        "p2_contact_rate": 0.0, "p2_z_goal_norm_at_contact_peak": 0.0,
+        "p2_num_contact_events": 0,
+        "ARM_CLOSURE_ON": dict(empty), "ARM_CLOSURE_OFF": dict(empty),
+        "criteria": {"C1": False, "C2": False, "C3": False},
+        "commitment_completion_non_vacuity": False,
+        "pass": False,
+    }
+
+
+def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    scaffold_cfg = _make_scaffold_cfg(dry_run)
+    device = torch.device("cpu")
+    steps_per_ep = scaffold_cfg.scaffold_steps_per_episode
+    eval_eps = 2 if dry_run else DISCHARGE_EVAL_EPISODES
+
+    probe_env = _build_closure_env(scaffold_cfg)
+    probe_env.reset()
+    agent = REEAgent(_make_config(probe_env)).to(device)
+    scheduler = ScaffoldedSD054OnboardingScheduler(scaffold_cfg)
+
+    print(f"Seed {seed} Condition {CONDITION_LABEL}", flush=True)
+    done = 0
+
+    s0 = scheduler.run_stage0_nursery(agent, device)
+    done += s0.n_episodes
+    print(f"  [train] stage0_nursery seed={seed} ep {done}/{total_eps}"
+          f" z_goal_peak={s0.z_goal_norm_peak:.4f} formed={s0.z_goal_formed}", flush=True)
+    if s0.aborted:
+        print(f"verdict: FAIL seed={seed} aborted_at=stage0 reason={s0.abort_reason}", flush=True)
+        return _aborted_seed_record(seed, "stage0", s0.abort_reason)
+
+    s0b = scheduler.run_stage0b_consolidation(agent, device, stage0_baseline_norm=s0.z_goal_norm_peak)
+    done += s0b.n_episodes
+    print(f"  [train] stage0b_consolidate seed={seed} ep {done}/{total_eps}"
+          f" retention={s0b.retention_ratio:.3f}"
+          f" gate={'pass' if s0b.retention_gate_passed else 'FAIL'}", flush=True)
+    if s0b.aborted:
+        print(f"verdict: FAIL seed={seed} aborted_at=stage0b reason={s0b.abort_reason}", flush=True)
+        return _aborted_seed_record(seed, "stage0b", s0b.abort_reason)
+
+    p0 = scheduler.run_p0(agent, device)
+    done += p0.n_episodes
+    print(f"  [train] p0_guided seed={seed} ep {done}/{total_eps}"
+          f" mean_len={p0.mean_episode_length:.1f} rv={p0.final_running_variance:.5f}", flush=True)
+    if p0.aborted:
+        print(f"verdict: FAIL seed={seed} aborted_at=p0 reason={p0.abort_reason}", flush=True)
+        return _aborted_seed_record(seed, "p0", p0.abort_reason)
+
+    hz = scheduler.run_hazard_avoidance(agent, device)
+    done += hz.n_episodes
+    print(f"  [train] hazard_avoidance seed={seed} ep {done}/{total_eps}"
+          f" median_last={hz.median_last_window_episode_length:.1f}"
+          f" survival_gate={'pass' if hz.survival_gate_passed else 'FAIL'}", flush=True)
+    if hz.aborted:
+        print(f"verdict: FAIL seed={seed} aborted_at=hazard reason={hz.abort_reason}", flush=True)
+        return _aborted_seed_record(seed, "hazard", hz.abort_reason)
+
+    p1 = scheduler.run_p1(agent, device)
+    done += p1.n_episodes
+    print(f"  [train] p1_foraging seed={seed} ep {done}/{total_eps}"
+          f" median_last={p1.median_last_window_episode_length:.1f}"
+          f" survival_gate={'pass' if p1.survival_gate_passed else 'FAIL'}", flush=True)
+
+    p2 = scheduler.run_p2(agent, device)
+    done += p2.n_episodes
+    print(f"  [train] p2_guard seed={seed} ep {done}/{total_eps}"
+          f" contact_rate={p2.contact_rate:.4f} contact_events={p2.num_contact_events}"
+          f" z_goal_at_contact={p2.z_goal_norm_at_contact_peak:.4f}", flush=True)
+
+    guard_pass = bool(
+        p2.contact_rate > CONTACT_GATE
+        and p2.z_goal_norm_at_contact_peak > P2_ZGOAL_GATE
+    )
+
+    closure_env = _build_closure_env(scaffold_cfg)
+    closure_env.reset()
+
+    print(f"Seed {seed} Condition ARM_CLOSURE_ON", flush=True)
+    arm_on = _eval_residue_discharge(
+        agent, closure_env, scaffold_cfg, device, eval_eps, steps_per_ep
+    )
+    done += eval_eps
+
+    print(f"Seed {seed} Condition ARM_CLOSURE_OFF", flush=True)
+    agent_off = _clone_closure_off(agent, device)
+    agent_off.e3._running_variance = float(agent.e3._running_variance)
+    arm_off = _eval_residue_discharge(
+        agent_off, closure_env, scaffold_cfg, device, eval_eps, steps_per_ep
+    )
+    done += eval_eps
+
+    c1 = arm_on["n_closures"] >= C1_MIN_CLOSURES
+    c2 = arm_on["discharge_events"] >= C2_MIN_DISCHARGE_EVENTS
+    c3 = bool(arm_off["n_closures"] == 0 and arm_off["discharge_events"] == 0)
+    commitment_completion_non_vacuity = bool(
+        arm_on["total_beta_elevated"] > 0 and arm_on["n_sequence_completions"] > 0
+    )
+    seed_pass = bool(c1 and c2 and c3)
+
+    print(f"  [train] discharge_eval seed={seed} ep {done}/{total_eps}"
+          f" c1={c1} c2={c2} c3={c3}"
+          f" n_closures={arm_on['n_closures']} discharge={arm_on['discharge_events']}"
+          f" hook_calls={arm_on['n_env_completion_hook_calls']}"
+          f" completions={arm_on['n_sequence_completions']} beta_elev={arm_on['total_beta_elevated']}",
+          flush=True)
+    print(f"verdict: {'PASS' if (guard_pass and seed_pass) else 'FAIL'} seed={seed}"
+          f" guard_pass={guard_pass} complete_nonvacuity={commitment_completion_non_vacuity}"
+          f" (contact_rate={p2.contact_rate:.4f} z_goal_at_contact={p2.z_goal_norm_at_contact_peak:.4f})",
+          flush=True)
+
+    return {
+        "seed": seed,
+        "aborted_at": None,
+        "abort_reason": "",
+        "guard_pass": guard_pass,
+        "stage0_z_goal_norm_peak": float(s0.z_goal_norm_peak),
+        "p1_survival_pass": bool(p1.survival_gate_passed),
+        "hazard_stage_survival_pass": bool(hz.survival_gate_passed),
+        "p2_contact_rate": float(p2.contact_rate),
+        "p2_z_goal_norm_at_contact_peak": float(p2.z_goal_norm_at_contact_peak),
+        "p2_num_contact_events": int(p2.num_contact_events),
+        "ARM_CLOSURE_ON": arm_on,
+        "ARM_CLOSURE_OFF": arm_off,
+        "criteria": {"C1": c1, "C2": c2, "C3": c3},
+        "commitment_completion_non_vacuity": commitment_completion_non_vacuity,
+        "pass": seed_pass,
+    }
+
+
+def _frac(flags: List[bool]) -> float:
+    return float(sum(1 for f in flags if f)) / float(len(flags)) if flags else 0.0
+
+
+def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
+    print(f"[{EXPERIMENT_TYPE}] starting (dry_run={dry_run})", flush=True)
+    seeds = SEEDS[:1] if dry_run else SEEDS
+    if dry_run:
+        total_eps = 2 + 2 + 5 + 5 + 5 + 2 + 2 * 2
+    else:
+        total_eps = (
+            STAGE0_BUDGET + STAGE0B_BUDGET + P0_BUDGET + HAZARD_STAGE_BUDGET
+            + P1_BUDGET + P2_BUDGET + 2 * DISCHARGE_EVAL_EPISODES
+        )
+
+    per_seed: List[Dict[str, Any]] = []
+    for s in seeds:
+        per_seed.append(_run_seed(s, dry_run, total_eps))
+
+    n = len(per_seed)
+    guard_flags = [r["guard_pass"] for r in per_seed]
+    guard_frac = _frac(guard_flags)
+    guard_passing = [r for r in per_seed if r["guard_pass"]]
+    contact_non_vacuity_met = bool(guard_frac >= MIN_FRACTION)
+
+    cc_flags = [bool(r.get("commitment_completion_non_vacuity", False)) for r in guard_passing]
+    cc_frac = _frac(cc_flags)
+    completion_non_vacuity_met = bool(cc_frac >= MIN_FRACTION)
+
+    seed_pass_flags = [bool(r.get("pass", False)) for r in guard_passing]
+    n_pass = sum(1 for f in seed_pass_flags if f)
+    pass_frac = _frac(seed_pass_flags)
+    overall_criteria_pass = bool(pass_frac >= MIN_FRACTION)
+
+    def _all_guard(crit_key: str) -> bool:
+        return bool(guard_passing) and all(
+            r.get("criteria", {}).get(crit_key) for r in guard_passing
+        )
+
+    if not contact_non_vacuity_met:
+        outcome = "FAIL"
+        readiness_route = "substrate_not_ready_requeue"
+        route_reason = "contact_guard_unmet"
+        direction_map = {cid: "non_contributory" for cid in CLAIM_IDS}
+        overall_direction = "non_contributory"
+    elif not completion_non_vacuity_met:
+        outcome = "FAIL"
+        readiness_route = "substrate_not_ready_requeue"
+        route_reason = "commitment_or_completion_not_engaged"
+        direction_map = {cid: "non_contributory" for cid in CLAIM_IDS}
+        overall_direction = "non_contributory"
+    else:
+        outcome = "PASS" if overall_criteria_pass else "FAIL"
+        readiness_route = ("sd034_satisficing_discharge_confirmed"
+                           if overall_criteria_pass else "residual_discharge_open")
+        route_reason = "c1_c2_c3_majority_met" if overall_criteria_pass else "criteria_unmet_genuine_weakens"
+        direction_map = {
+            "SD-034": "supports" if overall_criteria_pass else "weakens",
+            "MECH-094": "supports" if overall_criteria_pass else "weakens",
+        }
+        overall_direction = "supports" if overall_criteria_pass else "weakens"
+
+    print(f"[{EXPERIMENT_TYPE}] contact_non_vacuity={contact_non_vacuity_met}"
+          f" (guard {sum(guard_flags)}/{n}) completion_non_vacuity={completion_non_vacuity_met}"
+          f" (frac={cc_frac:.3f}) criteria_pass={overall_criteria_pass}"
+          f" ({n_pass}/{len(guard_passing)}) -> outcome={outcome} route={readiness_route}", flush=True)
+    for cid in CLAIM_IDS:
+        print(f"[{EXPERIMENT_TYPE}] per_claim {cid}={direction_map[cid]}", flush=True)
+
+    acceptance = {
+        "contact_non_vacuity_met": contact_non_vacuity_met,
+        "guard_fraction": guard_frac,
+        "n_guard_passing_seeds": len(guard_passing),
+        "completion_non_vacuity_met": completion_non_vacuity_met,
+        "completion_non_vacuity_fraction": cc_frac,
+        "criteria_pass_fraction": pass_frac,
+        "n_seeds_pass": n_pass,
+        "overall_pass": bool(contact_non_vacuity_met and completion_non_vacuity_met
+                             and overall_criteria_pass),
+        "per_seed_guard_pass": guard_flags,
+        "per_seed_criteria_pass": [bool(r.get("pass", False)) for r in per_seed],
+        "route_reason": route_reason,
+    }
+
+    crit_non_degenerate = bool(contact_non_vacuity_met and completion_non_vacuity_met)
+
+    return {
+        "outcome": outcome,
+        "evidence_direction": overall_direction,
+        "evidence_direction_per_claim": direction_map,
+        "acceptance": acceptance,
+        "interpretation": {
+            "label": readiness_route,
+            "readiness_route": readiness_route,
+            "preconditions": [
+                {
+                    "name": "foraging_contact_guard",
+                    "description": "603n G2+G3 contact guard on >= 2/3 seeds.",
+                    "control": "scaffolded_sd054_onboarding run_p2 consumption-gated readout.",
+                    "measured": guard_frac,
+                    "threshold": MIN_FRACTION,
+                    "met": contact_non_vacuity_met,
+                },
+                {
+                    "name": "commitment_and_completion_engaged",
+                    "description": "ON arm committed (total_beta_elevated > 0) AND reached "
+                                   "completions (n_sequence_completions > 0) on >= 2/3 "
+                                   "guard-passing seeds. In 466d, n_sequence_completions > 0 "
+                                   "guarantees notify_env_completion was called at least once "
+                                   "(Leg A hook, explicit path), so closure genuinely had the "
+                                   "hook-based opportunity to fire.",
+                    "control": "fraction of guard-passing seeds with ON commitment AND completions.",
+                    "measured": cc_frac,
+                    "threshold": MIN_FRACTION,
+                    "met": completion_non_vacuity_met,
+                },
+            ],
+            "criteria": [
+                {"name": "C1_n_closures", "load_bearing": True, "passed": _all_guard("C1")},
+                {"name": "C2_discharge_events", "load_bearing": True, "passed": _all_guard("C2")},
+                {"name": "C3_off_no_closure_no_discharge", "load_bearing": True,
+                 "passed": _all_guard("C3")},
+            ],
+            "criteria_non_degenerate": {
+                "C1": crit_non_degenerate,
+                "C2": crit_non_degenerate,
+                "C3": crit_non_degenerate,
+            },
+            "contact_guard": {
+                "definition": "per-seed P2 contact_rate > 0 AND z_goal_norm_at_contact_peak > 0.4; "
+                              "< 2/3 seeds -> substrate_not_ready_requeue.",
+                "min_fraction": MIN_FRACTION,
+                "p2_zgoal_gate": P2_ZGOAL_GATE,
+                "contact_gate": CONTACT_GATE,
+            },
+            "completion_non_vacuity_gate": {
+                "definition": "ON total_beta_elevated > 0 AND n_sequence_completions > 0 on "
+                              ">= 2/3 guard-passing seeds. Below floor -> substrate_not_ready_requeue "
+                              "(non_contributory), NEVER a false weakens. In 466d, n_sequence_completions"
+                              " > 0 guarantees notify_env_completion was called (Leg A hook) >= once "
+                              "so emit_closure had the explicit-hook opportunity -- not only the "
+                              "auto-stability route that was unmet in 466c.",
+                "min_fraction": MIN_FRACTION,
+                "c1_min_closures": C1_MIN_CLOSURES,
+                "c2_min_discharge_events": C2_MIN_DISCHARGE_EVENTS,
+            },
+        },
+        "per_seed": per_seed,
+    }
+
+
+def main(dry_run: bool = False) -> Dict[str, Any]:
+    result = run_experiment(dry_run=dry_run)
+    if dry_run:
+        print(f"[{EXPERIMENT_TYPE}] dry-run complete; manifest not written.", flush=True)
+        return {"outcome": result["outcome"], "manifest_path": None}
+
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    run_id = f"{EXPERIMENT_TYPE}_{timestamp}_v3"
+    out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments" / EXPERIMENT_TYPE
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "run_id": run_id,
+        "experiment_type": EXPERIMENT_TYPE,
+        "queue_id": QUEUE_ID,
+        "claim_ids": CLAIM_IDS,
+        "experiment_purpose": EXPERIMENT_PURPOSE,
+        "architecture_epoch": "ree_hybrid_guardrails_v1",
+        "timestamp_utc": timestamp,
+        "outcome": result["outcome"],
+        "evidence_direction": result["evidence_direction"],
+        "evidence_direction_per_claim": result["evidence_direction_per_claim"],
+        "supersedes": SUPERSEDES,
+        "sleep_driver_pattern": "N/A (waking goal-pipeline onboarding scheduler; no sleep loop)",
+        "substrate": (
+            "scaffolded_sd054_onboarding (full curriculum; 603n config; ready=true 2026-06-11) "
+            "+ commitment-closure-control-plane Leg A env-completion hook "
+            "(use_closure_env_completion_hook=True; IMPLEMENTED 2026-06-12) "
+            "+ bistable BetaGate + SD-034 ClosureOperator + SD-033a LateralPFC "
+            "+ SD-032 dACC/salience + subgoal_mode waypoint tolerance-band completion env primitive."
+        ),
+        "condition": CONDITION_LABEL,
+        "method_note": (
+            "466d supersedes 466c: wires the Leg-A env-completion hook "
+            "(notify_env_completion / use_closure_env_completion_hook=True) so each "
+            "sequence_complete transition explicitly calls emit_closure via "
+            "agent.notify_env_completion(action_class=action_idx) after env.step(). "
+            "Root-cause identified in failure_autopsy_SD-034-closure-cluster-ext_2026-06-12: "
+            "466c's n_closures=0 on 3/3 seeds despite n_sequence_completions=11/6/5 was caused "
+            "by reliance solely on the automatic rule_state-stability detector (conjunction of "
+            "delta<0.001 x3 + meaningful magnitude + sd_033a gate>=0.5 + allowed mode), which "
+            "was NOT met on the untrained/zeroed rule_bias_head + SP-CEM-perturbed foraging agent. "
+            "The Leg A hook bypasses that conjunction and routes every env completion directly into "
+            "emit_closure. ARM_CLOSURE_OFF clone explicitly sets use_closure_env_completion_hook=False "
+            "so the off-arm cannot accidentally route completions into a None closure_operator."
+        ),
+        "readiness_note": (
+            "TWO non-vacuity gates self-route a substrate-not-engaged read to non_contributory "
+            "(never a false weakens): the 603n contact guard + the commitment+completion "
+            "non-vacuity gate. In 466d, n_sequence_completions > 0 guarantees the Leg A hook "
+            "was called, so a hook-was-called-but-closures-still-zero outcome routes as "
+            "criteria_unmet_genuine_weakens (C1 FAIL), NOT substrate_not_ready_requeue."
+        ),
+        "arm_note": (
+            "ARM_CLOSURE_ON (use_closure_operator=True + use_closure_env_completion_hook=True + "
+            "bistable) vs ARM_CLOSURE_OFF (same trained weights; closure=False; hook=False). "
+            "ARM_CLOSURE_OFF uses _clone_closure_off() which deepcopies config and explicitly "
+            "sets both use_closure_operator=False and use_closure_env_completion_hook=False."
+        ),
+        "pre_registered_thresholds": {
+            "p2_zgoal_gate": P2_ZGOAL_GATE,
+            "contact_gate": CONTACT_GATE,
+            "min_fraction": MIN_FRACTION,
+            "c1_min_closures": C1_MIN_CLOSURES,
+            "c2_min_discharge_events": C2_MIN_DISCHARGE_EVENTS,
+        },
+        "scaffold_curriculum": {
+            "stage0_budget": STAGE0_BUDGET, "stage0b_budget": STAGE0B_BUDGET,
+            "p0_budget": P0_BUDGET, "hazard_stage_budget": HAZARD_STAGE_BUDGET,
+            "p1_budget": P1_BUDGET, "p2_budget": P2_BUDGET,
+            "discharge_eval_episodes_per_arm": DISCHARGE_EVAL_EPISODES,
+            "train_steps": TRAIN_STEPS,
+            "n_resource_types": N_RESOURCE_TYPES,
+            "scaffold_train_harm_pathway": True,
+            "config_basis": "V3-EXQ-603n",
+        },
+        "stage_plan": stage_plan(),
+    }
+    manifest.update(result)
+    out_path = out_dir / f"{run_id}.json"
+    out_path.write_text(json.dumps(manifest, indent=2))
+    print(f"[{EXPERIMENT_TYPE}] manifest -> {out_path}", flush=True)
+    print(f"Done. Outcome: {result['outcome']}", flush=True)
+    return {"outcome": result["outcome"], "manifest_path": str(out_path)}
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+    _res = main(dry_run=args.dry_run)
+    if _res.get("manifest_path"):
+        _outcome_raw = str(_res["outcome"]).upper()
+        emit_outcome(
+            outcome=_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+            manifest_path=_res["manifest_path"],
+            dry_run=args.dry_run,
+        )

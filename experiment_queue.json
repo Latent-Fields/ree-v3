@@ -30,5 +30,22 @@
       "experiment_type": "v3_exq_700b_arc108_sec7_learned_gating_settling_c3",
       "machine_affinity_note": "user-pinned to ree-cloud-4 2026-06-23"
     }
+    ,{
+      "queue_id": "V3-EXQ-466d",
+      "title": "SD-034/MECH-094 satisficing residue-discharge commitment-free retest (Leg-A hook wired; supersedes 466c)",
+      "script": "experiments/v3_exq_466d_sd034_satisficing_residue_discharge_behavioural.py",
+      "priority": 420,
+      "machine_affinity": "any",
+      "estimated_minutes": 420,
+      "supersedes": "V3-EXQ-466c",
+      "claim_id": "SD-034",
+      "claim_ids": ["SD-034", "MECH-094"],
+      "experiment_type": "v3_exq_466d_sd034_satisficing_residue_discharge_behavioural",
+      "episodes_per_run": 265,
+      "seeds": 3,
+      "conditions": 1,
+      "status": "pending",
+      "note": "Supersedes V3-EXQ-466c. ROOT-CAUSE FIX: 466c n_closures=0 on 3/3 seeds despite n_sequence_completions=11/6/5 because the Leg A env-completion hook (notify_env_completion) was absent in the harness -- the automatic rule_state-stability conjunction was the only closure trigger and was NOT met on the untrained/zeroed rule_bias_head + SP-CEM-perturbed agent (confirmed failure_autopsy_SD-034-closure-cluster-ext_2026-06-12). 466d wires use_closure_env_completion_hook=True + calls agent.notify_env_completion(action_class=action_idx) after each sequence_complete transition. Smoke 2026-06-24: n_closures=1 hook_calls=1 completions=1 on seed 42 at toy budget (Leg A fix demonstrable; contact guard fails at toy scale as expected, self-routes substrate_not_ready_requeue correctly). Re-derive brake RELEASED: scaffolded_sd054_onboarding (GAP-11 done, 603n ready) + commitment-closure-control-plane Leg A (IMPLEMENTED 2026-06-12) both built. commitment_closure:GAP-4-battery node owner."
+    }
   ]
 }
