@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-689h",
-      "title": "P-comp: MECH-448 demotion x MECH-449 Go/No-Go composition at committed-class entropy (C2)",
-      "script": "experiments/v3_exq_689h_pcomp_demotion_x_gonogo_composition.py",
-      "priority": 450,
-      "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "claim_id": "MECH-448",
-      "note": "Prong-map P-comp within-selection-face composition-characterization gate (conversion_ceiling_prong_map.md): 2x2 demotion x Go/No-Go at C2 (committed-action-class entropy) over a fixed action menu with per-context varying modulatory preference (models the conversion ceiling). Diagnostic; characterizes compound/cancel/additive (SD-of-delta + absolute-floor gate); promotes nothing (both levers face-validated 689d/689g). Adaptive floor carried with demotion (689e, matched-stack constant). Go/No-Go inert standalone (gate needs an eligible-set substrate) -> ARM_GNG==ARM_OFF, a structural finding. Smoke PASS: additive verdict at full scale, all 7 non-vacuity preconditions met.",
-      "status": "pending",
-      "conditions": 4,
-      "episodes_per_run": 80,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_689h_pcomp_demotion_x_gonogo_composition",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-700b",
       "title": "ARC-108 sec-7 learned-gating settling C3 (test-design-fixed re-run of 700/700a)",
       "script": "experiments/v3_exq_700b_arc108_sec7_learned_gating_settling_c3.py",
