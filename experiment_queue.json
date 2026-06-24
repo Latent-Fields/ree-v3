@@ -12,7 +12,7 @@
       "title": "ARC-108 sec-7 learned-gating settling falsifier -- SAME-LAYER null (frozen magnitude-matched random W_lat at the eligibility/settling field); brake-EXEMPT TERMINAL re-run, supersedes V3-EXQ-700b",
       "script": "experiments/v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null.py",
       "priority": 300,
-      "machine_affinity": "any",
+      "machine_affinity": "ree-cloud-4",
       "estimated_minutes": 1500,
       "supersedes": "V3-EXQ-700b",
       "claim_id": "MECH-439",
@@ -25,14 +25,15 @@
       "conditions": 5,
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null",
-      "seeds": 6
+      "seeds": 6,
+      "machine_affinity_note": "Pinned to ree-cloud-4 (user-directed 2026-06-24): 700b ran on ree-cloud-4 (linux-x86_64-py3.10); arm-reuse fingerprint is machine-class-bound so the mint + consumer must share the worker."
     },
     {
       "queue_id": "V3-EXQ-700c-m",
       "title": "Baseline mint: exq700 ARC-108 settling OFF/settling pack (A0/A2/A3/C3) for V3-EXQ-700c arm-reuse",
       "script": "experiments/v3_exq_700c_mint_exq700_arc108_settling_baseline.py",
       "priority": 1,
-      "machine_affinity": "any",
+      "machine_affinity": "ree-cloud-4",
       "estimated_minutes": 1200,
       "note": "experiment_purpose=baseline, claim_ids=[]. Low priority so real science preempts. Runs ONLY the 4 reusable arms (A0/A2/A3/C3) x 6 seeds with config BYTE-IDENTICAL to V3-EXQ-700c (imports its _run_seed_arm/ARMS), emitting reuse-eligible per-cell fingerprints with include_driver_script_in_hash=False keyed on the shared exq700_arc108_settling_baseline.arm_config_slice so 700c can cite reuse_baseline_from=<this run_id> + try_reuse_cell to skip re-training them. machine-class linux-x86_64-py3.10 (700b ran ree-cloud-4). NOTE: 700c is pre-registered TERMINAL, so the only consumer benefit is whichever cells this low-priority mint completes BEFORE 700c claims; a false cache-miss is free (700c runs all arms fresh by default).",
       "status": "pending",
@@ -40,7 +41,8 @@
       "conditions": 4,
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_700c_mint_exq700_arc108_settling_baseline",
-      "seeds": 6
+      "seeds": 6,
+      "machine_affinity_note": "Pinned to ree-cloud-4 (user-directed 2026-06-24): 700b ran on ree-cloud-4 (linux-x86_64-py3.10); arm-reuse fingerprint is machine-class-bound so the mint + consumer must share the worker."
     }
   ]
 }
