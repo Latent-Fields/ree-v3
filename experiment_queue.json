@@ -29,26 +29,6 @@
       ],
       "experiment_type": "v3_exq_700b_arc108_sec7_learned_gating_settling_c3",
       "machine_affinity_note": "user-pinned to ree-cloud-4 2026-06-23"
-    },
-    {
-      "queue_id": "V3-EXQ-460o",
-      "title": "Closure-plane commit-ENTRY primitive readiness (HARNESS-FIX re-issue of 460m; z_goal seeded in eval loop): does use_closure_commit_entry arm + sustain a closure-formed occupancy with zero F-commits? (2-arm diagnostic)",
-      "script": "experiments/v3_exq_460o_closure_commit_entry_readiness.py",
-      "priority": 432,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "supersedes": "V3-EXQ-460m",
-      "note": "HARNESS-FIX RE-ISSUE of V3-EXQ-460m (supersedes it). rung-6 of f_dominance_conversion_ceiling / commitment_closure:GAP-4. CLAIM-FREE substrate-readiness diagnostic (claim_ids=[]; experiment_purpose=diagnostic; PROMOTES NOTHING, no governance weight). Routed by failure_autopsy_V3-EXQ-460m-460n_2026-06-23 (confirmed, user-routed): 460m FAILed substrate_not_ready_requeue / precondition_unmet because the _eval_arm_behaviour loop NEVER called agent.update_z_goal -> goal_state.is_active() False every tick -> the F-independent SET predicate's precondition (closure_rule_directed_commit_formed) was starved -> n_rule_directed_commit_ticks=0 on every seed (rule_state_norm_peak 0.31-7.59 >> the 0.01 floor; only the goal-active half was missing). NOT the 460k structural-unreachability root (the F-independent writer EXISTS at agent.py:6519-6532, 84c1e7c) and NOT a substrate ceiling (z_goal seeding demonstrably works on the same trained agent -- foraging_contact_guard PASSED in run_p2). FIX: seed z_goal each eval step (consumption-gated, mirroring scaffolded_sd054_onboarding run_p2 / _eval_episode: benefit=obs_body[11], drive=clip(1-energy,0,1); _clone_arm now also copies the trained substrate's live GoalConfig calibration onto the clone). EVERYTHING ELSE IDENTICAL: same closure_exclusive_decommit_eval substrate, same 2 arms (ARM_ENTRY_OFF / ARM_ENTRY_ON), same gate-a armed_and_sustained, same self-route guards. PROMOTES NOTHING; recommended_substrate_queue_entry.action=none (no create/amend on f_dominance_conversion_ceiling). Re-derive brake does NOT apply (claim-free). The de-commit falsifier successor stays GATED on this readiness re-issue scoring a contributory PASS. Design doc: REE_assembly/docs/architecture/natural_commit_occupancy_release.md (closure-plane commit-ENTRY primitive amend section). Unit contract: ree-v3/tests/contracts/test_closure_commit_entry.py (C3 C-KEY). validate_experiments --strict --paths OK; dry-run smoke clean (2 arms end-to-end; the fix took effect -- n_rule_directed_commit_ticks 32/59 vs the predecessor's 0; toy-scale occupancy latch not yet armed, as expected -- the full-scale run gives gate-a a fair test). Do NOT re-author 460d/e/f/g/h/i/j/k/l/m.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-23T23:19:12Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_type": "v3_exq_460o_closure_commit_entry_readiness",
-      "seeds": 3
     }
   ]
 }
