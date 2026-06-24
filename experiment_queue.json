@@ -49,26 +49,6 @@
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_460o_closure_commit_entry_readiness",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-460p",
-      "title": "Closure-plane commit-ENTRY TRAJECTORY readiness + bool-vs-trajectory comparison (HARNESS-FIX re-issue of 460n; z_goal seeded in eval loop): does use_closure_commit_entry_trajectory STEP a closure-formed committed program the bool latch cannot? (3-arm diagnostic)",
-      "script": "experiments/v3_exq_460p_closure_commit_entry_trajectory_readiness.py",
-      "priority": 432,
-      "machine_affinity": "any",
-      "estimated_minutes": 200,
-      "supersedes": "V3-EXQ-460n",
-      "note": "HARNESS-FIX RE-ISSUE of V3-EXQ-460n (supersedes it). rung-6 of f_dominance_conversion_ceiling / commitment_closure:GAP-4. CLAIM-FREE substrate-readiness diagnostic (claim_ids=[]; experiment_purpose=diagnostic; PROMOTES NOTHING, no governance weight). Routed by failure_autopsy_V3-EXQ-460m-460n_2026-06-23 (confirmed, user-routed): 460n shared 460m's identical eval-arm loop, which NEVER called agent.update_z_goal -> goal_state.is_active() False every tick -> the F-independent SET precondition (closure_rule_directed_commit_formed) starved -> n_rule_directed_commit_ticks=0 -> substrate_not_ready_requeue (closure_program_steps_total=0 / gate-b C-STEP unscorable too). NOT the 460k structural root (the F-independent writers EXIST: 84c1e7c bool, 96ee30c trajectory) and NOT a substrate ceiling. FIX: seed z_goal each eval step (consumption-gated, mirroring scaffolded_sd054_onboarding run_p2 / _eval_episode; _clone_arm copies the trained GoalConfig calibration onto the clone). EVERYTHING ELSE IDENTICAL: same closure_exclusive_decommit_eval substrate, same 3 arms (ARM_ENTRY_OFF / ARM_BOOL / ARM_TRAJECTORY), gate-a occupancy on BOTH latch arms + gate-b C-STEP traj_steps_program (ARM_TRAJECTORY closure_program_steps_total>0 while ARM_BOOL==0), same self-route guards. PROMOTES NOTHING; recommended_substrate_queue_entry.action=none (no create/amend on f_dominance_conversion_ceiling). Re-derive brake does NOT apply (claim-free). The de-commit falsifier successor stays GATED on this readiness re-issue scoring a contributory PASS. Design doc: REE_assembly/docs/architecture/natural_commit_occupancy_release.md (C-STEP TRAJECTORY extension section). Unit contracts: test_closure_commit_entry.py (bool C-KEY) + test_closure_commit_entry_trajectory.py (trajectory C-KEY/C-STEP/C-YIELD/C-OFF). validate_experiments --strict --paths OK; dry-run smoke clean (3 arms end-to-end; the fix took effect -- n_rule_directed_commit_ticks=59 + traj_steps=True / bool_no_steps=True; this seed's toy-scale P2 happened not to forage so it self-routes substrate_not_ready_requeue, the autopsy-predicted-correct toy-scale behavior). Do NOT re-author 460d/e/f/g/h/i/j/k/l/m/n.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-23T23:20:34Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 280,
-      "experiment_type": "v3_exq_460p_closure_commit_entry_trajectory_readiness",
-      "seeds": 3
     }
   ]
 }
