@@ -25,8 +25,8 @@
       "conditions": 5,
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null",
-      "seeds": 6,
-      "machine_affinity_note": "Pinned to ree-cloud-4 (user-directed 2026-06-24): 700b ran on ree-cloud-4 (linux-x86_64-py3.10); arm-reuse fingerprint is machine-class-bound so the mint + consumer must share the worker."
+      "machine_affinity_note": "Pinned to ree-cloud-4 (user-directed 2026-06-24): 700b ran on ree-cloud-4 (linux-x86_64-py3.10); arm-reuse fingerprint is machine-class-bound so the mint + consumer must share the worker.",
+      "seeds": 6
     },
     {
       "queue_id": "V3-EXQ-700c-m",
@@ -41,8 +41,8 @@
       "conditions": 4,
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_700c_mint_exq700_arc108_settling_baseline",
-      "seeds": 6,
-      "machine_affinity_note": "Pinned to ree-cloud-4 (user-directed 2026-06-24): 700b ran on ree-cloud-4 (linux-x86_64-py3.10); arm-reuse fingerprint is machine-class-bound so the mint + consumer must share the worker."
+      "machine_affinity_note": "Pinned to ree-cloud-4 (user-directed 2026-06-24): 700b ran on ree-cloud-4 (linux-x86_64-py3.10); arm-reuse fingerprint is machine-class-bound so the mint + consumer must share the worker.",
+      "seeds": 6
     }
   ]
 }
