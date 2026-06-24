@@ -6,5 +6,37 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-700c",
+      "title": "ARC-108 sec-7 learned-gating settling falsifier -- SAME-LAYER null (frozen magnitude-matched random W_lat at the eligibility/settling field); brake-EXEMPT TERMINAL re-run, supersedes V3-EXQ-700b",
+      "experiment_type": "v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null",
+      "script": "experiments/v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null.py",
+      "priority": 300,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 1500,
+      "episodes_per_run": 250,
+      "seeds": 6,
+      "conditions": 5,
+      "claim_id": "MECH-439",
+      "supersedes": "V3-EXQ-700b",
+      "note": "Routed by failure_autopsy_V3-EXQ-700b_2026-06-24 (user-adjudicated CONCURRENT: V4 loop-segregation + this terminal V3 700c). Replaces 700b's policy-temperature ARM_NOISE (MECH-313 use_noise_floor -- decoupled from the committed-class DV by the F-bounded eligibility constitution; 3 runs of alpha-bumping FAILED) with a SAME-LAYER null = use_learned_settling_step=True + learned_settling_eta=0.0 + a frozen magnitude-matched random W_lat injected into agent.e3.W_lat (the within-eligible accumulator MECH-450 settling acts on), gated behind per-arm field_noise so A0/A2/A3/C3 are byte-identical to 700b. 5 arms (A0/A2_SETTLING_SIGNED/A3_BOTH_SIGNED/C3_SETTLING_UNSIGNED/ARM_NOISE) x 6 seeds, phased P0/P1/P2, landed arithmetic envelope (use_f_eligibility_demotion+adaptive_floor 689e+go_nogo 689g+modulatory-authority/top_k k=3 569i; use_differentiable_cem=False) as a MATCHED CONSTANT, per-seed-divergent gating, committed-action-class entropy DV. PRE-REGISTERED TERMINAL: any further null failure (no verify-lift at the correct layer, or no conversion on a now-verified bar) auto-escalates to V4 loop-segregation -- NO further V3 letters. RE-DERIVE BRAKE EXEMPT (user-adjudicated 2026-06-24: concurrent with V4 escalation, genuine null REDESIGN not an alpha-bump, pre-registered terminal); the brake REFUSES any alpha-bump same-lever requeue. claim_ids=[MECH-439,ARC-108,MECH-450]. ARM-REUSE: REUSE_BASELINE_FROM=None (runs all arms fresh; set to the V3-EXQ-700c-m mint run_id to skip the 4 unchanged arms). PROMOTES NOTHING (MECH-439 substrate_ceiling; ARC-108/MECH-450 substrate_conditional). phase3-queue dropped-file hazard: confirm git show HEAD contains this entry before push."
+    },
+    {
+      "queue_id": "V3-EXQ-700c-m",
+      "title": "Baseline mint: exq700 ARC-108 settling OFF/settling pack (A0/A2/A3/C3) for V3-EXQ-700c arm-reuse",
+      "experiment_type": "v3_exq_700c_mint_exq700_arc108_settling_baseline",
+      "script": "experiments/v3_exq_700c_mint_exq700_arc108_settling_baseline.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 1200,
+      "episodes_per_run": 250,
+      "seeds": 6,
+      "conditions": 4,
+      "note": "experiment_purpose=baseline, claim_ids=[]. Low priority so real science preempts. Runs ONLY the 4 reusable arms (A0/A2/A3/C3) x 6 seeds with config BYTE-IDENTICAL to V3-EXQ-700c (imports its _run_seed_arm/ARMS), emitting reuse-eligible per-cell fingerprints with include_driver_script_in_hash=False keyed on the shared exq700_arc108_settling_baseline.arm_config_slice so 700c can cite reuse_baseline_from=<this run_id> + try_reuse_cell to skip re-training them. machine-class linux-x86_64-py3.10 (700b ran ree-cloud-4). NOTE: 700c is pre-registered TERMINAL, so the only consumer benefit is whichever cells this low-priority mint completes BEFORE 700c claims; a false cache-miss is free (700c runs all arms fresh by default).",
+      "claim_ids": []
+    }
+  ]
 }
