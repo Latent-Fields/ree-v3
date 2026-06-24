@@ -29,30 +29,6 @@
       ],
       "experiment_type": "v3_exq_700b_arc108_sec7_learned_gating_settling_c3",
       "machine_affinity_note": "user-pinned to ree-cloud-4 2026-06-23"
-    },
-    {
-      "queue_id": "V3-EXQ-590c",
-      "title": "MECH-314 per-candidate novelty Goldilocks under 569i top-k shortlist (committed-class entropy DV; supersedes 590b)",
-      "script": "experiments/v3_exq_590c_mech314_novelty_goldilocks.py",
-      "priority": 410,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "supersedes": "V3-EXQ-590b",
-      "claim_id": "MECH-314",
-      "note": "infant_substrate:GAP-13 re-issue (supersedes V3-EXQ-590b FAIL/non_contributory 2026-06-11; the 590b routing table says 're-queue as V3-EXQ-590c'). RE-POSED both the swept knob AND the selection path per the F-dominance campaign. 590b swept modulatory_authority_gain because under the ADDITIVE authority the rescale washes out curiosity_novelty_weight (the 590a degenerate null). 590c instead sweeps curiosity_novelty_weight [0.0, 0.05, 0.25, 1.0] under the 569i TOP-K shortlist conversion path (use_modulatory_shortlist_then_modulate=True + modulatory_shortlist_mode=top_k + modulatory_shortlist_k=3), held CONSTANT with the rest of the GAP-A/modulatory-bias-selection-authority stack (use_modulatory_selection_authority=True, modulatory_authority_gain=1.0). Under top-k the committed action is the within-top-3 argmin of the curiosity-fed _modulatory_accum, so the pre-clamp novelty weight IS load-bearing (NOT washed out) -- a genuine Goldilocks (too-low=no range; too-high=clamp saturation). MECH-314 novelty is the SOLE modulatory channel (curiosity_candidate_source=e2_world_forward + SD-056 online + rollout clamp + SP-CEM + V_s; all other bias channels OFF). DV = committed-action-class entropy (the 569i/MECH-439 statistic), NOT h_pos. claim_ids re-evaluated from scratch = [MECH-314, DEV-NEED-003] (parent novelty channel reaching committed action + the developmental-need gate; NOT 590b's MECH-314a). MANDATORY non-vacuity guard (the 569i conversion is ENV-CONDITIONAL, V3-EXQ-625e): if committed-selection diversity does NOT survive MECH-439 F-dominance -- committed_class_entropy flat across weights (SAME statistic the Goldilocks routes on) OR curiosity bias range / e2 cand-divergence below floor -- the run self-routes substrate_not_ready_requeue (non_contributory), NEVER a weakens. PASS (supports MECH-314 + DEV-NEED-003) = best non-zero weight lifts committed_class_entropy over the w=0 (F-only) control by >= 0.05 on >=2/3 seeds. RE-DERIVE BRAKE RELEASED (Step 2.5b): the 3 cited MECH-314 ceiling autopsies (EXQ-572-573, 604a-624a-630, gapA-cluster-604b-648a-649) were all on the ADDITIVE-authority / proposer-source / drowning path; 590c runs on the 569i TOP-K shortlist conversion path (modulatory-bias-selection-authority TOP-K amend IMPLEMENTED 2026-06-16, 569i PASS 2/3) over the ARC-065 GAP-A e2.world_forward channel (IMPLEMENTED 2026-06-07) -- the named upstream substrate IS now built, and this is the conversion-path re-issue (not a same-granularity lettered re-test). The mandatory non-vacuity guard self-routes substrate_not_ready_requeue (never a weakens) so a persisting ceiling cannot manufacture a false falsification. User-directed re-issue. Smoke 2026-06-24 (--dry-run): all 4 arms run end-to-end; guard correctly self-routes substrate_not_ready_requeue at toy/untrained-e2 scale; validate_experiments --strict OK; no manifest leak (emit_outcome dry_run relocation).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-24T06:05:37Z"
-      },
-      "claim_ids": [
-        "MECH-314",
-        "DEV-NEED-003"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 90,
-      "experiment_type": "v3_exq_590c_mech314_novelty_goldilocks",
-      "seeds": 3
     }
   ]
 }
