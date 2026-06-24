@@ -20,14 +20,23 @@ DOUBLED work for zero benefit on this run:
     so the consumer can SKIP re-training. Here the mint was low-priority (would run AFTER
     700c) AND 700c self-mints AND there is no successor -- so it was pure redundant compute.
 
-WHEN THIS SCRIPT WOULD BE WORTH QUEUING (the mint path it documents): a NON-terminal family
-of letters/siblings sharing this exact OFF/settling config where you want the baseline
-minted ahead of time so each iteration reuses it. To use it then: re-add an entry to
-experiment_queue.json (queue_id pattern V<gen>-EXQ-<n><letter>(-<letter>), e.g.
-V3-EXQ-700c-m), pin machine_affinity to the consumer's worker class (ree-cloud-4 /
-linux-x86_64-py3.10), let it run FIRST, then set REUSE_BASELINE_FROM=<this run_id> in the
-consuming harness + record the run_id in
-experiments/_lib/baselines/exq700_arc108_settling_baseline.py.
+A FUTURE SIBLING DOES NOT NEED THIS SCRIPT. Any later iteration/sibling sharing this exact
+OFF/settling config can reuse 700c's OWN self-minted cells directly: set
+REUSE_BASELINE_FROM=<700c run_id> in the sibling harness (and cite that run_id in
+experiments/_lib/baselines/exq700_arc108_settling_baseline.py). Because 700c publishes
+reuse-eligible A0/A2/A3/C3 fingerprints to arm_fingerprint_index.json when its manifest
+lands, the sibling's `arm_reuse.try_reuse_cell` HITs off 700c's run -- no separate mint, no
+re-training of those 24 cells. So for THIS lineage a standalone mint is never needed.
+
+WHY THIS SCRIPT IS STILL KEPT: purely as a worked REFERENCE of the standalone-mint recipe
+(import the consumer's `_run_seed_arm`/`ARMS`/schedule, emit per-cell fingerprints with
+`include_driver_script_in_hash=False` off the shared `arm_config_slice`). The only generic
+case it serves is a DIFFERENT future family where an EXPENSIVE baseline must be banked
+BEFORE any consumer has run (so several from-scratch siblings can reuse it) -- a case that
+does NOT arise here, since the first/terminal consumer (700c) self-mints. If that case ever
+arises elsewhere, copy this recipe, re-add a schema-valid queue entry
+(V<gen>-EXQ-<n><letter>(-<letter>)), pin machine_affinity to the consumer's worker class,
+run it FIRST, then point the consumers at its run_id.
 
 Mints the four REUSABLE arms (A0_ENVELOPE_ONLY / A2_SETTLING_SIGNED / A3_BOTH_SIGNED /
 C3_SETTLING_UNSIGNED) x the 6 seeds of the V3-EXQ-700c harness so a LATER iteration (a
