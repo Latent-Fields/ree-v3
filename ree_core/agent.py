@@ -5186,6 +5186,17 @@ class REEAgent(nn.Module):
         # The bundle reads the (precision-weighted) affective-pain PE from the last
         # forward-model prediction, and mixes in per-candidate payoff/effort terms.
         dacc_score_bias: Optional[torch.Tensor] = None
+        # MECH-451: when use_finer_channel_gating is on, capture each finer
+        # constituent's UN-summed per-candidate [K] bias into this dict (keyed by the
+        # FINER_NAMED_CHANNELS names) so e3.select() can register one learned channel
+        # per head instead of the single compressed "score_bias" blend. None ->
+        # bit-identical (legacy single-channel path). The captured tensors are the
+        # SAME ones already summed into dacc_score_bias; anything NOT captured here
+        # (curiosity / blocked-agency / avoidance / escape) lands in the select()
+        # "residual" channel by subtraction, so the decomposition stays exhaustive.
+        _fcg_channels: Optional[Dict[str, torch.Tensor]] = (
+            {} if getattr(self.config, "use_finer_channel_gating", False) else None
+        )
         # V3-EXQ-571: per-component bias trackers (zero-cost when flag OFF)
         _bdc_dacc: Optional[torch.Tensor] = None
         _bdc_lpfc: Optional[torch.Tensor] = None
@@ -5390,6 +5401,13 @@ class REEAgent(nn.Module):
                 dacc_score_bias = dacc_score_bias * float(e3_gate)
                 self._dacc_last_bias = dacc_score_bias.detach().clone()
 
+        # MECH-451: capture the dACC-conflict finer channel = the dACC contribution
+        # to score_bias (post-e3_gate, before any other head adds). Captured here so
+        # the gp / lpfc / ofc / mech295 / vigour contributions added below are NOT
+        # folded into it.
+        if _fcg_channels is not None and dacc_score_bias is not None:
+            _fcg_channels["dacc"] = dacc_score_bias.detach().clone()
+
         # ARC-062 Phase 1/3: gated-policy heads + context discriminator.
         # Block is ordered BEFORE lateral_pfc (ARC-062 GAP-C reorder 2026-05-17)
         # so gp_output.gating_weight is available to pass as disc_output into
@@ -5466,6 +5484,8 @@ class REEAgent(nn.Module):
             gp_bias = _gp_output.gated_score_bias
             if self.e3.e3_score_decomp_enabled:
                 _bdc_gp = gp_bias.detach().clone()
+            if _fcg_channels is not None:  # MECH-451: gated_policy finer channel
+                _fcg_channels["gated_policy"] = gp_bias.detach().clone()
             if dacc_score_bias is None:
                 dacc_score_bias = gp_bias
             else:
@@ -5644,6 +5664,8 @@ class REEAgent(nn.Module):
                             )
                     cand_world_summaries = torch.stack(cand_world_list, dim=0)  # [K, world_dim]
             lpfc_bias = self.lateral_pfc.compute_bias(cand_world_summaries)
+            if _fcg_channels is not None:  # MECH-451: lateral-PFC rule-evidence channel
+                _fcg_channels["lpfc"] = lpfc_bias.detach().clone()
             if self.e3.e3_score_decomp_enabled:
                 _bdc_lpfc = lpfc_bias.detach().clone()
             # Compose additively with dACC score_bias (lower-is-better in E3).
@@ -5701,6 +5723,8 @@ class REEAgent(nn.Module):
                             )
                     ofc_summaries = torch.stack(_ofc_list, dim=0)
             ofc_bias = self.ofc.compute_bias(ofc_summaries)
+            if _fcg_channels is not None:  # MECH-451: OFC-devaluation channel
+                _fcg_channels["ofc"] = ofc_bias.detach().clone()
             if self.e3.e3_score_decomp_enabled:
                 _bdc_ofc = ofc_bias.detach().clone()
             if dacc_score_bias is None:
@@ -5833,6 +5857,8 @@ class REEAgent(nn.Module):
 
             if self.e3.e3_score_decomp_enabled:
                 _bdc_m295 = m295_bias.detach().clone()
+            if _fcg_channels is not None:  # MECH-451: liking (MECH-295) channel
+                _fcg_channels["liking"] = m295_bias.detach().clone()
             if dacc_score_bias is None:
                 dacc_score_bias = m295_bias
             else:
@@ -5972,6 +5998,8 @@ class REEAgent(nn.Module):
                 )
             if self.e3.e3_score_decomp_enabled:
                 _bdc_vigor = tv_bias.detach().clone()
+            if _fcg_channels is not None:  # MECH-451: vigour (MECH-320) channel
+                _fcg_channels["vigour"] = tv_bias.detach().clone()
             # ControlVector logging (rec-B): split the single MECH-320 bias into
             # its action half (G_vigor = -w_action*v_t) and no-op half
             # (C_time = +w_passive*v_t), and record the shared v_t scalar + the
@@ -6463,6 +6491,12 @@ class REEAgent(nn.Module):
             score_diversity=self.score_diversity,
             channel_route_bias=channel_route_bias,
         )
+        # MECH-451: pass the un-summed finer per-head biases ONLY when finer gating
+        # is engaged (version-layering guard: the default V3 path never sends the
+        # kwarg, so an older e3.select() that lacks the param cannot raise on the
+        # critical path -- same doctrine as the DR-12 / Go-No-Go guards below).
+        if getattr(self.config.e3, "use_finer_channel_gating", False):
+            _e3_select_kwargs["score_bias_channels"] = _fcg_channels
         # MECH-449 (ARC-107): Go/No-Go eligibility constitution. The perseveration
         # No-Go axis REUSES MECH-260 (dACC anti-recency suppression) -- the
         # existing per-candidate recency-share vector from the dACC bundle is

@@ -513,6 +513,27 @@ class E3Config:
     # operator) and config.e3 (this). Default False -> bit-identical.
     use_habenula_decommit: bool = False
 
+    # MECH-451: finer-channel-granularity selection-gating (the cheap V3 rung
+    # BETWEEN ARC-108's single global w_chan over the pre-COMPRESSED score_bias
+    # blend and ARC-110's full V4 segregated loops). When True, the single
+    # ARC-108 "score_bias" learned-gating channel is EXPLODED into its
+    # constituents (OFC / dACC / lateral-PFC / vigour / liking / gated_policy +
+    # a "residual" lump of everything else summed into score_bias), each with
+    # its OWN learned w_chan_finer entry trained by the SAME ARC-108 signed-RPE
+    # three-factor rule -- so the learner can discover SEPARATELY that different
+    # control functions matter in different states, keeping ONE shared arena
+    # (NOT ARC-110 per-loop competition). Tests whether the F-dominance
+    # conversion ceiling (MECH-439) is REPRESENTATIONAL COMPRESSION (finer
+    # channels convert non-motor influence to committed action) rather than a
+    # need for full per-loop competition. Reuses the ARC-108 learning knobs
+    # (eta / elig_decay / asym / rpe_mode) so A1_GLOBAL_WCHAN vs A2_FINER differ
+    # ONLY in channel granularity. Default False -> bit-identical OFF; at init
+    # softplus(w_chan_finer[c]) == 1.0 so the finer decomposition reproduces the
+    # compressed blend EXACTLY even when ON. ARC-108 (use_learned_channel_gating)
+    # path is UNTOUCHED (parallel buffer); the two are mutually exclusive at the
+    # score_bias slot, finer takes precedence. See MECH-451 / EXP-0391.
+    use_finer_channel_gating: bool = False
+
     # ARC-108 JOB-1 step-2 / MECH-450 (the coupled recurrent-settling step,
     # dopamine_into_gating design 2026-06-22 sec 4): the SECOND factor of the
     # learned-gating 2x2. A bounded recurrent lateral-inhibition SETTLING step over
@@ -4623,6 +4644,8 @@ class REEConfig:
         learned_channel_asym_potentiation: float = 1.0,
         learned_channel_asym_depression: float = 0.5,
         learned_channel_rpe_mode: Literal["signed", "unsigned"] = "signed",
+        # MECH-451: finer-channel-granularity selection-gating (no-op default)
+        use_finer_channel_gating: bool = False,
         # ARC-108 JOB-1 step-2 / MECH-450 recurrent-settling step (learned W_lat)
         use_learned_settling_step: bool = False,
         learned_settling_rounds: int = 3,
@@ -5656,6 +5679,8 @@ class REEConfig:
         config.e3.learned_channel_asym_potentiation = learned_channel_asym_potentiation
         config.e3.learned_channel_asym_depression = learned_channel_asym_depression
         config.e3.learned_channel_rpe_mode = learned_channel_rpe_mode
+        # MECH-451: finer-channel-granularity selection-gating reads from config.e3.
+        config.e3.use_finer_channel_gating = use_finer_channel_gating
         # ARC-108 JOB-1 step-2 / MECH-450 recurrent-settling step (learned W_lat)
         config.e3.use_learned_settling_step = use_learned_settling_step
         config.e3.learned_settling_rounds = learned_settling_rounds

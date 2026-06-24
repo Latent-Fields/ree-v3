@@ -46,6 +46,31 @@ _LCG_CHANNEL_INDEX: Dict[str, int] = {n: i for i, n in enumerate(_LCG_CHANNEL_NA
 # w_chan init value x s.t. softplus(x) == 1.0 exactly -> bit-identical unweighted
 # accumulator at init: ln(1 + e^x) = 1  =>  x = ln(e - 1).
 _LCG_W_INIT: float = math.log(math.e - 1.0)
+
+# MECH-451 finer-channel registry: the single ARC-108 "score_bias" slot exploded
+# into its genuinely-separable constituents (the dACC+lPFC+OFC+MECH-295+MECH-320+
+# gated_policy chain summed UPSTREAM in agent.py before reaching select()), each a
+# separately-learnable channel. "residual" captures everything ELSE summed into
+# score_bias that is not broken out (MECH-314 curiosity / MECH-353 blocked-agency /
+# SD-058 avoidance / SD-059 escape-affordance / any future term), computed by
+# subtraction so the finer decomposition is EXHAUSTIVE of score_bias -- the
+# bit-identical-at-init guarantee in the authority/shortlist path (the recomposed
+# _modulatory_accum at softplus==1 reproduces the summed score_bias EXACTLY). The
+# existing mech341 + route channels are preserved unchanged. The named constituent
+# channels feeding score_bias_channels (everything before "residual") are the
+# FINER_NAMED_CHANNELS; a constituent absent on a given tick (e.g. mech295 with no
+# active goal) simply does not contribute and earns no eligibility, so its
+# w_chan_finer entry stays stable (the ARC-108 "channel absent -> does not
+# contribute" semantic). See MECH-451 / EXP-0391.
+FINER_NAMED_CHANNELS: Tuple[str, ...] = (
+    "ofc", "dacc", "lpfc", "vigour", "liking", "gated_policy",
+)
+_FCG_CHANNEL_NAMES: Tuple[str, ...] = (
+    FINER_NAMED_CHANNELS + ("residual", "mech341", "route")
+)
+_FCG_CHANNEL_INDEX: Dict[str, int] = {
+    n: i for i, n in enumerate(_FCG_CHANNEL_NAMES)
+}
 from ree_core.predictors.e2_fast import Trajectory
 from ree_core.residue.field import ResidueField
 from ree_core.goal import GoalState
@@ -324,6 +349,26 @@ class E3TrajectorySelector(nn.Module):
         self._lcg_pending: bool = False         # a waking eligibility trace awaits an outcome
         self._lcg_last_delta: float = 0.0       # last signed RPE delta_t (diagnostic)
         self._lcg_n_updates: int = 0            # count of w_chan updates (diagnostic)
+
+        # MECH-451: the finer-channel learned-gating buffers. PARALLEL to the
+        # ARC-108 w_chan / _lcg_elig_trace above so the ARC-108 path is byte-identical
+        # (this is the ARC-106 reuse-the-mechanism pattern: same softplus-unity init,
+        # same three-factor rule, same waking-only gate, new buffer over the finer
+        # registry). w_chan_finer init so softplus(w_chan_finer[c]) == 1.0 for every
+        # channel -> the finer decomposition reproduces the compressed blend EXACTLY
+        # at init. V-hat_t is SHARED with the ARC-108 baseline (_lcg_value_baseline)
+        # since the two gating modes are mutually exclusive in practice (A1 vs A2
+        # arms). All inert unless config.use_finer_channel_gating is True.
+        _fcg_n = len(_FCG_CHANNEL_NAMES)
+        self.register_buffer(
+            "w_chan_finer", torch.full((_fcg_n,), _LCG_W_INIT, dtype=torch.float32)
+        )
+        self.register_buffer(
+            "_fcg_elig_trace", torch.zeros(_fcg_n, dtype=torch.float32)
+        )
+        self._fcg_pending: bool = False         # a waking finer-eligibility trace awaits an outcome
+        self._fcg_last_delta: float = 0.0       # last signed RPE delta_t applied to w_chan_finer (diagnostic)
+        self._fcg_n_updates: int = 0            # count of w_chan_finer updates (diagnostic)
 
         # ARC-108 JOB-1 step-2 / MECH-450: the learned lateral-inhibition matrix W_lat
         # over candidate first-action CLASSES (the SECOND factor of the learned-gating
@@ -1187,6 +1232,7 @@ class E3TrajectorySelector(nn.Module):
         harm_forward_model: Optional["nn.Module"] = None,
         z_harm_s_current: Optional[torch.Tensor] = None,
         score_bias: Optional[torch.Tensor] = None,
+        score_bias_channels: Optional[Dict[str, torch.Tensor]] = None,
         score_diversity: Optional[Any] = None,
         channel_route_bias: Optional[torch.Tensor] = None,
         e2_forward_pe_per_candidate: Optional[torch.Tensor] = None,
@@ -1308,6 +1354,16 @@ class E3TrajectorySelector(nn.Module):
         # use_learned_channel_gating is True.
         _lcg_terms: List[Tuple[int, torch.Tensor]] = []
 
+        # MECH-451: select the ACTIVE channel registry. When use_finer_channel_gating
+        # is on, _lcg_terms is keyed by the FINER registry (the single score_bias slot
+        # exploded into ofc/dacc/lpfc/vigour/liking/gated_policy/residual + the
+        # preserved mech341/route) and the recompose / eligibility / three-factor
+        # update below ride the parallel w_chan_finer buffer; otherwise the ARC-108
+        # base registry + w_chan (byte-identical). The two are mutually exclusive at
+        # the score_bias slot -- finer takes precedence.
+        _fcg = bool(getattr(self.config, "use_finer_channel_gating", False))
+        _chan_index = _FCG_CHANNEL_INDEX if _fcg else _LCG_CHANNEL_INDEX
+
         # SD-032b dACC bias: additive, same sign convention as raw scores.
         # Applied before last_scores / softmax so downstream consumers see
         # the biased values consistently.
@@ -1335,10 +1391,57 @@ class E3TrajectorySelector(nn.Module):
                 if bias_range > 1e-9:
                     scale = raw_score_range / bias_range
                     bias_tensor = bias_tensor * scale
+            # Base scores add the FULL (summed) score_bias in BOTH modes -- so the
+            # scores tensor (and the authority-OFF selection path) is unchanged. Only
+            # the _lcg_terms registration (and hence the recomposed _modulatory_accum
+            # the authority/shortlist consumes) differs in finer mode.
             scores = scores + bias_tensor
             # Explicit modulatory-contribution tracking (see note above).
             _modulatory_accum = bias_tensor
-            _lcg_terms.append((_LCG_CHANNEL_INDEX["score_bias"], bias_tensor))
+            if _fcg:
+                # MECH-451: register one _lcg_term per FINER channel instead of the
+                # single compressed "score_bias" term. score_bias_channels carries the
+                # un-summed per-head biases captured in agent.select_action; each is
+                # scaled by the SAME normalize factor applied to bias_tensor above so
+                # the parts still sum to the (post-normalize) whole. "residual" =
+                # bias_tensor - sum(named present) captures everything ELSE summed into
+                # score_bias (curiosity / blocked-agency / avoidance / escape / future),
+                # so the finer decomposition is EXHAUSTIVE -> at softplus==1 the
+                # recompose reproduces bias_tensor EXACTLY (bit-identical at init).
+                _named_sum = scores.new_zeros(scores.shape)
+                if score_bias_channels:
+                    # Re-derive the normalize scale actually applied to bias_tensor so
+                    # the captured (pre-normalize) channel tensors are put on the same
+                    # footing. When normalization did not fire, _norm_scale == 1.0.
+                    _norm_scale = 1.0
+                    _raw_sb = score_bias.to(dtype=scores.dtype, device=scores.device)
+                    _raw_sb_range = float((_raw_sb.max() - _raw_sb.min()).abs().item())
+                    if (
+                        getattr(self.config, "normalize_score_bias_to_e3_range", False)
+                        and not getattr(self.config, "use_modulatory_selection_authority", False)
+                        and raw_score_range > 1e-6
+                        and _raw_sb_range > 1e-9
+                    ):
+                        _norm_scale = raw_score_range / _raw_sb_range
+                    for _ch_name in FINER_NAMED_CHANNELS:
+                        _ch_bias = score_bias_channels.get(_ch_name)
+                        if _ch_bias is None:
+                            continue
+                        _ch_t = _ch_bias.to(dtype=scores.dtype, device=scores.device)
+                        if _ch_t.shape != scores.shape:
+                            raise ValueError(
+                                f"score_bias_channels['{_ch_name}'] shape "
+                                f"{tuple(_ch_t.shape)} does not match scores shape "
+                                f"{tuple(scores.shape)}"
+                            )
+                        _ch_t = _ch_t * _norm_scale
+                        _named_sum = _named_sum + _ch_t
+                        _lcg_terms.append((_chan_index[_ch_name], _ch_t))
+                # residual = (post-normalize) full bias minus the named parts.
+                _residual = bias_tensor - _named_sum
+                _lcg_terms.append((_chan_index["residual"], _residual))
+            else:
+                _lcg_terms.append((_chan_index["score_bias"], bias_tensor))
 
         # MECH-341 Option 1 (entropy bonus): per-candidate POSITIVE bias on
         # first-action classes over-represented in the pool. Composed AFTER
@@ -1359,7 +1462,7 @@ class E3TrajectorySelector(nn.Module):
                 mech341_bonus if _modulatory_accum is None
                 else _modulatory_accum + mech341_bonus
             )
-            _lcg_terms.append((_LCG_CHANNEL_INDEX["mech341"], mech341_bonus))
+            _lcg_terms.append((_chan_index["mech341"], mech341_bonus))
 
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
         # 2026-06-10): fold the channel-under-test's range-preserving per-candidate
@@ -1402,7 +1505,7 @@ class E3TrajectorySelector(nn.Module):
                     routed if _modulatory_accum is None
                     else _modulatory_accum + routed
                 )
-                _lcg_terms.append((_LCG_CHANNEL_INDEX["route"], routed))
+                _lcg_terms.append((_chan_index["route"], routed))
                 modulatory_channel_route_active = True
 
         # ARC-108 JOB-1 step-1: recompose _modulatory_accum as the LEARNED weighted
@@ -1416,8 +1519,21 @@ class E3TrajectorySelector(nn.Module):
         # learned weight can never re-admit a No-Go-suppressed candidate. MECH-450
         # settling (learned W_lat) would compose HERE as factor 2 -- OFF in this
         # build (W_lat == 0): integration point reserved, not enabled.
-        if getattr(self.config, "use_learned_channel_gating", False) and _lcg_terms:
-            w_soft = F.softplus(self.w_chan)  # [C], all == 1.0 at init
+        # MECH-451: the recompose is registry-agnostic -- it fires for EITHER the
+        # ARC-108 global w_chan OR the finer w_chan_finer, picking the active buffer.
+        # At init softplus == 1.0 for every channel, so in BOTH modes the recompose
+        # reproduces the (summed) modulatory contribution EXACTLY (bit-identical OFF,
+        # and bit-identical at init even when ON). The finer mode's per-channel terms
+        # sum to bias_tensor by construction (named + residual), so the only thing
+        # that diverges from the global path is the per-channel weighting once the
+        # finer w_chan_finer entries are trained apart.
+        _recompose_on = (
+            (getattr(self.config, "use_learned_channel_gating", False) and not _fcg)
+            or (_fcg and getattr(self.config, "use_finer_channel_gating", False))
+        )
+        if _recompose_on and _lcg_terms:
+            _w_buf = self.w_chan_finer if _fcg else self.w_chan
+            w_soft = F.softplus(_w_buf)  # [C], all == 1.0 at init
             _lcg_acc = None
             for ch_idx, term in _lcg_terms:
                 weighted = w_soft[ch_idx].to(
@@ -1959,16 +2075,28 @@ class E3TrajectorySelector(nn.Module):
         # (simulation_mode False): a replay/DMN tick records no eligibility, so it
         # forms no delta_t and writes no w_chan (MECH-094). Setting _lcg_pending arms
         # the three-factor update for the next post_action_update.
-        if (getattr(self.config, "use_learned_channel_gating", False)
-                and not simulation_mode and _lcg_terms):
+        # MECH-451: eligibility recording rides the active registry/buffer too. The
+        # finer path writes _fcg_elig_trace + arms _fcg_pending; the ARC-108 path
+        # writes _lcg_elig_trace + arms _lcg_pending (unchanged). Both decayed
+        # |channel_bias_c[selected]| Hebbian co-activation; both waking-only (MECH-094).
+        _elig_on = (
+            (getattr(self.config, "use_learned_channel_gating", False) and not _fcg)
+            or (_fcg and getattr(self.config, "use_finer_channel_gating", False))
+        )
+        if _elig_on and not simulation_mode and _lcg_terms:
             decay = float(getattr(self.config, "learned_channel_gating_elig_decay", 0.9))
-            contribution = self._lcg_elig_trace.new_zeros(self._lcg_elig_trace.shape)
+            _elig_buf = self._fcg_elig_trace if _fcg else self._lcg_elig_trace
+            contribution = _elig_buf.new_zeros(_elig_buf.shape)
             for ch_idx, term in _lcg_terms:
                 contribution[ch_idx] = contribution[ch_idx] + term[selected_idx].detach().abs().to(
                     dtype=contribution.dtype, device=contribution.device
                 )
-            self._lcg_elig_trace = decay * self._lcg_elig_trace + contribution
-            self._lcg_pending = True
+            if _fcg:
+                self._fcg_elig_trace = decay * self._fcg_elig_trace + contribution
+                self._fcg_pending = True
+            else:
+                self._lcg_elig_trace = decay * self._lcg_elig_trace + contribution
+                self._lcg_pending = True
 
         return SelectionResult(
             selected_trajectory=selected_trajectory,
@@ -2037,6 +2165,14 @@ class E3TrajectorySelector(nn.Module):
             getattr(self.config, "use_learned_channel_gating", False)
             and self._lcg_pending
         )
+        # MECH-451: the finer w_chan_finer three-factor update -- the SAME signed-RPE
+        # delta_t / V-hat_t / D1-D2 asym as the ARC-108 path, applied over the finer
+        # eligibility trace. Gated on a pending WAKING finer trace (a replay/DMN tick
+        # leaves _fcg_pending False -> no write; MECH-094).
+        _fcg_on = bool(
+            getattr(self.config, "use_finer_channel_gating", False)
+            and self._fcg_pending
+        )
         _wlat_on = bool(
             getattr(self.config, "use_learned_settling_step", False)
             and self._wlat_pending
@@ -2050,7 +2186,7 @@ class E3TrajectorySelector(nn.Module):
         # ClosureOperator's habenula abort. No w_chan / W_lat write on this path.
         # Bit-identical when use_habenula_decommit is False (condition unchanged).
         _hab_on = bool(getattr(self.config, "use_habenula_decommit", False))
-        if _lcg_on or _wlat_on or _hab_on:
+        if _lcg_on or _fcg_on or _wlat_on or _hab_on:
             with torch.no_grad():
                 # R_t = realised outcome valence at the resulting state, from the
                 # ALREADY-TRAINED valuation heads (reuse; no new encoder, no phased
@@ -2104,6 +2240,18 @@ class E3TrajectorySelector(nn.Module):
                     )
                     self._lcg_last_delta = learn_signal
                     self._lcg_n_updates += 1
+                if _fcg_on:
+                    # MECH-451: SAME three-factor rule, applied to the finer
+                    # w_chan_finer over the finer eligibility trace.
+                    # Delta w_finer[c] = eta * learn_signal * eligibility_c * asym.
+                    eta_f = float(getattr(self.config, "learned_channel_gating_eta", 0.01))
+                    self.w_chan_finer.add_(
+                        eta_f * learn_signal * learn_asym * self._fcg_elig_trace.to(
+                            dtype=self.w_chan_finer.dtype, device=self.w_chan_finer.device
+                        )
+                    )
+                    self._fcg_last_delta = learn_signal
+                    self._fcg_n_updates += 1
                 if _wlat_on:
                     # MECH-450: SAME three-factor rule, applied to W_lat over the
                     # decayed Hebbian class co-activation trace recorded during the
@@ -2127,6 +2275,19 @@ class E3TrajectorySelector(nn.Module):
                 metrics["lcg_value_baseline"] = torch.tensor(self._lcg_value_baseline)
                 metrics["lcg_w_chan_range"] = torch.tensor(
                     float((self.w_chan.max() - self.w_chan.min()).item())
+                )
+            if _fcg_on:
+                self._fcg_pending = False
+                # MECH-451 readiness/diagnostics: the cross-channel learned-weight
+                # RANGE is the EXP-0391 non-degeneracy signal -- finer channels that
+                # move IDENTICALLY (range ~0) are the compressed blend re-labelled.
+                metrics["fcg_delta_t"] = torch.tensor(self._fcg_last_delta)
+                metrics["fcg_value_baseline"] = torch.tensor(self._lcg_value_baseline)
+                metrics["fcg_w_chan_finer_range"] = torch.tensor(
+                    float((self.w_chan_finer.max() - self.w_chan_finer.min()).item())
+                )
+                metrics["fcg_w_chan_finer_std"] = torch.tensor(
+                    float(self.w_chan_finer.std().item())
                 )
             if _wlat_on:
                 self._wlat_pending = False
@@ -2156,6 +2317,10 @@ class E3TrajectorySelector(nn.Module):
         (cheap zero) when learned gating / the settling step is off."""
         self._lcg_elig_trace = torch.zeros_like(self._lcg_elig_trace)
         self._lcg_pending = False
+        # MECH-451: clear the finer eligibility trace + pending flag too (w_chan_finer
+        # persists across episodes, parallel to w_chan).
+        self._fcg_elig_trace = torch.zeros_like(self._fcg_elig_trace)
+        self._fcg_pending = False
         self._wlat_coact_trace = torch.zeros_like(self._wlat_coact_trace)
         self._wlat_pending = False
 
