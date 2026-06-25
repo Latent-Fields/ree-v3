@@ -27,26 +27,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-466e",
-      "title": "SD-034 satisficing residue-discharge behavioural (harness-fix re-queue; supersedes 466d)",
-      "script": "experiments/v3_exq_466e_sd034_satisficing_residue_discharge_behavioural.py",
-      "priority": 420,
-      "machine_affinity": "any",
-      "estimated_minutes": 430,
-      "supersedes": "V3-EXQ-466d",
-      "claim_id": "SD-034",
-      "note": "HARNESS-FIX re-queue routed by confirmed failure_autopsy_V3-EXQ-466d_2026-06-24 (non_contributory, interactive gate). 466d C1 PASS but C2_discharge_events=0 on 3/3 seeds because the residue field was EMPTY all run: discharge_domain (field.py:621) is built+wired (closure_operator.residue=residue_field, agent.py:1577) and fires every closure, but neither the scaffold nor the eval ever called agent.update_residue() (the sole add_residue path), so it returned 0 on an empty active_mask (field.py:671) -> C2 DEGENERATE (642 invalid-precondition pattern). FIX (all in-script; substrate UNCHANGED): (1) wire update_residue(harm_signal) into a residue-priming foraging pass + the eval loop so the field accumulates active RBF centers before closures fire; (2) capture notify_env_completion's returned ClosureEvent so the Leg-A-hook closures' discharge is counted (466d discarded it + counted only select_action closures -> even a populated field would score C2=0; in 466d ALL closures came via the hook); (3) add a residue-field-populated non-vacuity gate (residue_active_peak>=1 on >=2/3 guard seeds, else substrate_not_ready_requeue + non_degenerate=False, NEVER a false weakens). claim_ids=[SD-034] only (MECH-094 DROPPED -- waking-only discharge, no simulation path; protects the stable claim from a spurious weakens). Keeps C1/C2/C3 + 603n contact guard + commitment+completion gate. Re-derive brake EXEMPT (642 exemption, user-confirmed in 466d autopsy: harness gap not a ceiling; harness-fix re-queue is the route the brake allows). substrate_queue action=none. No reuse mint -- the OFF arm reuses the shared per-seed curriculum build (no separable expensive baseline). Dry-run smoke PASS (active_centers primed 14, residue_active_peak 28, n_closures=1 discharge=1 C1/C2/C3 PASS = fix demonstrable vs 466d C2=0). On PASS, /governance closes commitment_closure:GAP-4-battery (owner->466e).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-06-24T22:48:18Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 270,
-      "experiment_type": "v3_exq_466e_sd034_satisficing_residue_discharge_behavioural",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-700c",
       "title": "ARC-108 sec-7 learned-gating settling falsifier -- SAME-LAYER null (frozen magnitude-matched random W_lat at the eligibility/settling field); brake-EXEMPT TERMINAL re-run, supersedes V3-EXQ-700b",
       "script": "experiments/v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null.py",
