@@ -28,27 +28,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-700c",
-      "title": "ARC-108 sec-7 learned-gating settling falsifier -- SAME-LAYER null (frozen magnitude-matched random W_lat at the eligibility/settling field); brake-EXEMPT TERMINAL re-run, supersedes V3-EXQ-700b",
-      "script": "experiments/v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null.py",
-      "priority": 300,
-      "machine_affinity": "ree-cloud-4",
-      "estimated_minutes": 1500,
-      "supersedes": "V3-EXQ-700b",
-      "claim_id": "MECH-439",
-      "note": "Routed by failure_autopsy_V3-EXQ-700b_2026-06-24 (user-adjudicated CONCURRENT: V4 loop-segregation + this terminal V3 700c). Replaces 700b's policy-temperature ARM_NOISE (MECH-313 use_noise_floor -- decoupled from the committed-class DV by the F-bounded eligibility constitution; 3 runs of alpha-bumping FAILED) with a SAME-LAYER null = use_learned_settling_step=True + learned_settling_eta=0.0 + a frozen magnitude-matched random W_lat injected into agent.e3.W_lat (the within-eligible accumulator MECH-450 settling acts on), gated behind per-arm field_noise so A0/A2/A3/C3 are byte-identical to 700b. 5 arms (A0/A2_SETTLING_SIGNED/A3_BOTH_SIGNED/C3_SETTLING_UNSIGNED/ARM_NOISE) x 6 seeds, phased P0/P1/P2, landed arithmetic envelope (use_f_eligibility_demotion+adaptive_floor 689e+go_nogo 689g+modulatory-authority/top_k k=3 569i; use_differentiable_cem=False) as a MATCHED CONSTANT, per-seed-divergent gating, committed-action-class entropy DV. PRE-REGISTERED TERMINAL: any further null failure (no verify-lift at the correct layer, or no conversion on a now-verified bar) auto-escalates to V4 loop-segregation -- NO further V3 letters. RE-DERIVE BRAKE EXEMPT (user-adjudicated 2026-06-24: concurrent with V4 escalation, genuine null REDESIGN not an alpha-bump, pre-registered terminal); the brake REFUSES any alpha-bump same-lever requeue. claim_ids=[MECH-439,ARC-108,MECH-450]. ARM-REUSE: REUSE_BASELINE_FROM=None (runs all arms fresh; set to the V3-EXQ-700c-m mint run_id to skip the 4 unchanged arms). PROMOTES NOTHING (MECH-439 substrate_ceiling; ARC-108/MECH-450 substrate_conditional). phase3-queue dropped-file hazard: confirm git show HEAD contains this entry before push.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-24T20:32:33Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null",
-      "machine_affinity_note": "Pinned to ree-cloud-4 (user-directed 2026-06-24): 700b ran on ree-cloud-4 (linux-x86_64-py3.10); arm-reuse fingerprint is machine-class-bound so the mint + consumer must share the worker.",
-      "seeds": 6
-    },
-    {
       "queue_id": "V3-EXQ-704b",
       "title": "MECH-451 finer-channel-granularity validation falsifier -- LETTER iteration (ARM_NOISE magnitude matched to the REALISED A2 learned range at run time + substantive-dissociation near-vacuity guard); test-design re-tune, supersedes V3-EXQ-704",
       "script": "experiments/v3_exq_704b_mech451_finer_channel_granularity_falsifier.py",
