@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-705",
-      "title": "MECH-314 curiosity-conversion under F-eligibility demotion ON (brake-exempt 590c successor)",
-      "script": "experiments/v3_exq_705_mech314_curiosity_conversion_demotion.py",
-      "priority": 430,
-      "machine_affinity": "any",
-      "estimated_minutes": 280,
-      "claim_id": "MECH-314",
-      "note": "Brake-EXEMPT/RELEASED re-test routed by failure_autopsy_V3-EXQ-590c_2026-06-24 (4th MECH-314 ceiling autopsy: 590c + EXQ-572-573 + 604a-624a-630 + gapA-cluster-604b-648a-649). Re-derive brake released because the upstream substrate the autopsy routed to -- f_dominance_conversion_ceiling demotion (MECH-448/ARC-107 use_f_eligibility_demotion) -- is BUILT + validated (V3-EXQ-689d PASS; selection-face ceiling LIFTED on the GAP-A foraging substrate). NEW number (different-substrate redesign), NOT a 590-lineage weight-sweep letter. 3 arms x 3 seeds, ALL use_f_eligibility_demotion=True + MECH-314 curiosity sole modulatory channel + curiosity_candidate_source=e2_world_forward (GAP-A divergent pool) + SD-056 online: ARM_CURIOSITY (w=0.25) vs ARM_FONLY (w=0.0, demotion-ON F-only control) vs ARM_NOISE (w=0.0, flat-hot matched-noise). Contrast = channel PRESENCE, NOT two curiosity scales (argmin(w*curiosity) is scale-invariant -- why the 590c sweep was vacuous). PASS = ARM_CURIOSITY committed_class_entropy lifts over ARM_FONLY by >= 0.05 on >=2/3 seeds AND strict-above ARM_NOISE. Confounded-precondition FIX: curiosity_bias_range read at the NON-saturation arm (w=0.25, smoke 0.0156 ~ 590c W025 0.0160), NOT the clamp-saturation arm. Non-vacuity self-route substrate_not_ready_requeue (NEVER weakens) if pool not divergent / curiosity range below floor / demotion all-admit; a readiness-met no-lift = conversion_ceiling_persists (non_contributory, MECH-449/V4 off-ramp), also not a weakens. claim_ids=[MECH-314]; experiment_purpose=evidence. Joins the f_dominance_conversion_ceiling downstream-behavioural-retest family (654h/485i/445h/625e). PROMOTES NOTHING.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-24T22:35:42Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 90,
-      "experiment_type": "v3_exq_705_mech314_curiosity_conversion_demotion",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-700c",
       "title": "ARC-108 sec-7 learned-gating settling falsifier -- SAME-LAYER null (frozen magnitude-matched random W_lat at the eligibility/settling field); brake-EXEMPT TERMINAL re-run, supersedes V3-EXQ-700b",
       "script": "experiments/v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null.py",
