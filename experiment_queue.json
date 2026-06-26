@@ -6,27 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-704b",
-      "title": "MECH-451 finer-channel-granularity validation falsifier -- LETTER iteration (ARM_NOISE magnitude matched to the REALISED A2 learned range at run time + substantive-dissociation near-vacuity guard); test-design re-tune, supersedes V3-EXQ-704",
-      "script": "experiments/v3_exq_704b_mech451_finer_channel_granularity_falsifier.py",
-      "priority": 290,
-      "machine_affinity": "any",
-      "estimated_minutes": 1200,
-      "supersedes": "V3-EXQ-704",
-      "claim_id": "MECH-451",
-      "backlog_id": "EVB-0391",
-      "note": "LETTER iteration routed by the confirmed, user-gated failure_autopsy_V3-EXQ-704_2026-06-25 (.md+.json). Scientific question UNCHANGED; substrate already built (substrate action = none). WHY 704 FAILED (precondition_unmet, NOT a falsification): the ARM_NOISE same-layer null injected a frozen random w_chan_finer at a FIXED absolute scale (FCG_NOISE_SCALE=0.5); A2's LEARNED finer-channel dissociation came in tiny (range ~0.00148, only ~15x the 1e-4 floor), so the fixed-scale null was ~176.9x the A2 LEARNED range -> fcg_noise_magnitude_matched ([0.25,4.0]x band) FAILED and the C1 'A2 strict-above ARM_NOISE' bar was meaningless. V3-EXQ-642 invalid-precondition family (control-calibration artifact); MECH-451 UNWEAKENED; re-derive brake NOT fired (1st MECH-451 autopsy; brake-exempt config re-tune). THE FIX (the ONE scientific change; everything else from 704 kept VERBATIM): (1) the ARM_NOISE frozen-random w_chan_finer range is now magnitude-matched AT RUN TIME to the REALISED per-(arm,seed) A2 LEARNED w_chan_finer range (FCG_NOISE_MATCH_TARGET_RATIO=1.0 = centre of the band). Arms run A0,A1,A2,ARM_NOISE in order, so each ARM_NOISE seed's A2 learned range is already measured and the injected deviation is rescaled so its range EQUALS the matched A2 range BY CONSTRUCTION -> the ratio lands in-band; a missing/degenerate A2 range falls back to FCG_NOISE_FALLBACK_SCALE=0.5, which correctly trips the magnitude-match precondition -> substrate_not_ready_requeue. (2) a SUBSTANTIVE-dissociation near-vacuity guard (autopsy Step 7): the A2 LEARNED finer-channel range must clear W_CHAN_FINER_SUBSTANTIVE_RANGE_FLOOR=5e-3 (well above the bare 1e-4 dissociability floor AND above 704's near-vacuous 0.00148) on a strict-majority of seeds; if the finer channels only barely clear the floor ('the compressed blend re-labelled'), the test self-routes substrate_not_ready_requeue + non_degenerate=False rather than a misleading no-lift weakens on a knife-edge tiny-structure-vs-tiny-matched-null comparison. KEPT VERBATIM from 704: same GAP-A reef-bipartite foraging substrate, same landed arithmetic envelope (use_f_eligibility_demotion + adaptive_floor 689e + go_nogo 689g + modulatory-authority/top_k k=3 569i) as a MATCHED CONSTANT on all arms, settling W_lat OFF on ALL arms, 4 arms (A0_ENVELOPE_ONLY / A1_GLOBAL_WCHAN / A2_FINER_CHANNELS / ARM_NOISE) x 6 seeds, phased P0/P1/P2 (250 ep/cell), committed-action-class entropy PRIMARY DV. PRE-REGISTERED decisive either way: A2 strict-above A0 AND A1 AND the now-correctly-matched verified-lifting noise bar => REPRESENTATIONAL COMPRESSION confirmed -> supports MECH-451 + PRE-EMPTS the V4 ARC-110 loop-segregation build; A2 finer-weights-MOVE but no lift beyond A1 => compression NOT the binding constraint -> POSITIVE evidence FOR ARC-110 (route to v4_loop_segregation), weakens MECH-451. claim_ids=[MECH-451]; experiment_purpose=evidence; PROMOTES NOTHING (MECH-451 candidate / substrate_conditional / v3); recommended substrate_queue action=none. ARM-REUSE: REUSE_BASELINE_FROM=None (runs all arms fresh; ARM_NOISE ineligible -- frozen-random injection; the false cache-miss is free). Gates: py_compile + ASCII-clean (0 non-ascii) + validate_experiments --strict --paths OK (per-cell arm_fingerprint; 0 readiness-warnings) + dry-run smoke exit 0 (substrate_not_ready_requeue at toy scale = correct non-vacuity self-route; runtime-match path executed; no manifest leaked under evidence/). phase3-queue dropped-file hazard: confirm git show HEAD contains this entry before push.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-25T21:11:43Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_704b_mech451_finer_channel_granularity_falsifier",
-      "seeds": 6
-    }
-  ]
+  "items": []
 }
