@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-706",
-      "title": "MECH-314 curiosity-conversion DOUBLE-GATED re-test -- use_f_eligibility_demotion=True AND use_go_nogo_constitution=True (MECH-449) BOTH ON, active staleness No-Go injection; brake-EXEMPT redesign, supersedes V3-EXQ-705b; PRE-REGISTERED TERMINAL off-ramp = V4 ARC-110",
-      "script": "experiments/v3_exq_706_mech314_curiosity_conversion_double_gated.py",
-      "priority": 420,
-      "machine_affinity": "any",
-      "estimated_minutes": 300,
-      "supersedes": "V3-EXQ-705b",
-      "claim_id": "MECH-314",
-      "note": "Brake-EXEMPT DOUBLE-GATED forward path routed by the confirmed, user-gated failure_autopsy_V3-EXQ-705b_2026-06-25 (.md+.json). NEW NUMBER (not a 705 letter): 705b was the FIRST FAIR test of MECH-314 curiosity-conversion under MECH-448/ARC-107 F->eligibility demotion ON (adaptive floor genuinely excluded, excluded_count_mean ~14.45 vs 705's all-admit 0.0; 590c saturation-arm confound fixed; GAP-A e2_world_forward pool divergent ~0.107) and committed-class entropy STILL did not lift over the demotion-ON F-only control + matched-noise => conversion_ceiling_persists_despite_demotion. The re-derive brake FIRED (6th MECH-314 ceiling autopsy) and REFUSES a 705c demotion-ONLY same-substrate letter. This is the autopsy-named brake-EXEMPT REDESIGN: turn the ALREADY-built+validated+provisional MECH-449 Go/No-Go constitution (V3-EXQ-689g PASS 3/3, conversion_rate 1.0; OFF in 705b) ON ALONGSIDE demotion -- use_f_eligibility_demotion=True AND use_go_nogo_constitution=True BOTH ON. Adding a second eligibility gate is a MAJOR-REDESIGN (different substrate condition) per the EXQ versioning rules, hence the new number; supersedes V3-EXQ-705b. Everything else kept verbatim from 705b: 3 arms (ARM_CURIOSITY w=0.25 the SOLE modulatory channel / ARM_FONLY demotion+gonogo-ON F-only control / ARM_NOISE flat-hot matched-noise), GAP-A e2_world_forward divergent pool, use_f_eligibility_adaptive_floor ON, committed-class-entropy DV, phased P0(60)/P1(30) training, hardened legC excluded_count>0 readiness gate, non-vacuity self-route substrate_not_ready_requeue (NEVER a false weakens). CRITICAL NON-VACUITY FIX over a naive flag-flip: dACC is OFF by design (curiosity must stay the sole modulatory channel), so use_go_nogo_constitution=True alone leaves the Go/No-Go gate INERT (no safety/staleness/perseveration signals -> no-op, vacuous double-gate). This experiment ACTIVELY INJECTS a per-tick staleness No-Go signal (recently-committed action classes, RECENCY_WINDOW=1, STALENESS_NOGO_LEVEL=0.9) via agent.set_injected_go_nogo_signals on ALL THREE arms identically (staleness is an ELIGIBILITY filter applied to every arm's candidate set, NOT a modulatory channel -- the curiosity contrast vs the matched F-only double-gated control is preserved). New readiness Leg E (go_nogo_n_soft_applied_mean > 0 on >= MIN_SEEDS seeds) gates the lift criterion BEFORE scoring, so an inert gate self-routes substrate_not_ready_requeue, never a false reading. PASS (supports MECH-314) = ARM_CURIOSITY committed_class_entropy lifts over the double-gated F-only control by >= margin on >=2/3 seeds AND strict-above ARM_NOISE. PRE-REGISTERED TERMINAL OFF-RAMP: a readiness-met (legC excluded_count>0 AND legE go_nogo fires) no-lift here routes to V4 ARC-110 loop-segregation -- NO further V3 letters on this lineage. RE-DERIVE BRAKE EXEMPT (user-adjudicated 2026-06-25: double-gated redesign adding MECH-449, autopsy-routed -- the brake REFUSES only a demotion-only same-substrate 705c). ARM-REUSE: no separate mint (disqualifier: substrate genuinely in flux for this lineage -- the eligibility constitution changes every letter, so the OFF/F-only arm re-tunes and the fingerprint would correctly refuse; the in-run self-mint covers any strictly-later successor). claim_ids=[MECH-314]; experiment_purpose=evidence; PROMOTES NOTHING (MECH-314 remains substrate_ceiling-gated; this is the terminal V3 evidence test). Gates: py_compile + ASCII-clean (0 non-ascii) + validate_experiments --strict --paths OK (per-cell arm_fingerprint; 0 readiness-warnings) + dry-run smoke exit 0 (substrate_not_ready_requeue at toy scale = correct hardened-leg self-route at 1<MIN_SEEDS=2; Go/No-Go gate GENUINELY FIRES -- go_nogo_n_soft_applied 2.25-3.43/arm, proving non-inert; no manifest leaked under evidence/). phase3-queue dropped-file hazard: confirm git show HEAD contains this entry before push.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-06-25T21:11:05Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 90,
-      "experiment_type": "v3_exq_706_mech314_curiosity_conversion_double_gated",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-704b",
       "title": "MECH-451 finer-channel-granularity validation falsifier -- LETTER iteration (ARM_NOISE magnitude matched to the REALISED A2 learned range at run time + substantive-dissociation near-vacuity guard); test-design re-tune, supersedes V3-EXQ-704",
       "script": "experiments/v3_exq_704b_mech451_finer_channel_granularity_falsifier.py",
