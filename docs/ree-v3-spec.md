@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-24
+**Last updated:** 2026-06-26
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-24)
+## 0. Current V3 State (2026-06-26)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -199,6 +199,95 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-26T01:10Z nightly read (scheduled `/update-docs`).** MECH-314
+  curiosity-conversion brake-LOCK day: the 2-pass `/governance` cycles + 705 /
+  705b failure-autopsies + queue rebuild produced the 6th MECH-314 substrate-
+  ceiling re-derive brake firing and routed the brake-EXEMPT MECH-449 Go/No-Go
+  DOUBLE-GATED redesign V3-EXQ-706 as the only forward path. `evidence/experiments/`
+  flat top-level now holds **504 `v3_exq_*.json` manifests + 1 `v4_exq_*.json`**
+  on disk (+12 since the 2026-06-24 read). Per-machine Phase-3 cards under
+  `runner_heartbeats/` + `runner_status/` continue to lead the legacy tally
+  (the single-file `runner_status.json` stays retired). **Pending review queue
+  (regenerated 2026-06-25T19:18Z): 0 items** -- "All experiments reviewed.
+  Nothing pending." **Currently queued (`experiment_queue.json` items[]):
+  2 items** -- **(a) V3-EXQ-706** (priority 420; `claim_ids=[MECH-314]`;
+  brake-EXEMPT DOUBLE-GATED forward path; 3 arms x 3 seeds ARM_CURIOSITY
+  (w=0.25) / ARM_FONLY (w=0) / ARM_NOISE (flat-hot) under BOTH MECH-448/ARC-107
+  F->eligibility demotion ON AND the BUILT MECH-449 Go/No-Go eligibility
+  constitution ON with an active staleness/perseveration No-Go signal injection,
+  curiosity-bias the sole modulatory channel, GAP-A `e2_world_forward`
+  divergent pool, adaptive envelope floor ON, committed-class-entropy DV,
+  phased P0/P1; new readiness Leg E (Go/No-Go gate non-degeneracy
+  `go_nogo_n_soft_applied > 0` on >= 2/3 seeds) so an inert gate self-routes
+  `substrate_not_ready_requeue` instead of weakening MECH-314; readiness-met
+  no-lift is the PRE-REGISTERED TERMINAL off-ramp -> V4 ARC-110 loop-segregation
+  (no more V3 letters)); **(b) V3-EXQ-704b** (priority 290; `claim_ids=[MECH-451]`;
+  finer-channel-granularity falsifier re-tuned; supersedes V3-EXQ-704 after
+  the confirmed `failure_autopsy_V3-EXQ-704_2026-06-25` ruled it `precondition_unmet`
+  -- ARM_NOISE same-layer null came in 176.9x the A2 learned `w_chan_finer`
+  range so C1 strict-above-noise was meaningless; config-only fix re-tunes
+  the ARM_NOISE noise scale to match the realised A2 learned range at run
+  time + strengthens the dissociability readiness gate so a near-vacuous A2
+  self-routes `substrate_not_ready_requeue` instead of scoring; 4 arms
+  A0/A1/A2/ARM_NOISE with the landed arithmetic envelope as a matched
+  constant, settling OFF all arms, GAP-A reef-bipartite, phased P0/P1/P2,
+  committed-action-class entropy DV). The 2 prior queued items
+  (V3-EXQ-705 / 705b) ran and were drained -- V3-EXQ-705 SUPERSEDED by 705b
+  (the brake-EXEMPT re-issue with `use_f_eligibility_adaptive_floor` + a
+  hardened `excluded_count > 0` readiness leg C), V3-EXQ-705b itself FAILed
+  non_contributory `conversion_ceiling_persists_despite_demotion` and is
+  the pre-registered terminal off-ramp -- the brake-LOCK trigger. The
+  prior in-flight V3-EXQ-700b / 460o / 460p / 701b lineage is still on the
+  cloud workers (claimed, not yet in pending_review). **Substrate / governance
+  landings since the 2026-06-24T01:10Z spec sync:** (1) **MECH-314
+  curiosity-conversion under F-eligibility demotion ON FAILed twice**
+  (V3-EXQ-705 then 705b after the adaptive-floor + hardened legC re-issue);
+  both confirmed `failure_autopsy_V3-EXQ-705_2026-06-25` and
+  `failure_autopsy_V3-EXQ-705b_2026-06-25` ruled them non_contributory; 705b
+  established the FIRST FAIR demotion test (`excluded_count` 14.45 on the
+  GAP-A divergent pool, adaptive floor genuinely excluding) and still produced
+  no committed-class-entropy lift over the demotion-ON F-only + matched-noise
+  controls -- `conversion_ceiling_persists_despite_demotion`. MECH-314
+  epistemic_category amended to `substrate_ceiling` +
+  `pending_retest_after_substrate=true` in the governance cycle. (2) **6th
+  MECH-314 substrate-ceiling re-derive brake fired + brake-LOCK recorded**
+  (priors 572/573, 604a-624a-630, gapA-604b-648a-649, 590c [4th-fired],
+  705 [5th-locked], 705b [6th-LOCK]); the brake REFUSES a 705c demotion-only
+  same-substrate letter and routes the brake-EXEMPT double-gated MECH-449
+  re-test as the only forward path. V4 ARC-110 loop-segregation is the
+  pre-registered terminal off-ramp if the double-gated test also fails.
+  (3) **`/failure-autopsy` V3-EXQ-704** (MECH-451 finer-channel-granularity
+  falsifier): `precondition_unmet` (config artifact = ARM_NOISE same-layer
+  null overwhelmed the tiny A2 learned `w_chan_finer` range 176.9x); MECH-451
+  UNWEAKENED; routed `/queue-experiment` V3-EXQ-704b config-only re-tune.
+  The re-derive brake did NOT fire (1st MECH-451 autopsy). (4) **`/governance`
+  2026-06-25T04:20Z + 19:05Z cycles** applied both confirmed autopsies inline
+  (zero needs-autopsy at second-cycle entry), corrected the 705/705b/704
+  manifests, rebuilt the index (claims.json 869; experiment_index 1412 runs;
+  FAIL 849), reconciled 1 drifted closure node (`infant_substrate:GAP-13`
+  owner 590c -> 705b), and walked the ceiling audit (29 substrate-ceiling
+  claims; 0 orphan; 1 may-lift = MECH-314, route = the double-gated retest).
+  Substrate-queue + demand-queue had no new rows. (5) **`/queue-experiment`
+  V3-EXQ-706 + V3-EXQ-704b queued** via the full skill path (substrate-readiness,
+  re-derive brake check, code review, smoke, `validate_experiments --strict
+  --paths`, `validate_queue`, pre-commit atomicity + post-commit dropped-file
+  check, coordinator ingest); 706 priority 420, 704b priority 290. (6) **Mobile
+  access docs sanitized** (REE_assembly master b1a0f09cb4) -- public docs +
+  helper page now carry placeholders only; concrete WireGuard / coordinator
+  runbook moved to the gitignored `docs/mobile_access.local.md`. **Bottleneck
+  (continuation):** **MECH-439 F-dominance conversion ceiling remains the
+  live root choke**, now with the MECH-314 curiosity face brake-LOCKED to a
+  single forward path (the V3-EXQ-706 double-gated MECH-449 retest). The
+  ARC-108 dopamine-into-gating V3-minimal slice on the LEARNED selection face
+  stays in-flight via V3-EXQ-700b on the cloud workers; the rung-6 commit/
+  release-DURATION closure-commit-ENTRY readiness face stays in-flight via
+  V3-EXQ-460o/p; INV-050 MEL-measurability stays orthogonal via V3-EXQ-701b.
+  V3-EXQ-706 readiness-met no-lift is the pre-registered V4 escalation
+  trigger (ARC-110 loop-segregation), parallel to the V3-EXQ-700b decisive-
+  or-escalate-to-V4 verdict on the selection face. **ETHICS-PERIMETER
+  Phase 0 datum** stays on the record; Phases 1-3 deferred (NON-BLOCKING
+  for V3 green-board 2026-07-19).
 
 - **2026-06-24T01:10Z nightly read (scheduled `/update-docs`).** Closure-plane
   rung-6 BUILD day on top of the ARC-108 dopamine-into-gating V3-minimal slice.
