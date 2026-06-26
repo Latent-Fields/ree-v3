@@ -17,7 +17,11 @@
       "supersedes": "V3-EXQ-700c",
       "claim_id": "MECH-439",
       "note": "VALIDITY RE-TUNE LETTER routed by confirmed, user-gated (Reading B) failure_autopsy_V3-EXQ-700c_2026-06-26. Config-only fix (no ree_core change); substrate built (substrate action=none). WHY 700c was precondition_unmet (NOT a falsification): the same-layer frozen-random W_lat null was injected at FIXED scale 0.5 giving median range 2.16 = 41.42x the realised learned A2/A3 settling range 0.052 (field_noise_magnitude_matched [0.25,4.0] FAILED) and drove committed-class entropy below A0 (0.859<0.909; noise_verified_lifting 0/3) = V3-EXQ-642 invalid-precondition family (same shape as 704's 176.9x); MECH-439/ARC-108/MECH-450 UNWEAKENED. FIX: (1) AUTO-COMPUTE the null scale at run time so the injected range == 1.0 x the realised median LEARNED W_lat range of the A2/A3 SIGNED arms ONLY (C3 unsigned abs-RPE tail range 1.9-4.8 EXCLUDED from match target + magnitude-match denominator), ratio ~1.0 in band by construction; (2) near-vacuity guard (median A2/A3 learned range must clear LEARNED_RANGE_VACUITY_FLOOR=5e-3); (3) explicit below-A0 destructive-null guard. All three self-route substrate_not_ready_requeue. KEPT VERBATIM: 5 arms (A0/A2_SETTLING_SIGNED/A3_BOTH_SIGNED/C3_SETTLING_UNSIGNED/ARM_NOISE) x 6 seeds, settling layer, landed arithmetic envelope matched-constant, GAP-A reef-bipartite size-12, phased P0/P1/P2 (250 ep/cell), committed-action-class entropy DV; A0/A2/A3/C3 byte-identical to 700b/700c. PRE-REGISTERED TERMINAL for the validity question: magnitude-matched null verify-lifts AND learned settling still no lift => V4 ARC-110 loop-segregation, no more V3 letters (trips the brake-LOCK). RE-DERIVE BRAKE EXEMPT (700c invalid-precondition, not a clean ceiling; the one validity-fixed letter the lock permits, same class as 704->704b/705->705b). claim_ids=[MECH-439,ARC-108,MECH-450]; experiment_purpose=evidence; PROMOTES NOTHING. Gates: validate_experiments --strict --paths OK + validate_queue OK + dry-run smoke exit 0 (substrate_not_ready_requeue at toy scale; field_noise_magnitude_matched=TRUE auto-match proven vs 700c 41.42x FALSE). Ingress: phase3-queue writer wiped the git entry (writer race), re-added via coordinator POST /queue/add (DB authoritative).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-06-26T20:46:26Z"
+      },
       "conditions": 5,
       "episodes_per_run": 250,
       "experiment_purpose": "evidence",
