@@ -2135,6 +2135,11 @@ class E3TrajectorySelector(nn.Module):
             }
 
         probs = F.softmax(-scores / temperature, dim=0)
+        # Pure diagnostic: the pre-commit softmax sampling distribution over candidates
+        # (post-noise, post-bias). Lets a falsifier measure pre-commit entropy independent
+        # of the committed argmin (the MECH-440 thrash-vs-carve discriminator: a temperature
+        # lift raises THIS but not the committed-class entropy). No behaviour change.
+        self.last_precommit_probs = probs.detach()
 
         # ARC-016 commit decision: two modes
         # Default: commit when z_world running_variance is LOW (world-stability signal)
