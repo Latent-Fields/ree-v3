@@ -32,6 +32,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ree_core.utils.config import E3Config
+from ree_core.policy.noisy_selection_head import (
+    NoisySelectionHead,
+    NoisySelectionHeadConfig,
+)
 
 # ARC-108 JOB-1 step-1 (learned dopamine-gated E3 gating): the modulatory channels
 # that feed _modulatory_accum at the select() composition site. Each is a genuinely
@@ -421,6 +425,54 @@ class E3TrajectorySelector(nn.Module):
         # All inert unless use_loop_segregation is on. Reset each arbitration.
         self._loop_of_channel: Dict[int, str] = {}
         self._loop_voted: Dict[str, bool] = {}
+
+        # MECH-440: NoisyNet propagating selection-head weight noise. LAZY-built
+        # on the first select() that needs it (action_dim is read from the
+        # candidate first-action width, not plumbed through E3Config). None when
+        # use_noisy_selection_head is False -> bit-identical OFF. Set here so the
+        # attribute always exists. _last_explore_term carries the per-candidate
+        # MECH-440/441 bias to the segregated-loop arbitration (ARC-110 path).
+        self.noisy_selection_head: Optional[NoisySelectionHead] = None
+        self._last_explore_term: Optional[torch.Tensor] = None
+
+    def _candidate_action_features(
+        self, candidates: List["Trajectory"]
+    ) -> Optional[torch.Tensor]:
+        """MECH-440: per-candidate first-action feature matrix [K, action_dim].
+
+        Each candidate's first action (actions[:, 0, :]) flattened to a row. The
+        input that makes the noisy head's per-candidate bias differentiated by
+        construction (distinct candidates carry distinct actions) -- robust to
+        the z_world monostrategy collapse that sank the 648/614e channels.
+        Returns None if the candidate action shape is unreadable.
+        """
+        if not candidates:
+            return None
+        try:
+            rows = [c.actions[:, 0, :].reshape(-1) for c in candidates]
+            feats = torch.stack(rows, dim=0)
+        except Exception:
+            return None
+        return feats
+
+    def _ensure_noisy_head(self, action_dim: int, device, dtype) -> None:
+        """MECH-440: lazy-build the noisy selection head once action_dim is known."""
+        if not getattr(self.config, "use_noisy_selection_head", False):
+            return
+        if self.noisy_selection_head is not None:
+            return
+        cfg = NoisySelectionHeadConfig(
+            action_dim=int(action_dim),
+            sigma_init=float(getattr(self.config, "noisy_selection_sigma_init", 0.0)),
+            weight=float(getattr(self.config, "noisy_selection_weight", 1.0)),
+            anneal=bool(getattr(self.config, "noisy_selection_anneal", True)),
+            anneal_floor=float(getattr(self.config, "noisy_selection_anneal_floor", 0.1)),
+            anneal_ema_alpha=float(
+                getattr(self.config, "noisy_selection_anneal_ema_alpha", 0.01)
+            ),
+        )
+        head = NoisySelectionHead(cfg)
+        self.noisy_selection_head = head.to(device=device)
 
     # ------------------------------------------------------------------ #
     # Dynamic precision (ARC-016)                                         #
@@ -1424,6 +1476,17 @@ class E3TrajectorySelector(nn.Module):
         m_a = float(getattr(self.config, "loop_segregation_motor_authority", 1.0))
         final = m_a * motor_z + g_a * assoc_z + g_l * limbic_z
 
+        # MECH-440 / MECH-441: add the propagating exploration term (weight noise +
+        # disagreement bonus) to the cross-loop arbitration so it reaches the
+        # committed action under loop segregation too (the ARC-110 ON arm of the
+        # MECH-440 falsifier). Indexed onto the eligible set; None / OFF -> no-op.
+        if self._last_explore_term is not None:
+            _et = self._last_explore_term.detach().to(
+                dtype=final.dtype, device=final.device
+            )
+            if _et.numel() > int(eligible_idx.max().item()):
+                final = final + _et[eligible_idx]
+
         # Commit (argmin when committed; gap-agnostic softmax sample otherwise).
         if n_elig == 1:
             local = 0
@@ -1484,6 +1547,7 @@ class E3TrajectorySelector(nn.Module):
         score_diversity: Optional[Any] = None,
         channel_route_bias: Optional[torch.Tensor] = None,
         e2_forward_pe_per_candidate: Optional[torch.Tensor] = None,
+        model_disagreement_per_candidate: Optional[torch.Tensor] = None,
         go_nogo_signals: Optional[Dict[str, Any]] = None,
         simulation_mode: bool = False,
     ) -> SelectionResult:
@@ -1972,6 +2036,97 @@ class E3TrajectorySelector(nn.Module):
             "selected_candidate_rank_before_bias": -1,
             "selected_candidate_rank_after_bias": -1,
         }
+
+        # MECH-440 / MECH-441: propagating exploration signals into the committed
+        # selection. Injected AFTER the modulatory-authority rescale + diagnostics
+        # build and BEFORE the softmax / within-eligible argmin, so the per-candidate
+        # terms PROPAGATE into the committed action (the V3-EXQ-687 non-propagation
+        # fix). Added to BOTH `scores` (softmax / log_prob / non-shortlist argmin)
+        # AND `_modulatory_accum` (the shortlist/demotion within-eligible argmin at
+        # the selection site). For the segregated-loop path (ARC-110) the term is
+        # carried via self._last_explore_term and added to the cross-loop `final`.
+        # Bit-identical OFF: head not built (MECH-440) / weight 0 (MECH-441) /
+        # sigma_init 0 -> _explore_term stays None and nothing is added.
+        self._last_explore_term = None
+        _explore_term = None
+        _ns_bias_range = 0.0
+        _md_range = 0.0
+        _md_mean = 0.0
+        if getattr(self.config, "use_noisy_selection_head", False) and len(candidates) >= 1:
+            _act_feats = self._candidate_action_features(candidates)
+            if _act_feats is not None:
+                self._ensure_noisy_head(
+                    int(_act_feats.shape[-1]), scores.device, scores.dtype
+                )
+            if _act_feats is not None and self.noisy_selection_head is not None:
+                # Local F-gap confidence signal for the self-anneal EMA (MECH-094:
+                # observe is a no-op on simulation ticks).
+                if raw_scores.shape[0] >= 2:
+                    _sr, _ = torch.sort(raw_scores)
+                    _gn = max(
+                        0.0,
+                        min(1.0, float((_sr[1] - _sr[0]).item()) / (raw_score_range + 1e-8)),
+                    )
+                    self.noisy_selection_head.observe_gap(
+                        _gn, simulation_mode=simulation_mode
+                    )
+                _nb = self.noisy_selection_head(
+                    _act_feats, simulation_mode=simulation_mode
+                ).to(dtype=scores.dtype, device=scores.device)
+                if _nb.numel() == scores.shape[0]:
+                    _explore_term = _nb
+                    _ns_bias_range = self.noisy_selection_head._last_bias_range
+        if (
+            getattr(self.config, "use_model_disagreement_curiosity", False)
+            and model_disagreement_per_candidate is not None
+            and not simulation_mode
+            and float(getattr(self.config, "model_disagreement_weight", 0.0)) != 0.0
+        ):
+            _dv = model_disagreement_per_candidate.detach().reshape(-1).to(
+                dtype=scores.dtype, device=scores.device
+            )
+            if _dv.numel() == scores.shape[0]:
+                _mode = str(getattr(self.config, "model_disagreement_mode", "linear"))
+                if _mode == "saturating":
+                    _scl = float(getattr(self.config, "model_disagreement_scale", 1.0))
+                    _dval = 1.0 - torch.exp(-_dv / max(_scl, 1e-9))
+                else:
+                    _dval = _dv
+                # Curiosity BONUS = a COST reduction (scores are costs, lower=preferred).
+                _md_term = -float(self.config.model_disagreement_weight) * _dval
+                _md_range = (
+                    float((_md_term.max() - _md_term.min()).item())
+                    if _dv.numel() >= 2 else 0.0
+                )
+                _md_mean = float(_dval.mean().item())
+                _explore_term = (
+                    _md_term if _explore_term is None else _explore_term + _md_term
+                )
+        if _explore_term is not None and not bool(torch.isfinite(_explore_term).all()):
+            # Defensive: a non-finite exploration term (e.g. unstable untrained
+            # activations) must never poison the committed selection. Drop it.
+            _explore_term = None
+            _ns_bias_range = 0.0
+            _md_range = 0.0
+        if _explore_term is not None:
+            scores = scores + _explore_term
+            _modulatory_accum = (
+                _explore_term if _modulatory_accum is None
+                else _modulatory_accum + _explore_term
+            )
+            self._last_explore_term = _explore_term.detach()
+        self.last_score_diagnostics["noisy_selection_active"] = bool(
+            getattr(self.config, "use_noisy_selection_head", False)
+            and self.noisy_selection_head is not None
+        )
+        self.last_score_diagnostics["noisy_selection_bias_range"] = _ns_bias_range
+        self.last_score_diagnostics["model_disagreement_active"] = bool(
+            getattr(self.config, "use_model_disagreement_curiosity", False)
+            and model_disagreement_per_candidate is not None
+        )
+        self.last_score_diagnostics["model_disagreement_bonus_range"] = _md_range
+        self.last_score_diagnostics["model_disagreement_mean"] = _md_mean
+
         self.last_scores = scores.detach()
         if self.e3_score_decomp_enabled and _cand_components:
             self.last_score_decomp = {

@@ -66,6 +66,10 @@ from ree_core.neuromodulation.serotonin import SerotoninModule
 from ree_core.predictors.e2_harm_a import E2HarmAConfig, E2HarmAForward
 from ree_core.predictors.e2_harm_s import E2HarmSConfig, E2HarmSForward
 from ree_core.predictors.e2_world import E2WorldConfig, E2WorldForward
+from ree_core.policy.model_disagreement import (
+    ModelDisagreementConfig,
+    ModelDisagreementEnsemble,
+)
 from ree_core.cingulate import (
     AICAnalog,
     AICConfig,
@@ -421,6 +425,32 @@ class REEAgent(nn.Module):
                 action_dim=config.e2.action_dim,
             )
             self.e2_world = E2WorldForward(world_cfg)
+
+        # MECH-441: model-disagreement directed curiosity ensemble (RND / Plan2Explore
+        # analog). A standalone K-head forward-model ensemble over (z_world, action);
+        # per-candidate cross-head variance feeds E3 selection as a propagating
+        # curiosity bonus. Built only when the E3-side lever is on AND
+        # n_disagreement_heads >= 2; None otherwise -> bit-identical OFF. z_world_dim /
+        # action_dim from config (NEVER literals). The phased-training driver trains
+        # the heads via disagreement_ensemble.train_step(); the waking read is no_grad.
+        self.disagreement_ensemble: Optional[ModelDisagreementEnsemble] = None
+        _n_dis_heads = int(getattr(config.latent, "n_disagreement_heads", 0))
+        if (
+            getattr(config.e3, "use_model_disagreement_curiosity", False)
+            and _n_dis_heads >= 2
+        ):
+            dis_cfg = ModelDisagreementConfig(
+                world_dim=config.latent.world_dim,
+                action_dim=config.e2.action_dim,
+                n_heads=_n_dis_heads,
+                bootstrap_mask_prob=float(
+                    getattr(config.latent, "disagreement_bootstrap_mask_prob", 0.0)
+                ),
+                learning_rate=float(
+                    getattr(config.latent, "disagreement_learning_rate", 3e-4)
+                ),
+            )
+            self.disagreement_ensemble = ModelDisagreementEnsemble(dis_cfg)
 
         # SD-032b: dACC/aMCC-analog adaptive control.
         self.dacc: Optional[DACCAdaptiveControl] = None
@@ -6525,6 +6555,32 @@ class REEAgent(nn.Module):
             or _injected_e2_pe is not None
         ):
             _e3_select_kwargs["e2_forward_pe_per_candidate"] = _injected_e2_pe
+        # MECH-441 (model_disagreement_directed_curiosity): per-candidate forward-
+        # model disagreement (cross-head variance of the K-head ensemble) -> E3
+        # selection as a propagating curiosity bonus. Version-layering guard: the
+        # kwarg is passed ONLY when the lever is on AND the ensemble is built, so
+        # the default V3 path never sends it (an older e3.select cannot raise --
+        # same doctrine as the DR-12 / MECH-449 guards above). Waking read (no_grad).
+        if (
+            getattr(self.config.e3, "use_model_disagreement_curiosity", False)
+            and getattr(self, "disagreement_ensemble", None) is not None
+            and self._current_latent is not None
+            and len(candidates) >= 1
+        ):
+            try:
+                _md_adim = int(candidates[0].actions.shape[-1])
+                _md_acts = torch.stack(
+                    [c.actions[:, 0, :].detach().reshape(_md_adim) for c in candidates],
+                    dim=0,
+                )
+                _md_vec = self.disagreement_ensemble.disagreement_per_candidate(
+                    self._current_latent.z_world.detach(),
+                    _md_acts,
+                    simulation_mode=False,
+                )
+                _e3_select_kwargs["model_disagreement_per_candidate"] = _md_vec
+            except Exception:
+                pass
         result = self.e3.select(
             candidates, effective_temperature,
             **_e3_select_kwargs,

@@ -184,6 +184,24 @@ class LatentStackConfig:
     # See ree_core/predictors/e2_world.py for the module and training protocol.
     use_e2_world_forward: bool = False
 
+    # MECH-441 -- model-disagreement directed curiosity ensemble (RND / Plan2Explore
+    # analog). A SMALL K-head ensemble of independent residual-delta predictors over
+    # (z_world, action) -- a standalone ModelDisagreementEnsemble built at the agent
+    # level (ree_core/curiosity/model_disagreement.py) when n_disagreement_heads >= 2.
+    # Each head is a distinct-init delta predictor; per-candidate model DISAGREEMENT =
+    # cross-head variance of the predicted next-z_world for that candidate's first
+    # action, fed into E3 selection as a propagating per-candidate curiosity bonus
+    # (E3Config.use_model_disagreement_curiosity). Phased training (mirrors the SD-031
+    # P0/P1/P2): each head trains on the SAME frozen-z_world target
+    # (target = z_world_next.detach()) in P1; disagreement_bootstrap_mask_prob > 0
+    # gives each head a per-step Bernoulli mask so heads diverge in poorly-sampled
+    # regions (epistemic disagreement) and converge where data is dense (the intrinsic
+    # self-annealing). n_disagreement_heads <= 1 -> ensemble NOT built -> bit-identical
+    # OFF. Built independently of use_e2_world_forward (it needs only z_world + action).
+    n_disagreement_heads: int = 0
+    disagreement_bootstrap_mask_prob: float = 0.0
+    disagreement_learning_rate: float = 3e-4
+
     # SD-015 / MECH-112: dedicated ResourceEncoder for goal-directed navigation.
     # When True, LatentStack.encode() produces z_resource [batch, z_resource_dim]
     # from raw world_obs -- an object-type latent independent of spatial position.
@@ -897,6 +915,73 @@ class E3Config:
     # (penalty = 1 - exp(-pe / pe_confidence_scale), bounded [0,1) confidence-deficit).
     pe_confidence_mode: str = "linear"
     pe_confidence_scale: float = 1.0
+
+    # MECH-440 -- state-conditioned self-annealing PROPAGATING noise floor (NoisyNet
+    # learned-parametric-weight-noise analog; Fortunato et al. 2018). The mechanistic
+    # refinement of MECH-313's tonic floor. MECH-313 lifts the softmax TEMPERATURE
+    # (pre-commit); V3-EXQ-687 found that floor NON-PROPAGATING -- invisible to the
+    # committed argmax (selected_action_entropy=0.0, the r1a_entropy_only_artefact).
+    # MECH-440 injects factorised-Gaussian WEIGHT NOISE at the E3 selection head as a
+    # per-candidate additive bias built from each candidate's first-action vector (a
+    # per-candidate state-dependent activation that is differentiated across candidates
+    # by construction -- robust to the z_world monostrategy collapse that sank 648/614e):
+    #   bias[k] = (sigma_w (x) eps_w) . x_k + sigma_b (x) eps_b     (mu frozen at 0)
+    # added INTO _modulatory_accum BEFORE the within-eligible argmin (and into the
+    # segregated-loop final), so it (i) PROPAGATES into the committed action, (ii) is
+    # STATE-CONDITIONED (the x_k action term modulates the noisy weight per candidate),
+    # (iii) SELF-ANNEALS (sigma is scaled by a local confidence EMA -- falls where the
+    # committed margin is consistently decisive, holds where near-ties recur). mu is
+    # FROZEN at 0 so the head is a PURE exploration-noise injector (isolates the
+    # falsifier: any committed-entropy lift is the noise, not a second learned mean
+    # pathway). eps resampled per WAKING tick (rotates the within-eligible winner
+    # tick-to-tick -> committed selected_action_entropy rises). MECH-094: zero
+    # perturbation on a simulation tick. No-op default: flag False -> head not
+    # instantiated -> bit-identical; flag True with sigma_init=0.0 -> output exactly 0
+    # -> bit-identical (matches the sd stub's "sigma_init=0 = bit-identical").
+    #
+    # ARC-106 DIVERGENCES (both disclosed, logged in the grounding ledger):
+    #   (1) per-parameter sigma is one description-level below biology's systems-level
+    #       tonic/phasic mode gate (already in the decision record);
+    #   (2) sigma self-anneals via REE's LOCAL confidence EMA, NOT NoisyNet's RL
+    #       gradient -- REE does not backprop through E3 selection (w_chan above is the
+    #       same local-update, never-autograd precedent).
+    # See docs/architecture/state_conditioned_exploration_noise_floor.md (#mech-440).
+    use_noisy_selection_head: bool = False
+    noisy_selection_sigma_init: float = 0.0
+    # overall scale on the per-candidate noisy bias before it enters _modulatory_accum.
+    noisy_selection_weight: float = 1.0
+    # local self-annealing: sigma_eff = sigma * (anneal_floor + (1-anneal_floor) *
+    # ema(1 - gap_norm)). gap_norm ~ 0 (near-tie) -> keep full noise; gap_norm ~ 1
+    # (decisive) -> decay toward anneal_floor. anneal_ema_alpha is the EMA rate on the
+    # confidence signal. Set noisy_selection_anneal=False to freeze sigma at sigma_init
+    # (the no-anneal control arm).
+    noisy_selection_anneal: bool = True
+    noisy_selection_anneal_floor: float = 0.1
+    noisy_selection_anneal_ema_alpha: float = 0.01
+
+    # MECH-441 -- model-disagreement directed curiosity (RND / Plan2Explore analog;
+    # Burda 2018 / Sekar 2020). The complementary directed-curiosity leg of ARC-065
+    # substrate (b). A per-candidate intrinsic signal from E2 forward-model
+    # DISAGREEMENT (cross-head variance of a small K-head ensemble of E2.world_forward
+    # delta predictors), supplied per-candidate to select() via
+    # model_disagreement_per_candidate and added INTO _modulatory_accum as a BONUS
+    # (a COST reduction; lower score = preferred), so it PROPAGATES per-candidate --
+    # unlike the broadcast-novelty EMA channel found non-propagating (V3-EXQ-590a/141b).
+    # Self-annealing is INTRINSIC to disagreement (Plan2Explore): as the ensemble
+    # learns, cross-head variance -> 0 and the bonus vanishes. NON-DEGENERACY: a flat
+    # cross-candidate disagreement cannot change the argmin, so the falsifier asserts a
+    # supra-floor model_disagreement_range. Default False / weight 0 -> bit-identical.
+    # Falsifier HELD (blocked_substrate) gated on ARC-110 validation V3-EXQ-707 (the
+    # single-arena collapse, not the curiosity channel, is the binding constraint per
+    # failure_autopsy_704b-706b-conversion-ceiling_2026-06-27). MECH-094: waking-only,
+    # no_grad read. See docs/architecture/state_conditioned_exploration_noise_floor.md
+    # (#mech-441).
+    use_model_disagreement_curiosity: bool = False
+    model_disagreement_weight: float = 0.0
+    # monotone bonus form on the per-candidate disagreement variance: "linear"
+    # (bonus = var) | "saturating" (bonus = 1 - exp(-var / scale), bounded).
+    model_disagreement_mode: str = "linear"
+    model_disagreement_scale: float = 1.0
 
 
 @dataclass
@@ -4803,6 +4888,25 @@ class REEConfig:
         pe_confidence_weight: float = 0.0,
         pe_confidence_mode: str = "linear",
         pe_confidence_scale: float = 1.0,
+        # MECH-440 NoisyNet propagating selection-head weight noise (2026-06-27).
+        # No-op default; bit-identical OFF. PROMOTES NOTHING.
+        use_noisy_selection_head: bool = False,
+        noisy_selection_sigma_init: float = 0.0,
+        noisy_selection_weight: float = 1.0,
+        noisy_selection_anneal: bool = True,
+        noisy_selection_anneal_floor: float = 0.1,
+        noisy_selection_anneal_ema_alpha: float = 0.01,
+        # MECH-441 model-disagreement directed curiosity (2026-06-27). E3-side
+        # consumption levers; the ensemble itself is a LatentStackConfig field.
+        # No-op default; bit-identical OFF. PROMOTES NOTHING.
+        use_model_disagreement_curiosity: bool = False,
+        model_disagreement_weight: float = 0.0,
+        model_disagreement_mode: str = "linear",
+        model_disagreement_scale: float = 1.0,
+        # MECH-441 disagreement ensemble (LatentStackConfig). No-op default.
+        n_disagreement_heads: int = 0,
+        disagreement_bootstrap_mask_prob: float = 0.0,
+        disagreement_learning_rate: float = 3e-4,
         # ControlVector logging (rec-B four-signal adjudication 2026-06-07):
         # read-only default-OFF telemetry; bit-identical when False.
         use_control_vector_logging: bool = False,
@@ -5866,6 +5970,21 @@ class REEConfig:
         config.e3.pe_confidence_weight = pe_confidence_weight
         config.e3.pe_confidence_mode = pe_confidence_mode
         config.e3.pe_confidence_scale = pe_confidence_scale
+        # MECH-440 NoisyNet propagating selection-head weight noise (2026-06-27).
+        config.e3.use_noisy_selection_head = use_noisy_selection_head
+        config.e3.noisy_selection_sigma_init = noisy_selection_sigma_init
+        config.e3.noisy_selection_weight = noisy_selection_weight
+        config.e3.noisy_selection_anneal = noisy_selection_anneal
+        config.e3.noisy_selection_anneal_floor = noisy_selection_anneal_floor
+        config.e3.noisy_selection_anneal_ema_alpha = noisy_selection_anneal_ema_alpha
+        # MECH-441 model-disagreement directed curiosity (2026-06-27).
+        config.e3.use_model_disagreement_curiosity = use_model_disagreement_curiosity
+        config.e3.model_disagreement_weight = model_disagreement_weight
+        config.e3.model_disagreement_mode = model_disagreement_mode
+        config.e3.model_disagreement_scale = model_disagreement_scale
+        config.latent.n_disagreement_heads = n_disagreement_heads
+        config.latent.disagreement_bootstrap_mask_prob = disagreement_bootstrap_mask_prob
+        config.latent.disagreement_learning_rate = disagreement_learning_rate
         config.use_control_vector_logging = use_control_vector_logging
 
         # MECH-290: backward trajectory credit sweep
