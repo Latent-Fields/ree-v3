@@ -71,6 +71,25 @@ _FCG_CHANNEL_NAMES: Tuple[str, ...] = (
 _FCG_CHANNEL_INDEX: Dict[str, int] = {
     n: i for i, n in enumerate(_FCG_CHANNEL_NAMES)
 }
+
+# ARC-110: parallel segregated cortico-BG-thalamic loops. The MOTOR loop is F
+# (raw_scores) itself; the modulatory channels split between the ASSOCIATIVE
+# (dACC conflict + lateral-PFC rule-evidence) and LIMBIC (OFC value + liking +
+# vigour) loops. Channels not named here fall to loop_segregation_default_loop.
+# Keys match BOTH registries: the finer (MECH-451) channel names break score_bias
+# into constituents that can be assigned to loops; with the coarse ARC-108 base
+# registry only "score_bias" exists (one lump -> the default loop), so loop
+# segregation is meaningful only WITH finer-channel gating on (the validation runs
+# the full stack). Functional translation of Alexander/DeLong/Strick (ARC-106).
+_LOOP_NAMES: Tuple[str, ...] = ("motor", "associative", "limbic")
+_LOOP_DEFAULT_CHANNEL_MAP: Dict[str, str] = {
+    "dacc": "associative",
+    "lpfc": "associative",
+    "ofc": "limbic",
+    "liking": "limbic",
+    "vigour": "limbic",
+    # gated_policy / residual / mech341 / route / score_bias -> default loop
+}
 from ree_core.predictors.e2_fast import Trajectory
 from ree_core.residue.field import ResidueField
 from ree_core.goal import GoalState
@@ -393,6 +412,15 @@ class E3TrajectorySelector(nn.Module):
         self._wlat_last_delta: float = 0.0       # last signed RPE delta_t applied to W_lat (diag)
         self._wlat_n_updates: int = 0            # count of W_lat updates (diagnostic)
         self._wlat_last_settle_delta: float = 0.0  # L2 cross-round movement of accum (non-vacuity)
+
+        # ARC-110 / MECH-452: per-tick segregated-loop bookkeeping written by
+        # _segregated_loop_arbitrate and read by the eligibility-trace recording.
+        # _loop_of_channel: channel_index -> loop name (for loop-local credit).
+        # _loop_voted: loop name -> did this loop's within-loop winner match the
+        #              committed action (so MECH-452 credits only voting loops).
+        # All inert unless use_loop_segregation is on. Reset each arbitration.
+        self._loop_of_channel: Dict[int, str] = {}
+        self._loop_voted: Dict[str, bool] = {}
 
     # ------------------------------------------------------------------ #
     # Dynamic precision (ARC-016)                                         #
@@ -1144,6 +1172,7 @@ class E3TrajectorySelector(nn.Module):
         mod_eligible: torch.Tensor,
         candidates: List[Trajectory],
         eligible_idx: torch.Tensor,
+        record_trace: bool = True,
     ) -> torch.Tensor:
         """MECH-450 (ARC-108 JOB-1 factor 2): bounded recurrent lateral-inhibition
         settling over the F-bounded eligible set, parametrised by the LEARNED
@@ -1208,16 +1237,235 @@ class E3TrajectorySelector(nn.Module):
             coact = coact + torch.outer(a_class, a_class)  # Hebbian class co-activation
 
         # Record the decayed co-activation trace + arm the W_lat update (waking only).
-        decay = float(getattr(self.config, "learned_settling_elig_decay", 0.9))
-        self._wlat_coact_trace = (
-            decay * self._wlat_coact_trace
-            + coact.detach().to(
-                dtype=self._wlat_coact_trace.dtype, device=self._wlat_coact_trace.device
+        # ARC-110: per-loop settling calls this with record_trace=False (a read-only
+        # W_lat transform) so multiple loops do not double-arm / overwrite the coact
+        # trace; the segregated path arms W_lat learning ONCE from the limbic loop
+        # (the ascending-spiral source). The legacy single-arena path always records.
+        if record_trace:
+            decay = float(getattr(self.config, "learned_settling_elig_decay", 0.9))
+            self._wlat_coact_trace = (
+                decay * self._wlat_coact_trace
+                + coact.detach().to(
+                    dtype=self._wlat_coact_trace.dtype, device=self._wlat_coact_trace.device
+                )
             )
-        )
-        self._wlat_pending = True
-        self._wlat_last_settle_delta = float((accum - accum0).norm().item())
+            self._wlat_pending = True
+            self._wlat_last_settle_delta = float((accum - accum0).norm().item())
         return accum
+
+    # ------------------------------------------------------------------ #
+    # ARC-110 parallel segregated loops + S2 null + ARC-109 D1/D2 split   #
+    # ------------------------------------------------------------------ #
+
+    def _loop_normalize(self, pref: torch.Tensor, mode: str) -> torch.Tensor:
+        """Normalise a loop's within-eligible preference so F's raw magnitude
+        carries no cross-loop advantage (the ARC-110 conversion mechanism). A loop
+        with no spread (empty / flat) contributes nothing (zeros)."""
+        if pref.numel() <= 1:
+            return pref.new_zeros(pref.shape)
+        if mode == "none":
+            return pref
+        if mode == "range":
+            rng = float((pref.max() - pref.min()).item())
+            if rng < 1e-9:
+                return pref.new_zeros(pref.shape)
+            return (pref - pref.min()) / rng
+        # zscore (default-when-ON)
+        std = float(pref.std().item())
+        if std < 1e-9:
+            return pref.new_zeros(pref.shape)
+        return (pref - pref.mean()) / std
+
+    def _loop_inlayer_null(self, accum: torch.Tensor, alpha: float) -> torch.Tensor:
+        """ARC-110 S2: replace a non-motor loop's accumulator (the eligibility/
+        settling field the loop settles on) with a magnitude-matched random-structure
+        (gaussian) perturbation -- range == alpha * the real accumulator range. Because
+        it perturbs the SAME layer the loops settle on (NOT policy softmax temperature,
+        the decoupled 700-lineage null), it can actually move the committed-class DV,
+        so noise_verified_lifting becomes a meaningful non-vacuity precondition. An
+        empty/flat loop (range ~0) yields a zero null (nothing to perturb)."""
+        n = int(accum.numel())
+        if n <= 1:
+            return accum
+        real_range = float((accum.max() - accum.min()).item())
+        if real_range < 1e-9:
+            return accum.new_zeros(accum.shape)
+        noise = torch.randn(n, dtype=accum.dtype, device=accum.device)
+        noise_range = float((noise.max() - noise.min()).item())
+        if noise_range < 1e-9:
+            return accum.new_zeros(accum.shape)
+        return noise * (alpha * real_range / noise_range)
+
+    def _d1_d2_split(
+        self, accum: torch.Tensor, da: float
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """ARC-109: decompose a loop's accumulator (COST units, lower=better) into two
+        opponent populations with asymmetric dopamine gain. Go/D1 = relu(-accum) (the
+        promote side) potentiated by DA (LTP, gain 1 + d1_da_gain*da); No-Go/D2 =
+        relu(+accum) (the suppress side) depressed by DA (LTD, gain 1 - d2_da_gain*da).
+        Net preference (COST) = D2_activity - D1_activity. At da==0 and gains==1 the net
+        == relu(accum) - relu(-accum) == accum EXACTLY (bit-identical to the additive
+        scalar; the dissociation is earned only once da != 0). Returns (net, D1, D2);
+        D1 and D2 carry the conflict-vs-indifference distinction the scalar destroys."""
+        go = F.relu(-accum)
+        nogo = F.relu(accum)
+        d1_gain = 1.0 + float(getattr(self.config, "d1_da_gain", 1.0)) * da
+        d2_gain = max(0.0, 1.0 - float(getattr(self.config, "d2_da_gain", 1.0)) * da)
+        d1_act = d1_gain * go
+        d2_act = d2_gain * nogo
+        return (d2_act - d1_act), d1_act, d2_act
+
+    def _segregated_loop_arbitrate(
+        self,
+        eligible_idx: torch.Tensor,
+        raw_scores: torch.Tensor,
+        lcg_terms: List[Tuple[int, torch.Tensor]],
+        use_finer: bool,
+        candidates: List[Trajectory],
+        committed: bool,
+        temperature: float,
+        simulation_mode: bool,
+    ) -> int:
+        """ARC-110: parallel segregated cortico-BG-thalamic loop arbitration.
+
+        Replaces the single-arena within-eligible argmin (when use_loop_segregation is
+        on). Each loop runs its OWN within-loop competition FIRST -- the MOTOR loop is F
+        (raw_scores); the ASSOCIATIVE and LIMBIC loops accumulate their own modulatory
+        channel subsets, optionally settle (MECH-450 W_lat) and split into D1/D2
+        populations (ARC-109) -- then cross-loop arbitration AFTER via Haber's ascending
+        dopamine spiral (limbic -> assoc -> motor). Each loop's preference is NORMALISED
+        before arbitration so F's raw magnitude no longer dominates (the conversion
+        mechanism). Operates STRICTLY within the F+Go/No-Go eligible set, so a non-motor
+        loop can FLIP the within-eligible winner but can NEVER re-admit a suppressed
+        candidate (safety inherited from the envelope). Returns the LOCAL index into
+        eligible_idx of the committed candidate.
+        """
+        device = raw_scores.device
+        dtype = raw_scores.dtype
+        n_elig = int(eligible_idx.numel())
+
+        # Motor loop = F over the eligible set (COST, lower=better).
+        motor_pref = raw_scores.detach()[eligible_idx].to(dtype=dtype, device=device)
+
+        # Partition modulatory channels into the non-motor loops by name.
+        index_names = _FCG_CHANNEL_NAMES if use_finer else _LCG_CHANNEL_NAMES
+        cmap = dict(_LOOP_DEFAULT_CHANNEL_MAP)
+        cmap.update(getattr(self.config, "loop_segregation_channel_map", {}) or {})
+        default_loop = getattr(self.config, "loop_segregation_default_loop", "associative")
+        if default_loop not in ("associative", "limbic"):
+            default_loop = "associative"
+        loop_accum = {"associative": None, "limbic": None}
+        loop_of_channel: Dict[int, str] = {}
+        n_loop_channels = {"associative": 0, "limbic": 0}
+        for ch_idx, term in (lcg_terms or []):
+            name = index_names[ch_idx] if 0 <= ch_idx < len(index_names) else None
+            loop = cmap.get(name, default_loop)
+            if loop not in loop_accum:
+                loop = default_loop
+            t = term.detach()[eligible_idx].to(dtype=dtype, device=device)
+            loop_accum[loop] = t if loop_accum[loop] is None else loop_accum[loop] + t
+            loop_of_channel[ch_idx] = loop
+            n_loop_channels[loop] += 1
+
+        zeros = motor_pref.new_zeros(n_elig)
+        assoc_accum = loop_accum["associative"] if loop_accum["associative"] is not None else zeros
+        limbic_accum = loop_accum["limbic"] if loop_accum["limbic"] is not None else zeros
+
+        # S2: in-layer same-layer null (replaces non-motor loop accums with
+        # magnitude-matched random structure). Motor (F) is never nulled.
+        noise_on = bool(getattr(self.config, "loop_segregation_noise_on", False))
+        if noise_on:
+            alpha = float(getattr(self.config, "loop_segregation_noise_alpha", 1.0))
+            assoc_accum = self._loop_inlayer_null(assoc_accum, alpha)
+            limbic_accum = self._loop_inlayer_null(limbic_accum, alpha)
+
+        # ARC-109: D1/D2 opponent populations per loop (dissociates conflict vs
+        # indifference). da = bounded tonic-DA proxy (the shared ARC-108 value
+        # baseline V-hat_t, tanh-squashed). At da==0 the split is bit-identical.
+        d1d2 = bool(getattr(self.config, "use_d1_d2_population_split", False))
+        d1d2_conflict = 0.0
+        if d1d2:
+            da = math.tanh(float(self._lcg_value_baseline))
+            assoc_accum, _a_d1, _a_d2 = self._d1_d2_split(assoc_accum, da)
+            limbic_accum, _l_d1, _l_d2 = self._d1_d2_split(limbic_accum, da)
+            # Conflict (both populations co-active) is representable here but NOT in
+            # the additive scalar; near-zero == indifference. Mean over the limbic
+            # loop (the value loop the disorder axis localises to).
+            if _l_d1.numel() >= 1:
+                d1d2_conflict = float(torch.minimum(_l_d1, _l_d2).mean().item())
+
+        # Per-loop within-loop settling (MECH-450 W_lat as a shared surround-inhibition
+        # over action classes). record_trace only on the limbic loop (spiral source) so
+        # W_lat learning is single-sourced and not double-armed. Waking-only.
+        settle_on = (
+            bool(getattr(self.config, "use_learned_settling_step", False))
+            and not simulation_mode
+            and n_elig >= 2
+        )
+        if settle_on:
+            assoc_accum = self._lateral_settle(
+                assoc_accum, candidates, eligible_idx, record_trace=False
+            )
+            limbic_accum = self._lateral_settle(
+                limbic_accum, candidates, eligible_idx, record_trace=True
+            )
+            self.last_score_diagnostics["learned_settling_active"] = True
+            self.last_score_diagnostics["learned_settling_round_delta"] = (
+                self._wlat_last_settle_delta
+            )
+
+        # Normalise each loop's preference, then arbitrate (Haber ascending spiral).
+        norm = getattr(self.config, "loop_segregation_normalize", "zscore")
+        motor_z = self._loop_normalize(motor_pref, norm)
+        assoc_z = self._loop_normalize(assoc_accum, norm)
+        limbic_z = self._loop_normalize(limbic_accum, norm)
+        g_a = float(getattr(self.config, "loop_segregation_spiral_gain_assoc", 1.0))
+        g_l = float(getattr(self.config, "loop_segregation_spiral_gain_limbic", 1.0))
+        m_a = float(getattr(self.config, "loop_segregation_motor_authority", 1.0))
+        final = m_a * motor_z + g_a * assoc_z + g_l * limbic_z
+
+        # Commit (argmin when committed; gap-agnostic softmax sample otherwise).
+        if n_elig == 1:
+            local = 0
+        elif committed:
+            local = int(final.argmin().item())
+        else:
+            probs = F.softmax(-final / max(temperature, 1e-6), dim=0)
+            local = int(torch.multinomial(probs, 1).item())
+
+        # Non-degeneracy diagnostics + per-loop winners.
+        motor_win = int(motor_pref.argmin().item())
+        assoc_win = int(assoc_z.argmin().item()) if assoc_z.numel() >= 1 else motor_win
+        limbic_win = int(limbic_z.argmin().item()) if limbic_z.numel() >= 1 else motor_win
+        self.last_score_diagnostics["loop_segregation_active"] = True
+        self.last_score_diagnostics["loop_segregation_noise_active"] = noise_on
+        self.last_score_diagnostics["loop_d1_d2_active"] = d1d2
+        self.last_score_diagnostics["loop_d1_d2_conflict_signal"] = d1d2_conflict
+        self.last_score_diagnostics["loop_committed_neq_motor_winner"] = bool(
+            local != motor_win
+        )
+        self.last_score_diagnostics["loop_cross_loop_winner_disagreement"] = bool(
+            assoc_win != motor_win or limbic_win != motor_win
+        )
+        self.last_score_diagnostics["loop_assoc_pref_range"] = float(
+            (assoc_z.max() - assoc_z.min()).item()
+        ) if assoc_z.numel() >= 1 else 0.0
+        self.last_score_diagnostics["loop_limbic_pref_range"] = float(
+            (limbic_z.max() - limbic_z.min()).item()
+        ) if limbic_z.numel() >= 1 else 0.0
+        self.last_score_diagnostics["loop_n_assoc_channels"] = n_loop_channels["associative"]
+        self.last_score_diagnostics["loop_n_limbic_channels"] = n_loop_channels["limbic"]
+
+        # MECH-452: which loop "voted" for the committed action (its within-loop winner
+        # matched the commit), so the eligibility-trace recording credits only voting
+        # loops. Stored for the recording site below.
+        self._loop_of_channel = loop_of_channel
+        self._loop_voted = {
+            "motor": (motor_win == local),
+            "associative": (assoc_win == local),
+            "limbic": (limbic_win == local),
+        }
+        return local
 
     def select(
         self,
@@ -1695,6 +1943,24 @@ class E3TrajectorySelector(nn.Module):
             # MOVED the field, not a no-op pass) the falsifier checks.
             "learned_settling_active": False,
             "learned_settling_round_delta": -1.0,
+            # ARC-110 / ARC-109 / MECH-452 segregated-loop diagnostics. Pre-seeded;
+            # overwritten by _segregated_loop_arbitrate when loop segregation runs.
+            # loop_committed_neq_motor_winner + loop_cross_loop_winner_disagreement
+            # are the NON-DEGENERACY signals (a non-motor loop actually flipped the
+            # within-eligible winner / loops disagreed -- not a vacuous split pinned
+            # to the F winner). loop_*_pref_range > 0 confirms a loop carries live
+            # cross-candidate variance.
+            "loop_segregation_active": False,
+            "loop_segregation_noise_active": False,
+            "loop_d1_d2_active": False,
+            "loop_d1_d2_conflict_signal": 0.0,
+            "loop_committed_neq_motor_winner": False,
+            "loop_cross_loop_winner_disagreement": False,
+            "loop_assoc_pref_range": 0.0,
+            "loop_limbic_pref_range": 0.0,
+            "loop_n_assoc_channels": 0,
+            "loop_n_limbic_channels": 0,
+            "loop_local_credited_channels": -1,
             # DR-12 (self_model_v4:SELF-4): E2 forward-PE -> E3 confidence down-weight.
             "pe_confidence_active": _pe_active,
             "pe_confidence_weight": float(
@@ -1879,53 +2145,73 @@ class E3TrajectorySelector(nn.Module):
                 )
             n_eligible = int(eligible_idx.numel())
             if n_eligible >= 1:
-                mod_eligible = _modulatory_accum.detach()[eligible_idx]
-                # MECH-450 (ARC-108 factor 2): bounded recurrent lateral-inhibition
-                # settling over the eligible set BEFORE the within-eligible commit, so
-                # the committed action emerges from a settling competition (B1) and the
-                # additive blend becomes competitive winner-take-most (B3-blend). Operates
-                # ONLY on the eligible subset -> safety inherited from the envelope.
-                # Waking-only (no settling on a simulation tick); no-op at init (W_lat==0)
-                # -> bit-identical OFF. Needs >= 2 eligible candidates to compete.
-                if (getattr(self.config, "use_learned_settling_step", False)
-                        and not simulation_mode
-                        and n_eligible >= 2):
-                    mod_eligible = self._lateral_settle(
-                        mod_eligible, candidates, eligible_idx
+                # ARC-110: parallel segregated cortico-BG-thalamic loop arbitration
+                # REPLACES the single-arena within-eligible argmin when
+                # use_loop_segregation is on. The motor (F) / associative / limbic
+                # loops each run within-loop competition first, then cross-loop
+                # arbitration -- so F dominates only the motor loop. Operates strictly
+                # within the F+Go/No-Go eligible set (safety inherited). Default OFF ->
+                # the legacy single-arena path below runs UNCHANGED (bit-identical).
+                if getattr(self.config, "use_loop_segregation", False):
+                    local = self._segregated_loop_arbitrate(
+                        eligible_idx=eligible_idx,
+                        raw_scores=raw_scores,
+                        lcg_terms=_lcg_terms,
+                        use_finer=_fcg,
+                        candidates=candidates,
+                        committed=committed,
+                        temperature=temperature,
+                        simulation_mode=simulation_mode,
                     )
-                    self.last_score_diagnostics["learned_settling_active"] = True
-                    self.last_score_diagnostics["learned_settling_round_delta"] = (
-                        self._wlat_last_settle_delta
-                    )
-                if n_eligible == 1:
-                    local = 0
-                elif committed:
-                    # FACTOR B (MECH-439): gap-scaled entropy-regularized commit.
-                    # Soften the within-shortlist committed argmin over the routed
-                    # modulatory channel into a gap-scaled multinomial. SAFETY is
-                    # preserved by Factor A: the eligible set is the F-bounded
-                    # near-tie set, so a hot commit-T cannot promote a clearly-
-                    # harmful candidate (none are eligible). Bit-identical OFF
-                    # (hard argmin path).
-                    if (
-                        getattr(
-                            self.config,
-                            "use_gap_scaled_commit_temperature",
-                            False,
-                        )
-                        and _conflict_gap_norm is not None
-                    ):
-                        local = self._gap_scaled_commit_pick(
-                            mod_eligible, _conflict_gap_norm, temperature
-                        )
-                    else:
-                        local = int(mod_eligible.argmin().item())
+                    shortlist_idx = int(eligible_idx[local].item())
                 else:
-                    shortlist_probs = F.softmax(
-                        -mod_eligible / temperature, dim=0
-                    )
-                    local = int(torch.multinomial(shortlist_probs, 1).item())
-                shortlist_idx = int(eligible_idx[local].item())
+                    mod_eligible = _modulatory_accum.detach()[eligible_idx]
+                    # MECH-450 (ARC-108 factor 2): bounded recurrent lateral-inhibition
+                    # settling over the eligible set BEFORE the within-eligible commit, so
+                    # the committed action emerges from a settling competition (B1) and the
+                    # additive blend becomes competitive winner-take-most (B3-blend). Operates
+                    # ONLY on the eligible subset -> safety inherited from the envelope.
+                    # Waking-only (no settling on a simulation tick); no-op at init (W_lat==0)
+                    # -> bit-identical OFF. Needs >= 2 eligible candidates to compete.
+                    if (getattr(self.config, "use_learned_settling_step", False)
+                            and not simulation_mode
+                            and n_eligible >= 2):
+                        mod_eligible = self._lateral_settle(
+                            mod_eligible, candidates, eligible_idx
+                        )
+                        self.last_score_diagnostics["learned_settling_active"] = True
+                        self.last_score_diagnostics["learned_settling_round_delta"] = (
+                            self._wlat_last_settle_delta
+                        )
+                    if n_eligible == 1:
+                        local = 0
+                    elif committed:
+                        # FACTOR B (MECH-439): gap-scaled entropy-regularized commit.
+                        # Soften the within-shortlist committed argmin over the routed
+                        # modulatory channel into a gap-scaled multinomial. SAFETY is
+                        # preserved by Factor A: the eligible set is the F-bounded
+                        # near-tie set, so a hot commit-T cannot promote a clearly-
+                        # harmful candidate (none are eligible). Bit-identical OFF
+                        # (hard argmin path).
+                        if (
+                            getattr(
+                                self.config,
+                                "use_gap_scaled_commit_temperature",
+                                False,
+                            )
+                            and _conflict_gap_norm is not None
+                        ):
+                            local = self._gap_scaled_commit_pick(
+                                mod_eligible, _conflict_gap_norm, temperature
+                            )
+                        else:
+                            local = int(mod_eligible.argmin().item())
+                    else:
+                        shortlist_probs = F.softmax(
+                            -mod_eligible / temperature, dim=0
+                        )
+                        local = int(torch.multinomial(shortlist_probs, 1).item())
+                    shortlist_idx = int(eligible_idx[local].item())
             if _f_demotion_active:
                 # MECH-448 diagnostics. excluded_count > 0 is the NON-DEGENERACY
                 # signal (the envelope actually excluded a candidate, not all-admit);
@@ -2087,10 +2373,28 @@ class E3TrajectorySelector(nn.Module):
             decay = float(getattr(self.config, "learned_channel_gating_elig_decay", 0.9))
             _elig_buf = self._fcg_elig_trace if _fcg else self._lcg_elig_trace
             contribution = _elig_buf.new_zeros(_elig_buf.shape)
+            # MECH-452: loop-local eligibility traces. When on (with loop segregation),
+            # credit a channel ONLY if its loop's within-loop winner matched the
+            # committed action (the loop "voted for" the realised outcome), so the
+            # shared signed-RPE delta_t stays loop-local. Default off -> every voting
+            # channel is credited (bit-identical to ARC-108/MECH-451).
+            _loop_local = bool(
+                getattr(self.config, "use_loop_local_eligibility_traces", False)
+                and getattr(self.config, "use_loop_segregation", False)
+                and self._loop_of_channel
+            )
+            _n_credited = 0
             for ch_idx, term in _lcg_terms:
+                if _loop_local:
+                    _loop = self._loop_of_channel.get(ch_idx, "motor")
+                    if not self._loop_voted.get(_loop, True):
+                        continue
                 contribution[ch_idx] = contribution[ch_idx] + term[selected_idx].detach().abs().to(
                     dtype=contribution.dtype, device=contribution.device
                 )
+                _n_credited += 1
+            if _loop_local:
+                self.last_score_diagnostics["loop_local_credited_channels"] = _n_credited
             if _fcg:
                 self._fcg_elig_trace = decay * self._fcg_elig_trace + contribution
                 self._fcg_pending = True
@@ -2219,12 +2523,16 @@ class E3TrajectorySelector(nn.Module):
                 else:
                     learn_signal = delta_t
                 # asym renders the D1-LTP / D2-LTD asymmetry as a single asymmetric
-                # gain: a positive teaching signal potentiates the voting channels faster
-                # than a negative one depresses them (the V3 single-vector rendering; the
-                # D1/D2 opponent-population split is the deferred ARC-109 V4 cut). Under
-                # the unsigned ablation learn_signal >= 0 always, so asym is fixed at
-                # potentiation -- the structural reason an unsigned signal CANNOT produce
-                # opposite-sign w_chan moves (the C3/C7 contract).
+                # gain on the LEARNING update: a positive teaching signal potentiates
+                # the voting channels faster than a negative one depresses them. ARC-110
+                # adds the SELECTION-layer D1/D2 opponent-population split
+                # (use_d1_d2_population_split; _segregated_loop_arbitrate /
+                # _d1_d2_split), which is where the representational two-population
+                # distinction (conflict-vs-indifference) the additive scalar destroys is
+                # earned; this learning-update asymmetry is its credit-side partner.
+                # Under the unsigned ablation learn_signal >= 0 always, so asym is fixed
+                # at potentiation -- the structural reason an unsigned signal CANNOT
+                # produce opposite-sign w_chan moves (the C3/C7 contract).
                 learn_asym = (
                     float(getattr(self.config, "learned_channel_asym_potentiation", 1.0))
                     if learn_signal >= 0.0

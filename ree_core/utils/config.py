@@ -565,6 +565,98 @@ class E3Config:
     learned_settling_elig_decay: float = 0.9           # cross-tick decay of the co-activation trace
     learned_settling_n_action_classes: int = 8         # W_lat dimension = first-action class count (clamped)
 
+    # ============================================================== #
+    # ARC-110: parallel segregated cortico-BG-thalamic loops          #
+    # (motor / associative-cognitive-set / limbic-motivational) + an  #
+    # in-layer (eligibility/settling-field) committed-class null (S2). #
+    # ARC-109 (D1/D2 population split) + MECH-452 (loop-local          #
+    # eligibility traces) are the coupled co-requisites, built here.   #
+    # ============================================================== #
+    #
+    # The V3 single E3 selection arena collapses the dACC/lPFC/OFC modulatory
+    # channels into ONE F-dominated within-eligible argmin, so (a) F monopolises
+    # ~88-89% of committed-selection variance (MECH-439) and (b) any same-layer
+    # null is structurally inert on the committed-class DV (700b/704b/706b
+    # autopsies). ARC-110 replaces that within-eligible arbitration with N>=3
+    # parallel segregated loops: each loop runs its OWN within-loop competition
+    # (its channel subset + optional per-loop settling + ARC-109 Go/No-Go
+    # populations) FIRST, then cross-loop arbitration AFTER, so F can dominate
+    # only the MOTOR loop and cannot drown the limbic "is this worth committing
+    # to" value. Safety is unchanged: the loops arbitrate strictly WITHIN the
+    # F-bounded MECH-448/449 eligible set (a No-Go-suppressed candidate is never
+    # in the set), so a non-motor loop can FLIP the within-eligible winner but
+    # can NEVER re-admit a suppressed candidate. Each loop's preference is
+    # NORMALISED (zscore over the eligible set) before arbitration -- that
+    # normalisation is what strips F's raw magnitude advantage (the conversion
+    # mechanism). Default False -> the legacy single-arena within-eligible path
+    # runs UNCHANGED (bit-identical OFF). Functional translation of the
+    # Alexander/DeLong/Strick parallel-loop organisation (ARC-106; NOT anatomical
+    # mimicry) integrated by Haber's ascending dopamine spiral. See
+    # REE_assembly/docs/architecture/sd_v4_loop_segregation.md.
+    use_loop_segregation: bool = False
+    # Channel-name -> loop-name assignment. Empty -> the built-in default map in
+    # e3_selector (_LOOP_DEFAULT_CHANNEL_MAP): dACC/lPFC -> associative;
+    # OFC/curiosity(mech314)/liking(mech295)/vigour(mech320) -> limbic; everything
+    # else -> loop_segregation_default_loop. The motor loop is F (raw_scores)
+    # itself, not a modulatory-channel set.
+    loop_segregation_channel_map: Dict[str, str] = field(default_factory=dict)
+    loop_segregation_default_loop: str = "associative"  # unmapped modulatory channels
+    # Haber ascending striato-nigro-striatal spiral coupling (limbic -> assoc ->
+    # motor): the cross-loop arbitration weights each NON-motor loop's normalised
+    # preference contributes to the committed score. motor_authority weights the
+    # F (motor) loop. At all == 1.0 every loop contributes its zscore equally
+    # (F no longer dominant) -- the ARC-110 conversion hypothesis.
+    loop_segregation_spiral_gain_assoc: float = 1.0
+    loop_segregation_spiral_gain_limbic: float = 1.0
+    loop_segregation_motor_authority: float = 1.0
+    # Per-loop preference normalisation before cross-loop arbitration. "zscore"
+    # (default-when-ON) standardises each loop's within-eligible preference to
+    # mean 0 / std 1 so F's raw magnitude carries no advantage; "range" scales to
+    # unit range; "none" leaves raw (F re-dominates -- a degenerate control).
+    loop_segregation_normalize: str = "zscore"
+    # S2: in-layer (same-layer) committed-class null. When True, each NON-motor
+    # loop's accumulator (the eligibility/settling field the per-loop settling
+    # acts on) is REPLACED by a magnitude-matched random-structure perturbation
+    # (gaussian, rescaled so its range == alpha * the real loop accumulator
+    # range). Because it perturbs the SAME layer the loops settle on -- NOT policy
+    # softmax temperature (the decoupled 700-lineage null) -- it can actually move
+    # the committed-class DV, so noise_verified_lifting becomes a MEANINGFUL
+    # non-vacuity precondition. Motor (F) is never nulled (it is the thing
+    # conversion is tested against). Selection-only: writes nothing to memory
+    # (MECH-094 not engaged). Default False -> no null injected.
+    loop_segregation_noise_on: bool = False
+    loop_segregation_noise_alpha: float = 1.0          # magnitude-match multiplier vs real loop range
+
+    # ARC-109: D1/D2 striatal population split with asymmetric dopamine gain.
+    # When True (and loop segregation on), each loop's within-loop preference is
+    # decomposed into TWO opponent populations instead of one additive scalar:
+    # a Go/D1 population (the promote side: relu(-accum), reduces cost) potentiated
+    # by dopamine (gain 1 + d1_da_gain * da) and a No-Go/D2 population (the suppress
+    # side: relu(+accum), raises cost) DEPRESSED by dopamine (gain 1 - d2_da_gain *
+    # da). The loop preference (cost, lower=better) = D2_activity - D1_activity.
+    # This preserves a representational distinction the additive scalar destroys:
+    # high-Go+high-No-Go (approach-avoidance CONFLICT) is dissociable from
+    # low-Go+low-No-Go (indifference) -- the substrate the OCD/Parkinson/dyskinesia
+    # CSTC disorder axis needs (ARC-106 EARNS). `da` is the bounded tonic-DA proxy
+    # (the e3 value baseline V-hat_t, tanh-squashed). At da==0 and gains==1.0 the
+    # net D2 - D1 == +accum - (-accum)... no: net == relu(accum) - relu(-accum) ==
+    # accum exactly, so the split is bit-identical to the additive accum at da==0
+    # (non-degeneracy comes from da != 0). Default False.
+    use_d1_d2_population_split: bool = False
+    d1_da_gain: float = 1.0                             # D1/Go LTP potentiation by DA
+    d2_da_gain: float = 1.0                             # D2/No-Go LTD depression by DA
+
+    # MECH-452: loop-local eligibility traces under a globally-broadcast dopamine
+    # signal. When True (and loop segregation on), the single ARC-108/MECH-451
+    # eligibility trace is PARTITIONED into one trace per loop, each armed and
+    # credited independently: the shared signed-RPE delta_t updates each loop's
+    # channels via that loop's OWN local trace, so credit stays loop-local even
+    # though the teaching signal is one broadcast. A loop that did not vote for the
+    # committed action earns no credit. Prevents a smeared trace from making
+    # learned gating appear ineffective when the rule is correct. Default False ->
+    # the single shared trace is used (bit-identical OFF).
+    use_loop_local_eligibility_traces: bool = False
+
     # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a, 2026-06-10):
     # The 2026-06-03/06-06 authority rescales _modulatory_accum (the composed
     # score_bias chain + MECH-341 bonus). The 569f/661/654a cluster showed that a
@@ -4653,6 +4745,21 @@ class REEConfig:
         learned_settling_eta: float = 0.01,
         learned_settling_elig_decay: float = 0.9,
         learned_settling_n_action_classes: int = 8,
+        # ARC-110 parallel segregated loops + S2 in-layer null + ARC-109 D1/D2
+        # split + MECH-452 loop-local traces (all no-op default; bit-identical OFF)
+        use_loop_segregation: bool = False,
+        loop_segregation_channel_map: Optional[Dict[str, str]] = None,
+        loop_segregation_default_loop: str = "associative",
+        loop_segregation_spiral_gain_assoc: float = 1.0,
+        loop_segregation_spiral_gain_limbic: float = 1.0,
+        loop_segregation_motor_authority: float = 1.0,
+        loop_segregation_normalize: str = "zscore",
+        loop_segregation_noise_on: bool = False,
+        loop_segregation_noise_alpha: float = 1.0,
+        use_d1_d2_population_split: bool = False,
+        d1_da_gain: float = 1.0,
+        d2_da_gain: float = 1.0,
+        use_loop_local_eligibility_traces: bool = False,
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a):
         use_modulatory_channel_routing: bool = False,
         modulatory_channel_route_min_range_floor: float = 1e-6,
@@ -5688,6 +5795,23 @@ class REEConfig:
         config.e3.learned_settling_eta = learned_settling_eta
         config.e3.learned_settling_elig_decay = learned_settling_elig_decay
         config.e3.learned_settling_n_action_classes = learned_settling_n_action_classes
+        # ARC-110 segregated loops + S2 null + ARC-109 D1/D2 + MECH-452 traces.
+        config.e3.use_loop_segregation = use_loop_segregation
+        config.e3.loop_segregation_channel_map = (
+            dict(loop_segregation_channel_map)
+            if loop_segregation_channel_map else {}
+        )
+        config.e3.loop_segregation_default_loop = loop_segregation_default_loop
+        config.e3.loop_segregation_spiral_gain_assoc = loop_segregation_spiral_gain_assoc
+        config.e3.loop_segregation_spiral_gain_limbic = loop_segregation_spiral_gain_limbic
+        config.e3.loop_segregation_motor_authority = loop_segregation_motor_authority
+        config.e3.loop_segregation_normalize = loop_segregation_normalize
+        config.e3.loop_segregation_noise_on = loop_segregation_noise_on
+        config.e3.loop_segregation_noise_alpha = loop_segregation_noise_alpha
+        config.e3.use_d1_d2_population_split = use_d1_d2_population_split
+        config.e3.d1_da_gain = d1_da_gain
+        config.e3.d2_da_gain = d2_da_gain
+        config.e3.use_loop_local_eligibility_traces = use_loop_local_eligibility_traces
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
         # 2026-06-10): the e3_selector additive site reads
         # use_modulatory_channel_routing + min_range_floor from config.e3; the
