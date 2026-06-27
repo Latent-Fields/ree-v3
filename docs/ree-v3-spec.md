@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-26
+**Last updated:** 2026-06-27
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-26)
+## 0. Current V3 State (2026-06-27)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -199,6 +199,68 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-27T01:10Z nightly read (scheduled `/update-docs`).** Routine
+  housekeeping day on the F-dominance front -- no new substrate landed, no new
+  governance verdicts applied. `evidence/experiments/` flat top-level now holds
+  **507 `v3_exq_*.json` manifests + 1 `v4_exq_*.json`** on disk (+3 since the
+  2026-06-26T01:10Z read: V3-EXQ-704b + V3-EXQ-706b both ran to terminal FAIL,
+  and V3-EXQ-700c indexed during the morning governance walk). Per-machine
+  Phase-3 cards under `runner_heartbeats/` + `runner_status/` continue to lead
+  the legacy tally (single-file `runner_status.json` retired). **Pending review
+  queue (`pending_review.md` last regenerated 2026-06-26T04:18Z): 2 items**
+  -- V3-EXQ-700c (ARC-108/MECH-439/MECH-450 same-layer-null settling, FAIL) +
+  V3-EXQ-706 (MECH-314 curiosity-conversion double-gated, FAIL). Both have
+  CONFIRMED `failure_autopsy_V3-EXQ-700c_2026-06-26` + `failure_autopsy_V3-EXQ-706_2026-06-26`
+  awaiting next `/governance` application; the file itself is STALE relative
+  to live state -- V3-EXQ-706b (the validity-fixed letter superseding 706) +
+  V3-EXQ-704b (the validity-fixed letter superseding 704) both ran to terminal
+  FAIL on 2026-06-26 (706b 07:34Z, 704b 18:09Z; manifests landed on
+  origin/master) and need their own `/failure-autopsy` + `/governance` walks.
+  **Currently queued (`experiment_queue.json` items[]): 1 item, claimed +
+  running** -- **V3-EXQ-700d** (priority 300; `claim_ids=[MECH-439, ARC-108,
+  MECH-450]`; supersedes V3-EXQ-700c; the validity-fixed re-tune of the
+  ARC-108/MECH-439/MECH-450 same-layer learned-gating settling falsifier with
+  an auto-magnitude-matched same-layer null + near-vacuity/below-A0 guards,
+  routed by Reading B of the user-gated 700c autopsy; brake-EXEMPT validity
+  letter; pre-registered TERMINAL for the validity question -- a magnitude-
+  matched null that verify-lifts AND learned settling still no lift -> V4
+  ARC-110 loop-segregation, trips the brake-LOCK; pinned ree-cloud-1
+  2026-06-26T20:46Z, in flight). **Substrate / governance landings since the
+  2026-06-26T01:10Z spec sync:** (1) **V3-EXQ-700d queued + DB-ingested** via
+  the full `/queue-experiment` path (substrate-readiness, re-derive brake
+  check [exempt], code review, smoke, `validate_experiments --strict --paths`,
+  `validate_queue`, pre-commit atomicity + post-commit dropped-file check
+  recovered a phase3-queue writer race, coordinator `POST /queue/add` applied);
+  ree-v3 main 7d84f3d. (2) **V3-EXQ-706b queued + DB-ingested + ran + FAILed**
+  (the validity-fixed double-gated letter the 706 autopsy routed; per-seed
+  budget equalisation + valid same-layer non-temperature null; pre-registered
+  TERMINAL; ree-v3 main e673d2f2; coordinator FAIL row 2026-06-26T07:34:18Z;
+  needs a fresh `/failure-autopsy`). (3) **V3-EXQ-704b ran + FAILed** on
+  ree-cloud-2 (the MECH-451 finer-channel-granularity falsifier validity re-tune;
+  coordinator FAIL row 2026-06-26T18:09:39Z; needs a fresh `/failure-autopsy`).
+  (4) **Failure-autopsy 700c + 706 confirmed** (REE_assembly master af2053866e)
+  -- analysis + handoff only, NO claims.yaml / manifest / review_tracker edits;
+  routes 700d (validity re-tune) + 706b (validity re-test) + records the
+  convergent V4 ARC-110 endpoint flagged in both lineages. (5) **Stale-claim
+  cleanup** (2026-06-26T22:29Z) closed two >24h orphan active TASK_CLAIMS
+  entries (queue-experiment 704b ree-cloud-2 + predecessor queue-experiment 706
+  superseded by 706b) per user-confirmed read-only verification that both ran
+  to terminal FAIL with DB rows + on-disk manifests; documented as normal
+  terminal-removal, NOT a coordinator-DB drop or writer race (the suspected-
+  drop investigation that fired on a 700d session 20:47Z empty-queue read was
+  itself a terminal-completion misread). **Bottleneck (continuation):**
+  **MECH-439 F-dominance conversion ceiling remains the live root choke**.
+  The ARC-108 dopamine-into-gating selection-face attack stays in flight via
+  V3-EXQ-700d on ree-cloud-1 (the validity-fixed letter the 700-lineage brake-
+  LOCK permits; readiness-met no-lift = V4 ARC-110 loop-segregation, trips the
+  brake-LOCK). The MECH-314 curiosity face is brake-LOCKED at the 6th re-derive
+  brake; 706b ran to its pre-registered TERMINAL FAIL and now needs its
+  failure-autopsy to formally route the V4 ARC-110 endpoint or surface a
+  residual validity gap. MECH-451 finer-channel-granularity: 704b's autopsy
+  will determine whether the re-tune fixed the precondition or surfaced a
+  fresh ceiling. **ETHICS-PERIMETER Phase 0 datum** stays on the record;
+  Phases 1-3 deferred (NON-BLOCKING for V3 green-board 2026-07-19).
 
 - **2026-06-26T01:10Z nightly read (scheduled `/update-docs`).** MECH-314
   curiosity-conversion brake-LOCK day: the 2-pass `/governance` cycles + 705 /
