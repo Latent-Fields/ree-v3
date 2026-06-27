@@ -35,7 +35,11 @@
       "estimated_minutes": 1200,
       "claim_id": "MECH-440",
       "note": "diagnostic; PROMOTES NOTHING. Routed by cpkt_tonic_exploration_noise_build_decision_2026-06-27 (MECH-440 substrate built + landed ree-v3 a65609b). 4 arms (A0_OFF / ARM_TEMP=687 matched-pre-commit-variance temperature control / ARM_NOISE_SINGLE / ARM_NOISE_LOOPSEG) on the matched SOTA conversion stack; only swept factor = exploration-injection site. PRIMARY DV committed-action-class entropy; SECONDARY pre-commit sampling-class entropy (thrash-vs-carve). C1 ARM_NOISE_SINGLE committed strict-above ARM_TEMP -> supports MECH-440; if not C1 but ARM_NOISE_LOOPSEG converts -> injection-site fix gated on ARC-110 (route /implement-substrate); if neither -> single-arena collapse subsumes the locus -> weakens + route ARC-110. dacc_max_suppression>0 + both-arms-raise-precommit + supra-floor noise-bias non-vacuity preconditions self-route substrate_not_ready_requeue. Coordinate (no duplicate) with the empirical 687-successor (GAP-C leg) + the 705/706 curiosity lineage. Sibling harness V3-EXQ-707 (ARC-110 validation, prio 400 runs first). Smoke: dry-run PASS 2026-06-27.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-06-27T12:05:43Z"
+      },
       "conditions": 4,
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_708_mech440_noisy_selection_head_propagation_falsifier",
