@@ -5224,8 +5224,18 @@ class REEAgent(nn.Module):
         # SAME ones already summed into dacc_score_bias; anything NOT captured here
         # (curiosity / blocked-agency / avoidance / escape) lands in the select()
         # "residual" channel by subtraction, so the decomposition stays exhaustive.
+        # DEFECT FIX 2026-06-28 (ARC-110 707 autopsy): this gate MUST read the E3Config
+        # flag (config.e3.use_finer_channel_gating) -- the SAME location from_dims sets
+        # (config.py:5894) and that the dict-consumer at the e3.select() call site reads
+        # (see ~line 6528: `if getattr(self.config.e3, "use_finer_channel_gating", ...)`).
+        # It previously read the TOP-LEVEL self.config.use_finer_channel_gating, which is
+        # never set anywhere in ree_core -> always False -> _fcg_channels was always None
+        # -> MECH-451's named per-head decomposition (ofc/dacc/lpfc/vigour/liking/
+        # gated_policy) never reached the selector (only the lumped residual/mech341/route
+        # did). Confirmed via V3-EXQ-707: ARM_DROP_LIMBIC was byte-identical to A1_LOOPS
+        # because the limbic channels never reached the loop arbitration to be ablated.
         _fcg_channels: Optional[Dict[str, torch.Tensor]] = (
-            {} if getattr(self.config, "use_finer_channel_gating", False) else None
+            {} if getattr(self.config.e3, "use_finer_channel_gating", False) else None
         )
         # V3-EXQ-571: per-component bias trackers (zero-cost when flag OFF)
         _bdc_dacc: Optional[torch.Tensor] = None

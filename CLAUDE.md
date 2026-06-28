@@ -12293,6 +12293,20 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
       ofc_bias / m295_bias / tv_bias); passed as score_bias_channels=... into e3.select() ONLY when
       the flag is on (version-layering guard -- the default V3 path never sends the kwarg, so an
       older e3.select cannot raise; same doctrine as the DR-12 / Go-No-Go guards).
+    (4-DEFECT, FIXED 2026-06-28 -- ARC-110 V3-EXQ-707 autopsy) The _fcg_channels builder gate read
+      the TOP-LEVEL self.config.use_finer_channel_gating, which is NEVER set anywhere in ree_core
+      (always False), while the consumer gate at the e3.select() call site reads
+      config.e3.use_finer_channel_gating. Net: _fcg_channels was ALWAYS None -> the named channels
+      (ofc/dacc/lpfc/vigour/liking/gated_policy) NEVER reached the selector; only the lumped
+      residual/mech341/route did. So EVERY finer-channel experiment (704/704b/706*/707/708) ran with
+      MECH-451's named decomposition DEAD -- A2_FINER_CHANNELS was only a residual/mech341/route
+      3-way split, NOT the named decomposition the claim asserts. Fixed agent.py:5238 to read
+      config.e3.use_finer_channel_gating (matching the consumer). Regression guard
+      tests/test_arc110_loop_segregation.py::TestFinerChannelsReachSelector (fails pre-fix, passes
+      post-fix). MECH-451 is effectively UNTESTED (pending_retest_after_substrate). NB a genuine
+      retest is itself gated on the named bias heads carrying per-candidate range -- they currently
+      emit per-candidate-FLAT output (OFC input range 0.028 -> output 0.0; MECH-191 phasic gap),
+      see REE_assembly sd_v4_loop_segregation.md "VALIDATION + DEFECT 2026-06-28".
   Config (REEConfig + from_dims + E3Config, no-op default -> bit-identical OFF):
   use_finer_channel_gating (False). REUSES the ARC-108 learning knobs (learned_channel_gating_eta /
   _elig_decay / _value_baseline_beta / _asym_potentiation / _asym_depression / _rpe_mode) so
