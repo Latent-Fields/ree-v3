@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-707",
-      "title": "ARC-110 parallel segregated loop-segregation validation (motor/assoc/limbic loops + S2 in-layer null + ARC-109 D1/D2 + MECH-452 traces vs single arena)",
-      "script": "experiments/v3_exq_707_arc110_loop_segregation_validation.py",
-      "priority": 400,
-      "machine_affinity": "any",
-      "estimated_minutes": 1200,
-      "claim_id": "ARC-110",
-      "note": "Substrate-readiness validation for the v4_loop_segregation substrate (ARC-110 + coupled ARC-109 D1/D2 split + MECH-452 loop-local traces + S2 in-layer null) BUILT 2026-06-27 via /implement-substrate (full scope; PROMOTES NOTHING). EXPERIMENT_PURPOSE=diagnostic. Clears the re-derive brake on the conversion lineage: the upstream substrate is now built (ree-v3/ree_core/predictors/e3_selector.py _segregated_loop_arbitrate; gate cleared by V3-EXQ-704b FAIL-to-convert, the pre-registered positive-evidence-FOR-ARC-110 outcome). Routed by the confirmed cluster autopsy failure_autopsy_704b-706b-conversion-ceiling_2026-06-27. 4 arms x 6 seeds, ONLY swept factor = loop segregation: A0_SINGLE_ARENA (loop seg OFF, the 704b-A2 baseline) / A1_LOOPS (ARC-110 full stack) / ARM_NOISE (A1 + S2 in-layer same-layer null) / ARM_DROP_LIMBIC (A1, limbic loop ablated -- ARC-106 per-loop falsifier). PRE-REGISTERED decisive: A1 committed-class entropy strict-above A0 AND the valid in-layer null with live cross-loop variance => supports ARC-110 (single-arena collapse was a binding constraint on MECH-439); valid null verify-lifts + loops vary but no conversion => weakens ARC-110 (ceiling intrinsic). Non-degeneracy self-routes substrate_not_ready_requeue (loops pinned to motor winner / in-layer null inert / pool collapsed). prefer-cloud (machine_affinity any). Smoke: dry-run PASS (all 4 arms ran through the loop selector, manifest written, exit 0).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-27T11:10:41Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_707_arc110_loop_segregation_validation",
-      "seeds": 6
-    },
-    {
       "queue_id": "V3-EXQ-708",
       "title": "MECH-440 noisy-selection-head propagation falsifier: does NoisyNet weight noise carve committed-action diversity above a matched-pre-commit-variance temperature control (the 687 control), on the 569i top-k + MECH-448 demotion SOTA stack? (loop-seg OFF vs ON disambiguates injection-site vs single-arena/ARC-110)",
       "script": "experiments/v3_exq_708_mech440_noisy_selection_head_propagation_falsifier.py",
