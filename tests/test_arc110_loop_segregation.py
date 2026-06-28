@@ -233,5 +233,232 @@ class TestFinerChannelsReachSelector:
         )
 
 
+# ------------------------------------------------------------------ #
+# (C) ARC-110 C2 release: per-named-channel range-preserving routing   #
+# ------------------------------------------------------------------ #
+
+from ree_core.predictors.e3_selector import project_channel_range
+
+
+def _routed_selector(drop_limbic: bool) -> E3TrajectorySelector:
+    cfg = REEConfig.from_dims(
+        body_obs_dim=8, world_obs_dim=8, action_dim=5, self_dim=32, world_dim=32,
+        use_loop_segregation=True,
+        use_finer_channel_gating=True,
+        use_named_channel_routing=True,
+        loop_segregation_channel_map=(_DROP_LIMBIC_CHANNEL_MAP if drop_limbic else {}),
+    )
+    return E3TrajectorySelector(cfg.e3, None)
+
+
+class TestNamedChannelRoutingC2Release:
+    """ARC-110 C2 release condition (V3-EXQ-707 Defect 3 / MECH-191 phasic gap).
+
+    The named cortical bias HEADS emit per-candidate-FLAT output, so under the
+    per-loop zscore the limbic loop carried no per-candidate competition and
+    ARM_DROP_LIMBIC was byte-identical to A1_LOOPS (C2 untestable). These tests
+    lock the fix: routing each named channel's per-candidate REPRESENTATION
+    through project_channel_range (range-preserving) makes the limbic loop
+    load-bearing.
+    """
+
+    # The 707 condition: the named bias-head scalars are per-candidate FLAT.
+    _FLAT_NAMED = ("ofc", "liking", "vigour", "dacc", "lpfc")
+
+    def _flat_terms(self, n: int):
+        return [
+            (_FCG_CHANNEL_INDEX[nm], torch.full((n,), 0.3)) for nm in self._FLAT_NAMED
+        ]
+
+    def test_flat_named_terms_reproduce_707_byte_identity(self):
+        """Sanity: with FLAT named terms and NO routing override, the limbic loop
+        carries zero range and DROP-limbic is a no-op -- the exact V3-EXQ-707
+        substrate-blocked condition this release lifts."""
+        n = 4
+        elig = torch.arange(n)
+        raw = torch.zeros(n)  # flat motor -> non-motor loops decide
+        terms = self._flat_terms(n)
+
+        s_a1 = _routed_selector(drop_limbic=False)
+        loc_a1 = s_a1._segregated_loop_arbitrate(
+            elig, raw, terms, True, [None] * n, True, 1.0, True
+        )
+        assert s_a1.last_score_diagnostics["loop_limbic_pref_range"] == 0.0
+
+        s_dr = _routed_selector(drop_limbic=True)
+        loc_dr = s_dr._segregated_loop_arbitrate(
+            elig, raw, terms, True, [None] * n, True, 1.0, True
+        )
+        assert loc_a1 == loc_dr, "flat named terms must reproduce the DROP==A1 no-op"
+
+    def test_routing_makes_limbic_loop_load_bearing(self):
+        """C2 release: with the routing override (range-preserving named-channel
+        representations), >=1 limbic channel reaches the arbitration with NON-ZERO
+        per-candidate range AND ARM_DROP_LIMBIC differs from A1_LOOPS."""
+        n = 4
+        elig = torch.arange(n)
+        raw = torch.zeros(n)
+        terms = self._flat_terms(n)  # bias-head scalars stay flat (as in the substrate)
+        # Routed range-preserving representations: limbic channels prefer candidate
+        # 3, associative channels prefer candidate 0 -- so folding limbic into
+        # associative (the DROP ablation) must change the cross-loop argmin.
+        limbic_rep = torch.tensor([0.0, 0.5, 0.5, -3.0])
+        assoc_rep = torch.tensor([-3.0, 0.5, 0.5, 0.0])
+        override = {
+            _FCG_CHANNEL_INDEX["ofc"]: limbic_rep,
+            _FCG_CHANNEL_INDEX["liking"]: limbic_rep,
+            _FCG_CHANNEL_INDEX["vigour"]: limbic_rep,
+            _FCG_CHANNEL_INDEX["dacc"]: assoc_rep,
+            _FCG_CHANNEL_INDEX["lpfc"]: assoc_rep,
+        }
+
+        s_a1 = _routed_selector(drop_limbic=False)
+        loc_a1 = s_a1._segregated_loop_arbitrate(
+            elig, raw, terms, True, [None] * n, True, 1.0, True,
+            loop_term_override=override,
+        )
+        d_a1 = s_a1.last_score_diagnostics
+        # Assertion 1: at least one limbic channel carries non-zero per-candidate range.
+        assert d_a1["loop_limbic_pref_range"] > 0.0, (
+            "limbic loop must carry per-candidate range once routing is on"
+        )
+        assert d_a1["loop_limbic_routed_max_range"] > 0.0
+        assert d_a1["loop_named_channel_routing_active"] is True
+        # Every routed named channel exposes its per-candidate range for the
+        # experiment's non-degeneracy gate.
+        ranges = d_a1["loop_named_channel_routed_ranges"]
+        assert set(ranges) == set(self._FLAT_NAMED)
+        assert all(v > 0.0 for v in ranges.values())
+
+        s_dr = _routed_selector(drop_limbic=True)
+        loc_dr = s_dr._segregated_loop_arbitrate(
+            elig, raw, terms, True, [None] * n, True, 1.0, True,
+            loop_term_override=override,
+        )
+        # Assertion 2: ARM_DROP_LIMBIC differs from A1_LOOPS (the C2 prerequisite
+        # the 707 run could not exercise).
+        assert loc_a1 != loc_dr, (
+            "DROP-limbic must change the committed index once the limbic channels "
+            "carry routed per-candidate range (got identical -- C2 still blocked)"
+        )
+
+    def test_routing_off_is_byte_identical(self):
+        """Backward-compat: with no override supplied, the arbitration is identical
+        to the legacy flat-term path regardless of the config flag."""
+        n = 4
+        elig = torch.arange(n)
+        raw = torch.randn(n)
+        terms = self._flat_terms(n)
+        # use_named_channel_routing ON but NO override passed -> flat path.
+        s_on = _routed_selector(drop_limbic=False)
+        loc_on = s_on._segregated_loop_arbitrate(
+            elig, raw, terms, True, [None] * n, True, 1.0, True
+        )
+        # Selector built WITHOUT the routing flag, same flat terms.
+        s_off = _make_selector(drop_limbic=False)
+        loc_off = s_off._segregated_loop_arbitrate(
+            elig, raw, terms, True, [None] * n, True, 1.0, True
+        )
+        assert loc_on == loc_off
+        assert s_on.last_score_diagnostics["loop_named_channel_routing_active"] is False
+
+
+class TestRoutedRepsReachSelectorThroughAgent:
+    """Guards the agent.py capture + project_channel_range plumbing end-to-end: with
+    the release flag on, score_bias_channel_routed must reach E3.select non-None
+    with >=1 named channel carrying real per-candidate range."""
+
+    @staticmethod
+    def _make_agent(env: CausalGridWorldV2, routing_on: bool) -> REEAgent:
+        cfg = REEConfig.from_dims(
+            body_obs_dim=env.body_obs_dim,
+            world_obs_dim=env.world_obs_dim,
+            action_dim=env.action_dim,
+            self_dim=32, world_dim=32,
+            use_finer_channel_gating=True,
+            use_named_channel_routing=routing_on,
+            use_loop_segregation=True,
+            use_gated_policy=True,
+            use_lateral_pfc_analog=True,
+            lateral_pfc_train_rule_bias_head=True,
+            use_dacc=True,
+        )
+        return REEAgent(cfg)
+
+    def _capture(self, env: CausalGridWorldV2, agent: REEAgent):
+        captured = {"seen": False, "value": "UNSET"}
+        orig = E3TrajectorySelector.select
+
+        def _patched(self, *a, **k):
+            if not captured["seen"]:
+                captured["value"] = k.get("score_bias_channel_routed", "MISSING")
+                captured["seen"] = True
+            return orig(self, *a, **k)
+
+        _, obs = env.reset()
+        agent.reset()
+        E3TrajectorySelector.select = _patched
+        try:
+            for _ in range(6):
+                body = obs["body_state"].float()
+                world = obs["world_state"].float()
+                if body.dim() == 1:
+                    body = body.unsqueeze(0)
+                if world.dim() == 1:
+                    world = world.unsqueeze(0)
+                latent = agent.sense(obs_body=body, obs_world=world)
+                ticks = agent.clock.advance()
+                wdim = latent.z_world.shape[-1]
+                e1_prior = (
+                    agent._e1_tick(latent) if ticks.get("e1_tick", False)
+                    else torch.zeros(1, wdim, device=agent.device)
+                )
+                candidates = agent.generate_trajectories(latent, e1_prior, ticks)
+                action = agent.select_action(candidates, ticks)
+                if captured["seen"]:
+                    break
+                _, _, done, _, obs = env.step(action)
+                if done:
+                    _, obs = env.reset()
+        finally:
+            E3TrajectorySelector.select = orig
+        return captured
+
+    def test_routed_reaches_selector_on(self):
+        env = CausalGridWorldV2(seed=0, size=8, num_hazards=2, num_resources=3)
+        agent = self._make_agent(env, routing_on=True)
+        captured = self._capture(env, agent)
+        assert captured["seen"], "selector.select was never called"
+        routed = captured["value"]
+        # Plumbing contract: the routed dict reaches the selector non-None with >=1
+        # named channel, each a per-candidate [K] vector. (Whether the per-candidate
+        # RANGE is non-zero is data-dependent -- this minimal UNTRAINED env collapses
+        # the candidate world-summaries to identical rows, so project_channel_range
+        # returns zeros; on a real trained run the summaries carry range, which the
+        # validation experiment's non-degeneracy gate asserts. The load-bearing
+        # MECHANISM given non-zero range is proved at the arbitration level by
+        # TestNamedChannelRoutingC2Release.test_routing_makes_limbic_loop_load_bearing.)
+        assert routed is not None and routed != "MISSING", (
+            "score_bias_channel_routed reached the selector None/absent with routing ON"
+        )
+        assert len(routed) >= 1, "no named channel routed through to the selector"
+        lengths = {nm: t.shape[0] for nm, t in routed.items()}
+        for nm, t in routed.items():
+            assert t.dim() == 1, f"routed channel {nm} must be a per-candidate [K] vector"
+        assert len(set(lengths.values())) == 1, (
+            f"routed channels must all be the same per-candidate length, got {lengths}"
+        )
+
+    def test_routed_off_absent(self):
+        env = CausalGridWorldV2(seed=0, size=8, num_hazards=2, num_resources=3)
+        agent = self._make_agent(env, routing_on=False)
+        captured = self._capture(env, agent)
+        assert captured["seen"], "selector.select was never called"
+        routed = captured["value"]
+        assert routed is None or routed == "MISSING", (
+            "routing OFF must not pass score_bias_channel_routed (version-layering guard)"
+        )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

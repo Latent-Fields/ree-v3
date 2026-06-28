@@ -1377,6 +1377,7 @@ class E3TrajectorySelector(nn.Module):
         committed: bool,
         temperature: float,
         simulation_mode: bool,
+        loop_term_override: Optional[Dict[int, torch.Tensor]] = None,
     ) -> int:
         """ARC-110: parallel segregated cortico-BG-thalamic loop arbitration.
 
@@ -1409,12 +1410,31 @@ class E3TrajectorySelector(nn.Module):
         loop_accum = {"associative": None, "limbic": None}
         loop_of_channel: Dict[int, str] = {}
         n_loop_channels = {"associative": 0, "limbic": 0}
+        # ARC-110 C2 release: per-named-channel range-preserving routing. When an
+        # override is supplied (use_named_channel_routing), a named channel's loop
+        # accumulation uses its range-PRESERVING routed representation (projected via
+        # project_channel_range in the caller) instead of its flattened bias-head
+        # scalar -- the flat scalar (per-candidate range ~0) is inert under the
+        # per-loop zscore, so the limbic loop would otherwise carry no per-candidate
+        # competition (the V3-EXQ-707 ARM_DROP_LIMBIC==A1 byte-identity). The routed
+        # term is indexed onto the eligible set exactly as a normal lcg term. None /
+        # absent -> the flat term is used (bit-identical OFF). Per-named-channel
+        # routed ranges (full candidate set, pre-eligible) are recorded for the
+        # experiment's non-degeneracy gate.
+        override = loop_term_override or {}
+        named_routed_ranges: Dict[str, float] = {}
         for ch_idx, term in (lcg_terms or []):
             name = index_names[ch_idx] if 0 <= ch_idx < len(index_names) else None
             loop = cmap.get(name, default_loop)
             if loop not in loop_accum:
                 loop = default_loop
-            t = term.detach()[eligible_idx].to(dtype=dtype, device=device)
+            src = override.get(ch_idx, term)
+            if ch_idx in override and name is not None:
+                _ov = override[ch_idx]
+                named_routed_ranges[name] = (
+                    float((_ov.max() - _ov.min()).item()) if _ov.numel() >= 1 else 0.0
+                )
+            t = src.detach()[eligible_idx].to(dtype=dtype, device=device)
             loop_accum[loop] = t if loop_accum[loop] is None else loop_accum[loop] + t
             loop_of_channel[ch_idx] = loop
             n_loop_channels[loop] += 1
@@ -1518,6 +1538,25 @@ class E3TrajectorySelector(nn.Module):
         ) if limbic_z.numel() >= 1 else 0.0
         self.last_score_diagnostics["loop_n_assoc_channels"] = n_loop_channels["associative"]
         self.last_score_diagnostics["loop_n_limbic_channels"] = n_loop_channels["limbic"]
+        # ARC-110 C2 release: per-named-channel routed per-candidate range (the C2
+        # non-degeneracy gate reads this -- routing is only meaningful if the named
+        # channels actually carry cross-candidate range). Empty {} when routing OFF.
+        self.last_score_diagnostics["loop_named_channel_routed_ranges"] = named_routed_ranges
+        self.last_score_diagnostics["loop_named_channel_routing_active"] = bool(override)
+        self.last_score_diagnostics["loop_named_channel_routed_max_range"] = (
+            max(named_routed_ranges.values()) if named_routed_ranges else 0.0
+        )
+        # Max routed range among the LIMBIC-loop channels specifically (the C2
+        # target loop): the gate that says "the limbic loop carries live signal".
+        _limbic_names = {
+            nm for nm, lp in cmap.items() if lp == "limbic"
+        }
+        _limbic_routed = [
+            r for nm, r in named_routed_ranges.items() if nm in _limbic_names
+        ]
+        self.last_score_diagnostics["loop_limbic_routed_max_range"] = (
+            max(_limbic_routed) if _limbic_routed else 0.0
+        )
 
         # MECH-452: which loop "voted" for the committed action (its within-loop winner
         # matched the commit), so the eligibility-trace recording credits only voting
@@ -1544,6 +1583,7 @@ class E3TrajectorySelector(nn.Module):
         z_harm_s_current: Optional[torch.Tensor] = None,
         score_bias: Optional[torch.Tensor] = None,
         score_bias_channels: Optional[Dict[str, torch.Tensor]] = None,
+        score_bias_channel_routed: Optional[Dict[str, torch.Tensor]] = None,
         score_diversity: Optional[Any] = None,
         channel_route_bias: Optional[torch.Tensor] = None,
         e2_forward_pe_per_candidate: Optional[torch.Tensor] = None,
@@ -1675,6 +1715,32 @@ class E3TrajectorySelector(nn.Module):
         # the score_bias slot -- finer takes precedence.
         _fcg = bool(getattr(self.config, "use_finer_channel_gating", False))
         _chan_index = _FCG_CHANNEL_INDEX if _fcg else _LCG_CHANNEL_INDEX
+
+        # ARC-110 C2 release: build the per-named-channel loop-arbitration override
+        # from the caller-supplied range-preserving routed representations. Keyed by
+        # FINER channel index so _segregated_loop_arbitrate substitutes the routed
+        # term (real per-candidate range) for the flat bias-head scalar in the loop
+        # accumulation ONLY. Gated on use_named_channel_routing AND finer gating (the
+        # named registry only exists in finer mode); empty {} otherwise -> the loop
+        # uses the flat terms exactly as before (bit-identical OFF). Each routed
+        # tensor must be a per-candidate [K] vector matching the scores shape.
+        _loop_term_override: Dict[int, torch.Tensor] = {}
+        if (
+            _fcg
+            and getattr(self.config, "use_named_channel_routing", False)
+            and score_bias_channel_routed
+        ):
+            for _rn, _rt in score_bias_channel_routed.items():
+                if _rt is None or _rn not in _chan_index:
+                    continue
+                _rt = _rt.to(dtype=scores.dtype, device=scores.device)
+                if _rt.shape != scores.shape:
+                    raise ValueError(
+                        f"score_bias_channel_routed['{_rn}'] shape "
+                        f"{tuple(_rt.shape)} does not match scores shape "
+                        f"{tuple(scores.shape)}"
+                    )
+                _loop_term_override[_chan_index[_rn]] = _rt.detach()
 
         # SD-032b dACC bias: additive, same sign convention as raw scores.
         # Applied before last_scores / softmax so downstream consumers see
@@ -2322,6 +2388,7 @@ class E3TrajectorySelector(nn.Module):
                         committed=committed,
                         temperature=temperature,
                         simulation_mode=simulation_mode,
+                        loop_term_override=_loop_term_override,
                     )
                     shortlist_idx = int(eligible_idx[local].item())
                 else:

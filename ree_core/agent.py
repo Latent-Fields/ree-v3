@@ -5237,6 +5237,24 @@ class REEAgent(nn.Module):
         _fcg_channels: Optional[Dict[str, torch.Tensor]] = (
             {} if getattr(self.config.e3, "use_finer_channel_gating", False) else None
         )
+        # ARC-110 C2 release (per-named-channel routing, 2026-06-28): capture each
+        # named channel's per-candidate REPRESENTATION (the [K, D] / [K] feature the
+        # bias head consumes -- which carries cross-candidate range -- NOT the flat
+        # bias-head scalar in _fcg_channels). At the e3.select call site these are
+        # projected via project_channel_range (range-preserving) and passed as
+        # score_bias_channel_routed so the segregated loops accumulate the named
+        # channels with real per-candidate range (the MECH-191 phasic-externalisation
+        # fix the limbic loop needs to be load-bearing). None -> bit-identical (the
+        # loop uses the flat scalars). Gated on use_named_channel_routing so the
+        # capture is zero-cost when the release flag is OFF.
+        _fcg_channel_reps: Optional[Dict[str, torch.Tensor]] = (
+            {}
+            if (
+                getattr(self.config.e3, "use_finer_channel_gating", False)
+                and getattr(self.config.e3, "use_named_channel_routing", False)
+            )
+            else None
+        )
         # V3-EXQ-571: per-component bias trackers (zero-cost when flag OFF)
         _bdc_dacc: Optional[torch.Tensor] = None
         _bdc_lpfc: Optional[torch.Tensor] = None
@@ -5320,6 +5338,15 @@ class REEAgent(nn.Module):
                 self._dacc_last_bias = dacc_score_bias.detach().clone()
                 if self.e3.e3_score_decomp_enabled:
                     _bdc_dacc = dacc_score_bias.detach().clone()
+                # ARC-110 C2 release: dACC-conflict per-candidate REPRESENTATION =
+                # the (payoff, effort) cost/benefit basis the dACC head consumes,
+                # stacked [K, 2]. Routed range-preserving so the associative loop
+                # carries the dACC channel's cross-candidate range (not its flat
+                # bias-head scalar).
+                if _fcg_channel_reps is not None:
+                    _fcg_channel_reps["dacc"] = torch.stack(
+                        [payoffs.detach(), effort.detach()], dim=1
+                    )
 
         # SD-032a: tick the salience-network coordinator. Aggregates the dACC
         # bundle (live), drive_level (live), and offline-mode flag (proxy for
@@ -5526,6 +5553,8 @@ class REEAgent(nn.Module):
                 _bdc_gp = gp_bias.detach().clone()
             if _fcg_channels is not None:  # MECH-451: gated_policy finer channel
                 _fcg_channels["gated_policy"] = gp_bias.detach().clone()
+            if _fcg_channel_reps is not None:  # ARC-110 C2: per-candidate rep
+                _fcg_channel_reps["gated_policy"] = gp_summaries.detach().clone()
             if dacc_score_bias is None:
                 dacc_score_bias = gp_bias
             else:
@@ -5706,6 +5735,8 @@ class REEAgent(nn.Module):
             lpfc_bias = self.lateral_pfc.compute_bias(cand_world_summaries)
             if _fcg_channels is not None:  # MECH-451: lateral-PFC rule-evidence channel
                 _fcg_channels["lpfc"] = lpfc_bias.detach().clone()
+            if _fcg_channel_reps is not None:  # ARC-110 C2: per-candidate rep
+                _fcg_channel_reps["lpfc"] = cand_world_summaries.detach().clone()
             if self.e3.e3_score_decomp_enabled:
                 _bdc_lpfc = lpfc_bias.detach().clone()
             # Compose additively with dACC score_bias (lower-is-better in E3).
@@ -5765,6 +5796,8 @@ class REEAgent(nn.Module):
             ofc_bias = self.ofc.compute_bias(ofc_summaries)
             if _fcg_channels is not None:  # MECH-451: OFC-devaluation channel
                 _fcg_channels["ofc"] = ofc_bias.detach().clone()
+            if _fcg_channel_reps is not None:  # ARC-110 C2: per-candidate rep (limbic)
+                _fcg_channel_reps["ofc"] = ofc_summaries.detach().clone()
             if self.e3.e3_score_decomp_enabled:
                 _bdc_ofc = ofc_bias.detach().clone()
             if dacc_score_bias is None:
@@ -5899,6 +5932,10 @@ class REEAgent(nn.Module):
                 _bdc_m295 = m295_bias.detach().clone()
             if _fcg_channels is not None:  # MECH-451: liking (MECH-295) channel
                 _fcg_channels["liking"] = m295_bias.detach().clone()
+            if _fcg_channel_reps is not None:  # ARC-110 C2: per-candidate rep (limbic)
+                # The per-candidate goal-proximity vector [K] is the liking bridge's
+                # range-carrying input (drive is a scalar gain). Identity-routed.
+                _fcg_channel_reps["liking"] = cand_proximities.detach().clone()
             if dacc_score_bias is None:
                 dacc_score_bias = m295_bias
             else:
@@ -6040,6 +6077,18 @@ class REEAgent(nn.Module):
                 _bdc_vigor = tv_bias.detach().clone()
             if _fcg_channels is not None:  # MECH-451: vigour (MECH-320) channel
                 _fcg_channels["vigour"] = tv_bias.detach().clone()
+            if _fcg_channel_reps is not None:  # ARC-110 C2: per-candidate rep (limbic)
+                # Vigour is target-free and action-class-keyed, so its per-candidate
+                # REPRESENTATION is the first-action one-hot [K, action_dim]; routing
+                # it preserves the cross-candidate action-class variation the flat
+                # vigour scalar collapses.
+                if len(candidates) > 0:
+                    _vig_adim = int(candidates[0].actions.shape[-1])
+                    _vig_oh = torch.zeros(
+                        K_cands, _vig_adim, dtype=torch.float32
+                    )
+                    _vig_oh[torch.arange(K_cands), tv_action_classes] = 1.0
+                    _fcg_channel_reps["vigour"] = _vig_oh
             # ControlVector logging (rec-B): split the single MECH-320 bias into
             # its action half (G_vigor = -w_action*v_t) and no-op half
             # (C_time = +w_passive*v_t), and record the shared v_t scalar + the
@@ -6537,6 +6586,25 @@ class REEAgent(nn.Module):
         # critical path -- same doctrine as the DR-12 / Go-No-Go guards below).
         if getattr(self.config.e3, "use_finer_channel_gating", False):
             _e3_select_kwargs["score_bias_channels"] = _fcg_channels
+        # ARC-110 C2 release: project each captured per-named-channel representation
+        # through the parameter-free, range-preserving project_channel_range (the
+        # SAME GAP-A path that keeps the lumped `route` channel phasic) and pass the
+        # routed per-candidate [K] terms so the segregated loops accumulate the named
+        # channels with REAL per-candidate range (the limbic loop becomes
+        # load-bearing). Version-layering guard: the kwarg is sent ONLY when the
+        # release flag is engaged, so an older e3.select that lacks the param cannot
+        # raise on the default V3 path (same doctrine as the DR-12 / MECH-449 guards).
+        if (
+            getattr(self.config.e3, "use_named_channel_routing", False)
+            and _fcg_channel_reps
+        ):
+            _routed: Dict[str, torch.Tensor] = {}
+            for _cn, _cr in _fcg_channel_reps.items():
+                if _cr is None:
+                    continue
+                _routed[_cn] = project_channel_range(_cr.detach())
+            if _routed:
+                _e3_select_kwargs["score_bias_channel_routed"] = _routed
         # MECH-449 (ARC-107): Go/No-Go eligibility constitution. The perseveration
         # No-Go axis REUSES MECH-260 (dACC anti-recency suppression) -- the
         # existing per-candidate recency-share vector from the dACC bundle is

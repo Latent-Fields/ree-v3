@@ -12428,9 +12428,29 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   Phased training required: no (reuses already-trained valuation heads; all learned objects ride the
   existing ARC-108 LOCAL three-factor update, not autograd). MECH-094: all learning writes inherit the
   existing simulation_mode=False waking gate.
-  Validation experiment: V3-EXQ-707 queued (see /queue-experiment).
+  C2 RELEASE 2026-06-28 (per-named-channel range-preserving routing -- unblocks C2 limbic load-bearing):
+    new no-op-default flag E3Config.use_named_channel_routing. The named cortical bias HEADS emit
+    per-candidate-FLAT output (MECH-191 phasic gap), so under per-loop zscore the limbic channels were
+    inert and ARM_DROP_LIMBIC was byte-identical to A1_LOOPS (V3-EXQ-707, C2 untestable). When the flag
+    is on (with loop seg + finer gating), each named channel's loop-arbitration term is sourced from its
+    per-candidate REPRESENTATION -- agent.select_action captures ofc/lpfc -> cand_world_summaries [K,D],
+    liking -> goal-proximity [K], vigour -> first-action one-hots [K,A], dacc -> payoff/effort [K,2],
+    gated_policy -> summaries [K,D] -> project_channel_range (range-preserving, the SAME GAP-A path that
+    keeps `route` phasic) -> score_bias_channel_routed kwarg -> e3_selector.select builds a
+    loop_term_override -> _segregated_loop_arbitrate substitutes the routed term for the flat scalar in
+    the LOOP ACCUMULATION ONLY. The _lcg_terms eligibility traces, the authority/shortlist
+    _modulatory_accum recompose, and the F/score commit path are UNCHANGED -> bit-identical OFF. New
+    diagnostics loop_named_channel_routed_ranges / loop_limbic_routed_max_range expose the per-named-channel
+    routed per-candidate range for the C2 non-degeneracy gate. Selection-only (MECH-094 not engaged).
+    Regression guard tests/test_arc110_loop_segregation.py::TestNamedChannelRoutingC2Release (limbic range
+    > 0 + DROP != A1 once routed terms carry range) + ::TestRoutedRepsReachSelectorThroughAgent (plumbing).
+  Validation experiment: V3-EXQ-707 -> superseded by V3-EXQ-707a (in-layer-null gate fix) ->
+    V3-EXQ-707b (v3_exq_707b_arc110_loop_segregation_c2_release, the C2 release validation: enables
+    use_named_channel_routing + limbic input modules, adds the named_channel_routing_live precondition
+    before scoring C2). See /queue-experiment.
   Non-degeneracy diagnostics: loop_committed_neq_motor_winner, loop_cross_loop_winner_disagreement,
-  loop_assoc_pref_range / loop_limbic_pref_range, loop_d1_d2_conflict_signal, loop_local_credited_channels.
+  loop_assoc_pref_range / loop_limbic_pref_range, loop_d1_d2_conflict_signal, loop_local_credited_channels,
+  loop_named_channel_routed_ranges / loop_limbic_routed_max_range (C2 release).
   See ARC-110, ARC-109, MECH-452 (built here); MECH-439 (the F-dominance conversion ceiling under
   test), ARC-108 / MECH-450 / MECH-451 (the within-loop machinery reused), ARC-107 (BG constitution),
   MECH-448 / MECH-449 (the F-bounded eligible set arbitration runs within; safety inherited), ARC-106

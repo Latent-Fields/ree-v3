@@ -644,6 +644,23 @@ class E3Config:
     # (MECH-094 not engaged). Default False -> no null injected.
     loop_segregation_noise_on: bool = False
     loop_segregation_noise_alpha: float = 1.0          # magnitude-match multiplier vs real loop range
+    # ARC-110 C2 RELEASE (per-named-channel routing, 2026-06-28). The named
+    # cortical bias HEADS (OFC/dACC/lPFC/vigour/liking) emit per-candidate-FLAT
+    # output (their input representation carries cross-candidate range but their
+    # consuming Linear collapses it -- the MECH-191 phasic-externalisation gap),
+    # so under per-loop zscore a flat channel is inert and the limbic loop carries
+    # no per-candidate competition (V3-EXQ-707: ARM_DROP_LIMBIC byte-identical to
+    # A1_LOOPS). When True (and loop segregation + finer-channel gating on), each
+    # named channel's loop-arbitration term is sourced from its per-candidate
+    # REPRESENTATION routed through the parameter-free, range-preserving
+    # project_channel_range projection (the SAME GAP-A path that keeps the lumped
+    # `route` channel phasic) INSTEAD of its flattened bias-head scalar. This
+    # affects ONLY _segregated_loop_arbitrate's view of the named channels -- the
+    # _lcg_terms eligibility traces, the authority/shortlist _modulatory_accum
+    # recompose, and the F/score commit path are all UNCHANGED. Selection-only;
+    # writes nothing to memory (MECH-094 not engaged). Default False -> the loop
+    # accumulates the flat bias scalars exactly as before (bit-identical OFF).
+    use_named_channel_routing: bool = False
 
     # ARC-109: D1/D2 striatal population split with asymmetric dopamine gain.
     # When True (and loop segregation on), each loop's within-loop preference is
@@ -4841,6 +4858,7 @@ class REEConfig:
         loop_segregation_normalize: str = "zscore",
         loop_segregation_noise_on: bool = False,
         loop_segregation_noise_alpha: float = 1.0,
+        use_named_channel_routing: bool = False,
         use_d1_d2_population_split: bool = False,
         d1_da_gain: float = 1.0,
         d2_da_gain: float = 1.0,
@@ -5912,6 +5930,8 @@ class REEConfig:
         config.e3.loop_segregation_normalize = loop_segregation_normalize
         config.e3.loop_segregation_noise_on = loop_segregation_noise_on
         config.e3.loop_segregation_noise_alpha = loop_segregation_noise_alpha
+        # ARC-110 C2 release: per-named-channel range-preserving routing (2026-06-28).
+        config.e3.use_named_channel_routing = use_named_channel_routing
         config.e3.use_d1_d2_population_split = use_d1_d2_population_split
         config.e3.d1_da_gain = d1_da_gain
         config.e3.d2_da_gain = d2_da_gain
