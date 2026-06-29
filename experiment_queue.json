@@ -26,26 +26,6 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_707b_arc110_loop_segregation_c2_release",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-707a",
-      "title": "ARC-110 loop-segregation validation (supersedes 707): driver-only fix to the in-layer-null validity gate -- null-LIVENESS (ARM_NOISE must PERTURB the committed selection), NOT null-LIFT (707's retired requirement that the random null raise entropy above A0, the 700-lineage temperature-null proxy, invalid for a structured-accumulator null). Does loop segregation convert committed-action diversity above the single-arena baseline AND a valid same-layer null?",
-      "script": "experiments/v3_exq_707a_arc110_loop_segregation_validation.py",
-      "priority": 400,
-      "machine_affinity": "any",
-      "estimated_minutes": 1200,
-      "supersedes": "V3-EXQ-707",
-      "claim_id": "ARC-110",
-      "note": "diagnostic; PROMOTES NOTHING (ARC-110/ARC-109/MECH-452 stay candidate/substrate_conditional/v3). SUPERSEDES V3-EXQ-707, which self-routed substrate_not_ready_requeue on ONE unmet precondition (in_layer_null_verified_lifting=false: the S2 ARM_NOISE null lifted committed-class entropy strict-above A0 on only 1/4 divergent seeds, threshold 2). Diagnosis: that precondition was MIS-SPECIFIED -- it imported the 700-lineage TEMPERATURE-null liveness proxy ('a valid null must RAISE entropy above A0') onto a STRUCTURED-ACCUMULATOR null; random magnitude-matched content through the loop path (per-loop zscore + Haber spiral, motor never nulled) lands committed-class entropy near BASELINE (structured beats random; random ~ A0), NOT above it. In 707 the null was demonstrably LIVE (perturbed committed selection: disagree 0.37-0.97, flip 0.37-0.66 on every divergent seed) yet sat at/below A0, while A1_LOOPS lifted strict-above A0 on 4/4 divergent seeds -- so the buggy gate spuriously requeued a valid conversion result AND made the pre-registered weakens branch unreachable. 707a replaces null-LIFT with null-LIVENESS (the null must actively perturb committed selection: loop_noise_active_ticks>0 AND flip or disagree > cross-loop-variance floor, on a strict-majority of divergent seeds). C1 (A1 strict-above max(A0, the live null)+margin) UNCHANGED -- it already rules out the zscore-path-artifact hypothesis (a live null on the same zscore path would match A1 and fail C1). Substrate UNCHANGED (the _loop_inlayer_null mechanism is correct); driver-only gate fix. Same 4-arm design (A0_SINGLE_ARENA / A1_LOOPS / ARM_NOISE / ARM_DROP_LIMBIC), same matched constants (GAP-A reef-bipartite + 569i top-k + MECH-448 demotion + finer-channel gating + learned settling), only swept factor = loop segregation. Additive C2 non-degeneracy diagnostic records whether ARM_DROP_LIMBIC differs from A1 (707 showed them byte-identical -> C2 limbic-load-bearing was untestable; C2 is non-load-bearing so this gates no verdict). DOWNSTREAM: a clean SUPPORTS reopens the HELD MECH-441 model-disagreement curiosity falsifier (runs with use_loop_segregation=True). prefer-cloud. Smoke: dry-run PASS 2026-06-28; validate_experiments --strict OK.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-28T14:10:55Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_707a_arc110_loop_segregation_validation",
-      "seeds": 6
     }
   ]
 }
