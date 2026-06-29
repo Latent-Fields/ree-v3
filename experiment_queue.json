@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-707b",
-      "title": "ARC-110 loop-segregation C2 RELEASE validation (supersedes 707a/707): lands the per-named-channel range-preserving routing (use_named_channel_routing) so the limbic loop (ofc/liking/vigour) carries per-candidate range and ARM_DROP_LIMBIC can differ from A1 -- making C2 (limbic load-bearing) testable. Enables the limbic input modules + adds a per-NAMED-channel non-degeneracy gate (named_channel_routing_live) before scoring C2. Re-tests C1 (loop conversion) + C2 (limbic load-bearing).",
-      "script": "experiments/v3_exq_707b_arc110_loop_segregation_c2_release.py",
-      "priority": 420,
-      "machine_affinity": "any",
-      "estimated_minutes": 1300,
-      "supersedes": "V3-EXQ-707a",
-      "claim_id": "ARC-110",
-      "note": "diagnostic; PROMOTES NOTHING (ARC-110/ARC-109/MECH-452 stay candidate/substrate_conditional/v3). SUPERSEDES V3-EXQ-707a (and 707). 707/707a left C2 (limbic load-bearing) SUBSTRATE-BLOCKED: ARM_DROP_LIMBIC was BYTE-IDENTICAL to A1_LOOPS on every seed (707a's c2_drop_differs_from_a1 diagnostic flagged exactly this), so the per-loop ablation produced ZERO change and C2 was untestable. The 707 code autopsy (2026-06-28) traced it to the MECH-191 phasic-externalisation gap: the named cortical bias HEADS (OFC/dACC/lPFC/vigour/liking) emit per-candidate-FLAT output (OFC input range ~0.028, output range EXACTLY 0.0), so under per-loop zscore the limbic loop carried no per-candidate competition. C2 RELEASE landed 2026-06-28 via /implement-substrate (ree-v3 ree_core, no-op-default flag use_named_channel_routing, byte-identical OFF): each named channel's loop-arbitration term is sourced from its per-candidate REPRESENTATION routed through project_channel_range (range-preserving, the SAME GAP-A path that keeps `route` phasic) and substituted for the flat bias-head scalar in the segregated-loop accumulation ONLY (the _lcg_terms eligibility traces / authority recompose / F-score commit path are UNCHANGED). So the limbic loop now carries REAL per-candidate range and ARM_DROP_LIMBIC can differ from A1. 707b enables use_named_channel_routing + the limbic input modules (use_ofc_analog/use_mech295_liking_bridge/use_tonic_vigor, matched on all arms) on the loop arms and adds a per-NAMED-channel non-degeneracy precondition (named_channel_routing_live: a limbic channel's routed per-candidate range > LIMBIC_ROUTED_RANGE_FLOOR on a strict-majority of divergent seeds) evaluated BEFORE C2 is scored -- so the vacuous DROP==A1 self-routes substrate_not_ready_requeue, NEVER a false weakens. C1 (A1 strict-above max(A0, valid in-layer null ARM_NOISE)+margin) and the 707a in-layer-null LIVENESS gate are UNCHANGED. Same 4-arm design + matched envelope; only swept factor = loop segregation. Regression guard ree-v3/tests/test_arc110_loop_segregation.py (TestNamedChannelRoutingC2Release + TestRoutedRepsReachSelectorThroughAgent, 9 pass). prefer-cloud. NB V3-EXQ-707a was still claimed/running on ree-cloud-1 at queue time; 707b supersedes it. Smoke: --dry-run PASS 4/4 arms exit 0 2026-06-28 (self-routes substrate_not_ready_requeue in the 1-seed collapsed dry env, expected; new gate fields present in manifest); validate_experiments --strict OK; validate_queue OK.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-06-28T18:15:46Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_707b_arc110_loop_segregation_c2_release",
-      "seeds": 6
-    }
-  ]
+  "items": []
 }
