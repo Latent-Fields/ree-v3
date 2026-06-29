@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-701c",
-      "title": "INV-050 MEL-measurability diagnostic (recon-only P0 base + frozen fixed-probe MEL battery; supersedes 701b). Builds the MEL battery on the RECON-ONLY P0 warmup -- the 701b-ablation-validated converged base (recon-only 3/3 vs recon+contrastive 1/3; SD-056 contrastive auxiliary isolated as the P0 destabiliser) -- and re-runs 701b's frozen fixed-probe instrument. R2 (world_model_converged on the FROZEN battery, >=2/3 seeds) GATES R1/C1. Tests whether accumulated waking prediction-error is a measurable, graded, monotonic quantity under graded env-drift novelty.",
-      "script": "experiments/v3_exq_701c_inv050_mel_measurability_recononly.py",
-      "priority": 440,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-701b",
-      "claim_id": "INV-050",
-      "note": "diagnostic; PROMOTES NOTHING (INV-050 stays candidate / pending_substrate_reconfirmation; diagnostic = scoring-excluded). Routing per confirmed failure_autopsy_V3-EXQ-701b_2026-06-29: 701b R2 FAILed on the FIXED frozen battery (conv_frac 0.333, 1/3 seeds) -- a GENUINE multi-seed world-forward divergence (exploration-drift confound removed), NOT a metric artifact and NOT an INV-050 ceiling. A matched 2-arm ablation (identical init + same probe battery; only the SD-056 contrastive term differs) isolated the destabiliser: recon-only P0 converged 3/3 (frac 1.0, drops ~0.97-0.98, PE ~1.4e-4) vs recon+contrastive 1/3 -> destabiliser_verdict=sd056_contrastive_is_destabiliser. 701c MAIN cells therefore train P0 recon-ONLY (use_contrastive=False; the SD-056 contrastive aux is OMITTED from the P0 loss). Agent config is BYTE-IDENTICAL to 701b's _make_agent (contrastive HEAD stays enabled for world_forward module parity with the proven-converging recon-only ablation arm; only the loss TERM is dropped). The frozen fixed-probe convergence metric + raw per-step e3 prediction_error MEL accumulator + R1 novelty-shock positive-control probe are UNCHANGED. The separate recipe ablation is NOT re-run (its destabiliser question is settled + autopsy-confirmed); the per-seed R2 gate over the 12 recon-only cells is itself the multi-seed convergence certification. INTERPRETATION: R2 fail here = the 701b autopsy BRAKE-LOCK condition (recon-only base, which converged 3/3 in the ablation, ALSO failing -> genuine recon-primary divergence -> FIRE the INV-050 re-derive brake + /implement-substrate world-forward stabilisation). R2 met + R1 met + C1 FAIL (flat MEL) = the GENUINE MEL-measurability ceiling -> substrate enrichment + re-derive brake. R2 met + R1 met + C1 PASS (monotonic MEL) = INV-050 IV precondition MET, unblocks the deferred adaptive sleep-cadence enrichment. Re-derive brake NOT fired at queue time (re_derive_brake.fired=false in the 701b autopsy: successive instrument repairs + a demonstrably-converging recon-only base, user-confirmed; locks only if THIS recon-only base also fails). Commitment-free (sleep_used=false). NO separate baseline mint queued: this is a single-recipe diagnostic test-bed whose P0 recipe has re-tuned every letter (701->701a->701b->701c), so the lineage's OFF/base path is genuinely in flux and the arm-reuse fingerprint would correctly refuse a drifted mint (disqualifier #2); the in-run self-mint via arm_cell still emits per cell (free). prefer-cloud. Smoke: --dry-run PASS 4/4 arms exit 0 2026-06-29 (recon-only R2 conv_frac=1.00 even in the 1-seed dry env; self-routes substrate_not_ready_requeue on R1<floor in the collapsed dry env, expected); validate_experiments --strict OK; validate_queue OK.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-06-29T20:30:12Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 70,
-      "experiment_type": "v3_exq_701c_inv050_mel_measurability_recononly",
-      "seeds": 3
-    }
-  ]
+  "items": []
 }
