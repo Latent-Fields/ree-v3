@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-29
+**Last updated:** 2026-06-30
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-29)
+## 0. Current V3 State (2026-06-30)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -203,6 +203,65 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-06-30T21:17Z nightly read (scheduled `/update-docs`, fired late after the
+  /failure-autopsy 701c session armed the active claim).** **ARC-110 NARROW (decisive
+  weakens-NARROW) + INV-050 SD-056-destabiliser autopsy-apply day, with V3-EXQ-701c
+  recon-only INV-050 MEL recovery terminal FAIL now under /failure-autopsy.** Two
+  confirmed `/failure-autopsy` artifacts landed 2026-06-29T19:25Z (701b INV-050
+  SD-056-destabiliser + 707b ARC-110 NARROW), inline-applied by the same-evening
+  2026-06-29T19:33Z PM `/governance` cycle (REE_assembly master `847fb57102`,
+  pushed): ARC-110 707b decisive `weakens-NARROW` (all 6 non-degeneracy gates live;
+  A1_LOOPS 0.838 ~ A0 0.914 -> conversion ceiling INTRINSIC to MECH-439, NOT a
+  single-arena artefact; NARROW the single-arena-artefact SUB-hypothesis only,
+  segregated loops stay biologically real + load-bearing -> stays candidate /
+  substrate_conditional, +note +pending_retest re-pointed to DA-gated arbitration
+  MECH-448/449/ARC-107; 707a flipped `weakens->superseded` to prevent
+  double-count). INV-050 unweakened: cross-ref to the confirmed
+  failure_autopsy_V3-EXQ-701b_2026-06-29 (SD-056 contrastive auxiliary identified
+  as the P0 world-forward destabiliser; recon-only converges 3/3 on the matched
+  ablation; brake NOT fired; SD-056-destabiliser logged as a learning). MECH-440
+  standing `hold_pending_v3_substrate` acked via `record_decision.py`. MECH-314
+  `ceiling-may-have-lifted` user-resolved (ceiling NOT lifted -- 707b validated
+  the v4_loop_segregation retest target as intrinsic; `pending_retest` stays true,
+  re-pointed to the DA-arbitration co-requisite). Proposals EXP-0004 + EXP-0362
+  marked executed. Pre-registered contingent MECH-439 `/claim-synthesis` fired
+  (706f-triggered granularity-debt gate; chip `task_7f1ced30` -- proposal-only,
+  registration user-gated). The follow-up `/queue-experiment` session at
+  2026-06-29T20:16Z landed V3-EXQ-701c via `/queue-experiment` (ree-v3 main
+  `6beb155`; recon-only P0 base dropping SD-056 contrastive aux per the 701b
+  autopsy + frozen MEL battery; supersedes 701b; chip `task_75e187af`).
+  V3-EXQ-701c then ran on cloud and landed as **terminal FAIL,
+  non_contributory, `mel_not_modulated_by_novelty`** (manifest
+  `v3_exq_701c_inv050_mel_measurability_recononly_20260629T223011Z_v3.json`),
+  bringing the 701b pre-registered brake-lock decision point on (the 21:16Z
+  active `/failure-autopsy` session is adjudicating the directionally-real-but-sub-floor
+  MEL read + the brake question right now). `evidence/experiments/` flat top-level
+  now holds **513 `v3_exq_*.json` + 1 `v4_exq_*.json`** on disk (+3 since the
+  2026-06-29T01:12Z read: V3-EXQ-707b ARC-110 NARROW, V3-EXQ-701b INV-050
+  non_contributory, V3-EXQ-701c INV-050 non_contributory). **Currently queued
+  (`experiment_queue.json` items[]): 0 items** -- 707a/707b/701c all terminal
+  FAIL post-claim, removed from the coordinator queue under the standard
+  `phase3-queue:` snapshot. **Pending review file** (`pending_review.md`, last
+  regenerated 2026-06-29T19:49Z) still reads **0** but is STALE relative to live
+  state -- the V3-EXQ-701c FAIL manifest landed at 22:30Z and is the focus of
+  the 21:16Z active `/failure-autopsy` session. **Bottleneck (continuation):**
+  MECH-439 F-dominance conversion ceiling remains the live root choke and is
+  now CONFIRMED INTRINSIC by the decisive 707b live-substrate weakens-NARROW;
+  the V3 selection-face attack accordingly shifts off the named-channel
+  routing axis onto the DA-gated arbitration release route (MECH-448 rank-
+  preserving F->eligibility demotion + MECH-449 Go/No-Go constitution +
+  ARC-107). MECH-439's `/claim-synthesis` proposal (706f-triggered granularity-
+  debt gate, decomposition doc only -- registration user-gated) is on the
+  record for the next contributory 707-lineage retest. INV-050's testable
+  reach narrowed but unfalsified: 701c shows directionally-real MEL on the
+  recon-only base but sub-floor; the 21:16Z active autopsy session is
+  deciding whether the 701b pre-registered brake locks the lineage or a
+  third successor is warranted. MECH-441 + the curiosity-channel falsifier
+  chain stay HELD on the V3-EXQ-707-lineage returning contributory; that
+  hand-off now needs the DA-gated arbitration substrate, not just a routing
+  fix. **ETHICS-PERIMETER Phase 0 datum** stays on the record (Phases 1-3
+  deferred; NON-BLOCKING for V3 green-board 2026-07-19).
 
 - **2026-06-29T01:12Z nightly read (scheduled `/update-docs`).** **ARC-110 C2 RELEASE
   per-named-channel routing BUILD + MECH-451 finer-gating defect-fix day.** The
