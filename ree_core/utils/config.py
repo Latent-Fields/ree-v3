@@ -60,6 +60,24 @@ class LatentStackConfig:
     alpha_world: float = 0.3   # SD-008: set to 0.9+ to fix event suppression
     alpha_self: float = 0.3
 
+    # SELF-1 / DR-13 (self_model_v4): z_self temporal depth. When
+    # use_self_recurrence is True, encode() replaces the z_self EMA smoothing
+    # step ONLY with a dedicated gated self-recurrence (SelfRecurrenceCell,
+    # a GRUCell over z_self whose hidden state is the previous stateful z_self),
+    # optionally blended toward an E1 generative prediction of z_self
+    # (self_e1_anchor, supplied by the agent from the cached E1 predicted-next
+    # z_self). The blend weight is self_recurrence_e1_coupling:
+    #   0.0 = pure self-recurrence (Option A; maximal stability-isolation)
+    #   1.0 = pure E1-feedback anchor (Option B)
+    #   ~0.15 (default when ON) = HYBRID, light coupling (preserves the
+    #         stability-isolation benefit while staying consistent with the
+    #         E-stream generative account of the body -- the recorded residual
+    #         sub-question from ARC-081 notes 2026-06-14).
+    # Default OFF (single-MLP + EMA stays the V3 self latent) -> bit-identical.
+    # generation:v4 -- off the V3 closure path; promotes nothing.
+    use_self_recurrence: bool = False
+    self_recurrence_e1_coupling: float = 0.15
+
     # SD-010: dedicated harm stream (nociceptive separation, ARC-027).
     # use_harm_stream=False by default — backward compatible with all existing experiments.
     # When True, experiments should construct a HarmEncoder and pass harm_obs separately;
@@ -6138,6 +6156,14 @@ class REEConfig:
         )
         config.latent.inference_convergence_rel_tol = float(
             kwargs.pop("inference_convergence_rel_tol", 0.05)
+        )
+        #   SELF-1 / DR-13 (LatentStackConfig): z_self temporal depth.
+        #   Dedicated gated self-recurrence + E1-feedback anchor. no-op OFF.
+        config.latent.use_self_recurrence = bool(
+            kwargs.pop("use_self_recurrence", False)
+        )
+        config.latent.self_recurrence_e1_coupling = float(
+            kwargs.pop("self_recurrence_e1_coupling", 0.15)
         )
         #   R3 (REEConfig): module-tagged interleaved cross-module consolidation.
         config.use_cross_module_consolidation = bool(

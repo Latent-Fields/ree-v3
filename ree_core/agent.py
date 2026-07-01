@@ -2297,6 +2297,10 @@ class REEAgent(nn.Module):
         # MECH-095: pending TPJ efference-copy prediction and resolved agency
         # readout for the most recently observed transition.
         self._tpj_predicted_z_self: Optional[torch.Tensor] = None
+        # SELF-1 / DR-13: E1 generative prediction of the next-step z_self,
+        # cached at _e1_tick and consumed as the self-recurrence anchor at the
+        # next sense()/encode(). None until the first E1 tick / when DR-13 off.
+        self._e1_predicted_next_z_self: Optional[torch.Tensor] = None
         self._tpj_last_agency_signal: Optional[torch.Tensor] = None
         self._tpj_last_is_self_caused: Optional[torch.Tensor] = None
 
@@ -2436,6 +2440,7 @@ class REEAgent(nn.Module):
         self._dacc_last_bundle = None
         self._dacc_last_bias = None
         self._tpj_predicted_z_self = None
+        self._e1_predicted_next_z_self = None  # SELF-1/DR-13: clear self-recurrence anchor at episode reset
         self._tpj_last_agency_signal = None
         self._tpj_last_is_self_caused = None
         if self.dacc is not None:
@@ -3372,6 +3377,14 @@ class REEAgent(nn.Module):
         harm_for_encoder = obs_harm
         if self.lpb_router is not None and obs_harm is not None:
             harm_for_encoder = self.lpb_router.mask_external_harm_obs(obs_harm)
+        # SELF-1 / DR-13: supply the E1 generative prediction of z_self as the
+        # self-recurrence anchor. Sourced from the E1 predicted-next z_self
+        # cached at the PREVIOUS tick's _e1_tick (side-effect-free: no extra E1
+        # forward, no LSTM hidden-state mutation). None on the first tick (no
+        # cache yet) or when DR-13 is off -> pure recurrence / bit-identical OFF.
+        self_e1_anchor = None
+        if getattr(self.config.latent, "use_self_recurrence", False):
+            self_e1_anchor = self._e1_predicted_next_z_self
         new_latent = self.latent_stack.encode(
             enc_combined, self._current_latent,
             prev_action=self._last_action,
@@ -3379,6 +3392,7 @@ class REEAgent(nn.Module):
             harm_obs_a=obs_harm_a,   # SD-011: affective harm stream (None = disabled)
             harm_history=obs_harm_history,  # SD-011 second source (None = disabled)
             volatility_signal=vol_signal,
+            self_e1_anchor=self_e1_anchor,  # SELF-1/DR-13: None unless use_self_recurrence
         )
 
         # MECH-423 R2: cache the iterative-inference convergence readout for the
@@ -4299,7 +4313,22 @@ class REEAgent(nn.Module):
                         self._vs_gate_staleness_cache or None
                     ),
                 )
-        _, e1_prior = self.e1(total_state, z_goal=_z_goal_input)
+        _e1_predictions, e1_prior = self.e1(total_state, z_goal=_z_goal_input)
+
+        # SELF-1 / DR-13: cache E1's generative prediction of the NEXT-step
+        # z_self so the next sense()/encode() can anchor the self-recurrence to
+        # the E-stream generative account. predictions is [batch, horizon,
+        # total_dim]; step-0 is the one-step-ahead prediction. Detached (the
+        # anchor is a target, not a gradient path through E1). No-op unless
+        # use_self_recurrence -> bit-identical OFF (E1 forward already ran; we
+        # only stop discarding its predictions when the flag is on).
+        if getattr(self.config.latent, "use_self_recurrence", False):
+            try:
+                _pred0 = _e1_predictions[:, 0, :]
+                _z_self_pred, _ = self.e1.split_prediction(_pred0)
+                self._e1_predicted_next_z_self = _z_self_pred.detach()
+            except Exception:
+                self._e1_predicted_next_z_self = None
 
         # MECH-089: push z_self, z_world estimates to ThetaBuffer
         self.theta_buffer.update(latent_state.z_world, latent_state.z_self)

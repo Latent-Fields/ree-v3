@@ -36,6 +36,7 @@ import torch.nn.functional as F
 from torch.autograd import Function
 
 from ree_core.utils.config import LatentStackConfig
+from ree_core.latent.self_recurrence import SelfRecurrenceCell
 
 
 class ReafferencePredictor(nn.Module):
@@ -776,6 +777,7 @@ class LatentState:
     z_block: Optional[torch.Tensor] = None  # MECH-353 blocked-agency / control-failure readout [batch, 1]; integrated SD-029 action-outcome comparator mismatch, external-attribution + capacity gated. None when use_blocked_agency is off.
     z_harm_suffering: Optional[torch.Tensor] = None  # MECH-219 (SD-019b) controllability-gated hysteretic suffering [batch, harm_dim]; same dim as z_harm_un, magnitude = accumulator s_t. None when use_harm_suffering_accumulator is off.
     inference_convergence: Optional[Dict[str, object]] = None  # MECH-423 R2: iterative-inference settling readout. Plain-float dict {per_step_rel_delta: [floats], converged: bool, n_iters: int, final_rel_delta: float}. None when use_iterative_inference is off (legacy single-round amortized encode).
+    self_recurrence_diag: Optional[Dict[str, object]] = None  # SELF-1/DR-13: z_self temporal-depth readout. Plain-float dict {active: bool, state_departure: float (||stateful z_self - instantaneous z_self||, batch-mean), e1_coupling: float, anchor_present: bool}. None when use_self_recurrence is off (legacy single-MLP + EMA z_self).
 
     def to_tensor(self) -> torch.Tensor:
         """Concatenate all channels into a single tensor (excludes z_harm)."""
@@ -812,6 +814,7 @@ class LatentState:
             z_block=self.z_block.detach() if self.z_block is not None else None,
             z_harm_suffering=self.z_harm_suffering.detach() if self.z_harm_suffering is not None else None,
             inference_convergence=self.inference_convergence,  # plain-float dict; no graph to detach
+            self_recurrence_diag=self.self_recurrence_diag,  # SELF-1/DR-13 plain-float dict; no graph to detach
         )
 
 
@@ -1051,6 +1054,17 @@ class LatentStack(nn.Module):
         else:
             self.reafference_predictor = None
 
+        # SELF-1 / DR-13: dedicated z_self temporal-depth recurrence.
+        # Instantiated ONLY when use_self_recurrence is True (mirrors the
+        # reafference_predictor conditional) so the default OFF path draws no
+        # new parameters and stays bit-identical to the single-MLP + EMA z_self.
+        if getattr(self.config, "use_self_recurrence", False):
+            self.self_recurrence: Optional[SelfRecurrenceCell] = SelfRecurrenceCell(
+                self_dim=self.config.self_dim,
+            )
+        else:
+            self.self_recurrence = None
+
         combined_dim = self.config.self_dim + self.config.world_dim
         # Q-007: volatility signal (NE/LC analog) appended to beta_encoder input when enabled.
         # 0 = disabled (default, backward compat). See LatentStackConfig.volatility_signal_dim.
@@ -1184,6 +1198,7 @@ class LatentStack(nn.Module):
         harm_obs_a: Optional[torch.Tensor] = None,
         harm_history: Optional[torch.Tensor] = None,
         volatility_signal: Optional[torch.Tensor] = None,
+        self_e1_anchor: Optional[torch.Tensor] = None,
     ) -> LatentState:
         """
         Encode observation into latent state.
@@ -1351,7 +1366,49 @@ class LatentStack(nn.Module):
         alpha_self   = getattr(self.config, "alpha_self",  0.3)
         alpha_world  = getattr(self.config, "alpha_world", 0.3)
         alpha_shared = 0.3  # z_beta/theta/delta use a shared alpha (body + world integrated)
-        z_self  = alpha_self  * z_self  + (1 - alpha_self)  * prev_state.z_self
+
+        # SELF-1 / DR-13: z_self temporal depth. Default OFF -> the legacy
+        # fixed-alpha EMA below (single-MLP + EMA body snapshot). ON -> the
+        # dedicated gated self-recurrence REPLACES the z_self EMA step ONLY:
+        # h = GRUCell(instantaneous z_self, previous stateful z_self), optionally
+        # blended toward the E1 generative prediction of z_self (self_e1_anchor)
+        # with weight self_recurrence_e1_coupling (0 = pure recurrence /
+        # Option A; 1 = pure E1-feedback / Option B; light default = HYBRID).
+        # z_world / z_beta / z_theta / z_delta smoothing is untouched.
+        self_recurrence_diag: Optional[Dict[str, object]] = None
+        if self.self_recurrence is not None and getattr(self.config, "use_self_recurrence", False):
+            z_self_instant = z_self  # post top-down, post precision (what the EMA would smooth)
+            z_self_recur = self.self_recurrence(z_self_instant, prev_state.z_self)
+            coupling = float(getattr(self.config, "self_recurrence_e1_coupling", 0.15))
+            anchor_present = False
+            if self_e1_anchor is not None and coupling > 0.0:
+                anchor = self_e1_anchor
+                if anchor.dim() == 1:
+                    anchor = anchor.unsqueeze(0)
+                if anchor.shape == z_self_recur.shape:
+                    z_self = (1.0 - coupling) * z_self_recur + coupling * anchor
+                    anchor_present = True
+                else:
+                    # Shape mismatch: fall back to pure recurrence rather than
+                    # blend an ill-formed anchor (defensive; keeps the self-model
+                    # stable if a caller supplies a wrong-sized anchor).
+                    z_self = z_self_recur
+            else:
+                z_self = z_self_recur
+            # Diagnostic readout (plain floats) for the DR-13 non-vacuity gate:
+            # how far the stateful z_self departs from the instantaneous encode.
+            with torch.no_grad():
+                departure = float(
+                    (z_self.detach() - z_self_instant.detach()).norm(dim=-1).mean().item()
+                )
+            self_recurrence_diag = {
+                "active": True,
+                "state_departure": departure,
+                "e1_coupling": coupling,
+                "anchor_present": bool(anchor_present),
+            }
+        else:
+            z_self  = alpha_self  * z_self  + (1 - alpha_self)  * prev_state.z_self
         z_world = alpha_world * z_world + (1 - alpha_world) * prev_state.z_world
 
         # Unified latent ablation (EXQ-044): fuse z_self and z_world into a single
@@ -1424,6 +1481,7 @@ class LatentStack(nn.Module):
             resource_prox_pred_r=resource_prox_pred_r,  # SD-015 aux head: None if disabled
             identity_logits=identity_logits,  # SD-049 Phase 2: None if identity classifier disabled
             inference_convergence=inference_convergence,  # MECH-423 R2: None unless use_iterative_inference
+            self_recurrence_diag=self_recurrence_diag,  # SELF-1/DR-13: None unless use_self_recurrence
         )
 
     def predict(self, state: LatentState) -> LatentState:
