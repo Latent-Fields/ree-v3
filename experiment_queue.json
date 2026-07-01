@@ -6,22 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V4-EXQ-003",
-      "title": "DR-10 z_self-in-E3 viability wiring falsifier (self_model_v4:SELF-3)",
-      "experiment_type": "v4_exq_003_dr10_z_self_viability_falsifier",
-      "script": "experiments/v4_exq_003_dr10_z_self_viability_falsifier.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 2,
-      "episodes_per_run": 1,
-      "seeds": 3,
-      "conditions": 1,
-      "owner_exq": "V4-EXQ-003",
-      "claim_ids": [],
-      "note": "Third V4 experiment (diagnostic; PROMOTES NOTHING; claim_ids=[]; unblocks MECH-215/ARC-081). Controlled caller-supplied self-viability probe for the DR-10 lever landed ree-v3 main 3dc9d77 (use_self_viability_weighting; z_self enters E3 viability scoring, built on the DR-13 stateful z_self). DR-12's sibling lever on the same score_trajectory+select() machinery. 3 arms OFF/DIFFERENTIAL/UNIFORM. FALSIFIER: a decisive per-candidate self-viability must flip selection vs OFF (dr10_z_self_viability_changes_selection=PASS); non-vacuity precondition self_viability_range>=floor + penalty>gap else substrate_not_ready_requeue; inert off-ramp dr10_wiring_inert; uniform-inert control. Synthetic no-training probe (~seconds). prefer-cloud. Baseline mint SKIPPED (synthetic trivial forward-pass OFF cell). owner_exq assigned to self_model_v4:SELF-3."
-    }
-  ]
+  "items": []
 }
