@@ -11065,10 +11065,12 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   candidate / implementation_phase=v4 -- DR-13 is the substrate half; DR-10 (SELF-3) +
   experiments remain before MECH-215 unblocks. claims.yaml gets an implementation_note only
   (no status/v3_pending change).
-  Validation experiment: V4-EXQ (DR-13 falsifier) queued via /queue-experiment -- ON vs OFF;
-  FALSIFIER = if the stateful z_self does not depart from the EMA snapshot / lesioning the
+  Validation experiment: V4-EXQ-002 (DR-13 self-recurrence substrate-readiness falsifier)
+  queued 2026-07-01 (ree-v3 main 4c24214; coordinator /queue/add applied + /queue/active
+  PRESENT; smoke PASS hist/iso/anchor 1/1) -- ON vs OFF; FALSIFIER = if the stateful z_self
+  does not depart from the instantaneous encode / carries no history / lesioning the
   recurrent hidden state does not change it, DR-13 buys nothing (pre-registered non-vacuity
-  gate on state_departure + collapse off-ramp). unblocks_claims=ARC-081/MECH-215.
+  gate on state_departure + inert off-ramp). unblocks_claims=ARC-081/MECH-215.
   Design doc: REE_assembly/docs/architecture/dr13_self_recurrence_temporal_depth.md.
   Plan node: REE_assembly/evidence/planning/self_model_v4_plan.md (self_model_v4:SELF-1).
   See ARC-081 (self-as-object pillar, mechanism source), MECH-215 (unblocked half), SD-005
