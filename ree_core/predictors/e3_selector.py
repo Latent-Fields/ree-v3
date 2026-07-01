@@ -426,6 +426,29 @@ class E3TrajectorySelector(nn.Module):
         self._loop_of_channel: Dict[int, str] = {}
         self._loop_voted: Dict[str, bool] = {}
 
+        # ARC-108 x ARC-110: LEARNED (dopamine-gated) cross-loop arbitration matrix.
+        # M_cross is a [3,3] register_buffer (loop order motor/associative/limbic =
+        # _LOOP_NAMES) init 0 so the effective W_cross = I + M_cross == I ->
+        # eff == the per-loop zscores -> the cross-loop combine is BIT-IDENTICAL to
+        # the static-spiral combine at init (and OFF -> the static combine runs
+        # untouched). NOT nn.Parameter -- the three-factor plasticity is a LOCAL
+        # update, never an optimizer/autograd target (rides device + state_dict),
+        # mirroring w_chan / W_lat. Signed (a loop may invert another's preference,
+        # like W_lat). Learned by the SAME ARC-108 signed-RPE three-factor rule via
+        # an outer-product Hebbian co-activation trace _clg_coact_trace[i,j] =
+        # post_i * pre_j. V-hat_t is SHARED with the ARC-108 baseline
+        # (_lcg_value_baseline) -- one dopamine system. All inert unless
+        # config.use_learned_cross_loop_arbitration (with loop segregation) is True.
+        self.register_buffer(
+            "M_cross", torch.zeros((3, 3), dtype=torch.float32)
+        )
+        self.register_buffer(
+            "_clg_coact_trace", torch.zeros((3, 3), dtype=torch.float32)
+        )
+        self._clg_pending: bool = False         # a waking cross-loop coact trace awaits an outcome
+        self._clg_last_delta: float = 0.0       # last signed RPE delta_t applied to M_cross (diagnostic)
+        self._clg_n_updates: int = 0            # count of M_cross updates (diagnostic)
+
         # MECH-440: NoisyNet propagating selection-head weight noise. LAZY-built
         # on the first select() that needs it (action_dim is read from the
         # candidate first-action width, not plumbed through E3Config). None when
@@ -1535,7 +1558,29 @@ class E3TrajectorySelector(nn.Module):
         g_a = float(getattr(self.config, "loop_segregation_spiral_gain_assoc", 1.0))
         g_l = float(getattr(self.config, "loop_segregation_spiral_gain_limbic", 1.0))
         m_a = float(getattr(self.config, "loop_segregation_motor_authority", 1.0))
-        final = m_a * motor_z + g_a * assoc_z + g_l * limbic_z
+        # ARC-108 x ARC-110: LEARNED (dopamine-gated) cross-loop arbitration. When
+        # on, the fixed arithmetic combine is replaced by a learned [3,3] cross-loop
+        # matrix W_cross = I + M_cross applied to the stacked per-loop zscores
+        # (Haber's ascending spiral, now PLASTIC): eff = W_cross @ [motor_z; assoc_z;
+        # limbic_z]; final = m_a*eff_motor + g_a*eff_assoc + g_l*eff_limbic. At init
+        # M_cross == 0 -> W_cross == I -> eff == the zscores -> `final` is
+        # BIT-IDENTICAL to the static combine (and OFF -> the static combine runs
+        # untouched). The eff rows are retained so the post-commit outer-product
+        # coact trace (post_i = -eff_i[committed]) can arm the three-factor update.
+        learn_cross = bool(
+            getattr(self.config, "use_learned_cross_loop_arbitration", False)
+        )
+        eff_motor, eff_assoc, eff_limbic = motor_z, assoc_z, limbic_z
+        if learn_cross:
+            Wc = torch.eye(3, dtype=dtype, device=device) + self.M_cross.to(
+                dtype=dtype, device=device
+            )
+            Zmat = torch.stack([motor_z, assoc_z, limbic_z], dim=0)  # [3, n_elig]
+            eff = Wc @ Zmat                                           # [3, n_elig]
+            eff_motor, eff_assoc, eff_limbic = eff[0], eff[1], eff[2]
+            final = m_a * eff_motor + g_a * eff_assoc + g_l * eff_limbic
+        else:
+            final = m_a * motor_z + g_a * assoc_z + g_l * limbic_z
 
         # MECH-440 / MECH-441: add the propagating exploration term (weight noise +
         # disagreement bonus) to the cross-loop arbitration so it reaches the
@@ -1556,6 +1601,29 @@ class E3TrajectorySelector(nn.Module):
         else:
             probs = F.softmax(-final / max(temperature, 1e-6), dim=0)
             local = int(torch.multinomial(probs, 1).item())
+
+        # ARC-108 x ARC-110: arm the learned cross-loop three-factor update. Signed
+        # outer-product Hebbian co-activation at the committed candidate:
+        # pre_j  = -loop_z_j[committed] (>0 when loop j PREFERRED the committed
+        #          candidate -- signed directional credit, so a loop that was FOR
+        #          the pick and got a good outcome is up-weighted, and one that was
+        #          AGAINST it is down-weighted);
+        # post_i = -eff_i[committed]; coact[i,j] = post_i * pre_j. Decayed into
+        # _clg_coact_trace + arms _clg_pending for the next post_action_update (which
+        # applies Delta M_cross = eta * delta_t * asym * coact_trace on the SHARED
+        # ARC-108 dopaminergic delta_t). Waking-only (a simulation tick records
+        # nothing -> forms no delta_t -> writes no M_cross; MECH-094). An empty/flat
+        # loop's zscore is 0, so it earns no cross-loop credit.
+        if learn_cross and not simulation_mode and n_elig >= 1:
+            decay = float(getattr(self.config, "learned_channel_gating_elig_decay", 0.9))
+            _pre = -torch.stack(
+                [motor_z[local], assoc_z[local], limbic_z[local]]
+            ).detach().to(dtype=self._clg_coact_trace.dtype, device=self._clg_coact_trace.device)
+            _post = -torch.stack(
+                [eff_motor[local], eff_assoc[local], eff_limbic[local]]
+            ).detach().to(dtype=self._clg_coact_trace.dtype, device=self._clg_coact_trace.device)
+            self._clg_coact_trace = decay * self._clg_coact_trace + torch.outer(_post, _pre)
+            self._clg_pending = True
 
         # Non-degeneracy diagnostics + per-loop winners.
         motor_win = int(motor_pref.argmin().item())
@@ -1598,6 +1666,33 @@ class E3TrajectorySelector(nn.Module):
         self.last_score_diagnostics["loop_limbic_routed_max_range"] = (
             max(_limbic_routed) if _limbic_routed else 0.0
         )
+
+        # ARC-108 x ARC-110 learned cross-loop diagnostics (the falsifier's
+        # non-vacuity + mechanism gates read these). Because the forward map is
+        # linear, the committed selection depends on the EFFECTIVE column weights
+        # w_eff[j] = sum_i gain_i * W_cross[i,j]; the limbic loop LEARNING TO WIN is
+        # w_eff[limbic] rising toward/above w_eff[motor], and non-vacuity is
+        # M_cross moving off its zero init. All 0 / identity at init.
+        self.last_score_diagnostics["loop_learned_cross_loop_active"] = learn_cross
+        if learn_cross:
+            _Wc = (torch.eye(3, dtype=torch.float32) + self.M_cross.detach().to("cpu", torch.float32))
+            _gains = torch.tensor([m_a, g_a, g_l], dtype=torch.float32)
+            _w_eff = (_gains.unsqueeze(1) * _Wc).sum(dim=0)  # column-summed effective weights
+            self.last_score_diagnostics["loop_cross_loop_w_motor_eff"] = float(_w_eff[0].item())
+            self.last_score_diagnostics["loop_cross_loop_w_assoc_eff"] = float(_w_eff[1].item())
+            self.last_score_diagnostics["loop_cross_loop_w_limbic_eff"] = float(_w_eff[2].item())
+            self.last_score_diagnostics["loop_cross_loop_limbic_ge_motor"] = bool(
+                _w_eff[2].item() >= _w_eff[0].item()
+            )
+            self.last_score_diagnostics["loop_cross_loop_m_range"] = float(
+                (self.M_cross.max() - self.M_cross.min()).item()
+            )
+            # M_cross[motor, limbic] = the learnable ascending-spiral path by which
+            # the limbic value loop comes to drive the motor commit.
+            self.last_score_diagnostics["loop_cross_loop_limbic_to_motor"] = float(
+                self.M_cross[0, 2].item()
+            )
+            self.last_score_diagnostics["loop_cross_loop_n_updates"] = self._clg_n_updates
 
         # MECH-452: which loop "voted" for the committed action (its within-loop winner
         # matched the commit), so the eligibility-trace recording credits only voting
@@ -2803,7 +2898,17 @@ class E3TrajectorySelector(nn.Module):
         # ClosureOperator's habenula abort. No w_chan / W_lat write on this path.
         # Bit-identical when use_habenula_decommit is False (condition unchanged).
         _hab_on = bool(getattr(self.config, "use_habenula_decommit", False))
-        if _lcg_on or _fcg_on or _wlat_on or _hab_on:
+        # ARC-108 x ARC-110: the learned cross-loop matrix M_cross three-factor
+        # update -- the SAME signed-RPE delta_t / V-hat_t / D1-D2 asym as w_chan /
+        # W_lat (one shared dopamine broadcast; Haber's single ascending spiral),
+        # applied over the outer-product cross-loop co-activation trace. Gated on a
+        # pending WAKING cross-loop trace (a replay/DMN tick leaves _clg_pending
+        # False -> no write; MECH-094).
+        _clg_on = bool(
+            getattr(self.config, "use_learned_cross_loop_arbitration", False)
+            and self._clg_pending
+        )
+        if _lcg_on or _fcg_on or _wlat_on or _hab_on or _clg_on:
             with torch.no_grad():
                 # R_t = realised outcome valence at the resulting state, from the
                 # ALREADY-TRAINED valuation heads (reuse; no new encoder, no phased
@@ -2885,6 +2990,24 @@ class E3TrajectorySelector(nn.Module):
                     )
                     self._wlat_last_delta = learn_signal
                     self._wlat_n_updates += 1
+                if _clg_on:
+                    # ARC-108 x ARC-110: SAME three-factor rule, applied to the
+                    # learned cross-loop matrix M_cross over the outer-product
+                    # cross-loop co-activation trace (post_i * pre_j) recorded at the
+                    # committed selection.  Delta M_cross[i,j] = eta_c * learn_signal
+                    # * asym * coact[i,j]. Signed learn_signal + signed coact + the
+                    # D1-LTP/D2-LTD asym give the directional cross-loop credit that
+                    # lets the limbic loop learn to win (or a loop that hurt outcomes
+                    # be down-weighted). Safety inherited: M_cross only reorders the
+                    # F+MECH-448/449 eligible set, never re-admits a suppressed one.
+                    eta_c = float(getattr(self.config, "learned_cross_loop_eta", 0.01))
+                    self.M_cross.add_(
+                        eta_c * learn_signal * learn_asym * self._clg_coact_trace.to(
+                            dtype=self.M_cross.dtype, device=self.M_cross.device
+                        )
+                    )
+                    self._clg_last_delta = learn_signal
+                    self._clg_n_updates += 1
                 # Update the slow value baseline toward the realised R_t (shared; once).
                 beta = float(
                     getattr(self.config, "learned_channel_value_baseline_beta", 0.05)
@@ -2916,6 +3039,21 @@ class E3TrajectorySelector(nn.Module):
                 metrics["wlat_range"] = torch.tensor(
                     float((self.W_lat.max() - self.W_lat.min()).item())
                 )
+            if _clg_on:
+                self._clg_pending = False
+                # Non-vacuity: clg_m_cross_range > 0 == the cross-loop weights moved
+                # off their zero init. clg_limbic_to_motor == M_cross[motor, limbic]
+                # (the ascending-spiral path the limbic value loop learns to drive
+                # the motor commit through).
+                metrics["clg_delta_t"] = torch.tensor(self._clg_last_delta)
+                metrics["clg_value_baseline"] = torch.tensor(self._lcg_value_baseline)
+                metrics["clg_m_cross_range"] = torch.tensor(
+                    float((self.M_cross.max() - self.M_cross.min()).item())
+                )
+                metrics["clg_limbic_to_motor"] = torch.tensor(
+                    float(self.M_cross[0, 2].item())
+                )
+                metrics["clg_n_updates"] = torch.tensor(float(self._clg_n_updates))
             if _hab_on:
                 # ARC-108 JOB-2: surface the signed RPE so the habenula de-commit
                 # (REEAgent.update_residue) can fire the SD-034 abort on a negative
@@ -2944,6 +3082,10 @@ class E3TrajectorySelector(nn.Module):
         self._fcg_pending = False
         self._wlat_coact_trace = torch.zeros_like(self._wlat_coact_trace)
         self._wlat_pending = False
+        # ARC-108 x ARC-110: clear the cross-loop co-activation trace + pending flag
+        # too (M_cross persists across episodes, parallel to w_chan / W_lat).
+        self._clg_coact_trace = torch.zeros_like(self._clg_coact_trace)
+        self._clg_pending = False
 
     def get_commitment_state(self) -> Dict[str, float]:
         return {

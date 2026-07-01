@@ -710,6 +710,62 @@ class E3Config:
     # the single shared trace is used (bit-identical OFF).
     use_loop_local_eligibility_traces: bool = False
 
+    # ARC-108 x ARC-110 COUPLING: LEARNED (dopamine-gated) CROSS-LOOP arbitration.
+    # ------------------------------------------------------------------------ #
+    # The named next attack on the F-dominance conversion ceiling (MECH-439)
+    # after V3-EXQ-707b. 707b built ARC-110 loop segregation fully-live (all 6
+    # non-degeneracy gates passed; limbic loop carried per-candidate range 1.414)
+    # yet the limbic loop NEVER won: committed-class entropy A1_LOOPS 0.838 ~
+    # A0_SINGLE_ARENA 0.914. The autopsy (failure_autopsy_V3-EXQ-707b_2026-06-29)
+    # traced this to the CROSS-LOOP combine being STATIC ARITHMETIC -- the fixed
+    # spiral gains (loop_segregation_spiral_gain_assoc/limbic +
+    # loop_segregation_motor_authority) sum the per-loop normalised preferences
+    # with constant weights, so the combine still inherits F's static dominance;
+    # it cannot LEARN to let the limbic "is this worth committing to" value
+    # override the motor/F loop. ARC-108 supplies learned WITHIN-arena gating
+    # (w_chan) and MECH-450 the within-loop settling (W_lat); this flag adds the
+    # missing piece the 2026-06-29 MECH-439 claim-synthesis named as the
+    # ARC-108 x ARC-110 intersection: DA-gated three-factor plasticity operating
+    # AT the cross-loop arbitration itself.
+    #
+    # Mechanism (full [3,3] cross-loop matrix, user-chosen 2026-07-01). The static
+    # combine  final = m_a*motor_z + g_a*assoc_z + g_l*limbic_z  is replaced by a
+    # LEARNED cross-loop matrix  W_cross = I + M_cross  ([3,3], loop order
+    # motor/associative/limbic):  eff = W_cross @ [motor_z; assoc_z; limbic_z] ;
+    # final = m_a*eff_motor + g_a*eff_assoc + g_l*eff_limbic . M_cross is a
+    # register_buffer init 0 -> W_cross = I -> eff == the per-loop zscores -> final
+    # is BIT-IDENTICAL to the static combine at init (and OFF -> the static combine
+    # runs untouched). M_cross[i,j] is the learned directed influence of loop j on
+    # loop i's effective preference; the diagonal is per-loop self-gain and the
+    # off-diagonal is the ascending striato-nigro-striatal spiral (Haber) -- e.g.
+    # M_cross[motor, limbic] is the learnable path by which the limbic value loop
+    # comes to drive the motor commit. M_cross is SIGNED (a loop may invert
+    # another's preference, mirroring the signed W_lat precedent) and is learned by
+    # the SAME ARC-108 signed-RPE three-factor rule as w_chan/W_lat -- one shared
+    # dopaminergic delta_t = R_t - V-hat_t / D1-D2 asymmetry (Haber's single
+    # ascending spiral) -- via a standard outer-product Hebbian co-activation trace
+    # coact[i,j] = post_i * pre_j, where pre_j = -loop_z_j[committed] (SIGNED: >0
+    # when loop j preferred the committed candidate) and post_i = -eff_i[committed].
+    # Delta M_cross = eta * delta_t * asym * coact_trace. Waking-only (a
+    # replay/DMN simulation tick forms no delta_t and writes no M_cross; MECH-094).
+    # SAFETY is unchanged: the arbitration runs STRICTLY within the F+MECH-448/449
+    # eligible set, so a learned weight can reorder within-eligible candidates but
+    # can NEVER re-admit a No-Go-suppressed candidate -- the orthogonal-to-F safety
+    # guarantee is inherited from the envelope regardless of the weights. No
+    # autograd (register_buffer + no_grad local update). Couples with MECH-450: the
+    # per-loop settling shapes each loop's within-loop competition BEFORE the
+    # cross-loop weights arbitrate across the settled loops, and both learned
+    # objects ride the same shared delta_t in one post_action_update. NOTE (ARC-106
+    # divergence, logged in the design doc): the forward map is linear, so the
+    # committed selection depends on the effective column weights
+    # w_eff[j] = sum_i gain_i * W_cross[i,j]; the [3,3] matrix's value is the
+    # DIRECTED cross-loop credit structure it learns, not forward expressivity.
+    # Default False -> bit-identical OFF. Requires use_loop_segregation on to act.
+    use_learned_cross_loop_arbitration: bool = False
+    learned_cross_loop_eta: float = 0.01               # M_cross three-factor learning rate
+    # (elig_decay / asym_potentiation / asym_depression / rpe_mode / value_baseline_beta
+    #  are SHARED with the ARC-108 learned_channel_* knobs -- one dopamine system.)
+
     # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a, 2026-06-10):
     # The 2026-06-03/06-06 authority rescales _modulatory_accum (the composed
     # score_bias chain + MECH-341 bonus). The 569f/661/654a cluster showed that a
@@ -4904,6 +4960,10 @@ class REEConfig:
         d1_da_gain: float = 1.0,
         d2_da_gain: float = 1.0,
         use_loop_local_eligibility_traces: bool = False,
+        # ARC-108 x ARC-110 learned (dopamine-gated) cross-loop arbitration
+        # (no-op default; bit-identical OFF; requires use_loop_segregation on):
+        use_learned_cross_loop_arbitration: bool = False,
+        learned_cross_loop_eta: float = 0.01,
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a):
         use_modulatory_channel_routing: bool = False,
         modulatory_channel_route_min_range_floor: float = 1e-6,
@@ -5982,6 +6042,9 @@ class REEConfig:
         config.e3.d1_da_gain = d1_da_gain
         config.e3.d2_da_gain = d2_da_gain
         config.e3.use_loop_local_eligibility_traces = use_loop_local_eligibility_traces
+        # ARC-108 x ARC-110 learned (dopamine-gated) cross-loop arbitration.
+        config.e3.use_learned_cross_loop_arbitration = use_learned_cross_loop_arbitration
+        config.e3.learned_cross_loop_eta = learned_cross_loop_eta
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
         # 2026-06-10): the e3_selector additive site reads
         # use_modulatory_channel_routing + min_range_floor from config.e3; the
