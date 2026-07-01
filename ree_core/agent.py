@@ -2218,6 +2218,12 @@ class REEAgent(nn.Module):
         # Set per tick via set_injected_e2_forward_pe(); the lever applies it only
         # when E3Config.use_pe_confidence_weighting is True.
         self._injected_e2_forward_pe: Optional[torch.Tensor] = None
+        # DR-10 (self_model_v4:SELF-3): optional injected per-candidate self-viability
+        # cost [K] (derived from the DR-13 stateful z_self) for the E3 viability
+        # down-weight. None -> bit-identical (no penalty). Set per tick via
+        # set_injected_self_viability(); the lever applies it only when
+        # E3Config.use_self_viability_weighting is True.
+        self._injected_self_viability: Optional[torch.Tensor] = None
         # MECH-449 (ARC-107): optional injected per-candidate Go/No-Go signals
         # (dict of [K] tensors keyed safety/staleness/perseveration/viability/go)
         # for the eligibility constitution. The MECH-449 falsifier sets the
@@ -2851,6 +2857,21 @@ class REEAgent(nn.Module):
         candidate count K.
         """
         self._injected_e2_forward_pe = pe
+
+    def set_injected_self_viability(self, sv: "Optional[torch.Tensor]") -> None:
+        """DR-10 (self_model_v4:SELF-3) per-candidate self-viability injection seam.
+
+        Lets a validation experiment (or an ecological agent-side computation from the
+        DR-13 stateful z_self) supply the per-candidate self-viability COST [K] consumed
+        by the E3 viability down-weight on the next select_action tick. Higher cost = a
+        trajectory less viable for the current bodily state -> discounted. None clears it
+        (bit-identical). The lever applies it only when
+        E3Config.use_self_viability_weighting is True; supplying a signal with the lever
+        OFF is a no-op. The caller is responsible for matching the current candidate
+        count K. v1 is caller/agent-supplied (the DR-10 pilot is a controlled probe); an
+        ecological z_self-derived auto-source is the documented follow-on.
+        """
+        self._injected_self_viability = sv
 
     def set_injected_go_nogo_signals(
         self, signals: "Optional[Dict[str, Any]]"
@@ -6662,6 +6683,18 @@ class REEAgent(nn.Module):
             or _injected_e2_pe is not None
         ):
             _e3_select_kwargs["e2_forward_pe_per_candidate"] = _injected_e2_pe
+        # DR-10 (self_model_v4:SELF-3) VERSION-LAYERING GUARD: the
+        # self_viability_per_candidate kwarg is a V4 call-site into the shared V3
+        # E3.select path. Passed ONLY when the DR-10 feature is engaged
+        # (config.e3.use_self_viability_weighting) OR a per-candidate self-viability
+        # has been injected -- so the default V3 path never sends the kwarg and an
+        # older e3.select() lacking the param cannot raise (same doctrine as DR-12).
+        _injected_sv = getattr(self, "_injected_self_viability", None)
+        if (
+            getattr(self.config.e3, "use_self_viability_weighting", False)
+            or _injected_sv is not None
+        ):
+            _e3_select_kwargs["self_viability_per_candidate"] = _injected_sv
         # MECH-441 (model_disagreement_directed_curiosity): per-candidate forward-
         # model disagreement (cross-head variance of the K-head ensemble) -> E3
         # selection as a propagating curiosity bonus. Version-layering guard: the

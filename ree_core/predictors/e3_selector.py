@@ -820,6 +820,29 @@ class E3TrajectorySelector(nn.Module):
         # default: linear (penalty == PE magnitude)
         return pe_mag
 
+    def _self_viability_penalty(
+        self, self_viability: torch.Tensor, device, dtype
+    ) -> torch.Tensor:
+        """DR-10 (self_model_v4:SELF-3): monotone viability-deficit penalty from the
+        per-candidate self-viability COST attributed to a trajectory (derived from the
+        DR-13 stateful z_self: capacity/affect/damage state of THIS agent).
+
+        Returns a non-negative scalar penalty (in score/cost units) that is monotone
+        non-decreasing in the self-viability cost. Added to score_trajectory's cost so a
+        trajectory that is LESS viable for the current bodily state is discounted. Modes:
+          "linear"     : penalty = self_viability_cost
+          "saturating" : penalty = 1 - exp(-cost / self_viability_scale) in [0,1)
+        """
+        sv = self_viability.to(device=device, dtype=dtype).reshape(())
+        sv_mag = sv.clamp(min=0.0)  # viability cost is non-negative; guard
+        mode = getattr(self.config, "self_viability_mode", "linear")
+        if mode == "saturating":
+            scale = float(getattr(self.config, "self_viability_scale", 1.0))
+            scale = scale if scale > 1e-12 else 1.0
+            return 1.0 - torch.exp(-sv_mag / scale)
+        # default: linear (penalty == self-viability cost)
+        return sv_mag
+
     def score_trajectory(
         self,
         trajectory: Trajectory,
@@ -830,6 +853,7 @@ class E3TrajectorySelector(nn.Module):
         z_harm_s_current: Optional[torch.Tensor] = None,
         z_harm_a: Optional[torch.Tensor] = None,
         e2_forward_pe: Optional[torch.Tensor] = None,
+        self_viability: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Total score J(ζ) = F(ζ) + λ·M(ζ) + ρ·Φ_R(ζ) - β·B(ζ).
@@ -934,6 +958,23 @@ class E3TrajectorySelector(nn.Module):
                 e2_forward_pe, device=score.device, dtype=score.dtype
             )
             score = score + self.config.pe_confidence_weight * pen
+
+        # DR-10 (self_model_v4:SELF-3): z_self enters E3 viability scoring. score is a
+        # COST (lower is better), so a positive penalty proportional to a monotone
+        # function of the per-candidate self-viability cost (derived from the DR-13
+        # stateful z_self -- capacity/affect/damage state of THIS agent) DISCOUNTS a
+        # trajectory that is less viable for the current bodily state. Sibling lever to
+        # DR-12 on the same machinery; no learned parameters. Bit-identical OFF: skipped
+        # unless use_self_viability_weighting AND a per-trajectory self_viability is
+        # supplied (per-candidate via select()). generation:v4, off the V3 critical path;
+        # promotes nothing in V3.
+        if (getattr(self.config, "use_self_viability_weighting", False)
+                and self_viability is not None
+                and self.config.self_viability_weight != 0.0):
+            sv_pen = self._self_viability_penalty(
+                self_viability, device=score.device, dtype=score.dtype
+            )
+            score = score + self.config.self_viability_weight * sv_pen
 
         if self.e3_score_decomp_enabled:
             self._last_traj_components = {
@@ -1587,6 +1628,7 @@ class E3TrajectorySelector(nn.Module):
         score_diversity: Optional[Any] = None,
         channel_route_bias: Optional[torch.Tensor] = None,
         e2_forward_pe_per_candidate: Optional[torch.Tensor] = None,
+        self_viability_per_candidate: Optional[torch.Tensor] = None,
         model_disagreement_per_candidate: Optional[torch.Tensor] = None,
         go_nogo_signals: Optional[Dict[str, Any]] = None,
         simulation_mode: bool = False,
@@ -1658,6 +1700,15 @@ class E3TrajectorySelector(nn.Module):
                 if e2_forward_pe_per_candidate is not None
                 else None
             )
+            # DR-10 (self_model_v4:SELF-3): per-candidate self-viability cost so the
+            # z_self viability down-weight can change the committed argmin. None ->
+            # bit-identical (no penalty). Per-candidate (a uniform scalar would be
+            # argmin-invariant, V3-EXQ-571 lesson).
+            _sv_i = (
+                self_viability_per_candidate[_i]
+                if self_viability_per_candidate is not None
+                else None
+            )
             _s = self.score_trajectory(
                 _cand_t, goal_state=goal_state, harm_bridge=harm_bridge,
                 terrain_weight=terrain_weight,
@@ -1665,6 +1716,7 @@ class E3TrajectorySelector(nn.Module):
                 z_harm_s_current=z_harm_s_current,
                 z_harm_a=z_harm_a,
                 e2_forward_pe=_pe_i,
+                self_viability=_sv_i,
             )
             _score_list.append(_s)
             if self.e3_score_decomp_enabled:
@@ -2002,6 +2054,33 @@ class E3TrajectorySelector(nn.Module):
                     _pen_vec = self.config.pe_confidence_weight * _pen_vec
                     _pe_penalty_range = float((_pen_vec.max() - _pen_vec.min()).item())
 
+        # DR-10 (self_model_v4:SELF-3) diagnostics: cross-candidate range of the supplied
+        # self-viability cost (the pilot's NON-VACUITY gate -- a flat signal cannot change
+        # selection) and of the applied penalty. self_viability_active is True only when
+        # the lever is enabled AND a per-candidate self-viability was supplied.
+        _sv_active = bool(
+            getattr(self.config, "use_self_viability_weighting", False)
+            and self_viability_per_candidate is not None
+            and self.config.self_viability_weight != 0.0
+        )
+        _sv_range = 0.0
+        _sv_penalty_range = 0.0
+        if self_viability_per_candidate is not None:
+            _sv_vec = self_viability_per_candidate.detach().reshape(-1).to(
+                dtype=raw_scores.dtype, device=raw_scores.device
+            )
+            if _sv_vec.numel() >= 1:
+                _sv_range = float((_sv_vec.max() - _sv_vec.min()).item())
+                if _sv_active:
+                    _sv_pen_vec = torch.stack([
+                        self._self_viability_penalty(
+                            _sv_vec[_j], device=raw_scores.device, dtype=raw_scores.dtype
+                        )
+                        for _j in range(_sv_vec.numel())
+                    ])
+                    _sv_pen_vec = self.config.self_viability_weight * _sv_pen_vec
+                    _sv_penalty_range = float((_sv_pen_vec.max() - _sv_pen_vec.min()).item())
+
         self.last_score_diagnostics = {
             "e3_raw_score_range_mean": raw_score_range,
             "e3_raw_score_std_mean": raw_score_std,
@@ -2098,6 +2177,13 @@ class E3TrajectorySelector(nn.Module):
             ),
             "e2_forward_pe_range": _pe_range,
             "pe_confidence_penalty_range": _pe_penalty_range,
+            # DR-10 (self_model_v4:SELF-3) z_self-in-E3 viability diagnostics.
+            "self_viability_active": _sv_active,
+            "self_viability_weight": float(
+                getattr(self.config, "self_viability_weight", 0.0)
+            ),
+            "self_viability_range": _sv_range,
+            "self_viability_penalty_range": _sv_penalty_range,
             # Filled in after selection (requires selected_idx).
             "selected_candidate_rank_before_bias": -1,
             "selected_candidate_rank_after_bias": -1,

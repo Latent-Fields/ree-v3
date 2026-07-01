@@ -951,6 +951,29 @@ class E3Config:
     pe_confidence_mode: str = "linear"
     pe_confidence_scale: float = 1.0
 
+    # DR-10 (self_model_v4:SELF-3): z_self enters E3 viability scoring. Sibling
+    # lever to DR-12 (same machinery). When use_self_viability_weighting is True
+    # AND a per-candidate self_viability COST is supplied to score_trajectory(),
+    # the score (a COST; lower is better) gains a positive penalty =
+    # self_viability_weight * monotone(self_viability), so a trajectory that is
+    # LESS viable for THIS agent's current bodily state (capacity/affect/damage,
+    # read from the DR-13 stateful z_self) is discounted. Threaded per-candidate
+    # via select()'s self_viability_per_candidate so a varying signal can change
+    # the committed argmin (a uniform scalar would be argmin-invariant -- the
+    # V3-EXQ-571 lesson). Default False (bit-identical OFF). generation:v4, off
+    # the V3 critical path, promotes nothing in V3. Depends on the DR-13 stateful
+    # z_self (SELF-1) as the SUBJECT of the viability estimate. v1 source is
+    # caller/agent-supplied (the DR-10 pilot is a controlled probe); an ecological
+    # z_self-derived auto-source (allostatic z_self-deviation x per-candidate
+    # demand, or a learned z_self->viability head) is the documented follow-on.
+    # See docs/architecture/dr10_z_self_in_e3_viability.md.
+    use_self_viability_weighting: bool = False
+    self_viability_weight: float = 0.0
+    # monotone penalty form: "linear" (penalty = self_viability) | "saturating"
+    # (penalty = 1 - exp(-sv / self_viability_scale), bounded [0,1) viability-deficit).
+    self_viability_mode: str = "linear"
+    self_viability_scale: float = 1.0
+
     # MECH-440 -- state-conditioned self-annealing PROPAGATING noise floor (NoisyNet
     # learned-parametric-weight-noise analog; Fortunato et al. 2018). The mechanistic
     # refinement of MECH-313's tonic floor. MECH-313 lifts the softmax TEMPERATURE
@@ -4924,6 +4947,11 @@ class REEConfig:
         pe_confidence_weight: float = 0.0,
         pe_confidence_mode: str = "linear",
         pe_confidence_scale: float = 1.0,
+        # DR-10 (self_model_v4:SELF-3): z_self enters E3 viability scoring. No-op default.
+        use_self_viability_weighting: bool = False,
+        self_viability_weight: float = 0.0,
+        self_viability_mode: str = "linear",
+        self_viability_scale: float = 1.0,
         # MECH-440 NoisyNet propagating selection-head weight noise (2026-06-27).
         # No-op default; bit-identical OFF. PROMOTES NOTHING.
         use_noisy_selection_head: bool = False,
@@ -6008,6 +6036,10 @@ class REEConfig:
         config.e3.pe_confidence_weight = pe_confidence_weight
         config.e3.pe_confidence_mode = pe_confidence_mode
         config.e3.pe_confidence_scale = pe_confidence_scale
+        config.e3.use_self_viability_weighting = use_self_viability_weighting
+        config.e3.self_viability_weight = self_viability_weight
+        config.e3.self_viability_mode = self_viability_mode
+        config.e3.self_viability_scale = self_viability_scale
         # MECH-440 NoisyNet propagating selection-head weight noise (2026-06-27).
         config.e3.use_noisy_selection_head = use_noisy_selection_head
         config.e3.noisy_selection_sigma_init = noisy_selection_sigma_init
