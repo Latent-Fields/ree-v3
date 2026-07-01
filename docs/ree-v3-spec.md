@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-06-30
+**Last updated:** 2026-07-01
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-06-30)
+## 0. Current V3 State (2026-07-01)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -203,6 +203,50 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-07-01T01:10Z nightly read (scheduled `/update-docs`, bot identity).**
+  **701c `/failure-autopsy` closed + applied; INV-050 UNWEAKENED with brake FIRED
+  but REFRAMED FORWARD onto the absent MEL-consumer substrate (MECH-180 adaptive
+  sleep-cadence); no new substrate code landed; a concurrent 2026-07-01T00:58Z
+  `/governance` cycle is running as this doc updates.** The V3-EXQ-701c formal
+  failure-autopsy session (2026-06-30T21:16Z → close 23:53Z, REE_assembly master
+  `4003a9e61f`, pushed) adjudicated the terminal `non_contributory
+  mel_not_modulated_by_novelty` verdict: on the recon-only converged base (R2
+  conv_frac 1.0 / 3-3 seeds, R1 1.15 -- the SD-056 contrastive-auxiliary drop
+  from the 701b autopsy WORKED as world-forward destabiliser; NOT a self-route)
+  the frozen MEL probe is cleanly MONOTONE in graded novelty (relative spread
+  0.33 > 0.25); C1 failed ONLY on absolute-spread because `ABS_MEL_FLOOR=1e-4`
+  was inherited from 701b's ~2e-3 regime, ~5x above the ~2e-5 converged-base MEL
+  signal -- structurally unreachable. User-confirmed adjudication: **(b) floor
+  MIS-CALIBRATION, IV precondition effectively MET; NOT a ceiling, NOT a
+  falsification (biology supports MEL).** INV-050 stays candidate / UNWEAKENED
+  with a 701c `evidence_quality_note` + `pending_retest_after_substrate=true`.
+  Re-derive brake FIRED (named lock-point) but reframed: gate MOVED FORWARD off
+  INV-050 measurability onto the absent MEL-consumer substrate (adaptive
+  sleep-cadence / MECH-180; V3-EXQ-677 confirmed sleep counts scheduler-pinned;
+  user 2026-06-14 enrichment build deferral honored). REFUSE same-claim
+  re-queue: no V3-EXQ-701d minted, `substrate_queue action=none`. 701c marked
+  reviewed; `pending_review.md` regenerated 2026-07-01T01:00Z reads a fresh
+  **0** (no longer stale). `evidence/experiments/` flat top-level unchanged
+  since the 2026-06-30T21:17Z read: **513 `v3_exq_*.json` + 1 `v4_exq_*.json`**
+  on disk. **Currently queued (`experiment_queue.json` items[]): 0 items** --
+  the empty state persists from the 701c autopsy's refuse-re-queue decision.
+  A concurrent 2026-07-01T00:58Z `/governance` cycle claim is active on
+  `claims.yaml` / `evidence/planning/**` / `pending_review.md` (disjoint from
+  this docs claim's resources); whatever it emits will surface in the next
+  nightly read. **Bottleneck (continuation, unchanged shape):** MECH-439
+  F-dominance conversion ceiling remains the live root choke -- CONFIRMED
+  INTRINSIC by 707b's decisive live-substrate weakens-NARROW (2026-06-29). The
+  V3 selection-face attack stays on the DA-gated arbitration release route
+  (MECH-448 rank-preserving F->eligibility demotion + MECH-449 Go/No-Go
+  constitution + ARC-107); MECH-439 `/claim-synthesis` decomposition proposal
+  (2026-06-29, doc-only) remains on the record for the next contributory
+  707-lineage retest, registration user-gated. INV-050's testable reach
+  narrows again: MEL is measurable but its consumer is absent; unfalsified,
+  awaiting MECH-180 adaptive sleep-cadence build (V4-adjacent). MECH-441 +
+  the curiosity-channel falsifier chain stay HELD pending DA-gated
+  arbitration. **ETHICS-PERIMETER Phase 0 datum** stays on the record (Phases
+  1-3 deferred; NON-BLOCKING for V3 green-board 2026-07-19).
 
 - **2026-06-30T21:17Z nightly read (scheduled `/update-docs`, fired late after the
   /failure-autopsy 701c session armed the active claim).** **ARC-110 NARROW (decisive
