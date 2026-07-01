@@ -6,22 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V4-EXQ-002",
-      "title": "DR-13 self-recurrence substrate-readiness falsifier (self_model_v4:SELF-1, z_self temporal depth)",
-      "experiment_type": "v4_exq_002_dr13_self_recurrence_falsifier",
-      "script": "experiments/v4_exq_002_dr13_self_recurrence_falsifier.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 2,
-      "episodes_per_run": 1,
-      "seeds": 3,
-      "conditions": 1,
-      "owner_exq": "V4-EXQ-002",
-      "note": "Second V4 experiment (diagnostic; PROMOTES NOTHING; claim_ids=[]; unblocks ARC-081/MECH-215). Substrate-readiness probe for the DR-13 lever landed ree-v3 main 8807789 (use_self_recurrence: dedicated GRUCell self-recurrence over z_self + E1-feedback anchor, replaces the z_self EMA step only). Synthetic no-training encode probe (~seconds). FALSIFIER: the recurrence must make z_self carry temporal/self-model state beyond the instantaneous encode (PASS = live + history-carrying + perturbation-isolable stateful subject + E1-anchor blend live); non-vacuity precondition = state_departure>=floor (else substrate_not_ready_requeue); inert off-ramp = carries no history (dr13_recurrence_inert). Trained superiority over the fixed-alpha EMA is a DR-10 consumer question, reported secondary only. prefer-cloud. Baseline mint SKIPPED (synthetic trivial forward-pass OFF cell; no expensive reusable trained baseline). owner_exq assigned to self_model_v4:SELF-1.",
-      "claim_ids": []
-    }
-  ]
+  "items": []
 }
