@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-709",
+      "title": "ARC-108 x ARC-110 learned (dopamine-gated) cross-loop arbitration validation: does the learned [3,3] M_cross combine convert committed-action diversity where the 707b STATIC arbitration plateaued?",
+      "experiment_type": "v3_exq_709_learned_cross_loop_arbitration_validation",
+      "script": "experiments/v3_exq_709_learned_cross_loop_arbitration_validation.py",
+      "priority": 100,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 300,
+      "episodes_per_run": 250,
+      "seeds": 6,
+      "conditions": 2,
+      "claim_id": "MECH-439",
+      "note": "SEPARATE new-EXQ validation falsifier routed by failure_autopsy_V3-EXQ-707b_2026-06-29 (item 3): a DIFFERENT mechanism from the 700/707 lineage, DIFFERENT claim_ids. Tests the learned/DA-gated CROSS-LOOP arbitration substrate landed 2026-07-01 (ree-v3 main 832afd1; design-of-record REE_assembly/docs/architecture/learned_cross_loop_arbitration.md). 2 arms on the GAP-A reef-bipartite foraging substrate, matched seeds + matched envelope (loop segregation + named-channel routing + limbic modules + finer gating + learned settling ON on both); the ONLY swept factor is use_learned_cross_loop_arbitration: A1_LOOPS_STATIC (OFF -- the 707b static-arithmetic control that plateaued at A1_LOOPS 0.838 ~ A0 0.914) vs A1_LOOPS_LEARNED (ON -- learned W_cross = I + M_cross updated by the ARC-108 signed-RPE three-factor rule). At init M_cross==0 -> bit-identical; arms diverge only as M_cross learns (verified live: dry-run LEARNED m_range_peak=0.0497, n_updates=88; contract tests 8/8 incl. boosted-limbic-column-wins + byte-identical-at-init). C1 (PASS): committed-class entropy LEARNED strict-above STATIC + margin on >=2/3 divergent seeds -> MECH-439 weakens (ceiling liftable) / ARC-108 + ARC-110 supports. FAIL (decisive weakens branch): even learned arbitration cannot convert -> MECH-439 supports (ceiling INTRINSIC) / ARC-108 + ARC-110 weakens. Non-vacuity self-route substrate_not_ready_requeue (non_contributory, non_degenerate=false, NEVER a false weakens) when the learned M_cross weights did NOT move off init (LEARNED==STATIC) OR the limbic loop can never reach the motor loop's effective weight OR the 707b liveness preconditions fail. EXPERIMENT_PURPOSE=evidence; claim_ids=[MECH-439, ARC-108, ARC-110]; PROMOTES NOTHING. Re-derive brake (MECH-439 x7 / ARC-108 x5 substrate_ceiling autopsies) is CLEARED/not-applicable: new EXQ number + different mechanism (learned arbitration, not a lettered 700/707 iteration), and the required upstream substrate (learned_cross_loop_arbitration) was just BUILT (832afd1, full suite green) -- which releases the brake. Advances behavioral_diversity_isolation:GAP-K + conversion_ceiling_campaign:P4-learned-gating toward closure."
+    }
+  ]
 }
