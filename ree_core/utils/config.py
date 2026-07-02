@@ -602,6 +602,45 @@ class E3Config:
     learned_settling_n_action_classes: int = 8         # W_lat dimension = first-action class count (clamped)
 
     # ============================================================== #
+    # MECH-140 x MECH-450: disinhibitory soft-competitive settling    #
+    # ============================================================== #
+    #
+    # The PARAMETER-FREE, always-graded complement to the learned W_lat settling
+    # above. MECH-140 (soft-competitive disinhibition -- losing options
+    # down-weighted but NOT silenced, rather than winner-take-all) x MECH-450 (a
+    # minimal recurrent SETTLING step -- a few rounds of mutual/lateral inhibition
+    # over the eligible set before commit, replacing the one-shot argmin). Unlike
+    # W_lat (learned, no-op at init) this bites IMMEDIATELY when enabled -- it needs
+    # no dopaminergic learning -- and so can flip the committed attractor at init,
+    # the "recurrence gives the readout an attractor-flip the argmin lacks" property
+    # MECH-450 asserts. Runs a few rounds of soft-competitive lateral inhibition on
+    # the within-eligible field (COST units, lower = better): x = -field (activation,
+    # higher=better); support = softmax(x / T) (graded, all > 0 -> never silenced);
+    # inhib_i = gain * sum_j K_ij * support_j; x -= inhib_i; return -x. K_ij is the
+    # PARAMETER-FREE class-surround kernel: 1.0 within the same first-action class,
+    # `cross_class` (< 1) across classes -- surround-inhibition between competing
+    # motor programs (Mink 1996; the SAME structure W_lat learns, here FIXED). The
+    # structured kernel lets the settling REORDER (a candidate crowded by same-class
+    # rivals loses to an isolated slightly-worse one), so the step is behaviourally
+    # non-vacuous against the MECH-439 F-dominance conversion ceiling, not a
+    # rank-preserving sharpen. Operates STRICTLY within the F + MECH-448/449 eligible
+    # set (safety inherited -- can reorder within-eligible, never re-admit a
+    # No-Go-excluded candidate; >= 1 survivor always). Waking-only (no settling on a
+    # simulation/replay tick, MECH-094). No learned parameters, no autograd. Composes
+    # with W_lat (learned within-loop) and the learned cross-loop arbitration
+    # (M_cross, across loops) -- it is a within-eligible / within-loop transform at a
+    # different level. Default False -> skipped -> BIT-IDENTICAL OFF; and gain 0.0 ->
+    # inhib == 0 -> exact no-op even when the flag is on (byte-identical at default,
+    # mirroring noisy_selection_sigma_init=0.0) -- a positive gain must be set to
+    # activate. See REE_assembly/docs/architecture/soft_competitive_disinhibition_settling.md
+    # and claims MECH-140 / MECH-450.
+    use_soft_competitive_settling: bool = False
+    soft_competitive_settling_rounds: int = 3           # R: mutual-inhibition rounds per tick
+    soft_competitive_settling_gain: float = 0.0         # inhibition strength (0.0 = no-op even when ON)
+    soft_competitive_settling_temperature: float = 1.0  # T: softmax temperature for the graded support
+    soft_competitive_settling_cross_class: float = 0.25  # K_ij across first-action classes (within-class = 1.0)
+
+    # ============================================================== #
     # ARC-110: parallel segregated cortico-BG-thalamic loops          #
     # (motor / associative-cognitive-set / limbic-motivational) + an  #
     # in-layer (eligibility/settling-field) committed-class null (S2). #
@@ -4944,6 +4983,13 @@ class REEConfig:
         learned_settling_eta: float = 0.01,
         learned_settling_elig_decay: float = 0.9,
         learned_settling_n_action_classes: int = 8,
+        # MECH-140 x MECH-450 disinhibitory soft-competitive settling (parameter-free,
+        # no-op default; bit-identical OFF, and gain 0.0 -> exact no-op even when ON)
+        use_soft_competitive_settling: bool = False,
+        soft_competitive_settling_rounds: int = 3,
+        soft_competitive_settling_gain: float = 0.0,
+        soft_competitive_settling_temperature: float = 1.0,
+        soft_competitive_settling_cross_class: float = 0.25,
         # ARC-110 parallel segregated loops + S2 in-layer null + ARC-109 D1/D2
         # split + MECH-452 loop-local traces (all no-op default; bit-identical OFF)
         use_loop_segregation: bool = False,
@@ -6023,6 +6069,12 @@ class REEConfig:
         config.e3.learned_settling_eta = learned_settling_eta
         config.e3.learned_settling_elig_decay = learned_settling_elig_decay
         config.e3.learned_settling_n_action_classes = learned_settling_n_action_classes
+        # MECH-140 x MECH-450 disinhibitory soft-competitive settling (parameter-free).
+        config.e3.use_soft_competitive_settling = use_soft_competitive_settling
+        config.e3.soft_competitive_settling_rounds = soft_competitive_settling_rounds
+        config.e3.soft_competitive_settling_gain = soft_competitive_settling_gain
+        config.e3.soft_competitive_settling_temperature = soft_competitive_settling_temperature
+        config.e3.soft_competitive_settling_cross_class = soft_competitive_settling_cross_class
         # ARC-110 segregated loops + S2 null + ARC-109 D1/D2 + MECH-452 traces.
         config.e3.use_loop_segregation = use_loop_segregation
         config.e3.loop_segregation_channel_map = (

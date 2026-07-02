@@ -458,6 +458,14 @@ class E3TrajectorySelector(nn.Module):
         self.noisy_selection_head: Optional[NoisySelectionHead] = None
         self._last_explore_term: Optional[torch.Tensor] = None
 
+        # MECH-140 x MECH-450: disinhibitory soft-competitive settling diagnostics.
+        # _scs_last_round_delta = L2 activation movement across settling rounds (the
+        # non-degeneracy signal, mirroring _wlat_last_settle_delta); _scs_last_support
+        # = the settled graded per-candidate support (for the graded-not-WTA contract).
+        # Both written by _soft_competitive_settle; inert unless the settling runs.
+        self._scs_last_round_delta: float = 0.0
+        self._scs_last_support: Optional[torch.Tensor] = None
+
     def _candidate_action_features(
         self, candidates: List["Trajectory"]
     ) -> Optional[torch.Tensor]:
@@ -1369,6 +1377,97 @@ class E3TrajectorySelector(nn.Module):
             self._wlat_last_settle_delta = float((accum - accum0).norm().item())
         return accum
 
+    def _soft_competitive_settle(
+        self,
+        field: torch.Tensor,
+        candidates: List[Trajectory],
+        eligible_idx: torch.Tensor,
+    ) -> torch.Tensor:
+        """MECH-140 x MECH-450: parameter-free disinhibitory soft-competitive settling.
+
+        The PARAMETER-FREE, always-graded complement to ``_lateral_settle`` (the
+        LEARNED W_lat step, which is a no-op at init). Runs a few rounds of
+        soft-competitive lateral inhibition over the within-eligible ``field`` (COST
+        units, lower = better; ``_modulatory_accum[eligible_idx]`` in the single arena,
+        or the arbitrated cross-loop ``final`` under loop segregation) BEFORE the commit,
+        so the committed action emerges from a bounded recurrent SETTLING competition
+        rather than a one-shot global argmin (MECH-450), and the losing options are
+        down-weighted GRADED-ly but never silenced (MECH-140 soft-competitive
+        disinhibition, not winner-take-all):
+
+            x       = -field                          # activation (higher = better)
+            for r in range(R):
+                support = softmax(x / T)              # graded competitive support, ALL > 0
+                inhib   = gain * (K @ support)        # lateral inhibition from competitors
+                x       = x - inhib                   # disinhibit winner, reduce losers
+            return -x                                 # back to COST units for the argmin
+
+        ``K`` is the PARAMETER-FREE class-surround kernel: ``1.0`` between candidates
+        sharing a first-action class, ``cross_class`` (< 1) across classes, ``0`` on the
+        diagonal -- surround-inhibition between competing motor programs (Mink 1996; the
+        SAME structure ``W_lat`` learns, here FIXED and always-on). Because ``K`` encodes
+        candidate-vs-candidate STRUCTURE (not just each competitor's own activation), the
+        settling can REORDER: a candidate crowded by same-class rivals accrues more
+        lateral inhibition than an isolated slightly-worse one and can lose to it. That
+        is the behavioural non-vacuity (an attractor flip the one-shot argmin structurally
+        lacks) the MECH-439 conversion ceiling needs -- NOT a rank-preserving sharpen.
+
+        ``support`` is a softmax so every candidate keeps strictly-positive activation
+        (graded, never zeroed). No learned parameters, no autograd (operates on a
+        detached copy). SAFETY: transforms ONLY the eligible subset, so a No-Go/F-excluded
+        candidate is never touched and never selectable however the field moves; the
+        argmin over the returned field always yields >= 1 survivor. The caller gates this
+        on the waking path (``not simulation_mode``) so a replay/DMN tick does not settle
+        (MECH-094). Records ``_scs_last_round_delta`` (L2 activation movement across rounds
+        = the non-degeneracy signal) and ``_scs_last_support`` (the settled graded support,
+        for the graded-not-WTA contract). Returns the SETTLED field (same shape/units).
+
+        Exact no-op (byte-identical) when ``gain == 0`` or ``rounds <= 0`` or ``n < 2``.
+        """
+        n = int(field.numel())
+        gain = float(getattr(self.config, "soft_competitive_settling_gain", 0.0))
+        rounds = int(getattr(self.config, "soft_competitive_settling_rounds", 3))
+        if n < 2 or gain == 0.0 or rounds <= 0:
+            # Exact no-op -> byte-identical even when the master flag is on.
+            self._scs_last_round_delta = 0.0
+            self._scs_last_support = None
+            return field
+
+        temp = max(
+            float(getattr(self.config, "soft_competitive_settling_temperature", 1.0)),
+            1e-6,
+        )
+        cross = float(getattr(self.config, "soft_competitive_settling_cross_class", 0.25))
+        device = field.device
+        dtype = field.dtype
+        f = field.detach().to(dtype=dtype, device=device)
+
+        # Parameter-free class-surround kernel K [n, n]: 1.0 within the same first-action
+        # class, `cross` across classes, 0 on the diagonal (no self-inhibition). The
+        # first-action class is the argmax of each candidate's first action (the same
+        # discretisation W_lat uses).
+        cls = []
+        for gi in eligible_idx.tolist():
+            a0 = candidates[int(gi)].actions[:, 0, :].reshape(-1)
+            cls.append(int(a0.argmax().item()))
+        cls_t = torch.tensor(cls, dtype=torch.long, device=device)
+        same = (cls_t.unsqueeze(0) == cls_t.unsqueeze(1))            # [n, n] bool
+        K = torch.full((n, n), cross, dtype=dtype, device=device)
+        K[same] = 1.0
+        K.fill_diagonal_(0.0)                                        # no self-inhibition
+
+        # Activation space: higher = better (field is a COST, lower = better).
+        x = -f
+        x0 = x.clone()
+        for _r in range(rounds):
+            support = F.softmax(x / temp, dim=0)                    # graded, all > 0
+            inhib = gain * (K @ support)                            # [n] received inhibition
+            x = x - inhib                                           # disinhibit winner, reduce losers
+        self._scs_last_round_delta = float((x - x0).norm().item())
+        self._scs_last_support = F.softmax(x / temp, dim=0).detach()
+        # Back to COST units (lower = better) so the existing argmin picks the winner.
+        return -x
+
     # ------------------------------------------------------------------ #
     # ARC-110 parallel segregated loops + S2 null + ARC-109 D1/D2 split   #
     # ------------------------------------------------------------------ #
@@ -1592,6 +1691,22 @@ class E3TrajectorySelector(nn.Module):
             )
             if _et.numel() > int(eligible_idx.max().item()):
                 final = final + _et[eligible_idx]
+
+        # MECH-140 x MECH-450: parameter-free disinhibitory soft-competitive settling over
+        # the ARBITRATED cross-loop `final` field BEFORE the commit. Composes with (runs
+        # AFTER) the learned cross-loop arbitration -- it settles the arbitrated field, it
+        # does NOT reimplement the cross-loop combine (so it stays orthogonal to
+        # use_learned_cross_loop_arbitration / V3-EXQ-709). Waking-only (MECH-094 -- the
+        # caller passes simulation_mode); no-op default (gain 0.0) / OFF -> bit-identical.
+        # Needs >= 2 eligible. Safety inherited: transforms only the eligible field.
+        if (getattr(self.config, "use_soft_competitive_settling", False)
+                and not simulation_mode
+                and n_elig >= 2):
+            final = self._soft_competitive_settle(final, candidates, eligible_idx)
+            self.last_score_diagnostics["soft_competitive_settling_active"] = True
+            self.last_score_diagnostics["soft_competitive_settling_round_delta"] = (
+                self._scs_last_round_delta
+            )
 
         # Commit (argmin when committed; gap-agnostic softmax sample otherwise).
         if n_elig == 1:
@@ -2247,6 +2362,13 @@ class E3TrajectorySelector(nn.Module):
             # MOVED the field, not a no-op pass) the falsifier checks.
             "learned_settling_active": False,
             "learned_settling_round_delta": -1.0,
+            # MECH-140 x MECH-450 disinhibitory soft-competitive settling. Pre-seeded;
+            # overwritten at the within-eligible / cross-loop site when the settling
+            # runs. soft_competitive_settling_round_delta is the L2 activation movement
+            # across rounds -- the NON-DEGENERACY signal (the settling actually MOVED
+            # the field, not a no-op pass) the falsifier checks.
+            "soft_competitive_settling_active": False,
+            "soft_competitive_settling_round_delta": -1.0,
             # ARC-110 / ARC-109 / MECH-452 segregated-loop diagnostics. Pre-seeded;
             # overwritten by _segregated_loop_arbitrate when loop segregation runs.
             # loop_committed_neq_motor_winner + loop_cross_loop_winner_disagreement
@@ -2590,6 +2712,24 @@ class E3TrajectorySelector(nn.Module):
                         self.last_score_diagnostics["learned_settling_active"] = True
                         self.last_score_diagnostics["learned_settling_round_delta"] = (
                             self._wlat_last_settle_delta
+                        )
+                    # MECH-140 x MECH-450: parameter-free disinhibitory soft-competitive
+                    # settling over the eligible field BEFORE the within-eligible commit.
+                    # Composes with (runs AFTER) the learned W_lat settling above -- W_lat
+                    # applies learned per-class inhibition (no-op at init); this applies
+                    # the fixed GRADED class-surround competition that bites immediately
+                    # and can flip the attractor. Waking-only (MECH-094); no-op default
+                    # (gain 0.0) / OFF -> bit-identical. Needs >= 2 eligible; safety
+                    # inherited (transforms only the eligible subset).
+                    if (getattr(self.config, "use_soft_competitive_settling", False)
+                            and not simulation_mode
+                            and n_eligible >= 2):
+                        mod_eligible = self._soft_competitive_settle(
+                            mod_eligible, candidates, eligible_idx
+                        )
+                        self.last_score_diagnostics["soft_competitive_settling_active"] = True
+                        self.last_score_diagnostics["soft_competitive_settling_round_delta"] = (
+                            self._scs_last_round_delta
                         )
                     if n_eligible == 1:
                         local = 0
