@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-07-01
+**Last updated:** 2026-07-02
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-07-01)
+## 0. Current V3 State (2026-07-02)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -204,6 +204,35 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-07-02T19:03Z nightly read (scheduled `/update-docs`, bot identity).**
+  **No new substrate landed today (2026-07-02); the day's committed activity was
+  the AM `/morning-digest 2026-07-02` (0e93da12) and the ARC-034 phase-tag hygiene
+  micro-cycle (16dc705). Manifest count is unchanged from the prior nightly:
+  `514 v3_exq_* + 3 v4_exq_*` on disk. Queue is drained to `1 item` (V3-EXQ-709,
+  the ARC-108 × ARC-110 learned/DA-gated cross-loop arbitration validation),
+  claimed by `ree-cloud-1` at 2026-07-01T19:30:01Z and running (~250 ep × 6 seeds,
+  ~5 h). Pending-review count `0` (fresh 2026-07-01T19:55:09Z, unchanged).**
+  The bottleneck remains **MECH-439 F-dominance conversion ceiling** now under
+  attack via the learned/DA-gated cross-loop arbitration substrate (ARC-108 ×
+  ARC-110 coupling, landed 2026-07-01 in `ree-v3` 832afd1). V3-EXQ-709 is the
+  first falsifier of that substrate -- `A1_LOOPS_STATIC` (fixed-arithmetic
+  arbitration, the 707b plateau: A1_LOOPS 0.838 ≈ A0 0.914) vs `A1_LOOPS_LEARNED`
+  (learned W_cross = I + M_cross updated by the ARC-108 signed-RPE three-factor
+  rule), matched envelope on both arms; at init the arbitration is bit-identical,
+  so any committed-class-entropy lift is causally attributable to the LEARNED
+  arbitration. Dry-run confirmed the learned path is LIVE (m_range_peak=0.0497,
+  n_updates=88); contracts 8/8 include the byte-identical-at-init + boosted-limbic-
+  column-wins mechanism. `C1` (PASS): learned strict-above static + margin on
+  ≥2/3 divergent seeds → MECH-439 WEAKENS (ceiling liftable), ARC-108 + ARC-110
+  supports; a preconditions-met FAIL is the decisive weakens branch (ceiling
+  INTRINSIC), never a false weakens (non-vacuity self-routes
+  `substrate_not_ready_requeue`). Advances
+  `behavioral_diversity_isolation:GAP-K` + `conversion_ceiling_campaign:P4-learned-gating`
+  toward closure. Governance-wise the AM `/morning-digest` reviewed pending items
+  (all covered / no escalations), and the ARC-034 hygiene cycle (16dc705) closed
+  phase-tag drift on adjacent claims without changing evidence weight; no
+  promote/demote/narrow actions today. Substrate build queue is otherwise quiet;
+  no new lit-pulls landed this cycle.
 - **2026-07-01T01:10Z nightly read (scheduled `/update-docs`, bot identity).**
   **701c `/failure-autopsy` closed + applied; INV-050 UNWEAKENED with brake FIRED
   but REFRAMED FORWARD onto the absent MEL-consumer substrate (MECH-180 adaptive
