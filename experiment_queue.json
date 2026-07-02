@@ -10,17 +10,21 @@
     {
       "queue_id": "V3-EXQ-710",
       "title": "MECH-140 x MECH-450 disinhibitory soft-competitive settling validation + PLOS-Biology ablation (3-arm; settling OFF/INTACT-structured/ABLATED-uniform)",
-      "experiment_type": "v3_exq_710_disinhibitory_soft_competitive_settling_validation",
       "script": "experiments/v3_exq_710_disinhibitory_soft_competitive_settling_validation.py",
       "priority": 100,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 720,
-      "episodes_per_run": 250,
-      "seeds": 6,
-      "conditions": 3,
       "claim_id": "MECH-140",
-      "note": "EXPERIMENT_PURPOSE=evidence; claim_ids=[MECH-140, MECH-450, MECH-439]; PROMOTES NOTHING. Validates the disinhibitory soft-competitive settling substrate landed 2026-07-02 (ree-v3 main 8cc42bc, use_soft_competitive_settling). 3 arms on the 569i top-k + MECH-448 demotion + Go/No-Go SINGLE-ARENA conversion stack (loop_seg / learned W_lat / learned cross-loop OFF -> isolates the parameter-free settling in the within-eligible path); ONLY swept factor = the settling. A0_OFF (one-shot argmin plateau) / A1_INTACT (structured class-surround kernel cross_class=0.25) / A2_ABLATED (uniform kernel cross_class=1.0 = the inhibition-on-inhibition STRUCTURAL edge ablated -> rank-preserving). PRIMARY DV committed-action-class entropy over P2. C1 (validation): A1_INTACT strict-above A0_OFF + margin on >=2/3 divergent seeds => PASS MECH-140/MECH-450 supports + MECH-439 weakens (ceiling liftable); decisive FAIL => MECH-140/MECH-450 weakens + MECH-439 supports (ceiling intrinsic). C2 (PLOS ablation, secondary): A1_INTACT strict-above A2_ABLATED => the STRUCTURED edge is load-bearing (uniform kernel collapses the conversion while base graded settling runs -- the mouse-V1 inhibition-on-inhibition-silencing signature). Non-vacuity self-route substrate_not_ready_requeue (non_contributory, non_degenerate=False, NEVER a false weakens) when the settling did NOT move the field (round_delta<=floor) OR the F-eligibility envelope was all-admit OR too few divergent seeds. RE-DERIVE BRAKE RELEASED: MECH-450 x4 / MECH-439 x7 substrate_ceiling autopsies (700/700b/700c/700d/708 single-arena-ceiling lineage) but this is a NEW EXQ NUMBER testing a NEWLY-BUILT DIFFERENT mechanism (disinhibitory_soft_competitive_settling, the parameter-free recurrent-settling-step the BG-assembly-map named as the next attack; the prior lineage tested LEARNED W_lat/loop segregation, no-op at init) -- not a lettered iteration. Arms minted reuse-eligible (mint-as-you-go). Smoke: --dry-run PASS (self-routes substrate_not_ready in 1-seed toy as designed; round_delta 5.4 confirms the settling moves the field); validate_experiments --strict --paths OK."
+      "note": "EXPERIMENT_PURPOSE=evidence; claim_ids=[MECH-140, MECH-450, MECH-439]; PROMOTES NOTHING. Validates the disinhibitory soft-competitive settling substrate landed 2026-07-02 (ree-v3 main 8cc42bc, use_soft_competitive_settling). 3 arms on the 569i top-k + MECH-448 demotion + Go/No-Go SINGLE-ARENA conversion stack (loop_seg / learned W_lat / learned cross-loop OFF -> isolates the parameter-free settling in the within-eligible path); ONLY swept factor = the settling. A0_OFF (one-shot argmin plateau) / A1_INTACT (structured class-surround kernel cross_class=0.25) / A2_ABLATED (uniform kernel cross_class=1.0 = the inhibition-on-inhibition STRUCTURAL edge ablated -> rank-preserving). PRIMARY DV committed-action-class entropy over P2. C1 (validation): A1_INTACT strict-above A0_OFF + margin on >=2/3 divergent seeds => PASS MECH-140/MECH-450 supports + MECH-439 weakens (ceiling liftable); decisive FAIL => MECH-140/MECH-450 weakens + MECH-439 supports (ceiling intrinsic). C2 (PLOS ablation, secondary): A1_INTACT strict-above A2_ABLATED => the STRUCTURED edge is load-bearing (uniform kernel collapses the conversion while base graded settling runs -- the mouse-V1 inhibition-on-inhibition-silencing signature). Non-vacuity self-route substrate_not_ready_requeue (non_contributory, non_degenerate=False, NEVER a false weakens) when the settling did NOT move the field (round_delta<=floor) OR the F-eligibility envelope was all-admit OR too few divergent seeds. RE-DERIVE BRAKE RELEASED: MECH-450 x4 / MECH-439 x7 substrate_ceiling autopsies (700/700b/700c/700d/708 single-arena-ceiling lineage) but this is a NEW EXQ NUMBER testing a NEWLY-BUILT DIFFERENT mechanism (disinhibitory_soft_competitive_settling, the parameter-free recurrent-settling-step the BG-assembly-map named as the next attack; the prior lineage tested LEARNED W_lat/loop segregation, no-op at init) -- not a lettered iteration. Arms minted reuse-eligible (mint-as-you-go). Smoke: --dry-run PASS (self-routes substrate_not_ready in 1-seed toy as designed; round_delta 5.4 confirms the settling moves the field); validate_experiments --strict --paths OK.",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-07-02T19:43:31Z"
+      },
+      "conditions": 3,
+      "episodes_per_run": 250,
+      "experiment_type": "v3_exq_710_disinhibitory_soft_competitive_settling_validation",
+      "seeds": 6
     }
   ]
 }
