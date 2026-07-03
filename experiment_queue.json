@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-711",
+      "title": "ARC-110 x ARC-108 ascending-spiral gain validation (loop-effective-weight repair; A_ASCENDING_OFF vs A_ASCENDING_ON)",
+      "experiment_type": "v3_exq_711_ascending_spiral_gain_validation",
+      "script": "experiments/v3_exq_711_ascending_spiral_gain_validation.py",
+      "priority": 1,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 240,
+      "episodes_per_run": 250,
+      "seeds": 6,
+      "conditions": 2,
+      "claim_id": "MECH-439",
+      "note": "Validation falsifier for the ascending-spiral gain substrate (landed 2026-07-03, /implement-substrate). CLEARS A RE-DERIVE BRAKE: new EXQ number testing a NEWLY-BUILT mechanism (config.e3.use_ascending_spiral_gain) on a freshly-built substrate -- routed by the confirmed failure_autopsy_V3-EXQ-709_2026-07-03 + failure_autopsy_V3-EXQ-710_2026-07-03 (both name v4_loop_segregation loop-effective-weight ceiling as load-bearing). Swept factor = use_ascending_spiral_gain ONLY (learned cross-loop arbitration ON on both arms). Load-bearing precondition: on A_ASCENDING_ON the limbic loop reaches >= motor effective weight on >=3/4 divergent seeds; unmet -> substrate_not_ready_requeue (non_contributory, NEVER a false weakens), same non-vacuity discipline as 709/710. Then C1: A_ASCENDING_ON committed-class entropy strict-above A_ASCENDING_OFF. PASS -> MECH-439 weakens / ARC-108 + ARC-110 supports; decisive FAIL (limbic wins but no conversion) -> MECH-439 supports / ARC-108 + ARC-110 weakens. Substrate unblocks_claims: MECH-439, ARC-108, ARC-110, MECH-450, MECH-140. PROMOTES NOTHING until this scores. Smoke --dry-run PASS (ascending gain live: ON-arm strict_exceed_ticks=36, m_range 8.38 vs 709 ~0.05)."
+    }
+  ]
 }

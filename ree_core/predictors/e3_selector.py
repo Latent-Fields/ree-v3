@@ -1530,6 +1530,28 @@ class E3TrajectorySelector(nn.Module):
         d2_act = d2_gain * nogo
         return (d2_act - d1_act), d1_act, d2_act
 
+    def _ascending_gain_matrix(
+        self, gain: float, dtype: torch.dtype, device: torch.device
+    ) -> torch.Tensor:
+        """ARC-110 ascending-spiral gain (V3-EXQ-709/710 repair). Return a [3,3] matrix
+        that scales ONLY the ascending (upper-triangular, row<col) entries of M_cross by
+        ``gain`` and leaves the diagonal + descending (lower-triangular) entries at 1.0.
+
+        In the motor(0)/associative(1)/limbic(2) loop ordering the forward map is
+        ``eff_i = sum_j W_cross[i,j] * z_j``, so W_cross[i,j] is the influence of loop j
+        on loop i's effective preference. The ASCENDING striato-nigro-striatal spiral
+        (Haber 2000: limbic -> associative -> motor, a higher-index loop influencing a
+        lower-index one) is exactly ``row i < col j`` -- W_cross[0,2] (limbic->motor),
+        W_cross[0,1] (assoc->motor), W_cross[1,2] (limbic->assoc). Scaling those raises
+        the limbic/assoc column effective weights ``w_eff[j]=sum_i gain_i*W_cross[i,j]``
+        WITHOUT touching the motor column (diagonal + descending), so the motor(F)
+        default is implicitly de-pinned. gain==1.0 -> all-ones (bit-identical no-op)."""
+        g = torch.ones((3, 3), dtype=dtype, device=device)
+        if gain != 1.0:
+            iu = torch.triu_indices(3, 3, offset=1)  # ascending = strict upper triangle
+            g[iu[0], iu[1]] = float(gain)
+        return g
+
     def _segregated_loop_arbitrate(
         self,
         eligible_idx: torch.Tensor,
@@ -1671,9 +1693,18 @@ class E3TrajectorySelector(nn.Module):
         )
         eff_motor, eff_assoc, eff_limbic = motor_z, assoc_z, limbic_z
         if learn_cross:
-            Wc = torch.eye(3, dtype=dtype, device=device) + self.M_cross.to(
-                dtype=dtype, device=device
-            )
+            # ARC-110 ascending-spiral gain (V3-EXQ-709/710 loop-effective-weight
+            # repair): scale ONLY the ascending (upper-triangular) M_cross entries in
+            # the forward W_cross so a non-motor loop can reach/exceed motor effective
+            # weight WITHOUT amplifying the motor column. gain 1.0 / OFF -> all-ones ->
+            # W_cross == I + M_cross exactly (bit-identical). Keeps the map LINEAR.
+            _M = self.M_cross.to(dtype=dtype, device=device)
+            if bool(getattr(self.config, "use_ascending_spiral_gain", False)):
+                _fwd_gain = float(
+                    getattr(self.config, "loop_segregation_ascending_spiral_gain", 1.0)
+                )
+                _M = self._ascending_gain_matrix(_fwd_gain, dtype, device) * _M
+            Wc = torch.eye(3, dtype=dtype, device=device) + _M
             Zmat = torch.stack([motor_z, assoc_z, limbic_z], dim=0)  # [3, n_elig]
             eff = Wc @ Zmat                                           # [3, n_elig]
             eff_motor, eff_assoc, eff_limbic = eff[0], eff[1], eff[2]
@@ -1790,7 +1821,21 @@ class E3TrajectorySelector(nn.Module):
         # M_cross moving off its zero init. All 0 / identity at init.
         self.last_score_diagnostics["loop_learned_cross_loop_active"] = learn_cross
         if learn_cross:
-            _Wc = (torch.eye(3, dtype=torch.float32) + self.M_cross.detach().to("cpu", torch.float32))
+            # Effective column weights MUST reflect the SAME ascending-gained W_cross
+            # that drove selection, so the falsifier's limbic_loop_can_win gate reads
+            # the true w_eff (gain 1.0 / OFF -> W_cross == I + M_cross, unchanged).
+            _Mc = self.M_cross.detach().to("cpu", torch.float32)
+            _asg_on = bool(getattr(self.config, "use_ascending_spiral_gain", False))
+            self.last_score_diagnostics["loop_ascending_spiral_gain_active"] = _asg_on
+            if _asg_on:
+                _fg = float(
+                    getattr(self.config, "loop_segregation_ascending_spiral_gain", 1.0)
+                )
+                _Mc = self._ascending_gain_matrix(
+                    _fg, torch.float32, torch.device("cpu")
+                ) * _Mc
+                self.last_score_diagnostics["loop_ascending_spiral_gain_forward"] = _fg
+            _Wc = (torch.eye(3, dtype=torch.float32) + _Mc)
             _gains = torch.tensor([m_a, g_a, g_l], dtype=torch.float32)
             _w_eff = (_gains.unsqueeze(1) * _Wc).sum(dim=0)  # column-summed effective weights
             self.last_score_diagnostics["loop_cross_loop_w_motor_eff"] = float(_w_eff[0].item())
@@ -3141,11 +3186,25 @@ class E3TrajectorySelector(nn.Module):
                     # be down-weighted). Safety inherited: M_cross only reorders the
                     # F+MECH-448/449 eligible set, never re-admits a suppressed one.
                     eta_c = float(getattr(self.config, "learned_cross_loop_eta", 0.01))
-                    self.M_cross.add_(
+                    _clg_delta = (
                         eta_c * learn_signal * learn_asym * self._clg_coact_trace.to(
                             dtype=self.M_cross.dtype, device=self.M_cross.device
                         )
                     )
+                    # ARC-110 ascending-spiral MATURATION (V3-EXQ-709/710 repair): scale
+                    # ONLY the ascending (upper-triangular) entries of the update so the
+                    # ascending limbic->assoc->motor coupling accrues credit faster than
+                    # the descending direction (the developmental asymmetry of Haber's
+                    # spiral). eta stays the base rate; gain 1.0 / OFF -> all-ones ->
+                    # bit-identical update.
+                    if bool(getattr(self.config, "use_ascending_spiral_gain", False)):
+                        _pg = float(
+                            getattr(self.config, "loop_segregation_ascending_plasticity_gain", 1.0)
+                        )
+                        _clg_delta = _clg_delta * self._ascending_gain_matrix(
+                            _pg, self.M_cross.dtype, self.M_cross.device
+                        )
+                    self.M_cross.add_(_clg_delta)
                     self._clg_last_delta = learn_signal
                     self._clg_n_updates += 1
                 # Update the slow value baseline toward the realised R_t (shared; once).

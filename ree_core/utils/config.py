@@ -805,6 +805,38 @@ class E3Config:
     # (elig_decay / asym_potentiation / asym_depression / rpe_mode / value_baseline_beta
     #  are SHARED with the ARC-108 learned_channel_* knobs -- one dopamine system.)
 
+    # ARC-110 x ARC-108 ASCENDING-SPIRAL GAIN (V3-EXQ-709/710 loop-effective-weight
+    # ceiling repair). The 709/710 autopsies found the learned cross-loop matrix
+    # ENGAGES (M_cross moves off init) yet the ascending path M_cross[motor,limbic]
+    # peaks ~0.03 -- functionally too weak to lift a non-motor (limbic) loop to the
+    # motor loop's effective column weight, so limbic_loop_can_win met on only 1/4
+    # divergent seeds. Biology (Haber 2000): the striato-nigro-striatal spiral is
+    # anatomically ASYMMETRIC -- ascending (limbic -> associative -> motor) influence
+    # is the developmentally-strengthened, load-bearing direction. Two knobs, both
+    # scaling ONLY the ascending (upper-triangular row<col, in the motor/assoc/limbic
+    # ordering) entries of M_cross, so w_eff[limbic] rises WITHOUT raising w_eff[motor]
+    # (the motor column is diagonal + descending, un-amplified) -- this both
+    # strengthens the ascending coupling AND implicitly de-pins the motor(F) default.
+    #   1. forward gain: W_cross = I + (G_fwd .* M_cross), G_fwd upper-tri = spiral_gain
+    #      -- the ANATOMICAL ascending-projection strength (untuned=1.0 in the 709/710
+    #      substrate, functionally too weak). Keeps the forward map LINEAR (still a
+    #      constant elementwise scaling of M_cross) so w_eff-collapsibility (CLA-3) and
+    #      bit-identical-at-init both hold.
+    #   2. plasticity maturation gain: the M_cross three-factor UPDATE's ascending
+    #      entries are scaled by plasticity_gain -- the ascending SPIRAL MATURATION
+    #      RATE (ascending credit accrues faster than descending, mirroring the
+    #      developmental asymmetry). eta stays the base rate; this is the directional
+    #      multiplier on ascending plasticity only.
+    # F still fully owns the MOTOR loop (motor_pref unchanged); the gain only stops F
+    # from drowning the limbic "is this worth committing to" value. Safety unchanged:
+    # arbitration stays STRICTLY within the F+MECH-448/449 eligible set. Default
+    # False / gains 1.0 -> BIT-IDENTICAL OFF (G matrices become all-ones; at init
+    # M_cross==0 so gain*0==0 -> W_cross==I regardless of gain). Requires
+    # use_learned_cross_loop_arbitration (hence use_loop_segregation) on to act.
+    use_ascending_spiral_gain: bool = False
+    loop_segregation_ascending_spiral_gain: float = 1.0       # forward W_cross ascending-entry gain (anatomical strength)
+    loop_segregation_ascending_plasticity_gain: float = 1.0   # ascending-entry update gain (spiral maturation rate)
+
     # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a, 2026-06-10):
     # The 2026-06-03/06-06 authority rescales _modulatory_accum (the composed
     # score_bias chain + MECH-341 bonus). The 569f/661/654a cluster showed that a
@@ -5010,6 +5042,10 @@ class REEConfig:
         # (no-op default; bit-identical OFF; requires use_loop_segregation on):
         use_learned_cross_loop_arbitration: bool = False,
         learned_cross_loop_eta: float = 0.01,
+        # ARC-110 ascending-spiral gain (V3-EXQ-709/710 loop-effective-weight repair):
+        use_ascending_spiral_gain: bool = False,
+        loop_segregation_ascending_spiral_gain: float = 1.0,
+        loop_segregation_ascending_plasticity_gain: float = 1.0,
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a):
         use_modulatory_channel_routing: bool = False,
         modulatory_channel_route_min_range_floor: float = 1e-6,
@@ -6097,6 +6133,9 @@ class REEConfig:
         # ARC-108 x ARC-110 learned (dopamine-gated) cross-loop arbitration.
         config.e3.use_learned_cross_loop_arbitration = use_learned_cross_loop_arbitration
         config.e3.learned_cross_loop_eta = learned_cross_loop_eta
+        config.e3.use_ascending_spiral_gain = use_ascending_spiral_gain
+        config.e3.loop_segregation_ascending_spiral_gain = loop_segregation_ascending_spiral_gain
+        config.e3.loop_segregation_ascending_plasticity_gain = loop_segregation_ascending_plasticity_gain
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
         # 2026-06-10): the e3_selector additive site reads
         # use_modulatory_channel_routing + min_range_floor from config.e3; the
