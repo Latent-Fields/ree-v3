@@ -25,6 +25,21 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_711_ascending_spiral_gain_validation",
       "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-712",
+      "title": "Distributional E2 world-forward heads (T0-alpha-inspired diagnostic): MSE-point vs hetero-Gaussian vs quantile-pinball vs mixture-MDN",
+      "script": "experiments/v3_exq_712_distributional_world_forward_heads.py",
+      "priority": 0,
+      "machine_affinity": "any",
+      "estimated_minutes": 45,
+      "claim_ids": [],
+      "note": "EXPLORATORY DIAGNOSTIC, PROMOTES NOTHING (claim_ids=[], experiment_purpose=diagnostic; excluded from governance confidence/conflict scoring). Priority 0 so it never preempts the conversion-ceiling work (711). Motivated by the T0-alpha probabilistic time-series model (user-shared): REE's E2 world-forward is a pure POINT predictor trained with MSE (e2_fast.py:176 / e2_world.py:277), and predictive uncertainty is only ever post-hoc (E3.current_precision = retrospective running-variance EMA, e3_selector.py:512; SplitEncoder precision_logit is a static encoder gate). This probe holds the encoder + transition set FIXED and swaps ONLY the forward head + loss, comparing four formulations on the SAME held-out (z_world_t, a_t)->z_world_{t+1} transitions: mse_point (MSE + fitted homoscedastic sigma = the state-blind EMA null), hetero_gaussian (mean+logvar, Gaussian NLL), quantile_pinball (9 quantiles, pinball; direct T0-alpha analog), mixture_gaussian (MDN K=3). Metrics: sample-based CRPS (ranking metric), Gaussian/mixture NLL, central-80%-interval coverage error, and precision_error_corr (per-point predictive-variance vs realized-error correlation = the downstream E3-commitment signal the running-variance EMA structurally cannot carry). Encoder is a frozen feature map (no joint training; heads train on detached z_world = effectively P1). LOAD-BEARING READINESS: point-arm normalised held-out residual >= 0.05 AND >= 200 test transitions, else self-routes substrate_not_ready_requeue (non_contributory, non_degenerate=False) -- NEVER a false 'distributional heads don't help'. C1 (load-bearing): best distributional CRPS strict-below mse_point CRPS by >=2% on a strict-majority of seeds -> PASS (label distributional_head_ranking); readiness-met-but-C1-fail -> FAIL (distributional_heads_no_benefit_over_point, a real informative negative -- latent-space MSE is less pathological than obs-space). NOT MINTED as a reusable baseline: all cells share the frozen encoder + transition set across the head arms (extra_ineligible_reasons correctness guard), so every arm_fingerprint is reuse_eligible=False by construction. Smoke --dry-run self-routes substrate_not_ready_requeue (33 transitions < 200 floor, as designed); a 1-seed x40-episode verification hit the readiness-met branch -> PASS, winner quantile_pinball (CRPS 0.0048 vs point 0.0052; precision_error_corr 0.415 vs point/EMA null 0.0). A PASS here would motivate /implement-substrate of the winning head into E2 (SD-031 caveat: a variance head must not explain away the E2WorldForward agency residual). validate_experiments --strict --paths OK.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 40,
+      "experiment_type": "v3_exq_712_distributional_world_forward_heads",
+      "seeds": 5
     }
   ]
 }
