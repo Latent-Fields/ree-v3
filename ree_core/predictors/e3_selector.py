@@ -1552,6 +1552,49 @@ class E3TrajectorySelector(nn.Module):
             g[iu[0], iu[1]] = float(gain)
         return g
 
+    def _parity_forward_gain(
+        self, M: torch.Tensor, gains: Tuple[float, float, float]
+    ) -> float:
+        """BOUNDED target-parity controller forward gain (V3-EXQ-711 repair).
+
+        Returns a scalar gain ``g in [0, parity_forward_gain]`` applied to the ascending
+        (strict upper-triangular) entries of ``M_cross`` such that the limbic effective
+        COLUMN weight ``w_eff[limbic]`` is LIFTED toward but HARD-CAPPED at
+        ``parity_ceiling_ratio * w_eff[motor]``. Because the ascending gain touches only
+        the strict upper triangle, the MOTOR column (col 0: diagonal + descending) carries
+        no scaled entry, so ``w_eff[motor]`` is gain-invariant -- it is the fixed parity
+        reference. This is actuator-saturated proportional-to-a-setpoint control, NOT a raw
+        multiply: it bounds the ``w_eff[limbic]/w_eff[motor]`` ratio so a non-motor loop
+        reaches a FAIR competitive parity, never the 2274x monopoly the raw scalar produced.
+
+        In the motor(0)/associative(1)/limbic(2) ordering with per-row gains
+        ``[m_a, g_a, g_l]`` and ``W_cross = I + G_fwd .* M_cross`` (G_fwd upper-tri = g),
+        the effective column weight is ``w_eff[j] = sum_i gains_i * W_cross[i,j]``. The
+        limbic column (j=2) decomposes into a FIXED part (the un-scaled diagonal
+        ``g_l*(1+M[2,2])``) plus a SCALABLE ascending part ``g*(m_a*M[0,2] + g_a*M[1,2])``.
+        We solve ``g`` so ``w_eff[limbic] == ceiling_ratio * w_eff[motor]`` only when the
+        raw lift would overshoot the cap; otherwise the raw lift ``parity_forward_gain`` is
+        used. gain is floored at 0.0 (never invert the ascending sign) and capped at the
+        configured raw lift (only ever REDUCES to hold the ceiling)."""
+        m_a, g_a, g_l = gains
+        g_raw = float(getattr(self.config, "loop_segregation_parity_forward_gain", 1.0))
+        ceil_ratio = float(getattr(self.config, "loop_segregation_parity_ceiling_ratio", 0.0))
+        # Motor effective weight (ascending-gain-invariant): motor column has no strict
+        # upper-tri entry, so it is independent of g.
+        w_m = m_a * (1.0 + float(M[0, 0])) + g_a * float(M[1, 0]) + g_l * float(M[2, 0])
+        # Limbic column: fixed (diagonal) part + scalable ascending part (rows 0,1 < col 2).
+        base_l = g_l * (1.0 + float(M[2, 2]))
+        asc_l = m_a * float(M[0, 2]) + g_a * float(M[1, 2])
+        g_eff = g_raw
+        # Only cap when the ascending path LIFTS the limbic weight (asc_l > 0) past the
+        # parity ceiling; a ceiling <= 0 means "disabled" (raw lift passes through).
+        if ceil_ratio > 0.0 and asc_l > 0.0:
+            ceil_l = ceil_ratio * w_m
+            if base_l + g_raw * asc_l > ceil_l:
+                g_eff = (ceil_l - base_l) / asc_l
+        # Actuator saturation: never invert (>=0), never exceed the configured raw lift.
+        return max(0.0, min(g_raw, g_eff))
+
     def _segregated_loop_arbitrate(
         self,
         eligible_idx: torch.Tensor,
@@ -1699,7 +1742,14 @@ class E3TrajectorySelector(nn.Module):
             # weight WITHOUT amplifying the motor column. gain 1.0 / OFF -> all-ones ->
             # W_cross == I + M_cross exactly (bit-identical). Keeps the map LINEAR.
             _M = self.M_cross.to(dtype=dtype, device=device)
-            if bool(getattr(self.config, "use_ascending_spiral_gain", False)):
+            if bool(getattr(self.config, "use_ascending_parity_controller", False)):
+                # BOUNDED target-parity controller (V3-EXQ-711 repair): a per-step
+                # ascending gain solved to hold w_eff[limbic] at/under the parity ceiling.
+                # Takes PRECEDENCE over the raw scalar path. gain 1.0 / ceiling 0.0 (inert
+                # defaults) -> all-ones -> W_cross == I + M_cross (bit-identical).
+                _pg = self._parity_forward_gain(_M, (m_a, g_a, g_l))
+                _M = self._ascending_gain_matrix(_pg, dtype, device) * _M
+            elif bool(getattr(self.config, "use_ascending_spiral_gain", False)):
                 _fwd_gain = float(
                     getattr(self.config, "loop_segregation_ascending_spiral_gain", 1.0)
                 )
@@ -1825,9 +1875,23 @@ class E3TrajectorySelector(nn.Module):
             # that drove selection, so the falsifier's limbic_loop_can_win gate reads
             # the true w_eff (gain 1.0 / OFF -> W_cross == I + M_cross, unchanged).
             _Mc = self.M_cross.detach().to("cpu", torch.float32)
+            _apc_on = bool(getattr(self.config, "use_ascending_parity_controller", False))
             _asg_on = bool(getattr(self.config, "use_ascending_spiral_gain", False))
-            self.last_score_diagnostics["loop_ascending_spiral_gain_active"] = _asg_on
-            if _asg_on:
+            self.last_score_diagnostics["loop_ascending_parity_controller_active"] = _apc_on
+            self.last_score_diagnostics["loop_ascending_spiral_gain_active"] = (
+                _asg_on and not _apc_on
+            )
+            if _apc_on:
+                # Same parity-solved gain that drove selection (so w_eff reads true).
+                _pgd = self._parity_forward_gain(_Mc, (m_a, g_a, g_l))
+                _Mc = self._ascending_gain_matrix(
+                    _pgd, torch.float32, torch.device("cpu")
+                ) * _Mc
+                self.last_score_diagnostics["loop_ascending_parity_forward_gain_applied"] = _pgd
+                self.last_score_diagnostics["loop_ascending_parity_ceiling_ratio"] = float(
+                    getattr(self.config, "loop_segregation_parity_ceiling_ratio", 0.0)
+                )
+            elif _asg_on:
                 _fg = float(
                     getattr(self.config, "loop_segregation_ascending_spiral_gain", 1.0)
                 )
@@ -3197,7 +3261,23 @@ class E3TrajectorySelector(nn.Module):
                     # the descending direction (the developmental asymmetry of Haber's
                     # spiral). eta stays the base rate; gain 1.0 / OFF -> all-ones ->
                     # bit-identical update.
-                    if bool(getattr(self.config, "use_ascending_spiral_gain", False)):
+                    _apc_on = bool(
+                        getattr(self.config, "use_ascending_parity_controller", False)
+                    )
+                    if _apc_on:
+                        # BOUNDED parity controller (V3-EXQ-711 repair): the ascending
+                        # maturation is scaled by the BOUNDED parity_plasticity_gain, and
+                        # the ascending M_cross entries are clamped after the update (an
+                        # anti-windup clamp that stops the positive-feedback plastic loop
+                        # from running away -- the second 711 runaway source). Takes
+                        # precedence over the raw plasticity path. gain 1.0 -> all-ones.
+                        _pg = float(
+                            getattr(self.config, "loop_segregation_parity_plasticity_gain", 1.0)
+                        )
+                        _clg_delta = _clg_delta * self._ascending_gain_matrix(
+                            _pg, self.M_cross.dtype, self.M_cross.device
+                        )
+                    elif bool(getattr(self.config, "use_ascending_spiral_gain", False)):
                         _pg = float(
                             getattr(self.config, "loop_segregation_ascending_plasticity_gain", 1.0)
                         )
@@ -3205,6 +3285,16 @@ class E3TrajectorySelector(nn.Module):
                             _pg, self.M_cross.dtype, self.M_cross.device
                         )
                     self.M_cross.add_(_clg_delta)
+                    if _apc_on:
+                        _clamp = float(
+                            getattr(self.config, "loop_segregation_m_cross_clamp", 0.0)
+                        )
+                        if _clamp > 0.0:
+                            with torch.no_grad():
+                                iu = torch.triu_indices(3, 3, offset=1)
+                                self.M_cross[iu[0], iu[1]] = self.M_cross[
+                                    iu[0], iu[1]
+                                ].clamp(-_clamp, _clamp)
                     self._clg_last_delta = learn_signal
                     self._clg_n_updates += 1
                 # Update the slow value baseline toward the realised R_t (shared; once).

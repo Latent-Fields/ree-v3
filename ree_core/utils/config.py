@@ -837,6 +837,37 @@ class E3Config:
     loop_segregation_ascending_spiral_gain: float = 1.0       # forward W_cross ascending-entry gain (anatomical strength)
     loop_segregation_ascending_plasticity_gain: float = 1.0   # ascending-entry update gain (spiral maturation rate)
 
+    # BOUNDED ascending-spiral gain -- target-PARITY controller (V3-EXQ-711 repair,
+    # 2026-07-04). The raw scalar above has NO stable parity regime: sub-threshold
+    # (709, coupling ~0.03, limbic never wins) or runaway (711, 20x-fwd x 5x-plasticity
+    # compounding through the positive-feedback plastic loop -> M_cross range peak 4897.8,
+    # w_eff[limbic] 10-2274x w_eff[motor] -- a limbic MONOPOLY that merely replaces the
+    # F/motor-pinning). confirmed failure_autopsy_V3-EXQ-711_2026-07-04. This controller
+    # replaces the unbounded multiply with actuator-saturated setpoint control:
+    #   1. FORWARD (parity-ceiling): a per-step gain in [0, parity_forward_gain] on the
+    #      ascending upper-tri M_cross entries, solved so the limbic effective column
+    #      weight w_eff[limbic] is LIFTED toward but HARD-CAPPED at
+    #      parity_ceiling_ratio * w_eff[motor]. The motor column has no upper-tri entries
+    #      so w_eff[motor] is gain-invariant (the fixed parity reference). Bounds the
+    #      w_eff[limbic]/w_eff[motor] RATIO -> a fair within-eligible reorder, never a
+    #      monopoly. Applied via _ascending_gain_matrix -> map stays linear, bit-identical
+    #      at init (M_cross==0 -> W_cross==I for any gain).
+    #   2. MATURATION (bounded loop): the ascending three-factor update is scaled by the
+    #      BOUNDED parity_plasticity_gain, then the ascending M_cross entries are clamped
+    #      to [-m_cross_clamp, m_cross_clamp] -- an anti-windup clamp that stops the
+    #      plastic positive-feedback loop from running away (the second 711 runaway source).
+    # Takes PRECEDENCE over use_ascending_spiral_gain when both are on (the raw path is
+    # retained only for 709/711 reproducibility). Safety unchanged: reorders STRICTLY
+    # within the F+MECH-448/449 eligible set, never re-admits a No-Go-suppressed candidate.
+    # Master switch False -> BIT-IDENTICAL OFF; sub-params default inert (forward_gain 1.0
+    # = no lift, ceiling_ratio 0.0 / m_cross_clamp 0.0 = disabled) so the falsifier's ON
+    # arm configures them explicitly. Requires use_learned_cross_loop_arbitration on to act.
+    use_ascending_parity_controller: bool = False
+    loop_segregation_parity_forward_gain: float = 1.0         # ascending lift strength g_raw (>=1 lifts; ceiling caps)
+    loop_segregation_parity_ceiling_ratio: float = 0.0        # cap w_eff[limbic] <= ratio * w_eff[motor]; 0.0 = disabled
+    loop_segregation_parity_plasticity_gain: float = 1.0      # bounded ascending maturation rate (paired with the clamp)
+    loop_segregation_m_cross_clamp: float = 0.0               # |ascending M_cross| bound post-update; 0.0 = disabled
+
     # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a, 2026-06-10):
     # The 2026-06-03/06-06 authority rescales _modulatory_accum (the composed
     # score_bias chain + MECH-341 bonus). The 569f/661/654a cluster showed that a
@@ -5046,6 +5077,11 @@ class REEConfig:
         use_ascending_spiral_gain: bool = False,
         loop_segregation_ascending_spiral_gain: float = 1.0,
         loop_segregation_ascending_plasticity_gain: float = 1.0,
+        use_ascending_parity_controller: bool = False,
+        loop_segregation_parity_forward_gain: float = 1.0,
+        loop_segregation_parity_ceiling_ratio: float = 0.0,
+        loop_segregation_parity_plasticity_gain: float = 1.0,
+        loop_segregation_m_cross_clamp: float = 0.0,
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a):
         use_modulatory_channel_routing: bool = False,
         modulatory_channel_route_min_range_floor: float = 1e-6,
@@ -6136,6 +6172,11 @@ class REEConfig:
         config.e3.use_ascending_spiral_gain = use_ascending_spiral_gain
         config.e3.loop_segregation_ascending_spiral_gain = loop_segregation_ascending_spiral_gain
         config.e3.loop_segregation_ascending_plasticity_gain = loop_segregation_ascending_plasticity_gain
+        config.e3.use_ascending_parity_controller = use_ascending_parity_controller
+        config.e3.loop_segregation_parity_forward_gain = loop_segregation_parity_forward_gain
+        config.e3.loop_segregation_parity_ceiling_ratio = loop_segregation_parity_ceiling_ratio
+        config.e3.loop_segregation_parity_plasticity_gain = loop_segregation_parity_plasticity_gain
+        config.e3.loop_segregation_m_cross_clamp = loop_segregation_m_cross_clamp
         # modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a,
         # 2026-06-10): the e3_selector additive site reads
         # use_modulatory_channel_routing + min_range_floor from config.e3; the

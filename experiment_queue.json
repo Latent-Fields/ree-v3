@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-713",
+      "title": "ARC-110 x ARC-108 BOUNDED parity-controller validation (V3-EXQ-711 runaway repair; A_ASCENDING_OFF vs bounded-parity A_ASCENDING_ON)",
+      "experiment_type": "v3_exq_713_bounded_parity_controller_validation",
+      "script": "experiments/v3_exq_713_bounded_parity_controller_validation.py",
+      "priority": 2,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 240,
+      "episodes_per_run": 250,
+      "seeds": 6,
+      "conditions": 2,
+      "claim_id": "MECH-439",
+      "note": "Successor falsifier of the BOUNDED ascending-spiral gain (target-PARITY controller), the repair the confirmed failure_autopsy_V3-EXQ-711_2026-07-04 routed to /implement-substrate. REDESIGN of a DIFFERENT mechanism (the controller), NOT a raw-gain-magnitude re-letter of 711 -- the 711 re-derive brake (MECH-439 10th / ARC-108 7th / ARC-110 2nd substrate_ceiling autopsy) explicitly REFUSES a same-claim raw-gain re-queue (e.g. 711b at 5x/10x); a controller redesign is a substrate BUILD and is the allowed path. Re-derive brake RELEASED: the bounded controller landed no-op-default in ree-v3 (config.e3.use_ascending_parity_controller + _parity_forward_gain + the M_cross clamp; ree-v3/CLAUDE.md 'BOUNDED ascending-spiral gain -- target-PARITY controller', IMPLEMENTED 2026-07-04) BEFORE this queue add. 2 arms OFF vs bounded-ON on the GAP-A reef-bipartite substrate, matched seeds. LOAD-BEARING PRECONDITION is now SATURATION-GUARDED: the limbic loop must reach a FAIR PARITY win (w_eff[motor] <= w_eff[limbic] <= band_hi*w_eff[motor], no blow-up) on >=3/4 divergent seeds; a blow-up (w_eff/M_cross past the ceiling) self-routes substrate_not_ready_requeue instead of a decisive FAIL (the exact hole the raw 711 bare-ge win-gate lacked). C1 = ON committed-class entropy strict-above the un-gained OFF baseline on >=2/3 divergent seeds. Non-vacuity self-route substrate_not_ready_requeue (non_contributory, non_degenerate=False, NEVER a false weakens) on saturation OR insufficient parity lift OR unmet liveness preconditions. claim_ids=[MECH-439, ARC-108, ARC-110]; PROMOTES NOTHING (all three stay candidate + pending_retest_after_substrate). Contract-tested (tests/contracts/test_ascending_parity_controller.py, 9 contracts). Smoke --dry-run self-routes substrate_not_ready_requeue (1 seed, n_divergent=0, n_saturated=0, m_range_peak 0.061 << clamp -- controller bounded as designed). validate_experiments --strict --paths OK. Refs: REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-711_2026-07-04.{md,json}."
+    }
+  ]
 }
