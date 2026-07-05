@@ -10,6 +10,13 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# Run as the repo owner (ree), matching every other REE unit. Without this,
+# systemd runs as root and every git call in the ree-owned live-status repo
+# fails with "detected dubious ownership" (exit 128), so the service fails on
+# every timer tick. Regression fixed 2026-07-05 (unit had run as root and
+# failed silently every ~3 min since install 2026-06-23).
+User=ree
+Group=ree
 EnvironmentFile=/etc/ree-coordinator.env
 ExecStart=/usr/bin/python3 /home/ree/REE_Working/ree-v3/coordinator/deploy/live-status-writer.py
 # Isolated dedicated repo dir; never touches the sync_daemon's tree.
