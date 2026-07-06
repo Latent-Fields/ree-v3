@@ -1950,6 +1950,7 @@ class E3TrajectorySelector(nn.Module):
         self_viability_per_candidate: Optional[torch.Tensor] = None,
         model_disagreement_per_candidate: Optional[torch.Tensor] = None,
         go_nogo_signals: Optional[Dict[str, Any]] = None,
+        conditional_predictive_variance: Optional[float] = None,
         simulation_mode: bool = False,
     ) -> SelectionResult:
         """
@@ -2000,6 +2001,15 @@ class E3TrajectorySelector(nn.Module):
                                     Its pre-rescale range is exposed as the P0
                                     readiness diagnostic modulatory_channel_route_range.
                                     None means no routing (backward compat default).
+            conditional_predictive_variance: SD-063 per-input predictive variance
+                                    (scalar) from the E2WorldUncertaintyHead over
+                                    the leading candidate's (z_world, a) transition.
+                                    When E3Config.use_conditional_precision_gate is
+                                    True and this is not None, the ARC-016 commit
+                                    decision compares it (not the running-variance
+                                    EMA) against effective_threshold. None ->
+                                    EMA fallback (backward compat default). Ignored
+                                    on the use_harm_variance_commit path.
 
         Returns:
             SelectionResult
@@ -2651,7 +2661,18 @@ class E3TrajectorySelector(nn.Module):
             harm_score_variance = harm_scores.var().item()
             committed = harm_score_variance < effective_threshold
         else:
-            committed = self._running_variance < effective_threshold
+            # SD-063: conditional predictive-precision commit gate. When enabled
+            # AND a per-input predictive variance is supplied (from the
+            # E2WorldUncertaintyHead over the leading candidate's (z_world, a)
+            # transition), gate on where THIS prediction is uncertain rather than
+            # on the state-blind running-variance EMA (the MECH-059 confidence
+            # channel). Falls back to the EMA when the flag is off or no variance
+            # is supplied -> byte-identical OFF.
+            commit_variance = self._running_variance
+            if (getattr(self.config, "use_conditional_precision_gate", False)
+                    and conditional_predictive_variance is not None):
+                commit_variance = float(conditional_predictive_variance)
+            committed = commit_variance < effective_threshold
         # CONVERSION amend (b) -- shortlist-then-modulate (569g/682, 2026-06-15).
         # The pre-registered architectural fallback: F (raw primary scores) filters
         # to a near-tie set (candidates within modulatory_shortlist_margin *

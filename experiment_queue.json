@@ -6,5 +6,22 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-716",
+      "title": "SD-063 conditional predictive-uncertainty head validation (diagnostic falsifier: CRPS/precision-error-corr survive joint training + SD-031 agency residual preserved)",
+      "experiment_type": "v3_exq_716_sd063_conditional_uncertainty_validation",
+      "script": "experiments/v3_exq_716_sd063_conditional_uncertainty_validation.py",
+      "priority": 60,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "episodes_per_run": 170,
+      "seeds": 3,
+      "conditions": 2,
+      "experiment_purpose": "diagnostic",
+      "note": "Diagnostic; PROMOTES NOTHING (claim_ids=[]). Substrate-readiness validation for the newly-implemented SD-063 E2WorldUncertaintyHead (ree_core/predictors/e2_world_uncertainty.py); imports the REAL module. world_dim=128 (E2WorldForward dim-guard), alpha_world=0.9. Two conditions (HEAD_ON/HEAD_OFF) x 3 seeds. Phased P0(SD-009+SD-018 encoder warmup)/P1(joint: encoder keeps training + E2WorldForward + point + quantile heads on DETACHED z_world)/P2(frozen held-out eval). C1 CRPS(quantile)<CRPS(point) survives joint training; C2 precision_error_corr(quantile)>=0.15 >EMA null 0; C3 (SD-031 falsifier) E2WorldForward action-discrimination gap preserved HEAD_ON vs HEAD_OFF. Readiness self-routes to substrate_not_ready_requeue if unmet. Motivating diagnostic v3_exq_712. Cloud preferred. Arms marked reuse-ineligible (joint shared-encoder training).",
+      "claim_ids": []
+    }
+  ]
 }

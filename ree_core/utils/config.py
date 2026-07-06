@@ -202,6 +202,26 @@ class LatentStackConfig:
     # See ree_core/predictors/e2_world.py for the module and training protocol.
     use_e2_world_forward: bool = False
 
+    # SD-063 -- E2 conditional predictive-uncertainty head (distribution-free
+    # quantile/pinball form). A SEPARATE readout head over (z_world, action) that
+    # emits a per-input predictive spread tracking realized error, feeding E3
+    # commitment gating (E3Config.use_conditional_precision_gate) in place of the
+    # state-blind running-variance EMA. Winner of the V3-EXQ-712 diagnostic
+    # (quantile CRPS 0.00486 vs point 0.00514; precision_error_corr 0.379 vs the
+    # EMA null 0.0; Gaussian-family heads did WORSE than the point baseline).
+    # CAVEAT (SD-031): the head is a STANDALONE module that reads DETACHED z_world
+    # and shares NO parameters with E2WorldForward or the encoder -- its P1 loss
+    # detaches both inputs and targets -- so it structurally cannot absorb/explain
+    # away the E2WorldForward agency residual (MECH-256/SD-031). Like
+    # use_e2_world_forward, this flag signals intent; the head is instantiated at
+    # the experiment/agent level (LatentStack.encode() is untouched, so OFF is
+    # byte-identical). Phased training: P0 encoder warmup -> P1 head on detached
+    # z_world targets -> P2 eval. Disabled by default -- backward compatible.
+    # See ree_core/predictors/e2_world_uncertainty.py; instantiates MECH-059.
+    use_e2_world_uncertainty: bool = False
+    e2_world_uncertainty_hidden_dim: int = 128   # trunk width (V3-EXQ-712 HEAD_HIDDEN)
+    e2_world_uncertainty_lr: float = 1e-3        # head LR (V3-EXQ-712 HEAD_LR)
+
     # MECH-441 -- model-disagreement directed curiosity ensemble (RND / Plan2Explore
     # analog). A SMALL K-head ensemble of independent residual-delta predictors over
     # (z_world, action) -- a standalone ModelDisagreementEnsemble built at the agent
@@ -425,6 +445,16 @@ class E3Config:
     commitment_threshold: float = 0.40    # variance-space threshold
     precision_ema_alpha: float = 0.05     # EMA decay for running variance estimate
     precision_init: float = 0.5          # initial running variance (starts uncommitted)
+
+    # SD-063: conditional predictive-precision commit gate. When True AND a
+    # conditional_predictive_variance is passed to select(), the ARC-016 commit
+    # decision compares that per-input predictive variance (from the SD-063
+    # E2WorldUncertaintyHead over the leading candidate's (z_world, a) transition)
+    # against effective_threshold, INSTEAD of the state-blind running_variance EMA.
+    # This is the "gate on where THIS prediction is uncertain" realization of the
+    # MECH-059 confidence channel. 0/None -> falls back to the EMA path
+    # (byte-identical OFF). Does not affect the harm-variance-commit path.
+    use_conditional_precision_gate: bool = False
 
     # ARC-030 / MECH-112: Go channel — benefit evaluation head.
     # benefit_eval_head maps z_world -> [0,1] (resource/goal proximity score).
