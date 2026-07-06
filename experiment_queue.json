@@ -30,31 +30,6 @@
       "experiment_type": "v3_exq_714_fullstack_selection_valuation_conversion_falsifier",
       "machine_affinity_note": "cloud preferred (yield logic routes cloud workers ahead of the Mac); mint requires the linux-x86_64-py3.10 cloud machine-class (arm_fingerprint machine-class-bound). Heavy 2-arm x 3-seed x 350-ep behavioural, two-head P1 training + P2 OFC viability injection. Avoid the Mac.",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-715",
-      "title": "P2 ROOT-C de-commit science falsifier: MECH-445 commit-intent + MECH-446 occupancy-drop co-occurrence on validated use_closure_commit_entry substrate (supersedes parked 460k/460l)",
-      "script": "experiments/v3_exq_715_sd034_decommit_science_closure_commit_entry_falsifier.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "supersedes": "V3-EXQ-460l",
-      "claim_id": "MECH-445",
-      "note": "OWED P2 ROOT-C de-commit SCIENCE falsifier (conversion_ceiling_campaign:P2-rootC). Re-derive brake (5 prior substrate_ceiling autopsies 460h..460l on MECH-445/446) RELEASED: named upstream substrate f_dominance_conversion_ceiling root-C closure-coupled-hold arming now BUILT+VALIDATED via use_closure_commit_entry (460o/p PASS 2026-06-24; substrate_queue build_record_460k_460l_commit_entry next). SUPERSEDES the PARKED 460k (rung-6 duration lever) / 460l (ARC-108 driver pair) line -- do NOT re-author 460d..460l; both parked levers OFF, de-commit under test is the intrinsic SD-034 closure refractory. Tests MECH-445 commit-intent + MECH-446 within-arm occupancy-drop CO-OCCURRENCE on the F-independent occupancy (dissolves the 460h disjoint-certifier problem). Readiness unmet -> substrate_not_ready_requeue (never a false weakens). PROMOTES NOTHING. Mint: multi-arm arm_cell emits the ENTRY_OFF baseline reuse-eligible in-run (mint-as-you-go); NO separate baseline mint -- the OFF arm is a cheap eval-clone of the per-seed trained curriculum, not a separately-trained baseline, and the 460 lineage substrate is in flux (disqualifier #2/#3). Queued via coordinator POST (Phase-3 authoritative) because a concurrent session held an uncommitted V3-EXQ-714 edit in the shared working-tree queue file (Step-5 STOP: queue-file commit would sweep foreign work).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-06T06:50:17Z"
-      },
-      "claim_ids": [
-        "MECH-445",
-        "MECH-446"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_type": "v3_exq_715_sd034_decommit_science_closure_commit_entry_falsifier",
-      "machine_affinity_note": "cloud preferred (yield logic routes cloud workers ahead of the Mac); heavy full-curriculum x3 seeds ~3h CPU. Avoid the Mac for this run.",
-      "seeds": 3
     }
   ]
 }
