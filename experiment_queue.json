@@ -6,5 +6,22 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-717",
+      "title": "MECH-445-only commit-intent existence falsifier (regime-scoped, M2): 12 seeds, weak/strong-natural-commit classified from OFF-arm committed fraction, commit-intent counter scored only on the weak (in-regime) subset; MECH-446 gate dropped",
+      "experiment_type": "v3_exq_717_mech445_commit_intent_regime_scoped_falsifier",
+      "script": "experiments/v3_exq_717_mech445_commit_intent_regime_scoped_falsifier.py",
+      "claim_id": "MECH-445",
+      "priority": 30,
+      "machine_affinity": "any",
+      "machine_affinity_note": "prefer cloud (linux-x86_64-py3.10); yield logic + scaler wake cloud workers to claim before DLAPTOP-4.local. No hardware requirement.",
+      "status": "pending",
+      "estimated_minutes": 300,
+      "episodes_per_run": 265,
+      "seeds": 12,
+      "conditions": 1,
+      "note": "Move M2 of REE_assembly/evidence/planning/claim_synthesis_MECH-445-446_2026-07-06.md. DECOUPLES the MECH-445 commit-INTENT existence claim from MECH-446 so MECH-445 can advance without waiting on the de-commit-release substrate. Based on v3_exq_715 but: (1) 12 seeds; (2) classify each seed weak/strong-natural-commit from its ARM_ENTRY_OFF F-driven committed fraction (weak iff committed_frac<=0.15); (3) score the refractory-independent commit-intent counter (sd034_n_closure_commit_intent) ONLY on the guard-passing WEAK (in-regime) subset, PASS if >0 on >=2/3 of THOSE; (4) MECH-446 co-occurrence / within-arm around-closure occupancy-drop gate DROPPED ENTIRELY. use_closure_commit_entry ON (ARM_ENTRY_ON). Fixes the 715 test-power hole: a 3-seed/2-of-3 gate (~1 in-regime) cannot certify a regime-scoped claim; 12 seeds (~4 in-regime) can. RE-DERIVE BRAKE RELEASED: MECH-445 has 6 prior substrate_ceiling autopsies (460h/i/j/k/l, 715) but (a) the named upstream substrate use_closure_commit_entry is BUILT+VALIDATED (V3-EXQ-460o/460p PASS 2026-06-24, present in ree_core/agent.py) and (b) this is a test-power redesign, not a same-selector de-commit-MAGNITUDE re-derive (the MECH-446 magnitude face the brake protects is dropped) -- brake-safe per claim_synthesis Sec.6. Does NOT supersede 715 (715 remains the MECH-446/co-occurrence record). Mint: in-run self-mint of the ARM_ENTRY_OFF baseline (arm_cell, reuse-eligible); separate dedicated baseline mint SKIPPED -- disqualifier #2 (substrate genuinely in flux for this lineage: the OFF path re-tunes as the f_dominance_conversion_ceiling amend lands). experiment_purpose=evidence. PROMOTES NOTHING (MECH-445 stays candidate/v3_pending/pending_retest_after_substrate until reviewed + /governance applies). Smoke --dry-run PASS 2026-07-06 (regime classifier verified: seed 42 committed_frac 0.353 -> strong, correctly excluded)."
+    }
+  ]
 }
