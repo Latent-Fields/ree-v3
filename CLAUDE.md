@@ -2360,9 +2360,11 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   DISTINCT from the SD-037 arousal entry gate (use_mech286_sleep_onset_gate /
   sleep_onset_gate.py / sleep_substrate:GAP-5, V4) -- orthogonal signal (arousal vs MEL);
   they compose.
-  Unblocks: INV-050 (retest), MECH-180 (v3_pending). Validation experiment: <EXQ-TBD>
-  queued (recon-only converged base + graded-novelty arms; DV = cumulative_sws_writes +
-  cumulative_rem_rollouts + mel_duration_factor; PROMOTES NOTHING until it scores).
+  Unblocks: INV-050 (retest), MECH-180 (v3_pending). Validation experiment: V3-EXQ-718
+  queued 2026-07-07 (v3_exq_718_sdmelconsumer_adaptive_cadence_validation; diagnostic;
+  recon-only converged base + 4 graded-novelty arms consumer-ON + 1 matched-novelty
+  consumer-OFF control; DV = cumulative_sws_writes + cumulative_rem_rollouts +
+  mel_duration_factor; PROMOTES NOTHING until it scores).
   See REE_assembly/docs/architecture/sd_mel_consumer.md; SD-017; INV-050; MECH-180;
   plan-of-record REE_assembly/evidence/planning/sleep_substrate_plan.md (GAP-5b).
 
