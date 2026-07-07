@@ -26,6 +26,22 @@
       "experiment_type": "v3_exq_717_mech445_commit_intent_regime_scoped_falsifier",
       "machine_affinity_note": "prefer cloud (linux-x86_64-py3.10); yield logic + scaler wake cloud workers to claim before DLAPTOP-4.local. No hardware requirement.",
       "seeds": 12
+    },
+    {
+      "queue_id": "V3-EXQ-718",
+      "title": "SD-MEL-CONSUMER validation: does accumulated waking MEL drive adaptive sleep cadence? (INV-050 third/learning-demand drive; MECH-180). 4 graded-novelty arms consumer-ON + 1 matched-novelty consumer-OFF control; DV=cumulative_sws_writes+rem_rollouts (the V3-EXQ-677 pinned DV) + mel_duration_factor",
+      "experiment_type": "v3_exq_718_sdmelconsumer_adaptive_cadence_validation",
+      "script": "experiments/v3_exq_718_sdmelconsumer_adaptive_cadence_validation.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "machine_affinity_note": "prefer cloud (linux-x86_64-py3.10); yield logic + scaler wake cloud workers to claim before DLAPTOP-4.local. No hardware requirement.",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 75,
+      "seeds": 3,
+      "conditions": 5,
+      "claim_id": "INV-050",
+      "note": "SUBSTRATE-READINESS VALIDATION of the SD-MEL-CONSUMER landing (ree-v3 main 909292c; ree_core/sleep/mel_consumer.py; /implement-substrate 2026-07-07). experiment_purpose=diagnostic; claim_ids=[INV-050, MECH-180]; PROMOTES NOTHING. Tests whether the now-built MEL consumer makes accumulated waking MEL (mean per-step e3 prediction error) drive offline-phase DURATION: sws_consolidation_steps->sws_n_writes and rem_attribution_steps->rem_n_rollouts scaled by clamp(1+mel_gain*(mel/ref-1),0.5,3.0). Un-pins the exact V3-EXQ-677 DV (SWS=80/REM=60 zero cross-arm variance was scheduler-pinned). DESIGN: recon-only P0 converged base (frozen-probe conv_rel_drop readiness gate; template=701c) + reference calibrated to the stable-base e3 MEL (NOT the ~7x-larger random-action frozen-probe PE); 4 graded-novelty arms (NONE/LOW/MED/HIGH via env drift) consumer-ON + 1 HIGH-novelty consumer-OFF control (reproduces 677 pinning). Sleep fired via SleepLoopManager.force_cycle (SLEEP DRIVER: manual-cycle-loop) with per-step agent.update_residue so MEL accumulates -- NOT run_sleep_cycle() direct (677 bypassed the consumer that way). PASS: DV monotone non-decreasing NONE<=LOW<=MED<=HIGH + HIGH>=NONE*1.15 on >=2/3 seeds (C1 load-bearing) AND OFF pinned + ON-HIGH>OFF-HIGH (C2); relative spread gate, floor recalibrated to 1e-6 (NOT the mis-scaled 1e-4). 3-branch NO-weakens map: readiness-unmet->substrate_not_ready_requeue; C1+C2 PASS->mel_drives_adaptive_sleep_cadence (supports; /governance clears INV-050 retest + MECH-180 v3_pending); C1 FAIL->mel_does_not_modulate_cadence (non_contributory). RE-DERIVE BRAKE RELEASED: INV-050 has >=2 non_contributory autopsies (701/701a/701b/701c) but the named upstream substrate SD-MEL-CONSUMER LANDED 2026-07-07 (failure_autopsy_V3-EXQ-701c_2026-06-30 recommended exactly this consumer) and this tests a DIFFERENT question (functional sufficiency) on newly-built substrate -- not another measurability letter. Mint: in-run self-mint (arm_cell reuse-eligible, fresh independent agent per cell). Smoke --dry-run PASS 2026-07-07 (mechanism LIVE: factor varies with MEL, HIGH_ON DV 37 > HIGH_OFF DV 30, OFF pinned cnt_var=0; C1 monotonicity noisy only at dry-run scale as expected)."
     }
   ]
 }
