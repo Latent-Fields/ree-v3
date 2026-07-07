@@ -34,6 +34,7 @@ if TYPE_CHECKING:  # pragma: no cover -- typing only
     from ree_core.agent import REEAgent
     from ree_core.sleep.bayesian_aggregator import BayesianAggregator
     from ree_core.sleep.cross_module_consolidation import CrossModuleConsolidator
+    from ree_core.sleep.mel_consumer import MELConsumer
     from ree_core.sleep.replay_sampler import SleepReplaySampler
     from ree_core.sleep.routing_gate import RoutingGate
     from ree_core.sleep.self_model_aggregator import SelfModelAggregator
@@ -118,6 +119,7 @@ class SleepLoopManager:
         cross_module_consolidation_schedule: str = "interleaved",
         cross_module_consolidation_lr: float = 1e-3,
         cross_module_consolidation_batch: int = 16,
+        mel_consumer: Optional["MELConsumer"] = None,
     ) -> None:
         if cycle_every_k_episodes < 1:
             raise ValueError(
@@ -161,6 +163,10 @@ class SleepLoopManager:
         )
         self.cross_module_consolidation_lr = float(cross_module_consolidation_lr)
         self.cross_module_consolidation_batch = int(cross_module_consolidation_batch)
+        # SD-MEL-CONSUMER (GAP-5b): adaptive sleep-cadence MEL consumer. None ->
+        # the K-episode-deterministic scheduler + fixed-duration cycle are
+        # bit-identical to the pre-SD substrate.
+        self.mel_consumer = mel_consumer
         self.state = SleepCycleState()
         self._cycle_history: List[Dict[str, float]] = []
 
@@ -177,6 +183,16 @@ class SleepLoopManager:
         the call is a no-op in that case.
         """
         self.state.episodes_since_sleep += 1
+        # SD-MEL-CONSUMER (GAP-5b) entry-timing lever: when enabled, fire once
+        # accumulated waking MEL crosses the threshold, with the K-episode
+        # counter as a safety-backstop ceiling. Bit-identical strict-K when the
+        # consumer is absent or its entry lever is off.
+        if self.mel_consumer is not None:
+            if not self.mel_consumer.entry_permitted(
+                self.state.episodes_since_sleep, self.cycle_every_k_episodes
+            ):
+                return None
+            return self._run_cycle(agent)
         if self.state.episodes_since_sleep < self.cycle_every_k_episodes:
             return None
         return self._run_cycle(agent)
@@ -193,6 +209,8 @@ class SleepLoopManager:
         """Hard reset (e.g. between training stages)."""
         self.state = SleepCycleState()
         self._cycle_history = []
+        if self.mel_consumer is not None:
+            self.mel_consumer.reset()
 
     @property
     def cycle_history(self) -> List[Dict[str, float]]:
@@ -325,13 +343,42 @@ class SleepLoopManager:
         else:
             mean_anchor = 1.0
 
+        # SD-MEL-CONSUMER (GAP-5b) DURATION lever: scale this cycle's SWS/REM
+        # step counts by the accumulated-waking-MEL duration factor. Temporarily
+        # override agent.config.sws_consolidation_steps / rem_attribution_steps
+        # (which run_sleep_cycle -> run_sws_schema_pass / run_rem_attribution_pass
+        # read directly), then restore in finally so the override is scoped to
+        # this cycle only. No-op (factor 1.0, no override) when the consumer is
+        # absent -> bit-identical fixed-duration cycle.
+        _mel_factor = 1.0
+        _mel_orig_sws = None
+        _mel_orig_rem = None
+        if self.mel_consumer is not None:
+            _mel_factor = self.mel_consumer.duration_factor()
+            if getattr(agent.config, "mel_scale_sws", True):
+                _mel_orig_sws = int(getattr(agent.config, "sws_consolidation_steps", 0))
+                agent.config.sws_consolidation_steps = self.mel_consumer.scale_steps(
+                    _mel_orig_sws
+                )
+            if getattr(agent.config, "mel_scale_rem", True):
+                _mel_orig_rem = int(getattr(agent.config, "rem_attribution_steps", 0))
+                agent.config.rem_attribution_steps = self.mel_consumer.scale_steps(
+                    _mel_orig_rem
+                )
+
         # Delegate to the existing SD-017 surface. run_sleep_cycle handles
         # the SWS -> REM ordering, mode entry/exit, and metric merging.
         # infant_substrate:GAP-8 -- capture z_goal norm before the cycle so
         # retention can be computed after. Non-invasive read; -1.0 sentinel
         # when goal_state is absent.
         _z_goal_before = self._safe_z_goal_norm(agent)
-        metrics = agent.run_sleep_cycle(sws_anchor_weight=mean_anchor)
+        try:
+            metrics = agent.run_sleep_cycle(sws_anchor_weight=mean_anchor)
+        finally:
+            if _mel_orig_sws is not None:
+                agent.config.sws_consolidation_steps = _mel_orig_sws
+            if _mel_orig_rem is not None:
+                agent.config.rem_attribution_steps = _mel_orig_rem
         _z_goal_after = self._safe_z_goal_norm(agent)
 
         # Phase E: WRITEBACK -- self-model offline gradient pass on
@@ -482,6 +529,23 @@ class SleepLoopManager:
             if _n_draws > 0
             else -1.0
         )
+
+        # SD-MEL-CONSUMER (GAP-5b): surface the MEL read + duration factor + the
+        # effective scaled step counts this cycle, then update the reference
+        # set-point and reset the accumulator for the next wake window.
+        if self.mel_consumer is not None:
+            merged.update(self.mel_consumer.get_metrics())
+            merged["mel_sws_steps_effective"] = (
+                float(self.mel_consumer.scale_steps(_mel_orig_sws))
+                if _mel_orig_sws is not None
+                else float(getattr(agent.config, "sws_consolidation_steps", 0.0))
+            )
+            merged["mel_rem_steps_effective"] = (
+                float(self.mel_consumer.scale_steps(_mel_orig_rem))
+                if _mel_orig_rem is not None
+                else float(getattr(agent.config, "rem_attribution_steps", 0.0))
+            )
+            self.mel_consumer.on_cycle_complete()
 
         self.state.phase = SleepPhase.WAKING
         self.state.episodes_since_sleep = 0

@@ -1968,6 +1968,41 @@ class REEAgent(nn.Module):
         self.sleep_bayesian_aggregator = None  # Phase D (MECH-275)
         self.sleep_self_model_aggregator = None  # Phase E (MECH-273)
 
+        # SD-MEL-CONSUMER (sleep_substrate:GAP-5b): adaptive sleep-cadence MEL
+        # consumer. Built when use_mel_consumer is on; reads accumulated waking
+        # e3 prediction-error load (populated in update_residue) and modulates
+        # the offline-phase duration/entry. Passed to the SleepLoopManager below.
+        # None (default) -> bit-identical K-episode-deterministic scheduler.
+        self.mel_consumer = None
+        if getattr(config, "use_mel_consumer", False):
+            from ree_core.sleep.mel_consumer import MELConsumer, MELConsumerConfig
+
+            self.mel_consumer = MELConsumer(
+                MELConsumerConfig(
+                    mel_gain=float(getattr(config, "mel_gain", 1.0)),
+                    mel_reference=float(getattr(config, "mel_reference", 0.0)),
+                    mel_reference_mode=str(
+                        getattr(config, "mel_reference_mode", "fixed")
+                    ),
+                    mel_ema_alpha=float(getattr(config, "mel_ema_alpha", 0.1)),
+                    mel_duration_factor_min=float(
+                        getattr(config, "mel_duration_factor_min", 0.5)
+                    ),
+                    mel_duration_factor_max=float(
+                        getattr(config, "mel_duration_factor_max", 3.0)
+                    ),
+                    mel_relative_floor=float(
+                        getattr(config, "mel_relative_floor", 1e-6)
+                    ),
+                    mel_scale_sws=bool(getattr(config, "mel_scale_sws", True)),
+                    mel_scale_rem=bool(getattr(config, "mel_scale_rem", True)),
+                    use_mel_entry=bool(getattr(config, "use_mel_entry", False)),
+                    mel_entry_threshold=float(
+                        getattr(config, "mel_entry_threshold", 0.0)
+                    ),
+                )
+            )
+
         # MECH-423 R3: module-tagged interleaved cross-module consolidation.
         # Built independent of use_sleep_loop so an experiment can drive it
         # standalone via agent.cross_module_consolidator; also passed to the
@@ -2175,6 +2210,8 @@ class REEAgent(nn.Module):
                 cross_module_consolidation_batch=int(
                     getattr(config, "cross_module_consolidation_batch", 16)
                 ),
+                # SD-MEL-CONSUMER (GAP-5b): adaptive sleep-cadence MEL consumer.
+                mel_consumer=self.mel_consumer,
             )
 
         # Observation encoders (maps raw body/world obs to latent input)
@@ -7617,6 +7654,23 @@ class REEAgent(nn.Module):
                 harm_occurred=(harm_signal < 0),
             )
             metrics.update({f"e3_{k}": v for k, v in e3_metrics.items()})
+
+            # SD-MEL-CONSUMER (sleep_substrate:GAP-5b): accumulate this waking
+            # step's e3 prediction error into the Model Error Load accumulator.
+            # This is the SAME signal V3-EXQ-701c measured (e3_prediction_error).
+            # Waking-only: update_residue is the waking post-action path and
+            # hypothesis_tag=False marks a genuine waking step, so replay /
+            # simulation PE (hypothesis_tag=True) never enters MEL (MECH-094).
+            # No-op when the consumer is absent -> bit-identical.
+            if self.mel_consumer is not None and not hypothesis_tag:
+                _mel_pe = e3_metrics.get("prediction_error")
+                if _mel_pe is not None:
+                    _mel_pe_val = (
+                        float(_mel_pe.detach().item())
+                        if torch.is_tensor(_mel_pe)
+                        else float(_mel_pe)
+                    )
+                    self.mel_consumer.note_step_pe(_mel_pe_val)
 
             # ARC-108 JOB-2 (d): HABENULA negative-RPE de-commit. post_action_update
             # surfaced the signed RPE delta_t (= R_t - V-hat_t, the SAME signal JOB-1

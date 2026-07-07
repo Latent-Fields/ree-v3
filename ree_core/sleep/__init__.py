@@ -22,6 +22,11 @@ from ree_core.sleep.cross_module_consolidation import (
     CrossModuleConsolidator,
     CrossModuleConsolidatorConfig,
 )
+from ree_core.sleep.mel_consumer import (
+    MELConsumer,
+    MELConsumerConfig,
+    WakingMELAccumulator,
+)
 from ree_core.sleep.phase_manager import (
     SleepCycleState,
     SleepLoopManager,
@@ -49,6 +54,9 @@ __all__ = [
     "CrossModuleConsolidatorConfig",
     "GaussianPosterior",
     "PosteriorUpdate",
+    "MELConsumer",
+    "MELConsumerConfig",
+    "WakingMELAccumulator",
     "SleepCycleState",
     "SleepLoopManager",
     "SleepPhase",

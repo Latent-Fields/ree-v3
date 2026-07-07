@@ -3883,6 +3883,49 @@ class REEConfig:
     # state machine without the SD-017 passes.
     sleep_loop_require_passes: bool = True
 
+    # SD-MEL-CONSUMER (sleep_substrate:GAP-5b): adaptive sleep-cadence MEL
+    # consumer. When True (and use_sleep_loop is True), the SleepLoopManager
+    # reads accumulated waking Model Error Load (mean per-step e3 prediction
+    # error over the wake window, the same signal V3-EXQ-701c measured) and
+    # scales the offline-phase DURATION (sws_consolidation_steps and/or
+    # rem_attribution_steps) -- and optionally the ENTRY timing -- by a
+    # relative, scale-free factor. This is the INV-050 third / learning-demand
+    # drive (MECH-180), DISTINCT from the SD-037 arousal entry gate
+    # (use_mech286_sleep_onset_gate / GAP-5, V4). Master OFF -> the agent never
+    # instantiates the consumer -> byte-identical to the K-episode-deterministic
+    # scheduler. See REE_assembly/docs/architecture/sd_mel_consumer.md.
+    use_mel_consumer: bool = False
+    # Duration sensitivity: factor = clamp(1 + mel_gain*(mel/ref - 1), min, max).
+    # Inert (factor stays 1.0) unless the master switch is on. gain 0.0 also
+    # yields factor 1.0 (no-op) even with the master on.
+    mel_gain: float = 1.0
+    # Homeostatic MEL set-point (per-step PE units). 0.0 sentinel = auto-calibrate
+    # to the first sleep cycle's MEL. Validation test-bed sets ~2e-5 (the 701c
+    # converged-base per-step PE). Guarded by max(ref, mel_relative_floor).
+    mel_reference: float = 0.0
+    # Reference mode: "fixed" (constant set-point; correct for graded-novelty
+    # ablation) or "ema" (slow per-cycle EMA; biologically faithful long-run).
+    mel_reference_mode: str = "fixed"
+    mel_ema_alpha: float = 0.1
+    # Saturation clamp on the duration factor (control-saturation guard against a
+    # transient PE spike blowing up / zeroing the offline phase).
+    mel_duration_factor_min: float = 0.5
+    mel_duration_factor_max: float = 3.0
+    # Relative floor guarding ref ~ 0 in mel/ref. Recalibrated DOWN from the
+    # 701c-inherited ABS_MEL_FLOOR=1e-4 (which was ~5x the converged-base signal)
+    # to a divide-guard only -- the response is relative, never an absolute
+    # spread gate. See sd_mel_consumer.md "Instrument-floor learning".
+    mel_relative_floor: float = 1e-6
+    # Which duration lever(s) the factor scales.
+    mel_scale_sws: bool = True
+    mel_scale_rem: bool = True
+    # Secondary ENTRY-timing lever: fire a cycle as soon as accumulated MEL
+    # crosses mel_entry_threshold (with the K-episode counter as a safety
+    # backstop ceiling), instead of strictly every K episodes. Default off; the
+    # duration lever is the primary validated mechanism.
+    use_mel_entry: bool = False
+    mel_entry_threshold: float = 0.0
+
     # Phase B (MECH-285): SleepReplaySampler offline arm. When True (and
     # use_sleep_loop is True), the SleepLoopManager freezes a
     # StalenessAccumulator snapshot at SLEEP_ENTRY and instantiates a
@@ -5197,6 +5240,19 @@ class REEConfig:
         use_sleep_loop: bool = False,
         sleep_loop_episodes_K: int = 1,
         sleep_loop_require_passes: bool = True,
+        # SD-MEL-CONSUMER (GAP-5b): adaptive sleep-cadence MEL consumer
+        use_mel_consumer: bool = False,
+        mel_gain: float = 1.0,
+        mel_reference: float = 0.0,
+        mel_reference_mode: str = "fixed",
+        mel_ema_alpha: float = 0.1,
+        mel_duration_factor_min: float = 0.5,
+        mel_duration_factor_max: float = 3.0,
+        mel_relative_floor: float = 1e-6,
+        mel_scale_sws: bool = True,
+        mel_scale_rem: bool = True,
+        use_mel_entry: bool = False,
+        mel_entry_threshold: float = 0.0,
         # Phase B: MECH-285 SleepReplaySampler
         use_mech285_sampler: bool = False,
         mech285_draws_per_cycle: int = 50,
@@ -6291,6 +6347,20 @@ class REEConfig:
         config.use_sleep_loop = use_sleep_loop
         config.sleep_loop_episodes_K = sleep_loop_episodes_K
         config.sleep_loop_require_passes = sleep_loop_require_passes
+
+        # SD-MEL-CONSUMER (sleep_substrate:GAP-5b)
+        config.use_mel_consumer = use_mel_consumer
+        config.mel_gain = mel_gain
+        config.mel_reference = mel_reference
+        config.mel_reference_mode = mel_reference_mode
+        config.mel_ema_alpha = mel_ema_alpha
+        config.mel_duration_factor_min = mel_duration_factor_min
+        config.mel_duration_factor_max = mel_duration_factor_max
+        config.mel_relative_floor = mel_relative_floor
+        config.mel_scale_sws = mel_scale_sws
+        config.mel_scale_rem = mel_scale_rem
+        config.use_mel_entry = use_mel_entry
+        config.mel_entry_threshold = mel_entry_threshold
 
         # Sleep-aggregation cluster Phase B (MECH-285)
         config.use_mech285_sampler = use_mech285_sampler
