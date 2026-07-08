@@ -47,6 +47,26 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-724",
+      "title": "Competence-localization diagnostic (all-ON forage): OFAT over P1-budget / frozen-encoder / mechanism-interference vs a greedy-oracle positive control",
+      "script": "experiments/v3_exq_724_competence_localization_diagnostic.py",
+      "priority": 200,
+      "machine_affinity": "any",
+      "estimated_minutes": 450,
+      "claim_id": "",
+      "note": "DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[], non_contributory, PROMOTES NOTHING). Localizes WHY the integrated all-ON REE-v3 agent foraged 0.065/0.0/0.455 resources/ep (below 1.0 floor, 0/3 seeds) in failure_autopsy_V3-EXQ-719a_2026-07-08 -- shared root of the 654h/485i/625e/460h/460i substrate_not_ready retest wall. OFAT: baseline A0 (719a all-ON P1=90 frozen) + single-factor arms A1 (P1=300, thin-budget), A2 (encoder unfrozen in P1), A3 (minimal forage-only config, mechanism-interference), + A4 recovery ceiling (minimal+P1=300+unfrozen). Greedy nearest-resource oracle positive control validates the 1.0 floor is achievable in-env. Self-route readiness/present(competence_lever_localized)/diffuse -- HYPOTHESIS not verdict; route to /failure-autopsy. BRAKE-EXEMPT: different question than ARC-062/MECH-309 (why incompetent, not committed-action collapse); tags NO claim. Feeds /implement-substrate f_dominance_conversion_ceiling competence/training-regime build. arm_cell self-mints per-cell fingerprints (no separate baseline mint: bespoke diagnostic arm configs, no lineage family expected).",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-07-08T23:43:23Z"
+      },
+      "claim_ids": [],
+      "conditions": 5,
+      "episodes_per_run": 310,
+      "experiment_type": "v3_exq_724_competence_localization_diagnostic",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-720",
       "title": "Coherence non-reducibility retest on cross_stream_binding_substrate (641a harness, binding ON strength 0.5)",
       "script": "experiments/v3_exq_720_coherence_nonreducibility_bound_substrate.py",
@@ -64,22 +84,6 @@
       "episodes_per_run": 65,
       "experiment_type": "v3_exq_720_coherence_nonreducibility_bound_substrate",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-724",
-      "title": "Competence-localization diagnostic (all-ON forage): OFAT over P1-budget / frozen-encoder / mechanism-interference vs a greedy-oracle positive control",
-      "experiment_type": "v3_exq_724_competence_localization_diagnostic",
-      "script": "experiments/v3_exq_724_competence_localization_diagnostic.py",
-      "priority": 200,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 450,
-      "episodes_per_run": 310,
-      "seeds": 3,
-      "conditions": 5,
-      "claim_id": "",
-      "note": "DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[], non_contributory, PROMOTES NOTHING). Localizes WHY the integrated all-ON REE-v3 agent foraged 0.065/0.0/0.455 resources/ep (below 1.0 floor, 0/3 seeds) in failure_autopsy_V3-EXQ-719a_2026-07-08 -- shared root of the 654h/485i/625e/460h/460i substrate_not_ready retest wall. OFAT: baseline A0 (719a all-ON P1=90 frozen) + single-factor arms A1 (P1=300, thin-budget), A2 (encoder unfrozen in P1), A3 (minimal forage-only config, mechanism-interference), + A4 recovery ceiling (minimal+P1=300+unfrozen). Greedy nearest-resource oracle positive control validates the 1.0 floor is achievable in-env. Self-route readiness/present(competence_lever_localized)/diffuse -- HYPOTHESIS not verdict; route to /failure-autopsy. BRAKE-EXEMPT: different question than ARC-062/MECH-309 (why incompetent, not committed-action collapse); tags NO claim. Feeds /implement-substrate f_dominance_conversion_ceiling competence/training-regime build. arm_cell self-mints per-cell fingerprints (no separate baseline mint: bespoke diagnostic arm configs, no lineage family expected).",
-      "claim_ids": []
     }
   ]
 }
