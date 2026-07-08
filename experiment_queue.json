@@ -10,19 +10,23 @@
     {
       "queue_id": "V3-EXQ-719a",
       "title": "Conversion-ceiling dissociation diagnostic (tick-budget P2 re-queue of 719): marginal committed-class entropy vs I(state;committed_action) + competence",
-      "experiment_type": "v3_exq_719a_conversion_ceiling_dissociation_diagnostic",
       "script": "experiments/v3_exq_719a_conversion_ceiling_dissociation_diagnostic.py",
-      "supersedes": "V3-EXQ-719",
       "priority": 460,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 120,
-      "episodes_per_run": 690,
-      "seeds": 3,
-      "conditions": 1,
+      "supersedes": "V3-EXQ-719",
       "claim_id": "MECH-309",
+      "note": "DIAGNOSTIC (non_contributory; promotes nothing). Supersedes V3-EXQ-719, which self-routed substrate_not_ready_requeue (only 1/3 seeds cleared the 3000-tick MI floor: P2 ticks 951/10782/1369 -- agent died early on seeds 42/44). FIX: P2 eval is now TICK-BUDGET-DRIVEN (run until P2_TICKS_TARGET=6000 committed P2 ticks OR P2_MAX_EPISODES=400 cap, whichever first) so every seed clears the 3000 floor and per-seed tick counts equalize for comparable MI. Readiness floor unchanged (3000). Everything else identical to 719: all-mechanisms-ON (714 ARM_ON config; sleep OFF); per-tick ground-truth (state_bin, executed committed_class, behaviour); DV1 marginal committed_class_entropy vs DV2 debiased I(state;committed_class) (200x shuffle-null+p95) vs DV3 competence; dissociates genuine monomodal collapse (MECH-309) from decisive state-appropriate commitment (marginal-entropy-artifact hypothesis). episodes_per_run=690 is the MAX (P0 200 + P1 90 + P2_MAX 400); actual P2 episodes are data-dependent (~35 on a surviving seed). Re-derive brake EXEMPT (diagnostic; substrate_not_ready re-queue at adequate budget, the 642->642a pattern). Gates the Track-1 GAP-A-divergence-survival /implement-substrate build. Prefer cloud.",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-07-08T16:59:26Z"
+      },
+      "conditions": 1,
+      "episodes_per_run": 690,
       "experiment_purpose": "diagnostic",
-      "note": "DIAGNOSTIC (non_contributory; promotes nothing). Supersedes V3-EXQ-719, which self-routed substrate_not_ready_requeue (only 1/3 seeds cleared the 3000-tick MI floor: P2 ticks 951/10782/1369 -- agent died early on seeds 42/44). FIX: P2 eval is now TICK-BUDGET-DRIVEN (run until P2_TICKS_TARGET=6000 committed P2 ticks OR P2_MAX_EPISODES=400 cap, whichever first) so every seed clears the 3000 floor and per-seed tick counts equalize for comparable MI. Readiness floor unchanged (3000). Everything else identical to 719: all-mechanisms-ON (714 ARM_ON config; sleep OFF); per-tick ground-truth (state_bin, executed committed_class, behaviour); DV1 marginal committed_class_entropy vs DV2 debiased I(state;committed_class) (200x shuffle-null+p95) vs DV3 competence; dissociates genuine monomodal collapse (MECH-309) from decisive state-appropriate commitment (marginal-entropy-artifact hypothesis). episodes_per_run=690 is the MAX (P0 200 + P1 90 + P2_MAX 400); actual P2 episodes are data-dependent (~35 on a surviving seed). Re-derive brake EXEMPT (diagnostic; substrate_not_ready re-queue at adequate budget, the 642->642a pattern). Gates the Track-1 GAP-A-divergence-survival /implement-substrate build. Prefer cloud."
+      "experiment_type": "v3_exq_719a_conversion_ceiling_dissociation_diagnostic",
+      "seeds": 3
     }
   ]
 }
