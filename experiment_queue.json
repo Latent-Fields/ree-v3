@@ -36,7 +36,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 240,
       "note": "DIAGNOSTIC (claim_ids=[], non_contributory, PROMOTES NOTHING). Move M3 of claim_synthesis_MECH-445-446_2026-07-06.md. Re-anchors the MECH-446 de-commit-authority DV from the recurring-VACUOUS within-arm post-closure occupancy-DROP to the DISTRIBUTION of the tick LAG between each genuine SD-034 closure fire (closure_operator._n_closures increment) and the nearest sustained latch-armed beta occupancy (run >= SUSTAIN_MIN_TICKS=2), on the F-independent use_closure_commit_entry substrate (VALIDATED 460o/460p PASS 2026-06-24). Graded output: seed_median_lag_stats + pooled_coreg_within_horizon_frac (fraction of fires with an occupancy within LAG_HORIZON=10 ticks -- the fraction the 715 falsifier window could ever have scored) -- quantifying exactly how much co-registration the f_dominance de-commit-release amend must buy. ATTRIBUTION GUARD: closure_exclusive_decommit_eval=True makes every measured occupancy closure-formed by construction; ARM_ENTRY_OFF forms no occupancy (censored) = the attribution control. Readiness (self-route, never a verdict): >= 1 measurable seed (guard-competent + >= 1 fire-with-sustained-occupancy) AND >= MIN_LAG_EVENTS=2 fire-with-occupancy events; else substrate_not_ready_requeue. Re-derive brake EXEMPT: new DV MEASUREMENT, not a same-selector de-commit-MAGNITUDE re-derive (that face's brake is FIRED, 7 substrate-ceiling readings). Precondition met: V3-EXQ-715a (Move M1, selection-face lift ON) did NOT co-locate (moderate_f_delta -63). 6 seeds [42-47] (incl. 715's arming seed 44 + 717's armed 46). Mint: 2-arm in-run self-mint ON (arm_cell); separate baseline mint SKIPPED (disqualifier: closure-de-commit substrate is genuinely IN FLUX for this lineage -- the de-commit-release face is under active /implement-substrate build, so the OFF path re-tunes and the fingerprint would correctly refuse a drifted mint; one-shot diagnostic whose successor is /implement-substrate, not a lettered sibling). Prefer cloud. Smoke: dry-run PASS (instrumentation confirmed: ON arm formed a sustained occupancy, closure fire lag=1, attribution control OFF armed=0).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-07-08T21:00:58Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 265,
