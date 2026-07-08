@@ -1203,6 +1203,41 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
 - SD-005: z_gamma split into z_self (E2 domain) + z_world (E3/Hippocampal/ResidueField domain)
 - SD-006: Asynchronous multi-rate loop execution (phase 1: time-multiplexed)
 
+## cross_stream_binding_substrate: Shared-latent-factor cross-stream binding (2026-07-08)
+- cross_stream_binding_substrate: latent.cross_stream_binding -- IMPLEMENTED 2026-07-08.
+  Module: ree_core/latent/cross_stream_binder.py (CrossStreamBinder); wired into
+  ree_core/predictors/e2_fast.py (E2FastPredictor.__init__ + rollout_with_world).
+  Config: E2Config.cross_stream_binding_enabled (default False; set True to enable),
+  cross_stream_binding_dim (16), cross_stream_binding_strength (0.15),
+  cross_stream_binding_theta_period (4).
+  Data flow: joint (z_self_t, z_world_t) -> g_t = tanh(W_enc . [z_self;z_world]) ->
+  b_t = W_out . g_t (shared perturbation, bind_out_dim = min(self_dim, world_dim)) ->
+  the SAME theta-gated k_t*b_t added into the first bind_out_dim components of BOTH
+  post-transition z_self and z_world -> trajectory.states / trajectory.world_states ->
+  641a-style cross-stream coherence read. The two streams' step-deltas now share an
+  explicit common component derived from their joint state (a genuine shared cause),
+  which the pre-substrate rollout lacked (two independent forward models sharing only
+  the action -> coherence reducible to E; failure_autopsy_V3-EXQ-641a_2026-06-06).
+  Backward compatible: disabled by default; the CrossStreamBinder submodule is
+  constructed ONLY when the master switch is enabled and LAST in E2.__init__, so with
+  the flag OFF no parameters are created and no construction-time RNG is consumed --
+  verified byte-identical (existing E2 weights unchanged; OFF rollout byte-identical to
+  a binder-less baseline).
+  Biological basis: MECH-089 theta-gamma nesting (per-step gamma-rate shared code b_t
+  nested within the cosine theta window k_t), MECH-270 ephaptic coupling (a shared
+  field both streams feel, imposed structurally). Fixed (untrained) projections by
+  design -- the 641a retest runs eval() with no P0 curriculum, so a learned head would
+  be untrained-random; a fixed joint-state-dependent shared field is the minimal
+  genuine common cause. A learned binder is a V4 extension.
+  Phased training required: NO (fixed projections; not trained).
+  MECH-094: does NOT newly apply (no memory-write surface added; hypothesis_tag
+  semantics unchanged; retest is waking simulation_mode=False).
+  Validation experiment: V3-EXQ-720 queued (641a harness with binding ON at
+  strength=0.5, injected ~34% of the base per-step delta; pre-registered gate
+  >=4/6 seeds coherence_specific, margin >=0.05).
+  See docs/architecture/sd_cross_stream_binding_substrate.md, INV-002, MECH-089,
+  MECH-094, MECH-270, candidate entities/selection.coherence_nonreducibility.
+
 ## MECH-090 Layer 1 + MECH-091 Layer 2: Trajectory Stepping + Urgency Interrupt (2026-04-15)
 - MECH-090 Layer 1: control_plane.committed_trajectory_stepping -- IMPLEMENTED 2026-04-15.
   Module: ree_core/agent.py (REEAgent.select_action, REEAgent.reset).

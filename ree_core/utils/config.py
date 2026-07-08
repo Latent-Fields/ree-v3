@@ -408,6 +408,20 @@ class E2Config:
     e2_rollout_output_norm_clamp_enabled: bool = False
     e2_rollout_output_norm_clamp_ratio: float = 2.0
 
+    # cross_stream_binding_substrate (2026-07-08): shared-latent-factor binding
+    # coupling injected into BOTH streams inside E2.rollout_with_world so the
+    # z_world<->z_self rollout deltas share a genuine common cause. This is the
+    # substrate 641a needed: with these streams unbound, cross-stream coherence
+    # C(tau) is reducible to E (failure_autopsy_V3-EXQ-641a_2026-06-06). All
+    # no-op default -- OFF is byte-identical (the CrossStreamBinder submodule is
+    # constructed only when cross_stream_binding_enabled is True, so OFF consumes
+    # no parameters and no construction-time RNG). See
+    # docs/architecture/sd_cross_stream_binding_substrate.md.
+    cross_stream_binding_enabled: bool = False
+    cross_stream_binding_dim: int = 16          # shared-factor dim (bind_dim)
+    cross_stream_binding_strength: float = 0.15  # coupling scale (kappa)
+    cross_stream_binding_theta_period: int = 4   # MECH-089 theta window period (steps)
+
 
 @dataclass
 class E3Config:
@@ -4531,6 +4545,11 @@ class REEConfig:
         e2_action_contrastive_horizon_weights_decay: float = 1.0,
         e2_rollout_output_norm_clamp_enabled: bool = False,
         e2_rollout_output_norm_clamp_ratio: float = 2.0,
+        # cross_stream_binding_substrate (2026-07-08); all no-op default.
+        cross_stream_binding_enabled: bool = False,
+        cross_stream_binding_dim: int = 16,
+        cross_stream_binding_strength: float = 0.15,
+        cross_stream_binding_theta_period: int = 4,
         # SD-022: directional limb damage
         limb_damage_enabled: bool = False,
         damage_increment: float = 0.15,
@@ -5563,6 +5582,14 @@ class REEConfig:
         config.e2.e2_action_contrastive_horizon_weights_decay = e2_action_contrastive_horizon_weights_decay
         config.e2.e2_rollout_output_norm_clamp_enabled = e2_rollout_output_norm_clamp_enabled
         config.e2.e2_rollout_output_norm_clamp_ratio = e2_rollout_output_norm_clamp_ratio
+
+        # cross_stream_binding_substrate (2026-07-08): shared-latent-factor
+        # binding coupling in E2.rollout_with_world. All no-op default -> OFF is
+        # byte-identical (binder submodule constructed only when enabled).
+        config.e2.cross_stream_binding_enabled = cross_stream_binding_enabled
+        config.e2.cross_stream_binding_dim = cross_stream_binding_dim
+        config.e2.cross_stream_binding_strength = cross_stream_binding_strength
+        config.e2.cross_stream_binding_theta_period = cross_stream_binding_theta_period
 
         # SD-022: directional limb damage dim adjustments.
         # When enabled: harm_obs_a_dim is re-sourced from body damage state (7 dims).

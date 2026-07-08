@@ -147,6 +147,23 @@ class E2FastPredictor(nn.Module):
             nn.Linear(self.config.hidden_dim, self.config.action_object_dim),
         )
 
+        # --- cross_stream_binding_substrate: shared-latent-factor binding ---
+        # Constructed ONLY when the master switch is enabled, and LAST in
+        # __init__, so that with the flag OFF no parameters are created and no
+        # construction-time RNG is consumed -> byte-identical to pre-substrate.
+        # See ree_core/latent/cross_stream_binder.py and
+        # docs/architecture/sd_cross_stream_binding_substrate.md.
+        self.cross_stream_binder = None
+        if getattr(self.config, "cross_stream_binding_enabled", False):
+            from ree_core.latent.cross_stream_binder import CrossStreamBinder
+            self.cross_stream_binder = CrossStreamBinder(
+                self_dim=self.config.self_dim,
+                world_dim=self.config.world_dim,
+                bind_dim=int(getattr(self.config, "cross_stream_binding_dim", 16)),
+                strength=float(getattr(self.config, "cross_stream_binding_strength", 0.15)),
+                theta_period=int(getattr(self.config, "cross_stream_binding_theta_period", 4)),
+            )
+
     # ------------------------------------------------------------------ #
     # Core interface                                                       #
     # ------------------------------------------------------------------ #
@@ -688,6 +705,10 @@ class E2FastPredictor(nn.Module):
         else:
             max_allowed_norm = None  # unused
 
+        # cross_stream_binding_substrate: shared-latent-factor coupling. None
+        # (default) -> the loop below is bit-identical to the pre-substrate path.
+        binder = getattr(self, "cross_stream_binder", None)
+
         for t in range(horizon):
             action = action_sequence[:, t, :]
 
@@ -695,8 +716,19 @@ class E2FastPredictor(nn.Module):
                 o_t = self.action_object(z_world, action, action_bias=action_bias)
                 action_objects.append(o_t)
 
+            # Shared binding factor from the JOINT pre-transition state, so the
+            # common cause is genuinely a function of both streams (not the
+            # action alone -- that is what E already scores).
+            g_t = binder.factor(z_self, z_world) if binder is not None else None
+
             z_self  = self.predict_next_self(z_self, action)
             z_world = self.world_forward(z_world, action)
+
+            if binder is not None:
+                # Inject the SAME theta-gated perturbation into both streams so
+                # their step-deltas share an explicit common component. Applied
+                # BEFORE the norm clamp so the clamp (if on) still bounds z_world.
+                z_self, z_world = binder.couple(z_self, z_world, g_t, t)
 
             if clamp_enabled:
                 # Renormalise rows whose current norm exceeds max_allowed_norm.
