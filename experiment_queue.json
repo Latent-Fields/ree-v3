@@ -31,17 +31,17 @@
     {
       "queue_id": "V3-EXQ-720",
       "title": "Coherence non-reducibility retest on cross_stream_binding_substrate (641a harness, binding ON strength 0.5)",
-      "experiment_type": "v3_exq_720_coherence_nonreducibility_bound_substrate",
       "script": "experiments/v3_exq_720_coherence_nonreducibility_bound_substrate.py",
       "priority": 100,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 180,
-      "episodes_per_run": 65,
-      "seeds": 6,
-      "conditions": 3,
       "claim_id": "entities/selection.coherence_nonreducibility (candidate, unregistered)",
-      "note": "Diagnostic (claim_ids=[], non_contributory, PROMOTES NOTHING). Retest of the V3-EXQ-641a harness (E-orthogonal cross-stream-only coherence read + shuffle-of-real-C contrast-matched control) on the newly-landed cross_stream_binding_substrate (E2Config.cross_stream_binding_enabled=True, strength=0.5). Does NOT supersede 641a (its substrate-ceiling finding stands). ONLY change vs 641a: agent built with binding ON so z_world<->z_self rollout streams share a genuine theta-gated common cause. strength=0.5 pre-registered (injected ~34pct of base per-step z_world delta; measured in substrate smoke test, not tuned to a pass). PASS gate identical to 641a: C_nonreducible_coherence_specific_register on >=4/6 seeds (D1 gated + D3 |corr(E,rawC)|<0.9 + SPEC margin>=0.05). On PASS: register candidate entities/selection.coherence_nonreducibility + close 2026-04-23 binding+path_integral intakes positive. On FAIL: /failure-autopsy (fixed-field inadequate -> V4 learned binder, or close). V4-leaning, off V3 critical path -> priority 100. See docs/architecture/sd_cross_stream_binding_substrate.md."
+      "note": "Diagnostic (claim_ids=[], non_contributory, PROMOTES NOTHING). Retest of the V3-EXQ-641a harness (E-orthogonal cross-stream-only coherence read + shuffle-of-real-C contrast-matched control) on the newly-landed cross_stream_binding_substrate (E2Config.cross_stream_binding_enabled=True, strength=0.5). Does NOT supersede 641a (its substrate-ceiling finding stands). ONLY change vs 641a: agent built with binding ON so z_world<->z_self rollout streams share a genuine theta-gated common cause. strength=0.5 pre-registered (injected ~34pct of base per-step z_world delta; measured in substrate smoke test, not tuned to a pass). PASS gate identical to 641a: C_nonreducible_coherence_specific_register on >=4/6 seeds (D1 gated + D3 |corr(E,rawC)|<0.9 + SPEC margin>=0.05). On PASS: register candidate entities/selection.coherence_nonreducibility + close 2026-04-23 binding+path_integral intakes positive. On FAIL: /failure-autopsy (fixed-field inadequate -> V4 learned binder, or close). V4-leaning, off V3 critical path -> priority 100. See docs/architecture/sd_cross_stream_binding_substrate.md.",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 65,
+      "experiment_type": "v3_exq_720_coherence_nonreducibility_bound_substrate",
+      "seeds": 6
     }
   ]
 }
