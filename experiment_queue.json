@@ -6,5 +6,22 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-719",
+      "title": "Conversion-ceiling dissociation diagnostic: marginal committed-class entropy vs I(state;committed_action) + competence",
+      "experiment_type": "v3_exq_719_conversion_ceiling_dissociation_diagnostic",
+      "script": "experiments/v3_exq_719_conversion_ceiling_dissociation_diagnostic.py",
+      "priority": 460,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 350,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "MECH-309",
+      "experiment_purpose": "diagnostic",
+      "note": "DIAGNOSTIC (non_contributory; promotes nothing). All-mechanisms-ON integrated run (V3-EXQ-714 ARM_ON config: SP-CEM + e2_world_forward summaries + MECH-448 demotion + MECH-449 Go/No-Go/dACC + P3 OFC devaluation head + CRF + alpha_world=0.9; sleep OFF, mirrors 714) in CausalGridWorld. Per-tick logs ground-truth (state_bin, executed committed_class, behaviour). Computes DV1 marginal committed_class_entropy (reproduces the campaign ceiling), DV2 I(state;committed_class) debiased via 200x shuffle-null + p95 significance, DV3 competence. Dissociates genuine monomodal collapse (MECH-309: low marginal AND low mi_debiased) from decisive state-appropriate commitment (low marginal BUT high mi_debiased + supra-random competence => the ceiling is a marginal-entropy artifact, reframes MECH-309/ARC-062). Self-routes substrate_not_ready_requeue when MI-undersampled. Gates the Track-1 GAP-A-divergence-survival /implement-substrate build. Prefer cloud (prefer-cloud-over-laptop)."
+    }
+  ]
 }
