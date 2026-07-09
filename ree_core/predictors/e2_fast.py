@@ -162,6 +162,13 @@ class E2FastPredictor(nn.Module):
                 bind_dim=int(getattr(self.config, "cross_stream_binding_dim", 16)),
                 strength=float(getattr(self.config, "cross_stream_binding_strength", 0.15)),
                 theta_period=int(getattr(self.config, "cross_stream_binding_theta_period", 4)),
+                # learned (plastic) binder (2026-07-09); learned=False keeps the
+                # fixed-field path byte-identical.
+                learned=bool(getattr(self.config, "cross_stream_binding_learned", False)),
+                lr=float(getattr(self.config, "cross_stream_binding_lr", 1e-3)),
+                temperature=float(getattr(self.config, "cross_stream_binding_temperature", 0.5)),
+                buffer_size=int(getattr(self.config, "cross_stream_binding_buffer_size", 512)),
+                batch=int(getattr(self.config, "cross_stream_binding_batch", 64)),
             )
 
     # ------------------------------------------------------------------ #

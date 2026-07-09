@@ -1238,6 +1238,57 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   See docs/architecture/sd_cross_stream_binding_substrate.md, INV-002, MECH-089,
   MECH-094, MECH-270, candidate entities/selection.coherence_nonreducibility.
 
+- cross_stream_binding_substrate LEARNED (plastic) mode -- IMPLEMENTED 2026-07-09.
+  The residual prerequisite named by failure_autopsy_V3-EXQ-720_2026-07-09: the
+  FIXED field (720, strength 0.5) lifted coherence-specificity 1/6->3/6 but did NOT
+  clear the 4/6 SPEC gate and n_rebind stayed 0 -- a random projection creates
+  correlation but nothing SHAPES the coupling so real conjunctions beat a
+  contrast-matched shuffle.
+  Same module/file (ree_core/latent/cross_stream_binder.py, CrossStreamBinder), new
+  branch on cross_stream_binding_learned; agent hook REEAgent.update_cross_stream_binder
+  + REEAgent.cross_stream_binder property (ree_core/agent.py).
+  Config: E2Config.cross_stream_binding_learned (default False = fixed field, byte-
+  identical; True = learned binder), cross_stream_binding_lr (1e-3),
+  cross_stream_binding_temperature (0.5), cross_stream_binding_buffer_size (512),
+  cross_stream_binding_batch (64). All no-op default.
+  Data flow: plastic phi_self(z_self), phi_world(z_world) -> g_t = tanh(h_self * h_world)
+  MULTIPLICATIVE conjunction (coincidence/AND detector) -> b_t = to_common(g_t) -> the
+  SAME theta-gated k_t*b_t into both streams (couple() unchanged, mode-agnostic).
+  Training: contrastive co-encoding (InfoNCE) -- within-tick observed (z_self, z_world)
+  pairs POSITIVE, in-batch shuffle NEGATIVE, symmetric CE over the pairwise
+  binding_score = <phi_self(z_self), phi_world(z_world)> matrix. Binder owns its Adam
+  optimizer + a detached observed-pair buffer; update_cross_stream_binder buffers a
+  DETACHED pair and runs one learn_step (no gradient leaks into E1/E2 encoders).
+  Substrate-level rebinding probe folded in: binding_score + rebinding_probe(z_self,
+  z_world_candidates, anchor_perturbation) expose the binding intake's own falsifier
+  (does a competing world-config OVERTAKE under an ANCHOR perturbation) AT the
+  substrate. Anchor (z_self) perturbation is load-bearing: binding_score is bilinear,
+  so a uniform candidate perturbation shifts every score by a candidate-independent
+  constant and can never flip the argmax; an anchor perturbation gives a per-candidate
+  shift that can. A fixed field cannot express any of this (binding_score == 0), which
+  is why n_rebind stayed 0 across 641/641a/720.
+  Backward compatible: learned=False preserves the fixed-field path byte-identical;
+  enabled=False preserves pre-substrate byte-identity. Smoke: OFF binder=None; FIXED
+  learned=False + update no-op; LEARNED trains (binding_score pos 2.32 vs neg 0.62 on a
+  learned conjunction), rebinding_probe live (22/40 anchor-perturbation flips), fixed-
+  mode probe returns rebound=False.
+  Biological basis: binding-by-synchrony / communication-through-coherence (Fries;
+  Singer/Gray; Buzsaki theta-gamma) is LEARNED and plastic (Hebbian) -- the load-
+  bearing divergence the 720 autopsy named. MECH-089 theta gate + MECH-270 ephaptic
+  analog carry over.
+  Phased training required: YES. P0 = train the binder (per-step
+  update_cross_stream_binder); P1 = FREEZE (eval, stop calling it) and run the 641a
+  measurement. ML failure modes defended: contrastive collapse (temperature +
+  multiplicative product + small bind_dim); encoder contamination / feature suppression
+  (P0-only training on detached inputs, binder frozen in P1).
+  MECH-094: does NOT newly apply (no memory-write surface; training uses observed waking
+  pairs, not replayed/hypothesis content; hypothesis_tag semantics unchanged).
+  Validation experiment: V3-EXQ-725 (641a harness with learned=True + P0 binder
+  curriculum; n_rebind read through the substrate rebinding_probe; PASS = >=4/6
+  SPEC AND n_rebind>0). Queued 2026-07-09 via /queue-experiment.
+  See docs/architecture/sd_cross_stream_binding_substrate.md, INV-002, MECH-089,
+  MECH-094, MECH-270, candidate entities/selection.coherence_nonreducibility.
+
 ## MECH-090 Layer 1 + MECH-091 Layer 2: Trajectory Stepping + Urgency Interrupt (2026-04-15)
 - MECH-090 Layer 1: control_plane.committed_trajectory_stepping -- IMPLEMENTED 2026-04-15.
   Module: ree_core/agent.py (REEAgent.select_action, REEAgent.reset).

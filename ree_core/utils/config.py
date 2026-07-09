@@ -421,6 +421,22 @@ class E2Config:
     cross_stream_binding_dim: int = 16          # shared-factor dim (bind_dim)
     cross_stream_binding_strength: float = 0.15  # coupling scale (kappa)
     cross_stream_binding_theta_period: int = 4   # MECH-089 theta window period (steps)
+    # LEARNED (plastic) binder (2026-07-09; cross_stream_binding_substrate V4
+    # next-step per failure_autopsy_V3-EXQ-720_2026-07-09). The FIXED random
+    # projection field (720, strength 0.5) lifted coherence-specificity 1/6->3/6
+    # but did NOT clear the 4/6 SPEC gate: nothing SHAPES the coupling so real
+    # cross-stream conjunctions beat a contrast-matched shuffle (n_rebind=0). The
+    # learned binder trains phi_self/phi_world by contrastive co-encoding (InfoNCE
+    # over within-tick positives vs in-batch shuffle negatives) so genuine
+    # conjunctions bind and a shuffle collapses -- the load-bearing biology
+    # divergence (binding-by-synchrony is LEARNED, not a fixed field). All no-op
+    # default; learned=False preserves the fixed-field path byte-identical.
+    # Requires phased training (P0 binder curriculum -> P1 frozen measurement).
+    cross_stream_binding_learned: bool = False   # False = fixed field (720 path)
+    cross_stream_binding_lr: float = 1e-3        # P0 binder optimizer LR
+    cross_stream_binding_temperature: float = 0.5  # InfoNCE temperature
+    cross_stream_binding_buffer_size: int = 512  # co-encoding pair buffer
+    cross_stream_binding_batch: int = 64         # contrastive batch size
 
 
 @dataclass
@@ -4550,6 +4566,12 @@ class REEConfig:
         cross_stream_binding_dim: int = 16,
         cross_stream_binding_strength: float = 0.15,
         cross_stream_binding_theta_period: int = 4,
+        # learned (plastic) binder (2026-07-09); all no-op default.
+        cross_stream_binding_learned: bool = False,
+        cross_stream_binding_lr: float = 1e-3,
+        cross_stream_binding_temperature: float = 0.5,
+        cross_stream_binding_buffer_size: int = 512,
+        cross_stream_binding_batch: int = 64,
         # SD-022: directional limb damage
         limb_damage_enabled: bool = False,
         damage_increment: float = 0.15,
@@ -5590,6 +5612,13 @@ class REEConfig:
         config.e2.cross_stream_binding_dim = cross_stream_binding_dim
         config.e2.cross_stream_binding_strength = cross_stream_binding_strength
         config.e2.cross_stream_binding_theta_period = cross_stream_binding_theta_period
+        # learned (plastic) binder (2026-07-09); all no-op default. learned=False
+        # keeps the fixed-field path byte-identical.
+        config.e2.cross_stream_binding_learned = cross_stream_binding_learned
+        config.e2.cross_stream_binding_lr = cross_stream_binding_lr
+        config.e2.cross_stream_binding_temperature = cross_stream_binding_temperature
+        config.e2.cross_stream_binding_buffer_size = cross_stream_binding_buffer_size
+        config.e2.cross_stream_binding_batch = cross_stream_binding_batch
 
         # SD-022: directional limb damage dim adjustments.
         # When enabled: harm_obs_a_dim is re-sourced from body damage state (7 dims).

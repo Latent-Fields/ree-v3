@@ -7813,6 +7813,42 @@ class REEAgent(nn.Module):
         if len(self._e2_transition_buffer) > 1000:
             self._e2_transition_buffer = self._e2_transition_buffer[-1000:]
 
+    @property
+    def cross_stream_binder(self):
+        """The E2 CrossStreamBinder submodule, or None when the substrate is OFF.
+
+        cross_stream_binding_substrate. Exposes the (fixed or learned) binder for
+        the P0 curriculum and the substrate-level rebinding probe.
+        """
+        return getattr(self.e2, "cross_stream_binder", None)
+
+    def update_cross_stream_binder(
+        self,
+        z_self: torch.Tensor,
+        z_world: torch.Tensor,
+    ) -> Optional[float]:
+        """P0 binder curriculum step (learned cross_stream_binding_substrate).
+
+        Buffers the DETACHED observed (z_self, z_world) conjunction and runs one
+        contrastive (InfoNCE) co-encoding optimizer step on the binder's own
+        parameters. No-op (returns None) when the binder is absent or in fixed
+        mode. Inputs are detached inside the binder so no gradient leaks into
+        E1/E2's online self/world models -- the coupling stays isolated to the
+        imagined rollout, exactly as the fixed field is.
+
+        Call this each step during the P0 warmup; FREEZE the binder in P1 (run the
+        agent in eval() and stop calling this) so the 641a measurement reads a
+        trained-then-frozen binder (the mandatory phased-training discipline).
+
+        Returns:
+            InfoNCE loss (float) for the step, or None if no update fired.
+        """
+        binder = self.cross_stream_binder
+        if binder is None or not getattr(binder, "learned", False):
+            return None
+        binder.observe(z_self, z_world)
+        return binder.learn_step()
+
     def compute_prediction_loss(self) -> torch.Tensor:
         """
         E1 world-model prediction loss for training.
