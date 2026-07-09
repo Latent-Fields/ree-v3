@@ -76,7 +76,11 @@
       "supersedes": null,
       "claim_id": null,
       "note": "cross_stream_binding_substrate LEARNED-binder retest per failure_autopsy_V3-EXQ-720_2026-07-09 (user-directed 2026-07-09 as ACTIVE near-term next-step). Diagnostic (claim_ids=[]); bears on INV-002/MECH-089/MECH-094/MECH-270/MECH-269. Only substrate change vs 720 = cross_stream_binding_learned=True + a P0 binder contrastive co-encoding curriculum; n_rebind read through the substrate rebinding_probe (anchor perturbation) folded in. On C_nonreducible_coherence_specific_register: register candidate Q entities/selection.coherence_nonreducibility + close both 2026-04-23 intakes. priority 150 = below the live conversion-ceiling diagnostics (governance sets real priority; substrate_queue entry is V4-leaning priority 2).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-09T07:25:43Z"
+      },
       "claim_ids": [],
       "conditions": 3,
       "episodes_per_run": 65,
