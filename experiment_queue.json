@@ -65,6 +65,22 @@
       "episodes_per_run": 890,
       "experiment_type": "v3_exq_723a_jlens_discriminative_compactness_diagnostic",
       "seeds": 4
+    },
+    {
+      "queue_id": "V3-EXQ-495a",
+      "title": "MECH-163 V3 full-completion gate -- VTA/hippocampally-planned arm (rerun, supersedes 495)",
+      "script": "experiments/v3_exq_495a_mech163_planned_system_gate.py",
+      "experiment_type": "v3_exq_495a_mech163_planned_system_gate",
+      "priority": 45,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 1500,
+      "supersedes": "V3-EXQ-495",
+      "claim_id": "MECH-163",
+      "claim_ids": [
+        "MECH-163"
+      ],
+      "note": "Successor to V3-EXQ-495 which SIGTERMed on ree-cloud-1 after ~4h (undersized CX22 platform restart -- not a code path; no manifest). No design change vs 495 (experiment_type bump + supersedes manifest field only). machine_affinity any: cloud-1 is now the excluded hub and surviving workers carry Phase-3 SIGTERM protection (transient exit codes + HELD_BY_SELF). Smoke-passed against current substrate 2026-07-09 (base full dry-run 137s + letter past-init). Diagnosed via /diagnose-errors."
     }
   ]
 }
