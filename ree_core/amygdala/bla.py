@@ -257,6 +257,9 @@ class BLAAnalog:
         self._pe_std: float = float(self.config.remap_pe_std_init)
 
         self._window_onset_step: Optional[int] = None
+        # Peak instantaneous encoding_gain achieved during the current
+        # post-event window; the tail decays from THIS, not a hard-coded gmax.
+        self._window_peak_gain: float = float(self.config.encoding_gain_floor)
         self._last_encoding_gain: float = float(self.config.encoding_gain_floor)
         self._last_arousal_tag: float = 0.0
         self._last_pe_magnitude: float = 0.0
@@ -273,6 +276,7 @@ class BLAAnalog:
         self._pe_var = float(self.config.remap_pe_std_init) ** 2
         self._pe_std = float(self.config.remap_pe_std_init)
         self._window_onset_step = None
+        self._window_peak_gain = float(self.config.encoding_gain_floor)
         self._last_encoding_gain = float(self.config.encoding_gain_floor)
         self._last_arousal_tag = 0.0
         self._last_pe_magnitude = 0.0
@@ -348,36 +352,20 @@ class BLAAnalog:
         # Compute scalar arousal magnitude.
         z_norm = float(torch.linalg.norm(z_harm_a.detach().flatten()).item())
 
-        # Track window onset: if we cross the threshold, reset the
-        # post-event countdown. Below threshold, the countdown decays
-        # via the exponential half-life model.
         now = int(step_index) if step_index is not None else self._n_ticks
-        if z_norm >= float(self.config.arousal_threshold_on):
-            self._window_onset_step = now
-
-        steps_remaining = 0
-        window_decay = 0.0  # fraction of post-event-window contribution
-        if self._window_onset_step is not None:
-            elapsed = now - int(self._window_onset_step)
-            if elapsed <= int(self.config.window_steps):
-                steps_remaining = int(self.config.window_steps) - elapsed
-                # Half-life exponential decay on the post-event window.
-                half_life = max(1.0, float(self.config.window_half_life_steps))
-                window_decay = float(0.5 ** (elapsed / half_life))
 
         # Inverted-U over arousal magnitude: peaks at arousal_peak,
         # falls off symmetrically. Expressed as a piecewise linear
         # interp from threshold_on (-> floor) to peak (-> max), then
         # peak to (2*peak - threshold_on) -> floor, clipped to floor
-        # above.
+        # above. Compute the INSTANTANEOUS gain first so the post-event
+        # window can decay from the real achieved peak.
         peak = float(self.config.arousal_peak)
         thr = float(self.config.arousal_threshold_on)
         gmax = float(self.config.encoding_gain_max)
         gfloor = float(self.config.encoding_gain_floor)
 
         if z_norm < thr:
-            # Below threshold: use the post-event window contribution
-            # only.
             immediate_gain = gfloor
         elif z_norm <= peak:
             # Rising arm of the inverted-U.
@@ -392,12 +380,44 @@ class BLAAnalog:
                 frac = (upper_edge - z_norm) / max(1e-6, upper_edge - peak)
                 immediate_gain = gfloor + frac * (gmax - gfloor)
 
-        # Post-event window contribution: residual decayed peak gain
-        # acting as a floor above the immediate gain. This models the
-        # tail where the hippocampus remains sensitised for ~30 min
-        # after a threat event even as z_harm_a returns to baseline.
-        window_tail = gfloor + window_decay * (gmax - gfloor)
-        encoding_gain = max(immediate_gain, window_tail)
+        # Track window onset + achieved peak. While above threshold the
+        # window is refreshed at the latest event tick and remembers the
+        # highest instantaneous gain reached; below threshold the countdown
+        # decays via the exponential half-life model.
+        if z_norm >= thr:
+            self._window_onset_step = now
+            self._window_peak_gain = max(self._window_peak_gain, immediate_gain)
+
+        steps_remaining = 0
+        window_decay = 0.0  # fraction of post-event-window contribution
+        if self._window_onset_step is not None:
+            elapsed = now - int(self._window_onset_step)
+            if elapsed <= int(self.config.window_steps):
+                steps_remaining = int(self.config.window_steps) - elapsed
+                # Half-life exponential decay on the post-event window.
+                half_life = max(1.0, float(self.config.window_half_life_steps))
+                window_decay = float(0.5 ** (elapsed / half_life))
+            else:
+                # Window fully expired -> forget the remembered peak.
+                self._window_peak_gain = gfloor
+
+        # Post-event window contribution: residual decayed peak gain acting
+        # as a floor. This models the tail where the hippocampus remains
+        # sensitised for ~30 min after a threat event even as z_harm_a
+        # returns to baseline. It decays from the ACHIEVED peak, not a
+        # hard-coded gmax.
+        window_tail = gfloor + window_decay * (self._window_peak_gain - gfloor)
+
+        # F-P1 fix (2026-07-09): the post-event window is a residual tail for
+        # AFTER the event, not an override. Above threshold the instantaneous
+        # inverted-U governs; only below threshold does the decaying tail act
+        # as the floor. (Previously window_tail was pinned to gmax on every
+        # above-threshold tick, collapsing the inverted-U to a step function
+        # and killing the falling arm -- see MECH-074a falsification signature.)
+        if z_norm < thr:
+            encoding_gain = max(immediate_gain, window_tail)
+        else:
+            encoding_gain = immediate_gain
 
         # SD-037 MECH-281 motor-coupling axis (2026-05-30): orexin-recruited
         # state amplifies BLA consolidation gain (Roozendaal 2011 anchor;
