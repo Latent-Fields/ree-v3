@@ -3131,6 +3131,29 @@ class REEConfig:
     # Grace ticks at the start of a committed run before urgency begins accruing.
     natural_commit_urgency_onset_ticks: int = 0
     # ----------------------------------------------------------------
+    # SD-033e frontopolar-analog DE-COMMIT lever (V3-narrow MECH-264; 2026-07-09).
+    # A DISTINCT de-commit-release lever for the DURATION face of the F-dominance
+    # conversion ceiling (MECH-439), owed by failure_autopsy_MECH-445-cluster-
+    # 715a-717_2026-07-07 ("the arming reliability gap needs a DISTINCT de-commit-
+    # release lever, not more F-moderation"). Injects an ENTRY-RELATIVE, NON-F
+    # counterfactual-improvement release-pressure term into the SAME
+    # NaturalCommitUrgencyRelease accumulator (fires on urgency >= release_bound),
+    # so it REQUIRES use_natural_commit_urgency_release=True to have any effect
+    # (the agent instantiates FrontopolarAnalog independently, but the pressure it
+    # emits is only consumed by NaturalCommitUrgencyRelease.tick). The counterfactual
+    # value is the goal-proximity ADVANTAGE of the best foregone alternative over
+    # the committed endpoint in z_world space -- sourced from goal-proximity, NOT F,
+    # so it does not wash like the exhausted 709/711/713 input-reweighting route.
+    # No-op when use_frontopolar_decommit is False (self.frontopolar is None) ->
+    # bit-identical. See ree_core/pfc/frontopolar_analog.py section "SD-033e
+    # V3-NARROW DE-COMMIT LANDING".
+    use_frontopolar_decommit: bool = False
+    # Gain on the entry-relative release pressure. 0.0 (default) => zero pressure =>
+    # the frontopolar_gain=0 flat-urgency CONTRAST arm (bit-identical to the pure
+    # NaturalCommitUrgencyRelease lever). The validation isolates the frontopolar
+    # term by contrasting frontopolar_gain>0 (ON) vs frontopolar_gain=0.
+    frontopolar_gain: float = 0.0
+    # ----------------------------------------------------------------
     # Natural-commit LATCH-HOLD lever (rung-6 amend, 2026-06-21,
     # failure_autopsy_V3-EXQ-460i). SEPARATE from use_natural_commit_urgency_release
     # (the RELEASE): this is the HOLD that establishes a sustained natural-commit
@@ -4899,6 +4922,10 @@ class REEConfig:
         natural_commit_urgency_cap: float = 1.5,
         natural_commit_gap_entry_sensitivity: float = 1.0,
         natural_commit_urgency_onset_ticks: int = 0,
+        # SD-033e frontopolar-analog DE-COMMIT lever (V3-narrow MECH-264). No-op
+        # default (bit-identical when use_frontopolar_decommit is False).
+        use_frontopolar_decommit: bool = False,
+        frontopolar_gain: float = 0.0,
         use_natural_commit_latch_hold: bool = False,
         natural_commit_latch_hold_max_ticks: int = 0,
         closure_exclusive_decommit_eval: bool = False,
@@ -5998,6 +6025,9 @@ class REEConfig:
         config.natural_commit_gap_entry_sensitivity = (
             natural_commit_gap_entry_sensitivity
         )
+        # SD-033e frontopolar-analog DE-COMMIT lever (V3-narrow MECH-264).
+        config.use_frontopolar_decommit = use_frontopolar_decommit
+        config.frontopolar_gain = frontopolar_gain
         config.use_natural_commit_latch_hold = use_natural_commit_latch_hold
         config.natural_commit_latch_hold_max_ticks = (
             natural_commit_latch_hold_max_ticks

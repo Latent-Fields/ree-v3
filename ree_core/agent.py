@@ -89,6 +89,10 @@ from ree_core.latent.stack import HarmForwardTrunk
 from ree_core.pfc import LateralPFCAnalog, OFCAnalog
 from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
 from ree_core.pfc.ofc_analog import OFCConfig
+from ree_core.pfc.frontopolar_analog import (
+    FrontopolarAnalog,
+    FrontopolarConfig,
+)
 from ree_core.pfc.infralimbic_avoidance_gate import (
     InstrumentalAvoidanceGate,
     InstrumentalAvoidanceGateConfig,
@@ -992,6 +996,36 @@ class REEAgent(nn.Module):
             )
             self.natural_commit_urgency = NaturalCommitUrgencyRelease(
                 config=ncur_cfg
+            )
+
+        # SD-033e frontopolar-analog DE-COMMIT lever (V3-narrow MECH-264, 2026-07-09).
+        # A DISTINCT de-commit-release lever for the DURATION face of the F-dominance
+        # conversion ceiling (MECH-439), owed by failure_autopsy_MECH-445-cluster-
+        # 715a-717_2026-07-07 ("the arming reliability gap needs a DISTINCT de-commit-
+        # release lever, not more F-moderation"). Emits an ENTRY-RELATIVE, NON-F
+        # counterfactual-improvement release-pressure scalar the release block injects
+        # into NaturalCommitUrgencyRelease.tick(frontopolar_pressure=...), firing on
+        # the SAME urgency >= release_bound and reusing that block's _ncl_lever_fired
+        # latch-hold yield for free. No-op when use_frontopolar_decommit is False
+        # (self.frontopolar is None) -> bit-identical. See
+        # ree_core/pfc/frontopolar_analog.py "SD-033e V3-NARROW DE-COMMIT LANDING".
+        self.frontopolar: Optional[FrontopolarAnalog] = None
+        self._fp_cfv_at_entry: float = 0.0
+        self._fp_last_cfv_now: float = 0.0
+        if getattr(config, "use_frontopolar_decommit", False):
+            _fp_world_dim = int(config.latent.world_dim)
+            fp_cfg = FrontopolarConfig(
+                use_frontopolar_decommit=True,
+                frontopolar_gain=float(getattr(config, "frontopolar_gain", 0.0)),
+            )
+            # z_goal is a z_world-space attractor -> goal_dim == world_dim. The
+            # geometric de-commit path uses no learned head, so action_dim is only
+            # a placeholder for the (unused) V4 head parameter shapes.
+            self.frontopolar = FrontopolarAnalog(
+                world_dim=_fp_world_dim,
+                goal_dim=_fp_world_dim,
+                action_dim=int(config.e2.action_dim),
+                config=fp_cfg,
             )
 
         # Natural-commit LATCH-HOLD (rung-6 amend, 2026-06-21,
@@ -2427,6 +2461,43 @@ class REEAgent(nn.Module):
         rep = next((c for c in range(n) if c != noop), 0)
         return linker.escape_affordance_features(rep)
 
+    def _compute_frontopolar_cfv(self) -> float:
+        """SD-033e V3-narrow MECH-264 counterfactual value for the current tick.
+
+        Reads the chosen + best-unchosen z_world endpoints captured by the last
+        e3.select() and the current z_goal, and returns the NON-F goal-proximity
+        ADVANTAGE (||chosen - goal|| - ||alt - goal||) via FrontopolarAnalog. This
+        is the entry-relative form's per-tick term: cfv_at_entry is this value at
+        the commit-entry hook; cfv_now is this value at each maintenance tick, and
+        the release pressure is gain * max(0, cfv_now - cfv_at_entry).
+
+        Returns 0.0 (inert) when the lever is disabled, when either endpoint is
+        untracked (< 2 candidates or no world_states), or when the goal is
+        inactive/absent -- so a tick with no valid signal contributes no pressure.
+        """
+        if self.frontopolar is None:
+            return 0.0
+        chosen = getattr(self.e3, "_fp_chosen_world_endpoint", None)
+        alt = getattr(self.e3, "_fp_alt_world_endpoint", None)
+        if chosen is None or alt is None:
+            return 0.0
+        if self.goal_state is None or not self.goal_state.is_active():
+            return 0.0
+        z_goal = self.goal_state.z_goal
+        if z_goal is None:
+            return 0.0
+        try:
+            cfv = self.frontopolar.compute_counterfactual_value(
+                z_world_chosen=chosen,
+                z_world_alt=alt,
+                z_goal=z_goal,
+            )
+            return float(cfv.reshape(-1)[0].item())
+        except (RuntimeError, ValueError, IndexError, AttributeError, TypeError):
+            # Shape mismatch (e.g. goal_dim != world_dim) or any read failure ->
+            # inert this tick (no pressure), never an exception into the loop.
+            return 0.0
+
     def reset(self) -> None:
         """Reset agent for a new episode. Does NOT reset residue (invariant)."""
         # MECH-165: flush waking trajectory to exploration buffer before reset
@@ -2584,6 +2655,12 @@ class REEAgent(nn.Module):
         # urgency accumulator + diagnostics (no cross-episode hold carried over).
         if self.natural_commit_urgency is not None:
             self.natural_commit_urgency.reset()
+        # SD-033e frontopolar de-commit lever: per-episode reset of diagnostics +
+        # the entry-relative counterfactual-value baseline.
+        if self.frontopolar is not None:
+            self.frontopolar.reset()
+        self._fp_cfv_at_entry = 0.0
+        self._fp_last_cfv_now = 0.0
         # ARC-108 JOB-2: per-episode reset of the rho_t maintenance ramp.
         if self.rho_maintenance_ramp is not None:
             self.rho_maintenance_ramp.reset()
@@ -4927,10 +5004,27 @@ class REEAgent(nn.Module):
                     )
                 except (AttributeError, IndexError, TypeError):
                     _ncur_seq_complete = False
+            # SD-033e frontopolar de-commit pressure (entry-relative, NON-F). Only
+            # for a run armed by a NATURAL commit (is_armed matches the lever's own
+            # arming); an unarmed/closure-coupled run gets no pressure. cfv_now is
+            # this tick's goal-proximity advantage of the best foregone alternative;
+            # pressure = frontopolar_gain * max(0, cfv_now - cfv_at_entry). 0.0 when
+            # frontopolar is None or gain is 0 -> tick() is bit-identical.
+            _fp_pressure = 0.0
+            if (
+                self.frontopolar is not None
+                and self.natural_commit_urgency.is_armed
+            ):
+                self._fp_last_cfv_now = self._compute_frontopolar_cfv()
+                _fp_pressure = self.frontopolar.compute_decommit_pressure(
+                    cfv_now=self._fp_last_cfv_now,
+                    cfv_at_entry=self._fp_cfv_at_entry,
+                )
             if self.natural_commit_urgency.tick(
                 committed_run_length=self.beta_gate.committed_run_length,
                 action_sequence_complete=_ncur_seq_complete,
                 simulation_mode=False,
+                frontopolar_pressure=_fp_pressure,
             ):
                 self.beta_gate.release()
                 self._committed_step_idx = 0
@@ -7074,6 +7168,14 @@ class REEAgent(nn.Module):
                     self.natural_commit_urgency.note_commit_entry(
                         _ncur_gap_norm
                     )
+                # SD-033e frontopolar de-commit lever: capture the ENTRY-relative
+                # counterfactual-value baseline at the SAME natural-commit entry the
+                # NCUR lever arms on. Release pressure is max(0, cfv_now -
+                # cfv_at_entry), so a level-based F-derivative cannot wash it (the
+                # 709/711/713 failure mode). No-op when frontopolar is None (returns
+                # 0.0; the pressure is 0 regardless).
+                if self.frontopolar is not None and result.committed:
+                    self._fp_cfv_at_entry = self._compute_frontopolar_cfv()
                 # MECH-269 / MECH-090: snapshot active anchor keys at commit entry.
                 # Read by select_action()'s V_s -> commit release block on
                 # subsequent ticks. No-op when use_vs_commit_release is False.

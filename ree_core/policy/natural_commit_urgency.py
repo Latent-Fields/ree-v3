@@ -215,6 +215,11 @@ class NaturalCommitUrgencyRelease:
         self._n_action_extent_releases: int = 0
         self._last_occupancy_at_release: int = 0
         self._n_simulation_skips: int = 0
+        # SD-033e frontopolar de-commit lever diagnostics (all inert at 0.0 unless
+        # the caller passes a nonzero frontopolar_pressure into tick()).
+        self._fp_release_count: int = 0
+        self._fp_last_pressure: float = 0.0
+        self._fp_pressure_accum: float = 0.0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -251,6 +256,7 @@ class NaturalCommitUrgencyRelease:
         committed_run_length: int,
         action_sequence_complete: bool,
         simulation_mode: bool = False,
+        frontopolar_pressure: float = 0.0,
     ) -> bool:
         """Advance the lever one maintenance tick; return True iff release fires.
 
@@ -267,6 +273,14 @@ class NaturalCommitUrgencyRelease:
                 otherwise repeat the last action). Drives the action-extent mode.
             simulation_mode : MECH-094 gate. When True, no state advance and only
                 the simulation-skip counter increments; returns False.
+            frontopolar_pressure : SD-033e V3-narrow de-commit lever contribution.
+                An entry-relative, NON-F counterfactual-improvement release
+                pressure (frontopolar_gain * max(0, cfv_now - cfv_at_entry))
+                computed by the caller (REEAgent + FrontopolarAnalog). Added to
+                the SAME urgency accumulator, so it fires on the same
+                urgency >= release_bound. 0.0 (default) => bit-identical to the
+                pure NaturalCommitUrgencyRelease lever (the frontopolar-OFF /
+                gain=0 contrast arm). See ree_core/pfc/frontopolar_analog.py.
 
         Returns:
             True iff this tick fires a release.
@@ -281,17 +295,40 @@ class NaturalCommitUrgencyRelease:
         fire = False
 
         c = self.config
-        # (1) URGENCY mode (Thura/Cisek graded release).
-        if c.urgency_mode and committed_run_length > c.onset_ticks:
-            decisiveness_scale = 1.0 + (
-                c.gap_entry_sensitivity * self._gap_norm_at_entry
-            )
-            self._last_decisiveness_scale = decisiveness_scale
-            self._urgency += float(c.urgency_rate) * decisiveness_scale
-            self._urgency = max(0.0, min(float(c.urgency_cap), self._urgency))
-            if self._urgency >= float(c.release_bound):
-                fire = True
-                self._n_urgency_releases += 1
+        # (1) URGENCY mode (Thura/Cisek graded release) + SD-033e frontopolar
+        # de-commit pressure. Both feed the SAME urgency accumulator and fire on
+        # the same urgency >= release_bound. Structured so that with
+        # frontopolar_pressure == 0.0 (OFF default) this is bit-identical to the
+        # original urgency-mode block: when urgency_mode is on the increment is
+        # exactly urgency_rate * decisiveness_scale, and when both urgency_mode is
+        # off and frontopolar_pressure is 0.0 nothing accrues (as before).
+        if committed_run_length > c.onset_ticks:
+            _inc = 0.0
+            if c.urgency_mode:
+                decisiveness_scale = 1.0 + (
+                    c.gap_entry_sensitivity * self._gap_norm_at_entry
+                )
+                self._last_decisiveness_scale = decisiveness_scale
+                _inc += float(c.urgency_rate) * decisiveness_scale
+            _fp = float(frontopolar_pressure)
+            if _fp != 0.0:
+                _inc += _fp
+                self._fp_last_pressure = _fp
+                self._fp_pressure_accum += _fp
+            if _inc != 0.0:
+                self._urgency += _inc
+                self._urgency = max(
+                    0.0, min(float(c.urgency_cap), self._urgency)
+                )
+                if self._urgency >= float(c.release_bound):
+                    fire = True
+                    self._n_urgency_releases += 1
+                    # SD-033e attribution: this fire had a positive frontopolar
+                    # de-commit contribution (cfv_now > cfv_at_entry at the firing
+                    # tick) -- a REAL switch toward an improved foregone option,
+                    # NOT a flat timeout or F noise.
+                    if _fp > 0.0:
+                        self._fp_release_count += 1
 
         # (2) ACTION-EXTENT mode (Jin maintenance-co-extensive release).
         if (not fire) and c.action_extent_mode and action_sequence_complete:
@@ -316,6 +353,9 @@ class NaturalCommitUrgencyRelease:
         self._n_action_extent_releases = 0
         self._last_occupancy_at_release = 0
         self._n_simulation_skips = 0
+        self._fp_release_count = 0
+        self._fp_last_pressure = 0.0
+        self._fp_pressure_accum = 0.0
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
@@ -335,4 +375,12 @@ class NaturalCommitUrgencyRelease:
                 self._n_urgency_releases + self._n_action_extent_releases
             ),
             "ncur_n_simulation_skips": self._n_simulation_skips,
+            # SD-033e frontopolar de-commit attribution: count of urgency-mode
+            # fires that had a POSITIVE frontopolar pressure contribution at the
+            # firing tick (cfv_now > cfv_at_entry) -- the primary "real switch"
+            # readout. >0 with the gate-drop proves the de-commit is attributable
+            # to the frontopolar term, not F noise or a flat timeout.
+            "frontopolar_release_count": self._fp_release_count,
+            "frontopolar_last_pressure": self._fp_last_pressure,
+            "frontopolar_pressure_accum": self._fp_pressure_accum,
         }

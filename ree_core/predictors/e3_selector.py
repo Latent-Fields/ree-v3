@@ -334,6 +334,13 @@ class E3TrajectorySelector(nn.Module):
         # rv never updates -> agent can never commit.
         self._last_selected_trajectory: Optional[Trajectory] = None
         self.last_scores: Optional[torch.Tensor] = None
+        # SD-033e frontopolar de-commit lever (V3-narrow MECH-264): z_world endpoints
+        # of the chosen trajectory and the best UNCHOSEN candidate from the last
+        # select(). Detached refs, stored unconditionally (like last_raw_scores) --
+        # frontopolar-OFF agents never read them, so this is output-neutral
+        # (bit-identical). None when world_states are untracked or < 2 candidates.
+        self._fp_chosen_world_endpoint: Optional[torch.Tensor] = None
+        self._fp_alt_world_endpoint: Optional[torch.Tensor] = None
         # ControlVector logging (rec-B): pre-bias per-candidate scores (value
         # axis / V_outcome), written each select() call. None until first call.
         self.last_raw_scores: Optional[torch.Tensor] = None
@@ -3030,6 +3037,34 @@ class E3TrajectorySelector(nn.Module):
             self._committed_trajectory = selected_trajectory
         # Always store for rv updates (ARC-016 deadlock fix)
         self._last_selected_trajectory = selected_trajectory
+
+        # SD-033e frontopolar de-commit lever (V3-narrow MECH-264): capture the
+        # chosen and best-unchosen candidate z_world ENDPOINTS so the agent's
+        # release block can compute the entry-relative NON-F counterfactual-value
+        # pressure. best-unchosen = argmin score over candidates != selected_idx
+        # (REE lower-is-better). Detached, stored unconditionally; a frontopolar-OFF
+        # agent never reads these -> output-neutral (bit-identical). Defensively
+        # guarded: any missing world_states / < 2 candidates leaves the endpoints
+        # None, which makes the agent's frontopolar pressure inert that tick.
+        self._fp_chosen_world_endpoint = None
+        self._fp_alt_world_endpoint = None
+        try:
+            if selected_trajectory.world_states is not None:
+                self._fp_chosen_world_endpoint = (
+                    selected_trajectory.world_states[-1].detach()
+                )
+            if int(scores.numel()) >= 2:
+                _fp_masked = scores.detach().clone()
+                _fp_masked[selected_idx] = float("inf")
+                _fp_alt_idx = int(torch.argmin(_fp_masked).item())
+                _fp_alt_traj = candidates[_fp_alt_idx]
+                if _fp_alt_traj.world_states is not None:
+                    self._fp_alt_world_endpoint = (
+                        _fp_alt_traj.world_states[-1].detach()
+                    )
+        except (AttributeError, IndexError, RuntimeError, TypeError):
+            self._fp_chosen_world_endpoint = None
+            self._fp_alt_world_endpoint = None
 
         # ARC-108 JOB-1 step-1: record the Hebbian co-activation eligibility trace
         # (how much each channel "spoke for" the committed action this tick) so the

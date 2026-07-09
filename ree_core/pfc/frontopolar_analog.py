@@ -1,8 +1,54 @@
 """SD-033e: Frontopolar-analog (BA 10 / rostral pole).
 
-V4-scope module. This file is a STUB at landing -- every function is a no-op
-when the master flag `use_frontopolar_analog` is False (default), and raises
-NotImplementedError when enabled until the corresponding implementation lands.
+V4-scope module for the FULL substrate (learned MECH-264/MECH-265 heads +
+gateway + relative-importance monitor). The learned path is still a STUB --
+every V4 method is a no-op when the master flag `use_frontopolar_analog` is
+False (default), and raises NotImplementedError when enabled.
+
+--------------------------------------------------------------------------------
+SD-033e V3-NARROW DE-COMMIT LANDING (2026-07-09)
+
+A DELIBERATE, low-odds-but-owed V3-narrow slice landed under the SEPARATE flag
+`use_frontopolar_decommit` (orthogonal to the V4 `use_frontopolar_analog`). It
+instantiates ONLY function (1) MECH-264 counterfactual-value + function (4)
+disengagement-for-exploration, in a PARAMETER-FREE GEOMETRIC form (no learned
+head, no training phase), as a commit-LATCH DE-COMMIT / switch-propensity lever
+for the DURATION face of the F-dominance conversion ceiling (MECH-439).
+
+WHY (frontier context): on strong-F seeds the primary harm/goal score F forms a
+monolithic natural-commit latch (~2400-2600 steps, V3-EXQ-460h) that nothing
+releases -- readiness stays healthy so MECH-342 is silent, no closure fires so
+SD-034 is silent. Input-side score-bias reweighting is EXHAUSTED (V3-EXQ-709/
+711/713). The arming-reliability residual (failure_autopsy_MECH-445-cluster-
+715a-717_2026-07-07) needs a DISTINCT de-commit-release lever, not more
+F-moderation. This IS that lever.
+
+HOW: compute_counterfactual_value (use_frontopolar_decommit branch) returns the
+NON-F goal-proximity ADVANTAGE ||z_chosen - z_goal|| - ||z_alt - z_goal||;
+compute_decommit_pressure applies the ENTRY-RELATIVE derivative
+frontopolar_gain * max(0, cfv_now - cfv_at_entry); the agent injects that scalar
+into NaturalCommitUrgencyRelease.tick(frontopolar_pressure=...) so it fires on
+the SAME urgency >= release_bound as the existing rung-6 duration release
+(reusing the agent.py release block + its _ncl_lever_fired latch-hold yield).
+Non-F source + entry-relative form are the two mitigations that keep this a
+genuine lever rather than an F-derivative that washes like 709/711/713.
+
+V3-NARROW SCOPE: function (2) MECH-265 relative-importance and the gateway mode
+stay V4 stubs (single-resource env can't supply K>=2 goals);
+compute_disengagement_bias / compute_relative_importance are NOT on the
+de-commit path. See REE_assembly/docs/architecture/sd_033_pfc_subdivision_
+architecture.md section SD-033e and failure_autopsy_V3-EXQ-460h_2026-06-20.md.
+
+BIT-IDENTICAL OFF: `use_frontopolar_decommit` defaults False; the agent does not
+instantiate FrontopolarAnalog unless it is set, and both de-commit methods
+return 0.0 / zeros when it is False.
+
+--------------------------------------------------------------------------------
+ORIGINAL V4 STUB CONTRACT (learned heads; unchanged)
+
+Every V4 method is a no-op when `use_frontopolar_analog` is False (default), and
+raises NotImplementedError when enabled until the corresponding implementation
+lands.
 
 Purpose of the stub:
   (1) Reserve the module surface so SalienceCoordinator can treat
@@ -155,6 +201,22 @@ class FrontopolarConfig:
     gateway_mode: str = "continuous"
     hidden_dim: int = 32
     disengagement_scale: float = 0.1
+    # ------------------------------------------------------------------
+    # SD-033e V3-NARROW DE-COMMIT LEVER (2026-07-09). A DISTINCT flag from the
+    # V4 master `use_frontopolar_analog` above. Instantiates ONLY function (1)
+    # MECH-264 counterfactual-value + function (4) disengagement-for-exploration,
+    # in a parameter-free geometric (NON-learned) form, as a commit-LATCH
+    # de-commit / switch-propensity lever for the DURATION face of the
+    # F-dominance conversion ceiling (MECH-439). See module docstring section
+    # "SD-033e V3-NARROW DE-COMMIT LANDING". When False (default) every method
+    # is bit-identical to the V4 stub. use_frontopolar_analog stays the V4
+    # learned-head gate and is orthogonal; if BOTH are set, use_frontopolar_decommit
+    # takes precedence in compute_counterfactual_value (the geometric V3 lever).
+    use_frontopolar_decommit: bool = False
+    # Gain on the entry-relative counterfactual-improvement release-pressure term
+    # injected into NaturalCommitUrgencyRelease. 0.0 (default) => zero pressure =>
+    # the flat-urgency contrast arm (bit-identical to the frontopolar-OFF lever).
+    frontopolar_gain: float = 0.0
 
 
 class FrontopolarAnalog(nn.Module):
@@ -239,9 +301,39 @@ class FrontopolarAnalog(nn.Module):
 
         Returns:
             counterfactual_value: [batch, counterfactual_value_dim] tensor.
-            In no-op path (use_frontopolar_analog=False), returns zeros matching
-            that shape. In enabled path, currently raises NotImplementedError.
+            In the V3-narrow de-commit path (use_frontopolar_decommit=True), a
+            parameter-free NON-F goal-proximity ADVANTAGE (see below). In the
+            no-op path (both flags False), zeros matching that shape. In the V4
+            learned path (use_frontopolar_analog=True), raises NotImplementedError.
         """
+        # SD-033e V3-NARROW DE-COMMIT LEVER (checked FIRST; precedence over the V4
+        # learned path). MECH-264 counterfactual value = goal-proximity ADVANTAGE
+        # of the best foregone alternative over the chosen trajectory endpoint, in
+        # z_world space (z_goal is a z_world-space attractor -> goal_dim == world_dim):
+        #     cfv = ||z_world_chosen - z_goal|| - ||z_world_alt - z_goal||
+        # cfv > 0  <=>  the foregone alternative sits CLOSER to the active goal than
+        # the committed trajectory endpoint. Parameter-free geometry: NO learned
+        # head, NO training phase. The switch signal is sourced ENTIRELY from
+        # goal-proximity, so it is NOT F-monotone -- the load-bearing mitigation
+        # against the 709/711/713 input-side-reweighting wash-out (an F-derivative
+        # signal washes one layer down; this is orthogonal to F). Boorman 2009
+        # counterfactual-value reading. The chosen-vs-alt ADVANTAGE (not raw
+        # alt-proximity) controls for a global goal-approach confound where the
+        # whole world drifts toward the goal.
+        if self.config.use_frontopolar_decommit:
+            chosen = (
+                z_world_chosen
+                if z_world_chosen.dim() > 1
+                else z_world_chosen.unsqueeze(0)
+            )
+            alt = z_world_alt if z_world_alt.dim() > 1 else z_world_alt.unsqueeze(0)
+            goal = z_goal if z_goal.dim() > 1 else z_goal.unsqueeze(0)
+            d_chosen = torch.linalg.vector_norm(chosen - goal, dim=-1)
+            d_alt = torch.linalg.vector_norm(alt - goal, dim=-1)
+            cfv = (d_chosen - d_alt).reshape(-1, 1)
+            self._last_counterfactual_value = float(cfv.reshape(-1)[0].item())
+            self._last_gate = float(gate)
+            return cfv
         if not self.config.use_frontopolar_analog:
             batch = z_world_chosen.shape[0] if z_world_chosen.dim() > 1 else 1
             return torch.zeros(
@@ -251,6 +343,39 @@ class FrontopolarAnalog(nn.Module):
                 dtype=z_world_chosen.dtype,
             )
         raise NotImplementedError(_NOT_IMPL_MSG)
+
+    # ------------------------------------------------------------------
+    # SD-033e function (4): disengagement-for-exploration (V3-narrow scalar).
+    # ------------------------------------------------------------------
+    def compute_decommit_pressure(
+        self, cfv_now: float, cfv_at_entry: float
+    ) -> float:
+        """Entry-relative counterfactual-improvement de-commit release pressure.
+
+        The MECH-090-release-facilitating "disengagement for exploration" function
+        (Mansouri 2015 lesion signature), rendered V3-narrow as a scalar pressure
+        term injected into NaturalCommitUrgencyRelease.tick():
+
+            pressure = frontopolar_gain * max(0, cfv_now - cfv_at_entry)
+
+        ENTRY-RELATIVE / DERIVATIVE form (load-bearing): fires only when the best
+        foregone alternative has IMPROVED in goal-proximity terms RELATIVE to the
+        commit moment -- NOT when the alternative out-scores F in absolute level. A
+        level-based form is an F-derivative and washes one layer down (the
+        709/711/713 failure mode); the entry-relative derivative does not.
+
+        Returns 0.0 when the lever is disabled (use_frontopolar_decommit False) or
+        frontopolar_gain is 0.0 -- so the frontopolar-OFF / gain=0 contrast arm is
+        bit-identical to the pure NaturalCommitUrgencyRelease lever.
+        """
+        if not self.config.use_frontopolar_decommit:
+            self._last_disengagement_bias = 0.0
+            return 0.0
+        pressure = float(self.config.frontopolar_gain) * max(
+            0.0, float(cfv_now) - float(cfv_at_entry)
+        )
+        self._last_disengagement_bias = pressure
+        return pressure
 
     # ------------------------------------------------------------------
     # MECH-265 relative-importance monitor (STUB)
@@ -331,6 +456,10 @@ class FrontopolarAnalog(nn.Module):
             "last_gate": self._last_gate,
             "last_counterfactual_value": self._last_counterfactual_value,
             "last_importance_entropy": self._last_importance_entropy,
-            "last_disengagement_bias": self._last_disengagement_bias,
-            "stub": True,
+            # V3-narrow de-commit: last entry-relative release pressure emitted.
+            "last_decommit_pressure": self._last_disengagement_bias,
+            "decommit_enabled": bool(self.config.use_frontopolar_decommit),
+            "frontopolar_gain": float(self.config.frontopolar_gain),
+            # V4 learned-head path still a stub unless use_frontopolar_analog.
+            "stub": not self.config.use_frontopolar_decommit,
         }
