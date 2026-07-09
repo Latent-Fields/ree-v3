@@ -85,6 +85,26 @@
         "MECH-163"
       ],
       "experiment_type": "v3_exq_495a_mech163_planned_system_gate"
+    },
+    {
+      "queue_id": "V3-EXQ-538a",
+      "title": "SD-049 Phase 2 reef behavioural validation, sleep-on ablation (rerun, supersedes 538; paired to 514f)",
+      "script": "experiments/v3_exq_538a_sd049_phase2_with_sleep.py",
+      "experiment_type": "v3_exq_538a_sd049_phase2_with_sleep",
+      "priority": 50,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 220,
+      "supersedes": "V3-EXQ-538",
+      "claim_id": "SD-049",
+      "claim_ids": [
+        "SD-049",
+        "SD-015",
+        "SD-017",
+        "MECH-229",
+        "MECH-230"
+      ],
+      "note": "Successor to V3-EXQ-538 which SIGTERMed on ree-cloud-1 (2026-05-08 silent-fail cluster with 433f/537; no manifest). No design change vs 538 (experiment_type bump + supersedes manifest field only). Script tags 5 claims, SD-049 primary. machine_affinity any per prefer-cloud + Phase-3 SIGTERM protection. Smoke: 27min of live torch training against current substrate, zero errors (imports/attrs/shapes clean); dry-run steps unreduced so full completion is slow. Diagnosed via /diagnose-errors 2026-07-09."
     }
   ]
 }
