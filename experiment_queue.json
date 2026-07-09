@@ -63,6 +63,40 @@
       "seeds": 6
     },
     {
+      "queue_id": "V3-EXQ-730",
+      "title": "Q-080.a effort->harm coupling: protective disengagement + irreversibility-aware caution (diagnostic)",
+      "script": "experiments/v3_exq_730_q080a_effort_harm_coupling.py",
+      "priority": 106,
+      "machine_affinity": "any",
+      "estimated_minutes": 40,
+      "note": "DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[Q-080]). Factorial {effort_harm_coupling OFF/ON} on the effort-dissociating env; value+allostatic machinery (use_dacc + use_pacc_analog + use_aic_analog + MECH-219 use_harm_suffering_accumulator) ON in BOTH arms. Commitment probe: agent teleported into the HIGH-effort corridor; measures whether coupling ON adds protective disengagement BEFORE depletion + caution tracking the IRREVERSIBLE exertion_permanent that OFF lacks. ON-wins => harm-coupling warranted; OFF-already-disengages => effort is foregone value, do NOT mint. Readiness gate: paths differ in per-action energy cost AND exertion accrues, else substrate_not_ready_requeue. Env substrate landed 2026-07-09 (CausalGridWorld effort_dissociation_enabled; spec REE_assembly/docs/architecture/effort_dissociation_env.md; ree-v3/CLAUDE.md). Diagnostic self-route is a HYPOTHESIS for /failure-autopsy; PROMOTES/DEMOTES NOTHING (answers open_question Q-080, mints no mechanism). Queue-add: watch the phase3-queue snapshot race (post-commit dropped-file check per queue-experiment Step 8).",
+      "status": "pending",
+      "claim_ids": [
+        "Q-080"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 8,
+      "experiment_type": "v3_exq_730_q080a_effort_harm_coupling",
+      "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-731",
+      "title": "Q-080.b least-effort prior: tied-benefit default to low-effort path vs value-subtraction (diagnostic)",
+      "script": "experiments/v3_exq_731_q080b_least_effort_prior.py",
+      "priority": 105,
+      "machine_affinity": "any",
+      "estimated_minutes": 40,
+      "note": "DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[Q-080]). Factorial {least-effort prior OFF/ON} at the TIED-benefit probe (effort_benefit_asymmetry=0.0), value-subtraction term (learned per-action effort EMA) ON in both arms; plus a CONTROL_ASYM arm (asym=0.5) proving the value term is non-vacuous. Prior + value modelled as an additive bias over agent.e3 per-first-action scores (corridors equidistant => dACC length-effort is tied, only env energy differs). ON-wins => least-effort prior warranted; OFF-already-low-defaults => value term suffices, prior redundant. Navigation + tied-benefit + cost-differential readiness gates, else substrate_not_ready_requeue. Env substrate landed 2026-07-09 (CausalGridWorld effort_dissociation_enabled; spec REE_assembly/docs/architecture/effort_dissociation_env.md; ree-v3/CLAUDE.md). Diagnostic self-route is a HYPOTHESIS for /failure-autopsy; PROMOTES/DEMOTES NOTHING (answers open_question Q-080, mints no mechanism). Queue-add: watch the phase3-queue snapshot race (post-commit dropped-file check per queue-experiment Step 8).",
+      "status": "pending",
+      "claim_ids": [
+        "Q-080"
+      ],
+      "conditions": 3,
+      "episodes_per_run": 6,
+      "experiment_type": "v3_exq_731_q080b_least_effort_prior",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-728",
       "title": "Trained all-ON capability point (WS-3): 4-metric yardstick on the 724 A0-trained all-ON stack vs 727 floor/ceiling scale",
       "script": "experiments/v3_exq_728_trained_allon_capability_point.py",
@@ -101,40 +135,6 @@
       "episodes_per_run": 890,
       "experiment_type": "v3_exq_723a_jlens_discriminative_compactness_diagnostic",
       "seeds": 4
-    },
-    {
-      "queue_id": "V3-EXQ-730",
-      "title": "Q-080.a effort->harm coupling: protective disengagement + irreversibility-aware caution (diagnostic)",
-      "script": "experiments/v3_exq_730_q080a_effort_harm_coupling.py",
-      "priority": 106,
-      "machine_affinity": "any",
-      "estimated_minutes": 40,
-      "note": "DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[Q-080]). Factorial {effort_harm_coupling OFF/ON} on the effort-dissociating env; value+allostatic machinery (use_dacc + use_pacc_analog + use_aic_analog + MECH-219 use_harm_suffering_accumulator) ON in BOTH arms. Commitment probe: agent teleported into the HIGH-effort corridor; measures whether coupling ON adds protective disengagement BEFORE depletion + caution tracking the IRREVERSIBLE exertion_permanent that OFF lacks. ON-wins => harm-coupling warranted; OFF-already-disengages => effort is foregone value, do NOT mint. Readiness gate: paths differ in per-action energy cost AND exertion accrues, else substrate_not_ready_requeue. Env substrate landed 2026-07-09 (CausalGridWorld effort_dissociation_enabled; spec REE_assembly/docs/architecture/effort_dissociation_env.md; ree-v3/CLAUDE.md). Diagnostic self-route is a HYPOTHESIS for /failure-autopsy; PROMOTES/DEMOTES NOTHING (answers open_question Q-080, mints no mechanism). Queue-add: watch the phase3-queue snapshot race (post-commit dropped-file check per queue-experiment Step 8).",
-      "status": "pending",
-      "claim_ids": [
-        "Q-080"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 8,
-      "experiment_type": "v3_exq_730_q080a_effort_harm_coupling",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-731",
-      "title": "Q-080.b least-effort prior: tied-benefit default to low-effort path vs value-subtraction (diagnostic)",
-      "script": "experiments/v3_exq_731_q080b_least_effort_prior.py",
-      "priority": 105,
-      "machine_affinity": "any",
-      "estimated_minutes": 40,
-      "note": "DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[Q-080]). Factorial {least-effort prior OFF/ON} at the TIED-benefit probe (effort_benefit_asymmetry=0.0), value-subtraction term (learned per-action effort EMA) ON in both arms; plus a CONTROL_ASYM arm (asym=0.5) proving the value term is non-vacuous. Prior + value modelled as an additive bias over agent.e3 per-first-action scores (corridors equidistant => dACC length-effort is tied, only env energy differs). ON-wins => least-effort prior warranted; OFF-already-low-defaults => value term suffices, prior redundant. Navigation + tied-benefit + cost-differential readiness gates, else substrate_not_ready_requeue. Env substrate landed 2026-07-09 (CausalGridWorld effort_dissociation_enabled; spec REE_assembly/docs/architecture/effort_dissociation_env.md; ree-v3/CLAUDE.md). Diagnostic self-route is a HYPOTHESIS for /failure-autopsy; PROMOTES/DEMOTES NOTHING (answers open_question Q-080, mints no mechanism). Queue-add: watch the phase3-queue snapshot race (post-commit dropped-file check per queue-experiment Step 8).",
-      "status": "pending",
-      "claim_ids": [
-        "Q-080"
-      ],
-      "conditions": 3,
-      "episodes_per_run": 6,
-      "experiment_type": "v3_exq_731_q080b_least_effort_prior",
-      "seeds": 3
     }
   ]
 }
