@@ -489,6 +489,44 @@ class CausalGridWorld:
         dual_cue_min_active_ticks: int = 10,
         dual_cue_replace_on_early_consume: bool = False,
         dual_cue_type_tags: tuple = (1, 2),
+        # Q-080 effort-dissociating env extension (open_question Q-080.a/b;
+        # NOT a mechanism claim). Dissociates EFFORT from BENEFIT: a two-corridor
+        # deterministic layout with a LOW-effort and a HIGH-effort path of EQUAL
+        # length (same #steps -> same time-cost, isolating effort from ARC-068
+        # time) to the SAME single benefit resource. A per-cell effort-cost grid
+        # makes per-action energy drawdown differ measurably by path, a chronic-
+        # exertion accumulator (slow-recovery load + irreversible ratchet) can
+        # deplete under sustained high effort, and an optional effort->z_harm_a
+        # coupling routes effort through the existing harm/allostatic stream
+        # (SD-032e pACC / MECH-219 / residue) so its irreversibility-aware
+        # handling can be ablated. Env-only; NOT surfaced through
+        # REEConfig.from_dims (SD-047/048/049/054 / infant precedent). All
+        # defaults no-op: master switch off -> bit-identical legacy behaviour,
+        # no layout override, no extra RNG, no obs_dict/info keys. Requires
+        # use_proxy_fields=True to be informative (the effort->harm coupling and
+        # energy channels ride the proxy interoceptive path); a hard precondition
+        # error is raised at construction if the coupling is enabled without it.
+        # Spec: REE_assembly/docs/architecture/effort_dissociation_env.md.
+        effort_dissociation_enabled: bool = False,
+        effort_base_cost: float = 0.01,
+        effort_high_multiplier: float = 3.0,
+        effort_low_col_offset: int = 2,
+        effort_high_col_offset: int = 2,
+        # chronic-exertion depletion (non-degeneracy #2 + Q-080.a irreversibility)
+        effort_exertion_threshold: float = 0.02,
+        effort_exertion_accrual_rate: float = 0.02,
+        effort_exertion_recovery_rate: float = 0.002,
+        effort_exertion_ratchet_mark: float = 0.5,
+        effort_exertion_ratchet_rate: float = 0.005,
+        # Q-080.a ON factor: route effort into the z_harm_a / harm_obs_a stream
+        effort_harm_coupling_enabled: bool = False,
+        effort_harm_coupling_scale: float = 1.0,
+        effort_harm_coupling_depletion_weight: float = 1.0,
+        # Q-080.b control lever: benefit asymmetry (0.0 = tied probe condition;
+        # >0 adds a per-step benefit bonus on the HIGH-effort corridor so the
+        # value-subtraction term SHOULD prefer high-effort -- proves the
+        # machinery is non-vacuous).
+        effort_benefit_asymmetry: float = 0.0,
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -967,6 +1005,50 @@ class CausalGridWorld:
         self._dual_cue_invalid_this_episode: bool = False
         self._dual_cue_n_active: int = 0
 
+        # Q-080 effort-dissociating env extension state.
+        self.effort_dissociation_enabled = bool(effort_dissociation_enabled)
+        self.effort_base_cost = float(max(0.0, effort_base_cost))
+        self.effort_high_multiplier = float(max(1.0, effort_high_multiplier))
+        self.effort_low_col_offset = int(max(1, effort_low_col_offset))
+        self.effort_high_col_offset = int(max(1, effort_high_col_offset))
+        self.effort_exertion_threshold = float(max(0.0, effort_exertion_threshold))
+        self.effort_exertion_accrual_rate = float(max(0.0, effort_exertion_accrual_rate))
+        self.effort_exertion_recovery_rate = float(max(0.0, effort_exertion_recovery_rate))
+        self.effort_exertion_ratchet_mark = float(np.clip(effort_exertion_ratchet_mark, 0.0, 1.0))
+        self.effort_exertion_ratchet_rate = float(max(0.0, effort_exertion_ratchet_rate))
+        self.effort_harm_coupling_enabled = bool(effort_harm_coupling_enabled)
+        self.effort_harm_coupling_scale = float(max(0.0, effort_harm_coupling_scale))
+        self.effort_harm_coupling_depletion_weight = float(
+            max(0.0, effort_harm_coupling_depletion_weight)
+        )
+        self.effort_benefit_asymmetry = float(max(0.0, effort_benefit_asymmetry))
+        # Precondition: the effort->harm coupling and the interoceptive energy
+        # channels ride the proxy path (harm_exposure / harm_obs_a_ema exist only
+        # under use_proxy_fields). Loud-not-silent: refuse an effort env that
+        # cannot express its own signals rather than produce a silent no-op.
+        if self.effort_dissociation_enabled and not self.use_proxy_fields:
+            raise ValueError(
+                "effort_dissociation_enabled=True requires use_proxy_fields=True "
+                "(the effort->harm coupling and interoceptive energy channels ride "
+                "the proxy interoceptive path). Set use_proxy_fields=True."
+            )
+        # Per-cell effort-cost multiplier grid (1.0 everywhere in legacy mode;
+        # rebuilt by the two-corridor layout when enabled). Allocated here so
+        # step()/_get_observation_dict never crash on a missing attr.
+        self._effort_cost_grid: np.ndarray = np.ones((size, size), dtype=np.float32)
+        # Deterministic layout anchors (populated by the layout builder).
+        self._effort_agent_start: Tuple[int, int] = (0, 0)
+        self._effort_resource_cell: Tuple[int, int] = (0, 0)
+        self._effort_low_col: int = -1
+        self._effort_high_col: int = -1
+        # Per-episode chronic-exertion state.
+        self._exertion_load: float = 0.0        # slow-recovery reversible depletion
+        self._exertion_permanent: float = 0.0   # irreversible ratchet (Q-080.a)
+        # Per-tick diagnostics.
+        self._effort_cost_this_step: float = 0.0
+        self._effort_energy_cumulative: float = 0.0
+        self._effort_harm_injected_this_step: float = 0.0
+
         # Fields and positions initialized in reset().
         self.landmark_a_positions: List[Tuple[int, int]] = []
         self.landmark_b_positions: List[Tuple[int, int]] = []
@@ -1327,9 +1409,152 @@ class CausalGridWorld:
             self._landmark_a_field = np.zeros((self.size, self.size), dtype=np.float32)
             self._landmark_b_field = np.zeros((self.size, self.size), dtype=np.float32)
 
+        # Q-080 effort-dissociating env: override the random layout with the
+        # deterministic two-corridor layout. Runs AFTER the normal per-episode
+        # state resets above (telemetry, counters, proxy field zeroing) so we
+        # inherit all of them and only replace the spatial layout + effort state.
+        # The random placement above still consumes RNG when enabled (its result
+        # is discarded); OFF is bit-identical (this branch is not taken).
+        if self.effort_dissociation_enabled:
+            self._apply_effort_dissociation_layout()
+
         obs_dict = self._get_observation_dict()
         flat_obs = self._dict_to_flat(obs_dict)
         return flat_obs, obs_dict
+
+    # ------------------------------------------------------------------ #
+    # Q-080 effort-dissociating env helpers                                #
+    # ------------------------------------------------------------------ #
+
+    def _reset_effort_state(self) -> None:
+        """Reset per-episode chronic-exertion + per-tick effort diagnostics.
+
+        NOTE the irreversible ratchet `_exertion_permanent` is reset per-episode
+        here (V3 homeostatic state is episode-local; cross-episode allostatic
+        load is V4 work, mirroring the SD-049 per_axis_drive convention). Within
+        an episode it accrues one-way -- that is the irreversibility Q-080.a
+        tests.
+        """
+        self._exertion_load = 0.0
+        self._exertion_permanent = 0.0
+        self._effort_cost_this_step = 0.0
+        self._effort_energy_cumulative = 0.0
+        self._effort_harm_injected_this_step = 0.0
+
+    def _apply_effort_dissociation_layout(self) -> None:
+        """Build the deterministic two-corridor effort-dissociation layout.
+
+        Two vertical corridors of EQUAL length connect a bottom agent-start
+        junction to a top single-benefit-resource junction. The LOW-effort
+        corridor carries effort-cost multiplier 1.0; the HIGH-effort corridor
+        carries `effort_high_multiplier`. Both corridors reach the SAME resource
+        in the SAME number of steps (equidistant) -- so the paths dissociate
+        purely on EFFORT, not on time (ARC-068). No hazards on either path
+        (pure effort dissociation). Walled (non-toroidal) layout.
+        """
+        size = self.size
+        wall = self.ENTITY_TYPES["wall"]
+        empty = self.ENTITY_TYPES["empty"]
+        # Full walls, then carve corridors + junctions.
+        self.grid = np.full((size, size), wall, dtype=np.int32)
+        self.contamination_grid = np.zeros((size, size), dtype=np.float32)
+        self.footprint_grid = np.zeros((size, size), dtype=np.int32)
+        center = size // 2
+        low_col = int(np.clip(center - self.effort_low_col_offset, 1, size - 2))
+        high_col = int(np.clip(center + self.effort_high_col_offset, 1, size - 2))
+        top_row = 1
+        bot_row = size - 2
+        self._effort_low_col = low_col
+        self._effort_high_col = high_col
+        # Carve the two vertical corridors.
+        for r in range(top_row, bot_row + 1):
+            self.grid[r, low_col] = empty
+            self.grid[r, high_col] = empty
+        # Carve the top (resource) and bottom (agent) horizontal junctions
+        # spanning between the two corridors, through the centre column.
+        for c in range(low_col, high_col + 1):
+            self.grid[top_row, c] = empty
+            self.grid[bot_row, c] = empty
+        # Effort-cost multiplier grid: 1.0 everywhere (junctions are cheap /
+        # shared rest cost), high corridor cells carry the high multiplier.
+        # The ONLY differentiating cost is the equal-length vertical traversal.
+        self._effort_cost_grid = np.ones((size, size), dtype=np.float32)
+        for r in range(top_row, bot_row + 1):
+            self._effort_cost_grid[r, high_col] = self.effort_high_multiplier
+        # Agent start: bottom junction centre (equidistant to both corridors).
+        ax = bot_row
+        ay = int(np.clip(center, low_col, high_col))
+        self.agent_x, self.agent_y = ax, ay
+        self.agent_health = 1.0
+        self.agent_energy = 1.0
+        self._last_action = 4
+        self._effort_agent_start = (ax, ay)
+        self.grid[ax, ay] = self.ENTITY_TYPES["agent"]
+        # Single shared benefit resource at the top junction centre.
+        rx = top_row
+        ry = int(np.clip(center, low_col, high_col))
+        self._effort_resource_cell = (rx, ry)
+        self.resources = [[rx, ry]]
+        self.grid[rx, ry] = self.ENTITY_TYPES["resource"]
+        # Pure effort dissociation: no hazards, no waypoints.
+        self.hazards = []
+        if self.subgoal_mode:
+            self.waypoints = []
+        # Recompute proximity fields for the single resource / no hazards.
+        if self.use_proxy_fields:
+            self._compute_proximity_fields()
+        self._reset_effort_state()
+
+    def _effort_cost_for_cell(self, x: int, y: int) -> float:
+        """Per-action effort energy cost of occupying / entering cell (x, y)."""
+        if not self.effort_dissociation_enabled:
+            return 0.0
+        xi = int(x) % self.size
+        yi = int(y) % self.size
+        return float(self.effort_base_cost * self._effort_cost_grid[xi, yi])
+
+    def _effort_cost_by_action(self) -> np.ndarray:
+        """[5] per-candidate-action effort cost from the current agent cell.
+
+        This is the signal a Q-080.b least-effort PRIOR (or a per-action
+        value-subtraction term) reads at SELECTION time, BEFORE the move --
+        cost = base_cost * effort_grid[destination]; a blocked move / stay
+        charges the current cell's rest cost.
+        """
+        costs = np.zeros(len(self.ACTIONS), dtype=np.float32)
+        if not self.effort_dissociation_enabled:
+            return costs
+        cx, cy = int(self.agent_x), int(self.agent_y)
+        for a, (dx, dy) in self.ACTIONS.items():
+            if self.toroidal:
+                nx, ny = (cx + dx) % self.size, (cy + dy) % self.size
+            else:
+                nx, ny = cx + dx, cy + dy
+                if not (0 <= nx < self.size and 0 <= ny < self.size):
+                    nx, ny = cx, cy
+            # A move into a wall does not happen -> rest cost at current cell.
+            if (not self.toroidal) and self.grid[nx, ny] == self.ENTITY_TYPES["wall"]:
+                nx, ny = cx, cy
+            costs[a] = self._effort_cost_for_cell(nx, ny)
+        return costs
+
+    def _effort_corridor_at(self, x: int, y: int) -> int:
+        """0 = junction / neither, 1 = low-effort corridor, 2 = high-effort."""
+        if not self.effort_dissociation_enabled:
+            return 0
+        yi = int(y)
+        top_row, bot_row = 1, self.size - 2
+        if not (top_row < int(x) < bot_row):
+            return 0  # on a junction row (or outside), not a differentiating cell
+        if yi == self._effort_low_col:
+            return 1
+        if yi == self._effort_high_col:
+            return 2
+        return 0
+
+    def _effort_effective_depletion(self) -> float:
+        """Total depletion = reversible load + irreversible ratchet, clipped."""
+        return float(np.clip(self._exertion_load + self._exertion_permanent, 0.0, 1.0))
 
     def reset_to(
         self,
@@ -1440,6 +1665,15 @@ class CausalGridWorld:
         self.landmark_b_positions = []
         self._landmark_a_field = np.zeros((self.size, self.size), dtype=np.float32)
         self._landmark_b_field = np.zeros((self.size, self.size), dtype=np.float32)
+
+        # Q-080: clear per-episode effort/exertion state so scripted-eval reuse
+        # never carries stale depletion. The deterministic two-corridor layout is
+        # NOT applied here -- reset_to is the fixed-coords eval harness; the
+        # effort env uses reset(). The effort-cost grid keeps its last value
+        # (default ones in legacy mode); effort cost is a no-op unless the master
+        # switch is on, in which case a prior reset() has built the grid.
+        if self.effort_dissociation_enabled:
+            self._reset_effort_state()
 
         obs_dict = self._get_observation_dict()
         flat_obs = self._dict_to_flat(obs_dict)
@@ -1900,6 +2134,55 @@ class CausalGridWorld:
         # Energy decay
         self.agent_energy = max(0.0, self.agent_energy - self.energy_decay)
 
+        # Q-080 effort-dissociating env: per-action effort energy cost (on top of
+        # the flat energy_decay) + chronic-exertion accumulation. Applied BEFORE
+        # the SD-049 override below (effort experiments do not co-enable SD-049,
+        # so that override is skipped; the ordering is defensive). The cost is
+        # keyed to the cell the agent now occupies (destination of a successful
+        # move, or the current cell for a stay / blocked / rolled-back move), so
+        # the HIGH-effort corridor drains energy `effort_high_multiplier`x faster
+        # than the LOW-effort corridor of equal length -- the measurable, varying
+        # per-action cost (non-degeneracy #1).
+        self._effort_cost_this_step = 0.0
+        self._effort_harm_injected_this_step = 0.0
+        if self.effort_dissociation_enabled:
+            cost = self._effort_cost_for_cell(self.agent_x, self.agent_y)
+            self._effort_cost_this_step = cost
+            self.agent_energy = max(0.0, self.agent_energy - cost)
+            self._effort_energy_cumulative += cost
+            # Chronic-exertion accumulator (non-degeneracy #2). Sustained effort
+            # above threshold accrues a slow-recovery reversible load; once the
+            # load crosses the ratchet mark, an IRREVERSIBLE permanent component
+            # accrues that recovery cannot erase -- the depletion that Q-080.a's
+            # irreversibility-aware caution targets. Only the HIGH corridor
+            # (cost > threshold) accrues; the LOW corridor recovers.
+            if cost > self.effort_exertion_threshold:
+                self._exertion_load = float(
+                    min(1.0, self._exertion_load + self.effort_exertion_accrual_rate)
+                )
+                if self._exertion_load >= self.effort_exertion_ratchet_mark:
+                    self._exertion_permanent = float(
+                        min(1.0, self._exertion_permanent + self.effort_exertion_ratchet_rate)
+                    )
+            # Slow recovery of the reversible load (permanent component excluded).
+            self._exertion_load = float(
+                max(0.0, self._exertion_load - self.effort_exertion_recovery_rate)
+            )
+            # Q-080.b CONTROL lever: benefit asymmetry. Default 0.0 -> benefit is
+            # strictly TIED across the two paths (single shared resource), the
+            # probe condition where only a least-effort PRIOR (or the coupling)
+            # could break toward low effort. >0 adds a per-step benefit bonus on
+            # the HIGH-effort corridor (fraction of resource_benefit per step),
+            # so the value-subtraction term SHOULD prefer high-effort despite its
+            # cost -- the non-vacuous control proving the machinery is functional.
+            if (
+                self.effort_benefit_asymmetry > 0.0
+                and self._effort_corridor_at(self.agent_x, self.agent_y) == 2
+            ):
+                bonus = self.effort_benefit_asymmetry * self.resource_benefit
+                harm_signal = harm_signal + bonus
+                self.total_benefit += bonus
+
         # SD-049: per-axis drive depletion + legacy agent_energy collapse.
         # Per-axis drive[i] increases each step by per_axis_drive_decay[i]
         # (depletion analog -- fatigue accumulates in the axis between contacts).
@@ -1964,6 +2247,35 @@ class CausalGridWorld:
             resource_at_agent = float(np.clip(self.resource_field[ax2, ay2], 0.0, 1.0))
             self.harm_obs_a_ema[:25] = (1.0 - alpha_a) * self.harm_obs_a_ema[:25] + alpha_a * hazard_at_agent
             self.harm_obs_a_ema[25:] = (1.0 - alpha_a) * self.harm_obs_a_ema[25:] + alpha_a * resource_at_agent
+
+            # Q-080.a ON factor: route effort into the z_harm_a / harm_obs_a
+            # stream so the EXISTING harm/allostatic machinery treats effort with
+            # harm's irreversibility-aware handling -- SD-032e pACC integrates it
+            # into drive_level, MECH-219 folds it into the hysteretic suffering
+            # accumulator (sticky alpha_rise >> alpha_fall = irreversibility), and
+            # the residue field sees it. This is the "SD-032e effort-input
+            # variant" realised env-side with ZERO agent-code change: z_harm_a is
+            # ||harm_obs_a|| and pACC/MECH-219 are source-agnostic scalar
+            # integrators. OFF -> effort stays purely in the energy channel and
+            # z_harm_a is unchanged (the factorial contrast for Q-080.a). Both
+            # arms keep SD-032b/c/e ON; only this injection differs.
+            if self.effort_dissociation_enabled and self.effort_harm_coupling_enabled:
+                eff_harm = self.effort_harm_coupling_scale * (
+                    self._effort_cost_this_step
+                    + self.effort_harm_coupling_depletion_weight
+                    * self._effort_effective_depletion()
+                )
+                eff_harm = float(max(0.0, eff_harm))
+                self._effort_harm_injected_this_step = eff_harm
+                # Fold into the nociceptive EMA (as an additional homeostatic
+                # unpleasantness term this tick) and the affective harm_obs_a
+                # hazard half, keeping both bounded to [0, 1].
+                self.harm_exposure = float(
+                    min(1.0, self.harm_exposure + alpha * eff_harm)
+                )
+                self.harm_obs_a_ema[:25] = np.clip(
+                    self.harm_obs_a_ema[:25] + alpha_a * eff_harm, 0.0, 1.0
+                )
 
             # SD-011 second source: record harm_exposure into rolling history buffer.
             if self.harm_history_len > 0:
@@ -2464,6 +2776,19 @@ class CausalGridWorld:
             info["mech090_readiness_outcome"] = float(
                 max(0.0, min(1.0, _readiness_outcome))
             )
+        # Q-080 effort-dissociating env telemetry (present only when enabled;
+        # bit-identical OFF -- keys absent). All scalars for scoring the two
+        # factorial ablations.
+        if self.effort_dissociation_enabled:
+            info["effort_cost_this_step"] = float(self._effort_cost_this_step)
+            info["effort_energy_cumulative"] = float(self._effort_energy_cumulative)
+            info["exertion_load"] = float(self._exertion_load)
+            info["exertion_permanent"] = float(self._exertion_permanent)
+            info["effort_depletion"] = float(self._effort_effective_depletion())
+            info["effort_corridor"] = int(
+                self._effort_corridor_at(self.agent_x, self.agent_y)
+            )
+            info["effort_harm_injected"] = float(self._effort_harm_injected_this_step)
         return flat_obs, harm_signal, done, info, obs_dict
 
     # ------------------------------------------------------------------ #
@@ -2860,6 +3185,35 @@ class CausalGridWorld:
                 # Accumulated harm target for auxiliary loss (running average, clipped [0,1]).
                 accum = self._accumulated_harm_exposure / max(self._accumulated_harm_steps, 1)
                 result["accumulated_harm"] = float(np.clip(accum, 0.0, 1.0))
+        # Q-080 effort-dissociating env observables. Present ONLY when enabled
+        # (absent-when-disabled, mech090 precedent) so backward compat is
+        # bit-identical and the flat body/world dims are unchanged. These ride
+        # obs_dict (not the flat vector) exactly like SD-049 per_axis_drive.
+        #   effort_cost_by_action [5]: per-candidate-action effort cost from the
+        #     current cell -- the signal a least-effort PRIOR / per-action
+        #     value-subtraction term reads at SELECTION time (Q-080.b).
+        #   exertion_load / exertion_permanent / effort_depletion: the chronic-
+        #     exertion state (reversible / irreversible / total) whose approach
+        #     protective disengagement must anticipate (Q-080.a).
+        if self.effort_dissociation_enabled:
+            result["effort_cost_this_step"] = torch.tensor(
+                [float(self._effort_cost_this_step)], dtype=torch.float32
+            )
+            result["effort_cost_by_action"] = torch.from_numpy(
+                self._effort_cost_by_action()
+            ).float()  # [5]
+            result["exertion_load"] = torch.tensor(
+                [float(self._exertion_load)], dtype=torch.float32
+            )
+            result["exertion_permanent"] = torch.tensor(
+                [float(self._exertion_permanent)], dtype=torch.float32
+            )
+            result["effort_depletion"] = torch.tensor(
+                [self._effort_effective_depletion()], dtype=torch.float32
+            )
+            result["effort_corridor"] = int(
+                self._effort_corridor_at(self.agent_x, self.agent_y)
+            )
         return result
 
     def _dict_to_flat(self, obs_dict: Dict[str, torch.Tensor]) -> torch.Tensor:
