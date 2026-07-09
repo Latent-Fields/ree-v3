@@ -169,6 +169,7 @@ class E2FastPredictor(nn.Module):
                 temperature=float(getattr(self.config, "cross_stream_binding_temperature", 0.5)),
                 buffer_size=int(getattr(self.config, "cross_stream_binding_buffer_size", 512)),
                 batch=int(getattr(self.config, "cross_stream_binding_batch", 64)),
+                conv_frac=float(getattr(self.config, "cross_stream_binding_conv_frac", 0.85)),
             )
 
     # ------------------------------------------------------------------ #

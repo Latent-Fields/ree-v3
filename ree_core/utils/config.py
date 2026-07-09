@@ -437,6 +437,13 @@ class E2Config:
     cross_stream_binding_temperature: float = 0.5  # InfoNCE temperature
     cross_stream_binding_buffer_size: int = 512  # co-encoding pair buffer
     cross_stream_binding_batch: int = 64         # contrastive batch size
+    # Convergence gate (failure_autopsy_V3-EXQ-725_2026-07-09 repair): the
+    # substrate reports binder_converged = smoothed_loss < conv_frac*log(batch).
+    # Report-only -- affects no dynamics. Default 0.85 cleanly rejects the raw
+    # (un-normalized) curriculum that sat flat at ~0.89 of chance while accepting
+    # the L2-normalized cosine-InfoNCE curriculum (0.65-0.80 of chance across
+    # seeds; see evidence/planning/binder_convergence_probe_2026-07-09.md).
+    cross_stream_binding_conv_frac: float = 0.85
 
 
 @dataclass
@@ -4595,6 +4602,7 @@ class REEConfig:
         cross_stream_binding_temperature: float = 0.5,
         cross_stream_binding_buffer_size: int = 512,
         cross_stream_binding_batch: int = 64,
+        cross_stream_binding_conv_frac: float = 0.85,
         # SD-022: directional limb damage
         limb_damage_enabled: bool = False,
         damage_increment: float = 0.15,
@@ -5646,6 +5654,7 @@ class REEConfig:
         config.e2.cross_stream_binding_temperature = cross_stream_binding_temperature
         config.e2.cross_stream_binding_buffer_size = cross_stream_binding_buffer_size
         config.e2.cross_stream_binding_batch = cross_stream_binding_batch
+        config.e2.cross_stream_binding_conv_frac = cross_stream_binding_conv_frac
 
         # SD-022: directional limb damage dim adjustments.
         # When enabled: harm_obs_a_dim is re-sourced from body damage state (7 dims).

@@ -43,6 +43,20 @@ LEARNED (learned=True, 2026-07-09; cross_stream_binding_substrate V4 next-step
   learned binder REQUIRES phased training (a P0 binder curriculum trains it;
   P1 freezes it and runs the 641a measurement).
 
+  CONVERGENCE REPAIR (failure_autopsy_V3-EXQ-725_2026-07-09): the first learned
+  build scored UN-normalized projections. In the slow-drift bipartite gridworld
+  the observed latents are near-collinear buffer-wide (cos ~0.99), so the
+  dot-product InfoNCE logit was dominated by the near-constant projection
+  MAGNITUDE and carried no per-pair contrast -- the loss pinned at chance
+  log(64)=4.16 (V3-EXQ-725 observed 3.75-3.96) and the binder never trained (an
+  untrained-substrate artifact, not a coherence verdict). The repair L2-NORMALIZES
+  phi_self/phi_world before the dot (COSINE InfoNCE, SimCLR-standard): direction,
+  not magnitude, is scored, exposing the residual conjunction signal. The loss
+  then drops to 0.65-0.80 of chance across seeds. The substrate reports
+  binder_converged = loss_ema < conv_frac*log(batch) so a retest gates on
+  convergence (not the vacuous n_learn_steps>1 check). See
+  evidence/planning/binder_convergence_probe_2026-07-09.md.
+
 DESIGN NOTES
 ------------
 - SAME perturbation into both streams. Two independent random projections of the
@@ -111,6 +125,7 @@ class CrossStreamBinder(nn.Module):
         temperature: float = 0.5,
         buffer_size: int = 512,
         batch: int = 64,
+        conv_frac: float = 0.85,
     ) -> None:
         super().__init__()
         self.self_dim = int(self_dim)
@@ -127,6 +142,10 @@ class CrossStreamBinder(nn.Module):
         self.temperature = max(1e-3, float(temperature))
         self.buffer_size = max(2, int(buffer_size))
         self.batch = max(2, int(batch))
+        # Convergence gate fraction (failure_autopsy_V3-EXQ-725 repair): the
+        # binder is "converged" when the smoothed InfoNCE loss is below
+        # conv_frac * log(effective_batch) (chance).
+        self.conv_frac = float(conv_frac)
 
         if not self.learned:
             # FIXED mode (byte-identical to the 2026-07-08 build):
@@ -147,6 +166,9 @@ class CrossStreamBinder(nn.Module):
             self._buf_world: List[torch.Tensor] = []
             self._n_learn_steps = 0
             self._last_loss: Optional[float] = None
+            # Smoothed loss + last effective chance floor for the convergence gate.
+            self._loss_ema: Optional[float] = None
+            self._last_chance: Optional[float] = None
 
     # ------------------------------------------------------------------ #
     # Shared factor + coupling (mode-agnostic external interface)         #
@@ -211,10 +233,19 @@ class CrossStreamBinder(nn.Module):
     ) -> torch.Tensor:
         """Learned binding affinity of a (z_self, z_world) conjunction.
 
-        score = sum_k phi_self(z_self)_k * phi_world(z_world)_k  (bilinear /
-        InfoNCE logit). High when the two learned projections co-activate. The
-        substrate-level read the rebinding probe uses. Fixed mode: not defined
-        (returns zeros -- a fixed field has no learned affinity).
+        score = cos(phi_self(z_self), phi_world(z_world)) -- the L2-normalized
+        bilinear form (an InfoNCE cosine logit, temperature omitted). High when
+        the two learned projections point the same way. The substrate-level read
+        the rebinding probe uses. Fixed mode: not defined (returns zeros -- a
+        fixed field has no learned affinity).
+
+        NORMALIZATION (failure_autopsy_V3-EXQ-725 repair): the raw bilinear form
+        sum_k phi_self_k*phi_world_k is dominated by the near-constant projection
+        MAGNITUDE across the highly-collinear latents (buffer-wide cos ~0.99), so
+        it carries almost no per-conjunction contrast. L2-normalizing exposes the
+        residual DIRECTIONAL conjunction signal -- the same geometry learn_step
+        now trains -- so the rebinding probe ranks candidates consistently with
+        the trained objective. See binder_convergence_probe_2026-07-09.md.
 
         Args:
             z_self:  [batch, self_dim]
@@ -224,8 +255,8 @@ class CrossStreamBinder(nn.Module):
         """
         if not self.learned:
             return torch.zeros(z_self.shape[0], device=z_self.device)
-        h_self = self.phi_self(z_self)
-        h_world = self.phi_world(z_world)
+        h_self = F.normalize(self.phi_self(z_self), dim=-1)
+        h_world = F.normalize(self.phi_world(z_world), dim=-1)
         return (h_self * h_world).sum(dim=-1)
 
     def observe(self, z_self: torch.Tensor, z_world: torch.Tensor) -> None:
@@ -252,6 +283,16 @@ class CrossStreamBinder(nn.Module):
         NEGATIVES = in-batch shuffled pairs (off-diagonal). Symmetric cross
         entropy (self->world and world->self). Trains phi_self/phi_world so
         genuine conjunctions bind and a shuffle collapses.
+
+        NORMALIZATION (failure_autopsy_V3-EXQ-725 repair): phi_self/phi_world are
+        L2-normalized before the dot -- a COSINE InfoNCE (SimCLR-standard). The
+        latents are near-collinear buffer-wide (cos ~0.99), so the un-normalized
+        dot-product logit is dominated by the near-constant projection MAGNITUDE
+        and carries no per-pair contrast -> the loss pinned at chance log(batch)
+        across 487-1760 steps in V3-EXQ-725 (the untrained-substrate artifact).
+        Normalizing scores DIRECTION only, exposing the residual conjunction
+        signal; the loss then drops to 0.65-0.80 of chance across seeds (temp 0.2
+        deepens the margin). See binder_convergence_probe_2026-07-09.md.
         """
         if not self.learned:
             return None
@@ -263,9 +304,10 @@ class CrossStreamBinder(nn.Module):
         z_self = torch.cat([self._buf_self[i] for i in idx.tolist()], dim=0)
         z_world = torch.cat([self._buf_world[i] for i in idx.tolist()], dim=0)
 
-        h_self = self.phi_self(z_self)          # [b, bind_dim]
-        h_world = self.phi_world(z_world)       # [b, bind_dim]
-        # Full pairwise score matrix: logits[i, j] = <phi_self_i, phi_world_j>.
+        # L2-normalize the projections (cosine InfoNCE) -- the load-bearing repair.
+        h_self = F.normalize(self.phi_self(z_self), dim=-1)    # [b, bind_dim]
+        h_world = F.normalize(self.phi_world(z_world), dim=-1)  # [b, bind_dim]
+        # Full pairwise score matrix: logits[i, j] = cos(phi_self_i, phi_world_j).
         logits = (h_self @ h_world.t()) / self.temperature  # [b, b]
         targets = torch.arange(b, device=logits.device)
         loss = 0.5 * (
@@ -277,6 +319,13 @@ class CrossStreamBinder(nn.Module):
         self._optimizer.step()
         self._n_learn_steps += 1
         self._last_loss = float(loss.detach().item())
+        # Smoothed loss (EMA decay 0.9) + effective chance floor log(b) for a
+        # robust binder_converged read (a single-step loss is noisy).
+        if self._loss_ema is None:
+            self._loss_ema = self._last_loss
+        else:
+            self._loss_ema = 0.9 * self._loss_ema + 0.1 * self._last_loss
+        self._last_chance = math.log(b)
         return self._last_loss
 
     def rebinding_probe(
@@ -343,3 +392,29 @@ class CrossStreamBinder(nn.Module):
     @property
     def last_loss(self) -> Optional[float]:
         return getattr(self, "_last_loss", None)
+
+    @property
+    def loss_ema(self) -> Optional[float]:
+        """EMA-smoothed InfoNCE loss (decay 0.9), or None if untrained/fixed."""
+        return getattr(self, "_loss_ema", None)
+
+    @property
+    def chance_floor(self) -> Optional[float]:
+        """log(effective_batch) of the last learn_step -- the InfoNCE chance floor."""
+        return getattr(self, "_last_chance", None)
+
+    @property
+    def binder_converged(self) -> bool:
+        """True when the smoothed loss is below conv_frac * chance.
+
+        The hard convergence gate a learned-binder retest MUST check (replacing
+        the vacuous n_learn_steps>1 readiness check that green-lit the untrained
+        binder in V3-EXQ-725). False in fixed mode or before any training.
+        """
+        if not getattr(self, "learned", False):
+            return False
+        ema = getattr(self, "_loss_ema", None)
+        chance = getattr(self, "_last_chance", None)
+        if ema is None or chance is None:
+            return False
+        return ema < self.conv_frac * chance

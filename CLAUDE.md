@@ -1288,6 +1288,34 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   SPEC AND n_rebind>0). Queued 2026-07-09 via /queue-experiment.
   See docs/architecture/sd_cross_stream_binding_substrate.md, INV-002, MECH-089,
   MECH-094, MECH-270, candidate entities/selection.coherence_nonreducibility.
+- cross_stream_binding_substrate LEARNED-BINDER CONVERGENCE REPAIR -- 2026-07-09.
+  failure_autopsy_V3-EXQ-725_2026-07-09: the first learned build did NOT converge --
+  InfoNCE loss pinned at chance log(64)=4.16 (observed 3.75-3.96) across 487-1760
+  steps, flat + non-monotone; SPEC regressed 3/6 (720 fixed field) -> 0/6, an
+  untrained-substrate artifact (NOT a coherence verdict). Root cause (convergence
+  probe, evidence/planning/binder_convergence_probe_2026-07-09.md): the observed
+  latents are near-collinear buffer-wide (cos ~0.99), so the UN-normalized
+  dot-product InfoNCE logit is dominated by near-constant projection MAGNITUDE and
+  carries no per-pair contrast.
+  Fix (ree_core/latent/cross_stream_binder.py): L2-NORMALIZE phi_self/phi_world
+  before the dot in learn_step AND binding_score -- a COSINE InfoNCE (SimCLR-
+  standard) that scores DIRECTION only, exposing the residual conjunction signal.
+  Loss drops to 0.65-0.80 of chance across seeds (temperature 0.2 deepens the
+  margin). Delta-binding / variety-filtering / bind_dim changes tested and NOT
+  adopted (zero gain over plain cosine).
+  New convergence stat: binder_converged = loss_ema (EMA decay 0.9) < conv_frac *
+  log(effective_batch); conv_frac new E2Config param cross_stream_binding_conv_frac
+  (default 0.85 -- cleanly rejects the flat-at-0.89 raw path). Exposed as
+  CrossStreamBinder.binder_converged / .loss_ema / .chance_floor.
+  Backward compatible: all changes inside the learned branch (fixed mode + OFF byte-
+  identical). Smoke: FIXED byte-identical; LEARNED converges on the real 725 latent
+  stream (loss_ema 3.33 < gate 3.54 -> binder_converged=True at default temp;
+  binding_score matched 0.68 vs shuffled -0.10); un-normalized control stays at
+  chance (0.885); 725 dry-run exit 0. Substrate status: implemented-but-non-
+  functional -> REPAIRED (converges).
+  Retest: V3-EXQ-725a (the 725 harness on the repaired binder) MUST gate on a HARD
+  learned_binder_converged precondition (loss_ema < 0.85*log(batch)) REPLACING the
+  vacuous learned_binder_trained (n_learn_steps>1) check.
 
 ## MECH-090 Layer 1 + MECH-091 Layer 2: Trajectory Stepping + Urgency Interrupt (2026-04-15)
 - MECH-090 Layer 1: control_plane.committed_trajectory_stepping -- IMPLEMENTED 2026-04-15.
