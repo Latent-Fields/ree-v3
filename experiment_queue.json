@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-721",
-      "title": "MECH-446 closure-fire -> latch-armed-occupancy LAG-distribution diagnostic (Move M3): re-anchor the de-commit DV from the vacuous within-arm occupancy-drop to the fire->occupancy lag distribution",
-      "script": "experiments/v3_exq_721_mech446_closure_latch_lag_distribution_diagnostic.py",
-      "priority": 300,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "note": "DIAGNOSTIC (claim_ids=[], non_contributory, PROMOTES NOTHING). Move M3 of claim_synthesis_MECH-445-446_2026-07-06.md. Re-anchors the MECH-446 de-commit-authority DV from the recurring-VACUOUS within-arm post-closure occupancy-DROP to the DISTRIBUTION of the tick LAG between each genuine SD-034 closure fire (closure_operator._n_closures increment) and the nearest sustained latch-armed beta occupancy (run >= SUSTAIN_MIN_TICKS=2), on the F-independent use_closure_commit_entry substrate (VALIDATED 460o/460p PASS 2026-06-24). Graded output: seed_median_lag_stats + pooled_coreg_within_horizon_frac (fraction of fires with an occupancy within LAG_HORIZON=10 ticks -- the fraction the 715 falsifier window could ever have scored) -- quantifying exactly how much co-registration the f_dominance de-commit-release amend must buy. ATTRIBUTION GUARD: closure_exclusive_decommit_eval=True makes every measured occupancy closure-formed by construction; ARM_ENTRY_OFF forms no occupancy (censored) = the attribution control. Readiness (self-route, never a verdict): >= 1 measurable seed (guard-competent + >= 1 fire-with-sustained-occupancy) AND >= MIN_LAG_EVENTS=2 fire-with-occupancy events; else substrate_not_ready_requeue. Re-derive brake EXEMPT: new DV MEASUREMENT, not a same-selector de-commit-MAGNITUDE re-derive (that face's brake is FIRED, 7 substrate-ceiling readings). Precondition met: V3-EXQ-715a (Move M1, selection-face lift ON) did NOT co-locate (moderate_f_delta -63). 6 seeds [42-47] (incl. 715's arming seed 44 + 717's armed 46). Mint: 2-arm in-run self-mint ON (arm_cell); separate baseline mint SKIPPED (disqualifier: closure-de-commit substrate is genuinely IN FLUX for this lineage -- the de-commit-release face is under active /implement-substrate build, so the OFF path re-tunes and the fingerprint would correctly refuse a drifted mint; one-shot diagnostic whose successor is /implement-substrate, not a lettered sibling). Prefer cloud. Smoke: dry-run PASS (instrumentation confirmed: ON arm formed a sustained occupancy, closure fire lag=1, attribution control OFF armed=0).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-07-08T21:00:58Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_721_mech446_closure_latch_lag_distribution_diagnostic",
-      "seeds": 6
-    },
-    {
       "queue_id": "V3-EXQ-724",
       "title": "Competence-localization diagnostic (all-ON forage): OFAT over P1-budget / frozen-encoder / mechanism-interference vs a greedy-oracle positive control",
       "script": "experiments/v3_exq_724_competence_localization_diagnostic.py",
@@ -46,43 +26,6 @@
       "episodes_per_run": 310,
       "experiment_type": "v3_exq_724_competence_localization_diagnostic",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-725",
-      "title": "Coherence non-reducibility retest on the LEARNED-binder cross_stream_binding substrate (641a/720 harness + P0 binder curriculum; PASS = >=4/6 SPEC AND n_rebind>0)",
-      "script": "experiments/v3_exq_725_coherence_nonreducibility_learned_binder.py",
-      "priority": 150,
-      "machine_affinity": "any",
-      "estimated_minutes": 480,
-      "supersedes": null,
-      "claim_id": null,
-      "note": "cross_stream_binding_substrate LEARNED-binder retest per failure_autopsy_V3-EXQ-720_2026-07-09 (user-directed 2026-07-09 as ACTIVE near-term next-step). Diagnostic (claim_ids=[]); bears on INV-002/MECH-089/MECH-094/MECH-270/MECH-269. Only substrate change vs 720 = cross_stream_binding_learned=True + a P0 binder contrastive co-encoding curriculum; n_rebind read through the substrate rebinding_probe (anchor perturbation) folded in. On C_nonreducible_coherence_specific_register: register candidate Q entities/selection.coherence_nonreducibility + close both 2026-04-23 intakes. priority 150 = below the live conversion-ceiling diagnostics (governance sets real priority; substrate_queue entry is V4-leaning priority 2).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-09T07:25:43Z"
-      },
-      "claim_ids": [],
-      "conditions": 3,
-      "episodes_per_run": 65,
-      "experiment_type": "v3_exq_725_coherence_nonreducibility_learned_binder",
-      "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-727",
-      "title": "Capability yardstick calibration (WS-3): claim-agnostic 4-metric suite vs random floor + greedy-oracle ceiling",
-      "experiment_type": "v3_exq_727_capability_yardstick_calibration",
-      "script": "experiments/v3_exq_727_capability_yardstick_calibration.py",
-      "priority": 100,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 120,
-      "episodes_per_run": 120,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_id": "",
-      "claim_ids": [],
-      "note": "BASELINE (experiment_purpose=baseline, claim_ids=[], non_contributory, PROMOTES NOTHING; EXCLUDED from governance scoring). WS-3 of ree_ai_design_critique_plan.md: a claim-agnostic capability-eval yardstick (foraging_competence / survival_horizon / goal_reach_rate / planning_depth) built as the reusable harness block experiments/_lib/capability_eval.py and calibrated here against 3 policy arms x 3 seeds: random_walk (FLOOR), ree_p0warmup_allon (all-ON 714 ARM_ON stack after P0 world-model warmup, NO P1 competence-training -- proves the block attaches to REEAgent), greedy_oracle (CEILING; reused verbatim from V3-EXQ-724's positive control). Separates 'claim wrong' from 'substrate too coarse' by giving the campaign a denominator. Self-route (HYPOTHESIS): oracle clears the 1.0 competence floor AND oracle>random on foraging -> capability_yardstick_calibrated; else substrate_not_ready_requeue. Does NOT re-train the trained all-ON stack (that denominator comes from the in-flight V3-EXQ-724); a follow-on should import capability_eval into the next trained all-ON run to land all four metrics on this scale. Dry-run PASS (oracle 3.5>random 0.0 forage/ep, all 4 metrics separate policies). NOTE for audit: this commit's queue file also drops V3-EXQ-723 (J-lens diagnostic), which COMPLETED 2026-07-09T15:10Z (manifest v3_exq_723_..._20260709T151028Z_v3.json landed); its removal is manifest-backed + DB-authoritative, not a foreign in-flight edit."
     },
     {
       "queue_id": "V3-EXQ-728",
@@ -114,6 +57,21 @@
       "conditions": 1,
       "claim_id": "MECH-268",
       "note": "Ecological (live-loop) analogue of V3-EXQ-463b. 463b validated MECH-268 f_sat ONLY via manual per-step record_outcome injection (synthetic). This run makes NO manual record_outcome call and proves the DACC _outcome_history FIFO is filled by the LIVE agent.py select_action tail (F-C3 wiring, ree-v3 main c7fc045, 2026-07-09) via a counting spy; chronic-harm env (num_hazards=6) keeps z_harm_a supra-threshold so the recurring harm class saturates. ARM_ON final-third sat_factor<0.95 vs ARM_OFF ~1.0 (OFF also has zero live record calls -- gating check). CLEARS a re-derive brake: MECH-268 had 5 substrate_ceiling autopsies (SD-034-closure-cluster 2026-06-12, SD-034-closure-control-plane-d 2026-06-13, V3-EXQ-460b-461b-464b-466b 2026-06-04, V3-EXQ-468e 2026-06-18, V3-EXQ-468f 2026-06-20) all PREDATING the c7fc045 live-path wiring this experiment is the first to exercise ecologically -- brake RELEASED per queue-experiment Step 2.5b (upstream substrate now BUILT). ARM_OFF is minted reuse-eligible (arm_cell, include_driver_script_in_hash=False; reuse assumes a cloud linux-x86_64-py3.10 claim). PROMOTES NOTHING -- closes the 'validated only via synthetic injection' gap (design_implementation_audit_2026-07-09.md sec 6, MECH-268 gov follow-up #2)."
+    },
+    {
+      "queue_id": "V3-EXQ-716a",
+      "title": "SD-063 conditional predictive-uncertainty head -- claim-tagged evidence confirmation (reproduces V3-EXQ-716 C1/C2/C3)",
+      "experiment_type": "v3_exq_716a_sd063_conditional_uncertainty_confirmation",
+      "script": "experiments/v3_exq_716a_sd063_conditional_uncertainty_confirmation.py",
+      "priority": 130,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "episodes_per_run": 170,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "SD-063",
+      "note": "Claim-tagged (experiment_purpose=evidence, claim_ids=[SD-063]) companion to the V3-EXQ-716 diagnostic PASS, which cleared SD-063 v3_pending (2026-07-09) but deposited NO claim-scoring evidence (diagnostic/claim_ids=[]/non_contributory). Same design + same 3 load-bearing criteria (C1 CRPS quantile<point, C2 precision_error_corr over EMA null, C3 SD-031 agency residual preserved) under the same frozen-encoder-warmup + joint-training protocol. PASS -> deposits supports on SD-063 for a candidate->provisional promotion; criteria-FAIL -> weakens; readiness-unmet/degenerate -> non_contributory (scoring-excluded). NOT a correction (no supersedes); confirms v3_exq_716_sd063_conditional_uncertainty_validation. SD-031 C3 guard kept load-bearing. Smoke: dry-run PASS (init + both conditions + manifest + sentinel; dry-run self-routes substrate_not_ready_requeue as designed on the toy transition floor)."
     }
   ]
 }
