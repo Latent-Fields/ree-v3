@@ -99,6 +99,21 @@
       "claim_id": "",
       "claim_ids": [],
       "note": "BASELINE (experiment_purpose=baseline, claim_ids=[], non_contributory, PROMOTES NOTHING; EXCLUDED from governance scoring). WS-3 of ree_ai_design_critique_plan.md OWED next step: lands the TRAINED all-ON stack on ALL FOUR capability_eval metrics (foraging_competence / survival_horizon / goal_reach_rate / planning_depth) against the V3-EXQ-727 random-floor / greedy-oracle scale, closing the \"reported alongside every all-ON run\" clause. Three arms x 3 seeds: random_walk (FLOOR), ree_trained_allon (all-ON 714 ARM_ON trained with the V3-EXQ-724 A0 recipe: P0=200 world-model warmup + P1=90 two-head REINFORCE [lateral-PFC bias + OFC devaluation], SD-056 e2 encoder FROZEN through P1), greedy_oracle (CEILING; reused verbatim from 724 positive control). Eval via the yardstick REEForwardPolicy (identical path to 727 p0warmup arm -> 727-vs-728 isolates P1 competence-training effect; mechanism-agnostic, no P2 OFC-viability injection, so NOT required to reproduce 724 A0 P2 DV byte-for-byte). Self-route (HYPOTHESIS): oracle clears the 1.0 floor AND oracle>random on foraging -> trained_allon_capability_point_landed; else substrate_not_ready_requeue. Trained-point supra-floor status + normalized positions are REPORTED CONTEXT, not a governance verdict (excluded from scoring). NO baseline mint: substrate in flux for this lineage (724-A0 recipe re-tunes per iteration) + the trained all-ON point IS the denominator, not a reusable OFF arm. Dry-run PASS (oracle 3.5>random 0.0 forage/ep; trained arm P0+P1 harness runs clean; all 4 metrics normalize on the scale)."
+    },
+    {
+      "queue_id": "V3-EXQ-729",
+      "title": "MECH-268 dACC conflict-saturation LIVE-LOOP falsifier (ecological analogue of 463b)",
+      "experiment_type": "v3_exq_729_mech268_dacc_saturation_liveloop",
+      "script": "experiments/v3_exq_729_mech268_dacc_saturation_liveloop.py",
+      "priority": 120,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 120,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "MECH-268",
+      "note": "Ecological (live-loop) analogue of V3-EXQ-463b. 463b validated MECH-268 f_sat ONLY via manual per-step record_outcome injection (synthetic). This run makes NO manual record_outcome call and proves the DACC _outcome_history FIFO is filled by the LIVE agent.py select_action tail (F-C3 wiring, ree-v3 main c7fc045, 2026-07-09) via a counting spy; chronic-harm env (num_hazards=6) keeps z_harm_a supra-threshold so the recurring harm class saturates. ARM_ON final-third sat_factor<0.95 vs ARM_OFF ~1.0 (OFF also has zero live record calls -- gating check). CLEARS a re-derive brake: MECH-268 had 5 substrate_ceiling autopsies (SD-034-closure-cluster 2026-06-12, SD-034-closure-control-plane-d 2026-06-13, V3-EXQ-460b-461b-464b-466b 2026-06-04, V3-EXQ-468e 2026-06-18, V3-EXQ-468f 2026-06-20) all PREDATING the c7fc045 live-path wiring this experiment is the first to exercise ecologically -- brake RELEASED per queue-experiment Step 2.5b (upstream substrate now BUILT). ARM_OFF is minted reuse-eligible (arm_cell, include_driver_script_in_hash=False; reuse assumes a cloud linux-x86_64-py3.10 claim). PROMOTES NOTHING -- closes the 'validated only via synthetic injection' gap (design_implementation_audit_2026-07-09.md sec 6, MECH-268 gov follow-up #2)."
     }
   ]
 }
