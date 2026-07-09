@@ -28,25 +28,6 @@
       "seeds": 6
     },
     {
-      "queue_id": "V3-EXQ-723",
-      "title": "REE-native J-lens dispositional-readout diagnostic (J-space existence on all-ON substrate; SD-064 Experiment A)",
-      "script": "experiments/v3_exq_723_jlens_dispositional_readout_diagnostic.py",
-      "priority": 250,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "note": "DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[], PROMOTES/DEMOTES NOTHING; excluded from governance scoring). Experiment A of SD-064 (REE global-workspace claim). Ports Anthropic's J-lens (2026) as a post-hoc READOUT on the EXISTING all-ON substrate (V3-EXQ-714 ARM_ON, identical to V3-EXQ-719a) -- NO new mechanism, measurement only. Tests whether REE has a J-space: a compact (<10% latent activity), action-coupled subspace of z_t that predicts committed_class_{t+H} above a label-permutation null. Ridge linear map + SVD J-space; self-route present/diffuse/substrate_not_ready. SD-064 + MECH-191 referenced for CONTEXT only (diagnostic, so untagged). Experiment B (workspace-ablation cliff) is SUBSTRATE-BLOCKED (SD-027 boundary gate not built in V3) and is NOT queued. Design: REE_assembly/evidence/planning/global_workspace_jlens_plan.md.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-07-08T21:41:40Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 690,
-      "experiment_type": "v3_exq_723_jlens_dispositional_readout_diagnostic",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-724",
       "title": "Competence-localization diagnostic (all-ON forage): OFAT over P1-budget / frozen-encoder / mechanism-interference vs a greedy-oracle positive control",
       "script": "experiments/v3_exq_724_competence_localization_diagnostic.py",
@@ -86,6 +67,22 @@
       "episodes_per_run": 65,
       "experiment_type": "v3_exq_725_coherence_nonreducibility_learned_binder",
       "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-727",
+      "title": "Capability yardstick calibration (WS-3): claim-agnostic 4-metric suite vs random floor + greedy-oracle ceiling",
+      "experiment_type": "v3_exq_727_capability_yardstick_calibration",
+      "script": "experiments/v3_exq_727_capability_yardstick_calibration.py",
+      "priority": 100,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 120,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "",
+      "claim_ids": [],
+      "note": "BASELINE (experiment_purpose=baseline, claim_ids=[], non_contributory, PROMOTES NOTHING; EXCLUDED from governance scoring). WS-3 of ree_ai_design_critique_plan.md: a claim-agnostic capability-eval yardstick (foraging_competence / survival_horizon / goal_reach_rate / planning_depth) built as the reusable harness block experiments/_lib/capability_eval.py and calibrated here against 3 policy arms x 3 seeds: random_walk (FLOOR), ree_p0warmup_allon (all-ON 714 ARM_ON stack after P0 world-model warmup, NO P1 competence-training -- proves the block attaches to REEAgent), greedy_oracle (CEILING; reused verbatim from V3-EXQ-724's positive control). Separates 'claim wrong' from 'substrate too coarse' by giving the campaign a denominator. Self-route (HYPOTHESIS): oracle clears the 1.0 competence floor AND oracle>random on foraging -> capability_yardstick_calibrated; else substrate_not_ready_requeue. Does NOT re-train the trained all-ON stack (that denominator comes from the in-flight V3-EXQ-724); a follow-on should import capability_eval into the next trained all-ON run to land all four metrics on this scale. Dry-run PASS (oracle 3.5>random 0.0 forage/ep, all 4 metrics separate policies). NOTE for audit: this commit's queue file also drops V3-EXQ-723 (J-lens diagnostic), which COMPLETED 2026-07-09T15:10Z (manifest v3_exq_723_..._20260709T151028Z_v3.json landed); its removal is manifest-backed + DB-authoritative, not a foreign in-flight edit."
     }
   ]
 }
