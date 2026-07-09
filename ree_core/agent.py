@@ -473,6 +473,24 @@ class REEAgent(nn.Module):
                 dacc_goal_readout_weight=getattr(
                     config, "dacc_goal_readout_weight", 0.0
                 ),  # SD-057 L7 (MECH-348)
+                # MECH-268 / SD-034 (F-C3 fix): propagate the history-conditioned
+                # PE-saturation knobs from REEConfig so dacc_saturation_enabled can
+                # actually fire in the live path. Previously unpropagated -> the
+                # DACCConfig defaulted to disabled regardless of the REEConfig flag
+                # (463b patched them post-build as a stopgap). Backward compatible:
+                # all four default to the no-op regime.
+                dacc_saturation_enabled=getattr(
+                    config, "dacc_saturation_enabled", False
+                ),
+                dacc_saturation_window=getattr(
+                    config, "dacc_saturation_window", 8
+                ),
+                dacc_saturation_strength=getattr(
+                    config, "dacc_saturation_strength", 0.3
+                ),
+                dacc_saturation_grace=getattr(
+                    config, "dacc_saturation_grace", 2
+                ),
             )
             self.dacc = DACCAdaptiveControl(dacc_cfg)
             # STOPGAP adapter -- still the score_bias source until SD-033
@@ -7458,6 +7476,41 @@ class REEAgent(nn.Module):
             except Exception:
                 # One-hot discretisation fallback: hash raw action. Silent to
                 # preserve backward-compatible select_action control flow.
+                pass
+
+        # MECH-268 / SD-034 (F-C3 fix): feed the dACC conflict-saturation FIFO
+        # each waking tick so history-conditioned PE saturation (habituation /
+        # rumination attenuation) can actually fire. Prior to this the FIFO had
+        # ZERO live writers (only 463b's harness injected outcomes manually), so
+        # dacc_saturation_enabled=True was silently inert. Outcome class = the
+        # harm-vs-no-harm binary on the affective-pain latent -- the canonical
+        # record_outcome() class (see dacc.record_outcome docstring) -- gated by
+        # the existing contextual_safety_harm_threshold ("z_harm_a norm below
+        # this counts as harm absent"). A sustained harm regime recurs as the
+        # same class and saturates; a return to safety switches class and resets
+        # the recurrence count. ClosureOperator.reset_outcome_history() clears
+        # the FIFO on rule completion. Gated on the REEConfig saturation flag so
+        # default runs are byte-identical (no call at all when off) and 463b's
+        # post-build DACCConfig patch is unaffected (it leaves the REEConfig flag
+        # False, so the live path does not double-inject into its manual stream).
+        if self.dacc is not None and getattr(
+            self.config, "dacc_saturation_enabled", False
+        ):
+            try:
+                _oc_zha = (
+                    self._current_latent.z_harm_a
+                    if self._current_latent is not None
+                    else None
+                )
+                _harm_present = (
+                    _oc_zha is not None
+                    and float(_oc_zha.detach().norm().item())
+                    > float(self.config.contextual_safety_harm_threshold)
+                )
+                self.dacc.record_outcome(1 if _harm_present else 0)
+            except Exception:
+                # Silent fallback preserves select_action control flow (mirrors
+                # the record_action discretisation fallback above).
                 pass
 
         # ARC-063: stash the chosen action class so the next tick's

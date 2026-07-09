@@ -53,7 +53,6 @@ from __future__ import annotations
 
 import dataclasses
 
-import pytest
 import torch
 
 from ree_core.utils import config as config_mod
@@ -109,12 +108,6 @@ def test_fp1_bla_encoding_gain_is_an_inverted_u_not_a_step():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="F-C3: DACC.record_outcome has zero callers in the live agent path, "
-    "so dacc_saturation_enabled can never fire. Wire record_outcome into the "
-    "waking tick (agent.py) then delete this marker.",
-)
 def test_fc3_dacc_saturation_is_fed_from_the_live_path():
     """With saturation enabled, the live agent must populate the outcome history.
 
@@ -171,7 +164,11 @@ PROBED = {
 KNOWN_INERT = {
     "use_trainable_escape_affordance_learner": "F-C1: truncates its own state "
     "vector; zero live exposure -- guard before first use",
-    "dacc_saturation_enabled": "F-C3: record_outcome never called in live path",
+    # F-C3 FIXED 2026-07-09: dacc_saturation_enabled now fed from the live path
+    # (agent.py select_action tail calls DACC.record_outcome each waking tick +
+    # the DACCConfig saturation knobs are propagated from REEConfig). Moved to
+    # PROBED (the test_fc3 wiring spy). See design_implementation_audit_2026-07-09
+    # F-C3 / section 6.
     # non-top-level, documented for completeness:
     # dacc_foraging_weight            F-C2 uniform scalar -> argmin-invariant
     # latent.use_iterative_inference  F-C4 range(settle_iters-1) no-op + NaN readout
