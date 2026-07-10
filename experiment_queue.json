@@ -18,8 +18,8 @@
       "note": "Ecological (live-loop) analogue of V3-EXQ-463b. 463b validated MECH-268 f_sat ONLY via manual per-step record_outcome injection (synthetic). This run makes NO manual record_outcome call and proves the DACC _outcome_history FIFO is filled by the LIVE agent.py select_action tail (F-C3 wiring, ree-v3 main c7fc045, 2026-07-09) via a counting spy; chronic-harm env (num_hazards=6) keeps z_harm_a supra-threshold so the recurring harm class saturates. ARM_ON final-third sat_factor<0.95 vs ARM_OFF ~1.0 (OFF also has zero live record calls -- gating check). CLEARS a re-derive brake: MECH-268 had 5 substrate_ceiling autopsies (SD-034-closure-cluster 2026-06-12, SD-034-closure-control-plane-d 2026-06-13, V3-EXQ-460b-461b-464b-466b 2026-06-04, V3-EXQ-468e 2026-06-18, V3-EXQ-468f 2026-06-20) all PREDATING the c7fc045 live-path wiring this experiment is the first to exercise ecologically -- brake RELEASED per queue-experiment Step 2.5b (upstream substrate now BUILT). ARM_OFF is minted reuse-eligible (arm_cell, include_driver_script_in_hash=False; reuse assumes a cloud linux-x86_64-py3.10 claim). PROMOTES NOTHING -- closes the 'validated only via synthetic injection' gap (design_implementation_audit_2026-07-09.md sec 6, MECH-268 gov follow-up #2).",
       "status": "claimed",
       "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-07-09T17:44:22Z"
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-07-10T01:53:03Z"
       },
       "conditions": 1,
       "episodes_per_run": 120,
