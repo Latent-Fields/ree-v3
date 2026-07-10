@@ -8,6 +8,21 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-734",
+      "title": "Env-difficulty competence-recovery sweep (Track-1a): does foraging recover as the env de-risks (env/curriculum-buildable) or is it a substrate/learner ceiling",
+      "script": "experiments/v3_exq_734_env_difficulty_competence_recovery_sweep.py",
+      "priority": 150,
+      "machine_affinity": "any",
+      "estimated_minutes": 600,
+      "note": "Track-1a of the post-724 competence-recovery campaign. DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[], non_contributory; PROMOTES/DEMOTES NOTHING). 724 varied training duration/encoder-thaw/mechanism-count and held ENV DIFFICULTY fixed (competence_deficit_diffuse); 728 = trained all-ON survives but does not forage (0.167<0.267 random floor; forage-vs-survive inversion). This holds the 724-A0 all-ON recipe FIXED and sweeps ENV DIFFICULTY down a monotone staircase (D0=724 config -> D1 food-decoupled -> D2 proximity/layout de-risked -> D3 hazard-free) x 4 arms (random floor / ree_trained_allon trained+eval MATCHED per rung / vanilla_ppo matched raw-obs learner-adequacy control folding in 732a on the SAME observation interface / greedy_oracle ceiling+per-rung readiness) on the capability_eval yardstick. DV=foraging_competence (mean resources/ep); survival_horizon reported to confirm the inversion relaxes. FORK self-route (HYPOTHESIS): ree recovers above 1.0 floor at some de-risked rung -> env_difficulty_recoverable (route curriculum); ppo recovers where ree never does -> ree_substrate_ceiling; neither recovers even hazard-free (oracle-achievable) -> learner_or_observability_ceiling (route observation-encoding); readiness fail -> substrate_not_ready_requeue. BRAKE-EXEMPT (competence/env diagnostic, not a conversion/de-commit falsifier; tags no claim). Maps to node conversion_ceiling_campaign:CAMPAIGN. priority 150 (higher=runs-first convention, verified in experiment_runner.py:3053 reverse=True / coordinator ORDER BY priority DESC) so this pivotal fork preempts the recent 100-140 band -- honors the task 'should run first this weekend' intent over the literal '~50' suggestion, which would have run near-last. Mint-as-you-go: all cells emit reuse-eligible arm_fingerprints via arm_cell (self-mint); SEPARATE baseline-only mint SKIPPED -- disqualifier #2 (substrate genuinely in flux for the competence lineage: the whole campaign changes ree_core, so a minted all-ON baseline would be fingerprint-refused after the first substrate edit) + the env-swept learner arms re-train per rung anyway. validate_experiments --strict OK; dry-run smoke PASS (16 cells, all paths, readiness gate fired correctly on dry eval<5). NOTE: two sibling sessions drafted untracked v3_exq_734_{curriculum,drive_reward_balance} scripts concurrently (campaign Tracks 1b/1c) -- 734 taken by Track-1a per pivotal-first; pathspec-limited commit + push-collision protocol guards the race.",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 16,
+      "episodes_per_run": 290,
+      "experiment_type": "v3_exq_734_env_difficulty_competence_recovery_sweep",
+      "seeds": 4
+    },
+    {
       "queue_id": "V3-EXQ-495a",
       "title": "MECH-163 V3 full-completion gate -- VTA/hippocampally-planned arm (rerun, supersedes 495)",
       "script": "experiments/v3_exq_495a_mech163_planned_system_gate.py",
@@ -26,21 +41,6 @@
         "MECH-163"
       ],
       "experiment_type": "v3_exq_495a_mech163_planned_system_gate"
-    },
-    {
-      "queue_id": "V3-EXQ-734",
-      "title": "Env-difficulty competence-recovery sweep (Track-1a): does foraging recover as the env de-risks (env/curriculum-buildable) or is it a substrate/learner ceiling",
-      "script": "experiments/v3_exq_734_env_difficulty_competence_recovery_sweep.py",
-      "experiment_type": "v3_exq_734_env_difficulty_competence_recovery_sweep",
-      "priority": 150,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 600,
-      "episodes_per_run": 290,
-      "seeds": 4,
-      "conditions": 16,
-      "claim_ids": [],
-      "note": "Track-1a of the post-724 competence-recovery campaign. DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[], non_contributory; PROMOTES/DEMOTES NOTHING). 724 varied training duration/encoder-thaw/mechanism-count and held ENV DIFFICULTY fixed (competence_deficit_diffuse); 728 = trained all-ON survives but does not forage (0.167<0.267 random floor; forage-vs-survive inversion). This holds the 724-A0 all-ON recipe FIXED and sweeps ENV DIFFICULTY down a monotone staircase (D0=724 config -> D1 food-decoupled -> D2 proximity/layout de-risked -> D3 hazard-free) x 4 arms (random floor / ree_trained_allon trained+eval MATCHED per rung / vanilla_ppo matched raw-obs learner-adequacy control folding in 732a on the SAME observation interface / greedy_oracle ceiling+per-rung readiness) on the capability_eval yardstick. DV=foraging_competence (mean resources/ep); survival_horizon reported to confirm the inversion relaxes. FORK self-route (HYPOTHESIS): ree recovers above 1.0 floor at some de-risked rung -> env_difficulty_recoverable (route curriculum); ppo recovers where ree never does -> ree_substrate_ceiling; neither recovers even hazard-free (oracle-achievable) -> learner_or_observability_ceiling (route observation-encoding); readiness fail -> substrate_not_ready_requeue. BRAKE-EXEMPT (competence/env diagnostic, not a conversion/de-commit falsifier; tags no claim). Maps to node conversion_ceiling_campaign:CAMPAIGN. priority 150 (higher=runs-first convention, verified in experiment_runner.py:3053 reverse=True / coordinator ORDER BY priority DESC) so this pivotal fork preempts the recent 100-140 band -- honors the task 'should run first this weekend' intent over the literal '~50' suggestion, which would have run near-last. Mint-as-you-go: all cells emit reuse-eligible arm_fingerprints via arm_cell (self-mint); SEPARATE baseline-only mint SKIPPED -- disqualifier #2 (substrate genuinely in flux for the competence lineage: the whole campaign changes ree_core, so a minted all-ON baseline would be fingerprint-refused after the first substrate edit) + the env-swept learner arms re-train per rung anyway. validate_experiments --strict OK; dry-run smoke PASS (16 cells, all paths, readiness gate fired correctly on dry eval<5). NOTE: two sibling sessions drafted untracked v3_exq_734_{curriculum,drive_reward_balance} scripts concurrently (campaign Tracks 1b/1c) -- 734 taken by Track-1a per pivotal-first; pathspec-limited commit + push-collision protocol guards the race."
     }
   ]
 }
