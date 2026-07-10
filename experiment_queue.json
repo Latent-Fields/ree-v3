@@ -45,6 +45,22 @@
         "MECH-163"
       ],
       "experiment_type": "v3_exq_495a_mech163_planned_system_gate"
+    },
+    {
+      "queue_id": "V3-EXQ-735",
+      "title": "Drive/reward-balance approach-weighting sweep (Track-1b): is the 728 forage-vs-survive inversion a reward-balance failure (drive-gain-buildable) or not the lever",
+      "experiment_type": "v3_exq_735_drive_reward_balance_sweep",
+      "script": "experiments/v3_exq_735_drive_reward_balance_sweep.py",
+      "priority": 42,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180,
+      "episodes_per_run": 290,
+      "seeds": 3,
+      "conditions": 6,
+      "claim_id": null,
+      "note": "Track-1b post-724 competence-recovery. DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[], non_contributory; PROMOTES/DEMOTES NOTHING). Tests whether the V3-EXQ-728 forage-vs-survive inversion (foraging normalized -0.016 / survival +6.07 on the trained all-ON stack) is a DRIVE/REWARD-BALANCE failure vs an architecture-face failure (724 held the balance FIXED, deficit diffuse). Staircase along ONE approach-vs-avoid axis in the E3 selection argmin: APPROACH gains benefit_weight/goal_weight UP + AVOID gains lambda_ethical/rho_residue DOWN (cfg.e3). A0=724/728 default balance (control, reproduces incompetence) + A1/A2/A3 progressively approach-weighted. Each drive arm trains the all-ON stack with the 724 A0 recipe (P0=200 warmup + P1=90 two-head REINFORCE, e2 frozen in P1) IMPORTED (not copied) from v3_exq_724, evaluated via reusable capability_eval REEForwardPolicy so A0 is directly comparable to 728. Load-bearing DV foraging_competence; secondary survival_horizon (expect forage UP/survival DOWN off +6.07 outlier). Anchors: capability_eval random-walk floor + greedy-oracle ceiling. Readiness=oracle clears 1.0 floor. Self-route (HYPOTHESIS): any approach arm majority supra-floor -> reward_balance_is_the_lever (route /implement-substrate drive-gain retuning); else reward_balance_not_the_lever; oracle below floor / A0 clears floor / <5 eval eps -> substrate_not_ready_requeue. BRAKE-EXEMPT (competence/reward-balance diagnostic, not a conversion/de-commit falsifier; claim_ids=[] zeroes re-derive brake). SIBLING of Track-1a V3-EXQ-734 (env-difficulty sweep). A0 default-balance all-ON cell emitted reuse-eligible (mint-as-you-go, include_driver_script_in_hash=False); approach arms re-train so fingerprints correctly refuse. Maps conversion_ceiling_campaign:CAMPAIGN. Route to /failure-autopsy before any governance action. Smoke: dry-run PASS (anchors discriminate oracle 3.5 vs random 0; readiness gate fired on dry P2<5); validate_experiments --strict OK; validate_queue OK.",
+      "claim_ids": []
     }
   ]
 }
