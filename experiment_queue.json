@@ -8,21 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-738",
-      "title": "Local-view-achievable ceiling anchor (Track-1e): is the 1.0 competence floor reachable from the agent's own 5x5 local view (de-confounds 734's H2 obs-ceiling branch)",
-      "script": "experiments/v3_exq_738_local_view_achievable_ceiling_anchor.py",
-      "priority": 160,
-      "machine_affinity": "any",
-      "estimated_minutes": 20,
-      "note": "Track-1e of the post-724 competence-recovery campaign (conversion_ceiling_campaign:CAMPAIGN). DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[], non_contributory; PROMOTES/DEMOTES NOTHING; brake-EXEMPT). Adds the LOCAL-VIEW-ACHIEVABLE ceiling anchor the 732/732a discriminator lacked (WS-1 re-op; failure_autopsy_V3-EXQ-732a). NEW capability_eval.LocalViewGreedyPolicy forages by climbing ONLY obs_dict['resource_field_view'] -- the agent-centered 5x5 gradient that is a subset of world_state the REE encoder already senses (verified 5x5<->action mapping: dest view cell [2+dx,2+dy] per env.ACTIONS delta). Runs local_view_greedy / greedy_oracle (global ceiling+readiness) / random_walk (floor) across the IDENTICAL 734 D0..D3 rungs, NO training, NO REE mechanism -- a pure achievability measurement. DE-CONFOUNDS 734: a 734 'learner_or_observability_ceiling' (H2) verdict is only safe to build an obs-encoding substrate on if THIS anchor shows the local view is NOT achievable; if it IS achievable the correct target is the action-learning stack (H1 / V3-EXQ-737). Self-route (HYPOTHESIS): D3 global oracle sub-floor OR resource_field_view channel absent -> substrate_not_ready_requeue; readiness holds AND local_view_greedy clears 1.0 majority at hazard-free D3 -> local_view_achievable (obs carries enough signal; a sub-floor same-obs learner is under-powered not obs-starved -> points at H1); readiness holds but greedy sub-floor at D3 -> local_view_obs_ceiling (genuine obs insufficiency -> supports H2). priority 160 (higher=runs-first) so the cheap decisive anchor lands early -- fast pure-numpy eval, no training. Mint N/A (ARM_FINGERPRINT_EXEMPT: pure-eval anchor, nothing to bank). validate_experiments --strict OK; dry-run smoke PASS (36 cells; standalone check: local_view_greedy clears D3 ~50x, D0 ~5x). Portfolio 737/738/739 (P-A policy head / P-B this anchor / P-C encoder probe). STANDALONE FINDING already: local_view_greedy forages 51/ep D3 + 5.6/ep D0 reading only the 5x5 gradient REE also senses -> obs interface is NOT the bottleneck; points hard at H1. Route result to /failure-autopsy before governance use.",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 12,
-      "episodes_per_run": 20,
-      "experiment_type": "v3_exq_738_local_view_achievable_ceiling_anchor",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-734",
       "title": "Env-difficulty competence-recovery sweep (Track-1a): does foraging recover as the env de-risks (env/curriculum-buildable) or is it a substrate/learner ceiling",
       "script": "experiments/v3_exq_734_env_difficulty_competence_recovery_sweep.py",
@@ -89,7 +74,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 420,
       "note": "Track-1c of the post-724 competence-recovery campaign (conversion_ceiling_campaign:CAMPAIGN). diagnostic; claim_ids=[]; non_contributory; PROMOTES/DEMOTES NOTHING. Two-stage CURRICULUM training: Stage-A train the all-ON stack (714 ARM_ON via 724 A0 recipe) to forage an EASY env, then Stage-B fine-tune into the hard 724 env. Arms at MATCHED 300ep total P1: A0 flat-hard control (==724 A1), C1 curriculum e2-frozen-in-StageB, C2 curriculum e2-unfrozen-in-StageB, C3 3-rung easy->med->hard. Load-bearing DV: HARD-env P2 mean_resources_per_episode vs 1.0 floor; Stage-A EASY foraging is the load-bearing PREMISE (same statistic/floor). Self-route (HYPOTHESIS): both oracles clear + a curriculum arm forages easy AND clears hard while A0 does not -> competence_curriculum_buildable (route /implement-substrate staged regime); premise met but no arm clears hard -> transfer_capacity_ceiling; premise/oracle/A0 fail -> substrate_not_ready_requeue. BRAKE-EXEMPT (competence/curriculum diagnostic, not a conversion/de-commit falsifier; claim_ids=[] zeroes the re-derive brake). OBS-DIM PARITY: easy/med rungs keep reef structural channels ON (world_obs_dim=275 == hard) but neutralize difficulty, so the transferred agent's fixed-width encoder spans all rungs (guarded at runtime). ID moved 734->736: 734/735 were taken by sibling Tracks 1a (env-difficulty sweep) / 1b (drive-balance) between design and queue; Track-1a had not produced results, so the easy config was chosen independently and is validated by the Stage-A readiness gate. Route result to /failure-autopsy before any governance action.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-07-10T15:16:28Z"
+      },
       "claim_ids": [],
       "conditions": 4,
       "episodes_per_run": 540,
