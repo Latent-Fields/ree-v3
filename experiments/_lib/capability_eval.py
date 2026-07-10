@@ -182,6 +182,66 @@ class OraclePolicy(Policy):
         return 3 if dy > 0 else 2
 
 
+class LocalViewGreedyPolicy(Policy):
+    """Greedy resource-gradient climber that reads ONLY the agent's 5x5 local view
+    (obs_dict["resource_field_view"]) -- the LOCAL-VIEW-ACHIEVABLE ceiling anchor
+    (WS-1 re-operationalization; failure_autopsy_V3-EXQ-732a_2026-07-10).
+
+    WHY THIS EXISTS. OraclePolicy reads PRIVILEGED GLOBAL state (env.resources, all coords)
+    and can beeline from anywhere; it proves the floor is achievable *with global info*, but
+    NOT that it is achievable from the same partial observation the learner (REE or a vanilla
+    RL control) actually sees. That gap is the 732/732a confound: a sub-floor learner reading
+    was uninterpretable -- "observation interface unlearnable" vs "the yardstick is unfair"
+    (global oracle vs 5x5 local view). This policy closes it: it forages using ONLY the 5x5
+    resource_field_view (a subset of world_state, exactly what the REE encoder senses), so if
+    it clears COMPETENCE_RESOURCE_FLOOR then the floor is reachable FROM THE LOCAL VIEW, and a
+    same-obs learner that stays sub-floor is genuinely under-powered, not obs-starved.
+
+    Mechanism: the field view is agent-centered at cell [2,2]; env action a has delta
+    ACTIONS[a] = (dx, dy), landing on view cell [2+dx, 2+dy] (verified 2026-07-10 against
+    causal_grid_world.py ACTIONS {0:N(-1,0),1:S(1,0),2:W(0,-1),3:E(0,1),4:stay} and the
+    field-view construction t_view[di+2, dj+2] = field[ax+di, ay+dj]). One-step gradient
+    ascent: pick the action whose destination cell has the highest resource-field value. When
+    the local window carries no gradient (all destination cells within `flat_eps`, e.g. no
+    resource within the 5x5 radius), take a random MOVE step (never stay) so the forager
+    explores out of a flat region instead of stalling -- a fair local chemotaxis policy, not a
+    hobbled one. Falls back to uniform-random if resource_field_view is absent
+    (use_proxy_fields=False), which makes it degrade to the RandomPolicy floor rather than
+    silently mis-report achievability.
+    """
+
+    name = "local_view_greedy"
+
+    # Action index -> (dx, dy), mirroring env.ACTIONS (row=x, col=y). Destination view cell
+    # for action a is [2 + dx, 2 + dy] within the agent-centered 5x5 resource_field_view.
+    _DELTAS = {0: (-1, 0), 1: (1, 0), 2: (0, -1), 3: (0, 1), 4: (0, 0)}
+
+    def __init__(self, seed: int = 0, flat_eps: float = 1e-3) -> None:
+        self._rng = np.random.RandomState(int(seed))
+        self._flat_eps = float(flat_eps)
+
+    def act(self, env: Any, obs_dict: Dict[str, Any]) -> int:
+        rfv = obs_dict.get("resource_field_view")
+        action_dim = int(env.action_dim)
+        if rfv is None:
+            # No local resource-field channel (use_proxy_fields=False) -> degrade to floor.
+            return int(self._rng.randint(0, action_dim))
+        view = np.asarray(rfv, dtype=np.float32).reshape(5, 5)
+        # Only actions the env actually exposes; destination-cell value per action.
+        move_actions = [a for a in range(action_dim) if a in self._DELTAS]
+        dest_vals = {}
+        for a in move_actions:
+            dx, dy = self._DELTAS[a]
+            dest_vals[a] = float(view[2 + dx, 2 + dy])
+        vals = list(dest_vals.values())
+        if (max(vals) - min(vals)) < self._flat_eps:
+            # Flat window (no gradient signal): explore with a random NON-stay move.
+            moves = [a for a in move_actions if a != 4] or move_actions
+            return int(moves[self._rng.randint(0, len(moves))])
+        best = max(dest_vals, key=lambda a: dest_vals[a])
+        return int(best)
+
+
 class REEForwardPolicy(Policy):
     """Plain frozen forward-eval of an REEAgent -- proves the yardstick attaches to the
     real substrate. Mirrors the V3-EXQ-724 / 719a eval inner loop (sense -> e1 tick ->
