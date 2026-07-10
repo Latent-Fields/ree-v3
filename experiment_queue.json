@@ -27,26 +27,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-723a",
-      "title": "J-lens discriminative-compactness diagnostic (SD-064 Exp A; supersedes 723)",
-      "script": "experiments/v3_exq_723a_jlens_discriminative_compactness_diagnostic.py",
-      "priority": 90,
-      "machine_affinity": "any",
-      "estimated_minutes": 210,
-      "supersedes": "V3-EXQ-723",
-      "note": "DIAGNOSTIC (experiment_purpose=diagnostic, claim_ids=[], PROMOTES/DEMOTES NOTHING; SD-064 global-workspace + MECH-191 CONTEXT only). Alphabetic-suffix redesign of V3-EXQ-723 (same scientific question), fixing the two NON-DISCRIMINATIVE gates per failure_autopsy_V3-EXQ-723_2026-07-09: (1) discriminative compactness via a matched-null CONCENTRATION curve (top-influence vs random dim ordering; ratio ~1 for a diffuse map so a weak signal does NOT trivially pass -- LOAD-BEARING) + a reported matched-rank random-subspace activity contrast, replacing the trivially-cleared jspace_activity_fraction<0.10 and ~1.0-by-construction predictive_retention; (2) GATES the plan's broadcast-alignment (reportability) + reactive-bypass (H1-vs-H5) contrasts into the verdict; (3) committed-action-balanced eval (effective-class floor + class-weighted ridge + longer P2=9000 ticks) so no seed degenerates to ~2 classes (cf. 723 seed 43). Self-route is a HYPOTHESIS for /failure-autopsy. A CLEAN compact_action_coupled_subspace_present GREENLIGHTS the SD-027 Experiment-B retrofit build (plan section 5); a negative saves the build. Queue-add note: watch the phase3-queue snapshot race (post-commit dropped-file check per queue-experiment Step 8).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-09T19:37:21Z"
-      },
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 890,
-      "experiment_type": "v3_exq_723a_jlens_discriminative_compactness_diagnostic",
-      "seeds": 4
-    },
-    {
       "queue_id": "V3-EXQ-538a",
       "title": "SD-049 Phase 2 reef behavioural validation, sleep-on ablation (rerun, supersedes 538; paired to 514f)",
       "script": "experiments/v3_exq_538a_sd049_phase2_with_sleep.py",
