@@ -8,22 +8,21 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-729",
-      "title": "MECH-268 dACC conflict-saturation LIVE-LOOP falsifier (ecological analogue of 463b)",
-      "script": "experiments/v3_exq_729_mech268_dacc_saturation_liveloop.py",
-      "priority": 120,
+      "queue_id": "V3-EXQ-732a",
+      "title": "H1/H2 policy-learning discriminator power-fix (PPO + learner-adequacy gate)",
+      "script": "experiments/v3_exq_732a_policy_learning_discriminator.py",
+      "priority": 140,
       "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "claim_id": "MECH-268",
-      "note": "Ecological (live-loop) analogue of V3-EXQ-463b. 463b validated MECH-268 f_sat ONLY via manual per-step record_outcome injection (synthetic). This run makes NO manual record_outcome call and proves the DACC _outcome_history FIFO is filled by the LIVE agent.py select_action tail (F-C3 wiring, ree-v3 main c7fc045, 2026-07-09) via a counting spy; chronic-harm env (num_hazards=6) keeps z_harm_a supra-threshold so the recurring harm class saturates. ARM_ON final-third sat_factor<0.95 vs ARM_OFF ~1.0 (OFF also has zero live record calls -- gating check). CLEARS a re-derive brake: MECH-268 had 5 substrate_ceiling autopsies (SD-034-closure-cluster 2026-06-12, SD-034-closure-control-plane-d 2026-06-13, V3-EXQ-460b-461b-464b-466b 2026-06-04, V3-EXQ-468e 2026-06-18, V3-EXQ-468f 2026-06-20) all PREDATING the c7fc045 live-path wiring this experiment is the first to exercise ecologically -- brake RELEASED per queue-experiment Step 2.5b (upstream substrate now BUILT). ARM_OFF is minted reuse-eligible (arm_cell, include_driver_script_in_hash=False; reuse assumes a cloud linux-x86_64-py3.10 claim). PROMOTES NOTHING -- closes the 'validated only via synthetic injection' gap (design_implementation_audit_2026-07-09.md sec 6, MECH-268 gov follow-up #2).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-07-10T01:53:03Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 120,
-      "experiment_type": "v3_exq_729_mech268_dacc_saturation_liveloop",
+      "estimated_minutes": 480,
+      "supersedes": "V3-EXQ-732",
+      "claim_id": null,
+      "note": "DIAGNOSTIC (claim_ids=[], experiment_purpose=diagnostic, non_contributory -- PROMOTES/DEMOTES NOTHING; brake-exempt). Power-fixed re-run of the H1/H2 policy-learning discriminator; supersedes V3-EXQ-732. Adjudicated by REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-732_2026-07-10.{md,json}, which REJECTED 732's H2_observation_interface_unlearnable self-route as UNDER-POWERED (shared 200-ep Monte-Carlo A2C sized for the B1-vs-B2 contrast, not learnability; vanilla B2 was the best arm and partially foraged). Four power-fixes: (1) PPO minibatched off-policy learner at 2000 ep (~10x env-step, ~30x update budget) on BOTH B1 and B2; (2) entropy 0.03 + count-based novelty; (3) explicit forage-bonus + running-std reward scaling + advantage normalization (P2 greedy DV mean_resources_per_episode stays unshaped); (4) L0 learner-adequacy gate -- vanilla PPO on a plain sanity env vs its oracle must clear >=50% before any sub-floor B2 reads as H2 (else substrate_not_ready_requeue). Grid: B2 clears -> H1 action/policy substrate build; B2 sub-floor WITH adequacy gate passed -> H2 observation-encoding build. NO observation-encoding substrate build until this run confirms H2. Feeds WS-1 in ree_ai_design_critique_plan.md. Queue-race hazard: verify post-commit that the entry landed (phase3-queue snapshot race).",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 4,
+      "episodes_per_run": 2220,
+      "experiment_type": "v3_exq_732a_policy_learning_discriminator",
+      "machine_affinity_note": "cloud-preferred via scaler; heavy (~8h) CPU PPO x 4 arms x 3 seeds -- keep off the Mac unless idle",
       "seeds": 3
     },
     {
@@ -45,24 +44,6 @@
         "MECH-163"
       ],
       "experiment_type": "v3_exq_495a_mech163_planned_system_gate"
-    },
-    {
-      "queue_id": "V3-EXQ-732a",
-      "title": "H1/H2 policy-learning discriminator power-fix (PPO + learner-adequacy gate)",
-      "experiment_type": "v3_exq_732a_policy_learning_discriminator",
-      "script": "experiments/v3_exq_732a_policy_learning_discriminator.py",
-      "priority": 140,
-      "machine_affinity": "any",
-      "machine_affinity_note": "cloud-preferred via scaler; heavy (~8h) CPU PPO x 4 arms x 3 seeds -- keep off the Mac unless idle",
-      "status": "pending",
-      "estimated_minutes": 480,
-      "episodes_per_run": 2220,
-      "seeds": 3,
-      "conditions": 4,
-      "claim_id": null,
-      "supersedes": "V3-EXQ-732",
-      "note": "DIAGNOSTIC (claim_ids=[], experiment_purpose=diagnostic, non_contributory -- PROMOTES/DEMOTES NOTHING; brake-exempt). Power-fixed re-run of the H1/H2 policy-learning discriminator; supersedes V3-EXQ-732. Adjudicated by REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-732_2026-07-10.{md,json}, which REJECTED 732's H2_observation_interface_unlearnable self-route as UNDER-POWERED (shared 200-ep Monte-Carlo A2C sized for the B1-vs-B2 contrast, not learnability; vanilla B2 was the best arm and partially foraged). Four power-fixes: (1) PPO minibatched off-policy learner at 2000 ep (~10x env-step, ~30x update budget) on BOTH B1 and B2; (2) entropy 0.03 + count-based novelty; (3) explicit forage-bonus + running-std reward scaling + advantage normalization (P2 greedy DV mean_resources_per_episode stays unshaped); (4) L0 learner-adequacy gate -- vanilla PPO on a plain sanity env vs its oracle must clear >=50% before any sub-floor B2 reads as H2 (else substrate_not_ready_requeue). Grid: B2 clears -> H1 action/policy substrate build; B2 sub-floor WITH adequacy gate passed -> H2 observation-encoding build. NO observation-encoding substrate build until this run confirms H2. Feeds WS-1 in ree_ai_design_critique_plan.md. Queue-race hazard: verify post-commit that the entry landed (phase3-queue snapshot race).",
-      "claim_ids": []
     }
   ]
 }
