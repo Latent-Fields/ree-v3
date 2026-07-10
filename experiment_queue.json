@@ -16,7 +16,11 @@
       "estimated_minutes": 90,
       "claim_id": "MECH-456",
       "note": "FUNCTIONAL test gating MECH-456 promotion (candidate/substrate_conditional/v3_pending; entities.rebinding_under_perturbation). Converged learned cross_stream_binder (strength 0.5/temp 0.2/conv_frac 0.85, per 725a). DV1: binder argmax binding-affinity tracks the TRUE current world-config (agent-position G=2 lattice region, binder-independent ground truth) ABOVE a region-label shuffle control. DV2: rebind-ON (live anchor) vs rebind-frozen (episode-entry binding, never re-evaluated) graded NON-saturating re-acquisition-latency consequence -- NOT frac_state_div (725a saturation). PASS=DV1&DV2 on >=4/6 seeds + binder-converged/coverage/overtake readiness. Deliberately NOT passable by n_rebind>0 exercisability alone (MECH-269(b)/478 inert-reset lesson). DECOUPLED from coherence-specificity Q (settled NO-CLAIM by 725a). Mint SKIPPED (disqualifier: no separable OFF/baseline training computation -- the ON/FROZEN arms are two eval-time readouts over ONE shared P0-trained binder + P1 trajectory per seed; no per-arm training to cache). Smoke: dry-run PASS (no crash; shuffle baseline ~0.25=1/K confirmed; not-ready self-route on 3-ep binder). validate_experiments --strict OK; validate_queue OK.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-10T12:45:35Z"
+      },
       "conditions": 1,
       "episodes_per_run": 65,
       "experiment_type": "v3_exq_733_rebinding_functional_ground_truth",
