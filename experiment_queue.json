@@ -83,6 +83,44 @@
       "episodes_per_run": 540,
       "experiment_type": "v3_exq_736_curriculum_competence_recovery_diagnostic",
       "seeds": 4
+    },
+    {
+      "queue_id": "V3-EXQ-733a-a",
+      "title": "MECH-456 functional-rebinding redesign, Leg P-A (training-regime axis): run the 733 functional test on a survival-onboarded agent so overtakes accrue",
+      "script": "experiments/v3_exq_733a_rebinding_pA_survival_onboarded.py",
+      "priority": 48,
+      "machine_affinity": "any",
+      "estimated_minutes": 360,
+      "supersedes": "V3-EXQ-733",
+      "claim_id": "MECH-456",
+      "claim_ids": [
+        "MECH-456"
+      ],
+      "note": "Leg P-A of the V3-EXQ-733a 2-leg GOV-FANOUT-1 portfolio (sibling: V3-EXQ-733a-b directed-traversal). supersedes V3-EXQ-733. EVIDENCE (claim-tagged functional test of MECH-456 entities.rebinding_under_perturbation; candidate/v3_pending). WHY 733 FAILED (not a rebinding verdict): a COLD agent dies in ~10-40 steps in the lethal SD-054 env (done=health<=0; episodes capped at 120<500), so within-episode ground-truth region overtakes were starved -- only seed 42 reached the 20-overtake floor. The binder itself is fine (DV1 6/6, DV2 5/6). P-A FIX = TRAINING-REGIME axis: before the functional test, ONBOARD the agent for survival with the validated scaffolded_sd054_onboarding curriculum (the exact 603m/603n recipe that reached P1 survival 3/3; Stage-0->Stage-0b->P0->Stage-H->P1). The curriculum never touches cross_stream_binder, so the binder is still trained fresh in the functional test's own P0 (as in 733) -- clean single-variable change vs 733. Reuses the 733 measurement harness (experiments/_lib/rebinding_functional_harness.py). DV1 tracks-truth-above-shuffle + DV2 graded non-saturating re-acq latency (ON vs FROZEN over one shared trajectory/seed). NULL (declared): even survival-onboarded, if min overtakes/seed < 20 on >=4/6 seeds -> self-routes substrate_not_ready_requeue (non_contributory) => survival is NOT the (only) lever (P-B carries the discrimination). evidence_direction non_contributory on readiness-unmet; MECH-456 stays candidate/v3_pending regardless (V3-pending gate). No ree_core change. Re-derive brake NOT fired (1 substrate_ceiling/non_contributory autopsy on MECH-456 < threshold 2); portfolio is a sanctioned GOV-FANOUT-1 discrimination regardless. progress note: onboarding curriculum (235 eps/seed) is silent; episodes_per_run=65 counts only the functional-test ep N/65 prints, so the runner bar sits at 0% during onboarding then advances -- ETA under-counts onboarding. Smoke: py_compile OK; validate_experiments --strict OK; dry-run PASS end-to-end (onboarding 5 stages + functional test execute; onboarded=1/1; self-routes substrate_not_ready on tiny-P0 unconverged binder as designed; no dry manifest leak). Route result to /governance (writes MECH-456 evidence_quality_note); consumes failure_autopsy_V3-EXQ-733_2026-07-10.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 65,
+      "experiment_type": "v3_exq_733a_rebinding_pA_survival_onboarded",
+      "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-733a-b",
+      "title": "MECH-456 functional-rebinding redesign, Leg P-B (test-bed axis): directed-traversal test-bed guarantees region overtakes independent of foraging survival",
+      "script": "experiments/v3_exq_733a_rebinding_pB_directed_traversal.py",
+      "priority": 48,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "supersedes": "V3-EXQ-733",
+      "claim_id": "MECH-456",
+      "claim_ids": [
+        "MECH-456"
+      ],
+      "note": "Leg P-B of the V3-EXQ-733a 2-leg GOV-FANOUT-1 portfolio (sibling: V3-EXQ-733a-a survival-onboarded). supersedes V3-EXQ-733. EVIDENCE (claim-tagged functional test of MECH-456; candidate/v3_pending). WHY 733 FAILED: overtake generation was entangled with foraging survival (cold agent dies fast -> min 2 overtakes vs 20 floor; only seed 42 ready). P-B FIX = ENVIRONMENT/TEST-BED axis, isolating the confound: KEEP the cold 733 agent VERBATIM (no onboarding) but change ONLY the test-bed so overtakes are guaranteed by construction: (1) softened survival (hazard_harm/proximity_harm_scale/hazard_food_attraction -> 0; hazards present for z_world structure but non-lethal), (2) finer lattice G 2->4 (K=16 regions), (3) SCRIPTED region tour that directed-respawns (teleports) the agent to the next lattice region every 8 steps -- each teleport is a guaranteed ground-truth overtake + region visit. Between teleports the agent senses/acts naturally so z_self/z_world are its genuine latents; the teleport (env.agent_x/agent_y + _get_observation_dict(), a pure read) only sets which region is the current true competitor and does NOT advance env step/health or trigger contact harm. Reuses the 733 measurement harness. DV1 tracks-truth-above-shuffle + DV2 graded non-saturating re-acq latency (ON vs FROZEN, one shared trajectory/seed). NULL (declared): with overtakes GUARANTEED, DV1/DV2 failing on >=4/6 seeds => the binder does not GENERALLY track the true competitor (733 seed-42 signal not general) => WEAKENS MECH-456. evidence_direction non_contributory only if the binder fails to converge (readiness); MECH-456 stays candidate/v3_pending regardless. No ree_core change. Re-derive brake NOT fired (count 1 < 2); sanctioned GOV-FANOUT-1 discrimination. Smoke: py_compile OK; validate_experiments --strict OK; dry-run PASS end-to-end (regions_covered 16/16, min_overtakes=28>=20 even in a 3-episode dry run -> traversal guarantee confirmed; self-routes substrate_not_ready only on tiny-P0 unconverged binder; no dry manifest leak). Route result to /governance (writes MECH-456 evidence_quality_note); consumes failure_autopsy_V3-EXQ-733_2026-07-10.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 65,
+      "experiment_type": "v3_exq_733a_rebinding_pB_directed_traversal",
+      "seeds": 6
     }
   ]
 }
