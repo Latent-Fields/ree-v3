@@ -29,18 +29,18 @@
     {
       "queue_id": "V3-EXQ-740",
       "title": "INV-064 maturational sequence: E3 harm-eval quality bounded by E1/E2 differentiation (curriculum-order, measurement-only)",
-      "experiment_type": "v3_exq_740_inv064_maturational_sequence_e3_bounded",
       "script": "experiments/v3_exq_740_inv064_maturational_sequence_e3_bounded.py",
       "priority": 40,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 180,
-      "episodes_per_run": 22,
-      "seeds": 3,
-      "conditions": 4,
-      "backlog_id": "EVB-0370",
       "claim_id": "INV-064",
-      "note": "Measurement-only, commitment-free curriculum-order diagnostic for INV-064 (no basal-ganglia/commitment layer exercised, so a PASS/FAIL is a real verdict, not a re-derivation of the conversion ceiling). Per (seed,onset) cell: mature E1+E2.world_forward+encoder for `onset` episodes (harm_eval trained here is discarded), freeze them, replay a FIXED shared trajectory through the frozen encoder to collect (z_world,harm_target), then train a fresh harm_eval_head for a FIXED budget and read held-out R^2 + train/test gap (noise-fitted-evaluator signature) vs E1/E2 differentiation-at-freeze (z_world eff-rank, E2 forward R^2). IV=onset {2,5,11,22}; 3 seeds x 4 arms=12 cells. scheduled_external_hazard OFF (537b lesson) so harm is predictable-from-state and differentiation is the binding constraint. episodes_per_run is the MAX maturation denominator (22); the [train] ep N/M denominator varies per arm by design (M=onset). Arm cells are fingerprinted but reuse-INELIGIBLE (frozen representation depends on the shared maturation trajectory, not reproducible from config alone) -- so no separate baseline mint is queued. Scopes the E1/E2-world -> E3-harm leg of INV-064 (harm_eval reads z_world); the V4 z_self maturational-stability leg is out of scope."
+      "backlog_id": "EVB-0370",
+      "note": "Measurement-only, commitment-free curriculum-order diagnostic for INV-064 (no basal-ganglia/commitment layer exercised, so a PASS/FAIL is a real verdict, not a re-derivation of the conversion ceiling). Per (seed,onset) cell: mature E1+E2.world_forward+encoder for `onset` episodes (harm_eval trained here is discarded), freeze them, replay a FIXED shared trajectory through the frozen encoder to collect (z_world,harm_target), then train a fresh harm_eval_head for a FIXED budget and read held-out R^2 + train/test gap (noise-fitted-evaluator signature) vs E1/E2 differentiation-at-freeze (z_world eff-rank, E2 forward R^2). IV=onset {2,5,11,22}; 3 seeds x 4 arms=12 cells. scheduled_external_hazard OFF (537b lesson) so harm is predictable-from-state and differentiation is the binding constraint. episodes_per_run is the MAX maturation denominator (22); the [train] ep N/M denominator varies per arm by design (M=onset). Arm cells are fingerprinted but reuse-INELIGIBLE (frozen representation depends on the shared maturation trajectory, not reproducible from config alone) -- so no separate baseline mint is queued. Scopes the E1/E2-world -> E3-harm leg of INV-064 (harm_eval reads z_world); the V4 z_self maturational-stability leg is out of scope.",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 22,
+      "experiment_type": "v3_exq_740_inv064_maturational_sequence_e3_bounded",
+      "seeds": 3
     }
   ]
 }
