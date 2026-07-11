@@ -249,6 +249,17 @@ class CausalGridWorld:
         background_drift_enabled: bool = False,
         n_drift_sources: int = 1,
         drift_policy: str = "random_walk",
+        # agency_comparator_testbed_sd047: when True, any step whose
+        # transition_type is still "none" after all agent-caused assignment but
+        # on which an SD-047 multi-source env event fired
+        # (multi_source_n_env_events > 0) is tagged transition_type
+        # "env_caused_multisource". This gives an agency-detection comparator a
+        # per-step self-vs-world ground-truth label WITHOUT the saturating
+        # env_events>0 additive fold (which is degenerate at intensity 1.0 --
+        # see failure_autopsy_V3-EXQ-047m). It only FILLS "none" slots, never
+        # overrides an agent-caused transition_type, so self-caused labels are
+        # untouched. Bit-identical OFF (default False -> zero behaviour change).
+        tag_env_caused_multisource_ttype: bool = False,
         # SD-048: interoceptive noise dynamics. Three concurrent agent-independent
         # stochastic body-state noise sources applied to harm_obs_a so the Level 2
         # interoceptive forward-model comparator (ARC-058 / ARC-033 path) has a
@@ -637,6 +648,8 @@ class CausalGridWorld:
         self.background_drift_enabled = background_drift_enabled
         self.n_drift_sources = int(max(0, n_drift_sources))
         self.drift_policy = str(drift_policy)
+        # agency_comparator_testbed_sd047: non-saturating self-vs-world label tag.
+        self.tag_env_caused_multisource_ttype = bool(tag_env_caused_multisource_ttype)
         # Coarse AR(1) state and full-grid additive perturbation; populated in reset().
         self._weather_super_field: np.ndarray = np.zeros(
             (self.weather_super_cells, self.weather_super_cells), dtype=np.float32
@@ -2544,6 +2557,22 @@ class CausalGridWorld:
             self._traj_current.append((int(self.agent_x), int(self.agent_y)))
             if done:
                 self._update_traj_store()
+
+        # agency_comparator_testbed_sd047: tag env-caused-multisource steps.
+        # Placed after ALL transition_type mutations (agent-caused assignment,
+        # scheduled injections) and before the _last_transition_type cache, so it
+        # can only FILL a residual "none" and never override an agent-caused
+        # label. When an SD-047 multi-source event fired this step but no
+        # agent-caused transition did, the step is world-caused -- give it a
+        # transition_type so a comparator label (prev_ttype in WORLD_CAUSED)
+        # carries a real self/world contrast without the saturating env_events>0
+        # fold. Fully gated: default flag False -> bit-identical OFF.
+        if (
+            self.tag_env_caused_multisource_ttype
+            and transition_type == "none"
+            and self._multi_source_n_env_events > 0
+        ):
+            transition_type = "env_caused_multisource"
 
         # SD-048: cache transition_type so _apply_interoceptive_noise can classify
         # agent-caused vs body-noise-caused harm-state-change events when computed

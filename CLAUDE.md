@@ -3173,6 +3173,42 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     ARC-033 (E2_harm_s forward, indirect benefit on cf_gap_ratio), MECH-094
     (call-site scoping; not applicable).
 
+### SD-047 amendment: non-saturating self/world transition_type tag (2026-07-11)
+- environment.multi_source_dynamics -- AMENDED 2026-07-11 (agency_comparator_testbed_sd047).
+  Module: ree_core/environment/causal_grid_world.py.
+  Config: CausalGridWorld/V2 flat kwarg `tag_env_caused_multisource_ttype`
+    (default False; bit-identical OFF -- verified: with the flag off the
+    transition_type histogram is identical, and with SD-047 ON the flag only
+    reassigns residual "none" steps, leaving every agent-caused and
+    env_caused_hazard count unchanged).
+  Data flow: step() -- after ALL transition_type assignment (agent-caused +
+    scheduled injections) and just before the `_last_transition_type` cache,
+    if the flag is set AND transition_type is still "none" AND
+    multi_source_n_env_events > 0, set transition_type = "env_caused_multisource".
+    It only FILLS a residual "none", never overrides an agent-caused label.
+  Why: the 047-lineage MECH-095 retests (V3-EXQ-047l/047m) both self-routed
+    FAIL but were adjudicated non_contributory -- the `env_events>0` additive
+    label fold is degenerate at intensity 1.0 (drift moves ~every tick), so
+    any world/self label folding env_events saturates (047l probe, 047m
+    training label). This tag gives a NON-saturating self/world ground-truth
+    from transition_type directly (is_world = prev_ttype in {env_caused_hazard,
+    env_caused_multisource}); at intensity 1.0 is_world ~0.15 (a real contrast),
+    not the saturated ~0.93 the fold produced.
+  Backward compatible: default False; existing experiments bit-identical.
+  No trainable parameters; no phased training; MECH-094 not applicable.
+  Test-bed (VALID MECH-095 retest, realizes /implement-substrate substrate_queue
+    sd_id agency_comparator_testbed_sd047, re-points MECH-095's owed retest off
+    "SD-047 build"): V3-EXQ-741 (v3_exq_741_mech095_agency_comparator_testbed_sd047).
+    4-arm SD-047 intensity sweep x 4 seeds; per cell THREE conditions --
+    BASELINE (z_world), ROUTED_A (gradient BCE head on the non-saturating label,
+    reshapes z_world), ROUTED_B (query-time read-out: efference-copy f_eff(z_self,a)
+    vs observed z_self, agency_residual concatenated to z_world, NEVER backprops
+    into z_world). Two guards per arm x seed: probe-partition (047m) + NEW
+    self-world balance (the training-label guard 047m lacked). Re-derive brake
+    was FIRED (2 MECH-095 non_contributory autopsies); this CLEARS it -- new EXQ
+    number, different operationalisation + the pre-registered sweep, enabling
+    substrate now BUILT. See failure_autopsy_V3-EXQ-047m_2026-07-11.
+
 ## SD-048: Interoceptive Noise Dynamics (2026-05-03)
 - SD-048: body.interoceptive_noise_dynamics -- IMPLEMENTED 2026-05-03.
   Module: ree_core/environment/causal_grid_world.py (CausalGridWorldV2).
