@@ -6,25 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-517d",
-      "title": "MECH-302 relief-completion discriminative pair (517c sentinel-emit fix)",
-      "script": "experiments/v3_exq_517d_mech302_relief_completion_discriminative_pair.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 110,
-      "supersedes": "V3-EXQ-517c",
-      "claim_id": "MECH-302",
-      "note": "Instrumentation-only re-queue of V3-EXQ-517c, which ran to completion (~105 min, exit 0) on 2026-05-30 but emitted NO runner sentinel (never called emit_outcome), so the runner discarded the finished run as a no-result ERROR. 517c's driving loop already uses the current substrate API (generate_trajectories + select_action(candidates, ticks)) and re-runs today (smoke-passed 2026-07-11). Sole change vs 517c: import + call experiment_protocol.emit_outcome(outcome, manifest_path, run_id, dry_run) so the PASS/FAIL verdict registers. Comparator, SD-022 scheduled-injection curriculum, and acceptance criteria (C1 ARM_A events>=3/seed, C2 ARM_A writes>=2/seed, C3 ARM_B events==0, C4 ARM_B writes==0; 2/3 seed pass fraction) byte-identical to 517c. claim_ids=[MECH-302]; a contributory PASS clears the MECH-302 v3_pending gate.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-07-11T19:57:46Z"
-      },
-      "conditions": 2,
-      "experiment_type": "v3_exq_517d_mech302_relief_completion_discriminative_pair",
-      "seeds": 3
-    }
-  ]
+  "items": []
 }
