@@ -48,27 +48,6 @@
       "episodes_per_run": 800,
       "experiment_type": "v3_exq_741_mech095_agency_comparator_testbed_sd047",
       "seeds": 4
-    },
-    {
-      "queue_id": "V3-EXQ-740a",
-      "title": "INV-064 maturational-sequence necessity (CORRECTED successor to 740): task-relevant predictive-decodability IV + immature anchor + harm-decodability positive control",
-      "script": "experiments/v3_exq_740a_inv064_maturational_sequence_e3_bounded.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-740",
-      "claim_id": "INV-064",
-      "backlog_id": "EVB-0370",
-      "note": "CORRECTED successor to V3-EXQ-740 (FAIL / non_contributory / measurement_degeneracy per failure_autopsy_V3-EXQ-740_2026-07-11). 740 FAILed on its VALIDITY PRECONDITION only: its differentiation observable (participation-ratio eff_rank of the alpha_world=0.9 EMA z_world over a random-action replay) ran BACKWARDS (mean onset_max/min ratio 0.770<1.15; per-seed [0.855,0.493,0.962]) because a trained EMA world-latent specialises onto a low-dim task manifold -> covariance rank DECREASES with maturation, opposite to INV-064's task-relevant differentiation; and the onset window 2..22 was entirely post-saturation (E2 forward R^2~0.99 at onset_2) so no immature anchor existed. Four autopsy-mandated fixes: (1) replace eff_rank with a TASK-RELEVANT, JL-SAFE decodability IV -- world_feat_decode_r2 = held-out ridge R^2 predicting NEXT-step harm_obs from current z_world (predictive decodability requires learned dynamics, so it INCREASES with maturation; smoke-verified onset_0 0.02 -> onset_6 0.15, delta +0.13); (2) add a genuinely-immature anchor arm -- onset now spans {0,1,4,12,30} (onset_0 = fresh encoder; smoke E2 fwd R^2 0.02 at onset_0 vs 0.99 at onset_6 confirms the anchor is real); (3) add a mature-anchor harm-decodability POSITIVE CONTROL (linear probe z_world->harm_target held-out R^2>=0.05 at onset_max) so a null DV gradient is not confounded by an intrinsically-undecodable harm target (740's held-out harm R^2 was negative in ALL arms); (4) keep the PC_iv_moved-style non-degeneracy guard, now on the corrected observable checking the PREDICTED direction (predictive-decode delta onset_max-onset_min >= 0.03 AND > 0). DV unchanged: E3 harm_eval held-out R^2 + train/test gap. Regime unchanged: scheduled_external_hazard_enabled=False (537b lesson). Measurement-only, commitment-free (no basal-ganglia/commitment layer exercised) so a PASS/FAIL is a real verdict, not a re-derivation of the conversion ceiling. Old eff_rank retained in the manifest for diagnosis (expect it to keep running backwards, documenting the fix). NO ree_core change, NO substrate build (substrate carries the info; substrate_queue action=none). episodes_per_run=30 is the fixed [train] ep N/M denominator (WARMUP_PROGRESS_DENOM=max onset); onset_0 arm prints no ep line (range(0)). 3 seeds x 5 onsets = 15 cells / 15 verdict lines. Arm cells fingerprinted but reuse-INELIGIBLE (frozen representation depends on the shared maturation trajectory, not reproducible from config alone) -- no separate baseline mint queued. Re-derive brake: NOT fired (first INV-064 degenerate autopsy, count 1<2). A SECOND non_contributory/degenerate INV-064 result would implicate the operationalisation itself -> route to a test-bed/measurement redesign, NOT a third 740 letter. INV-064 stays candidate/pending_substrate_reconfirmation; PROMOTES/DEMOTES NOTHING. Post-commit dropped-file hazard: verify this entry landed with the script before push (phase3-queue snapshot race).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-11T23:10:44Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 30,
-      "experiment_type": "v3_exq_740a_inv064_maturational_sequence_e3_bounded",
-      "seeds": 3
     }
   ]
 }
