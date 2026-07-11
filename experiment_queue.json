@@ -25,25 +25,6 @@
       "conditions": 2,
       "experiment_type": "v3_exq_517d_mech302_relief_completion_discriminative_pair",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-736",
-      "title": "Curriculum competence-recovery diagnostic (Track-1c): does a two-stage easy->hard curriculum clear the 1.0 foraging floor where flat P1-long (724 A1/A4) did not, or is transfer/capacity the true ceiling",
-      "script": "experiments/v3_exq_736_curriculum_competence_recovery_diagnostic.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 420,
-      "note": "Track-1c of the post-724 competence-recovery campaign (conversion_ceiling_campaign:CAMPAIGN). diagnostic; claim_ids=[]; non_contributory; PROMOTES/DEMOTES NOTHING. Two-stage CURRICULUM training: Stage-A train the all-ON stack (714 ARM_ON via 724 A0 recipe) to forage an EASY env, then Stage-B fine-tune into the hard 724 env. Arms at MATCHED 300ep total P1: A0 flat-hard control (==724 A1), C1 curriculum e2-frozen-in-StageB, C2 curriculum e2-unfrozen-in-StageB, C3 3-rung easy->med->hard. Load-bearing DV: HARD-env P2 mean_resources_per_episode vs 1.0 floor; Stage-A EASY foraging is the load-bearing PREMISE (same statistic/floor). Self-route (HYPOTHESIS): both oracles clear + a curriculum arm forages easy AND clears hard while A0 does not -> competence_curriculum_buildable (route /implement-substrate staged regime); premise met but no arm clears hard -> transfer_capacity_ceiling; premise/oracle/A0 fail -> substrate_not_ready_requeue. BRAKE-EXEMPT (competence/curriculum diagnostic, not a conversion/de-commit falsifier; claim_ids=[] zeroes the re-derive brake). OBS-DIM PARITY: easy/med rungs keep reef structural channels ON (world_obs_dim=275 == hard) but neutralize difficulty, so the transferred agent's fixed-width encoder spans all rungs (guarded at runtime). ID moved 734->736: 734/735 were taken by sibling Tracks 1a (env-difficulty sweep) / 1b (drive-balance) between design and queue; Track-1a had not produced results, so the easy config was chosen independently and is validated by the Stage-A readiness gate. Route result to /failure-autopsy before any governance action.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-07-10T15:16:28Z"
-      },
-      "claim_ids": [],
-      "conditions": 4,
-      "episodes_per_run": 540,
-      "experiment_type": "v3_exq_736_curriculum_competence_recovery_diagnostic",
-      "seeds": 4
     }
   ]
 }
