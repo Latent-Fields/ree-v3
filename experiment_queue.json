@@ -44,6 +44,37 @@
       "episodes_per_run": 540,
       "experiment_type": "v3_exq_736_curriculum_competence_recovery_diagnostic",
       "seeds": 4
+    },
+    {
+      "queue_id": "V3-EXQ-517d",
+      "title": "MECH-302 relief-completion discriminative pair (517c sentinel-emit fix)",
+      "experiment_type": "v3_exq_517d_mech302_relief_completion_discriminative_pair",
+      "script": "experiments/v3_exq_517d_mech302_relief_completion_discriminative_pair.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 110,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-302",
+      "supersedes": "V3-EXQ-517c",
+      "note": "Instrumentation-only re-queue of V3-EXQ-517c, which ran to completion (~105 min, exit 0) on 2026-05-30 but emitted NO runner sentinel (never called emit_outcome), so the runner discarded the finished run as a no-result ERROR. 517c's driving loop already uses the current substrate API (generate_trajectories + select_action(candidates, ticks)) and re-runs today (smoke-passed 2026-07-11). Sole change vs 517c: import + call experiment_protocol.emit_outcome(outcome, manifest_path, run_id, dry_run) so the PASS/FAIL verdict registers. Comparator, SD-022 scheduled-injection curriculum, and acceptance criteria (C1 ARM_A events>=3/seed, C2 ARM_A writes>=2/seed, C3 ARM_B events==0, C4 ARM_B writes==0; 2/3 seed pass fraction) byte-identical to 517c. claim_ids=[MECH-302]; a contributory PASS clears the MECH-302 v3_pending gate."
+    },
+    {
+      "queue_id": "V3-EXQ-669b",
+      "title": "MECH-329 wanting-before-liking goal seeding (669a forced-feed-nursery fix)",
+      "experiment_type": "v3_exq_669b_mech329_wanting_first_goal_seeding",
+      "script": "experiments/v3_exq_669b_mech329_wanting_first_goal_seeding.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 45,
+      "episodes_per_run": 14,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "MECH-329",
+      "supersedes": "V3-EXQ-669a",
+      "note": "Re-queue of a DROPPED entry: V3-EXQ-669b was queued 2026-06-13 (commit bc482f5) but fell out of the queue without ever running (no completion in runner_status; no park/resume note; not superseded -- the 672-series is MECH-057b, unrelated). Verified runs end-to-end on the current substrate + emits sentinel (smoke 2026-07-11). Re-issue of degenerate V3-EXQ-669a (failure_autopsy_V3-EXQ-669a_2026-06-13). Same scientific question (MECH-329 wanting-before-liking ordering); harness fix runs the 3-arm ordering test (wanting_first/liking_first/both_delayed) on the scaffolded_sd054_onboarding Stage-0 forced-feed nursery (z_goal_enabled=True + drive_weight=2.0) so the MECH-189 super-ordinal write gate fires, mirroring V3-EXQ-588c. claim_ids=[MECH-329, MECH-189]. Pre-registered non-vacuity readiness gate (R1 both_delayed anchor>=1 AND total_writes>=1; R2 wanting-schedule manipulation took; R3 anchor-hierarchy max>=2) self-routes substrate_not_ready_requeue, NEVER a weakens, when unmet. Load-bearing scored criteria C1(anchor count)+C3(p01 complexity); C2(p01 writes) is a manipulation-check precondition."
     }
   ]
 }
