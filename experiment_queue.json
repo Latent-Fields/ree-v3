@@ -27,6 +27,24 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-047l",
+      "title": "MECH-095 TPJ agency-routing retest on the SD-047 multi-source env: does the 047k routing comparator (contact_recall / recall_improvement / action_dissoc) discriminate on the enriched substrate where the thin CausalGridWorldV2 hit a ceiling",
+      "script": "experiments/v3_exq_047l_mech095_agency_routing_sd047.py",
+      "priority": 90,
+      "machine_affinity": "any",
+      "estimated_minutes": 200,
+      "claim_id": "MECH-095",
+      "note": "Owed positive-discrimination retest for MECH-095 (tpj.agency_detection_comparator; candidate/substrate_ceiling after the 2026-07-11 GOV-CEIL-1 flooring). MECH-095 substrate_ceiling was diagnosed 2026-05-02 because CausalGridWorldV2 is a thin world (7 successors EXQ-089/047i/047j/098b x2/121 x2 all weakens/mixed after the lone 047k PASS); SD-047 multi-source dynamics (implemented 2026-05-03) is resolution path (a) in the MECH-095 evidence_quality_note, and the substrate-ceiling audit now flags ceiling_may_have_lifted / pending_retest_after_substrate. This reuses the EXQ-047k operationalisation VERBATIM (ROUTED CE-routing head ON vs BASELINE split ABLATED, 4 seeds 42/7/123/99; C1 contact_recall_world_routed>0.55, C2 recall_improvement>0.04, C3 action_dissoc>-0.05, C4 n_contact_min>=20, C5 no-fatal) but runs it on CausalGridWorldV2 with multi_source_dynamics_enabled=True (intensity_scale=1.0, the 509-validated ARM_2 calibration point; weather+transient+drift sources all on). The ONE principled adaptation: world-caused routing label and contact definition additively fold multi_source_n_env_events>0 (strict superset of 047k transition_type-only labels), because SD-047 transient/drift/weather events increment multi_source_n_env_events but do NOT set transition_type -- verified in causal_grid_world.py step() -- so the 047k labels alone would be BLIND to the enrichment (vacuous ON==ABLATED). Same fold V3-EXQ-510 used. DISTINCT operationalisation from V3-EXQ-510, which ran a MECH-095 comparator on the same SD-047 env but with the 506 E2_harm_s counterfactual-gap operationalisation and flat-failed WOO_SPELKE (C1-C3 FAIL all four arms, 2026-05-04); this instead uses the one operationalisation that ever produced a MECH-095 PASS. Tag claim_ids=[MECH-095] (SD-005 dropped -- this is the MECH-095 re-gate). experiment_purpose=evidence. PASS -> evidence_direction supports (re-gates MECH-095 promotion out of candidate); FAIL -> route /failure-autopsy (do NOT auto-demote). Non-degeneracy guard: check_degeneracy floors contact_recall_world at 0.55, so an all-cells-at-chance read (z_world encodes no contact anywhere -> WOO_SPELKE-analog vacuity, ceiling still holds) self-reports non_contributory / scoring-excluded rather than a spurious weakens. Re-derive brake NOT fired (0 formal substrate_ceiling/non_contributory failure_autopsy JSONs on MECH-095; and SD-047 is BUILT which would release it anyway). Ethics preflight all-false/allow (probe; no self-model / negative-valence drive). Mint N/A: faithful 047k-structure port emits per_seed lists (no arm_results/arm_cell cells, so outside the reuse-fingerprint infra; validator 0 arm-fingerprint-backlog) AND the label-folding operationalisation is being adapted for SD-047 so the OFF path may re-tune per letter (disqualifier: substrate in flux for lineage). validate_experiments --strict --paths OK (exit 0); dry-run smoke PASS end-to-end (SD-047 active env_ev_ticks~28-33, ROUTED route_loss active vs BASELINE zero, progress boundaries+verdict lines correct, dry manifest relocated out of evidence/, degeneracy guard correctly fired on the untrained 3-ep dry latents). Lettered successor to the 047i/047j/047k MECH-095 routing sub-lineage (mechanism unchanged, substrate enriched -> letter not new number).",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-095"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 400,
+      "experiment_type": "v3_exq_047l_mech095_agency_routing_sd047",
+      "seeds": 4
+    },
+    {
       "queue_id": "V3-EXQ-736",
       "title": "Curriculum competence-recovery diagnostic (Track-1c): does a two-stage easy->hard curriculum clear the 1.0 foraging floor where flat P1-long (724 A1/A4) did not, or is transfer/capacity the true ceiling",
       "script": "experiments/v3_exq_736_curriculum_competence_recovery_diagnostic.py",
@@ -43,22 +61,6 @@
       "conditions": 4,
       "episodes_per_run": 540,
       "experiment_type": "v3_exq_736_curriculum_competence_recovery_diagnostic",
-      "seeds": 4
-    },
-    {
-      "queue_id": "V3-EXQ-047l",
-      "title": "MECH-095 TPJ agency-routing retest on the SD-047 multi-source env: does the 047k routing comparator (contact_recall / recall_improvement / action_dissoc) discriminate on the enriched substrate where the thin CausalGridWorldV2 hit a ceiling",
-      "script": "experiments/v3_exq_047l_mech095_agency_routing_sd047.py",
-      "priority": 90,
-      "machine_affinity": "any",
-      "estimated_minutes": 200,
-      "note": "Owed positive-discrimination retest for MECH-095 (tpj.agency_detection_comparator; candidate/substrate_ceiling after the 2026-07-11 GOV-CEIL-1 flooring). MECH-095 substrate_ceiling was diagnosed 2026-05-02 because CausalGridWorldV2 is a thin world (7 successors EXQ-089/047i/047j/098b x2/121 x2 all weakens/mixed after the lone 047k PASS); SD-047 multi-source dynamics (implemented 2026-05-03) is resolution path (a) in the MECH-095 evidence_quality_note, and the substrate-ceiling audit now flags ceiling_may_have_lifted / pending_retest_after_substrate. This reuses the EXQ-047k operationalisation VERBATIM (ROUTED CE-routing head ON vs BASELINE split ABLATED, 4 seeds 42/7/123/99; C1 contact_recall_world_routed>0.55, C2 recall_improvement>0.04, C3 action_dissoc>-0.05, C4 n_contact_min>=20, C5 no-fatal) but runs it on CausalGridWorldV2 with multi_source_dynamics_enabled=True (intensity_scale=1.0, the 509-validated ARM_2 calibration point; weather+transient+drift sources all on). The ONE principled adaptation: world-caused routing label and contact definition additively fold multi_source_n_env_events>0 (strict superset of 047k transition_type-only labels), because SD-047 transient/drift/weather events increment multi_source_n_env_events but do NOT set transition_type -- verified in causal_grid_world.py step() -- so the 047k labels alone would be BLIND to the enrichment (vacuous ON==ABLATED). Same fold V3-EXQ-510 used. DISTINCT operationalisation from V3-EXQ-510, which ran a MECH-095 comparator on the same SD-047 env but with the 506 E2_harm_s counterfactual-gap operationalisation and flat-failed WOO_SPELKE (C1-C3 FAIL all four arms, 2026-05-04); this instead uses the one operationalisation that ever produced a MECH-095 PASS. Tag claim_ids=[MECH-095] (SD-005 dropped -- this is the MECH-095 re-gate). experiment_purpose=evidence. PASS -> evidence_direction supports (re-gates MECH-095 promotion out of candidate); FAIL -> route /failure-autopsy (do NOT auto-demote). Non-degeneracy guard: check_degeneracy floors contact_recall_world at 0.55, so an all-cells-at-chance read (z_world encodes no contact anywhere -> WOO_SPELKE-analog vacuity, ceiling still holds) self-reports non_contributory / scoring-excluded rather than a spurious weakens. Re-derive brake NOT fired (0 formal substrate_ceiling/non_contributory failure_autopsy JSONs on MECH-095; and SD-047 is BUILT which would release it anyway). Ethics preflight all-false/allow (probe; no self-model / negative-valence drive). Mint N/A: faithful 047k-structure port emits per_seed lists (no arm_results/arm_cell cells, so outside the reuse-fingerprint infra; validator 0 arm-fingerprint-backlog) AND the label-folding operationalisation is being adapted for SD-047 so the OFF path may re-tune per letter (disqualifier: substrate in flux for lineage). validate_experiments --strict --paths OK (exit 0); dry-run smoke PASS end-to-end (SD-047 active env_ev_ticks~28-33, ROUTED route_loss active vs BASELINE zero, progress boundaries+verdict lines correct, dry manifest relocated out of evidence/, degeneracy guard correctly fired on the untrained 3-ep dry latents). Lettered successor to the 047i/047j/047k MECH-095 routing sub-lineage (mechanism unchanged, substrate enriched -> letter not new number).",
-      "status": "pending",
-      "claim_id": "MECH-095",
-      "claim_ids": ["MECH-095"],
-      "conditions": 2,
-      "episodes_per_run": 400,
-      "experiment_type": "v3_exq_047l_mech095_agency_routing_sd047",
       "seeds": 4
     }
   ]
