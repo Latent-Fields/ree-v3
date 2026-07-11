@@ -25,6 +25,25 @@
       "episodes_per_run": 540,
       "experiment_type": "v3_exq_736_curriculum_competence_recovery_diagnostic",
       "seeds": 4
+    },
+    {
+      "queue_id": "V3-EXQ-047m",
+      "title": "MECH-095 TPJ agency-routing CORRECTED retest on SD-047: revert the probe partition to 047k's non-folded CONTACT_SET (drop the env_events fold that emptied 047l's eval negative class) + add a probe-partition non-degeneracy guard, and ask whether the routed z_world discriminates world-caused contact on the enriched substrate",
+      "script": "experiments/v3_exq_047m_mech095_agency_routing_sd047.py",
+      "priority": 90,
+      "machine_affinity": "any",
+      "estimated_minutes": 200,
+      "note": "Corrected same-question retest (alphabetic suffix, implementation fix) mandated by failure_autopsy_V3-EXQ-047l_2026-07-11. supersedes V3-EXQ-047l. 047l FAILed 3/5 non_degenerate:false but was adjudicated NON_CONTRIBUTORY (measurement degeneracy, NOT a substrate_ceiling hit): its probe used is_contact = (ttype in CONTACT_SET) or (env_events>0), and on SD-047's dense per-step dynamics multi_source_n_env_events>0 is true ~every step, so the no-contact negative class was EMPTY in all 8 cells (n_contact==n_probe) -> contact_recall_world structurally pinned at 0.0 in BOTH arms -> the MECH-095 comparator was never exercised. THREE fixes (047l->047m): (1) KEEP the env_events fold in the TRAINING is_world routing label (necessary for ROUTED!=BASELINE on SD-047); (2) REVERT the PROBE is_contact to 047k's non-folded CONTACT_SET (drop `or env_events>0`); (3) ADD a probe-partition non-degeneracy guard. GUARD-FLOOR DECISION (user, 2026-07-11): the autopsy estimated a floor of ~20, but direct measurement (uniform-random policy = the probe's policy, 4 seeds x 20ep x 200steps) shows hazard_approach (proximity) saturates ~91% of steps on BOTH the thin 047k env and SD-047, so 047k's OWN PASSing negative class was only ~6-28 samples/seed (min ~6) and SD-047 gives n_no_contact ~5-16/seed. A floor of 20 would veto the exact regime the retest reproduces (047k recall 0.796 ran at n_no_contact~6). So PROBE_NEG_FLOOR=5 is BLOCKING (below it the balanced probe cannot run -> self-route non_contributory via non_degenerate:false, the real 047l failure mode), and PROBE_NEG_BALANCED_TARGET=20 is ADVISORY (probe runs but imbalanced -> non-blocking WARN in the manifest, does NOT set non_contributory). Also reports the secondary claim-orthogonal action-dissociation collapse for BOTH arms (047l: BASELINE +0.10..+0.23 -> ROUTED ~0). claim_ids=[MECH-095]; experiment_purpose=evidence. PASS re-gates MECH-095 promotion out of candidate; a well-posed FAIL routes /failure-autopsy; a degenerate-partition run self-routes non_contributory. MECH-095 stays candidate/substrate_ceiling/pending_retest_after_substrate; n_ceiling_hits stays 0 until a valid ceiling test runs. RE-DERIVE BRAKE: not fired (1 prior MECH-095 non_contributory autopsy = 047l < threshold 2). NOTE per autopsy Sec.7: if 047m ALSO returns non_contributory, that implicates the operationalisation itself (2nd read) -> route MECH-095 to substrate/test-bed work, do NOT queue a third 047 letter. Mint N/A: faithful 047k-structure port emits per_seed lists (no arm_results/arm_cell cells, outside the reuse-fingerprint infra; validator 0 arm-fingerprint-backlog). Ethics preflight all-false/allow (probe; no self-model / negative-valence drive). validate_experiments --strict --paths OK (exit 0); dry-run smoke end-to-end OK (SD-047 active env_ev_ticks~28-33, ROUTED route_loss active vs BASELINE zero, progress boundaries+verdict lines correct, degeneracy guard correctly fires on the untrained 3-ep dry latents, dry manifest relocated out of evidence/). Full-run partition sizes empirically confirmed >= floor 5 (n_no_contact 5-16), so the probe will validly run. Lettered successor to the 047i/047j/047k/047l MECH-095 routing sub-lineage.",
+      "status": "pending",
+      "claim_id": "MECH-095",
+      "claim_ids": [
+        "MECH-095"
+      ],
+      "supersedes": "V3-EXQ-047l",
+      "conditions": 2,
+      "episodes_per_run": 400,
+      "experiment_type": "v3_exq_047m_mech095_agency_routing_sd047",
+      "seeds": 4
     }
   ]
 }
