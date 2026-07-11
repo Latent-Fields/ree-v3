@@ -31,15 +31,19 @@ DV2 (graded behavioural consequence): mean re-acquisition latency after an overt
 (censored, NON-saturating) must be >= LATENCY_MARGIN steps LOWER for ON than FROZEN.
 
 READINESS. Each seed is READY only if the binder converged, every region was
-visited >= MIN_REGION_VISITS_P0 in P0, and >= MIN_OVERTAKES_P1 overtakes accrued in
-P1. If any completed seed is not ready -> the run self-routes
-`substrate_not_ready_requeue` (evidence_direction non_contributory), NEVER a
-rebinding verdict. (This is exactly the gate V3-EXQ-733 failed: only seed 42 reached
-the 20-overtake floor because a cold agent died in ~10-40 steps.)
+visited >= min_region_visits_floor(K) in P0 (a granularity-scaled floor: K=4 -> 10,
+K=16 -> 3; the fixed absolute 10 was granularity-blind and blocked the K=16
+V3-EXQ-733a-b run at min 9 < 10), and >= MIN_OVERTAKES_P1 overtakes accrued in P1. If
+any completed seed is not ready -> the run self-routes `substrate_not_ready_requeue`
+(evidence_direction non_contributory), NEVER a rebinding verdict. (This is exactly the
+gate V3-EXQ-733 failed: only seed 42 reached the 20-overtake floor because a cold
+agent died in ~10-40 steps.)
 
 The leg drivers own: SEEDS, G_PARTITION, the env factory, the agent
-factory/onboarding, and the optional per-episode spawn_director. Everything below is
-shared and leg-agnostic.
+factory/onboarding, and the optional per-episode spawn_director. A leg running a
+scripted directed tour that must NOT be truncated by P0 starvation passes
+directed_tour_p0_coverage=True to run_functional_test_seed (V3-EXQ-733a fix; see its
+docstring). Everything below is shared and leg-agnostic.
 """
 
 from __future__ import annotations
@@ -68,8 +72,30 @@ N_SHUFFLE_PERMS = 200        # random region relabelings for the chance baseline
 MIN_SEEDS_FOR_PASS = 4       # of 6 seeds must satisfy DV1 (and DV2) -- 2/3 ratio.
 MIN_SEEDS_COMPLETED = 4      # of 6 runs must reach P1 without error.
 
-MIN_REGION_VISITS_P0 = 10    # each region visited >= this in P0 for a stable proto.
+MIN_REGION_VISITS_P0_BASE = 10  # calibrated at K=4 (G_PARTITION=2): the K=4 floor.
+MIN_REGION_VISITS_P0_HARD_MIN = 3  # never demand fewer than this many P0 samples/region.
+# Back-compat alias (drivers / manifests referencing the old name still resolve to the
+# K=4-calibrated value). The LIVE readiness floor is min_region_visits_floor(k_regions).
+MIN_REGION_VISITS_P0 = MIN_REGION_VISITS_P0_BASE
 MIN_OVERTAKES_P1 = 20        # per seed: enough overtake events for latency stats.
+
+
+def min_region_visits_floor(k_regions: int) -> int:
+    """Granularity-scaled P0 region-coverage floor (V3-EXQ-733a fix).
+
+    The base floor (10) was calibrated for a K=4 (G_PARTITION=2) lattice, where each
+    region is a large cell the agent dwells in for many steps. A fixed absolute floor
+    is granularity-BLIND: on a finer K=16 (G=4) lattice each region is a 3x3 cell the
+    agent drifts out of in 1-2 moves, so per-region dwell is ~K/4 times smaller for the
+    same step budget. Applying the K=4 floor of 10 to K=16 over-demands and tripped the
+    V3-EXQ-733a-b readiness gate (min P0 region visits 9 < 10 on one starved seed) even
+    though the mechanism passed DV1/DV2 6/6. Scale the floor inversely with K vs the K=4
+    baseline, clamped to a hard minimum so a genuinely thin prototype is still caught.
+    K=4 -> 10 (bit-identical to the calibrated value); K=9 -> 4; K=16 -> 3 (clamp).
+    """
+    base_k = 4
+    scaled = int(round(MIN_REGION_VISITS_P0_BASE * base_k / max(1, int(k_regions))))
+    return max(MIN_REGION_VISITS_P0_HARD_MIN, scaled)
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +286,7 @@ def run_functional_test_seed(
     step_director: Optional[
         Callable[[CausalGridWorldV2, Dict[str, Any], int, int, bool, torch.Generator], Dict[str, Any]]
     ] = None,
+    directed_tour_p0_coverage: bool = False,
 ) -> Dict[str, Any]:
     """Run the binder P0 curriculum + P1 measurement for one seed on a
     (possibly pre-onboarded) agent. Returns the per-seed row dict (schema
@@ -277,6 +304,29 @@ def run_functional_test_seed(
     directed-respawn/teleport the agent (scripted region-traversal) so a within-
     episode ground-truth overtake is GENERATED regardless of the policy's
     foraging competence. None -> the loop is bit-identical to V3-EXQ-733.
+
+    directed_tour_p0_coverage (optional, P-B / V3-EXQ-733b): DECOUPLE P0
+    prototype-coverage from foraging survival, mirroring the way step_director
+    decouples P1 overtakes (V3-EXQ-733a fix). When True (requires a spawn_director
+    and/or step_director), during P0 ONLY: do NOT truncate the P0 episode on a
+    health-death `done` (`env.agent_health <= 0`). Rationale: the teleport is a pure
+    position read that does NOT refill health, so on unlucky seeds starvation still
+    ended P0 episodes early (V3-EXQ-733a-b seed 43: ~545 P0 step-visits vs ~4600 on
+    seed 42), which was the proximate cause of the min-region-visits 9<10 coverage
+    block. Suppressing that health-death break lets the scripted tour run its full
+    step budget, which in turn makes the harness's EXISTING teleport-entry accrual
+    guaranteed by construction: after each directed relocation the very next loop
+    iteration reads `region_of(env)` at the directed-respawn cell (BEFORE the agent
+    acts/drifts) and accrues that region's clean z_world prototype sample + visit, so
+    P0 coverage becomes a deterministic function of the scripted tour rather than of
+    where a starving forager happens to dwell -- WITHOUT a second `agent.sense()`
+    (the binder-training / prototype mechanism that passed DV1/DV2 6/6 is unchanged;
+    only the truncation that starved it is removed). Any other `done` cause (e.g. the
+    env step cap `steps >= 500`) still breaks; P1 measurement episodes and no-director
+    legs are unaffected. Pairs with the granularity-scaled min_region_visits_floor(K)
+    readiness floor (a fixed K=4 floor of 10 over-demands on the finer K=16 lattice).
+    Default False -> bit-identical to V3-EXQ-733 (and to the P-A survival-onboarded
+    leg, K=4). NO ree_core change -- this is test-bed measurement decoupling only.
     """
     k_regions = g_partition * g_partition
     error_note: Optional[str] = None
@@ -362,7 +412,18 @@ def run_functional_test_seed(
 
             zp, ap = zself_now, action.detach()
             if done:
-                break
+                # V3-EXQ-733a fix (2): during the P0 scripted directed tour, do NOT
+                # let a health-death `done` truncate the episode -- the teleport does
+                # not refill health, so starvation would otherwise starve P0 coverage
+                # (seed 43). Suppress ONLY the health-death cause and ONLY in P0 tour
+                # mode; any other `done` (e.g. env step cap) still ends the episode.
+                suppress_p0_health_death = (
+                    directed_tour_p0_coverage
+                    and not is_p1
+                    and float(env.agent_health) <= 0.0
+                )
+                if not suppress_p0_health_death:
+                    break
             if step_director is not None:
                 obs = step_director(env, obs, ep, _step, is_p1, gen_spawn)
 
@@ -461,11 +522,12 @@ def _compute_seed_row(
     dv2 = bool((mean_lat_frozen - mean_lat_on) >= LATENCY_MARGIN)
 
     min_region_visits = min(region_visits_p0) if region_visits_p0 else 0
+    region_visits_floor = min_region_visits_floor(k_regions)  # V3-EXQ-733a: K-scaled
     regions_covered = sum(1 for c in proto_cnt if c > 0)
     seed_ready = bool(
         binder_learned and binder_converged
         and regions_covered == k_regions
-        and min_region_visits >= MIN_REGION_VISITS_P0
+        and min_region_visits >= region_visits_floor
         and n_overtakes >= MIN_OVERTAKES_P1
     )
 
@@ -478,6 +540,7 @@ def _compute_seed_row(
         "k_regions": int(k_regions),
         "g_partition": int(g_partition),
         "min_region_visits_p0": int(min_region_visits),
+        "region_visits_p0_floor": int(region_visits_floor),  # V3-EXQ-733a K-scaled floor
         "region_visits_p0": [int(v) for v in region_visits_p0],
         # DV1
         "alignment_real": float(a_real),
@@ -548,6 +611,10 @@ def interpret(rows: List[Dict[str, Any]], conv_frac: float) -> Dict[str, Any]:
     )
     min_overtakes = min((r["n_overtakes"] for r in ok), default=0)
     min_region_visits = min((r["min_region_visits_p0"] for r in ok), default=0)
+    # V3-EXQ-733a: the readiness floor is granularity-scaled to the lattice K (all
+    # completed seeds share K); fall back to the K=4 base if no seed completed.
+    k_regions_interp = int(ok[0]["k_regions"]) if ok else 4
+    region_visits_floor = min_region_visits_floor(k_regions_interp)
 
     preconditions = [
         {
@@ -572,12 +639,14 @@ def interpret(rows: List[Dict[str, Any]], conv_frac: float) -> Dict[str, Any]:
             "description": (
                 "min region visit count in P0 across completed seeds clears the "
                 "prototype-stability floor (every region seen enough to mean-pool a "
-                "prototype); below floor -> thin/ill-defined prototypes."
+                "prototype); below floor -> thin/ill-defined prototypes. Floor is "
+                "granularity-scaled to K (V3-EXQ-733a): the fixed K=4 floor of 10 was "
+                "granularity-blind on the finer K=16 lattice."
             ),
             "measured": int(min_region_visits),
-            "threshold": int(MIN_REGION_VISITS_P0),
+            "threshold": int(region_visits_floor),
             "control": "per-region P0 visit counts",
-            "met": bool(ok and min_region_visits >= MIN_REGION_VISITS_P0),
+            "met": bool(ok and min_region_visits >= region_visits_floor),
         },
         {
             "name": "overtake_events_adequate",
@@ -621,6 +690,7 @@ def interpret(rows: List[Dict[str, Any]], conv_frac: float) -> Dict[str, Any]:
         "binder_conv_threshold": conv_threshold,
         "min_overtakes": int(min_overtakes),
         "min_region_visits_p0": int(min_region_visits),
+        "min_region_visits_p0_floor": int(region_visits_floor),
     }
 
 
