@@ -59,7 +59,11 @@
       "supersedes": "V3-EXQ-733",
       "claim_id": "MECH-456",
       "note": "Leg P-B of the V3-EXQ-733a 2-leg GOV-FANOUT-1 portfolio (sibling: V3-EXQ-733a-a survival-onboarded). supersedes V3-EXQ-733. EVIDENCE (claim-tagged functional test of MECH-456; candidate/v3_pending). WHY 733 FAILED: overtake generation was entangled with foraging survival (cold agent dies fast -> min 2 overtakes vs 20 floor; only seed 42 ready). P-B FIX = ENVIRONMENT/TEST-BED axis, isolating the confound: KEEP the cold 733 agent VERBATIM (no onboarding) but change ONLY the test-bed so overtakes are guaranteed by construction: (1) softened survival (hazard_harm/proximity_harm_scale/hazard_food_attraction -> 0; hazards present for z_world structure but non-lethal), (2) finer lattice G 2->4 (K=16 regions), (3) SCRIPTED region tour that directed-respawns (teleports) the agent to the next lattice region every 8 steps -- each teleport is a guaranteed ground-truth overtake + region visit. Between teleports the agent senses/acts naturally so z_self/z_world are its genuine latents; the teleport (env.agent_x/agent_y + _get_observation_dict(), a pure read) only sets which region is the current true competitor and does NOT advance env step/health or trigger contact harm. Reuses the 733 measurement harness. DV1 tracks-truth-above-shuffle + DV2 graded non-saturating re-acq latency (ON vs FROZEN, one shared trajectory/seed). NULL (declared): with overtakes GUARANTEED, DV1/DV2 failing on >=4/6 seeds => the binder does not GENERALLY track the true competitor (733 seed-42 signal not general) => WEAKENS MECH-456. evidence_direction non_contributory only if the binder fails to converge (readiness); MECH-456 stays candidate/v3_pending regardless. No ree_core change. Re-derive brake NOT fired (count 1 < 2); sanctioned GOV-FANOUT-1 discrimination. Smoke: py_compile OK; validate_experiments --strict OK; dry-run PASS end-to-end (regions_covered 16/16, min_overtakes=28>=20 even in a 3-episode dry run -> traversal guarantee confirmed; self-routes substrate_not_ready only on tiny-P0 unconverged binder; no dry manifest leak). Route result to /governance (writes MECH-456 evidence_quality_note); consumes failure_autopsy_V3-EXQ-733_2026-07-10.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-11T09:23:53Z"
+      },
       "claim_ids": [
         "MECH-456"
       ],
