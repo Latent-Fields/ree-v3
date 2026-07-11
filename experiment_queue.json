@@ -31,6 +31,21 @@
       "seeds": 6
     },
     {
+      "queue_id": "V3-EXQ-741",
+      "title": "MECH-095 agency-comparator VALID test-bed on SD-047 (non-saturating self/world label + read-out comparator + 4-arm intensity sweep)",
+      "script": "experiments/v3_exq_741_mech095_agency_comparator_testbed_sd047.py",
+      "priority": 44,
+      "machine_affinity": "any",
+      "estimated_minutes": 360,
+      "claim_id": "MECH-095",
+      "note": "Realizes /implement-substrate substrate_queue sd_id agency_comparator_testbed_sd047 (priority 2, unblocks MECH-095/098/099). Re-derive brake was FIRED (2 MECH-095 non_contributory autopsies: 047l probe-saturation + 047m training-label-saturation = same env_events>0 fold degenerate at intensity 1.0); this CLEARS the brake -- it is a NEW EXQ number with a DIFFERENT operationalisation + the pre-registered 4-arm sweep (explicitly brake-permitted), and the enabling ree_core test-bed substrate is now BUILT (CausalGridWorldV2 tag_env_caused_multisource_ttype, bit-identical OFF, landed this session). NOT a 3rd 047 letter. Builds BOTH operationalisations (user choice): ROUTED_A gradient BCE label (047-lineage, now non-saturating: label=transition_type in {env_caused_hazard,env_caused_multisource}, NO env_events fold, is_world ~0.15 at ARM_2 not saturated ~0.93) and ROUTED_B query-time read-out (efference-copy f_eff(z_self,a) vs observed z_self; agency_residual concatenated to z_world; NEVER backprops into z_world so recall_improvement_B cannot be corrupted negative -- the 047m -0.302 failure mode is structurally impossible). Two guards per arm x seed: probe-partition (n_no_contact>=5, KEEP from 047m) + NEW self-world balance (min(n_self,n_world)>=5) -- the exact training-label guard 047m LACKED (its false non_degenerate=true checked only the probe). 4-arm sweep ARM_0 OFF/ARM_1 0.25x/ARM_2 1.0x/ARM_3 4.0x keyed ARM_0-vs-ARM_2 per sd_047 doc. Self-route: valid arm + impr(A or B)>0.04 -> PASS/supports (re-gate MECH-095); all-valid-but-flat -> weakens + Woo/Spelke (route substrate_ceiling->substrate_conditional V4-1); no valid arm -> non_contributory. BASELINE MINT SKIPPED (disqualifier #2: operationalisation genuinely in flux for this lineage -- the test-bed's whole purpose is to decide WHICH operationalisation is correct, so a baseline would re-tune every iteration and the fingerprint correctly refuses; cells marked reuse-ineligible). Heavy: 4 arms x 2 agents x 4 seeds = 32 trainings x 400 warmup. claim_ids=[MECH-095]; experiment_purpose=evidence. Smoke: validate_experiments --strict --paths OK; dry-run end-to-end OK (all arms/3 conditions run, both guards fire on tiny latents, residual variance nonzero, manifest relocated).",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 800,
+      "experiment_type": "v3_exq_741_mech095_agency_comparator_testbed_sd047",
+      "seeds": 4
+    },
+    {
       "queue_id": "V3-EXQ-740a",
       "title": "INV-064 maturational-sequence necessity (CORRECTED successor to 740): task-relevant predictive-decodability IV + immature anchor + harm-decodability positive control",
       "script": "experiments/v3_exq_740a_inv064_maturational_sequence_e3_bounded.py",
@@ -50,21 +65,6 @@
       "episodes_per_run": 30,
       "experiment_type": "v3_exq_740a_inv064_maturational_sequence_e3_bounded",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-741",
-      "title": "MECH-095 agency-comparator VALID test-bed on SD-047 (non-saturating self/world label + read-out comparator + 4-arm intensity sweep)",
-      "experiment_type": "v3_exq_741_mech095_agency_comparator_testbed_sd047",
-      "script": "experiments/v3_exq_741_mech095_agency_comparator_testbed_sd047.py",
-      "priority": 44,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 360,
-      "episodes_per_run": 800,
-      "seeds": 4,
-      "conditions": 4,
-      "claim_id": "MECH-095",
-      "note": "Realizes /implement-substrate substrate_queue sd_id agency_comparator_testbed_sd047 (priority 2, unblocks MECH-095/098/099). Re-derive brake was FIRED (2 MECH-095 non_contributory autopsies: 047l probe-saturation + 047m training-label-saturation = same env_events>0 fold degenerate at intensity 1.0); this CLEARS the brake -- it is a NEW EXQ number with a DIFFERENT operationalisation + the pre-registered 4-arm sweep (explicitly brake-permitted), and the enabling ree_core test-bed substrate is now BUILT (CausalGridWorldV2 tag_env_caused_multisource_ttype, bit-identical OFF, landed this session). NOT a 3rd 047 letter. Builds BOTH operationalisations (user choice): ROUTED_A gradient BCE label (047-lineage, now non-saturating: label=transition_type in {env_caused_hazard,env_caused_multisource}, NO env_events fold, is_world ~0.15 at ARM_2 not saturated ~0.93) and ROUTED_B query-time read-out (efference-copy f_eff(z_self,a) vs observed z_self; agency_residual concatenated to z_world; NEVER backprops into z_world so recall_improvement_B cannot be corrupted negative -- the 047m -0.302 failure mode is structurally impossible). Two guards per arm x seed: probe-partition (n_no_contact>=5, KEEP from 047m) + NEW self-world balance (min(n_self,n_world)>=5) -- the exact training-label guard 047m LACKED (its false non_degenerate=true checked only the probe). 4-arm sweep ARM_0 OFF/ARM_1 0.25x/ARM_2 1.0x/ARM_3 4.0x keyed ARM_0-vs-ARM_2 per sd_047 doc. Self-route: valid arm + impr(A or B)>0.04 -> PASS/supports (re-gate MECH-095); all-valid-but-flat -> weakens + Woo/Spelke (route substrate_ceiling->substrate_conditional V4-1); no valid arm -> non_contributory. BASELINE MINT SKIPPED (disqualifier #2: operationalisation genuinely in flux for this lineage -- the test-bed's whole purpose is to decide WHICH operationalisation is correct, so a baseline would re-tune every iteration and the fingerprint correctly refuses; cells marked reuse-ineligible). Heavy: 4 arms x 2 agents x 4 seeds = 32 trainings x 400 warmup. claim_ids=[MECH-095]; experiment_purpose=evidence. Smoke: validate_experiments --strict --paths OK; dry-run end-to-end OK (all arms/3 conditions run, both guards fire on tiny latents, residual variance nonzero, manifest relocated)."
     }
   ]
 }
