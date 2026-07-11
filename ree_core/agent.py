@@ -7689,12 +7689,16 @@ class REEAgent(nn.Module):
         return self.action_critic.select(z, deterministic=deterministic)
 
     def actor_critic_reward(self, latent: LatentState) -> float:
-        """Substrate RPE teacher R_t = benefit_eval(z_world) - harm_eval(z_world)
-        (the ARC-108 R_t; user-directed 2026-07-11 to teach from the substrate's OWN
-        valuation, not externally-injected foraging reward). Detached: the reward is a
-        TARGET, not differentiated through -- the encoder cannot game it via the
-        value/policy gradient (see the reward-hacking hazard in the SD doc; the eval DV
-        remains unshaped real foraging).
+        """OPTIONAL convenience: one substrate-internal reward signal,
+        R_t = benefit_eval(z_world) - harm_eval(z_world) (the ARC-108 R_t). The
+        actor-critic is teacher-AGNOSTIC -- the validation experiment supplies whatever
+        reward it trains on (foraging reward, resource-proximity, or this substrate
+        signal); this helper is not a commitment to any one teacher. NOTE: benefit_eval /
+        harm_eval start random-init behind the ARC-030 warmup gate, so this signal is
+        only meaningful once those heads are grounded (ARC-030 phased protocol) -- a
+        validation using it MUST first assert grounding on a positive control. Detached:
+        the reward is a TARGET, not differentiated through, so the encoder cannot game it
+        via the value/policy gradient.
         """
         with torch.no_grad():
             z = latent.z_world
