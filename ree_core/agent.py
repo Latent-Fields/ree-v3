@@ -89,6 +89,7 @@ from ree_core.latent.stack import HarmForwardTrunk
 from ree_core.pfc import LateralPFCAnalog, OFCAnalog
 from ree_core.pfc.lateral_pfc_analog import LateralPFCConfig
 from ree_core.pfc.ofc_analog import OFCConfig
+from ree_core.action_learning import ActorCriticPolicy, ActorCriticStep
 from ree_core.pfc.frontopolar_analog import (
     FrontopolarAnalog,
     FrontopolarConfig,
@@ -298,6 +299,22 @@ class REEAgent(nn.Module):
         self.residue_field = ResidueField(config.residue)
         self.e3 = E3TrajectorySelector(config.e3, self.residue_field)
         self.hippocampal = HippocampalModule(config.hippocampal, self.e2, self.residue_field)
+
+        # MECH-457: first-class RPE-driven actor-critic action-learning substrate
+        # (sd_actor_critic_action_learning). A dorsal-striatal-analog actor + value
+        # critic, distinct from the lateral_pfc / ofc bias_head REINFORCE readout.
+        # Reads z_world (config.latent.world_dim), emits a distribution over the
+        # primitive action space (config.e2.action_dim). Default off -> None, so
+        # select_action is byte-identical. See ree_core/action_learning/actor_critic.py.
+        self.action_critic: Optional[ActorCriticPolicy] = None
+        if getattr(config, "use_actor_critic", False):
+            self.action_critic = ActorCriticPolicy(
+                world_dim=config.latent.world_dim,
+                action_dim=config.e2.action_dim,
+                hidden_dim=getattr(config, "actor_critic_hidden", 128),
+                use_sf_critic=getattr(config, "actor_critic_use_sf_critic", False),
+                sf_feature_dim=getattr(config, "actor_critic_sf_feature_dim", 32),
+            )
 
         # SD-006: multi-rate clock
         self.clock = MultiRateClock(
@@ -7642,6 +7659,60 @@ class REEAgent(nn.Module):
         if _env_closure_evt is not None and _env_closure_evt.fired:
             self.e3._closure_committed_active = False
         return _env_closure_evt
+
+    # ------------------------------------------------------------------
+    # MECH-457: actor-critic action-learning substrate hooks.
+    # These expose the first-class action pathway (dorsal-striatal analog),
+    # distinct from the E3 cost-argmin + bias_head REINFORCE pathway. The
+    # training UPDATE (PPO / GAE / SF-TD) lives in the experiment, following the
+    # REE convention where the bias_head REINFORCE update also lives there.
+    # ------------------------------------------------------------------
+    def actor_critic_step(
+        self, latent: LatentState, deterministic: bool = False
+    ) -> ActorCriticStep:
+        """One actor-critic decision over z_world.
+
+        Applies the co-shaping ablation lever: when
+        config.actor_critic_cotrain_encoder is True the actor reads LIVE z_world
+        (the gradient reaches the z_world encoder = co-shaping); when False it reads
+        z_world.detach() (= V3-EXQ-737's refuted frozen-latent instantiation). Returns
+        the graph-connected ActorCriticStep (action, log_prob, value, entropy, logits,
+        [phi, psi]) -- the training hook the experiment's PPO update consumes.
+        """
+        if self.action_critic is None:
+            raise RuntimeError(
+                "actor_critic_step requires use_actor_critic=True (MECH-457 substrate)."
+            )
+        z = latent.z_world
+        if not getattr(self.config, "actor_critic_cotrain_encoder", False):
+            z = z.detach()
+        return self.action_critic.select(z, deterministic=deterministic)
+
+    def actor_critic_reward(self, latent: LatentState) -> float:
+        """Substrate RPE teacher R_t = benefit_eval(z_world) - harm_eval(z_world)
+        (the ARC-108 R_t; user-directed 2026-07-11 to teach from the substrate's OWN
+        valuation, not externally-injected foraging reward). Detached: the reward is a
+        TARGET, not differentiated through -- the encoder cannot game it via the
+        value/policy gradient (see the reward-hacking hazard in the SD doc; the eval DV
+        remains unshaped real foraging).
+        """
+        with torch.no_grad():
+            z = latent.z_world
+            r = (self.e3.benefit_eval(z) - self.e3.harm_eval(z)).mean()
+        return float(r.item())
+
+    def actor_critic_parameters(self):
+        """The actor-critic parameter group for an experiment optimizer (actor + both
+        critic heads). Empty iterator when the substrate is off."""
+        if self.action_critic is None:
+            return iter(())
+        return self.action_critic.parameters()
+
+    def actor_critic_encoder_parameters(self):
+        """The z_world encoder parameters that co-shaping trains. The cotrain arm adds
+        these to the optimizer (and reads live z_world); the frozen arm omits them.
+        This is the substrate seam for the mandatory frozen-vs-co-trained ablation."""
+        return self.latent_stack.parameters()
 
     def act(
         self,

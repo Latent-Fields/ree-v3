@@ -4339,6 +4339,28 @@ class REEConfig:
     cross_module_consolidation_lr: float = 1e-3
     cross_module_consolidation_batch: int = 16
 
+    # MECH-457: first-class RPE-driven actor-critic action-learning substrate
+    # (sd_actor_critic_action_learning). A dorsal-striatal-analog actor + value
+    # critic, architecturally distinct from the lateral_pfc / ofc bias_head
+    # REINFORCE readout. Routed from failure_autopsy_734-737 (V3-EXQ-737: a
+    # trainable actor+critic over the FROZEN z_world scored below random -> the
+    # action-learning loss must CO-SHAPE the representation). All defaults no-op:
+    # use_actor_critic=False -> agent.action_critic is None, select_action
+    # byte-identical. See ree_core/action_learning/actor_critic.py and
+    # REE_assembly/docs/architecture/sd_actor_critic_action_learning.md.
+    use_actor_critic: bool = False
+    # The co-shaping ablation lever (the mandatory frozen-vs-co-trained arm). When
+    # True the actor reads live z_world (gradient reaches the z_world encoder =
+    # co-shaping); when False it reads z_world.detach() (= 737's frozen arm).
+    # Consumed by REEAgent.actor_critic_step.
+    actor_critic_cotrain_encoder: bool = False
+    # Critic form: False -> plain learned value head V(z) (cand-A arms A0/A1);
+    # True -> successor-feature critic V_SF = psi(z).w (cand-B arms A2/A3), w
+    # grounded in the MECH-229 VALENCE_WANTING reward channel.
+    actor_critic_use_sf_critic: bool = False
+    actor_critic_hidden: int = 128
+    actor_critic_sf_feature_dim: int = 32
+
     def __post_init__(self) -> None:
         # MECH-307 master flag resolver. When the convenience master flag
         # is set, force the three substrate-side sub-flags True so callers
@@ -4686,6 +4708,12 @@ class REEConfig:
         lateral_pfc_use_discriminator_source: bool = False,
         lateral_pfc_discriminator_pool_weight: float = 0.3,
         lateral_pfc_train_rule_bias_head: bool = False,
+        # MECH-457 actor-critic action-learning substrate (all no-op default).
+        use_actor_critic: bool = False,
+        actor_critic_cotrain_encoder: bool = False,
+        actor_critic_use_sf_critic: bool = False,
+        actor_critic_hidden: int = 128,
+        actor_critic_sf_feature_dim: int = 32,
         # ARC-063 v1: distributed CandidateRule field (GAP-B rule-creator)
         use_candidate_rule_field: bool = False,
         crf_n_slots: int = 16,
@@ -5754,6 +5782,12 @@ class REEConfig:
         config.lateral_pfc_use_discriminator_source = lateral_pfc_use_discriminator_source
         config.lateral_pfc_discriminator_pool_weight = lateral_pfc_discriminator_pool_weight
         config.lateral_pfc_train_rule_bias_head = lateral_pfc_train_rule_bias_head
+        # MECH-457 actor-critic action-learning substrate.
+        config.use_actor_critic = use_actor_critic
+        config.actor_critic_cotrain_encoder = actor_critic_cotrain_encoder
+        config.actor_critic_use_sf_critic = actor_critic_use_sf_critic
+        config.actor_critic_hidden = actor_critic_hidden
+        config.actor_critic_sf_feature_dim = actor_critic_sf_feature_dim
 
         # ARC-063 v1: distributed CandidateRule field (GAP-B rule-creator)
         config.use_candidate_rule_field = use_candidate_rule_field
