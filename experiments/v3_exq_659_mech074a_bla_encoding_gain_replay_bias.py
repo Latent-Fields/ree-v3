@@ -84,6 +84,7 @@ from _lib.arm_fingerprint import arm_cell  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_659_mech074a_bla_encoding_gain_replay_bias"
 QUEUE_ID = "V3-EXQ-659"
@@ -573,9 +574,14 @@ def main(dry_run: bool = False) -> "Tuple[str, Path] | int":
         "arm_results": rows,
         "elapsed_seconds": elapsed,
     }
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, sort_keys=True)
-        f.write("\n")
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     return outcome, out_path
 
 

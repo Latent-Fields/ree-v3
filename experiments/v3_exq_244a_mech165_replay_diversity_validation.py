@@ -48,6 +48,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ree_core.utils.config import REEConfig
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 # ---------- Constants ----------
 
@@ -338,9 +340,15 @@ def main():
         "..", "REE_assembly", "evidence", "experiments",
     )
     os.makedirs(evidence_dir, exist_ok=True)
-    outpath = os.path.join(evidence_dir, f"{run_id}.json")
-    with open(outpath, "w") as f:
-        json.dump(output, f, indent=2, default=str)
+    outpath = write_flat_manifest(
+        output,
+        evidence_dir,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+        json_default=str,
+    )
     print(f"\nResults written to: {outpath}")
 
 

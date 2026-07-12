@@ -131,6 +131,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_503a_sd017_sleep_phase_discriminative_phase2"
 QUEUE_ID = "V3-EXQ-503a"
@@ -509,10 +510,14 @@ def main() -> tuple[str, str | None]:
     }
 
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}", flush=True)
 
     return outcome, str(out_path)

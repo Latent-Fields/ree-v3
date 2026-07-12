@@ -141,6 +141,7 @@ from ree_core.utils.shared_latent_probe import shared_latent_gradient_probe
 from experiment_protocol import emit_outcome
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._metrics import check_degeneracy, p0_readiness_gate, P0NotReady
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_680a_mech423_superadditivity_ablation"
 QUEUE_ID = "V3-EXQ-680a"
@@ -607,10 +608,14 @@ def main(dry_run: bool = False):
             print(f"[{EXPERIMENT_TYPE}] dry-run complete; not writing manifest.")
             return None
         out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{run_id}.json"
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(manifest, f, indent=2)
+        out_path = write_flat_manifest(
+            manifest,
+            out_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
         print(f"Result written to: {out_path}")
         return str(out_path)
 

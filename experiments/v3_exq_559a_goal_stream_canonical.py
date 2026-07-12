@@ -51,6 +51,7 @@ from ree_core.residue.field import (  # noqa: E402
     VALENCE_WANTING,
 )
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_559a_goal_stream_canonical"
@@ -562,9 +563,14 @@ def main(dry_run: bool = False):
             "goal_stream_config_preset_available": True,
         },
     }
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, sort_keys=True)
-        f.write("\n")
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}", flush=True)
     return outcome, out_path
 

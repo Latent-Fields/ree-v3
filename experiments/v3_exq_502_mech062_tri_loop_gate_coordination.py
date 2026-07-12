@@ -10,6 +10,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
@@ -259,10 +260,14 @@ def main() -> None:
     }
 
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}", flush=True)
 
 

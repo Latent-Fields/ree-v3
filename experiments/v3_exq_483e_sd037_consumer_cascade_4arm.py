@@ -78,6 +78,7 @@ from _lib.goal_pipeline_tier1 import (  # noqa: E402
     warmup_train,
 )
 from ree_core.agent import REEAgent
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_483e_sd037_consumer_cascade_4arm"
 QUEUE_ID = "V3-EXQ-483e"
@@ -605,9 +606,14 @@ def main(dry_run: bool = False) -> "Tuple[str, Path] | int":
         "per_run": rows,
         "elapsed_seconds": elapsed,
     }
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, sort_keys=True)
-        f.write("\n")
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     return outcome, out_path
 
 

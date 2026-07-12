@@ -52,6 +52,8 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from ree_core.agent import REEAgent
 from ree_core.residue.field import VALENCE_WANTING
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 EXPERIMENT_PURPOSE = "evidence"
 
@@ -341,9 +343,14 @@ def main():
         "v3_exq_259_wanting_gradient_navigation",
     )
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, f"{run_id}.json")
-    with open(out_path, "w") as f:
-        json.dump(output, f, indent=2)
+    out_path = write_flat_manifest(
+        output,
+        out_dir,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Results -> {out_path}")
 
 

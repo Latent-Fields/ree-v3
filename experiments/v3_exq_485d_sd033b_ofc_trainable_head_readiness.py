@@ -82,6 +82,7 @@ from experiments._lib.arm_fingerprint import arm_cell
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_485d_sd033b_ofc_trainable_head_readiness"
 EXPERIMENT_PURPOSE = "diagnostic"
@@ -694,8 +695,14 @@ def write_manifest(result: Dict, dry_run: bool, elapsed: float) -> Tuple[Path, s
         "substrate_under_test": "SD-033b train_state_bias_head (ree-v3 main 382db2c)",
         "unblocks": "commitment_closure:GAP-8 trained-OFC-head behavioural arm",
     }
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     return out_path, outcome
 
 

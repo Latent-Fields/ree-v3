@@ -60,6 +60,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.predictors.e2_fast import Trajectory  # noqa: E402
 from ree_core.predictors.e3_selector import SelectionResult  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_592f_mech090_commitment_state_transition_probe"
@@ -656,11 +657,14 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict, Path]:
     }
 
     out_dir = Path(tempfile.gettempdir()) / "ree_v3_dry_runs" if dry_run else EVIDENCE_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with out_path.open("w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, sort_keys=True)
-        f.write("\n")
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"verdict: {outcome}", flush=True)
     print(f"Experiment: {outcome}", flush=True)

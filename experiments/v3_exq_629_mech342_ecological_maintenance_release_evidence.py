@@ -159,6 +159,7 @@ from committed_mode_curriculum import run_p0_warmup, P0Result  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -927,11 +928,14 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict, Path]:
     out_dir = (
         Path(tempfile.gettempdir()) / "ree_v3_dry_runs" if dry_run else EVIDENCE_DIR
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with out_path.open("w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, sort_keys=True)
-        f.write("\n")
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"verdict: {outcome}", flush=True)
     print(f"Experiment: {outcome} ({diagnostic_outcome})", flush=True)

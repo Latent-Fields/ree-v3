@@ -156,6 +156,7 @@ from _lib.goal_pipeline_tier1 import (  # noqa: E402
     _entropy,
 )
 from ree_core.agent import REEAgent  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_490k_mech295_modulatory_sufficiency"
 QUEUE_ID = "V3-EXQ-490k"
@@ -680,9 +681,14 @@ def main(dry_run: bool = False) -> "Tuple[str, Path] | int":
         "acceptance": acceptance,
         "per_run": rows,
     }
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, sort_keys=True)
-        f.write("\n")
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}", flush=True)
     return outcome, out_path
 

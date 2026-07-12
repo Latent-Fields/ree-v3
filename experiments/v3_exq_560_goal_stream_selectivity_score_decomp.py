@@ -65,6 +65,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorld  # noqa: E402
 from ree_core.goal import GoalState  # noqa: E402
 from ree_core.predictors.e2_fast import Trajectory  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_560_goal_stream_selectivity_score_decomp"
@@ -856,9 +857,14 @@ def main(dry_run: bool = False):
             "action_entropy_remained_zero_in_559a": True,
         },
     }
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, sort_keys=True)
-        f.write("\n")
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}", flush=True)
     return outcome, out_path
 

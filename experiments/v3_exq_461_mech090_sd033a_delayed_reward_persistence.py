@@ -76,6 +76,7 @@ from ree_core.pfc.lateral_pfc_analog import (  # noqa: E402
     LateralPFCConfig,
 )
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_461_mech090_sd033a_delayed_reward_persistence"
@@ -434,10 +435,14 @@ def main(dry_run: bool = False):
         return 0 if outcome == "PASS" else 1
 
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}", flush=True)
     return outcome, out_path, manifest["run_id"]
 

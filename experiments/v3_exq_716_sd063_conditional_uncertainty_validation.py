@@ -129,6 +129,7 @@ from ree_core.utils.config import REEConfig
 from ree_core.predictors.e2_world import E2WorldForward, E2WorldConfig
 from ree_core.predictors.e2_world_uncertainty import (
     E2WorldUncertaintyHead, E2WorldUncertaintyConfig, QUANTILE_LEVELS)
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_716_sd063_conditional_uncertainty_validation"
@@ -734,10 +735,14 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
 def _write_manifest(manifest: Dict[str, Any]) -> Path:
     evidence_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-    out_path = evidence_dir / f"{manifest['run_id']}.json"
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        evidence_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     return out_path
 
 

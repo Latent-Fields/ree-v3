@@ -98,6 +98,7 @@ from experiment_protocol import emit_outcome
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_598b_gap1_sd033a_bias_head_trainable_ablation"
 EXPERIMENT_PURPOSE = "evidence"
@@ -751,8 +752,14 @@ def write_manifest(result: Dict, dry_run: bool, elapsed: float) -> Tuple[Path, s
         "arm_results": result["by_arm"],
         "autopsy_routing": "failure_autopsy_V3-EXQ-543l_2026-05-27 sections 7+9 (substrate-enrichment first reading)",
     }
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     return out_path, outcome
 
 

@@ -61,6 +61,8 @@ from ree_core.utils.config import REEConfig          # noqa: E402
 from ree_core.agent import REEAgent                  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from experiment_protocol import emit_outcome         # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 EXPERIMENT_PURPOSE = "diagnostic"
 EXPERIMENT_TYPE = "v3_exq_635_modulatory_bias_selection_authority_readiness"
@@ -422,8 +424,14 @@ def _write(manifest) -> str:
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"{manifest['run_id']}.json")
     import json
-    with open(path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     return path
 
 

@@ -57,6 +57,7 @@ from experiment_protocol import emit_outcome
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_606b_arc064_gap_i_mech318_multi_rule_empirical_gate"
 EXPERIMENT_PURPOSE = "evidence"
@@ -720,8 +721,14 @@ def write_manifest(result: Dict, dry_run: bool, elapsed: float) -> Tuple[Path, s
             "Hard scientific gate on V3-EXQ-543k contributory PASS (606a supersedes premature 606)."
         ),
     }
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     return out_path, outcome
 
 

@@ -103,6 +103,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from ree_core.utils.shared_latent_probe import shared_latent_gradient_probe
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_679_mech423_readiness_validation_diagnostic"
 QUEUE_ID = "V3-EXQ-679"
@@ -560,9 +561,14 @@ def main(dry_run: bool = False):
         },
         "per_seed": per_seed,
     }
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}")
     return outcome, str(out_path)
 

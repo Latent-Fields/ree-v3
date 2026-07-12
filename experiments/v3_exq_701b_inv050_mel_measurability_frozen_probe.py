@@ -161,6 +161,7 @@ from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
 from _metrics import check_degeneracy
 from experiments._lib.arm_fingerprint import arm_cell, reset_all_rng
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_701b_inv050_mel_measurability_frozen_probe"
 QUEUE_ID = "V3-EXQ-701b"
@@ -957,10 +958,14 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     manifest.update(ev["degeneracy"])
 
     out_dir = Path(__file__).resolve().parents[2] / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"\nResults written to {out_path}")
     print(f"Outcome: {ev['outcome']}  Label: {ev['label']}")

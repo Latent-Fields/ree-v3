@@ -21,6 +21,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from experiment_protocol import emit_outcome
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 EXPERIMENT_PURPOSE = "diagnostic"
 QUEUE_ID = "V3-EXQ-576"
@@ -174,10 +176,14 @@ if __name__ == "__main__":
         os.path.dirname(__file__), "..", "..", "REE_assembly", "evidence", "experiments"
     )
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, f"{run_id}.json")
-
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"Manifest written: {out_path}", flush=True)
     print(f"Outcome: {result['outcome']}", flush=True)

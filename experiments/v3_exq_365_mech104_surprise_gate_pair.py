@@ -52,6 +52,7 @@ import torch.optim as optim
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_365_mech104_surprise_gate_pair"
@@ -669,11 +670,14 @@ Criteria met: {criteria_met}/4 -> **{outcome}**
         Path(__file__).resolve().parents[2]
         / "REE_assembly" / "evidence" / "experiments" / EXPERIMENT_TYPE
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w", encoding="utf-8") as fh:
-        json.dump(output, fh, indent=2)
-        fh.write("\n")
+    out_path = write_flat_manifest(
+        output,
+        out_dir,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"\nResult written to: {out_path}", flush=True)
     print(f"Status: {output['outcome']}", flush=True)

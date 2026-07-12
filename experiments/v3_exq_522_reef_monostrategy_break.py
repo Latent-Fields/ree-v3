@@ -47,6 +47,8 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 FLEE_THRESHOLD = 2  # Manhattan distance; retreat to reef when hazard within this range
 
@@ -241,8 +243,14 @@ def write_result(result, run_id):
         "metrics": result,
     }
     os.makedirs(output_dir, exist_ok=True)
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        output_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"Result written to {out_path}")
 
 
