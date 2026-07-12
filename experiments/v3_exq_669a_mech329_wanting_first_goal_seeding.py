@@ -347,6 +347,7 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+    _run_started = datetime.now(timezone.utc)
 
     if args.dry_run:
         print("[DRY RUN] V3-EXQ-669a MECH-329 Wanting-First Goal Seeding")
@@ -435,6 +436,7 @@ def main():
         config=manifest.get("config"),
         seeds=None,
         script_path=Path(__file__),
+        elapsed_seconds=(datetime.now(timezone.utc) - _run_started).total_seconds(),
     )
     print(f"Result written to: {out_path}", flush=True)
 

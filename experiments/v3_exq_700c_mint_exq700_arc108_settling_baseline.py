@@ -234,6 +234,7 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--out-dir", type=str, default=None)
     args = parser.parse_args()
+    _run_started = datetime.now(timezone.utc)
 
     if args.dry_run:
         seeds = list(DRY_RUN_SEEDS)
@@ -271,6 +272,7 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         config=manifest.get("config") or manifest.get("config_summary"),
         seeds=None,
         script_path=Path(__file__),
+        elapsed_seconds=(datetime.now(timezone.utc) - _run_started).total_seconds(),
     )
 
     print(f"manifest: {out_path}", flush=True)
