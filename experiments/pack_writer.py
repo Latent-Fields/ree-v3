@@ -33,6 +33,17 @@ from typing import Any, Mapping, Optional, Union
 MANIFEST_SCHEMA_VERSION = "experiment_pack/v1"
 METRICS_SCHEMA_VERSION = "experiment_pack_metrics/v1"
 STOP_CRITERIA_VERSION = "stop_criteria/v1"
+
+# Structured metrics sections (Experimental Recording Standard 3b/3c). The metrics
+# doc historically carried ONLY `values` (scalar keys), and _clean_numeric_metrics
+# coerced every entry to a scalar -- which structurally prevented the sanctioned
+# writer from storing per-seed arrays, latent stats, config snapshots, or timing
+# (standard section 4 "Deferred hardening"; the mechanical reason packs are flat and
+# rich readouts survive only in hand-rolled manifests). These reserved sibling
+# sections carry that rich payload UN-coerced alongside the scalar `values` block, so
+# the indexer's scalar-only read of `values` is unaffected while nothing structured is
+# dropped. Additive/forward-compatible: an older reader ignores unknown keys.
+METRICS_STRUCTURED_SECTIONS = ("per_seed", "latent", "config", "timing")
 ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"
 OUTPUT_ROOT_ENV = "REE_EXPERIMENT_OUTPUT_ROOT"
 EVIDENCE_DIRECTIONS = {"supports", "weakens", "mixed", "unknown"}
@@ -159,6 +170,10 @@ class ExperimentPackWriter:
         environment: Optional[Mapping[str, Any]] = None,
         traces_dir: Optional[str] = None,
         media_dir: Optional[str] = None,
+        per_seed: Optional[Any] = None,
+        latent: Optional[Any] = None,
+        config: Optional[Any] = None,
+        timing: Optional[Any] = None,
     ) -> EmittedPack:
         status = status.upper()
         if status not in {"PASS", "FAIL"}:
@@ -189,6 +204,14 @@ class ExperimentPackWriter:
             "schema_version": METRICS_SCHEMA_VERSION,
             "values": clean_metrics,
         }
+        # Structured recording-standard sections (per_seed / latent / config /
+        # timing) carry rich readouts UN-coerced beside the scalar `values` block.
+        # Only sections actually supplied are written (additive; a None section is
+        # a no-op, so an existing single-arm scalar-only caller is bit-identical).
+        structured = _clean_structured_sections(
+            per_seed=per_seed, latent=latent, config=config, timing=timing,
+        )
+        metrics_doc.update(structured)
         metrics_path.write_text(json.dumps(metrics_doc, indent=2) + "\n", encoding="utf-8")
         summary_path.write_text(summary_markdown.rstrip() + "\n", encoding="utf-8")
 
@@ -232,6 +255,51 @@ class ExperimentPackWriter:
 
 
 # --- Internal helpers ---
+
+def _clean_structured_sections(**sections: Any) -> dict:
+    """Validate + collect the optional structured metrics sections.
+
+    Each section (per_seed / latent / config / timing) is stored VERBATIM -- no
+    scalar coercion (that is the whole point: the scalar-coercion of `values` is
+    what previously made packs unable to carry rich readouts). A section is only
+    included when it is not None. Validation is minimal and structural:
+      * the section must be a JSON-serialisable dict or list (so the manifest stays
+        diffable and the file round-trips);
+      * a section name must be one of METRICS_STRUCTURED_SECTIONS (guards typos);
+      * dict sections must have string keys.
+    Large arrays should still be stored by reference (standard 3d), but that is the
+    author's call -- this writer does not second-guess the payload's size.
+    """
+    clean: dict = {}
+    for name, value in sections.items():
+        if value is None:
+            continue
+        if name not in METRICS_STRUCTURED_SECTIONS:
+            raise ValueError(
+                f"unknown structured section '{name}'; allowed: "
+                f"{', '.join(METRICS_STRUCTURED_SECTIONS)}"
+            )
+        if not isinstance(value, (dict, list)):
+            raise TypeError(
+                f"structured section '{name}' must be a dict or list, "
+                f"got {type(value)!r}"
+            )
+        if isinstance(value, dict):
+            for k in value:
+                if not isinstance(k, str):
+                    raise ValueError(
+                        f"structured section '{name}' keys must be strings, "
+                        f"got {type(k)!r}"
+                    )
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                f"structured section '{name}' is not JSON-serialisable: {exc}"
+            ) from exc
+        clean[name] = value
+    return clean
+
 
 def _clean_numeric_metrics(metrics_values: Mapping[str, Any]) -> dict:
     clean: dict = {}
