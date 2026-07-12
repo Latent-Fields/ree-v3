@@ -144,10 +144,10 @@ from experiments._lib.capability_eval import (  # noqa: E402
     OraclePolicy,
     Policy,
     RandomPolicy,
-    REEForwardPolicy,
     evaluate_seed,
 )
 from experiments._metrics import check_degeneracy  # noqa: E402
+from experiments._lib.baselines import exq742_mech457_bias_head_baseline as ac_baseline  # noqa: E402
 import experiments.v3_exq_724_competence_localization_diagnostic as x724  # noqa: E402
 import experiments.v3_exq_734_env_difficulty_competence_recovery_sweep as x734  # noqa: E402
 
@@ -457,16 +457,16 @@ def _run_baseline_cell(
     eval_eps: int,
     steps: int,
 ) -> Dict[str, Any]:
-    """bias_head_baseline: the 724-A0 all-ON control (P0 warmup + P1 two-head REINFORCE)."""
-    rid = rung["rung_id"]
-    train_env = x734._make_env(seed, env_kwargs)
-    agent = x734._make_all_on_agent(train_env)
-    x734._train_all_on_agent(
-        agent, train_env, seed=seed, p0_episodes=p0, p1_episodes=p1,
-        steps_per_episode=steps, rung_id=rid, total_denominator=p0 + p1,
+    """bias_head_baseline: the 724-A0 all-ON control (P0 warmup + P1 two-head REINFORCE).
+
+    Delegates to the canonical lineage baseline module so this OFF cell's computation AND
+    its arm fingerprint match the separate V3-EXQ-742-m mint BY CONSTRUCTION (both call
+    ac_baseline.run_off_cell + ac_baseline.off_path_config_slice)."""
+    return ac_baseline.run_off_cell(
+        env_kwargs, seed,
+        p0_warmup_episodes=p0, p1_reinforce_episodes=p1,
+        eval_episodes=eval_eps, steps_per_episode=steps, rung_id=rung["rung_id"],
     )
-    eval_env = x734._make_env(seed, env_kwargs)
-    return evaluate_seed(REEForwardPolicy(agent, name="bias_head_baseline"), eval_env, eval_eps, steps)
 
 
 def _run_anchor_cell(
@@ -567,7 +567,12 @@ def run_experiment(
         for arm_id in ARM_ORDER:
             for seed in seeds:
                 print(f"Seed {seed} Condition {rid}:{arm_id}", flush=True)
-                slice_cfg = _arm_config_slice(arm_id, rid, env_kwargs, p0, p1, ac_eps, eval_eps, steps)
+                if arm_id == "bias_head_baseline":
+                    # Same slice the V3-EXQ-742-m mint emits -> self-mint fingerprint aligns
+                    # with the separate mint (both from ac_baseline.off_path_config_slice).
+                    slice_cfg = ac_baseline.off_path_config_slice(env_kwargs, p0, p1, eval_eps, steps)
+                else:
+                    slice_cfg = _arm_config_slice(arm_id, rid, env_kwargs, p0, p1, ac_eps, eval_eps, steps)
                 with arm_cell(
                     seed,
                     config_slice=slice_cfg,

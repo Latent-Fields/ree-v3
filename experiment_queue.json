@@ -26,6 +26,22 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_742_mech457_actor_critic_onoff",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-742-m",
+      "title": "MECH-457 bias_head_baseline MINT -- order-independent reuse insurance for the V3-EXQ-742 OFF arm (724-A0 all-ON; D0+D3; baseline)",
+      "experiment_type": "v3_exq_742m_mech457_bias_head_baseline_mint",
+      "script": "experiments/v3_exq_742m_mech457_bias_head_baseline_mint.py",
+      "priority": 5,
+      "machine_affinity": "ree-cloud-4",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 290,
+      "seeds": 3,
+      "conditions": 2,
+      "experiment_purpose": "baseline",
+      "note": "Separate baseline mint for the MECH-457 actor-critic ON/OFF lineage's reusable OFF arm (bias_head_baseline = 724-A0 all-ON incompetence control), banked ORDER-INDEPENDENTLY of V3-EXQ-742. Both this mint and the 742 consumer build the OFF cell + its fingerprint from the ONE shared module experiments/_lib/baselines/exq742_mech457_bias_head_baseline.py (run_off_cell + off_path_config_slice), include_driver_script_in_hash=False on both sides -> arm_fingerprint MATCHES by construction (verified: reuse-lookup key 4c316086... identical consumer-vs-mint). PINNED ree-cloud-4 (linux-x86_64-py3.10) so the fingerprint is the reusable cloud machine-class (a Mac mint would be a dead-on-arrival different class). LOW priority (5) so real science preempts. experiment_purpose=baseline, claim_ids=[] -> excluded from governance scoring; PROMOTES/DEMOTES NOTHING. A future MECH-457 iteration cites this run_id via reuse_baseline_from to skip re-training the byte-identical OFF arm. Corrects the parent session's initial wrongly-skipped separate mint (terminality unknowable; first-of-lineage is the paradigm mint case). Smoke PASS + validate_experiments --strict OK 2026-07-12.",
+      "claim_ids": []
     }
   ]
 }
