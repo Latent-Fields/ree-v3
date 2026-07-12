@@ -72,6 +72,19 @@ DEFAULT_ENVIRONMENT = {
 _SNAKE_CASE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _EXPERIMENT_SLUG_RE = re.compile(r"[^a-z0-9]+")
 
+# Reserved plumbing filenames that live alongside flat manifests under
+# evidence/experiments/ -- a run_id must never collide with one, or downstream
+# scanners (sync_v3_results / serve / scan_flat_vs_runs) would exclude it as
+# non-run plumbing (their SKIP lists). Guarded by write_flat_manifest().
+FLAT_MANIFEST_SKIP_NAMES = frozenset({
+    "claim_evidence.v1.json",
+    "claim_evidence_matrix.v1.json",
+    "review_tracker.json",
+    "runner_status.json",
+    "substrate_status_snapshot.json",
+    "pending_review.json",
+})
+
 
 @dataclass(frozen=True)
 class EmittedPack:
@@ -252,6 +265,154 @@ class ExperimentPackWriter:
             metrics_path=metrics_path,
             summary_path=summary_path,
         )
+
+
+# --- Single flat-manifest writer (Experimental Recording Standard sec 4 chokepoint) ---
+
+def _resolve_flat_status(manifest: Mapping[str, Any]) -> Optional[str]:
+    """The status value the flat->pack converter (sync_v3_results.build_runpack_docs)
+    will read: the first non-empty of status | overall_outcome | outcome. Returns
+    None if none is present (a manifest that would sync to status 'UNKNOWN')."""
+    for key in ("status", "overall_outcome", "outcome"):
+        val = manifest.get(key)
+        if val not in (None, ""):
+            return str(val)
+    return None
+
+
+def write_flat_manifest(
+    manifest: dict,
+    out_dir: Union[str, Path],
+    *,
+    dry_run: bool = False,
+    config: Optional[Mapping[str, Any]] = None,
+    seeds: Any = None,
+    script_path: Optional[Union[str, Path]] = None,
+    machine: Optional[str] = None,
+    elapsed_seconds: Optional[float] = None,
+    started_at: Optional[float] = None,
+    stamp: bool = True,
+    overwrite_core: bool = False,
+    require_v3: bool = True,
+) -> Path:
+    """The single sanctioned writer for a FLAT V3 experiment manifest.
+
+    This is the author-side chokepoint the Experimental Recording Standard
+    (experimental_recording_standard_2026-07-12.md sec 4) names: instead of a
+    hand-rolled ``json.dump(manifest, f)`` tail, an experiment calls this once and
+    gets (a) the always-record core stamped via
+    ``experiments/_lib/manifest_core.stamp_recording_core`` and (b) the identity
+    invariants the whole downstream chain depends on, enforced at emission.
+
+    It writes the flat manifest to ``<out_dir>/<run_id>.json`` (or
+    ``_dry_<run_id>.json`` when ``dry_run``), which is the exact path/keying the
+    coordinator commits verbatim and every flat consumer reads
+    (build_experiment_indexes' governance overlay keys on ``<run_id>.json``;
+    serve.py's explorer detail; sync_v3_results' flat->pack projection). Field
+    NAMES are preserved verbatim -- this writer does NOT reshape ``claim_ids`` ->
+    ``claim_ids_tested`` or collapse ``outcome`` -> ``status``, and it does NOT
+    strip unknown/rich fields (``arm_results`` / ``interpretation`` / ``per_seed``
+    must survive for the explorer catch-all and the adjudication overlay). It is a
+    stamp-validate-write wrapper, not a schema projector; the pack projection stays
+    the job of sync_v3_results.build_runpack_docs.
+
+    Invariants enforced (the sync ``_is_flat_v3`` + coordinator ``POST /result`` +
+    scoring hard constraints):
+      * ``run_id`` present, a non-empty string, ending ``_v3`` (or carrying the
+        mid-string ``_v3_<ts>`` evidence-grade form) unless ``require_v3=False``;
+      * ``architecture_epoch`` present -- defaulted to ``ree_hybrid_guardrails_v1``
+        if the caller omitted it (both gate ``_is_flat_v3``);
+      * a resolvable status (one of ``status`` | ``overall_outcome`` | ``outcome``);
+      * the filename does not collide with a reserved plumbing name.
+
+    Parameters mirror stamp_recording_core for the always-core (config / seeds /
+    script_path / machine / elapsed_seconds / started_at). ``stamp=False`` skips the
+    always-core merge (for a manifest already stamped upstream). ``overwrite_core``
+    forces the stamper to overwrite already-present core fields. Returns the written
+    Path (hand it to ``experiment_protocol.emit_outcome(manifest_path=...)``).
+
+    ASCII-only output (repo rule); stdlib + a lazy manifest_core import so a
+    scalar-only caller needs no torch/ree_core.
+    """
+    if not isinstance(manifest, dict):
+        raise TypeError(f"manifest must be a dict, got {type(manifest)!r}")
+
+    run_id = manifest.get("run_id")
+    if not isinstance(run_id, str) or not run_id.strip():
+        raise ValueError("flat manifest requires a non-empty string 'run_id'")
+    run_id = run_id.strip()
+    if require_v3 and not (run_id.endswith("_v3") or "_v3_" in run_id):
+        raise ValueError(
+            "V3 governance: run_id must end '_v3' (or carry a mid-string "
+            f"'_v3_<ts>'), got '{run_id}' -- else sync_v3_results._is_flat_v3 "
+            "silently never scores it"
+        )
+
+    # architecture_epoch is the other _is_flat_v3 gate; default-fill so a caller
+    # may omit it, but never clobber a deliberate value.
+    if not manifest.get("architecture_epoch"):
+        manifest["architecture_epoch"] = ARCHITECTURE_EPOCH
+
+    if _resolve_flat_status(manifest) is None:
+        raise ValueError(
+            "flat manifest requires a status/outcome -- set one of "
+            "'status' | 'overall_outcome' | 'outcome' (else the pack syncs to "
+            "status 'UNKNOWN')"
+        )
+
+    # Always-record core (standard 3b). Stamped AFTER the manifest (incl. any
+    # arm_results) is assembled, so a multi-arm run hoists substrate_hash from the
+    # per-cell fingerprints rather than recomputing a driver-inclusive hash that
+    # would not match. Never let stamping crash a run (it is a soft-validate WARN).
+    if stamp:
+        stamp_fn = _import_stamp_recording_core()
+        if stamp_fn is not None:
+            try:
+                stamp_fn(
+                    manifest,
+                    config=config,
+                    seeds=seeds,
+                    script_path=script_path,
+                    machine=machine,
+                    elapsed_seconds=elapsed_seconds,
+                    started_at=started_at,
+                    overwrite=overwrite_core,
+                )
+            except Exception:
+                pass
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"{run_id}.json"
+    if fname in FLAT_MANIFEST_SKIP_NAMES:
+        raise ValueError(
+            f"run_id '{run_id}' collides with reserved plumbing filename '{fname}'"
+        )
+    if dry_run:
+        fname = f"_dry_{fname}"
+    out_path = out_dir / fname
+    out_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return out_path
+
+
+def _import_stamp_recording_core():
+    """Lazily import stamp_recording_core across the several ways experiment
+    scripts put experiments/ on sys.path. Returns the callable or None."""
+    try:
+        from experiments._lib.manifest_core import stamp_recording_core  # type: ignore
+        return stamp_recording_core
+    except Exception:
+        pass
+    try:
+        from _lib.manifest_core import stamp_recording_core  # type: ignore
+        return stamp_recording_core
+    except Exception:
+        pass
+    try:
+        from experiments._lib import manifest_core  # type: ignore
+        return manifest_core.stamp_recording_core
+    except Exception:
+        return None
 
 
 # --- Internal helpers ---

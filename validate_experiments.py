@@ -304,6 +304,17 @@ _DEGEN_SELFREPORT_TOKENS = (
 )
 _DEGEN_SELFREPORT_EXEMPT_MARKER = "DEGENERACY_SELFREPORT_EXEMPT"   # opt-out constant/marker
 
+# Manifest-writer chokepoint lint (Experimental Recording Standard sec 4): a NEW
+# experiment must route its flat-manifest write through the single sanctioned writer
+# experiments/pack_writer.write_flat_manifest(...) (which stamps the always-record
+# core and enforces the run_id/_v3 + status identity invariants) rather than a raw
+# hand-rolled json.dump(manifest, f). Discharged by any of these names appearing in
+# the script; opt-out via MANIFEST_WRITER_EXEMPT.
+_MANIFEST_WRITER_EXEMPT_MARKER = "MANIFEST_WRITER_EXEMPT"
+_CHOKEPOINT_WRITER_NAMES = ("write_flat_manifest", "write_pack", "ExperimentPackWriter")
+_RAW_JSON_DUMP_NAMES = ("dump", "dumps")
+_MANIFEST_IDENTITY_TOKENS = ("run_id", "evidence_direction")
+
 
 def arm_fingerprint_lint(path: Path) -> Optional[str]:
     """Multi-arm fingerprint-emission check. Return an issue string, or None.
@@ -465,6 +476,83 @@ def degeneracy_selfreport_lint(path: Path) -> Optional[str]:
             "failure_autopsy_batch9_2026-06-12.")
 
 
+def manifest_writer_lint(path: Path) -> Optional[str]:
+    """Manifest-writer chokepoint check. Return an issue string, or None.
+
+    A script WRITES A RESULT MANIFEST iff (with a `__main__` entry point) it carries
+    the manifest-identity tokens `run_id` AND `evidence_direction` as strings AND
+    performs a raw `json.dump`/`json.dumps`. Such a script MUST route that write
+    through the single sanctioned writer `experiments/pack_writer.write_flat_manifest`
+    (or the pack path `write_pack` / `ExperimentPackWriter`), which stamps the
+    Experimental Recording Standard always-record core (via stamp_recording_core) and
+    enforces the run_id/_v3 + status identity invariants at emission. A hand-rolled
+    `json.dump(manifest, f)` bypasses the always-core -- the exact recording-debt the
+    standard closes (0% of flat manifests carried a substrate_hash pre-standard).
+
+    Discharged when any of _CHOKEPOINT_WRITER_NAMES appears in the script (it routes
+    through the sanctioned writer, whatever else it dumps). A pure telemetry/helper
+    with no manifest identity, or a script with no raw dump, is not gated.
+
+    Opt-out: MANIFEST_WRITER_EXEMPT = "<reason>" (e.g. a crash-report smoke, or a
+    writer whose shape is deliberately outside the standard).
+
+    Static name/string-scan only -- same limitation class as arm_fingerprint_lint /
+    degeneracy_selfreport_lint: it keys on plain identifier/string presence, so it can
+    over-fire (a manifest built + dumped via a helper the scan cannot follow) or miss
+    (identity tokens assembled at runtime). Whether this blocks is decided in main():
+    HARD when the script is named via --paths (the /queue-experiment authoring path --
+    a NEW script hand-rolling a manifest write is a real error), advisory in full-glob
+    (grandfathers the ~1028-script pre-2026-07-12 backlog).
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _has_main_block(tree) is None:
+        return None  # library-style helper, no entry point -- exempt
+
+    names: set = set()
+    strings: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.alias):
+            names.add((node.asname or node.name).split(".")[-1])
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            strings.add(node.value)
+
+    if _MANIFEST_WRITER_EXEMPT_MARKER in names or _MANIFEST_WRITER_EXEMPT_MARKER in strings:
+        return None
+    # Routes through the sanctioned writer -> discharged, regardless of any other dump.
+    if any(n in names for n in _CHOKEPOINT_WRITER_NAMES):
+        return None
+
+    writes_manifest = (
+        all(t in strings for t in _MANIFEST_IDENTITY_TOKENS)
+        and any(n in names for n in _RAW_JSON_DUMP_NAMES)
+    )
+    if not writes_manifest:
+        return None  # no result-manifest write to route
+
+    return ("writes a flat experiment manifest with a raw json.dump/json.dumps "
+            "instead of routing through the sanctioned single writer "
+            "experiments/pack_writer.write_flat_manifest(...) -- which stamps the "
+            "Experimental Recording Standard always-core (recording_schema / "
+            "substrate_hash / machine / machine_class / elapsed_seconds / config / "
+            "seeds via stamp_recording_core) and enforces the run_id/_v3 + status "
+            "identity invariants. Replace the raw `json.dump(manifest, f)` tail with "
+            "`from experiments.pack_writer import write_flat_manifest` + "
+            "`write_flat_manifest(manifest, out_dir, dry_run=..., config=..., "
+            "seeds=..., script_path=Path(__file__))`. Exempt with "
+            "MANIFEST_WRITER_EXEMPT = \"<reason>\". See "
+            "experimental_recording_standard_2026-07-12.md sec 4 + "
+            "pack_writer_single_writer_migration_plan.md.")
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -497,6 +585,11 @@ def main() -> int:
     # author is queuing without a non-degeneracy self-report is a real error; the same
     # gap on a historical script is a backlog item.
     degen_hard = bool(args.paths)
+    # Manifest-writer chokepoint enforcement: same hard-under-`--paths` / advisory-in-
+    # full-glob policy. A NEW script the author is queuing that hand-rolls a manifest
+    # write instead of routing through pack_writer.write_flat_manifest is a real error;
+    # the same gap on a historical script is the pre-2026-07-12 migration backlog.
+    manifest_writer_hard = bool(args.paths)
 
     n_ok = 0
     n_exempt = 0
@@ -504,6 +597,7 @@ def main() -> int:
     warnings: List[Tuple[Path, str]] = []
     arm_fp_warnings: List[Tuple[Path, str]] = []
     degen_warnings: List[Tuple[Path, str]] = []
+    manifest_writer_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         ok, reason = check_script(p)
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
@@ -533,13 +627,30 @@ def main() -> int:
                 failures.append((p, degen))
             else:
                 degen_warnings.append((p, degen))
+        mw = manifest_writer_lint(p)
+        if mw:
+            if manifest_writer_hard:
+                failures.append((p, mw))
+            else:
+                manifest_writer_warnings.append((p, mw))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
           f"{n_ok} OK, {n_exempt} exempt, {len(failures)} non-conforming, "
           f"{len(warnings)} readiness-warning(s), "
           f"{len(arm_fp_warnings)} arm-fingerprint-backlog, "
-          f"{len(degen_warnings)} degeneracy-self-report-backlog", flush=True)
+          f"{len(degen_warnings)} degeneracy-self-report-backlog, "
+          f"{len(manifest_writer_warnings)} manifest-writer-backlog", flush=True)
+    if manifest_writer_warnings:
+        # Advisory in full-glob mode only (hard failures route to `failures` when
+        # --paths is explicit). This is the pre-2026-07-12 backlog -- the ~1028
+        # scripts that hand-roll a manifest write and predate the pack_writer
+        # single-writer chokepoint (experimental_recording_standard sec 4).
+        print("", flush=True)
+        print("[validate_experiments] Manifest-writer chokepoint BACKLOG (advisory; hard under --paths):", flush=True)
+        for p, warn in manifest_writer_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if degen_warnings:
         # Advisory in full-glob mode only (hard failures route to `failures` when
         # --paths is explicit). This is the pre-2026-06-12 backlog -- claim-pressing
