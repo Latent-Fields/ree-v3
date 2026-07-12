@@ -59,6 +59,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.heartbeat.beta_gate import BetaGate
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 # -------------------------------------------------------------------------
 # Constants
@@ -588,9 +589,14 @@ Mean legacy hold_rate:   {mean_legacy:.3f}
         "timestamp_utc": ts,
     }
 
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(result_doc, f, indent=2)
+    out_path = write_flat_manifest(
+        result_doc,
+        out_dir,
+        dry_run=False,
+        config=result_doc.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"[V3-EXQ-321b] Evidence written -> {out_path}", flush=True)
 
 

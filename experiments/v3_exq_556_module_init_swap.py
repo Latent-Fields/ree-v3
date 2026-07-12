@@ -126,6 +126,7 @@ from ree_core.predictors.e2_fast import E2FastPredictor
 from ree_core.residue.field import ResidueField
 from ree_core.predictors.e3_selector import E3TrajectorySelector
 from ree_core.hippocampal.module import HippocampalModule
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_556_module_init_swap"
@@ -1072,9 +1073,14 @@ def main() -> Tuple[Optional[str], Optional[str]]:
         },
     }
 
-    out_file = out_dir / f"{run_id}.json"
-    with open(out_file, "w") as f:
-        json.dump(output, f, indent=2)
+    out_file = write_flat_manifest(
+        output,
+        out_dir,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_file}", flush=True)
 
     return (outcome, str(out_file))

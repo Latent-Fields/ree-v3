@@ -62,6 +62,7 @@ import torch.nn.functional as F
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Metadata
@@ -404,8 +405,14 @@ def main():
     )
     out_file = out_dir / f"{run_id}.json"
     out_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_file, "w") as f:
-        json.dump(output, f, indent=2)
+    out_file = write_flat_manifest(
+        output,
+        out_dir,
+        dry_run=False,
+        config=output.get("config") or output.get("config_summary"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"\n[EXQ-260] {overall} -- wrote {out_file.name}")
     print(
         f"  C1 urgency_corr: surprise={surprise['mean_urgency_corr']:.3f}"

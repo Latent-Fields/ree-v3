@@ -75,6 +75,7 @@ from ree_core.cingulate import SalienceCoordinator, SalienceCoordinatorConfig
 from ree_core.cingulate.pacc_analog import PACCAnalog, PACCConfig
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_453_mech261_write_gate_landing"
@@ -569,9 +570,14 @@ def main() -> None:
         },
     }
 
-    out_file = out_dir / f"{run_id}.json"
-    with open(out_file, "w") as f:
-        json.dump(output, f, indent=2)
+    out_file = write_flat_manifest(
+        output,
+        out_dir,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Output written to: {out_file}")
 
 

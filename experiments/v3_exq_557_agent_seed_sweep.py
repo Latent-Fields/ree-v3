@@ -107,6 +107,7 @@ from experiments.v3_exq_555_seed7_env_factorization import (
     _run_one_phase,
     _shannon_entropy,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_557_agent_seed_sweep"
@@ -582,9 +583,14 @@ def main() -> Tuple[Optional[str], Optional[str]]:
         },
     }
 
-    out_file = out_dir / f"{run_id}.json"
-    with open(out_file, "w") as f:
-        json.dump(output, f, indent=2)
+    out_file = write_flat_manifest(
+        output,
+        out_dir,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_file}", flush=True)
 
     return (outcome, str(out_file))

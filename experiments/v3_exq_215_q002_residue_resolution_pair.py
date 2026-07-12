@@ -89,6 +89,7 @@ from ree_core.predictors.e2_fast import E2FastPredictor
 from ree_core.predictors.e3_selector import E3TrajectorySelector
 from ree_core.residue.field import ResidueField
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -615,10 +616,14 @@ def run_experiment(dry_run: bool = False) -> dict:
             Path(__file__).resolve().parents[2]
             / "REE_assembly" / "evidence" / "experiments"
         )
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{run_id}.json"
-        with open(out_path, "w") as f:
-            json.dump(pack, f, indent=2)
+        out_path = write_flat_manifest(
+            pack,
+            out_dir,
+            dry_run=False,
+            config=pack.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
         print(f"[EXQ-215] Result written to: {out_path}", flush=True)
     else:
         print("[EXQ-215] dry_run: result NOT written.", flush=True)

@@ -45,6 +45,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.latent.stack import HarmEncoder
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_166a_sd003_obs_space_forward_model"
@@ -710,9 +711,14 @@ def main(dry_run: bool = False):
         },
     }
 
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(flat, f, indent=2)
+    out_path = write_flat_manifest(
+        flat,
+        out_dir,
+        dry_run=False,
+        config=flat.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"\nResult written: {out_path}", flush=True)
     return flat
 

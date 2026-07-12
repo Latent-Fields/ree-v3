@@ -95,6 +95,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Experiment identity
@@ -778,8 +779,14 @@ def main(dry_run: bool = False) -> None:
     }
 
     if not dry_run:
-        with open(output_path, "w") as fh:
-            json.dump(pack, fh, indent=2)
+        output_path = write_flat_manifest(
+            pack,
+            output_dir,
+            dry_run=False,
+            config=pack.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
         print(f"[EXQ-164a] Written to {output_path}")
     else:
         print("[EXQ-164a] dry_run=True -- output not written")

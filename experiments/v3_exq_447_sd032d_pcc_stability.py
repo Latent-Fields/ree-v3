@@ -78,6 +78,7 @@ from ree_core.cingulate import (  # noqa: E402
 )
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_447_sd032d_pcc_stability"
@@ -324,9 +325,14 @@ def main() -> None:
         },
     }
 
-    out_file = out_dir / f"{run_id}.json"
-    with open(out_file, "w") as f:
-        json.dump(output, f, indent=2)
+    out_file = write_flat_manifest(
+        output,
+        out_dir,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"Output written to: {out_file}")
 
 

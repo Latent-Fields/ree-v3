@@ -59,6 +59,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.latent.stack import HarmEncoder, AffectiveHarmEncoder
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_318_sd022_limb_damage_stream_separation"
@@ -444,10 +445,14 @@ def main():
         / "REE_assembly" / "evidence" / "experiments"
         / EXPERIMENT_TYPE
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(output, f, indent=2)
+    out_path = write_flat_manifest(
+        output,
+        out_dir,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Results -> {out_path}")
 
 

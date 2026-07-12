@@ -65,6 +65,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.latent.stack import HarmEncoder, HarmForwardModel
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_109_sd003_harm_counterfactual"
@@ -700,10 +701,14 @@ def main():
     }
 
     exp_dir = OUT_DIR / EXPERIMENT_TYPE
-    exp_dir.mkdir(exist_ok=True)
-    out_path = exp_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(pack, f, indent=2)
+    out_path = write_flat_manifest(
+        pack,
+        exp_dir,
+        dry_run=False,
+        config=pack.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"\n{'='*60}", flush=True)
     print(f"AGGREGATE ({len(SEEDS)} seeds) verdict: {status_agg}", flush=True)

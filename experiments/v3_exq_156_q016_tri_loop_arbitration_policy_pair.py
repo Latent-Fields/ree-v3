@@ -187,6 +187,7 @@ import torch.nn.functional as F
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_156_q016_tri_loop_arbitration_policy_pair"
@@ -820,10 +821,14 @@ def run_experiment(dry_run: bool = False) -> Dict:
             / "evidence"
             / "experiments"
         )
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{run_id}.json"
-        with open(out_path, "w") as f:
-            json.dump(pack, f, indent=2)
+        out_path = write_flat_manifest(
+            pack,
+            out_dir,
+            dry_run=False,
+            config=pack.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
         print(f"\nResult pack written to: {out_path}", flush=True)
     else:
         print("\n[dry_run] Result pack NOT written.", flush=True)

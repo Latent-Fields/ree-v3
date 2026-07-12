@@ -74,6 +74,7 @@ import torch
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_455_sd032a_salience_behavioral"
@@ -424,9 +425,14 @@ def main():
         },
     }
 
-    out_file = out_dir / f"{run_id}.json"
-    with open(out_file, "w") as f:
-        json.dump(output, f, indent=2)
+    out_file = write_flat_manifest(
+        output,
+        out_dir,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"\nOutput written to: {out_file}", flush=True)
 
 

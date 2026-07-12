@@ -192,6 +192,7 @@ import torch.nn.functional as F
 
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_157_q017_control_axis_minimal_subset"
@@ -757,8 +758,14 @@ def main(dry_run: bool = False) -> None:
         "summary_table": summary_rows,
     }
 
-    with open(output_path, "w") as fh:
-        json.dump(pack, fh, indent=2)
+    output_path = write_flat_manifest(
+        pack,
+        output_dir,
+        dry_run=False,
+        config=pack.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"[EXQ-157] Output written to {output_path}")
     print(f"[EXQ-157] DONE -- outcome={outcome}")

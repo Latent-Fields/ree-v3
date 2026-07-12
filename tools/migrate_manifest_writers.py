@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from pathlib import Path
@@ -39,20 +40,65 @@ from pathlib import Path
 ALREADY = re.compile(r"write_flat_manifest|ExperimentPackWriter|\.write_pack\(")
 EXEMPT = re.compile(r"MANIFEST_WRITER_EXEMPT")
 
-# The json.dump(manifest, <fh>, indent=2[, sort_keys=True][, default=str]) line.
+# The json.dump(<var>, <fh>, indent=2[, sort_keys=True][, default=str]) line and the
+# out_path.write_text(json.dumps(<var>, indent=2)[+ "\n"][, encoding=...]) idiom are
+# built per-var. The var is USUALLY `manifest`, but the early-era corpus names the flat
+# manifest dict `result`/`output`/`pack`/etc; detect_manifest_var proves such a var IS a
+# flat manifest (dict literal carrying run_id + architecture_epoch + a status key) before
+# it is routed, so a non-`manifest` var is accepted ONLY on that AST proof.
 # default=str is preserved by threading json_default=str into write_flat_manifest.
-DUMP_RE = re.compile(
-    r"^(?P<indent>\s*)json\.dump\(\s*manifest\s*,\s*(?P<fh>\w+)\s*,\s*indent=2"
-    r"(?P<extra>(?:\s*,\s*(?:sort_keys=True|default=str))*)\s*\)\s*$"
-)
+def dump_re(var):
+    return re.compile(
+        r"^(?P<indent>\s*)json\.dump\(\s*" + re.escape(var) + r"\s*,\s*(?P<fh>\w+)\s*,\s*indent=2"
+        r"(?P<extra>(?:\s*,\s*(?:sort_keys=True|default=str))*)\s*\)\s*$"
+    )
+
+
+def writetext_re(var):
+    return re.compile(
+        r'^(?P<indent>\s*)(?P<path>\w+)\.write_text\(\s*json\.dumps\(\s*' + re.escape(var) + r'\s*,\s*indent=2'
+        r'(?:\s*,\s*sort_keys=True)?\s*\)(?:\s*\+\s*["\']\\n["\'])?(?:\s*,\s*encoding=["\']utf-8["\'])?\s*\)\s*$'
+    )
+
+
+DUMP_RE = dump_re("manifest")
+WRITETEXT_RE = writetext_re("manifest")
 WITH_RE = re.compile(r'^(?P<indent>\s*)with\s+open\(\s*(?P<path>\w+)\s*,\s*["\']w["\']\s*\)\s*as\s+(?P<fh>\w+)\s*:\s*$')
-# Early-era single-line write idiom: out_path.write_text(json.dumps(manifest, indent=2)
-# [+ "\n"][, encoding="utf-8"]). Only the `manifest` var is accepted -- the same
-# identity guarantee as the json.dump(manifest tail. `\\n` matches a literal \n.
-WRITETEXT_RE = re.compile(
-    r'^(?P<indent>\s*)(?P<path>\w+)\.write_text\(\s*json\.dumps\(\s*manifest\s*,\s*indent=2'
-    r'(?:\s*,\s*sort_keys=True)?\s*\)(?:\s*\+\s*["\']\\n["\'])?(?:\s*,\s*encoding=["\']utf-8["\'])?\s*\)\s*$'
-)
+
+
+def detect_manifest_var(src: str):
+    """Return the variable name holding the FLAT manifest dict to route, or None.
+
+    Fast path: if the script writes a var literally named `manifest` via json.dump /
+    write_text, route that (the batch-1/2 behaviour -- unchanged).
+
+    Otherwise (early-era corpus) find a non-`manifest` var that is PROVABLY the flat
+    manifest: assigned a dict LITERAL whose keys include `run_id`, `architecture_epoch`
+    AND a status key (`status`|`outcome`|`overall_outcome`) -- the fields sync_v3_results
+    + write_flat_manifest's identity/validity invariants require. To avoid ambiguity the
+    var must be UNIQUE: exactly one such proven var is also written via json.dump/
+    write_text. More than one candidate -> None (leave unmatched; hand-migrate)."""
+    if "json.dump(manifest" in src or re.search(r"\.write_text\(\s*json\.dumps\(\s*manifest\b", src):
+        return "manifest"
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return None
+    STATUS = {"status", "outcome", "overall_outcome"}
+    proven = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict)
+                and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+            keys = {k.value for k in node.value.keys
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+            if {"run_id", "architecture_epoch"} <= keys and keys & STATUS:
+                proven.add(node.targets[0].id)
+    written = {v for v in proven
+               if re.search(r"json\.dump\(\s*" + re.escape(v) + r"\s*,", src)
+               or re.search(r"\.write_text\(\s*json\.dumps\(\s*" + re.escape(v) + r"\b", src)}
+    if len(written) == 1:
+        return next(iter(written))
+    return None
 OUTPATH_RE = re.compile(
     r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*out_dir\s*/\s*f["']\{?_dry_\}?"""
 )
@@ -103,14 +149,14 @@ def has_dir_assignment(lines: list[str], upto: int, dirvar: str) -> bool:
     return False
 
 
-def config_expr(src: str) -> str:
+def config_expr(src: str, mvar: str = "manifest") -> str:
     has_cfg = re.search(r'^\s{6,}["\']config["\']\s*:', src, re.M)
     has_cfgsum = re.search(r'["\']config_summary["\']\s*:', src)
     if has_cfg and not has_cfgsum:
-        return 'manifest.get("config")'
+        return f'{mvar}.get("config")'
     if has_cfgsum:
-        return 'manifest.get("config") or manifest.get("config_summary")'
-    return 'manifest.get("config")'
+        return f'{mvar}.get("config") or {mvar}.get("config_summary")'
+    return f'{mvar}.get("config")'
 
 
 def migrate_one(path: Path):
@@ -120,23 +166,30 @@ def migrate_one(path: Path):
         return ("skip", "MANIFEST_WRITER_EXEMPT", None)
     if ALREADY.search(src):
         return ("skip", "already-routed", None)
-    has_jsondump = "json.dump(manifest" in src
-    has_writetext = bool(re.search(r"\.write_text\(\s*json\.dumps\(\s*manifest\b", src))
-    if not has_jsondump and not has_writetext:
+    # Which var holds the flat manifest dict? `manifest` (fast path) OR a proven
+    # non-`manifest` early-era var (result/output/pack/...). None -> not migratable here.
+    mvar = detect_manifest_var(src)
+    if mvar is None:
         return ("unmatched", "no json.dump(manifest tail", None)
+    MVAR_DUMP_RE = dump_re(mvar)
+    MVAR_WRITETEXT_RE = writetext_re(mvar)
+    has_jsondump = f"json.dump({mvar}" in src
+    has_writetext = bool(re.search(r"\.write_text\(\s*json\.dumps\(\s*" + re.escape(mvar) + r"\b", src))
+    if not has_jsondump and not has_writetext:
+        return ("unmatched", "no json.dump(<mvar> tail", None)
 
     lines = src.splitlines()
     # Locate the manifest write statement. Two accepted idioms:
     #   A) with open(out_path, "w") as fh:   (2 lines)
-    #          json.dump(manifest, fh, indent=2[, sort_keys=True])
-    #   B) out_path.write_text(json.dumps(manifest, indent=2)[ + "\n"][, encoding=...])  (1 line)
+    #          json.dump(<mvar>, fh, indent=2[, sort_keys=True])
+    #   B) out_path.write_text(json.dumps(<mvar>, indent=2)[ + "\n"][, encoding=...])  (1 line)
     # write_top/write_bot bracket the write statement (inclusive) for replacement.
     write_top = write_bot = None
     has_default_str = False
     pathvar = None  # the file path var in the write statement; must == the primary LHS var
     write_indent = ""  # indent of the write statement (used for the non-adjacent replacement)
     for i, ln in enumerate(lines):
-        wt = WRITETEXT_RE.match(ln)
+        wt = MVAR_WRITETEXT_RE.match(ln)
         if wt:
             pathvar = wt.group("path")
             write_indent = wt.group("indent")
@@ -144,15 +197,15 @@ def migrate_one(path: Path):
             break
     if write_top is None:
         if not has_jsondump:
-            return ("unmatched", "write_text(json.dumps(manifest present but not the canonical form", None)
+            return ("unmatched", "write_text(json.dumps(<mvar> present but not the canonical form", None)
         dump_idx = None
         for i, ln in enumerate(lines):
-            if DUMP_RE.match(ln):
+            if MVAR_DUMP_RE.match(ln):
                 dump_idx = i
                 break
         if dump_idx is None:
-            return ("unmatched", "json.dump(manifest present but not the canonical indent=2 form", None)
-        dm = DUMP_RE.match(lines[dump_idx])
+            return ("unmatched", "json.dump(<mvar> present but not the canonical indent=2 form", None)
+        dm = MVAR_DUMP_RE.match(lines[dump_idx])
         # the preceding line must be `with open(<path>, "w") as <fh>:` and the handle
         # must match the json.dump handle (a name mismatch = a broken/unexpected script).
         # The path var may be named anything (out_path / out_file / manifest_path / ...);
@@ -277,11 +330,11 @@ def migrate_one(path: Path):
     dry_run_arg = dry_cond if dry_cond is not None else "False"
     seeds_sym = find_seeds_symbol(src)
     seeds_arg = seeds_sym if seeds_sym else "None"
-    cfg = config_expr(src)
+    cfg = config_expr(src, mvar)
 
     replacement = [
         f"{indent}{pathvar} = write_flat_manifest(",
-        f"{indent}    manifest,",
+        f"{indent}    {mvar},",
         f"{indent}    {dirvar},",
         f"{indent}    dry_run={dry_run_arg},",
         f"{indent}    config={cfg},",
@@ -301,6 +354,8 @@ def migrate_one(path: Path):
         new_src = insert_import(new_src)
 
     flags = []
+    if mvar != "manifest":
+        flags.append(f"non-manifest-var({mvar})")
     if non_adjacent:
         flags.append("non-adjacent(write-only-rewrite)")
     if seeds_sym is None:
