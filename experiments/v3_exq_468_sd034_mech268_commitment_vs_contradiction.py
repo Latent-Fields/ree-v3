@@ -80,6 +80,7 @@ from ree_core.governance.closure_operator import (
     ClosureOperator,
     ClosureOperatorConfig,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 class _StubBetaGate:
@@ -426,10 +427,14 @@ def main() -> None:
     }
 
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"result: {manifest['result']}")
     for k, v in manifest["metrics"].items():

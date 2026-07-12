@@ -77,6 +77,7 @@ from experiments._lib.arm_fingerprint import (  # noqa: E402
     compute_arm_fingerprint,
 )
 from experiment_protocol import emit_outcome  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_650_control_vector_collapse_diagnostic"
 EXPERIMENT_PURPOSE = "diagnostic"
@@ -355,10 +356,14 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
 def _write_manifest(manifest: Dict[str, Any]) -> Path:
     out_dir = (_REE_V3.parent / "REE_assembly" / "evidence" / "experiments")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     return out_path
 
 

@@ -102,6 +102,7 @@ from experiments.v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null 
     DRY_RUN_STEPS,
     _run_seed_arm,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_700c_mint_exq700_arc108_settling_baseline"
 QUEUE_ID = "V3-EXQ-700c-m"   # schema-valid (V<gen>-EXQ-<n><letter>(-<letter>)); the V3-EXQ-700c baseline mint
@@ -263,13 +264,14 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         out_dir = Path(args.out_dir)
     else:
         out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    if args.dry_run:
-        out_path = out_dir / f"_dry_{manifest['run_id']}.json"
-
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=args.dry_run,
+        config=manifest.get("config") or manifest.get("config_summary"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"manifest: {out_path}", flush=True)
     if not args.dry_run:

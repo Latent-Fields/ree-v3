@@ -60,6 +60,7 @@ from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.baselines import exq742_mech457_bias_head_baseline as ac_baseline  # noqa: E402
 from experiments._lib.capability_eval import COMPETENCE_RESOURCE_FLOOR  # noqa: E402
 import experiments.v3_exq_734_env_difficulty_competence_recovery_sweep as x734  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_742m_mech457_bias_head_baseline_mint"
@@ -197,12 +198,14 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
     out_dir = Path(args.out_dir) if args.out_dir is not None else (
         REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    if args.dry_run:
-        out_path = out_dir / f"_dry_{manifest['run_id']}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=args.dry_run,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"manifest: {out_path}", flush=True)
     if not args.dry_run:

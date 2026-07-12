@@ -82,6 +82,7 @@ from experiments.v3_exq_734_env_difficulty_competence_recovery_sweep import (  #
     D0_RUNG_ID,
     D3_RUNG_ID,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_738_local_view_achievable_ceiling_anchor"
 EXPERIMENT_PURPOSE = "diagnostic"
@@ -361,13 +362,14 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         out_dir = Path(args.out_dir)
     else:
         out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    if args.dry_run:
-        out_path = out_dir / f"_dry_{manifest['run_id']}.json"
-
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=args.dry_run,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"manifest: {out_path}", flush=True)
     if not args.dry_run:

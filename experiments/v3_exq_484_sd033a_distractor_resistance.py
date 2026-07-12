@@ -70,6 +70,7 @@ from ree_core.cingulate.salience_coordinator import (
     SalienceCoordinatorConfig,
 )
 from ree_core.pfc.lateral_pfc_analog import LateralPFCAnalog, LateralPFCConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 # ---- Test parameters ----
@@ -253,10 +254,14 @@ def main() -> None:
     }
 
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"result: {manifest['result']}")
     print(f"  task_drift={task_drift:.4f}  replay_drift={replay_drift:.6f}  "

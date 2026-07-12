@@ -87,6 +87,7 @@ from ree_core.cingulate.salience_coordinator import (
     SalienceCoordinator,
     SalienceCoordinatorConfig,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 MODE_NAMES = ["external_task", "internal_planning", "internal_replay", "offline_consolidation"]
@@ -375,10 +376,14 @@ def main() -> None:
         REPO_ROOT.parent
         / "REE_assembly" / "evidence" / "experiments"
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"result: {manifest['result']}")
     for i, arm in enumerate(arm_results):

@@ -171,6 +171,7 @@ from experiments._metrics import check_degeneracy
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_733_rebinding_functional_ground_truth"
@@ -1003,10 +1004,14 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
             Path(__file__).resolve().parents[2]
             / "REE_assembly" / "evidence" / "experiments"
         )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config") or manifest.get("config_summary"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"manifest: {out_path}", flush=True)
     if not args.dry_run:
