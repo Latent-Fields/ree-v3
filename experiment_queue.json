@@ -65,25 +65,6 @@
       "experiment_purpose": "baseline",
       "experiment_type": "v3_exq_742m_mech457_bias_head_baseline_mint",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-743",
-      "title": "INV-089 harm-evaluator z_harm positive control: realized harm decodes-in-principle from the frozen z_harm stream E3 actually uses (rising with HarmEncoder maturation) -- re-streamed successor to V3-EXQ-740a's mis-streamed harm leg (frozen-rep curriculum-order; onset {0,1,4,12,30})",
-      "script": "experiments/v3_exq_743_inv089_harm_evaluator_z_harm_bounded.py",
-      "priority": 20,
-      "machine_affinity": "any",
-      "estimated_minutes": 30,
-      "claim_id": "INV-089",
-      "note": "RE-POSED, RE-STREAMED successor to the mis-streamed harm leg of V3-EXQ-740a (INV-064 740-cluster). INV-089 (harm_evaluator_bounded_by_z_harm_differentiation, child (ii) of INV-064, registered 2026-07-12 via /claim-synthesis of INV-064). Decodes the harm signal from the DEDICATED z_harm = HarmEncoder(harm_obs) stream (stack.py:119) that E3 actually uses (harm_eval_z_harm, e3_selector.py:660), NOT z_world. RE-DERIVE BRAKE (2 INV-064 non_contributory autopsies: 740 IV-backwards, 740a DV-undecodable) HONOURED: this is a DIFFERENT OBSERVABLE (z_harm) and a DIFFERENT CLAIM (INV-089, 0 prior autopsies), exactly the z_harm probe the brake's refuse-half permits (740a-autopsy sec 7 + claim_synthesis sec 4) -- NOT the refused same-observable z_world 740b. NO substrate build owed (HarmEncoder + harm_eval_z_harm exist; SD-010 IMPLEMENTED). 056c SD-010 wiring (world_dim=z_harm_dim=32 so harm_eval_z_harm_head's world_dim fallback matches the 32-dim standalone HarmEncoder). Per (seed,onset): mature the HarmEncoder for `onset` episodes on the canonical SD-010 label harm_obs[12] (co-trained throwaway proximity head, discarded; onset_0=fresh encoder immature anchor), FREEZE, collect a shared frozen dataset (identical trajectory across arms), re-init harm_eval_z_harm_head to a bit-identical init + train it for a fixed budget on frozen (z_harm, realized-harm) tensors. DESIGN DECISION (user-selected 2026-07-12 at the queue-experiment gate, 'positive-control as deliverable'): a real-budget spot check found the literal 740a-transplanted 'bound' test DEGENERATES on this stream (realized post-random-action scalar harm is UNDER-DETERMINED -> trained-head DV stuck ~0.05, non-monotone; and z_harm harm-decodability has a NARROW gradient / high JL floor so the 740a-scaled 0.03/0.15 magnitude thresholds are mis-calibrated), while the POSITIVE CONTROL PASSES. So the LOAD-BEARING PASS gate is the positive control: C1 realized harm decodable-in-principle from z_harm (mean_seed mature-anchor zharm_decode_r2 >= 0.05 -- the dispositive contrast with 740a's z_world 0.034 FLAT) AND C2 that decodability RISES with maturation (directional: delta>0 AND positive Spearman, NO magnitude floor). The harm_eval_z_harm trained-head 'bound' coupling is REPORTED but NOT gating (SEC_*), with a calibrated bound test (state-determined DV + z_harm-scaled thresholds) DEFERRED to a follow-up. Validity precondition: PC_events (min harm_event_frac >= 0.03) -- only a harm-event shortage routes non_contributory; C1/C2 failure is a genuine WEAKENS (non_degenerate=True). claim_ids=[INV-089]; experiment_purpose=evidence; supersedes NOTHING (different observable, not a fix of 740a); PROMOTES/DEMOTES NOTHING (routes to review/governance). Cells reuse-INELIGIBLE (frozen representation from the HarmEncoder maturation trajectory, not reproducible from config_slice; there is NO OFF/baseline arm -- every cell is an onset level) -> arm fingerprints emitted (validator requirement) but flagged ineligible; NO separate baseline mint (skill disqualifier: intrinsically non-reusable maturation-trajectory frozen-rep; the fingerprint would correctly refuse a mint). Priority 20 > INV-088 sibling V3-EXQ-744 (10) per user directive (743 closes the twice-degenerate harm leg). validate_experiments --strict --paths OK; ASCII-clean; dry-run smoke PASS end-to-end (dry manifest relocated out of evidence/); FULL real 3-seed x 5-onset Mac validation routes PASS/supports (C1 mature zharm_decode_r2=0.124 >> 0.05 >> 740a z_world 0.034 crosses_zworld=True; C2 delta 0.011>0 rho 0.433>0; SEC bound-coupling all False as designed/non-gating) -- validation manifest REMOVED from evidence/ (cloud run is authoritative). Watch for the phase3-queue snapshot race on commit (post-commit dropped-file check).",
-      "status": "pending",
-      "claim_ids": [
-        "INV-089"
-      ],
-      "conditions": 5,
-      "episodes_per_run": 30,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_743_inv089_harm_evaluator_z_harm_bounded",
-      "seeds": 3
     }
   ]
 }
