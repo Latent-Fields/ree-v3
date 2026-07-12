@@ -57,6 +57,7 @@ from ree_core.goal import GoalConfig, GoalState
 from ree_core.predictors.e2_fast import Trajectory
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (pre-canonical {TYPE}_{ts} path/naming; not re-run)"
 
 
 EXPERIMENT_TYPE = "v3_exq_104b_e1_parallel_rollout_trained"

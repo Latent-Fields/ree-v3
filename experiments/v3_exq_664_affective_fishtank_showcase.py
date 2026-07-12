@@ -71,6 +71,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from ree_core.residue.field import VALENCE_POSITIVE_SURPRISE, VALENCE_NEGATIVE_SURPRISE
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE    = "v3_exq_664_affective_fishtank_showcase"
@@ -961,8 +962,14 @@ if __name__ == "__main__":
         log_path.write_text(json.dumps(episode_log, indent=2) + "\n", encoding="utf-8")
         print(f"Episode log written to: {log_path}", flush=True)
 
-    out_path = out_dir / f"{EXPERIMENT_TYPE}_{ts}.json"
-    out_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    out_path = write_flat_manifest(
+        result,
+        out_dir.parent,
+        dry_run=args.dry_run,
+        config=result.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"\nResult written to: {out_path}", flush=True)
     print(f"Status: {result['status']}", flush=True)

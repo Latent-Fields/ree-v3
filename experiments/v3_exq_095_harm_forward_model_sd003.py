@@ -58,6 +58,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.latent.stack import HarmEncoder, AffectiveHarmEncoder, HarmForwardModel
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (pre-canonical {TYPE}_{ts} path/naming; not re-run)"
 
 
 EXPERIMENT_TYPE = "v3_exq_095_harm_forward_model_sd003"

@@ -80,6 +80,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.goal import GoalState, GoalConfig
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (pre-canonical {TYPE}_{ts} path/naming; not re-run)"
 
 
 EXPERIMENT_TYPE = "v3_exq_085h_sd015_resource_indicator_diag"

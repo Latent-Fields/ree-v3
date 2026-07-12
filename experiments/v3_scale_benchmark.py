@@ -35,6 +35,7 @@ import torch.optim as optim
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (pre-canonical {TYPE}_{ts} path/naming; not re-run)"
 
 
 EXPERIMENT_TYPE = "v3_scale_benchmark"

@@ -41,6 +41,7 @@ import torch
 
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from experiment_protocol import emit_outcome
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (pre-canonical {TYPE}_{ts} path/naming; not re-run)"
 
 
 EXPERIMENT_TYPE = "v3_exq_106_harm_obs_a_temporal_persistence"

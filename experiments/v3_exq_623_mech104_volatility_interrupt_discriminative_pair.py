@@ -122,6 +122,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_623_mech104_volatility_interrupt_discriminative_pair"
@@ -877,11 +878,16 @@ if __name__ == "__main__":
 
     out_dir = (
         Path(__file__).resolve().parents[2]
-        / "REE_assembly" / "evidence" / "experiments" / EXPERIMENT_TYPE
+        / "REE_assembly" / "evidence" / "experiments"
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{EXPERIMENT_TYPE}_{ts}.json"
-    out_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    out_path = write_flat_manifest(
+        result,
+        out_dir,
+        dry_run=args.dry_run,
+        config=result.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"\nResult written to: {out_path}", flush=True)
     print(f"Status: {result['outcome']}", flush=True)
