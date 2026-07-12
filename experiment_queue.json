@@ -28,29 +28,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-745",
-      "title": "MECH-456 ecological rebinding -- world-driven PATCH-SET-FLIP test-bed (DESIGN + DV diversity for provisional->active)",
-      "script": "experiments/v3_exq_745_rebinding_ecological_patchflip.py",
-      "priority": 15,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "claim_id": "MECH-456",
-      "note": "MECH-456 provisional->active ROUTE (b): supplies the DESIGN + DV diversity the two prior PASSes (733b/733c) lack -- both rest on ONE teleport-based directed-traversal harness measuring a policy-INERT affinity readout (binder.binding_score). This adds (a) an INDEPENDENT world-driven productive-patch-set-flip test-bed (the WORLD moves the competing configuration, not the agent -- no teleport; decouples the overtake from foraging locomotion, dissolving the 733/733a coverage-starvation ceiling) and (b) an ECOLOGICAL behavioural DV on the POLICY-COUPLED couple() path (e2_fast.py:718/730/739 -> CEM elites -> committed action), the thing 733/733a could not reach. Two DVs, pre-registered: DV1 argmax binding_score tracks the true productive config above a config-label-shuffle control (reuse rebinding_functional_harness DV1 re-keyed to world-config regimes); DV2 live rebinding (ree_on) forages >= DV2_ABS_MARGIN=0.15 resources/ep more than a factor-FROZEN arm (binds once at episode entry). POSITIVE CONTROL (smoke-motivated): a ree_nocouple arm disables the coupling (strength=0); couple_authority=|foraging_on-foraging_nocouple| must clear 0.15 for a seed to be READY, else a null ON-vs-FROZEN DV2 is UNinterpretable and self-routes substrate_not_ready_requeue/non_contributory rather than a FALSE inert-rebinding weakens (honours the claim's V3-EXQ-478 precedent: inert==inconclusive, not weakens). Dry-run smoke showed foraging_on==foraging_frozen==nocouple EXACTLY (gap 0.000) at toy scale, which is exactly why the authority control is load-bearing -- whether the couple() path moves foraging at trained scale is the empirical question. NEW EXQ NUMBER (new measurement class, NOT a survival letter): the re-derive brake FIRED on MECH-456 (2 non_contributory autopsies 733/733a) and REFUSED the P-A survival-onboarding axis; RELEASED here because this builds the named upstream substrate (a world-driven config-shift test-bed decoupled from foraging locomotion) AND is a distinct measurement class, not a 3rd survival letter. Does NOT supersede 733b/733c (adds design+DV diversity). A clean PASS (ecological_rebinding_supported) warrants provisional->active at governance; PROMOTES/DEMOTES NOTHING by itself (v3_pending gate). NO ree_core change (harness-level measurement + factor-freeze monkeypatch over the trained-then-frozen learned cross_stream_binder). Baseline-mint: NO separate mint -- the ree_on/frozen/nocouple arms are measurement contrasts over ONE shared frozen binder on a maturation trajectory (reuse-INELIGIBLE, flagged extra_ineligible_reasons=shared_frozen_binder_measurement_arm); the oracle/random calib arms are cheap + specific to THIS flip test-bed and are self-minted reuse-eligible IN-RUN (no lineage successor to bank for). claim_ids=[MECH-456]; experiment_purpose=evidence. Code-review + validate_experiments --strict --paths OK + dry-run smoke PASS end-to-end (runs, all 5 arms, correct non_contributory self-route on the toy budget) 2026-07-12.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-12T15:00:40Z"
-      },
-      "claim_ids": [
-        "MECH-456"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 40,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_745_rebinding_ecological_patchflip",
-      "seeds": 6
-    },
-    {
       "queue_id": "V3-EXQ-742-m",
       "title": "MECH-457 bias_head_baseline MINT -- order-independent reuse insurance for the V3-EXQ-742 OFF arm (724-A0 all-ON; D0+D3; baseline)",
       "script": "experiments/v3_exq_742m_mech457_bias_head_baseline_mint.py",
