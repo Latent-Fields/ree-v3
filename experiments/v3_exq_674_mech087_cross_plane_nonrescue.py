@@ -106,6 +106,7 @@ from _metrics import check_degeneracy, p0_readiness_gate, P0NotReady  # noqa: E4
 from ree_core.predictors.e3_selector import E3TrajectorySelector  # noqa: E402
 from ree_core.predictors.e2_fast import Trajectory  # noqa: E402
 from ree_core.utils.config import E3Config  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_674_mech087_cross_plane_nonrescue"
 EXPERIMENT_PURPOSE = "evidence"
@@ -338,8 +339,14 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         out_path = out_dir / f"{run_id}.json"
         if not dry_run:
             out_dir.mkdir(parents=True, exist_ok=True)
-            with open(out_path, "w") as fh:
-                json.dump(manifest, fh, indent=2)
+            out_path = write_flat_manifest(
+                manifest,
+                out_dir,
+                dry_run=False,
+                config=manifest.get("config"),
+                seeds=SEEDS,
+                script_path=Path(__file__),
+            )
             print(f"Manifest written: {out_path}", flush=True)
         else:
             out_path = Path("/dev/null")

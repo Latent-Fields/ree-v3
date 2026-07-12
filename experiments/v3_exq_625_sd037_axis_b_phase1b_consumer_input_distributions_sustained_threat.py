@@ -107,6 +107,7 @@ from _lib.goal_pipeline_tier1 import (  # noqa: E402
     warmup_train,
 )
 from ree_core.agent import REEAgent
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_625_sd037_axis_b_phase1b_consumer_input_distributions_sustained_threat"
 QUEUE_ID = "V3-EXQ-625"
@@ -773,7 +774,14 @@ def main(argv: Optional[List[str]] = None):
         "pooled_summary": result["pooled_summary"],
     }
 
-    out_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"manifest written: {out_path}", flush=True)
 
     plan_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "planning"

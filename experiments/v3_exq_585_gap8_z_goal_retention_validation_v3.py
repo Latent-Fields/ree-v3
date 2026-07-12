@@ -53,6 +53,7 @@ import torch  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_585_gap8_z_goal_retention_validation"
 QUEUE_ID = "V3-EXQ-585"
@@ -300,8 +301,14 @@ def main(*, dry_run: bool = False) -> Tuple[str, Path]:
 
     if not dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w") as f:
-            json.dump(manifest, f, indent=2)
+        out_path = write_flat_manifest(
+            manifest,
+            out_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
         print(f"Result written to: {out_path}", flush=True)
     else:
         print("[dry-run] manifest not written", flush=True)

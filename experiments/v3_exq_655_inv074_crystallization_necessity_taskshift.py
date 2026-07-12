@@ -196,6 +196,7 @@ from experiment_protocol import emit_outcome
 from _metrics import check_degeneracy
 from infant_curriculum import InfantCurriculumScheduler
 from experiments._lib.arm_fingerprint import arm_cell
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_655_inv074_crystallization_necessity_taskshift"
@@ -1452,9 +1453,14 @@ if __name__ == "__main__":
             },
         }
 
-        with open(manifest_path, "w") as f:
-            json.dump(manifest, f, indent=2, sort_keys=True)
-            f.write("\n")
+        manifest_path = write_flat_manifest(
+            manifest,
+            evidence_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
 
         print(f"[V3-EXQ-655] Manifest written: {manifest_path}", flush=True)
 

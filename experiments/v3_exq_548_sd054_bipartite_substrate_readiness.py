@@ -148,6 +148,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_548_sd054_bipartite_substrate_readiness"
@@ -493,7 +494,14 @@ def write_result(result: dict, dry_run: bool) -> str:
         "dry_run": dry_run,
         "metrics": result,
     }
-    out_path.write_text(json.dumps(manifest, indent=2))
+    out_path = write_flat_manifest(
+        manifest,
+        output_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}", flush=True)
     return str(out_path)
 

@@ -131,6 +131,7 @@ from scaffolded_sd054_onboarding import (  # noqa: E402
     _sense_with_optional_harm,
     stage_plan,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_514t_sd049_phase2_mech436_drive_coupling_retest"
 QUEUE_ID = "V3-EXQ-514t"
@@ -926,8 +927,14 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     }
     manifest.update(result)
 
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"[{EXPERIMENT_TYPE}] wrote {out_path}", flush=True)
     manifest["manifest_path"] = str(out_path)
     return manifest

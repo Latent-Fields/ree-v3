@@ -107,6 +107,7 @@ from ree_core.utils.config import REEConfig
 
 from experiment_protocol import emit_outcome
 from experiments._lib.arm_fingerprint import arm_cell
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_718_sdmelconsumer_adaptive_cadence_validation"
 QUEUE_ID = "V3-EXQ-718"
@@ -788,8 +789,14 @@ def write_manifest(result: Dict[str, Any]) -> str:
         "arm_results": result["arm_results"],
         "thresholds": result["thresholds"],
     }
-    with open(out_path, "w") as fh:
-        json.dump(manifest, fh, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     return str(out_path)
 
 

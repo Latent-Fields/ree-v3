@@ -110,6 +110,7 @@ from v3_exq_591_isef005_curriculum_vs_flat_v3 import (  # noqa: E402
     GRID_SIZE,
     ACTION_DIM,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 QUEUE_ID = "V3-EXQ-591d"
 EXPERIMENT_TYPE = "v3_exq_591d_isef005_phase01_gate_robustness"
@@ -567,8 +568,14 @@ def main(*, dry_run: bool = False) -> Tuple[str, Path]:
 
     if not dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w") as f:
-            json.dump(manifest, f, indent=2)
+        out_path = write_flat_manifest(
+            manifest,
+            out_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
         print(f"Result written to: {out_path}", flush=True)
     else:
         print("[dry-run] manifest not written", flush=True)

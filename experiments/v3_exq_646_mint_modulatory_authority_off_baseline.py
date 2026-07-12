@@ -64,6 +64,7 @@ from experiments._lib.baselines.exq643_modulatory_authority_baseline import (  #
     off_path_config_slice,
     run_off_cell,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_646_mint_modulatory_authority_off_baseline"
 QUEUE_ID = "V3-EXQ-646"
@@ -194,8 +195,14 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     out_path = out_dir / f"{run_id}.json"
 
     if not dry_run:
-        with open(out_path, "w") as fh:
-            json.dump(manifest, fh, indent=2)
+        out_path = write_flat_manifest(
+            manifest,
+            out_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=None,
+            script_path=Path(__file__),
+        )
         print(f"Manifest written: {out_path}", flush=True)
     else:
         out_path = Path("/dev/null")

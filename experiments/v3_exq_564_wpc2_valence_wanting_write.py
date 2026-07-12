@@ -45,6 +45,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorld  # noqa: E402
 from ree_core.residue.field import VALENCE_WANTING  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_564_wpc2_valence_wanting_write"
 QUEUE_ID = "V3-EXQ-564"
@@ -339,8 +340,14 @@ def main(dry_run: bool = False):
     }
 
     if not dry_run:
-        with open(out_path, "w") as f:
-            json.dump(manifest, f, indent=2)
+        out_path = write_flat_manifest(
+            manifest,
+            out_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
         print(f"Manifest written: {out_path}", flush=True)
     else:
         print("[dry-run] manifest not written", flush=True)

@@ -134,10 +134,12 @@ def migrate_one(path: Path):
     write_top = write_bot = None
     has_default_str = False
     pathvar = None  # the file path var in the write statement; must == the primary LHS var
+    write_indent = ""  # indent of the write statement (used for the non-adjacent replacement)
     for i, ln in enumerate(lines):
         wt = WRITETEXT_RE.match(ln)
         if wt:
             pathvar = wt.group("path")
+            write_indent = wt.group("indent")
             write_top = write_bot = i
             break
     if write_top is None:
@@ -164,9 +166,30 @@ def migrate_one(path: Path):
         if wm.group("fh") != dm.group("fh"):
             return ("unmatched", "with-open handle != json.dump handle", None)
         pathvar = wm.group("path")
+        write_indent = wm.group("indent")
         has_default_str = "default=str" in (dm.group("extra") or "")
         write_top = dump_idx - 1
         write_bot = dump_idx
+        # The with-block may carry a trailing `<fh>.write("\n")` after the dump (some
+        # scripts add the newline by hand). write_flat_manifest ALREADY appends a
+        # trailing "\n", so absorbing that line is byte-identical output. Absorb any
+        # such trailing newline-writes; if the block holds ANY other statement, the
+        # write does more than emit the manifest -> refuse (leave unmatched).
+        fh = dm.group("fh")
+        fwrite_nl = re.compile(r'^\s*' + re.escape(fh) + r'\.write\(\s*["\']\\n["\']\s*\)\s*$')
+        wlen = len(write_indent)
+        b = write_bot + 1
+        while b < len(lines):
+            ln = lines[b]
+            if ln.strip() == "":
+                b += 1
+                continue  # intra-block blank -- keep scanning
+            if len(ln) - len(ln.lstrip()) <= wlen:
+                break  # dedented out of the with-block
+            if not fwrite_nl.match(ln):
+                return ("unmatched", "with-block has a statement after json.dump other than <fh>.write(newline)", None)
+            write_bot = b
+            b += 1
 
     # walk upward past optional blank lines to find the out_path assignment(s)
     j = write_top - 1
@@ -178,6 +201,7 @@ def migrate_one(path: Path):
     # Identify contiguous assignment region
     block_top = None
     dry_m = None
+    non_adjacent = False
     # Case: lines[j] is the dry reassignment inside an if
     if j >= 1 and DRY_REASSIGN_RE.match(lines[j]) and DRY_IF_RE.match(lines[j - 1]):
         dry_m = DRY_REASSIGN_RE.match(lines[j])
@@ -192,7 +216,25 @@ def migrate_one(path: Path):
     elif j >= 0 and PRIMARY_RE.match(lines[j]):
         block_top = j
     else:
-        return ("unmatched", "no canonical `out_path = out_dir / f\"{manifest['run_id']}.json\"`", None)
+        # Non-adjacent: the path var is assigned canonically but NOT immediately above
+        # the write (intervening manifest-building code, e.g. v3_exq_620). Find the
+        # NEAREST assignment to pathvar above the write. Because it is the nearest, the
+        # var is provably NOT reassigned between it and the write -- so the recomputed
+        # path is byte-location-identical. We then rewrite ONLY the write statement
+        # (leaving the assignment + intervening code untouched, since that code may read
+        # the path); the wfm return reassigns pathvar to the same value.
+        assign_re = re.compile(r"^\s*" + re.escape(pathvar) + r"\s*=(?!=)")
+        a = write_top - 1
+        near = None
+        while a >= 0:
+            if assign_re.match(lines[a]):
+                near = a
+                break
+            a -= 1
+        if near is None or not PRIMARY_RE.match(lines[near]):
+            return ("unmatched", "no canonical `out_path = out_dir / f\"{manifest['run_id']}.json\"` (adjacent or nearest)", None)
+        block_top = near
+        non_adjacent = True
 
     primary_m = PRIMARY_RE.match(lines[block_top])
     dirvar = primary_m.group("dir")
@@ -207,14 +249,24 @@ def migrate_one(path: Path):
     if dry_m is not None and (dry_m.group("var") != pathvar or dry_m.group("dir") != dirvar):
         return ("unmatched", "dry-reassign var/dir mismatch vs primary", None)
 
-    # optional mkdir line just above block_top (write_flat_manifest mkdirs itself)
-    mkdir_re = re.compile(r"^\s*" + re.escape(dirvar) + r"\.mkdir\([^)]*\)\s*$")
-    top = block_top
-    p = top - 1
-    while p >= 0 and lines[p].strip() == "":
-        p -= 1
-    if p >= 0 and mkdir_re.match(lines[p]):
-        top = p  # absorb mkdir
+    if non_adjacent:
+        # Rewrite ONLY the write statement; leave the assignment + intervening code and
+        # any mkdir in place. Indent = the write statement's own indent.
+        top = write_top
+        indent = write_indent
+    else:
+        # optional mkdir line just above block_top (write_flat_manifest mkdirs itself)
+        mkdir_re = re.compile(r"^\s*" + re.escape(dirvar) + r"\.mkdir\([^)]*\)\s*$")
+        top = block_top
+        p = top - 1
+        while p >= 0 and lines[p].strip() == "":
+            p -= 1
+        if p >= 0 and mkdir_re.match(lines[p]):
+            top = p  # absorb mkdir
+        # Statement-level indent = the indent of the out_path assignment being
+        # replaced (NOT the json.dump body indent, which is one level deeper and
+        # would produce an IndentationError).
+        indent = primary_m.group("indent")
 
     if not has_dir_assignment(lines, top, dirvar):
         return ("unmatched", f"no {dirvar} assignment above tail", None)
@@ -222,11 +274,6 @@ def migrate_one(path: Path):
     # Bare-`run_id` out_path is only safe when it provably equals manifest['run_id'].
     if "manifest[" not in lines[block_top] and not runid_is_manifest_runid(src):
         return ("unmatched", "bare run_id out_path not provably == manifest['run_id']", None)
-
-    # Statement-level indent = the indent of the out_path assignment being
-    # replaced (NOT the json.dump body indent, which is one level deeper and
-    # would produce an IndentationError).
-    indent = primary_m.group("indent")
     dry_run_arg = dry_cond if dry_cond is not None else "False"
     seeds_sym = find_seeds_symbol(src)
     seeds_arg = seeds_sym if seeds_sym else "None"
@@ -254,6 +301,8 @@ def migrate_one(path: Path):
         new_src = insert_import(new_src)
 
     flags = []
+    if non_adjacent:
+        flags.append("non-adjacent(write-only-rewrite)")
     if seeds_sym is None:
         flags.append("SEEDS-not-found(seeds=None)")
     if dry_cond is None:

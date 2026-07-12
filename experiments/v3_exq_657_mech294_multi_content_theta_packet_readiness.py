@@ -90,6 +90,7 @@ from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_657_mech294_multi_content_theta_packet_readiness"
 QUEUE_ID = "V3-EXQ-657"
@@ -519,8 +520,14 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     out_path = out_dir / f"{run_id}.json"
     if not dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w") as fh:
-            json.dump(manifest, fh, indent=2)
+        out_path = write_flat_manifest(
+            manifest,
+            out_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
         print(f"Manifest written: {out_path}", flush=True)
     else:
         out_path = Path("/dev/null")

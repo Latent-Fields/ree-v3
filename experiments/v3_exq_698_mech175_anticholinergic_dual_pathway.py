@@ -125,6 +125,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from experiment_protocol import emit_outcome  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_698_mech175_anticholinergic_dual_pathway"
 CLAIM_IDS = ["MECH-175"]
@@ -476,8 +477,14 @@ def main():
 
     if not args.dry_run:
         evidence_dir.mkdir(parents=True, exist_ok=True)
-        with open(manifest_path, "w") as f:
-            json.dump(manifest, f, indent=2)
+        manifest_path = write_flat_manifest(
+            manifest,
+            evidence_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
         print(f"Manifest written to: {manifest_path}")
 
     # Signal outcome

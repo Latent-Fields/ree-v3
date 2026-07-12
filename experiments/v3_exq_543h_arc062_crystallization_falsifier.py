@@ -131,6 +131,7 @@ from experiment_protocol import emit_outcome
 # to instantiate + validate the on_phase3_entry wiring contract; see the
 # SCHEDULER-GATE ADAPTATION note in the module docstring.
 from infant_curriculum import InfantCurriculumScheduler
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_543h_arc062_crystallization_falsifier"
@@ -1873,8 +1874,14 @@ def write_manifest(result: Dict, dry_run: bool, elapsed: float) -> Tuple[Path, s
             )
         ),
     }
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     return out_path, outcome
 
 

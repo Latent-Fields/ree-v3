@@ -95,6 +95,7 @@ from _lib.baselines.exq610_inv074_crystallization_baseline import (
     off_path_config_slice,
     BASELINE_ID,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_685_arm_reuse_automated_hit_demo"
 EXPERIMENT_PURPOSE = "baseline"
@@ -362,9 +363,14 @@ def main(argv) -> int:
             ),
         },
     }
-    with open(manifest_path, "w") as f:
-        json.dump(manifest, f, indent=2, sort_keys=True)
-        f.write("\n")
+    manifest_path = write_flat_manifest(
+        manifest,
+        evidence_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"[685] Manifest written: {manifest_path}", flush=True)
     print(f"Result written to: {manifest_path}", flush=True)
     return outcome, str(manifest_path)

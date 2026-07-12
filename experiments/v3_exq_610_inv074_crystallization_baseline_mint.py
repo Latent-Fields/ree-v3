@@ -78,6 +78,7 @@ from _lib.baselines.exq610_inv074_crystallization_baseline import (
     train_off_arm,
     off_path_config_slice,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_610_inv074_crystallization_baseline_mint"
@@ -242,9 +243,14 @@ if __name__ == "__main__":
         },
     }
 
-    with open(manifest_path, "w") as f:
-        json.dump(manifest, f, indent=2, sort_keys=True)
-        f.write("\n")
+    manifest_path = write_flat_manifest(
+        manifest,
+        evidence_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"[V3-EXQ-610-MINT] Manifest written: {manifest_path}", flush=True)
 
