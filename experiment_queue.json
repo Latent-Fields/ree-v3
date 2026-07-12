@@ -42,6 +42,22 @@
       "experiment_purpose": "baseline",
       "experiment_type": "v3_exq_742m_mech457_bias_head_baseline_mint",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-746a",
+      "title": "INV-089 harm-eval z_harm CALIBRATED bound (corrected 746; module consumer, 3 targets)",
+      "experiment_type": "v3_exq_746a_inv089_harm_eval_z_harm_calibrated_bound_v2",
+      "script": "experiments/v3_exq_746a_inv089_harm_eval_z_harm_calibrated_bound_v2.py",
+      "priority": 20,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 30,
+      "seeds": 8,
+      "conditions": 5,
+      "claim_id": "INV-089",
+      "supersedes": "V3-EXQ-746",
+      "note": "CORRECTED calibrated-bound test for INV-089, SUPERSEDING V3-EXQ-746 which RAN and STARVED (outcome FAIL but non_degenerate=False, evidence_direction=unknown, preconditions_met=false -> NON_CONTRIBUTORY, does NOT weigh against INV-089; run_id ..._20260712T142637Z_v3). 746 starved because (a) its DV/IV target was the SPARSE single-cell clip(hazard_field[agent],0,1) -- a random-walk agent rarely sits on a hot cell so raw std was 0.004-0.052 (PC checked the NORMALISED std, missing the degeneracy), and (b) the encoder matures on harm_obs[12] but that single-cell raw target did NOT become more decodable with maturation (mean IV delta -0.184 -> PC_iv_moved false), with seed-3/47 DV blow-ups to -1e8. This run is the harm leg's FIRST WILD CONSUMER of experiments/_lib/baselines/maturation_curriculum.mature_and_collect_harm (the factoring 746's own note asked a future z_harm sibling to do first); the module's collect_harm_dataset was extended to emit 3 state-determined raw-hazard_field targets as no-RNG reads (Zharm/Y/Prox stay bit-identical to 743). PRIMARY (gating) = local neighbourhood density (dense -> high raw variance); SECONDARY (reported, own precondition gate, non-gating) = at_agent (746's original) + next_step. Fixes: (1) denser primary target, (2) RAW-std precondition (>=0.008; calibrated from a real-fidelity probe: dense raw std 0.012-0.024 clears, degenerate single-cell 0.004-0.0065 excluded), (3) gradient-clipped DV head + non-finite floor. SCALE-FREE PASS (rank monotonicity + IV<->DV coupling + effect-size reliability) on the PRIMARY. Cells reuse-ELIGIBLE (include_driver_script_in_hash=False) -- first minted+consumed harm-leg cells. 8 seeds, onset {0,1,4,12,30}. Smoke: dry-run PASS (harm-leg cache mint+HIT verified); validate_experiments --strict --paths OK. Re-derive brake HONOURED (0 substrate_ceiling/non_contributory autopsies tag INV-089; z_harm observable, not a z_world 740b). EXTENDS 743, SUPERSEDES 746. claim_ids=[INV-089]; experiment_purpose=evidence. Do NOT touch running V3-EXQ-742."
     }
   ]
 }

@@ -471,12 +471,67 @@ def _mature_harm_encoder(harm_enc: HarmEncoder, seed: int, onset: int, steps_per
     return n_steps
 
 
+def _hazard_state_targets(hazard_field: Any, ax: int, ay: int,
+                          *, radius: int = 2) -> Tuple[float, float, float]:
+    """Three STATE-DETERMINED raw-hazard_field targets at state s_t, read BEFORE the action
+    so each aligns with the state z_harm encodes (matches 746's `_hazard_at_agent` timing).
+    All clip the RAW field to [0, 1] (746 convention; the raw field, NOT the normalised
+    harm_obs proxy view, so decoding them is a genuine differentiation test, not a
+    label read-back). No RNG consumed (pure reads) -> the shared Zharm/Y/Prox collection
+    stays bit-identical to 743's inline path.
+
+      at_agent      : clip(hazard_field[ax, ay], 0, 1)  -- 746's single-cell target (SPARSE:
+                      a random-walk agent rarely sits on a hot cell -> low raw variance, the
+                      root of 746's starvation; kept as a secondary continuity leg).
+      local_density : mean over the (2r+1)x(2r+1) neighbourhood EXCLUDING the centre cell,
+                      in-bounds cells only -- DENSE neighbourhood harm exposure. High-variance
+                      under a random walk because hazard_field is smooth/autocorrelated, so it
+                      does not collapse to ~0 the way the single centre cell does. PRIMARY.
+      next_step     : mean over the 4 orthogonally-adjacent in-bounds cells -- one-step-
+                      reachable hazard exposure (a predictive variant). Secondary.
+    """
+    sx, sy = hazard_field.shape
+
+    def _c(v: Any) -> float:
+        return float(np.clip(v, 0.0, 1.0))
+
+    at_agent = _c(hazard_field[ax, ay])
+    dens = []
+    for dx in range(-radius, radius + 1):
+        for dy in range(-radius, radius + 1):
+            if dx == 0 and dy == 0:
+                continue
+            nx, ny = ax + dx, ay + dy
+            if 0 <= nx < sx and 0 <= ny < sy:
+                dens.append(_c(hazard_field[nx, ny]))
+    local_density = float(np.mean(dens)) if dens else 0.0
+    nxt = []
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        nx, ny = ax + dx, ay + dy
+        if 0 <= nx < sx and 0 <= ny < sy:
+            nxt.append(_c(hazard_field[nx, ny]))
+    next_step = float(np.mean(nxt)) if nxt else 0.0
+    return at_agent, local_density, next_step
+
+
 def collect_harm_dataset(harm_enc: HarmEncoder, seed: int, env_kwargs: Dict[str, Any],
                          steps_per_ep: int, n_episodes: int, *, harm_obs_center: int,
-                         collect_seed_base: int = DEFAULT_COLLECT_SEED_BASE) -> Dict[str, torch.Tensor]:
+                         collect_seed_base: int = DEFAULT_COLLECT_SEED_BASE,
+                         hazard_neighbourhood_radius: int = 2) -> Dict[str, torch.Tensor]:
     """Replay a FIXED action sequence through a FIXED collection env, encoding z_harm
-    with the (frozen) HarmEncoder. Bit-identical to 743 `_collect_frozen_dataset`:
+    with the (frozen) HarmEncoder. The Zharm / Y / Prox fields are bit-identical to 743
+    `_collect_frozen_dataset`:
       Zharm = HarmEncoder(harm_obs[t]) ; Y = realized harm ; Prox = harm_obs[t][center].
+
+    ADDITIONALLY collects three STATE-DETERMINED raw-hazard_field targets per step (added
+    2026-07-12 for the harm leg's first wild consumer, V3-EXQ-746a -- 746 re-inlined a
+    single such target inline and starved). These are pure no-RNG reads of
+    collect_env.hazard_field at s_t, so appending them does NOT perturb the shared
+    Zharm/Y/Prox RNG stream:
+      Yat    = at-agent single cell (746's original; sparse)
+      Ydens  = local neighbourhood density EXCLUDING centre (dense; PRIMARY for 746a)
+      Ynext  = one-step-reachable mean (predictive)
+    All raw-clipped to [0, 1]; the consumer applies its own variance precondition + probes.
     """
     collect_env = CausalGridWorldV2(seed=collect_seed_base + seed, **env_kwargs)
     act_rng = np.random.default_rng(collect_seed_base + seed)
@@ -485,6 +540,9 @@ def collect_harm_dataset(harm_enc: HarmEncoder, seed: int, env_kwargs: Dict[str,
     zh_list = []
     y_list = []
     prox_list = []
+    yat_list = []
+    ydens_list = []
+    ynext_list = []
 
     harm_enc.eval()
     with torch.no_grad():
@@ -494,6 +552,10 @@ def collect_harm_dataset(harm_enc: HarmEncoder, seed: int, env_kwargs: Dict[str,
                 harm_obs_t = _row_vec(obs_dict.get("harm_obs"))
                 z_harm = harm_enc(harm_obs_t).detach().cpu()
                 prox = float(harm_obs_t[0, harm_obs_center].item())
+                # STATE-DETERMINED raw-field targets aligned to s_t (read BEFORE the action).
+                yat, ydens, ynext = _hazard_state_targets(
+                    collect_env.hazard_field, int(collect_env.agent_x), int(collect_env.agent_y),
+                    radius=hazard_neighbourhood_radius)
 
                 action = int(act_rng.integers(0, action_dim))
                 _, harm_signal, done, _info, obs_next = collect_env.step(action)
@@ -502,15 +564,24 @@ def collect_harm_dataset(harm_enc: HarmEncoder, seed: int, env_kwargs: Dict[str,
                 zh_list.append(z_harm)
                 y_list.append(harm_target)
                 prox_list.append(prox)
+                yat_list.append(yat)
+                ydens_list.append(ydens)
+                ynext_list.append(ynext)
 
                 obs_dict = obs_next
                 if done:
                     break
 
+    def _col(v):
+        return torch.tensor(v, dtype=torch.float32).unsqueeze(1)
+
     return {
         "Zharm": torch.cat(zh_list, dim=0),
-        "Y": torch.tensor(y_list, dtype=torch.float32).unsqueeze(1),
-        "Prox": torch.tensor(prox_list, dtype=torch.float32).unsqueeze(1),
+        "Y": _col(y_list),
+        "Prox": _col(prox_list),
+        "Yat": _col(yat_list),
+        "Ydens": _col(ydens_list),
+        "Ynext": _col(ynext_list),
     }
 
 
@@ -529,6 +600,7 @@ def mature_and_collect_harm(
     mature_hidden: int = 32,
     mature_seed_base: int = DEFAULT_HARM_MATURE_SEED_BASE,
     collect_seed_base: int = DEFAULT_COLLECT_SEED_BASE,
+    hazard_neighbourhood_radius: int = 2,
     mature_progress_denom: Optional[int] = None,
     use_cache: bool = True,
     cache_dir: Optional[Path] = None,
@@ -557,6 +629,7 @@ def mature_and_collect_harm(
         "mature_hidden": int(mature_hidden),
         "mature_seed_base": int(mature_seed_base),
         "collect_seed_base": int(collect_seed_base),
+        "hazard_neighbourhood_radius": int(hazard_neighbourhood_radius),
     }
     key = _prefix_key("harm", upstream)
 
@@ -583,7 +656,8 @@ def mature_and_collect_harm(
     for p in harm_enc.parameters():
         p.requires_grad_(False)
     dataset = collect_harm_dataset(harm_enc, seed, env_kwargs, steps_per_ep, collect_episodes,
-                                   harm_obs_center=harm_obs_center, collect_seed_base=collect_seed_base)
+                                   harm_obs_center=harm_obs_center, collect_seed_base=collect_seed_base,
+                                   hazard_neighbourhood_radius=hazard_neighbourhood_radius)
 
     cache_state = "disabled" if _cache_disabled() else "miss"
     if use_cache and not _cache_disabled():
