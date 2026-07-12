@@ -36,7 +36,11 @@
       "estimated_minutes": 180,
       "claim_id": "MECH-456",
       "note": "Confirmatory retest of V3-EXQ-733b (MECH-456 first functional rebinding PASS). Reuses the 733b P-B directed-traversal design + coverage-decoupling harness (directed_tour_p0_coverage=True) BIT-IDENTICAL, changing ONLY the seed-set to an independent disjoint [101-106] (vs 733b [42-47]). Same pre-registered criteria (DV1 tracks true competitor above shuffle; DV2 graded re-acquisition-latency advantage ON vs frozen; binder above chance). Does NOT supersede 733b (adds independent replication). 2nd clean PASS strengthens MECH-456 provisional->active; FAIL routes /failure-autopsy (no auto-demote). Re-derive brake (2 non_contributory autopsies 733/733a) RELEASED: substrate rebinding-harness-p0-coverage-decoupling BUILT (9cd896c) AND ceiling already lifted by 733b PASS. Not gating/urgent (MECH-456 already provisional) -> low priority. experiment_purpose=evidence; not an arm_results/mint script (no baseline mint applicable).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-07-12T11:01:13Z"
+      },
       "conditions": 1,
       "episodes_per_run": 65,
       "experiment_type": "v3_exq_733c_rebinding_pB_confirmatory_independent_seeds",
