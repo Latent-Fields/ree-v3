@@ -14,6 +14,9 @@ C4  bit-identical OFF: ON-vs-OFF emit identical action streams under matched see
     (pure telemetry, no scoring/selection effect).
 """
 
+import random
+
+import numpy as np
 import torch
 
 from ree_core.utils.config import REEConfig
@@ -22,8 +25,14 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from experiments._harness import StepHarness
 
 
-def _mk_env():
-    return CausalGridWorldV2(size=8, num_hazards=2, num_resources=3)
+def _mk_env(seed=None):
+    # A seed MUST be threaded through for any test that asserts bit-identity:
+    # CausalGridWorldV2 builds its internal RNG as np.random.default_rng(seed),
+    # and seed=None pulls fresh OS entropy, so the per-episode microhabitat /
+    # Voronoi zone map is non-deterministic. Two envs built without a seed draw
+    # independently-random maps, which desynchronises the action stream and made
+    # the c4 OFF-vs-ON bit-identity assertion flaky (passes ~3/4 of the time).
+    return CausalGridWorldV2(size=8, num_hazards=2, num_resources=3, seed=seed)
 
 
 def _dims(env):
@@ -35,8 +44,15 @@ def _dims(env):
 
 
 def _run(cfg, steps=6, seed=0):
+    # Reseed every global RNG this run can touch so the run is fully
+    # deterministic regardless of which sibling tests (or other test modules
+    # during full-suite collection) ran first. torch drives the agent's
+    # stochastic ops; the env RNG is seeded via _mk_env(seed) below; numpy /
+    # python-random are reset defensively for any incidental global draw.
     torch.manual_seed(seed)
-    env = _mk_env()
+    np.random.seed(seed)
+    random.seed(seed)
+    env = _mk_env(seed=seed)
     agent = REEAgent(cfg)
     results = StepHarness(agent, env, train_mode=True, seed=seed).run_episode(
         max_steps=steps
