@@ -28,26 +28,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-744a",
-      "title": "INV-088 world/goal-evaluator DV coupling -- 8-seed re-estimate on shared maturation-curriculum module + frozen-prefix cache mint",
-      "script": "experiments/v3_exq_744a_inv088_world_goal_evaluator_dv_coupling.py",
-      "priority": 20,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "claim_id": "INV-088",
-      "note": "Higher-seed (3->8) re-estimate of V3-EXQ-744, which landed FAIL/inconclusive: DV-coupling magnitude cleared (mean_delta_r2 0.232>=0.15) but the 3-seed SD 0.168 failed C1's effect-size gate (mean>=2*SD=0.336) and C2 failed; C3 passed. Identical pre-registered criteria/preconditions; only seeds + module-based prefix differ. Builds its frozen z_world prefix via experiments/_lib/baselines/maturation_curriculum.mature_and_collect_world (bit-identity-verified reproduction of 744/740a inline; the frozen_representation_from_maturation_trajectory reuse-ineligible flag was empirically FALSE and is dropped). Cells are arm_fingerprint reuse-ELIGIBLE (include_driver_script_in_hash=False). MINTS the frozen-prefix TENSOR cache for all 40 (8x5) cells: 744 ran inline so this run is fully cold (all miss+store); tensor-reuse benefit is realized by later world-leg siblings / a re-run. Pin to cloud class linux-x86_64-py3.10 (regime A) via machine_affinity any. First 3 seeds reproduce 744 bit-identically (superset replication).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-12T13:46:03Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 30,
-      "experiment_type": "v3_exq_744a_inv088_world_goal_evaluator_dv_coupling",
-      "extends": "V3-EXQ-744",
-      "seeds": 8
-    },
-    {
       "queue_id": "V3-EXQ-742-m",
       "title": "MECH-457 bias_head_baseline MINT -- order-independent reuse insurance for the V3-EXQ-742 OFF arm (724-A0 all-ON; D0+D3; baseline)",
       "script": "experiments/v3_exq_742m_mech457_bias_head_baseline_mint.py",
