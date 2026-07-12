@@ -26,29 +26,6 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_742_mech457_actor_critic_onoff",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-733b",
-      "title": "MECH-456 functional-rebinding P-B directed-traversal RETEST-after-substrate: brake-permitted single re-run (directed_tour_p0_coverage=True) so the DV1/DV2 6/6 near-PASS is counted",
-      "script": "experiments/v3_exq_733b_rebinding_pB_directed_traversal.py",
-      "priority": 48,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "supersedes": "V3-EXQ-733a",
-      "claim_id": "MECH-456",
-      "note": "Brake-permitted retest-after-substrate of the V3-EXQ-733a Leg P-B directed-traversal design (single re-run; supersedes V3-EXQ-733a). EVIDENCE, claim-tagged functional test of MECH-456 (entities.rebinding_under_perturbation; candidate / v3_pending -> PROMOTES NOTHING by itself). RE-DERIVE BRAKE: FIRED on MECH-456 (2 non_contributory readiness autopsies: failure_autopsy_V3-EXQ-733_2026-07-10, failure_autopsy_V3-EXQ-733a_2026-07-11) but RELEASED per /queue-experiment Step 2.5b rule 1 -- the named upstream substrate is now BUILT: the functional-harness fix landed on ree-v3 main commit 9cd896c (2026-07-11). The brake's refusal scope is the P-A survival-onboarding axis ONLY (its declared null fired; NOT re-queued). This P-B re-run is the explicitly routed productive path (733a autopsy sec.8/sec.9): P-B already cleared every mechanism criterion (DV1 6/6, DV2 6/6, both_pass=True, binder converged 6/6, overtakes 62-808/seed -- strongest affirmative rebinding signal to date) and was blocked ONLY by a granularity-blind, survival-coupled P0-coverage floor (min P0 region visits 9<10 on one starved seed 43 on the K=16 lattice). SINGLE change vs the 733a-b P-B script: directed_tour_p0_coverage=True is passed into H.run_functional_test_seed. During P0 ONLY this suppresses the health-death `done` truncation so the scripted teleport tour runs its full step budget; the harness's existing teleport-entry accrual then makes P0 per-region coverage guaranteed BY CONSTRUCTION (mirroring how the teleport already guaranteed P1 overtakes). The binder-training/prototype mechanism that passed DV1/DV2 6/6 is UNCHANGED; only the P0-starving truncation is removed. Pairs with the K-scaled readiness floor min_region_visits_floor(K=16)=3 (the fixed K=4 floor of 10 over-demanded on K=16). Everything else P-B verbatim: COLD V3-EXQ-733 agent, softened survival (hazard_harm/proximity_harm/hazard_food_attraction -> 0), finer lattice G 2->4 (K=16), scripted teleport tour every 8 steps; P0=40, P1=25, steps=120, SEEDS=[42..47]. No ree_core change (harness-level measurement over the trained-then-frozen learned cross_stream_binder). DV1 tracks-truth-above-shuffle + DV2 graded non-saturating re-acq latency (ON vs FROZEN, one shared trajectory/seed). EXPECTED: readiness now met -> functional_rebinding_supported -> counted SUPPORT for MECH-456. NULL (declared): with overtakes AND P0 coverage guaranteed, DV1/DV2 failing on >=4/6 seeds => binder does not GENERALLY track the true competitor => WEAKENS MECH-456; substrate_not_ready_requeue only if the binder fails to converge (non_contributory, not a verdict). MECH-456 stays candidate/v3_pending regardless (V3-pending gate). Bears on (cited, NOT tagged): MECH-269, MECH-270, ARC-006, MECH-045, INV-002. Smoke: py_compile OK; validate_experiments --strict --paths OK; dry-run PASS end-to-end (regions_covered 16/16, min_overtakes=28, min_region_visits_floor=3 printed; self-routes substrate_not_ready only because the 3-episode dry-run P0 gives 2<3 -- expected for tiny P0, won't recur at P0=40 where the autopsy smoke gave min 22; no dry manifest leak). Route result to /governance (writes MECH-456 evidence_quality_note; marks 733a legs reviewed non_contributory).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-11T23:09:12Z"
-      },
-      "claim_ids": [
-        "MECH-456"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 65,
-      "experiment_type": "v3_exq_733b_rebinding_pB_directed_traversal",
-      "seeds": 6
     }
   ]
 }
