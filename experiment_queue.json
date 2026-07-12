@@ -16,7 +16,11 @@
       "estimated_minutes": 600,
       "claim_id": "MECH-457",
       "note": "MECH-457 ON/OFF validation sanctioned by failure_autopsy_734-737-conversion-ceiling-competence_2026-07-11 as the next test after the actor-critic substrate landed (ree_core/action_learning/actor_critic.py, 2026-07-12). RPE teacher = FORAGING reward (user-confirmed 2026-07-12; substrate benefit-harm teacher NOT used -> no ARC-030 grounding phase). 8 arms: A0-A3 = cotrain_encoder{F,T} x use_sf_critic{F,T} + bias_head_baseline (724 all-ON incompetence control) + local_view_greedy (738 fair denominator, 48.05@D3) + greedy_oracle + random_walk. D0+D3 (x734 rungs), seeds 42/43/44, phased P0 warmup -> P1 A2C actor-critic (GAE; cotrain adds latent_stack to optimizer + live z_world, frozen detaches) -> P2 unshaped foraging eval. DV = capability_eval foraging_competence vs 1.0 floor, strict majority @D3. PROMOTES/DEMOTES NOTHING: route to /failure-autopsy (accepts PASS target) before any governance action / MECH-457 promotion. deeper_than_action_learning self-route -> RE-AUTOPSY not a lettered floor re-test (734/737 RESOLVED_BY_FANOUT refusal stands). Smoke PASS + validate_experiments --strict OK 2026-07-12. Arm-fingerprint self-mint in-run (reuse-eligible, include_driver_script_in_hash=False); separate baseline mint SKIPPED -- first-of-lineage with machine_affinity=any (a cloud mint is not reusable by a Mac run and vice versa) + the OFF/warmup recipe co-evolves with the encoder under test; the free in-run self-mint banks all 8 cells for any strictly-later successor.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-12T00:05:44Z"
+      },
       "conditions": 16,
       "episodes_per_run": 1000,
       "experiment_purpose": "evidence",
