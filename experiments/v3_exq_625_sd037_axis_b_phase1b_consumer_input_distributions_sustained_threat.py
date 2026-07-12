@@ -712,6 +712,7 @@ def main(argv: Optional[List[str]] = None):
     parser = argparse.ArgumentParser(description=EXPERIMENT_TYPE)
     parser.add_argument("--dry-run", action="store_true", help="Reduced-budget smoke")
     args = parser.parse_args(argv)
+    _run_started = datetime.now(timezone.utc)
 
     timestamp_utc = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     run_id = f"{EXPERIMENT_TYPE}_{timestamp_utc}_v3"
@@ -781,6 +782,7 @@ def main(argv: Optional[List[str]] = None):
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
+        elapsed_seconds=(datetime.now(timezone.utc) - _run_started).total_seconds(),
     )
     print(f"manifest written: {out_path}", flush=True)
 

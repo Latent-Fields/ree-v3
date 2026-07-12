@@ -315,6 +315,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--output-dir", default=None)
     args = parser.parse_args()
+    _run_started = datetime.now(timezone.utc)
 
     if args.dry_run:
         print("Smoke: seed=42, tiny P0=3/P1=5/P2=3")
@@ -468,6 +469,7 @@ def main():
         config=output.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
+        elapsed_seconds=(datetime.now(timezone.utc) - _run_started).total_seconds(),
     )
     print(f"Output written to: {out_file}")
 

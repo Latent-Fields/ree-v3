@@ -578,6 +578,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--output-dir", default=None)
     args = parser.parse_args()
+    _run_started = datetime.now(timezone.utc)
 
     if args.dry_run:
         print("Smoke test: seed=42, 3 train episodes + 2 eval episodes per condition")
@@ -710,6 +711,7 @@ def main():
         config=output.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
+        elapsed_seconds=(datetime.now(timezone.utc) - _run_started).total_seconds(),
     )
     print(f"Output written to: {out_file}")
 

@@ -464,6 +464,7 @@ def main() -> None:
         help="Unit checks only (no rollouts). Used for smoke test.",
     )
     args = parser.parse_args()
+    _run_started = datetime.now(timezone.utc)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = f"{EXPERIMENT_TYPE}_{ts}_v3"
@@ -592,6 +593,7 @@ def main() -> None:
         config=output.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
+        elapsed_seconds=(datetime.now(timezone.utc) - _run_started).total_seconds(),
     )
     print(f"Output written to: {out_file}")
 

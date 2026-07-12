@@ -436,6 +436,7 @@ def main() -> Tuple[Optional[str], Optional[str]]:
         help="3-seed (7, 42, 100) x 1 ep x 20 step wiring smoke.",
     )
     args = parser.parse_args()
+    _run_started = datetime.now(timezone.utc)
 
     if args.dry_run:
         _print_plan()
@@ -590,6 +591,7 @@ def main() -> Tuple[Optional[str], Optional[str]]:
         config=output.get("config"),
         seeds=None,
         script_path=Path(__file__),
+        elapsed_seconds=(datetime.now(timezone.utc) - _run_started).total_seconds(),
     )
     print(f"Result written to: {out_file}", flush=True)
 
