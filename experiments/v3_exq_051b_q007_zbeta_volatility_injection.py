@@ -69,6 +69,7 @@ sys.path.insert(0, str(ROOT))
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig, LatentStackConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 # ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -411,8 +412,14 @@ def main():
 
     out_path = ROOT.parent / "REE_assembly" / "evidence" / "experiments" / "exq_051b_v3.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
-        json.dump(result, f, indent=2)
+    out_path = write_flat_manifest(
+        result,
+        ROOT.parent / "REE_assembly" / "evidence" / "experiments",
+        dry_run=False,
+        config=result.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"\nResult written to {out_path}")
     return result

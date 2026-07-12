@@ -101,6 +101,7 @@ import torch.optim as optim
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 # ===== EXPERIMENT CONSTANTS =====
@@ -633,8 +634,14 @@ def main(dry_run: bool = False):
 
     out_path = os.path.join(OUTPUT_REL, f"{EXPERIMENT_TYPE}_{ts}_v3.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w") as f:
-        json.dump(output, f, indent=2)
+    out_path = write_flat_manifest(
+        output,
+        OUTPUT_REL,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"\nResults written to: {out_path}")
 

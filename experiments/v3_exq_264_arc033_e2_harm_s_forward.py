@@ -50,6 +50,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.latent.stack import HarmEncoder
 from ree_core.predictors.e2_harm_s import E2HarmSForward, E2HarmSConfig
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_PURPOSE = "diagnostic"
 EXPERIMENT_TYPE = "v3_exq_264_arc033_e2_harm_s_forward"
@@ -468,8 +469,14 @@ def main(dry_run=False):
     )
     out_path = os.path.join(out_dir, f"{EXPERIMENT_TYPE}_{ts}_v3.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w") as f:
-        json.dump(output, f, indent=2)
+    out_path = write_flat_manifest(
+        output,
+        out_dir,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"\nResults written to {out_path}")
     print(f"Outcome: {outcome} ({criteria_passed}/3 criteria)")

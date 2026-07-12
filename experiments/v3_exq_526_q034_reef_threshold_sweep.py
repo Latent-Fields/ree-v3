@@ -91,6 +91,7 @@ import torch.optim as optim
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -939,8 +940,14 @@ def main() -> None:
         "n_total_runs":              len(per_seed_results),
     }
 
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"\n[V3-EXQ-526] Written: {out_path}", flush=True)
     print(f"Status: {outcome}", flush=True)
