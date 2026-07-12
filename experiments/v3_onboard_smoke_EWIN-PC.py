@@ -45,6 +45,7 @@ from ree_core.utils.config import REEConfig
 
 
 EXPERIMENT_TYPE = "v3_onboard_smoke_EWIN-PC"
+MANIFEST_WRITER_EXEMPT = "onboarding smoke crash-shape: writes a {status,run_id,verdict,metrics} smoke record built by subscript assignment, not a governance experiment manifest -- intentionally outside the pack_writer.write_flat_manifest chokepoint (pack_writer_single_writer_migration_plan.md sec 6 edge-cases)."
 CLAIM_IDS: list = []  # not tied to a scientific claim
 
 # Episode counts per block -- kept short, this is a benchmark not a training run

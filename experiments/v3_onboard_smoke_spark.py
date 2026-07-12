@@ -62,6 +62,7 @@ MACHINE_NAME = "spark_1"
 # =============================================================================
 
 EXPERIMENT_TYPE = f"v3_onboard_smoke_{MACHINE_NAME}"
+MANIFEST_WRITER_EXEMPT = "onboarding smoke crash-shape: writes a {status,run_id,verdict,metrics} smoke record built by subscript assignment, not a governance experiment manifest -- intentionally outside the pack_writer.write_flat_manifest chokepoint (pack_writer_single_writer_migration_plan.md sec 6 edge-cases)."
 CLAIM_IDS: list = []
 
 ENV_ONLY_EPISODES  = 50
