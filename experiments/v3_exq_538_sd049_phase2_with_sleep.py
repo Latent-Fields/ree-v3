@@ -145,6 +145,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorld  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_538_sd049_phase2_with_sleep"
 CLAIM_IDS = ["SD-049", "SD-015", "SD-017", "MECH-229", "MECH-230"]
@@ -832,9 +833,14 @@ def main(dry_run: bool = False) -> int:
             "under the same waking pipeline that 514f failed."
         ),
     }
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}")
     return 0
 

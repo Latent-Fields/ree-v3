@@ -114,6 +114,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.goal import IncentiveTokenBank  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 # Single deterministic forced-contact positive control; legs are run sequentially
 # with full RNG reset, NOT a (seed x arm) training grid -- no arm_results written.
@@ -573,8 +574,14 @@ def main(dry_run: bool = False, output_dir: Optional[str] = None) -> Tuple[str, 
         "related_queue_ids": ["V3-EXQ-514n", "V3-EXQ-514o", "V3-EXQ-626b"],
     }
     manifest.update(result)
-    out_path = out_dir / f"{run_id}.json"
-    out_path.write_text(json.dumps(manifest, indent=2))
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"[{EXPERIMENT_TYPE}] manifest -> {out_path}", flush=True)
     print(f"Done. Outcome: {outcome}", flush=True)
     return outcome, str(out_path)

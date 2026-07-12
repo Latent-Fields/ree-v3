@@ -109,6 +109,7 @@ from experiment_protocol import emit_outcome
 from ree_core.environment.causal_grid_world import CausalGridWorld
 from ree_core.agent import REEAgent
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_PURPOSE = "diagnostic"
 EXPERIMENT_TYPE = "v3_exq_609_e3_score_per_candidate_spread_decomp"
@@ -569,9 +570,15 @@ if __name__ == "__main__":
         ),
     }
 
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2, default=str)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+        json_default=str,
+    )
     print(f"Manifest written: {out_path}")
     print(f"Result written to: {out_path}")
 

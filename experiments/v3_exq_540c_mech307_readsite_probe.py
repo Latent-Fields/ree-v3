@@ -108,6 +108,7 @@ from ree_core.residue.field import (  # noqa: E402
     VALENCE_DIM,
 )
 from experiment_protocol import emit_outcome  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_540c_mech307_readsite_probe"
@@ -583,9 +584,14 @@ def main(dry_run: bool = False):
             "read-at-current_z_world mismatch is the leading hypothesis)."
         ),
     }
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}", flush=True)
     return outcome, out_path
 

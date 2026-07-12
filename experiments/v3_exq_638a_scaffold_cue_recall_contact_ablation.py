@@ -113,6 +113,7 @@ from experiments.scaffolded_sd054_onboarding import (
     _build_env,
 )
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_638a_scaffold_cue_recall_contact_ablation"
 QUEUE_ID = "V3-EXQ-638a"
@@ -401,8 +402,14 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         },
     }
     manifest.update(result)
-    out_path = out_dir / f"{run_id}.json"
-    out_path.write_text(json.dumps(manifest, indent=2))
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"[{EXPERIMENT_TYPE}] manifest -> {out_path}", flush=True)
     return {"outcome": result["outcome"], "manifest_path": str(out_path)}
 

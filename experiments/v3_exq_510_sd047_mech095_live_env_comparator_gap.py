@@ -123,6 +123,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.latent.stack import HarmEncoder  # noqa: E402
 from ree_core.predictors.e2_harm_s import E2HarmSConfig, E2HarmSForward  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_510_sd047_mech095_live_env_comparator_gap"
 CLAIM_IDS = ["MECH-095", "SD-047"]
@@ -643,9 +644,14 @@ def main(dry_run: bool = False) -> int:
             "pass_fraction_required": PASS_FRACTION_REQUIRED,
         },
     }
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}", flush=True)
     return 0
 

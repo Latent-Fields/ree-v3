@@ -148,6 +148,7 @@ from scaffolded_sd054_onboarding import (  # noqa: E402
     _sense_with_optional_harm,
     stage_plan,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_514p_sd049_phase2_mech229_object_bound_wanting_liking"
 QUEUE_ID = "V3-EXQ-514p"
@@ -889,8 +890,14 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         "stage_plan": stage_plan(),
     }
     manifest.update(result)
-    out_path = out_dir / f"{run_id}.json"
-    out_path.write_text(json.dumps(manifest, indent=2))
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"[{EXPERIMENT_TYPE}] manifest -> {out_path}", flush=True)
     print(f"Done. Outcome: {result['outcome']}", flush=True)
     return {"outcome": result["outcome"], "manifest_path": str(out_path)}

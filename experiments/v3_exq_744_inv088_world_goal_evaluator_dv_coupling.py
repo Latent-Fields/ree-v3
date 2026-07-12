@@ -184,6 +184,7 @@ from _lib.goal_pipeline_tier1 import ArmSpec, build_config, warmup_train  # noqa
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_744_inv088_world_goal_evaluator_dv_coupling"
 QUEUE_ID = "V3-EXQ-744"
@@ -835,10 +836,14 @@ def _write_manifest(result: Dict[str, Any]) -> Path:
         },
     }
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments" / EXPERIMENT_TYPE
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Wrote manifest: {out_path}", flush=True)
     return out_path
 

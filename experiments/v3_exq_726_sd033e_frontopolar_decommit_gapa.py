@@ -82,6 +82,7 @@ from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_726_sd033e_frontopolar_decommit_gapa"
 QUEUE_ID = "V3-EXQ-726"
@@ -661,9 +662,14 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
 def _write_manifest(manifest: Dict[str, Any]) -> Path:
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    out_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     return out_path
 
 

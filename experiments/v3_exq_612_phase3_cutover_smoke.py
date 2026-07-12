@@ -55,6 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_612_phase3_cutover_smoke"
@@ -144,9 +145,14 @@ def main() -> int:
     #   spools -> sync_daemon.phase3_git_writer commits to git.
     repo_root = Path(__file__).resolve().parents[2]
     out_dir = repo_root / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    out_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"[{EXPERIMENT_TYPE}] manifest written: {out_path}", flush=True)
 
     print(f"[{EXPERIMENT_TYPE}] result={manifest['result']} "

@@ -108,6 +108,7 @@ from experiments._lib.arm_fingerprint import (  # noqa: E402
 )
 from ree_core.predictors.e2_fast import Trajectory  # noqa: E402
 from ree_core.predictors.e3_selector import E3Config, E3TrajectorySelector  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_689h_pcomp_demotion_x_gonogo_composition"
 QUEUE_ID = "V3-EXQ-689h"
@@ -646,9 +647,14 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         Path(tempfile.gettempdir()) / "ree_dry_run_manifests" if dry_run
         else EVIDENCE_DIR
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    out_path.write_text(json.dumps(manifest, indent=2))
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     manifest["manifest_path"] = str(out_path)
     print(
         f"[689h] outcome={outcome} label={label} "

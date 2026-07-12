@@ -103,6 +103,7 @@ from experiments._lib.arm_fingerprint import (  # noqa: E402
 )
 from ree_core.predictors.e2_fast import Trajectory  # noqa: E402
 from ree_core.predictors.e3_selector import E3Config, E3TrajectorySelector  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_689g_mech449_go_nogo_conversion_falsifier"
 QUEUE_ID = "V3-EXQ-689g"
@@ -490,9 +491,14 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         manifest["degeneracy_reason"] = degeneracy_reason
 
     out_dir = Path(tempfile.gettempdir()) / "ree_dry_run_manifests" if dry_run else EVIDENCE_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    out_path.write_text(json.dumps(manifest, indent=2))
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     manifest["manifest_path"] = str(out_path)
     print(f"[689g] outcome={outcome} label={label} conversion_per_seed={seed_conversions} "
           f"safety_violations={total_safety_violations} -> {out_path}", flush=True)

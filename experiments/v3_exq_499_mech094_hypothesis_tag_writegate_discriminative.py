@@ -120,6 +120,7 @@ from ree_core.residue.field import (  # noqa: E402
     VALENCE_HARM_DISCRIMINATIVE,
 )
 from ree_core.utils.config import ResidueConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_499_mech094_hypothesis_tag_writegate_discriminative"
 CLAIM_IDS = ["MECH-094"]
@@ -431,10 +432,14 @@ def main() -> None:
     }
 
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}")
 
 

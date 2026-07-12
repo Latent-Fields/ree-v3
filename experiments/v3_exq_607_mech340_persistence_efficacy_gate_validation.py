@@ -62,6 +62,7 @@ from ree_core.hippocampal.ghost_goal_bank import (
     PersistenceAppraisal,
 )
 from ree_core.utils.config import AnchorSetConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EVIDENCE_ROOT = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
 
@@ -267,10 +268,14 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
             EVIDENCE_ROOT
             / "v3_exq_607_mech340_persistence_efficacy_gate_validation"
         )
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{run_id}.json"
-        with open(out_path, "w") as fh:
-            json.dump(manifest, fh, indent=2)
+        out_path = write_flat_manifest(
+            manifest,
+            out_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=None,
+            script_path=Path(__file__),
+        )
         print(f"Result written to: {out_path}", flush=True)
 
     return {

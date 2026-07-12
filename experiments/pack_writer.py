@@ -27,7 +27,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from typing import Any, Mapping, Optional, Union
+from typing import Any, Callable, Mapping, Optional, Union
 
 
 MANIFEST_SCHEMA_VERSION = "experiment_pack/v1"
@@ -294,6 +294,7 @@ def write_flat_manifest(
     stamp: bool = True,
     overwrite_core: bool = False,
     require_v3: bool = True,
+    json_default: Optional[Callable[[Any], Any]] = None,
 ) -> Path:
     """The single sanctioned writer for a FLAT V3 experiment manifest.
 
@@ -391,7 +392,12 @@ def write_flat_manifest(
     if dry_run:
         fname = f"_dry_{fname}"
     out_path = out_dir / fname
-    out_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    # json_default mirrors json.dump's ``default=`` (e.g. ``str``) for the small
+    # early-era class whose manifest carries non-JSON-native values; None (the
+    # default) is byte-identical to a plain json.dumps for every other caller.
+    out_path.write_text(
+        json.dumps(manifest, indent=2, default=json_default) + "\n", encoding="utf-8"
+    )
     return out_path
 
 

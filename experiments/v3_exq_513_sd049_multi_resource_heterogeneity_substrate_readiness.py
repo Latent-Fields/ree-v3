@@ -109,6 +109,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from ree_core.environment.causal_grid_world import CausalGridWorld  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_513_sd049_multi_resource_heterogeneity_substrate_readiness"
 CLAIM_IDS = ["SD-049"]
@@ -491,9 +492,14 @@ def main(dry_run: bool = False) -> int:
             "after Phase 2 lands)."
         ),
     }
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}")
 
     from experiment_protocol import emit_outcome

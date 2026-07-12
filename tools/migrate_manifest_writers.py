@@ -39,22 +39,44 @@ from pathlib import Path
 ALREADY = re.compile(r"write_flat_manifest|ExperimentPackWriter|\.write_pack\(")
 EXEMPT = re.compile(r"MANIFEST_WRITER_EXEMPT")
 
-# The json.dump(manifest, <fh>, indent=2[, ...]) line.
+# The json.dump(manifest, <fh>, indent=2[, sort_keys=True][, default=str]) line.
+# default=str is preserved by threading json_default=str into write_flat_manifest.
 DUMP_RE = re.compile(
     r"^(?P<indent>\s*)json\.dump\(\s*manifest\s*,\s*(?P<fh>\w+)\s*,\s*indent=2"
-    r"(?P<extra>(?:\s*,\s*sort_keys=True)?)\s*\)\s*$"
+    r"(?P<extra>(?:\s*,\s*(?:sort_keys=True|default=str))*)\s*\)\s*$"
 )
 WITH_RE = re.compile(r'^(?P<indent>\s*)with\s+open\(\s*(?P<path>\w+)\s*,\s*["\']w["\']\s*\)\s*as\s+(?P<fh>\w+)\s*:\s*$')
+# Early-era single-line write idiom: out_path.write_text(json.dumps(manifest, indent=2)
+# [+ "\n"][, encoding="utf-8"]). Only the `manifest` var is accepted -- the same
+# identity guarantee as the json.dump(manifest tail. `\\n` matches a literal \n.
+WRITETEXT_RE = re.compile(
+    r'^(?P<indent>\s*)(?P<path>\w+)\.write_text\(\s*json\.dumps\(\s*manifest\s*,\s*indent=2'
+    r'(?:\s*,\s*sort_keys=True)?\s*\)(?:\s*\+\s*["\']\\n["\'])?(?:\s*,\s*encoding=["\']utf-8["\'])?\s*\)\s*$'
+)
 OUTPATH_RE = re.compile(
     r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*out_dir\s*/\s*f["']\{?_dry_\}?"""
 )
-# canonical primary + dry lines (run_id via manifest['run_id'] or manifest["run_id"])
+# canonical primary + dry lines. run_id resolved either as manifest['run_id']
+# (the batch-1 canonical form) OR as a bare local `run_id` variable. The bare
+# form is accepted ONLY when `runid_is_manifest_runid` proves the manifest sets
+# `"run_id": run_id`, so out_dir / f"{run_id}.json" is byte-identical to what
+# write_flat_manifest recomputes (out_dir / f"{manifest['run_id']}.json").
+_RUNID = r"""(?:manifest\[["']run_id["']\]|run_id)"""
 PRIMARY_RE = re.compile(
-    r"""^(?P<indent>\s*)out_path\s*=\s*out_dir\s*/\s*f["']\{manifest\[["']run_id["']\]\}\.json["']\s*$"""
+    r"""^(?P<indent>\s*)out_path\s*=\s*out_dir\s*/\s*f["']\{""" + _RUNID + r"""\}\.json["']\s*$"""
 )
 DRY_REASSIGN_RE = re.compile(
-    r"""^(?P<indent>\s*)out_path\s*=\s*out_dir\s*/\s*f["']_dry_\{manifest\[["']run_id["']\]\}\.json["']\s*$"""
+    r"""^(?P<indent>\s*)out_path\s*=\s*out_dir\s*/\s*f["']_dry_\{""" + _RUNID + r"""\}\.json["']\s*$"""
 )
+# `"run_id": run_id` (or single-quoted) in the manifest dict literal proves the
+# local run_id var IS the manifest run_id.
+RUNID_FIELD_RE = re.compile(r"""["']run_id["']\s*:\s*run_id\b""")
+
+
+def runid_is_manifest_runid(src: str) -> bool:
+    """True if the manifest dict sets its run_id from the local `run_id` var, so
+    that a bare-`run_id` out_path is byte-identical to the manifest['run_id'] one."""
+    return bool(RUNID_FIELD_RE.search(src))
 DRY_IF_RE = re.compile(r"^(?P<indent>\s*)if\s+(?P<cond>[^:]+):\s*$")
 MKDIR_RE = re.compile(r"^\s*out_dir\.mkdir\([^)]*\)\s*$")
 
@@ -89,32 +111,49 @@ def migrate_one(path: Path):
         return ("skip", "MANIFEST_WRITER_EXEMPT", None)
     if ALREADY.search(src):
         return ("skip", "already-routed", None)
-    if "json.dump(manifest" not in src:
+    has_jsondump = "json.dump(manifest" in src
+    has_writetext = bool(re.search(r"\.write_text\(\s*json\.dumps\(\s*manifest\b", src))
+    if not has_jsondump and not has_writetext:
         return ("unmatched", "no json.dump(manifest tail", None)
 
     lines = src.splitlines()
-    # locate the dump line
-    dump_idx = None
+    # Locate the manifest write statement. Two accepted idioms:
+    #   A) with open(out_path, "w") as fh:   (2 lines)
+    #          json.dump(manifest, fh, indent=2[, sort_keys=True])
+    #   B) out_path.write_text(json.dumps(manifest, indent=2)[ + "\n"][, encoding=...])  (1 line)
+    # write_top/write_bot bracket the write statement (inclusive) for replacement.
+    write_top = write_bot = None
+    has_default_str = False
     for i, ln in enumerate(lines):
-        if DUMP_RE.match(ln):
-            dump_idx = i
+        wt = WRITETEXT_RE.match(ln)
+        if wt and wt.group("path") == "out_path":
+            write_top = write_bot = i
             break
-    if dump_idx is None:
-        return ("unmatched", "json.dump(manifest present but not the canonical indent=2 form", None)
+    if write_top is None:
+        if not has_jsondump:
+            return ("unmatched", "write_text(json.dumps(manifest present but not the canonical form", None)
+        dump_idx = None
+        for i, ln in enumerate(lines):
+            if DUMP_RE.match(ln):
+                dump_idx = i
+                break
+        if dump_idx is None:
+            return ("unmatched", "json.dump(manifest present but not the canonical indent=2 form", None)
+        dm = DUMP_RE.match(lines[dump_idx])
+        # the preceding line must be `with open(out_path, "w") as <fh>:`
+        if dump_idx == 0:
+            return ("unmatched", "dump at file start", None)
+        wm = WITH_RE.match(lines[dump_idx - 1])
+        if not wm:
+            return ("unmatched", "no canonical `with open(out_path, \"w\") as fh:` above dump", None)
+        if wm.group("path") != "out_path" or wm.group("fh") != dm.group("fh"):
+            return ("unmatched", "with-open path/handle not out_path/<fh>", None)
+        has_default_str = "default=str" in (dm.group("extra") or "")
+        write_top = dump_idx - 1
+        write_bot = dump_idx
 
-    dm = DUMP_RE.match(lines[dump_idx])
-    # the preceding line must be `with open(out_path, "w") as <fh>:`
-    if dump_idx == 0:
-        return ("unmatched", "dump at file start", None)
-    wm = WITH_RE.match(lines[dump_idx - 1])
-    if not wm:
-        return ("unmatched", "no canonical `with open(out_path, \"w\") as fh:` above dump", None)
-    if wm.group("path") != "out_path" or wm.group("fh") != dm.group("fh"):
-        return ("unmatched", "with-open path/handle not out_path/<fh>", None)
-
-    with_idx = dump_idx - 1
     # walk upward past optional blank lines to find the out_path assignment(s)
-    j = with_idx - 1
+    j = write_top - 1
     while j >= 0 and lines[j].strip() == "":
         j -= 1
     # optional dry reassignment block: `if <cond>:` \n `    out_path = ..._dry_...`
@@ -148,6 +187,10 @@ def migrate_one(path: Path):
     if not has_out_dir_assignment(lines, top):
         return ("unmatched", "no out_dir assignment above tail", None)
 
+    # Bare-`run_id` out_path is only safe when it provably equals manifest['run_id'].
+    if "manifest[" not in lines[block_top] and not runid_is_manifest_runid(src):
+        return ("unmatched", "bare run_id out_path not provably == manifest['run_id']", None)
+
     # Statement-level indent = the indent of the out_path assignment being
     # replaced (NOT the json.dump body indent, which is one level deeper and
     # would produce an IndentationError).
@@ -165,9 +208,11 @@ def migrate_one(path: Path):
         f"{indent}    config={cfg},",
         f"{indent}    seeds={seeds_arg},",
         f"{indent}    script_path=Path(__file__),",
-        f"{indent})",
     ]
-    new_lines = lines[:top] + replacement + lines[dump_idx + 1:]
+    if has_default_str:
+        replacement.append(f"{indent}    json_default=str,")
+    replacement.append(f"{indent})")
+    new_lines = lines[:top] + replacement + lines[write_bot + 1:]
 
     # insert import if absent
     new_src = "\n".join(new_lines)
@@ -181,6 +226,8 @@ def migrate_one(path: Path):
         flags.append("SEEDS-not-found(seeds=None)")
     if dry_cond is None:
         flags.append("no-dry-branch(dry_run=False)")
+    if has_default_str:
+        flags.append("json_default=str")
     return ("migrate", ";".join(flags) or "ok", new_src)
 
 

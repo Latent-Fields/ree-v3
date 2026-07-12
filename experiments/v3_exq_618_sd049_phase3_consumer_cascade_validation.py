@@ -150,6 +150,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorld  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_618_sd049_phase3_consumer_cascade_validation"
 CLAIM_IDS = ["SD-049", "MECH-295"]
@@ -637,9 +638,15 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
             "/ MECH-117 / ARC-030 / ARC-032 / Q-030)."
         ),
     }
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2, default=str)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+        json_default=str,
+    )
     print(f"Result written to: {out_path}", flush=True)
     return outcome, str(out_path)
 

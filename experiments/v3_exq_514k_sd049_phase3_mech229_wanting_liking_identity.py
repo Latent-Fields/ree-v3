@@ -58,6 +58,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorld  # noqa: E402
 from ree_core.residue.field import VALENCE_LIKING, VALENCE_WANTING  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_514k_sd049_phase3_mech229_wanting_liking_identity"
 QUEUE_ID = "V3-EXQ-514k"
@@ -809,9 +810,14 @@ def main(dry_run: bool = False):
             f"interpretation_branch={acceptance.get('interpretation_branch', 'n/a')}"
         ),
     }
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}")
     return outcome, out_path
 

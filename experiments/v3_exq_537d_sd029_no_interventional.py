@@ -178,6 +178,7 @@ from ree_core.agent import REEAgent
 from ree_core.utils.config import REEConfig
 from ree_core.predictors.e2_harm_s import E2HarmSConfig, E2HarmSForward
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_537d_sd029_no_interventional"
 QUEUE_ID = "V3-EXQ-537d"
@@ -870,10 +871,14 @@ def main(dry_run=False):
         return manifest
 
     out_dir = Path(__file__).resolve().parent.parent.parent / "REE_assembly" / "evidence" / "experiments" / EXPERIMENT_TYPE
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"Wrote: {out_path}")
     print(f"Result written to: {out_path}", flush=True)

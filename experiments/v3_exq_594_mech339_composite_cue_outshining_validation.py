@@ -102,6 +102,7 @@ from experiment_protocol import emit_outcome
 from ree_core.hippocampal.anchor_set import Anchor, AnchorGoalPayload, AnchorSet
 from ree_core.hippocampal.ghost_goal_bank import GhostGoalBank
 from ree_core.utils.config import AnchorSetConfig, GhostGoalBankConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EVIDENCE_ROOT = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
 
@@ -422,10 +423,14 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     out_path = None
     if not dry_run:
         out_dir = EVIDENCE_ROOT / "v3_exq_594_mech339_composite_cue_outshining_validation"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{run_id}.json"
-        with open(out_path, "w") as fh:
-            json.dump(manifest, fh, indent=2)
+        out_path = write_flat_manifest(
+            manifest,
+            out_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=None,
+            script_path=Path(__file__),
+        )
         print(f"Result written to: {out_path}", flush=True)
 
     return {

@@ -86,6 +86,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from ree_core.agent import REEAgent
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_PURPOSE = "diagnostic"
 EXPERIMENT_TYPE = "v3_exq_485c_sd033b_task_role_discrimination"
@@ -273,10 +274,14 @@ def main() -> None:
     }
 
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"result: {outcome}")
     print(f"  evidence_direction: {direction}")

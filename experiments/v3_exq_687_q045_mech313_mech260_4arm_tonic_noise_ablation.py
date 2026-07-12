@@ -132,6 +132,7 @@ from scaffolded_sd054_onboarding import (  # noqa: E402
     _build_env,
     _sense_with_optional_harm,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_687_q045_mech313_mech260_4arm_tonic_noise_ablation"
 QUEUE_ID = "V3-EXQ-687"
@@ -890,10 +891,14 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         out_path = Path("/dev/null")
         print("Dry run -- manifest not written.", flush=True)
     else:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{run_id}.json"
-        with open(out_path, "w") as fh:
-            json.dump(manifest, fh, indent=2)
+        out_path = write_flat_manifest(
+            manifest,
+            out_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
         print(f"Manifest written: {out_path}", flush=True)
 
     print(f"Outcome: {outcome} interpretation_label={interp['label']}"

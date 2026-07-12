@@ -80,6 +80,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._harness import StepHarness  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 QUEUE_ID = "V3-EXQ-530c"
 EXPERIMENT_TYPE = "v3_exq_530c_arc016_precision_commit_stepharness"
@@ -398,10 +399,14 @@ def write_result(result: Dict, run_id: str) -> str:
     }
 
     out_dir = Path(__file__).resolve().parent.parent.parent / "REE_assembly" / "evidence" / "experiments" / EXPERIMENT_TYPE
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
     print(f"Result written to: {out_path}", flush=True)
     return str(out_path)
 
