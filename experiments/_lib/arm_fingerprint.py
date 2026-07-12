@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import random
 import sys
@@ -136,9 +137,10 @@ def compute_substrate_hash(
         an under-approximation (omitting an executed file) is a false-HIT bug that
         corrupts a conclusion, whereas over-inclusion only causes a (cheap) false
         miss. This function does NOT itself prove the superset property; the caller
-        MUST establish it (e.g. the execution-trace + static data-closure guards in
-        maturation_curriculum.verify_scope_conservatism). `scoped`/`globs` are
-        returned so the caller can record the discriminator in provenance.
+        MUST establish it (the execution-trace + static data-closure guards in the
+        shared experiments/_lib/substrate_scope_guard.verify_scope_conservatism).
+        `scoped`/`globs` are returned so the caller can record the discriminator in
+        provenance.
     """
     root = (repo_root or _REPO_ROOT).resolve()
     globs: Sequence[str] = _SUBSTRATE_GLOBS if scope is None else tuple(scope)
@@ -229,6 +231,7 @@ def compute_arm_fingerprint(
     repo_root: Optional[Path] = None,
     extra_ineligible_reasons: Optional[Sequence[str]] = None,
     include_driver_script_in_hash: bool = True,
+    substrate_scope: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """Compute the per-cell fingerprint payload to embed in a manifest arm row.
 
@@ -268,10 +271,49 @@ def compute_arm_fingerprint(
         Any caller-known reasons the cell must never be reused (e.g.
         "shared_optimizer_across_arms"). Their presence forces
         reuse_eligible=False.
+    substrate_scope
+        Author-declared dependency scope (plan section 11). DEFAULT None hashes the
+        WHOLE _SUBSTRATE_GLOBS trees (today's behaviour, byte-for-byte unchanged, so
+        every existing fingerprint is unaffected -- this stays strictly opt-in and
+        false-miss-only). A non-None value is an iterable of repo-root-relative globs
+        naming ONLY the closure the cell actually executes+reads; then only those files
+        join substrate_hash, so an edit to an unrelated ree_core module no longer busts
+        the fingerprint and a later consumer that declares the SAME scope can HIT where
+        it previously missed.
+
+        SAFETY (plan section 2 governing asymmetry -- the one thing that must not be
+        wrong): a declared scope MUST be a provable SUPERSET of every file the cell can
+        execute or read a module-level constant from. An UNDER-approximation is a
+        false-HIT bug that corrupts a conclusion; over-inclusion only causes a (cheap)
+        false miss. This function does NOT prove the superset property -- the caller MUST
+        establish it BEFORE trusting a scope, via the shared guards in
+        experiments/_lib/substrate_scope_guard.verify_scope_conservatism (guard 1
+        call-trace + guard 2 static data-closure), exactly as the maturation-curriculum
+        prototype did. The declared scope is folded into the fingerprint hash (so
+        narrowing/widening the reuse contract changes the key, and a scoped fingerprint
+        can never collide with a whole-tree one) and recorded via substrate_scope_declared
+        for audit -- precisely like config_slice_declared. Optionally, exporting
+        REE_ARM_SCOPE_GUARD=1 runs the cheap static guard 2 here at emit time as a
+        tripwire (the expensive call-trace guard 1 must run in the author's smoke/contract
+        test since it executes a real cell).
 
     Returns a JSON-serialisable dict. Embed it as arm_results[i]["arm_fingerprint"].
     NOTHING here reads or consults any cache -- Phase 0 is emit-only.
     """
+    scoped = substrate_scope is not None
+    if scoped and os.environ.get("REE_ARM_SCOPE_GUARD", "").strip() not in ("", "0", "false", "False"):
+        # Opt-in cheap static conservatism guard (guard 2). Lazily imported so the
+        # default path stays stdlib-only and dependency-free; the guard module is itself
+        # stdlib-only. Raises loudly if the declared scope is no longer data-closed or a
+        # declared file is missing. The expensive call-trace guard (guard 1) must run in
+        # the author's smoke/contract test (it executes a real cell). The _lib dir is put
+        # on sys.path so the bare import resolves regardless of how the caller imported us.
+        _libdir = str(Path(__file__).resolve().parent)
+        if _libdir not in sys.path:
+            sys.path.insert(0, _libdir)
+        from substrate_scope_guard import verify_scope_static as _vss  # noqa: E402
+        _vss(list(substrate_scope), label="arm_fingerprint substrate_scope")
+
     # Driver script folds into the reuse-critical hash only when the caller opts
     # IN (the default). When excluded, record its content separately for triage --
     # the canonical baseline module that actually defines the OFF computation is
@@ -280,11 +322,13 @@ def compute_arm_fingerprint(
     sub = compute_substrate_hash(
         extra_paths=[script_path] if fold_script else None,
         repo_root=repo_root,
+        scope=substrate_scope,
     )
     if extra_substrate_paths:
         # fold any additional declared deps into the hash deterministically
         extra = compute_substrate_hash(extra_paths=extra_substrate_paths,
-                                       repo_root=repo_root)
+                                       repo_root=repo_root,
+                                       scope=substrate_scope)
         sub["substrate_hash"] = _sha256_hex(
             (sub["substrate_hash"] + ":" + extra["substrate_hash"]).encode("ascii")
         )
@@ -310,6 +354,14 @@ def compute_arm_fingerprint(
     # path so existing (include=True) fingerprints are byte-identical to before.
     if not include_driver_script_in_hash:
         fp_input["driver_script_excluded"] = True
+    # Discriminator: a substrate-scoped fingerprint must NEVER collide with a whole-tree
+    # (scope=None) one, and two DIFFERENT declared scopes must key differently (narrowing/
+    # widening the reuse contract changes the key -- mirrors config_slice + the maturation
+    # _prefix_key). Folded in ONLY on the non-default path, so an unscoped fingerprint is
+    # byte-identical to before this feature.
+    if scoped:
+        fp_input["substrate_scope_declared"] = True
+        fp_input["substrate_scope"] = list(substrate_scope)
     fingerprint = _sha256_hex(_canonical_json(fp_input).encode("utf-8"))
 
     reasons: List[str] = list(extra_ineligible_reasons or ())
@@ -328,6 +380,12 @@ def compute_arm_fingerprint(
         "regime": REGIME,
         "seed": int(seed),
         "config_slice_declared": bool(config_slice_declared),
+        # Dependency-scoped substrate hashing (plan section 11). Recorded for audit like
+        # config_slice_declared; the glob list lets a reviewer / consumer confirm both
+        # sides of a reuse used the same declared scope. substrate_scope is None when
+        # undeclared (whole-tree hash -- the safe default).
+        "substrate_scope_declared": scoped,
+        "substrate_scope": list(substrate_scope) if scoped else None,
         "reuse_eligible": reuse_eligible,
         "reuse_ineligible_reasons": reasons,
         # Reuse-key scoping: did the driver script join the reuse-critical hash?
@@ -372,6 +430,7 @@ class _ArmCell:
         extra_ineligible_reasons: Optional[Sequence[str]] = None,
         do_reset: bool = True,
         include_driver_script_in_hash: bool = True,
+        substrate_scope: Optional[Sequence[str]] = None,
     ) -> None:
         self.seed = int(seed)
         self._config_slice = config_slice
@@ -382,6 +441,7 @@ class _ArmCell:
         self._extra_ineligible_reasons = extra_ineligible_reasons
         self._do_reset = do_reset
         self._include_driver_script_in_hash = include_driver_script_in_hash
+        self._substrate_scope = substrate_scope
         self._rng_reset = False
         self.fingerprint: Optional[Dict[str, Any]] = None
 
@@ -403,6 +463,7 @@ class _ArmCell:
             repo_root=self._repo_root,
             extra_ineligible_reasons=self._extra_ineligible_reasons,
             include_driver_script_in_hash=self._include_driver_script_in_hash,
+            substrate_scope=self._substrate_scope,
         )
         if row is not None:
             row["arm_fingerprint"] = self.fingerprint
@@ -423,6 +484,7 @@ def arm_cell(
     extra_ineligible_reasons: Optional[Sequence[str]] = None,
     do_reset: bool = True,
     include_driver_script_in_hash: bool = True,
+    substrate_scope: Optional[Sequence[str]] = None,
 ) -> _ArmCell:
     """One-liner per-cell helper: resets RNG on enter, stamps fingerprint on .stamp().
 
@@ -431,6 +493,12 @@ def arm_cell(
     reset + fingerprint emission) so an author cannot accidentally do one without
     the other. The low-level `reset_all_rng` + `compute_arm_fingerprint` pair
     remains available for scripts that need finer control.
+
+    `substrate_scope` (plan section 11): pass an author-declared dependency scope to
+    hash only the cell's closure instead of the whole substrate tree. DEFAULT None =
+    whole-tree (byte-unchanged). It MUST be a provable superset of the cell's
+    execute+read closure -- verify with substrate_scope_guard.verify_scope_conservatism
+    first (see compute_arm_fingerprint).
     """
     return _ArmCell(
         seed,
@@ -442,6 +510,7 @@ def arm_cell(
         extra_ineligible_reasons=extra_ineligible_reasons,
         do_reset=do_reset,
         include_driver_script_in_hash=include_driver_script_in_hash,
+        substrate_scope=substrate_scope,
     )
 
 

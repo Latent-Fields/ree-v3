@@ -177,6 +177,7 @@ def evaluate_reuse(
     extra_substrate_paths: Optional[Sequence[Path]] = None,
     repo_root: Optional[Path] = None,
     include_driver_script_in_hash: bool = True,
+    substrate_scope: Optional[Sequence[str]] = None,
 ) -> ReuseDecision:
     """Decide whether the requesting cell may reuse a cached cell. Pure / no I/O side effects.
 
@@ -193,10 +194,13 @@ def evaluate_reuse(
     """
     idx_path = Path(index_path) if index_path is not None else _DEFAULT_INDEX
 
-    # Recompute the requesting cell's fingerprint. rng_fully_reset / declared do NOT
-    # enter the hash (only schema/substrate_hash/config_slice/seed/machine_class/
-    # regime do), so they are immaterial to the lookup key; we pass True/True for a
-    # faithful emit-equivalent payload.
+    # Recompute the requesting cell's fingerprint. rng_fully_reset / config_slice_declared
+    # do NOT enter the hash (only schema/substrate_hash/config_slice/seed/machine_class/
+    # regime do -- plus, on the non-default paths, the driver-script-excluded and
+    # substrate-scope discriminators), so they are immaterial to the lookup key; we pass
+    # True/True for a faithful emit-equivalent payload. substrate_scope, when the mint
+    # declared one, MUST be passed identically here or the recomputed fingerprint will not
+    # match the mint's (a MISS -- the safe outcome, but no reuse).
     fp_payload = compute_arm_fingerprint(
         config_slice=config_slice,
         seed=seed,
@@ -206,6 +210,7 @@ def evaluate_reuse(
         extra_substrate_paths=extra_substrate_paths,
         repo_root=repo_root,
         include_driver_script_in_hash=include_driver_script_in_hash,
+        substrate_scope=substrate_scope,
     )
     fingerprint = fp_payload["arm_fingerprint"]
     requesting_schema = fp_payload["schema"]
@@ -283,6 +288,7 @@ def try_reuse_cell(
     extra_substrate_paths: Optional[Sequence[Path]] = None,
     repo_root: Optional[Path] = None,
     include_driver_script_in_hash: bool = True,
+    substrate_scope: Optional[Sequence[str]] = None,
     logger: Optional[Any] = None,
 ) -> Optional[Dict[str, Any]]:
     """Return a cached OFF-arm cell to reuse, or None if reuse is refused.
@@ -305,6 +311,12 @@ def try_reuse_cell(
     include_driver_script_in_hash
         Must equal the flag the mint used (default True). Pass False for the
         canonical-baseline-module reuse path described above.
+    substrate_scope
+        Must equal the declared substrate scope the mint used (plan section 11;
+        default None = whole-tree). If the mint narrowed its substrate hash to a
+        declared closure, the consumer MUST declare the SAME scope to reproduce the
+        mint's fingerprint and HIT; a mismatched or absent scope simply yields a
+        different fingerprint that is not in the index -> reuse REFUSED (safe).
     needed_keys
         The OFF-arm metric keys this experiment reads. If the cached cell did not
         record all of them, reuse is refused (the section-9.2 correctness trap).
@@ -326,6 +338,7 @@ def try_reuse_cell(
         extra_substrate_paths=extra_substrate_paths,
         repo_root=repo_root,
         include_driver_script_in_hash=include_driver_script_in_hash,
+        substrate_scope=substrate_scope,
     )
     log = logger if callable(logger) else print
     fp12 = (decision.fingerprint or "")[:12]

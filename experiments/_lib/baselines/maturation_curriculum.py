@@ -78,10 +78,13 @@ CONSTANT from -- here only ree_core.regulators SITE_* string labels). CODE
 (class/function) imports of NON-executed modules are deliberately EXCLUDED: the
 call-trace proves their functions never run, so their bodies cannot affect the
 deterministic prefix. Two guards keep this an over-approximation (false-miss-only),
-enforced by _verify_scope_conservatism (run in the scope test + opt-in at runtime via
+enforced by verify_scope_conservatism (run in the scope test + opt-in at runtime via
 REE_PREFIX_SCOPE_GUARD=1): guard 1 (call-trace) asserts every executed repo file is in
 scope; guard 2 (static AST) asserts the scope is a FIXPOINT of the data-closure
-operator. A refactor that moves executed code out of a declared file, or adds a
+operator. The guard MACHINERY is scope-generic and lives in the shared
+experiments/_lib/substrate_scope_guard.py module (promoted 2026-07-12 so the global
+sec-9 arm_fingerprint path can run the same guards); this module only declares the
+per-leg scope + thin leg-keyed wrappers. A refactor that moves executed code out of a declared file, or adds a
 constant value-import from outside the scope, trips a guard loudly rather than
 silently under-approximating. substrate_scope_declared + the glob list are recorded in
 the cache blob + provenance for audit (mirrors config_slice_declared).
@@ -103,12 +106,11 @@ reuse the stdlib-only arm_fingerprint primitives.
 
 from __future__ import annotations
 
-import ast
 import copy
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -127,6 +129,18 @@ from arm_fingerprint import (  # noqa: E402
     _sha256_hex,
     compute_substrate_hash,
     machine_class,
+)
+# Conservatism guards live in a shared, scope-generic module (plan sec 11) so any
+# experiment -- not just this prototype -- can prove a declared substrate scope is a
+# safe over-approximation. This module keeps only the per-leg scope declarations +
+# thin leg-keyed wrappers; the guard MACHINERY (call-trace + static data-closure) is
+# imported. Aliased to the historical private names so existing callers/tests are
+# unaffected.
+from substrate_scope_guard import (  # noqa: E402
+    static_data_closure as _static_data_closure,
+    traced_execution_files as _traced_execution_files,
+    verify_scope_static as _verify_scope_static_files,
+    verify_scope_conservatism as _verify_scope_conservatism_files,
 )
 from _lib.goal_pipeline_tier1 import ArmSpec, build_config, warmup_train  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
@@ -282,203 +296,35 @@ def _prefix_key(leg: str, upstream: Dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 # Conservatism guards (plan sec 11). A declared scope that UNDER-approximates is a
 # false-HIT bug, so the scope must be a provable over-approximation of everything the
-# frozen prefix can execute or read. Two independent checks; together they close the
-# code-exec (a) and data-read (b) channels.
+# frozen prefix can execute or read. Two independent checks close the code-exec (a) and
+# data-read (b) channels; both now live in the scope-generic substrate_scope_guard module
+# (imported above) so any experiment can run them. These leg-keyed wrappers just look up
+# the per-leg declared scope and delegate.
 # ---------------------------------------------------------------------------
-
-# Memoised across calls -- these are pure functions of the (dirty-tree) file content.
-# _static_data_closure is on the opt-in runtime guard path + the scope test, so caching
-# keeps it from re-parsing agent.py (a very large module) on every fixpoint step.
-_MOD_RELPATH_CACHE: Dict[str, Optional[str]] = {}
-_TREE_CACHE: Dict[str, ast.AST] = {}
-_IMPORTS_CACHE: Dict[str, List[Tuple[str, Optional[str]]]] = {}
-
-
-def _mod_to_relpath(mod: str) -> Optional[str]:
-    """Resolve a dotted repo module to its repo-relative .py path (or None). Memoised."""
-    if mod in _MOD_RELPATH_CACHE:
-        return _MOD_RELPATH_CACHE[mod]
-    rel: Optional[str] = None
-    if (mod.startswith("ree_core") or mod.startswith("experiments")
-            or mod == "_harness" or mod.startswith("_lib") or mod.startswith("_metrics")):
-        dotted = "/".join(mod.split("."))
-        for cand in (dotted + ".py", dotted + "/__init__.py",
-                     "experiments/" + dotted + ".py", "experiments/" + dotted + "/__init__.py"):
-            if (_REPO_ROOT / cand).is_file():
-                rel = cand
-                break
-    _MOD_RELPATH_CACHE[mod] = rel
-    return rel
-
-
-def _tree(rel: str) -> ast.AST:
-    if rel not in _TREE_CACHE:
-        _TREE_CACHE[rel] = ast.parse((_REPO_ROOT / rel).read_text())
-    return _TREE_CACHE[rel]
-
-
-def _file_imports(rel: str) -> List[Tuple[str, Optional[str]]]:
-    """All repo-module imports in `rel` (top-level AND function-local) as (module, name)
-    pairs; `name=None` marks a bare `import mod` / `from pkg import submod` / star. Walked
-    ONCE per file and cached -- this is the expensive step for large modules."""
-    if rel in _IMPORTS_CACHE:
-        return _IMPORTS_CACHE[rel]
-    recs: List[Tuple[str, Optional[str]]] = []
-    for node in ast.walk(_tree(rel)):
-        if isinstance(node, ast.Import):
-            for a in node.names:
-                if _mod_to_relpath(a.name):
-                    recs.append((a.name, None))
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            if not (node.module.startswith("ree_core") or node.module.startswith("experiments")
-                    or node.module == "_harness" or node.module.startswith("_lib")
-                    or node.module.startswith("_metrics")):
-                continue
-            for a in node.names:
-                if a.name == "*":
-                    recs.append((node.module, None))
-                elif _mod_to_relpath(node.module + "." + a.name):
-                    recs.append((node.module + "." + a.name, None))  # submodule import
-                else:
-                    recs.append((node.module, a.name))
-    _IMPORTS_CACHE[rel] = recs
-    return recs
-
-
-def _name_kind(rel: str, name: str):
-    """Classify a top-level `name` in file `rel`:
-      ('code',)                 -- ClassDef/FunctionDef (safe: trace proves uncalled)
-      ('data',)                 -- module-level assignment (a data value-import channel)
-      ('reexport', mod, name)   -- re-imported from another module (follow to leaf)
-      ('unknown',)              -- not found at top level -> treated as data (conservative)
-    """
-    for node in _tree(rel).body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if node.name == name:
-                return ("code",)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            for a in node.names:
-                if (a.asname or a.name) == name:
-                    return ("reexport", node.module, a.name)
-        elif isinstance(node, ast.Import):
-            for a in node.names:
-                if (a.asname or a.name.split(".")[0]) == name:
-                    return ("reexport", a.name, None)
-        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-            tgts = node.targets if isinstance(node, ast.Assign) else [node.target]
-            for t in tgts:
-                if isinstance(t, ast.Name) and t.id == name:
-                    return ("data",)
-    return ("unknown",)
-
-
-def _leaf_is_data(mod: Optional[str], name: Optional[str], chain: List[str]) -> Tuple[bool, List[str]]:
-    """Follow a `from mod import name` re-export chain to its leaf; classify the leaf.
-
-    Returns (is_data, chain_of_relpaths). A bare module (`name is None`) is treated as a
-    data channel (attribute reads cannot be ruled out statically).
-    """
-    rel = _mod_to_relpath(mod) if mod else None
-    if rel is None:
-        return (False, chain)  # not a repo module (stdlib / 3rd-party)
-    chain = chain + [rel]
-    if name is None:
-        return (True, chain)
-    k = _name_kind(rel, name)
-    if k[0] == "code":
-        return (False, chain)
-    if k[0] == "reexport":
-        return _leaf_is_data(k[1], k[2], chain)
-    return (True, chain)  # data or unknown
-
-
-def _static_data_closure(scope: Sequence[str]) -> Set[str]:
-    """The transitive DATA-closure of `scope`: `scope` plus every repo module a scope
-    file value-imports a module-level CONSTANT from (following re-exports to the leaf).
-    Class/function imports of other modules are NOT added (safe -- see guard model).
-    Worklist fixpoint: each file's imports are extracted once (cached), each file scanned
-    once."""
-    out: Set[str] = set(scope)
-    worklist: List[str] = list(scope)
-    while worklist:
-        rel = worklist.pop()
-        for mod, name in _file_imports(rel):
-            is_d, chain = _leaf_is_data(mod, name, [])
-            if is_d:
-                for c in chain:
-                    if c not in out:
-                        out.add(c)
-                        worklist.append(c)
-    return out
 
 
 def _verify_scope_static(leg: str) -> None:
-    """Guard 2 (cheap, static AST): every declared scope file exists, and the scope is a
-    FIXPOINT of the data-closure operator (i.e. hashes every module a scope file reads a
-    constant from). Raises AssertionError loudly on any violation. Does NOT run the
-    experiment -- see verify_scope_conservatism for the call-trace guard (guard 1)."""
-    scope = _LEG_SUBSTRATE_SCOPE[leg]
-    missing = [p for p in scope if not (_REPO_ROOT / p).is_file()]
-    assert not missing, (
-        "prefix-cache scope[%s]: declared files do not exist (refactor drift?): %s. "
-        "The scope must be corrected before it can be trusted (plan sec 11)." % (leg, missing))
-    closure = _static_data_closure(scope)
-    escaped = sorted(closure - set(scope))
-    assert not escaped, (
-        "prefix-cache scope[%s] is NOT data-closed -- a scope file value-imports a "
-        "module-level constant from these UNSCOPED repo modules: %s. This is a false-HIT "
-        "hazard (plan sec 2/11): add them to _%s_SUBSTRATE_SCOPE or the key can serve a "
-        "stale prefix when they change." % (leg, escaped, leg.upper()))
-
-
-def _traced_execution_files(run_once) -> Set[str]:
-    """Run `run_once()` under a Python call-trace; return the set of repo-relative .py
-    files whose code executed. Used by guard 1."""
-    executed: Set[str] = set()
-    root_str = str(_REPO_ROOT) + os.sep
-
-    def _tr(frame, event, arg):
-        fn = frame.f_code.co_filename
-        if fn.startswith(root_str):
-            try:
-                executed.add(str(Path(fn).resolve().relative_to(_REPO_ROOT)))
-            except ValueError:
-                pass
-        return None
-
-    old = sys.gettrace()
-    sys.settrace(_tr)
-    try:
-        run_once()
-    finally:
-        sys.settrace(old)
-    return executed
+    """Guard 2 (cheap, static AST) for a leg: delegate to the shared guard with this leg's
+    declared scope. Raises AssertionError loudly if the scope no longer exists or is not a
+    data-closed fixpoint (plan sec 11)."""
+    _verify_scope_static_files(_LEG_SUBSTRATE_SCOPE[leg], label="prefix-cache scope[%s]" % leg)
 
 
 def verify_scope_conservatism(leg: str, run_once=None) -> Dict[str, Any]:
     """Full conservatism check for a leg's declared substrate scope (plan sec 11).
 
-    guard 2 (always): static data-closure fixpoint + existence (via _verify_scope_static).
+    guard 2 (always): static data-closure fixpoint + existence.
     guard 1 (only if `run_once` is given): execute a real (cheap) frozen-prefix cell under
-    a call-trace and assert EVERY executed repo file is in the declared scope -- i.e. the
-    scope is a superset of what actually runs. `run_once` must invoke
-    mature_and_collect_world / _harm once for this leg.
+    a call-trace and assert EVERY executed repo file is in the declared scope. `run_once`
+    must invoke mature_and_collect_world / _harm once for this leg.
 
-    Returns a small report dict; raises AssertionError on any violation. This is the
-    mechanism that makes author-declared narrowing safe (false-miss-only)."""
-    _verify_scope_static(leg)
-    report: Dict[str, Any] = {"leg": leg, "n_declared": len(_LEG_SUBSTRATE_SCOPE[leg]),
-                              "static_guard": "ok"}
-    if run_once is not None:
-        executed = _traced_execution_files(run_once)
-        scope = set(_LEG_SUBSTRATE_SCOPE[leg])
-        escaped = sorted(executed - scope)
-        assert not escaped, (
-            "prefix-cache scope[%s]: these repo files EXECUTED during a real frozen-prefix "
-            "run but are NOT in the declared scope: %s. The scope under-approximates -- a "
-            "false-HIT hazard (plan sec 2/11). Add them to _%s_SUBSTRATE_SCOPE." % (leg, escaped, leg.upper()))
-        report["n_executed"] = len(executed)
-        report["trace_guard"] = "ok"
+    Delegates to substrate_scope_guard.verify_scope_conservatism; returns its report dict
+    augmented with the historical `leg` / `n_declared` keys. Raises AssertionError on any
+    violation. This is the mechanism that makes author-declared narrowing safe."""
+    scope = _LEG_SUBSTRATE_SCOPE[leg]
+    report = _verify_scope_conservatism_files(scope, run_once, label="prefix-cache scope[%s]" % leg)
+    report["leg"] = leg
+    report["n_declared"] = len(scope)
     return report
 
 
