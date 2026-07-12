@@ -52,11 +52,39 @@ Two things this unlocks:
 
 GOVERNING ASYMMETRY (plan sec 2): a false cache HIT corrupts a scientific
 conclusion; a false cache MISS only wastes compute. The cache key is therefore
-OVER-inclusive -- substrate_hash (ree_core + experiments/_lib content, so any
-substrate/recipe edit invalidates), the FULL env_kwargs, every recipe scalar,
-machine_class, seed, onset, and the leg tag. Over-inclusion causes only (cheap)
-false misses. The stored key is re-verified on load; any mismatch / unreadable /
-partial file is treated as a MISS.
+OVER-inclusive -- substrate_hash (see DEPENDENCY-SCOPED SUBSTRATE HASHING below),
+the FULL env_kwargs, every recipe scalar, machine_class, seed, onset, and the leg
+tag. Over-inclusion causes only (cheap) false misses. The stored key is re-verified
+on load; any mismatch / unreadable / partial file is treated as a MISS.
+
+DEPENDENCY-SCOPED SUBSTRATE HASHING (plan sec 11, added 2026-07-12)
+------------------------------------------------------------------
+The prefix substrate_hash was originally the WHOLE ree_core/** + experiments/_lib/**
+trees (121 files), so an edit to ANY module -- sleep, the hippocampal proposer, an
+unrelated env, most of policy -- busted a prefix that never executes a line of it.
+Given how continuously ree_core churns, that was the dominant source of (cheap but
+real) false misses. This module now hashes ONLY the per-leg DECLARED SUBSTRATE SCOPE
+(_LEG_SUBSTRATE_SCOPE): the closure the frozen prefix actually depends on -- 24 files
+(world) / 19 files (harm) instead of 121. compute_substrate_hash's default (scope=
+None) is unchanged, so the global sec-9 arm_fingerprint path and every existing
+fingerprint are byte-identical; only THIS cache key narrows.
+
+SOUNDNESS (the one thing that must not be wrong -- plan sec 2/11): narrowing is safe
+ONLY if the declared scope is a provable SUPERSET of every file that can change the
+frozen-prefix output. The scope = (a) the EXECUTED-file closure of build+warmup+
+collect (captured by a call-trace: files whose code actually runs) UNION (b) its
+transitive DATA-closure (any repo module a scope file value-imports a module-level
+CONSTANT from -- here only ree_core.regulators SITE_* string labels). CODE
+(class/function) imports of NON-executed modules are deliberately EXCLUDED: the
+call-trace proves their functions never run, so their bodies cannot affect the
+deterministic prefix. Two guards keep this an over-approximation (false-miss-only),
+enforced by _verify_scope_conservatism (run in the scope test + opt-in at runtime via
+REE_PREFIX_SCOPE_GUARD=1): guard 1 (call-trace) asserts every executed repo file is in
+scope; guard 2 (static AST) asserts the scope is a FIXPOINT of the data-closure
+operator. A refactor that moves executed code out of a declared file, or adds a
+constant value-import from outside the scope, trips a guard loudly rather than
+silently under-approximating. substrate_scope_declared + the glob list are recorded in
+the cache blob + provenance for audit (mirrors config_slice_declared).
 
 CALLER CONTRACT (bit-identity)
 ------------------------------
@@ -75,11 +103,12 @@ reuse the stdlib-only arm_fingerprint primitives.
 
 from __future__ import annotations
 
+import ast
 import copy
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import torch
@@ -108,7 +137,10 @@ from ree_core.utils.config import REEConfig  # noqa: E402
 import torch.nn as nn  # noqa: E402
 import torch.nn.functional as F  # noqa: E402
 
-PREFIX_CACHE_SCHEMA = "maturation_prefix/v1"
+# v2 = dependency-scoped substrate hashing (plan sec 11). The key now folds in the
+# declared scope, so a v1 blob (whole-tree substrate_hash) can never collide with a
+# v2 key -- old blobs simply cache-MISS (safe, false-miss-only).
+PREFIX_CACHE_SCHEMA = "maturation_prefix/v2"
 
 # Canonical collection RNG base shared across the family (740a/743/744 all use
 # 70000 for the collection env + action RNG). Kept as the default; callers may
@@ -141,22 +173,313 @@ def _cache_disabled() -> bool:
     return os.environ.get("REE_PREFIX_CACHE_DISABLE", "").strip() not in ("", "0", "false", "False")
 
 
-def _prefix_key(leg: str, upstream: Dict[str, Any]) -> str:
-    """Content-addressed key over UPSTREAM-only params + substrate + machine_class.
+# ---------------------------------------------------------------------------
+# Declared substrate scope (plan sec 11). Each tuple is a set of repo-root-relative
+# paths (exact, one file each -- valid single-match globs for compute_substrate_hash).
+# It is the (executed-file closure) UNION (transitive data-closure) for that leg, so
+# a provable SUPERSET of every file that can change the frozen prefix -- see the module
+# docstring "DEPENDENCY-SCOPED SUBSTRATE HASHING". Grounded in a call-trace of
+# build+warmup+collect and a leaf-kind AST data-closure; both re-verified by
+# _verify_scope_conservatism (scope test + REE_PREFIX_SCOPE_GUARD=1). HARM subset of
+# WORLD by construction (the harm leg runs no StepHarness / trajectory generation).
+_WORLD_SUBSTRATE_SCOPE: Tuple[str, ...] = (
+    "experiments/__init__.py",
+    "experiments/_harness.py",
+    "experiments/_lib/arm_fingerprint.py",
+    "experiments/_lib/baselines/maturation_curriculum.py",
+    "experiments/_lib/goal_pipeline_tier1.py",
+    "ree_core/agent.py",
+    "ree_core/cingulate/dacc.py",
+    "ree_core/environment/causal_grid_world.py",
+    "ree_core/goal.py",
+    "ree_core/heartbeat/beta_gate.py",
+    "ree_core/heartbeat/clock.py",
+    "ree_core/hippocampal/module.py",
+    "ree_core/latent/stack.py",
+    "ree_core/latent/theta_buffer.py",
+    "ree_core/neuromodulation/serotonin.py",
+    "ree_core/predictors/e1_deep.py",
+    "ree_core/predictors/e2_fast.py",
+    "ree_core/predictors/e3_score_diversity.py",
+    "ree_core/predictors/e3_selector.py",
+    "ree_core/regulators/__init__.py",             # data-closure: SITE_* re-export chain
+    "ree_core/regulators/simulation_mode_rule_gate.py",  # data-closure: SITE_* leaf literals
+    "ree_core/residue/field.py",
+    "ree_core/utils/config.py",
+    "ree_core/utils/per_axis_drive.py",
+)
+_HARM_SUBSTRATE_SCOPE: Tuple[str, ...] = (
+    "experiments/_harness.py",
+    "experiments/_lib/arm_fingerprint.py",
+    "experiments/_lib/baselines/maturation_curriculum.py",
+    "ree_core/agent.py",
+    "ree_core/environment/causal_grid_world.py",
+    "ree_core/heartbeat/beta_gate.py",
+    "ree_core/heartbeat/clock.py",
+    "ree_core/hippocampal/module.py",
+    "ree_core/latent/stack.py",
+    "ree_core/latent/theta_buffer.py",
+    "ree_core/neuromodulation/serotonin.py",
+    "ree_core/predictors/e1_deep.py",
+    "ree_core/predictors/e2_fast.py",
+    "ree_core/predictors/e3_score_diversity.py",
+    "ree_core/predictors/e3_selector.py",
+    "ree_core/regulators/__init__.py",
+    "ree_core/regulators/simulation_mode_rule_gate.py",
+    "ree_core/residue/field.py",
+    "ree_core/utils/config.py",
+)
+_LEG_SUBSTRATE_SCOPE: Dict[str, Tuple[str, ...]] = {
+    "world": _WORLD_SUBSTRATE_SCOPE,
+    "harm": _HARM_SUBSTRATE_SCOPE,
+}
 
-    The driver script is deliberately EXCLUDED (this module's content is already in
-    the experiments/_lib/** substrate glob), so differently-driven siblings sharing
-    the same upstream produce the same key.
+
+def _scope_provenance(leg: str) -> Dict[str, Any]:
+    """Audit record of the declared substrate scope, mirroring config_slice_declared.
+    Embedded in the cache blob + returned provenance so a reviewer / future consumer can
+    confirm which reuse contract minted a blob (plan sec 11)."""
+    scope = _LEG_SUBSTRATE_SCOPE.get(leg)
+    return {
+        "substrate_scope_declared": scope is not None,
+        "substrate_scope": list(scope) if scope is not None else None,
+    }
+
+
+def _prefix_key(leg: str, upstream: Dict[str, Any]) -> str:
+    """Content-addressed key over UPSTREAM-only params + SCOPED substrate + machine_class.
+
+    Hashes ONLY the leg's declared substrate scope (_LEG_SUBSTRATE_SCOPE), not the whole
+    ree_core/** + experiments/_lib/** trees, so an edit to a module the frozen prefix
+    never executes (sleep, hippocampal proposer, most of policy, unrelated envs, the E3
+    downstream heads) no longer busts the key -- while any change INSIDE the declared
+    closure still refuses the cached prefix (plan sec 11). An unknown leg falls back to
+    scope=None (hash everything -- the safe default). The driver script is EXCLUDED (this
+    module is already in every scope), so differently-driven siblings sharing the same
+    upstream produce the same key.
     """
-    sub = compute_substrate_hash()  # ree_core/** + experiments/_lib/** (incl this module)
+    scope = _LEG_SUBSTRATE_SCOPE.get(leg)  # None -> compute_substrate_hash hashes ALL (safe)
+    if scope is not None and os.environ.get("REE_PREFIX_SCOPE_GUARD", "").strip() not in ("", "0", "false", "False"):
+        # Opt-in cheap static conservatism guard (guard 2). Raises loudly if the scope
+        # is no longer data-closed or a declared file is missing. The expensive call-trace
+        # guard (guard 1) lives in the scope test.
+        _verify_scope_static(leg)
+    sub = compute_substrate_hash(scope=scope)
     payload = {
         "schema": PREFIX_CACHE_SCHEMA,
         "leg": leg,
         "substrate_hash": sub["substrate_hash"],
+        "substrate_scope_declared": scope is not None,
+        # The declared scope is part of the key: narrowing / widening the reuse
+        # contract must change the key (mirrors config_slice being in arm_fingerprint).
+        "substrate_scope": list(scope) if scope is not None else None,
         "machine_class": machine_class(),
         "upstream": upstream,
     }
     return _sha256_hex(_canonical_json(payload).encode("utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# Conservatism guards (plan sec 11). A declared scope that UNDER-approximates is a
+# false-HIT bug, so the scope must be a provable over-approximation of everything the
+# frozen prefix can execute or read. Two independent checks; together they close the
+# code-exec (a) and data-read (b) channels.
+# ---------------------------------------------------------------------------
+
+# Memoised across calls -- these are pure functions of the (dirty-tree) file content.
+# _static_data_closure is on the opt-in runtime guard path + the scope test, so caching
+# keeps it from re-parsing agent.py (a very large module) on every fixpoint step.
+_MOD_RELPATH_CACHE: Dict[str, Optional[str]] = {}
+_TREE_CACHE: Dict[str, ast.AST] = {}
+_IMPORTS_CACHE: Dict[str, List[Tuple[str, Optional[str]]]] = {}
+
+
+def _mod_to_relpath(mod: str) -> Optional[str]:
+    """Resolve a dotted repo module to its repo-relative .py path (or None). Memoised."""
+    if mod in _MOD_RELPATH_CACHE:
+        return _MOD_RELPATH_CACHE[mod]
+    rel: Optional[str] = None
+    if (mod.startswith("ree_core") or mod.startswith("experiments")
+            or mod == "_harness" or mod.startswith("_lib") or mod.startswith("_metrics")):
+        dotted = "/".join(mod.split("."))
+        for cand in (dotted + ".py", dotted + "/__init__.py",
+                     "experiments/" + dotted + ".py", "experiments/" + dotted + "/__init__.py"):
+            if (_REPO_ROOT / cand).is_file():
+                rel = cand
+                break
+    _MOD_RELPATH_CACHE[mod] = rel
+    return rel
+
+
+def _tree(rel: str) -> ast.AST:
+    if rel not in _TREE_CACHE:
+        _TREE_CACHE[rel] = ast.parse((_REPO_ROOT / rel).read_text())
+    return _TREE_CACHE[rel]
+
+
+def _file_imports(rel: str) -> List[Tuple[str, Optional[str]]]:
+    """All repo-module imports in `rel` (top-level AND function-local) as (module, name)
+    pairs; `name=None` marks a bare `import mod` / `from pkg import submod` / star. Walked
+    ONCE per file and cached -- this is the expensive step for large modules."""
+    if rel in _IMPORTS_CACHE:
+        return _IMPORTS_CACHE[rel]
+    recs: List[Tuple[str, Optional[str]]] = []
+    for node in ast.walk(_tree(rel)):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if _mod_to_relpath(a.name):
+                    recs.append((a.name, None))
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            if not (node.module.startswith("ree_core") or node.module.startswith("experiments")
+                    or node.module == "_harness" or node.module.startswith("_lib")
+                    or node.module.startswith("_metrics")):
+                continue
+            for a in node.names:
+                if a.name == "*":
+                    recs.append((node.module, None))
+                elif _mod_to_relpath(node.module + "." + a.name):
+                    recs.append((node.module + "." + a.name, None))  # submodule import
+                else:
+                    recs.append((node.module, a.name))
+    _IMPORTS_CACHE[rel] = recs
+    return recs
+
+
+def _name_kind(rel: str, name: str):
+    """Classify a top-level `name` in file `rel`:
+      ('code',)                 -- ClassDef/FunctionDef (safe: trace proves uncalled)
+      ('data',)                 -- module-level assignment (a data value-import channel)
+      ('reexport', mod, name)   -- re-imported from another module (follow to leaf)
+      ('unknown',)              -- not found at top level -> treated as data (conservative)
+    """
+    for node in _tree(rel).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name == name:
+                return ("code",)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            for a in node.names:
+                if (a.asname or a.name) == name:
+                    return ("reexport", node.module, a.name)
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                if (a.asname or a.name.split(".")[0]) == name:
+                    return ("reexport", a.name, None)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            tgts = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for t in tgts:
+                if isinstance(t, ast.Name) and t.id == name:
+                    return ("data",)
+    return ("unknown",)
+
+
+def _leaf_is_data(mod: Optional[str], name: Optional[str], chain: List[str]) -> Tuple[bool, List[str]]:
+    """Follow a `from mod import name` re-export chain to its leaf; classify the leaf.
+
+    Returns (is_data, chain_of_relpaths). A bare module (`name is None`) is treated as a
+    data channel (attribute reads cannot be ruled out statically).
+    """
+    rel = _mod_to_relpath(mod) if mod else None
+    if rel is None:
+        return (False, chain)  # not a repo module (stdlib / 3rd-party)
+    chain = chain + [rel]
+    if name is None:
+        return (True, chain)
+    k = _name_kind(rel, name)
+    if k[0] == "code":
+        return (False, chain)
+    if k[0] == "reexport":
+        return _leaf_is_data(k[1], k[2], chain)
+    return (True, chain)  # data or unknown
+
+
+def _static_data_closure(scope: Sequence[str]) -> Set[str]:
+    """The transitive DATA-closure of `scope`: `scope` plus every repo module a scope
+    file value-imports a module-level CONSTANT from (following re-exports to the leaf).
+    Class/function imports of other modules are NOT added (safe -- see guard model).
+    Worklist fixpoint: each file's imports are extracted once (cached), each file scanned
+    once."""
+    out: Set[str] = set(scope)
+    worklist: List[str] = list(scope)
+    while worklist:
+        rel = worklist.pop()
+        for mod, name in _file_imports(rel):
+            is_d, chain = _leaf_is_data(mod, name, [])
+            if is_d:
+                for c in chain:
+                    if c not in out:
+                        out.add(c)
+                        worklist.append(c)
+    return out
+
+
+def _verify_scope_static(leg: str) -> None:
+    """Guard 2 (cheap, static AST): every declared scope file exists, and the scope is a
+    FIXPOINT of the data-closure operator (i.e. hashes every module a scope file reads a
+    constant from). Raises AssertionError loudly on any violation. Does NOT run the
+    experiment -- see verify_scope_conservatism for the call-trace guard (guard 1)."""
+    scope = _LEG_SUBSTRATE_SCOPE[leg]
+    missing = [p for p in scope if not (_REPO_ROOT / p).is_file()]
+    assert not missing, (
+        "prefix-cache scope[%s]: declared files do not exist (refactor drift?): %s. "
+        "The scope must be corrected before it can be trusted (plan sec 11)." % (leg, missing))
+    closure = _static_data_closure(scope)
+    escaped = sorted(closure - set(scope))
+    assert not escaped, (
+        "prefix-cache scope[%s] is NOT data-closed -- a scope file value-imports a "
+        "module-level constant from these UNSCOPED repo modules: %s. This is a false-HIT "
+        "hazard (plan sec 2/11): add them to _%s_SUBSTRATE_SCOPE or the key can serve a "
+        "stale prefix when they change." % (leg, escaped, leg.upper()))
+
+
+def _traced_execution_files(run_once) -> Set[str]:
+    """Run `run_once()` under a Python call-trace; return the set of repo-relative .py
+    files whose code executed. Used by guard 1."""
+    executed: Set[str] = set()
+    root_str = str(_REPO_ROOT) + os.sep
+
+    def _tr(frame, event, arg):
+        fn = frame.f_code.co_filename
+        if fn.startswith(root_str):
+            try:
+                executed.add(str(Path(fn).resolve().relative_to(_REPO_ROOT)))
+            except ValueError:
+                pass
+        return None
+
+    old = sys.gettrace()
+    sys.settrace(_tr)
+    try:
+        run_once()
+    finally:
+        sys.settrace(old)
+    return executed
+
+
+def verify_scope_conservatism(leg: str, run_once=None) -> Dict[str, Any]:
+    """Full conservatism check for a leg's declared substrate scope (plan sec 11).
+
+    guard 2 (always): static data-closure fixpoint + existence (via _verify_scope_static).
+    guard 1 (only if `run_once` is given): execute a real (cheap) frozen-prefix cell under
+    a call-trace and assert EVERY executed repo file is in the declared scope -- i.e. the
+    scope is a superset of what actually runs. `run_once` must invoke
+    mature_and_collect_world / _harm once for this leg.
+
+    Returns a small report dict; raises AssertionError on any violation. This is the
+    mechanism that makes author-declared narrowing safe (false-miss-only)."""
+    _verify_scope_static(leg)
+    report: Dict[str, Any] = {"leg": leg, "n_declared": len(_LEG_SUBSTRATE_SCOPE[leg]),
+                              "static_guard": "ok"}
+    if run_once is not None:
+        executed = _traced_execution_files(run_once)
+        scope = set(_LEG_SUBSTRATE_SCOPE[leg])
+        escaped = sorted(executed - scope)
+        assert not escaped, (
+            "prefix-cache scope[%s]: these repo files EXECUTED during a real frozen-prefix "
+            "run but are NOT in the declared scope: %s. The scope under-approximates -- a "
+            "false-HIT hazard (plan sec 2/11). Add them to _%s_SUBSTRATE_SCOPE." % (leg, escaped, leg.upper()))
+        report["n_executed"] = len(executed)
+        report["trace_guard"] = "ok"
+    return report
 
 
 def _cache_load(key: str, cache_dir: Optional[Path], logger) -> Optional[Dict[str, Any]]:
@@ -374,7 +697,8 @@ def mature_and_collect_world(
         _freeze_world(agent)
         dataset = {k: v for k, v in blob["dataset"].items()}
         logger("prefix_cache: world HIT seed=%s onset=%s key=%s" % (seed, onset, key[:12]))
-        return agent, fresh_heads, dataset, {"cache": "hit", "prefix_key": key}
+        return agent, fresh_heads, dataset, {"cache": "hit", "prefix_key": key,
+                                             **_scope_provenance("world")}
 
     # MISS -> compute the prefix.
     warmup_train(
@@ -393,11 +717,13 @@ def mature_and_collect_world(
         _cache_store(
             key,
             {"key": key, "leg": "world", "upstream": upstream,
-             "agent_state": agent.state_dict(), "dataset": dataset},
+             "agent_state": agent.state_dict(), "dataset": dataset,
+             **_scope_provenance("world")},
             cache_dir, logger,
         )
         logger("prefix_cache: world MISS-store seed=%s onset=%s key=%s" % (seed, onset, key[:12]))
-    return agent, fresh_heads, dataset, {"cache": cache_state, "prefix_key": key}
+    return agent, fresh_heads, dataset, {"cache": cache_state, "prefix_key": key,
+                                         **_scope_provenance("world")}
 
 
 # ---------------------------------------------------------------------------
@@ -647,7 +973,7 @@ def mature_and_collect_harm(
         dataset = {k: v for k, v in blob["dataset"].items()}
         logger("prefix_cache: harm HIT seed=%s onset=%s key=%s" % (seed, onset, key[:12]))
         return agent, harm_enc, fresh_heads, dataset, int(blob.get("n_mature_steps", 0)), \
-            {"cache": "hit", "prefix_key": key}
+            {"cache": "hit", "prefix_key": key, **_scope_provenance("harm")}
 
     n_mature_steps = _mature_harm_encoder(
         harm_enc, seed, onset, steps_per_ep, denom, env_kwargs,
@@ -665,12 +991,12 @@ def mature_and_collect_harm(
             key,
             {"key": key, "leg": "harm", "upstream": upstream,
              "harm_encoder_state": harm_enc.state_dict(), "dataset": dataset,
-             "n_mature_steps": int(n_mature_steps)},
+             "n_mature_steps": int(n_mature_steps), **_scope_provenance("harm")},
             cache_dir, logger,
         )
         logger("prefix_cache: harm MISS-store seed=%s onset=%s key=%s" % (seed, onset, key[:12]))
     return agent, harm_enc, fresh_heads, dataset, n_mature_steps, \
-        {"cache": cache_state, "prefix_key": key}
+        {"cache": cache_state, "prefix_key": key, **_scope_provenance("harm")}
 
 
 __all__ = [
@@ -683,4 +1009,6 @@ __all__ = [
     "build_harm_agent",
     "collect_harm_dataset",
     "mature_and_collect_harm",
+    # Dependency-scoped substrate hashing (plan sec 11): declared scope + guards.
+    "verify_scope_conservatism",
 ]

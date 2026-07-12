@@ -114,17 +114,36 @@ def machine_class() -> str:
 def compute_substrate_hash(
     extra_paths: Optional[Iterable[Path]] = None,
     repo_root: Optional[Path] = None,
+    scope: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """Hash the CONTENT of every substrate source file the cell can execute.
 
-    Returns a dict: {"substrate_hash", "n_files", "missing": [...]}. Files are
-    sorted by repo-relative path before hashing so the result is order-stable.
-    A missing expected file is recorded (not silently skipped) so a stripped
-    checkout produces a visibly different hash rather than a false match.
+    Returns a dict: {"substrate_hash", "n_files", "missing", "scoped", "globs"}.
+    Files are sorted by repo-relative path before hashing so the result is
+    order-stable. A missing expected file is recorded (not silently skipped) so a
+    stripped checkout produces a visibly different hash rather than a false match.
+
+    scope
+        Dependency-scoped substrate hashing (plan section 11). None (DEFAULT) hashes
+        the WHOLE `_SUBSTRATE_GLOBS` trees -- today's behaviour, byte-for-byte
+        unchanged, so every existing fingerprint is unaffected and the global
+        section-9 arm_fingerprint path is untouched. A non-None `scope` is an
+        author-declared iterable of repo-root-relative globs naming ONLY the
+        closure the cell actually executes; then only those files are hashed.
+
+        SAFETY (plan section 2 governing asymmetry): narrowing is sound ONLY if the
+        declared scope is a provable SUPERSET of every file the cell can execute --
+        an under-approximation (omitting an executed file) is a false-HIT bug that
+        corrupts a conclusion, whereas over-inclusion only causes a (cheap) false
+        miss. This function does NOT itself prove the superset property; the caller
+        MUST establish it (e.g. the execution-trace + static data-closure guards in
+        maturation_curriculum.verify_scope_conservatism). `scoped`/`globs` are
+        returned so the caller can record the discriminator in provenance.
     """
     root = (repo_root or _REPO_ROOT).resolve()
+    globs: Sequence[str] = _SUBSTRATE_GLOBS if scope is None else tuple(scope)
     paths: Dict[str, Path] = {}
-    for g in _SUBSTRATE_GLOBS:
+    for g in globs:
         for p in root.glob(g):
             if p.is_file():
                 paths[str(p.relative_to(root))] = p
@@ -158,6 +177,8 @@ def compute_substrate_hash(
         "substrate_hash": h.hexdigest(),
         "n_files": len(paths) - len(missing),
         "missing": missing,
+        "scoped": scope is not None,
+        "globs": list(globs),
     }
 
 
