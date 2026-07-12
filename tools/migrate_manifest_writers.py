@@ -194,6 +194,223 @@ def config_expr(src: str, mvar: str = "manifest") -> str:
     return f'{mvar}.get("config")'
 
 
+# ---------------------------------------------------------------------------
+# BATCH 5: non-canonical filename proof.
+#
+# The batches above route ONLY the canonical `<dir>/f"{run_id}.json"` (slash or
+# os.path.join) path. A residual class writes a NON-canonical filename while
+# detect_manifest_var still succeeds: a hardcoded literal (`"exq_051b_v3.json"`),
+# a `"%s.json" % run_id` idiom, or a `f"{TYPE}_{ts}_v3.json"` form where the
+# filename happens to already equal the run_id. Routing these is byte-location-safe
+# IFF the filename string provably equals `f"{<mvar>['run_id']}.json"` -- because
+# write_flat_manifest recomputes `Path(out_dir)/f"{run_id}.json"`, and a mismatch
+# would RENAME the flat file (the whole reason the coordinator/indexer/explorer key
+# on `<run_id>.json`). The overwhelming early-era `f"{TYPE}_{ts}.json"` form has
+# run_id = `f"{TYPE}_{ts}_v3"` (filename missing the `_v3`) or inlines a SECOND
+# `datetime.now()` read -- both must be REFUSED, so the proof is strict.
+#
+# Proof model (sound, conservative): reduce both the filename expr and the manifest
+# run_id value expr to a "template" -- a list of atoms, each a literal chunk
+# ('L', s) or a single-static-assignment variable leaf ('N', name). f-string
+# interpolations must be BARE NAMES (an inline Call like datetime.now() -> refuse:
+# recomputed / non-deterministic); only `%s`-style %-formatting and `+` string
+# concat are accepted. Every ('N', name) leaf must have exactly ONE binding site and
+# that binding must not be inside a loop, so the run_id and the filename read the
+# SAME runtime value (even a once-computed `ts = datetime.now()...`). PROVE:
+#   normalize(template(filename)) == normalize(template(run_id) + [('L', '.json')]).
+# When proven, the ORIGINAL path assignment is LEFT in place (write-only-rewrite,
+# like the non-adjacent batch-3 path) and write_flat_manifest is called with the
+# out_dir sub-expression taken verbatim from the original assignment.
+# ---------------------------------------------------------------------------
+def _ncf_template(node):
+    """A string-valued expr -> [('L',s)|('N',name)] atoms, or None if not provably a
+    deterministic concatenation of literals + single-assignment variable values."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [("L", node.value)]
+    if isinstance(node, ast.Name):
+        return [("N", node.id)]
+    if isinstance(node, ast.JoinedStr):
+        atoms = []
+        for v in node.values:
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                atoms.append(("L", v.value))
+            elif isinstance(v, ast.FormattedValue):
+                # {x!r}/{x:spec} transform the string; an inline non-Name value
+                # (Call/Attribute/Subscript) is recomputed/non-deterministic.
+                if v.conversion != -1 or v.format_spec is not None:
+                    return None
+                if isinstance(v.value, ast.Name):
+                    atoms.append(("N", v.value.id))
+                else:
+                    return None
+            else:
+                return None
+        return atoms
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _ncf_template(node.left)
+        right = _ncf_template(node.right)
+        return None if left is None or right is None else left + right
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+        fmt = node.left
+        if not (isinstance(fmt, ast.Constant) and isinstance(fmt.value, str)):
+            return None
+        s = fmt.value
+        if any(sp != "%s" for sp in re.findall(r"%.", s)):
+            return None  # any conversion other than %s (incl. %% or %d) -> refuse
+        parts = s.split("%s")
+        args = node.right.elts if isinstance(node.right, ast.Tuple) else [node.right]
+        if len(parts) - 1 != len(args):
+            return None
+        atoms = []
+        for i, p in enumerate(parts):
+            if p:
+                atoms.append(("L", p))
+            if i < len(args):
+                if isinstance(args[i], ast.Name):
+                    atoms.append(("N", args[i].id))
+                else:
+                    return None
+        return atoms
+    return None
+
+
+def _ncf_normalize(atoms):
+    """Drop empty literals, merge adjacent literal chunks (so ['a','b'] == ['ab'])."""
+    if atoms is None:
+        return None
+    out = []
+    for a in atoms:
+        if a[0] == "L" and a[1] == "":
+            continue
+        if out and out[-1][0] == "L" and a[0] == "L":
+            out[-1] = ("L", out[-1][1] + a[1])
+        else:
+            out.append(a)
+    return out
+
+
+def _ncf_binding_map(tree):
+    """name -> list of (binding_node, in_loop_bool). Covers assign/ann/aug/walrus/for/
+    with-as targets and function args (a function arg is one binding per call, fixed
+    within the call, so both uses read the same value)."""
+    parent = {}
+    for p in ast.walk(tree):
+        for c in ast.iter_child_nodes(p):
+            parent[c] = p
+
+    def in_loop(n):
+        cur = parent.get(n)
+        while cur is not None:
+            if isinstance(cur, (ast.For, ast.AsyncFor, ast.While, ast.comprehension,
+                                ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                return True
+            cur = parent.get(cur)
+        return False
+
+    sites = {}
+    for n in ast.walk(tree):
+        binds = []
+        if isinstance(n, ast.Assign):
+            for t in n.targets:
+                binds += [x for x in ast.walk(t)
+                          if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store)]
+        elif isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name) and n.value is not None:
+            binds.append(n.target)
+        elif isinstance(n, ast.AugAssign) and isinstance(n.target, ast.Name):
+            binds.append(n.target)
+        elif isinstance(n, ast.NamedExpr) and isinstance(n.target, ast.Name):
+            binds.append(n.target)
+        elif isinstance(n, (ast.For, ast.AsyncFor)):
+            binds += [x for x in ast.walk(n.target)
+                      if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store)]
+        elif isinstance(n, ast.withitem) and n.optional_vars is not None:
+            binds += [x for x in ast.walk(n.optional_vars)
+                      if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store)]
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            a = n.args
+            allargs = (list(a.posonlyargs) + list(a.args) + list(a.kwonlyargs)
+                       + ([a.vararg] if a.vararg else []) + ([a.kwarg] if a.kwarg else []))
+            for arg in allargs:
+                sites.setdefault(arg.arg, []).append((arg, False))
+        for b in binds:
+            sites.setdefault(b.id, []).append((b, in_loop(b)))
+    return sites
+
+
+def _ncf_ssa_ok(name, sites):
+    lst = sites.get(name, [])
+    return len(lst) == 1 and not lst[0][1]
+
+
+def _ncf_split_path(node):
+    """A path-building expr -> (dir_node, filename_node). Handles `<dir>/<fn>` (the
+    OUTERMOST `/`, so `a/b/c/"fn"` -> dir=`a/b/c`, fn=`"fn"`) and
+    `os.path.join(<dir>, <fn>)`. Else (None, node)."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        return node.left, node.right
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "join" and len(node.args) == 2):
+        return node.args[0], node.args[1]
+    return None, node
+
+
+def _ncf_runid_value_node(tree, mvar):
+    """The AST value node bound to the 'run_id' key of the mvar dict LITERAL (the value
+    write_flat_manifest will key the filename on). None if absent/ambiguous."""
+    found = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict)
+                and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == mvar):
+            for k, v in zip(node.value.keys, node.value.values):
+                if isinstance(k, ast.Constant) and k.value == "run_id":
+                    found.append(v)
+    return found[0] if len(found) == 1 else None
+
+
+def noncanonical_filename_proof(src: str, mvar: str, pathvar: str, write_lineno: int):
+    """Prove the NON-canonical filename in the nearest `pathvar = <path>` assignment
+    above line ``write_lineno`` equals f"{<mvar>['run_id']}.json". Returns
+    (dir_src, "ok") on proof, else (None, reason). ``dir_src`` is the exact source text
+    of the out_dir sub-expression (quote style preserved) for the write_flat_manifest call."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return (None, "parse-error")
+    rid = _ncf_runid_value_node(tree, mvar)
+    if rid is None:
+        return (None, f"no run_id value in {mvar} dict literal")
+    # nearest `pathvar = <path>` assignment above the write whose RHS looks path-like
+    cand = None
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == pathvar and node.lineno < write_lineno):
+            d, _fn = _ncf_split_path(node.value)
+            if d is not None and (cand is None or node.lineno > cand.lineno):
+                cand = node
+    if cand is None:
+        return (None, f"no dir/filename path assignment to {pathvar} above the write")
+    dir_node, fn_node = _ncf_split_path(cand.value)
+    t_fn = _ncf_normalize(_ncf_template(fn_node))
+    t_rid = _ncf_normalize(_ncf_template(rid))
+    if t_fn is None:
+        return (None, f"filename not templatable: {ast.dump(fn_node)[:60]}")
+    if t_rid is None:
+        return (None, f"run_id not templatable: {ast.dump(rid)[:60]}")
+    if t_fn != _ncf_normalize(t_rid + [("L", ".json")]):
+        return (None, f"filename {t_fn} != run_id+'.json' {t_rid}")
+    sites = _ncf_binding_map(tree)
+    names = {a[1] for a in t_fn if a[0] == "N"} | {a[1] for a in t_rid if a[0] == "N"}
+    bad = sorted(n for n in names if not _ncf_ssa_ok(n, sites))
+    if bad:
+        return (None, f"non-single-assignment leaf(s): {bad}")
+    dir_src = ast.get_source_segment(src, dir_node)
+    if dir_src is None or "\n" in dir_src:
+        return (None, "dir sub-expression spans multiple lines / unavailable")
+    return (dir_src, "ok")
+
+
 def migrate_one(path: Path):
     """Return (status, detail, new_src_or_None)."""
     src = path.read_text(encoding="utf-8")
@@ -316,6 +533,8 @@ def migrate_one(path: Path):
     block_top = None
     dry_m = None
     non_adjacent = False
+    noncanon = False        # batch 5: non-canonical filename proven == f"{run_id}.json"
+    noncanon_dir = None     # the out_dir sub-expression source for the wfm call
     # Case: lines[j] is the dry reassignment inside an if
     if j >= 1 and match_dry(lines[j]) and DRY_IF_RE.match(lines[j - 1]):
         dry_m = match_dry(lines[j])
@@ -345,23 +564,42 @@ def migrate_one(path: Path):
                 near = a
                 break
             a -= 1
-        if near is None or not match_primary(lines[near]):
-            return ("unmatched", "no canonical `out_path = out_dir / f\"{manifest['run_id']}.json\"` (adjacent or nearest)", None)
+        if near is None:
+            return ("unmatched", "no path assignment above tail", None)
+        if not match_primary(lines[near]):
+            # BATCH 5: the path var IS assigned above but the filename is NON-canonical
+            # (a literal, a "%s.json" % run_id idiom, or a f"{TYPE}_{ts}_v3.json" that
+            # already equals run_id). Attempt an AST proof that the filename string ==
+            # f"{<mvar>['run_id']}.json"; on proof, route via write-only-rewrite with the
+            # ORIGINAL out_dir sub-expression. On any doubt, refuse (leave unmatched).
+            dir_src, why = noncanonical_filename_proof(src, mvar, pathvar, write_top + 1)
+            if dir_src is None:
+                return ("unmatched", f"non-canonical filename not provably == run_id ({why})", None)
+            noncanon = True
+            noncanon_dir = dir_src
         block_top = near
         non_adjacent = True
 
-    primary_m = match_primary(lines[block_top])
-    dirvar = primary_m.group("dir")
-    # The write statement's path var MUST be the var this primary assignment sets --
-    # else the with-open/write_text is targeting a DIFFERENT file (e.g. a pack-style
-    # runs/<id>/manifest.json or a per-run sibling) and routing it would relocate the
-    # write. This is the identity proof for the generalized (non-out_path) path var.
-    if primary_m.group("var") != pathvar:
-        return ("unmatched", f"write path var {pathvar!r} != primary assignment var {primary_m.group('var')!r}", None)
-    # A dry reassignment (if present) must set the SAME path var from the SAME dir var,
-    # so the recomputed _dry_ path is byte-location-identical too.
-    if dry_m is not None and (dry_m.group("var") != pathvar or dry_m.group("dir") != dirvar):
-        return ("unmatched", "dry-reassign var/dir mismatch vs primary", None)
+    if noncanon:
+        # Proof already established: filename == f"{<mvar>['run_id']}.json" AND the path
+        # assignment sets `pathvar`; the dir sub-expression is taken verbatim from that
+        # assignment (still present after the write-only-rewrite, so its free names are
+        # in scope). No primary_m / dirvar-var / dry-var checks apply here.
+        primary_m = None
+        dirvar = noncanon_dir
+    else:
+        primary_m = match_primary(lines[block_top])
+        dirvar = primary_m.group("dir")
+        # The write statement's path var MUST be the var this primary assignment sets --
+        # else the with-open/write_text is targeting a DIFFERENT file (e.g. a pack-style
+        # runs/<id>/manifest.json or a per-run sibling) and routing it would relocate the
+        # write. This is the identity proof for the generalized (non-out_path) path var.
+        if primary_m.group("var") != pathvar:
+            return ("unmatched", f"write path var {pathvar!r} != primary assignment var {primary_m.group('var')!r}", None)
+        # A dry reassignment (if present) must set the SAME path var from the SAME dir var,
+        # so the recomputed _dry_ path is byte-location-identical too.
+        if dry_m is not None and (dry_m.group("var") != pathvar or dry_m.group("dir") != dirvar):
+            return ("unmatched", "dry-reassign var/dir mismatch vs primary", None)
 
     if non_adjacent:
         # Rewrite ONLY the write statement; leave the assignment + intervening code and
@@ -382,14 +620,20 @@ def migrate_one(path: Path):
         # would produce an IndentationError).
         indent = primary_m.group("indent")
 
-    if not has_dir_assignment(lines, top, dirvar):
-        return ("unmatched", f"no {dirvar} assignment above tail", None)
-
-    # Bare-`run_id` out_path is only safe when it provably equals <mvar>['run_id']. The
-    # subscript form <mvar>['run_id'] in the path needs no proof -- write_flat_manifest
-    # reads the SAME <mvar>['run_id'], so the recomputed filename is identical.
-    if (mvar + "[") not in lines[block_top] and not runid_is_manifest_runid(src):
-        return ("unmatched", f"bare run_id out_path not provably == {mvar}['run_id']", None)
+    # For a canonical `<dir>/f"{run_id}.json"` path, `dirvar` is a plain Name that must be
+    # assigned above, and the run_id in the path must provably equal <mvar>['run_id'].
+    # For the batch-5 non-canonical path both are already established by the proof:
+    # `dirvar` is the ORIGINAL dir sub-expression (still evaluated by the untouched path
+    # assignment a line above the wfm call), and the filename==f"{run_id}.json" proof
+    # replaces the bare-run_id check. So skip both var-only guards under noncanon.
+    if not noncanon:
+        if not has_dir_assignment(lines, top, dirvar):
+            return ("unmatched", f"no {dirvar} assignment above tail", None)
+        # Bare-`run_id` out_path is only safe when it provably equals <mvar>['run_id']. The
+        # subscript form <mvar>['run_id'] in the path needs no proof -- write_flat_manifest
+        # reads the SAME <mvar>['run_id'], so the recomputed filename is identical.
+        if (mvar + "[") not in lines[block_top] and not runid_is_manifest_runid(src):
+            return ("unmatched", f"bare run_id out_path not provably == {mvar}['run_id']", None)
     dry_run_arg = dry_cond if dry_cond is not None else "False"
     seeds_sym = find_seeds_symbol(src)
     seeds_arg = seeds_sym if seeds_sym else "None"
@@ -424,6 +668,8 @@ def migrate_one(path: Path):
     new_src = ensure_path_import(new_src)
 
     flags = []
+    if noncanon:
+        flags.append(f"non-canonical-filename(dir={noncanon_dir})")
     if mvar != "manifest":
         flags.append(f"non-manifest-var({mvar})")
     if non_adjacent:
