@@ -89,6 +89,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EVIDENCE_ROOT = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
 
@@ -504,10 +505,14 @@ def main(dry_run: bool = False) -> int:
 
     if not dry_run:
         out_dir = EVIDENCE_ROOT / "v3_exq_496_mech292_ghost_goal_bank_validation"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / f"{run_id}.json"
-        with open(out_file, "w") as fh:
-            json.dump(manifest, fh, indent=2)
+        out_file = write_flat_manifest(
+            manifest,
+            out_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=None,
+            script_path=Path(__file__),
+        )
         print(f"Result written to: {out_file}", flush=True)
     return 0 if all_pass else 1
 

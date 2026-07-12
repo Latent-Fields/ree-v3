@@ -124,6 +124,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 # Output target: REE_assembly evidence root.
 EVIDENCE_ROOT = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
@@ -557,10 +558,14 @@ def main(dry_run: bool = False) -> int:
     # so smoke tests don't pollute the manifests directory.
     if not dry_run:
         out_dir = EVIDENCE_ROOT / "v3_exq_494_sd039_anchor_payload_validation"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / f"{run_id}.json"
-        with open(out_file, "w") as fh:
-            json.dump(manifest, fh, indent=2)
+        out_file = write_flat_manifest(
+            manifest,
+            out_dir,
+            dry_run=False,
+            config=manifest.get("config"),
+            seeds=None,
+            script_path=Path(__file__),
+        )
         print(f"Result written to: {out_file}", flush=True)
     return 0 if all_pass else 1
 

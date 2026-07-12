@@ -118,6 +118,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.agent import REEAgent
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_582_gap3_sustained_drive_ema_sweep"
 QUEUE_ID = "V3-EXQ-582"
@@ -585,10 +586,14 @@ def main():
         / "REE_assembly" / "evidence" / "experiments"
         / EXPERIMENT_TYPE
     )
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = evidence_dir / f"{manifest['run_id']}.json"
-    with open(manifest_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    manifest_path = write_flat_manifest(
+        manifest,
+        evidence_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Manifest written: {manifest_path}", flush=True)
     return outcome, str(manifest_path)
 

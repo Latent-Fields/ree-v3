@@ -62,11 +62,19 @@ OUTPATH_RE = re.compile(
 # `"run_id": run_id`, so out_dir / f"{run_id}.json" is byte-identical to what
 # write_flat_manifest recomputes (out_dir / f"{manifest['run_id']}.json").
 _RUNID = r"""(?:manifest\[["']run_id["']\]|run_id)"""
+# The LHS path var and the dir var are CAPTURED (not hardcoded out_path/out_dir) so
+# a script that names them differently -- e.g. `out_file = out_dir / f"{run_id}.json"`
+# or `manifest_path = evidence_dir / f"{manifest['run_id']}.json"` -- migrates too,
+# PROVIDED (a) the with-open/write_text path var equals this LHS var, and (b) the dir
+# var is assigned above the tail. Both guarantee the path write_flat_manifest recomputes
+# (Path(<dir>) / f"{manifest['run_id']}.json") is byte-location-identical to the original
+# write target. out_path/out_dir remain a matched instance -> existing batch output is
+# bit-for-bit unchanged (validated against the frozen origin/main migrator).
 PRIMARY_RE = re.compile(
-    r"""^(?P<indent>\s*)out_path\s*=\s*out_dir\s*/\s*f["']\{""" + _RUNID + r"""\}\.json["']\s*$"""
+    r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*(?P<dir>\w+)\s*/\s*f["']\{""" + _RUNID + r"""\}\.json["']\s*$"""
 )
 DRY_REASSIGN_RE = re.compile(
-    r"""^(?P<indent>\s*)out_path\s*=\s*out_dir\s*/\s*f["']_dry_\{""" + _RUNID + r"""\}\.json["']\s*$"""
+    r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*(?P<dir>\w+)\s*/\s*f["']_dry_\{""" + _RUNID + r"""\}\.json["']\s*$"""
 )
 # `"run_id": run_id` (or single-quoted) in the manifest dict literal proves the
 # local run_id var IS the manifest run_id.
@@ -87,9 +95,10 @@ def find_seeds_symbol(src: str) -> str | None:
     return None
 
 
-def has_out_dir_assignment(lines: list[str], upto: int) -> bool:
+def has_dir_assignment(lines: list[str], upto: int, dirvar: str) -> bool:
+    pat = re.compile(r"^\s*" + re.escape(dirvar) + r"\s*=")
     for i in range(upto):
-        if re.match(r"^\s*out_dir\s*=", lines[i]):
+        if pat.match(lines[i]):
             return True
     return False
 
@@ -124,9 +133,11 @@ def migrate_one(path: Path):
     # write_top/write_bot bracket the write statement (inclusive) for replacement.
     write_top = write_bot = None
     has_default_str = False
+    pathvar = None  # the file path var in the write statement; must == the primary LHS var
     for i, ln in enumerate(lines):
         wt = WRITETEXT_RE.match(ln)
-        if wt and wt.group("path") == "out_path":
+        if wt:
+            pathvar = wt.group("path")
             write_top = write_bot = i
             break
     if write_top is None:
@@ -140,14 +151,19 @@ def migrate_one(path: Path):
         if dump_idx is None:
             return ("unmatched", "json.dump(manifest present but not the canonical indent=2 form", None)
         dm = DUMP_RE.match(lines[dump_idx])
-        # the preceding line must be `with open(out_path, "w") as <fh>:`
+        # the preceding line must be `with open(<path>, "w") as <fh>:` and the handle
+        # must match the json.dump handle (a name mismatch = a broken/unexpected script).
+        # The path var may be named anything (out_path / out_file / manifest_path / ...);
+        # its identity as the flat manifest target is proven by the primary-assignment
+        # + pathvar==primary-var guard below, NOT by the name.
         if dump_idx == 0:
             return ("unmatched", "dump at file start", None)
         wm = WITH_RE.match(lines[dump_idx - 1])
         if not wm:
-            return ("unmatched", "no canonical `with open(out_path, \"w\") as fh:` above dump", None)
-        if wm.group("path") != "out_path" or wm.group("fh") != dm.group("fh"):
-            return ("unmatched", "with-open path/handle not out_path/<fh>", None)
+            return ("unmatched", "no canonical `with open(<path>, \"w\") as fh:` above dump", None)
+        if wm.group("fh") != dm.group("fh"):
+            return ("unmatched", "with-open handle != json.dump handle", None)
+        pathvar = wm.group("path")
         has_default_str = "default=str" in (dm.group("extra") or "")
         write_top = dump_idx - 1
         write_bot = dump_idx
@@ -161,8 +177,10 @@ def migrate_one(path: Path):
     # pattern A: primary then if/dry
     # Identify contiguous assignment region
     block_top = None
+    dry_m = None
     # Case: lines[j] is the dry reassignment inside an if
     if j >= 1 and DRY_REASSIGN_RE.match(lines[j]) and DRY_IF_RE.match(lines[j - 1]):
+        dry_m = DRY_REASSIGN_RE.match(lines[j])
         dry_cond = DRY_IF_RE.match(lines[j - 1]).group("cond").strip()
         k = j - 2
         while k >= 0 and lines[k].strip() == "":
@@ -176,16 +194,30 @@ def migrate_one(path: Path):
     else:
         return ("unmatched", "no canonical `out_path = out_dir / f\"{manifest['run_id']}.json\"`", None)
 
-    # optional mkdir line just above block_top
+    primary_m = PRIMARY_RE.match(lines[block_top])
+    dirvar = primary_m.group("dir")
+    # The write statement's path var MUST be the var this primary assignment sets --
+    # else the with-open/write_text is targeting a DIFFERENT file (e.g. a pack-style
+    # runs/<id>/manifest.json or a per-run sibling) and routing it would relocate the
+    # write. This is the identity proof for the generalized (non-out_path) path var.
+    if primary_m.group("var") != pathvar:
+        return ("unmatched", f"write path var {pathvar!r} != primary assignment var {primary_m.group('var')!r}", None)
+    # A dry reassignment (if present) must set the SAME path var from the SAME dir var,
+    # so the recomputed _dry_ path is byte-location-identical too.
+    if dry_m is not None and (dry_m.group("var") != pathvar or dry_m.group("dir") != dirvar):
+        return ("unmatched", "dry-reassign var/dir mismatch vs primary", None)
+
+    # optional mkdir line just above block_top (write_flat_manifest mkdirs itself)
+    mkdir_re = re.compile(r"^\s*" + re.escape(dirvar) + r"\.mkdir\([^)]*\)\s*$")
     top = block_top
     p = top - 1
     while p >= 0 and lines[p].strip() == "":
         p -= 1
-    if p >= 0 and MKDIR_RE.match(lines[p]):
-        top = p  # absorb mkdir (write_flat_manifest mkdirs itself)
+    if p >= 0 and mkdir_re.match(lines[p]):
+        top = p  # absorb mkdir
 
-    if not has_out_dir_assignment(lines, top):
-        return ("unmatched", "no out_dir assignment above tail", None)
+    if not has_dir_assignment(lines, top, dirvar):
+        return ("unmatched", f"no {dirvar} assignment above tail", None)
 
     # Bare-`run_id` out_path is only safe when it provably equals manifest['run_id'].
     if "manifest[" not in lines[block_top] and not runid_is_manifest_runid(src):
@@ -194,16 +226,16 @@ def migrate_one(path: Path):
     # Statement-level indent = the indent of the out_path assignment being
     # replaced (NOT the json.dump body indent, which is one level deeper and
     # would produce an IndentationError).
-    indent = PRIMARY_RE.match(lines[block_top]).group("indent")
+    indent = primary_m.group("indent")
     dry_run_arg = dry_cond if dry_cond is not None else "False"
     seeds_sym = find_seeds_symbol(src)
     seeds_arg = seeds_sym if seeds_sym else "None"
     cfg = config_expr(src)
 
     replacement = [
-        f"{indent}out_path = write_flat_manifest(",
+        f"{indent}{pathvar} = write_flat_manifest(",
         f"{indent}    manifest,",
-        f"{indent}    out_dir,",
+        f"{indent}    {dirvar},",
         f"{indent}    dry_run={dry_run_arg},",
         f"{indent}    config={cfg},",
         f"{indent}    seeds={seeds_arg},",

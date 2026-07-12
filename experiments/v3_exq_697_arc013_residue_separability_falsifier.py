@@ -88,6 +88,7 @@ from experiment_protocol import emit_outcome  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 # ------------------------------------------------------------------ #
 # Constants                                                          #
@@ -557,10 +558,14 @@ if __name__ == "__main__":
 
     manifest = run_experiment(args.dry_run)
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUT_DIR / f"{manifest['run_id']}.json"
-    with open(out_path, "w") as fh:
-        json.dump(manifest, fh, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        OUT_DIR,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(
         f"  outcome={manifest['outcome']} direction={manifest['evidence_direction']} "
