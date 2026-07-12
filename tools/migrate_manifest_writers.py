@@ -57,13 +57,22 @@ def dump_re(var):
 def writetext_re(var):
     return re.compile(
         r'^(?P<indent>\s*)(?P<path>\w+)\.write_text\(\s*json\.dumps\(\s*' + re.escape(var) + r'\s*,\s*indent=2'
-        r'(?:\s*,\s*sort_keys=True)?\s*\)(?:\s*\+\s*["\']\\n["\'])?(?:\s*,\s*encoding=["\']utf-8["\'])?\s*\)\s*$'
+        r'(?P<extra>(?:\s*,\s*(?:sort_keys=True|default=str))*)\s*\)(?:\s*\+\s*["\']\\n["\'])?(?:\s*,\s*encoding=["\'][\w-]+["\'])?\s*\)\s*$'
     )
 
 
 DUMP_RE = dump_re("manifest")
 WRITETEXT_RE = writetext_re("manifest")
-WITH_RE = re.compile(r'^(?P<indent>\s*)with\s+open\(\s*(?P<path>\w+)\s*,\s*["\']w["\']\s*\)\s*as\s+(?P<fh>\w+)\s*:\s*$')
+# with-open spelling variants (batch 4). The mode arg may carry a trailing
+# `, encoding="utf-8"`, and the block may use the bound-path method form
+# `<path>.open("w", ...)` instead of the `open(<path>, "w", ...)` builtin. Both are
+# byte-identical for the migration: write_flat_manifest recomputes the same path
+# and always writes utf-8 with a trailing newline, so the original encoding= arg is
+# irrelevant to output bytes (every matched dump is ensure_ascii JSON -- dump_re /
+# writetext_re never accept ensure_ascii=False). `_ENC` is the optional encoding tail.
+_ENC = r'(?:\s*,\s*encoding=["\'][\w-]+["\'])?'
+WITH_RE = re.compile(r'^(?P<indent>\s*)with\s+open\(\s*(?P<path>\w+)\s*,\s*["\']w["\']' + _ENC + r'\s*\)\s*as\s+(?P<fh>\w+)\s*:\s*$')
+WITH_METHOD_RE = re.compile(r'^(?P<indent>\s*)with\s+(?P<path>\w+)\.open\(\s*["\']w["\']' + _ENC + r'\s*\)\s*as\s+(?P<fh>\w+)\s*:\s*$')
 
 
 def detect_manifest_var(src: str):
@@ -102,26 +111,52 @@ def detect_manifest_var(src: str):
 OUTPATH_RE = re.compile(
     r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*out_dir\s*/\s*f["']\{?_dry_\}?"""
 )
-# canonical primary + dry lines. run_id resolved either as manifest['run_id']
-# (the batch-1 canonical form) OR as a bare local `run_id` variable. The bare
-# form is accepted ONLY when `runid_is_manifest_runid` proves the manifest sets
-# `"run_id": run_id`, so out_dir / f"{run_id}.json" is byte-identical to what
-# write_flat_manifest recomputes (out_dir / f"{manifest['run_id']}.json").
-_RUNID = r"""(?:manifest\[["']run_id["']\]|run_id)"""
+# canonical primary + dry lines. run_id resolved either as <mvar>['run_id']
+# (the batch-1 canonical form -- `manifest['run_id']`, generalized in batch 4 to the
+# detected mvar, e.g. `pack['run_id']`/`output['run_id']`) OR as a bare local `run_id`
+# variable. The bare form is accepted ONLY when `runid_is_manifest_runid` proves the
+# manifest sets `"run_id": run_id`, so <dir> / f"{run_id}.json" is byte-identical to
+# what write_flat_manifest recomputes (<dir> / f"{<mvar>['run_id']}.json"). The
+# subscript form <mvar>['run_id'] needs no such proof -- write_flat_manifest reads the
+# SAME <mvar>['run_id'], so the recomputed filename is identical by construction.
+def _runid_pat(mvar: str) -> str:
+    return r"""(?:""" + re.escape(mvar) + r"""\[["']run_id["']\]|run_id)"""
+
+
 # The LHS path var and the dir var are CAPTURED (not hardcoded out_path/out_dir) so
 # a script that names them differently -- e.g. `out_file = out_dir / f"{run_id}.json"`
 # or `manifest_path = evidence_dir / f"{manifest['run_id']}.json"` -- migrates too,
 # PROVIDED (a) the with-open/write_text path var equals this LHS var, and (b) the dir
 # var is assigned above the tail. Both guarantee the path write_flat_manifest recomputes
 # (Path(<dir>) / f"{manifest['run_id']}.json") is byte-location-identical to the original
-# write target. out_path/out_dir remain a matched instance -> existing batch output is
-# bit-for-bit unchanged (validated against the frozen origin/main migrator).
-PRIMARY_RE = re.compile(
-    r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*(?P<dir>\w+)\s*/\s*f["']\{""" + _RUNID + r"""\}\.json["']\s*$"""
-)
-DRY_REASSIGN_RE = re.compile(
-    r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*(?P<dir>\w+)\s*/\s*f["']_dry_\{""" + _RUNID + r"""\}\.json["']\s*$"""
-)
+# write target. Two path idioms are accepted, both byte-location-identical on POSIX (the
+# only platform the fleet runs): the pathlib `<dir> / f"{run_id}.json"` form AND the
+# `os.path.join(<dir>, f"{run_id}.json")` form (batch 4 -- write_flat_manifest does
+# Path(out_dir) / f"{run_id}.json", identical to os.path.join(<dir>, ...) under os.sep=="/").
+# For mvar=="manifest" + the slash form these compile IDENTICALLY to the frozen
+# origin/main PRIMARY_RE/DRY_REASSIGN_RE, so existing batch output is bit-for-bit
+# unchanged (validated against the frozen migrator); the os.path.join alternative only
+# ever fires when the slash form fails.
+def primary_res(mvar: str):
+    rid = _runid_pat(mvar)
+    slash = re.compile(
+        r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*(?P<dir>\w+)\s*/\s*f["']\{""" + rid + r"""\}\.json["']\s*$"""
+    )
+    osjoin = re.compile(
+        r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*os\.path\.join\(\s*(?P<dir>\w+)\s*,\s*f["']\{""" + rid + r"""\}\.json["']\s*\)\s*$"""
+    )
+    return slash, osjoin
+
+
+def dry_res(mvar: str):
+    rid = _runid_pat(mvar)
+    slash = re.compile(
+        r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*(?P<dir>\w+)\s*/\s*f["']_dry_\{""" + rid + r"""\}\.json["']\s*$"""
+    )
+    osjoin = re.compile(
+        r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*os\.path\.join\(\s*(?P<dir>\w+)\s*,\s*f["']_dry_\{""" + rid + r"""\}\.json["']\s*\)\s*$"""
+    )
+    return slash, osjoin
 # `"run_id": run_id` (or single-quoted) in the manifest dict literal proves the
 # local run_id var IS the manifest run_id.
 RUNID_FIELD_RE = re.compile(r"""["']run_id["']\s*:\s*run_id\b""")
@@ -178,6 +213,31 @@ def migrate_one(path: Path):
     if not has_jsondump and not has_writetext:
         return ("unmatched", "no json.dump(<mvar> tail", None)
 
+    # Multiple write sites for the SAME mvar (e.g. a branchy `if dry: {..write..} else:
+    # {..write..}` shape like v3_exq_354) cannot be routed by a single write_flat_manifest
+    # call -- the migrator rewrites only the FIRST write, which would leave the SECOND as a
+    # raw json.dump AND mark the script "already-routed" on the next pass. The canonical
+    # dry-run idiom the migrator DOES support is single-write-with-reassign (`out_path =
+    # ...; if dry: out_path = _dry_...; with open(out_path): dump`). So: if mvar is written
+    # via json.dump/write_text more than once, refuse (hand-migrate). Every batch-1/2/3
+    # canonical script is single-write, so this never regresses them (backward-compat check).
+    n_write_sites = (len(re.findall(r"json\.dump\(\s*" + re.escape(mvar) + r"\s*,", src))
+                     + len(re.findall(r"\.write_text\(\s*json\.dumps\(\s*" + re.escape(mvar) + r"\b", src)))
+    if n_write_sites > 1:
+        return ("unmatched", f"multiple ({n_write_sites}) {mvar} write sites (branchy); hand-migrate", None)
+
+    # Per-mvar canonical path matchers (slash + os.path.join alternatives). For
+    # mvar=="manifest" + the slash form these are byte-identical to the frozen
+    # PRIMARY_RE/DRY_REASSIGN_RE; the os.path.join alternative only fires when slash fails.
+    PRIMARY_SLASH_RE, PRIMARY_OSJOIN_RE = primary_res(mvar)
+    DRY_SLASH_RE, DRY_OSJOIN_RE = dry_res(mvar)
+
+    def match_primary(line: str):
+        return PRIMARY_SLASH_RE.match(line) or PRIMARY_OSJOIN_RE.match(line)
+
+    def match_dry(line: str):
+        return DRY_SLASH_RE.match(line) or DRY_OSJOIN_RE.match(line)
+
     lines = src.splitlines()
     # Locate the manifest write statement. Two accepted idioms:
     #   A) with open(out_path, "w") as fh:   (2 lines)
@@ -193,6 +253,7 @@ def migrate_one(path: Path):
         if wt:
             pathvar = wt.group("path")
             write_indent = wt.group("indent")
+            has_default_str = "default=str" in (wt.group("extra") or "")
             write_top = write_bot = i
             break
     if write_top is None:
@@ -213,7 +274,7 @@ def migrate_one(path: Path):
         # + pathvar==primary-var guard below, NOT by the name.
         if dump_idx == 0:
             return ("unmatched", "dump at file start", None)
-        wm = WITH_RE.match(lines[dump_idx - 1])
+        wm = WITH_RE.match(lines[dump_idx - 1]) or WITH_METHOD_RE.match(lines[dump_idx - 1])
         if not wm:
             return ("unmatched", "no canonical `with open(<path>, \"w\") as fh:` above dump", None)
         if wm.group("fh") != dm.group("fh"):
@@ -256,17 +317,17 @@ def migrate_one(path: Path):
     dry_m = None
     non_adjacent = False
     # Case: lines[j] is the dry reassignment inside an if
-    if j >= 1 and DRY_REASSIGN_RE.match(lines[j]) and DRY_IF_RE.match(lines[j - 1]):
-        dry_m = DRY_REASSIGN_RE.match(lines[j])
+    if j >= 1 and match_dry(lines[j]) and DRY_IF_RE.match(lines[j - 1]):
+        dry_m = match_dry(lines[j])
         dry_cond = DRY_IF_RE.match(lines[j - 1]).group("cond").strip()
         k = j - 2
         while k >= 0 and lines[k].strip() == "":
             k -= 1
-        if k >= 0 and PRIMARY_RE.match(lines[k]):
+        if k >= 0 and match_primary(lines[k]):
             block_top = k
         else:
             return ("unmatched", "dry-reassign present but no canonical primary out_path above", None)
-    elif j >= 0 and PRIMARY_RE.match(lines[j]):
+    elif j >= 0 and match_primary(lines[j]):
         block_top = j
     else:
         # Non-adjacent: the path var is assigned canonically but NOT immediately above
@@ -284,12 +345,12 @@ def migrate_one(path: Path):
                 near = a
                 break
             a -= 1
-        if near is None or not PRIMARY_RE.match(lines[near]):
+        if near is None or not match_primary(lines[near]):
             return ("unmatched", "no canonical `out_path = out_dir / f\"{manifest['run_id']}.json\"` (adjacent or nearest)", None)
         block_top = near
         non_adjacent = True
 
-    primary_m = PRIMARY_RE.match(lines[block_top])
+    primary_m = match_primary(lines[block_top])
     dirvar = primary_m.group("dir")
     # The write statement's path var MUST be the var this primary assignment sets --
     # else the with-open/write_text is targeting a DIFFERENT file (e.g. a pack-style
@@ -324,9 +385,11 @@ def migrate_one(path: Path):
     if not has_dir_assignment(lines, top, dirvar):
         return ("unmatched", f"no {dirvar} assignment above tail", None)
 
-    # Bare-`run_id` out_path is only safe when it provably equals manifest['run_id'].
-    if "manifest[" not in lines[block_top] and not runid_is_manifest_runid(src):
-        return ("unmatched", "bare run_id out_path not provably == manifest['run_id']", None)
+    # Bare-`run_id` out_path is only safe when it provably equals <mvar>['run_id']. The
+    # subscript form <mvar>['run_id'] in the path needs no proof -- write_flat_manifest
+    # reads the SAME <mvar>['run_id'], so the recomputed filename is identical.
+    if (mvar + "[") not in lines[block_top] and not runid_is_manifest_runid(src):
+        return ("unmatched", f"bare run_id out_path not provably == {mvar}['run_id']", None)
     dry_run_arg = dry_cond if dry_cond is not None else "False"
     seeds_sym = find_seeds_symbol(src)
     seeds_arg = seeds_sym if seeds_sym else "None"
@@ -352,6 +415,13 @@ def migrate_one(path: Path):
         new_src += "\n"
     if "from experiments.pack_writer import write_flat_manifest" not in new_src:
         new_src = insert_import(new_src)
+    # The emitted call passes `script_path=Path(__file__)`, so `Path` must be bound.
+    # pathlib-idiom scripts (the `<dir> / f"{run_id}.json"` slash form) already import
+    # it (they divide Path objects); but the os.path.join family imports only `os`, so
+    # a bare `Path` would NameError at runtime. Ensure the import when it is absent --
+    # a no-op (byte-identical) for every already-Path-bound script, so backward-compat
+    # against the frozen migrator is preserved (all 25 canonical are slash-form).
+    new_src = ensure_path_import(new_src)
 
     flags = []
     if mvar != "manifest":
@@ -367,10 +437,11 @@ def migrate_one(path: Path):
     return ("migrate", ";".join(flags) or "ok", new_src)
 
 
-def insert_import(src: str) -> str:
-    """Insert the write_flat_manifest import AFTER the last complete top-level
-    import statement, correctly stepping over multi-line parenthesized imports
-    (inserting inside a `from x import (` continuation would be a SyntaxError)."""
+def insert_import(src: str, imp: str = "from experiments.pack_writer import write_flat_manifest  # noqa: E402") -> str:
+    """Insert `imp` AFTER the last complete top-level import statement, correctly
+    stepping over multi-line parenthesized imports (inserting inside a
+    `from x import (` continuation would be a SyntaxError). Defaults to the
+    write_flat_manifest import (batch-1 behaviour, unchanged)."""
     lines = src.splitlines()
     n = len(lines)
     last_import_end = None
@@ -388,12 +459,42 @@ def insert_import(src: str) -> str:
         else:
             i += 1
     anchor = last_import_end if last_import_end is not None else 0
-    imp = "from experiments.pack_writer import write_flat_manifest  # noqa: E402"
     lines.insert(anchor + 1, imp)
     out = "\n".join(lines)
     if src.endswith("\n"):
         out += "\n"
     return out
+
+
+def _path_is_bound(src: str) -> bool:
+    """True if the bare name ``Path`` is bound at module scope -- via
+    ``from pathlib import Path`` (any spelling, incl. multi-name / aliased) or a
+    top-level ``Path = ...`` assignment. A bare ``import pathlib`` does NOT bind
+    ``Path`` (only ``pathlib.Path``), so it returns False. On a parse failure we
+    return True (never touch a script we cannot parse)."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return True
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "pathlib":
+            for a in node.names:
+                if (a.asname or a.name) == "Path":
+                    return True
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == "Path":
+                    return True
+    return False
+
+
+def ensure_path_import(src: str) -> str:
+    """Insert ``from pathlib import Path`` (after the last top-level import) when the
+    bare name ``Path`` is not already bound -- required because the migrated call uses
+    ``script_path=Path(__file__)``. No-op when ``Path`` is already in scope."""
+    if _path_is_bound(src):
+        return src
+    return insert_import(src, "from pathlib import Path  # noqa: E402")
 
 
 def main():
