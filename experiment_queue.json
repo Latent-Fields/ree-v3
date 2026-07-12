@@ -56,7 +56,11 @@
       "estimated_minutes": 120,
       "claim_id": "INV-089",
       "note": "DEFERRED calibrated bound test for INV-089 (child ii of INV-064), the CORE coupling V3-EXQ-743 reported-not-gated. 743 (PASS) established only the load-bearing POSITIVE CONTROL (realized harm decodable from z_harm + rises with HarmEncoder maturation); its harm_eval_z_harm 'bound' (SEC_*) failed to gate because the DV was under-determined realized post-random-action harm and 740a's 0.03/0.15 magnitude thresholds were mis-calibrated for the narrow/high-JL z_harm gradient. This run fixes BOTH: (a) a STATE-DETERMINED DV target = ground-truth clip(hazard_field[agent],0,1) aligned to the SAME state z_harm encodes (NOT realized post-action harm); (b) SCALE-FREE (rank-monotonicity + IV<->DV coupling + effect-size reliability) thresholds, NO absolute 740a magnitude floors. Verifies harm_eval_z_harm held-out quality rises monotonically with z_harm differentiation across onset {0,1,4,12,30}, 8 seeds (744a-style, for power). PASS moves INV-089 provisional->toward stable. GOV-REUSE-1: decisive readout (harm_eval quality vs a STATE-DETERMINED target under calibrated criteria) is NOT recorded in 743 (743 only tested the realized-harm target + failed SEC_* coupling) -> new manipulation, run. Re-derive brake HONOURED (0 substrate_ceiling/non_contributory autopsies tag INV-089; z_harm observable distinct from the z_world 740-cluster; no z_world decode -> not a 740b). EXTENDS V3-EXQ-743, supersedes NOTHING (743's positive-control stands). queue_id 745 taken by a parallel session (MECH-456 rebinding) -> this took 746. Cells reuse-INELIGIBLE (state-determined target collected by inline driver code, not a hashed _lib module) -> fingerprints emitted+flagged; NO separate baseline mint (no OFF arm; a future z_harm sibling wanting cross-driver reuse should first factor a state-determined harm mature+collect into _lib/baselines/maturation_curriculum.py). Manifest via write_flat_manifest (recording-standard always-core). claim_ids=[INV-089]; experiment_purpose=evidence. Do NOT touch running V3-EXQ-742. [Landed on main via temp worktree: an earlier commit accidentally went onto integration/pack-writer-migration in the shared checkout; re-applied cleanly here.]",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-07-12T14:25:51Z"
+      },
       "conditions": 5,
       "episodes_per_run": 30,
       "experiment_type": "v3_exq_746_inv089_harm_eval_z_harm_calibrated_bound",
