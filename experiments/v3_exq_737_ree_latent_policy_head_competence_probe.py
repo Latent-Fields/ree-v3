@@ -73,6 +73,7 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
 from experiment_protocol import emit_outcome  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from experiments._lib.capability_eval import (  # noqa: E402
     COMPETENCE_RESOURCE_FLOOR,
@@ -540,6 +541,7 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--out-dir", type=str, default=None)
     args = parser.parse_args()
+    _run_started = datetime.now(timezone.utc)
 
     if args.dry_run:
         seeds = list(DRY_RUN_SEEDS)
@@ -559,13 +561,15 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         out_dir = Path(args.out_dir)
     else:
         out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    if args.dry_run:
-        out_path = out_dir / f"_dry_{manifest['run_id']}.json"
-
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=bool(args.dry_run),
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+        elapsed_seconds=(datetime.now(timezone.utc) - _run_started).total_seconds(),
+    )
 
     print(f"manifest: {out_path}", flush=True)
     if not args.dry_run:
