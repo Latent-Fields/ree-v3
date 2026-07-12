@@ -217,7 +217,7 @@ def test_c3_error_branch_manifest_guard_gated_on_output_file():
     # ship-results block.
     git_push_idx = _idx(
         _ERROR_BRANCH,
-        'git_push_results(ree_assembly_path, [result["output_file"]])',
+        'git_push_results(ree_assembly_path, [_err_manifest_path])',
         "C3 ERROR git_push_results",
     )
     between = _ERROR_BRANCH[pass_skip_idx:git_push_idx]
@@ -233,19 +233,19 @@ def test_c3_error_branch_manifest_guard_gated_on_output_file():
 def test_c4_error_branch_ships_manifest_before_queue_remove_when_present():
     """ERROR with a present manifest must call git_push_results AND
     coordinator_client.report_result before report_queue_remove. The
-    ship block is gated on output_file non-empty so an ERROR with no
-    claimed manifest (legitimate crash) skips these calls and proceeds
-    to queue removal directly."""
-    # Gating clause for the ship block.
-    assert "args.auto_sync and ree_assembly_path and _err_manifest_str" in _ERROR_BRANCH, (
+    ship block is gated on _err_manifest_path non-empty -- a real manifest,
+    or (V3-EXQ-654e) a synthetic ERROR record written for a crash-before-
+    manifest -- so the manifest + results row reach origin before queue
+    removal; only when no path exists at all is the ship skipped."""
+    # Gating clause for the ship block (real-or-synthetic manifest path).
+    assert "args.auto_sync and ree_assembly_path and _err_manifest_path" in _ERROR_BRANCH, (
         "C4: ERROR branch ship-results block must be gated on "
-        "_err_manifest_str non-empty so an ERROR with no claimed "
-        "manifest (script crash) still removes from queue without "
-        "firing the manifest-ship calls."
+        "_err_manifest_path non-empty (real manifest, or the V3-EXQ-654e "
+        "synthetic ERROR record) so the manifest ships before queue removal."
     )
     gp_idx = _idx(
         _ERROR_BRANCH,
-        'git_push_results(ree_assembly_path, [result["output_file"]])',
+        'git_push_results(ree_assembly_path, [_err_manifest_path])',
         "C4 ERROR git_push_results",
     )
     rr_idx = _idx(

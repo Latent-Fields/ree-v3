@@ -140,8 +140,11 @@ class TestE1Projections:
 
     def test_cue_action_proj_dimensions(self):
         e1 = make_e1(sd016_enabled=True, action_object_dim=ACTION_OBJECT_DIM)
-        # cue_action_proj: latent_dim (64) -> action_object_dim (16)
-        assert e1.cue_action_proj.in_features  == SELF_DIM + WORLD_DIM
+        # cue_action_proj: [cue_context (latent_dim 64), z_world (world_dim 32)]
+        #   -> action_object_dim (16). EXQ-449a consumer fix concatenates z_world
+        #   onto cue_context to guarantee per-input variation (ContextMemory
+        #   attention collapses to uniform), so in_features == latent_dim+world_dim.
+        assert e1.cue_action_proj.in_features  == SELF_DIM + WORLD_DIM + WORLD_DIM
         assert e1.cue_action_proj.out_features == ACTION_OBJECT_DIM
 
     def test_cue_terrain_proj_dimensions(self):

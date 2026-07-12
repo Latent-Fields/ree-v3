@@ -171,6 +171,9 @@ def test_c7_get_state_marks_stub():
         "last_gate",
         "last_counterfactual_value",
         "last_importance_entropy",
-        "last_disengagement_bias",
+        # SD-033e (5e54781) renamed the de-commit diagnostic key
+        # last_disengagement_bias -> last_decommit_pressure in get_state()
+        # (the underlying attribute stays _last_disengagement_bias).
+        "last_decommit_pressure",
     ):
         assert key in state

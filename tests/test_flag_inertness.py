@@ -181,7 +181,11 @@ KNOWN_INERT = {
 KNOWN_UNPROBED = {
     "action_loop_gate_enabled", "goal_stream_enabled", "harm_descending_mod_enabled",
     "harm_surprise_pe_enabled", "rem_enabled", "replay_diversity_enabled",
-    "shy_enabled", "sws_enabled", "use_aic_analog", "use_blocked_agency",
+    "shy_enabled", "sws_enabled",
+    # MECH-457: RPE-driven actor-critic substrate, wired at agent.py:310 (not
+    # inert -- creates action_critic + actor_critic_step when True); behavioural
+    # coverage via V3-EXQ-742 actor_critic on/off; dedicated inertness probe pending.
+    "use_actor_critic", "use_aic_analog", "use_blocked_agency",
     "use_broadcast_override", "use_candidate_rule_field", "use_cea_analog",
     "use_closure_commit_beta_coupling", "use_closure_commit_entry",
     "use_closure_commit_entry_trajectory", "use_closure_env_completion_hook",
