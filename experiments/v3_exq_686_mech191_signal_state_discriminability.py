@@ -66,6 +66,16 @@ from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
 from experiments._metrics import check_degeneracy
 
+MANIFEST_WRITER_EXEMPT = (
+    "archival early-era manifest: writes result (a run_experiment() return carrying "
+    "architecture_epoch + outcome but NO run_id key) to a single hardcoded relative "
+    "f-string '../REE_assembly/evidence/experiments/{run_id}.json'; routing through "
+    "write_flat_manifest would need inject result['run_id'] = run_id + split the dir "
+    "(a correct-and-route, not a byte-safe mechanical migration). Not queued, never "
+    "ran (no evidence manifest, no runner_status completion), MECH-191 signal-state "
+    "discriminability probe for cross-arch legibility (substrate-blocked on V3); not re-run."
+)
+
 
 EXPERIMENT_TYPE = "v3_exq_686_mech191_signal_state_discriminability"
 CLAIM_IDS = ["MECH-191"]

@@ -61,6 +61,16 @@ from ree_core.environment.causal_grid_world import CausalGridWorld
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
 
+MANIFEST_WRITER_EXEMPT = (
+    "archival early-era manifest: writes result (a run_experiment() return carrying "
+    "architecture_epoch + outcome but NO run_id key) to a single hardcoded relative "
+    "f-string '../REE_assembly/evidence/experiments/{run_id}.json'; routing through "
+    "write_flat_manifest would need inject result['run_id'] = run_id + split the dir "
+    "(a correct-and-route, not a byte-safe mechanical migration). Not queued, never "
+    "ran (no evidence manifest, no runner_status completion), MECH-048 mu/kappa "
+    "temperature-proxy for a substrate V3 lacks (no dedicated mu/kappa modules); not re-run."
+)
+
 
 EXPERIMENT_TYPE = "v3_exq_683_mech048_mu_kappa_stability_probe"
 CLAIM_IDS = ["MECH-048"]
