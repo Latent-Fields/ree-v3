@@ -22,6 +22,22 @@
       "experiment_purpose": "baseline",
       "experiment_type": "v3_exq_742m_mech457_bias_head_baseline_mint",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-751",
+      "title": "MECH-457 GOV-FANOUT-1 leg D (H-optim): stronger unsupervised explorer (RND + ICM) vs sparse z_world actor-critic",
+      "script": "experiments/v3_exq_751_mech457_hoptim_unsupervised_explorer_actor_critic.py",
+      "experiment_type": "v3_exq_751_mech457_hoptim_unsupervised_explorer_actor_critic",
+      "priority": 10,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "episodes_per_run": 1000,
+      "seeds": 3,
+      "conditions": 6,
+      "experiment_purpose": "diagnostic",
+      "claim_id": "MECH-457",
+      "note": "MECH-457 GOV-FANOUT-1 leg D (ALGORITHM axis) -- the empirical discrimination the 747/748/749 portfolio deferred (combined autopsy failure_autopsy_MECH-457-fanout-747-748-749_2026-07-13; lit-pull landed REE_assembly master 5883691b2b: Burda2018 RND, Pathak2017 ICM, Hester2018 DQfD, Ross2011 DAgger, Kang2021 observational). Question: is an EXPERT teacher NECESSARY, or was vanilla policy-gradient exploration merely too WEAK -- would a stronger UNSUPERVISED explorer clear the 1.0 forage floor at D3 without an oracle to clone? Arms (6 = 3 z_world x 1 rung D3_hazard_free + 3 anchors, seeds [42,43,44]): ac_zworld_sparse (the 742 sparse cotrain arm, shaping_coef=0, SAME-RUN baseline + reuse-eligible MINT), ac_zworld_rnd (Random Network Distillation intrinsic + entropy 0.10), ac_zworld_icm (Intrinsic Curiosity Module forward-error + entropy 0.10). NO expert, NO behavior-cloning. z_world ONLY (representation axis already closed by 747/748/749: H-rep refuted, z_world+BC 32.72 > raw+BC 20.93). DIAGNOSTIC -> excluded from governance scoring; PROMOTES/DEMOTES NOTHING; route to /failure-autopsy before any governance action; MECH-457 stays candidate/v3_pending, competence_implementation_gap. SELF-ROUTE: any explorer majority supra-floor -> stronger_unsupervised_explorer_clears_floor_exploration_was_the_wall (build a better explorer; RND/ICM viable-but-scale-discounted per Burda/Pathak); both explorers sub-floor while 748 BC passed -> unsupervised_exploration_insufficient_expert_teaching_signal_necessary (build imitation+closed-loop-correction, NOT static BC: DAgger O(eps*T^2) ceiling, DQfD scaffold-then-continued-RL escape); readiness unmet -> substrate_not_ready_requeue. Denominators live per run (742: local_view_greedy 48.05, greedy_oracle 57.2, random_walk 0.933; floor 1.0). NOT a power-bump of the sparse-RL design -- adds a LEARNED intrinsic signal the 742/748 baseline lacked (it already had entropy 0.03 + count-novelty). Do NOT amend the f_dominance_conversion_ceiling substrate_queue entry (autopsy sec8 recommended action=none until this leg decides the build target). GOV-REUSE-1: decisive readout (z_world AC foraging under RND/ICM) recorded in NO prior manifest (742 sparse-only, 748 dense-teacher, 747/749 raw-view) -> run. Re-derive brake does NOT fire (0 substrate_ceiling/non_contributory autopsies on MECH-457). MINT: ac_zworld_sparse emitted reuse-eligible (mint-as-you-go; OFF computation in fan.train_zworld_ac_shaped shaping_coef=0 under _lib/**); separate order-independent mint skipped eyes-open (this leg self-mints + is high-priority; no sibling needs the z_world-sparse baseline before it lands). Concurrent V3-EXQ-750 (nervous-proskuriakova) is a DIFFERENT MECH-457/INV-088 strategy-diversity readout -- no overlap. Smoke PASS + validate_experiments --strict OK 2026-07-13."
     }
   ]
 }
