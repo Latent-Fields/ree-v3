@@ -60,16 +60,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorld
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
-
-MANIFEST_WRITER_EXEMPT = (
-    "archival early-era manifest: writes result (a run_experiment() return carrying "
-    "architecture_epoch + outcome but NO run_id key) to a single hardcoded relative "
-    "f-string '../REE_assembly/evidence/experiments/{run_id}.json'; routing through "
-    "write_flat_manifest would need inject result['run_id'] = run_id + split the dir "
-    "(a correct-and-route, not a byte-safe mechanical migration). Not queued, never "
-    "ran (no evidence manifest, no runner_status completion), MECH-048 mu/kappa "
-    "temperature-proxy for a substrate V3 lacks (no dedicated mu/kappa modules); not re-run."
-)
+from experiments.pack_writer import write_flat_manifest
 
 
 EXPERIMENT_TYPE = "v3_exq_683_mech048_mu_kappa_stability_probe"
@@ -367,13 +358,21 @@ if __name__ == "__main__":
         print("\n[DRY-RUN] Experiment structure validated")
         print(json.dumps(result, indent=2))
     else:
-        # Write manifest
+        # Write manifest via the sanctioned single writer (stamps the always-core
+        # + injects the run_id key sync_v3_results requires). Byte-location-identical
+        # to the prior raw json.dump: write_flat_manifest writes <out_dir>/<run_id>.json.
         timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         run_id = f"{EXPERIMENT_TYPE}_{timestamp}_v3"
-        out_path = f"../REE_assembly/evidence/experiments/{run_id}.json"
-
-        with open(out_path, "w") as f:
-            json.dump(result, f, indent=2)
+        result["run_id"] = run_id
+        out_dir = Path("../REE_assembly/evidence/experiments")
+        out_path = write_flat_manifest(
+            result,
+            out_dir,
+            dry_run=False,
+            config=result.get("config"),
+            seeds=result.get("seeds"),
+            script_path=Path(__file__),
+        )
 
         print(f"Result written to: {out_path}", flush=True)
         print(f"Outcome: {result['outcome']}")
