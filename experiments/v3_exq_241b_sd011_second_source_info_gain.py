@@ -65,6 +65,8 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 
+MANIFEST_WRITER_EXEMPT = "archival early-era self-packing manifest (writes runs/<run_id>/manifest.json pack path + <TYPE>_output.json pointer; no canonical flat <run_id>.json, so routing would relocate/rename; not queued, last run 2026-04, superseded lineage, not re-run)"
+
 # ---------------------------------------------------------------------------
 # Metadata
 # ---------------------------------------------------------------------------

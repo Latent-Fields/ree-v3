@@ -76,6 +76,8 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.latent.stack import HarmEncoder, AffectiveHarmEncoder, ResidualHarmForward
 from ree_core.utils.config import REEConfig
 
+MANIFEST_WRITER_EXEMPT = "archival early-era self-packing manifest (writes only runs/<run_id>/manifest.json pack path; no canonical flat <run_id>.json, so routing would relocate; not queued, last run 2026-04, not re-run)"
+
 
 EXPERIMENT_TYPE = "v3_exq_247_sd011_sd012_integration"
 CLAIM_IDS = ["SD-011", "SD-012", "ARC-033", "ARC-030"]
