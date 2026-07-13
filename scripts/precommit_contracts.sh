@@ -76,6 +76,37 @@ if [ -n "$STAGED_EXPERIMENTS" ] && [ -f "$REPO/validate_experiments.py" ]; then
     fi
 fi
 
+# Block 1b: manifest-writer chokepoint gate (pack_writer_single_writer_migration_plan
+# sec 7 item 3; experimental_recording_standard sec 4). A NEW/modified experiment
+# script that hand-rolls a raw json.dump flat-manifest tail bypasses the always-record
+# core (substrate_hash / machine / elapsed_seconds / config / seeds via
+# stamp_recording_core) instead of routing through pack_writer.write_flat_manifest --
+# the recording-debt the migration closes. This is the last uncovered path: a script
+# committed OUTSIDE the /queue-experiment skill (direct edit, another agent, plain CLI)
+# could reintroduce a raw json.dump. Scope is ALL staged experiments/v3_*.py (broader
+# than Block 1's v3_exq_ glob -- the debt is a regression in ANY v3 script) via
+# --diff-filter=ACM (added/copied/modified only; a deleted path is never read).
+# `--checks manifest_writer` keeps this SURGICAL: it runs ONLY the manifest-writer lint,
+# so it does NOT expand the emit_outcome/degeneracy/arm-fingerprint contracts onto the
+# non-v3_exq_ scripts it also scopes. The lint is HARD under --paths and respects the
+# MANIFEST_WRITER_EXEMPT opt-out; the full-glob advisory backlog stays advisory. No-op
+# when no v3 script is staged (a docs/queue-only commit is unaffected).
+STAGED_V3=$(git -C "$REPO" diff --cached --name-only --diff-filter=ACM -- 'experiments/v3_*.py' 2>/dev/null || true)
+if [ -n "$STAGED_V3" ] && [ -f "$REPO/validate_experiments.py" ]; then
+    echo "[precommit_contracts] staged v3 experiment script(s) -- manifest-writer chokepoint gate" >&2
+    # shellcheck disable=SC2086
+    if ! (cd "$REPO" && "$PY" validate_experiments.py --strict --quiet --checks manifest_writer --paths $STAGED_V3) >&2; then
+        echo "[precommit_contracts] staged experiment hand-rolls a flat-manifest json.dump -- blocking commit" >&2
+        echo "[precommit_contracts] route the write through experiments/pack_writer.write_flat_manifest(...)" >&2
+        echo "[precommit_contracts] or (if deliberately outside the standard) add MANIFEST_WRITER_EXEMPT = \"<reason>\"" >&2
+        if [ "$NO_BLOCK" = "1" ]; then
+            :
+        else
+            exit 2
+        fi
+    fi
+fi
+
 # Block 2: ree_core/** -> contracts test suite.
 if ! echo "$STAGED" | grep -q '^ree_core/'; then
     exit 0

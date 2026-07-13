@@ -1,0 +1,41 @@
+#!/bin/sh
+# ree-v3 pre-commit contract gate (source; installed into .git/hooks by
+# scripts/install_precommit_gate.sh). Runs the ree-v3 CONTRACT checks the Claude Code
+# settings.json PreToolUse hook runs on a `git commit`, so plain-CLI / non-Claude-Code /
+# other-agent commits are gated too -- the settings.json hook only covers Claude Code
+# commits, leaving direct `git commit` uncovered. That was the pack_writer sec 7 item 3
+# gap: a script committed outside /queue-experiment could reintroduce a raw json.dump
+# flat-manifest tail (bypassing the always-record core) undetected.
+#
+# Invoked via the pre-commit.local CHAIN SLOT: the clinical-hours guard
+# (.git/hooks/pre-commit) execs "$0.local" after it passes, and the installer's minimal
+# top-level chainer does the same when the clinical guard is absent. So this file is the
+# single place the contract gate lives for every non-Claude-Code committer.
+#
+# Runs precommit_contracts.sh -- which SELF-GATES on what is staged:
+#   Block 1   emit_outcome conformance on staged experiments/v3_exq_*.py
+#   Block 1b  manifest-writer chokepoint gate on staged experiments/v3_*.py  <-- sec 7.3
+#   Block 2   ree_core/** contracts test suite
+# A docs / queue-only / unrelated commit stages none of those, so the gate is a silent
+# no-op -- the hook does NOT block on unrelated work.
+#
+# Deliberately does NOT run validate_queue.py here. Queue integrity is already enforced
+# on the Claude Code path (settings.json), and validate_queue fails on a stale local
+# queue checkout (the writers move it every minute); running it in the git hook would
+# block plain-CLI commits -- exactly the committers most likely to be a few commits
+# behind -- on transient state unrelated to what they are committing.
+#
+# Mac / developer machines only. Do NOT install on cloud workers / the hub -- they run
+# 24/7 phase3 writers and never author experiment scripts.
+ROOT="${REE_WORKING_ROOT:-/Users/dgolden/REE_Working}"
+REPO="$ROOT/ree-v3"
+
+# Contract + manifest-writer chokepoint gate. Propagate the exit code so a blocked
+# commit (precommit_contracts.sh exit 2) aborts the commit.
+if [ -x "$REPO/scripts/precommit_contracts.sh" ]; then
+    CLAUDE_PROJECT_DIR="$ROOT" bash "$REPO/scripts/precommit_contracts.sh"
+    rc=$?
+    [ "$rc" -eq 0 ] || exit "$rc"
+fi
+
+exit 0

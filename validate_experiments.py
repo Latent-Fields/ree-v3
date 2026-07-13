@@ -32,6 +32,13 @@ EXPERIMENTS_DIR = REPO_ROOT / "experiments"
 EMIT_NAME = "emit_outcome"
 PROTOCOL_MODULE = "experiment_protocol"
 
+# Selectable checks for --checks. Default (None) runs all of them. A caller that
+# wants only one gate -- e.g. the commit-time manifest-writer gate in
+# scripts/precommit_contracts.sh -- passes `--checks manifest_writer`, which keeps
+# that gate surgical: it does NOT expand the emit_outcome conformance / degeneracy /
+# arm-fingerprint contracts onto the broader (non-v3_exq_) script set the gate scopes.
+CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "manifest_writer")
+
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
 # these "the substrate is the limit" labels is making a high-stakes claim that is
@@ -567,7 +574,16 @@ def main() -> int:
                         help="Specific scripts to check (default: all v3_exq_*.py in experiments/).")
     parser.add_argument("--quiet", action="store_true",
                         help="Suppress the per-script OK lines.")
+    parser.add_argument("--checks", nargs="*", default=None, choices=CHECK_NAMES,
+                        help="Restrict to specific checks (default: all). E.g. "
+                             "`--checks manifest_writer` runs ONLY the manifest-writer "
+                             "chokepoint gate -- used by the commit-time gate in "
+                             "scripts/precommit_contracts.sh so it does not expand the "
+                             "conformance/degeneracy/arm-fingerprint contracts to the "
+                             "non-v3_exq_ scripts it also scopes.")
     args = parser.parse_args()
+
+    selected = set(args.checks) if args.checks else set(CHECK_NAMES)
 
     paths = _candidate_paths(args.paths)
     if not paths:
@@ -599,40 +615,45 @@ def main() -> int:
     degen_warnings: List[Tuple[Path, str]] = []
     manifest_writer_warnings: List[Tuple[Path, str]] = []
     for p in paths:
-        ok, reason = check_script(p)
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
-        if ok:
-            if reason.startswith("exempt"):
-                n_exempt += 1
-                if not args.quiet:
-                    print(f"[validate_experiments] EXEMPT  {rel} ({reason})", flush=True)
+        if "conformance" in selected:
+            ok, reason = check_script(p)
+            if ok:
+                if reason.startswith("exempt"):
+                    n_exempt += 1
+                    if not args.quiet:
+                        print(f"[validate_experiments] EXEMPT  {rel} ({reason})", flush=True)
+                else:
+                    n_ok += 1
+                    if not args.quiet:
+                        print(f"[validate_experiments] OK      {rel}", flush=True)
             else:
-                n_ok += 1
-                if not args.quiet:
-                    print(f"[validate_experiments] OK      {rel}", flush=True)
-        else:
-            failures.append((p, reason))
-        warn = readiness_lint(p)
-        if warn:
-            warnings.append((p, warn))
-        arm_fp = arm_fingerprint_lint(p)
-        if arm_fp:
-            if arm_fp_hard:
-                failures.append((p, arm_fp))
-            else:
-                arm_fp_warnings.append((p, arm_fp))
-        degen = degeneracy_selfreport_lint(p)
-        if degen:
-            if degen_hard:
-                failures.append((p, degen))
-            else:
-                degen_warnings.append((p, degen))
-        mw = manifest_writer_lint(p)
-        if mw:
-            if manifest_writer_hard:
-                failures.append((p, mw))
-            else:
-                manifest_writer_warnings.append((p, mw))
+                failures.append((p, reason))
+        if "readiness" in selected:
+            warn = readiness_lint(p)
+            if warn:
+                warnings.append((p, warn))
+        if "arm_fingerprint" in selected:
+            arm_fp = arm_fingerprint_lint(p)
+            if arm_fp:
+                if arm_fp_hard:
+                    failures.append((p, arm_fp))
+                else:
+                    arm_fp_warnings.append((p, arm_fp))
+        if "degeneracy" in selected:
+            degen = degeneracy_selfreport_lint(p)
+            if degen:
+                if degen_hard:
+                    failures.append((p, degen))
+                else:
+                    degen_warnings.append((p, degen))
+        if "manifest_writer" in selected:
+            mw = manifest_writer_lint(p)
+            if mw:
+                if manifest_writer_hard:
+                    failures.append((p, mw))
+                else:
+                    manifest_writer_warnings.append((p, mw))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
