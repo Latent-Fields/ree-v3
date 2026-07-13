@@ -184,6 +184,58 @@ def has_dir_assignment(lines: list[str], upto: int, dirvar: str) -> bool:
     return False
 
 
+def _fn_params(fn) -> set:
+    a = fn.args
+    names = set()
+    for grp in (a.posonlyargs, a.args, a.kwonlyargs):
+        names.update(x.arg for x in grp)
+    if a.vararg:
+        names.add(a.vararg.arg)
+    if a.kwarg:
+        names.add(a.kwarg.arg)
+    return names
+
+
+def dir_bound_as_param(src: str, dirvar: str, ref_lineno: int) -> bool:
+    """BATCH 6: True iff `dirvar` is a PARAMETER of the function that lexically
+    encloses the write (the innermost def whose body spans ref_lineno) AND is NOT
+    rebound anywhere in that function before ref_lineno.
+
+    This generalizes the dir-binding requirement to the early-era `emit_manifest(...,
+    out_dir: Path, ...)` shape (v3_exq_621/622/626/636/637 ...), where `out_dir` is a
+    formal parameter, not an `out_dir = ...` statement, so has_dir_assignment (a
+    line-scan for `<dir> =`) misses it -- and a whole-file scan would be UNSOUND
+    (these scripts ALSO assign a *different*, main()-local `out_dir = Path(args.output_dir)`
+    BELOW the write in another scope). Byte-safety: write_flat_manifest recomputes
+    Path(<dir>) / f"{<mvar>['run_id']}.json"; when <dir> is the enclosing function's
+    param and is never rebound before the write, that param value is exactly the
+    dir the original `out_path = <dir> / f"{run_id}.json"` used -- byte-location-
+    identical. CONSERVATIVE: any Store of dirvar before ref_lineno (even in a nested
+    scope) -> refuse (a false refuse is safe); a syntactically un-parseable file ->
+    refuse. Fires ONLY when has_dir_assignment already returned False, so the
+    canonical batch-1..5 output (dir assigned as a statement) is byte-unchanged."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return False
+    # innermost enclosing function of ref_lineno
+    encl = None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            end = getattr(node, "end_lineno", None) or node.lineno
+            if node.lineno < ref_lineno <= end:
+                if encl is None or node.lineno > encl.lineno:
+                    encl = node
+    if encl is None or dirvar not in _fn_params(encl):
+        return False
+    # refuse if dirvar is rebound (Store) before the write within the enclosing fn
+    for node in ast.walk(encl):
+        if isinstance(node, ast.Name) and node.id == dirvar and isinstance(node.ctx, ast.Store):
+            if node.lineno < ref_lineno:
+                return False
+    return True
+
+
 def config_expr(src: str, mvar: str = "manifest") -> str:
     has_cfg = re.search(r'^\s{6,}["\']config["\']\s*:', src, re.M)
     has_cfgsum = re.search(r'["\']config_summary["\']\s*:', src)
@@ -535,6 +587,7 @@ def migrate_one(path: Path):
     non_adjacent = False
     noncanon = False        # batch 5: non-canonical filename proven == f"{run_id}.json"
     noncanon_dir = None     # the out_dir sub-expression source for the wfm call
+    dir_via_param = False   # batch 6: dirvar bound as an enclosing-function parameter
     # Case: lines[j] is the dry reassignment inside an if
     if j >= 1 and match_dry(lines[j]) and DRY_IF_RE.match(lines[j - 1]):
         dry_m = match_dry(lines[j])
@@ -627,8 +680,16 @@ def migrate_one(path: Path):
     # assignment a line above the wfm call), and the filename==f"{run_id}.json" proof
     # replaces the bare-run_id check. So skip both var-only guards under noncanon.
     if not noncanon:
+        # dirvar must be bound above the write: either an `<dir> = ...` statement
+        # (has_dir_assignment, the canonical batch-1..5 path) OR a formal parameter of
+        # the enclosing function, never rebound before the write (batch 6 -- the early-era
+        # `emit_manifest(..., out_dir, ...)` shape). block_top+1 is the 1-indexed line of
+        # the primary path assignment, where dirvar is consumed.
         if not has_dir_assignment(lines, top, dirvar):
-            return ("unmatched", f"no {dirvar} assignment above tail", None)
+            if dir_bound_as_param(src, dirvar, block_top + 1):
+                dir_via_param = True
+            else:
+                return ("unmatched", f"no {dirvar} assignment above tail", None)
         # Bare-`run_id` out_path is only safe when it provably equals <mvar>['run_id']. The
         # subscript form <mvar>['run_id'] in the path needs no proof -- write_flat_manifest
         # reads the SAME <mvar>['run_id'], so the recomputed filename is identical.
@@ -674,6 +735,8 @@ def migrate_one(path: Path):
         flags.append(f"non-manifest-var({mvar})")
     if non_adjacent:
         flags.append("non-adjacent(write-only-rewrite)")
+    if dir_via_param:
+        flags.append(f"dir-bound-as-param({dirvar})")
     if seeds_sym is None:
         flags.append("SEEDS-not-found(seeds=None)")
     if dry_cond is None:
