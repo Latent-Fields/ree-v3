@@ -77,6 +77,7 @@ import torch.nn.functional as F
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_354_mech112_wanting_liking_confirmation"
@@ -656,10 +657,14 @@ def main():
             Path(__file__).resolve().parents[2]
             / "REE_assembly" / "evidence" / "experiments" / EXPERIMENT_TYPE
         )
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{run_id}.json"
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(output, f, indent=2)
+        out_path = write_flat_manifest(
+            output,
+            out_dir,
+            dry_run=False,
+            config=output.get("config"),
+            seeds=SEEDS,
+            script_path=Path(__file__),
+        )
         print(f"\nResult written to: {out_path}", flush=True)
     else:
         # Dry run: write to a temp path for smoke-test verification
