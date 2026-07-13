@@ -55,6 +55,7 @@ from experiments.goal_stream_stages_sd054 import (
     GoalStreamStagesRunner,
     StageMetrics,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_622_goal_stream_staged_sd054"
 QUEUE_ID = "V3-EXQ-622"
@@ -254,10 +255,14 @@ def emit_manifest(
         },
         "triage_memo": "REE_assembly/evidence/planning/z_goal_collapse_triage_2026-05-31.md",
     }
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"manifest written: {out_path}")
     return out_path
 

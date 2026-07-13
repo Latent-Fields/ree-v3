@@ -87,6 +87,7 @@ from experiments.scaffolded_sd054_onboarding import (
     ScaffoldedSD054OnboardingConfig,
     ScaffoldedSD054OnboardingScheduler,
 )
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_621a_scaffolded_sd054_onboarding_substrate_readiness"
@@ -428,10 +429,14 @@ def emit_manifest(cells: List[CellResult], acceptance: Dict[str, Any], out_dir: 
         "triage_memo": "REE_assembly/evidence/planning/z_goal_collapse_triage_2026-05-31.md",
     }
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"manifest written: {out_path}")
     print(f"outcome={outcome} c1={acceptance['C1_cells_completed']} c2={acceptance['C2_z_goal_floor_met']} c3={acceptance['C3_cascade_consequential']}")
     return out_path

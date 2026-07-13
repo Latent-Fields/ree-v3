@@ -87,6 +87,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_637_sd057_phase2_cue_recall_consume"
 QUEUE_ID = "V3-EXQ-637"
@@ -310,10 +311,14 @@ def emit_manifest(cells, acceptance, out_dir: Path) -> Path:
                      "dacc_goal_readout_weight": 0.5},
         "thresholds": {"PASS_SEED_FRACTION": PASS_SEED_FRACTION},
     }
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"manifest written: {out_path}")
     return out_path
 

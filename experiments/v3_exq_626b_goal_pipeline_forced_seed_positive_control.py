@@ -108,6 +108,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 
 from experiment_protocol import emit_outcome
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 # -- Header constants --------------------------------------------------------
 EXPERIMENT_TYPE = "v3_exq_626b_goal_pipeline_forced_seed_positive_control"
@@ -590,10 +591,14 @@ def emit_manifest(
             "LAST_WINDOW_EPISODES": LAST_WINDOW_EPISODES,
         },
     }
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{run_id}.json"
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    out_path = write_flat_manifest(
+        manifest,
+        out_dir,
+        dry_run=False,
+        config=manifest.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"manifest written: {out_path}")
     return out_path
 
