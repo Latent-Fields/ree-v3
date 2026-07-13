@@ -39,6 +39,7 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (no resolvable status key: carries final_verdict/pass/verdict/passed, not status/outcome/overall_outcome; unqueued, last-run >=79d, not re-run)"
 
 
 def run(args):

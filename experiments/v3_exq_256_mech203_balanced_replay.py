@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (no resolvable status key: carries final_verdict/pass/verdict/passed, not status/outcome/overall_outcome; unqueued, last-run >=79d, not re-run)"
 
 
 EXPERIMENT_TYPE = "v3_exq_256_mech203_balanced_replay"

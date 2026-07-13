@@ -51,6 +51,7 @@ from typing import Dict, List
 import numpy as np
 
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (no resolvable status key: carries final_verdict/pass/verdict/passed, not status/outcome/overall_outcome; unqueued, last-run >=79d, not re-run)"
 
 # ---------------------------------------------------------------------------
 # Experiment metadata

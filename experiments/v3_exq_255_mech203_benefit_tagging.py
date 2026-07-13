@@ -44,6 +44,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from ree_core.residue.field import VALENCE_WANTING
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (no resolvable status key: carries final_verdict/pass/verdict/passed, not status/outcome/overall_outcome; unqueued, last-run >=79d, not re-run)"
 
 
 EXPERIMENT_TYPE = "v3_exq_255_mech203_benefit_tagging"

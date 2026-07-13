@@ -42,6 +42,7 @@ import torch.nn.functional as F
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.agent import REEAgent
 from ree_core.utils.config import REEConfig
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (no resolvable status key: carries final_verdict/pass/verdict/passed, not status/outcome/overall_outcome; unqueued, last-run >=79d, not re-run)"
 
 EXPERIMENT_ID      = "V3-EXQ-212"
 EXPERIMENT_TYPE    = "v3_exq_212_mech070_e2_motor_model_pair"

@@ -49,6 +49,7 @@ from datetime import datetime
 from typing import Dict, List
 
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (no resolvable status key: carries final_verdict/pass/verdict/passed, not status/outcome/overall_outcome; unqueued, last-run >=79d, not re-run)"
 
 EXPERIMENT_TYPE    = "v3_exq_479_sd029_balanced_curriculum_fix"
 CLAIM_IDS          = ["SD-029"]
