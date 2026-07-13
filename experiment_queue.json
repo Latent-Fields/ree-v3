@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-748",
-      "title": "MECH-457 GOV-FANOUT-1 leg B (H-explore): z_world dense-teacher actor-critic",
-      "script": "experiments/v3_exq_748_mech457_hexplore_reward_density_actor_critic.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "claim_id": "MECH-457",
-      "note": "Reward-density axis: z_world (cotrain) actor-critic with a DENSE teacher, two arms -- potential-shaping RL + behavior-cloning of local_view_greedy (bc_action_match_accuracy is a direct z_world action-adequacy readout). 2x2 cell (z_world, dense). Null: a dense arm clears -> reward-sparsity was the wall; both sub-floor -> sparsity not sole wall (749 decides). GOV-FANOUT-1 leg from failure_autopsy_morning-digest-742-744a-745-746-746a_2026-07-13 (742 refuted 'single missing mechanism=MECH-457'; deficit UPSTREAM of the actor-critic head). DIAGNOSTIC -> excluded from governance scoring; route to /failure-autopsy before any governance action; MECH-457 stays candidate/v3_pending. Same-question 742 floor re-pose REFUSED (a different mechanism per leg). GOV-REUSE-1: decisive readout recorded in NO prior manifest (742 was z_world+sparse only) -> run. phase3-queue snapshot-race: verify git show --stat HEAD before push.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-13T06:20:45Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 1000,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_748_mech457_hexplore_reward_density_actor_critic",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-742-m",
       "title": "MECH-457 bias_head_baseline MINT -- order-independent reuse insurance for the V3-EXQ-742 OFF arm (724-A0 all-ON; D0+D3; baseline)",
       "script": "experiments/v3_exq_742m_mech457_bias_head_baseline_mint.py",
