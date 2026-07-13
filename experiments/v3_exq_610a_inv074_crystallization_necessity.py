@@ -127,6 +127,8 @@ from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
 from infant_curriculum import InfantCurriculumScheduler
 
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (non-canonical filename not provably == run_id.json; superseded lineage, not re-run)"
+
 
 EXPERIMENT_TYPE = "v3_exq_610a_inv074_crystallization_necessity"
 EXPERIMENT_PURPOSE = "evidence"

@@ -110,6 +110,8 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (non-canonical filename not provably == run_id.json; superseded lineage, not re-run)"
+
 EXPERIMENT_PURPOSE = "diagnostic"
 EXPERIMENT_TYPE = "v3_exq_332a_mech216_predictive_wanting_dense"
 CLAIM_IDS = ["MECH-216", "SD-023"]

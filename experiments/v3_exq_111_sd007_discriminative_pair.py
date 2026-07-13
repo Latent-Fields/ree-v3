@@ -77,6 +77,8 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (non-canonical filename not provably == run_id.json; superseded lineage, not re-run)"
+
 
 EXPERIMENT_TYPE = "discriminative_pair_sd007_reafference_gate"
 CLAIM_IDS = ["SD-007"]

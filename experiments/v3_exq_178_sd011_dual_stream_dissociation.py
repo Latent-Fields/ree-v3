@@ -82,6 +82,8 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.latent.stack import HarmEncoder, AffectiveHarmEncoder, HarmForwardModel
 from ree_core.utils.config import REEConfig
 
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (non-canonical filename not provably == run_id.json; superseded lineage, not re-run)"
+
 
 EXPERIMENT_TYPE = "v3_exq_178_sd011_dual_stream_dissociation"
 CLAIM_IDS = ["SD-011", "ARC-033"]

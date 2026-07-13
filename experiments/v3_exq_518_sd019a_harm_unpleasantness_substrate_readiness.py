@@ -68,6 +68,8 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.cingulate.aic_analog import AICAnalog
 
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (non-canonical filename not provably == run_id.json; superseded lineage, not re-run)"
+
 EXPERIMENT_ID = "v3_exq_518_sd019a_harm_unpleasantness_substrate_readiness"
 EXPERIMENT_PURPOSE = "diagnostic"
 ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"

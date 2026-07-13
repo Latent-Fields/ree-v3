@@ -45,6 +45,8 @@ sys.path.insert(0, str(REPO_ROOT))
 from experiment_protocol import emit_outcome  # noqa: E402
 from experiments import v3_exq_563_action_bias_actuator_test as base  # noqa: E402
 
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (non-canonical filename not provably == run_id.json; superseded lineage, not re-run)"
+
 
 EXPERIMENT_TYPE = "v3_exq_563a_action_bias_scaffold_actuator_test"
 QUEUE_ID = "V3-EXQ-563a"

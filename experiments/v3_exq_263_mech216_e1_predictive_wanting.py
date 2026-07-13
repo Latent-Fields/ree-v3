@@ -37,6 +37,8 @@ import traceback
 import numpy as np
 from datetime import datetime, timezone
 
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (non-canonical filename not provably == run_id.json; superseded lineage, not re-run)"
+
 EXPERIMENT_PURPOSE = "diagnostic"
 EXPERIMENT_TYPE = "v3_exq_263_mech216_e1_predictive_wanting"
 CLAIM_IDS = ["MECH-216"]

@@ -122,6 +122,8 @@ from ree_core.residue.field import (  # noqa: E402
 )
 from experiment_protocol import emit_outcome  # noqa: E402
 
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (non-canonical filename not provably == run_id.json; superseded lineage, not re-run)"
+
 
 EXPERIMENT_TYPE = "v3_exq_540f_mech307_default_fix_3seed"
 QUEUE_ID = "V3-EXQ-540f"

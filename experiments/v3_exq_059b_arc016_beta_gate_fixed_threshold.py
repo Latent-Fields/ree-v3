@@ -80,6 +80,8 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
 
+MANIFEST_WRITER_EXEMPT = "archival early-era manifest (non-canonical filename not provably == run_id.json; superseded lineage, not re-run)"
+
 EXPERIMENT_TYPE = "v3_exq_059b_arc016_beta_gate_fixed_threshold"
 CLAIM_IDS = ["ARC-016", "MECH-057b", "MECH-090"]
 
