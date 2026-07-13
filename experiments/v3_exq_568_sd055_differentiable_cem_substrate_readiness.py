@@ -50,6 +50,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from experiment_protocol import emit_outcome
 from ree_core.agent import REEAgent
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_PURPOSE = "diagnostic"
 QUEUE_ID = "V3-EXQ-568"
@@ -319,10 +320,14 @@ if __name__ == "__main__":
 
     result = run_experiment()
 
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = EVIDENCE_DIR / f"{result['run_id']}.json"
-    with open(out_path, "w") as f:
-        json.dump(result, f, indent=2)
+    out_path = write_flat_manifest(
+        result,
+        EVIDENCE_DIR,
+        dry_run=False,
+        config=result.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print("=" * 60, flush=True)
     print(f"Outcome: {result['outcome']}  ({result['n_pass']}/{result['n_total_ucs']} UCs pass)", flush=True)

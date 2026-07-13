@@ -73,6 +73,7 @@ from experiment_protocol import emit_outcome
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EVIDENCE_ROOT = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
 
@@ -498,9 +499,14 @@ def run_experiment(
         },
     }
 
-    out_file = out_dir / f"{run_id}.json"
-    with open(out_file, "w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2)
+    out_file = write_flat_manifest(
+        output,
+        out_dir,
+        dry_run=False,
+        config=output.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Output written to: {out_file}", flush=True)
     print(f"Outcome: {outcome} ({eval_summary['evidence_direction']})", flush=True)
 

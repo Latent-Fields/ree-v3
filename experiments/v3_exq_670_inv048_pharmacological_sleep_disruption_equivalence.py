@@ -114,6 +114,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from experiment_protocol import emit_outcome  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_670_inv048_pharmacological_sleep_disruption_equivalence"
 CLAIM_IDS = ["INV-048"]
@@ -430,11 +431,14 @@ def main():
 
     # Write manifest
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = out_dir / f"{result['run_id']}.json"
-
-    with open(manifest_path, "w") as f:
-        json.dump(result, f, indent=2)
+    manifest_path = write_flat_manifest(
+        result,
+        out_dir,
+        dry_run=False,
+        config=result.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"\nWrote manifest: {manifest_path}")
 

@@ -75,38 +75,264 @@ WITH_RE = re.compile(r'^(?P<indent>\s*)with\s+open\(\s*(?P<path>\w+)\s*,\s*["\']
 WITH_METHOD_RE = re.compile(r'^(?P<indent>\s*)with\s+(?P<path>\w+)\.open\(\s*["\']w["\']' + _ENC + r'\s*\)\s*as\s+(?P<fh>\w+)\s*:\s*$')
 
 
+_MANIFEST_STATUS_KEYS = {"status", "outcome", "overall_outcome"}
+_MANIFEST_REQUIRED_KEYS = {"run_id", "architecture_epoch"}
+
+
+def _dlit_keys(dnode):
+    return {k.value for k in dnode.keys
+            if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+
+
+def _dlit_runid_nonnull(dnode):
+    """Tri-state for a dict LITERAL's run_id key: True (present, not literally None),
+    False (present, literally None -- e.g. a dry-run early-exit stub), None (absent)."""
+    for k, v in zip(dnode.keys, dnode.values):
+        if isinstance(k, ast.Constant) and k.value == "run_id":
+            return not (isinstance(v, ast.Constant) and v.value is None)
+    return None
+
+
+def _parent_map(tree):
+    parent = {}
+    for p in ast.walk(tree):
+        for c in ast.iter_child_nodes(p):
+            parent[c] = p
+    return parent
+
+
+def _enclosing_scope(parent, node):
+    """Nearest enclosing FunctionDef/AsyncFunctionDef, or None for module scope."""
+    cur = parent.get(node)
+    while cur is not None:
+        if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return cur
+        cur = parent.get(cur)
+    return None
+
+
+def _same_scope_nodes(scope):
+    """All descendants of `scope` that live in the SAME lexical scope -- i.e. do NOT
+    descend into a nested FunctionDef / AsyncFunctionDef / Lambda (those have their
+    own bindings). `scope` is a FunctionDef/AsyncFunctionDef or the Module."""
+    out = []
+
+    def rec(n):
+        for c in ast.iter_child_nodes(n):
+            if isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            out.append(c)
+            rec(c)
+    rec(scope)
+    return out
+
+
+def _direct_returns(func):
+    """Return nodes whose nearest enclosing function is `func` (skip nested defs)."""
+    return [n for n in _same_scope_nodes(func) if isinstance(n, ast.Return)]
+
+
+def _var_bindings(scope, var):
+    """Summarise how `var` is bound within one lexical `scope` (never a sibling scope):
+      keys           -- union of string keys provably present (dict literals + subscript
+                        assigns var["k"]=... + var.update({literal}) merges)
+      runid_nonnull  -- a literal set run_id to a non-None value OR a subscript set run_id
+      n_dict         -- count of `var = {..}` / `var: T = {..}` dict-literal bindings
+      calls          -- function NAMES of `var = <Name>(...)` call bindings
+      n_other        -- count of other `var = <expr>` bindings (non-dict, non-Name-call)
+      poisoned       -- a key was (or may be) REMOVED (del var[..], .pop/.clear/.popitem),
+                        or a literal set run_id to None -- either voids the key-union proof
+    """
+    keys = set()
+    runid_nonnull = False
+    n_dict = 0
+    calls = []
+    n_other = 0
+    poisoned = False
+    for n in _same_scope_nodes(scope):
+        if isinstance(n, ast.Assign):
+            for t in n.targets:
+                if isinstance(t, ast.Name) and t.id == var:
+                    if isinstance(n.value, ast.Dict):
+                        n_dict += 1
+                        keys |= _dlit_keys(n.value)
+                        rn = _dlit_runid_nonnull(n.value)
+                        if rn is True:
+                            runid_nonnull = True
+                        elif rn is False:
+                            poisoned = True
+                    elif isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name):
+                        calls.append(n.value.func.id)
+                    else:
+                        n_other += 1
+                if (isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name)
+                        and t.value.id == var and isinstance(t.slice, ast.Constant)
+                        and isinstance(t.slice.value, str)):
+                    keys.add(t.slice.value)
+                    if t.slice.value == "run_id":
+                        runid_nonnull = True
+        elif (isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name)
+                and n.target.id == var and n.value is not None):
+            if isinstance(n.value, ast.Dict):
+                n_dict += 1
+                keys |= _dlit_keys(n.value)
+                rn = _dlit_runid_nonnull(n.value)
+                if rn is True:
+                    runid_nonnull = True
+                elif rn is False:
+                    poisoned = True
+            elif isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name):
+                calls.append(n.value.func.id)
+            else:
+                n_other += 1
+        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) \
+                and isinstance(n.func.value, ast.Name) and n.func.value.id == var:
+            if n.func.attr == "update":
+                for a in n.args:
+                    if isinstance(a, ast.Dict):
+                        keys |= _dlit_keys(a)  # merge ADDS keys, never removes
+            elif n.func.attr in ("pop", "clear", "popitem"):
+                poisoned = True
+        elif isinstance(n, ast.Delete):
+            for tgt in n.targets:
+                if (isinstance(tgt, ast.Subscript) and isinstance(tgt.value, ast.Name)
+                        and tgt.value.id == var):
+                    poisoned = True
+    return keys, runid_nonnull, n_dict, calls, n_other, poisoned
+
+
+def _returns_manifest(func, fbn, depth=0):
+    """Prove `func` ALWAYS returns a flat-manifest dict. Returns (keys, runid_nonnull)
+    where keys is the INTERSECTION over every direct return path (so a key is only
+    claimed if present on ALL paths) and runid_nonnull is the AND. None on any doubt.
+    Handles `return {..literal..}`, `return <local var assembled in func>`, and
+    `return <var>, out_path` tuples (first element). One extra level of call-return
+    tracing (a return var that is itself `= helper(...)`)."""
+    if depth > 2:
+        return None
+    rets = _direct_returns(func)
+    if not rets:
+        return None
+    inter = None
+    runid_all = True
+    for r in rets:
+        v = r.value
+        if v is None:
+            return None
+        if isinstance(v, ast.Tuple):
+            v = v.elts[0] if v.elts else None
+            if v is None:
+                return None
+        if isinstance(v, ast.Dict):
+            k = _dlit_keys(v)
+            ro = (_dlit_runid_nonnull(v) is True)
+        elif isinstance(v, ast.Name):
+            bk, bnn, n_dict, calls, n_other, poisoned = _var_bindings(func, v.id)
+            if poisoned or n_other:
+                return None
+            if n_dict >= 1 and not calls:
+                k, ro = bk, bnn
+            elif n_dict == 0 and len(calls) == 1:
+                sub = fbn.get(calls[0])
+                if sub is None:
+                    return None
+                r2 = _returns_manifest(sub, fbn, depth + 1)
+                if r2 is None:
+                    return None
+                k, ro = (bk | r2[0]), (bnn or r2[1])
+            else:
+                return None
+        else:
+            return None
+        inter = k if inter is None else (inter & k)
+        runid_all = runid_all and ro
+    return (inter, runid_all)
+
+
+def _var_is_flat_manifest(tree, parent, fbn, var):
+    """Prove the written `var` resolves at its write site to a flat V3 manifest dict --
+    run_id (non-None) + architecture_epoch + a resolvable status. The value may be
+    (A) assembled in the write's own scope (dict literal / AnnAssign + subscript-assigns
+    + .update merges) or (B) return-bound `var = helper(...)`. Scope-aware + conservative;
+    any ambiguity (mixed literal+call bindings, >1 call, a non-dict/non-call value,
+    key-removal) -> False."""
+    scope = None
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            first = None
+            if (isinstance(n.func, ast.Attribute) and n.func.attr == "dump"
+                    and isinstance(n.func.value, ast.Name) and n.func.value.id == "json"
+                    and n.args):
+                first = n.args[0]
+            elif (isinstance(n.func, ast.Attribute) and n.func.attr == "write_text"
+                    and n.args and isinstance(n.args[0], ast.Call)
+                    and isinstance(n.args[0].func, ast.Attribute)
+                    and n.args[0].func.attr == "dumps" and n.args[0].args):
+                first = n.args[0].args[0]
+            if isinstance(first, ast.Name) and first.id == var:
+                scope = _enclosing_scope(parent, n)
+                break
+    scope_node = scope if scope is not None else tree
+    keys, runid_nonnull, n_dict, calls, n_other, poisoned = _var_bindings(scope_node, var)
+    if poisoned:
+        return False
+    if n_dict >= 1 and not calls and n_other == 0:
+        final_keys, final_runid = keys, runid_nonnull          # (A) assembled literal
+    elif n_dict == 0 and len(calls) == 1 and n_other == 0:
+        sub = fbn.get(calls[0])                                # (B) return-bound helper
+        if sub is None:
+            return False
+        rk = _returns_manifest(sub, fbn)
+        if rk is None:
+            return False
+        final_keys, final_runid = (keys | rk[0]), (runid_nonnull or rk[1])
+    else:
+        return False
+    return (_MANIFEST_REQUIRED_KEYS <= final_keys
+            and bool(final_keys & _MANIFEST_STATUS_KEYS)
+            and final_runid)
+
+
 def detect_manifest_var(src: str):
     """Return the variable name holding the FLAT manifest dict to route, or None.
 
     Fast path: if the script writes a var literally named `manifest` via json.dump /
     write_text, route that (the batch-1/2 behaviour -- unchanged).
 
-    Otherwise (early-era corpus) find a non-`manifest` var that is PROVABLY the flat
-    manifest: assigned a dict LITERAL whose keys include `run_id`, `architecture_epoch`
-    AND a status key (`status`|`outcome`|`overall_outcome`) -- the fields sync_v3_results
-    + write_flat_manifest's identity/validity invariants require. To avoid ambiguity the
-    var must be UNIQUE: exactly one such proven var is also written via json.dump/
-    write_text. More than one candidate -> None (leave unmatched; hand-migrate)."""
+    Otherwise find a non-`manifest` written var that is PROVABLY the flat manifest --
+    it must resolve at its write site to a dict carrying `run_id` (non-None),
+    `architecture_epoch` AND a status key (`status`|`outcome`|`overall_outcome`) -- the
+    fields sync_v3_results + write_flat_manifest's identity/validity invariants require.
+    The value may be reached three ways (all proven statically, scope-aware):
+      * a single dict LITERAL (the batch-3 behaviour -- unchanged for that shape);
+      * assembled -- a dict literal SEEDED then mutated by `result["k"]=...` subscript
+        assigns and/or `result.update({..})` merges (the RUNID_only early-era shape);
+      * return-bound -- `result = run_experiment(...)` where the helper builds the
+        manifest (literal / AnnAssign / assembled) and returns it.
+    To avoid ambiguity the var must be UNIQUE: exactly one written var proves out.
+    More than one candidate (or none) -> None (leave unmatched; hand-migrate)."""
     if "json.dump(manifest" in src or re.search(r"\.write_text\(\s*json\.dumps\(\s*manifest\b", src):
         return "manifest"
     try:
         tree = ast.parse(src)
     except SyntaxError:
         return None
-    STATUS = {"status", "outcome", "overall_outcome"}
-    proven = set()
-    for node in ast.walk(tree):
-        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict)
-                and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
-            keys = {k.value for k in node.value.keys
-                    if isinstance(k, ast.Constant) and isinstance(k.value, str)}
-            if {"run_id", "architecture_epoch"} <= keys and keys & STATUS:
-                proven.add(node.targets[0].id)
-    written = {v for v in proven
-               if re.search(r"json\.dump\(\s*" + re.escape(v) + r"\s*,", src)
-               or re.search(r"\.write_text\(\s*json\.dumps\(\s*" + re.escape(v) + r"\b", src)}
-    if len(written) == 1:
-        return next(iter(written))
+    written = set()
+    for m in re.finditer(r"json\.dump\(\s*(\w+)\s*,", src):
+        written.add(m.group(1))
+    for m in re.finditer(r"\.write_text\(\s*json\.dumps\(\s*(\w+)\b", src):
+        written.add(m.group(1))
+    written.discard("manifest")  # handled by the fast path above
+    if not written:
+        return None
+    parent = _parent_map(tree)
+    fbn = {}
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            fbn.setdefault(n.name, n)
+    proven = {v for v in written if _var_is_flat_manifest(tree, parent, fbn, v)}
+    if len(proven) == 1:
+        return next(iter(proven))
     return None
 OUTPATH_RE = re.compile(
     r"""^(?P<indent>\s*)(?P<var>\w+)\s*=\s*out_dir\s*/\s*f["']\{?_dry_\}?"""

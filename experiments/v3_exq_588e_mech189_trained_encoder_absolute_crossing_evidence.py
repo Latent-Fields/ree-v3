@@ -107,6 +107,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from experiment_protocol import emit_outcome
 from experiments._lib.arm_fingerprint import arm_cell
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_588e_mech189_trained_encoder_absolute_crossing_evidence"
 EXPERIMENT_PURPOSE = "evidence"
@@ -628,9 +629,14 @@ def main():
         Path(__file__).resolve().parents[2]
         / "REE_assembly" / "evidence" / "experiments" / EXPERIMENT_TYPE
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{result['run_id']}.json"
-    out_path.write_text(json.dumps(result, indent=2))
+    out_path = write_flat_manifest(
+        result,
+        out_dir,
+        dry_run=False,
+        config=result.get("config"),
+        seeds=None,
+        script_path=Path(__file__),
+    )
 
     print(f"outcome: {result['outcome']}", flush=True)
     print(f"label: {result['interpretation']['label']}", flush=True)

@@ -109,6 +109,7 @@ from experiment_protocol import emit_outcome
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_615_arc065_rung1_matched_entropy"
@@ -574,11 +575,14 @@ if __name__ == "__main__":
     result = run_experiment(dry_run=args.dry_run)
 
     out_dir = Path(__file__).resolve().parents[2] / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{result['run_id']}.json"
-
-    with open(out_path, "w") as f:
-        json.dump(result, f, indent=2)
+    out_path = write_flat_manifest(
+        result,
+        out_dir,
+        dry_run=False,
+        config=result.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"\nResults written to: {out_path}")
     print(f"Outcome: {result['outcome']}")

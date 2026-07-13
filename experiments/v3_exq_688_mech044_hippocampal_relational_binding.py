@@ -79,6 +79,7 @@ from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._metrics import check_degeneracy, p0_readiness_gate, P0NotReady  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_688_mech044_hippocampal_relational_binding"
 QUEUE_ID = "V3-EXQ-688"
@@ -456,11 +457,14 @@ if __name__ == "__main__":
 
     # Write manifest
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{result['run_id']}.json"
-
-    with open(out_path, "w") as f:
-        json.dump(result, f, indent=2)
+    out_path = write_flat_manifest(
+        result,
+        out_dir,
+        dry_run=False,
+        config=result.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
 
     print(f"\nWrote manifest to: {out_path}")
     print(f"Outcome: {result['outcome']}")

@@ -72,6 +72,7 @@ from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._metrics import p0_readiness_gate, P0NotReady  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_730_q080a_effort_harm_coupling"
@@ -568,10 +569,14 @@ def main():
     script_dir = Path(__file__).resolve().parents[1]
     out_dir = (script_dir.parent / "REE_assembly" / "evidence"
                / "experiments" / EXPERIMENT_TYPE)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"{result['run_id']}.json"
-    with open(out_file, "w") as f:
-        json.dump(result, f, indent=2)
+    out_file = write_flat_manifest(
+        result,
+        out_dir,
+        dry_run=False,
+        config=result.get("config"),
+        seeds=SEEDS,
+        script_path=Path(__file__),
+    )
     print(f"Output written to: {out_file}", flush=True)
     print(f"Outcome: {result['outcome']}  "
           f"evidence_direction: {result['evidence_direction']}", flush=True)
