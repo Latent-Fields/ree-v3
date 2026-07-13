@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-747",
-      "title": "MECH-457 GOV-FANOUT-1 leg A (H-rep): raw-5x5-view actor-critic",
-      "script": "experiments/v3_exq_747_mech457_hrep_rawview_actor_critic.py",
-      "priority": 10,
-      "machine_affinity": "any",
-      "estimated_minutes": 45,
-      "claim_id": "MECH-457",
-      "note": "Representation axis: standalone ActorCriticPolicy(world_dim=25) on the raw 5x5 resource_field_view (the exact local_view_greedy input), sparse foraging teacher. 2x2 factorial cell (raw_view, sparse). Null: clears floor -> z_world action-inadequate (encoder->policy is the wall); sub-floor -> representation not sole wall (749 decides). GOV-FANOUT-1 leg from failure_autopsy_morning-digest-742-744a-745-746-746a_2026-07-13 (742 refuted 'single missing mechanism=MECH-457'; deficit UPSTREAM of the actor-critic head). DIAGNOSTIC -> excluded from governance scoring; route to /failure-autopsy before any governance action; MECH-457 stays candidate/v3_pending. Same-question 742 floor re-pose REFUSED (a different mechanism per leg). GOV-REUSE-1: decisive readout recorded in NO prior manifest (742 was z_world+sparse only) -> run. phase3-queue snapshot-race: verify git show --stat HEAD before push.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-13T06:18:53Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 1000,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_747_mech457_hrep_rawview_actor_critic",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-748",
       "title": "MECH-457 GOV-FANOUT-1 leg B (H-explore): z_world dense-teacher actor-critic",
       "script": "experiments/v3_exq_748_mech457_hexplore_reward_density_actor_critic.py",
@@ -36,7 +16,11 @@
       "estimated_minutes": 90,
       "claim_id": "MECH-457",
       "note": "Reward-density axis: z_world (cotrain) actor-critic with a DENSE teacher, two arms -- potential-shaping RL + behavior-cloning of local_view_greedy (bc_action_match_accuracy is a direct z_world action-adequacy readout). 2x2 cell (z_world, dense). Null: a dense arm clears -> reward-sparsity was the wall; both sub-floor -> sparsity not sole wall (749 decides). GOV-FANOUT-1 leg from failure_autopsy_morning-digest-742-744a-745-746-746a_2026-07-13 (742 refuted 'single missing mechanism=MECH-457'; deficit UPSTREAM of the actor-critic head). DIAGNOSTIC -> excluded from governance scoring; route to /failure-autopsy before any governance action; MECH-457 stays candidate/v3_pending. Same-question 742 floor re-pose REFUSED (a different mechanism per leg). GOV-REUSE-1: decisive readout recorded in NO prior manifest (742 was z_world+sparse only) -> run. phase3-queue snapshot-race: verify git show --stat HEAD before push.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-13T06:20:45Z"
+      },
       "conditions": 5,
       "episodes_per_run": 1000,
       "experiment_purpose": "diagnostic",
@@ -52,7 +36,11 @@
       "estimated_minutes": 75,
       "claim_id": "MECH-457",
       "note": "Step 2.5b design-audit leg: closes the 747/748 verdict-aliasing gap (deeper-than-both vs need-the-conjunction). Raw 5x5 view AND dense teacher (shaping RL + BC), the empty (raw_view, dense) factorial cell. Null: an arm clears -> the conjunction is required; both sub-floor -> deeper than representation+reward-sparsity (escalate to H-optim/capacity, NOT a floor re-pose). GOV-FANOUT-1 leg from failure_autopsy_morning-digest-742-744a-745-746-746a_2026-07-13 (742 refuted 'single missing mechanism=MECH-457'; deficit UPSTREAM of the actor-critic head). DIAGNOSTIC -> excluded from governance scoring; route to /failure-autopsy before any governance action; MECH-457 stays candidate/v3_pending. Same-question 742 floor re-pose REFUSED (a different mechanism per leg). GOV-REUSE-1: decisive readout recorded in NO prior manifest (742 was z_world+sparse only) -> run. phase3-queue snapshot-race: verify git show --stat HEAD before push.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-07-13T06:20:54Z"
+      },
       "conditions": 5,
       "episodes_per_run": 1000,
       "experiment_purpose": "diagnostic",
