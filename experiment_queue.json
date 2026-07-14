@@ -125,6 +125,21 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_756_mech457_hcredit_x_hreturn_pair",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-760",
+      "title": "MECH-303 contextual passive safety terrain DISCRIMINATION (wall-independent representation-level confirming test)",
+      "experiment_type": "v3_exq_760_mech303_contextual_safety_terrain_discrimination",
+      "script": "experiments/v3_exq_760_mech303_contextual_safety_terrain_discrimination.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 15,
+      "episodes_per_run": 720,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "MECH-303",
+      "note": "Wall-INDEPENDENT (read-only evaluate_safety field readout; no planning/action-commitment; precedent V3-EXQ-455/447/448). Confirming test for candidate MECH-303 (exp_conf 0.0). Follows V3-EXQ-520 PASS (SD-052 readiness), which EXPLICITLY DEFERRED this discrimination test. Two arms: gated_mech303 (accumulate safety only on harm-absent steps) vs ungated_control (accumulate every step); the control isolates the harm-absence gate from mere visitation. GOV-REUSE-1: decisive readout = AUC of evaluate_safety discriminating safe vs unsafe held-out contexts; NOT recorded in any existing manifest (520 recorded readiness/wiring only; no compatible substrate_hash carries it) -> run. Baseline-mint skipped: arms are training-free (untrained frozen encoder forward-passes + non-parametric RBF, ~seconds/seed), so a separate order-independent mint has negligible payoff (self-mint via arm_cell still emitted, free). Full-scale Mac calibration (1 seed): gated AUC 0.884 vs ungated 0.488, resp 1.0, sep 0.894 -> expected PASS/supports."
     }
   ]
 }
