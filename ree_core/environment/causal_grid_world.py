@@ -181,6 +181,30 @@ class CausalGridWorld:
         scheduled_limb_damage_prob: float = 0.5,
         scheduled_limb_damage_magnitude: float = 0.4,
         scheduled_limb_damage_limb_selection: str = "random",
+        # SD-065: controllable conditioned-safety cue channel (MECH-304
+        # promote-to-active behavioural falsifier, 2026-07-14). An AMBIENT
+        # (uniform-when-active) 25-dim field view emitted into world_state so it
+        # feeds the z_world encoder that the SD-051 ConditionedSafetyStore keys
+        # on. The cue is the observable Pavlovian CS the store needs: it can be
+        # paired with the MECH-302 relief-completion event during teaching and
+        # presented CONCURRENTLY with a threat (the hazard field) at test.
+        # Ambient (not a spatial gradient) so the cue's z_world contribution is
+        # position-independent -- reliably present at every relief tick and
+        # reproducible at test, removing a navigation confound. Adds NO entity
+        # type (NUM_ENTITY_TYPES stays 7; local_view width fleet-invariant) --
+        # it is a field-view channel like SD-023 landmarks. Two activation paths:
+        # (1) safety_cue_on_relief auto-activates the cue across the damage->heal
+        # (MECH-302 relief) window (the store still writes its prototype ONLY on
+        # the real event_fired tick -- the pairing is real, not synthesized);
+        # (2) set_safety_cue(active) manual override (tri-state) for concurrent
+        # {threat + cue} presentation at test. All env-only; NOT surfaced through
+        # REEConfig.from_dims. Disabled by default (bit-identical OFF: no channel,
+        # world_obs_dim unchanged, zero RNG draws). See
+        # sd_065_conditioned_safety_cue_channel.md.
+        safety_cue_enabled: bool = False,
+        safety_cue_scale: float = 1.0,
+        safety_cue_on_relief: bool = False,
+        safety_cue_heal_floor: float = 0.05,
         # MECH-353 (blocked-agency / z_block) external action-block curriculum.
         # Every scheduled_action_block_interval steps, with probability
         # scheduled_action_block_prob, the agent's chosen move is externally
@@ -626,6 +650,34 @@ class CausalGridWorld:
         self._scheduled_limb_damage_last_limb_idx: int = -1
         self._scheduled_limb_damage_last_magnitude: float = 0.0
         self._scheduled_limb_damage_injected_this_step: bool = False
+
+        # SD-065 conditioned-safety cue channel (MECH-304 falsifier, 2026-07-14).
+        # Preconditions (loud-not-silent, mirroring the SD-022 guard above): the
+        # channel only exists in proxy mode, and the relief-pairing path needs a
+        # body-damage signal to define the relief window.
+        if safety_cue_enabled and not use_proxy_fields:
+            raise ValueError(
+                "safety_cue_enabled=True requires use_proxy_fields=True (the "
+                "SD-065 cue channel rides world_state, which only carries the "
+                "proxy-field views in proxy mode)."
+            )
+        if safety_cue_on_relief and not limb_damage_enabled:
+            raise ValueError(
+                "safety_cue_on_relief=True requires limb_damage_enabled=True "
+                "(SD-065 relief pairing keys on the SD-022 damage->heal window; "
+                "with no body damage there is no MECH-302 relief window to pair)."
+            )
+        self.safety_cue_enabled = bool(safety_cue_enabled)
+        self.safety_cue_scale = float(np.clip(safety_cue_scale, 0.0, 1.0))
+        self.safety_cue_on_relief = bool(safety_cue_on_relief)
+        self.safety_cue_heal_floor = float(safety_cue_heal_floor)
+        # Per-episode SD-065 state.
+        self._safety_cue_active: bool = False
+        self._safety_cue_event_count: int = 0
+        # Tri-state manual override: None => follow the schedule (relief pairing
+        # or inactive); True/False => force the cue on/off for concurrent-cue
+        # test presentation. Takes precedence over the relief-pairing path.
+        self._safety_cue_manual_override: Optional[bool] = None
 
         # MECH-353 external action-block curriculum state.
         self.scheduled_action_block_enabled = bool(scheduled_action_block_enabled)
@@ -1117,6 +1169,9 @@ class CausalGridWorld:
             # Behavioral diversity: reef scent gradient field view (+25 dims when enabled).
             if self.reef_enabled:
                 proxy_base = proxy_base + 25
+            # SD-065: conditioned-safety cue channel (+25 dims when enabled).
+            if self.safety_cue_enabled:
+                proxy_base = proxy_base + 25
             return proxy_base
         return base                                      # 200
 
@@ -1322,6 +1377,11 @@ class CausalGridWorld:
         self._scheduled_limb_damage_last_limb_idx = -1
         self._scheduled_limb_damage_last_magnitude = 0.0
         self._scheduled_limb_damage_injected_this_step = False
+        # SD-065: per-episode cue dynamics reset. The manual override
+        # (_safety_cue_manual_override) is a deliberate experimenter control and
+        # PERSISTS across reset() until set_safety_cue() changes it.
+        self._safety_cue_active = False
+        self._safety_cue_event_count = 0
         # MECH-353 external action-block per-episode counters.
         self._action_block_event_count = 0
         self._action_block_blocked_this_step = False
@@ -1637,6 +1697,9 @@ class CausalGridWorld:
         self._scheduled_limb_damage_last_limb_idx = -1
         self._scheduled_limb_damage_last_magnitude = 0.0
         self._scheduled_limb_damage_injected_this_step = False
+        # SD-065: per-episode cue dynamics reset (manual override persists).
+        self._safety_cue_active = False
+        self._safety_cue_event_count = 0
         # MECH-353 external action-block per-episode counters.
         self._action_block_event_count = 0
         self._action_block_blocked_this_step = False
@@ -2374,6 +2437,28 @@ class CausalGridWorld:
                     self.scheduled_limb_damage_magnitude
                 )
 
+        # SD-065: conditioned-safety cue activation (MECH-304 falsifier,
+        # 2026-07-14). Recompute the ambient cue's active state for this tick,
+        # AFTER this step's healing (earlier in step()) and scheduled-injection
+        # (just above) so self.limb_damage is final. Precedence:
+        #   manual override (test API) > relief-pairing window > inactive.
+        # The relief-pairing window is the SD-022 damage->heal window
+        # (sum(limb_damage) > heal_floor) across which the real MECH-302 relief
+        # descent occurs; the SD-051 ConditionedSafetyStore writes its prototype
+        # only on the real event_fired tick (agent-side) inside that window, so
+        # the pairing is real, not synthesized. No RNG draws; bit-identical OFF
+        # (safety_cue_enabled=False -> the whole block is a no-op).
+        self._safety_cue_active = False
+        if self.safety_cue_enabled:
+            if self._safety_cue_manual_override is not None:
+                self._safety_cue_active = bool(self._safety_cue_manual_override)
+            elif self.safety_cue_on_relief:
+                self._safety_cue_active = (
+                    float(np.sum(self.limb_damage)) > self.safety_cue_heal_floor
+                )
+            if self._safety_cue_active:
+                self._safety_cue_event_count += 1
+
         # SD-029: scheduled external-hazard injection (balanced curriculum).
         # Deterministically scheduled "externally-caused" hazard events that are
         # independent of the agent's action. When enabled, every
@@ -2604,6 +2689,10 @@ class CausalGridWorld:
             "scheduled_limb_damage_event_count": int(self._scheduled_limb_damage_event_count),
             "scheduled_limb_damage_last_limb_idx": int(self._scheduled_limb_damage_last_limb_idx),
             "scheduled_limb_damage_last_magnitude": float(self._scheduled_limb_damage_last_magnitude),
+            # SD-065 conditioned-safety cue tags (always present; 0 / False when disabled).
+            "safety_cue_enabled": bool(self.safety_cue_enabled),
+            "safety_cue_active": bool(self._safety_cue_active),
+            "safety_cue_event_count": int(self._safety_cue_event_count),
             # MECH-353 external action-block tags (always present; 0 / False OFF).
             "scheduled_action_block_enabled": bool(self.scheduled_action_block_enabled),
             "action_blocked_this_step": bool(self._action_block_blocked_this_step),
@@ -3137,6 +3226,18 @@ class CausalGridWorld:
             reef_field_flat = rf_view.reshape(-1)   # [25]
             world_parts.append(reef_field_flat)
 
+        # SD-065: conditioned-safety cue channel (MECH-304 falsifier). Ambient
+        # uniform field view -- all cells = safety_cue_scale when the cue is
+        # active this tick, else zeros. Appended LAST so it never shifts the
+        # offsets of any existing channel. Feeds the z_world encoder that the
+        # SD-051 ConditionedSafetyStore keys on. Gated on safety_cue_enabled
+        # (world_obs_dim grows +25 only then; bit-identical OFF).
+        safety_cue_flat = torch.zeros(25)
+        if self.use_proxy_fields and self.safety_cue_enabled:
+            if self._safety_cue_active:
+                safety_cue_flat = torch.full((25,), float(self.safety_cue_scale))
+            world_parts.append(safety_cue_flat)
+
         world_state = torch.cat(world_parts)
 
         result = {
@@ -3170,6 +3271,10 @@ class CausalGridWorld:
             # Behavioral diversity: reef scent gradient field view.
             if self.reef_enabled:
                 result["reef_field_view"] = reef_field_flat.float()
+            # SD-065: conditioned-safety cue field view (absent-when-disabled,
+            # mech090 precedent -- backward compat is bit-identical when off).
+            if self.safety_cue_enabled:
+                result["safety_cue_field_view"] = safety_cue_flat.float()
             # SD-010: dedicated harm_obs for HarmEncoder (nociceptive separation).
             # Sensory-discriminative stream (z_harm_s, Adelta-pathway analog):
             # Layout: hazard_field_view[25] + resource_field_view[25] + harm_exposure[1]
@@ -4226,6 +4331,31 @@ class CausalGridWorld:
             self.grid[tx, ty] = self.ENTITY_TYPES["hazard"]
             self.hazards.append([tx, ty])
         return True
+
+    def set_safety_cue(self, active: Optional[bool]) -> None:
+        """SD-065 test-phase API: force the conditioned-safety cue on/off.
+
+        Sets a tri-state manual override consumed by step():
+          None  -> follow the schedule (relief-pairing window, or inactive).
+          True  -> force the cue ON  (present it concurrently with a threat).
+          False -> force the cue OFF (suppress it even inside a relief window).
+
+        The override takes PRECEDENCE over the safety_cue_on_relief pairing path
+        and PERSISTS across reset() until changed -- it is a deliberate
+        experimenter control, not per-episode dynamics. The forced state takes
+        effect on the NEXT step() (which recomputes _safety_cue_active); to make
+        the cue visible in the current observation without stepping, call this
+        then re-read the observation via step() or _get_observation_dict() as the
+        harness requires. No-op guidance: setting an override while
+        safety_cue_enabled=False has no observable effect (no channel emitted).
+
+        Args:
+            active: None to clear the override; True/False to force cue state.
+        """
+        if active is None:
+            self._safety_cue_manual_override = None
+        else:
+            self._safety_cue_manual_override = bool(active)
 
     def _inject_scheduled_limb_damage(self) -> Optional[int]:
         """
