@@ -140,6 +140,21 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_756_mech457_hcredit_x_hreturn_pair",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-759",
+      "title": "MECH-304 cue-specific conditioned safety prediction: wall-independent representation-level confirming probe (read-only predict AUC, frozen agent)",
+      "experiment_type": "v3_exq_759_mech304_cue_specific_conditioned_safety_prediction",
+      "script": "experiments/v3_exq_759_mech304_cue_specific_conditioned_safety_prediction.py",
+      "priority": 20,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 10,
+      "episodes_per_run": 6,
+      "seeds": 6,
+      "conditions": 1,
+      "claim_id": "MECH-304",
+      "note": "Wall-INDEPENDENT confirming probe for MECH-304 (cue-specific conditioned safety prediction). MECH-304's only prior touch (V3-EXQ-603h) was a BEHAVIOURAL survival contrast that hit the competence ceiling; the REPRESENTATION-level question (does ConditionedSafetyStore emit a cue-DISCRIMINATING predict() scalar) was never run and needs no committed action -> passes independent of behavioral_diversity_isolation:GAP-I (in-flight 752-756). Precedent: functional-signature DVs 455/447/448. Frozen/action-free agent; Pavlovian pairing via the real store.update(event_fired=True) path; DV = SCALE-FREE discrimination AUC of predict(safe) vs predict(neutral) (absolute predict saturates near the sigmoid ceiling -- 746/746a narrow-gradient lesson). Readiness anchor asserts the SAME statistic (positive-control AUC on orthogonal classes), NOT a centroid-cosine proxy that under-reports discriminability (V3-EXQ-643 same-statistic rule). Non-vacuity gate self-routes substrate_not_ready_requeue / non_contributory (store empty / predict spread degenerate / positive control fails) -- never a false weakens; only reliable ANTI-discrimination weakens. Re-derive brake NOT fired (0 substrate_ceiling/non_contributory autopsies tag MECH-304). GOV-REUSE-1: decisive readout (cross-cue-class predict AUC) absent from all recorded manifests (603h had no predict readout; pre-2026-07-12 manifests carry no substrate_hash) -> not recoverable -> run. No arm_results / no baseline mint: nothing trained (frozen agent deterministic from seed; no reusable OFF cell). claim_ids=[MECH-304]; experiment_purpose=evidence; supersedes nothing. Full local 6-seed Mac validation: PASS/supports (mean_auc 0.739, min 0.619, 6/6 seeds above chance, positive-control AUC 0.997); Mac validation manifest removed (cloud run authoritative). ID COLLISION: 757/758 taken by parallel sessions (mech288, mech284) -> took 759."
     }
   ]
 }
