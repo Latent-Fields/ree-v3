@@ -125,40 +125,6 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_756_mech457_hcredit_x_hreturn_pair",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-761",
-      "title": "MECH-092 quiescent-E3 SWR-equivalent replay selectivity (wall-independent functional signature)",
-      "script": "experiments/v3_exq_761_mech092_quiescent_replay_selectivity.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "estimated_minutes": 8,
-      "claim_id": "MECH-092",
-      "note": "GOV-CONFIRM-1 wall-INDEPENDENT confirming probe for MECH-092 (quiescent E3 cycles trigger hippocampal SWR-equivalent replay). Read-only functional-signature DV driven through the real production path (act_with_split_obs -> _do_replay -> hippocampal.replay) on an UNTRAINED agent (no training -> wall-independent). Load-bearing falsifiable content: C1 quiescent cycles occur, C2 salient cycles also occur (non-degenerate contrast, harm-driven), C3 replay produces real events not a no-op; C4 selectivity. Degenerate substrate self-routes substrate_not_ready_requeue (non_contributory, NEVER a false weakens). GOV-REUSE-1: prior MECH-092 manifest (v3_exq_136, 2026-03-29) measured a DIFFERENT readout (downstream consolidation benefit, wall-bound consequence reading; no substrate_hash) -> decisive triggering-signature readout absent -> run; supersedes nothing. Single-arm (multi-seed, no OFF arm) -> no arm_fingerprint / no baseline mint. Sibling of the MECH-303 detector-precision probe (V3-EXQ-760). QUEUE_ID collision: parallel session took 760 -> took 761. Mac full-scale inline validation PASS/supports (min_quiescent/seed=26, min_salient/seed=3, replay_n=5.0, quiescent_fire=1.0, salient_fire=0.0, nonE3_fire=0.0); cloud run authoritative.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-14T20:39:38Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 10,
-      "experiment_type": "v3_exq_761_mech092_quiescent_replay_selectivity",
-      "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-762",
-      "title": "MECH-046 CeA mode_prior context-conditioning (wall-independent functional-signature confirm)",
-      "script": "experiments/v3_exq_762_mech046_cea_mode_prior_context_conditioning.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "claim_id": "MECH-046",
-      "note": "GOV-CONFIRM-1 wall-INDEPENDENT confirming experiment for MECH-046 (CeA analogue writes a mode prior into the SalienceCoordinator from fast salience classification of z_harm_a). First indexed EVIDENCE-class run for a claim scoring exp_conf 0.0 / genuine_exp_count 0. Drives the REAL CeAAnalog (built on the use_cea_analog=True ON-path config, honouring the V3-EXQ-688 arming caveat) action-free across graded harm/threat contexts; DV = the cea_mode_prior scalar injected into a REAL SalienceCoordinator, read back. PASS = mode_prior PRESENT under threat AND cross-context RANGE varies (load-bearing) MONOTONE in threat load AND near-SILENT in the safe context AND WRITTEN faithfully into the coordinator affinity frame (load-bearing) AND BOUNDED by the log-odds cap. Read-only/training-free/no mode-switch behaviour -> wall-independent (precedent 757 confirmed MECH-288/287; 455/447/448 functional DVs PASSED while behavioural baseline monostrategy-locked). Non-vacuity readiness gate asserts the constructed context sweep injects a threshold-spanning, non-degenerate fast-route input using the SAME range statistic C046_varies routes on; below-floor self-routes substrate_not_ready_requeue (non_contributory, NEVER a false weakens). GOV-REUSE-1: checked v3_exq_473_sd035_cea_mode_prior -- diagnostic-purpose (non-scoring, WHY exp_conf=0), substrate_hash None (pre-standard, unverifiable), tested presence+coordinator-write+bound at a SINGLE threat point (|z_harm_a|=0.9 -> mode_prior 0.4); decisive context-conditioned RANGE+monotonicity readout absent -> run. Supersedes nothing. Multi-arm (seed x context) reuse-ELIGIBLE fingerprints (pure-arithmetic substrate, no trained OFF arm -> no separate baseline mint). Mac full-scale inline validation PASS/supports (context means safe 0.0 / low 0.15 / mid 0.40 / high 0.70; range 0.70; steps [0.15,0.25,0.30]; readback diff 0.0; max_abs 0.72<=cap 0.8); cloud run authoritative. QUEUE_ID: 761 taken by a parallel session (MECH-092) -> took 762.",
-      "status": "pending",
-      "conditions": 4,
-      "episodes_per_run": 120,
-      "experiment_type": "v3_exq_762_mech046_cea_mode_prior_context_conditioning",
-      "seeds": 5
     }
   ]
 }
