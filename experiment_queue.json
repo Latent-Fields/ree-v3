@@ -22,30 +22,6 @@
       "experiment_purpose": "baseline",
       "experiment_type": "v3_exq_742m_mech457_bias_head_baseline_mint",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-750",
-      "title": "MECH-457/INV-088 single-step strategy-diversity readout on the 2x2 representation x reward-density factorial (742/747/748/749)",
-      "script": "experiments/v3_exq_750_mech457_inv088_strategy_diversity_readout.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "estimated_minutes": 420,
-      "claim_id": "MECH-457",
-      "note": "DIAGNOSTIC (experiment_purpose=diagnostic; excluded from governance scoring; PROMOTES/DEMOTES NOTHING; routes to /failure-autopsy). Adds a single-step strategy-diversity readout (H_greedy greedy-action-histogram entropy / effective_actions=2^H / mean per-step softmax hedging-entropy) to the GOV-FANOUT-1 2x2 (742=zworld+sparse FAIL, 747=raw+sparse FAIL, 748=zworld+dense PASS, 749=raw+dense PASS). Reruns all 4 RL cells verbatim via mech457_fanout (deterministic under fixed seeds). GOV-REUSE-1: the decisive readout (per-step strategy diversity) is recorded in NO prior manifest -- 742/747/748/749 saved only aggregate competence + per_episode_resources, no per-step actions or policy weights, and experiments/_lib/arm_fingerprint is Phase-0 emit-only, so nothing was reusable (checked 748/749 flat manifests 2026-07-13) -> run. Decisive test: does strategy diversity rise with z_world differentiation INDEPENDENT of the competence gain -- cleanest matched-competence pair is 748 (zworld+dense PASS) vs 749 (raw+dense PASS). SINGLE-STEP ONLY (no multi-step committed-trajectory metric; substrate cannot sustain multi-step commitment). RE-DERIVE BRAKE (Step 2.5b): 0 substrate_ceiling/non_contributory autopsies on MECH-457 and INV-088 -> not braked; additionally exempt as a new EXQ number + a diagnostic discriminating WHY (representation-ceiling channel vs not), not a lettered power-bump. ethics_preflight all-false/allow (V3 foraging, no self-model). A PASS ESCALATES to registering an ARC-065 child (representation-ceiling channel) or an INV-088 behavioural-consequence claim, adjudicated by /failure-autopsy first. Low priority (2) + affinity any (cloud) -- expensive z_world cotrain (~7h); must not preempt real science. Concurrent V3-EXQ-751 (heuristic-burnell fanout leg D) is a DIFFERENT MECH-457 competence question -- no overlap. Smoke PASS (dry-run end-to-end; instrument validated: random_walk H_greedy 2.25/eff 4.76, structured anchors ~1.87) + validate_experiments --strict --paths OK 2026-07-13.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-13T22:25:37Z"
-      },
-      "claim_ids": [
-        "MECH-457",
-        "INV-088"
-      ],
-      "conditions": 7,
-      "episodes_per_run": 1000,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_750_mech457_inv088_strategy_diversity_readout",
-      "seeds": 3
     }
   ]
 }
