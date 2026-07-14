@@ -125,6 +125,21 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_756_mech457_hcredit_x_hreturn_pair",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-761",
+      "title": "MECH-092 quiescent-E3 SWR-equivalent replay selectivity (wall-independent functional signature)",
+      "experiment_type": "v3_exq_761_mech092_quiescent_replay_selectivity",
+      "script": "experiments/v3_exq_761_mech092_quiescent_replay_selectivity.py",
+      "priority": 3,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 8,
+      "episodes_per_run": 10,
+      "seeds": 5,
+      "conditions": 1,
+      "claim_id": "MECH-092",
+      "note": "GOV-CONFIRM-1 wall-INDEPENDENT confirming probe for MECH-092 (quiescent E3 cycles trigger hippocampal SWR-equivalent replay). Read-only functional-signature DV driven through the real production path (act_with_split_obs -> _do_replay -> hippocampal.replay) on an UNTRAINED agent (no training -> wall-independent). Load-bearing falsifiable content: C1 quiescent cycles occur, C2 salient cycles also occur (non-degenerate contrast, harm-driven), C3 replay produces real events not a no-op; C4 selectivity. Degenerate substrate self-routes substrate_not_ready_requeue (non_contributory, NEVER a false weakens). GOV-REUSE-1: prior MECH-092 manifest (v3_exq_136, 2026-03-29) measured a DIFFERENT readout (downstream consolidation benefit, wall-bound consequence reading; no substrate_hash) -> decisive triggering-signature readout absent -> run; supersedes nothing. Single-arm (multi-seed, no OFF arm) -> no arm_fingerprint / no baseline mint. Sibling of the MECH-303 detector-precision probe (V3-EXQ-760). QUEUE_ID collision: parallel session took 760 -> took 761. Mac full-scale inline validation PASS/supports (min_quiescent/seed=26, min_salient/seed=3, replay_n=5.0, quiescent_fire=1.0, salient_fire=0.0, nonE3_fire=0.0); cloud run authoritative."
     }
   ]
 }
