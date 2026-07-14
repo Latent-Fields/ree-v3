@@ -8,6 +8,21 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-758",
+      "title": "MECH-284 V_s staleness accumulator: wall-independent region-indexed monotonicity / locality / leak test",
+      "script": "experiments/v3_exq_758_mech284_staleness_accumulator_monotonicity.py",
+      "priority": 20,
+      "machine_affinity": "any",
+      "estimated_minutes": 1,
+      "claim_id": "MECH-284",
+      "note": "Wall-INDEPENDENT action-free confirming test of MECH-284 (candidate/v3_pending, exp_conf 0.0; first direct V3 evidence). Drives the real StalenessAccumulator.integrate()/tick_leak() path with real BroadcastEvent+Anchor objects; DV = region-indexed snapshot() scalar: per-region V_s rises monotonically with induced staleness in the perturbed region, fresh non-overlapping regions stay ~0 (attribution credit assignment), leaks back on tick_leak. Readiness gate keys on peak cross-region RANGE (same statistic as load-bearing locality criterion) -> substrate_not_ready_requeue/non_contributory if flat/empty (guards the V3-EXQ-688 vacuous null; populated ONLY via real integrate(), not any default-1.0 path). GOV-REUSE-1: decisive snapshot readout absent from all recorded manifests -> run. Re-derive brake: 0 substrate_ceiling/non_contributory autopsies tag MECH-284. Deterministic CPU probe, no baseline mint (no OFF training arm).",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 38,
+      "experiment_type": "v3_exq_758_mech284_staleness_accumulator_monotonicity",
+      "seeds": 5
+    },
+    {
       "queue_id": "V3-EXQ-742-m",
       "title": "MECH-457 bias_head_baseline MINT -- order-independent reuse insurance for the V3-EXQ-742 OFF arm (724-A0 all-ON; D0+D3; baseline)",
       "script": "experiments/v3_exq_742m_mech457_bias_head_baseline_mint.py",
@@ -125,21 +140,6 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_756_mech457_hcredit_x_hreturn_pair",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-758",
-      "title": "MECH-284 V_s staleness accumulator: wall-independent region-indexed monotonicity / locality / leak test",
-      "experiment_type": "v3_exq_758_mech284_staleness_accumulator_monotonicity",
-      "script": "experiments/v3_exq_758_mech284_staleness_accumulator_monotonicity.py",
-      "priority": 20,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 1,
-      "episodes_per_run": 38,
-      "seeds": 5,
-      "conditions": 1,
-      "claim_id": "MECH-284",
-      "note": "Wall-INDEPENDENT action-free confirming test of MECH-284 (candidate/v3_pending, exp_conf 0.0; first direct V3 evidence). Drives the real StalenessAccumulator.integrate()/tick_leak() path with real BroadcastEvent+Anchor objects; DV = region-indexed snapshot() scalar: per-region V_s rises monotonically with induced staleness in the perturbed region, fresh non-overlapping regions stay ~0 (attribution credit assignment), leaks back on tick_leak. Readiness gate keys on peak cross-region RANGE (same statistic as load-bearing locality criterion) -> substrate_not_ready_requeue/non_contributory if flat/empty (guards the V3-EXQ-688 vacuous null; populated ONLY via real integrate(), not any default-1.0 path). GOV-REUSE-1: decisive snapshot readout absent from all recorded manifests -> run. Re-derive brake: 0 substrate_ceiling/non_contributory autopsies tag MECH-284. Deterministic CPU probe, no baseline mint (no OFF training arm)."
     }
   ]
 }
