@@ -125,6 +125,25 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_756_mech457_hcredit_x_hreturn_pair",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-757",
+      "title": "MECH-288 + MECH-287 wall-independent functional-signature test (event-segment boundary detection + dual-component invalidation trigger)",
+      "experiment_type": "v3_exq_757_mech288_mech287_event_boundary_trigger_functional",
+      "script": "experiments/v3_exq_757_mech288_mech287_event_boundary_trigger_functional.py",
+      "claim_ids": [
+        "MECH-288",
+        "MECH-287"
+      ],
+      "experiment_purpose": "evidence",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "episodes_per_run": 600,
+      "seeds": 5,
+      "conditions": 3,
+      "note": "First indexed experimental evidence for two lit-only v3_pending candidates (MECH-288, MECH-287; exp_conf 0.0). WALL-INDEPENDENT functional-signature readout: drives the REAL EventSegmenter + InvalidationTrigger (canonical default configs, same construction path as HippocampalModule) with controlled latent streams, action-free, NO training; DVs are read-only (slow-boundary hit-rate/gradedness + trigger broadcast/suppression counts) so the outcome is independent of the competence wall (behavioral_diversity_isolation:GAP-I; V3-EXQ-752..756). Precedent: V3-EXQ-455/447/448 COORD_ON functional DVs PASSED while the behavioural baseline was monostrategy-locked. GOV-REUSE-1: decisive readout (boundary_hit_rate + n_suppressed on the event_segmenter substrate) absent from all manifests (reanalysis_query 0 matches; 0 flat manifests carry it) -> run. Re-derive brake CLEAR (0 substrate_ceiling/non_contributory autopsies tag MECH-288/287). Substrate IMPLEMENTED (ree-v3/CLAUDE.md: MECH-288 2026-04-22, MECH-287 Phase 2 iv). MECH-288 gated on the SPECIFIC slow/BOCPD outer scale (the fast PE-threshold inner ticker is a z-score detector firing ~15pct on ANY stationary stream by construction -> reported descriptively, NOT gated for specificity); gradedness shown via the fast scale's continuous posteriors. MECH-287 dual components = phasic broadcast (arm A, low tonic) + verdict-3 dissociation (empty-list drive -> silent) + tonic suppression (dense two-phase storm -> _n_suppressed>0). Non-vacuity readiness gate self-routes substrate_not_ready_requeue (non_contributory, NEVER a false weakens) if the positive-control detector input is below floor (the V3-EXQ-688 vacuous-null guard). NO baseline mint: zero-training pure-arithmetic functional cells, no trained OFF/baseline arm to reuse (disqualifier 3). evidence_direction_per_claim emitted (multi-claim). Code-review Step 3.5 + validate_experiments --strict --paths OK; ASCII-clean; dry-run smoke PASS + full-scale aggregate PASS (hit=1.0, A_slow=27 vs B_slow=0, storm_supp=373, both claims support). Ethics all-false/allow (V3 pre-ethical instrumentation)."
     }
   ]
 }
