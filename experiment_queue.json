@@ -8,29 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-754",
-      "title": "MECH-457/INV-088 GOV-FANOUT-1 leg H-curriculum (teaching-signal axis): goal-frontier IMGEP/AMIGo-lite vs sparse, z_world + raw 5x5, diagnostic",
-      "script": "experiments/v3_exq_754_mech457_hcurriculum_goal_frontier.py",
-      "priority": 4,
-      "machine_affinity": "ree-cloud-4",
-      "estimated_minutes": 820,
-      "note": "GOV-FANOUT-1 leg 3/5 (teaching-signal axis). Tests whether an IMGEP/AMIGo-lite learning-progress curriculum over goal distance + a goal-conditioned actor-critic (Forestier 2022 / Campero 2021, NO expert) manufactures unsupervised competence approaching BC 32.72 -- the unsupervised analogue of the 748 BC arm. Forage eval selects the goal UNSUPERVISED from the agent's own 5x5 resource_field_view. Tags MECH-457 (build-target class) AND INV-088 (a matched-competent unsupervised curriculum policy on BOTH reps feeds the V3-EXQ-750 representation->diversity retest). BOTH z_world + raw as separate reuse-eligible arms. DIAGNOSTIC -> excluded from scoring; routes to /failure-autopsy. MECH-457 candidate/v3_pending; INV-088 candidate/pending_substrate_reconfirmation. Re-derive brake does NOT fire. Cloud-pinned for reuse-eligible mints. Smoke PASS + validate_experiments --strict OK 2026-07-14.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-07-15T01:33:30Z"
-      },
-      "claim_ids": [
-        "MECH-457",
-        "INV-088"
-      ],
-      "conditions": 7,
-      "episodes_per_run": 1000,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_754_mech457_hcurriculum_goal_frontier",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-755",
       "title": "MECH-457 GOV-FANOUT-1 leg H-mode (policy-control axis): critic-utility explore/exploit gate vs fixed-RND, z_world + raw 5x5, diagnostic",
       "script": "experiments/v3_exq_755_mech457_hmode_explore_exploit_gate.py",
