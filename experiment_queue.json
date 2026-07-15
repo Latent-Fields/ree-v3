@@ -50,6 +50,21 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_756_mech457_hcredit_x_hreturn_pair",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-763",
+      "title": "MECH-304 promote-to-active behavioural conditioned-inhibition falsifier (SD-065 cue + SD-066 centered readout)",
+      "experiment_type": "v3_exq_763_mech304_conditioned_inhibition_behavioural_falsifier",
+      "script": "experiments/v3_exq_763_mech304_conditioned_inhibition_behavioural_falsifier.py",
+      "priority": 30,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 20,
+      "episodes_per_run": 240,
+      "seeds": 6,
+      "conditions": 4,
+      "claim_id": "MECH-304",
+      "note": "MECH-304 promote-to-active BEHAVIOURAL falsifier (the pre-registered claims.yaml 'Falsifiable:' signature). Gated on SD-065 (safety cue channel, ree-v3 5e03aa6) + SD-066 (centered/common-mode-invariant store readout, safety_store_centered=True, ree-v3 0721dcb): the raw-cosine store gate saturates on the z_world common-mode (SD-008) and self-routes substrate_ceiling; SD-066 subtracts a slow EMA baseline so the ~0.006-cosine cue residual resolves. Mechanistic beta_gate.elevate() induction (option i) bypasses the GAP-I competence wall; urgency-interrupt disabled + comparator reset + no goal isolate the safety gate. 4 arms x 6 seeds: A store_on+cue / B store_off+cue (ablation) / C store_on+nocue (cue-specificity) / D store_off+terrain_on (MECH-303 sparing). DV1 conditioned inhibition = release_A - release_B >= 0.34 AND release_A - release_C >= 0.34 (store-necessity AND cue-specificity). DV2 dissociation = MECH-303 contextual release_D >= 0.34 (spared under MECH-304 ablation). Readiness positive control (arm A cue, NO threat release, same statistic DV1 routes on) >= 0.34 + n_valid_seeds >= 4 else substrate_not_ready_requeue/non_contributory. Inline Mac validation PASS/supports (DV1 gaps 0.83 store / 0.67 cue; DV2 1.0; readiness met 5 seeds; non_degenerate). A PASS gates MECH-304 provisional->active. OFF arm minted in-line (driver-bound; factored baseline module deferred, SD-065/066 first-of-lineage in-flux). Re-derive brake: 0 MECH-304 substrate_ceiling autopsies. GOV-REUSE-1: 759 is representation-level AUC, not the behavioural release readout on this substrate -> not recoverable, run. claim_ids=[MECH-304]; experiment_purpose=evidence."
     }
   ]
 }
