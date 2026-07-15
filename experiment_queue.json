@@ -8,28 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-753",
-      "title": "MECH-457 GOV-FANOUT-1 leg H-return (memory/frontier axis): Go-Explore archive + return vs sparse, z_world + raw 5x5, diagnostic",
-      "script": "experiments/v3_exq_753_mech457_hreturn_go_explore_archive.py",
-      "priority": 4,
-      "machine_affinity": "ree-cloud-3",
-      "estimated_minutes": 780,
-      "note": "GOV-FANOUT-1 leg 2/5 (memory/frontier axis). Tests whether a Go-Explore archive of discretized position cells + deterministic return-to-frontier via env.reset_to (Ecoffet 2021) lifts unsupervised forage above the 751 RND plateau (5.22) by fixing the detachment that makes RND abandon the frontier every episode. Exploration otherwise identical to sparse -> NOT a power-bump. BOTH z_world(cotrain) AND raw 5x5 view as separate reuse-eligible arms; sparse baseline same-run both reps. DIAGNOSTIC -> excluded from scoring; routes to /failure-autopsy. MECH-457 candidate/v3_pending. Re-derive brake does NOT fire. Cloud-pinned for reuse-eligible mints. Smoke PASS (archive fired, returns=2) + validate_experiments --strict OK 2026-07-14.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-07-14T18:50:56Z"
-      },
-      "claim_ids": [
-        "MECH-457"
-      ],
-      "conditions": 7,
-      "episodes_per_run": 1000,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_753_mech457_hreturn_go_explore_archive",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-754",
       "title": "MECH-457/INV-088 GOV-FANOUT-1 leg H-curriculum (teaching-signal axis): goal-frontier IMGEP/AMIGo-lite vs sparse, z_world + raw 5x5, diagnostic",
       "script": "experiments/v3_exq_754_mech457_hcurriculum_goal_frontier.py",
@@ -82,7 +60,11 @@
       "machine_affinity": "ree-cloud-3",
       "estimated_minutes": 1600,
       "note": "GOV-FANOUT-1 leg 5/5, the mandated PAIR cell (user directive 2026-07-14: the gap has two plausibly-ADDITIVE halves -- credit-propagation H-credit + frontier-return H-return). Runs H-credit alone, H-return alone, AND the pair SAME-RUN on both reps so additivity/complementarity is directly READABLE, not inferred. Load-bearing DV = pair exceeds the better single by >= 1.0 resource/ep (complementarity), strict majority seeds, clears floor. BOTH z_world + raw as separate reuse-eligible arms; sparse baseline same-run both reps. DIAGNOSTIC -> excluded from scoring; routes to /failure-autopsy. MECH-457 candidate/v3_pending. Re-derive brake does NOT fire. Cloud-pinned for reuse-eligible mints. Smoke PASS + validate_experiments --strict OK 2026-07-14.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-07-15T02:04:20Z"
+      },
       "claim_ids": [
         "MECH-457"
       ],
