@@ -6,28 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-756",
-      "title": "MECH-457 GOV-FANOUT-1 PAIR H-credit x H-return (additivity cell): credit + return + pair vs sparse, z_world + raw 5x5, diagnostic",
-      "script": "experiments/v3_exq_756_mech457_hcredit_x_hreturn_pair.py",
-      "priority": 3,
-      "machine_affinity": "ree-cloud-3",
-      "estimated_minutes": 1600,
-      "note": "GOV-FANOUT-1 leg 5/5, the mandated PAIR cell (user directive 2026-07-14: the gap has two plausibly-ADDITIVE halves -- credit-propagation H-credit + frontier-return H-return). Runs H-credit alone, H-return alone, AND the pair SAME-RUN on both reps so additivity/complementarity is directly READABLE, not inferred. Load-bearing DV = pair exceeds the better single by >= 1.0 resource/ep (complementarity), strict majority seeds, clears floor. BOTH z_world + raw as separate reuse-eligible arms; sparse baseline same-run both reps. DIAGNOSTIC -> excluded from scoring; routes to /failure-autopsy. MECH-457 candidate/v3_pending. Re-derive brake does NOT fire. Cloud-pinned for reuse-eligible mints. Smoke PASS + validate_experiments --strict OK 2026-07-14.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-07-15T02:04:20Z"
-      },
-      "claim_ids": [
-        "MECH-457"
-      ],
-      "conditions": 11,
-      "episodes_per_run": 1000,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_756_mech457_hcredit_x_hreturn_pair",
-      "seeds": 3
-    }
-  ]
+  "items": []
 }
