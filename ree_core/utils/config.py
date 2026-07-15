@@ -1912,6 +1912,17 @@ class ResidueConfig:
     # Accumulates harm-absence signal per step at current z_world; read in select_action()
     # to lower background avoidance commitment. Disabled by default (bit-identical OFF).
     safety_terrain_enabled: bool = False
+    # SD-067: dedicated RBF bandwidth for the safety terrain read. The shared
+    # kernel_bandwidth (1.0) is ~15x too wide for the z_world residual scale
+    # (~0.065 between safe/unsafe contexts under SD-008 under-differentiation), so
+    # evaluate_safety saturates (reads ~identical in every context) and the fixed
+    # contextual_safety_release_threshold cannot resolve the safe-vs-unsafe signal
+    # into an absolute gap -- the discrimination exists (rank AUC ~0.83, V3-EXQ-760)
+    # but the behavioural release fires indiscriminately. A tighter safety-terrain
+    # bandwidth resolves it into an absolute gap the release gate can use (the
+    # MECH-303 behavioural promote-to-active gate). None -> falls back to
+    # kernel_bandwidth (bit-identical OFF). See sd_067_safety_terrain_bandwidth.md.
+    safety_terrain_bandwidth: Optional[float] = None
     # SD-014: 4-component valence vector [wanting, liking, harm_discriminative, surprise].
     # When False, evaluate_valence() returns zeros and update_valence() is a no-op.
     # Used to ablate valence tracking in experiments that do not need replay prioritisation.
@@ -5428,6 +5439,7 @@ class REEConfig:
         contextual_safety_accum_weight: float = 0.01,
         contextual_safety_harm_threshold: float = 0.05,
         contextual_safety_release_threshold: float = 1.0,
+        safety_terrain_bandwidth: Optional[float] = None,   # SD-067; None -> kernel_bandwidth (bit-identical)
         # MECH-108: BreathOscillator -- periodic uncommitted windows.
         # breath_period=0 disables (legacy default). Set 50 to enable.
         # Biological basis: exhalation-phase respiratory coupling cyclically
@@ -6571,6 +6583,9 @@ class REEConfig:
         config.contextual_safety_release_threshold = contextual_safety_release_threshold
         if use_contextual_safety_terrain:
             config.residue.safety_terrain_enabled = True
+            # SD-067: dedicated (tighter) bandwidth for the safety-terrain RBF read.
+            # None -> ResidueField falls back to kernel_bandwidth (bit-identical OFF).
+            config.residue.safety_terrain_bandwidth = safety_terrain_bandwidth
 
         # MECH-108: BreathOscillator -- wire heartbeat params from from_dims().
         # breath_period=0 disables; default 50 enables periodic uncommitted windows.

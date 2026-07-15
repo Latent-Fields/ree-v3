@@ -263,10 +263,18 @@ class ResidueField(nn.Module):
             self.config, "safety_terrain_enabled", False
         )
         if self.safety_terrain_enabled:
+            # SD-067: the safety terrain may use a dedicated (tighter) bandwidth than
+            # the shared kernel_bandwidth so evaluate_safety can resolve the small
+            # z_world residual that discriminates safe from unsafe contexts (the wide
+            # shared bandwidth saturates the read). None -> kernel_bandwidth
+            # (bit-identical to the pre-SD-067 behaviour).
+            _safety_bw = getattr(self.config, "safety_terrain_bandwidth", None)
+            if _safety_bw is None:
+                _safety_bw = self.config.kernel_bandwidth
             self.safety_terrain_rbf_field = RBFLayer(
                 world_dim=self.config.world_dim,
                 num_centers=self.config.num_basis_functions,
-                bandwidth=self.config.kernel_bandwidth,
+                bandwidth=_safety_bw,
             )
             self.register_buffer("total_safety", torch.tensor(0.0))
             self.register_buffer("num_safety_steps", torch.tensor(0))
