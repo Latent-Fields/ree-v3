@@ -8,30 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-746b",
-      "title": "INV-089 harm_eval_z_harm calibrated bound -- VARIANCE-REDUCED, VALID-DV re-estimate of 746a (target standardisation + k-fold + early-stop + more data)",
-      "script": "experiments/v3_exq_746b_inv089_harm_eval_z_harm_bound_variance_reduced.py",
-      "priority": 6,
-      "machine_affinity": "ree-cloud-2",
-      "estimated_minutes": 15,
-      "claim_id": "INV-089",
-      "note": "VARIANCE-REDUCED, VALID-DV re-estimate of V3-EXQ-746a's INV-089 harm-evaluator z_harm calibrated bound. 746a met all preconditions and WEAKENED, but that weakens rode a DV MEASUREMENT ARTIFACT: 746a's IV (local-density ridge-decode from frozen z_harm) is clean/moving (~0.37-0.40, PC_iv_moved True) while its DV (trained harm_eval_z_harm MLP head) produced held-out R2 -26..-69, per-seed dv_delta -4.7..-166 -- while a scale-robust ridge on the SAME (z_harm,target) gets +0.38. Real-cell diagnosis 2026-07-15: the tiny-magnitude Ydens target (raw std ~0.02) makes MSE ill-conditioned for a fresh O(1)-output MLP. FIXES (DV estimator + power, maturation recipe + IV probe unchanged): (1) STANDARDISE the DV training target with fold-train mean/std (R2 affine-invariant -> same quantity; measured DV -1.000 raw -> +0.33 std at n~195, +0.47/+0.52 at n~780), (2) K=5-fold averaged held-out R2, (3) weight decay + inner-val EARLY STOPPING, (4) finite per-fold R2 floor at -1, (5) collect_episodes 14->60 (~780 samples) for power. NEW PC_dv_estimator_ok precondition: mature-anchor DV must beat the mean (>=0) given the target is ridge-decodable at ~0.4, else non_contributory (never a false weakens). 2-seed real validation: pre_met True, mean_dv_mature 0.48, sd_dv_delta 0.018 (vs 746a 54.7 -- ~3000x variance reduction). GOV-REUSE-1: the VALID-DV bound-coupling readout is NOT recoverable from 746a (its DV was pathological, per-fold floored to -1); IV reused via the shared maturation_curriculum module, DV re-measured -> partial-recoverable downgrade to the missing valid DV. Because collection widened, 746b does NOT reuse 746a's prefix -- it MINTS its own reuse-eligible cloud-class prefix (include_driver_script_in_hash=False), hence machine_affinity ree-cloud-2. Re-derive brake: 0 substrate_ceiling/non_contributory autopsies tag INV-089 -> not braked; z_harm observable (NOT a z_world 740b). Ethics all-false/allow (frozen-representation probe). experiment_purpose=evidence; supersedes NOTHING (extends 743, re-estimates 746a; governance may mark 746a superseded IF 746b PASSes on the valid DV). validate_experiments --strict --paths OK; dry-run smoke PASS; 2-seed full-pipeline validation PASS (valid DV, preconditions met, tight variance).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-15T13:40:44Z"
-      },
-      "claim_ids": [
-        "INV-089"
-      ],
-      "conditions": 5,
-      "episodes_per_run": 30,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_746b_inv089_harm_eval_z_harm_bound_variance_reduced",
-      "extends": "V3-EXQ-746a",
-      "seeds": 8
-    },
-    {
       "queue_id": "V3-EXQ-756",
       "title": "MECH-457 GOV-FANOUT-1 PAIR H-credit x H-return (additivity cell): credit + return + pair vs sparse, z_world + raw 5x5, diagnostic",
       "script": "experiments/v3_exq_756_mech457_hcredit_x_hreturn_pair.py",
