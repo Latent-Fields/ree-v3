@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-746c",
-      "title": "INV-089 harm-eval z_harm bound: target-corrected (prox) + IV/DV budget-decoupled redesign of starved 746b",
-      "script": "experiments/v3_exq_746c_inv089_harm_eval_z_harm_bound_target_corrected.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "estimated_minutes": 18,
-      "claim_id": "INV-089",
-      "note": "Target-corrected + budget-decoupled redesign of V3-EXQ-746b (FAILed starved on PC_iv_moved: local-density IV onset gradient washed out). FIX A: PRIMARY gating target -> prox=harm_obs[center] (SD-010 harm-proximity label), the only collected target whose z_harm decodability genuinely grows with maturation AND survives adequate sampling (prox IV onset0->30: 0.705->0.829 at collect=14 AND 0.839->0.882 at collect=60; single-seed real-scale probe here +0.11 at collect=100). dens (confirmed sampling artifact) + realized-harm Y (flat) retained as reported NON-gating secondaries. READ-BACK CAVEAT: prox is the maturation label -> a prox PASS is a valid-but-softer bound existence proof (naive circularity broken by linear IV probe + fresh-init MLP DV on frozen z_harm). FIX B: decouple IV/DV data budgets -- collect one large pool (collect_episodes 60->100, ~1300 samples) then partition into DISJOINT IV-pool (~520) + DV-pool (~780) via fixed RNG, so neither leg underfits/overfits and C2 coupling is independent-sample. Falsifier readout: gating IV at FULL sampling + diagnostic small-n IV per target (mean_iv_delta_small) as the artifact contrast. RETAINED VERBATIM from 746b: DV-estimator fix (standardise target + K=5-fold + weight-decay/early-stopping + finite R2 floor -1) and PC_dv_estimator_ok rail. GOV-REUSE-1: decisive readout (prox DV k-fold + decoupled-budget IV) absent from all recorded manifests (746a/b computed only dens/at/next DV on a shared budget) -> run. Re-derive brake: 1 substrate_ceiling/non_contributory autopsy on INV-089 (the 746b starve) < threshold 2 -> NOT braked; NO substrate build owed (SD-010 HarmEncoder + harm_eval_z_harm IMPLEMENTED). Mints its own reuse-eligible frozen prefix (collect_episodes changed; include_driver_script_in_hash=False). claim_ids=[INV-089]; experiment_purpose=evidence; supersedes nothing; PROMOTES/DEMOTES NOTHING (a PASS moves INV-089 provisional toward stable via governance). Smoke: dry-run PASS + real-scale single-seed probe PASS (prox IV+0.11 full-sampling, prox DV 0.93, all primary preconditions clear).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-15T15:10:06Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 30,
-      "experiment_type": "v3_exq_746c_inv089_harm_eval_z_harm_bound_target_corrected",
-      "extends": "V3-EXQ-746b",
-      "seeds": 8
-    },
-    {
       "queue_id": "V3-EXQ-756",
       "title": "MECH-457 GOV-FANOUT-1 PAIR H-credit x H-return (additivity cell): credit + return + pair vs sparse, z_world + raw 5x5, diagnostic",
       "script": "experiments/v3_exq_756_mech457_hcredit_x_hreturn_pair.py",
