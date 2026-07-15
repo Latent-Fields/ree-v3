@@ -2481,6 +2481,13 @@ class REEConfig:
     safety_store_threshold: float = 0.5
     # Magnitude written to VALENCE_LIKING when safety gate releases commitment.
     safety_store_commitment_weight: float = 1.0
+    # SD-066: common-mode-invariant (centered) readout. When True the store
+    # subtracts a slow EMA of z_world (the common-mode) before accumulating and
+    # querying the prototype, so the gate can resolve the cue residual the raw
+    # cosine cannot (MECH-304 behavioural gate). Default False -> raw cosine
+    # (bit-identical to the pre-SD-066 store).
+    safety_store_centered: bool = False
+    safety_store_baseline_alpha: float = 0.02
 
     # MECH-303: contextual passive safety terrain.
     # Accumulates harm-absence signal per-step at current z_world (sense()).
@@ -5414,6 +5421,8 @@ class REEConfig:
         safety_store_min_norm: float = 0.1,
         safety_store_threshold: float = 0.5,
         safety_store_commitment_weight: float = 1.0,
+        safety_store_centered: bool = False,
+        safety_store_baseline_alpha: float = 0.02,
         # MECH-303: contextual passive safety terrain
         use_contextual_safety_terrain: bool = False,
         contextual_safety_accum_weight: float = 0.01,
@@ -6552,6 +6561,8 @@ class REEConfig:
         config.safety_store_min_norm = safety_store_min_norm
         config.safety_store_threshold = safety_store_threshold
         config.safety_store_commitment_weight = safety_store_commitment_weight
+        config.safety_store_centered = safety_store_centered
+        config.safety_store_baseline_alpha = safety_store_baseline_alpha
 
         # MECH-303: contextual passive safety terrain
         config.use_contextual_safety_terrain = use_contextual_safety_terrain

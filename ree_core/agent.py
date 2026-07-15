@@ -644,6 +644,8 @@ class REEAgent(nn.Module):
                 decay_rate=getattr(config, "safety_store_decay_rate", 0.001),
                 min_norm=getattr(config, "safety_store_min_norm", 0.1),
                 threshold=getattr(config, "safety_store_threshold", 0.5),
+                centered=getattr(config, "safety_store_centered", False),
+                baseline_alpha=getattr(config, "safety_store_baseline_alpha", 0.02),
             )
         # Safety prediction: computed by sense(), consumed and cleared by select_action().
         self._conditioned_safety_signal: float = 0.0
