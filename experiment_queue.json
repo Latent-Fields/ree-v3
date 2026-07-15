@@ -28,28 +28,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-752",
-      "title": "MECH-457 GOV-FANOUT-1 leg H-credit (credit-assignment axis): prioritized backward credit replay vs sparse, z_world + raw 5x5, diagnostic",
-      "script": "experiments/v3_exq_752_mech457_hcredit_backward_sweep.py",
-      "priority": 4,
-      "machine_affinity": "ree-cloud-2",
-      "estimated_minutes": 800,
-      "note": "GOV-FANOUT-1 leg 1/5 (credit-assignment axis). Consumer of failure_autopsy_MECH-457-fanout-751-750_2026-07-14 fanout_recommendation, grounded in targeted_review_action_learning_bootstrap_class_choice/SYNTHESIS.md (credit class = TOP composition pick). Tests whether |TD-error|-prioritized reverse-replay backward credit assignment (Mattar&Daw 2018 / Foster&Wilson 2006; RL-native homolog of hippocampal backward_credit_sweep MECH-290) lifts unsupervised forage above the 751 RND novelty plateau (5.22) toward BC 32.72. Rollout/exploration byte-identical to the 742 sparse baseline; ONLY the update changes -> NOT a power-bump (new mechanism = new EXQ). Runs on BOTH z_world(cotrain) AND raw 5x5 view as SEPARATE reuse-eligible arms (mechanism housed in experiments/_lib/mech457_explorer_classes.py -> substrate-hashed) for the INV-088 750 retest + future reuse. Sparse baseline same-run both reps (OFF/floor ref + drift guard). DIAGNOSTIC -> excluded from governance scoring; routes to /failure-autopsy. MECH-457 stays candidate/v3_pending. Re-derive brake does NOT fire (0 substrate_ceiling/non_contributory on MECH-457). Cloud-pinned for linux-x86_64-py3.10 reuse-eligible mints. Smoke PASS + validate_experiments --strict OK 2026-07-14.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-14T18:50:50Z"
-      },
-      "claim_ids": [
-        "MECH-457"
-      ],
-      "conditions": 7,
-      "episodes_per_run": 1000,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_752_mech457_hcredit_backward_sweep",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-753",
       "title": "MECH-457 GOV-FANOUT-1 leg H-return (memory/frontier axis): Go-Explore archive + return vs sparse, z_world + raw 5x5, diagnostic",
       "script": "experiments/v3_exq_753_mech457_hreturn_go_explore_archive.py",
@@ -98,7 +76,11 @@
       "machine_affinity": "ree-cloud-2",
       "estimated_minutes": 1200,
       "note": "GOV-FANOUT-1 leg 4/5 (policy-control axis). Tests whether a critic-utility-gated explore/exploit mode scalar (Aston-Jones&Cohen 2005 / Daw 2006) that anneals entropy + the RND coefficient toward greedy exploitation IMPROVES CONSOLIDATION over a fixed-coefficient RND arm run SAME-RUN. The TREATMENT is the gate (a meta-controller OVER exploration), NOT more novelty -> NOT a power-bump; RND is the fixed comparator. Load-bearing DV = mode arm beats fixed-RND by >= 1.0 resource/ep. BOTH z_world + raw as separate reuse-eligible arms; also banks reuse-eligible RND arms on BOTH reps (751 ran z_world RND only). DIAGNOSTIC -> excluded from scoring; routes to /failure-autopsy. MECH-457 candidate/v3_pending. Re-derive brake does NOT fire. Cloud-pinned for reuse-eligible mints. Smoke PASS + validate_experiments --strict OK 2026-07-14.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-15T00:13:24Z"
+      },
       "claim_ids": [
         "MECH-457"
       ],
