@@ -8,23 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-767a",
-      "title": "SD-025 curiosity-drive selection-bias -- continuous CEM score-margin re-op (supersedes 767)",
-      "script": "experiments/v3_exq_767a_sd025_curiosity_drive_selection_bias_margin.py",
-      "priority": 7,
-      "machine_affinity": "ree-cloud-3",
-      "estimated_minutes": 8,
-      "supersedes": "V3-EXQ-767",
-      "claim_id": "SD-025",
-      "note": "Re-operationalizes the V3-EXQ-767 vacuous_pass (measurement_degeneracy; failure_autopsy_767-768-cluster_2026-07-16 confirmed, applied governance 2026-07-16d REE_assembly e40362ebb7). Replaces the saturating binary argmin pref_dense (pinned 1.0, zero cross-seed variance) with the continuous CEM score-margin mean_trials[min(sparse score) - min(dense score)] already computed inside _pref_dense and discarded; every load-bearing crit now rides the margin. criteria_non_degenerate guards margin_on_varies_across_seeds so it cannot re-flag vacuous. Smoke PASS (2 seeds): margin_on 39.3/45.6 (VARIES), margin_off 0.0, wi_rel 0.0, antipersev 20.7/27.5, replay 0.0, readiness met. GOV-REUSE-1: decisive readout = the continuous margin, NOT recorded in 767's manifest (only the binary pref) -> run. diagnostic -> on PASS route /failure-autopsy before governance; a clean PASS advances SD-025 validation. SD-025 stays candidate.",
-      "status": "pending",
-      "conditions": 2,
-      "episodes_per_run": 32,
-      "experiment_type": "v3_exq_767a_sd025_curiosity_drive_selection_bias_margin",
-      "machine_affinity_note": "cloud-class (linux-x86_64-py3.10) mint -- any of ree-cloud-2/3/4 is class-equivalent; pinned to ree-cloud-3 (affinity takes a single hostname) to guarantee a reusable cloud-class OFF-baseline fingerprint (Mac class would be unreusable by cloud consumers).",
-      "seeds": 8
-    },
-    {
       "queue_id": "V3-EXQ-768a",
       "title": "ARC-057 SD-024xSD-025 interaction spike -- continuous CEM score-margin re-op (supersedes 768)",
       "script": "experiments/v3_exq_768a_arc057_da_curiosity_interaction_spike_margin.py",
