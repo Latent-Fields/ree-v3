@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-766a",
+      "title": "MECH-232 DA-modulated representational expansion -- CLOUD confirmation of 766 (SD-024 cloud-authoritative gate)",
+      "experiment_type": "v3_exq_766_mech232_da_modulated_representational_expansion",
+      "script": "experiments/v3_exq_766_mech232_da_modulated_representational_expansion.py",
+      "priority": 70,
+      "machine_affinity": "ree-cloud-2",
+      "status": "pending",
+      "estimated_minutes": 15,
+      "episodes_per_run": 48,
+      "seeds": 8,
+      "conditions": 2,
+      "claim_id": "MECH-232",
+      "note": "Cloud-class re-run of the identical, unchanged 766 diagnostic script (no copy; machine_class stamped at runtime). SD-024 (docs/architecture/sd_024_da_modulated_rbf_density.md) makes the CLOUD PASS the authoritative MECH-232 gate; the Mac 766 run (DLAPTOP-4.local) PASSed but its machine_class cannot serve the cloud gate -- so GOV-REUSE-1 does NOT apply (the decisive readout must be produced on cloud class, not reused from the Mac manifest). Pinned to ree-cloud-2 (not 'any') to avoid the Mac winning the landing race. experiment_purpose=diagnostic. NOT a supersession (confirms, does not correct). On PASS: /failure-autopsy adjudicate then /governance promote MECH-232 candidate->provisional."
+    }
+  ]
 }
