@@ -37,6 +37,7 @@ import torch
 import torch.nn as nn
 
 from ree_core.utils.config import HippocampalConfig
+from ree_core.hippocampal.curiosity import FamiliarityTracker
 from ree_core.predictors.e2_fast import E2FastPredictor, Trajectory
 from ree_core.residue.field import ResidueField, VALENCE_WANTING
 from ree_core.hippocampal.event_segmenter import (
@@ -109,6 +110,19 @@ class HippocampalModule(nn.Module):
 
         # ARC-028 / MECH-105: last completion signal cache
         self._last_completion_signal: float = 0.0
+
+        # SD-025 (ARC-057 component 2): curiosity drive. Instantiated ONLY when
+        # curiosity_weight > 0 -> when disabled, _score_trajectory is untouched,
+        # update_familiarity() is a no-op, and behaviour is bit-identical to the
+        # pre-SD-025 substrate. The tracker holds the visit-count familiarity EMA;
+        # density comes from compute_representational_density (SD-024 hook).
+        self.familiarity_tracker: Optional[FamiliarityTracker] = None
+        if float(getattr(config, "curiosity_weight", 0.0)) > 0.0:
+            self.familiarity_tracker = FamiliarityTracker(
+                world_dim=int(config.world_dim),
+                ema_alpha=float(getattr(config, "familiarity_ema_alpha", 0.01)),
+                bandwidth=float(getattr(config, "familiarity_bandwidth", 1.0)),
+            )
 
         # MECH-290: backward trajectory credit sweep (Foster & Wilson 2006).
         # Stores the most recently committed trajectory for backward_credit_sweep().
@@ -809,6 +823,13 @@ class HippocampalModule(nn.Module):
         component -- populated by SerotoninModule.update_benefit_salience() during
         waking steps when tonic_5ht_enabled=True.
 
+        SD-025 curiosity extension (config.curiosity_weight > 0):
+        Subtracts an information-seeking bonus = curiosity_weight * mean(novelty)
+        along the trajectory, biasing CEM toward regions of higher representational
+        density in the SD-024 benefit RBF map. novelty = density * (1 - familiarity)
+        (see _curiosity_bonus). Subtracted for the same reason as wanting. When
+        curiosity_weight = 0.0 (default) the score is untouched -> bit-identical.
+
         Returns a scalar score (lower = better).
         """
         if trajectory.world_states is not None:
@@ -824,13 +845,63 @@ class HippocampalModule(nn.Module):
                         valence_flat = self.residue_field.evaluate_valence(flat)  # [B*H, 4]
                     wanting_flat = valence_flat[..., VALENCE_WANTING]  # [B*H]
                     wanting_score = wanting_flat.mean()
-                    return terrain_score - self.config.wanting_weight * wanting_score
+                    terrain_score = terrain_score - self.config.wanting_weight * wanting_score
+
+                if float(getattr(self.config, "curiosity_weight", 0.0)) > 0.0:
+                    terrain_score = terrain_score - self._curiosity_bonus(world_seq)
 
                 return terrain_score
 
         # Fallback: residue over z_self states (pre-SD-005 wiring)
         states = trajectory.get_state_sequence()
         return self.residue_field.evaluate_trajectory(states).sum()
+
+    def _curiosity_bonus(self, world_seq: torch.Tensor) -> torch.Tensor:
+        """SD-025: information-seeking bonus for a candidate trajectory.
+
+        bonus = curiosity_weight * mean_over_trajectory( density * (1 - familiarity) )
+
+        density is the SD-024 weight-INDEPENDENT representational density
+        (compute_representational_density -> benefit RBF active-center count), so
+        the drive follows representational QUALITY, not a positive-valence gradient.
+        familiarity is the visit-count EMA (FamiliarityTracker); it is subtracted-in
+        via (1 - familiarity) so already-explored regions lose their pull
+        (anti-perseveration). Read-only: no memory is written here (MECH-094-safe --
+        CEM scoring is hypothesis-space). Returns a scalar >= 0.
+        """
+        cw = float(getattr(self.config, "curiosity_weight", 0.0))
+        batch, horizon, world_dim = world_seq.shape
+        flat = world_seq.reshape(batch * horizon, world_dim)
+        with torch.no_grad():
+            density = self.compute_representational_density(flat)  # [B*H]
+            if (
+                bool(getattr(self.config, "use_curiosity_familiarity", True))
+                and self.familiarity_tracker is not None
+            ):
+                familiarity = self.familiarity_tracker.query(flat)  # [B*H] in [0,1]
+                novelty = density * (1.0 - familiarity)
+            else:
+                novelty = density
+        return cw * novelty.mean()
+
+    def update_familiarity(
+        self, z_world: torch.Tensor, is_waking: bool = True
+    ) -> None:
+        """SD-025: advance the curiosity familiarity EMA at a visited z_world.
+
+        Call once per WAKING step with the current real z_world. No-op when the
+        curiosity drive is disabled (curiosity_weight = 0.0 -> tracker is None) or
+        when is_waking is False. MECH-094: familiarity is real memory state, so
+        replay / simulation / imagined rollouts MUST pass is_waking=False (or simply
+        not call this) -- only realised waking visits raise familiarity.
+
+        Args:
+            z_world:   [world_dim] or [batch, world_dim] current real z_world.
+            is_waking: MECH-094 gate; when False this is a no-op.
+        """
+        if self.familiarity_tracker is None or not is_waking:
+            return
+        self.familiarity_tracker.update(z_world.detach())
 
     def _compute_mode_noise_scale(
         self,

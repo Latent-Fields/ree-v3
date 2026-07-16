@@ -4234,6 +4234,21 @@ class REEAgent(nn.Module):
                         new_latent.z_world[0].detach().clone()
                     )
 
+        # SD-025 (ARC-057 component 2): advance the curiosity familiarity EMA at
+        # the current WAKING z_world. MECH-094-gated identically to the MECH-314a
+        # visitation buffer above -- replay / DMN ticks (hypothesis_tag=True) MUST
+        # NOT raise familiarity. No-op when the curiosity drive is disabled
+        # (curiosity_weight = 0.0 -> hippocampal.familiarity_tracker is None).
+        if (
+            self.hippocampal is not None
+            and self.hippocampal.familiarity_tracker is not None
+            and new_latent.z_world is not None
+        ):
+            is_waking = not bool(getattr(new_latent, "hypothesis_tag", False))
+            self.hippocampal.update_familiarity(
+                new_latent.z_world, is_waking=is_waking
+            )
+
         # SD-039 population layer (2026-04-27): build the AnchorGoalPayload
         # once per tick from the current waking-stream signals (z_goal from
         # GoalState, VALENCE_WANTING readout from ResidueField at z_world,

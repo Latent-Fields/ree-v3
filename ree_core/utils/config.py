@@ -1675,6 +1675,30 @@ class HippocampalConfig:
     # Subtracted from terrain score (lower score = better in CEM).
     # Default 0.0 (backward compat). Set ~0.3-0.5 for goal-directed navigation.
     wanting_weight: float = 0.0
+    # SD-025 (ARC-057 component 2): information-seeking curiosity drive.
+    # When curiosity_weight > 0, CEM trajectory scoring gains an information-
+    # seeking bonus that favours regions of higher REPRESENTATIONAL DENSITY in
+    # the SD-024 benefit RBF map:
+    #     novelty(z)   = density(z) * (1 - familiarity(z))
+    #     score       -= curiosity_weight * mean_over_trajectory(novelty)
+    # density = HippocampalModule.compute_representational_density (the SD-024
+    # weight-INDEPENDENT active-center count -- the drive follows representational
+    # QUALITY, not a positive-valence gradient). Subtracted because CEM minimises
+    # the score (lower = better), exactly as wanting_weight is. familiarity is a
+    # visit-count EMA (FamiliarityTracker, ree_core/hippocampal/curiosity.py) that
+    # rises as a region is revisited, so novelty decays there and the agent does
+    # not endlessly circle already-explored structure (anti-perseveration).
+    # curiosity_weight=0.0 is the MASTER no-op: the tracker is never built, the
+    # scoring path is untouched, update_familiarity() is a no-op -> bit-identical
+    # OFF. familiarity_ema_alpha / use_curiosity_familiarity / familiarity_bandwidth
+    # are consulted ONLY when curiosity_weight > 0. Set use_curiosity_familiarity
+    # False for the density-only ablation (novelty = density, no familiarity discount).
+    # MECH-094: familiarity is memory state -> update_familiarity() advances only on
+    # WAKING visits, never during sim/replay; the density read during CEM is read-only.
+    curiosity_weight: float = 0.0
+    familiarity_ema_alpha: float = 0.01
+    use_curiosity_familiarity: bool = True
+    familiarity_bandwidth: float = 1.0
     # MECH-267: mode-conditioned hippocampal proposals (Pfeiffer & Foster 2013).
     # When enabled and an operating_mode dict is supplied to
     # propose_trajectories(), the per-mode noise multiplier is applied to the
