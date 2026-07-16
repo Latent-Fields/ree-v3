@@ -89,7 +89,7 @@ SLEEP DRIVER: none (no sleep loop; use_sleep_loop / sws_enabled / rem_enabled al
 from __future__ import annotations
 
 from collections import deque
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -425,7 +425,19 @@ def train_a2c(
     credit_replay: bool = False,
     archive: Optional[GoExploreArchive] = None,
     return_prob: float = 0.0,
+    coef_schedule: Optional[Callable[[int, int], float]] = None,
+    entropy_schedule: Optional[Callable[[int, int], float]] = None,
 ) -> Dict[str, Any]:
+    # coef_schedule / entropy_schedule (MECH-457 bootstrap-explorer, 2026-07-16): OPTIONAL
+    # training-progress schedules for the intrinsic coefficient and rollout entropy, computed
+    # per episode as fn(ep, n_episodes). Default None -> constant (byte-identical to the pre-
+    # existing 752-756 callers). Mutually exclusive with mode_gate (which is the utility-gated
+    # anneal 755 refuted); a schedule is a DEVELOPMENTAL anneal, not a critic-utility gate.
+    if mode_gate is not None and (coef_schedule is not None or entropy_schedule is not None):
+        raise ValueError(
+            "train_a2c: coef_schedule/entropy_schedule are mutually exclusive with mode_gate "
+            "(schedule anneal vs utility-gate anneal); pass at most one."
+        )
     params = rep.params()
     optimiser = torch.optim.Adam(params, lr=AC_LR)
     reward_std = x734._RunningStd()
@@ -463,8 +475,18 @@ def train_a2c(
         ep_intrinsic = 0.0
         cum_resources = 0
 
-        beta_eff = mode_gate.entropy_beta() if mode_gate is not None else entropy_beta
-        coef_eff = mode_gate.intrinsic_coef() if mode_gate is not None else intrinsic_coef
+        if mode_gate is not None:
+            beta_eff = mode_gate.entropy_beta()
+            coef_eff = mode_gate.intrinsic_coef()
+        else:
+            beta_eff = (
+                float(entropy_schedule(ep, n_episodes)) if entropy_schedule is not None
+                else entropy_beta
+            )
+            coef_eff = (
+                float(coef_schedule(ep, n_episodes)) if coef_schedule is not None
+                else intrinsic_coef
+            )
 
         state = rep.encode(obs_dict)
         for _step in range(steps):
