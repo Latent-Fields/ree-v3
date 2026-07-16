@@ -8,19 +8,21 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-766a",
-      "title": "MECH-232 DA-modulated representational expansion -- CLOUD confirmation of 766 (SD-024 cloud-authoritative gate)",
-      "experiment_type": "v3_exq_766_mech232_da_modulated_representational_expansion",
-      "script": "experiments/v3_exq_766_mech232_da_modulated_representational_expansion.py",
-      "priority": 70,
+      "queue_id": "V3-EXQ-680e",
+      "title": "MECH-423 cross-model super-additivity 3-arm ablation -- readiness-cosine-gate recalibration (magnitude-floored tolerance-band); supersedes 680d",
+      "experiment_type": "v3_exq_680e_mech423_superadditivity_ablation",
+      "script": "experiments/v3_exq_680e_mech423_superadditivity_ablation.py",
+      "priority": 50,
       "machine_affinity": "ree-cloud-2",
       "status": "pending",
       "estimated_minutes": 15,
-      "episodes_per_run": 48,
-      "seeds": 8,
-      "conditions": 2,
-      "claim_id": "MECH-232",
-      "note": "Cloud-class re-run of the identical, unchanged 766 diagnostic script (no copy; machine_class stamped at runtime). SD-024 (docs/architecture/sd_024_da_modulated_rbf_density.md) makes the CLOUD PASS the authoritative MECH-232 gate; the Mac 766 run (DLAPTOP-4.local) PASSed but its machine_class cannot serve the cloud gate -- so GOV-REUSE-1 does NOT apply (the decisive readout must be produced on cloud class, not reused from the Mac manifest). Pinned to ree-cloud-2 (not 'any') to avoid the Mac winning the landing race. experiment_purpose=diagnostic. NOT a supersession (confirms, does not correct). On PASS: /failure-autopsy adjudicate then /governance promote MECH-232 candidate->provisional."
+      "episodes_per_run": 40,
+      "seeds": 5,
+      "conditions": 3,
+      "claim_id": "MECH-423",
+      "supersedes": "V3-EXQ-680d",
+      "proposal_id": "EXP-0380",
+      "note": "Lettered iteration superseding V3-EXQ-680d: ONE design change = readiness-cosine-GATE RECALIBRATION (measurement/test-design fix, NOT a naive re-run). 680d's co-training stabiliser WORKED (0/5 PAIR seeds diverged; all world_R2 finite off-floor) but its readiness gate min(cos over 5 usable seeds)>=0 fired r1_grad_cosine_net_negative on -0.0371 gradient-ORTHOGONALITY noise and self-excluded a run whose suppressed FORK-2 verdict would PASS (3/5 seeds over margin 0.286; mean delta +0.35; PAIR>ISO 5/5 -- failure_autopsy_V3-EXQ-680d_2026-06-15). FIX: replace min(cos)>=0 with a magnitude-floored / tolerance-band test -- |cos|<=COSINE_ORTHOGONAL_BAND (0.15, PRE-REGISTERED from 680d observed usable-seed cosine noise range -0.037..+0.051, max|cos|=0.051, ~3x) = near-orthogonal = readiness-MET so the super-additivity verdict RUNS; only a MAJORITY (>=MIN_SEEDS_NET_NEGATIVE=3/5 usable seeds) with cos<-BAND routes r1_grad_cosine_net_negative; only non-finite/diverged seeds route co_training_diverged. Emits n_diverged_seeds + band classification (net_neg/near_orth/net_pos) SEPARATE from the net-negative test. 680d co-training stabiliser (lower ENC_LR 1e-4 + 10-ep encoder warmup + non-finite-loss guard), inf/NaN cosine guard, R2_SCORE_FLOOR, hardened SD-of-delta+abs-floor margin ALL retained unchanged (n>=5). PRE-REGISTERED FORKS: (a) near-orthogonal/positive band -> readiness MET -> super-additivity verdict runs (the actual MECH-423 test; likely PASS); (b) cos<-BAND on >=3/5 usable seeds -> GENUINE negative-transfer readiness fail/substrate finding -> /implement-substrate (shared-latent objective reconciliation) or narrow MECH-423, do NOT re-queue; (c) n_usable<4 -> stabiliser regressed -> diagnose, do NOT iterate blindly. claim_ids=[MECH-423]; experiment_purpose=evidence (promotes NOTHING on its own; MECH-423 stays candidate). GOV-REUSE-1: decisive readout=recalibrated-gate super-additivity verdict, only INFORMALLY recomputable from 680d's superseded/non_contributory manifest (autopsy sec2), not a governance-weighted manifest -> run (user-directed). RE-DERIVE BRAKE: 2 prior MECH-423 non_contributory autopsies (680c/680d) but NOT braked -- 680d autopsy emits recommended_substrate_queue_entry action=none (NO upstream substrate to build); dominant diagnosis is a measurement/test-design defect on a NOW-STABLE substrate; user-confirmed routing to /queue-experiment 680e (2026-06-15). Ethics all-false/allow (frozen-representation MTL probe; no self-model/valence). Pinned ree-cloud-2 to reproduce 680d's cloud-class-proven (linux-x86_64-py3.10) co-training stability (a Mac run's differing numerics could spuriously route FORK 1). Smoke: dry-run PASS (no evidence leak); recalibrated-gate routing unit-verified (680d EXACT cosines -> FORK 2 verdict; genuine 3/5 net-neg -> FORK 3; single bad seed -> FORK 2)."
     }
   ]
 }
