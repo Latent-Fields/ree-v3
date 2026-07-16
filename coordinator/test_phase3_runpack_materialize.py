@@ -199,6 +199,55 @@ class MaterializeRunpacks(unittest.TestCase):
         self.assertEqual(n, 6)
 
 
+class FieldMappingProvenance(unittest.TestCase):
+    """build_runpack_docs must carry always-core provenance from the flat manifest
+    into the pack (2026-07-16 thin-pack fix) and fold `aggregates` into
+    metrics.values when there is no top-level `metrics`."""
+
+    def test_provenance_carried_into_pack(self):
+        import sync_v3_results
+        data = _make_flat("v3_exq_p_20260606T120000Z_v3", "v3_exq_p")
+        data["machine"] = "ree-cloud-2"
+        data["machine_class"] = "linux-x86_64-py3.10"
+        data["substrate_hash"] = "f92a600cf17a"
+        manifest, _metrics, _summary = sync_v3_results.build_runpack_docs(
+            data, "v3_exq_p")
+        self.assertEqual(manifest["machine"], "ree-cloud-2")
+        self.assertEqual(manifest["machine_class"], "linux-x86_64-py3.10")
+        self.assertEqual(manifest["substrate_hash"], "f92a600cf17a")
+
+    def test_absent_provenance_omitted_not_nulled(self):
+        """A flat without provenance produces a pack WITHOUT those keys (byte-
+        identical to legacy output) -- never machine_class: null."""
+        import sync_v3_results
+        data = _make_flat("v3_exq_q_20260606T120000Z_v3", "v3_exq_q")
+        manifest, _m, _s = sync_v3_results.build_runpack_docs(data, "v3_exq_q")
+        self.assertNotIn("machine_class", manifest)
+        self.assertNotIn("substrate_hash", manifest)
+        self.assertNotIn("machine", manifest)
+
+    def test_aggregates_folded_when_no_top_level_metrics(self):
+        """766-style manifest: readouts under `aggregates`, no `metrics` key ->
+        metrics.values carries the aggregates rather than staying empty."""
+        import sync_v3_results
+        data = _make_flat("v3_exq_r_20260606T120000Z_v3", "v3_exq_r")
+        data.pop("metrics", None)
+        data["aggregates"] = {"median_expansion_ratio": 2.40, "frac_ok": 0.917}
+        _m, metrics_doc, _s = sync_v3_results.build_runpack_docs(data, "v3_exq_r")
+        self.assertEqual(metrics_doc["values"]["median_expansion_ratio"], 2.40)
+        self.assertEqual(metrics_doc["values"]["frac_ok"], 0.917)
+
+    def test_top_level_metrics_win_over_aggregates(self):
+        """When a top-level `metrics` dict is present it is used verbatim; the
+        aggregates fallback only fills the empty case."""
+        import sync_v3_results
+        data = _make_flat("v3_exq_s_20260606T120000Z_v3", "v3_exq_s")
+        data["metrics"] = {"some_metric": 1.25, "n_seeds": 3}
+        data["aggregates"] = {"unused": 9.9}
+        _m, metrics_doc, _s = sync_v3_results.build_runpack_docs(data, "v3_exq_s")
+        self.assertEqual(metrics_doc["values"], {"some_metric": 1.25, "n_seeds": 3})
+
+
 class FlagDefault(unittest.TestCase):
 
     def test_materialize_runpack_default_off(self):

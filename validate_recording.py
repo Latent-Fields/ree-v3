@@ -109,6 +109,60 @@ def _merged_view(manifest: Dict[str, Any], path: Path) -> Dict[str, Any]:
     return view
 
 
+# The provenance subset of the always-core that the runs/ pack producer
+# (sync_v3_results.build_runpack_docs) is responsible for carrying from the flat
+# manifest into the pack. A pack that drops these while its flat sibling carries
+# them is the 2026-07-16 thin-pack recording-provenance bug: the index-scored
+# runs/ artifact reads machine_class=null / substrate_hash="" even though the
+# provenance was recorded (in the flat manifest + coordinator DB). Kept narrow
+# (NOT the full always-core) because recording_schema/config/seeds/elapsed_seconds
+# live in the flat manifest + metrics.json by design and are absent from the pack
+# schema for reasons unrelated to this bug.
+_PACK_PROVENANCE_KEYS = ("machine", "machine_class", "substrate_hash")
+
+
+def _flat_sibling_path(pack_path: Path) -> Optional[Path]:
+    """For a pack manifest .../<exp>/runs/<run_id>/manifest.json, return the flat
+    sibling evidence/experiments/<run_id>.json, else None (non-pack path)."""
+    if pack_path.name != "manifest.json":
+        return None
+    run_dir = pack_path.parent
+    if run_dir.parent.name != "runs":
+        return None
+    run_id = run_dir.name
+    evidence_dir = run_dir.parent.parent.parent  # .../<exp>/runs/<run_id> -> evidence/experiments
+    return evidence_dir / f"{run_id}.json"
+
+
+def _nonempty(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip() != ""
+    if isinstance(value, (list, tuple, dict, set)):
+        return len(value) > 0
+    return True
+
+
+def check_pack_provenance(path: Path) -> List[str]:
+    """Return the provenance always-core keys the PACK drops but its flat sibling
+    carries (the thin-pack recording-provenance regression). Empty for non-pack
+    paths, a missing/unreadable flat sibling, or a pack that already carries the
+    provenance (the healthy state once the producer fix has propagated)."""
+    flat_path = _flat_sibling_path(path)
+    if flat_path is None or not flat_path.is_file():
+        return []
+    pack = _load_json(path)
+    flat = _load_json(flat_path)
+    if not isinstance(pack, dict) or not isinstance(flat, dict):
+        return []
+    dropped: List[str] = []
+    for k in _PACK_PROVENANCE_KEYS:
+        if not _nonempty(pack.get(k)) and _nonempty(flat.get(k)):
+            dropped.append(k)
+    return dropped
+
+
 def check_manifest(path: Path) -> Tuple[List[str], List[str]]:
     """Return (missing_fields, schema_warnings) for one manifest JSON.
 
@@ -175,11 +229,15 @@ def main() -> int:
     n_ok = 0
     gaps: List[Tuple[Path, List[str]]] = []
     warns: List[Tuple[Path, List[str]]] = []
+    thin_packs: List[Tuple[Path, List[str]]] = []
     for p in paths:
         missing, schema_warnings = check_manifest(p)
+        thin = check_pack_provenance(p)
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents else p
         if schema_warnings:
             warns.append((p, schema_warnings))
+        if thin:
+            thin_packs.append((p, thin))
         if missing:
             gaps.append((p, missing))
         else:
@@ -190,6 +248,7 @@ def main() -> int:
     print("", flush=True)
     print(f"[validate_recording] checked {len(paths)} manifest(s): "
           f"{n_ok} complete, {len(gaps)} with always-core gaps, "
+          f"{len(thin_packs)} thin-pack provenance drop(s), "
           f"{len(warns)} schema-warning(s)", flush=True)
 
     if warns:
@@ -200,6 +259,17 @@ def main() -> int:
             for w in ws:
                 print(f"  - {rel}: {w}", flush=True)
 
+    if thin_packs:
+        print("", flush=True)
+        label = "(strict: blocking)" if args.strict else "(advisory; --strict to block)"
+        print(f"[validate_recording] THIN-PACK provenance drops {label} -- "
+              f"the runs/ pack lost always-core the flat manifest carries "
+              f"(sync_v3_results.build_runpack_docs must carry it; re-materialise "
+              f"the pack to heal):", flush=True)
+        for p, dropped in thin_packs:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents else p
+            print(f"  - {rel}: pack drops {', '.join(dropped)} (flat has them)", flush=True)
+
     if gaps:
         print("", flush=True)
         label = "GAPS (strict: blocking)" if args.strict else "GAPS (advisory; --strict to block)"
@@ -207,8 +277,9 @@ def main() -> int:
         for p, missing in gaps:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents else p
             print(f"  - {rel}: missing {', '.join(missing)}", flush=True)
-        if args.strict:
-            return 1
+
+    if args.strict and (gaps or thin_packs):
+        return 1
     return 0
 
 
