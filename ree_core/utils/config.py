@@ -1923,6 +1923,39 @@ class ResidueConfig:
     # MECH-303 behavioural promote-to-active gate). None -> falls back to
     # kernel_bandwidth (bit-identical OFF). See sd_067_safety_terrain_bandwidth.md.
     safety_terrain_bandwidth: Optional[float] = None
+    # SD-024 (MECH-232): DA-modulated RBF center density on the BENEFIT terrain.
+    # When a reward encounter carries a phasic dopamine signal (benefit_magnitude *
+    # drive_level per SD-012), accumulate_benefit() allocates MULTIPLE closely-spaced
+    # RBF centers (a local jittered cluster) instead of one, and optionally narrows
+    # their per-center bandwidth -- creating representational EXPANSION (higher
+    # information density, finer/sharper place fields) at reward locations, WITHOUT
+    # writing an explicit positive-valence gradient. This is MECH-232's substrate:
+    # approach valence enters hippocampal terrain via representational fidelity, not
+    # a wanting tag. compute_local_density() reads the resulting structural richness
+    # (WEIGHT-INDEPENDENT), which the SD-025 curiosity drive (downstream) follows.
+    # Modulates ONLY the benefit_rbf_field -- harm/safety fields keep single-center
+    # standard-bandwidth allocation, preserving the MECH-233 encoding asymmetry.
+    # MECH-094: DA expansion routes through accumulate_benefit's hypothesis_tag gate,
+    # so replay/simulation cannot trigger it.
+    # All defaults are no-op: use_da_modulated_rbf_density=False -> benefit field is
+    # built exactly as before (num_basis_functions centers, scalar bandwidth,
+    # single-center accumulation) -> bit-identical to pre-SD-024 behaviour.
+    # See docs/architecture/sd_024_da_modulated_rbf_density.md.
+    use_da_modulated_rbf_density: bool = False
+    # Extra centers allocated per unit dopamine signal: n = 1 + int(da_signal *
+    # da_allocation_scale). 0.0 -> single center even when the master switch is on
+    # (so flipping only the master switch stays a no-op until scale is set).
+    da_allocation_scale: float = 0.0
+    # z_world spread (std) of the jittered center cluster around the reward location.
+    da_jitter_radius: float = 0.1
+    # DA-driven per-center bandwidth reduction: bw = base * (1 - da_signal *
+    # da_bandwidth_narrowing), floored at 0.5 * base. 0.0 -> no narrowing (per-center
+    # bandwidth stays at the base kernel_bandwidth). Orthogonal to allocation count.
+    da_bandwidth_narrowing: float = 0.0
+    # Benefit-field capacity override, applied ONLY when use_da_modulated_rbf_density
+    # is True (gives the cluster expansion room without touching num_basis_functions,
+    # which is shared with the harm field). None -> num_basis_functions (bit-identical).
+    da_benefit_num_centers: Optional[int] = None
     # SD-014: 4-component valence vector [wanting, liking, harm_discriminative, surprise].
     # When False, evaluate_valence() returns zeros and update_valence() is a no-op.
     # Used to ablate valence tracking in experiments that do not need replay prioritisation.

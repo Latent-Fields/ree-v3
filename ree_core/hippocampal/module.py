@@ -1687,6 +1687,33 @@ class HippocampalModule(nn.Module):
         self._last_completion_signal = signal
         return signal
 
+    def compute_representational_density(
+        self, z_world: torch.Tensor, bandwidth: Optional[float] = None
+    ) -> torch.Tensor:
+        """SD-024 (MECH-232): representational density of the benefit terrain at z.
+
+        Thin read-through to ResidueField.compute_benefit_density -- the
+        weight-INDEPENDENT proximity-weighted active-center count over the benefit
+        RBF field. Under DA-modulated allocation (use_da_modulated_rbf_density),
+        reward locations accumulate denser center clusters, so this read is higher
+        there even when the summed benefit value is flat. It is the hippocampal
+        density signal the SD-025 curiosity drive (downstream) follows to produce
+        approach from representational quality rather than an explicit valence
+        gradient. Returns zeros when the benefit terrain is disabled.
+
+        Args:
+            z_world:   [batch, world_dim] query points.
+            bandwidth: Optional scalar bandwidth override for the density read.
+
+        Returns:
+            density [batch] (>= 0).
+        """
+        if not hasattr(self.residue_field, "compute_benefit_density"):
+            return torch.zeros(
+                z_world.shape[0], device=z_world.device, dtype=z_world.dtype
+            )
+        return self.residue_field.compute_benefit_density(z_world, bandwidth=bandwidth)
+
     # ------------------------------------------------------------------ #
     # MECH-290: backward trajectory credit sweep (2026-04-24)             #
     # ------------------------------------------------------------------ #

@@ -25,6 +25,21 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_765_mech457_bootstrap_explorer_competence",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-766",
+      "title": "MECH-232 DA-modulated representational expansion (SD-024 validation): DA-ON vs DA-OFF benefit terrain; leg-1 representational expansion at reward locations (density/resolution/stability); leg-2 CRUX approach-without-explicit-gradient (weight-independent density-following persists when all benefit weights are zeroed while the value-follower collapses to chance).",
+      "experiment_type": "v3_exq_766_mech232_da_modulated_representational_expansion",
+      "script": "experiments/v3_exq_766_mech232_da_modulated_representational_expansion.py",
+      "priority": 4,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "episodes_per_run": 48,
+      "seeds": 8,
+      "conditions": 2,
+      "claim_id": "MECH-232",
+      "note": "DIAGNOSTIC (experiment_purpose=diagnostic; excluded from governance confidence/conflict scoring; a PASS routes through /failure-autopsy adjudication before promoting MECH-232 candidate->provisional, a FAIL refutes). Step-8 of /implement-substrate for SD-024 (hippocampal_module.da_modulated_rbf_density), IMPLEMENTED ree-v3 main 2026-07-16. Substrate readiness: SD-024 IMPLEMENTED, SD-004 IMPLEMENTED, ARC-007 active -- buildable. GOV-REUSE-1: decisive readouts (DA-driven density expansion + weight-independent density-following approach) exist in NO prior manifest (SD-024 did not exist until today) -> not recoverable -> run. Re-derive brake: 0 substrate_ceiling/non_contributory autopsies tag MECH-232 -> not braked. Ethics all-false/allow (benefit/reward side; no self-model, no negative valence). Leg-1 acceptance L1a density_expansion_ratio>=1.5 (LOAD-BEARING); leg-2 L2a density_approach>=0.60 + L2b above-chance + L2c approach-without-gradient (weights zeroed: density approach persists AND value-follower at chance) -- ALL LOAD-BEARING. P0 readiness (same statistic the criteria route on): R1 density read discriminates >=0.5, R2 walker reaches positive-control >=0.80; below-floor self-routes substrate_not_ready_requeue. Inline 8-seed Mac validation PASS/supports (expansion ~2.40, approach_on 0.96-1.00, dens_zeroed 0.92-1.00, val_zeroed 0.00, all readiness met); manifest REMOVED from evidence/ (cloud authoritative). OFF arm minted reuse-eligible (include_driver_script_in_hash=False). Deterministic synthetic (non-parametric RBF; no training/encoder head; phased training N/A). validate_experiments --strict --paths OK; dry-run sentinel written. NOTE for governance: substrate_queue.json SD-024 depends_on_unresolved should drop SD-004 (implemented) + MECH-232 (the claim this validates)."
     }
   ]
 }

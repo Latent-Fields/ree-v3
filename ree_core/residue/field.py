@@ -74,11 +74,30 @@ VALENCE_COMPONENTS = [
 class RBFLayer(nn.Module):
     """RBF field over z_world — unchanged from V2 except latent_dim → world_dim."""
 
-    def __init__(self, world_dim: int, num_centers: int, bandwidth: float = 1.0):
+    def __init__(
+        self,
+        world_dim: int,
+        num_centers: int,
+        bandwidth: float = 1.0,
+        per_center_bandwidth: bool = False,
+    ):
         super().__init__()
         self.world_dim = world_dim
         self.num_centers = num_centers
         self.bandwidth = bandwidth
+
+        # SD-024 (MECH-232): optional per-center bandwidth. When False (default) the
+        # field uses the single scalar self.bandwidth in every read -- BYTE-IDENTICAL
+        # to the pre-SD-024 code path. When True, a per-center bandwidth buffer is
+        # registered (init to the scalar bandwidth) so DA-modulated allocation can
+        # narrow individual centers for finer place-field resolution at reward
+        # locations. Only ResidueField's benefit_rbf_field enables this, and only
+        # when use_da_modulated_rbf_density is set.
+        self.per_center_bandwidth: bool = bool(per_center_bandwidth)
+        if self.per_center_bandwidth:
+            self.register_buffer(
+                "center_bandwidths", torch.full((num_centers,), float(bandwidth))
+            )
 
         self.centers = nn.Parameter(torch.randn(num_centers, world_dim) * 0.1)
         self.weights = nn.Parameter(torch.zeros(num_centers))
@@ -111,7 +130,7 @@ class RBFLayer(nn.Module):
 
         diffs = z.unsqueeze(1) - self.centers.unsqueeze(0)
         distances_sq = (diffs ** 2).sum(dim=-1)
-        rbf_values = torch.exp(-distances_sq / (2 * self.bandwidth ** 2))
+        rbf_values = torch.exp(-distances_sq / self._two_bw_sq(distances_sq))
         active_weights = self.weights * self.active_mask.float()
         field_values = (rbf_values * active_weights.unsqueeze(0)).sum(dim=-1)
 
@@ -119,6 +138,20 @@ class RBFLayer(nn.Module):
             field_values = field_values.reshape(batch_size, seq_len)
 
         return field_values
+
+    def _two_bw_sq(self, ref: torch.Tensor) -> torch.Tensor:
+        """Return the Gaussian denominator 2 * bandwidth^2 for the RBF reads.
+
+        SD-024: when per_center_bandwidth is enabled, this is a [num_centers]
+        tensor (one bandwidth per center) that broadcasts against the
+        [batch, num_centers] distance matrix; otherwise it is the scalar
+        2 * self.bandwidth^2 -- byte-identical to the pre-SD-024 expression.
+        `ref` supplies device/dtype so the returned tensor matches the caller.
+        """
+        if self.per_center_bandwidth:
+            bw = self.center_bandwidths.to(device=ref.device, dtype=ref.dtype)
+            return 2.0 * bw.pow(2)
+        return 2.0 * (self.bandwidth ** 2)
 
     def add_residue(self, location: torch.Tensor, intensity: float = 1.0) -> int:
         if location.dim() == 2:
@@ -129,8 +162,125 @@ class RBFLayer(nn.Module):
             self.centers.data[idx] = location
             self.weights.data[idx] = self.weights.data[idx] + intensity
             self.active_mask[idx] = True
+            if self.per_center_bandwidth:
+                # Standard (unmodulated) allocation resets this center's bandwidth
+                # to the base value so a slot recycled from a prior DA-narrowed
+                # event does not carry a stale narrow bandwidth.
+                self.center_bandwidths[idx] = float(self.bandwidth)
             self.next_center_idx = (self.next_center_idx + 1) % self.num_centers
         return idx
+
+    def add_residue_cluster(
+        self,
+        location: torch.Tensor,
+        intensity: float = 1.0,
+        dopamine_signal: float = 0.0,
+        allocation_scale: float = 0.0,
+        jitter_radius: float = 0.1,
+        bandwidth_narrowing: float = 0.0,
+    ) -> List[int]:
+        """SD-024 (MECH-232): DA-modulated multi-center allocation.
+
+        Allocates a local cluster of n = 1 + int(dopamine_signal * allocation_scale)
+        RBF centers around `location`, each jittered by Gaussian noise of std
+        `jitter_radius` in z_world, and (when per_center_bandwidth is enabled and
+        bandwidth_narrowing > 0) narrows each center's bandwidth to
+        base * (1 - dopamine_signal * bandwidth_narrowing), floored at 0.5 * base.
+
+        This creates representational EXPANSION at reward locations -- higher
+        density (more centers) and optionally finer resolution (narrower kernels)
+        -- WITHOUT writing an explicit positive-valence gradient. The total
+        `intensity` is split evenly across the cluster so the scalar benefit field
+        value integrates to the same magnitude a single-center allocation would
+        (the expansion is representational, not a value inflation). The DA arm is
+        thereby discriminable from a valence tag: compute_local_density() rises
+        with the cluster; evaluate() (weight sum) does not.
+
+        Falls back to a single standard center when the effective count is 1
+        (dopamine_signal or allocation_scale == 0), so an active master switch
+        with scale 0 stays equivalent to add_residue().
+
+        Args:
+            location:            z_world location [world_dim] or [batch, world_dim].
+            intensity:           Total benefit magnitude, split across the cluster.
+            dopamine_signal:     Phasic DA (>=0); scales the allocation count.
+            allocation_scale:    Extra centers per unit DA.
+            jitter_radius:       Std of the Gaussian center jitter in z_world.
+            bandwidth_narrowing: DA-driven per-center bandwidth reduction fraction.
+
+        Returns:
+            List of allocated center indices (length n).
+        """
+        if location.dim() == 2:
+            location = location.mean(dim=0)
+
+        da = max(0.0, float(dopamine_signal))
+        n_centers = 1 + int(da * max(0.0, float(allocation_scale)))
+        if n_centers < 1:
+            n_centers = 1
+
+        # Per-center bandwidth for this DA event (finer at higher DA), floored so
+        # the kernel never collapses to a spike (numerical-stability guard).
+        per_bw = float(self.bandwidth)
+        if self.per_center_bandwidth and bandwidth_narrowing > 0.0:
+            per_bw = float(self.bandwidth) * (1.0 - da * float(bandwidth_narrowing))
+            per_bw = max(per_bw, 0.5 * float(self.bandwidth))
+
+        share = float(intensity) / float(n_centers)
+        allocated: List[int] = []
+        with torch.no_grad():
+            for _ in range(n_centers):
+                idx = int(self.next_center_idx.item())
+                if n_centers == 1 or jitter_radius <= 0.0:
+                    loc = location
+                else:
+                    loc = location + torch.randn_like(location) * float(jitter_radius)
+                self.centers.data[idx] = loc
+                self.weights.data[idx] = self.weights.data[idx] + share
+                self.active_mask[idx] = True
+                if self.per_center_bandwidth:
+                    self.center_bandwidths[idx] = per_bw
+                self.next_center_idx = (self.next_center_idx + 1) % self.num_centers
+                allocated.append(idx)
+        return allocated
+
+    def compute_local_density(
+        self, z: torch.Tensor, bandwidth: Optional[float] = None
+    ) -> torch.Tensor:
+        """SD-024 (MECH-232): weight-INDEPENDENT representational density at z.
+
+        Proximity-weighted count of ACTIVE centers near each query point:
+
+            density(z) = sum_i active_i * exp(-||z - c_i||^2 / (2 * bw_i^2))
+
+        This is the structural richness of the map -- how many representational
+        centers exist near z -- and is deliberately independent of the RBF
+        WEIGHTS (the benefit-value magnitude). That separation is what makes it
+        the MECH-232 discriminator: DA-driven multi-center allocation raises
+        density even when the summed benefit value (evaluate()) is held flat, so
+        density-driven approach demonstrates that approach can emerge from
+        representational quality alone, not from a positive-valence gradient.
+        It is the signal the SD-025 curiosity drive follows.
+
+        Args:
+            z:         [batch, world_dim] query points.
+            bandwidth: Optional scalar bandwidth override for the read. When None,
+                       uses per-center bandwidths (if enabled) else self.bandwidth.
+
+        Returns:
+            density [batch] (>= 0). Zeros when no centers are active.
+        """
+        if not self.active_mask.any():
+            return torch.zeros(z.shape[0], device=z.device, dtype=z.dtype)
+        diffs = z.unsqueeze(1) - self.centers.unsqueeze(0)
+        distances_sq = (diffs ** 2).sum(dim=-1)               # [batch, num_centers]
+        if bandwidth is not None:
+            two_bw_sq = 2.0 * (float(bandwidth) ** 2)
+        else:
+            two_bw_sq = self._two_bw_sq(distances_sq)
+        rbf_values = torch.exp(-distances_sq / two_bw_sq)
+        active_rbf = rbf_values * self.active_mask.float().unsqueeze(0)
+        return active_rbf.sum(dim=-1)                          # [batch]
 
     def update_valence(
         self, center_idx: int, valence_component: int, value: float
@@ -172,7 +322,7 @@ class RBFLayer(nn.Module):
         # [batch, num_centers]
         diffs = z.unsqueeze(1) - self.centers.unsqueeze(0)
         distances_sq = (diffs ** 2).sum(dim=-1)
-        rbf_values = torch.exp(-distances_sq / (2 * self.bandwidth ** 2))
+        rbf_values = torch.exp(-distances_sq / self._two_bw_sq(distances_sq))
 
         # Zero out inactive centers
         active_rbf = rbf_values * self.active_mask.float().unsqueeze(0)  # [batch, num_centers]
@@ -247,11 +397,35 @@ class ResidueField(nn.Module):
         self.benefit_terrain_enabled: bool = getattr(
             self.config, "benefit_terrain_enabled", False
         )
+        # SD-024 (MECH-232): DA-modulated RBF center density on the benefit terrain.
+        # When enabled, the benefit field is built with per-center bandwidth (so DA
+        # events can narrow individual kernels) and an optional wider capacity so the
+        # multi-center clusters have room to express. Both are gated by the master
+        # switch -> when off, the benefit field is built exactly as before
+        # (num_basis_functions centers, scalar bandwidth) -> bit-identical.
+        self.da_rbf_enabled: bool = getattr(
+            self.config, "use_da_modulated_rbf_density", False
+        )
+        self._da_allocation_scale: float = float(
+            getattr(self.config, "da_allocation_scale", 0.0)
+        )
+        self._da_jitter_radius: float = float(
+            getattr(self.config, "da_jitter_radius", 0.1)
+        )
+        self._da_bandwidth_narrowing: float = float(
+            getattr(self.config, "da_bandwidth_narrowing", 0.0)
+        )
         if self.benefit_terrain_enabled:
+            _benefit_centers = self.config.num_basis_functions
+            if self.da_rbf_enabled:
+                _override = getattr(self.config, "da_benefit_num_centers", None)
+                if _override is not None:
+                    _benefit_centers = int(_override)
             self.benefit_rbf_field = RBFLayer(
                 world_dim=self.config.world_dim,
-                num_centers=self.config.num_basis_functions,
+                num_centers=_benefit_centers,
                 bandwidth=self.config.kernel_bandwidth,
+                per_center_bandwidth=self.da_rbf_enabled,
             )
             self.register_buffer("total_benefit", torch.tensor(0.0))
             self.register_buffer("num_benefit_events", torch.tensor(0))
@@ -463,17 +637,30 @@ class ResidueField(nn.Module):
         z_world: torch.Tensor,
         benefit_magnitude: float = 1.0,
         hypothesis_tag: bool = False,
+        dopamine_signal: float = 0.0,
     ) -> None:
         """
         Accumulate benefit attractor at a z_world location (ARC-030).
 
         MECH-094: hypothesis_tag=True blocks accumulation (replay cannot
-        create benefit terrain, only real reward contact can).
+        create benefit terrain, only real reward contact can). SD-024 DA
+        modulation routes through this same gate, so replay/simulation reward
+        events cannot trigger representational expansion either.
+
+        SD-024 (MECH-232): when use_da_modulated_rbf_density is enabled and a
+        positive dopamine_signal is supplied, the reward event allocates a local
+        CLUSTER of centers (representational expansion) via add_residue_cluster()
+        instead of a single center. The dopamine signal is the phasic reward
+        signal (benefit_magnitude * drive_level per SD-012), passed by the caller.
+        With the master switch off (default) dopamine_signal is ignored and a
+        single standard center is allocated -- bit-identical to prior behaviour.
 
         Args:
             z_world:           Location in z_world space [batch, world_dim]
             benefit_magnitude: Strength of attractor (default 1.0)
             hypothesis_tag:    MECH-094 gate -- if True, no accumulation
+            dopamine_signal:   SD-024 phasic DA (>=0). Only consulted when
+                               use_da_modulated_rbf_density is enabled.
         """
         if not self.benefit_terrain_enabled or hypothesis_tag:
             return
@@ -482,9 +669,41 @@ class ResidueField(nn.Module):
         else:
             loc = z_world
         with torch.no_grad():
-            self.benefit_rbf_field.add_residue(loc, float(benefit_magnitude))
+            if self.da_rbf_enabled and float(dopamine_signal) > 0.0:
+                self.benefit_rbf_field.add_residue_cluster(
+                    loc,
+                    intensity=float(benefit_magnitude),
+                    dopamine_signal=float(dopamine_signal),
+                    allocation_scale=self._da_allocation_scale,
+                    jitter_radius=self._da_jitter_radius,
+                    bandwidth_narrowing=self._da_bandwidth_narrowing,
+                )
+            else:
+                self.benefit_rbf_field.add_residue(loc, float(benefit_magnitude))
             self.total_benefit = self.total_benefit + benefit_magnitude
             self.num_benefit_events = self.num_benefit_events + 1
+
+    def compute_benefit_density(
+        self, z_world: torch.Tensor, bandwidth: Optional[float] = None
+    ) -> torch.Tensor:
+        """SD-024 (MECH-232): representational density of the benefit terrain at z.
+
+        Weight-independent proximity-weighted active-center count over the benefit
+        RBF field (see RBFLayer.compute_local_density). This is the structural
+        richness the SD-025 curiosity drive follows -- higher where DA allocated a
+        denser cluster, regardless of the summed benefit value. Returns zeros when
+        the benefit terrain is disabled.
+
+        Args:
+            z_world:   [batch, world_dim] query points.
+            bandwidth: Optional scalar bandwidth override for the density read.
+
+        Returns:
+            density [batch] (>= 0).
+        """
+        if not self.benefit_terrain_enabled:
+            return torch.zeros(z_world.shape[0], device=z_world.device, dtype=z_world.dtype)
+        return self.benefit_rbf_field.compute_local_density(z_world, bandwidth=bandwidth)
 
     # ------------------------------------------------------------------
     # MECH-303: contextual passive safety terrain API
