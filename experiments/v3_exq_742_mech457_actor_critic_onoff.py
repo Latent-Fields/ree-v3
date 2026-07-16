@@ -218,8 +218,13 @@ ARM_ORDER = (
 # ---------------------------------------------------------------------------
 # Agent factories + obs sensing.
 # ---------------------------------------------------------------------------
-def _make_actor_critic_agent(env, cotrain: bool, sf: bool):
-    """All-ON REE stack (724 config) + the MECH-457 actor-critic substrate enabled."""
+def _make_actor_critic_agent(env, cotrain: bool, sf: bool, hidden: int = 128):
+    """All-ON REE stack (724 config) + the MECH-457 actor-critic substrate enabled.
+
+    `hidden` sets the actor-critic policy/critic trunk width. Default 128 preserves the 742
+    arms byte-identical; the MECH-457 capacity-amend build (2026-07-16, bootstrap-explorer)
+    passes a larger width to raise policy capacity on the z_world path.
+    """
     kwargs = x724._base_config_kwargs(env)
     kwargs.update(x724._all_on_extra_kwargs())
     kwargs.update(
@@ -227,7 +232,7 @@ def _make_actor_critic_agent(env, cotrain: bool, sf: bool):
             use_actor_critic=True,
             actor_critic_cotrain_encoder=bool(cotrain),
             actor_critic_use_sf_critic=bool(sf),
-            actor_critic_hidden=128,
+            actor_critic_hidden=int(hidden),
             actor_critic_sf_feature_dim=32,
         )
     )

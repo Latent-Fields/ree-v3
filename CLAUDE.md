@@ -13455,3 +13455,23 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   REE_assembly/docs/architecture/sd_mech457_competence_bootstrap_explorer.md. See MECH-457 (candidate/
   v3_pending), INV-088 (candidate/pending_substrate_reconfirmation), the 751-756 fanout + autopsies, and
   SYNTHESIS.md (targeted_review_action_learning_bootstrap_class_choice).
+  CAPACITY-SIDE AMEND 2026-07-16 (routed from failure_autopsy_V3-EXQ-765): the 765 post-build retest RAN and
+  FAILED (bootstrap_explorer_plateaus_capacity_gap_remains) -- the DRIVE half works on raw (ON 6.48 vs OFF
+  0.62, +5.87) but the actor-critic plateaus at ~13% of the 48.05 ceiling, clears neither rep's 13.05 lift
+  target, seed variance is large (15.9/3.05/0.5), and z_world cotrain is DESTRUCTIVE (ON 0.35 < OFF 5.22).
+  The autopsy routed ONE capacity-side build (three JOINT knobs, NOT a discrimination fanout), now applied:
+  (a) CAPACITY -- ON actor_critic_hidden 128->256 (BootstrapExplorerConfig.actor_critic_hidden, threaded
+  through make_rep -> RawViewRep / ZWorldRep -> fan.make_rawview_ac / make_zworld_agent -> x742.
+  _make_actor_critic_agent(hidden=)) + ON_BUDGET_MULTIPLIER 3->5; (b) RELIABILITY -- ON warm_start_fraction
+  0.2 (warm_then_anneal holds full-explore coef/entropy before the anneal) + credit_replay_passes 3->6 /
+  credit_topk 32->64 (threaded through train_a2c -> _prioritized_credit_replay); (c) INTEGRATION -- ON
+  cotrain_encoder False = z_world DETACHED (ZWorldRep trains the policy on the FROZEN prediction-trained
+  encoder, excluding encoder params from the optimizer; agent.actor_critic_step detaches z; Stooke 2021).
+  ALL five new config fields are OFF-preserving no-op defaults (hidden 128, cotrain True, warm 0.0, passes 3,
+  topk 32) -> OFF arms bit-identical to 765's (drift-guard reproduces ~5.22 z_world / ~0.6 raw). 5 new
+  contracts (C7-C11: warm_then_anneal, OFF capacity-neutral, ON carries all three knobs, make_rep capacity/
+  detach wiring, capacity-ON end-to-end); 11 bootstrap-explorer contracts pass. Validation experiment:
+  V3-EXQ-769 (supersedes 765) queued -- diagnostic, same OFF-vs-ON x {z_world,raw} lift criterion, cloud
+  (ree-cloud-2). Re-derive brake HELD-BUT-SANCTIONED (named-capacity post-build retest under a NEW EXQ
+  number is the one exception the 765 autopsy names; not a single-axis probe). MECH-457 stays candidate/
+  v3_pending. Driver: experiments/v3_exq_769_mech457_bootstrap_explorer_capacity.py.

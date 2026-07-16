@@ -144,10 +144,13 @@ def _potential(env: Any) -> float:
 # R1 (raw 5x5 view) actor-critic: a STANDALONE ActorCriticPolicy(world_dim=25). No REE
 # encoder, no P0 warmup. Reads obs_dict["resource_field_view"] directly.
 # ---------------------------------------------------------------------------
-def make_rawview_ac() -> ActorCriticPolicy:
+def make_rawview_ac(hidden_dim: int = ACTOR_CRITIC_HIDDEN) -> ActorCriticPolicy:
+    """Standalone raw-view actor-critic. `hidden_dim` defaults to the 742/734 trunk width
+    (128, byte-identical for the fanout legs); the MECH-457 capacity-amend build passes a
+    larger width to raise policy capacity on the raw 5x5 path."""
     return ActorCriticPolicy(
         world_dim=RAW_VIEW_DIM, action_dim=5,
-        hidden_dim=ACTOR_CRITIC_HIDDEN, use_sf_critic=False,
+        hidden_dim=int(hidden_dim), use_sf_critic=False,
     ).to(DEVICE)
 
 
@@ -316,10 +319,21 @@ def bc_warmup_rawview(
 # R0 (z_world) actor-critic. Reuses x742's factory + sense + eval policy so the encoder /
 # co-shaping path is byte-identical to 742's cotrain arms. cotrain=True (best-shot; pinned).
 # ---------------------------------------------------------------------------
-def make_zworld_agent(env: Any):
-    """742 cotrain-plain agent: all-ON REE stack + MECH-457 actor-critic, cotrain_encoder=True,
-    plain critic (742 showed SF adds nothing)."""
-    return x742._make_actor_critic_agent(env, cotrain=True, sf=False)
+def make_zworld_agent(
+    env: Any, cotrain: bool = True, actor_critic_hidden: int = ACTOR_CRITIC_HIDDEN
+):
+    """742-style agent: all-ON REE stack + MECH-457 actor-critic, plain critic (742 showed SF
+    adds nothing).
+
+    Defaults (cotrain=True, hidden=128) reproduce the 742/751/765 cotrain z_world arm
+    byte-identical. The MECH-457 capacity-amend build (2026-07-16) passes cotrain=False for the
+    ON arm -- train the policy on the FROZEN prediction-trained encoder (z_world.detach() inside
+    agent.actor_critic_step), per the Stooke 2021 decoupled-representation caution, since the
+    765 retest showed cotrain is DESTRUCTIVE on z_world (ON 0.35 < OFF 5.22) -- and a larger
+    actor_critic_hidden to raise policy capacity."""
+    return x742._make_actor_critic_agent(
+        env, cotrain=bool(cotrain), sf=False, hidden=int(actor_critic_hidden)
+    )
 
 
 def warmup_zworld(agent: Any, env: Any, seed: int, p0: int, steps: int) -> None:

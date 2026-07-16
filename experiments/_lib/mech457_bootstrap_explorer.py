@@ -80,10 +80,29 @@ LIFT_COMPETENCE_TARGET = round(RND_PLATEAU_5_22 + LIFT_ABOVE_PLATEAU, 6)  # ~13.
 # ON-arm defaults (the composed bootstrap; each is a design choice, not a tuned magic number).
 ON_INTRINSIC_COEF_START = 1.0        # start fully explore (== the 751 plateau coefficient)
 ON_INTRINSIC_COEF_END = 0.05         # anneal toward exploit (small residual coverage floor)
-ON_ANNEAL_FRACTION = 0.6             # anneal over the first 60% of training, then hold
+ON_ANNEAL_FRACTION = 0.6             # anneal over 60% of training (AFTER the warm-start), then hold
 ON_ENTROPY_BETA_START = mech.EXPLORE_ENTROPY_BETA    # 0.10 (raised-explore start)
 ON_ENTROPY_BETA_END = mech.AC_ENTROPY_BETA           # 0.03 (sparse-baseline exploit level)
-ON_BUDGET_MULTIPLIER = 3             # 3x the 1000-episode budget that plateaus RND (capacity)
+
+# ------------------------------------------------------------------------------------------
+# MECH-457 capacity-side amend (2026-07-16, routed from failure_autopsy_V3-EXQ-765). The 765
+# retest showed the composed DRIVE half works on raw (ON 6.48 vs OFF 0.62, +5.87 converter-
+# driven lift) but the actor-critic PLATEAUS at ~13% of the 48.05 achievable ceiling and clears
+# neither representation's 13.05 lift-competence target, with large raw seed variance
+# (15.9/3.05/0.5), while z_world cotrain is DESTRUCTIVE (ON 0.35 < OFF 5.22). Three knobs on ONE
+# build (NOT a discrimination fanout -- capacity + reliability + z_world-detach are joint):
+#   (a) CAPACITY   -- raise the actor-critic policy/critic width + the training budget.
+#   (b) RELIABILITY -- a full-explore WARM-START before the anneal + more credit-replay passes /
+#                      wider top-|TD| selection, to cut the seed variance (unreliable convert).
+#   (c) INTEGRATION -- default the z_world path to DETACHED (train the policy on the frozen
+#                      prediction-trained encoder, Stooke 2021), since cotrain corrupts z_world.
+# All three are OFF-preserving no-op defaults on BootstrapExplorerConfig (bit-identical OFF).
+ON_BUDGET_MULTIPLIER = 5             # 5x the 1000-ep plateau budget (was 3x in 765; capacity)
+ON_ACTOR_CRITIC_HIDDEN = 256         # 2x the 742/765 trunk width of 128 (policy capacity)
+ON_WARM_START_FRACTION = 0.2         # hold full-explore coef/entropy for the first 20% (warm-start)
+ON_CREDIT_REPLAY_PASSES = 6          # 2x the 752-756 CREDIT_REPLAY_PASSES=3 (credit reliability)
+ON_CREDIT_TOPK = 64                  # 2x the 752-756 CREDIT_TOPK=32 (wider credit selection)
+ON_COTRAIN_ENCODER = False           # z_world DETACHED (frozen encoder; cotrain was destructive)
 
 
 @dataclass
@@ -103,9 +122,21 @@ class BootstrapExplorerConfig:
     entropy_beta_start: float = mech.EXPLORE_ENTROPY_BETA   # 0.10
     entropy_beta_end: float = mech.EXPLORE_ENTROPY_BETA     # 0.10 -- OFF: constant
 
+    # Warm-start (MECH-457 capacity-amend): hold coef/entropy at their START values for the first
+    # `warm_start_fraction` of episodes (a guaranteed full-explore coverage phase) BEFORE the
+    # anneal begins -- cuts the seed variance from premature exploitation. OFF: 0.0 (no warm-start).
+    warm_start_fraction: float = 0.0
+
     # HALF 2 -- converter + capacity.
     credit_replay: bool = False          # prioritized backward credit-replay converter (OFF)
+    credit_replay_passes: int = mech.CREDIT_REPLAY_PASSES  # 3 -- OFF: the 752-756 value
+    credit_topk: int = mech.CREDIT_TOPK                    # 32 -- OFF: the 752-756 value
     n_episodes: int = fan.RL_EPISODES    # 1000 -- OFF: the plateau budget
+
+    # Policy capacity + z_world integration mode (MECH-457 capacity-amend). Defaults reproduce
+    # the 742/751/765 arms byte-identical: 128-wide trunk, z_world co-shaped (cotrain).
+    actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN    # 128 -- OFF: the plateau width
+    cotrain_encoder: bool = True         # z_world co-shape (OFF); ON detaches (frozen encoder)
 
     def as_slice(self) -> Dict[str, Any]:
         """Config fields for the arm_fingerprint config_slice / manifest (declared)."""
@@ -114,10 +145,15 @@ class BootstrapExplorerConfig:
             "intrinsic_coef_start": float(self.intrinsic_coef_start),
             "intrinsic_coef_end": float(self.intrinsic_coef_end),
             "anneal_fraction": float(self.anneal_fraction),
+            "warm_start_fraction": float(self.warm_start_fraction),
             "entropy_beta_start": float(self.entropy_beta_start),
             "entropy_beta_end": float(self.entropy_beta_end),
             "credit_replay": bool(self.credit_replay),
+            "credit_replay_passes": int(self.credit_replay_passes),
+            "credit_topk": int(self.credit_topk),
             "n_episodes": int(self.n_episodes),
+            "actor_critic_hidden": int(self.actor_critic_hidden),
+            "cotrain_encoder": bool(self.cotrain_encoder),
         }
 
 
@@ -131,17 +167,24 @@ def make_off_config(n_episodes: Optional[int] = None) -> BootstrapExplorerConfig
 
 
 def make_on_config(budget_multiplier: int = ON_BUDGET_MULTIPLIER) -> BootstrapExplorerConfig:
-    """The ON / composed-bootstrap arm: RND drive + developmental coef+entropy anneal +
-    prioritized credit-replay converter + increased budget. Targets floor->competent."""
+    """The ON / composed-bootstrap arm (MECH-457 capacity-side amend): RND drive + a full-explore
+    WARM-START + developmental coef+entropy anneal + prioritized credit-replay (reliability-
+    raised passes/topk) + increased policy capacity + 5x budget, with the z_world path DETACHED
+    (train the policy on the frozen prediction-trained encoder). Targets floor->competent."""
     return BootstrapExplorerConfig(
         use_rnd=True,
         intrinsic_coef_start=ON_INTRINSIC_COEF_START,
         intrinsic_coef_end=ON_INTRINSIC_COEF_END,
         anneal_fraction=ON_ANNEAL_FRACTION,
+        warm_start_fraction=ON_WARM_START_FRACTION,
         entropy_beta_start=ON_ENTROPY_BETA_START,
         entropy_beta_end=ON_ENTROPY_BETA_END,
         credit_replay=True,
+        credit_replay_passes=ON_CREDIT_REPLAY_PASSES,
+        credit_topk=ON_CREDIT_TOPK,
         n_episodes=int(fan.RL_EPISODES * int(budget_multiplier)),
+        actor_critic_hidden=ON_ACTOR_CRITIC_HIDDEN,
+        cotrain_encoder=ON_COTRAIN_ENCODER,
     )
 
 
@@ -155,6 +198,24 @@ def linear_anneal(v_start: float, v_end: float, frac: float, ep: int, n_episodes
     return float(v_start + (v_end - v_start) * t)
 
 
+def warm_then_anneal(
+    v_start: float, v_end: float, warm_frac: float, anneal_frac: float, ep: int, n_episodes: int
+) -> float:
+    """Warm-start + linear anneal (MECH-457 capacity-amend). Hold v_start for the first
+    `warm_frac` of n_episodes (a guaranteed full-explore coverage phase), then linearly anneal to
+    v_end over the next `anneal_frac` of n_episodes, then hold v_end. warm_frac <= 0 reduces
+    EXACTLY to linear_anneal(v_start, v_end, anneal_frac, ...); anneal_frac <= 0 or v_start ==
+    v_end -> constant v_start (the no-op OFF path)."""
+    if anneal_frac <= 0.0 or v_start == v_end:
+        return float(v_start)
+    warm_cut = max(0.0, float(warm_frac)) * float(n_episodes)
+    if float(ep) < warm_cut:
+        return float(v_start)
+    span = max(1.0, float(anneal_frac) * float(n_episodes))
+    t = min(1.0, (float(ep) - warm_cut) / span)
+    return float(v_start + (v_end - v_start) * t)
+
+
 def train_bootstrap_explorer(
     rep: mech.RepAgent, env: Any, seed: int, steps: int, arm_label: str,
     cfg: BootstrapExplorerConfig, denom: Optional[int] = None,
@@ -162,22 +223,26 @@ def train_bootstrap_explorer(
     """Train the composed bootstrap explorer on `rep` (z_world cotrain or raw 5x5) for
     cfg.n_episodes episodes, returning the mech457_explorer_classes.train_a2c guard dict.
 
-    Composition: RND drive (cfg.use_rnd) + developmental coef/entropy anneal
-    (linear_anneal over cfg.anneal_fraction) + prioritized credit-replay (cfg.credit_replay).
-    With default (OFF) cfg this is the 751 RND-plateau arm (constant coef, no anneal, no
-    credit, plateau budget)."""
+    Composition: RND drive (cfg.use_rnd) + developmental warm-start+coef/entropy anneal
+    (warm_then_anneal over cfg.warm_start_fraction/cfg.anneal_fraction) + prioritized credit-
+    replay (cfg.credit_replay, cfg.credit_replay_passes/credit_topk). The policy capacity
+    (cfg.actor_critic_hidden) and the z_world co-shape-vs-frozen mode (cfg.cotrain_encoder) are
+    applied at REP CONSTRUCTION (make_rep), not here. With default (OFF) cfg this is the 751
+    RND-plateau arm (constant coef, no warm-start, no anneal, no credit, plateau budget/width)."""
     n_episodes = int(cfg.n_episodes)
     denom = int(denom) if denom is not None else n_episodes
     intrinsic = mech.RNDModule(rep.feature_dim) if cfg.use_rnd else None
 
     coef_schedule = (
-        lambda ep, n: linear_anneal(
-            cfg.intrinsic_coef_start, cfg.intrinsic_coef_end, cfg.anneal_fraction, ep, n
+        lambda ep, n: warm_then_anneal(
+            cfg.intrinsic_coef_start, cfg.intrinsic_coef_end,
+            cfg.warm_start_fraction, cfg.anneal_fraction, ep, n
         )
     )
     entropy_schedule = (
-        lambda ep, n: linear_anneal(
-            cfg.entropy_beta_start, cfg.entropy_beta_end, cfg.anneal_fraction, ep, n
+        lambda ep, n: warm_then_anneal(
+            cfg.entropy_beta_start, cfg.entropy_beta_end,
+            cfg.warm_start_fraction, cfg.anneal_fraction, ep, n
         )
     )
 
@@ -188,6 +253,8 @@ def train_bootstrap_explorer(
         entropy_beta=cfg.entropy_beta_start,
         intrinsic_coef=cfg.intrinsic_coef_start,
         credit_replay=bool(cfg.credit_replay),
+        credit_replay_passes=int(cfg.credit_replay_passes),
+        credit_topk=int(cfg.credit_topk),
         coef_schedule=coef_schedule,
         entropy_schedule=entropy_schedule,
     )

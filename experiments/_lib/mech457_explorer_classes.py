@@ -205,13 +205,26 @@ class RepAgent:
 
 
 class ZWorldRep(RepAgent):
-    """z_world cotrain: an all-ON 742 agent; the actor reads LIVE z_world so the policy gradient
-    reaches latent_stack (cotrain). state = the encoded LatentState."""
+    """z_world path: an all-ON 742 agent. Two modes selected by `cotrain_encoder`:
+      * cotrain=True  -- the actor reads LIVE z_world so the policy gradient reaches latent_stack
+        (co-shaping; the 742/751/765 OFF arm). The encoder params join the optimizer.
+      * cotrain=False -- the actor reads z_world.detach() (agent.actor_critic_step gates this on
+        config.actor_critic_cotrain_encoder), training the policy on the FROZEN prediction-
+        trained encoder (Stooke 2021). The encoder params are EXCLUDED from the optimizer. This
+        is the MECH-457 capacity-amend ON default -- the 765 retest showed cotrain is DESTRUCTIVE
+        on z_world (ON 0.35 < OFF 5.22).
+    state = the encoded LatentState. `actor_critic_hidden` sets the policy/critic trunk width."""
 
     representation = "z_world"
 
-    def __init__(self, env: Any, seed: int, p0: int, steps: int) -> None:
-        self.agent = fan.make_zworld_agent(env)
+    def __init__(
+        self, env: Any, seed: int, p0: int, steps: int,
+        cotrain_encoder: bool = True, actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN,
+    ) -> None:
+        self._cotrain = bool(cotrain_encoder)
+        self.agent = fan.make_zworld_agent(
+            env, cotrain=self._cotrain, actor_critic_hidden=int(actor_critic_hidden)
+        )
         fan.warmup_zworld(self.agent, env, seed=seed, p0=p0, steps=steps)
         self.feature_dim = int(self.agent.config.latent.world_dim)
         self.action_dim = int(env.action_dim)
@@ -229,9 +242,12 @@ class ZWorldRep(RepAgent):
         return state.z_world.detach()
 
     def params(self) -> List[torch.nn.Parameter]:
-        return list(self.agent.actor_critic_parameters()) + list(
-            self.agent.actor_critic_encoder_parameters()
-        )
+        p = list(self.agent.actor_critic_parameters())
+        if self._cotrain:
+            # Co-shaping only: the encoder is trained by the policy gradient. Detached mode
+            # trains the policy on the frozen prediction-trained encoder (Stooke 2021).
+            p = p + list(self.agent.actor_critic_encoder_parameters())
+        return p
 
     def eval_policy(self, label: str) -> Policy:
         return x742.ActorCriticEvalPolicy(self.agent, label)
@@ -239,12 +255,13 @@ class ZWorldRep(RepAgent):
 
 class RawViewRep(RepAgent):
     """Raw 5x5 resource_field_view: a standalone ActorCriticPolicy(world_dim=25). No REE encoder,
-    no P0 warmup. state = the flattened view tensor."""
+    no P0 warmup. state = the flattened view tensor. `actor_critic_hidden` sets the trunk width
+    (default 128 = the fanout/765 width; the MECH-457 capacity-amend build raises it)."""
 
     representation = "raw_view"
 
-    def __init__(self, env: Any) -> None:
-        self.ac = fan.make_rawview_ac()
+    def __init__(self, env: Any, actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN) -> None:
+        self.ac = fan.make_rawview_ac(hidden_dim=int(actor_critic_hidden))
         self.feature_dim = RAW_VIEW_DIM
         self.action_dim = int(env.action_dim)
 
@@ -264,11 +281,20 @@ class RawViewRep(RepAgent):
         return fan.RawViewACEvalPolicy(self.ac, label)
 
 
-def make_rep(representation: str, env: Any, seed: int, p0: int, steps: int) -> RepAgent:
+def make_rep(
+    representation: str, env: Any, seed: int, p0: int, steps: int,
+    actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN, cotrain_encoder: bool = True,
+) -> RepAgent:
+    """Build the representation adapter. `actor_critic_hidden` sets the policy/critic capacity
+    (both reps); `cotrain_encoder` selects the z_world co-shape-vs-frozen mode (no-op for raw).
+    Defaults reproduce the fanout/765 arms byte-identical."""
     if representation == "z_world":
-        return ZWorldRep(env, seed, p0, steps)
+        return ZWorldRep(
+            env, seed, p0, steps,
+            cotrain_encoder=bool(cotrain_encoder), actor_critic_hidden=int(actor_critic_hidden),
+        )
     if representation == "raw_view":
-        return RawViewRep(env)
+        return RawViewRep(env, actor_critic_hidden=int(actor_critic_hidden))
     raise ValueError(f"unknown representation {representation!r}")
 
 
@@ -423,6 +449,8 @@ def train_a2c(
     intrinsic_coef: float = 0.0,
     mode_gate: Optional[ModeGate] = None,
     credit_replay: bool = False,
+    credit_replay_passes: int = CREDIT_REPLAY_PASSES,
+    credit_topk: int = CREDIT_TOPK,
     archive: Optional[GoExploreArchive] = None,
     return_prob: float = 0.0,
     coef_schedule: Optional[Callable[[int, int], float]] = None,
@@ -433,6 +461,11 @@ def train_a2c(
     # per episode as fn(ep, n_episodes). Default None -> constant (byte-identical to the pre-
     # existing 752-756 callers). Mutually exclusive with mode_gate (which is the utility-gated
     # anneal 755 refuted); a schedule is a DEVELOPMENTAL anneal, not a critic-utility gate.
+    # credit_replay_passes / credit_topk (MECH-457 capacity-amend, 2026-07-16): the credit-
+    # RELIABILITY knob -- more backward sweeps + a wider top-|TD| selection make the credit
+    # converter fire more consistently from the rare RND-generated successes, cutting the large
+    # raw seed variance (765: 15.9/3.05/0.5). Defaults == the 752-756 CREDIT_REPLAY_PASSES/
+    # CREDIT_TOPK (byte-identical for the pre-existing callers).
     if mode_gate is not None and (coef_schedule is not None or entropy_schedule is not None):
         raise ValueError(
             "train_a2c: coef_schedule/entropy_schedule are mutually exclusive with mode_gate "
@@ -562,6 +595,7 @@ def train_a2c(
         if credit_replay and ep_resources > 0 and T > 0:
             n_credit_passes += _prioritized_credit_replay(
                 rep, optimiser, params, replay_obs, replay_actions, rets, ep_value_f,
+                passes=int(credit_replay_passes), topk=int(credit_topk),
             )
 
         if intrinsic is not None:
@@ -592,25 +626,27 @@ def train_a2c(
 def _prioritized_credit_replay(
     rep: RepAgent, optimiser: torch.optim.Optimizer, params: List[torch.nn.Parameter],
     replay_obs: List[Dict[str, Any]], replay_actions: List[int], rets: List[float],
-    values_f: List[float],
+    values_f: List[float], passes: int = CREDIT_REPLAY_PASSES, topk: int = CREDIT_TOPK,
 ) -> int:
     """Mattar & Daw prioritized sweeping + Foster & Wilson reverse replay, RL-native.
 
-    Priority = |TD-error| = |return_t - value_t|. Take the top-CREDIT_TOPK transitions in
-    priority order; sweep them in REVERSE temporal order applying an extra actor-critic update
-    whose per-transition credit is backward-discounted from the reward endpoint. Re-encodes the
-    stored observations (grad-carrying) so the policy gradient reaches the actor (and, for
-    z_world cotrain, the encoder). Changes ONLY the credit assigned to already-collected reward;
-    the rollout/exploration is untouched. Returns the number of replay passes applied."""
+    Priority = |TD-error| = |return_t - value_t|. Take the top-`topk` transitions in priority
+    order; sweep them in REVERSE temporal order applying an extra actor-critic update whose
+    per-transition credit is backward-discounted from the reward endpoint. Re-encodes the stored
+    observations (grad-carrying) so the policy gradient reaches the actor (and, for z_world
+    cotrain, the encoder). Changes ONLY the credit assigned to already-collected reward; the
+    rollout/exploration is untouched. `passes`/`topk` default to CREDIT_REPLAY_PASSES/CREDIT_TOPK
+    (the 752-756 values); the MECH-457 capacity-amend build raises them for credit reliability.
+    Returns the number of replay passes applied."""
     T = min(len(replay_obs), len(rets), len(values_f))
     if T == 0:
         return 0
     td = [abs(float(rets[t]) - float(values_f[t])) for t in range(T)]
-    order = sorted(range(T), key=lambda t: td[t], reverse=True)[:CREDIT_TOPK]
+    order = sorted(range(T), key=lambda t: td[t], reverse=True)[:int(topk)]
     # Reverse temporal order among the selected (endpoint first -> reverse replay).
     order = sorted(order, reverse=True)
-    passes = 0
-    for _p in range(CREDIT_REPLAY_PASSES):
+    passes_applied = 0
+    for _p in range(int(passes)):
         logps: List[torch.Tensor] = []
         values: List[torch.Tensor] = []
         credits: List[float] = []
@@ -639,8 +675,8 @@ def _prioritized_credit_replay(
             loss.backward()
             torch.nn.utils.clip_grad_norm_(params, AC_GRAD_CLIP)
             optimiser.step()
-            passes += 1
-    return passes
+            passes_applied += 1
+    return passes_applied
 
 
 def _action_logprob(step: Any, action: int) -> torch.Tensor:

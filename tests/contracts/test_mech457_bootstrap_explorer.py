@@ -132,3 +132,115 @@ def test_c6_module_source_is_ascii():
     src = Path(boot.__file__).read_text(encoding="utf-8")
     non_ascii = [(i, ch) for i, ch in enumerate(src) if ord(ch) > 127]
     assert not non_ascii, f"non-ASCII characters in bootstrap-explorer source: {non_ascii[:5]}"
+
+
+# ===========================================================================
+# MECH-457 capacity-side amend (2026-07-16, failure_autopsy_V3-EXQ-765). Three knobs on ONE
+# build: (a) capacity (hidden + budget), (b) reliability (warm-start + credit passes/topk),
+# (c) integration (z_world detached). All OFF-preserving no-op defaults.
+# ===========================================================================
+
+
+# --------------------------------------------------------------------------- C7
+def test_c7_warm_then_anneal_holds_then_anneals_and_reduces_to_linear():
+    n = 100
+    # warm_frac == 0 reduces EXACTLY to linear_anneal(v_start, v_end, anneal_frac, ...).
+    for ep in (0, 10, 25, 50, 75, 99):
+        assert boot.warm_then_anneal(1.0, 0.0, 0.0, 0.5, ep, n) == pytest.approx(
+            boot.linear_anneal(1.0, 0.0, 0.5, ep, n)
+        )
+    # anneal_frac <= 0 or start == end -> constant v_start (no-op OFF path).
+    for ep in (0, 50, 99):
+        assert boot.warm_then_anneal(1.0, 0.05, 0.2, 0.0, ep, n) == pytest.approx(1.0)
+        assert boot.warm_then_anneal(0.7, 0.7, 0.2, 0.6, ep, n) == pytest.approx(0.7)
+    # Warm-start: hold v_start over the first warm_frac, then anneal over the next anneal_frac.
+    warm, anneal = 0.2, 0.5           # hold [0,20), anneal [20,70), hold v_end after.
+    assert boot.warm_then_anneal(1.0, 0.0, warm, anneal, 0, n) == pytest.approx(1.0)
+    assert boot.warm_then_anneal(1.0, 0.0, warm, anneal, 19, n) == pytest.approx(1.0)  # warm hold
+    assert boot.warm_then_anneal(1.0, 0.0, warm, anneal, 20, n) == pytest.approx(1.0)  # anneal t=0
+    assert boot.warm_then_anneal(1.0, 0.0, warm, anneal, 45, n) == pytest.approx(0.5)  # halfway
+    assert boot.warm_then_anneal(1.0, 0.0, warm, anneal, 70, n) == pytest.approx(0.0)  # anneal end
+    assert boot.warm_then_anneal(1.0, 0.0, warm, anneal, 99, n) == pytest.approx(0.0)  # held
+    # Monotone non-increasing across the schedule.
+    vals = [boot.warm_then_anneal(1.0, 0.05, warm, anneal, ep, n) for ep in range(n)]
+    assert all(vals[i] >= vals[i + 1] - 1e-9 for i in range(n - 1))
+
+
+# --------------------------------------------------------------------------- C8
+def test_c8_off_config_is_capacity_neutral_bit_identical():
+    """OFF must reproduce the 751/765 plateau arm byte-identical: the three capacity knobs are
+    all no-op (128-wide, z_world cotrain, no warm-start, default credit passes/topk)."""
+    cfg = boot.make_off_config()
+    assert cfg.actor_critic_hidden == fan.ACTOR_CRITIC_HIDDEN == 128
+    assert cfg.cotrain_encoder is True          # z_world co-shaped (the 5.22 plateau reference)
+    assert cfg.warm_start_fraction == 0.0
+    assert cfg.credit_replay_passes == mech.CREDIT_REPLAY_PASSES
+    assert cfg.credit_topk == mech.CREDIT_TOPK
+    # With anneal_fraction 0, warm-start cannot perturb the (constant) coefficient.
+    for ep in (0, cfg.n_episodes // 2, cfg.n_episodes - 1):
+        assert boot.warm_then_anneal(
+            cfg.intrinsic_coef_start, cfg.intrinsic_coef_end,
+            cfg.warm_start_fraction, cfg.anneal_fraction, ep, cfg.n_episodes,
+        ) == pytest.approx(mech.INTRINSIC_COEF)
+
+
+# --------------------------------------------------------------------------- C9
+def test_c9_on_config_carries_all_three_capacity_knobs():
+    cfg = boot.make_on_config()
+    # (a) capacity: wider trunk + larger budget than the plateau.
+    assert cfg.actor_critic_hidden > fan.ACTOR_CRITIC_HIDDEN
+    assert cfg.n_episodes > fan.RL_EPISODES
+    assert boot.ON_BUDGET_MULTIPLIER >= 4
+    # (b) reliability: a full-explore warm-start + raised credit passes/topk.
+    assert cfg.warm_start_fraction > 0.0
+    assert cfg.credit_replay is True
+    assert cfg.credit_replay_passes > mech.CREDIT_REPLAY_PASSES
+    assert cfg.credit_topk > mech.CREDIT_TOPK
+    # (c) integration: z_world path DETACHED (frozen prediction-trained encoder, Stooke 2021).
+    assert cfg.cotrain_encoder is False
+    # as_slice declares every new field (arm_fingerprint / manifest).
+    sl = cfg.as_slice()
+    for k in ("warm_start_fraction", "credit_replay_passes", "credit_topk",
+              "actor_critic_hidden", "cotrain_encoder"):
+        assert k in sl
+
+
+# --------------------------------------------------------------------------- C10
+def test_c10_make_rep_capacity_and_detach_wiring():
+    """make_rep threads capacity (raw trunk width) + the z_world co-shape-vs-frozen mode; the
+    detached z_world rep excludes the encoder params from its optimizer group."""
+    env_kwargs = x734._env_kwargs_for_rung(fan.RUNG)
+    env = x734._make_env(42, env_kwargs)
+    # Raw view: wider trunk actually enlarges the actor-critic first layer.
+    r_small = mech.make_rep("raw_view", env, seed=42, p0=0, steps=8, actor_critic_hidden=128)
+    r_big = mech.make_rep("raw_view", env, seed=42, p0=0, steps=8, actor_critic_hidden=256)
+    n_small = sum(p.numel() for p in r_small.params())
+    n_big = sum(p.numel() for p in r_big.params())
+    assert n_big > n_small
+    # z_world: detached mode drops the encoder params; cotrain keeps them.
+    z_cotrain = mech.make_rep("z_world", env, seed=42, p0=0, steps=6,
+                              cotrain_encoder=True, actor_critic_hidden=128)
+    z_detach = mech.make_rep("z_world", env, seed=42, p0=0, steps=6,
+                             cotrain_encoder=False, actor_critic_hidden=128)
+    n_cotrain = sum(p.numel() for p in z_cotrain.params())
+    n_detach = sum(p.numel() for p in z_detach.params())
+    assert n_detach < n_cotrain          # encoder params excluded under detach
+    assert z_detach._cotrain is False and z_cotrain._cotrain is True
+
+
+# --------------------------------------------------------------------------- C11
+def test_c11_capacity_on_config_trains_end_to_end_raw():
+    """The full capacity-amend ON composition (warm-start + anneal + raised credit passes/topk +
+    wider trunk + budget) trains end-to-end on a real raw 5x5 env, returning finite metrics."""
+    env_kwargs = x734._env_kwargs_for_rung(fan.RUNG)
+    env = x734._make_env(44, env_kwargs)
+    cfg = boot.make_on_config()
+    cfg.n_episodes = 5                   # tiny budget for the smoke (keep the composition intact)
+    rep = mech.make_rep("raw_view", env, seed=44, p0=0, steps=15,
+                        actor_critic_hidden=cfg.actor_critic_hidden,
+                        cotrain_encoder=cfg.cotrain_encoder)
+    guard = boot.train_bootstrap_explorer(rep, env, seed=44, steps=15, arm_label="cap_on", cfg=cfg)
+    for k in ("mean_train_forage_recent", "mean_intrinsic_reward_recent"):
+        v = float(guard[k])
+        assert v == v and abs(v) < 1e6
+    assert guard["n_credit_replay_passes"] >= 0
