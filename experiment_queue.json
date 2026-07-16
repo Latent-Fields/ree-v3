@@ -8,6 +8,25 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-768",
+      "title": "ARC-057 SD-024 x SD-025 interaction spike (env-free Test B) -- 4-arm DA-expansion x curiosity-drive ablation",
+      "script": "experiments/v3_exq_768_arc057_da_curiosity_interaction_spike.py",
+      "priority": 60,
+      "machine_affinity": "any",
+      "estimated_minutes": 15,
+      "claim_id": "ARC-057",
+      "note": "Env-FREE ARC-057 interaction spike (Test B; sd_024_da_modulated_rbf_density.md Test Plan Phase 3). 4-arm 2x2 ablation over combined SD-024 (da_modulated_rbf_density) + SD-025 (curiosity_drive) in synthetic RBF/z_world space (766/767 style; no env, no agent commitment -> out of reach of the conversion/F-dominance ceiling). PASS = super-additive interaction (both-ON approach exceeds either single drive alone) with SD-025-alone at chance (uniform density -> no gradient). Value-follower confound isolated by (1) equal-mass A-vs-B design (value ~equal at both regions) and (2) LOAD-BEARING weight-zeroing persistence (766 discriminator); CEM scoring ARC-007-strict. experiment_purpose=diagnostic; NOT a supersession. GOV-REUSE-1: interaction contrast readout absent from all recorded runs (766 tested SD-024 alone, 767 SD-025 alone) -> run required. Prereqs V3-EXQ-766 + V3-EXQ-767 both PASS. On PASS: /failure-autopsy adjudicate before any ARC-057 governance action. Ecological Test C deferred-V4 (arc_057_ecological_env_decision_2026-07-16.md). Smoke: PASS (dry-run; interaction 0.50-0.55, persists under weight-zeroing, r1 density-gap ~18, r2 control 1.00).",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-07-16T15:52:43Z"
+      },
+      "conditions": 4,
+      "episodes_per_run": 32,
+      "experiment_type": "v3_exq_768_arc057_da_curiosity_interaction_spike",
+      "seeds": 8
+    },
+    {
       "queue_id": "V3-EXQ-680e",
       "title": "MECH-423 cross-model super-additivity 3-arm ablation -- readiness-cosine-gate recalibration (magnitude-floored tolerance-band); supersedes 680d",
       "script": "experiments/v3_exq_680e_mech423_superadditivity_ablation.py",
@@ -27,21 +46,6 @@
       "experiment_type": "v3_exq_680e_mech423_superadditivity_ablation",
       "proposal_id": "EXP-0380",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-768",
-      "title": "ARC-057 SD-024 x SD-025 interaction spike (env-free Test B) -- 4-arm DA-expansion x curiosity-drive ablation",
-      "experiment_type": "v3_exq_768_arc057_da_curiosity_interaction_spike",
-      "script": "experiments/v3_exq_768_arc057_da_curiosity_interaction_spike.py",
-      "priority": 60,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 15,
-      "episodes_per_run": 32,
-      "seeds": 8,
-      "conditions": 4,
-      "claim_id": "ARC-057",
-      "note": "Env-FREE ARC-057 interaction spike (Test B; sd_024_da_modulated_rbf_density.md Test Plan Phase 3). 4-arm 2x2 ablation over combined SD-024 (da_modulated_rbf_density) + SD-025 (curiosity_drive) in synthetic RBF/z_world space (766/767 style; no env, no agent commitment -> out of reach of the conversion/F-dominance ceiling). PASS = super-additive interaction (both-ON approach exceeds either single drive alone) with SD-025-alone at chance (uniform density -> no gradient). Value-follower confound isolated by (1) equal-mass A-vs-B design (value ~equal at both regions) and (2) LOAD-BEARING weight-zeroing persistence (766 discriminator); CEM scoring ARC-007-strict. experiment_purpose=diagnostic; NOT a supersession. GOV-REUSE-1: interaction contrast readout absent from all recorded runs (766 tested SD-024 alone, 767 SD-025 alone) -> run required. Prereqs V3-EXQ-766 + V3-EXQ-767 both PASS. On PASS: /failure-autopsy adjudicate before any ARC-057 governance action. Ecological Test C deferred-V4 (arc_057_ecological_env_decision_2026-07-16.md). Smoke: PASS (dry-run; interaction 0.50-0.55, persists under weight-zeroing, r1 density-gap ~18, r2 control 1.00)."
     }
   ]
 }
