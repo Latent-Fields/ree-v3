@@ -35,7 +35,11 @@
       "estimated_minutes": 25,
       "claim_id": "SD-025",
       "note": "DIAGNOSTIC substrate-readiness validation (Step-8 of /implement-substrate for SD-025 hippocampal_module.curiosity_drive, IMPLEMENTED ree-v3 main this commit, on SD-024 da_modulated_rbf_density IMPLEMENTED 402285a 2026-07-16). experiment_purpose=diagnostic -> excluded from governance scoring; routes through /failure-autopsy. SCOPE: tests the DRIVE MECHANISM only (does curiosity propagate into CEM selection toward higher density? the propagation MECH-111's broken broadcast-novelty->E3 path could NOT achieve, EXQ-141b/590a) -- NOT the env-constrained full ARC-057 approach-emergence claim (CausalGridWorld cannot test the SD-024 x SD-025 interaction faithfully; a cell is a cell). A PASS is drive-mechanism readiness, does NOT itself promote ARC-057. Re-derive brake: 0 SD-025 autopsies -> not braked. GOV-REUSE-1: curiosity->CEM-selection propagation readout in no prior manifest -> run. OFF (curiosity_weight=0) arm minted reuse-eligible (include_driver_script_in_hash=False). ethics all-false/allow. SD-025 stays candidate. Inline 2-seed Mac PASS/supports (pref_on 1.00 vs off 0.50, prop_delta 0.50; weight-indep 0.00; anti-persev 0.50; MECH-094 replay 0.00; R1 density gap ~75-80, R2 1.00). Light: 8 seeds x 2 arms, ~25min.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-07-16T07:30:16Z"
+      },
       "conditions": 2,
       "episodes_per_run": 32,
       "experiment_type": "v3_exq_767_sd025_curiosity_drive_selection_bias",
