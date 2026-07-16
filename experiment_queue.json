@@ -26,6 +26,40 @@
       "episodes_per_run": 5000,
       "experiment_type": "v3_exq_769_mech457_bootstrap_explorer_capacity",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-767a",
+      "title": "SD-025 curiosity-drive selection-bias -- continuous CEM score-margin re-op (supersedes 767)",
+      "experiment_type": "v3_exq_767a_sd025_curiosity_drive_selection_bias_margin",
+      "script": "experiments/v3_exq_767a_sd025_curiosity_drive_selection_bias_margin.py",
+      "priority": 7,
+      "machine_affinity": "ree-cloud-3",
+      "machine_affinity_note": "cloud-class (linux-x86_64-py3.10) mint -- any of ree-cloud-2/3/4 is class-equivalent; pinned to ree-cloud-3 (affinity takes a single hostname) to guarantee a reusable cloud-class OFF-baseline fingerprint (Mac class would be unreusable by cloud consumers).",
+      "status": "pending",
+      "estimated_minutes": 8,
+      "episodes_per_run": 32,
+      "seeds": 8,
+      "conditions": 2,
+      "claim_id": "SD-025",
+      "supersedes": "V3-EXQ-767",
+      "note": "Re-operationalizes the V3-EXQ-767 vacuous_pass (measurement_degeneracy; failure_autopsy_767-768-cluster_2026-07-16 confirmed, applied governance 2026-07-16d REE_assembly e40362ebb7). Replaces the saturating binary argmin pref_dense (pinned 1.0, zero cross-seed variance) with the continuous CEM score-margin mean_trials[min(sparse score) - min(dense score)] already computed inside _pref_dense and discarded; every load-bearing crit now rides the margin. criteria_non_degenerate guards margin_on_varies_across_seeds so it cannot re-flag vacuous. Smoke PASS (2 seeds): margin_on 39.3/45.6 (VARIES), margin_off 0.0, wi_rel 0.0, antipersev 20.7/27.5, replay 0.0, readiness met. GOV-REUSE-1: decisive readout = the continuous margin, NOT recorded in 767's manifest (only the binary pref) -> run. diagnostic -> on PASS route /failure-autopsy before governance; a clean PASS advances SD-025 validation. SD-025 stays candidate."
+    },
+    {
+      "queue_id": "V3-EXQ-768a",
+      "title": "ARC-057 SD-024xSD-025 interaction spike -- continuous CEM score-margin re-op (supersedes 768)",
+      "experiment_type": "v3_exq_768a_arc057_da_curiosity_interaction_spike_margin",
+      "script": "experiments/v3_exq_768a_arc057_da_curiosity_interaction_spike_margin.py",
+      "priority": 7,
+      "machine_affinity": "ree-cloud-4",
+      "machine_affinity_note": "cloud-class (linux-x86_64-py3.10) mint -- any of ree-cloud-2/3/4 is class-equivalent; pinned to ree-cloud-4 (affinity takes a single hostname) to guarantee a reusable cloud-class both_off-baseline fingerprint (Mac class would be unreusable by cloud consumers).",
+      "status": "pending",
+      "estimated_minutes": 8,
+      "episodes_per_run": 32,
+      "seeds": 8,
+      "conditions": 4,
+      "claim_id": "ARC-057",
+      "supersedes": "V3-EXQ-768",
+      "note": "Re-operationalizes the V3-EXQ-768 vacuous_pass (measurement_degeneracy; failure_autopsy_767-768-cluster_2026-07-16 confirmed, applied governance 2026-07-16d REE_assembly e40362ebb7). 768's absolute gate C2 (binary pref_both_on) saturated to 1.0 with zero cross-seed variance; the interaction contrast C1 survived. Replaces the binary readout with the continuous CEM score-margin (identical fix to 767a); C1-C4 all ride the margin; single-drive arms produce ~0 margin so interaction margin = both-ON margin. criteria_non_degenerate guards both_on_margin_varies + interaction_margin_varies so it cannot re-flag vacuous. Smoke PASS (2 seeds): m11 17.0/14.7 (VARIES), m00/m10 0.0, m01 ~0, interaction persists under weight-zeroing, readiness met. GOV-REUSE-1: decisive readout = the continuous margin, NOT recorded in 768's manifest -> run. diagnostic -> on PASS route /failure-autopsy before governance; a clean PASS is the load-bearing evidence for ARC-057's DA x curiosity interaction. ARC-057 stays candidate (also v3_pending)."
     }
   ]
 }
