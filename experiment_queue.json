@@ -49,18 +49,22 @@
     {
       "queue_id": "V3-EXQ-778a",
       "title": "SD-068 staged-damage POWER-UP: 8-seed tolerance distribution + statistical staging test (MECH-168/INV-047 reverse-dependency)",
-      "experiment_type": "v3_exq_sd068_consolidation_staging_power_diagnostic",
       "script": "experiments/v3_exq_sd068_consolidation_staging_power_diagnostic.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 12,
-      "episodes_per_run": 1,
-      "seeds": 8,
-      "conditions": 1,
-      "claim_id": "MECH-168",
       "supersedes": "V3-EXQ-778",
-      "note": "DIAGNOSTIC (non-scoring). Successor to V3-EXQ-778 (harness validated operational 3/3 but staged-failure order seed-variable at n=3, only 1/3 matching predicted (rem,nrem,sws)). 8 seeds (778's 42/7/123 + 5 new) give a real n; adds per-phase damage-tolerance distribution (mean/SD/95pct CI) + 3-way statistical staging test: per-seed Spearman rho vs predicted order with sign test, the two adjacency predictions (rem-fails-first / nrem-before-sws) as paired tolerance-diff CIs+sign tests, and Kendall's W concordance. Same harness/sigma-grid as 778 -> tolerances pool directly (staging basis is calibration_error, unaffected by the concurrent rem_generative_fidelity harness edit). Tags SD-068/MECH-168/INV-047/MECH-169; MECH-121 NOT tagged (held). Staging verdict REPORTED, never gated -- robust match strengthens INV-047/MECH-168; robust non-match/seed-variability is itself informative. GOV-REUSE-1: n>=6 tolerance distribution is a new manipulation not recoverable from the 3-seed 778 manifest (checked v3_exq_sd068_consolidation_staged_damage_diagnostic_20260717T160320Z_v3, substrate_hash 3bafe75...) -> ran."
+      "claim_id": "MECH-168",
+      "note": "DIAGNOSTIC (non-scoring). Successor to V3-EXQ-778 (harness validated operational 3/3 but staged-failure order seed-variable at n=3, only 1/3 matching predicted (rem,nrem,sws)). 8 seeds (778's 42/7/123 + 5 new) give a real n; adds per-phase damage-tolerance distribution (mean/SD/95pct CI) + 3-way statistical staging test: per-seed Spearman rho vs predicted order with sign test, the two adjacency predictions (rem-fails-first / nrem-before-sws) as paired tolerance-diff CIs+sign tests, and Kendall's W concordance. Same harness/sigma-grid as 778 -> tolerances pool directly (staging basis is calibration_error, unaffected by the concurrent rem_generative_fidelity harness edit). Tags SD-068/MECH-168/INV-047/MECH-169; MECH-121 NOT tagged (held). Staging verdict REPORTED, never gated -- robust match strengthens INV-047/MECH-168; robust non-match/seed-variability is itself informative. GOV-REUSE-1: n>=6 tolerance distribution is a new manipulation not recoverable from the 3-seed 778 manifest (checked v3_exq_sd068_consolidation_staged_damage_diagnostic_20260717T160320Z_v3, substrate_hash 3bafe75...) -> ran.",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-07-17T16:28:08Z"
+      },
+      "conditions": 1,
+      "episodes_per_run": 1,
+      "experiment_type": "v3_exq_sd068_consolidation_staging_power_diagnostic",
+      "seeds": 8
     }
   ]
 }
