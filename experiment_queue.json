@@ -6,23 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-768a",
-      "title": "ARC-057 SD-024xSD-025 interaction spike -- continuous CEM score-margin re-op (supersedes 768)",
-      "script": "experiments/v3_exq_768a_arc057_da_curiosity_interaction_spike_margin.py",
-      "priority": 7,
-      "machine_affinity": "ree-cloud-4",
-      "estimated_minutes": 8,
-      "supersedes": "V3-EXQ-768",
-      "claim_id": "ARC-057",
-      "note": "Re-operationalizes the V3-EXQ-768 vacuous_pass (measurement_degeneracy; failure_autopsy_767-768-cluster_2026-07-16 confirmed, applied governance 2026-07-16d REE_assembly e40362ebb7). 768's absolute gate C2 (binary pref_both_on) saturated to 1.0 with zero cross-seed variance; the interaction contrast C1 survived. Replaces the binary readout with the continuous CEM score-margin (identical fix to 767a); C1-C4 all ride the margin; single-drive arms produce ~0 margin so interaction margin = both-ON margin. criteria_non_degenerate guards both_on_margin_varies + interaction_margin_varies so it cannot re-flag vacuous. Smoke PASS (2 seeds): m11 17.0/14.7 (VARIES), m00/m10 0.0, m01 ~0, interaction persists under weight-zeroing, readiness met. GOV-REUSE-1: decisive readout = the continuous margin, NOT recorded in 768's manifest -> run. diagnostic -> on PASS route /failure-autopsy before governance; a clean PASS is the load-bearing evidence for ARC-057's DA x curiosity interaction. ARC-057 stays candidate (also v3_pending).",
-      "status": "pending",
-      "conditions": 4,
-      "episodes_per_run": 32,
-      "experiment_type": "v3_exq_768a_arc057_da_curiosity_interaction_spike_margin",
-      "machine_affinity_note": "cloud-class (linux-x86_64-py3.10) mint -- any of ree-cloud-2/3/4 is class-equivalent; pinned to ree-cloud-4 (affinity takes a single hostname) to guarantee a reusable cloud-class both_off-baseline fingerprint (Mac class would be unreusable by cloud consumers).",
-      "seeds": 8
-    }
-  ]
+  "items": []
 }
