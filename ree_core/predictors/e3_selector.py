@@ -290,6 +290,16 @@ class E3TrajectorySelector(nn.Module):
         # Maintained as EMA of prediction error MSE across committed trajectories.
         self._running_variance: float = self.config.precision_init
         self._ema_alpha: float = self.config.precision_ema_alpha
+        # SD-069 sharp-surprise source (2026-07-17): the RAW per-tick PE-MSE
+        # (error_var) from the most recent update_running_variance call, stored
+        # BEFORE the running-variance EMA smoothing folds it in. This preserves
+        # genuine single-tick surprise spikes that the smoothed _running_variance
+        # accumulator washes out, so the SD-069 phasic_surprise_burst event
+        # detector can fire on real (non-synthetic) events when
+        # config.phasic_burst_signal_source == "instantaneous_pe". Written
+        # unconditionally (a no-op accumulator); read only by the phasic-burst
+        # source branch in REEAgent.select_action.
+        self._last_instantaneous_pe: float = 0.0
 
         # Q-007: volatility estimate = var(rv) over a sliding window.
         # Raw rv tracks moment-to-moment prediction error (fast EMA, half-life
@@ -531,9 +541,24 @@ class E3TrajectorySelector(nn.Module):
         """Q-007: var(rv) over sliding window -- LC-NE tonic volatility signal."""
         return self._volatility_estimate
 
+    @property
+    def last_instantaneous_pe(self) -> float:
+        """SD-069 sharp-surprise source: raw per-tick PE-MSE from the most
+        recent update_running_variance call, BEFORE the running-variance EMA
+        smoothing. Unlike _running_variance (a monotonically-decaying EMA that
+        washes out spikes for an untrained forward model), this preserves
+        genuine single-tick surprise, letting the SD-069 phasic_surprise_burst
+        event detector fire on real events. Read by REEAgent.select_action when
+        config.phasic_burst_signal_source == 'instantaneous_pe'."""
+        return float(self._last_instantaneous_pe)
+
     def update_running_variance(self, prediction_error: torch.Tensor) -> None:
         """Update EMA of prediction error variance (ARC-016 dynamic precision)."""
         error_var = prediction_error.pow(2).mean().item()
+        # SD-069 sharp-surprise source: capture the raw per-tick PE-MSE BEFORE
+        # it is smoothed into _running_variance below (no-op unless the phasic
+        # burst reads it via phasic_burst_signal_source == "instantaneous_pe").
+        self._last_instantaneous_pe = float(error_var)
         self._running_variance = (
             (1 - self._ema_alpha) * self._running_variance
             + self._ema_alpha * error_var

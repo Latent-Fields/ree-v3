@@ -938,6 +938,15 @@ class REEAgent(nn.Module):
         # delta). See ree_core/regulators/phasic_surprise_burst.py.
         self.phasic_burst: Optional[PhasicSurpriseBurst] = None
         if getattr(config, "use_phasic_burst", False):
+            # SD-069 sharp-surprise source: validate the event-detector source
+            # up front so a typo fails loudly rather than silently falling back
+            # to the smoothed running_variance (which fires 0 natural events).
+            _pb_src = getattr(config, "phasic_burst_signal_source", "running_variance")
+            if _pb_src not in ("running_variance", "instantaneous_pe"):
+                raise ValueError(
+                    "phasic_burst_signal_source must be 'running_variance' or "
+                    f"'instantaneous_pe'. Got {_pb_src!r}."
+                )
             pb_cfg = PhasicSurpriseBurstConfig(
                 enabled=True,
                 surprise_ema_decay=config.phasic_burst_surprise_ema_decay,
@@ -6727,18 +6736,32 @@ class REEAgent(nn.Module):
 
         # SD-069 (MECH-063 sub-claim ii): phasic_surprise_burst. PHASIC
         # complement to the MECH-313 tonic lift above, on the SAME softmax
-        # temperature channel. Reads the current per-tick surprise
-        # (e3._running_variance) and -- on a spike over its own EMA baseline
-        # -- adds a TRANSIENT temperature delta (default negative = phasic
-        # sharpening) that decays over a few ticks. The combined temperature
-        # is floored strictly > 0 (E3 softmax divides by it without a floor at
-        # that site). The tonic lift is kept uncontaminated for the
-        # dissociation readout: tonic_effective_temperature feeds the
-        # noise_floor_temp diagnostic; the phasic delta is logged separately.
-        # simulation_mode=False (waking action selection). Bit-identical when
-        # self.phasic_burst is None (combined == tonic).
+        # temperature channel. Reads the current per-tick surprise and -- on a
+        # spike over its own EMA baseline -- adds a TRANSIENT temperature delta
+        # (default negative = phasic sharpening) that decays over a few ticks.
+        # The combined temperature is floored strictly > 0 (E3 softmax divides
+        # by it without a floor at that site). The tonic lift is kept
+        # uncontaminated for the dissociation readout:
+        # tonic_effective_temperature feeds the noise_floor_temp diagnostic; the
+        # phasic delta is logged separately. simulation_mode=False (waking
+        # action selection). Bit-identical when self.phasic_burst is None
+        # (combined == tonic).
+        #
+        # SD-069 sharp-surprise source (2026-07-17): the event-detector source
+        # is selectable. Default "running_variance" reads the SMOOTHED
+        # e3._running_variance EMA (original wiring; bit-identical), which decays
+        # monotonically for an untrained forward model and fires 0 natural
+        # events. "instantaneous_pe" reads e3.last_instantaneous_pe -- the raw
+        # per-tick PE-MSE before smoothing -- so real (non-synthetic) surprise
+        # spikes survive and the lever fires on genuine events (MECH-063 ii).
         if self.phasic_burst is not None:
-            _pb_surprise = float(getattr(self.e3, "_running_variance", 0.0))
+            _pb_source = getattr(
+                self.config, "phasic_burst_signal_source", "running_variance"
+            )
+            if _pb_source == "instantaneous_pe":
+                _pb_surprise = float(getattr(self.e3, "last_instantaneous_pe", 0.0))
+            else:
+                _pb_surprise = float(getattr(self.e3, "_running_variance", 0.0))
             phasic_burst_level = self.phasic_burst.tick(
                 surprise=_pb_surprise, simulation_mode=False,
             )

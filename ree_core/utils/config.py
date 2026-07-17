@@ -2859,6 +2859,19 @@ class REEConfig:
     # temperature, keeping it strictly positive (E3 softmax divides by it
     # without its own floor at that site). Default 0.1.
     phasic_burst_min_temperature: float = 0.1
+    # Event-detector SOURCE signal (SD-069 sharp-surprise source, 2026-07-17).
+    # "running_variance" (default, no-op): read the SMOOTHED e3._running_variance
+    # EMA -- the original wiring. Empirically that accumulator decays
+    # monotonically for an untrained forward model and washes out real per-tick
+    # PE spikes, so the phasic lever fires 0 natural events even under env
+    # volatility (MECH-063 ii could not be tested without a synthetic poke).
+    # "instantaneous_pe": read e3.last_instantaneous_pe -- the RAW per-tick
+    # PE-MSE (error_var) computed BEFORE the running-variance EMA smoothing, so
+    # genuine surprise spikes survive and the lever fires on real events
+    # (Aston-Jones & Cohen 2005 phasic mode fires on sharp/instantaneous
+    # salience, not a smoothed average). No-op default keeps existing
+    # experiments bit-identical.
+    phasic_burst_signal_source: str = "running_variance"
 
     # ----------------------------------------------------------------
     # MECH-314 (ARC-065): structured_curiosity_bonus. Frontopolar
@@ -4904,6 +4917,7 @@ class REEConfig:
         phasic_burst_temp_delta: float = -0.5,
         phasic_burst_decay: float = 0.5,
         phasic_burst_min_temperature: float = 0.1,
+        phasic_burst_signal_source: str = "running_variance",
         # MECH-314 (ARC-065): structured_curiosity_bonus (frontopolar /
         # EFE analog) + 3 sub-flavour switches (314a/b/c)
         use_structured_curiosity: bool = False,
@@ -6017,6 +6031,7 @@ class REEConfig:
         config.phasic_burst_temp_delta = phasic_burst_temp_delta
         config.phasic_burst_decay = phasic_burst_decay
         config.phasic_burst_min_temperature = phasic_burst_min_temperature
+        config.phasic_burst_signal_source = phasic_burst_signal_source
 
         # MECH-314 (ARC-065): structured_curiosity_bonus
         config.use_structured_curiosity = use_structured_curiosity

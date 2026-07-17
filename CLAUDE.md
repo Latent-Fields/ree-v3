@@ -2486,7 +2486,9 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   nn.Module, no learned params). Config: REEConfig.use_phasic_burst (default False;
   set True to enable) + phasic_burst_surprise_ema_decay (0.1), _trigger_ratio (1.5),
   _trigger_floor (1e-6), _temp_delta (-0.5 = phasic sharpening), _decay (0.5),
-  _min_temperature (0.1). Data flow: e3._running_variance (per-tick PE surprise) ->
+  _min_temperature (0.1), and _signal_source ("running_variance" default; set
+  "instantaneous_pe" for the sharp source -- see below). Data flow: <surprise source>
+  (per-tick PE surprise) ->
   PhasicSurpriseBurst.tick (event iff surprise >= trigger_ratio x EMA baseline;
   inject drive -> envelope decays geometrically over a few ticks) -> burst_level
   [0,1] -> temperature_delta = temp_delta x burst_level -> combined_T =
@@ -2507,8 +2509,31 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   1462 pass (0 regressions); injected surprise spike fires through select_action ->
   pre-commit softmax entropy drops on the event (0.80->0.06) and decays over the tail
   (event-locked transient), bit-identical before the event.
-  Validation experiment: EXQ pending (MECH-063 sub-claim ii tonic-vs-phasic
-  dissociation, 777-harness pattern; queued 2026-07-17 -- see Step 8).
+  SHARP-SURPRISE SOURCE (2026-07-17): the event-detector source is now selectable via
+  REEConfig.phasic_burst_signal_source. "running_variance" (default, no-op) reads the
+  SMOOTHED e3._running_variance EMA -- which decays monotonically for an untrained
+  forward model (0.475 -> 0.004) and washes out real per-tick spikes, so the lever
+  fires 0 natural events even under env volatility (background_drift_enabled). This
+  meant a no-training 777-style probe could only exercise the lever with a synthetic
+  poke to _running_variance -- exactly what MECH-063 (ii) must avoid. "instantaneous_pe"
+  reads a new no-op read-only signal e3.last_instantaneous_pe = the RAW per-tick PE-MSE
+  (error_var in e3.update_running_variance) captured BEFORE the running-variance EMA
+  smoothing folds it in, so genuine surprise spikes survive (Aston-Jones & Cohen 2005
+  phasic mode fires on SHARP/instantaneous salience, not a smoothed average).
+  Validated (untrained rollout, CausalGridWorldV2 drift on, NO synthetic poke): the
+  phasic burst is ACTIVE across the run under "instantaneous_pe" (burst_ticks up to
+  209/232 at trigger_ratio 1.3) but NEVER active under "running_variance" (0/217) --
+  a clean load-bearing contrast. Note: the regulator's own n_events counter resets per
+  episode (agent.reset -> phasic_burst.reset), so a readiness gate must sum events
+  across episodes rather than read end-of-run get_state. Invalid source strings raise
+  ValueError at agent construction (no silent fallback). Backward compatible: default
+  "running_variance" reads the identical scalar as before -> existing experiments
+  bit-identical; e3.last_instantaneous_pe is written unconditionally but read by nothing
+  at the default source.
+  Validation experiment: V3-EXQ-779 queued 2026-07-17 (MECH-063 sub-claim ii
+  tonic-vs-phasic dissociation, 777-harness pattern, phasic_burst_signal_source=
+  "instantaneous_pe" on PHASIC-ON arms; P0 readiness gate requires PHASIC-ON arms to
+  fire >= MIN_EVENTS real surprise events -- see Step 8).
   Design doc: REE_assembly/docs/architecture/sd_069_phasic_surprise_burst.md
   See MECH-063 (enables sub-claim ii), MECH-313 (tonic counterpart), MECH-104
   (shared lit basis, different consumer), ARC-005.
