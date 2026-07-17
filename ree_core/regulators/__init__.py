@@ -22,6 +22,10 @@ from ree_core.regulators.broadcast_override import (
     BroadcastOverrideConfig,
     BroadcastOverrideRegulator,
 )
+from ree_core.regulators.phasic_surprise_burst import (
+    PhasicSurpriseBurst,
+    PhasicSurpriseBurstConfig,
+)
 from ree_core.regulators.lpb_interoceptive_routing import (
     LPBInteroceptiveRoutingConfig,
     LPBInteroceptiveRoutingOutput,
@@ -49,6 +53,8 @@ __all__ = [
     "InvalidationTrigger",
     "BroadcastOverrideConfig",
     "BroadcastOverrideRegulator",
+    "PhasicSurpriseBurst",
+    "PhasicSurpriseBurstConfig",
     "LPBInteroceptiveRoutingConfig",
     "LPBInteroceptiveRoutingOutput",
     "LPBInteroceptiveRouter",

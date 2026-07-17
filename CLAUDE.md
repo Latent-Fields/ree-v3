@@ -2477,6 +2477,42 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   Design doc: REE_assembly/docs/architecture/sd_068_consolidation_lesion_harness.md
   See MECH-120, MECH-121 (held), MECH-123, MECH-168, INV-047, MECH-169, SD-017.
 
+- SD-069: control_plane.phasic_surprise_burst -- IMPLEMENTED 2026-07-17.
+  LC-NE PHASIC complement to MECH-313 noise_floor (tonic) on the SAME E3 softmax
+  temperature channel -- the substrate that makes MECH-063 sub-claim (ii)
+  (tonic/phasic split) behaviourally testable. Module:
+  ree_core/regulators/phasic_surprise_burst.py (PhasicSurpriseBurst; pure-arithmetic
+  regulator matching noise_floor.py MECH-313 / broadcast_override.py SD-037 -- no
+  nn.Module, no learned params). Config: REEConfig.use_phasic_burst (default False;
+  set True to enable) + phasic_burst_surprise_ema_decay (0.1), _trigger_ratio (1.5),
+  _trigger_floor (1e-6), _temp_delta (-0.5 = phasic sharpening), _decay (0.5),
+  _min_temperature (0.1). Data flow: e3._running_variance (per-tick PE surprise) ->
+  PhasicSurpriseBurst.tick (event iff surprise >= trigger_ratio x EMA baseline;
+  inject drive -> envelope decays geometrically over a few ticks) -> burst_level
+  [0,1] -> temperature_delta = temp_delta x burst_level -> combined_T =
+  max(tonic_effective_T + delta, min_temperature) -> e3.select(candidates,
+  combined_T) at agent.py select_action(). Tonic (MECH-313) applies a SUSTAINED
+  every-tick lift; SD-069 adds an EVENT-LOCKED transient on top -> comparable
+  readouts, independently toggleable. IMPORTANT: reuses the MECH-104
+  volatility-surprise lit basis (Aston-Jones & Cohen 2005 phasic mode) but routes to
+  the softmax, NOT the ARC-016 commit gate -- so it does NOT implement the MECH-104
+  claim (control_plane.volatility_interrupt, v3_exq_365), which is the same surprise
+  routing to the de-commit gate. Diagnostic: phasic_burst_level / _temp_delta in
+  _last_score_bias_decomp; phasic_burst block in _last_control_vector (tonic lift kept
+  uncontaminated for the dissociation readout). Backward compatible: agent does not
+  instantiate the regulator when use_phasic_burst=False; combined T == tonic T; OFF
+  action stream bit-identical (contract C8, n_events==0). MECH-094: simulation_mode
+  returns cached burst, no state advance; no memory write surface -> phased training
+  N/A, hypothesis_tag N/A. Smoke: 17 SD-069 contracts pass; full tests/contracts
+  1462 pass (0 regressions); injected surprise spike fires through select_action ->
+  pre-commit softmax entropy drops on the event (0.80->0.06) and decays over the tail
+  (event-locked transient), bit-identical before the event.
+  Validation experiment: EXQ pending (MECH-063 sub-claim ii tonic-vs-phasic
+  dissociation, 777-harness pattern; queued 2026-07-17 -- see Step 8).
+  Design doc: REE_assembly/docs/architecture/sd_069_phasic_surprise_burst.md
+  See MECH-063 (enables sub-claim ii), MECH-313 (tonic counterpart), MECH-104
+  (shared lit basis, different consumer), ARC-005.
+
 - SD-024: hippocampal_module.da_modulated_rbf_density -- IMPLEMENTED 2026-07-16.
   Built as the DIAGNOSTIC instrument that RESOLVES MECH-232 (DA representational
   expansion), NOT a feature gated behind it. Modules: ree_core/residue/field.py

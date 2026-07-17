@@ -170,6 +170,8 @@ from ree_core.regulators import (
     LPBInteroceptiveRoutingOutput,
     MECH295LikingBridge,
     MECH295LikingBridgeConfig,
+    PhasicSurpriseBurst,
+    PhasicSurpriseBurstConfig,
     SimulationModeRuleGate,
     SimulationModeRuleGateConfig,
     SITE_GATED_POLICY,
@@ -921,6 +923,31 @@ class REEAgent(nn.Module):
                 noise_floor_min_temperature=config.noise_floor_min_temperature,
             )
             self.noise_floor = NoiseFloor(config=nf_cfg)
+
+        # SD-069 (MECH-063 sub-claim ii): phasic_surprise_burst. LC-NE PHASIC
+        # complement to MECH-313 noise_floor (tonic) on the SAME E3 softmax
+        # temperature channel. Event-triggered on a spike in
+        # e3._running_variance (surprise) above its own EMA baseline; injects
+        # a burst envelope that decays over a few ticks; adds a TRANSIENT
+        # temperature delta at the e3.select() call site AFTER the tonic
+        # noise_floor lift. Reuses the MECH-104 volatility-surprise lit basis
+        # (Aston-Jones & Cohen 2005 phasic mode) but routes to the softmax,
+        # NOT the ARC-016 commit gate (that is the existing MECH-104 claim
+        # control_plane.volatility_interrupt). Bit-identical when
+        # use_phasic_burst=False (regulator is None; the call site adds no
+        # delta). See ree_core/regulators/phasic_surprise_burst.py.
+        self.phasic_burst: Optional[PhasicSurpriseBurst] = None
+        if getattr(config, "use_phasic_burst", False):
+            pb_cfg = PhasicSurpriseBurstConfig(
+                enabled=True,
+                surprise_ema_decay=config.phasic_burst_surprise_ema_decay,
+                trigger_ratio=config.phasic_burst_trigger_ratio,
+                trigger_floor=config.phasic_burst_trigger_floor,
+                temp_delta=config.phasic_burst_temp_delta,
+                decay=config.phasic_burst_decay,
+                min_temperature=config.phasic_burst_min_temperature,
+            )
+            self.phasic_burst = PhasicSurpriseBurst(config=pb_cfg)
 
         # MECH-090 R-c conjunction: commit-entry readiness signal. Adds a
         # readiness_above_floor conjunction to the rv-only BetaGate commit-
@@ -2659,6 +2686,11 @@ class REEAgent(nn.Module):
             self.gated_policy.reset()
         if self.noise_floor is not None:
             self.noise_floor.reset()
+        # SD-069 (MECH-063 ii): reset the phasic surprise-burst EMA baseline
+        # and envelope per episode (fresh surprise stream each episode;
+        # mirrors the noise_floor / tonic_vigor per-episode reset).
+        if self.phasic_burst is not None:
+            self.phasic_burst.reset()
         # MECH-314 (ARC-065): reset structured-curiosity diagnostics + 314c
         # learning-progress EMA buffer on episode boundary. Per-episode
         # because a fresh task/environment carries a fresh learning curve;
@@ -6686,12 +6718,38 @@ class REEAgent(nn.Module):
         # substrate. simulation_mode=False here (waking action selection).
         # Bit-identical when self.noise_floor is None.
         if self.noise_floor is not None:
-            effective_temperature = self.noise_floor.compute_effective_temperature(
+            tonic_effective_temperature = self.noise_floor.compute_effective_temperature(
                 baseline_temperature=temperature,
                 simulation_mode=False,
             )
         else:
-            effective_temperature = temperature
+            tonic_effective_temperature = temperature
+
+        # SD-069 (MECH-063 sub-claim ii): phasic_surprise_burst. PHASIC
+        # complement to the MECH-313 tonic lift above, on the SAME softmax
+        # temperature channel. Reads the current per-tick surprise
+        # (e3._running_variance) and -- on a spike over its own EMA baseline
+        # -- adds a TRANSIENT temperature delta (default negative = phasic
+        # sharpening) that decays over a few ticks. The combined temperature
+        # is floored strictly > 0 (E3 softmax divides by it without a floor at
+        # that site). The tonic lift is kept uncontaminated for the
+        # dissociation readout: tonic_effective_temperature feeds the
+        # noise_floor_temp diagnostic; the phasic delta is logged separately.
+        # simulation_mode=False (waking action selection). Bit-identical when
+        # self.phasic_burst is None (combined == tonic).
+        if self.phasic_burst is not None:
+            _pb_surprise = float(getattr(self.e3, "_running_variance", 0.0))
+            phasic_burst_level = self.phasic_burst.tick(
+                surprise=_pb_surprise, simulation_mode=False,
+            )
+            phasic_temp_delta = self.phasic_burst.temperature_delta
+            effective_temperature = self.phasic_burst.apply_to_temperature(
+                tonic_effective_temperature
+            )
+        else:
+            phasic_burst_level = 0.0
+            phasic_temp_delta = 0.0
+            effective_temperature = tonic_effective_temperature
 
         self._last_e3_score_bias = (
             dacc_score_bias.detach().clone()
@@ -6741,7 +6799,9 @@ class REEAgent(nn.Module):
                 "curiosity": _bdc_mean(_bdc_curiosity),
                 "tonic_vigor": _bdc_mean(_bdc_vigor),
                 "forced": _bdc_mean(_bdc_forced),
-                "noise_floor_temp": float(effective_temperature),
+                "noise_floor_temp": float(tonic_effective_temperature),
+                "phasic_burst_level": float(phasic_burst_level),
+                "phasic_burst_temp_delta": float(phasic_temp_delta),
                 "total_bias": _bdc_mean(self._last_e3_score_bias),
                 "dacc_std_across_K": _bdc_std(_bdc_dacc),
                 "lateral_pfc_std_across_K": _bdc_std(_bdc_lpfc),
@@ -6974,6 +7034,9 @@ class REEAgent(nn.Module):
             self._assemble_control_vector(
                 effective_temperature=float(effective_temperature),
                 baseline_temperature=float(temperature),
+                tonic_effective_temperature=float(tonic_effective_temperature),
+                phasic_temp_delta=float(phasic_temp_delta),
+                phasic_burst_level=float(phasic_burst_level),
             )
 
         action = result.selected_action
@@ -9408,6 +9471,9 @@ class REEAgent(nn.Module):
         self,
         effective_temperature: float,
         baseline_temperature: float,
+        tonic_effective_temperature: "Optional[float]" = None,
+        phasic_temp_delta: float = 0.0,
+        phasic_burst_level: float = 0.0,
     ) -> None:
         """Assemble the read-only ControlVector telemetry (recommendation B).
 
@@ -9470,9 +9536,29 @@ class REEAgent(nn.Module):
         # C_time / G_vigor: from the MECH-320 split cached in the tonic_vigor
         # block (None when tonic_vigor is disabled / did not fire this tick).
         cv = self._cv_vigor
-        noise_floor_temp_lift = float(effective_temperature) - float(
-            baseline_temperature
+        # SD-069: the tonic (MECH-313) lift is computed from the tonic-only
+        # effective temperature so the phasic transient never contaminates it.
+        # Falls back to effective_temperature when the tonic value is not
+        # supplied (bit-identical for callers predating SD-069, and for OFF
+        # ticks where combined == tonic).
+        _tonic_T = (
+            float(tonic_effective_temperature)
+            if tonic_effective_temperature is not None
+            else float(effective_temperature)
         )
+        noise_floor_temp_lift = _tonic_T - float(baseline_temperature)
+        # SD-069 (MECH-063 ii): phasic (event-locked) temperature transient,
+        # logged SEPARATELY from the tonic lift so the tonic-vs-phasic
+        # dissociation is readable from a manifest. temp_delta is the applied
+        # softmax-temperature delta this tick; burst_level is the [0,1]
+        # envelope. ~0 on quiescent ticks; spikes after a surprise event.
+        phasic_burst = {
+            "temp_delta": float(phasic_temp_delta),
+            "burst_level": float(phasic_burst_level),
+            "present": bool(
+                phasic_burst_level != 0.0 or phasic_temp_delta != 0.0
+            ),
+        }
         if cv is not None:
             c_time = {
                 "potential": cv["C_time_potential"],
@@ -9546,6 +9632,7 @@ class REEAgent(nn.Module):
             "C_effort": c_effort,
             "C_time": c_time,
             "G_vigor": g_vigor,
+            "phasic_burst": phasic_burst,
             "shared": shared,
             "authority": authority,
         }

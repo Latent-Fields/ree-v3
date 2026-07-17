@@ -2820,6 +2820,47 @@ class REEConfig:
     noise_floor_min_temperature: float = 1.0
 
     # ----------------------------------------------------------------
+    # SD-069 (MECH-063 sub-claim ii): phasic_surprise_burst. LC-NE PHASIC
+    # complement to MECH-313 noise_floor (tonic) on the SAME E3 softmax
+    # temperature channel. Reuses the MECH-104 volatility-surprise lit
+    # basis (Aston-Jones & Cohen 2005 adaptive-gain phasic mode) but its
+    # consumer is the softmax temperature, NOT the ARC-016 commit gate
+    # (that de-commit routing is the existing MECH-104 claim
+    # control_plane.volatility_interrupt). Event-triggered on a spike in
+    # e3._running_variance (per-tick PE surprise) above its own EMA
+    # baseline; injects a burst envelope in [0,1] that decays geometrically
+    # over a few ticks; the transient temperature delta = temp_delta *
+    # burst_level. Default temp_delta NEGATIVE = phasic sharpening ("phasic
+    # mode gates committed exploitation"). Bit-identical OFF (agent does
+    # not instantiate the regulator when use_phasic_burst=False). See
+    # ree_core/regulators/phasic_surprise_burst.py and
+    # REE_assembly/docs/architecture/sd_069_phasic_surprise_burst.md.
+    use_phasic_burst: bool = False
+    # EMA decay rate for the surprise baseline the event detector compares
+    # against. 0.1 ~= 20-tick EMA. Higher = faster-adapting baseline.
+    phasic_burst_surprise_ema_decay: float = 0.1
+    # Event fires when current surprise >= trigger_ratio * ema_baseline
+    # (relative excess). 1.5 = a 50% spike over the running baseline.
+    phasic_burst_trigger_ratio: float = 1.5
+    # Absolute floor on the baseline used in the trigger test, so early
+    # ticks with a ~0 baseline (or a genuinely quiescent stream) do not
+    # fire on numerical noise.
+    phasic_burst_trigger_floor: float = 1e-6
+    # Temperature delta applied at a full (level=1.0) burst. NEGATIVE =
+    # transient sharpening of the softmax (phasic LC-NE gain increase,
+    # Aston-Jones & Cohen 2005 phasic mode). Applied delta = temp_delta *
+    # burst_level, added to the tonic effective temperature.
+    phasic_burst_temp_delta: float = -0.5
+    # Geometric decay retained per tick on the burst envelope (level *=
+    # (1 - decay) each tick). 0.5 halves the envelope every tick -> a
+    # ~few-tick transient.
+    phasic_burst_decay: float = 0.5
+    # Hard lower bound on the COMBINED (tonic + phasic) effective softmax
+    # temperature, keeping it strictly positive (E3 softmax divides by it
+    # without its own floor at that site). Default 0.1.
+    phasic_burst_min_temperature: float = 0.1
+
+    # ----------------------------------------------------------------
     # MECH-314 (ARC-065): structured_curiosity_bonus. Frontopolar
     # exploration / EFE analog. Sibling to MECH-313 stochastic_noise_floor.
     # Three sub-flavours registered separately (Pull 1 SYNTHESIS R3 +
@@ -4854,6 +4895,15 @@ class REEConfig:
         use_noise_floor: bool = False,
         noise_floor_alpha: float = 0.1,
         noise_floor_min_temperature: float = 1.0,
+        # SD-069 (MECH-063 ii): phasic_surprise_burst (LC-NE phasic
+        # complement to MECH-313 tonic on the E3 softmax temperature)
+        use_phasic_burst: bool = False,
+        phasic_burst_surprise_ema_decay: float = 0.1,
+        phasic_burst_trigger_ratio: float = 1.5,
+        phasic_burst_trigger_floor: float = 1e-6,
+        phasic_burst_temp_delta: float = -0.5,
+        phasic_burst_decay: float = 0.5,
+        phasic_burst_min_temperature: float = 0.1,
         # MECH-314 (ARC-065): structured_curiosity_bonus (frontopolar /
         # EFE analog) + 3 sub-flavour switches (314a/b/c)
         use_structured_curiosity: bool = False,
@@ -5958,6 +6008,15 @@ class REEConfig:
         config.use_noise_floor = use_noise_floor
         config.noise_floor_alpha = noise_floor_alpha
         config.noise_floor_min_temperature = noise_floor_min_temperature
+
+        # SD-069 (MECH-063 ii): phasic_surprise_burst
+        config.use_phasic_burst = use_phasic_burst
+        config.phasic_burst_surprise_ema_decay = phasic_burst_surprise_ema_decay
+        config.phasic_burst_trigger_ratio = phasic_burst_trigger_ratio
+        config.phasic_burst_trigger_floor = phasic_burst_trigger_floor
+        config.phasic_burst_temp_delta = phasic_burst_temp_delta
+        config.phasic_burst_decay = phasic_burst_decay
+        config.phasic_burst_min_temperature = phasic_burst_min_temperature
 
         # MECH-314 (ARC-065): structured_curiosity_bonus
         config.use_structured_curiosity = use_structured_curiosity
