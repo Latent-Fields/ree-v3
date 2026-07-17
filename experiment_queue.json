@@ -47,6 +47,22 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-773",
+      "title": "MECH-076 residue-as-terrain-deformation: basin-geometry dose-response (evidence)",
+      "script": "experiments/v3_exq_773_mech076_residue_basin_geometry_doseresponse.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "estimated_minutes": 15,
+      "claim_id": "MECH-076",
+      "backlog_id": "EVB-0112",
+      "note": "IGW-20260717-204 MECH-076 basin-geometry dose-response (evidence, wall-independent). evidence_class=mechanistic_partial. Smoke seed-level PASS; validate --strict OK.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 6,
+      "experiment_type": "v3_exq_773_mech076_residue_basin_geometry_doseresponse",
+      "seeds": 5
+    },
+    {
       "queue_id": "V3-EXQ-777",
       "title": "MECH-063 orthogonal control-plane axes rank-2 behavioural falsifier",
       "script": "experiments/v3_exq_777_mech063_orthogonal_control_axes_dissociation.py",
