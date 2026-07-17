@@ -54,13 +54,42 @@ So the load-bearing readout is a dose-response GAIN, not "downstream looks worse
   * REM specifically is measured TWO ways, because the built substrate splits it:
       (a) the bare linear precision nudge (recalibrate_precision_to, MECH-204) is
           PASSTHROUGH by construction (linear interpolation toward the target);
-      (b) the generative re-derivation pass (run_rem_attribution_pass, Hobson &
-          Friston 2012 "unconstrained generative simulation") is where any
-          corrective/amplifying capacity could live.
+      (b) the generative re-derivation pass (the hippocampal replay rollout that
+          run_rem_attribution_pass performs, Hobson & Friston 2012 "unconstrained
+          generative simulation") is where any corrective/amplifying capacity
+          could live.
     The falsifier lives in whether (b)'s gain is below (a)'s. If (b) ~ (a) ~
     passthrough, the honest diagnostic outcome is "the V3 REM substrate has no
     corrective capacity, so its staged-first-failure is pure topology" -- a valid,
     informative result, not a harness failure.
+
+    REM (b) READOUT -- ROLLOUT-SEED INJECTION (replaces the retired PROXY).
+    ---------------------------------------------------------------------
+    The generative pass in run_rem_attribution_pass reads `theta_buffer.recent`
+    and re-derives content via `hippocampal.replay(recent) -> e2.rollout_with_world`.
+    The RETIRED proxy corrupted the E3 precision REFERENCE and read
+    `rem_terrain_variance` back -- but the generative pass never consumes the
+    precision reference, so that read was ~null (confirmed in V3-EXQ-778). The
+    generative pass consumes the ROLLOUT SEED (the recent z_world), so the clean
+    readout (rem_generative_fidelity) injects KNOWN content onto that seed:
+      1. capture the seed (theta_buffer.recent[-1]) as the known clean target;
+      2. re-derive the clean rollout with a FIXED action sequence -- the same
+         e2.rollout_with_world call replay makes, but with actions held constant
+         so the seed is the ONLY varying input (replay's per-call random actions
+         are exactly why the proxy variance read null: action noise swamped the
+         seed effect);
+      3. corrupt the seed by `sigma`, re-derive with the SAME fixed actions;
+      4. measure the recovered-vs-known-target deviation over the GENERATED
+         states, relative to the clean rollout.
+    The load-bearing GAIN is then dimensionless and load-bearing rather than null:
+      gain = (output relative deviation) / (input relative seed corruption)
+        gain < 1 -> ATTENUATING (genuine generative correction; non-vacuous
+                    staging -- "the correction needs an intact seed"),
+        gain ~ 1 -> PASSTHROUGH (staging is topology),
+        gain > 1 -> AMPLIFYING (MECH-094 psychosis polarity).
+    The corrupted seed is ALSO pushed into theta_buffer and the real
+    run_rem_attribution_pass driven once for liveness telemetry (rem_n_rollouts),
+    confirming the injection point is exactly the seed the live REM path reads.
 
 PREREQUISITE CAVEATS (respected, not lifted)
 --------------------------------------------
@@ -393,12 +422,15 @@ def rem_precision_error(
     (the corruption channel). Error is scored against the CLEAN target:
         calibration_error = |running_variance_after - 1/target_precision_clean|
 
-    When run_generative=True, also drive the live generative re-derivation pass
-    (run_rem_attribution_pass) so its output-sensitivity can be read as the
-    amplify/attenuate INDICATOR (rem_terrain_variance vs corruption) -- the only
-    locus where a non-passthrough REM behaviour could appear. NOTE: this is a
-    PROXY indicator, not a clean recovered-vs-known-target fidelity; a clean
-    generative fidelity readout needs rollout-seed injection (SD-068 future work).
+    When run_generative=True, also drive the CLEAN generative re-derivation
+    readout (rem_generative_fidelity) -- rollout-seed injection: known content is
+    injected onto the hippocampal rollout seed (theta_buffer.recent), corrupted by
+    `sigma`, re-derived with a FIXED action sequence, and the recovered-vs-known
+    deviation is measured. This yields a load-bearing error-propagation GAIN
+    (output relative deviation / input relative seed corruption): <1 attenuating,
+    ~1 passthrough, >1 amplifying. This REPLACES the retired rem_terrain_variance
+    proxy, which read ~null because the generative pass never consumes the E3
+    precision reference the proxy corrupted (confirmed in V3-EXQ-778).
     """
     e3 = getattr(agent, "e3", None)
     if e3 is None:
@@ -429,16 +461,153 @@ def rem_precision_error(
     }
 
     if run_generative:
+        gen_out = rem_generative_fidelity(agent, sigma=sigma, gen=gen)
+        out.update(gen_out)
+
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Phase 3b -- MECH-123 REM: generative re-derivation fidelity (rollout-seed)   #
+# --------------------------------------------------------------------------- #
+
+def rem_generative_fidelity(
+    agent: REEAgent,
+    *,
+    sigma: float,
+    gen: torch.Generator,
+    n_rollouts: int = 4,
+    horizon: Optional[int] = None,
+    drive_liveness_pass: bool = True,
+) -> Dict[str, float]:
+    """Clean recovered-vs-known-target fidelity of the REM generative re-derivation.
+
+    This is the rollout-seed-injection readout that REPLACES the retired
+    rem_terrain_variance proxy. The live REM pass (run_rem_attribution_pass) reads
+    `theta_buffer.recent` and re-derives content through
+    `hippocampal.replay(recent) -> e2.rollout_with_world(...)`. The proxy corrupted
+    the E3 precision reference, which that generative path never consumes -- so the
+    sensitivity read ~null. Here the KNOWN content is injected onto the rollout SEED
+    itself (the exact input the generative pass consumes):
+
+      1. Capture the seed the live path would use -- theta_buffer.recent[-1] (an
+         in-distribution z_world so the forward model behaves realistically; a
+         fresh randn seed is used only if the buffer is empty). This captured seed
+         IS the known clean target.
+      2. Re-derive the CLEAN rollout with the same call replay makes
+         (e2.rollout_with_world), but with a FIXED action sequence -- replay draws
+         random actions each call, and that action noise (not the seed) is exactly
+         what made the proxy variance read null. Holding actions constant across
+         the clean and corrupt re-derivations makes the injected seed corruption
+         the ONLY varying input. n_rollouts fixed action draws are averaged to
+         remove dependence on any single action sequence.
+      3. Corrupt the seed by `sigma` (the SAME diffuse_perturb primitive used for
+         the other phases) and re-derive with the SAME fixed actions.
+      4. Measure the recovered-vs-known-target deviation over the GENERATED states
+         (world_states[1:], i.e. excluding the raw seed passthrough at t=0, so the
+         gain reflects the forward-model re-derivation, not the trivial t=0 copy),
+         relative to the clean rollout.
+
+    Readout (all fully-verified APIs -- e2.rollout_with_world is exactly the call
+    hippocampal.replay makes):
+        input_rel_corruption = ||corrupt_seed - clean_seed|| / ||clean_seed||
+        output_rel_dev       = ||corrupt_gen - clean_gen|| / ||clean_gen||
+        rem_generative_gain  = output_rel_dev / input_rel_corruption
+            < 1 -> ATTENUATING (genuine generative correction; non-vacuous)
+            ~ 1 -> PASSTHROUGH (staging is topology)
+            > 1 -> AMPLIFYING (MECH-094 psychosis polarity)
+        rem_generative_fidelity = 1 - output_rel_dev  (1.0 = perfect recovery)
+
+    At sigma == 0 the corrupt seed equals the clean seed, so output_rel_dev == 0,
+    the gain is UNAVAILABLE (0/0), and fidelity == 1.0 -- the origin anchor for the
+    dose-response slope the driver fits.
+
+    Liveness: the corrupted seed is also pushed into theta_buffer and the real
+    run_rem_attribution_pass driven once (drive_liveness_pass=True), confirming the
+    injection point is exactly the seed the live REM path reads. Its
+    rem_terrain_variance is retained as pure telemetry -- NOT a load-bearing signal.
+    """
+    e2 = getattr(agent, "e2", None)
+    hippo = getattr(agent, "hippocampal", None)
+    if e2 is None or hippo is None:
+        return {"rem_generative_fidelity": UNAVAILABLE, "generative_available": 0.0}
+
+    world_dim = int(e2.config.world_dim)
+    self_dim = int(e2.config.self_dim)
+    action_dim = int(e2.config.action_dim)
+    H = int(horizon if horizon is not None else getattr(hippo.config, "horizon", 30))
+
+    # Capture the known clean seed the live REM path would consume.
+    recent = agent.theta_buffer.recent
+    if recent is not None and recent.shape[0] > 0:
+        clean_seed = recent[-1].detach().clone()  # [batch, world_dim]
+    else:
+        clean_seed = torch.randn(1, world_dim, generator=gen)
+    batch = int(clean_seed.shape[0])
+    z_self_init = torch.zeros(batch, self_dim)
+
+    # One corruption realisation at this sigma; averaged over fixed action draws.
+    corrupt_seed = diffuse_perturb(clean_seed, sigma, gen).detach()
+
+    def _generated_ws(seed: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        # world_states[1:] -- the re-derived (rolled-out) states, excluding the
+        # raw seed passthrough at t=0.
+        traj = e2.rollout_with_world(
+            z_self_init, seed, actions, compute_action_objects=False
+        )
+        ws = traj.get_world_state_sequence()  # [batch, H+1, world_dim]
+        return ws[:, 1:, :].detach()
+
+    dev_sq = 0.0
+    sig_sq = 0.0
+    with torch.no_grad():
+        for _ in range(max(1, int(n_rollouts))):
+            actions = torch.randn(batch, H, action_dim, generator=gen)
+            clean_gen = _generated_ws(clean_seed, actions)
+            corrupt_gen = _generated_ws(corrupt_seed, actions)
+            dev_sq += float(((corrupt_gen - clean_gen) ** 2).sum().item())
+            sig_sq += float((clean_gen ** 2).sum().item())
+
+    seed_norm = float(clean_seed.norm().clamp(min=1e-12).item())
+    input_rel = float((corrupt_seed - clean_seed).norm().item()) / seed_norm
+    if sig_sq <= 1e-12:
+        output_rel = UNAVAILABLE
+    else:
+        output_rel = math.sqrt(dev_sq) / math.sqrt(sig_sq)
+
+    if sigma <= 0.0 or input_rel <= 1e-9 or output_rel == UNAVAILABLE:
+        gain = UNAVAILABLE
+    else:
+        gain = output_rel / input_rel
+
+    fidelity = (1.0 - output_rel) if output_rel != UNAVAILABLE else UNAVAILABLE
+
+    out: Dict[str, float] = {
+        "generative_available": 1.0,
+        "rem_gen_input_rel_corruption": float(input_rel),
+        "rem_gen_output_rel_dev": float(output_rel) if output_rel != UNAVAILABLE else UNAVAILABLE,
+        "rem_generative_gain": float(gain) if gain != UNAVAILABLE else UNAVAILABLE,
+        "rem_generative_fidelity": float(fidelity) if fidelity != UNAVAILABLE else UNAVAILABLE,
+        "rem_gen_n_rollouts": float(max(1, int(n_rollouts))),
+    }
+
+    # Liveness: inject the corrupted seed into the theta_buffer and drive the real
+    # REM pass once, so the injection point is provably the seed the live path
+    # reads. rem_terrain_variance is retained as telemetry only (not scored).
+    if drive_liveness_pass:
         try:
+            agent.theta_buffer.update(
+                corrupt_seed, torch.zeros(batch, self_dim)
+            )
             agent.enter_rem_mode()
             rem = agent.run_rem_attribution_pass()
             agent.exit_sleep_mode()
             out["rem_terrain_variance"] = float(rem.get("rem_terrain_variance", 0.0))
             out["rem_mean_harm_terrain"] = float(rem.get("rem_mean_harm_terrain", 0.0))
             out["rem_n_rollouts"] = float(rem.get("rem_n_rollouts", 0.0))
-            out["generative_available"] = 1.0
-        except Exception:  # pragma: no cover -- substrate-dependent; flagged, not scored
-            out["generative_available"] = 0.0
+        except Exception:  # pragma: no cover -- liveness telemetry only, not scored
+            out["rem_terrain_variance"] = 0.0
+            out["rem_n_rollouts"] = 0.0
 
     return out
 
@@ -582,11 +751,19 @@ def error_propagation_gain(
           "which symptom appears at the earliest disease stage" framing.
 
       (2) REM PASSTHROUGH-vs-GENERATIVE contrast. The bare precision nudge is
-          passthrough by construction; the generative pass's output sensitivity
-          (rem_terrain_variance vs corruption) is the amplify/attenuate INDICATOR.
-          A generative sensitivity BELOW the passthrough calibration sensitivity
-          == attenuation (genuine correction, non-vacuous staging); ~equal or
-          above == passthrough/amplifying (staging is topology). PROXY, flagged.
+          passthrough by construction; the generative re-derivation's fidelity is
+          now read cleanly via rollout-seed injection (rem_generative_fidelity),
+          NOT the retired rem_terrain_variance proxy. The load-bearing number is
+          rem_generative_gain -- the least-squares slope of the generated-rollout
+          relative deviation against the injected seed's relative corruption across
+          the sigma grid:
+            gain < 1 == ATTENUATING  (genuine generative correction; non-vacuous
+                        staging -- the REM pass recovers content from a corrupt seed),
+            gain ~ 1 == PASSTHROUGH   (staging is topology),
+            gain > 1 == AMPLIFYING    (MECH-094 psychosis polarity).
+          rem_generative_output_slope (output deviation vs sigma) is kept for the
+          existing driver contract but is now fed by the REAL readout, not the
+          proxy. rem_generative_attenuates is a convenience verdict (gain < 1).
     """
     if pr_by_sigma is None:
         pr_by_sigma = {}
@@ -610,14 +787,47 @@ def error_propagation_gain(
     ys = [c for c in cal if not math.isnan(c) and c != UNAVAILABLE]
     passthrough_slope = float(_lin_slope(xs, ys)) if ys else UNAVAILABLE
 
-    gen_vals = [pr_by_sigma[s]["rem"].get("rem_terrain_variance", float("nan")) for s in sigmas]
     gen_avail = all(pr_by_sigma[s]["rem"].get("generative_available", 0.0) >= 1.0 for s in sigmas)
-    gxs = [s for s, g in zip(sigmas, gen_vals) if not math.isnan(g)]
-    gys = [g for g in gen_vals if not math.isnan(g)]
-    generative_slope = float(_lin_slope(gxs, gys)) if gys else UNAVAILABLE
+
+    # Real generative readout (rollout-seed injection): output relative deviation
+    # and input relative seed corruption, per sigma.
+    def _rem_val(s: float, key: str) -> float:
+        v = pr_by_sigma[s]["rem"].get(key, float("nan"))
+        return float("nan") if (isinstance(v, float) and (math.isnan(v) or v == UNAVAILABLE)) else float(v)
+
+    out_dev = [_rem_val(s, "rem_gen_output_rel_dev") for s in sigmas]
+    in_cor = [_rem_val(s, "rem_gen_input_rel_corruption") for s in sigmas]
+
+    # rem_generative_output_slope: output deviation vs sigma (existing driver key;
+    # now fed by the REAL rollout-seed readout, not the retired terrain-variance).
+    oxs = [s for s, d in zip(sigmas, out_dev) if not math.isnan(d)]
+    oys = [d for d in out_dev if not math.isnan(d)]
+    generative_output_slope = float(_lin_slope(oxs, oys)) if oys else UNAVAILABLE
+
+    # rem_generative_gain: the dimensionless amplify/attenuate factor -- slope of
+    # output relative deviation against input relative seed corruption (the origin
+    # sigma=0 point (0,0) anchors it).
+    gain_pts = [
+        (c, d)
+        for c, d in zip(in_cor, out_dev)
+        if not math.isnan(c) and not math.isnan(d)
+    ]
+    gxs = [c for c, _ in gain_pts]
+    gys = [d for _, d in gain_pts]
+    generative_gain = float(_lin_slope(gxs, gys)) if len(gain_pts) >= 2 else UNAVAILABLE
+
+    # Mean of per-sigma point gains (sigma>0 only) as a robustness cross-check.
+    per_gain = [_rem_val(s, "rem_generative_gain") for s in sigmas]
+    per_gain = [g for g in per_gain if not math.isnan(g)]
+    generative_gain_mean = float(sum(per_gain) / len(per_gain)) if per_gain else UNAVAILABLE
 
     out["rem_passthrough_calibration_slope"] = passthrough_slope
-    out["rem_generative_output_slope"] = generative_slope
+    out["rem_generative_output_slope"] = generative_output_slope
+    out["rem_generative_gain"] = generative_gain
+    out["rem_generative_gain_mean"] = generative_gain_mean
+    out["rem_generative_attenuates"] = (
+        1.0 if (generative_gain != UNAVAILABLE and generative_gain < 1.0) else 0.0
+    )
     out["rem_generative_available"] = 1.0 if gen_avail else 0.0
     return out
 
