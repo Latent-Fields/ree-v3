@@ -6,5 +6,51 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-770",
+      "title": "MECH-457 GOV-FANOUT-1 H1: drive-schedule (sustained vs annealed drive) discrimination",
+      "experiment_type": "v3_exq_770_mech457_drive_schedule_discrimination",
+      "script": "experiments/v3_exq_770_mech457_drive_schedule_discrimination.py",
+      "priority": 6,
+      "machine_affinity": "ree-cloud-2",
+      "status": "pending",
+      "estimated_minutes": 450,
+      "episodes_per_run": 3000,
+      "seeds": 3,
+      "conditions": 7,
+      "claim_id": "MECH-457",
+      "note": "GOV-FANOUT-1 MECH-457 discrimination portfolio leg, routed by failure_autopsy_V3-EXQ-769_2026-07-17 (769 capacity-amend REGRESSED raw ON 6.48->0.12; capacity axis EMPIRICALLY FALSIFIED). DIAGNOSTIC (excluded from governance scoring); PROMOTES/DEMOTES NOTHING -> /failure-autopsy adjudication, read jointly with the sibling legs. RE-DERIVE BRAKE (6 prior non_contributory MECH-457 autopsies) PERMITS this: NEW EXQ number on a DIFFERENT design axis -- the GOV-FANOUT-1 route the 769 autopsy re_derive_brake.route_to names (the brake refuses only another capacity/same-axis re-pose). GOV-REUSE-1: decisive readout absent from all prior manifests (769 ran the capacity build, not this axis manipulation) -> run. No in-flight approach-before-avoidance ordering falsifier covers H1 (verified: queue empty, no evidence, autopsy declares H1 UNTESTED) -> all three legs kept. Reference (non-regressed) capacity 128-wide/3x/z_world-detached (NOT the 769-falsified 256/5x). MECH-457 stays candidate/v3_pending; INV-088 re-routes onto the portfolio outcome. On D3 the passive-survival optimum is learned SELF-CONTAMINATION-AVOIDANCE (footprint->contaminated_harm), not 'do nothing'. H1 (axis=drive): ctrl=annealed drive (coef 1.0->0.05) vs treat=SUSTAINED drive (constant coef 1.0, no anneal), env/reward/capacity fixed. NULL: sustained drive still forages ~0 both reps -> drive-schedule/ordering NOT the axis. Anti-alias vs H3: moves intrinsic-coef schedule only. Dry-run PASS; validate_experiments --strict OK; ASCII-clean; arm_fingerprint per cell (reuse-eligible mint)."
+    },
+    {
+      "queue_id": "V3-EXQ-771",
+      "title": "MECH-457 GOV-FANOUT-1 H2: metabolic forage-to-survive (env reward-coupling) discrimination",
+      "experiment_type": "v3_exq_771_mech457_metabolic_forage_survive_discrimination",
+      "script": "experiments/v3_exq_771_mech457_metabolic_forage_survive_discrimination.py",
+      "priority": 6,
+      "machine_affinity": "ree-cloud-3",
+      "status": "pending",
+      "estimated_minutes": 650,
+      "episodes_per_run": 3000,
+      "seeds": 3,
+      "conditions": 9,
+      "claim_id": "MECH-457",
+      "note": "GOV-FANOUT-1 MECH-457 discrimination portfolio leg, routed by failure_autopsy_V3-EXQ-769_2026-07-17 (769 capacity-amend REGRESSED raw ON 6.48->0.12; capacity axis EMPIRICALLY FALSIFIED). DIAGNOSTIC (excluded from governance scoring); PROMOTES/DEMOTES NOTHING -> /failure-autopsy adjudication, read jointly with the sibling legs. RE-DERIVE BRAKE (6 prior non_contributory MECH-457 autopsies) PERMITS this: NEW EXQ number on a DIFFERENT design axis -- the GOV-FANOUT-1 route the 769 autopsy re_derive_brake.route_to names (the brake refuses only another capacity/same-axis re-pose). GOV-REUSE-1: decisive readout absent from all prior manifests (769 ran the capacity build, not this axis manipulation) -> run. No in-flight approach-before-avoidance ordering falsifier covers H1 (verified: queue empty, no evidence, autopsy declares H1 UNTESTED) -> all three legs kept. Reference (non-regressed) capacity 128-wide/3x/z_world-detached (NOT the 769-falsified 256/5x). MECH-457 stays candidate/v3_pending; INV-088 re-routes onto the portfolio outcome. On D3 the passive-survival optimum is learned SELF-CONTAMINATION-AVOIDANCE (footprint->contaminated_harm), not 'do nothing'. H2 (axis=environment): ctrl=standard D3 / decouple=contamination-off-no-starvation (ALIASING control) / treat=metabolic (contamination-off + energy->health starvation; survival REQUIRES foraging, verified oracle+local_view survive 200/forage ~60, random+passive die). Verdict treat clears lift target AND beats DECOUPLE by margin (isolates reward-coupling from contamination-removal). NULL: treat no lift -> reward-coupling NOT the wall. Metabolic env = experiment-layer PROBE (mech457_probe_envs), NOT ree_core (769 substrate action=none); a WIN routes /implement-substrate. Dry-run PASS; validate --strict OK; ASCII-clean."
+    },
+    {
+      "queue_id": "V3-EXQ-772",
+      "title": "MECH-457 GOV-FANOUT-1 H3: dense-shaped forage credit (credit-horizon) discrimination",
+      "experiment_type": "v3_exq_772_mech457_dense_credit_forage_discrimination",
+      "script": "experiments/v3_exq_772_mech457_dense_credit_forage_discrimination.py",
+      "priority": 6,
+      "machine_affinity": "ree-cloud-4",
+      "status": "pending",
+      "estimated_minutes": 450,
+      "episodes_per_run": 3000,
+      "seeds": 3,
+      "conditions": 7,
+      "claim_id": "MECH-457",
+      "note": "GOV-FANOUT-1 MECH-457 discrimination portfolio leg, routed by failure_autopsy_V3-EXQ-769_2026-07-17 (769 capacity-amend REGRESSED raw ON 6.48->0.12; capacity axis EMPIRICALLY FALSIFIED). DIAGNOSTIC (excluded from governance scoring); PROMOTES/DEMOTES NOTHING -> /failure-autopsy adjudication, read jointly with the sibling legs. RE-DERIVE BRAKE (6 prior non_contributory MECH-457 autopsies) PERMITS this: NEW EXQ number on a DIFFERENT design axis -- the GOV-FANOUT-1 route the 769 autopsy re_derive_brake.route_to names (the brake refuses only another capacity/same-axis re-pose). GOV-REUSE-1: decisive readout absent from all prior manifests (769 ran the capacity build, not this axis manipulation) -> run. No in-flight approach-before-avoidance ordering falsifier covers H1 (verified: queue empty, no evidence, autopsy declares H1 UNTESTED) -> all three legs kept. Reference (non-regressed) capacity 128-wide/3x/z_world-detached (NOT the 769-falsified 256/5x). MECH-457 stays candidate/v3_pending; INV-088 re-routes onto the portfolio outcome. On D3 the passive-survival optimum is learned SELF-CONTAMINATION-AVOIDANCE (footprint->contaminated_harm), not 'do nothing'. H3 (axis=measurement): ctrl=sparse forage (+1.0/contact) vs treat=DENSE potential-based shaping (Ng 1999, F=gamma*Phi'-Phi, Phi=-manhattan-to-nearest-resource) on TRAIN env only; EVAL unshaped both arms. Policy-invariant (densifies credit, no reward mass). NULL: dense credit still forages ~0 -> wall DEEPER than credit horizon (representation ceiling / mechanism / approach-generation deficit). Anti-alias vs H1: moves extrinsic forage-credit density. Shaping = experiment-layer PROBE; a WIN routes /implement-substrate. Dry-run PASS; validate --strict OK; ASCII-clean."
+    }
+  ]
 }
