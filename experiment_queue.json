@@ -45,6 +45,22 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_771_mech457_metabolic_forage_survive_discrimination",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-776",
+      "title": "MECH-279 PAG freeze-gate functional-signature confirmer (wall-independent)",
+      "experiment_type": "v3_exq_776_mech279_pag_freeze_gate_functional_signature",
+      "script": "experiments/v3_exq_776_mech279_pag_freeze_gate_functional_signature.py",
+      "priority": 7,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 3,
+      "episodes_per_run": 8,
+      "seeds": 5,
+      "conditions": 1,
+      "backlog_id": "EVB-0140",
+      "claim_id": "MECH-279",
+      "note": "IGW-20260717-208 GOV-CONFIRM-1: MECH-279 has lit_conf ~0.90 + BUILT substrate (ree_core/pag/freeze_gate.py, use_pag_freeze_gate) but ZERO valid experimental evidence -- the EXQ-471/475/483/490/524 cohort is contaminated+superseded (update_z_goal TypeError) and every 483d/483e behavioural attempt FAILED for an ENVIRONMENTAL reason (fishtank z_harm_a never crosses theta_freeze; pag_release=0). This is the WALL-INDEPENDENT functional-signature confirmer: drives the REAL agent-instantiated gate (REEConfig->REEAgent, real gaba_tone from SD-036 regulator, override=0) with prescribed z_harm_a(t) schedules over 5 seeded input distributions, confirming the claim's 3 falsifiable signatures -- S1 commit-law d*=first d with z*d>theta (integrator, monotone in z; obs==independent-reference); S2 committed-state HYSTERESIS (mild sustained z in (exit_thr,dur_thr) sustains a committed freeze but never initiates one from rest -> memoryless-null falsified, persistence_gap~1.0 = the catatonia pole); S3 gaba_tone exit-control exit(1.5)<exit(1.0)<exit(0.5) (benzo/catatonia). EXPERIMENT_PURPOSE=evidence; PASS=supports (substrate realises the transfer function), wall-independent -- does NOT claim fishtank behavioural expression (that stays the SD-037/483e consumer-input-threshold ceiling). Distinct from C4-C7 unit contracts: runs through the real agent build over a seeded trajectory distribution with a P0 positive-control gate (inert/miswired gate self-routes substrate_not_ready_requeue). re-derive brake CLEAR (0 substrate_ceiling/non_contributory autopsies tag MECH-279 as a target claim; 483d/483e tag SD-037/MECH-280/281, using MECH-279 only as reused substrate). GOV-REUSE-1: decisive readouts (commit-tick law / hysteresis persistence gap / gaba exit ordering) absent from all recorded manifests (cohort measured fishtank pag_release, all 0; pre-2026-07-12, no substrate_hash) -> run. Dry-run PASS (S1/S2/S3 all confirmed); validate_experiments --strict OK; ASCII-clean; single-arm (no arm_results)."
     }
   ]
 }
