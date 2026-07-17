@@ -45,22 +45,6 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_771_mech457_metabolic_forage_survive_discrimination",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-778",
-      "title": "SD-068 consolidation-pipeline staged-damage diagnostic (harness validation)",
-      "script": "experiments/v3_exq_sd068_consolidation_staged_damage_diagnostic.py",
-      "priority": 4,
-      "machine_affinity": "any",
-      "estimated_minutes": 30,
-      "claim_id": "SD-068",
-      "force_rerun": true,
-      "note": "IGW-20260717-206 / EVB-0115 follow-through. DIAGNOSTIC (excluded from confidence scoring) validating the SD-068 consolidation-pipeline lesion harness (experiments/_lib/consolidation_lesion_harness.py, built this session via /implement-substrate). Applies one UNIFORM diffuse-damage sigma [0,0.25,0.5,1,2] identically to each of the MECH-120 (SWS denoising) -> MECH-121 (NREM slot-filling) -> MECH-123 (REM precision) consolidation phases and reads per-phase output-quality (denoising-SNR / transfer-fidelity / precision-calibration-error) against INJECTED known content (V3-EXQ-702 precedent -> sidesteps the failure_autopsy_V3-EXQ-538a encoding-starvation ceiling). Non-vacuous: per-phase errors normalised to fractional-of-own-range degradation, ranked by damage-tolerance for the observed staged-failure order, PLUS a REM passthrough-nudge-vs-generative-pass contrast. Reports (does NOT gate PASS on) staging order vs the reverse-dependency prediction (rem,nrem,sws). claim_ids=[SD-068,MECH-168,INV-047,MECH-169]; MECH-121 deliberately NOT tagged for promotion (held_pending_v3_substrate; NREM leg is substrate-plumbing-fidelity only). Glymphatic/amyloid structural half of MECH-169 out of scope. Acceptance: on >=2/3 seeds the harness produces MONOTONE per-phase degradation (load-bearing C1) from a non-degenerate sigma=0 baseline (P0 positive control C2) with computable staging order + REM contrast (C3); a partial-match / inversion is a VALID diagnostic outcome. P0 readiness self-routes substrate_not_ready_requeue below-floor. re-derive brake: 0 substrate_ceiling/non_contributory autopsies on any tagged claim -> not braked (diagnostic, exempt anyway). GOV-REUSE-1: decisive per-phase-damage readouts are NEW (harness did not exist pre-2026-07-17; no manifest records them) -> not recoverable, run. VALIDATION: validate_experiments --strict OK; dry-run smoke end-to-end PASS (deterministic; observed tolerance order nrem<rem<sws stable seeds 42/7; REM generative sensitivity null). ASCII-clean; no ree_core change.",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 1,
-      "experiment_type": "v3_exq_sd068_consolidation_staged_damage_diagnostic",
-      "seeds": 3
     }
   ]
 }
