@@ -2473,7 +2473,7 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   training: N/A (no encoder head trained on moving latents). Smoke: run_staged_sweep
   deterministic; observed tolerance order (nrem, rem, sws) stable across seeds
   42/7 (partial match to reverse-dependency prediction; REM generative sensitivity
-  null). Validation experiment: V3-EXQ-<TBD> (diagnostic; queued via /queue-experiment).
+  null). Validation experiment: V3-EXQ-778 (diagnostic staged-damage sweep, queued 2026-07-17).
   Design doc: REE_assembly/docs/architecture/sd_068_consolidation_lesion_harness.md
   See MECH-120, MECH-121 (held), MECH-123, MECH-168, INV-047, MECH-169, SD-017.
 
