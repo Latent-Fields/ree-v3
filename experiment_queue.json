@@ -45,57 +45,6 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_771_mech457_metabolic_forage_survive_discrimination",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-773",
-      "title": "MECH-076 residue-as-terrain-deformation: basin-geometry dose-response (evidence)",
-      "script": "experiments/v3_exq_773_mech076_residue_basin_geometry_doseresponse.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "estimated_minutes": 15,
-      "claim_id": "MECH-076",
-      "backlog_id": "EVB-0112",
-      "note": "IGW-20260717-204 MECH-076 basin-geometry dose-response (evidence, wall-independent). evidence_class=mechanistic_partial. Smoke seed-level PASS; validate --strict OK.",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 6,
-      "experiment_type": "v3_exq_773_mech076_residue_basin_geometry_doseresponse",
-      "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-777",
-      "title": "MECH-063 orthogonal control-plane axes rank-2 behavioural falsifier",
-      "script": "experiments/v3_exq_777_mech063_orthogonal_control_axes_dissociation.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "estimated_minutes": 45,
-      "claim_id": "MECH-063",
-      "backlog_id": "EVB-0204",
-      "note": "IGW-20260717-203 / EVB-0204. FIRST real experimental evidence for MECH-063 (control plane retains ORTHOGONAL tonic/phasic axes rather than collapsing into one scalar); provisional, lit_only_above_cap + low_exp_conf + synthetic_signals_only. EXPERIMENT_PURPOSE=evidence (weights confidence). DESIGN: 2x2 factorial telemetry probe (NO training) on the REAL production E3 select() path -- MECH-320 tonic_vigor (SCORE axis, additive action-vs-noop bias; forced live via tonic_vigor_v_t_floor=0.5, noop_class=4) x MECH-313 noise_floor (TEMPERATURE axis, effective_T=2.0). These route to two DISTINCT softmax parameters (score_bias=location vs temperature=spread). READOUTS per fresh E3 selection (read-only candidate-capture wrapper aligned to e3.last_precommit_probs): E=normalised precommit entropy, D=precommit mass on non-noop candidates. LOAD-BEARING C1 (rank-2): standardised 2x2 main-effect vectors v_temp,v_score non-collinear |sin angle|>0.5 on >=4/5 seeds AND robust (mean-SD>0.5) => control is NOT one scalar => supports; parallel vectors => weakens (collapse toward one scalar). P0 readiness self-routes substrate_not_ready_requeue (non_contributory, NOT a false weakens) if either axis silent / undersampled / no headroom -- guards the false-collapse trap. Addresses synthetic_signals_only: prior V3-EXQ-164a built a SYNTHETIC control_vec from harm_obs; this drives real regulators. GOV-REUSE-1: decisive readout (behavioural rank of the 2-axis effect matrix) absent from all manifests -- V3-EXQ-650 measured only the WITHIN-MECH-320 C_time/G_vigor collapse (claim_ids=[], different question) -> run. Re-derive brake: 0 substrate_ceiling/non_contributory autopsies on MECH-063 -> not braked. VALIDATION: validate_experiments --strict OK; dry-run smoke end-to-end PASS (readiness gate correctly self-routes requeue on undersized dry-run); full-scale seed-11 inline PASS (readiness met, sin_angle=0.93>0.5, entropy lift +0.30 temp-axis, noop-mass suppression score-axis). Mint-as-you-go: OFF arms emit cross-driver reusable fingerprints (include_driver_script_in_hash=False). ASCII-clean.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-17T15:43:33Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 3,
-      "experiment_type": "v3_exq_777_mech063_orthogonal_control_axes_dissociation",
-      "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-778",
-      "title": "SD-068 consolidation-pipeline staged-damage diagnostic (harness validation)",
-      "script": "experiments/v3_exq_sd068_consolidation_staged_damage_diagnostic.py",
-      "priority": 4,
-      "machine_affinity": "any",
-      "estimated_minutes": 30,
-      "claim_id": "SD-068",
-      "note": "IGW-20260717-206 / EVB-0115 follow-through. DIAGNOSTIC (excluded from confidence scoring) validating the SD-068 consolidation-pipeline lesion harness (experiments/_lib/consolidation_lesion_harness.py, built this session via /implement-substrate). Applies one UNIFORM diffuse-damage sigma [0,0.25,0.5,1,2] identically to each of the MECH-120 (SWS denoising) -> MECH-121 (NREM slot-filling) -> MECH-123 (REM precision) consolidation phases and reads per-phase output-quality (denoising-SNR / transfer-fidelity / precision-calibration-error) against INJECTED known content (V3-EXQ-702 precedent -> sidesteps the failure_autopsy_V3-EXQ-538a encoding-starvation ceiling). Non-vacuous: per-phase errors normalised to fractional-of-own-range degradation, ranked by damage-tolerance for the observed staged-failure order, PLUS a REM passthrough-nudge-vs-generative-pass contrast. Reports (does NOT gate PASS on) staging order vs the reverse-dependency prediction (rem,nrem,sws). claim_ids=[SD-068,MECH-168,INV-047,MECH-169]; MECH-121 deliberately NOT tagged for promotion (held_pending_v3_substrate; NREM leg is substrate-plumbing-fidelity only). Glymphatic/amyloid structural half of MECH-169 out of scope. Acceptance: on >=2/3 seeds the harness produces MONOTONE per-phase degradation (load-bearing C1) from a non-degenerate sigma=0 baseline (P0 positive control C2) with computable staging order + REM contrast (C3); a partial-match / inversion is a VALID diagnostic outcome. P0 readiness self-routes substrate_not_ready_requeue below-floor. re-derive brake: 0 substrate_ceiling/non_contributory autopsies on any tagged claim -> not braked (diagnostic, exempt anyway). GOV-REUSE-1: decisive per-phase-damage readouts are NEW (harness did not exist pre-2026-07-17; no manifest records them) -> not recoverable, run. VALIDATION: validate_experiments --strict OK; dry-run smoke end-to-end PASS (deterministic; observed tolerance order nrem<rem<sws stable seeds 42/7; REM generative sensitivity null). ASCII-clean; no ree_core change.",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 1,
-      "experiment_type": "v3_exq_sd068_consolidation_staged_damage_diagnostic",
-      "seeds": 3
     }
   ]
 }
