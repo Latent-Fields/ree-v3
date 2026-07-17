@@ -25,6 +25,22 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_771_mech457_metabolic_forage_survive_discrimination",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-774",
+      "title": "MECH-173 REM-suppression precision-recalibration confidence-accuracy probe (diagnostic)",
+      "experiment_type": "v3_exq_774_mech173_rem_suppression_precision_calibration",
+      "script": "experiments/v3_exq_774_mech173_rem_suppression_precision_calibration.py",
+      "priority": 7,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 30,
+      "seeds": 3,
+      "conditions": 4,
+      "backlog_id": "EVB-0116",
+      "claim_id": "MECH-173",
+      "note": "IGW-20260717-207. DIAGNOSTIC probe (excluded from confidence scoring) of MECH-173 on the built MECH-204 REM precision-recalibration consumer (sleep_substrate:GAP-1 done). 4 arms x 3 seeds: FULL_SLEEP / REM_SUPPRESSED (rem_enabled=F, medication model) / RECALIB_OFF (isolates MECH-123 precision recalibration) / SWS_SUPPRESSED (selectivity control). Load-bearing statistic overconfidence_score=log(true_forward_model_error/mean_running_variance) with an independent accuracy signal (e3_prediction_error) -> not synthetic. P0 readiness gate self-routes substrate_not_ready if rv not live or the F1 recalibration lever never engages; sub-threshold cross-arm spread self-routes substrate_ceiling (-> /implement-substrate Phase 7 per 541c). GOV-REUSE-1: decisive readout (cross-arm overconfidence_score under REM/recalib ablation) absent from all recorded manifests (no MECH-173 runs; 541 measured rv setpoint divergence, not this 4-arm calibration signature) -> run. re-derive brake clear (0 substrate_ceiling autopsies on MECH-173)."
     }
   ]
 }
