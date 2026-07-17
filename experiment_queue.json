@@ -25,6 +25,22 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_771_mech457_metabolic_forage_survive_discrimination",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-775",
+      "title": "MECH-086 dopamine selection-gain plane dose-response (gain-ladder x clean/distorted landscape)",
+      "script": "experiments/v3_exq_775_mech086_selection_gain_dose_response.py",
+      "experiment_type": "v3_exq_775_mech086_selection_gain_dose_response",
+      "priority": 8,
+      "machine_affinity": "ree-cloud-2",
+      "estimated_minutes": 10,
+      "backlog_id": "EVB-0347",
+      "claim_id": "MECH-086",
+      "note": "IGW-20260717-205 / EVB-0347 (suggested_experiment_type claim_probe_mech_086). MECH-086's OWN subject -- 'dopamine as trajectory-selection GAIN plane' -- has never been directly measured: V3-EXQ-674 exercised the same E3 softmax stage but was tagged claim_ids=[MECH-087] ONLY, explicitly disclaiming that its incidental temperature manipulation validates MECH-086 (674 measured cross-plane ORDERING = MECH-087, not the selection-gain dose-response). This env-free controlled probe of the REAL e3.select() softmax stage runs a dopamine-gain ladder (5 temperatures) x {clean, distorted} landscape factorial and measures the selection-gain plane's own signatures: S1 gain-monotonicity (realised decisiveness rises with gain, Spearman>=0.9, both landscapes); S2 value-conditional benefit-of-gain (clean quality improves with gain but distorted does NOT -- dopamine optimises selection over whatever landscape it receives, cannot manufacture upstream value); S3 two named pathology poles (indecision/anhedonia at low gain; aberrant salience = confident commitment to the WRONG trajectory at high gain over a distorted landscape). Decisiveness is measured EMPIRICALLY from the real selector's draws so S1/S3 are genuine substrate tests, not a softmax identity. claim_ids=[MECH-086] ONLY (temperature<->dopamine-gain + landscape<->serotonin-map are interpretive operationalisation, identical rung to 674; receptor subtypes out_of_domain for V3). experiment_purpose=evidence -> PASS supports MECH-086, FAIL weakens. PREFLIGHT: substrate ready (default e3.select softmax, no new build; 674 ran it to PASS); re-derive brake 0 (no MECH-086 substrate_ceiling autopsies on record); GOV-REUSE-1 decisive dose-response readouts absent from 674 (3 temps only, no substrate_hash, tagged MECH-087) -> run; ethics all-false/allow. VALIDATION: validate_experiments --strict --paths OK (0 non-conforming, per-cell arm_fingerprint, write_flat_manifest always-core); ASCII-clean; dry-run smoke PASS (all 4 signatures fire: dec_clean 0.07->0.98 monotone + quality 1.91->0.23, dec_dist rises but quality pinned ~2.0 no-rescue, aberrant gap ~1.8). Cloud-pinned linux-x86_64-py3.10 (reusable-class arm fingerprints). 3 seeds x 10 arms = 30 verdicts; P0 readiness gate (clean-discriminative / distorted-decouples-value / gain-modulates-decisiveness [same statistic S1/S3 route on] / uncommitted-regime).",
+      "status": "pending",
+      "conditions": 10,
+      "episodes_per_run": 30,
+      "seeds": 3
     }
   ]
 }
