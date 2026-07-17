@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-779",
-      "title": "MECH-063 sub-claim (ii) tonic-vs-phasic behavioural dissociation (SD-069 sharp source)",
-      "script": "experiments/v3_exq_779_mech063_tonic_phasic_dissociation.py",
-      "priority": 7,
-      "machine_affinity": "ree-cloud-2",
-      "estimated_minutes": 20,
-      "claim_id": "MECH-063",
-      "note": "MECH-063 sub-claim (ii) tonic/phasic split. 2x2 factorial (TONIC=use_noise_floor x PHASIC=use_phasic_burst), PHASIC-ON arms use phasic_burst_signal_source=instantaneous_pe (SD-069 sharp source landed ree-v3 main f386179 2026-07-17). Readout: double dissociation on pre-commit softmax entropy partitioned by phasic burst window -- tonic moves the SUSTAINED (quiescent) baseline, phasic moves an EVENT-LOCKED TRANSIENT; cross-legs ~0. NO training, NO synthetic signals (777-harness pattern). P0 readiness self-routes substrate_not_ready_requeue (PHASIC-ON arms must fire >= MIN_EVENT_TICKS real events, summed across episodes). Complements V3-EXQ-777 (sub-claim i). GOV-REUSE-1: decisive readout (event-window-partitioned entropy transient under the sharp phasic source) requires the 2026-07-17 SD-069 sharp-source substrate, absent from all recorded manifests -> run. Re-derive brake: 0 substrate_ceiling/non_contributory MECH-063 autopsies -> not braked. Cloud-pinned for reusable OFF-arm mint (include_driver_script_in_hash=False per cell). Smoke (2-seed toy): plumbing OK, effects in predicted direction (dS_tonic +0.218, dR_phasic -0.110); dry-run readiness FAIL is the P0 gate firing on toy sample size, not a defect.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-17T19:00:53Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 3,
-      "experiment_type": "v3_exq_779_mech063_tonic_phasic_dissociation",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-771",
       "title": "MECH-457 GOV-FANOUT-1 H2: metabolic forage-to-survive (env reward-coupling) discrimination",
       "script": "experiments/v3_exq_771_mech457_metabolic_forage_survive_discrimination.py",
