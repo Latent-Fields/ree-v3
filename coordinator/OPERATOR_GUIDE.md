@@ -471,6 +471,38 @@ ssh ree@91.98.130.117 'python3 ~/REE_Working/ree-v3/coordinator/deploy/daemon_co
 be newer than everything in a stale checkout and still be running old code, so a
 drift-only check would give a false all-clear.
 
+**Which tree gets graded.** The repo is resolved per unit from its systemd
+`WorkingDirectory`, never hardcoded, and the graded path is printed in the table.
+This is not defensive coding -- the hub genuinely runs these out of **three
+different checkouts**, and two are not where you would guess:
+
+| Unit | Runs from |
+|------|-----------|
+| `ree-sync-daemon`, `ree-coordinator` | `~/REE_Working/ree-v3` |
+| `ree-runner` | `~/REE_Working_runner/ree-v3` |
+| `ree-explorer` | `~/Documents/GitHub/REE_Working/REE_assembly` |
+
+The first cut of this check hardcoded `~/REE_Working/*` and so graded two of the
+four daemons against trees their processes never read -- reporting `ree-runner`
+CURRENT against the wrong repo entirely. A check that confidently grades the
+wrong tree is worse than no check. If you add a unit here, take the path from
+`systemctl show <unit> -p WorkingDirectory`, not from memory.
+
+**"Cannot vouch for these against origin".** `BEHIND-ORIGIN` reads the *local*
+remote-tracking ref and deliberately does not fetch (network I/O every tick,
+racing the writers). If nothing has fetched that clone in weeks the ref is
+frozen, so BEHIND-ORIGIN reports "0 behind" whatever origin actually holds. When
+the ref is older than 7 days the check says so explicitly rather than implying
+an all-clear.
+
+Live example: `ree-explorer` runs from the `Documents/GitHub` clone that
+`REE_Working/CLAUDE.md` marks **stale** -- its `origin/master` ref was last
+updated 2026-06-07, and its `serve.py` sits at `241835246a` while the canonical
+`REE_assembly` has moved to `756a4d0a31`. Restarting it (done 2026-07-18
+20:33Z) made it current *with that clone* and did nothing about the ~6-week code
+gap. The durable fix is to repoint the unit at `~/REE_Working/REE_assembly` --
+a config change, deliberately not made automatically here.
+
 **Restart pre-flight (mandatory -- especially for `ree-sync-daemon`).** The
 check never restarts anything itself. `sync_daemon` is the sole git writer for
 coordination data, so an ill-timed restart is its own hazard: a restart mid-tick

@@ -13,6 +13,10 @@ D5  inactive / unknown  -- degrade to a status, never a crash
 D6  timestamp math      -- monotonic+btime, immune to TZ abbreviations
 D7  render always emits -- the all-clear renders a section too
 D8  import surface      -- runner spec excludes subprocess-launched code
+D11 repo resolution     -- REGRESSION: grade the tree the process ACTUALLY
+                           runs from (systemd WorkingDirectory), not a
+                           hardcoded guess
+D12 resolution fallback -- unresolvable WorkingDirectory -> declared default
 
 ASCII-only.
 """
@@ -34,10 +38,16 @@ def show(mono_us, active="active", stamp="Wed 2026-06-24 05:49:51 UTC"):
             "ActiveState=%s\n" % (mono_us, stamp, active))
 
 
-def git_stub(head=None, origin=None):
-    """Fake `git log`. head/origin are (sha, epoch, subject) or None."""
+def git_stub(head=None, origin=None, toplevel=None, seen=None):
+    """Fake `git`. Handles both `rev-parse --show-toplevel` (repo resolution)
+    and `log` (commit lookup). `seen` collects the repo each log ran against,
+    so a test can assert WHICH tree was graded."""
     def _run_git(argv):
+        if "rev-parse" in argv:
+            return (toplevel + "\n") if toplevel else ""
         # git -C <repo> log -1 --format=<fmt> <rev> -- <paths...>
+        if seen is not None:
+            seen.append(argv[argv.index("-C") + 1])
         rev = argv[argv.index("log") + 3]
         chosen = origin if rev.startswith("refs/remotes/") else head
         if chosen is None:
@@ -49,9 +59,41 @@ def git_stub(head=None, origin=None):
 def spec(**kw):
     base = {"unit": "ree-sync-daemon", "repo": "/nonexistent/ree-v3",
             "branch": "main", "paths": ["coordinator/sync_daemon.py"],
-            "note": ""}
+            "note": "", "_wd": ""}  # _wd="" -> skip systemd, use fallback
     base.update(kw)
     return base
+
+
+def test_d11_repo_is_resolved_from_systemd_not_hardcoded():
+    """REGRESSION. The first cut hardcoded ~/REE_Working/* and graded two of
+    the four hub daemons against trees their processes never read (the runner
+    actually runs from ~/REE_Working_runner/ree-v3, the explorer from
+    ~/Documents/GitHub/...). It reported CURRENT against the wrong repo -- a
+    confident all-clear that means nothing. The graded tree must come from the
+    unit's systemd WorkingDirectory."""
+    real = "/home/ree/REE_Working_runner/ree-v3"
+    seen = []
+    f = dcd.check_unit(
+        spec(repo="/home/ree/REE_Working/ree-v3",
+             _wd="/home/ree/REE_Working_runner/ree-v3/subdir"),
+        boot_epoch=BOOT,
+        _show=show(at(BOOT + 9000)),
+        _run_git=git_stub(head=("a" * 12, BOOT + 1000, "x"),
+                          toplevel=real, seen=seen))
+    assert f["repo_path"] == real, f
+    assert f["repo_resolved_by"] == "systemd WorkingDirectory"
+    # and the commit lookup must have actually USED it
+    assert seen and all(r == real for r in seen), seen
+    assert "REE_Working_runner" in "\n".join(dcd.render_markdown([f]))
+
+
+def test_d12_falls_back_when_systemd_gives_nothing():
+    f = dcd.check_unit(
+        spec(repo="/fallback/repo", _wd="/not/a/repo"), boot_epoch=BOOT,
+        _show=show(at(BOOT + 9000)),
+        _run_git=git_stub(head=("a" * 12, BOOT + 1000, "x"), toplevel=None))
+    assert f["repo_path"] == "/fallback/repo"
+    assert f["repo_resolved_by"] == "fallback default"
 
 
 def at(epoch):
@@ -199,6 +241,49 @@ def test_d8_runner_import_surface_excludes_subprocess_code():
     # either reaches it only on restart, same as a fix to sync_daemon itself.
     assert "coordinator/db.py" in sync["paths"]
     assert "coordinator/manifest_spool.py" in sync["paths"]
+
+
+def test_d13_unfetched_remote_ref_is_annotated_not_hidden():
+    """The explorer case: the process is genuinely newer than everything in
+    its checkout (CURRENT is correct about the PROCESS) while the checkout
+    itself has not been fetched in weeks, so BEHIND-ORIGIN is computed from a
+    frozen ref. That must be surfaced, not silently rendered as an all-clear."""
+    import time
+    now = int(time.time())
+    head_c = now - 60 * 86400
+
+    def _run_git(argv):
+        if "rev-parse" in argv:
+            return ""
+        if "--format=%ct" in argv:          # remote-ref age probe
+            return "%d\n" % (now - 45 * 86400)
+        rev = argv[argv.index("log") + 3]
+        if rev.startswith("refs/remotes/"):  # frozen ref == same as HEAD
+            return "%s\x00%d\x00%s\n" % ("a" * 12, head_c, "old")
+        return "%s\x00%d\x00%s\n" % ("a" * 12, head_c, "old")
+
+    started_epoch = now - 3600
+    # boot 1000s before start; mono=1000s -> resolved start == started_epoch
+    f = dcd.check_unit(
+        spec(), boot_epoch=started_epoch - 1000,
+        _show=show(1000 * 1000000), _run_git=_run_git)
+    assert f["status"] == dcd.CURRENT, f          # correct about the process
+    assert f["remote_ref_stale_days"] > 7, f      # honest about the deployment
+    md = "\n".join(dcd.render_markdown([f]))
+    assert "Cannot vouch for these against origin" in md
+    assert "current with a stale checkout" in md
+
+    # and a freshly-fetched ref must NOT be annotated (non-vacuity)
+    def _fresh(argv):
+        if "rev-parse" in argv:
+            return ""
+        if "--format=%ct" in argv:
+            return "%d\n" % (now - 3600)
+        return "%s\x00%d\x00%s\n" % ("a" * 12, head_c, "old")
+    f2 = dcd.check_unit(spec(), boot_epoch=started_epoch - 1000,
+                        _show=show(1000 * 1000000), _run_git=_fresh)
+    assert "remote_ref_stale_days" not in f2, f2
+    assert "Cannot vouch" not in "\n".join(dcd.render_markdown([f2]))
 
 
 def test_d9_ascii_only_output():

@@ -76,6 +76,9 @@ HOME = os.path.expanduser("~")
 REE_V3 = os.path.join(HOME, "REE_Working", "ree-v3")
 REE_ASSEMBLY = os.path.join(HOME, "REE_Working", "REE_assembly")
 
+# A remote-tracking ref older than this cannot support a BEHIND-ORIGIN
+# verdict, so the check says so instead of implying an all-clear.
+STALE_REMOTE_REF_DAYS = 7
 GIT_TIMEOUT_SECONDS = 20.0
 SYSTEMCTL_TIMEOUT_SECONDS = 10.0
 
@@ -147,6 +150,39 @@ def _run(argv, timeout):
     if proc.returncode != 0:
         return None
     return proc.stdout
+
+
+def resolve_repo(unit, fallback, _wd=None, _run_git=None):
+    """Resolve the repo a unit ACTUALLY runs from, via its systemd
+    WorkingDirectory -> `git rev-parse --show-toplevel`.
+
+    Do not replace this with a hardcoded path. The hub runs the same code out
+    of THREE different checkouts, and two of them are not where you would
+    guess (verified 2026-07-18):
+
+        ree-sync-daemon / ree-coordinator  ~/REE_Working/ree-v3
+        ree-runner                         ~/REE_Working_runner/ree-v3
+        ree-explorer                       ~/Documents/GitHub/REE_Working/
+                                           REE_assembly   (the path
+                                           REE_Working/CLAUDE.md marks stale)
+
+    The first cut of this checker hardcoded ~/REE_Working/* and so evaluated
+    two of the four daemons against trees their processes never read -- it
+    reported ree-runner CURRENT against the wrong repo entirely. A drift check
+    that silently grades the wrong tree is worse than no check, because it
+    reports a confident all-clear. Returns (repo_path, how_resolved).
+    """
+    wd = _wd
+    if wd is None:
+        out = _run(["systemctl", "show", unit, "-p", "WorkingDirectory",
+                    "--value"], SYSTEMCTL_TIMEOUT_SECONDS)
+        wd = (out or "").strip()
+    if wd:
+        runner = _run_git or (lambda argv: _run(argv, GIT_TIMEOUT_SECONDS))
+        top = runner(["git", "-C", wd, "rev-parse", "--show-toplevel"])
+        if top and top.strip():
+            return top.strip(), "systemd WorkingDirectory"
+    return fallback, "fallback default"
 
 
 def _boot_epoch(proc_stat_path="/proc/stat"):
@@ -224,9 +260,13 @@ def last_source_commit(repo, paths, rev="HEAD", _run_git=None):
 def check_unit(spec, boot_epoch=None, _show=None, _run_git=None):
     """Evaluate one daemon. Returns a finding dict; never raises."""
     unit = spec["unit"]
+    repo, repo_source = resolve_repo(
+        unit, spec["repo"], _wd=spec.get("_wd"), _run_git=_run_git)
     finding = {
         "unit": unit,
-        "repo": os.path.basename(spec["repo"]),
+        "repo": os.path.basename(repo),
+        "repo_path": repo,
+        "repo_resolved_by": repo_source,
         "note": spec.get("note", ""),
         "status": UNKNOWN,
         "detail": "",
@@ -250,7 +290,7 @@ def check_unit(spec, boot_epoch=None, _show=None, _run_git=None):
     finding["started_utc"] = _iso(started)
 
     sha, commit_epoch, subject = last_source_commit(
-        spec["repo"], spec["paths"], _run_git=_run_git)
+        repo, spec["paths"], _run_git=_run_git)
     if sha is None:
         finding["status"] = UNKNOWN
         finding["detail"] = "no commit found for source paths in %s" % (
@@ -266,7 +306,7 @@ def check_unit(spec, boot_epoch=None, _show=None, _run_git=None):
     # fetch, no network (sync_daemon refreshes it constantly anyway).
     origin_ref = "refs/remotes/origin/%s" % spec.get("branch", "main")
     o_sha, o_epoch, o_subject = last_source_commit(
-        spec["repo"], spec["paths"], rev=origin_ref, _run_git=_run_git)
+        repo, spec["paths"], rev=origin_ref, _run_git=_run_git)
     if o_sha and o_sha != sha and o_epoch and commit_epoch and (
             o_epoch > commit_epoch):
         finding["behind_origin"] = {
@@ -279,6 +319,12 @@ def check_unit(spec, boot_epoch=None, _show=None, _run_git=None):
             "origin has %s (%s) touching this daemon's source, not in the "
             "local checkout -- pull, THEN restart" % (o_sha[:10], _iso(o_epoch)))
         return finding
+
+    age = remote_ref_age_days(
+        repo, origin_ref, int(datetime.now(timezone.utc).timestamp()),
+        _run_git=_run_git)
+    if age is not None and age > STALE_REMOTE_REF_DAYS:
+        finding["remote_ref_stale_days"] = round(age, 1)
 
     if commit_epoch > started:
         finding["status"] = DRIFT
@@ -295,11 +341,49 @@ def check_unit(spec, boot_epoch=None, _show=None, _run_git=None):
     return finding
 
 
+def remote_ref_age_days(repo, origin_ref, now_epoch, _run_git=None):
+    """Days since the remote-tracking ref's tip was committed, or None.
+
+    Why this matters: BEHIND-ORIGIN is computed from the LOCAL remote-tracking
+    ref, deliberately without fetching (a fetch is network I/O on every tick
+    and races the writers). If nothing has fetched that repo in weeks, the ref
+    is frozen and BEHIND-ORIGIN silently reports "0 behind" -- a false
+    all-clear at the pull layer rather than the process layer.
+
+    Confirmed 2026-07-18: ree-explorer runs from a separate clone at
+    ~/Documents/GitHub/REE_Working/REE_assembly whose origin/master ref was
+    last updated 2026-06-07. Its serve.py sat at 241835246a while the live
+    REE_assembly had moved to 756a4d0a31 -- so the daemon graded CURRENT while
+    running ~6-week-old code. The verdict was RIGHT about the process and
+    useless about the deployment. This annotation names that gap instead of
+    hiding it.
+    """
+    runner = _run_git or (lambda argv: _run(argv, GIT_TIMEOUT_SECONDS))
+    out = runner(["git", "-C", repo, "log", "-1", "--format=%ct", origin_ref])
+    if not out or not out.strip():
+        return None
+    try:
+        return (now_epoch - int(out.strip().splitlines()[0])) / 86400.0
+    except (ValueError, IndexError):
+        return None
+
+
 def _iso(epoch):
     if epoch is None:
         return None
     return datetime.fromtimestamp(epoch, timezone.utc).strftime(
         "%Y-%m-%dT%H:%M:%SZ")
+
+
+def _short_repo(path):
+    """~-relative repo path. The basename alone is NOT enough: two units run
+    from different checkouts that share the basename `ree-v3`
+    (REE_Working/ree-v3 vs REE_Working_runner/ree-v3)."""
+    if not path:
+        return "--"
+    if path.startswith(HOME):
+        return "~" + path[len(HOME):]
+    return path
 
 
 def _age_str(seconds):
@@ -325,9 +409,10 @@ def check_all(units=None, boot_epoch=None):
     if boot_epoch is None:
         return findings
     for spec in (units if units is not None else UNITS):
-        if not os.path.isdir(os.path.join(spec["repo"], ".git")):
+        f = check_unit(spec, boot_epoch=boot_epoch)
+        if not os.path.isdir(os.path.join(f["repo_path"], ".git")):
             continue
-        findings.append(check_unit(spec, boot_epoch=boot_epoch))
+        findings.append(f)
     return findings
 
 
@@ -360,24 +445,44 @@ def render_markdown(findings):
     else:
         lines.append("## Daemon code freshness -- all current")
     lines.append("")
-    lines.append("| Daemon | Status | Started | Last source commit |")
-    lines.append("|---|---|---|---|")
+    # The repo column is not decoration: a CURRENT verdict computed against a
+    # tree the process does not read is the silent failure this check exists
+    # to prevent, so the tree that was graded is always shown.
+    lines.append("| Daemon | Status | Repo (graded) | Started | "
+                 "Last source commit |")
+    lines.append("|---|---|---|---|---|")
     for f in sorted(findings, key=lambda x: x["unit"]):
-        lines.append("| %s | %s | %s | %s |" % (
+        lines.append("| %s | %s | %s | %s | %s |" % (
             f["unit"],
             f["status"],
+            _short_repo(f.get("repo_path")),
             f["started_utc"] or "--",
             ("%s %s" % (f["commit"] or "--", f["commit_utc"] or ""))
             .strip(),
         ))
     lines.append("")
+    unfetched = [f for f in findings if f.get("remote_ref_stale_days")]
+    if unfetched:
+        lines.append("**Cannot vouch for these against origin.** Their "
+                     "remote-tracking ref has not been fetched recently, so "
+                     "BEHIND-ORIGIN is computed from a frozen ref and a "
+                     "`CURRENT` verdict here means \"current with a stale "
+                     "checkout\", not \"running the latest code\":")
+        lines.append("")
+        for f in unfetched:
+            lines.append("- `%s` (%s) -- origin ref last updated %s days ago"
+                         % (f["unit"], _short_repo(f.get("repo_path")),
+                            f["remote_ref_stale_days"]))
+        lines.append("")
+
     if stale:
         lines.append("**A landed fix is not reaching a running process.** "
                      "Python binds modules at import, so these daemons keep "
                      "executing the code that existed when they started.")
         lines.append("")
         for f in stale:
-            lines.append("- `%s` -- %s" % (f["unit"], f["detail"]))
+            lines.append("- `%s` (%s) -- %s" % (
+                f["unit"], _short_repo(f.get("repo_path")), f["detail"]))
         lines.append("")
         lines.append("Restart is a deliberate operator action with a "
                      "pre-flight (clean trees + empty spool) -- see "
