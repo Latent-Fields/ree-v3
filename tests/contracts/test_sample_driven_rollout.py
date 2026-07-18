@@ -24,6 +24,7 @@ Run: pytest tests/contracts/test_sample_driven_rollout.py -q
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -31,6 +32,7 @@ import pytest
 # conftest puts ree-v3 root on sys.path -> `experiments._lib.*` importable.
 from experiments._lib.sample_driven_rollout import (
     SELF_ROUTE_SAMPLE_STARVATION,
+    EpisodeCapWarning,
     RolloutBudget,
     RolloutOutcome,
     TickContext,
@@ -228,6 +230,9 @@ def test_episode_cap_backstops_a_degenerate_env():
         max_env_steps=10_000,
         steps_per_episode=300,
         max_episodes=25,
+        # Deliberately tight: this test IS the degenerate-env backstop case, so
+        # it declares the intent rather than tripping EpisodeCapWarning.
+        allow_tight_episode_cap=True,
     )
     outcome, _ = _run(env, agent, harness, budget)
 
@@ -476,3 +481,147 @@ def test_progress_output_is_ascii_only():
         line.encode("ascii")  # raises on any non-ASCII character
     assert "T1S0 seed=11" in lines[0]
     outcome.summary_line().encode("ascii")
+
+
+# --------------------------------------------------------------------------- #
+# Denomination guard (autopsy MECH-063-777a-779a-cluster followup #3).
+#
+# 779a's fix F1 made the stopping RULE sample-driven but left the CAP
+# episode-denominated (max_episodes=120 against max_env_steps=2400). Seed 23 /
+# arm T1P1 dies in ~7 steps per episode, so it spent 835 of its 2400 available
+# steps and the load-bearing criterion was withheld. These tests hold the shared
+# helper to: correct-by-default, loud-when-overridden, legible-in-the-manifest.
+# --------------------------------------------------------------------------- #
+
+def test_default_episode_cap_cannot_bind_before_the_step_cap():
+    """The DEFAULT is step-denominated -- this is the property 779a overrode."""
+    budget = RolloutBudget(sample_floors={"selections": 20}, max_env_steps=2400)
+
+    assert budget.max_episodes >= budget.max_env_steps
+    assert not budget.episode_cap_can_bind
+
+
+def test_short_episode_seed_spends_its_full_step_budget_under_the_default():
+    """The literal 779a seed-23 case: ~7-step episodes against a 2400-step cap.
+
+    Under the default the STEP cap binds, so the cell gets all 2400 steps rather
+    than 835. Floors are set unreachably high so nothing else can stop it.
+    """
+    env, agent, harness = _mk(episode_length=7)
+    budget = RolloutBudget(
+        sample_floors={"selections": 10_000},
+        max_env_steps=2400,
+        steps_per_episode=300,
+    )
+    outcome, _ = _run(env, agent, harness, budget)
+
+    assert outcome.n_env_steps == 2400
+    assert outcome.stop_reason == "step_cap"
+    assert outcome.n_episodes > 120  # 779a's cap would have stopped it here
+
+
+def test_the_779a_configuration_starves_and_is_flagged():
+    """Reproduce 779a's explicit 120/2400 and hold the signal to what it must say."""
+    env, agent, harness = _mk(episode_length=7)
+    with pytest.warns(EpisodeCapWarning):
+        budget = RolloutBudget(
+            sample_floors={"selections": 10_000},
+            max_env_steps=2400,
+            steps_per_episode=300,
+            max_episodes=120,
+        )
+    outcome, _ = _run(env, agent, harness, budget)
+
+    # The defect itself: the episode cap bound, well short of the step budget.
+    assert outcome.stop_reason == "episode_cap"
+    assert outcome.n_env_steps < 1000
+    # ...and it is visible without re-deriving it from the two caps.
+    assert outcome.episode_cap_can_bind
+    assert outcome.as_manifest_fields()["rollout_episode_cap_can_bind"] is True
+
+
+def test_tight_episode_cap_warns_and_names_both_caps():
+    with pytest.warns(EpisodeCapWarning) as rec:
+        RolloutBudget(
+            sample_floors={"selections": 20},
+            max_env_steps=2400,
+            max_episodes=120,
+        )
+    msg = str(rec[0].message)
+    assert "max_episodes=120" in msg
+    assert "max_env_steps=2400" in msg
+    msg.encode("ascii")  # printed/logged text stays ASCII (project rule)
+
+
+def test_allow_tight_episode_cap_silences_the_warning_but_not_the_flag():
+    """A caller may genuinely want a tight cap -- opt out, but stay legible."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", EpisodeCapWarning)
+        budget = RolloutBudget(
+            sample_floors={"selections": 20},
+            max_env_steps=2400,
+            max_episodes=120,
+            allow_tight_episode_cap=True,
+        )
+    assert budget.episode_cap_can_bind  # opting out does not hide the fact
+
+
+def test_default_budget_does_not_warn():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", EpisodeCapWarning)
+        RolloutBudget(sample_floors={"selections": 20}, max_env_steps=2400)
+
+
+def test_episode_cap_equal_to_step_cap_does_not_warn():
+    """The 779b form: max_episodes DERIVED from (equal to) max_env_steps."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", EpisodeCapWarning)
+        budget = RolloutBudget(
+            sample_floors={"selections": 20},
+            max_env_steps=2400,
+            max_episodes=2400,
+        )
+    assert not budget.episode_cap_can_bind
+
+
+def test_manifest_records_the_budget_alongside_the_binding_reason():
+    """stop_reason says which cap DID bind; these say which cap COULD have.
+
+    The near-miss case needs both: a cell that stopped on `floors_met` under a
+    tight episode cap is one short-episode seed away from the 779a defect, and
+    stop_reason alone cannot show that.
+    """
+    env, agent, harness = _mk(episode_length=1000)
+    budget = RolloutBudget(
+        sample_floors={"selections": 5},
+        max_env_steps=2400,
+        steps_per_episode=300,
+        max_episodes=120,
+        allow_tight_episode_cap=True,
+    )
+    outcome, _ = _run(env, agent, harness, budget)
+    fields = outcome.as_manifest_fields()
+
+    assert fields["rollout_stop_reason"] == "floors_met"
+    assert fields["rollout_episode_cap_can_bind"] is True
+    assert fields["rollout_max_env_steps"] == 2400
+    assert fields["rollout_max_episodes"] == 120
+
+
+def test_selfroute_reports_the_denomination_of_the_offending_cell():
+    env, agent, harness = _mk(episode_length=7)
+    with pytest.warns(EpisodeCapWarning):
+        budget = RolloutBudget(
+            sample_floors={"selections": 10_000},
+            max_env_steps=2400,
+            steps_per_episode=300,
+            max_episodes=120,
+        )
+    outcome, _ = _run(env, agent, harness, budget)
+
+    route = starvation_selfroute([{"arm": "T1P1", "seed": 23, "outcome": outcome}])
+    assert route is not None
+    cell = route["starved_cells"][0]
+    assert cell["episode_cap_can_bind"] is True
+    assert cell["max_episodes"] == 120
+    assert cell["max_env_steps"] == 2400

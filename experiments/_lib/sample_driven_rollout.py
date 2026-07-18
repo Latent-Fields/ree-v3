@@ -32,6 +32,19 @@ returned EXPLICITLY so the caller can self-route `sample_starvation_requeue` and
 NAME THE OFFENDING CELL, rather than emitting `substrate_not_ready_requeue` for
 what is actually a sampling failure (autopsy learning 4).
 
+THE SAME DEFECT, ONE LAYER DOWN (V3-EXQ-779a)
+---------------------------------------------
+Making the stopping RULE sample-driven does not make the CAP sample-driven.
+779a adopted this module but passed an explicit `max_episodes=120` against a
+2400-step cap; seed 23 / arm T1P1 dies in ~7 steps per episode, so the EPISODE
+cap bound at 835 of its 2400 available steps and the run was withheld. The
+explicit 120 was an override of behaviour that was already correct by default
+(`__post_init__` derives `max_episodes` from `max_env_steps`). So the override
+is now LOUD: `EpisodeCapWarning` at construction, plus
+`rollout_episode_cap_can_bind` on every cell's manifest row. It is a warning and
+not a ban because a tight episode cap is sometimes genuinely wanted -- declare
+it with `allow_tight_episode_cap=True`.
+
 Realised counts (`n_env_steps`, `n_episodes`, per-readout sample counts) are
 returned for recording in the manifest. Per-cell `n_env_steps` is exactly what
 made the original diagnosis possible without a re-run (autopsy learning 7) --
@@ -51,6 +64,7 @@ Run the contract tests: pytest tests/contracts/test_sample_driven_rollout.py -q
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
@@ -58,10 +72,20 @@ __all__ = [
     "TickContext",
     "RolloutBudget",
     "RolloutOutcome",
+    "EpisodeCapWarning",
     "run_cell_until_samples",
     "starvation_selfroute",
     "SELF_ROUTE_SAMPLE_STARVATION",
 ]
+
+
+class EpisodeCapWarning(UserWarning):
+    """An explicit `max_episodes` that can bind before `max_env_steps`.
+
+    Raised at `RolloutBudget` construction, NOT at stop time -- by stop time the
+    starved cell has already been produced. See the "DENOMINATION" note on
+    `RolloutBudget.max_episodes` for why this is a warning rather than an error.
+    """
 
 # The self-route label a caller should emit when a readiness precondition is
 # unmet because of SAMPLE COUNT rather than a substrate CAPABILITY check.
@@ -132,12 +156,42 @@ class RolloutBudget:
         env terminates on step 1 every time -- without it, a 2-step episode
         against a large `max_env_steps` would spin through thousands of resets.
         Defaults to a generous bound derived from the step cap.
+
+        DENOMINATION -- read this before passing an explicit value. Every episode
+        consumes at least one env step, so `max_episodes >= max_env_steps`
+        guarantees the STEP cap is the binding constraint for every cell. Any
+        smaller explicit value re-opens the defect this module exists to close:
+        V3-EXQ-779a made the stopping RULE sample-driven but left this CAP
+        episode-denominated at 120 against a 2400-step cap, and seed 23 / arm
+        T1P1 -- which dies in ~7 steps per episode -- spent only 835 of its 2400
+        available steps and starved one layer down.
+
+        This is a WARNING (`EpisodeCapWarning`), not an error: a caller may
+        genuinely want a tight episode cap as a runtime bound on a probe whose
+        floors it expects to reach quickly. Pass
+        `allow_tight_episode_cap=True` to declare that intent and silence it.
+        Either way the fact is recorded on the `RolloutOutcome` and reaches the
+        manifest as `rollout_episode_cap_can_bind`, so a reader can see that a
+        cell's yield was episode-denominated without re-deriving it.
+    allow_tight_episode_cap
+        Opt out of `EpisodeCapWarning`. Does NOT suppress the manifest flag.
     """
 
     sample_floors: Mapping[str, int] = field(default_factory=dict)
     max_env_steps: int = 0
     steps_per_episode: int = 300
     max_episodes: int = 0
+    allow_tight_episode_cap: bool = False
+
+    @property
+    def episode_cap_can_bind(self) -> bool:
+        """True when the EPISODE cap can bind before the STEP cap.
+
+        Since an episode costs at least one step, this is exactly
+        `max_episodes < max_env_steps`. False under the default, where
+        `max_episodes` is derived from `max_env_steps`.
+        """
+        return int(self.max_episodes) < int(self.max_env_steps)
 
     def __post_init__(self) -> None:
         if int(self.max_env_steps) <= 0:
@@ -151,8 +205,30 @@ class RolloutBudget:
                 )
         if int(self.max_episodes) <= 0:
             # Generous default: enough episodes to spend the step cap even when
-            # episodes terminate almost immediately, but still finite.
+            # episodes terminate almost immediately, but still finite. This is
+            # the step-denominated form -- the episode cap can never bind first.
             object.__setattr__(self, "max_episodes", int(self.max_env_steps))
+            return
+
+        # An EXPLICIT episode cap below the step cap can starve a short-episode
+        # seed before the step budget is spent. Say so at construction time.
+        if self.episode_cap_can_bind and not bool(self.allow_tight_episode_cap):
+            warnings.warn(
+                "RolloutBudget: max_episodes=%d < max_env_steps=%d, so the "
+                "EPISODE cap can bind before the STEP cap. A seed whose "
+                "episodes are shorter than %.1f steps will spend less than its "
+                "full step budget (the V3-EXQ-779a seed-23 defect: 835 of 2400 "
+                "steps at ~7 steps/episode). Derive max_episodes from "
+                "max_env_steps, or pass allow_tight_episode_cap=True if the "
+                "tight cap is intended."
+                % (
+                    int(self.max_episodes),
+                    int(self.max_env_steps),
+                    float(self.max_env_steps) / float(self.max_episodes),
+                ),
+                EpisodeCapWarning,
+                stacklevel=3,
+            )
 
 
 @dataclass
@@ -164,6 +240,14 @@ class RolloutOutcome:
     counts: Dict[str, int]
     floors: Dict[str, int]
     stop_reason: str
+    # The budget this cell actually ran under. `stop_reason` says which cap DID
+    # bind; these say which cap COULD have. The distinction matters for the
+    # near-miss case -- a cell that stopped on `floors_met` under a tight
+    # episode cap is one short-episode seed away from the 779a defect, and
+    # stop_reason alone cannot show that.
+    max_env_steps: int = 0
+    max_episodes: int = 0
+    episode_cap_can_bind: bool = False
 
     @property
     def starved_readouts(self) -> List[str]:
@@ -192,6 +276,9 @@ class RolloutOutcome:
             "rollout_floors_met": bool(self.floors_met),
             "rollout_sample_floors": {k: int(v) for k, v in self.floors.items()},
             "rollout_sample_counts": {k: int(v) for k, v in self.counts.items()},
+            "rollout_max_env_steps": int(self.max_env_steps),
+            "rollout_max_episodes": int(self.max_episodes),
+            "rollout_episode_cap_can_bind": bool(self.episode_cap_can_bind),
         }
         if not self.floors_met:
             out["rollout_starved_readouts"] = list(self.starved_readouts)
@@ -208,12 +295,14 @@ class RolloutOutcome:
                 "%s=%d" % (k, v) for k, v in sorted(self.counts.items())
             )
         head = ("%s " % label) if label else ""
-        return "%senv_steps=%d episodes=%d %s stop=%s" % (
+        tail = " episode_cap_can_bind=1" if self.episode_cap_can_bind else ""
+        return "%senv_steps=%d episodes=%d %s stop=%s%s" % (
             head,
             self.n_env_steps,
             self.n_episodes,
             counts,
             self.stop_reason,
+            tail,
         )
 
 
@@ -342,6 +431,9 @@ def run_cell_until_samples(
         counts=counts,
         floors=floors,
         stop_reason=stop_reason,
+        max_env_steps=int(budget.max_env_steps),
+        max_episodes=int(budget.max_episodes),
+        episode_cap_can_bind=bool(budget.episode_cap_can_bind),
     )
     emit("  [rollout] " + outcome.summary_line(progress_label))
     return outcome
@@ -386,6 +478,9 @@ def starvation_selfroute(
                 "n_env_steps": int(outcome.n_env_steps),
                 "n_episodes": int(outcome.n_episodes),
                 "stop_reason": outcome.stop_reason,
+                "episode_cap_can_bind": bool(outcome.episode_cap_can_bind),
+                "max_env_steps": int(outcome.max_env_steps),
+                "max_episodes": int(outcome.max_episodes),
                 "shortfall": {
                     name: {
                         "measured": int(outcome.counts.get(name, 0)),
