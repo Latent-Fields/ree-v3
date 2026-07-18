@@ -91,6 +91,47 @@ So the load-bearing readout is a dose-response GAIN, not "downstream looks worse
     run_rem_attribution_pass driven once for liveness telemetry (rem_n_rollouts),
     confirming the injection point is exactly the seed the live REM path reads.
 
+THE NULL-CONTENT CONTROL + CONFOUND REGISTER (V3-EXQ-778b)
+----------------------------------------------------------
+`run_null_content_control` runs the identical sigma sweep with NO injected known
+content (`content_scale=0.0`) while holding the delivered perturbation numerically
+identical, and reports a per-phase `null_slope_ratio` = |null slope| / |injected
+slope|. This is the analog of the odour-contingency null in Bar et al. 2020 (Curr
+Biol, DOI 10.1016/j.cub.2020.01.091), the methodological precedent this harness
+follows: their unilateral olfactory stimulation produced NO effect when learning had
+occurred without the contextual odour -- the perturbation acts only on injected
+content. Without such a null, a readout that moves with sigma on noise alone is
+measuring PERTURBATION MAGNITUDE rather than content fidelity, and the
+damage-tolerance staging order is an ordering of the three phases' raw noise
+sensitivity -- exactly the vacuity this harness claims to escape.
+
+A phase whose ratio exceeds NULL_SLOPE_RATIO_CEILING is CONFOUNDED. Confounded
+phases are NAMED in `confounded_phases` and reported alongside the staging order;
+they are NEVER silently dropped from it. Standing a-priori expectations, to be
+confirmed or refuted by the V3-EXQ-778b measurement rather than assumed:
+
+  * rem (passthrough leg) -- EXPECTED CONFOUNDED. `rem_precision_error` at step=1.0
+    returns exactly 1/corrupt_target, so `calibration_error` is a closed-form
+    function of the injected corruption with no content term. This leg is already
+    documented above as "PASSTHROUGH by construction"; the null control makes that
+    structural admission MEASURABLE instead of merely stated.
+  * sws -- EXPECTED CONFOUNDED. `_shy` is affine, so shy(clean+noise) - shy(clean) =
+    shy_centred(noise) exactly, independent of `clean`. The residual-noise fraction
+    is therefore ~sigma^2 whatever the content is.
+  * nrem -- AT RISK. The injected "trace" is an isotropic randn offset, which is
+    statistically indistinguishable from the corruption it is damaged with, so the
+    consolidation pass may close the same fraction of a noise target as of a content
+    target.
+  * rem (generative leg) -- THE ONE WITH A GENUINE CHANCE. `rollout_with_world` is
+    non-linear, so its re-derivation of an in-distribution seed can differ from its
+    response to a content-free seed.
+
+If the measurement confirms the sws/rem-passthrough expectations, the V3-EXQ-778
+staged order (nrem, rem, sws) rests on legs that are at least partly noise-sensitivity
+ordering, and the SD-068 non-vacuity contract must be carried by the REM
+passthrough-vs-generative contrast alone. That is a valid and informative diagnostic
+outcome -- it scopes the claim honestly rather than withdrawing it.
+
 PREREQUISITE CAVEATS (respected, not lifted)
 --------------------------------------------
   * MECH-121 is candidate/substrate_conditional (hold_pending_v3_substrate). This
@@ -201,7 +242,12 @@ def _warm_encoders(agent: REEAgent, *, n_steps: int, gen: torch.Generator) -> No
 # Uniform diffuse-damage primitive                                            #
 # --------------------------------------------------------------------------- #
 
-def diffuse_perturb(t: torch.Tensor, sigma: float, gen: torch.Generator) -> torch.Tensor:
+def diffuse_perturb(
+    t: torch.Tensor,
+    sigma: float,
+    gen: torch.Generator,
+    rms_ref: Optional[float] = None,
+) -> torch.Tensor:
     """Additive isotropic Gaussian corruption of magnitude `sigma`.
 
     The single knob applied IDENTICALLY to each phase's operative tensor == the
@@ -209,12 +255,29 @@ def diffuse_perturb(t: torch.Tensor, sigma: float, gen: torch.Generator) -> torc
     own per-element scale (multiplied by its RMS) so a given sigma is comparably
     severe across phases with different natural magnitudes -- this is what makes
     the damage genuinely UNIFORM across phases rather than uniform-in-raw-units.
+
+    `rms_ref` (SD-068 null-content control, V3-EXQ-778b) overrides the scale the
+    noise is measured against. The NULL arm scales the injected content to zero, so
+    the content's OWN rms goes to zero with it -- which would silently scale the
+    damage away too and make the null trivially flat for the wrong reason. Passing
+    the UNSCALED content's rms holds the delivered perturbation numerically
+    IDENTICAL across the injected and null arms, which is the whole point of the
+    control (Bar et al. 2020: the same odour is delivered; only the prior pairing
+    is absent). Default None == the tensor's own rms == pre-778b behaviour.
     """
     if sigma <= 0.0:
         return t.clone()
-    rms = float(t.detach().pow(2).mean().clamp(min=1e-12).sqrt().item())
+    if rms_ref is None:
+        rms = float(t.detach().pow(2).mean().clamp(min=1e-12).sqrt().item())
+    else:
+        rms = float(rms_ref)
     noise = torch.randn(t.shape, generator=gen) * (sigma * rms)
     return t + noise
+
+
+def _rms(t: torch.Tensor) -> float:
+    """RMS of a tensor, floored -- the damage-scale reference for both arms."""
+    return float(t.detach().pow(2).mean().clamp(min=1e-12).sqrt().item())
 
 
 # --------------------------------------------------------------------------- #
@@ -227,6 +290,7 @@ def sws_denoising_snr(
     sigma: float,
     gen: torch.Generator,
     n_prototypes: Optional[int] = None,
+    content_scale: float = 1.0,
 ) -> Dict[str, float]:
     """Denoising-SNR of the SWS phase against injected clean prototypes.
 
@@ -245,6 +309,14 @@ def sws_denoising_snr(
         noise_power  = ||shy(damaged) - shy(clean)||^2   (residual due to damage)
         denoising_snr_db = 10 log10(signal_power / noise_power)
     Higher = better functional integrity; monotonically decreasing in sigma.
+
+    `content_scale` (SD-068 null-content control, V3-EXQ-778b): scales the INJECTED
+    prototypes. 1.0 == the injected-content arm (pre-778b behaviour, bit-identical).
+    0.0 == the NULL arm: no known content is planted, so the SHY operation runs on
+    noise alone while the delivered damage stays numerically identical (the noise
+    scale is taken from the UNSCALED prototypes). signal_power goes to 0 in the null
+    arm, so the null arm's error series must be normalised by the INJECTED arm's
+    signal_power -- run_null_content_control does exactly that.
     """
     mem = agent.e1.context_memory.memory
     num_slots = int(mem.shape[0])
@@ -252,10 +324,14 @@ def sws_denoising_snr(
     k = num_slots if n_prototypes is None else min(int(n_prototypes), num_slots)
 
     # Inject distinct clean prototypes (structured, well-separated).
-    clean = torch.randn(num_slots, dim, generator=gen)
+    base = torch.randn(num_slots, dim, generator=gen)
     if k > 1:
         # amplify separation between the first k rows so structure is non-trivial
-        clean[:k] = clean[:k] * 2.0
+        base[:k] = base[:k] * 2.0
+    # Damage scale is always referenced to the UNSCALED content, so the null arm
+    # (content_scale=0) receives the SAME absolute perturbation as the injected arm.
+    rms_ref = _rms(base)
+    clean = base * float(content_scale)
     decay = float(agent.config.shy_decay_rate)
 
     def _shy(rows: torch.Tensor) -> torch.Tensor:
@@ -263,7 +339,7 @@ def sws_denoising_snr(
         return mean + (rows - mean) * decay
 
     clean_out = _shy(clean)
-    damaged = diffuse_perturb(clean, sigma, gen)
+    damaged = diffuse_perturb(clean, sigma, gen, rms_ref=rms_ref)
     damaged_out = _shy(damaged)
 
     signal_power = float(((clean_out - clean_out.mean(dim=0, keepdim=True)) ** 2).sum().item())
@@ -285,6 +361,7 @@ def sws_denoising_snr(
         "denoising_snr_db": float(snr_db),
         "signal_power": signal_power,
         "noise_power": noise_power,
+        "content_scale": float(content_scale),
         "sws_slot_diversity": float(live.get("sws_slot_diversity", 0.0)),
         "sws_n_writes": float(live.get("sws_n_writes", 0.0)),
     }
@@ -301,6 +378,7 @@ def nrem_transfer_fidelity(
     gen: torch.Generator,
     n_steps: int = 20,
     lr: float = 1e-3,
+    content_scale: float = 1.0,
 ) -> Dict[str, float]:
     """Transfer-fidelity of the NREM offline-consolidation pass on injected content.
 
@@ -319,6 +397,16 @@ def nrem_transfer_fidelity(
     episodic->schematic transfer, and a substrate-plumbing-fidelity readout only --
     it does NOT constitute behavioural validation of MECH-121 (which stays
     hold_pending_v3_substrate).
+
+    `content_scale` (SD-068 null-content control, V3-EXQ-778b): scales the injected
+    per-parameter offset (the "trace being consolidated"). 1.0 == the injected-content
+    arm (pre-778b behaviour, bit-identical). 0.0 == the NULL arm: the clean target
+    collapses onto the CURRENT parameters, so there is no known content to transfer
+    and the consolidation pass runs on pure noise -- while the delivered damage stays
+    numerically identical (noise scale referenced to the UNSCALED target). gap_before
+    goes to 0 in the null arm (so `transfer_fidelity` is UNAVAILABLE there by
+    construction); the null arm's error series is instead built from `gap_after`
+    normalised by the INJECTED arm's gap_before, which run_null_content_control does.
     """
     from ree_core.sleep.cross_module_consolidation import CrossModuleConsolidator
 
@@ -343,9 +431,13 @@ def nrem_transfer_fidelity(
         cts, dts = [], []
         for p in params:
             offset = torch.randn(p.shape, generator=gen) * 0.1
-            ct = (p.detach() + offset).clone()
+            # Damage scale referenced to the UNSCALED target so the null arm
+            # (content_scale=0) receives the SAME absolute perturbation.
+            base_ct = (p.detach() + offset).clone()
+            rms_ref = _rms(base_ct)
+            ct = (p.detach() + offset * float(content_scale)).clone()
             cts.append(ct)
-            dts.append(diffuse_perturb(ct, sigma, gen).detach())
+            dts.append(diffuse_perturb(ct, sigma, gen, rms_ref=rms_ref).detach())
         clean_targets[name] = cts
         damaged_targets[name] = dts
 
@@ -384,6 +476,7 @@ def nrem_transfer_fidelity(
         "phase": 1.0,
         "transfer_fidelity": float(fidelity),
         "available": 1.0,
+        "content_scale": float(content_scale),
         "gap_before": float(total_before),
         "gap_after": float(total_after),
         "n_updates": float(metrics.get("n_updates", 0.0)),
@@ -404,6 +497,7 @@ def rem_precision_error(
     start_variance: float = 1.0,
     step: float = 1.0,
     run_generative: bool = True,
+    content_scale: float = 1.0,
 ) -> Dict[str, float]:
     """Precision-calibration-error of the REM phase against an injected clean target.
 
@@ -431,18 +525,38 @@ def rem_precision_error(
     ~1 passthrough, >1 amplifying. This REPLACES the retired rem_terrain_variance
     proxy, which read ~null because the generative pass never consumes the E3
     precision reference the proxy corrupted (confirmed in V3-EXQ-778).
+
+    `content_scale` (SD-068 null-content control, V3-EXQ-778b): scales the INJECTED
+    known target precision that the recalibration is pointed at. 1.0 == the
+    injected-content arm (pre-778b behaviour, bit-identical). 0.0 == the NULL arm:
+    the recalibration reference becomes pure jitter with no planted target, while
+    the jitter magnitude stays numerically identical (it is always referenced to the
+    unscaled `target_precision`). NOTE: this leg is PASSTHROUGH BY CONSTRUCTION
+    (step=1.0 makes the output exactly 1/corrupt_target), so it is a priori expected
+    to fail the null control -- see the CONFOUND REGISTER in the module docstring.
     """
     e3 = getattr(agent, "e3", None)
     if e3 is None:
         return {"phase": 2.0, "calibration_error": UNAVAILABLE, "available": 0.0}
 
     clean_target = float(target_precision)
-    # Corrupt the reference precision by sigma (relative), floored positive.
+    injected_target = clean_target * float(content_scale)
+    # Corrupt the reference precision by sigma (relative), floored positive. The
+    # jitter is always scaled by the UNSCALED clean_target so the null arm receives
+    # the SAME absolute perturbation as the injected arm.
     if sigma > 0.0:
         jitter = float(torch.randn(1, generator=gen).item()) * sigma * clean_target
-        corrupt_target = max(1e-3, clean_target + jitter)
+        raw_target = injected_target + jitter
     else:
-        corrupt_target = clean_target
+        raw_target = injected_target if content_scale != 1.0 else clean_target
+    corrupt_target = max(1e-3, raw_target)
+    # Clamp saturation flag (V3-EXQ-778b): with no injected target the reference can
+    # collapse onto the 1e-3 positivity floor, and 1/1e-3 = 1000 then DOMINATES the
+    # calibration error. A null-arm slope built on clamped points is off-scale, not a
+    # calibrated sensitivity -- so the ratio must be read as "structurally content-free",
+    # never as a literal N-fold noise sensitivity. Surfaced so a large ratio cannot be
+    # mistaken for a measured magnitude.
+    target_clamped = 1.0 if raw_target < 1e-3 else 0.0
 
     # Inject the known starting variance, then recalibrate toward the corrupt ref.
     e3._running_variance = float(start_variance)
@@ -454,14 +568,18 @@ def rem_precision_error(
         "phase": 2.0,
         "calibration_error": float(calibration_error),
         "available": 1.0,
+        "content_scale": float(content_scale),
         "running_variance_before": float(rv_before),
         "running_variance_after": float(rv_after),
         "corrupt_target_precision": float(corrupt_target),
         "clean_target_variance": float(clean_var),
+        "target_clamped": float(target_clamped),
     }
 
     if run_generative:
-        gen_out = rem_generative_fidelity(agent, sigma=sigma, gen=gen)
+        gen_out = rem_generative_fidelity(
+            agent, sigma=sigma, gen=gen, content_scale=content_scale
+        )
         out.update(gen_out)
 
     return out
@@ -479,6 +597,7 @@ def rem_generative_fidelity(
     n_rollouts: int = 4,
     horizon: Optional[int] = None,
     drive_liveness_pass: bool = True,
+    content_scale: float = 1.0,
 ) -> Dict[str, float]:
     """Clean recovered-vs-known-target fidelity of the REM generative re-derivation.
 
@@ -526,6 +645,16 @@ def rem_generative_fidelity(
     run_rem_attribution_pass driven once (drive_liveness_pass=True), confirming the
     injection point is exactly the seed the live REM path reads. Its
     rem_terrain_variance is retained as pure telemetry -- NOT a load-bearing signal.
+
+    `content_scale` (SD-068 null-content control, V3-EXQ-778b): scales the captured
+    rollout SEED -- the injected known content. 1.0 == the injected-content arm
+    (pre-778b behaviour, bit-identical). 0.0 == the NULL arm: the generative pass is
+    re-derived from a CONTENT-FREE (zero) seed, so any remaining sigma-sensitivity is
+    the forward model's raw noise response rather than content fidelity. The
+    delivered seed corruption stays numerically identical (referenced to the UNSCALED
+    captured seed's rms). This leg is the one with a genuine chance of passing the
+    null control, because the re-derivation is NON-LINEAR -- see the CONFOUND
+    REGISTER in the module docstring.
     """
     e2 = getattr(agent, "e2", None)
     hippo = getattr(agent, "hippocampal", None)
@@ -540,14 +669,18 @@ def rem_generative_fidelity(
     # Capture the known clean seed the live REM path would consume.
     recent = agent.theta_buffer.recent
     if recent is not None and recent.shape[0] > 0:
-        clean_seed = recent[-1].detach().clone()  # [batch, world_dim]
+        base_seed = recent[-1].detach().clone()  # [batch, world_dim]
     else:
-        clean_seed = torch.randn(1, world_dim, generator=gen)
+        base_seed = torch.randn(1, world_dim, generator=gen)
+    # Damage scale referenced to the UNSCALED captured seed so the null arm
+    # (content_scale=0) receives the SAME absolute seed corruption.
+    seed_rms_ref = _rms(base_seed)
+    clean_seed = base_seed * float(content_scale)
     batch = int(clean_seed.shape[0])
     z_self_init = torch.zeros(batch, self_dim)
 
     # One corruption realisation at this sigma; averaged over fixed action draws.
-    corrupt_seed = diffuse_perturb(clean_seed, sigma, gen).detach()
+    corrupt_seed = diffuse_perturb(clean_seed, sigma, gen, rms_ref=seed_rms_ref).detach()
 
     def _generated_ws(seed: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         # world_states[1:] -- the re-derived (rolled-out) states, excluding the
@@ -568,7 +701,10 @@ def rem_generative_fidelity(
             dev_sq += float(((corrupt_gen - clean_gen) ** 2).sum().item())
             sig_sq += float((clean_gen ** 2).sum().item())
 
-    seed_norm = float(clean_seed.norm().clamp(min=1e-12).item())
+    # Reference the input-corruption fraction to the UNSCALED seed norm: in the null
+    # arm the scaled seed is zero, so its own norm is a degenerate denominator. At
+    # content_scale=1.0 the two are identical, so the injected arm is unchanged.
+    seed_norm = float(base_seed.norm().clamp(min=1e-12).item())
     input_rel = float((corrupt_seed - clean_seed).norm().item()) / seed_norm
     if sig_sq <= 1e-12:
         output_rel = UNAVAILABLE
@@ -584,6 +720,7 @@ def rem_generative_fidelity(
 
     out: Dict[str, float] = {
         "generative_available": 1.0,
+        "rem_gen_content_scale": float(content_scale),
         "rem_gen_input_rel_corruption": float(input_rel),
         "rem_gen_output_rel_dev": float(output_rel) if output_rel != UNAVAILABLE else UNAVAILABLE,
         "rem_generative_gain": float(gain) if gain != UNAVAILABLE else UNAVAILABLE,
@@ -616,30 +753,43 @@ def rem_generative_fidelity(
 # Per-phase integrity at one damage level                                     #
 # --------------------------------------------------------------------------- #
 
-def phase_integrity_at_sigma(*, seed: int, sigma: float, warm_steps: int = 40) -> Dict[str, Dict[str, float]]:
+def phase_integrity_at_sigma(
+    *, seed: int, sigma: float, warm_steps: int = 40, content_scale: float = 1.0
+) -> Dict[str, Dict[str, float]]:
     """Run all three per-phase readouts at UNIFORM damage `sigma` on one seed.
 
     Each phase gets a FRESH agent so the phases are measured independently (the
     staging question is about each phase's own transfer function under the same
     diffuse damage, not about a single serial pass -- a serial pass would bake in
     the very error-compounding the non-vacuity contract must avoid).
+
+    `content_scale` selects the arm: 1.0 == injected content (the pre-778b default,
+    bit-identical), 0.0 == the SD-068 null-content control arm. The agent build, the
+    warm-up drive, the RNG streams, and the delivered damage are IDENTICAL across the
+    two arms -- only the injected known content is removed.
     """
     results: Dict[str, Dict[str, float]] = {}
 
     g = _gen(seed * 1009 + 1)
     a_sws = build_pipeline_agent(seed=seed)
     _warm_encoders(a_sws, n_steps=warm_steps, gen=g)
-    results["sws"] = sws_denoising_snr(a_sws, sigma=sigma, gen=g)
+    results["sws"] = sws_denoising_snr(
+        a_sws, sigma=sigma, gen=g, content_scale=content_scale
+    )
 
     g = _gen(seed * 1009 + 2)
     a_nrem = build_pipeline_agent(seed=seed)
     _warm_encoders(a_nrem, n_steps=warm_steps, gen=g)
-    results["nrem"] = nrem_transfer_fidelity(a_nrem, sigma=sigma, gen=g)
+    results["nrem"] = nrem_transfer_fidelity(
+        a_nrem, sigma=sigma, gen=g, content_scale=content_scale
+    )
 
     g = _gen(seed * 1009 + 3)
     a_rem = build_pipeline_agent(seed=seed)
     _warm_encoders(a_rem, n_steps=warm_steps, gen=g)
-    results["rem"] = rem_precision_error(a_rem, sigma=sigma, gen=g)
+    results["rem"] = rem_precision_error(
+        a_rem, sigma=sigma, gen=g, content_scale=content_scale
+    )
 
     return results
 
@@ -833,6 +983,206 @@ def error_propagation_gain(
 
 
 # --------------------------------------------------------------------------- #
+# Null-content control (SD-068 non-vacuity floor, V3-EXQ-778b)                #
+# --------------------------------------------------------------------------- #
+
+# A phase's readout counts as CONTENT-CONTINGENT when its null-arm sigma-slope is
+# at most this fraction of its injected-arm sigma-slope. Pre-registered.
+NULL_SLOPE_RATIO_CEILING = 0.25
+# Below this injected-arm slope the ratio is not interpretable (0/0) -- the phase is
+# reported UNAVAILABLE rather than silently scored as a pass.
+NULL_MIN_INJECTED_SLOPE = 1e-9
+
+
+def _common_error_series(
+    pr_by_sigma: Dict[float, Dict[str, Dict[str, float]]],
+    phase: str,
+    sigmas: List[float],
+    denom: Dict[str, float],
+) -> List[float]:
+    """Per-phase error series in COMMON units across the injected and null arms.
+
+    The injected-arm denominators are supplied by the caller and used for BOTH arms,
+    because the null arm's own denominators collapse to zero with the content (no
+    injected signal power, no injected consolidation gap). Holding the denominator
+    fixed is what makes the two arms' slopes directly comparable -- the ratio then
+    answers exactly "how much of this readout's sigma-response survives when the
+    content is removed?".
+
+        sws  : noise_power            / injected signal_power
+        nrem : gap_after              / injected gap_before
+        rem  : calibration_error      / clean_target_variance
+    """
+    out: List[float] = []
+    for s in sigmas:
+        row = pr_by_sigma[s][phase]
+        if phase == "sws":
+            d = denom.get("sws", 0.0)
+            noi = row.get("noise_power", float("nan"))
+            out.append((noi / d) if d > 1e-12 else float("nan"))
+        elif phase == "nrem":
+            d = denom.get("nrem", 0.0)
+            ga = row.get("gap_after", float("nan"))
+            out.append((ga / d) if d > 1e-12 else float("nan"))
+        else:  # rem
+            d = denom.get("rem", 0.0)
+            err = row.get("calibration_error", UNAVAILABLE)
+            out.append(
+                (err / d) if (err != UNAVAILABLE and d > 1e-12) else float("nan")
+            )
+    return out
+
+
+def _injected_denominators(
+    pr_by_sigma: Dict[float, Dict[str, Dict[str, float]]], sigmas: List[float]
+) -> Dict[str, float]:
+    """The injected arm's reference scales, taken at the intact (lowest) sigma."""
+    s0 = min(sigmas)
+    return {
+        "sws": float(pr_by_sigma[s0]["sws"].get("signal_power", 0.0)),
+        "nrem": float(pr_by_sigma[s0]["nrem"].get("gap_before", 0.0)),
+        "rem": float(pr_by_sigma[s0]["rem"].get("clean_target_variance", 0.0)),
+    }
+
+
+def _slope_of(sigmas: List[float], errs: List[float]) -> float:
+    xs = [s for s, e in zip(sigmas, errs) if not math.isnan(e)]
+    ys = [e for e in errs if not math.isnan(e)]
+    return float(_lin_slope(xs, ys)) if len(ys) >= 2 else float("nan")
+
+
+def run_null_content_control(
+    *,
+    seed: int,
+    sigmas: Optional[List[float]] = None,
+    warm_steps: int = 40,
+    injected_pr_by_sigma: Optional[Dict[float, Dict[str, Dict[str, float]]]] = None,
+    null_pr_by_sigma: Optional[Dict[float, Dict[str, Dict[str, float]]]] = None,
+) -> Dict[str, float]:
+    """Zero-injected-content NULL CONTROL for the per-phase damage readouts.
+
+    THE CONTROL THIS IMPLEMENTS (Bar et al. 2020, Curr Biol, DOI
+    10.1016/j.cub.2020.01.091 -- the methodological precedent SD-068 follows).
+    Bar et al. injected known content, applied a scoped perturbation, and read out at
+    the same scope; what made it convincing was the odour-contingency NULL --
+    unilateral olfactory stimulation during sleep produced NO memory effect and NO
+    oscillatory effect when the learning had happened WITHOUT the contextual odour.
+    The perturbation alone does nothing; it acts only on injected content.
+
+    SD-068 had no analog of that null until this function. The risk it closes:
+
+        If a per-phase readout still moves with `sigma` when NO known content has
+        been injected, that readout is measuring PERTURBATION MAGNITUDE, not content
+        fidelity -- and the damage-tolerance staging order is then an ordering of the
+        three phases' raw NOISE SENSITIVITY, not of their functional damage
+        tolerance. That is precisely the vacuity SD-068 claims to escape.
+
+    METHOD. The identical sigma sweep is run twice on the identical substrate, seeds,
+    warm-up and RNG streams. Only `content_scale` differs (1.0 injected vs 0.0 null).
+    The delivered perturbation is held numerically IDENTICAL in both arms (each
+    readout references its noise scale to the UNSCALED content -- see
+    `diffuse_perturb(rms_ref=...)`), so the null arm is "same odour, no prior
+    pairing" rather than "weaker odour". Both arms' error series are expressed in
+    COMMON units using the INJECTED arm's denominators, then least-squares fitted
+    against sigma.
+
+    RETURNS (per phase p in sws/nrem/rem):
+        injected_slope_<p>      -- d(error)/d(sigma) with content injected
+        null_slope_<p>          -- d(error)/d(sigma) on noise alone
+        null_slope_ratio_<p>    -- |null| / |injected|  (the REPORTED number)
+        content_contingent_<p>  -- 1.0 if ratio <= NULL_SLOPE_RATIO_CEILING
+        null_control_available_<p>
+
+    The RATIO is reported per phase rather than a bare pass/fail so a PARTIAL null is
+    visible: 0.0 == fully content-contingent (the readout is inert on noise), 1.0 ==
+    fully confounded (the readout responds to sigma identically with and without
+    content), and intermediate values are exactly that -- intermediate.
+
+    A phase whose ratio exceeds the ceiling is CONFOUNDED: its contribution to the
+    staging order cannot be distinguished from raw noise sensitivity. Such a phase is
+    NAMED in `confounded_phases` and flagged -- never silently dropped from the order.
+    """
+    if sigmas is None:
+        sigmas = [0.0, 0.25, 0.5, 1.0, 2.0]
+    sigmas = list(sigmas)
+
+    if injected_pr_by_sigma is None:
+        injected_pr_by_sigma = {
+            s: phase_integrity_at_sigma(
+                seed=seed, sigma=s, warm_steps=warm_steps, content_scale=1.0
+            )
+            for s in sigmas
+        }
+    if null_pr_by_sigma is None:
+        null_pr_by_sigma = {
+            s: phase_integrity_at_sigma(
+                seed=seed, sigma=s, warm_steps=warm_steps, content_scale=0.0
+            )
+            for s in sigmas
+        }
+
+    denom = _injected_denominators(injected_pr_by_sigma, sigmas)
+
+    out: Dict[str, float] = {}
+    confounded: List[str] = []
+    for phase in ("sws", "nrem", "rem"):
+        inj_errs = _common_error_series(injected_pr_by_sigma, phase, sigmas, denom)
+        null_errs = _common_error_series(null_pr_by_sigma, phase, sigmas, denom)
+        inj_slope = _slope_of(sigmas, inj_errs)
+        null_slope = _slope_of(sigmas, null_errs)
+
+        available = (
+            not math.isnan(inj_slope)
+            and not math.isnan(null_slope)
+            and abs(inj_slope) > NULL_MIN_INJECTED_SLOPE
+        )
+        ratio = (abs(null_slope) / abs(inj_slope)) if available else UNAVAILABLE
+
+        out[f"injected_slope_{phase}"] = (
+            float(inj_slope) if not math.isnan(inj_slope) else UNAVAILABLE
+        )
+        out[f"null_slope_{phase}"] = (
+            float(null_slope) if not math.isnan(null_slope) else UNAVAILABLE
+        )
+        out[f"null_slope_ratio_{phase}"] = float(ratio) if available else UNAVAILABLE
+        out[f"null_control_available_{phase}"] = 1.0 if available else 0.0
+        contingent = bool(available and ratio <= NULL_SLOPE_RATIO_CEILING)
+        out[f"content_contingent_{phase}"] = 1.0 if contingent else 0.0
+        # An UNAVAILABLE ratio is NOT a pass -- it is an uninterpretable phase, and
+        # it is named alongside the confounded ones so it cannot pass silently.
+        if not contingent:
+            confounded.append(phase)
+
+    # Clamp saturation in the NULL arm's rem leg: a ratio built on clamped points is
+    # off-scale (the 1e-3 positivity floor dominates), so it reads as "structurally
+    # content-free", NOT as a literal N-fold noise sensitivity. Reported so a large
+    # rem ratio cannot be mistaken for a calibrated magnitude.
+    clamped = [
+        float(null_pr_by_sigma[s]["rem"].get("target_clamped", 0.0)) for s in sigmas
+    ]
+    out["null_rem_target_clamped_frac"] = (
+        float(sum(clamped) / len(clamped)) if clamped else 0.0
+    )
+    out["null_slope_ratio_rem_off_scale"] = 1.0 if any(clamped) else 0.0
+
+    out["n_confounded_phases"] = float(len(confounded))
+    out["n_content_contingent_phases"] = float(3 - len(confounded))
+    out["all_phases_content_contingent"] = 1.0 if not confounded else 0.0
+    # Stored as a parallel per-phase flag set; the driver renders the name list.
+    out["null_control_seed"] = float(seed)
+    return out
+
+
+def confounded_phase_names(control: Dict[str, float]) -> List[str]:
+    """Phases whose staging contribution is confounded by raw noise sensitivity."""
+    return [
+        p
+        for p in ("sws", "nrem", "rem")
+        if control.get(f"content_contingent_{p}", 0.0) < 1.0
+    ]
+
+
+# --------------------------------------------------------------------------- #
 # Top-level orchestration for a driver                                        #
 # --------------------------------------------------------------------------- #
 
@@ -845,9 +1195,18 @@ class StagedSweepResult:
     predicted_order: Tuple[str, str, str] = REVERSE_DEPENDENCY_ORDER
     observed_order: List[str] = field(default_factory=list)
     staging_matches_prediction: bool = False
+    # SD-068 null-content control (V3-EXQ-778b); empty unless run_null_control=True.
+    null_control: Dict[str, float] = field(default_factory=dict)
+    confounded_phases: List[str] = field(default_factory=list)
 
 
-def run_staged_sweep(*, seed: int, sigmas: Optional[List[float]] = None, warm_steps: int = 40) -> StagedSweepResult:
+def run_staged_sweep(
+    *,
+    seed: int,
+    sigmas: Optional[List[float]] = None,
+    warm_steps: int = 40,
+    run_null_control: bool = False,
+) -> StagedSweepResult:
     """Full per-seed staged-damage sweep.
 
     Produces: per-phase integrity across the sigma grid, the per-phase gains, the
@@ -855,6 +1214,14 @@ def run_staged_sweep(*, seed: int, sigmas: Optional[List[float]] = None, warm_st
     and whether that order matches the predicted reverse-dependency order
     (rem, nrem, sws). The driver combines this with the OFF-arm zero-baseline and
     the passthrough-vs-generative REM contrast to reach a non-vacuous verdict.
+
+    `run_null_control` (V3-EXQ-778b, default False so the V3-EXQ-778 path stays
+    bit-identical) additionally runs the zero-injected-content NULL arm and populates
+    `null_control` + `confounded_phases`. A phase named in `confounded_phases` has a
+    readout that moves with sigma even on noise alone, so its contribution to
+    `observed_order` is an ordering of noise sensitivity rather than of functional
+    damage tolerance. The confounded phases are REPORTED, never dropped from the
+    order -- dropping them would hide the confound rather than surface it.
     """
     if sigmas is None:
         sigmas = [0.0, 0.25, 0.5, 1.0, 2.0]
@@ -888,4 +1255,15 @@ def run_staged_sweep(*, seed: int, sigmas: Optional[List[float]] = None, warm_st
 
     res.observed_order = sorted(("sws", "nrem", "rem"), key=_key)
     res.staging_matches_prediction = tuple(res.observed_order) == REVERSE_DEPENDENCY_ORDER
+
+    if run_null_control:
+        # Reuse the injected sweep already computed above -- only the null arm is new.
+        res.null_control = run_null_content_control(
+            seed=seed,
+            sigmas=list(sigmas),
+            warm_steps=warm_steps,
+            injected_pr_by_sigma=pr_by_sigma,
+        )
+        res.confounded_phases = confounded_phase_names(res.null_control)
+
     return res
