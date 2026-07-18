@@ -45,6 +45,53 @@ Two rules make it worth anything:
    already established, frozen as a literal so the guard needs no compute and cannot
    drift with the substrate.
 
+THE MIRROR FAILURE THIS GUARD DOES *NOT* CATCH
+----------------------------------------------
+This guard tests a FLOOR: can the reference clear the gate. It says nothing about a
+gate that is too EASY. A VACUOUS anchor -- one almost nothing can fail -- is the exact
+mirror of 778d and is equally a mislabel: 778d over-fails and blames the substrate,
+a vacuous anchor under-fails and lets a run emit a confident verdict on an untrained
+channel. `assert_anchor_reachable` will happily certify a vacuous anchor as reachable.
+
+Note the trap: the AnchorUnreachable message advises "widen the predicate or lower the
+gate". Applied to a vacuous anchor that is precisely BACKWARDS. Read the direction of
+the defect before acting on that advice.
+
+The usual cause is an EXISTENCE QUANTIFIER standing in for a POPULATION PROPERTY:
+
+    max_h_pos = max(r["h_pos_max"] for r in seed_results)   # over seeds AND episodes
+    movement_ok = max_h_pos >= H_POS_MOVEMENT_FLOOR
+
+One seed's single lucky episode satisfies this while every other seed is stationary,
+so it can essentially never report `met: false`.
+
+    A global max is CORRECT when the anchor asks "does this exist at all / is the
+    channel non-degenerate". It is WRONG when the anchor asks "is the population
+    ready", because readiness is a per-unit property and max is an existence
+    quantifier.
+
+Correct uses of the max form, for contrast: `v3_exq_730_q080a_effort_harm_coupling.py`
+(`max_perm_peak > 0.0` -- did exertion vary at all) and
+`v3_exq_669b_mech329_wanting_first_goal_seeding.py` (`max_anchor >= 2` -- is the anchor
+hierarchy non-degenerate). Both ask an existence question, so max is the right verb.
+
+Two rules for a population-readiness anchor:
+
+3. Score the SAME STATISTIC the load-bearing criterion routes on. If the criterion
+   gates on a per-seed sustained mean, the anchor must too -- typically the FRACTION
+   of seeds clearing the floor, not a global max. A floor orders of magnitude below
+   the criterion's own gate is a smell (591: floor 0.20 vs criterion 0.994).
+4. Use `margin_cells` whenever the reference passes by a thin margin. An anchor that
+   scores exactly at its gate flips to unmeetable on any seed-level drift. Either set
+   a margin, or record an explicit comment that the zero margin is known and intended.
+
+Known-defective instances, recorded but NOT fixed (lineage blocked, all five already
+ran -- a fix needs a new EXQ letter, not an in-place edit): the `591b/c/d/e/f`
+ISEF-005 family's `early_policy_produces_nontrivial_h_pos` (rule 3) and `591d/e/f`'s
+`false_advancer_present` (rule 4, zero margin on a 0.06-nat threshold). See
+`REE_assembly/evidence/planning/infant_substrate_plan.md` `infant_substrate:GAP-14`
+governance_2026_07_18.
+
 ASCII-only output (Windows runner terminals).
 """
 
