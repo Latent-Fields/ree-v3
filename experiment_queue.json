@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-778c",
-      "title": "SD-068 zero-injected-content null control -- 8-seed power-up (supersedes 778b)",
-      "script": "experiments/v3_exq_sd068_null_content_control_diagnostic.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 20,
-      "supersedes": "V3-EXQ-778b",
-      "claim_id": "SD-068",
-      "note": "Powered successor to V3-EXQ-778b. 778b RAN (FAIL, v3_exq_sd068_null_content_control_diagnostic_20260718T065939Z_v3) at n=2 and RESOLVED TWO legs but left the third open: sws [1.0000, 1.0000] CONFOUNDED-stable (analytic -- _shy is affine, so the residual is content-independent by construction), nrem [0.1449, 0.1429] CONTENT-CONTINGENT-stable, but rem [4348.47, 0.0] -- the confound verdict FLIPPED across seeds (confound_verdict_stable=False). 778c re-runs the identical control at the full V3-EXQ-778a 8-seed set [42,7,123,2024,99,7777,314,1000] so the rem ratio gets a distribution (mean/SD/CI95 + per-seed) rather than a coin flip, and pools directly onto 778a's tolerance distribution. Adds a `ceiling_inside_ci95` unresolved-verdict flag so a straddling CI cannot read as a clean verdict. MOTIVATION for n=8: the premise that 778 found a seed-STABLE (nrem,rem,sws) order is refuted by the manifests -- 778 gave 3 DIFFERENT orders in 3 seeds, (nrem,rem,sws) is 1/8 in 778a, modal is the PREDICTED (rem,nrem,sws) at 4/8, and 778a self-routed `staging_seed_variable_underpowered` (Spearman rho 0.375, CI [-0.247,0.997]; rem-fails-first 4-pos/4-neg p=1.0). Tolerance is strongly heteroscedastic (sws SD ~8.6e-9, nrem ~0.0014, rem ~0.396). Experiment-layer only; zero ree_core change. Injected arm bit-identical to the pre-778b harness. MECH-121 NOT tagged (standing hold); EXPERIMENT_PURPOSE=diagnostic.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-18T07:09:48Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 5,
-      "experiment_type": "v3_exq_sd068_null_content_control_diagnostic",
-      "seeds": 8
-    },
-    {
       "queue_id": "V3-EXQ-780",
       "title": "MECH-457 GOV-FANOUT-1 H-bc-prior: competence-directed behavioral-prior (imitation) discrimination",
       "script": "experiments/v3_exq_780_mech457_bc_prior_discrimination.py",
