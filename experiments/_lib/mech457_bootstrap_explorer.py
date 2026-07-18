@@ -145,7 +145,17 @@ class BootstrapExplorerConfig:
     #   * use_approach_primitive / approach_coef (H-approach-primitive, intrinsic-architecture):
     #     enable a non-extinguishing appetitive resource-proximity intrinsic drive of weight
     #     approach_coef. OFF: False/0.0 -> no approach term.
+    #   * bc_aux_coef_end / bc_aux_anneal_fraction (mech457_bc_aux_schedule,
+    #     H-retention-auxiliary-decay, 2026-07-18): make the imitation auxiliary's PERSISTENCE
+    #     sweepable -- constant (end=None), annealed (end<start over the first
+    #     bc_aux_anneal_fraction of episodes), or off (bc_aux_coef=0.0). OFF: None/0.0 ->
+    #     constant bc_aux_coef, byte-identical to the 780/781 callers.
+    #     Uses linear_anneal, NOT warm_then_anneal: the latter is parameterised by the SHARED
+    #     warm_start_fraction, which would couple BC persistence to the exploration anneal and
+    #     confound the leg's single intervention.
     bc_aux_coef: float = 0.0
+    bc_aux_coef_end: Optional[float] = None
+    bc_aux_anneal_fraction: float = 0.0
     use_approach_primitive: bool = False
     approach_coef: float = 0.0
 
@@ -177,6 +187,10 @@ class BootstrapExplorerConfig:
             "actor_critic_hidden": int(self.actor_critic_hidden),
             "cotrain_encoder": bool(self.cotrain_encoder),
             "bc_aux_coef": float(self.bc_aux_coef),
+            "bc_aux_coef_end": (
+                None if self.bc_aux_coef_end is None else float(self.bc_aux_coef_end)
+            ),
+            "bc_aux_anneal_fraction": float(self.bc_aux_anneal_fraction),
             "use_approach_primitive": bool(self.use_approach_primitive),
             "approach_coef": float(self.approach_coef),
             "use_distributional_critic": bool(self.use_distributional_critic),
@@ -266,11 +280,20 @@ def train_bootstrap_explorer(
     default OFF -> byte-identical to the pre-existing 765/769/770/771/772 callers."""
     n_episodes = int(cfg.n_episodes)
     denom = int(denom) if denom is not None else n_episodes
-    intrinsic = mech.RNDModule(rep.feature_dim) if cfg.use_rnd else None
-    if float(cfg.bc_aux_coef) > 0.0 and bc_demo is None:
+    # Config preconditions FIRST, before any module is constructed -- a misconfigured arm should
+    # fail on its config, not partway through allocation. Reads the MAX of start and end: a
+    # ramp-UP cell (start 0.0 -> end >0) still needs a demonstrator and would slip past a
+    # start-only check.
+    bc_aux_peak = max(
+        float(cfg.bc_aux_coef),
+        float(cfg.bc_aux_coef_end) if cfg.bc_aux_coef_end is not None else 0.0,
+    )
+    if bc_aux_peak > 0.0 and bc_demo is None:
         raise ValueError(
-            "train_bootstrap_explorer: cfg.bc_aux_coef>0 requires a bc_demo demonstrator."
+            "train_bootstrap_explorer: a nonzero BC auxiliary weight (cfg.bc_aux_coef or "
+            "cfg.bc_aux_coef_end) requires a bc_demo demonstrator."
         )
+    intrinsic = mech.RNDModule(rep.feature_dim) if cfg.use_rnd else None
     approach_drive = mech.resource_proximity if bool(cfg.use_approach_primitive) else None
 
     coef_schedule = (
@@ -284,6 +307,13 @@ def train_bootstrap_explorer(
             cfg.entropy_beta_start, cfg.entropy_beta_end,
             cfg.warm_start_fraction, cfg.anneal_fraction, ep, n
         )
+    )
+    # None when no end value is declared -> train_a2c holds the constant bc_aux_coef (OFF path).
+    bc_aux_schedule = (
+        None if cfg.bc_aux_coef_end is None else
+        (lambda ep, n: linear_anneal(
+            cfg.bc_aux_coef, float(cfg.bc_aux_coef_end), cfg.bc_aux_anneal_fraction, ep, n
+        ))
     )
 
     return mech.train_a2c(
@@ -299,6 +329,7 @@ def train_bootstrap_explorer(
         entropy_schedule=entropy_schedule,
         bc_demo=bc_demo,
         bc_aux_coef=float(cfg.bc_aux_coef),
+        bc_aux_schedule=bc_aux_schedule,
         approach_drive=approach_drive,
         approach_coef=float(cfg.approach_coef),
     )

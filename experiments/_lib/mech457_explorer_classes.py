@@ -559,6 +559,7 @@ def train_a2c(
     entropy_schedule: Optional[Callable[[int, int], float]] = None,
     bc_demo: Optional[Policy] = None,
     bc_aux_coef: float = 0.0,
+    bc_aux_schedule: Optional[Callable[[int, int], float]] = None,
     approach_drive: Optional[Callable[[Dict[str, Any]], float]] = None,
     approach_coef: float = 0.0,
 ) -> Dict[str, Any]:
@@ -582,6 +583,14 @@ def train_a2c(
     # the (on-policy) visited state is recorded and a cross-entropy CE(actor_logits, demo_action)
     # term * bc_aux_coef is added to the episode loss (DAgger-lite: imitation on the actor's own
     # state distribution). Default None/0.0 -> no BC term collected/added (byte-identical OFF).
+    # bc_aux_schedule (mech457_bc_aux_schedule, H-retention-auxiliary-decay, 2026-07-18): OPTIONAL
+    # per-episode schedule fn(ep, n_episodes) -> float for the BC auxiliary weight, letting the
+    # PERSISTENCE of the imitation prior be swept constant / annealed / off. Default None ->
+    # constant bc_aux_coef (byte-identical to the 780/781 callers). Note the schedule drives the
+    # auxiliary's GUARD as well as its weight: an annealed arm passes bc_aux_coef=0.0 with a
+    # nonzero schedule, so a guard reading the constant would silently produce an OFF arm labelled
+    # ANNEALED. Deliberately NOT under the mode_gate exclusion above -- that exclusion is between
+    # two competing answers to EXPLORATION scheduling; BC persistence is orthogonal to both.
     # approach_drive / approach_coef (H-approach-primitive, V3-EXQ-781): OPTIONAL non-extinguishing
     # appetitive intrinsic reward = approach_coef * approach_drive(obs_next) added to the shaped
     # reward every step (constant coef; a STATE reward, not policy-invariant potential shaping).
@@ -597,6 +606,11 @@ def train_a2c(
     bc_match_recent: deque = deque(maxlen=TRAIN_FORAGE_WINDOW)
     n_returns = 0
     n_credit_passes = 0
+    # Realised BC-auxiliary weight at the first and last episode -- lets a manifest VERIFY the
+    # schedule actually moved rather than assuming it did (an annealed arm whose schedule silently
+    # stayed flat is otherwise indistinguishable from a constant arm).
+    bc_coef_first: Optional[float] = None
+    bc_coef_last: float = float(bc_aux_coef)
 
     for ep in range(n_episodes):
         used_return = False
@@ -645,6 +659,15 @@ def train_a2c(
                 float(coef_schedule(ep, n_episodes)) if coef_schedule is not None
                 else intrinsic_coef
             )
+        # BC-auxiliary persistence is independent of the mode_gate/schedule exploration branch
+        # above, so it is resolved unconditionally.
+        bc_coef_eff = (
+            float(bc_aux_schedule(ep, n_episodes)) if bc_aux_schedule is not None
+            else float(bc_aux_coef)
+        )
+        if bc_coef_first is None:
+            bc_coef_first = bc_coef_eff
+        bc_coef_last = bc_coef_eff
 
         state = rep.encode(obs_dict)
         for _step in range(steps):
@@ -727,13 +750,13 @@ def train_a2c(
             value_loss = fan.critic_value_loss(rep.policy(), vlogits_t, value_t, ret_t)
             entropy_bonus = entropy_t.mean()
             loss = policy_loss + value_loss - beta_eff * entropy_bonus
-            if bc_demo is not None and bc_aux_coef > 0.0 and bc_logits:
+            if bc_demo is not None and bc_coef_eff > 0.0 and bc_logits:
                 # Persistent imitation auxiliary: CE(actor_logits, demo_action) over the on-policy
                 # visited states, keeping the seeded behavioral prior alive against RL drift.
                 bc_logit_t = torch.stack(bc_logits)
                 bc_target_t = torch.tensor(bc_targets, dtype=torch.long, device=DEVICE)
                 bc_loss = torch.nn.functional.cross_entropy(bc_logit_t, bc_target_t)
-                loss = loss + float(bc_aux_coef) * bc_loss
+                loss = loss + bc_coef_eff * bc_loss
             if torch.isfinite(loss):
                 optimiser.zero_grad(set_to_none=True)
                 loss.backward()
@@ -774,6 +797,8 @@ def train_a2c(
         "mean_intrinsic_reward_recent": round(mir, 6),
         "mean_approach_reward_recent": round(mar, 6),
         "mean_bc_aux_action_match_recent": round(mbm, 6),
+        "bc_aux_coef_first": round(float(bc_coef_first), 6) if bc_coef_first is not None else None,
+        "bc_aux_coef_last": round(float(bc_coef_last), 6),
         "n_return_episodes": int(n_returns),
         "n_credit_replay_passes": int(n_credit_passes),
     }

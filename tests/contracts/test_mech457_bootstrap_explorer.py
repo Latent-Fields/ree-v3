@@ -244,3 +244,109 @@ def test_c11_capacity_on_config_trains_end_to_end_raw():
         v = float(guard[k])
         assert v == v and abs(v) < 1e6
     assert guard["n_credit_replay_passes"] >= 0
+
+
+# ===========================================================================
+# mech457_bc_aux_schedule (2026-07-18, MECH-457 retention portfolio). Makes the BC-auxiliary
+# PERSISTENCE sweepable (constant / annealed / off) so H-retention-auxiliary-decay can read a
+# competence half-life. No-op default: bc_aux_schedule=None -> constant bc_aux_coef.
+# ===========================================================================
+
+
+# --------------------------------------------------------------------------- C12
+def test_c12_bc_aux_schedule_defaults_are_noop():
+    """OFF path: no schedule on train_a2c, no anneal fields on the config, declared in as_slice."""
+    import inspect
+    assert inspect.signature(mech.train_a2c).parameters["bc_aux_schedule"].default is None
+    cfg = boot.make_off_config()
+    assert cfg.bc_aux_coef == 0.0
+    assert cfg.bc_aux_coef_end is None
+    assert cfg.bc_aux_anneal_fraction == 0.0
+    s = cfg.as_slice()
+    # Declared in the config_slice -- a varyable knob absent from the slice would let two
+    # materially different arms share one fingerprint.
+    assert s["bc_aux_coef_end"] is None
+    assert s["bc_aux_anneal_fraction"] == 0.0
+
+
+# --------------------------------------------------------------------------- C13
+def test_c13_bc_aux_schedule_three_cells_are_distinct():
+    """constant / annealed / off must yield distinguishable realised coefficient trajectories."""
+    n = 100
+    constant = [boot.linear_anneal(0.5, 0.5, 0.0, ep, n) for ep in range(n)]
+    annealed = [boot.linear_anneal(0.5, 0.0, 0.5, ep, n) for ep in range(n)]
+    assert constant[0] == constant[-1] == 0.5
+    assert annealed[0] == 0.5 and annealed[-1] == 0.0
+    assert annealed[0] > annealed[n // 4] > annealed[n // 2 - 1]
+    assert annealed != constant
+
+
+# --------------------------------------------------------------------------- C14
+def test_c14_bc_aux_schedule_equals_float_path_when_constant():
+    """A schedule returning c must be BIT-IDENTICAL to passing the float c.
+
+    This is the regression guard for the GUARD fix: the auxiliary's `if` reads the effective
+    per-episode coefficient, not the constant. An annealed cell passes bc_aux_coef=0.0 with a
+    nonzero schedule -- a guard reading the constant would silently produce an OFF arm labelled
+    ANNEALED, i.e. a degenerate arm read as a scientific verdict.
+    """
+    import random
+    import numpy as np
+    import torch
+    from experiments._lib.capability_eval import LocalViewGreedyPolicy
+
+    env_kwargs = x734._env_kwargs_for_rung(fan.RUNG)
+
+    def train(**kw):
+        torch.manual_seed(7); np.random.seed(7); random.seed(7)
+        env = x734._make_env(7, env_kwargs)
+        rep = mech.make_rep("raw_view", env, seed=7, p0=0, steps=12)
+        mech.train_a2c(rep, env, seed=7, n_episodes=4, steps=12, arm_label="c14", denom=4,
+                       bc_demo=LocalViewGreedyPolicy(seed=7), **kw)
+        return torch.cat([p.detach().reshape(-1) for p in rep.params()])
+
+    w_float = train(bc_aux_coef=0.3)
+    w_sched = train(bc_aux_coef=0.0, bc_aux_schedule=lambda ep, n: 0.3)
+    assert float((w_float - w_sched).norm()) == 0.0
+
+
+# --------------------------------------------------------------------------- C15
+def test_c15_bc_aux_schedule_reports_realised_trajectory():
+    """The guard dict must report the realised first/last coefficient so a manifest can VERIFY
+    the schedule moved rather than assuming it did."""
+    from experiments._lib.capability_eval import LocalViewGreedyPolicy
+
+    env_kwargs = x734._env_kwargs_for_rung(fan.RUNG)
+    env = x734._make_env(45, env_kwargs)
+    rep = mech.make_rep("raw_view", env, seed=45, p0=0, steps=12)
+    cfg = boot.BootstrapExplorerConfig(
+        use_rnd=True, n_episodes=6,
+        bc_aux_coef=0.5, bc_aux_coef_end=0.0, bc_aux_anneal_fraction=0.5,
+    )
+    guard = boot.train_bootstrap_explorer(
+        rep, env, seed=45, steps=12, arm_label="c15", cfg=cfg,
+        bc_demo=LocalViewGreedyPolicy(seed=45),
+    )
+    assert guard["bc_aux_coef_first"] == 0.5
+    assert guard["bc_aux_coef_last"] == 0.0
+
+
+# --------------------------------------------------------------------------- C16
+def test_c16_bc_aux_nonzero_requires_demonstrator_including_ramp_up():
+    """Precondition reads max(start, end) -- a ramp-UP cell would slip past a start-only check --
+    and fires BEFORE any module is constructed."""
+    for kw in (dict(bc_aux_coef=0.5), dict(bc_aux_coef=0.0, bc_aux_coef_end=0.4)):
+        cfg = boot.BootstrapExplorerConfig(use_rnd=True, n_episodes=2, **kw)
+        with pytest.raises(ValueError, match="bc_demo"):
+            # rep=None: if the precondition is correctly ordered first, it raises ValueError
+            # before ever touching rep.feature_dim.
+            boot.train_bootstrap_explorer(
+                None, None, seed=0, steps=2, arm_label="c16", cfg=cfg, bc_demo=None,
+            )
+
+
+# --------------------------------------------------------------------------- C17
+def test_c17_explorer_classes_source_is_ascii():
+    src = Path(mech.__file__).read_text(encoding="utf-8")
+    non_ascii = [(i, ch) for i, ch in enumerate(src) if ord(ch) > 127]
+    assert not non_ascii, f"non-ASCII in explorer-classes source: {non_ascii[:5]}"
