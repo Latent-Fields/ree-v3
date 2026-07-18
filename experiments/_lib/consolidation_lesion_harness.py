@@ -1050,6 +1050,40 @@ def phase_integrity_at_sigma(
     return results
 
 
+def sws_only_integrity_at_sigma(
+    *,
+    seed: int,
+    sigma: float,
+    warm_steps: int = 40,
+    content_scale: float = 1.0,
+) -> Dict[str, Dict[str, float]]:
+    """The SWS phase readout ONLY, on the SAME RNG stream phase_integrity_at_sigma uses.
+
+    Mirrors `rem_only_integrity_at_sigma` (V3-EXQ-778d/e/f) for the sws leg. The
+    content-scale LADDER that validates the repaired sws readout (V3-EXQ-778g) sweeps
+    `content_scale` in {0.0, 0.25, 0.5, 1.0}; running the full three-phase sweep for
+    each rung would triple its compute to recompute two phases the ladder never reads.
+
+    CRITICALLY, this reproduces `phase_integrity_at_sigma`'s sws cell EXACTLY -- same
+    generator seeding (`_gen(seed * 1009 + 1)`), same fresh agent, same warm-up -- so
+    the ladder's content_scale 0.0 and 1.0 rungs are numerically identical to the null
+    and injected arms of the main sweep, and the ladder can REUSE those rather than
+    recomputing them.
+
+    Returned in the same `{phase: {metric: value}}` shape as phase_integrity_at_sigma
+    so it drops straight into the same consumers; the nrem and rem keys are simply
+    absent (those phases are not swept).
+    """
+    g = _gen(seed * 1009 + 1)
+    a_sws = build_pipeline_agent(seed=seed)
+    _warm_encoders(a_sws, n_steps=warm_steps, gen=g)
+    return {
+        "sws": sws_denoising_snr(
+            a_sws, sigma=sigma, gen=g, content_scale=content_scale
+        )
+    }
+
+
 def rem_only_integrity_at_sigma(
     *,
     seed: int,
