@@ -38,7 +38,7 @@ PROTOCOL_MODULE = "experiment_protocol"
 # that gate surgical: it does NOT expand the emit_outcome conformance / degeneracy /
 # arm-fingerprint contracts onto the broader (non-v3_exq_) script set the gate scopes.
 CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "manifest_writer",
-               "anchor_reachability")
+               "anchor_reachability", "precondition_recomputability")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -495,6 +495,239 @@ def anchor_reachability_lint(path: Path) -> Optional[str]:
             "failure_autopsy_SD-068-rem-fanout-cluster_2026-07-18.md sec 2 (Learning 1).")
 
 
+# Precondition-recomputability static lint (V3-EXQ-726, fixed 2026-07-18 fd7ca8c7cb).
+#
+# A precondition's whole job is to let a manifest reader re-derive the self-route's
+# premise. `build_experiment_indexes._compute_adjudication` does exactly that: it
+# RECOMPUTES `met` from the numeric `measured`/`threshold` pair and does NOT trust the
+# author's `met`. So a precondition is only doing its job when `met` is recomputable
+# from the reported measured/threshold/direction triple. Two ways that breaks:
+#
+#   (a) NO `direction`. The indexer then silently defaults to a FLOOR recompute
+#       (`measured >= threshold`). For a ceiling-shaped check ("stayed BELOW x"), whose
+#       healthy reading is `measured << threshold`, that default false-flags
+#       `precondition_unmet` -- the documented 2026-06-07 V3-EXQ-648a/649 directionality
+#       bug.
+#   (b) `met` COMPUTED FROM A DIFFERENT STATISTIC than `measured`. V3-EXQ-726 shipped
+#       `measured = round(_median(contrast_occ), 3)` (a median-across-seeds of per-seed
+#       medians) alongside `met = strong_f_ok = len(contrast_seeds_strongf) >= 2` (a
+#       seed COUNT). Those two statistics coincide at exactly n=3 seeds and diverge in
+#       dry-run and at every other seed count, so no reader could re-derive the route.
+#       The fix re-expressed both as one statistic (a seed FRACTION), which is the shape
+#       this check is steering toward.
+_PRECONDITION_RECOMPUTABILITY_EXEMPT_MARKER = "PRECONDITION_RECOMPUTABILITY_EXEMPT"
+# Central-tendency constructs -- the `measured` side of the 726 mismatch.
+_CENTRAL_TENDENCY_CALLS = (
+    "median", "_median", "nanmedian", "mean", "_mean", "nanmean", "average", "avg",
+    "percentile", "nanpercentile", "quantile", "nanquantile", "fmean", "median_low",
+    "median_high", "median_grouped",
+)
+# Cardinality constructs -- the `met` side of the 726 mismatch.
+_CARDINALITY_CALLS = ("len", "sum", "count", "bincount", "count_nonzero")
+
+
+def _dict_str_keys(node: ast.Dict) -> Dict[str, ast.expr]:
+    """Map the string-literal keys of a dict literal to their value nodes."""
+    out: Dict[str, ast.expr] = {}
+    for k, v in zip(node.keys, node.values):
+        if isinstance(k, ast.Constant) and isinstance(k.value, str):
+            out[k.value] = v
+    return out
+
+
+def _is_numericish(node: ast.expr) -> bool:
+    """Best-effort 'this value is a number, not a label/among-a-set marker'.
+
+    A precondition reporting a string `measured` (e.g. a regime name) or a container
+    is not making the numeric floor/ceiling claim the indexer recomputes, so it is
+    outside this check entirely.
+    """
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, (int, float)) and not isinstance(node.value, bool)
+    return not isinstance(node, (ast.Dict, ast.List, ast.Tuple, ast.Set, ast.JoinedStr))
+
+
+def _expr_atoms(node: ast.expr) -> Tuple[set, set]:
+    """(variable names, called-function names) appearing anywhere in an expression."""
+    names: set = set()
+    calls: set = set()
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Name):
+            names.add(sub.id)
+        elif isinstance(sub, ast.Attribute):
+            names.add(sub.attr)
+        if isinstance(sub, ast.Call):
+            fn = sub.func
+            if isinstance(fn, ast.Name):
+                calls.add(fn.id)
+            elif isinstance(fn, ast.Attribute):
+                calls.add(fn.attr)
+    return names, calls
+
+
+def _resolve_one_level(node: ast.expr, tree: ast.Module) -> ast.expr:
+    """Resolve a bare `X` / `bool(X)` / `float(X)` `met` value to X's assigned RHS.
+
+    ONE level only, and only for the `met` side. The `met` value is almost always a
+    boolean flag computed earlier in the analysis function (`met: bool(strong_f_ok)`),
+    so without this hop the check would see only the flag name and could compare
+    nothing. Deliberately NOT applied to `measured`, and deliberately not transitive:
+    chasing `latch_seeds_frac = len(...) / len(...)` back to its own `len` would make
+    the post-fix 726 shape -- where measured and met both route through that same
+    fraction -- look like a median-vs-count mismatch. Shallow is what keeps this
+    conservative. Last assignment wins; a name assigned in several branches resolves
+    to whichever textually appears last, which is a heuristic, not a dataflow analysis.
+    """
+    inner = node
+    while (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
+           and inner.func.id in ("bool", "float", "int") and len(inner.args) == 1):
+        inner = inner.args[0]
+    if not isinstance(inner, ast.Name):
+        return node
+    found: Optional[ast.expr] = None
+    for sub in ast.walk(tree):
+        if isinstance(sub, ast.Assign):
+            for tgt in sub.targets:
+                if isinstance(tgt, ast.Name) and tgt.id == inner.id:
+                    found = sub.value
+        elif isinstance(sub, ast.AnnAssign):
+            if isinstance(sub.target, ast.Name) and sub.target.id == inner.id and sub.value:
+                found = sub.value
+    return found if found is not None else node
+
+
+def _precondition_dicts(tree: ast.Module) -> List[Tuple[str, Dict[str, ast.expr]]]:
+    """(name, string-keyed fields) for every precondition-shaped dict literal.
+
+    Precondition-shaped = a `name` plus a numeric-ish `measured`/`threshold` pair, and
+    NOT a criterion (no `load_bearing` / `passed`). Note this is deliberately WIDER
+    than _anchor_kind_preconditions: it does NOT require a `control` key. Recomputability
+    is owed by EVERY precondition the indexer reads, not only the anchor-kind ones --
+    the motivating 726 defect is a recomputability failure whether or not the entry
+    anchors to a known-positive control.
+    """
+    out: List[Tuple[str, Dict[str, ast.expr]]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        fields = _dict_str_keys(node)
+        name_node = fields.get("name")
+        if not (isinstance(name_node, ast.Constant) and isinstance(name_node.value, str)):
+            continue
+        if ("load_bearing" in fields) or ("passed" in fields):
+            continue  # a criterion, not a precondition
+        if not ("measured" in fields and "threshold" in fields):
+            continue
+        if not (_is_numericish(fields["measured"]) and _is_numericish(fields["threshold"])):
+            continue
+        out.append((name_node.value, fields))
+    return out
+
+
+def precondition_recomputability_lint(path: Path) -> Optional[str]:
+    """Precondition recomputability check. Return a warning string, or None.
+
+    WARNs when a precondition-shaped dict literal declares a numeric `measured` +
+    `threshold` but either:
+
+      (a) ships NO `direction` key -- the indexer defaults to a FLOOR recompute, which
+          silently inverts a ceiling-shaped check (the 2026-06-07 V3-EXQ-648a/649
+          directionality bug); or
+      (b) computes `met` from a demonstrably DIFFERENT expression than the one feeding
+          `measured` -- specifically a central-tendency `measured` (median / mean /
+          percentile) against a cardinality `met` (`len(...) >= N` seed-count), with no
+          variable shared between them. That is the V3-EXQ-726 shape exactly.
+
+    The shared-variable test is what keeps (b) conservative and is why the post-fix 726
+    goes silent: there `measured = round(latch_seeds_frac, 4)` and `met` resolves to
+    `latch_seeds_frac >= ANCHOR_MIN_LATCH_SEEDS_FRAC`, so the two sides visibly route
+    through ONE statistic even though a `len()` appears further upstream in that
+    fraction's own definition.
+
+    Opt-out: PRECONDITION_RECOMPUTABILITY_EXEMPT = "<reason>" -- appropriate when `met`
+    genuinely cannot be a function of the reported triple (e.g. a structural/categorical
+    admissibility check whose numeric `measured` is reported for context only).
+
+    Static name/string/dict-literal scan only -- the same limitation class as
+    readiness_lint / anchor_reachability_lint. It MISSES a precondition dict assembled
+    at runtime (f-string / comprehension / helper-returned), and can OVER-FIRE when
+    `met` is legitimately computed through a helper whose body this shallow one-level
+    resolution cannot see. WARN-ONLY by design and in BOTH modes -- like the anchor
+    lint and unlike the arm-fingerprint / degeneracy / manifest-writer gates, it never
+    hardens under --paths, because `measured` is computed from live run data: this can
+    only ever flag a SUSPECTED mismatch between two expressions, never prove that the
+    reported triple fails to recompute. It must therefore not fail a commit. Full-glob
+    mode surfaces the backlog without blocking; --paths is where an author writing a new
+    precondition sees it.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _has_main_block(tree) is None:
+        return None  # library-style helper, no entry point -- exempt
+
+    if _PRECONDITION_RECOMPUTABILITY_EXEMPT_MARKER in src:
+        return None
+
+    preconds = _precondition_dicts(tree)
+    if not preconds:
+        return None
+
+    no_direction: List[str] = []
+    mismatched: List[str] = []
+    for name, fields in preconds:
+        if "direction" not in fields:
+            no_direction.append(name)
+        met_node = fields.get("met")
+        if met_node is None:
+            continue
+        m_names, m_calls = _expr_atoms(fields["measured"])
+        t_names, t_calls = _expr_atoms(_resolve_one_level(met_node, tree))
+        if m_names & t_names:
+            continue  # measured and met visibly route through a shared statistic
+        if (m_calls & set(_CENTRAL_TENDENCY_CALLS)) and (t_calls & set(_CARDINALITY_CALLS)):
+            mismatched.append(name)
+
+    if not (no_direction or mismatched):
+        return None
+
+    parts: List[str] = []
+    if mismatched:
+        parts.append(
+            "precondition(s) " + ", ".join(sorted(mismatched))
+            + " report a CENTRAL-TENDENCY `measured` (median/mean/percentile) while `met` "
+              "is computed from a CARDINALITY expression (a len()/sum() COUNT) sharing no "
+              "variable with it -- two DIFFERENT statistics, so `met` cannot be re-derived "
+              "from the reported measured/threshold/direction triple. That is the "
+              "V3-EXQ-726 defect: a median-across-seeds `measured` against a `>= 2 seeds` "
+              "`met` coincide at exactly n=3 seeds and diverge in dry-run and at every "
+              "other seed count. Re-express BOTH sides as one statistic (726 fixed it by "
+              "making both a seed FRACTION, numerically identical to the pre-registered "
+              "count gate at n=3, so the gate was unchanged)"
+        )
+    if no_direction:
+        parts.append(
+            "precondition(s) " + ", ".join(sorted(no_direction))
+            + " declare numeric `measured` + `threshold` but NO `direction` key -- "
+              "build_experiment_indexes._compute_adjudication then defaults to a FLOOR "
+              "recompute (measured >= threshold), which false-flags any ceiling-shaped "
+              "check (`stayed BELOW threshold`, healthy at measured << threshold) as "
+              "`precondition_unmet` (the 2026-06-07 V3-EXQ-648a/649 directionality bug). "
+              "Add \"direction\": \"lower\" (floor: met when measured >= threshold) or "
+              "\"upper\" (ceiling: met when measured <= threshold)"
+        )
+    return ("; ".join(parts)
+            + ". The indexer RECOMPUTES `met` and does not trust the author's value, so a "
+              "non-recomputable precondition cannot carry the self-route's premise -- which "
+              "is the entire point of the block. Exempt with "
+              "PRECONDITION_RECOMPUTABILITY_EXEMPT = \"<reason>\" when `met` genuinely "
+              "cannot be a function of the reported triple. See V3-EXQ-726 "
+              "(ree-v3 fd7ca8c7cb) for a worked before/after.")
+
+
 def arm_fingerprint_lint(path: Path) -> Optional[str]:
     """Multi-arm fingerprint-emission check. Return an issue string, or None.
 
@@ -787,6 +1020,7 @@ def main() -> int:
     degen_warnings: List[Tuple[Path, str]] = []
     manifest_writer_warnings: List[Tuple[Path, str]] = []
     anchor_warnings: List[Tuple[Path, str]] = []
+    recomput_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -833,6 +1067,12 @@ def main() -> int:
                 # WARN-only in BOTH modes -- see anchor_reachability_lint() for why
                 # this one never hardens under --paths.
                 anchor_warnings.append((p, anch))
+        if "precondition_recomputability" in selected:
+            rec = precondition_recomputability_lint(p)
+            if rec:
+                # WARN-only in BOTH modes -- see precondition_recomputability_lint()
+                # for why this one never hardens under --paths.
+                recomput_warnings.append((p, rec))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -841,7 +1081,18 @@ def main() -> int:
           f"{len(arm_fp_warnings)} arm-fingerprint-backlog, "
           f"{len(degen_warnings)} degeneracy-self-report-backlog, "
           f"{len(manifest_writer_warnings)} manifest-writer-backlog, "
-          f"{len(anchor_warnings)} anchor-reachability-warning(s)", flush=True)
+          f"{len(anchor_warnings)} anchor-reachability-warning(s), "
+          f"{len(recomput_warnings)} precondition-recomputability-warning(s)", flush=True)
+    if recomput_warnings:
+        # Advisory in BOTH modes (never hardens -- `measured` is computed from live run
+        # data, so this flags a SUSPECTED mismatch between two expressions, never a
+        # proven non-recomputable triple). Pre-2026-07-18 backlog: preconditions
+        # authored before the recomputability requirement.
+        print("", flush=True)
+        print("[validate_experiments] Precondition-RECOMPUTABILITY WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in recomput_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if anchor_warnings:
         # Advisory in BOTH modes (never hardens -- reachability is not statically
         # decidable, so this flags a missing GUARD, not a proven-unreachable gate).
