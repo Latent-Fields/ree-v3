@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import dataclasses
 
+import pytest
 import torch
 
 from ree_core.utils import config as config_mod
@@ -208,6 +209,97 @@ def test_sd069_phasic_burst_fires_and_changes_the_action_stream():
 
 
 # --------------------------------------------------------------------------- #
+# Batch probes                                                                #
+# --------------------------------------------------------------------------- #
+
+# Flags measured (2026-07-18 sweep, tiny fixture, 15 steps) to change the
+# committed action stream with NO sub-knob tuning -- just flipping the flag.
+# Two of them (use_actor_critic, use_frontopolar_decommit) are CONDITIONAL:
+# they diverge on seeds 0 and 1 but not 2, because their activating condition
+# does not occur on every seed. Hence the assertion below is "changes
+# behaviour on at least one seed", which is the honest claim for a
+# state-gated mechanism and is what keeps this probe non-flaky.
+FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA = [
+    "goal_stream_enabled",
+    "use_actor_critic",
+    "use_contextual_safety_terrain",
+    "use_e2_harm_a",
+    "use_e3_score_diversity",
+    "use_frontopolar_decommit",
+    "use_gated_policy",
+    "use_lateral_pfc_analog",
+    "use_ofc_analog",
+]
+
+# Flags whose REEConfig/agent construction REFUSES a config missing their
+# stated dependency. A dropped precondition is its own inertness bug: the
+# flag would look enabled while its consumer never runs (the composite-config
+# version of F-C3). flag -> substring the error must name.
+FLAGS_WITH_LOUD_PRECONDITION = {
+    "use_candidate_rule_field": "use_lateral_pfc_analog",
+    "use_closure_commit_entry": "use_closure_commit_beta_coupling",
+    "use_closure_commit_entry_trajectory": "use_closure_commit_entry",
+    "use_closure_operator": "use_lateral_pfc_analog",
+    "use_harm_suffering_accumulator": "use_harm_un",
+    "use_mech_consume": "use_dacc",
+    "use_multi_content_theta_packet": "use_per_stream_vs",
+    "use_rho_maintenance_ramp": "use_natural_commit_latch_hold",
+    "use_scientist_attribution": "comparator",
+}
+
+
+def _actions_for(flag_overrides: dict, seed: int, steps: int = 15) -> list:
+    """Run one fixed-seed tiny episode under the given config overrides."""
+    from ree_core.agent import REEAgent
+    from tests.fixtures.seed_utils import set_all_seeds
+    from tests.fixtures.tiny_configs import make_tiny_config
+    from tests.fixtures.tiny_env import make_tiny_env
+    from tests.fixtures.tiny_loop import run_episode
+
+    set_all_seeds(seed)
+    env = make_tiny_env(seed=seed)
+    agent = REEAgent(make_tiny_config(env, **flag_overrides))
+    return run_episode(agent, env, steps=steps)
+
+
+@pytest.mark.parametrize("flag", FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA)
+def test_flag_changes_the_action_stream(flag):
+    """Enabling the flag must change committed behaviour on some seed.
+
+    This is the minimum bar for "not inert": the mechanism reaches action
+    selection. It deliberately does NOT assert a direction or magnitude --
+    that is the owning experiment's job, not the harness's.
+    """
+    seeds = (0, 1, 2)
+    changed = [
+        s for s in seeds if _actions_for({flag: True}, s) != _actions_for({}, s)
+    ]
+    assert changed, (
+        f"{flag}=True produced a byte-identical action stream on every seed "
+        f"{seeds}; the flag does not reach action selection at default "
+        f"sub-knobs (inert, or its activating condition is never driven here)"
+    )
+
+
+@pytest.mark.parametrize(
+    "flag,required", sorted(FLAGS_WITH_LOUD_PRECONDITION.items())
+)
+def test_flag_precondition_is_loud_not_silent(flag, required):
+    """A flag with an unmet dependency must RAISE, not run silently inert.
+
+    Silently tolerating the missing dependency is the composite-config form
+    of the F-C3 bug: the flag reads as enabled in the manifest while its
+    consumer never runs, so an experiment measures a false null.
+    """
+    with pytest.raises(ValueError) as excinfo:
+        _actions_for({flag: True}, seed=0, steps=1)
+    assert required in str(excinfo.value), (
+        f"{flag} raised, but the message does not name its missing dependency "
+        f"{required!r}: {excinfo.value}"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Flag registry-drift guard                                                   #
 # --------------------------------------------------------------------------- #
 
@@ -217,7 +309,7 @@ PROBED = {
     "use_bla_analog",       #   (gated by use_amygdala_analog; default True)
     "dacc_saturation_enabled",  # F-C3 wiring spy
     "use_phasic_burst",  # SD-069 fires-and-propagates probe (instantaneous_pe)
-}
+} | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
 # even when the concrete lever is not a top-level flag (dacc_foraging_weight is a
@@ -237,33 +329,47 @@ KNOWN_INERT = {
     # vs_rollout_gate.unknown_stream_passes  F-P6 identical branches
 }
 
-# Flags we have NOT yet written a behavioural probe for, acknowledged so the
-# drift guard passes. Reason kept short. Removing a flag from here without a
-# probe should be a conscious choice.
+# Flags with NO behavioural probe yet, acknowledged so the drift guard passes.
+#
+# STATUS (2026-07-18 sweep): every flag below was measured ON-vs-OFF at DEFAULT
+# sub-knobs on the tiny fixture (15 steps, seed 0) and produced a byte-identical
+# action stream. That is NOT evidence of inertness -- most of these are gated
+# mechanisms that are correctly no-op until their activating condition is driven
+# (a weight left at 0.0, a sleep cycle that never fires in 15 steps, a harm
+# event that never occurs, a consumer flag whose producer is off). Promoting one
+# of these to PROBED means supplying its activating condition, which is per-flag
+# work, not a batch operation.
+#
+# Priority order for that work is by LANDED CONTRIBUTORY EVIDENCE -- a flag whose
+# ON-arm already weighted claim confidence (evidence_direction supports /
+# weakens / does_not_support) is where an inert flag would mean a landed manifest
+# is a false null rather than merely untested wiring. Highest-fan-out first:
+# use_mech295_liking_bridge, use_dacc, use_modulatory_selection_authority,
+# use_mech307_conjunction, use_pag_freeze_gate, sws_enabled, use_sleep_loop,
+# use_salience_coordinator, rem_enabled, use_instrumental_avoidance.
+# Caveat on that ranking: attribution is script-level, not arm-level, so the
+# high-fan-out names may be always-on baseline settings rather than the
+# manipulated variable -- confirm against arm_fingerprint_index.json first.
 KNOWN_UNPROBED = {
-    "action_loop_gate_enabled", "goal_stream_enabled", "harm_descending_mod_enabled",
+    "action_loop_gate_enabled", "harm_descending_mod_enabled",
     "harm_surprise_pe_enabled", "rem_enabled", "replay_diversity_enabled",
     "shy_enabled", "sws_enabled",
-    # MECH-457: RPE-driven actor-critic substrate, wired at agent.py:310 (not
-    # inert -- creates action_critic + actor_critic_step when True); behavioural
-    # coverage via V3-EXQ-742 actor_critic on/off; dedicated inertness probe pending.
-    "use_actor_critic", "use_aic_analog", "use_blocked_agency",
-    "use_broadcast_override", "use_candidate_rule_field", "use_cea_analog",
-    "use_closure_commit_beta_coupling", "use_closure_commit_entry",
-    "use_closure_commit_entry_trajectory", "use_closure_env_completion_hook",
-    "use_closure_operator", "use_commit_readiness", "use_conditioned_safety_store",
-    "use_contextual_safety_terrain", "use_control_vector_logging",
+    "use_aic_analog", "use_blocked_agency",
+    "use_broadcast_override", "use_cea_analog",
+    "use_closure_commit_beta_coupling", "use_closure_env_completion_hook",
+    "use_commit_readiness", "use_conditioned_safety_store",
+    "use_control_vector_logging",
     "use_cross_module_consolidation", "use_curiosity_learning_progress",
     "use_curiosity_novelty", "use_curiosity_uncertainty", "use_dacc",
     "use_difficulty_gated_proposal_entropy", "use_e2_escape_affordance_linker",
     "use_e2_escape_linker_e3_bias", "use_e2_escape_linker_for_relief_safety",
-    "use_e2_harm_a", "use_e3_diversity_entropy_bonus",
-    "use_e3_diversity_stratified_select", "use_e3_score_diversity",
+    "use_e3_diversity_entropy_bonus",
+    "use_e3_diversity_stratified_select",
     "use_escape_affordance_bridge", "use_escape_relief_credit",
     "use_escape_safety_credit", "use_external_task_drive",
-    "use_frontopolar_decommit", "use_gabaergic_decay", "use_gated_policy",
-    "use_habenula_decommit", "use_harm_suffering_accumulator",
-    "use_instrumental_avoidance", "use_lateral_pfc_analog",
+    "use_gabaergic_decay",
+    "use_habenula_decommit",
+    "use_instrumental_avoidance",
     "use_lpb_interoceptive_routing", "use_maintenance_release",
     "use_mech090_readiness_conjunction", "use_mech272_routing",
     "use_mech272_routing_consumer", "use_mech273_self_model",
@@ -271,15 +377,15 @@ KNOWN_UNPROBED = {
     "use_mech295_liking_bridge", "use_mech307_conjunction",
     "use_mech307_consumer_conjunction_read", "use_mech307_predicted_location_write",
     "use_mech307_schema_multichannel", "use_mech307_signed_pe",
-    "use_mech307_split_surprise", "use_mech_consume", "use_mel_consumer",
+    "use_mech307_split_surprise", "use_mel_consumer",
     "use_mel_entry", "use_modulatory_channel_routing",
-    "use_modulatory_selection_authority", "use_multi_content_theta_packet",
+    "use_modulatory_selection_authority",
     "use_natural_commit_latch_hold", "use_natural_commit_urgency_release",
-    "use_noise_floor", "use_object_file_buffer", "use_ofc_analog",
+    "use_noise_floor", "use_object_file_buffer",
     "use_ofc_devaluation_head", "use_ofc_outcome_oracle", "use_pacc_analog",
     "use_pag_freeze_gate", "use_pcc_analog", "use_rem_precision_recalibration",
-    "use_rho_maintenance_ramp", "use_salience_coordinator",
-    "use_scientist_attribution", "use_sd049_per_axis_consumer_cascade",
+    "use_salience_coordinator",
+    "use_sd049_per_axis_consumer_cascade",
     "use_shared_harm_trunk", "use_simulation_mode_rule_gate",
     "use_sleep_aggregation_cluster", "use_sleep_loop", "use_structured_curiosity",
     "use_suffering_derivative_comparator", "use_tonic_vigor", "use_tpj_comparator",
