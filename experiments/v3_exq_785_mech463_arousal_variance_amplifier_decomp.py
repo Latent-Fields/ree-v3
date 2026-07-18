@@ -516,6 +516,9 @@ def run_experiment(dry_run: bool) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
         {
             "name": "modulatory_authority_active_frac",
             "kind": "readiness",
+            # All four are FLOORs (met when measured >= threshold). Declared
+            # explicitly so the indexer recompute cannot default-misread them.
+            "direction": "lower",
             "description": "fraction of selection ticks where the authority gate fired",
             "control": "MECH-341 entropy bonus ON: candidates that genuinely differ",
             "measured": auth_frac,
@@ -525,6 +528,9 @@ def run_experiment(dry_run: bool) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
         {
             "name": "channel_cross_candidate_range",
             "kind": "readiness",
+            # All four are FLOORs (met when measured >= threshold). Declared
+            # explicitly so the indexer recompute cannot default-misread them.
+            "direction": "lower",
             "description": (
                 "mean cross-candidate RANGE of the per-channel bias vectors -- the SAME "
                 "statistic the variance decomposition routes on, deliberately NOT a "
@@ -538,6 +544,9 @@ def run_experiment(dry_run: bool) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
         {
             "name": "urgency_applied_non_constant",
             "kind": "readiness",
+            # All four are FLOORs (met when measured >= threshold). Declared
+            # explicitly so the indexer recompute cannot default-misread them.
+            "direction": "lower",
             "description": (
                 "SD of urgency_applied across the run; if urgency never varies there "
                 "are no deciles and the probe is vacuous"
@@ -550,6 +559,9 @@ def run_experiment(dry_run: bool) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
         {
             "name": "cross_candidate_score_variance",
             "kind": "readiness",
+            # All four are FLOORs (met when measured >= threshold). Declared
+            # explicitly so the indexer recompute cannot default-misread them.
+            "direction": "lower",
             "description": "mean total cross-candidate score variance (a share of ~0 is undefined)",
             "control": "SD-056 action-contrastive candidates + rollout clamp",
             "measured": var_total_mean,
