@@ -96,10 +96,34 @@ arise.
 NOT REPAIRED HERE (consumer-side, deliberately out of scope): V3-EXQ-777a's c1_robust
 bar is written `(mean_sin - pstdev_sin) > MARGIN` (script:697, pstdev at :541). A
 POPULATION dispersion does not shrink with n, so that bar is unreachable at ANY sample
-size and conflates seed-to-seed dispersion with measurement noise. Whoever authors the
-successor experiment must re-express it against a standard error. This module cannot
-fix a criterion it does not own -- and note the autopsy's finding that repairing the
-bar is NECESSARY BUT NOT SUFFICIENT: the binding constraint was always the yield.
+size and conflates seed-to-seed dispersion with measurement noise. This module cannot
+fix a criterion it does not own -- the successor experiment does.
+
+    The successor author no longer has to hand-roll that re-expression. As of
+    ree-v3 de09887093, `experiments/_lib/robustness_bars.py` provides it:
+
+      * robust_by_sem(vals, margin, k=1.0, min_n=3) -- the SEM-denominated
+        replacement, `mean - k*SEM > margin`. Use this wherever the intent is
+        "the effect exceeds its own MEASUREMENT NOISE". Returns
+        `sample_size_improvable: True`; propagate that into the manifest.
+      * exceeds_cross_seed_dispersion(vals, margin=0.0, min_n=3) -- the
+        dispersion bar KEPT but explicitly NAMED, for when the claim really is
+        "the typical seed shows the effect". Returns
+        `sample_size_improvable: False`, so a failure can never be misread as
+        "add seeds".
+      * seeds_required_for_sem_bar(mean, pstdev_est, margin, k,
+        informative_yield) -- the DESIGN-TIME cost check. Run it before queueing.
+
+    Which one to reach for depends on MARGIN, and the choice is not free:
+    MARGIN > 0 compounds a non-shrinking denominator with a positive threshold
+    into unreachability -- that is the 777a defect, and there `robust_by_sem` is
+    the repair. At MARGIN == 0 the dispersion form is merely a CONSERVATIVE bar,
+    STRICTER than the SEM form, so a run that already PASSED it must NOT be
+    re-denominated: doing so would loosen a criterion retroactively.
+
+Note also the autopsy's finding that repairing the bar is NECESSARY BUT NOT
+SUFFICIENT: the binding constraint was always the informative-seed yield, which is
+what `seeds_required_for_sem_bar`'s `informative_yield` argument exists to price.
 
 ASCII-only output (CLAUDE.md).
 """
