@@ -8,27 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-777a",
-      "title": "MECH-063 orthogonal control axes rank-2 falsifier -- sample-driven + DV-saturation-guarded requeue (supersedes 777)",
-      "script": "experiments/v3_exq_777a_mech063_orthogonal_control_axes_dissociation.py",
-      "priority": 50,
-      "machine_affinity": "ree-cloud-4",
-      "estimated_minutes": 90,
-      "supersedes": "V3-EXQ-777",
-      "claim_id": "MECH-063",
-      "backlog_id": "EVB-0204",
-      "note": "Implementation fix of V3-EXQ-777, whose weakens self-route (control_axes_collinear_toward_one_scalar) was adjudicated an ARTIFACT by REE_assembly/evidence/planning/failure_autopsy_MECH-063-777-779-cluster_2026-07-18 (mean_sin_angle 0.530 EXCEEDED the 0.500 margin; C1 fell on seed-count 3/5 and dispersion while the score axis's DV was ceiling-pinned on seeds 11/29/37 and floor-pinned on seed 23). Four fixes: (F1) sample-driven stopping denominated in fresh E3 SELECTIONS with auto-reset across episodes, delegated to the shared experiments/_lib/sample_driven_rollout helper (autopsy routing (c), landed aae239b) so 777a/779a share one implementation; realised step/episode counts recorded per cell. (F2) D_SAT_LOW/D_SAT_HIGH saturation guard on D_action_mass_mean mirroring E_SAT_CEIL -- saturated seeds are excluded from the angle pool AND from the pooled-SD standardisation, and a saturated run self-routes dv_saturation_requeue / non_contributory instead of a false weakens. (F3) per-seed R5 authority gating replacing the mean-across-seeds test that masked per-seed axis death on seeds 23/29; per-seed pass reported. (F4) C1 bar re-expressed as a fraction of the INFORMATIVE pool, WITH the seed pool expanded 5 -> 14: after F2 excludes saturated seeds the binding constraint becomes pool size (777 had only ~2 seeds with headroom, which would test nothing twice), and growing the pool is the right lever because saturation is a per-seed property of the untrained agent, whereas loosening D_SAT would re-admit the ceiling-pinned cells that produced the false signature. Requeue labels now name the binding cause (sample_starvation / dv_saturation / axis_authority_starvation) rather than conflating sampling with substrate capability -- the 779 mislabel lesson. GOV-REUSE-1: decisive readout (rank of the 2-axis effect matrix on an UNSATURATED pool) absent from all recorded manifests; 777's manifest records it only on a saturated pool and is the run superseded; V3-EXQ-650 measured the within-MECH-320 C_time/G_vigor collapse (claim_ids=[]), a different question -> run. Re-derive brake: 1 non_contributory autopsy on MECH-063, below threshold 2 -> not braked; this iteration fixes the sampling model rather than nudging a threshold, per the autopsy's explicit flag. Cloud-pinned: the 777 baseline is linux-x86_64 and the autopsy found the verdict machine-class sensitive (darwin-arm64 seed-11 inline PASS vs linux-x86_64 cloud FAIL from identical code), so machine class must match for per-seed comparability. Smoke: dry-run PASS, reproduces the autopsy's per-seed numbers (seed 11 D=0.9976 ceiling vs autopsy 0.9969-0.9997; seed 17 D=0.5495 headroom vs 0.4483-0.5288) and correctly self-routes dv_saturation_requeue where 777 emitted weakens.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-07-18T07:50:43Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 10,
-      "experiment_type": "v3_exq_777a_mech063_orthogonal_control_axes_dissociation",
-      "seeds": 14
-    },
-    {
       "queue_id": "V3-EXQ-778d",
       "title": "SD-068 GOV-FANOUT-1 leg 1/3 H-rem-clamp-artifact: REM unpaired-target null (axis=measurement)",
       "script": "experiments/v3_exq_sd068_rem_unpaired_null_diagnostic.py",
@@ -83,7 +62,11 @@
       "supersedes": "V3-EXQ-779",
       "claim_id": "MECH-063",
       "note": "Implementation fix for V3-EXQ-779 per failure_autopsy_MECH-063-777-779-cluster_2026-07-18 (REE_assembly master 811e3f4948). 779's evidence_direction non_contributory was CORRECT but its self-route substrate_not_ready_requeue MISLABELLED the cause: SD-069 was wired (signal_source=instantaneous_pe) and firing (burst_level_max 1.0 in every PHASIC-ON cell), and the failed precondition (5 vs 10 event ticks) was a min-across-cells sourced entirely from ONE 19-step cell (seed 23 / T1P1). Three fixes: (1) sample-driven stopping via the shared experiments/_lib/sample_driven_rollout.py helper (autopsy routing (c)) -- each cell auto-resets across episodes until 800 selections (all arms) + 30 event / 200 quiescent ticks (PHASIC-ON), capped at 2400 env steps / 120 episodes, realised counts recorded; (2) a distinct sample_starvation_requeue self-route with the OFFENDING CELL named in each min-across-cells precondition, reserving substrate_not_ready_requeue for capability-kind failures; (3) surprise-EMA telemetry recorded against burst_level so drift-desensitisation of the purely relative trigger_ratio is checkable from the manifest (an absolute-level companion trigger would be a ree_core change -- deliberately out of scope). Readiness FLOORS unchanged from 779; only the sampling model changed, per the autopsy's explicit warning not to re-run the same design with a nudged threshold. Cloud affinity so the in-line OFF-arm mint is linux-x86_64-py3.10 class (reusable by cloud consumers). GOV-REUSE-1: the decisive readout at an adequate per-cell sample exists in NO recorded manifest (779 is the only run of this family and its cells are the starved data this replaces) -> run. Re-derive brake: 1 non_contributory autopsy on MECH-063, below threshold 2 -> not braked. Sibling: V3-EXQ-777a (sub-claim i). Smoke: PASS (dry-run, readiness met, label routing exercised).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-07-18T10:16:37Z"
+      },
       "conditions": 4,
       "episodes_per_run": 120,
       "experiment_type": "v3_exq_779a_mech063_tonic_phasic_dissociation",
