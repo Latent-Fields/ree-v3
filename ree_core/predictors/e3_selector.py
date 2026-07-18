@@ -360,6 +360,13 @@ class E3TrajectorySelector(nn.Module):
         self.e3_score_decomp_enabled: bool = False
         self.last_score_decomp: dict = {}
         self._last_traj_components: dict = {}
+        # MECH-463: per-candidate [K] channel-bias tensors retained UNREDUCED
+        # (channel name -> [K] tensor), so an arousal-conditioned variance
+        # decomposition can compute covariance-correct cross-terms between the
+        # modulatory channels and F. Reducing to marginal scalars (as
+        # agent.py:6816-6845 does) loses channel-F covariance. Written only when
+        # e3_score_decomp_enabled is True; empty otherwise.
+        self.last_channel_terms: dict = {}
 
         # ARC-030: benefit_eval warmup gate.
         # benefit_eval_head starts at random init — scoring with it before training
@@ -2654,6 +2661,24 @@ class E3TrajectorySelector(nn.Module):
                 "n_candidates": len(_cand_components),
             }
 
+        # MECH-463: retain the per-candidate [K] channel terms UNREDUCED.
+        # _lcg_terms is complete at this point (all appends -- score_bias /
+        # named-channel / residual / mech341 / route -- occur upstream). Keyed by
+        # channel NAME (inverting _chan_index) so a consumer does not need the
+        # registry. Detached clones: the tensors are otherwise live in the
+        # recompose / eligibility paths below and must not be aliased by a
+        # diagnostic. Diagnostics-only; gated, so bit-identical when OFF.
+        if self.e3_score_decomp_enabled:
+            _idx_to_name = {v: k for k, v in _chan_index.items()}
+            _ct: dict = {}
+            for _ch_idx, _term in _lcg_terms:
+                _name = _idx_to_name.get(_ch_idx, f"ch_{_ch_idx}")
+                _t = _term.detach().reshape(-1).clone()
+                # A channel may be registered more than once; sum the parts so
+                # the retained vector is that channel's TOTAL per-candidate bias.
+                _ct[_name] = _t if _name not in _ct else _ct[_name] + _t
+            self.last_channel_terms = _ct
+
         probs = F.softmax(-scores / temperature, dim=0)
         # Pure diagnostic: the pre-commit softmax sampling distribution over candidates
         # (post-noise, post-bias). Lets a falsifier measure pre-commit entropy independent
@@ -2705,6 +2730,25 @@ class E3TrajectorySelector(nn.Module):
                     and conditional_predictive_variance is not None):
                 commit_variance = float(conditional_predictive_variance)
             committed = commit_variance < effective_threshold
+
+        # MECH-463: surface the commit-gate scalars. urgency_applied escapes only
+        # as SelectionResult.urgency (:3151) and effective_threshold /
+        # commit_variance were pure locals that died at end of select(), so an
+        # arousal-conditioned decomposition had no conditioning variable to bin on.
+        # commit_gate_variance is the quantity the gate ACTUALLY compared against
+        # effective_threshold, under either commit mode. Diagnostics-only; gated,
+        # so bit-identical when OFF.
+        if self.e3_score_decomp_enabled:
+            _harm_var_mode = bool(use_harm_variance_commit and harm_bridge is not None)
+            self.last_score_diagnostics["urgency_applied"] = float(urgency_applied)
+            self.last_score_diagnostics["effective_threshold"] = float(effective_threshold)
+            self.last_score_diagnostics["commit_variance"] = float(
+                harm_score_variance if _harm_var_mode else commit_variance
+            )
+            self.last_score_diagnostics["commit_gate_mode"] = (
+                "harm_score_variance" if _harm_var_mode else "world_variance"
+            )
+            self.last_score_diagnostics["committed"] = bool(committed)
         # CONVERSION amend (b) -- shortlist-then-modulate (569g/682, 2026-06-15).
         # The pre-registered architectural fallback: F (raw primary scores) filters
         # to a near-tie set (candidates within modulatory_shortlist_margin *
