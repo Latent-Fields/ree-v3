@@ -218,6 +218,39 @@ class WarmupRecipe:
     num_episodes is THE swept parameter: the question this substrate exists to answer
     is how much training de-saturation actually needs. Sweep it; do not tune it
     silently.
+
+    PROBE BUDGET DENOMINATION (why probe_max_episodes defaults to DERIVED)
+    ---------------------------------------------------------------------
+    The de-saturation read is sample-driven: it wants `probe_selections` fresh E3
+    selections and bounds itself with `probe_max_env_steps`. An EPISODE cap smaller
+    than the STEP cap silently re-denominates that read, because every episode costs
+    at least one env step -- so `probe_max_episodes < probe_max_env_steps` means a
+    seed whose episodes are SHORT cannot spend its step budget at all.
+
+    This module shipped with an independent `probe_max_episodes = 40` against
+    `probe_max_env_steps = 4000`, i.e. a read that starved for any seed averaging
+    under 100 steps/episode. That is not hypothetical: the V3-EXQ-779a seed-23 shape
+    dies in ~7 steps/episode, which would have bought ~280 env steps against a
+    120-selection floor -- a de-saturation verdict built on a starved sample, or a
+    "collected ZERO selections" note that reads as a sampling bug rather than as the
+    budget defect it is. Same defect class as MECH-063 autopsy followup #3
+    (failure_autopsy_MECH-063-777a-779a-cluster_2026-07-18, targets[1]), for which
+    the shared helper was hardened in ree-v3 6ac2a0d.
+
+    So `probe_max_episodes = 0` means DERIVE (= probe_max_env_steps), which is the
+    step-denominated form in which the episode cap can never bind first. The sentinel
+    rather than a hardcoded 4000 is deliberate: a future author who retunes
+    probe_max_env_steps alone gets a correct budget for free, where a duplicated
+    literal would silently rot back into a tight cap.
+
+    An explicit tight cap is still available, but it must be DECLARED: set
+    probe_max_episodes AND allow_tight_episode_cap=True. Either way the realised
+    binding constraint reaches the manifest via WarmupOutcome (probe_max_episodes,
+    probe_max_env_steps, probe_episode_cap_can_bind), so a reader can see that a
+    probe's read was episode-denominated without re-deriving it.
+
+    Cache-key note: as_dict() emits the RESOLVED episode cap, not the sentinel, so
+    the key describes the budget that actually ran.
     """
 
     num_episodes: int
@@ -225,7 +258,25 @@ class WarmupRecipe:
     regime: str = "target_env"          # "target_env" (default) | "curriculum" (not built)
     probe_selections: int = 120         # fresh E3 selections for the de-saturation read
     probe_max_env_steps: int = 4000
-    probe_max_episodes: int = 40
+    probe_max_episodes: int = 0         # 0 => DERIVE from probe_max_env_steps (see docstring)
+    allow_tight_episode_cap: bool = False
+
+    @property
+    def resolved_probe_max_episodes(self) -> int:
+        """The episode cap that will actually be passed to RolloutBudget."""
+        explicit = int(self.probe_max_episodes)
+        if explicit > 0:
+            return explicit
+        return int(self.probe_max_env_steps)
+
+    @property
+    def probe_episode_cap_can_bind(self) -> bool:
+        """True when the EPISODE cap can bind before the STEP cap on the probe read.
+
+        Mirrors RolloutBudget.episode_cap_can_bind exactly. False under the derived
+        default, by construction.
+        """
+        return self.resolved_probe_max_episodes < int(self.probe_max_env_steps)
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -234,7 +285,10 @@ class WarmupRecipe:
             "regime": str(self.regime),
             "probe_selections": int(self.probe_selections),
             "probe_max_env_steps": int(self.probe_max_env_steps),
-            "probe_max_episodes": int(self.probe_max_episodes),
+            "probe_max_episodes": int(self.resolved_probe_max_episodes),
+            "probe_max_episodes_derived": bool(int(self.probe_max_episodes) <= 0),
+            "probe_episode_cap_can_bind": bool(self.probe_episode_cap_can_bind),
+            "probe_allow_tight_episode_cap": bool(self.allow_tight_episode_cap),
         }
 
 
@@ -253,6 +307,17 @@ class WarmupOutcome:
     cache_hit: bool
     recipe: Dict[str, Any]
     notes: List[str] = field(default_factory=list)
+    # Realised probe BUDGET, not just which cap fired. `probe_stop_reason` says which
+    # cap DID bind; these say which cap COULD have, and how much of the budget the
+    # read actually spent. Without them a starved read is indistinguishable from a
+    # cheap one that met its floors early -- that ambiguity is exactly what made the
+    # V3-EXQ-779a seed-23 defect survive a manifest review.
+    n_probe_env_steps: int = 0
+    n_probe_episodes: int = 0
+    probe_max_env_steps: int = 0
+    probe_max_episodes: int = 0
+    probe_episode_cap_can_bind: bool = False
+    probe_floors_met: bool = True
 
     @property
     def informative(self) -> bool:
@@ -268,6 +333,12 @@ class WarmupOutcome:
             "informative": bool(self.informative),
             "n_probe_selections": int(self.n_probe_selections),
             "probe_stop_reason": self.probe_stop_reason,
+            "n_probe_env_steps": int(self.n_probe_env_steps),
+            "n_probe_episodes": int(self.n_probe_episodes),
+            "probe_max_env_steps": int(self.probe_max_env_steps),
+            "probe_max_episodes": int(self.probe_max_episodes),
+            "probe_episode_cap_can_bind": bool(self.probe_episode_cap_can_bind),
+            "probe_floors_met": bool(self.probe_floors_met),
             "warmup_episodes": int(self.warmup_episodes),
             "warmup_cache_hit": bool(self.cache_hit),
             "warmup_recipe": dict(self.recipe),
@@ -341,6 +412,7 @@ def measure_action_mass(
     steps_per_episode: int,
     captured: Optional[Dict[str, Any]] = None,
     label: str = "",
+    allow_tight_episode_cap: bool = False,
 ) -> Dict[str, Any]:
     """Read-only de-saturation probe: collect D_action_mass over fresh E3 selections.
 
@@ -366,6 +438,13 @@ def measure_action_mass(
     `measure=True` hand back a different agent than `measure=False`. So the full
     state_dict AND the declared non-buffer scalars are snapshotted and restored --
     the caller gets back bit-identically the agent it passed in.
+
+    BUDGET DENOMINATION. `max_episodes` should be >= `max_env_steps` so the STEP cap
+    is what binds; see WarmupRecipe's docstring for why a tight episode cap starves a
+    short-episode seed. A tight cap here raises RolloutBudget's EpisodeCapWarning
+    unless `allow_tight_episode_cap=True` declares the intent. Either way the realised
+    budget comes back in the return dict and reaches the manifest, so a read that was
+    episode-denominated is visible rather than inferred.
     """
     if captured is None:
         captured = reapply_candidate_capture(agent)
@@ -404,6 +483,7 @@ def measure_action_mass(
                     max_env_steps=int(max_env_steps),
                     steps_per_episode=int(steps_per_episode),
                     max_episodes=int(max_episodes),
+                    allow_tight_episode_cap=bool(allow_tight_episode_cap),
                 ),
                 observe=_observe,
                 progress_label=label,
@@ -420,12 +500,25 @@ def measure_action_mass(
                 if hasattr(e3, _name):
                     setattr(e3, _name, copy.deepcopy(_value))
 
+    # Realised budget, on BOTH return paths. The zero-selection path needs these most:
+    # "collected ZERO selections" reads as a sampling bug, and only the budget fields
+    # distinguish that from a read the episode cap cut short.
+    budget_fields = {
+        "n_env_steps": int(outcome.n_env_steps),
+        "n_episodes": int(outcome.n_episodes),
+        "max_env_steps": int(outcome.max_env_steps),
+        "max_episodes": int(outcome.max_episodes),
+        "episode_cap_can_bind": bool(outcome.episode_cap_can_bind),
+        "floors_met": bool(outcome.floors_met),
+    }
+
     if not d_vals:
         return {
             "d_action_mass_mean": None,
             "d_action_mass_std": None,
             "n_selections": 0,
             "stop_reason": outcome.stop_reason,
+            **budget_fields,
         }
 
     mean = sum(d_vals) / len(d_vals)
@@ -435,6 +528,7 @@ def measure_action_mass(
         "d_action_mass_std": float(math.sqrt(var)),
         "n_selections": len(d_vals),
         "stop_reason": outcome.stop_reason,
+        **budget_fields,
     }
 
 
@@ -691,15 +785,32 @@ def warm_agent(
         seed=seed,
         n_selections=recipe.probe_selections,
         max_env_steps=recipe.probe_max_env_steps,
-        max_episodes=recipe.probe_max_episodes,
+        max_episodes=recipe.resolved_probe_max_episodes,
         steps_per_episode=recipe.steps_per_episode,
         label="%s desat seed=%d" % (label, seed),
+        allow_tight_episode_cap=recipe.allow_tight_episode_cap,
     )
     d_mean = read["d_action_mass_mean"]
     regime = saturation_regime(d_mean)
     if d_mean is None:
         notes.append("de-saturation probe collected ZERO selections (stop=%s)"
                      % read["stop_reason"])
+    # Say it in the notes too, not only in a boolean field: a starved or
+    # episode-denominated read is a caveat on the saturation VERDICT, and a reader
+    # scanning notes should not have to cross-reference the budget fields to find it.
+    if read["episode_cap_can_bind"]:
+        notes.append(
+            "probe read was EPISODE-denominated (max_episodes=%d < max_env_steps=%d): "
+            "a short-episode seed could not spend its full step budget"
+            % (read["max_episodes"], read["max_env_steps"])
+        )
+    if not read["floors_met"]:
+        notes.append(
+            "probe read STARVED: %d of %d selections in %d env steps / %d episodes "
+            "(stop=%s) -- treat this seed's saturation verdict as low-confidence"
+            % (read["n_selections"], int(recipe.probe_selections),
+               read["n_env_steps"], read["n_episodes"], read["stop_reason"])
+        )
 
     logger("  [warmup] %s seed=%d D_action_mass_mean=%s regime=%s (n=%d, stop=%s)"
            % (label, seed,
@@ -714,6 +825,12 @@ def warm_agent(
         saturated=(regime != "headroom"),
         n_probe_selections=int(read["n_selections"]),
         probe_stop_reason=str(read["stop_reason"]),
+        n_probe_env_steps=int(read["n_env_steps"]),
+        n_probe_episodes=int(read["n_episodes"]),
+        probe_max_env_steps=int(read["max_env_steps"]),
+        probe_max_episodes=int(read["max_episodes"]),
+        probe_episode_cap_can_bind=bool(read["episode_cap_can_bind"]),
+        probe_floors_met=bool(read["floors_met"]),
         warmup_episodes=int(recipe.num_episodes),
         cache_hit=cache_hit,
         recipe=recipe.as_dict(),
@@ -739,6 +856,12 @@ def saturation_summary(outcomes: Sequence[WarmupOutcome]) -> Dict[str, Any]:
         regimes[o.regime] = regimes.get(o.regime, 0) + 1
     informative = [o for o in outcomes if o.informative]
     yield_frac = (len(informative) / n) if n else 0.0
+    # Budget audit. An informative_yield computed over STARVED reads is not a
+    # de-saturation result, it is a sampling artefact -- so the aggregate must state
+    # how many seeds' reads were budget-limited, next to the yield it qualifies.
+    measured = [o for o in outcomes if o.regime != "unmeasured"]
+    starved = sorted(o.seed for o in measured if not o.probe_floors_met)
+    cap_bind = sorted(o.seed for o in measured if o.probe_episode_cap_can_bind)
     return {
         "n_seeds": n,
         "n_informative": len(informative),
@@ -746,6 +869,17 @@ def saturation_summary(outcomes: Sequence[WarmupOutcome]) -> Dict[str, Any]:
         "informative_seeds": sorted(o.seed for o in informative),
         "saturated_seeds": sorted(o.seed for o in outcomes if o.saturated),
         "regimes": regimes,
+        "n_probe_starved": len(starved),
+        "probe_starved_seeds": starved,
+        "n_probe_episode_cap_can_bind": len(cap_bind),
+        "probe_episode_cap_can_bind_seeds": cap_bind,
+        "probe_budget_clean": bool(not starved and not cap_bind),
+        "probe_budget_note": (
+            "probe_budget_clean=False means at least one seed's de-saturation read was "
+            "budget-limited (starved below its selection floor, or run under an episode "
+            "cap that can bind before the step cap). Qualify informative_yield "
+            "accordingly -- a starved read's saturation verdict is low-confidence."
+        ),
         "per_seed": [o.as_manifest_fields() for o in outcomes],
         "d_sat_low": D_SAT_LOW,
         "d_sat_high": D_SAT_HIGH,
