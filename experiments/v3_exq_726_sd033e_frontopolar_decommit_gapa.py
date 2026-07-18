@@ -36,13 +36,66 @@ PRE-REGISTERED GATE (PASS)
   cfv_now > cfv_at_entry, proving a real switch, not a flat timeout or F noise).
 
 READINESS / PRECONDITION (self-routes substrate_not_ready_requeue below floor)
-  ARM_FP_CONTRAST median occupancy > STRONG_F_OCCUPANCY_FLOOR (2000) -- confirms
-  the sustained natural-commit hold (the 460h monolithic-latch regime) actually
-  forms in GAP-A, so there IS a long occupancy for the frontopolar term to
-  shorten. If it does not form, the test is meaningless -> substrate_not_ready.
+  strong_f_monolithic_latch_present: the FRACTION of strong-F seeds whose
+  ARM_FP_CONTRAST median occupancy exceeds STRONG_F_OCCUPANCY_FLOOR (2000) must
+  reach ANCHOR_MIN_LATCH_SEEDS_FRAC -- confirms the sustained natural-commit hold
+  (the 460h monolithic-latch regime) actually forms in GAP-A on a MAJORITY of
+  seeds, so there IS a long occupancy for the frontopolar term to shorten. If it
+  does not form, the test is meaningless -> substrate_not_ready_requeue.
+
+  ANCHOR HYGIENE (2026-07-18, SD-068 autopsy Learning 1 retrofit)
+  Two defects were fixed in this precondition before it ever ran:
+
+  (1) `measured` and `met` were computed by DIFFERENT statistics -- `measured` was
+      a median-across-seeds of per-seed medians while `met` was a seed-COUNT
+      criterion (>= 2 seeds). Those coincide only at exactly n=3 seeds and diverge
+      in dry-run (where a 2-of-1 count is unsatisfiable by construction) and at any
+      other seed count, so a manifest reader could not recompute `met` from the
+      reported measured/threshold/direction triple -- exactly what the indexer needs
+      to re-derive a self-route's premise. BOTH are now the SAME statistic: the
+      FRACTION of contrast seeds clearing the floor, scored by the single shipped
+      predicate `_seed_latch_present`. `direction: "lower"` (a floor) is now declared.
+      At n=3 the gate is numerically identical to the old 2-of-3 count.
+
+  (2) The predicate is a MAJORITY statistic (`occupancy_median`) standing proxy for
+      what this docstring calls an EXISTENCE criterion ("there IS a long occupancy").
+      Every short fragmented hold contributes a release event and drags the median
+      down, so the anchor demands a majority of release events at/near the 2500-tick
+      flat timeout -- strictly stronger than "a long occupancy forms at all". The
+      widening to `occupancy_max` (or a count of releases >= floor) was NOT applied,
+      for two reasons: (a) NO recorded per-seed `release_occupancies` distribution
+      exists anywhere under REE_assembly/evidence/experiments/ at this config
+      (ncur_urgency_rate=0.0004, release_bound=1.0, latch_hold_max_ticks=0, 3000-step
+      episodes) -- the 460i/j/k lineage ran at urgency_rate=0.01 with NO latch-hold and
+      recorded ncur_* counters that are 0 on every seed and arm -- so the empirical
+      question the widening turns on is UNSETTLED, not settled-in-favour; and (b) the
+      LOAD-BEARING DV is a drop in `occupancy_median`, so an anchor on `occupancy_max`
+      would certify a regime in which the DV itself is fragmentation noise -- the exact
+      readiness/criterion statistic mismatch the V3-EXQ-643 same-statistic rule forbids.
+      The anchor therefore stays coupled to the DV statistic, and the fragmentation
+      hypothesis is instead made DIAGNOSABLE: `occupancy_max`, `n_release_long`
+      (releases >= floor) and `long_release_frac` are recorded per seed and surfaced in
+      a NON-ROUTING companion precondition, so the first real run settles defect (2)
+      from its own manifest instead of needing another run to ask the question.
 
 This experiment PROMOTES NOTHING (diagnostic, claim_ids=[]); it validates the
 substrate lever landed 2026-07-09. See ree-v3/CLAUDE.md "SD-033e (V3-narrow)".
+
+STATUS 2026-07-18 -- STILL HELD, NOT QUEUED. The V3-EXQ-724 gate did NOT open.
+  724 ran (v3_exq_724_competence_localization_diagnostic_20260709T211405Z_v3, FAIL,
+  non_contributory) and self-routed `competence_deficit_diffuse` with
+  `localizing_arms: []` and `any_single_factor_arm_supra: false` -- i.e. it did NOT
+  localize a competent committed-foraging test-bed, which is precisely the condition
+  the 2026-07-09 HOLD below named as the resume trigger. Its own preconditions all
+  read met=true (oracle clears the floor at 6.05 vs 1.0; the 719a incompetence
+  reproduces at 0.25), so the diffuse verdict is adjudicated, not an instrument gap.
+  Queuing 726 now would therefore spend the run to self-route
+  `substrate_not_ready_requeue` on a precondition we can already predict is unmet.
+  The anchor defects were fixed anyway (see ANCHOR HYGIENE above) because the fix is
+  what makes THAT future run's verdict trustworthy, and because the arm structure and
+  occupancy DV are explicitly reusable. RESUME CONDITION unchanged: a substrate that
+  sustains competent committed foraging; set ENV_KWARGS / P0 to that regime and
+  re-run /queue-experiment.
 
 STATUS 2026-07-09 -- HELD, NOT QUEUED (gated on V3-EXQ-724).
   Local probes showed the isolated GAP-A reef ENV_KWARGS below does NOT sustain a
@@ -79,6 +132,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
+from experiments._lib.readiness_anchor import assert_anchor_reachable  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
@@ -106,6 +160,12 @@ DRY_RUN_P1_STEPS = 60
 OCCUPANCY_DROP_FRAC = 0.40         # GATE: ON median occupancy drop vs CONTRAST
 STRONG_F_OCCUPANCY_FLOOR = 2000.0  # PRECONDITION: CONTRAST median occupancy floor (460h regime)
 MIN_SEEDS_FOR_PASS = 2             # of 3
+
+# ANCHOR gate for `strong_f_monolithic_latch_present`. Expressed as a FRACTION of
+# contrast seeds so that `measured`, `threshold` and `met` are one statistic at ANY
+# seed count (the defect-1 fix). At len(SEEDS)==3 this is 2/3 -- numerically identical
+# to the old MIN_SEEDS_FOR_PASS count criterion, so the pre-registered gate is unchanged.
+ANCHOR_MIN_LATCH_SEEDS_FRAC = float(MIN_SEEDS_FOR_PASS) / float(len(SEEDS))
 
 # ---- Rung-6 lever config (ON both arms; flat urgency, latch-hold sustains occupancy) ----
 NCUR_URGENCY_RATE = 0.0004         # flat-timeout ~ release_bound/rate ~ 2500 ticks (> floor)
@@ -156,6 +216,51 @@ ARMS: List[Dict[str, Any]] = [
     {"arm_id": ON_ARM, "label": "lever_on_frontopolar_decommit_on",
      "frontopolar_gain": FRONTOPOLAR_GAIN_ON},
 ]
+
+
+# ---------------------------------------------------------------------------
+# THE SHIPPED ANCHOR PREDICATE (one definition, used for BOTH the live contrast
+# cells and the frozen reachability reference -- a re-implementation for the guard
+# would defeat the guard's entire purpose; see _lib/readiness_anchor.py rule 1).
+# ---------------------------------------------------------------------------
+
+def _seed_latch_present(cell: Dict[str, Any]) -> bool:
+    """Does ONE contrast-arm seed exhibit the 460h sustained monolithic latch?
+
+    Scores the SAME statistic the load-bearing occupancy-drop DV routes on
+    (`occupancy_median`), so a below-gate reading means "the regime the DV needs
+    is absent", never "the DV was falsified" (the V3-EXQ-643 same-statistic rule).
+    """
+    return float(cell.get("occupancy_median", 0.0)) > STRONG_F_OCCUPANCY_FLOOR
+
+
+# Frozen known-positive reference for the reachability guard.
+#
+# PROVENANCE, STATED HONESTLY: this is a STRUCTURALLY-DERIVED reference, not a
+# replay of recorded per-arm values. The 460h "sustained monolithic natural-commit
+# hold (~2400-2600 steps)" regime is cited by the whole lineage (and by
+# failure_autopsy_V3-EXQ-460i_2026-06-21.md:64 as the premise the rung-6 lever
+# operates on) but the 460h manifest carries no per-arm occupancy block, and NO run
+# anywhere records occupancy at THIS config -- so no recorded fixture exists to
+# freeze. The three cells below span that cited 2400-2600 band, which brackets this
+# config's own flat timeout NCUR_RELEASE_BOUND / NCUR_URGENCY_RATE = 1.0/0.0004 =
+# 2500 ticks -- the occupancy a single un-fragmented hold releasing at timeout must
+# produce. The guard therefore certifies the weaker but still load-bearing property
+# it CAN certify: that the shipped predicate can score the regime this experiment is
+# designed around. Replace with a recorded fixture the moment one exists.
+_REFERENCE_460H_MONOLITHIC_LATCH: List[Dict[str, Any]] = [
+    {"seed": 42, "occupancy_median": 2400.0},
+    {"seed": 43, "occupancy_median": 2500.0},
+    {"seed": 44, "occupancy_median": 2600.0},
+]
+
+_REFERENCE_SOURCE = (
+    "460h sustained monolithic natural-commit-hold regime (~2400-2600 ticks), cited in "
+    "failure_autopsy_V3-EXQ-460i_2026-06-21.md sec 'What 460h established'; STRUCTURALLY "
+    "DERIVED, not a recorded per-arm replay (no run records occupancy at "
+    "ncur_urgency_rate=0.0004 / release_bound=1.0 / latch_hold_max_ticks=0), and bracketing "
+    "this config's flat timeout release_bound/rate = 2500 ticks"
+)
 
 
 def _make_env(seed: int) -> CausalGridWorldV2:
@@ -448,6 +553,16 @@ def _run_seed_arm(
 
         occ_median = float(statistics.median(release_occupancies)) if release_occupancies else 0.0
         occ_max = float(max(release_occupancies)) if release_occupancies else 0.0
+        # Defect-2 diagnostic instrumentation: the median is a MAJORITY statistic, so
+        # fragmentation (many short holds) drags it under the floor even when a long
+        # occupancy DOES form. Recording the count/fraction of releases at-or-above the
+        # floor -- alongside the max -- is what lets this run's own manifest settle
+        # "unmeetable-in-practice anchor" vs "genuinely no long occupancy", which no
+        # recorded run in the lineage currently can. NON-ROUTING (diagnostic only).
+        n_release_long = sum(1 for o in release_occupancies if o > STRONG_F_OCCUPANCY_FLOOR)
+        long_release_frac = (
+            float(n_release_long) / float(len(release_occupancies)) if release_occupancies else 0.0
+        )
         row = {
             "arm_id": arm["arm_id"],
             "label": arm["label"],
@@ -457,6 +572,8 @@ def _run_seed_arm(
             "n_release_events": int(len(release_occupancies)),
             "occupancy_median": round(occ_median, 3),
             "occupancy_max": round(occ_max, 3),
+            "n_release_long": int(n_release_long),
+            "long_release_frac": round(long_release_frac, 4),
             "beta_elevated_ticks": int(beta_elevated_ticks),
             "frontopolar_release_count": int(frontopolar_release_count),
             "ncur_n_urgency_releases": int(n_urgency_releases),
@@ -479,16 +596,30 @@ def _median(xs: List[float]) -> float:
     return float(statistics.median(xs)) if xs else 0.0
 
 
-def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _evaluate(arm_results: List[Dict[str, Any]],
+              anchor_guard: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     contrast = _by_seed(arm_results, CONTRAST_ARM)
     on = _by_seed(arm_results, ON_ARM)
     seeds = sorted(set(contrast) & set(on))
 
-    # PRECONDITION: CONTRAST median occupancy > floor (the sustained natural-commit
-    # hold -- the 460h monolithic-latch regime -- actually forms in GAP-A).
+    # PRECONDITION: the sustained natural-commit hold (the 460h monolithic-latch
+    # regime) actually forms in GAP-A on a majority of contrast seeds.
+    # `measured`, `threshold` and `met` are ONE statistic -- the FRACTION of contrast
+    # seeds passing the single shipped predicate `_seed_latch_present` -- so a manifest
+    # reader can recompute `met` from the reported triple at any seed count.
     contrast_occ = [contrast[s]["occupancy_median"] for s in seeds]
-    contrast_seeds_strongf = [s for s in seeds if contrast[s]["occupancy_median"] > STRONG_F_OCCUPANCY_FLOOR]
-    strong_f_ok = len(contrast_seeds_strongf) >= MIN_SEEDS_FOR_PASS
+    contrast_seeds_strongf = [s for s in seeds if _seed_latch_present(contrast[s])]
+    latch_seeds_frac = (float(len(contrast_seeds_strongf)) / float(len(seeds))) if seeds else 0.0
+    strong_f_ok = bool(seeds) and latch_seeds_frac >= ANCHOR_MIN_LATCH_SEEDS_FRAC
+
+    # NON-ROUTING defect-2 diagnostic: is a below-gate reading fragmentation (a long
+    # occupancy forms but short holds drag the median down) or genuine absence?
+    contrast_occ_max = [float(contrast[s].get("occupancy_max", 0.0)) for s in seeds]
+    contrast_long_frac = [float(contrast[s].get("long_release_frac", 0.0)) for s in seeds]
+    seeds_any_long_occupancy = [s for s in seeds
+                                if float(contrast[s].get("occupancy_max", 0.0)) > STRONG_F_OCCUPANCY_FLOOR]
+    any_long_frac = (float(len(seeds_any_long_occupancy)) / float(len(seeds))) if seeds else 0.0
+    fragmentation_suspected = bool(not strong_f_ok and seeds_any_long_occupancy)
 
     # LOAD-BEARING: per-seed occupancy drop >= 40% AND attributable (ON frontopolar
     # release count > 0 -- fires only when cfv_now > cfv_at_entry).
@@ -501,7 +632,7 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         drop_frac = (1.0 - o_occ / c_occ) if c_occ > 0 else 0.0
         attributed = fp_rel > 0
         seed_pass = bool(
-            contrast[s]["occupancy_median"] > STRONG_F_OCCUPANCY_FLOOR
+            _seed_latch_present(contrast[s])
             and drop_frac >= OCCUPANCY_DROP_FRAC
             and attributed
         )
@@ -540,18 +671,63 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     interpretation = {
         "label": label,
-        "preconditions": [{
-            "name": "strong_f_monolithic_latch_present",
-            "description": (
-                "CONTRAST-arm median committed-latch occupancy > floor -- the "
-                "sustained natural-commit hold (460h regime) forms in GAP-A, so "
-                "there is a long occupancy for the frontopolar term to shorten."
-            ),
-            "measured": round(_median(contrast_occ), 3),
-            "threshold": STRONG_F_OCCUPANCY_FLOOR,
-            "control": "CONTRAST arm (lever ON, frontopolar_gain=0); the flat-urgency reference occupancy",
-            "met": bool(strong_f_ok),
-        }],
+        "preconditions": [
+            {
+                "name": "strong_f_monolithic_latch_present",
+                "kind": "readiness",
+                "description": (
+                    "FRACTION of CONTRAST-arm seeds whose median committed-latch occupancy "
+                    f"exceeds the {STRONG_F_OCCUPANCY_FLOOR:.0f}-tick floor -- the sustained "
+                    "natural-commit hold (460h regime) forms in GAP-A on a MAJORITY of seeds, "
+                    "so there is a long occupancy for the frontopolar term to shorten. Scored "
+                    "by the shipped predicate _seed_latch_present on the SAME statistic "
+                    "(occupancy_median) the load-bearing occupancy-drop DV routes on, so a "
+                    "below-gate reading means the DV's regime is ABSENT, never that the DV was "
+                    "falsified. measured/threshold/met are one statistic: met == "
+                    "(measured >= threshold)."
+                ),
+                "measured": round(latch_seeds_frac, 4),
+                "threshold": round(ANCHOR_MIN_LATCH_SEEDS_FRAC, 4),
+                "direction": "lower",
+                "control": (
+                    "CONTRAST arm (lever ON, frontopolar_gain=0); the flat-urgency reference "
+                    "occupancy, whose known-positive regime is the 460h monolithic latch"
+                ),
+                "met": bool(strong_f_ok),
+                "n_seeds_latch_present": len(contrast_seeds_strongf),
+                "n_seeds_scored": len(seeds),
+            },
+            {
+                # NON-ROUTING. Recorded so this run's own manifest settles the open
+                # defect-2 question (majority-statistic anchor vs existence criterion)
+                # that no recorded run in the lineage can currently answer.
+                "name": "diag_long_occupancy_exists_at_all",
+                "kind": "diagnostic_non_routing",
+                "description": (
+                    "DIAGNOSTIC ONLY -- routes nothing. Fraction of CONTRAST seeds whose "
+                    "occupancy_MAX exceeds the floor, i.e. a long occupancy formed AT ALL. If "
+                    "this is high while strong_f_monolithic_latch_present is unmet, the latch "
+                    "IS forming and latch FRAGMENTATION (many short holds dragging the median "
+                    "down -- the 460i mode) is what fails the anchor, so the anchor is "
+                    "unmeetable-in-practice and the correct predicate is the release COUNT/MAX, "
+                    "not the median. If both are low, there is genuinely no long occupancy and "
+                    "substrate_not_ready_requeue is the correct route."
+                ),
+                "measured": round(any_long_frac, 4),
+                "threshold": round(ANCHOR_MIN_LATCH_SEEDS_FRAC, 4),
+                "direction": "lower",
+                "control": "CONTRAST arm occupancy_max vs the same floor",
+                "met": bool(any_long_frac >= ANCHOR_MIN_LATCH_SEEDS_FRAC),
+                "fragmentation_suspected": fragmentation_suspected,
+                "contrast_occupancy_max_by_seed": {
+                    str(s): round(float(contrast[s].get("occupancy_max", 0.0)), 3) for s in seeds
+                },
+                "contrast_long_release_frac_by_seed": {
+                    str(s): round(float(contrast[s].get("long_release_frac", 0.0)), 4) for s in seeds
+                },
+            },
+        ],
+        "anchor_reachability_guard": anchor_guard,
         "criteria_non_degenerate": criteria_non_degenerate,
         "criteria": [
             {"name": "C_OCCUPANCY_DROP_ATTRIBUTED", "load_bearing": True, "passed": bool(drop_pass)},
@@ -562,10 +738,31 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         "strong_f_precondition": {
             "floor": STRONG_F_OCCUPANCY_FLOOR,
             "contrast_occupancy_median_by_seed": {str(s): contrast[s]["occupancy_median"] for s in seeds},
+            "contrast_occupancy_median_across_seeds": round(_median(contrast_occ), 3),
+            "contrast_occupancy_max_by_seed": {
+                str(s): round(float(contrast[s].get("occupancy_max", 0.0)), 3) for s in seeds
+            },
             "n_seeds_strong_f": len(contrast_seeds_strongf),
+            "n_seeds_scored": len(seeds),
+            "latch_seeds_frac": round(latch_seeds_frac, 4),
+            "latch_seeds_frac_required": round(ANCHOR_MIN_LATCH_SEEDS_FRAC, 4),
             "min_seeds_required": MIN_SEEDS_FOR_PASS,
             "strong_f_ok": strong_f_ok,
+            # defect-2 diagnostic, non-routing
+            "any_long_occupancy_frac": round(any_long_frac, 4),
+            "contrast_long_release_frac_by_seed": {
+                str(s): round(float(contrast[s].get("long_release_frac", 0.0)), 4) for s in seeds
+            },
+            "fragmentation_suspected": fragmentation_suspected,
+            "fragmentation_note": (
+                "fragmentation_suspected=true means a long occupancy DID form on >=1 seed "
+                "(occupancy_max > floor) while the median-based anchor was unmet -- i.e. the "
+                "460i latch-fragmentation mode, and the anchor is unmeetable-in-practice "
+                "rather than the substrate being unready. Adjudicate before acting on the "
+                "substrate_not_ready_requeue self-route."
+            ),
         },
+        "anchor_reachability_guard": anchor_guard,
         "occupancy_drop": {
             "drop_frac_required": OCCUPANCY_DROP_FRAC,
             "per_seed": per_seed,
@@ -603,6 +800,29 @@ def _full_config_slice(arm: Dict[str, Any]) -> Dict[str, Any]:
 
 def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     print(f"[{EXPERIMENT_TYPE}] starting (dry_run={dry_run})", flush=True)
+
+    # SETUP-TIME REACHABILITY GUARD (SD-068 autopsy Learning 1). Replay the frozen
+    # known-positive 460h monolithic-latch reference through THE SHIPPED predicate
+    # BEFORE spending the run. A gate the reference itself cannot clear is a
+    # guaranteed false negative that would mislabel an instrument-specification gap
+    # as a substrate verdict via the substrate_not_ready_requeue self-route.
+    # Raises AnchorUnreachable (an AssertionError) -> non-zero exit -> runner ERROR.
+    anchor_guard = assert_anchor_reachable(
+        anchor_name="strong_f_monolithic_latch_present",
+        reference_cells=_REFERENCE_460H_MONOLITHIC_LATCH,
+        score_fn=_seed_latch_present,          # THE SHIPPED PREDICATE, not a copy
+        threshold=ANCHOR_MIN_LATCH_SEEDS_FRAC,
+        reference_source=_REFERENCE_SOURCE,
+        margin_cells=1,                        # refuse an anchor that only JUST clears
+    )
+    print(
+        f"[{EXPERIMENT_TYPE}] anchor reachability OK: reference scores "
+        f"{anchor_guard['n_reference_scored_true']}/{anchor_guard['n_reference_cells']} "
+        f"= {anchor_guard['reference_score']:.4f} >= required "
+        f"{anchor_guard['required_score']:.4f} under the shipped predicate",
+        flush=True,
+    )
+
     seeds = DRY_RUN_SEEDS if dry_run else SEEDS
     p0_eps = DRY_RUN_P0 if dry_run else P0_WARMUP_EPISODES
     p0_steps = DRY_RUN_P0_STEPS if dry_run else P0_STEPS_PER_EPISODE
@@ -626,7 +846,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                 flush=True,
             )
 
-    evaluation = _evaluate(arm_results)
+    evaluation = _evaluate(arm_results, anchor_guard=anchor_guard)
     outcome = "PASS" if evaluation["overall_pass"] else "FAIL"
 
     manifest = {
@@ -648,6 +868,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "occupancy_drop_frac": OCCUPANCY_DROP_FRAC,
             "strong_f_occupancy_floor": STRONG_F_OCCUPANCY_FLOOR,
             "min_seeds_for_pass": MIN_SEEDS_FOR_PASS,
+            "anchor_min_latch_seeds_frac": ANCHOR_MIN_LATCH_SEEDS_FRAC,
             "frontopolar_gain_on": FRONTOPOLAR_GAIN_ON,
             "ncur_urgency_rate": NCUR_URGENCY_RATE,
         },
