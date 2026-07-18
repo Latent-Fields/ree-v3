@@ -1,15 +1,27 @@
 """
-V3-EXQ-778b: SD-068 zero-injected-content NULL CONTROL for the consolidation-pipeline
-lesion harness.
+V3-EXQ-778c: SD-068 zero-injected-content NULL CONTROL for the consolidation-pipeline
+lesion harness -- 8-seed powered successor to V3-EXQ-778b.
 SLEEP DRIVER: manual-cycle-loop (the SD-068 harness drives enter_sws_mode /
 run_sws_schema_pass + enter_rem_mode / run_rem_attribution_pass +
 recalibrate_precision_to directly per phase readout; no SleepLoopManager scheduling).
 
 WHAT THIS MEASURES
 ------------------
-V3-EXQ-778 validated the SD-068 harness (PASS) and reported a seed-stable
-damage-tolerance staging order of (nrem, rem, sws). That order is only meaningful if
-each per-phase readout is tracking CONTENT FIDELITY. This run tests the alternative:
+V3-EXQ-778 validated the SD-068 harness (PASS) and V3-EXQ-778a powered its
+damage-tolerance staging order up to 8 seeds. That order -- WHATEVER it turns out to
+be -- is only meaningful if each per-phase readout is tracking CONTENT FIDELITY.
+
+STATE OF THE ORDER (read from the manifests, not assumed). The order is NOT stable:
+778 produced three DIFFERENT orders across its three seeds, and 778a self-routed
+`staging_seed_variable_underpowered` -- modal order (rem, nrem, sws) at only 4/8
+seeds, Spearman mean rho 0.375 with CI [-0.247, 0.997] spanning zero, and the
+contested rem-fails-first axis at 4-pos/4-neg (sign test p = 1.0). So this control is
+NOT auditing a settled ordering; it is asking the prior question of whether the
+per-phase readouts the ordering is built from are measuring content at all. If a
+readout is confounded, its seed-variability is not merely noise to be powered
+through -- it is variability in a noise-sensitivity measurement.
+
+This run tests the alternative:
 that a readout tracks PERTURBATION MAGNITUDE and would move with `sigma` even with no
 known content injected at all -- in which case the staging order is an ordering of the
 three phases' raw NOISE SENSITIVITY, not of their functional damage tolerance. That is
@@ -67,7 +79,13 @@ ACCEPTANCE (pre-registered)
      clears INJECTED_SLOPE_FLOOR on the known-damaged positive control. A below-floor
      denominator means the sweep never damaged the readout, so the control cannot
      discriminate -> substrate_not_ready_requeue, NEVER a substrate verdict.
-  C3: the confound verdict is stable across seeds.
+  C3: the confound verdict is stable across all 8 seeds.
+
+Per-phase ratios are reported as a DISTRIBUTION (mean / SD / 95% CI / per-seed values),
+matching the V3-EXQ-778a treatment, because the underlying damage tolerance is strongly
+heteroscedastic (778a: sws SD ~8.6e-9, nrem ~0.0014, rem ~0.396). A phase whose CI
+STRADDLES the ceiling is flagged `ceiling_inside_ci95` -- its confound verdict is
+UNRESOLVED at this n and must not be read as a clean pass or a clean confound.
 
 A FAIL here is an INFORMATIVE outcome, not a broken run: it scopes SD-068's
 non-vacuity honestly (the contract would then have to be carried by the REM
@@ -91,7 +109,11 @@ from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_sd068_null_content_control_diagnostic"
-QUEUE_ID = "V3-EXQ-778b"
+QUEUE_ID = "V3-EXQ-778c"
+# 778c re-runs the identical control at the full V3-EXQ-778a 8-seed set. 778b ran at
+# n=2 and left the rem leg UNRESOLVED (per-seed ratios [4348.47, 0.0], verdict flipped);
+# its sws (1.0000) and nrem (0.144) legs were stable and are reproduced here.
+SUPERSEDES = "V3-EXQ-778b"
 # SD-068 = the harness whose non-vacuity this audits. The three staging claims are
 # tagged as context only. MECH-121 is deliberately ABSENT (held; the NREM leg is
 # substrate-plumbing-fidelity only and must not accrue promotion evidence).
@@ -99,9 +121,32 @@ CLAIM_IDS: List[str] = ["SD-068", "MECH-168", "INV-047", "MECH-169"]
 EXPERIMENT_PURPOSE = "diagnostic"
 SLEEP_DRIVER_PATTERN = "manual-cycle-loop"
 
-# Seeds 42 and 7: the pair on which V3-EXQ-778 reported a stable (nrem, rem, sws)
-# order, so the control is directly comparable to the result it audits.
-SEEDS = [42, 7]
+# The V3-EXQ-778a 8-seed set, reused EXACTLY so the null ratios pool directly onto
+# that run's damage-tolerance distribution.
+#
+# WHY 8 AND NOT 2 (corrected 2026-07-18, after V3-EXQ-778b ran and confirmed the
+# problem empirically): this control was first authored at
+# seeds [42, 7] on the belief that V3-EXQ-778 had found a seed-STABLE order of
+# (nrem, rem, sws). The manifests refute that on every count -- 778 produced THREE
+# DIFFERENT orders in its three seeds, (nrem, rem, sws) occurs in only 1 of 778a's 8
+# seeds, the modal order is the PREDICTED (rem, nrem, sws) at 4/8, and 778a's own
+# self-route label is `staging_seed_variable_underpowered` (Spearman mean rho 0.375,
+# CI [-0.247, 0.997] spanning zero; the contested rem-fails-first axis 4-pos/4-neg,
+# sign test p = 1.0). Seeds 42 and 7 specifically give DIFFERENT orders.
+#
+# That matters here because the per-phase damage tolerance is wildly heteroscedastic:
+# sws SD ~ 8.6e-9 (deterministic -- its ratio is analytic and seed-invariant), nrem
+# SD ~ 0.0014, but REM SD ~ 0.396. The rem leg's null ratio is genuinely seed-variable
+# (its clamp saturation is itself a random draw), so n=2 would under-power exactly the
+# phase most in need of characterisation -- repeating at the control layer the error
+# 778a was queued to fix at the staging layer.
+#
+# V3-EXQ-778b then CONFIRMED this empirically at full fidelity: sws [1.0000, 1.0000]
+# and nrem [0.1449, 0.1429] came back stable, but rem came back [4348.47, 0.0] -- the
+# confound verdict FLIPPED between the two seeds (confound_verdict_stable=False). The
+# one leg whose confound status is genuinely in question was left UNRESOLVED. Hence
+# the full 8 here.
+SEEDS = [42, 7, 123, 2024, 99, 7777, 314, 1000]
 SIGMAS = [0.0, 0.25, 0.5, 1.0, 2.0]
 WARM_STEPS = 40
 ARMS = ["INJECTED", "NULL"]
@@ -109,7 +154,7 @@ ARMS = ["INJECTED", "NULL"]
 # Pre-registered thresholds.
 NULL_SLOPE_RATIO_CEILING = H.NULL_SLOPE_RATIO_CEILING  # 0.25
 INJECTED_SLOPE_FLOOR = 1e-6   # C2 readiness: min |injected slope| for an interpretable ratio
-PASS_FRACTION = 1.0           # both seeds must be clean for C1 (a control, not a vote)
+PASS_FRACTION = 1.0           # ALL seeds must be clean for C1 (a control, not a vote)
 
 
 def _fmt(v: float) -> str:
@@ -179,7 +224,7 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
     warm = 8 if dry_run else WARM_STEPS
     sigmas = [0.0, 0.5, 2.0] if dry_run else SIGMAS
 
-    print("V3-EXQ-778b: SD-068 zero-injected-content null control", flush=True)
+    print("V3-EXQ-778c: SD-068 zero-injected-content null control (8-seed)", flush=True)
     print(
         f"  seeds={seeds} sigmas={sigmas} warm_steps={warm} "
         f"arms={ARMS} dry_run={dry_run}",
@@ -329,12 +374,33 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
             and not math.isnan(s["null_slope_ratio"][p])
         ]
         n_conf = sum(1 for s in seed_scores if p in s["confounded_phases"])
+        # Distribution, not just a mean -- the per-phase damage tolerance is strongly
+        # heteroscedastic across seeds (778a: sws SD ~8.6e-9 vs rem SD ~0.396), so a
+        # bare mean would hide that the rem leg's ratio is the seed-variable one.
+        mean_v = (sum(vals) / len(vals)) if vals else H.UNAVAILABLE
+        if len(vals) >= 2:
+            var = sum((v - mean_v) ** 2 for v in vals) / (len(vals) - 1)
+            sd = math.sqrt(var)
+            sem = sd / math.sqrt(len(vals))
+            ci_lo, ci_hi = mean_v - 1.96 * sem, mean_v + 1.96 * sem
+        else:
+            sd = ci_lo = ci_hi = H.UNAVAILABLE
         phase_summary[p] = {
-            "mean_null_slope_ratio": (sum(vals) / len(vals)) if vals else H.UNAVAILABLE,
+            "mean_null_slope_ratio": mean_v,
+            "sd_null_slope_ratio": sd,
+            "ci95_low": ci_lo,
+            "ci95_high": ci_hi,
+            "n_seeds_with_ratio": len(vals),
             "per_seed_null_slope_ratio": [s["null_slope_ratio"][p] for s in seed_scores],
             "n_seeds_confounded": n_conf,
             "confounded_all_seeds": bool(n_conf == n),
             "confound_verdict_stable": bool(n_conf == 0 or n_conf == n),
+            # A ceiling INSIDE the CI means the confound verdict is not resolved for
+            # this phase at this n -- reported so it cannot read as a clean verdict.
+            "ceiling_inside_ci95": bool(
+                ci_lo != H.UNAVAILABLE
+                and ci_lo <= NULL_SLOPE_RATIO_CEILING <= ci_hi
+            ),
         }
     c3_stable = all(v["confound_verdict_stable"] for v in phase_summary.values())
 
@@ -447,8 +513,12 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
         ps = phase_summary[p]
         print(
             f"  {p:>4}: mean null_slope_ratio={_fmt(ps['mean_null_slope_ratio'])} "
+            f"sd={_fmt(ps['sd_null_slope_ratio'])} "
+            f"ci95=[{_fmt(ps['ci95_low'])}, {_fmt(ps['ci95_high'])}] "
             f"confounded_seeds={ps['n_seeds_confounded']}/{n} "
-            f"stable={ps['confound_verdict_stable']}",
+            f"stable={ps['confound_verdict_stable']}"
+            + ("  [CEILING INSIDE CI -- verdict unresolved at this n]"
+               if ps["ceiling_inside_ci95"] else ""),
             flush=True,
         )
     print(f"confounded phases (any seed): {confounded_all or 'none'}", flush=True)
@@ -482,6 +552,7 @@ def main(*, dry_run: bool = False) -> Tuple[str, Path]:
     manifest: Dict[str, Any] = {
         "run_id": run_id,
         "queue_id": QUEUE_ID,
+        "supersedes": SUPERSEDES,
         "experiment_type": EXPERIMENT_TYPE,
         "architecture_epoch": "ree_hybrid_guardrails_v1",
         "claim_ids": CLAIM_IDS,
