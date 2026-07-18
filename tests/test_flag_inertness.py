@@ -146,6 +146,67 @@ def test_fc3_dacc_saturation_is_fed_from_the_live_path():
     )
 
 
+def test_sd069_phasic_burst_fires_and_changes_the_action_stream():
+    """SD-069: `use_phasic_burst` must reach the live E3 select() path.
+
+    The regulator adds an event-locked temperature delta to the softmax that
+    E3 selects with, so enabling it on a stream that actually produces surprise
+    spikes must (a) fire events and (b) change the committed action stream.
+    Asserting BOTH matters: (b) alone could pass on incidental RNG drift, and
+    (a) alone would only prove the regulator ticks internally without proving
+    it propagates.
+
+    The probe drives `phasic_burst_signal_source="instantaneous_pe"` -- the RAW
+    per-tick PE-MSE. The second half of the test pins WHY: the default
+    "running_variance" source reads the smoothed EMA, which washes out the
+    spikes, so it fires nothing on this same stream. That contrast is the
+    documented SD-069 finding (V3-EXQ-779 ran its PHASIC-ON arms on
+    "instantaneous_pe" for exactly this reason) and is what makes the source
+    selection load-bearing rather than cosmetic.
+    """
+    from ree_core.agent import REEAgent
+    from tests.fixtures.seed_utils import set_all_seeds
+    from tests.fixtures.tiny_configs import make_tiny_config
+    from tests.fixtures.tiny_env import make_tiny_env
+    from tests.fixtures.tiny_loop import run_episode
+
+    def arm(**overrides):
+        set_all_seeds(0)
+        env = make_tiny_env(seed=0)
+        agent = REEAgent(make_tiny_config(env, **overrides))
+        actions = run_episode(agent, env, steps=20)
+        return agent, actions
+
+    agent_off, actions_off = arm()
+    assert agent_off.phasic_burst is None, "flag off must not build the regulator"
+
+    agent_on, actions_on = arm(
+        use_phasic_burst=True, phasic_burst_signal_source="instantaneous_pe"
+    )
+    assert agent_on.phasic_burst is not None, "use_phasic_burst did not wire a regulator"
+
+    n_events = agent_on.phasic_burst.get_state()["n_events"]
+    assert n_events > 0, (
+        "use_phasic_burst=True fired zero surprise events over 20 live steps; "
+        "the regulator ticks but never bursts, so the flag is inert"
+    )
+    assert actions_on != actions_off, (
+        f"use_phasic_burst=True fired {n_events} events but the action stream is "
+        f"identical to OFF -- the burst does not reach E3 select() (inert flag)"
+    )
+
+    # Contrast: the smoothed default source produces no events on this stream.
+    # If this ever starts firing, SD-069's signal-source rationale changed and
+    # the probe above should be re-pointed rather than silently left stale.
+    agent_smoothed, _ = arm(
+        use_phasic_burst=True, phasic_burst_signal_source="running_variance"
+    )
+    assert agent_smoothed.phasic_burst.get_state()["n_events"] == 0, (
+        "the smoothed 'running_variance' source now fires events; SD-069's "
+        "sharp-source rationale has changed -- revisit this probe"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Flag registry-drift guard                                                   #
 # --------------------------------------------------------------------------- #
@@ -155,6 +216,7 @@ PROBED = {
     "use_amygdala_analog",  # F-P1 probe drives BLAAnalog encoding_gain
     "use_bla_analog",       #   (gated by use_amygdala_analog; default True)
     "dacc_saturation_enabled",  # F-C3 wiring spy
+    "use_phasic_burst",  # SD-069 fires-and-propagates probe (instantaneous_pe)
 }
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
