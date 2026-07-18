@@ -1250,6 +1250,7 @@ def run_experiment(
                     min([r["frac_pre_ge2"] for r in (off_rows + on_rows)] or [0.0])
                 ),
                 "threshold": float(FRAC_PRE_GE2_FLOOR),
+                "direction": "lower",
                 "met": bool(c1a_holds),
             },
             {
@@ -1269,6 +1270,7 @@ def run_experiment(
                     )
                 ),
                 "threshold": float(CONSUMED_SPREAD_FLOOR),
+                "direction": "lower",
                 "met": bool(c1b_holds),
             },
             {
@@ -1310,6 +1312,7 @@ def run_experiment(
                     max([r["crf_frac_active_ge_floor"] for r in on_rows] or [0.0])
                 ),
                 "threshold": float(CRF_FRAC_ACTIVE_FLOOR),
+                "direction": "lower",
                 "met": bool(c1c_holds),
             },
             {
@@ -1330,6 +1333,7 @@ def run_experiment(
                     max(list(prop_diff_by_seed.values()) or [0.0])
                 ),
                 "threshold": float(PROP_NONVAC_FLOOR),
+                "direction": "lower",
                 "met": bool(c1d_holds),
             },
         ],
