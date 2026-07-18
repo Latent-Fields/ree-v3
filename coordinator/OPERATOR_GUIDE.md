@@ -474,13 +474,13 @@ drift-only check would give a false all-clear.
 **Which tree gets graded.** The repo is resolved per unit from its systemd
 `WorkingDirectory`, never hardcoded, and the graded path is printed in the table.
 This is not defensive coding -- the hub genuinely runs these out of **three
-different checkouts**, and two are not where you would guess:
+different checkouts**, and one is not where you would guess:
 
 | Unit | Runs from |
 |------|-----------|
 | `ree-sync-daemon`, `ree-coordinator` | `~/REE_Working/ree-v3` |
 | `ree-runner` | `~/REE_Working_runner/ree-v3` |
-| `ree-explorer` | `~/Documents/GitHub/REE_Working/REE_assembly` |
+| `ree-explorer` | `~/REE_Working/REE_assembly` (repointed 2026-07-18) |
 
 The first cut of this check hardcoded `~/REE_Working/*` and so graded two of the
 four daemons against trees their processes never read -- reporting `ree-runner`
@@ -495,13 +495,20 @@ frozen, so BEHIND-ORIGIN reports "0 behind" whatever origin actually holds. When
 the ref is older than 7 days the check says so explicitly rather than implying
 an all-clear.
 
-Live example: `ree-explorer` runs from the `Documents/GitHub` clone that
-`REE_Working/CLAUDE.md` marks **stale** -- its `origin/master` ref was last
-updated 2026-06-07, and its `serve.py` sits at `241835246a` while the canonical
-`REE_assembly` has moved to `756a4d0a31`. Restarting it (done 2026-07-18
+Worked example (**now resolved**): `ree-explorer` ran from the `Documents/GitHub`
+clone that `REE_Working/CLAUDE.md` marks **stale** -- its `origin/master` ref was
+last updated 2026-06-07, and its `serve.py` sat at `241835246a` while the
+canonical `REE_assembly` had moved to `756a4d0a31`. Restarting it (2026-07-18
 20:33Z) made it current *with that clone* and did nothing about the ~6-week code
-gap. The durable fix is to repoint the unit at `~/REE_Working/REE_assembly` --
-a config change, deliberately not made automatically here.
+gap. It was repointed at `~/REE_Working/REE_assembly` at 2026-07-18 20:46Z, and
+the "cannot vouch" annotation now clears for that unit.
+
+Root cause worth remembering: that clone had **845 modified files** -- derived
+artifacts from a governance/indexer run on 2026-07-08 -- and serve.py's own
+auto-pull refuses to pull a dirty tree. So the clone silently stopped fetching,
+which is exactly the condition that freezes the remote-tracking ref and makes
+`BEHIND-ORIGIN` report a false "0 behind". **A daemon whose checkout has an
+un-landed dirty tree will go stale in a way only this annotation reveals.**
 
 **Restart pre-flight (mandatory -- especially for `ree-sync-daemon`).** The
 check never restarts anything itself. `sync_daemon` is the sole git writer for

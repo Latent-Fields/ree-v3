@@ -157,14 +157,18 @@ def resolve_repo(unit, fallback, _wd=None, _run_git=None):
     WorkingDirectory -> `git rev-parse --show-toplevel`.
 
     Do not replace this with a hardcoded path. The hub runs the same code out
-    of THREE different checkouts, and two of them are not where you would
+    of THREE different checkouts, and one of them is not where you would
     guess (verified 2026-07-18):
 
         ree-sync-daemon / ree-coordinator  ~/REE_Working/ree-v3
         ree-runner                         ~/REE_Working_runner/ree-v3
-        ree-explorer                       ~/Documents/GitHub/REE_Working/
-                                           REE_assembly   (the path
-                                           REE_Working/CLAUDE.md marks stale)
+        ree-explorer                       ~/REE_Working/REE_assembly
+
+    ree-explorer ran from ~/Documents/GitHub/REE_Working/REE_assembly (the path
+    REE_Working/CLAUDE.md marks stale) until it was repointed at the canonical
+    checkout on 2026-07-18. That it could drift there at all is the reason this
+    resolves dynamically rather than by table: the wrong-tree case is not
+    hypothetical, and a hardcoded map would have hidden it for six weeks.
 
     The first cut of this checker hardcoded ~/REE_Working/* and so evaluated
     two of the four daemons against trees their processes never read -- it
@@ -350,13 +354,18 @@ def remote_ref_age_days(repo, origin_ref, now_epoch, _run_git=None):
     is frozen and BEHIND-ORIGIN silently reports "0 behind" -- a false
     all-clear at the pull layer rather than the process layer.
 
-    Confirmed 2026-07-18: ree-explorer runs from a separate clone at
+    Confirmed 2026-07-18: ree-explorer ran from a separate clone at
     ~/Documents/GitHub/REE_Working/REE_assembly whose origin/master ref was
     last updated 2026-06-07. Its serve.py sat at 241835246a while the live
     REE_assembly had moved to 756a4d0a31 -- so the daemon graded CURRENT while
     running ~6-week-old code. The verdict was RIGHT about the process and
-    useless about the deployment. This annotation names that gap instead of
-    hiding it.
+    useless about the deployment. This annotation named that gap instead of
+    hiding it, and is what prompted the repoint to the canonical checkout
+    later the same day; the annotation now clears for ree-explorer.
+
+    Keep this check. The root cause was that nothing fetched that clone -- its
+    own auto-pull had been failing for weeks against a dirty tree -- and the
+    staleness was invisible everywhere except this annotation.
     """
     runner = _run_git or (lambda argv: _run(argv, GIT_TIMEOUT_SECONDS))
     out = runner(["git", "-C", repo, "log", "-1", "--format=%ct", origin_ref])
