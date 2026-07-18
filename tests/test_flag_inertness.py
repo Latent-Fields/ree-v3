@@ -340,16 +340,50 @@ KNOWN_INERT = {
 # of these to PROBED means supplying its activating condition, which is per-flag
 # work, not a batch operation.
 #
-# Priority order for that work is by LANDED CONTRIBUTORY EVIDENCE -- a flag whose
-# ON-arm already weighted claim confidence (evidence_direction supports /
-# weakens / does_not_support) is where an inert flag would mean a landed manifest
-# is a false null rather than merely untested wiring. Highest-fan-out first:
-# use_mech295_liking_bridge, use_dacc, use_modulatory_selection_authority,
-# use_mech307_conjunction, use_pag_freeze_gate, sws_enabled, use_sleep_loop,
-# use_salience_coordinator, rem_enabled, use_instrumental_avoidance.
-# Caveat on that ranking: attribution is script-level, not arm-level, so the
-# high-fan-out names may be always-on baseline settings rather than the
-# manipulated variable -- confirm against arm_fingerprint_index.json first.
+# Priority order for that work is by LANDED CONTRIBUTORY EVIDENCE -- but only the
+# evidence a probe could actually invalidate. The bar is ARM-LEVEL: the flag must
+# have been the MANIPULATED VARIABLE (an OFF arm vs an ON arm) in a run whose
+# manifest carries evidence_direction supports / weakens / does_not_support and
+# non-empty claim_ids. Only then would an inert flag mean a landed manifest is a
+# false null. A flag held CONSTANT across every arm is substrate, not the thing
+# under test: probing it cannot overturn a landed result.
+#
+# Corrected ranking (2026-07-18 arm-level audit, N contributory runs where the
+# flag was manipulated):
+#   sws_enabled (7), rem_enabled (7)            -- 265a/385/418/429x2/503a/691
+#   use_noise_floor (4)                          -- 544/544a UC-OFF vs ON; 614a/615
+#   use_suffering_derivative_comparator (4)      -- 516/517c/517d/519b
+#   valence_liking_enabled (3)                   -- 516/517c/517d
+#   use_sleep_loop (2), shy_enabled (2),
+#     use_conditioned_safety_store (2),
+#     replay_diversity_enabled (2)
+#   1 run each: use_mech295_liking_bridge (493), use_structured_curiosity +
+#     use_curiosity_{novelty,uncertainty,learning_progress} (604c),
+#     use_ofc_outcome_oracle (485a), use_object_file_buffer (658),
+#     use_rem_precision_recalibration (541a), use_sleep_aggregation_cluster (702),
+#     use_closure_env_completion_hook (466e)
+#
+# DEMOTED -- never the manipulated variable in ANY contributory run; every
+# occurrence is a constant baseline setting in the one shared config builder all
+# arms go through (so the earlier script-level fan-out counts were misleading):
+#   use_dacc                (14 contributory runs: 9 constant-ON, 5 constant-OFF)
+#   use_lateral_pfc_analog  (14, all constant-ON)
+#   use_pag_freeze_gate     (7, all constant-ON)
+#   use_modulatory_selection_authority (7; UPPERCASE module constants in 652/660/707b)
+#   use_mech307_conjunction (6, all constant-ON)
+#   use_salience_coordinator (6), use_instrumental_avoidance (5)
+# Two traps that ranking has to avoid, both hit during the audit:
+#   * 490j "severed_bridge_baseline" severs via cfg.goal.z_goal_enabled=False and
+#     leaves use_mech295_liking_bridge / use_pag_freeze_gate ON in BOTH arms -- so
+#     the MECH-295 `weakens` did not come from toggling either flag.
+#   * 776 (MECH-279 supports) is load-bearing for use_pag_freeze_gate without
+#     contrasting it: it drives agent.pag_freeze_gate directly and RAISES if the
+#     flag fails to build the gate, so inertness there fails loudly, not silently.
+#     Manipulated variable is gaba_tone.
+# Method note: arm_fingerprint_index.json does NOT record these flags (its
+# cell_keys are per-cell metrics/knobs), and manifest arm-config slices name them
+# only incidentally -- attribution came from reading each contributory run's arm
+# construction in ree-v3/experiments/.
 KNOWN_UNPROBED = {
     "action_loop_gate_enabled", "harm_descending_mod_enabled",
     "harm_surprise_pe_enabled", "rem_enabled", "replay_diversity_enabled",
