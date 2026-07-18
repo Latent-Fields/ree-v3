@@ -6,5 +6,23 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-778h",
+      "title": "SD-068 REM unpaired-target null -- anchor-fix re-run of 778d (both-rails railed predicate + reachability guard)",
+      "experiment_type": "v3_exq_sd068_rem_unpaired_null_anchorfix_diagnostic",
+      "script": "experiments/v3_exq_sd068_rem_unpaired_null_anchorfix_diagnostic.py",
+      "priority": 3,
+      "machine_affinity": "ree-cloud-2",
+      "machine_affinity_note": "pinned to the worker V3-EXQ-778d ran on; this is a REPLICATION-ANCHOR run whose deliverable is bit-identical reproduction of the 778c/778d ARM_NULL_ZERO floats, so it must stay on linux-x86_64-py3.10 (a Mac run would not reproduce them)",
+      "status": "pending",
+      "estimated_minutes": 12,
+      "episodes_per_run": 2,
+      "seeds": 8,
+      "conditions": 1,
+      "claim_id": "SD-068",
+      "supersedes": "V3-EXQ-778d",
+      "note": "LEDGER HYGIENE, NOT A BLOCKER -- the science is already adjudicated. Same-question alphabetic-suffix re-run of V3-EXQ-778d whose ONLY change is fixing a readiness-anchor specification defect diagnosed at REE_assembly/evidence/planning/failure_autopsy_SD-068-rem-fanout-cluster_2026-07-18.md section 2 (landed REE_assembly master deda5e17ed). DEFECT: 778d's precondition null_zero_anchor_reproduces_778c_railed_signature was UNMEETABLE BY CONSTRUCTION -- its `railed` predicate detected only the SATURATION rail, so the 3/8 POSITIVITY-FLOOR-COLLAPSE seeds (clamp_frac 0.2, n_distinct 5, n_unclamped 4, but off-scale ratios 1801-9143) were scored HEALTHY, capping a bit-perfect replication at 5/8=0.625 against a 0.75 gate. Because criteria_non_degenerate.C1_unpaired_null_derails = (readiness_ok and anchor_ok) with readiness_ok true on 8/8, that one statistic accounted for the entire degeneracy flag on the load-bearing criterion, and mislabelled the cause substrate_not_ready_requeue when the correct class is instrument_specification_gap. CHANGE 1: `railed` now counts BOTH rails, derived from the recorded integrity fields (min corrupt_target_precision on the 1e-3 positivity floor AND off-scale full-grid ratio), never from hardcoded seed indices; rail kind recorded per seed. CHANGE 2 (Learning 1, generalisable): new experiments/_lib/readiness_anchor.py replays the frozen known-degenerate 778c reference through THE SHIPPED predicate at setup and raises AnchorUnreachable if the gate exceeds what the reference can score -- reusable by any other readiness anchor. SCIENCE UNCHANGED: same arms/seeds/sigmas/RNG/thresholds/criteria; the unpaired-target null (ARM_NULL_UNPAIRED vs ARM_NULL_ZERO) is correct and is the faithful Bar et al. 2020 'same odour, no prior pairing' analog; the retired step-ladder probe is NOT revisited (algebraically inert -- step cancels in the reported ratio, identical to 12 sig figs over step in {0.1,0.25,0.5,1.0}; recorded at hypothesis_space_registry.v1.json -> consolidation_readout_validity -> H-rem-clamp-artifact -> probe_amendments[0]). PRE-QUEUE VERIFICATION on 778d's recorded cells: anchor 8/8 under the new predicate (rail kinds match the autopsy exactly -- seeds 42/123/99 floor-collapse, the other 5 saturation); 5/8 reproduced under the old predicate; and C1 de-railed stays EXACTLY 7/8, so the load-bearing verdict is unperturbed. Guard negative-tested: it fires on the 778d predicate with the exact 0.625-vs-0.75 message. EXPECTED: anchor clears 8/8, C1 non_degenerate becomes true, C1_unpaired_null_derails still PASSes at 7/8. LEDGER: H-rem-clamp-artifact is ALREADY resolved `confirmed` with control_rehabilitated: true on this corrected predicate. This run does NOT change that resolution -- it makes the control provenance clean-as-shipped rather than clean-as-rehabilitated; a governance session may then clear the flag. This entry does NOT edit hypothesis_space_registry.v1.json (GOV-FROZEN-1 single-producer: only /failure-autopsy Step 9b writes it). GOV-REUSE-1: the corrected anchor statistic IS post-hoc computable over 778d's recorded arm_results -- the autopsy did precisely that to establish 8/8, and that reanalysis is what control_rehabilitated records. Queued anyway at LOW priority because the deliverable is PROVENANCE, not the number: a shipped artifact whose own readiness anchor passes under its own shipped predicate. Reanalysis cannot produce that. Smoke PASS (dry-run, guard exercised). Experiment-layer only; zero ree_core change. DIAGNOSTIC: excluded from governance confidence/conflict scoring."
+    }
+  ]
 }
