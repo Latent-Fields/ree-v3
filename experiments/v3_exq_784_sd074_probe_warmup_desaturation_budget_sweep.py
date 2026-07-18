@@ -450,6 +450,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "control": "all cells, including the untrained budget-0 control",
             "measured": round(readable_frac, 4),
             "threshold": MIN_CELLS_READABLE_FRAC,
+            "direction": "lower",  # FLOOR: met when measured >= threshold
             "met": bool(instrument_ready),
         },
         {
@@ -468,6 +469,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                 None if control_saturated_frac is None else round(control_saturated_frac, 4)
             ),
             "threshold": CONTROL_MIN_SATURATED_FRAC,
+            "direction": "lower",  # FLOOR: met when the saturated fraction >= threshold
             "met": bool(control_reproduces),
         },
     ]
