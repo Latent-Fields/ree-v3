@@ -491,5 +491,98 @@ class ConflictRecovery(_QueueWriterFixture):
             1)
 
 
+class NoSelfDeadlockOnFailedTick(_QueueWriterFixture):
+    """The writer must never leave its OWN derived edit in the tree.
+
+    Regression guard for the 2026-07-18 incident: `git add` succeeded,
+    the commit did not, and the leftover staged experiment_queue.json
+    then tripped the writer's own clean-tree precondition on every
+    subsequent tick -- wedging the queue snapshot for 5h31m with
+    last_error=None and the tick loop still apparently healthy. The
+    snapshot is DERIVED from the DB, so a failed tick must restore it
+    and let the next tick retry from scratch, with no human in the loop.
+    """
+
+    def _status(self):
+        return _git(self._repo, "status", "--porcelain").stdout.strip()
+
+    def _install_failing_pre_commit(self):
+        hook = self._repo / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        return hook
+
+    # -- D1: a failed commit must not leave the tree dirty -------------------
+    def test_d1_failed_commit_leaves_tree_clean(self):
+        _upsert_item(self._conn, "V3-EXQ-D1", priority=10)
+        self._install_failing_pre_commit()
+        result = self._run()
+        self.assertFalse(result, "tick must report failure when commit fails")
+        self.assertEqual(
+            self._status(), "",
+            "failed tick left its derived edit in the tree -- the next tick "
+            "would refuse on the clean-tree precondition and deadlock")
+
+    # -- D2: the writer recovers on the next tick, with no human ------------
+    def test_d2_next_tick_recovers_after_failed_commit(self):
+        _upsert_item(self._conn, "V3-EXQ-D2", priority=10)
+        hook = self._install_failing_pre_commit()
+        self.assertFalse(self._run())
+        # The transient cause clears; nobody touches the repo by hand.
+        hook.unlink()
+        self.assertTrue(
+            self._run(),
+            "writer must self-recover once the failure cause clears")
+        ids = [i["queue_id"] for i in self._read_origin_queue()["items"]]
+        self.assertEqual(ids, ["V3-EXQ-D2"])
+
+    # -- D3: the post-write, pre-`git add` failure path also stays clean -----
+    def test_d3_failed_fetch_after_write_leaves_tree_clean(self):
+        """Covers the UNSTAGED variant of the deadlock.
+
+        The writer fetches twice: once inside _sync_to_origin (BEFORE the
+        materialised write) and once after it, just before `git add`. Only
+        the second one can strand an unstaged edit, and simply breaking the
+        remote URL fails the first and returns before anything is written --
+        so that would pass whether or not the guard exists. Failing the
+        SECOND fetch specifically is what exercises the real path.
+        """
+        _upsert_item(self._conn, "V3-EXQ-D3", priority=10)
+        real_git = sync_daemon._git
+        fetches = []
+
+        def flaky_git(repo, *args, **kwargs):
+            if args and args[0] == "fetch":
+                fetches.append(args)
+                if len(fetches) == 2:
+                    return subprocess.CompletedProcess(
+                        args=["git", "fetch"], returncode=1,
+                        stdout="", stderr="simulated fetch failure")
+            return real_git(repo, *args, **kwargs)
+
+        sync_daemon._git = flaky_git
+        try:
+            result = self._run()
+        finally:
+            sync_daemon._git = real_git
+
+        self.assertEqual(len(fetches), 2,
+                         "expected the post-write fetch to be reached")
+        self.assertFalse(result, "tick must report failure when fetch fails")
+        self.assertEqual(
+            self._status(), "",
+            "failed fetch left the materialised snapshot unstaged in the "
+            "tree -- the next tick would refuse and deadlock")
+
+    # -- D4: a successful tick is unaffected by the guard -------------------
+    def test_d4_success_path_still_commits_and_pushes(self):
+        _upsert_item(self._conn, "V3-EXQ-D4", priority=10)
+        self.assertTrue(self._run())
+        ids = [i["queue_id"] for i in self._read_origin_queue()["items"]]
+        self.assertEqual(ids, ["V3-EXQ-D4"],
+                         "restore guard must not revert a committed snapshot")
+        self.assertEqual(self._status(), "")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

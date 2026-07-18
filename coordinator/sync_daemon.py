@@ -1014,6 +1014,44 @@ def _hub_working_tree_clean(repo):
     return (True, "")
 
 
+def _restore_derived_path(repo, relpath, log_prefix):
+    """Restore a WRITER-DERIVED path to HEAD (index + working tree).
+
+    Only ever call this on a path the writer materialises from the
+    coordinator DB (today: experiment_queue.json). Such a path is a
+    derived view, never operator input, so discarding an uncommitted
+    edit is lossless -- the next tick re-materialises it from the DB.
+
+    Why this exists: `_hub_working_tree_clean` treats ANY porcelain
+    output as dirty, so a writer that leaves its own half-finished edit
+    in the tree -- staged OR unstaged -- trips its own precondition on
+    every subsequent tick and deadlocks itself permanently. Confirmed
+    2026-07-18: a staged experiment_queue.json (git add succeeded, the
+    commit did not) wedged phase3_queue_writer for 5h31m, silently, with
+    last_error=None and the tick loop still running.
+
+    Best-effort: a failure here is logged and the tick still reports its
+    original outcome. `git checkout HEAD -- <path>` resets index AND
+    working tree for the path in one call.
+    """
+    try:
+        res = _git(repo, "checkout", "HEAD", "--", relpath,
+                   check=False, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        sys.stderr.write(
+            "%s WARN could not restore %s after a failed tick (%r); the "
+            "next tick may refuse on a dirty tree.\n"
+            % (log_prefix, relpath, exc))
+        return False
+    if res.returncode != 0:
+        sys.stderr.write(
+            "%s WARN could not restore %s after a failed tick (%s); the "
+            "next tick may refuse on a dirty tree.\n"
+            % (log_prefix, relpath, res.stderr.strip()[:240]))
+        return False
+    return True
+
+
 def _hub_working_tree_clean_for_writer(repo, log_prefix):
     """Clean-tree check with one-shot telemetry-only auto-recovery."""
     clean, reason = _hub_working_tree_clean(repo)
@@ -2216,6 +2254,14 @@ def phase3_queue_writer(
     # MED-A: same constant-sharing rationale as the result writer above.
     commit_msg = "%ssnapshot %s" % (_PHASE3_QUEUE_COMMIT_PREFIX, today)
 
+    # The working-tree edit above is DERIVED from the coordinator DB and is
+    # reproduced from scratch on every tick, so any exit that does NOT turn
+    # it into a commit must leave the tree clean again. Otherwise the edit
+    # (staged or unstaged) trips this writer's own clean-tree precondition
+    # on the NEXT tick and every tick after it -- a permanent self-deadlock
+    # that needs a human to clear. See _restore_derived_path for the
+    # 2026-07-18 incident this guards.
+    restore_needed = True
     try:
         # Same fetch + foreign-check + commit/push sequence as the
         # result writer, applied to the ree-v3 repo.
@@ -2225,7 +2271,7 @@ def phase3_queue_writer(
         if fetched.returncode != 0:
             sys.stderr.write(
                 "[phase3-queue] refusing tick: fetch origin %s failed "
-                "(%s). Working tree edit retained; next tick will retry.\n"
+                "(%s). Derived snapshot restored; next tick will retry.\n"
                 % (br, fetched.stderr.strip()[:240]))
             return False
 
@@ -2237,6 +2283,9 @@ def phase3_queue_writer(
         diff = _git(repo, "diff", "--cached", "--quiet",
                     check=False, timeout=10)
         if diff.returncode == 0:
+            # Byte-identical to HEAD's blob: nothing staged, tree already
+            # clean, so there is no derived edit left to restore.
+            restore_needed = False
             # No-diff path. ahead-of-origin guard:
             ahead = _git(
                 repo, "rev-list", "--count",
@@ -2264,8 +2313,8 @@ def phase3_queue_writer(
                 if push.returncode != 0:
                     sys.stderr.write(
                         "[phase3-queue] push REJECTED for unpushed local "
-                        "commit: %s. Working tree edit retained.\n"
-                        % push.stderr.strip()[:240])
+                        "commit: %s. Tree clean; commit retained for "
+                        "retry.\n" % push.stderr.strip()[:240])
                     return False
                 sys.stdout.write(
                     "[phase3-queue] pushed unpushed local commit "
@@ -2279,6 +2328,9 @@ def phase3_queue_writer(
 
         # diff.returncode != 0: there's a real change to commit.
         _git(repo, "commit", "-m", commit_msg, timeout=20, check=True)
+        # The commit consumed the staged edit; the tree is clean whatever
+        # the push does next, and restoring now would revert real work.
+        restore_needed = False
         ok, foreign = _check_ahead_writer_authored(repo, br)
         if not ok:
             sys.stderr.write(
@@ -2300,6 +2352,16 @@ def phase3_queue_writer(
         sys.stderr.write(
             "[phase3-queue] git commit/push error: %r\n" % exc)
         return False
+    finally:
+        # Runs on every exit -- the early `return False`s above, the
+        # exception handler, and the success path (where restore_needed
+        # is already False). A TimeoutExpired on `git commit` is the one
+        # ambiguous case: the commit may or may not have landed, so this
+        # restores only when the commit was not observed to succeed, and
+        # `git checkout HEAD -- <path>` is a no-op against a tree the
+        # commit already cleaned.
+        if restore_needed:
+            _restore_derived_path(repo, rel, "[phase3-queue]")
 
     _record_writer_commit(
         "queue_writer", repo_path=repo, subject=commit_msg)
