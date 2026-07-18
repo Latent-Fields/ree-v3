@@ -138,6 +138,17 @@ class BootstrapExplorerConfig:
     actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN    # 128 -- OFF: the plateau width
     cotrain_encoder: bool = True         # z_world co-shape (OFF); ON detaches (frozen encoder)
 
+    # COMPETENCE-DIRECTED BOOTSTRAP hooks (GOV-FANOUT-1 H-bc-prior / H-approach-primitive,
+    # 2026-07-18; routed by failure_autopsy_MECH-457-fanout-770-771-772). All no-op-default OFF.
+    #   * bc_aux_coef (H-bc-prior, learning-signal): weight of the persistent imitation CE
+    #     auxiliary (bc_demo passed to train_bootstrap_explorer). OFF: 0.0 -> no BC term.
+    #   * use_approach_primitive / approach_coef (H-approach-primitive, intrinsic-architecture):
+    #     enable a non-extinguishing appetitive resource-proximity intrinsic drive of weight
+    #     approach_coef. OFF: False/0.0 -> no approach term.
+    bc_aux_coef: float = 0.0
+    use_approach_primitive: bool = False
+    approach_coef: float = 0.0
+
     def as_slice(self) -> Dict[str, Any]:
         """Config fields for the arm_fingerprint config_slice / manifest (declared)."""
         return {
@@ -154,6 +165,9 @@ class BootstrapExplorerConfig:
             "n_episodes": int(self.n_episodes),
             "actor_critic_hidden": int(self.actor_critic_hidden),
             "cotrain_encoder": bool(self.cotrain_encoder),
+            "bc_aux_coef": float(self.bc_aux_coef),
+            "use_approach_primitive": bool(self.use_approach_primitive),
+            "approach_coef": float(self.approach_coef),
         }
 
 
@@ -219,6 +233,7 @@ def warm_then_anneal(
 def train_bootstrap_explorer(
     rep: mech.RepAgent, env: Any, seed: int, steps: int, arm_label: str,
     cfg: BootstrapExplorerConfig, denom: Optional[int] = None,
+    bc_demo: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Train the composed bootstrap explorer on `rep` (z_world cotrain or raw 5x5) for
     cfg.n_episodes episodes, returning the mech457_explorer_classes.train_a2c guard dict.
@@ -228,10 +243,22 @@ def train_bootstrap_explorer(
     replay (cfg.credit_replay, cfg.credit_replay_passes/credit_topk). The policy capacity
     (cfg.actor_critic_hidden) and the z_world co-shape-vs-frozen mode (cfg.cotrain_encoder) are
     applied at REP CONSTRUCTION (make_rep), not here. With default (OFF) cfg this is the 751
-    RND-plateau arm (constant coef, no warm-start, no anneal, no credit, plateau budget/width)."""
+    RND-plateau arm (constant coef, no warm-start, no anneal, no credit, plateau budget/width).
+
+    bc_demo (H-bc-prior, V3-EXQ-780): OPTIONAL demonstrator Policy for the persistent imitation
+    AUXILIARY. When set with cfg.bc_aux_coef>0, a CE(actor_logits, demo_action)*coef term is added
+    to each episode loss (the BC warm-start is a separate, prior driver-side step via
+    mech.warmstart_bc_rep). cfg.use_approach_primitive/cfg.approach_coef (H-approach-primitive,
+    V3-EXQ-781): OPTIONAL non-extinguishing appetitive resource-proximity intrinsic drive. Both
+    default OFF -> byte-identical to the pre-existing 765/769/770/771/772 callers."""
     n_episodes = int(cfg.n_episodes)
     denom = int(denom) if denom is not None else n_episodes
     intrinsic = mech.RNDModule(rep.feature_dim) if cfg.use_rnd else None
+    if float(cfg.bc_aux_coef) > 0.0 and bc_demo is None:
+        raise ValueError(
+            "train_bootstrap_explorer: cfg.bc_aux_coef>0 requires a bc_demo demonstrator."
+        )
+    approach_drive = mech.resource_proximity if bool(cfg.use_approach_primitive) else None
 
     coef_schedule = (
         lambda ep, n: warm_then_anneal(
@@ -257,6 +284,10 @@ def train_bootstrap_explorer(
         credit_topk=int(cfg.credit_topk),
         coef_schedule=coef_schedule,
         entropy_schedule=entropy_schedule,
+        bc_demo=bc_demo,
+        bc_aux_coef=float(cfg.bc_aux_coef),
+        approach_drive=approach_drive,
+        approach_coef=float(cfg.approach_coef),
     )
 
 

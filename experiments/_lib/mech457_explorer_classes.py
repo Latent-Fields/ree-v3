@@ -160,6 +160,7 @@ MODE_ENTROPY_HI = EXPLORE_ENTROPY_BETA   # explore end of the mode anneal
 MODE_ENTROPY_LO = 0.01                    # exploit end of the mode anneal
 
 AC_LR = fan.AC_LR
+BC_LR = fan.BC_LR                         # 1e-3 -- supervised behavior-cloning CE learning rate
 AC_GAMMA = fan.AC_GAMMA
 AC_ENTROPY_BETA = fan.AC_ENTROPY_BETA     # 0.03 -- the sparse baseline exploration level
 AC_VALUE_COEF = fan.AC_VALUE_COEF
@@ -296,6 +297,83 @@ def make_rep(
     if representation == "raw_view":
         return RawViewRep(env, actor_critic_hidden=int(actor_critic_hidden))
     raise ValueError(f"unknown representation {representation!r}")
+
+
+# ===========================================================================
+# H-approach-primitive (V3-EXQ-781, axis=intrinsic-architecture): an innate, NON-EXTINGUISHING,
+# DEMONSTRATOR-FREE appetitive-approach drive toward resources. Architecturally distinct from
+# the novelty-class RND/SD-025 drives (which self-attenuate via familiarity) and from H3's
+# Ng-1999 potential-based EXTRINSIC shaping (a policy-INVARIANT credit aid on the reward
+# channel, 772). This is a STATE-based INTRINSIC reward = the peak resource-field value in the
+# agent's OWN 5x5 resource_field_view: it rises as the agent nears a resource (an appetitive
+# proximity gradient the agent reads from its own observation), is applied with a CONSTANT
+# coefficient every step (never annealed, never decays with visitation -> non-extinguishing),
+# and is a state reward (NOT a potential difference), so unlike H3 it is NOT policy-invariant --
+# it actively biases the value landscape toward approach. Demonstrator-free (no expert action;
+# reads only obs) -> does NOT alias the H-bc-prior imitation leg. Same information the
+# LocalViewGreedyPolicy climbs (48.05 ceiling), so the drive is provably competence-directed.
+# ===========================================================================
+def resource_proximity(obs_dict: Dict[str, Any]) -> float:
+    """Appetitive resource-proximity signal from the agent's own 5x5 resource_field_view: the
+    peak field value in the local window (rises toward 1 as a resource enters/approaches the
+    view; ~0 when none is nearby). Demonstrator-free. Returns 0.0 when the view channel is
+    absent (use_proxy_fields=False) so the drive silently no-ops rather than crashing."""
+    rfv = obs_dict.get("resource_field_view")
+    if rfv is None:
+        return 0.0
+    return float(np.asarray(rfv, dtype=np.float32).max())
+
+
+# ===========================================================================
+# H-bc-prior (V3-EXQ-780, axis=learning-signal): competence-directed BEHAVIORAL PRIOR. A rep-
+# agnostic BC WARM-START that clones a floor-clearing demonstrator (LocalViewGreedyPolicy) into
+# the composed actor's policy BEFORE the RL, so the actor starts from a competent-imitation seed.
+# Trains ONLY rep.params() (for detached z_world this EXCLUDES the encoder -- the frozen
+# prediction-trained encoder is untouched; for raw it is the standalone AC). The persistent
+# imitation AUXILIARY during RL is the separate bc_demo/bc_aux_coef hook in train_a2c below.
+# ===========================================================================
+def warmstart_bc_rep(
+    rep: RepAgent, env: Any, seed: int, n_bc: int, steps: int, demo: Policy,
+    arm_label: str, denom: int,
+) -> Dict[str, Any]:
+    """Behavior-cloning warm-start of `demo` into `rep`'s policy (supervised CE, no RL). Rolls
+    the demonstrator to generate on-expert states; CE-trains rep.step logits toward the
+    demonstrator's action at each visited state. Returns the mean per-episode action-match
+    accuracy over the final window (did the seed take?)."""
+    optimiser = torch.optim.Adam(rep.params(), lr=BC_LR)
+    acc_recent: deque = deque(maxlen=TRAIN_FORAGE_WINDOW)
+    for ep in range(int(n_bc)):
+        _flat, obs_dict = env.reset()
+        rep.reset_episode()
+        logits_list: List[torch.Tensor] = []
+        target_list: List[int] = []
+        for _step in range(steps):
+            a_expert = int(demo.act(env, obs_dict))
+            state = rep.encode(obs_dict)
+            step = rep.step(state, deterministic=True)
+            logits_list.append(step.logits.reshape(-1))
+            target_list.append(a_expert)
+            _flat, _harm, done, _info, obs_dict = env.step(a_expert)
+            if done:
+                break
+        T = len(logits_list)
+        if T > 0:
+            logit_stack = torch.stack(logits_list)
+            target_t = torch.tensor(target_list, dtype=torch.long, device=DEVICE)
+            loss = torch.nn.functional.cross_entropy(logit_stack, target_t)
+            with torch.no_grad():
+                pred = torch.argmax(logit_stack, dim=-1)
+                acc_recent.append(float((pred == target_t).float().mean().item()))
+            if torch.isfinite(loss):
+                optimiser.zero_grad(set_to_none=True)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(rep.params(), AC_GRAD_CLIP)
+                optimiser.step()
+        cur = ep + 1
+        if cur % 100 == 0 or cur == int(n_bc):
+            print(f"  [train] {arm_label} seed={seed} phase=BC ep {cur}/{denom}", flush=True)
+    macc = float(sum(acc_recent) / len(acc_recent)) if acc_recent else 0.0
+    return {"bc_warmstart_action_match_accuracy_recent": round(macc, 6)}
 
 
 # ===========================================================================
@@ -455,6 +533,10 @@ def train_a2c(
     return_prob: float = 0.0,
     coef_schedule: Optional[Callable[[int, int], float]] = None,
     entropy_schedule: Optional[Callable[[int, int], float]] = None,
+    bc_demo: Optional[Policy] = None,
+    bc_aux_coef: float = 0.0,
+    approach_drive: Optional[Callable[[Dict[str, Any]], float]] = None,
+    approach_coef: float = 0.0,
 ) -> Dict[str, Any]:
     # coef_schedule / entropy_schedule (MECH-457 bootstrap-explorer, 2026-07-16): OPTIONAL
     # training-progress schedules for the intrinsic coefficient and rollout entropy, computed
@@ -471,12 +553,24 @@ def train_a2c(
             "train_a2c: coef_schedule/entropy_schedule are mutually exclusive with mode_gate "
             "(schedule anneal vs utility-gate anneal); pass at most one."
         )
+    # bc_demo / bc_aux_coef (H-bc-prior, V3-EXQ-780): OPTIONAL persistent imitation AUXILIARY.
+    # When bc_demo is set and bc_aux_coef>0, at each rollout step the demonstrator's action for
+    # the (on-policy) visited state is recorded and a cross-entropy CE(actor_logits, demo_action)
+    # term * bc_aux_coef is added to the episode loss (DAgger-lite: imitation on the actor's own
+    # state distribution). Default None/0.0 -> no BC term collected/added (byte-identical OFF).
+    # approach_drive / approach_coef (H-approach-primitive, V3-EXQ-781): OPTIONAL non-extinguishing
+    # appetitive intrinsic reward = approach_coef * approach_drive(obs_next) added to the shaped
+    # reward every step (constant coef; a STATE reward, not policy-invariant potential shaping).
+    # Default None/0.0 -> no approach term (byte-identical OFF). Both hooks are additive and
+    # independent of each other and of the RND/schedule/credit machinery.
     params = rep.params()
     optimiser = torch.optim.Adam(params, lr=AC_LR)
     reward_std = x734._RunningStd()
     novelty_counter: Dict[Tuple[int, int], int] = {}
     train_forage_recent: deque = deque(maxlen=TRAIN_FORAGE_WINDOW)
     intrinsic_recent: deque = deque(maxlen=TRAIN_FORAGE_WINDOW)
+    approach_recent: deque = deque(maxlen=TRAIN_FORAGE_WINDOW)
+    bc_match_recent: deque = deque(maxlen=TRAIN_FORAGE_WINDOW)
     n_returns = 0
     n_credit_passes = 0
 
@@ -502,10 +596,16 @@ def train_a2c(
         # For H-credit prioritized replay: keep the detached obs + action + reward per step.
         replay_obs: List[Dict[str, Any]] = []
         replay_actions: List[int] = []
+        # For H-bc-prior persistent auxiliary: on-policy (logits, demo-action) pairs per step.
+        bc_logits: List[torch.Tensor] = []
+        bc_targets: List[int] = []
         terminal = False
         bootstrap_value = 0.0
         ep_resources = 0
         ep_intrinsic = 0.0
+        ep_approach = 0.0
+        ep_bc_match = 0
+        ep_bc_steps = 0
         cum_resources = 0
 
         if mode_gate is not None:
@@ -529,6 +629,14 @@ def train_a2c(
             if credit_replay:
                 replay_obs.append(obs_dict)
                 replay_actions.append(a_idx)
+            if bc_demo is not None:
+                # obs_dict / env are still at the PRE-step state matching `step` -> the demo's
+                # action for the state the actor just acted on (on-policy DAgger-lite label).
+                a_demo = int(bc_demo.act(env, obs_dict))
+                bc_logits.append(step.logits.reshape(-1))
+                bc_targets.append(a_demo)
+                ep_bc_match += int(a_idx == a_demo)
+                ep_bc_steps += 1
             _flat, harm_signal, done, info, obs_dict = env.step(a_idx)
             ttype = str(info.get("transition_type", "none"))
             if ttype == "resource":
@@ -546,6 +654,12 @@ def train_a2c(
                 intr = float(intrinsic.intrinsic_reward(z_prev, a_idx, z_next))
                 ep_intrinsic += intr
                 shaped += coef_eff * intr
+            if approach_drive is not None:
+                # Non-extinguishing appetitive-approach drive: CONSTANT coefficient every step
+                # (no anneal, no familiarity decay); reads the NEXT obs's resource proximity.
+                appr = float(approach_coef) * float(approach_drive(obs_dict))
+                shaped += appr
+                ep_approach += appr
             reward_std.update(shaped)
 
             ep_logp.append(step.log_prob.reshape(-1)[0])
@@ -585,6 +699,13 @@ def train_a2c(
             value_loss = AC_VALUE_COEF * 0.5 * (value_t - ret_t.detach()).pow(2).mean()
             entropy_bonus = entropy_t.mean()
             loss = policy_loss + value_loss - beta_eff * entropy_bonus
+            if bc_demo is not None and bc_aux_coef > 0.0 and bc_logits:
+                # Persistent imitation auxiliary: CE(actor_logits, demo_action) over the on-policy
+                # visited states, keeping the seeded behavioral prior alive against RL drift.
+                bc_logit_t = torch.stack(bc_logits)
+                bc_target_t = torch.tensor(bc_targets, dtype=torch.long, device=DEVICE)
+                bc_loss = torch.nn.functional.cross_entropy(bc_logit_t, bc_target_t)
+                loss = loss + float(bc_aux_coef) * bc_loss
             if torch.isfinite(loss):
                 optimiser.zero_grad(set_to_none=True)
                 loss.backward()
@@ -605,6 +726,9 @@ def train_a2c(
 
         train_forage_recent.append(ep_resources)
         intrinsic_recent.append(ep_intrinsic / max(1, T))
+        approach_recent.append(ep_approach / max(1, T))
+        if ep_bc_steps > 0:
+            bc_match_recent.append(ep_bc_match / ep_bc_steps)
         cur = ep + 1
         if cur % 200 == 0 or cur == n_episodes:
             print(
@@ -615,9 +739,13 @@ def train_a2c(
 
     mtf = float(sum(train_forage_recent) / len(train_forage_recent)) if train_forage_recent else 0.0
     mir = float(sum(intrinsic_recent) / len(intrinsic_recent)) if intrinsic_recent else 0.0
+    mar = float(sum(approach_recent) / len(approach_recent)) if approach_recent else 0.0
+    mbm = float(sum(bc_match_recent) / len(bc_match_recent)) if bc_match_recent else 0.0
     return {
         "mean_train_forage_recent": round(mtf, 6),
         "mean_intrinsic_reward_recent": round(mir, 6),
+        "mean_approach_reward_recent": round(mar, 6),
+        "mean_bc_aux_action_match_recent": round(mbm, 6),
         "n_return_episodes": int(n_returns),
         "n_credit_replay_passes": int(n_credit_passes),
     }
